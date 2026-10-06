@@ -6,7 +6,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -44,16 +43,16 @@ func SweepOrphanedWorktrees(ctx context.Context, w io.Writer) {
 // presence is the gating signal, the version is reporting (CLAUDE.md fault
 // tolerance). Missing binaries stay silent here: the bundle resolvers emit
 // the one-shot install hint when they skip those entries.
-func ReportCompanions(w io.Writer, prober companions.Prober, root trust.TrustRoot) {
+func ReportCompanions(w io.Writer, prober companions.Prober) {
 	// Best-effort reporting on fault-tolerant startup paths; failed writes
 	// are intentionally dropped (captured-but-unchecked via errwriter.Writer).
 	ew := errwriter.New(w)
-	for _, st := range prober.ProbeCompanions(root) {
+	for _, st := range prober.ProbeCompanions() {
 		switch {
 		case st.Path == "":
 		case !st.Executed():
-			// Present on PATH but NOT run — refused, unconfirmed, or blocked by
-			// a consent-record fault. AdmitCompanions already warned with the
+			// Present on PATH but NOT run — not allowed, allowed for other
+			// bytes, or unreadable. AdmitCompanions already warned with the
 			// specific reason and the way to fix it; what this line adds is the
 			// version slot NOT silently coming back blank, which would read as
 			// "probed, said nothing" instead of "never ran".

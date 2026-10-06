@@ -25,17 +25,6 @@ const (
 	NamespaceApprove = "approve.v1.ctxloom.dev"
 	// NamespaceReject: "I refuse these exact bytes / this ref, permanently."
 	NamespaceReject = "reject.v1.ctxloom.dev"
-
-	// NamespaceCompanion is the domain of "these executable bytes may be RUN on
-	// your machine" — the question ctxloom asks before executing a companion
-	// binary it discovered on PATH.
-	//
-	// It is separate from NamespacePublish for the reason the namespaces exist
-	// at all: publishing a bundle and authorizing code execution are different
-	// authorizations, and a key may hold one and not the other. Sharing a
-	// namespace would make any publish signature replayable as permission to
-	// execute.
-	NamespaceCompanion = "companion.v1.ctxloom.dev"
 )
 
 // ErrSignatureTampered reports the one publisher-verification outcome that is

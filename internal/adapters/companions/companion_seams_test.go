@@ -63,8 +63,8 @@ func TestCompanionProbeSeams_ConcurrentProbesAreRaceFree(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			statuses[i] = Prober{}.ProbeCompanions(nil)
-			_, _ = Prober{}.ProbeCompanionLoadouts(context.Background(), nil)
+			statuses[i] = Prober{}.ProbeCompanions()
+			_, _ = Prober{}.ProbeCompanionLoadouts(context.Background())
 		}(i)
 	}
 	wg.Wait()

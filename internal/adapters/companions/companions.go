@@ -1,5 +1,5 @@
 // Package companions is ctxloom's side of the companion contract: discover
-// companion binaries on PATH, admit them against the trust root, exec each
+// companion binaries on PATH, admit them against the allow store, exec each
 // admitted one's loadout, and hand the result to a generation as a bundle
 // reader. The companion side — the `loadout` subcommand a companion binary
 // wires in — is the loadout subpackage, so a lean binary links nothing of
@@ -22,7 +22,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
@@ -69,9 +68,7 @@ type CompanionStatus struct {
 // Executed reports whether this companion was actually run. Reason-aware so
 // callers stop inferring it from an empty Version.
 func (s CompanionStatus) Executed() bool {
-	// One reason admits now. It was two — a location exemption and a recorded
-	// consent — and both were replaced by the signature this names.
-	return s.Admission == CompanionAdmissionSigned
+	return s.Admission == CompanionAllowed
 }
 
 // sortedBins renders a companion-name set as the sorted slice every discovery
@@ -96,13 +93,13 @@ func (s CompanionStatus) Executed() bool {
 // never block startup). Admission runs before the fan-out, so no unadmitted
 // binary is ever exec'd. Output order is preserved (sorted by bin) since each
 // goroutine writes its own slot.
-func (p Prober) ProbeCompanions(root trust.TrustRoot) []CompanionStatus {
+func (p Prober) ProbeCompanions() []CompanionStatus {
 	// Enforced at the exec boundary, not only at each caller: a report path
 	// that forgets the switch must still never exec a companion binary.
 	if p.Disabled {
 		return nil
 	}
-	admissions := companionAdmission(DiscoverCompanions(), root)
+	admissions := companionAdmission(DiscoverCompanions(), LoadAllowed())
 	out := make([]CompanionStatus, len(admissions))
 	var wg sync.WaitGroup
 	for i, adm := range admissions {
@@ -163,7 +160,7 @@ var firstPartyCompanions = []string{"ltk", "taskloom", "reprise"}
 
 // SelfCompanion is the companion identity ctxloom probes ITSELF under —
 // ctxloom:companion@ctxloom. It is deliberately NOT in firstPartyCompanions:
-// those are discovered on PATH and admitted by a signature beside the binary,
+// those are discovered on PATH and admitted by an allow record for the binary,
 // whereas ctxloom's own loadout comes from the RUNNING binary (Prober.Self —
 // never a PATH lookup, which could answer with a stale install, and never
 // a raw os.Executable, which goes stale after an in-place upgrade) and needs
@@ -293,7 +290,7 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 		}
 		root := cfg.Trust().Root()
 		probe := func(ctx context.Context) (bundles.CompanionProbe, error) {
-			return p.ProbeCompanionLoadouts(ctx, root)
+			return p.ProbeCompanionLoadouts(ctx)
 		}
 		return []bundles.Reader{bundles.NewCompanionReader(probe, bundles.WithTrustRoot(root), bundles.WithReaderReporter(cfg.Reporter()))}
 	}
@@ -325,7 +322,7 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 // Probes run concurrently (mirrors ProbeCompanions), each bounded by
 // companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
 // regardless of how many companions are admitted.
-func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root trust.TrustRoot) (bundles.CompanionProbe, error) {
+func (p Prober) ProbeCompanionLoadouts(ctx context.Context) (bundles.CompanionProbe, error) {
 	if err := ctx.Err(); err != nil {
 		return bundles.CompanionProbe{}, err
 	}
@@ -336,15 +333,15 @@ func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root trust.TrustRoot
 	// would lose ctxloom's MCP server and its always-on guidance.
 	var decided []CompanionAdmission
 	if !p.Disabled {
-		// ADMISSION, resolved BEFORE the fan-out: a companion no trusted
-		// publisher signed is never exec'd. See AdmitCompanions.
+		// ADMISSION, resolved BEFORE the fan-out: a companion nobody allowed
+		// is never exec'd. See AdmitCompanions.
 		//
 		// The refused half is KEPT rather than filtered away. It is the only
 		// place a "found on PATH, never allowed to run" companion exists at all
 		// — it produces no loadout by definition — and reporting it costs
 		// nothing here while reconstructing it later would cost a second
 		// discovery pass.
-		decided = companionAdmission(DiscoverCompanions(), root)
+		decided = companionAdmission(DiscoverCompanions(), LoadAllowed())
 	}
 	admitted, candidates := splitAdmissions(decided)
 	// ctxloom ITSELF, first in the fan-out: admitted by identity (the running
@@ -421,22 +418,21 @@ func collectProbes(slots []*bundles.CompanionLoadout, failed []*bundles.Companio
 // candidate carries.
 //
 // Everything except "nothing on this machine answers to that name" is
-// UNCONSENTED: unsigned, signed by an untrusted key, a signature that does not
-// cover the bytes, or a binary that cannot be read all mean the same thing to a
-// reader — the binary is here and ctxloom was not allowed to run it. The
-// specific refusal is already announced by admitCompanion itself, which is
-// where the distinction has purchase.
+// UNCONSENTED: not allowed, allowed for other bytes, or a binary that cannot be
+// read all mean the same thing to a reader — the binary is here and ctxloom was
+// not allowed to run it. The specific refusal is already announced by
+// admitCompanionAllowed itself, which is where the distinction has purchase.
 func candidateReasonFor(r CompanionAdmissionReason) bundles.CandidateReason {
-	if r == CompanionAdmissionNotInstalled {
+	if r == CompanionNotInstalled {
 		return bundles.CandidateAbsent
 	}
 	return bundles.CandidateUnconsented
 }
 
 // selfAdmission is the running binary's own admission: allowed, at the path
-// the composition root resolved (Prober.Self), with no signature consulted —
-// the process IS executing. Its reason is CompanionAdmissionSelf so a report
-// can say which arm allowed it rather than presenting it as signed.
+// the composition root resolved (Prober.Self), with no record consulted — the
+// process IS executing. Its reason is CompanionSelf so a report can say which
+// arm allowed it rather than presenting it as allowed by a record.
 func selfAdmission(path string) CompanionAdmission {
-	return newCompanionAdmission(CompanionKey{Bin: SelfCompanion, Path: path}, true, CompanionAdmissionSelf)
+	return newCompanionAdmission(CompanionKey{Bin: SelfCompanion, Path: path}, true, CompanionSelf)
 }

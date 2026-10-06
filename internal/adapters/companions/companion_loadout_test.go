@@ -106,25 +106,10 @@ func lookPathOnly(bins map[string]string) func(string) (string, error) {
 // whose subject is what a companion CONTRIBUTES once it runs, not whether it
 // was allowed to run at all. Those two questions are answered by different
 // code and are worth failing separately: the gate itself is proven in
-// companion_admission_gate_test.go, against real signed files. Faking it here
-// also keeps every loadout test from needing an actual
-// executable at the fake path lookPath hands back.
+// companion_admission_gate_test.go, against real allowed files.
 func admitEveryDiscoveredCompanion(t *testing.T) {
 	t.Helper()
-	restore := SetCompanionAdmissionForTesting(func(bins []string, _ trust.TrustRoot) []CompanionAdmission {
-		out := make([]CompanionAdmission, 0, len(bins))
-		for _, bin := range bins {
-			path, err := lookPath(bin)
-			if err != nil {
-				out = append(out, newCompanionAdmission(CompanionKey{Bin: bin}, false, CompanionAdmissionNotInstalled))
-				continue
-			}
-			out = append(out, newCompanionAdmission(
-				CompanionKey{Bin: bin, Path: path}, true, CompanionAdmissionSigned))
-		}
-		return out
-	})
-	t.Cleanup(restore)
+	t.Cleanup(AdmitEveryDiscoveredCompanionForTesting())
 }
 
 // companionBundles drives the two halves a session drives: the PROBE (which
@@ -134,7 +119,7 @@ func admitEveryDiscoveredCompanion(t *testing.T) {
 // user gets rather than about either half's internals.
 func companionBundles(t *testing.T, root trust.TrustRoot) map[string]*bundles.Bundle {
 	t.Helper()
-	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background(), nil)
+	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
 	reads, err := bundles.NewCompanionReader(
 		func(context.Context) (bundles.CompanionProbe, error) { return probe, nil },

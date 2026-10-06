@@ -2,47 +2,34 @@ package isolation
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
-// pinWorld is a hermetic companion world: ctxloom's own PATH resolves
-// companions in admitted (where some are signed and some are not), and the
-// companion pin the host launch consults is the real PinAdmittedCompanions
-// over a trust root that authorizes only the signing key used here.
+// pinWorld is a hermetic companion world: HOME under a temp root (so the
+// allow store is this test's), ctxloom's own PATH resolves companions in
+// admitted (where some are allowed and some are not), and the companion pin
+// the host launch consults is the real PinAdmittedCompanions over that store.
 type pinWorld struct {
 	admitted string
 }
 
-func newPinWorld(t *testing.T, signed, unsigned []string) pinWorld {
+func newPinWorld(t *testing.T, allowed, unallowed []string) pinWorld {
 	t.Helper()
+	t.Setenv("HOME", t.TempDir())
 	w := pinWorld{admitted: t.TempDir()}
-	signers := filepath.Join(t.TempDir(), "allowed_signers")
-	for _, name := range signed {
-		p := writeCompanion(t, w.admitted, name, "#!/bin/sh\necho admitted "+name+"\n")
-		testsupport.SignCompanionForTesting(t, p, signers)
-	}
-	for _, name := range unsigned {
-		writeCompanion(t, w.admitted, name, "#!/bin/sh\necho unsigned "+name+"\n")
-	}
-	var root *allowedsigners.Store
-	if len(signed) > 0 {
-		var err error
-		root, _, err = allowedsigners.ParseFile(signers)
-		require.NoError(t, err)
-	} else {
-		root = allowedsigners.NewStore()
-	}
 	restore := companions.SetLookPathForTesting(func(bin string) (string, error) {
 		p := filepath.Join(w.admitted, bin)
 		if _, err := os.Stat(p); err != nil {
@@ -51,9 +38,22 @@ func newPinWorld(t *testing.T, signed, unsigned []string) pinWorld {
 		return p, nil
 	})
 	t.Cleanup(restore)
+	allowStore, err := companions.NewAllowStore(afero.NewOsFs())
+	require.NoError(t, err)
+	for _, name := range allowed {
+		key, err := companions.ResolveCompanion(writeCompanion(t, w.admitted, name, "#!/bin/sh\necho admitted "+name+"\n"))
+		require.NoError(t, err)
+		_, err = allowStore.Set(key, true)
+		require.NoError(t, err)
+	}
+	for _, name := range unallowed {
+		writeCompanion(t, w.admitted, name, "#!/bin/sh\necho unallowed "+name+"\n")
+	}
 	store := t.TempDir()
-	SetCompanionPin(func() (string, error) { return companions.PinAdmittedCompanions(store, root) })
+	SetCompanionPin(func() (string, error) { return companions.PinAdmittedCompanions(store, companions.LoadAllowed()) })
 	t.Cleanup(func() { SetCompanionPin(nil) })
+	SetCompanionAllowFile(companions.AllowFileFor)
+	t.Cleanup(func() { SetCompanionAllowFile(nil) })
 	return w
 }
 
@@ -131,10 +131,11 @@ func TestHostRunnerEnv_NoPinLeavesPathAlone(t *testing.T) {
 	assert.Equal(t, "/only/this", envPath(RunnerCommand("claude", nil).Env))
 }
 
-// TestStageCompanions_StagesOnlyAdmittedWithSignature: the agent image gets
-// the admitted binary and its signature; a present-but-unsigned companion is
-// refused, and the refusal is said out loud.
-func TestStageCompanions_StagesOnlyAdmittedWithSignature(t *testing.T) {
+// TestStageCompanions_StagesOnlyAdmittedWithAnAllowFile: the agent image gets
+// the admitted binary and an allow file that admits it at its in-image path;
+// a present-but-unallowed companion is refused, and the refusal is said out
+// loud.
+func TestStageCompanions_StagesOnlyAdmittedWithAnAllowFile(t *testing.T) {
 	w := newPinWorld(t, []string{"ltk"}, []string{"taskloom"})
 	withRealCompanionLookPath(t)
 	warn := captureWarnings(t)
@@ -148,15 +149,37 @@ func TestStageCompanions_StagesOnlyAdmittedWithSignature(t *testing.T) {
 	want, err := os.ReadFile(filepath.Join(w.admitted, "ltk")) //nolint:gosec // a path this test built
 	require.NoError(t, err)
 	assert.Equal(t, want, got, "the staged ltk is the admitted bytes")
-	assert.FileExists(t, filepath.Join(staged, "ltk.sig"), "the signature is staged beside the binary")
-	assert.FileExists(t, filepath.Join(staged, "ltk.release"), "the release statement the signature covers is staged too")
 	info, err := os.Stat(filepath.Join(staged, "ltk"))
 	require.NoError(t, err)
 	fileperm.Equal(t, 0o755, info.Mode(), "staged companion is 0755 exactly, umask notwithstanding")
+	entries, err := os.ReadDir(staged)
+	require.NoError(t, err)
+	assert.Len(t, entries, 1, "only the admitted binary is staged")
 
-	assert.NoFileExists(t, filepath.Join(staged, "taskloom"), "an unverified companion is never staged")
+	allowPath := filepath.Join(ctxDir, imageHomeContextDir, paths.AppDirName, paths.CompanionAllowFileName+".yaml")
+	snap, err := companions.NewAllowStoreAt(afero.NewOsFs(), allowPath).Load()
+	require.NoError(t, err)
+	sum := sha256.Sum256(want)
+	assert.True(t, snap.Approved(companions.CompanionKey{Path: "/usr/local/bin/ltk", SHA256: hex.EncodeToString(sum[:])}),
+		"the in-image ctxloom admits the staged ltk at its in-image path")
+	assert.Len(t, snap.Records(), 1, "only what was staged is allowed in the image")
+
+	assert.NoFileExists(t, filepath.Join(staged, "taskloom"), "an unallowed companion is never staged")
 	assert.NoFileExists(t, filepath.Join(staged, "reprise"), "an absent companion is never staged")
 	assert.Contains(t, warn.String(), "taskloom", "the refusal is reported")
+}
+
+// TestStageCompanions_NothingStagedStillMakesTheHomeDir: the Containerfile
+// copies the staged home unconditionally, so it must exist even empty.
+func TestStageCompanions_NothingStagedStillMakesTheHomeDir(t *testing.T) {
+	newPinWorld(t, nil, nil)
+	withRealCompanionLookPath(t)
+	captureWarnings(t)
+
+	ctxDir := t.TempDir()
+	require.NoError(t, stageCompanions(ctxDir))
+	assert.DirExists(t, filepath.Join(ctxDir, imageHomeContextDir))
+	assert.NoFileExists(t, filepath.Join(ctxDir, imageHomeContextDir, paths.AppDirName, paths.CompanionAllowFileName+".yaml"))
 }
 
 // TestAgentImage_StagedCompanionsLeadPath: inside the container the staged
@@ -172,5 +195,7 @@ func TestAgentImage_StagedCompanionsLeadPath(t *testing.T) {
 		envAt := strings.Index(cf, `ENV PATH="/usr/local/bin:${PATH}"`)
 		require.GreaterOrEqual(t, copyAt, 0, "%s stages companions", label)
 		assert.Greater(t, envAt, copyAt, "%s: /usr/local/bin leads PATH once the companions are staged", label)
+		assert.Contains(t, cf, "COPY --chown=1000:1000 "+imageHomeContextDir+"/ /home/ctxloom/",
+			"%s: the staged companions' allow file reaches the in-image home", label)
 	}
 }

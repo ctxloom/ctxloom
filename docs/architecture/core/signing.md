@@ -11,8 +11,8 @@ namespace", and nothing else. It decides no policy: the policy question is deleg
 ## Responsibilities
 
 - sshsig primitive wrapper: `Sign`, `Verify`.
-- The assertion namespaces (`NamespacePublish`, `NamespaceApprove`, `NamespaceReject`,
-  `NamespaceCompanion`) and the assertion → namespace map (`NamespaceForAssertion`).
+- The assertion namespaces (`NamespacePublish`, `NamespaceApprove`, `NamespaceReject`) and the
+  assertion → namespace map (`NamespaceForAssertion`).
 - The countersignature preimage — the exact framing an approve/reject signature covers
   (`CountersignPayload`, reached through `CountersignPreimage`) — and the per-kind item framings
   (`FragmentPreimage`, `CommandPreimage`).
@@ -74,7 +74,6 @@ flowchart TD
     READ["bundles.readSignatureFacts"] --> CB
     READ --> VP
     SKILL["bundles.PublisherSkillSignatureVerifier"] --> VP
-    ADMIT["companion admission"] --> VIN
     PROBE["companions.Prober.ProbeCompanionLoadouts"] --> PLE["ParseLoadoutEnvelope"]
     EMIT["loadout.Emit"] --> ENC["EncodeLoadoutEnvelope"]
 ```
@@ -120,8 +119,8 @@ flowchart TD
    `(principal, nil)`, tampered `("", ErrSignatureTampered)` — and the principal always comes from
    the trust root, never from the artifact. An unparseable blob is tampered even with a nil root:
    unarmoring runs before the nil-root check.
-4. **Namespaces are mandatory and distinct.** Publish, approve, reject and companion-execution
-   each sign under their own namespace, so a signature for one assertion can never be replayed as
+4. **Namespaces are mandatory and distinct.** Publish, approve and reject each sign under their
+   own namespace, so a signature for one assertion can never be replayed as
    another.
 5. **`LoadoutEnvelope.Signer` is advisory.** `ParseLoadoutEnvelope` hands it back for diagnostics
    only; `DecodeLoadoutEnvelope` discards it, and a verified principal comes only from
@@ -138,6 +137,6 @@ flowchart TD
 
 - **Depended on by:** the countersign store, bundle reading and skill-archive verification in
   `internal/core/bundles`, publishing and review in `internal/adapters/operations` and
-  `internal/adapters/content/attest`, and companion discovery, admission and the `loadout`
-  emitter under `internal/adapters/companions`. `git grep` on the import path gives the current set.
+  `internal/adapters/content/attest`, and companion discovery and the `loadout` emitter under
+  `internal/adapters/companions`. `git grep` on the import path gives the current set.
 - **Depends on:** `internal/core/trust` (the port), `github.com/hiddeco/sshsig`.

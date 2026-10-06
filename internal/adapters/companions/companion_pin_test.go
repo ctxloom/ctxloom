@@ -7,48 +7,42 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // The pin is what an engine's PATH resolves a companion's bare name against,
 // so every assertion here is about WHICH BYTES a bare name would reach — never
 // about a nil error.
 
-// TestPinAdmittedCompanions_PinsOnlyVerifiedBytesWithTheirSignature: an
-// admitted companion is pinned as the exact bytes its signature covered, with
-// that signature beside it; a present-but-unsigned one and an absent one are
-// not pinned at all.
-func TestPinAdmittedCompanions_PinsOnlyVerifiedBytesWithTheirSignature(t *testing.T) {
+// TestPinAdmittedCompanions_PinsOnlyAdmittedBytes: an admitted companion is
+// pinned as the exact bytes admission read, and nothing else travels with it;
+// a present-but-unallowed one and an absent one are not pinned at all.
+func TestPinAdmittedCompanions_PinsOnlyAdmittedBytes(t *testing.T) {
 	f := newConsentFixture(t)
 	restorePath := setPathDirsForTesting(t, []string{f.elsewhere})
 	defer restorePath()
-	signed := f.writeBin(t, f.elsewhere, "taskloom", "#!/bin/sh\necho admitted\n")
-	f.sign(t, signed)
-	f.writeBin(t, f.elsewhere, "ltk", "#!/bin/sh\necho unsigned\n")
+	allowed := f.writeBin(t, f.elsewhere, "taskloom", "#!/bin/sh\necho admitted\n")
+	f.allow(t, allowed)
+	f.writeBin(t, f.elsewhere, "ltk", "#!/bin/sh\necho unallowed\n")
 
-	dir, err := PinAdmittedCompanions(t.TempDir(), f.root)
+	dir, err := PinAdmittedCompanions(t.TempDir(), f.snapshot(t))
 	require.NoError(t, err)
 	require.NotEmpty(t, dir)
 
-	want, err := os.ReadFile(signed)
+	want, err := os.ReadFile(allowed)
 	require.NoError(t, err)
 	got, err := os.ReadFile(filepath.Join(dir, "taskloom"))
 	require.NoError(t, err)
 	assert.Equal(t, want, got, "the pinned taskloom is the admitted bytes")
-	wantSig, err := os.ReadFile(signed + companionSigSuffix)
-	require.NoError(t, err)
-	gotSig, err := os.ReadFile(filepath.Join(dir, "taskloom"+companionSigSuffix))
-	require.NoError(t, err)
-	assert.Equal(t, wantSig, gotSig, "the signature travels with the pinned bytes")
-	wantRel, err := os.ReadFile(signed + companionReleaseSuffix)
-	require.NoError(t, err)
-	gotRel, err := os.ReadFile(filepath.Join(dir, "taskloom"+companionReleaseSuffix))
-	require.NoError(t, err)
-	assert.Equal(t, wantRel, gotRel, "the release statement the signature covers travels too")
 	info, err := os.Stat(filepath.Join(dir, "taskloom"))
 	require.NoError(t, err)
 	assert.NotZero(t, info.Mode().Perm()&0o111, "the pinned companion is executable")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Len(t, entries, 1, "only the admitted binary is pinned")
 
-	assert.NoFileExists(t, filepath.Join(dir, "ltk"), "an unsigned companion is never pinned")
+	assert.NoFileExists(t, filepath.Join(dir, "ltk"), "an unallowed companion is never pinned")
 	assert.NoFileExists(t, filepath.Join(dir, "reprise"), "an absent companion is never pinned")
 }
 
@@ -59,9 +53,9 @@ func TestPinAdmittedCompanions_IsACopyNotALink(t *testing.T) {
 	restorePath := setPathDirsForTesting(t, []string{f.elsewhere})
 	defer restorePath()
 	orig := f.writeBin(t, f.elsewhere, "ltk", "#!/bin/sh\necho admitted\n")
-	f.sign(t, orig)
+	f.allow(t, orig)
 
-	dir, err := PinAdmittedCompanions(t.TempDir(), f.root)
+	dir, err := PinAdmittedCompanions(t.TempDir(), f.snapshot(t))
 	require.NoError(t, err)
 
 	require.NoError(t, os.WriteFile(orig, []byte("#!/bin/sh\necho swapped\n"), 0o755)) //nolint:gosec // a fake companion
@@ -75,14 +69,17 @@ func TestPinAdmittedCompanions_IsACopyNotALink(t *testing.T) {
 
 // TestPinAdmittedCompanions_PinnedCopyReadmits: a ctxloom started FROM the
 // pinned PATH (a hook the engine fires) discovers the pinned copy first, and
-// must admit it — the signature beside it covers exactly these bytes.
+// must admit it — its bytes are the ones allowed under the same name. The pin
+// lives under the home pin directory, which is what the rule keys on.
 func TestPinAdmittedCompanions_PinnedCopyReadmits(t *testing.T) {
 	f := newConsentFixture(t)
 	restorePath := setPathDirsForTesting(t, []string{f.elsewhere})
 	defer restorePath()
-	f.sign(t, f.writeBin(t, f.elsewhere, "ltk", "#!/bin/sh\n"))
+	f.allow(t, f.writeBin(t, f.elsewhere, "ltk", "#!/bin/sh\n"))
 
-	dir, err := PinAdmittedCompanions(t.TempDir(), f.root)
+	pinRoot, err := paths.HomeCompanionPinDir()
+	require.NoError(t, err)
+	dir, err := PinAdmittedCompanions(pinRoot, f.snapshot(t))
 	require.NoError(t, err)
 
 	restore := SetLookPathForTesting(func(bin string) (string, error) {
@@ -93,7 +90,7 @@ func TestPinAdmittedCompanions_PinnedCopyReadmits(t *testing.T) {
 		return p, nil
 	})
 	defer restore()
-	got := admissionFor(t, f.admit([]string{"ltk"}), "ltk")
+	got := admissionFor(t, f.admit(t, []string{"ltk"}), "ltk")
 	assert.True(t, got.Allow, "the pinned copy re-admits: %s", got.Reason)
 }
 
@@ -104,18 +101,18 @@ func TestPinAdmittedCompanions_ContentAddressed(t *testing.T) {
 	restorePath := setPathDirsForTesting(t, []string{f.elsewhere})
 	defer restorePath()
 	bin := f.writeBin(t, f.elsewhere, "ltk", "#!/bin/sh\necho one\n")
-	f.sign(t, bin)
+	f.allow(t, bin)
 	store := t.TempDir()
 
-	first, err := PinAdmittedCompanions(store, f.root)
+	first, err := PinAdmittedCompanions(store, f.snapshot(t))
 	require.NoError(t, err)
-	again, err := PinAdmittedCompanions(store, f.root)
+	again, err := PinAdmittedCompanions(store, f.snapshot(t))
 	require.NoError(t, err)
 	assert.Equal(t, first, again)
 
 	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\necho two\n"), 0o755)) //nolint:gosec // a fake companion
-	f.sign(t, bin)
-	next, err := PinAdmittedCompanions(store, f.root)
+	f.allow(t, bin)
+	next, err := PinAdmittedCompanions(store, f.snapshot(t))
 	require.NoError(t, err)
 	assert.NotEqual(t, first, next, "different admitted bytes pin to a different directory")
 }
@@ -127,7 +124,7 @@ func TestPinAdmittedCompanions_NothingAdmittedPinsNothing(t *testing.T) {
 	restorePath := setPathDirsForTesting(t, []string{f.elsewhere})
 	defer restorePath()
 
-	dir, err := PinAdmittedCompanions(t.TempDir(), f.root)
+	dir, err := PinAdmittedCompanions(t.TempDir(), f.snapshot(t))
 	require.NoError(t, err)
 	assert.Empty(t, dir)
 }

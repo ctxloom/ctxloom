@@ -1694,25 +1694,25 @@ run *ARGS:
 # this same repo. Atomic rename instead of pkill+cp: replacing the directory
 # entry leaves the busy inode mapped for any running binary (avoids ETXTBSY and
 # never dumps a live ctxloom-managed session); new launches pick up the new one.
+#
+# Every install changes the companions' bytes, and ctxloom runs a companion
+# only while its path and SHA-256 are allowed — so the companions installed
+# here are re-allowed by the ctxloom installed alongside them.
 install: build-all-bins
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p ~/go/bin
-    # Stage, SIGN THE STAGED BYTES, then move both into place. Signing after the
-    # move would leave a window where an installed companion carries no
-    # signature, and an unsigned companion is REFUSED — so a concurrent ctxloom
-    # would skip a tool that was merely mid-install.
-    install_signed() {
-        local src="$1" name="$2" dest=~/go/bin/"$2"
+    install_bin() {
+        local src="$1" dest=~/go/bin/"$2"
         cp "$src" "$dest.new"
-        "{{just_executable()}}" --justfile "{{justfile()}}" sign-binary "$dest.new" "{{ SIGN_PUBKEY }}" "$name"
-        mv -f "$dest.new.release" "$dest.release"
-        mv -f "$dest.new.sig" "$dest.sig"
         mv -f "$dest.new" "$dest"
     }
-    install_signed ctxloom ctxloom
-    install_signed bin/ltk ltk
-    install_signed bin/taskloom taskloom
+    install_bin ctxloom ctxloom
+    install_bin bin/ltk ltk
+    install_bin bin/taskloom taskloom
+    for companion in ltk taskloom; do
+        ~/go/bin/ctxloom companion allow ~/go/bin/"$companion" --yes
+    done
 
 # Uninstall all three binaries from ~/go/bin
 uninstall:

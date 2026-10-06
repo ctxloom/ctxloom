@@ -29,16 +29,16 @@ func probeWithCandidates(cands ...bundles.CompanionCandidate) bundles.CompanionP
 	}
 }
 
-// TestApplyHooks_UnverifiableCompanion_LeavesEverySurfaceUnchanged is
-// unread-spectrum: a companion on PATH that cannot be verified (unsigned,
-// untrusted signer, tampered) never runs, so its hooks, MCP servers and
-// context are UNKNOWN — not empty. Writing the surfaces anyway strips its
+// TestApplyHooks_NotAllowedCompanion_LeavesEverySurfaceUnchanged is
+// unread-spectrum: a companion on PATH that is not allowed (no record, or a
+// record for other bytes) never runs, so its hooks, MCP servers and context
+// are UNKNOWN — not empty. Writing the surfaces anyway strips its
 // contribution from them and reports success. Which surfaces it contributes to
 // is unknowable without running it, so every one is left exactly as it was,
-// and the apply says why, naming the companion and where to look.
-func TestApplyHooks_UnverifiableCompanion_LeavesEverySurfaceUnchanged(t *testing.T) {
+// and the apply says why, naming the companion and the command that allows it.
+func TestApplyHooks_NotAllowedCompanion_LeavesEverySurfaceUnchanged(t *testing.T) {
 	root, base := setupProject(t, "claude-code")
-	// A previous apply, made while ltk verified and ran: its contribution is
+	// A previous apply, made while ltk was allowed and ran: its contribution is
 	// on disk. Guard the guard — without it there, "unchanged" proves nothing.
 	verified := withCompanionProbe(t, base, func(context.Context) (bundles.CompanionProbe, error) {
 		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{{
@@ -61,17 +61,17 @@ func TestApplyHooks_UnverifiableCompanion_LeavesEverySurfaceUnchanged(t *testing
 	})
 
 	assert.Equal(t, before, snapshotTree(t, afero.NewOsFs(), root), "no surface may be written while a companion's contribution is unknown")
-	require.ErrorIs(t, err, ErrUnverifiedCompanion)
+	require.ErrorIs(t, err, ErrCompanionNotAllowed)
 	assert.Contains(t, err.Error(), "ltk (/opt/bin/ltk)")
-	assert.Contains(t, err.Error(), "ctxloom companion show")
+	assert.Contains(t, err.Error(), "ctxloom companion allow /opt/bin/ltk --yes")
 	assert.Nil(t, result, "a refused apply reports no result a caller could mistake for an applied one")
 }
 
 // TestApplyHooks_AbsentOrProbeFailedCompanion_StillApplies is the control: a
 // companion that is not installed, or that answered it has no loadout,
 // contributes nothing by fact, and one whose probe failed with nothing on
-// record to carry has already been warned about by its probe. Only an
-// UNVERIFIABLE companion refuses the apply.
+// record to carry has already been warned about by its probe. Only a
+// NOT-ALLOWED companion refuses the apply.
 func TestApplyHooks_AbsentOrProbeFailedCompanion_StillApplies(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
 	t.Cleanup(selfexec.SetPathForTesting("ctxloom"))
@@ -135,7 +135,7 @@ func ltkGuardEnvelope(t *testing.T) []byte {
 }
 
 // applyWithLtkAnswering applies hooks through the REAL companion prober, with
-// ltk verified at /opt/bin/ltk and its loadout probe answering out/err,
+// ltk admitted at /opt/bin/ltk and its loadout probe answering out/err,
 // returning the apply's outcome and every warning printed.
 func applyWithLtkAnswering(t *testing.T, base *config.Config, root string, out []byte, perr error) (*ApplyHooksResult, string, error) {
 	t.Helper()
@@ -153,7 +153,7 @@ func applyWithLtkAnswering(t *testing.T, base *config.Config, root string, out [
 	restoreSink := clidiag.SetSink(&warnings)
 	defer restoreSink()
 	cfg := withCompanionProbe(t, base, func(ctx context.Context) (bundles.CompanionProbe, error) {
-		return companions.Prober{}.ProbeCompanionLoadouts(ctx, nil)
+		return companions.Prober{}.ProbeCompanionLoadouts(ctx)
 	})
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Cfg: cfg, Backend: "claude-code", WorkDir: root, RegenerateContext: true,

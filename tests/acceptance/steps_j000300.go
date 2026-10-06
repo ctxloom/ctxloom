@@ -41,8 +41,8 @@ func setupGuidanceLoadoutEnvelope(text string) (string, error) {
 
 // installSetupGuidanceCompanion installs a fake companion named bin (a
 // ctxloom-companion-* name, so discovery lists it) whose loadout declares
-// text as its setup guidance. InstallFakeCompanion signs the binary with the
-// scenario's fixture key — "signed with its publisher's key".
+// text as its setup guidance. InstallFakeCompanion records an allow for the
+// binary in the scenario's HOME — "allowed to run".
 func installSetupGuidanceCompanion(w *World, bin, text string) error {
 	envelope, err := setupGuidanceLoadoutEnvelope(text)
 	if err != nil {
@@ -63,8 +63,8 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		return installSetupGuidanceCompanion(worldFrom(c), "ctxloom-companion-personal", j000300PersonalPreference)
 	})
 
-	ctx.Step(`^both companions are installed, each signed with its publisher's key$`, func(c context.Context) error {
-		// The two companions are already on PATH and signed (the Givens
+	ctx.Step(`^both companions are installed and allowed to run$`, func(c context.Context) error {
+		// The two companions are already on PATH and allowed (the Givens
 		// above); this scaffolds the project whose default LLM is the mock
 		// backend and points the mock at its record file.
 		w := worldFrom(c)
@@ -226,10 +226,9 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 	// Failing loud instead of re-skipping turns "should be unreachable" into
 	// a real invariant should a future reorder or step-text reuse ever reach
 	// one of these with w.j000200Live still false.
-	ctx.Step(`^the company's companion is installed, signed with the company key$`, func(c context.Context) error {
-		// InstallFakeCompanion already signed the binary with the scenario's
-		// fixture key and trusted it for the companion namespace; nothing is
-		// left to do but refuse to be reached out of order.
+	ctx.Step(`^the company's companion is installed and allowed to run$`, func(c context.Context) error {
+		// InstallFakeCompanion already allowed the binary in the scenario's
+		// HOME; nothing is left to do but refuse to be reached out of order.
 		w := worldFrom(c)
 		if !w.j000200Live {
 			return fmt.Errorf("j000300: reached this step with w.j000200Live still false -- the scenario's own live-agent Given should have skipped the whole scenario before this ran")

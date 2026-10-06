@@ -25,7 +25,7 @@ Feature: Companions shape how a project is set up
   Scenario: Installed companions augment the setup interview, they do not replace it
     Given her company ships a companion whose loadout declares the company's onboarding steps
     And her own tooling ships a companion whose loadout declares her setup preferences
-    And both companions are installed, each signed with its publisher's key
+    And both companions are installed and allowed to run
     When Alice runs the ctxloom setup
     And it launches a mock engine for the configuration interview
     Then the interview prompt the mock engine receives includes ctxloom's built-in setup guidance
@@ -39,7 +39,7 @@ Feature: Companions shape how a project is set up
   Scenario: Switching companions off for one setup keeps their guidance out of the interview
     Given her company ships a companion whose loadout declares the company's onboarding steps
     And her own tooling ships a companion whose loadout declares her setup preferences
-    And both companions are installed, each signed with its publisher's key
+    And both companions are installed and allowed to run
     When Alice runs the ctxloom setup with companions switched off
     Then the interview prompt the mock engine receives includes ctxloom's built-in setup guidance
     And it does not include the company's onboarding steps
@@ -51,7 +51,7 @@ Feature: Companions shape how a project is set up
   @live
   Scenario: A real assistant follows the composed setup guidance
     Given her company's companion instructs the assistant to confirm a company codeword
-    And the company's companion is installed, signed with the company key
+    And the company's companion is installed and allowed to run
     When Alice runs the ctxloom setup and its interview launches her real assistant
     Then the assistant's setup response confirms the company codeword
 

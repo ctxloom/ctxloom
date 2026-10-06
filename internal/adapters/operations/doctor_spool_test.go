@@ -32,7 +32,7 @@ import (
 // real Entry, not a Problem.
 func writeRawSpoolMessage(t *testing.T, mapper spool.PathMapper, harp string, dir spool.Dir, nanos int64, seq uint64, writer string, created time.Time) spool.Ref {
 	t.Helper()
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 	dirPath, err := spool.DirPath(mapper, harp, dir)
 	require.NoError(t, err)
 	name := spool.Name{Nanos: nanos, Seq: seq, Writer: writer}
@@ -76,7 +76,7 @@ func TestDoctorCheckSpoolBacklog_RightState_HealthySpoolNothingStuck(t *testing.
 	testsupport.Isolate(t)
 	mapper := spool.NewHomeMapper()
 	harp := "amber-quiet-heron"
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 	w, err := spool.NewWriter(afero.NewOsFs(), mapper, harp, spool.DirIn, "coord")
 	require.NoError(t, err)
 	_, err = w.Write(&spool.Message{Kind: "message", Body: "hello"})
@@ -234,7 +234,7 @@ func TestDoctorCheckSpoolBacklog_CapsNamedListWithCount(t *testing.T) {
 // all" shape spool.Sweep reports as a Problem rather than an Entry.
 func writeRawSpoolFile(t *testing.T, mapper spool.PathMapper, harp string, dir spool.Dir, name string, content string) string {
 	t.Helper()
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 	dirPath, err := spool.DirPath(mapper, harp, dir)
 	require.NoError(t, err)
 	full := filepath.Join(dirPath, name)
@@ -316,7 +316,7 @@ func TestDoctorCheckSpoolBacklog_RightState_NoFailedDirIsNormal(t *testing.T) {
 	testsupport.Isolate(t)
 	mapper := spool.NewHomeMapper()
 	harp := "amber-quiet-heron"
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 
 	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorOK, check.Status)
@@ -335,7 +335,7 @@ func TestDoctorCheckSpoolBacklog_RightState_EmptyFailedDirDistinctFromAbsent(t *
 	testsupport.Isolate(t)
 	mapper := spool.NewHomeMapper()
 	harp := "amber-quiet-heron"
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 	root, err := spool.Root(mapper, harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "in", "failed"), 0o755))
@@ -358,7 +358,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedEntry(t *testing.T) {
 	testsupport.Isolate(t)
 	mapper := spool.NewHomeMapper()
 	harp := "amber-quiet-heron"
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 
 	failedRef := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano(), 1, "coord", time.Now())
 	require.NoError(t, spool.Fail(afero.NewOsFs(), mapper, failedRef))
@@ -386,7 +386,7 @@ func TestDoctorCheckSpoolBacklog_CapsFailedListWithCount(t *testing.T) {
 	testsupport.Isolate(t)
 	mapper := spool.NewHomeMapper()
 	harp := "amber-quiet-heron"
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 
 	for i := range 8 {
 		ref := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano()+int64(i), uint64(i+1), "coord", time.Now())
@@ -412,7 +412,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedOutboundEntry(t *testi
 	testsupport.Isolate(t)
 	mapper := spool.NewHomeMapper()
 	harp := "amber-quiet-heron"
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 
 	w, err := spool.NewWriter(afero.NewOsFs(), mapper, harp, spool.DirOut, harp)
 	require.NoError(t, err)

@@ -214,7 +214,7 @@ func TestWithdraw_RefusesUnwithdrawableDirections(t *testing.T) {
 func TestRead_MissingFileIsTyped(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	require.NoError(t, EnsureDirs(m, testHarp))
+	require.NoError(t, EnsureDirs(afero.NewOsFs(), m, testHarp))
 
 	_, err := Read(afero.NewOsFs(), m, Ref{Harp: testHarp, Dir: DirIn, Name: "00000000000000000001.00000001.coord.md"})
 	require.Error(t, err)

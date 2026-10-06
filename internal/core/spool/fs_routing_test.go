@@ -190,3 +190,20 @@ func TestWakes_ArmListConsumeAndClearThroughFs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, cleared)
 }
+
+// The root's owner-only restriction is an OS property (ensureRoot), so the
+// root itself is made on disk; every directory beneath it is made in fs.
+func TestEnsureDirs_CreatesTheLayoutThroughFs(t *testing.T) {
+	fs, m := memSpool(t)
+	require.NoError(t, EnsureDirs(fs, m, testHarp))
+	root, err := Root(m, testHarp)
+	require.NoError(t, err)
+	for _, d := range append(Dirs(), tmpDirName) {
+		path := filepath.Join(root, filepath.FromSlash(string(d)))
+		ok, err := afero.DirExists(fs, path)
+		require.NoError(t, err)
+		require.True(t, ok, "%s must be created in the injected fs", path)
+		_, statErr := os.Stat(path)
+		require.True(t, os.IsNotExist(statErr), "%s must not be created on disk", path)
+	}
+}

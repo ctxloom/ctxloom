@@ -18,7 +18,7 @@ import (
 // makes every directory 0700, and what is written into it 0600.
 func TestSpool_TheRootIsTightenedToOwnerOnly(t *testing.T) {
 	for name, reach := range map[string]func(m PathMapper) error{
-		"EnsureDirs": func(m PathMapper) error { return EnsureDirs(m, testHarp) },
+		"EnsureDirs": func(m PathMapper) error { return EnsureDirs(afero.NewOsFs(), m, testHarp) },
 		"ArmWake":    func(m PathMapper) error { _, err := ArmWake(afero.NewOsFs(), m, testHarp); return err },
 	} {
 		t.Run(name, func(t *testing.T) {

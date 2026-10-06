@@ -88,7 +88,7 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	t.Setenv("HOME", fixture)
 
 	m := NewHomeMapper()
-	require.NoError(t, EnsureDirs(m, harp))
+	require.NoError(t, EnsureDirs(afero.NewOsFs(), m, harp))
 
 	// Host side: write one in/ message and deliver it, so the container has
 	// both a record entry to observe and an empty in/ to confirm.

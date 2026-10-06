@@ -139,7 +139,7 @@ func TestDeliver_RefusesANameOutsideTheBareFilenameGrammar(t *testing.T) {
 func TestPending_IsTrueOnlyWhileInHoldsAnUnclaimedFile(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	require.NoError(t, EnsureDirs(m, testHarp))
+	require.NoError(t, EnsureDirs(afero.NewOsFs(), m, testHarp))
 
 	pending, err := Pending(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)

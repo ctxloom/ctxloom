@@ -137,9 +137,9 @@ const logDirSyncFailed = "spool_publish_dir_sync_failed"
 // consumed/withdrawn directories are reached by rename, never written into
 // directly), publishing under the given writer id through fs.
 //
-// The spool directories themselves are created by EnsureDirs, on the OS
-// filesystem: their owner-only modes (and, on Windows, the root's protected
-// DACL) are an OS property no afero.Fs carries.
+// The spool directories are created through fs by EnsureDirs, except the
+// root's owner-only restriction, which ensureRoot applies on the OS (see
+// there).
 //
 // The sequence counter is re-seeded from the highest seq already on disk
 // across the direction and its consumed/withdrawn siblings, so a restarted
@@ -157,7 +157,7 @@ func NewWriter(fs afero.Fs, m PathMapper, harp string, dir Dir, writerID string)
 	if err := validateWriterID(writerID); err != nil {
 		return nil, fmt.Errorf("spool: %w", err)
 	}
-	if err := EnsureDirs(m, harp); err != nil {
+	if err := EnsureDirs(fs, m, harp); err != nil {
 		return nil, err
 	}
 	root, err := Root(m, harp)

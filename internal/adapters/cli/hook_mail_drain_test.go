@@ -151,7 +151,7 @@ func TestDrainMail_HeaderCarriesTheMessageIDAndItsCorrelation(t *testing.T) {
 // a turn-context event the model sees.
 func TestDrainMail_EmptySpoolWritesNothing(t *testing.T) {
 	testsupport.Isolate(t)
-	require.NoError(t, spool.EnsureDirs(spool.NewHomeMapper(), mailDrainOwner))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), spool.NewHomeMapper(), mailDrainOwner))
 
 	var out bytes.Buffer
 	require.NoError(t, drainMail(afero.NewOsFs(), mailDrainCmd(&out), mailDrainOwner))

@@ -547,6 +547,7 @@ func pullSeededDependencies(cmd *cobra.Command, appDir string) {
 		fmt.Printf("Pulled %d seeded dependencies\n", result.Installed)
 	}
 	operations.WriteConstraintChanges(os.Stdout, result.ConstraintChanges)
+	operations.WriteNewPins(os.Stdout, result.Changes)
 }
 
 // warnDependencyPullFailed reports a dependency pull that did not complete

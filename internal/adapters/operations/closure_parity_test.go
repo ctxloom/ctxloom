@@ -294,3 +294,33 @@ func TestSyncOnStartup_ChangedConstraintIsReportedNotApplied(t *testing.T) {
 	require.Len(t, res.ConstraintChanges, 1)
 	assert.Equal(t, moved, res.ConstraintChanges[0].Declared)
 }
+
+// A pull discloses each FIRST pin it creates — everything the bundle brings
+// in — and nothing for a pin it kept.
+func TestPull_DisclosesFirstPinsOnly(t *testing.T) {
+	p := newShippedProfileProject(t)
+
+	first := p.pull(t)
+	require.Len(t, first.Changes, 1)
+	pc := first.Changes[0]
+	assert.Equal(t, p.kitKey, pc.Identity)
+	assert.Empty(t, pc.FromSHA, "a first pin")
+	assert.Contains(t, pc.Items, ItemChange{Kind: "profile", Name: "extra", Change: ChangeAdded})
+	assert.NotEmpty(t, pc.Files)
+
+	p.removeTree(t, p.kitRef) // a reinstall at the same pin
+	p.cfg(t)
+	again := p.pull(t)
+	assert.Empty(t, again.Changes, "a kept pin brings in nothing new")
+}
+
+// Startup sync creates first pins with the same disclosure.
+func TestSyncOnStartup_DisclosesFirstPins(t *testing.T) {
+	p := newShippedProfileProject(t)
+
+	res, err := SyncOnStartup(context.Background(), p.app)
+	require.NoError(t, err)
+	require.Len(t, res.Changes, 1)
+	assert.Equal(t, p.kitKey, res.Changes[0].Identity)
+	assert.Empty(t, res.Changes[0].FromSHA)
+}

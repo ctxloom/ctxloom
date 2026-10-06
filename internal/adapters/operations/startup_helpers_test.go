@@ -216,3 +216,15 @@ func TestWriteAndRecordSyncSummary_UpToDateStillNamesAConstraintChange(t *testin
 	assert.Contains(t, buf.String(), "corp/a: the manifest now asks for ^2.0; the pin stays at 2222222 (resolved from ^1.0).")
 	assert.Contains(t, buf.String(), "ctxloom deps upgrade --yes")
 }
+
+// Startup creates first pins with the same disclosure pull gives.
+func TestWriteAndRecordSyncSummary_DisclosesNewPins(t *testing.T) {
+	var buf bytes.Buffer
+	WriteAndRecordSyncSummary(&buf, &SyncDependenciesResult{
+		Status: "completed", Installed: 1,
+		Changes: []PinChange{{Identity: "corp/a", ToSHA: "3333333333",
+			Items: []ItemChange{{Kind: "mcp", Name: "srv", Change: ChangeAdded, Exec: &ExecDelta{After: &ExecSpec{Command: "node"}}}}}},
+	})
+	assert.Contains(t, buf.String(), MsgNewPinsHeader)
+	assert.Contains(t, buf.String(), "  + mcp srv\n      command: node\n")
+}

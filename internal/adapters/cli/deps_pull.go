@@ -114,7 +114,9 @@ type pullView struct {
 	// ConstraintChanges are pins whose manifest constraint changed; pull kept
 	// them where they are (only `deps upgrade` moves a pin).
 	ConstraintChanges []operations.ConstraintChange `json:"constraint_changes"`
-	Message           string                        `json:"message"`
+	// Changes discloses each pin this pull created.
+	Changes []operations.PinChange `json:"changes"`
+	Message string                 `json:"message"`
 	// Reconcile is nil when no reconcile ran: --lock=false, or a lockfile it
 	// could not read. An empty plan would claim a check that never happened.
 	Reconcile *reconcileView `json:"reconcile,omitempty"`
@@ -158,6 +160,7 @@ func newPullView(result *operations.SyncDependenciesResult, plan *operations.Rec
 		Message:     result.Message,
 
 		ConstraintChanges: result.ConstraintChanges,
+		Changes:           result.Changes,
 	}
 	for _, item := range result.Failed {
 		view.Failed = append(view.Failed, pullFailureView{
@@ -255,6 +258,7 @@ func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 	}
 	renderIncompleteLock(w, result)
 	operations.WriteConstraintChanges(w, result.ConstraintChanges)
+	operations.WriteNewPins(w, result.Changes)
 }
 
 // renderIncompleteLock names the items the post-pull lock rebuild could not

@@ -153,6 +153,9 @@ type SyncDependenciesResult struct {
 	// matches the one it was resolved from. Only `deps upgrade` moves a pin, so
 	// these stay where they are until the user upgrades.
 	ConstraintChanges []ConstraintChange `json:"constraint_changes,omitempty"`
+	// Changes discloses each pin this sync created: everything the bundle
+	// brings in, executables included. A sync never moves an existing pin.
+	Changes []PinChange `json:"changes,omitempty"`
 }
 
 // ConstraintChange is a pin kept at its commit although the manifest now asks
@@ -211,6 +214,15 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 	result := &SyncDependenciesResult{
 		Status: "completed",
 	}
+	// The disclosure reads each new pin from the clone cache, which an
+	// injected Puller (a test double with no real clone) never populates.
+	lockManager := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
+	var before *remote.Lockfile
+	if req.Puller == nil {
+		if before, err = lockManager.Load(); err != nil {
+			return nil, err
+		}
+	}
 
 	// The loop's two dependencies, named as arguments rather than reached for
 	// through cfg. Building them here — and nowhere else — is what keeps
@@ -262,6 +274,11 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 
 	runSyncPostSteps(ctx, reg, cfg, req, result, fs)
 	result.ConstraintChanges = constraintChangesIn(cfg, req.Profiles, baseDir, fs)
+	if before != nil {
+		if after, lerr := lockManager.Load(); lerr == nil {
+			result.Changes = pinChanges(ctx, cfg, before, after)
+		}
+	}
 
 	summarizeSync(result)
 	return result, nil

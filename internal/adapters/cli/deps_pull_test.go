@@ -166,3 +166,17 @@ func TestRenderPullSummary_NamesAConstraintChangeItDidNotApply(t *testing.T) {
 	assert.Contains(t, text, "corp/a: the manifest now asks for v2.0.0; the pin stays at 1111111 (resolved from the default branch).")
 	assert.Contains(t, text, "'ctxloom deps upgrade --yes' to apply it")
 }
+
+// A pull shows each first pin it created, with what it brings in.
+func TestRenderPullSummary_DisclosesNewPins(t *testing.T) {
+	var out bytes.Buffer
+	renderPullSummary(&out, &operations.SyncDependenciesResult{
+		Total: 1, Installed: 1,
+		Changes: []operations.PinChange{{Identity: "corp/a", ToSHA: "3333333333",
+			Items: []operations.ItemChange{{Kind: "hook", Name: "session_start/0", Change: operations.ChangeAdded,
+				Exec: &operations.ExecDelta{After: &operations.ExecSpec{Command: "./hello.sh"}}}}}},
+	})
+	text := out.String()
+	assert.Contains(t, text, operations.MsgNewPinsHeader)
+	assert.Contains(t, text, "corp/a  first pin -> unversioned  (new -> 3333333)\n  + hook session_start/0\n      command: ./hello.sh\n")
+}

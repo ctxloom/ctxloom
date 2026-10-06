@@ -1,1 +1,0 @@
-`next: List the Deferred tasks and evaluate their triggers to identify which should revive before the prerelease cut.`

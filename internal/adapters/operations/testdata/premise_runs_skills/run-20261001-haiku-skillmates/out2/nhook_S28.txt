@@ -1,1 +1,0 @@
-`next: Read the taskloom task log to establish the queue, then perform pre-flight checks (baseline gate run, pin base SHA, triage against stop conditions).`

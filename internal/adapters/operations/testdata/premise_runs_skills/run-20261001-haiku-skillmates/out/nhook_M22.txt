@@ -1,1 +1,0 @@
-`next: explore the working directory to identify design work, task logs, design docs, or code to review`

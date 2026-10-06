@@ -1,3 +1,0 @@
-I need to sweep for open decisions before putting them to you. Let me check for deferred work, open questions in code, memory about ongoing projects, and any task logs.
-
-`invoke: check-triggers`

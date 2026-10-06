@@ -1,1 +1,0 @@
-next: Report that no escalations exist in this session (fresh start), and ask whether they're recovering prior work or starting new.

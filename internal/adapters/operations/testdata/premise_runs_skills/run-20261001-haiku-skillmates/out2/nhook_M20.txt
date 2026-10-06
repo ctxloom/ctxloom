@@ -1,1 +1,0 @@
-`next: check memory for prior work context, then sweep for pending decisions`

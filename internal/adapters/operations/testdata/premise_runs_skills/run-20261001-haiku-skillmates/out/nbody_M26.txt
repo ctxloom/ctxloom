@@ -1,1 +1,0 @@
-`next: Pre-flight unattended run — establish queue source and confirm baseline prerequisites (no git repo detected; need queue specification and gate commands)`

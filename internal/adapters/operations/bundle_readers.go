@@ -417,7 +417,7 @@ func BundleVersionResolver(cfg *config.Config) bundles.BundleVersionResolver {
 	// version fetch: the default (lockfile) path never invokes the resolver, and a
 	// local-only pin never touches the remote cache, so neither pays for it.
 	var (
-		once    sync.Once
+		once     sync.Once
 		factory  remote.FetcherFactory
 		auth     remote.AuthConfig
 		registry *remote.Registry

@@ -21,7 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/spf13/afero"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // ErrNotInjectable rejects a control action whose target the coordinator does
@@ -172,14 +172,13 @@ type Options struct {
 	// read and write this coordinator performs goes through. Nil is the
 	// home-relative mapper (spool.NewHomeMapper).
 	Mapper spool.PathMapper
-	// FS is the filesystem the coordinator's own files are read and written
-	// through: the artifact store, the items snapshot, saved reports, and the
-	// spool. Nil is the OS filesystem. The journals, the owner lock and its
-	// stamp, and the engine homes Close removes stay on the OS filesystem:
-	// the lock is an OS file lock the stamp must sit beside, a journal is a
-	// long-lived append handle, and the homes are created by other packages
-	// on the OS.
-	FS afero.Fs
+	// Root is ctxloom's root as this coordinator sees it: every file it
+	// reads, writes or removes (journals, the owner lock and its stamp, the
+	// artifact store, snapshots, saved reports, the spool, the engine homes
+	// Close removes) goes through Root.Fs, and the owner lock is taken
+	// through Root.Locks. Zero is the controller's own filesystem
+	// (safefs.New).
+	Root safefs.Root
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
 	// built-in spoolSweepInterval). Exposed for tests, which must be able to
 	// prove that a DROPPED doorbell is still delivered by the sweep without
@@ -203,10 +202,9 @@ type Coordinator struct {
 	projectDir string
 	projectID  string
 	stateDir   string
-	// fs is Options.FS (the OS filesystem when unset); Options.FS says what
-	// goes through it and what stays on the OS.
-	fs  afero.Fs
-	now func() time.Time
+	// root is Options.Root (safefs.New when unset).
+	root safefs.Root
+	now  func() time.Time
 
 	baseCtx context.Context
 	cancel  context.CancelFunc
@@ -559,7 +557,11 @@ func New(opts Options) (*Coordinator, error) {
 	if opts.OwnerHarp == "" {
 		return nil, ErrNeedsOwner
 	}
-	claim, err := acquireStateDir(opts)
+	root := opts.Root
+	if root.Fs == nil {
+		root = safefs.New()
+	}
+	claim, err := acquireStateDir(root, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -570,10 +572,6 @@ func New(opts Options) (*Coordinator, error) {
 	if mapper == nil {
 		mapper = spool.NewHomeMapper()
 	}
-	fs := opts.FS
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
 	c := &Coordinator{
 		rep:                rep,
 		tracked:            TrackedGroup{rep: rep},
@@ -581,7 +579,7 @@ func New(opts Options) (*Coordinator, error) {
 		projectDir:         opts.ProjectDir,
 		projectID:          opts.ProjectID,
 		stateDir:           claim.dir,
-		fs:                 fs,
+		root:               root,
 		now:                t.now,
 		releaseOwner:       claim.release,
 		ownsRoot:           claim.release != nil,
@@ -621,7 +619,7 @@ func New(opts Options) (*Coordinator, error) {
 		ownerHarp:          opts.OwnerHarp,
 		mapper:             mapper,
 		spoolSweepInterval: opts.SpoolSweepInterval,
-		spoolIn:            NewSpoolWriterCache(fs, mapper, spool.DirIn, spoolWriterIDCoordinator),
+		spoolIn:            NewSpoolWriterCache(root.Fs, mapper, spool.DirIn, spoolWriterIDCoordinator),
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
@@ -743,21 +741,21 @@ type stateDirClaim struct {
 // the owner lock exists to make impossible (a doubled spool reactor over one
 // owner inbox, consume races on the owner's mail). A fresh session never
 // meets that refusal: it founds a root named by its own harp.
-func acquireStateDir(opts Options) (stateDirClaim, error) {
+func acquireStateDir(root safefs.Root, opts Options) (stateDirClaim, error) {
 	if opts.StateDir != "" {
 		return stateDirClaim{dir: opts.StateDir}, nil
 	}
-	root := rootHarpOf(opts)
+	harp := rootHarpOf(opts)
 	// A removal (RemoveRoot) racing this claim can delete the root between
 	// making it and locking it; that is not a refusal, only a root to make
 	// again. Bounded: each retry means a removal completed in the window.
 	for attempt := 1; ; attempt++ {
-		dir, err := ensureRootStateDir(opts.ProjectID, opts.ProjectDir, root)
+		dir, err := ensureRootStateDir(root.Fs, opts.ProjectID, opts.ProjectDir, harp)
 		if err != nil {
 			return stateDirClaim{}, err
 		}
 		beforeRootClaim(dir)
-		release, err := claimOwner(report.To(opts.Reporter), dir, newOwnerStamp(opts.OwnerHarp, opts.OwnerMode))
+		release, err := claimOwner(root, report.To(opts.Reporter), dir, newOwnerStamp(opts.OwnerHarp, opts.OwnerMode))
 		if errors.Is(err, errRootRemoved) && attempt < rootClaimAttempts {
 			continue
 		}
@@ -788,7 +786,7 @@ func rootHarpOf(opts Options) string {
 // store opened so far is closed by closePartial.
 func (c *Coordinator) openJournals() error {
 	c.runsF, c.queueF, c.rosterF, c.reportsF, c.holdsF = newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold(c.rep), newHoldsFold()
-	runs, err := openStore(filepath.Join(c.stateDir, "runs.jsonl"), c.runsF, c.queueF, c.rosterF, c.reportsF, newGrantsFold(), c.holdsF)
+	runs, err := openStore(c.root.Fs, filepath.Join(c.stateDir, "runs.jsonl"), c.runsF, c.queueF, c.rosterF, c.reportsF, newGrantsFold(), c.holdsF)
 	if err != nil {
 		return err
 	}
@@ -800,21 +798,21 @@ func (c *Coordinator) openJournals() error {
 	// starts at its offset instead of byte 0 — openStoreFromOffset falls
 	// back to a full replay by itself if the offset is stale (journal.go).
 	itemsOffset := int64(0)
-	if snap, ok := loadItemsSnapshot(c.rep, c.fs, c.stateDir); ok {
+	if snap, ok := loadItemsSnapshot(c.rep, c.root.Fs, c.stateDir); ok {
 		c.itemsF.restore(snap)
 		itemsOffset = snap.Offset
 	}
-	items, err := openStoreFromOffset(filepath.Join(c.stateDir, "items.jsonl"), itemsOffset, c.itemsF)
+	items, err := openStoreFromOffset(c.root.Fs, filepath.Join(c.stateDir, "items.jsonl"), itemsOffset, c.itemsF)
 	if err != nil {
 		return err
 	}
 	c.items = items
-	auditJ, err := openStore(filepath.Join(c.stateDir, "interactions.jsonl"))
+	auditJ, err := openStore(c.root.Fs, filepath.Join(c.stateDir, "interactions.jsonl"))
 	if err != nil {
 		return err
 	}
 	c.auditJ = auditJ
-	artifacts, err := newArtifactStore(c.fs, c.stateDir)
+	artifacts, err := newArtifactStore(c.root.Fs, c.stateDir)
 	if err != nil {
 		return err
 	}
@@ -1079,7 +1077,7 @@ func (c *Coordinator) removeDisposableMembers() {
 			if err != nil {
 				continue
 			}
-			if err := os.RemoveAll(dir); err != nil {
+			if err := c.root.Fs.RemoveAll(dir); err != nil {
 				c.rep.Warnf("coordinator close: could not remove %s (the session sweep will): %v", dir, err)
 			}
 		}
@@ -1096,7 +1094,7 @@ func (c *Coordinator) disposableHomes(harp string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := sessions.KeepHomeHistory(dir); err != nil {
+	if err := sessions.KeepHomeHistory(c.root.Fs, dir); err != nil {
 		c.rep.Warnf("coordinator close: keeping %s's engine homes, whose history could not be moved into native/: %v", harp, err)
 		return "", err
 	}
@@ -1153,7 +1151,7 @@ func (c *Coordinator) closePartial() {
 	// the root in the moment since the release keeps it (ErrStateOwned), and
 	// one still waiting makes it afresh once it is gone.
 	if c.dropRoot {
-		if err := RemoveRoot(c.projectID, c.projectDir, c.rootHarp); err != nil && !errors.Is(err, ErrStateOwned) {
+		if err := RemoveRoot(c.root, c.projectID, c.projectDir, c.rootHarp); err != nil && !errors.Is(err, ErrStateOwned) {
 			c.rep.Warnf("coordinator: the settled root %s could not be removed (%v); `ctxloom doctor` lists it", c.stateDir, err)
 		}
 	}

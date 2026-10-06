@@ -10,14 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/logboot"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // stalledLockEnv, present, tells a re-executed test binary to be the stalled
@@ -40,7 +39,7 @@ func TestInstall_AStalledLockWaitIsInTheLogFileAfterTheProcessExits(t *testing.T
 	if lockPath := os.Getenv(stalledLockEnv); lockPath != "" {
 		flush := logboot.Install("ctxloom", false)
 		code := 0
-		if err := filelock.WithLock(afero.NewOsFs(), lockPath, func() error { return nil }); err != nil {
+		if err := safefs.WithLock(safefs.New().Locks, lockPath, func() error { return nil }); err != nil {
 			code = 2
 		}
 		flush()
@@ -52,7 +51,7 @@ func TestInstall_AStalledLockWaitIsInTheLogFileAfterTheProcessExits(t *testing.T
 
 	held, release, lockDone := make(chan struct{}), make(chan struct{}), make(chan error, 1)
 	go func() {
-		lockDone <- filelock.WithLock(afero.NewOsFs(), lockPath, func() error {
+		lockDone <- safefs.WithLock(safefs.New().Locks, lockPath, func() error {
 			close(held)
 			<-release
 			return nil

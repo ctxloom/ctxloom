@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/procpin"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -67,7 +68,7 @@ func TestRoots_TwoFreshRunsInOneProjectAreIndependentTrees(t *testing.T) {
 	assert.Equal(t, wantA, a.StateDir(), "a fresh run founds the root named by its own harp")
 
 	for _, c := range []*Coordinator{a, b} {
-		st, err := ProbeOwner(c.StateDir())
+		st, err := ProbeOwner(safefs.New(), c.StateDir())
 		require.NoError(t, err)
 		assert.True(t, st.Held, "both roots are owned at once: %s", c.StateDir())
 	}
@@ -123,7 +124,7 @@ func TestRoots_ASecondClaimOnOneRootIsRefused(t *testing.T) {
 	assert.Nil(t, c)
 	require.ErrorIs(t, err, ErrStateOwned)
 	assert.Contains(t, err.Error(), "live-owner-harp", "the refusal names the root's live owner")
-	st, err := ProbeOwner(live.StateDir())
+	st, err := ProbeOwner(safefs.New(), live.StateDir())
 	require.NoError(t, err)
 	assert.Equal(t, "live-owner-harp", st.Harp, "the refused claim must not restamp the live owner")
 }
@@ -141,7 +142,7 @@ func TestRoots_CloseRemovesASettledEphemeralRoot(t *testing.T) {
 	c.Close()
 
 	assert.NoDirExists(t, dir, "a settled ephemeral root is removed by its owner's Close")
-	roots, err := ListRoots(rootsProjectID, "")
+	roots, err := ListRoots(safefs.New(), rootsProjectID, "")
 	require.NoError(t, err)
 	assert.Empty(t, roots)
 }
@@ -239,7 +240,7 @@ func TestListRoots_ReportsLiveAndOrphanedRoots(t *testing.T) {
 	require.NoError(t, os.MkdirAll(notRoot, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(notRoot), "stray.json"), nil, 0o600))
 
-	roots, err := ListRoots(rootsProjectID, "")
+	roots, err := ListRoots(safefs.New(), rootsProjectID, "")
 	require.NoError(t, err)
 	byHarp := map[string]RootStatus{}
 	for _, r := range roots {
@@ -261,7 +262,7 @@ func TestListRoots_ReportsLiveAndOrphanedRoots(t *testing.T) {
 // up in has no roots, and that is not an error.
 func TestListRoots_NoProjectStateIsNoRoots(t *testing.T) {
 	rootsHome(t)
-	roots, err := ListRoots("never-hosted", "")
+	roots, err := ListRoots(safefs.New(), "never-hosted", "")
 	require.NoError(t, err)
 	assert.Empty(t, roots)
 }

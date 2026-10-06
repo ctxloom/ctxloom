@@ -3,12 +3,11 @@
 // server, the CLI, the runner all share these records), not merely against
 // other goroutines in this process. See store.go's lockedRMW.
 //
-// These tests deliberately use a REAL OS filesystem rooted at t.TempDir(),
-// not afero.NewMemMapFs() like the rest of this package's tests: Store skips
-// locking entirely for a non-OS-backed filesystem (see filelock.IsOSBackedFs) because
-// there is no other process to exclude from one, so a lost-update or
-// fails-closed test built on MemMapFs would prove nothing about the real
-// bug this file exists to fix.
+// Most use the REAL filesystem rooted at t.TempDir() (safefs.New): only
+// there do the locks exclude other processes, and only there does a lock file
+// that cannot be opened (a directory at its path) fail the acquisition.
+// TestStore_ConcurrentSetsOnAMemRootSurviveDistinctKeys shows an in-memory
+// Root serializes too — its locks are in-process, never skipped.
 package admission_test
 
 import (
@@ -43,7 +42,7 @@ import (
 func TestStore_ConcurrentSetsUnderRaceSurviveDistinctKeys(t *testing.T) {
 	fs := afero.NewOsFs()
 	path := filepath.Join(t.TempDir(), "decisions.yaml")
-	s := admission.NewStore(fs, path, keyOf, testReasons(), admission.WithScope(scopeOf))
+	s := admission.NewStore(safefs.New(), path, keyOf, testReasons(), admission.WithScope(scopeOf))
 
 	const n = 20
 	var wg sync.WaitGroup
@@ -82,6 +81,30 @@ func TestStore_ConcurrentSetsUnderRaceSurviveDistinctKeys(t *testing.T) {
 	require.NotEmpty(t, body, "the final store file must not be empty after concurrent writers committed")
 }
 
+// TestStore_ConcurrentSetsOnAMemRootSurviveDistinctKeys: the store takes its
+// Root's locks whatever the filesystem, so concurrent Sets on an in-memory
+// Root lose nothing either.
+func TestStore_ConcurrentSetsOnAMemRootSurviveDistinctKeys(t *testing.T) {
+	root := safefs.NewMem(afero.NewMemMapFs())
+	path := filepath.Join("/home", "u", ".ctxloom", "decisions.yaml")
+	s := admission.NewStore(root, path, keyOf, testReasons(), admission.WithScope(scopeOf))
+
+	const n = 20
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := s.Set(testKey{Scope: fmt.Sprintf("scope-%02d", i), Fine: "sha"}, true)
+			assert.NoError(t, err)
+		}(i)
+	}
+	wg.Wait()
+	recs, err := s.List()
+	require.NoError(t, err)
+	assert.Len(t, recs, n, "every concurrent Set must survive")
+}
+
 // TestStore_ConcurrentDecideAsksAtMostOnceUnderLock is the Decide-shaped
 // twin: Decide's Lookup happens unlocked, but the Set it falls through to
 // when nothing is recorded is the same locked write Set uses directly. Two
@@ -91,9 +114,8 @@ func TestStore_ConcurrentSetsUnderRaceSurviveDistinctKeys(t *testing.T) {
 // answer "yes" for DISTINCT keys and both decisions must be recorded, exactly
 // like the direct-Set test above but through the higher-level entry point.
 func TestStore_ConcurrentDecideUnderRaceSurviveDistinctKeys(t *testing.T) {
-	fs := afero.NewOsFs()
 	path := filepath.Join(t.TempDir(), "decisions.yaml")
-	s := admission.NewStore(fs, path, keyOf, testReasons(), admission.WithScope(scopeOf))
+	s := admission.NewStore(safefs.New(), path, keyOf, testReasons(), admission.WithScope(scopeOf))
 
 	const n = 10
 	var wg sync.WaitGroup
@@ -131,7 +153,7 @@ func TestStore_ConcurrentDecideUnderRaceSurviveDistinctKeys(t *testing.T) {
 func TestStore_LockAcquisitionFailureFailsClosedFileUntouched(t *testing.T) {
 	fs := afero.NewOsFs()
 	path := filepath.Join(t.TempDir(), "decisions.yaml")
-	s := admission.NewStore(fs, path, keyOf, testReasons(), admission.WithScope(scopeOf))
+	s := admission.NewStore(safefs.New(), path, keyOf, testReasons(), admission.WithScope(scopeOf))
 
 	// Seed one committed record so the assertion below proves an EXISTING
 	// file survives untouched, not merely that a file was never created.
@@ -166,9 +188,8 @@ func TestStore_LockAcquisitionFailureFailsClosedFileUntouched(t *testing.T) {
 // exist: Durable() is a no-op on a non-OS-backed filesystem, so only a real
 // one gives the seam anything to fire on.
 func TestStore_Write_UsesDurableWrite(t *testing.T) {
-	fs := afero.NewOsFs()
 	path := filepath.Join(t.TempDir(), "decisions.yaml")
-	s := admission.NewStore(fs, path, keyOf, testReasons(), admission.WithScope(scopeOf))
+	s := admission.NewStore(safefs.New(), path, keyOf, testReasons(), admission.WithScope(scopeOf))
 
 	var synced []string
 	restore := safefs.SetSyncDirForTesting(func(d string) error {

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -545,7 +546,7 @@ func TestHoldsFold_ReplayEqualsTheLiveFold(t *testing.T) {
 	cp := filepath.Join(t.TempDir(), "runs.jsonl")
 	require.NoError(t, os.WriteFile(cp, raw, 0o600))
 	replayed := newHoldsFold()
-	s, err := openStore(cp, replayed)
+	s, err := openStore(afero.NewOsFs(), cp, replayed)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 	require.Len(t, live, 2)

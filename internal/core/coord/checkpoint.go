@@ -61,7 +61,7 @@ func (c *Coordinator) writeItemsSnapshot() {
 	// coordinators checkpointing the same stateDir one shared temp path, and
 	// without an fsync a power loss can persist the rename ahead of the data.
 	// safefs.WriteFile owns that invariant.
-	if err := safefs.WriteFile(c.fs, itemsSnapshotPath(c.stateDir), raw, 0o600); err != nil {
+	if err := safefs.WriteFile(c.root.Fs, itemsSnapshotPath(c.stateDir), raw, 0o600); err != nil {
 		c.rep.Warnf("coordinator: checkpoint snapshot: write: %v", err)
 	}
 }

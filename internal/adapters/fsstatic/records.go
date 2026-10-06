@@ -34,7 +34,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
@@ -163,18 +162,11 @@ func NewRecords(recordFS afero.Fs, dir string) (*Records, error) {
 	return c, c.Prepare(context.Background())
 }
 
-// Prepare tightens an EXISTING record dir to owner-only (delivery.Ownership's
-// security invariant); a missing one is left missing.
-func (c *Records) Prepare(context.Context) error {
-	exists, err := afero.DirExists(c.fs, c.dir)
-	if err != nil {
-		return fmt.Errorf("fsstatic: stat %s: %w", c.dir, err)
-	}
-	if !exists {
-		return nil
-	}
-	return confpatch.EnsureRecordDir(c.fs, c.dir)
-}
+// Prepare has nothing to apply: the record dir's protection is the
+// established home root it lies under (paths.EnsureHomeRoots, at process
+// start), and every directory a write creates below it is created
+// owner-only (safefs.PrivateDirMode).
+func (c *Records) Prepare(context.Context) error { return nil }
 
 // claimsRecord is one target's record on disk.
 type claimsRecord struct {
@@ -608,10 +600,10 @@ func (t *targetOps) writeRecord(before []byte, existed bool, after []byte, keep 
 	if bytes.Equal(data, t.disk) {
 		return nil
 	}
-	if err := confpatch.EnsureRecordDir(t.c.fs, t.c.dir); err != nil {
+	if err := t.c.fs.MkdirAll(t.c.dir, safefs.PrivateDirMode); err != nil {
 		return err
 	}
-	return safefs.WriteFile(t.c.fs, path, data, owneronly.FileMode, safefs.Durable())
+	return safefs.WriteFile(t.c.fs, path, data, safefs.PrivateFileMode, safefs.Durable())
 }
 
 // confirm drops the note the seal wrote, once the target's write has landed:
@@ -634,7 +626,7 @@ func (t *targetOps) confirm() error {
 	if err != nil {
 		return err
 	}
-	return safefs.WriteFile(t.c.fs, path, data, owneronly.FileMode, safefs.Durable())
+	return safefs.WriteFile(t.c.fs, path, data, safefs.PrivateFileMode, safefs.Durable())
 }
 
 // retireSuperseded deletes the records this one superseded for target: the

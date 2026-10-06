@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +27,7 @@ func TestReplayEquivalence_ItemsSnapshot(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "items.jsonl")
 			itemsF := newItemsFold()
-			store, err := openStore(path, itemsF)
+			store, err := openStore(afero.NewOsFs(), path, itemsF)
 			require.NoError(t, err)
 
 			rng := rand.New(rand.NewSource(seed + 300))
@@ -71,7 +72,7 @@ func TestReplayEquivalence_ItemsSnapshot(t *testing.T) {
 
 			// Full replay from 0 (the existing, always-correct path).
 			fullF := newItemsFold()
-			fullStore, err := openStore(path, fullF)
+			fullStore, err := openStore(afero.NewOsFs(), path, fullF)
 			require.NoError(t, err)
 			assert.Equal(t, want, project(fullF), "sanity: full replay from 0 must match the live fold")
 			require.NoError(t, fullStore.Close())
@@ -79,7 +80,7 @@ func TestReplayEquivalence_ItemsSnapshot(t *testing.T) {
 			// Snapshot-restore + tail replay (the D4 shortcut).
 			restoredF := newItemsFold()
 			restoredF.restore(snap)
-			tailStore, err := openStoreFromOffset(path, snap.Offset, restoredF)
+			tailStore, err := openStoreFromOffset(afero.NewOsFs(), path, snap.Offset, restoredF)
 			require.NoError(t, err)
 			assert.Equal(t, want, project(restoredF), "restore(snapshot) + tail replay must equal a full replay from 0")
 			require.NoError(t, tailStore.Close())
@@ -97,7 +98,7 @@ func TestOpenStoreFromOffset_StaleOffsetFallsBackToFullReplay(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "items.jsonl")
 	itemsF := newItemsFold()
-	store, err := openStore(path, itemsF)
+	store, err := openStore(afero.NewOsFs(), path, itemsF)
 	require.NoError(t, err)
 	for i := 1; i <= 5; i++ {
 		fact := factAt(factItem, time.Unix(1_700_000_000+int64(i), 0), itemFact{RunID: "run-a", Seq: uint64(i), Kind: "run_started"})
@@ -109,7 +110,7 @@ func TestOpenStoreFromOffset_StaleOffsetFallsBackToFullReplay(t *testing.T) {
 	require.NoError(t, err)
 
 	staleF := newItemsFold()
-	staleStore, err := openStoreFromOffset(path, fi.Size()+1_000_000, staleF)
+	staleStore, err := openStoreFromOffset(afero.NewOsFs(), path, fi.Size()+1_000_000, staleF)
 	require.NoError(t, err)
 	defer staleStore.Close()
 	assert.Equal(t, 5, staleF.countsFor("run-a")["run_started"],
@@ -135,7 +136,7 @@ func TestWriteItemsSnapshot_RoundTrips(t *testing.T) {
 		CoversThroughSeq: 1,
 	}))
 
-	snap, ok := loadItemsSnapshot(termRep(), c.fs, c.stateDir)
+	snap, ok := loadItemsSnapshot(termRep(), c.root.Fs, c.stateDir)
 	require.True(t, ok, "a SCOPE_CHECKPOINT report must produce a loadable snapshot file")
 
 	var live itemsSnapshot

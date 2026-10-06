@@ -177,7 +177,7 @@ func prepareSessionHome(eng engine.Engine, req InstanceHomeRequest) bool {
 			return false
 		}
 	}
-	if err := ensureOwnerOnlyDir(dir); err != nil {
+	if err := req.root().Private.Ensure(dir); err != nil {
 		clidiag.Warn("ctxloom", "session home for %s: cannot create %s owner-only (%v); this run has no session home", name, dir, err)
 		return false
 	}

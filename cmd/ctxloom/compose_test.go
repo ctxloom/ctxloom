@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // The composition root builds exactly one config Owner and exactly one
@@ -28,7 +29,7 @@ import (
 func TestCompose_OneOwnerOneCoordinatorOneReporter(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	var found report.Collector
-	comp := compose(&found)
+	comp := compose(&found, safefs.New())
 	assert.Equal(t, report.Sink(&found), comp.Reporter, "the Reporter the root hands the services is the one it built")
 
 	appDir := t.TempDir()

@@ -160,7 +160,8 @@ exit 0. No backup is taken; the `hew` application record
 the durable evidence of what changed in a file ctxloom does not own. Its
 inverse keeps the previous value of each key it undoes, in plaintext, because
 undo needs it; the records directory and each record are therefore owner-only
-(`confpatch.EnsureRecordDir`).
+(created `safefs.PrivateDirMode` beneath `paths.HomeRecordsDir`, which every
+process establishes at startup with `paths.EnsureHomeRoots`).
 
 `decodeConfigPatch` is the reference anti-silent-no-op guard in this package:
 it refuses an empty body *and* an empty JSON object. `containsConfigPatch` is

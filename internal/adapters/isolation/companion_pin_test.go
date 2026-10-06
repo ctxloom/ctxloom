@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
@@ -38,7 +38,7 @@ func newPinWorld(t *testing.T, allowed, unallowed []string) pinWorld {
 		return p, nil
 	})
 	t.Cleanup(restore)
-	allowStore, err := companions.NewAllowStore(afero.NewOsFs())
+	allowStore, err := companions.NewAllowStore(safefs.New())
 	require.NoError(t, err)
 	for _, name := range allowed {
 		key, err := companions.ResolveCompanion(writeCompanion(t, w.admitted, name, "#!/bin/sh\necho admitted "+name+"\n"))
@@ -157,7 +157,7 @@ func TestStageCompanions_StagesOnlyAdmittedWithAnAllowFile(t *testing.T) {
 	assert.Len(t, entries, 1, "only the admitted binary is staged")
 
 	allowPath := filepath.Join(ctxDir, imageHomeContextDir, paths.AppDirName, paths.CompanionAllowFileName+".yaml")
-	snap, err := companions.NewAllowStoreAt(afero.NewOsFs(), allowPath).Load()
+	snap, err := companions.NewAllowStoreAt(safefs.New(), allowPath).Load()
 	require.NoError(t, err)
 	sum := sha256.Sum256(want)
 	assert.True(t, snap.Approved(companions.CompanionKey{Path: "/usr/local/bin/ltk", SHA256: hex.EncodeToString(sum[:])}),

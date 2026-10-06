@@ -19,7 +19,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -210,7 +209,7 @@ func writeEndpoint(fs afero.Fs, path string, ep endpointState) error {
 	if err != nil {
 		return err
 	}
-	return safefs.WriteFile(fs, path, raw, owneronly.FileMode)
+	return safefs.WriteFile(fs, path, raw, safefs.PrivateFileMode)
 }
 
 // LoopbackURL is the loopback listener's URL — the coordinator's

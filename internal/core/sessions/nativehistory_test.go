@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -40,7 +41,7 @@ func TestKeepHomeHistory_MovesARealHistoryDirIntoNative(t *testing.T) {
 	put(t, home, "projects/-p/new.jsonl", "container\n")
 	put(t, home, "settings.json", "{}")
 
-	require.NoError(t, KeepHomeHistory(sd))
+	require.NoError(t, KeepHomeHistory(afero.NewOsFs(), sd))
 
 	assert.Equal(t, "old\ngrown\n", got(t, native, "projects/-p/s.jsonl"))
 	assert.Equal(t, "container\n", got(t, native, "projects/-p/new.jsonl"))
@@ -59,12 +60,12 @@ func TestKeepHomeHistory_LeavesALinkedHistoryAlone(t *testing.T) {
 	require.NoError(t, os.MkdirAll(home, 0o700))
 	require.NoError(t, os.Symlink(filepath.Join(native, "projects"), filepath.Join(home, "projects")))
 
-	require.NoError(t, KeepHomeHistory(sd))
+	require.NoError(t, KeepHomeHistory(afero.NewOsFs(), sd))
 
 	assert.Equal(t, "kept\n", got(t, native, "projects/-p/s.jsonl"))
 }
 
 // A session with no native/ has no history store to keep.
 func TestKeepHomeHistory_WithoutNativeIsANoOp(t *testing.T) {
-	assert.NoError(t, KeepHomeHistory(t.TempDir()))
+	assert.NoError(t, KeepHomeHistory(afero.NewOsFs(), t.TempDir()))
 }

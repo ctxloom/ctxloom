@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -31,7 +32,7 @@ func TestNew_RefusesARootAnotherLiveOwnerHolds(t *testing.T) {
 	// which is all "another live owner" is to the kernel.
 	const key = "owned-project"
 	const root = "the-owner-harp"
-	dir, err := ensureRootStateDir(key, "", root)
+	dir, err := ensureRootStateDir(afero.NewOsFs(), key, "", root)
 	require.NoError(t, err)
 	holdOwnerLock(t, dir)
 	owner := ownerStamp{PID: os.Getppid(), Harp: root, Mode: OwnerNonInteractive, Started: time.Now().UTC()}

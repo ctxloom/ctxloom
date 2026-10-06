@@ -293,3 +293,26 @@ func gitOutAsIdentity(t *testing.T, dir, name, email string, args ...string) str
 	require.NoError(t, err, "git %v", args)
 	return string(out)
 }
+
+// TestRelativeWorktreeGate_AgreesWithRealGit holds the gate against the real
+// binary: whether gitAtLeast passes the version `git version` reports for
+// relativeWorktreeGit must match whether that same git accepts
+// `worktree add --relative-paths`. It runs on any git — an old one must be
+// refused by both, a new one admitted by both.
+func TestRelativeWorktreeGate_AgreesWithRealGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping the relative-worktree gate integration test")
+	}
+	ctx := context.Background()
+	g := git.NewExec()
+	version, err := g.Version(ctx)
+	require.NoError(t, err)
+	repo := gitRepo(t)
+
+	// A plain add succeeds here, so a refused relative add is the flag.
+	require.NoError(t, g.WorktreeAdd(ctx, repo, filepath.Join(t.TempDir(), "plain"), "plain", "HEAD", false))
+	accepted := g.WorktreeAdd(ctx, repo, filepath.Join(t.TempDir(), "relative"), "relative", "HEAD", true) == nil
+
+	assert.Equal(t, accepted, gitAtLeast(version, relativeWorktreeGit),
+		"git %s: accepts %s = %v, but the gate (%d.%d+) disagrees", version, git.RelativePathsFlag, accepted, relativeWorktreeGit[0], relativeWorktreeGit[1])
+}

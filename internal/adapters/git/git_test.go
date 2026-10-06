@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -414,6 +415,83 @@ func TestExecGit_WorktreeAdd_NamedBranch(t *testing.T) {
 	assert.NoDirExists(t, other)
 	assert.Equal(t, sha, taskstest.Git(t, repo, nil, "rev-parse", "agent/member-a"),
 		"the refused add did not move the existing branch")
+}
+
+// TestExecGit_WorktreeAdd_RelativePaths runs REAL git: with relativePaths the
+// registration is recorded relative on both sides — the checkout's .git file
+// and the common dir's worktrees/<name>/gitdir — so it resolves from any mount
+// of the repository. Without it, git's default absolute form stands, which is
+// what proves the assertions can tell the two apart.
+func TestExecGit_WorktreeAdd_RelativePaths(t *testing.T) {
+	requireGitWithRelativePaths(t)
+	ctx := context.Background()
+	g := NewExec()
+	repo := initRepo(t)
+	common, err := g.CommonDir(ctx, repo)
+	require.NoError(t, err)
+
+	for _, relative := range []bool{true, false} {
+		name := "wt-relative"
+		if !relative {
+			name = "wt-absolute"
+		}
+		wt := filepath.Join(t.TempDir(), name)
+		require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/"+name, "HEAD", relative))
+
+		dotGit := gitdirLine(t, filepath.Join(wt, ".git"))
+		registration := filepath.Join(common, "worktrees", name)
+		back := strings.TrimSpace(readText(t, filepath.Join(registration, "gitdir")))
+
+		assert.Equal(t, !relative, filepath.IsAbs(dotGit), "%s: the checkout's .git points at %q", name, dotGit)
+		assert.Equal(t, !relative, filepath.IsAbs(back), "%s: worktrees/%s/gitdir holds %q", name, name, back)
+		assert.Equal(t, resolvePath(t, registration), resolvePath(t, resolveFrom(wt, dotGit)),
+			"%s: the .git file resolves to its registration in the common dir", name)
+		assert.Equal(t, resolvePath(t, filepath.Join(wt, ".git")), resolvePath(t, resolveFrom(registration, back)),
+			"%s: the registration resolves back to the checkout", name)
+	}
+}
+
+// requireGitWithRelativePaths skips unless git on PATH can record relative
+// worktree paths (2.48+). The devcontainer image installs one, so the test
+// runs where the gates run; an older host git skips rather than fails.
+func requireGitWithRelativePaths(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping relative-paths WorktreeAdd integration test")
+	}
+	v, err := NewExec().Version(context.Background())
+	require.NoError(t, err)
+	var major, minor int
+	if _, err := fmt.Sscanf(v, "%d.%d", &major, &minor); err != nil {
+		t.Fatalf("git version %q is unreadable: %v", v, err)
+	}
+	if major < 2 || (major == 2 && minor < 48) {
+		t.Skipf("git %s predates %s (needs 2.48+); skipping relative-paths WorktreeAdd integration test", v, RelativePathsFlag)
+	}
+}
+
+// gitdirLine reads a linked checkout's .git file ("gitdir: <path>").
+func gitdirLine(t *testing.T, path string) string {
+	t.Helper()
+	line := strings.TrimSpace(readText(t, path))
+	dir, ok := strings.CutPrefix(line, "gitdir: ")
+	require.True(t, ok, "%s is not a gitdir file: %q", path, line)
+	return dir
+}
+
+func readText(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return string(raw)
+}
+
+// resolveFrom resolves p against base when p is relative.
+func resolveFrom(base, p string) string {
+	if filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(base, p)
 }
 
 // TestExecGit_MergedBranches pins the primitive doctor's foreign-worktree

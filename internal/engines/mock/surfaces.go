@@ -118,7 +118,9 @@ func (a *mcpFile) DeliverMCP(start present.Start, root present.RootKind, in engi
 	return writeFile(fs, r.AnnounceFlag(mcpFlag).Build(), append(bytes, '\n'), 0o600)
 }
 
-// settingsFile writes the deny list and the statusline policy.
+// settingsFile writes the settings inputs it is handed: the deny list, the
+// statusline policy and the shell timeout in milliseconds. The mock's turn
+// runs no shell tool, so the timeout is recorded, not applied.
 type settingsFile struct{ surface }
 
 func (a *settingsFile) DeliverSettings(start present.Start, root present.RootKind, in engine.SettingsInputs, fs afero.Fs) (present.Delivered, error) {
@@ -126,7 +128,8 @@ func (a *settingsFile) DeliverSettings(start present.Start, root present.RootKin
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	bytes, err := json.MarshalIndent(map[string]any{"denyTools": in.DenyTools, "statusline": in.Statusline}, "", "  ")
+	shell := map[string]int64{"defaultMs": in.ShellTimeout.Default.Milliseconds(), "maxMs": in.ShellTimeout.Max.Milliseconds()}
+	bytes, err := json.MarshalIndent(map[string]any{"denyTools": in.DenyTools, "statusline": in.Statusline, "shellTimeout": shell}, "", "  ")
 	if err != nil {
 		return present.Delivered{}, err
 	}

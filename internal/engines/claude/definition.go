@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/spf13/afero"
@@ -329,23 +330,27 @@ func deliverSettingsFile(name string, start present.Start, root present.RootKind
 	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Claims: map[string][]present.Claim{p.HostPath: cs}}, nil
 }
 
-// bashTimeoutEnv is the env claude's Bash tool reads its timeouts from, in
-// milliseconds: the foreground default, and the most the model may ask for.
-// claude's own default (two minutes) is shorter than a git commit behind a
-// project's pre-commit hooks takes on a loaded machine, and a command that
-// outlives it is moved to the background — so a headless turn or an
-// in-process sub-agent ends with its commit orphaned, never told how it went.
-var bashTimeoutEnv = map[string]string{
-	"BASH_DEFAULT_TIMEOUT_MS": "600000",
-	"BASH_MAX_TIMEOUT_MS":     "1200000",
+// bashTimeoutEnv is the engine-neutral shell timeout as the env claude's
+// Bash tool reads it from, in milliseconds: the foreground default, and the
+// most the model may ask for. Empty for the zero value, which says nothing.
+func bashTimeoutEnv(st engine.ShellTimeout) map[string]string {
+	if st == (engine.ShellTimeout{}) {
+		return nil
+	}
+	return map[string]string{
+		"BASH_DEFAULT_TIMEOUT_MS": strconv.FormatInt(st.Default.Milliseconds(), 10),
+		"BASH_MAX_TIMEOUT_MS":     strconv.FormatInt(st.Max.Milliseconds(), 10),
+	}
 }
 
 // settingsClaims claims the statusline when asked for and free to claim,
 // each denied tool as an element of permissions.deny — a deny the user
 // already has is theirs, and the record finds it rather than taking it —
-// and each of bashTimeoutEnv the user has not set to a value of their own.
-func settingsClaims(fs afero.Fs, path string, statusline bool, deny []string) ([]present.Claim, error) {
-	claims, err := bashTimeoutClaims(fs, path)
+// and each of the shell timeout's env the user has not set to a value of
+// their own.
+func settingsClaims(fs afero.Fs, path string, in engine.SettingsInputs) ([]present.Claim, error) {
+	statusline, deny := in.Statusline, in.DenyTools
+	claims, err := bashTimeoutClaims(fs, path, bashTimeoutEnv(in.ShellTimeout))
 	if err != nil {
 		return nil, err
 	}
@@ -370,10 +375,13 @@ func settingsClaims(fs afero.Fs, path string, statusline bool, deny []string) ([
 	return claims, nil
 }
 
-// bashTimeoutClaims claims each of bashTimeoutEnv in settings.json's env
-// that is absent or already holds ctxloom's value; one the user set to any
-// other value is theirs.
-func bashTimeoutClaims(fs afero.Fs, path string) ([]present.Claim, error) {
+// bashTimeoutClaims claims each of want in settings.json's env that is
+// absent or already holds ctxloom's value; one the user set to any other
+// value is theirs.
+func bashTimeoutClaims(fs afero.Fs, path string, want map[string]string) ([]present.Claim, error) {
+	if len(want) == 0 {
+		return nil, nil
+	}
 	w := &ClaudeCodeHookWriter{FS: fs}
 	settings, err := w.loadSettings(path) // a missing file is empty settings
 	if err != nil {
@@ -390,15 +398,14 @@ func bashTimeoutClaims(fs afero.Fs, path string) ([]present.Claim, error) {
 		}
 	}
 	var claims []present.Claim
-	for _, name := range collections.SortedKeys(bashTimeoutEnv) {
-		want := bashTimeoutEnv[name]
+	for _, name := range collections.SortedKeys(want) {
 		if have, set := env[name]; set {
 			var v string
-			if json.Unmarshal(have, &v) != nil || v != want {
+			if json.Unmarshal(have, &v) != nil || v != want[name] {
 				continue
 			}
 		}
-		claims = append(claims, present.Claim{Pointer: present.PointerKey("env") + present.PointerKey(name), Value: want})
+		claims = append(claims, present.Claim{Pointer: present.PointerKey("env") + present.PointerKey(name), Value: want[name]})
 	}
 	return claims, nil
 }
@@ -479,7 +486,7 @@ func (*settingsApproach) Forms() agent.Presentations {
 }
 func (a *settingsApproach) DeliverSettings(start present.Start, root present.RootKind, in engine.SettingsInputs, fs afero.Fs) (present.Delivered, error) {
 	return deliverSettingsFile(a.Name(), start, root, func(path string) ([]present.Claim, error) {
-		return settingsClaims(agent.GetFS(fs), path, in.Statusline, in.DenyTools)
+		return settingsClaims(agent.GetFS(fs), path, in)
 	})
 }
 

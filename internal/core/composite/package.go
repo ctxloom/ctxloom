@@ -106,16 +106,17 @@ type SelectRequest struct {
 // context, the premised fragments held back for the catalog, and the
 // attestation. Immutable; only Assemble constructs one.
 type Package struct {
-	Context    Context
-	Fragments  []Item[Fragment]
-	Premised   []Item[Fragment]
-	Commands   []Item[Command]
-	Skills     []Item[Skill]
-	Hooks      wire.HooksConfig
-	MCP        map[string]wire.MCPServer
-	Links      []LinkGroup
-	DenyTools  []string
-	Statusline bool
+	Context      Context
+	Fragments    []Item[Fragment]
+	Premised     []Item[Fragment]
+	Commands     []Item[Command]
+	Skills       []Item[Skill]
+	Hooks        wire.HooksConfig
+	MCP          map[string]wire.MCPServer
+	Links        []LinkGroup
+	DenyTools    []string
+	Statusline   bool
+	ShellTimeout engine.ShellTimeout
 	// CarryForward names the sources whose content is UNKNOWN this time — a
 	// companion whose loadout probe failed — by the provenance stamp their
 	// items carry (bundles.BundleSCM). A delivery carries forward what such a
@@ -302,14 +303,15 @@ type Options struct {
 	// Commands are unconditional command injections, already read (ctxloom's
 	// embedded commands).
 	Commands []Command
-	// Hooks, MCP, DenyTools and Statusline are the surfaces the caller
+	// Hooks, MCP, DenyTools, Statusline and ShellTimeout are the surfaces the caller
 	// resolved: config-level hooks, ctxloom's own hooks for this run, the
 	// bundle and companion servers with the profiles' vetoes applied.
 	// Assemble carries them; the link grant is derived from MCP.
-	Hooks      wire.HooksConfig
-	MCP        map[string]wire.MCPServer
-	DenyTools  []string
-	Statusline bool
+	Hooks        wire.HooksConfig
+	MCP          map[string]wire.MCPServer
+	DenyTools    []string
+	Statusline   bool
+	ShellTimeout engine.ShellTimeout
 	// CarryForward is the caller's account of the sources whose content is
 	// unknown this time (Package.CarryForward); Assemble carries it.
 	CarryForward []string

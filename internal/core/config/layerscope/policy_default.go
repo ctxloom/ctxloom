@@ -73,6 +73,8 @@ func DefaultPolicy() Policy {
 		{Path: "session_reap_age", Scope: ScopeMachine, Note: "how long this machine's home-global session store keeps disposable state; a fact about the box's disk, never a project's"},
 		{Path: "session_purge_age", Scope: ScopeMachine, Note: "how long this machine's home-global session store keeps an ended session's transcripts; a fact about the box's disk, never a project's"},
 		{Path: "delegation.depth", Scope: ScopeMachine, Note: "a structural safety ceiling, tuned per box like a resource cap; a team's shared policy would belong in agents.*.permissions instead"},
+		{Path: "shell_timeout.default", Scope: ScopePreference, Note: "how long a shell command runs before the engine backgrounds it: a project's slow hooks and a loaded box are both reasons to raise it, and no value grants anything"},
+		{Path: "shell_timeout.max", Scope: ScopePreference, Note: "the longest shell timeout a model may ask for; a ceiling on waiting, not on privilege"},
 		{Path: "delegation.idle_timeout", Scope: ScopeMachine, Note: "how long an idle runner may hold its slot, process and endpoint before the reaper ends it — a resource fact about the box"},
 
 		{Path: "llm.configs.*", Scope: ScopePreference, Note: "which model a person likes; harmless in either file"},

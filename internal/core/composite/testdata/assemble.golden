@@ -228,6 +228,10 @@
     }
   },
   "ManageStatusline": true,
+  "ShellTimeout": {
+    "Default": 600000000000,
+    "Max": 3600000000000
+  },
   "Skills": [
     {
       "Description": "Review a change against the project's review checklist.",
@@ -486,6 +490,10 @@
     }
   },
   "ManageStatusline": true,
+  "ShellTimeout": {
+    "Default": 600000000000,
+    "Max": 3600000000000
+  },
   "Skills": [
     {
       "Description": "Review a change against the project's review checklist.",
@@ -739,6 +747,10 @@
     }
   },
   "ManageStatusline": true,
+  "ShellTimeout": {
+    "Default": 600000000000,
+    "Max": 3600000000000
+  },
   "Skills": [
     {
       "Description": "Review a change against the project's review checklist.",
@@ -994,6 +1006,10 @@
     }
   },
   "ManageStatusline": true,
+  "ShellTimeout": {
+    "Default": 600000000000,
+    "Max": 3600000000000
+  },
   "Skills": [
     {
       "Description": "Review a change against the project's review checklist.",
@@ -1247,6 +1263,10 @@
     }
   },
   "ManageStatusline": true,
+  "ShellTimeout": {
+    "Default": 600000000000,
+    "Max": 3600000000000
+  },
   "Skills": [
     {
       "Description": "Review a change against the project's review checklist.",
@@ -1502,6 +1522,10 @@
     }
   },
   "ManageStatusline": true,
+  "ShellTimeout": {
+    "Default": 600000000000,
+    "Max": 3600000000000
+  },
   "Skills": [
     {
       "Description": "Review a change against the project's review checklist.",
@@ -1755,6 +1779,10 @@
     }
   },
   "ManageStatusline": true,
+  "ShellTimeout": {
+    "Default": 600000000000,
+    "Max": 3600000000000
+  },
   "Skills": [
     {
       "Description": "Review a change against the project's review checklist.",
@@ -2010,6 +2038,10 @@
     }
   },
   "ManageStatusline": true,
+  "ShellTimeout": {
+    "Default": 600000000000,
+    "Max": 3600000000000
+  },
   "Skills": [
     {
       "Description": "Review a change against the project's review checklist.",
@@ -2243,6 +2275,10 @@
     }
   },
   "ManageStatusline": true,
+  "ShellTimeout": {
+    "Default": 600000000000,
+    "Max": 3600000000000
+  },
   "Skills": null,
   "Surfaces": null
 }
@@ -2455,6 +2491,10 @@
     }
   },
   "ManageStatusline": true,
+  "ShellTimeout": {
+    "Default": 600000000000,
+    "Max": 3600000000000
+  },
   "Skills": null,
   "Surfaces": null
 }

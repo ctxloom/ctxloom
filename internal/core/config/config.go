@@ -167,6 +167,9 @@ type Config struct {
 	// turns. The retired spelling is REFUSED at load (UnmarshalYAML), not
 	// silently ignored — see errRetiredAgentTurnCapKey.
 	delegation DelegationConfig
+	// shellTimeout is the engine-neutral shell-tool foreground timeout and
+	// its ceiling; see ShellTimeoutConfig.
+	shellTimeout ShellTimeoutConfig
 	// isolationImages maps a backend name (e.g. claude-code) to a
 	// USER-PROVIDED agent image for containerized runs. An entry overrides the
 	// built-in per-backend default tag and is run AS-IS: never locally built or
@@ -313,6 +316,7 @@ type configDoc struct {
 	Runtime                      string                    `yaml:"runtime,omitempty"`
 	Permissions                  agents.NeutralPermissions `yaml:"permissions,omitempty"`
 	Delegation                   DelegationConfig          `yaml:"delegation,omitempty"`
+	ShellTimeout                 ShellTimeoutConfig        `yaml:"shell_timeout,omitempty"`
 	IsolationImages              map[string]string         `yaml:"isolation_images,omitempty"`
 	IsolationBase                string                    `yaml:"isolation_base,omitempty"`
 	IsolationDevcontainerService string                    `yaml:"isolation_devcontainer_service,omitempty"`
@@ -369,6 +373,7 @@ func (c *Config) toDoc() configDoc {
 		Runtime:                      c.runtime,
 		Permissions:                  c.permissions.Clone(),
 		Delegation:                   c.delegation,
+		ShellTimeout:                 c.shellTimeout,
 		IsolationImages:              maps.Clone(c.isolationImages),
 		IsolationBase:                c.isolationBase,
 		IsolationDevcontainerService: c.isolationDevcontainerService,
@@ -399,6 +404,7 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.runtime = doc.Runtime
 	c.permissions = doc.Permissions
 	c.delegation = doc.Delegation
+	c.shellTimeout = doc.ShellTimeout
 	c.isolationImages = doc.IsolationImages
 	c.isolationBase = doc.IsolationBase
 	c.isolationDevcontainerService = doc.IsolationDevcontainerService
@@ -468,6 +474,9 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 	if err := validateIdleTimeout(doc.Delegation.IdleTimeout); err != nil {
+		return err
+	}
+	if _, err := doc.ShellTimeout.resolve(); err != nil {
 		return err
 	}
 	if err := validateIsolationBase(doc.IsolationBase); err != nil {
@@ -671,6 +680,60 @@ type DelegationConfig struct {
 	// (DefaultDelegationIdleTimeout). Refused at load when unparsable or not
 	// positive — never silently replaced by the default.
 	IdleTimeout string `yaml:"idle_timeout,omitempty"`
+}
+
+// ShellTimeoutConfig is the engine-neutral shell-tool timeout: how long an
+// engine's shell tool runs a command in the foreground when the model names
+// no timeout, and the longest the model may name. Each a Go duration ("10m",
+// "1h"); an empty half takes its built-in default. A command that outlives
+// the foreground timeout is backgrounded by the engine, not finished — a git
+// commit behind slow hooks then ends the turn unconfirmed — which is why the
+// default is far above the engines' own.
+type ShellTimeoutConfig struct {
+	Default string `yaml:"default,omitempty"`
+	Max     string `yaml:"max,omitempty"`
+}
+
+// DefaultShellTimeout and DefaultShellTimeoutMax are the built-in defaults
+// for shell_timeout.default and shell_timeout.max.
+const (
+	DefaultShellTimeout    = 10 * time.Minute
+	DefaultShellTimeoutMax = time.Hour
+)
+
+// ErrInvalidShellTimeout is the load-time refusal of a shell_timeout half that
+// is not a positive Go duration, or of a default above the resolved max.
+var ErrInvalidShellTimeout = errors.New("config: shell_timeout.default and shell_timeout.max must be positive durations such as \"10m\", with default no greater than max")
+
+// resolve is s with each empty half defaulted, refused rather than defaulted
+// when a half is set but unusable: a typo that silently became the default
+// would background commands at a cadence nobody configured.
+func (s ShellTimeoutConfig) resolve() (engine.ShellTimeout, error) {
+	half := func(raw string, def time.Duration) (time.Duration, error) {
+		if raw == "" {
+			return def, nil
+		}
+		d, err := time.ParseDuration(raw)
+		if err != nil {
+			return 0, fmt.Errorf("%w: %q: %v", ErrInvalidShellTimeout, raw, err)
+		}
+		if d <= 0 {
+			return 0, fmt.Errorf("%w: %q", ErrInvalidShellTimeout, raw)
+		}
+		return d, nil
+	}
+	def, err := half(s.Default, DefaultShellTimeout)
+	if err != nil {
+		return engine.ShellTimeout{}, err
+	}
+	maxd, err := half(s.Max, DefaultShellTimeoutMax)
+	if err != nil {
+		return engine.ShellTimeout{}, err
+	}
+	if def > maxd {
+		return engine.ShellTimeout{}, fmt.Errorf("%w: default %s exceeds max %s", ErrInvalidShellTimeout, def, maxd)
+	}
+	return engine.ShellTimeout{Default: def, Max: maxd}, nil
 }
 
 // DefaultDelegationIdleTimeout is the built-in default for

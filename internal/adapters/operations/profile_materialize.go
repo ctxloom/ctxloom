@@ -205,6 +205,7 @@ func MaterializeProfile(ctx context.Context, reg engine.Registry, cfg *config.Co
 	res.WithheldByPremise = describePremiseWithholds(asm.PremiseIndex, len(fragmentSkills) > 0)
 	settings := cfg.GetSettings()
 	pkg.Statusline = settings.ShouldManageStatusline()
+	pkg.ShellTimeout = cfg.GetShellTimeout()
 
 	// Materialize is the ONE sanctioned human-invoked project-root writer:
 	// the same static delivery a session gets, with the project root as the

@@ -37,6 +37,7 @@ type Fixture struct {
 	Runtime                      string
 	Permissions                  agents.NeutralPermissions
 	Delegation                   DelegationConfig
+	ShellTimeout                 ShellTimeoutConfig
 	IsolationImages              map[string]string
 	IsolationBase                string
 	IsolationDevcontainerService string
@@ -88,6 +89,7 @@ func (c *Config) ToFixture() Fixture {
 		Runtime:                      d.Runtime,
 		Permissions:                  d.Permissions,
 		Delegation:                   d.Delegation,
+		ShellTimeout:                 d.ShellTimeout,
 		IsolationImages:              d.IsolationImages,
 		IsolationBase:                d.IsolationBase,
 		IsolationDevcontainerService: d.IsolationDevcontainerService,
@@ -137,6 +139,7 @@ func NewFixture(f Fixture) *Config {
 		runtime:                      f.Runtime,
 		permissions:                  f.Permissions.Clone(),
 		delegation:                   f.Delegation,
+		shellTimeout:                 f.ShellTimeout,
 		isolationImages:              maps.Clone(f.IsolationImages),
 		isolationBase:                f.IsolationBase,
 		isolationDevcontainerService: f.IsolationDevcontainerService,

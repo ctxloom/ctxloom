@@ -569,12 +569,17 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	eh.rec = rec
 	eh.mu.Unlock()
 
-	// A run started paused answers its StartRun now and hands its first turn
-	// off once the gate lifts; otherwise the hand-off is synchronous, and a
-	// briefing that cannot start fails the launch.
-	//
-	// A refused dispatch here or below means Close has sealed: the run is
-	// being torn down, and Drive says so rather than leave half of it running.
+	return eh.handOff(ctx, home, prompt)
+}
+
+// handOff hands the run's first turn to the engine and arms the run's
+// terminal for a parked run. A run started paused answers its StartRun now
+// and hands its first turn off once the gate lifts; otherwise the hand-off is
+// synchronous, and a briefing that cannot start fails the launch.
+//
+// A refused dispatch means Close has sealed: the run is being torn down, and
+// the hand-off says so rather than leave half of it running.
+func (eh *EngineHost) handOff(ctx context.Context, home engineHome, prompt string) error {
 	if eh.pauseGate() != nil {
 		if err := eh.goTracked(func() {
 			if err := eh.deliverFirstTurn(home, prompt); err != nil {

@@ -67,14 +67,12 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	}
 
 	// Single writer pump: everything outbound funnels through the channel's
-	// queue. goTracked terminates once streamCtx is cancelled — either locally
-	// (a newer reconnect, or ReleaseRun's cancel) or when the server tears
-	// the underlying gRPC transport down (streamCtx derives from the STREAM's
+	// queue. It terminates once streamCtx is cancelled — either locally (a
+	// newer reconnect, or ReleaseRun's cancel) or when the server tears the
+	// underlying gRPC transport down (streamCtx derives from the STREAM's
 	// context, not c.baseCtx, so only the server actually cutting the
 	// transport unblocks a still-live channel — see Coordinator.Close's doc).
-	// A refused Track means the coordinator is closing: the channel ends
-	// Unavailable, and returning cancels streamCtx, ending a started pump.
-	if err := c.Track(func() {
+	pump := func() {
 		ch.Pump(streamCtx, func(f coord.OutFrame) error {
 			frame := OutFrameToWire(f)
 			if frame == nil {
@@ -82,30 +80,38 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 			}
 			return stream.Send(frame)
 		})
-	}); err != nil {
-		return status.Error(codes.Unavailable, err.Error())
 	}
-
-	recvErr := make(chan error, 1)
-	if err := c.Track(func() {
+	recv := func() error {
 		for {
 			frame, rerr := stream.Recv()
 			if rerr != nil {
-				recvErr <- rerr
-				return
+				return rerr
 			}
 			c.ConfirmAttach(ch)
 			handleAgentFrame(c, ch, frame)
 		}
-	}); err != nil {
+	}
+	return serveTracked(c, streamCtx, "run channel closed", pump, recv)
+}
+
+// serveTracked runs a stream's single writer pump and its single reader on
+// goroutines the coordinator's Close joins (Coordinator.Track), and returns
+// the reader's error, or Canceled with closed once streamCtx ends. A refused
+// Track means the coordinator is closing: the stream ends Unavailable, and
+// returning cancels the stream's context, which ends a pump already started.
+func serveTracked(c *coord.Coordinator, streamCtx context.Context, closed string, pump func(), recv func() error) error {
+	if err := c.Track(pump); err != nil {
 		return status.Error(codes.Unavailable, err.Error())
 	}
-
+	recvErr := make(chan error, 1)
+	if err := c.Track(func() { recvErr <- recv() }); err != nil {
+		return status.Error(codes.Unavailable, err.Error())
+	}
 	select {
 	case err := <-recvErr:
 		return err
 	case <-streamCtx.Done():
-		return status.Error(codes.Canceled, "run channel closed")
+		return status.Error(codes.Canceled, closed)
 	}
 }
 

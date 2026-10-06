@@ -33,6 +33,14 @@ import (
 // reach its boundary and report, so an ordinary shutdown interrupts no work.
 const drainProcessBound = 10 * time.Minute
 
+// drainWaitNotice is the one line the shutdown drain prints when it has runs
+// to wait for: the drain's label, the bound, how many runs and which, and how
+// to stop waiting. Without it a session whose own run has ended sits silent
+// for up to the bound, which reads as a hang. The interrupt is honoured by
+// the drain's caller (the session's teardown cuts the wait short on a
+// shutdown signal and Close then ends what is left).
+const drainWaitNotice = "%s: waiting up to %s for %d run(s) still in a turn to finish: %s; interrupt (Ctrl-C) to stop waiting and end them now"
+
 // Drain is one bounded drain's handle. Done closes once the drain has
 // settled — every child it tracked has exited or been forced — and Outcome
 // then says which.
@@ -74,6 +82,11 @@ type drainPolicy struct {
 	// whatever that does not end. Only an operator's stop asks this: the
 	// shutdown drain and a FINAL let the turn finish.
 	stop *stopAsk
+	// announceWait prints drainWaitNotice when the drain finds runs to wait
+	// for. Only the shutdown drain announces: its caller is a session whose
+	// own run has ended and that would otherwise sit silent; a bulk stop is
+	// an agent's own call and reports through its outcome.
+	announceWait bool
 }
 
 // stopAsk is what a drain's REQUEST hands each running child's runner.
@@ -85,10 +98,11 @@ type stopAsk struct {
 // shutdownPolicy is BeginDrain's: the coordinator is going away.
 func shutdownPolicy() drainPolicy {
 	return drainPolicy{
-		label:      "coordinator drain",
-		endCause:   CauseDrained,
-		endDetail:  func(where string) string { return "coordinator drain: ended " + where },
-		forceCause: CauseDrainInterrupted,
+		label:        "coordinator drain",
+		announceWait: true,
+		endCause:     CauseDrained,
+		endDetail:    func(where string) string { return "coordinator drain: ended " + where },
+		forceCause:   CauseDrainInterrupted,
 		forceDetail: func(bound time.Duration) string {
 			return fmt.Sprintf("coordinator drain: turn still running after the %s bound; interrupted", bound)
 		},
@@ -275,10 +289,15 @@ func (c *Coordinator) drainRequest(d *Drain, p drainPolicy) {
 func (c *Coordinator) drainWait(d *Drain, bound time.Duration, p drainPolicy) (exited, interrupted []string) {
 	timer := time.NewTimer(bound)
 	defer timer.Stop()
+	announced := false
 	for {
 		running, exited := c.drainClassify(d, p)
 		if len(running) == 0 {
 			return exited, nil
+		}
+		if !announced {
+			announced = true
+			c.announceDrainWait(p, bound, running)
 		}
 		select {
 		case <-d.wake:
@@ -325,6 +344,14 @@ func drainHarps(children []drainChild) []string {
 		harps = append(harps, ch.harp)
 	}
 	return harps
+}
+
+// announceDrainWait prints drainWaitNotice for the runs a drain is about to
+// wait on, under a policy that announces (drainPolicy.announceWait).
+func (c *Coordinator) announceDrainWait(p drainPolicy, bound time.Duration, running []drainChild) {
+	if p.announceWait {
+		c.rep.Warnf(drainWaitNotice, p.label, bound, len(running), strings.Join(drainHarps(running), ", "))
+	}
 }
 
 // warnDrainOutcome makes expiry LOUD: a coordinator that goes quiet about it

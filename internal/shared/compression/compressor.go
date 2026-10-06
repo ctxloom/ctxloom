@@ -1,6 +1,6 @@
 // Package compression provides content-aware compression for LLM context optimization.
-// It uses structural analysis (AST for code, schema for JSON) to preserve important
-// elements while removing redundant content.
+// It uses structural analysis (schema for JSON) to preserve important elements
+// while removing redundant content.
 package compression
 
 import (
@@ -44,7 +44,7 @@ type Result struct {
 	// Ratio is the actual compression ratio achieved (compressed/original).
 	Ratio float64
 
-	// ModelID identifies which compressor/model was used (e.g., "ast:go", "claude-3-sonnet").
+	// ModelID identifies which compressor/model was used (e.g., "claude-3-sonnet").
 	ModelID string
 }
 
@@ -108,19 +108,11 @@ func sniffContentType(content string) ContentType {
 	if len(content) > 3 && content[:3] == "---" {
 		return ContentTypeYAML
 	}
-	// A naive `content[:7] == "package"` prefix match (no trailing space,
-	// no further validation) once routed any prose starting with the word
-	// "package" ("package layout conventions…", "package management
-	// guidance…") to the Go AST compressor, which then emitted only the
-	// node kinds a real Go file produces and dropped everything else — a
-	// 1428-byte fragment compressed to 16 bytes of garbage, written over
-	// the item's delivered content. Content-sniffing for Go is inherently
-	// fragile in exactly this way (unlike the JSON/YAML sniffs above,
-	// which key on punctuation no prose plausibly opens with), and
-	// DetectContentType already routes every REAL .go file through its
-	// extension first — so the sniff is deleted rather than hardened; a Go
-	// source fragment with no .go-suffixed name falls through to
-	// ContentTypeUnknown and is compressed verbatim instead of guessed at.
+	// No sniff for source code: prose opening with a keyword ("package
+	// layout conventions…") is indistinguishable from a file by its first
+	// bytes, unlike the JSON/YAML sniffs above, which key on punctuation no
+	// prose plausibly opens with. A real source file is routed by its
+	// extension.
 	return ContentTypeUnknown
 }
 

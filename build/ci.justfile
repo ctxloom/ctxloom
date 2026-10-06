@@ -18,7 +18,7 @@
 # Imported (like build/gates.justfile) rather than duplicated, so `justfile`
 # and `justfile.container` share ONE definition. Nothing here may shell out to
 # docker or assume the devcontainer: these recipes run on bare `ubuntu-latest`,
-# inside the devcontainer image, and inside `goreleaser-cross`.
+# inside the devcontainer image, and inside the release job's Go image.
 #
 # GITHUB_* AWARENESS. A few recipes below write to $GITHUB_OUTPUT/$GITHUB_ENV/
 # $GITHUB_PATH when those are set, and are plain stdout commands when they are
@@ -278,10 +278,10 @@ _test-native goos runner:
         exit 1
     fi
 
-# Install the codegen/build tools release-completer.yml needs, at the versions
-# .devcontainer/tool-versions.env pins.
+# Install the release/codegen tools release-completer.yml needs, at the
+# versions .devcontainer/tool-versions.env pins.
 #
-# That job runs in goreleaser-cross, NOT the devcontainer image, so it cannot
+# That job runs in the official Go image, NOT the devcontainer image, so it cannot
 # inherit the toolchain and must install its own copies. Sourcing the same file
 # the Dockerfile reads is what stops the two drifting: buf.gen.yaml uses
 # `local:` plugins, so protoc-gen-go/protoc-gen-go-grpc must be on PATH at the
@@ -301,9 +301,10 @@ release-install-tools:
     chmod +x /usr/local/bin/buf
     go install google.golang.org/protobuf/cmd/protoc-gen-go@v${PROTOC_GEN_GO_VERSION}
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v${PROTOC_GEN_GO_GRPC_VERSION}
+    go install github.com/goreleaser/goreleaser/v2@v${GORELEASER_VERSION}
     gobin="$(go env GOPATH)/bin"
     if [ -n "${GITHUB_PATH:-}" ]; then echo "$gobin" >> "$GITHUB_PATH"; fi
-    echo "installed versionator ${VERSIONATOR_VERSION}, buf ${BUF_VERSION}, protoc-gen-go ${PROTOC_GEN_GO_VERSION}, protoc-gen-go-grpc ${PROTOC_GEN_GO_GRPC_VERSION} (plugins in $gobin)"
+    echo "installed versionator ${VERSIONATOR_VERSION}, buf ${BUF_VERSION}, goreleaser ${GORELEASER_VERSION}, protoc-gen-go ${PROTOC_GEN_GO_VERSION}, protoc-gen-go-grpc ${PROTOC_GEN_GO_GRPC_VERSION} (plugins in $gobin)"
 
 # SHA256 of the published install scripts, as KEY=VALUE.
 #

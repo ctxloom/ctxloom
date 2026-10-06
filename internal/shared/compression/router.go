@@ -5,7 +5,6 @@ import (
 )
 
 // Router dispatches content to the appropriate compressor based on content type.
-// For code and JSON, it uses fast local compression.
 type Router struct {
 	// Compressors registered by content type capability.
 	compressors []Compressor
@@ -15,7 +14,6 @@ type Router struct {
 func NewRouter() *Router {
 	return &Router{
 		compressors: []Compressor{
-			NewCodeCompressor(),
 			NewJSONCompressor(),
 		},
 	}

@@ -20,12 +20,10 @@ The scripts are open source and designed to be auditable. Your security paranoia
 The simplest way to install on macOS:
 
 ```bash
-brew install ctxloom/tap/ctxloom-full   # full build (tree-sitter AST compression)
-# or, for the lighter build without tree-sitter:
 brew install ctxloom/tap/ctxloom
 ```
 
-The `ctxloom/tap/...` shorthand auto-taps [`ctxloom/homebrew-tap`](https://github.com/ctxloom/homebrew-tap) — no separate `brew tap` needed. The two casks both install the `ctxloom` binary and are declared to conflict, so install just one. Upgrade later with `brew upgrade ctxloom/tap/ctxloom-full`.
+The `ctxloom/tap/...` shorthand auto-taps [`ctxloom/homebrew-tap`](https://github.com/ctxloom/homebrew-tap) — no separate `brew tap` needed. Upgrade later with `brew upgrade ctxloom/tap/ctxloom`.
 
 Homebrew casks are macOS-only. On Linux or Windows, use the install script or manual download below.
 
@@ -46,12 +44,9 @@ curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/instal
 ```
 
 The script also installs the companions [taskloom](/taskloom/)
-and [ltk](/ltk/), and always fetches the **light build** (no tree-sitter —
-see the Homebrew section above for the `_full` archives and the
-`ctxloom-full` cask). With Homebrew available, delegate the whole install to
+and [ltk](/ltk/). With Homebrew available, delegate the whole install to
 brew (`--brew`; the script also takes `-h`/`--help` for usage) — no
-unsigned-binary trust steps. Note `--brew` installs the same light
-`ctxloom/tap/ctxloom` cask, not `ctxloom-full`:
+unsigned-binary trust steps:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.sh | bash -s -- --brew
@@ -99,10 +94,7 @@ Get-Content install.ps1 | more
 
 ## Manual Download
 
-If you prefer to download binaries directly without running scripts. These
-archives (no `_full` suffix) are the **light build** — no tree-sitter AST
-compression. For that, use the Homebrew `ctxloom-full` cask above, or the
-`_full` archives / build-from-source instructions below.
+If you prefer to download binaries directly without running scripts.
 
 ### macOS
 
@@ -179,8 +171,6 @@ For development or to get the latest unreleased features. Also the most secure o
   `protoc-gen-go` and `protoc-gen-go-grpc` plugins on `PATH`: `buf.gen.yaml` runs them
   as local plugins, so `buf generate` fails without them
 - [just](https://github.com/casey/just) command runner (optional)
-- C compiler — only needed for the tree-sitter build below (`-tags treesitter`
-  with `CGO_ENABLED=1`); the plain build is CGO-free and doesn't need one
 
 The module root has no Go files — the main package is `./cmd/ctxloom`, so
 every build/install command below points there, not at `.`.
@@ -195,22 +185,15 @@ cd ctxloom
 # Generate protobuf files
 buf generate
 
-# Build (light build: no tree-sitter)
-go build -ldflags "-s -w" -o ctxloom ./cmd/ctxloom
+# Build (CGO-free, like the release)
+CGO_ENABLED=0 go build -ldflags "-s -w" -o ctxloom ./cmd/ctxloom
 
 # Install
 sudo mv ctxloom /usr/local/bin/
 ```
 
-Omitting `-tags treesitter` (and `CGO_ENABLED=1`) means no AST-based code
-compression — the build above matches the light release. For the full build:
-
-```bash
-CGO_ENABLED=1 go build -tags treesitter -ldflags "-s -w" -o ctxloom ./cmd/ctxloom
-```
-
-`just build` produces the full build (tree-sitter and friends) inside the
-project devcontainer — it needs Docker or Podman on the host.
+`just build` produces the same build inside the project devcontainer — it
+needs Docker or Podman on the host.
 
 ### Go Install (requires buf)
 
@@ -230,7 +213,7 @@ Or, from inside the repo, skip the manual buf/build dance entirely:
 just install
 ```
 
-`just install` builds the full build (via the devcontainer) and installs
+`just install` builds (via the devcontainer) and installs
 ctxloom, ltk, and taskloom to `~/go/bin`.
 
 Make sure `~/go/bin` is in your PATH:

@@ -23,16 +23,10 @@ before:
 #   installed one are signed under one definition rather than two that can
 #   drift. ctxloom REFUSES to execute a companion whose detached `<binary>.sig`
 #   does not verify, so an unsigned artifact is an unusable one. The signature
-#   is staged under the BUILD ID rather than the binary name because several
-#   builds emit the same binary name for the same target, and each archive
-#   below picks up its own by that id.
-#
-#   The `-upx` builds compress in that same chain, BEFORE signing. goreleaser's
-#   own `upx:` pipe runs after all build hooks, so signing in a hook would cover
-#   the uncompressed bytes while the archive shipped the compressed ones — a
-#   signature that cannot verify against the binary the user runs.
+#   is staged under the BUILD ID, and each archive below picks up its own by
+#   that id.
 builds:
-  # Standard build - no CGO required. Recommended for most users.
+  # One CGO-free ctxloom build per platform.
   - id: ctxloom
     flags:
       - -trimpath
@@ -52,129 +46,6 @@ builds:
       - arm64
     ldflags:
       - -s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{.Version}}
-
-  # Full build - adds tree-sitter (31MB)
-  # Requires CGO and cross-compilers. Statically linked on linux/windows (see
-  # ldflags below); netgo/osusergo force the pure-Go resolver and user lookups
-  # so static glibc linking doesn't break DNS or os/user.
-  - id: ctxloom-full
-    flags:
-      - -trimpath
-    hooks:
-      post:
-        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" ctxloom-full "{{ .Version }}"
-    main: ./cmd/ctxloom
-    binary: ctxloom
-    tags:
-      - treesitter
-      - netgo
-      - osusergo
-    env:
-      - CGO_ENABLED=1
-      # Cross-compiler environment variables (provided by goreleaser-cross image)
-      - >-
-        {{- if eq .Os "linux" }}
-          {{- if eq .Arch "amd64" }}CC=x86_64-linux-gnu-gcc{{- end }}
-          {{- if eq .Arch "arm64" }}CC=aarch64-linux-gnu-gcc{{- end }}
-        {{- end }}
-        {{- if eq .Os "darwin" }}
-          {{- if eq .Arch "amd64" }}CC=o64-clang{{- end }}
-          {{- if eq .Arch "arm64" }}CC=oa64-clang{{- end }}
-        {{- end }}
-        {{- if eq .Os "windows" }}
-          {{- if eq .Arch "amd64" }}CC=x86_64-w64-mingw32-gcc{{- end }}
-          {{- if eq .Arch "arm64" }}CC=/llvm-mingw/bin/aarch64-w64-mingw32-gcc{{- end }}
-        {{- end }}
-    goos:
-      - linux
-      - darwin
-      - windows
-    goarch:
-      - amd64
-      - arm64
-    ignore:
-      - goos: windows
-        goarch: arm64 # /llvm-mingw aarch64 cross-compiler unavailable in build image
-    ldflags:
-      - -s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{.Version}}
-      # Static linking for linux/windows; macOS cannot fully static-link system
-      # libraries, so leave darwin dynamic.
-      - '{{ if ne .Os "darwin" }}-extldflags "-static"{{ end }}'
-
-  # UPX-compressed twin of `ctxloom`. Compression is a post hook rather than
-  # goreleaser's `upx:` pipe, which runs AFTER build hooks and so would sign
-  # the uncompressed bytes while the archive shipped the compressed ones.
-  # Linux/windows only — UPX doesn't support macOS binaries well (breaks code
-  # signing), which is why darwin is absent from this build's goos.
-  - id: ctxloom-upx
-    flags:
-      - -trimpath
-    hooks:
-      post:
-        - just release-compress-binary "{{ .Path }}"
-        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" ctxloom-upx "{{ .Version }}"
-    main: ./cmd/ctxloom
-    binary: ctxloom
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-      - windows
-    goarch:
-      - amd64
-      - arm64
-    ldflags:
-      - -s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{.Version}}
-
-  # UPX-compressed twin of `ctxloom-full`. Compression is a post hook rather
-  # than goreleaser's `upx:` pipe, which runs AFTER build hooks and so would
-  # sign the uncompressed bytes while the archive shipped the compressed
-  # ones. Linux/windows only — UPX doesn't support macOS binaries well
-  # (breaks code signing), which is why darwin is absent from this build's
-  # goos.
-  - id: ctxloom-full-upx
-    flags:
-      - -trimpath
-    hooks:
-      post:
-        - just release-compress-binary "{{ .Path }}"
-        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" ctxloom-full-upx "{{ .Version }}"
-    main: ./cmd/ctxloom
-    binary: ctxloom
-    tags:
-      - treesitter
-      - netgo
-      - osusergo
-    env:
-      - CGO_ENABLED=1
-      # Cross-compiler environment variables (provided by goreleaser-cross image)
-      - >-
-        {{- if eq .Os "linux" }}
-          {{- if eq .Arch "amd64" }}CC=x86_64-linux-gnu-gcc{{- end }}
-          {{- if eq .Arch "arm64" }}CC=aarch64-linux-gnu-gcc{{- end }}
-        {{- end }}
-        {{- if eq .Os "darwin" }}
-          {{- if eq .Arch "amd64" }}CC=o64-clang{{- end }}
-          {{- if eq .Arch "arm64" }}CC=oa64-clang{{- end }}
-        {{- end }}
-        {{- if eq .Os "windows" }}
-          {{- if eq .Arch "amd64" }}CC=x86_64-w64-mingw32-gcc{{- end }}
-          {{- if eq .Arch "arm64" }}CC=/llvm-mingw/bin/aarch64-w64-mingw32-gcc{{- end }}
-        {{- end }}
-    goos:
-      - linux
-      - windows
-    goarch:
-      - amd64
-      - arm64
-    ignore:
-      - goos: windows
-        goarch: arm64 # /llvm-mingw aarch64 cross-compiler unavailable in build image
-    ldflags:
-      - -s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{.Version}}
-      # Static linking for linux/windows; macOS cannot fully static-link system
-      # libraries, so leave darwin dynamic.
-      - '{{ if ne .Os "darwin" }}-extldflags "-static"{{ end }}'
 
   # ltk companion (llm-tool-killer): pre-tool command/edit guardrail hook.
   # Pure-Go (CGO off) → statically linked on every target. Folded into this
@@ -275,7 +146,6 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}" # reproducible builds
 
 archives:
-  # Light build archives (default, recommended)
   - id: default
     formats: [tar.gz]
     format_overrides:
@@ -299,74 +169,6 @@ archives:
       - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom.sig
         dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.sig
       - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom.release
-        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.release
-      - LICENSE*
-      - README.md
-      - man/man1/*.1
-
-  # Full build archives (with tree-sitter)
-  - id: full
-    formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
-    ids:
-      - ctxloom-full
-    name_template: >-
-      {{ .ProjectName }}_
-      {{- .Version }}_
-      {{- .Os }}_
-      {{- .Arch }}_full
-    files:
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom-full.sig
-        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.sig
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom-full.release
-        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.release
-      - LICENSE*
-      - README.md
-      - man/man1/*.1
-
-  # UPX-compressed twin of `default`: smaller download, ~1.5s slower startup
-  # (UPX LZMA decompression). Linux/windows only.
-  - id: default-upx
-    formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
-    ids:
-      - ctxloom-upx
-    name_template: >-
-      {{ .ProjectName }}_
-      {{- .Version }}_
-      {{- .Os }}_
-      {{- .Arch }}_upx
-    files:
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom-upx.sig
-        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.sig
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom-upx.release
-        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.release
-      - LICENSE*
-      - README.md
-      - man/man1/*.1
-
-  # UPX-compressed twin of `full`: smaller download, ~1.5s slower startup
-  # (UPX LZMA decompression). Linux/windows only.
-  - id: full-upx
-    formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
-    ids:
-      - ctxloom-full-upx
-    name_template: >-
-      {{ .ProjectName }}_
-      {{- .Version }}_
-      {{- .Os }}_
-      {{- .Arch }}_full_upx
-    files:
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom-full-upx.sig
-        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.sig
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom-full-upx.release
         dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.release
       - LICENSE*
       - README.md
@@ -460,7 +262,6 @@ archives:
 # resolveCompanionPath and companionSigSuffix), so it looks beside the staged
 # copy rather than beside the link.
 homebrew_casks:
-  # Standard build (recommended): no CGO deps.
   #   brew install ctxloom/tap/ctxloom
   - name: ctxloom
     ids:
@@ -473,30 +274,6 @@ homebrew_casks:
     homepage: "https://github.com/ctxloom/ctxloom"
     description: "Context Loom - Weave context for AI coding agents"
     license: "BSD-3-Clause"
-    conflicts:
-      - cask: ctxloom-full
-    hooks:
-      post:
-        install: |
-          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/ctxloom"]
-          end
-
-  # Full build: adds tree-sitter AST code compression (CGO).
-  #   brew install ctxloom/tap/ctxloom-full
-  - name: ctxloom-full
-    ids:
-      - full
-    repository:
-      owner: ctxloom
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    directory: Casks
-    homepage: "https://github.com/ctxloom/ctxloom"
-    description: "Context Loom (full build with tree-sitter AST code compression)"
-    license: "BSD-3-Clause"
-    conflicts:
-      - cask: ctxloom
     hooks:
       post:
         install: |
@@ -652,25 +429,6 @@ release:
     multi-tenant container host, treat this as a trust boundary and isolate
     untrusted workloads on separate Docker networks. On Linux the transport is a
     bind-mounted unix socket instead and is not exposed over TCP.
-
-    ### Which Build?
-
-    | Build | Size | Features |
-    |-------|------|----------|
-    | **Standard** (`ctxloom_*`) | ~10MB | Everything except tree-sitter |
-    | **Full** (`ctxloom_*_full`) | ~12MB | + Tree-sitter AST code compression |
-
-    Tree-sitter is the only feature difference, and it is the reason the full
-    build requires CGO. Every other capability is present in both.
-
-    Each build ships in two forms:
-
-    - **Default** (no suffix, all platforms): uncompressed, fastest startup.
-    - **`_upx`** (linux/windows only): UPX-compressed, smaller download, but
-      ~1.5s slower per invocation due to LZMA decompression at startup.
-
-    Use the default unless the smaller download size matters more than
-    startup latency.
 
     ### Manual Installation
 

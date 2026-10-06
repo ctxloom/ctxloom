@@ -12,7 +12,7 @@
 import "../../build/common.justfile"
 
 # Build harp (no CGO) to {{TOP}}/bin/harp.
-build: (_go-build (TOP / "cmd/harp") (TOP / "bin/harp") "main.Version" "" "0")
+build: (_go-build (TOP / "cmd/harp") (TOP / "bin/harp") "main.Version")
 
 # Compress the built harp binary with UPX (best, LZMA), via
 # build/common.justfile's shared _compress. Feeds `build-compressed` below.

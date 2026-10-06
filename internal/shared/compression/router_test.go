@@ -19,7 +19,9 @@ func TestNewRouter(t *testing.T) {
 
 	assert.NotNil(t, router)
 	assert.NotNil(t, router.compressors)
-	assert.Len(t, router.compressors, 2) // Code and JSON compressors
+	if assert.Len(t, router.compressors, 1) {
+		assert.True(t, router.compressors[0].CanHandle(ContentTypeJSON), "the router's one compressor is the JSON compressor")
+	}
 }
 
 // =============================================================================
@@ -80,7 +82,7 @@ func TestRouter_NoHandlerMatchesVerbatimResult(t *testing.T) {
 
 // failingCompressor claims a type and fails on it — the shape of any compressor
 // whose work can genuinely fail (the LLM-backed one this package's Result.ModelID
-// doc already anticipates: "ast:go", "claude-3-sonnet").
+// doc already anticipates: "claude-3-sonnet").
 type failingCompressor struct{ err error }
 
 func (f failingCompressor) CanHandle(ct ContentType) bool { return ct == ContentTypeYAML }
@@ -102,13 +104,8 @@ func TestRouter_CompressWithType_PropagatesCompressorError(t *testing.T) {
 	assert.ErrorIs(t, err, sentinel, "the router hands a compressor's failure straight to the caller")
 }
 
-// The two errors the tree-sitter compressor CREATES are deliberately degraded
-// to verbatim rather than returned — fault tolerance, so unparseable content
-// still reaches the model. One of them is unreachable through the router at
-// all: CanHandle gates Compress, and every type it admits has a grammar, so
-// parserPool's "unsupported language" can only be produced by calling Compress
-// directly. This pins the degrade, so a future change that returns those errors
-// instead is a deliberate one.
+// A type no compressor claims passes through the router verbatim and without
+// error, so the caller can still hand it to the model.
 func TestRouter_UnsupportedTypeNeverReachesACompressor(t *testing.T) {
 	r := NewRouter()
 	for _, ct := range []ContentType{ContentTypeYAML, ContentTypeMarkdown, ContentTypeUnknown} {

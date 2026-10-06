@@ -96,20 +96,17 @@ func TestCleanDistilledOutput_TrailingFenceMustBeAlone(t *testing.T) {
 // =============================================================================
 
 func TestIsStructuredContent(t *testing.T) {
-	structured := []compression.ContentType{
+	// JSON is the one type with a local structural compressor; source code
+	// goes to the LLM like prose.
+	assert.True(t, isStructuredContent(compression.ContentTypeJSON))
+
+	unstructured := []compression.ContentType{
 		compression.ContentTypeGo,
 		compression.ContentTypePython,
 		compression.ContentTypeJavaScript,
 		compression.ContentTypeTypeScript,
 		compression.ContentTypeRust,
 		compression.ContentTypeJava,
-		compression.ContentTypeJSON,
-	}
-	for _, ct := range structured {
-		assert.True(t, isStructuredContent(ct), "%s should be structured", ct)
-	}
-
-	unstructured := []compression.ContentType{
 		compression.ContentTypeYAML,
 		compression.ContentTypeMarkdown,
 		compression.ContentTypeUnknown,

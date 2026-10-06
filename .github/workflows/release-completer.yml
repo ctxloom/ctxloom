@@ -22,16 +22,17 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     container:
-      # goreleaser-cross includes cross-compilation toolchains for CGO.
-      # Pinned to v1.26 to match go.mod's `go 1.26.0` (and the devcontainer's
-      # 1.26.x) so the release builds on the same major.minor as CI without an
-      # implicit GOTOOLCHAIN download at release time.
-      image: ghcr.io/goreleaser/goreleaser-cross:v1.26
+      # The official Go image: every release build is CGO-free, so no cross
+      # toolchain is needed, and goreleaser comes from release-install-tools at
+      # its pinned version. Pinned to 1.26 to match go.mod's `go 1.26.0` (and
+      # the devcontainer's 1.26.x) so the release builds on the same
+      # major.minor as CI.
+      image: golang:1.26
     env:
       # This job has no docker-in-docker, so it must use the CONTAINER
       # justfile: the host justfile's same-named `proto`/`validate` recipes
       # delegate into `just dev-image`, which would try to build the
-      # devcontainer image from inside goreleaser-cross.
+      # devcontainer image from inside this job's container.
       JUST_JUSTFILE: justfile.container
 
     steps:
@@ -45,11 +46,11 @@ jobs:
           fetch-depth: 0
 
       # The one step that cannot be a `just` target: it is what makes curl
-      # available for the `just` bootstrap on the next line. goreleaser-cross
-      # is not the devcontainer image and ships none of this.
+      # available for the `just` bootstrap on the next line. The Go image is
+      # not the devcontainer image and is not guaranteed to ship it.
       - name: Install dependencies
         run: |
-          apt-get update && apt-get install -y git curl upx unzip
+          apt-get update && apt-get install -y git curl unzip
 
       - uses: ./.github/actions/setup-just
 
@@ -57,14 +58,14 @@ jobs:
         run: just ci-git-safe-directory
 
       # .devcontainer/tool-versions.env is the single source of truth for every
-      # pinned tool version. This job runs in goreleaser-cross, not the
+      # pinned tool version. This job runs in the Go image, not the
       # devcontainer image, so it can't inherit the toolchain and must install
       # its own copies — `release-install-tools` sources that same file rather
       # than hand-copying version numbers, which is what makes drift
       # impossible instead of merely checked for. internal/shared/buildpins' drift
       # gate fails if this workflow stops routing through that recipe, or if
       # the recipe stops deriving from the file.
-      - name: Install build tools (versionator, buf, protoc plugins)
+      - name: Install build tools (goreleaser, versionator, buf, protoc plugins)
         run: just release-install-tools
 
       # buf.gen.yaml uses `local:` plugins (not BSR `remote:` ones — see

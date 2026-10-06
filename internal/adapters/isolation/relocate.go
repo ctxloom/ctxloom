@@ -247,7 +247,10 @@ func (hostRelocator) engineRoot(cwd string) (string, error) { return cwd, nil }
 
 // primary is the host layer: a host run's paths are the controller's own,
 // and the controller's own layer is known only to a runtime that has
-// identified it (ociRuntime.self).
+// identified it (ociRuntime.self). It is also the right key space for the
+// human's trust answers a host run reads, even when the controller is
+// containerized: ctxloom mounts no ~/.claude.json, so that file is the
+// controller process's own, written by a claude in the same view.
 func (hostRelocator) primary() Layer { return HostLayer() }
 
 func inPlace(dir string) present.Root { return present.Root{Host: dir, Engine: dir} }

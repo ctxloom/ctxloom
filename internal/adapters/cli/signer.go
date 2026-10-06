@@ -282,9 +282,7 @@ PER-MACHINE USER store (~/.ctxloom/allowed_signers) instead. Run outside a
 project (no .ctxloom directory found), the default falls back to the user
 store automatically and says so.
 
-This does NOT reject any content that signer already published or approved
-— it means "I will review this myself from now on", not "deny". Use
-'ctxloom bundle reject <ref>' to actually reject content.
+This does NOT reject any content that signer already published.
 
 <principal> naming ctxloom's OWN embedded release key is a special case: that
 key is compiled into the binary and cannot be deleted by this command.
@@ -328,7 +326,7 @@ func runSignerUntrust(cmd *cobra.Command, cfg *config.Config, principal string, 
 		case res.EmbeddedSuppressed:
 			_, err := fmt.Fprintf(w,
 				"%s is ctxloom's embedded release key; it cannot be deleted (only a new binary changes it), "+
-					"but it is now DISTRUSTED on this machine — content signed only by it will be withheld until reviewed (recorded in %s)\n",
+					"but it is now DISTRUSTED on this machine — its signatures no longer verify here (recorded in %s)\n",
 				res.Principal, res.SuppressionPath)
 			return err
 		case res.Removed == 0:

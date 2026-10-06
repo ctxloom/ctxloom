@@ -2,8 +2,6 @@ package bundles
 
 import (
 	"testing"
-
-	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
 // Form-selection characterization.
@@ -65,31 +63,30 @@ const (
 	hashCmdNoDistill = "sha256:d114a21386da623b2bcc1de6425f86a80a6d89ca5c38c77214b3df5e27f12071"
 )
 
-// charExpectation is one pinned exposure: for a given gate ref and form
-// preference, exactly these bytes (by hash), served in exactly this form, with
-// exactly this body handed to the caller.
+// charExpectation is one pinned exposure: for a given item and form
+// preference, exactly these preimage bytes (by hash), served in exactly this
+// form, with exactly this body handed to the caller.
 type charExpectation struct {
-	gateRef string // the ref the trust gate is keyed by
-	form    string // "raw" | "distilled" — the form half of the grant
-	hash    string // sha256 of the EXACT bytes hashed for the gate
-	body    string // the exact bytes exposed to the caller
+	form string // "raw" | "distilled"
+	hash string // sha256 of the item's preimage in that form
+	body string // the exact bytes exposed to the caller
 }
 
 // charFragments pins the three fragment shapes under both preferences.
 // Index: [preferDistilled][fragment name].
 var charFragments = map[bool]map[string]charExpectation{
 	false: {
-		"distillable": {gateRef: "chars#fragments/distillable", form: "raw", hash: hashFragRaw, body: charFragRaw},
-		"plain":       {gateRef: "chars#fragments/plain", form: "raw", hash: hashFragPlain, body: charFragPlain},
-		"nodistill":   {gateRef: "chars#fragments/nodistill", form: "raw", hash: hashFragNoDistill, body: charFragNoDistill},
+		"distillable": {form: "raw", hash: hashFragRaw, body: charFragRaw},
+		"plain":       {form: "raw", hash: hashFragPlain, body: charFragPlain},
+		"nodistill":   {form: "raw", hash: hashFragNoDistill, body: charFragNoDistill},
 	},
 	true: {
 		// The ONLY cell that differs: a fragment that HAS a distilled form and
 		// does not forbid it. Everything else falls back to raw, and that
 		// fallback is itself part of the contract.
-		"distillable": {gateRef: "chars#fragments/distillable", form: "distilled", hash: hashFragDistilled, body: charFragDistilled},
-		"plain":       {gateRef: "chars#fragments/plain", form: "raw", hash: hashFragPlain, body: charFragPlain},
-		"nodistill":   {gateRef: "chars#fragments/nodistill", form: "raw", hash: hashFragNoDistill, body: charFragNoDistill},
+		"distillable": {form: "distilled", hash: hashFragDistilled, body: charFragDistilled},
+		"plain":       {form: "raw", hash: hashFragPlain, body: charFragPlain},
+		"nodistill":   {form: "raw", hash: hashFragNoDistill, body: charFragNoDistill},
 	},
 }
 
@@ -98,14 +95,14 @@ var charFragments = map[bool]map[string]charExpectation{
 // re-keying it would invalidate every existing grant.
 var charCommands = map[bool]map[string]charExpectation{
 	false: {
-		"distillable": {gateRef: "chars#prompts/distillable", form: "raw", hash: hashCmdRaw, body: charCmdRaw},
-		"plain":       {gateRef: "chars#prompts/plain", form: "raw", hash: hashCmdPlain, body: charCmdPlain},
-		"nodistill":   {gateRef: "chars#prompts/nodistill", form: "raw", hash: hashCmdNoDistill, body: charCmdNoDistill},
+		"distillable": {form: "raw", hash: hashCmdRaw, body: charCmdRaw},
+		"plain":       {form: "raw", hash: hashCmdPlain, body: charCmdPlain},
+		"nodistill":   {form: "raw", hash: hashCmdNoDistill, body: charCmdNoDistill},
 	},
 	true: {
-		"distillable": {gateRef: "chars#prompts/distillable", form: "distilled", hash: hashCmdDistilled, body: charCmdDistilled},
-		"plain":       {gateRef: "chars#prompts/plain", form: "raw", hash: hashCmdPlain, body: charCmdPlain},
-		"nodistill":   {gateRef: "chars#prompts/nodistill", form: "raw", hash: hashCmdNoDistill, body: charCmdNoDistill},
+		"distillable": {form: "distilled", hash: hashCmdDistilled, body: charCmdDistilled},
+		"plain":       {form: "raw", hash: hashCmdPlain, body: charCmdPlain},
+		"nodistill":   {form: "raw", hash: hashCmdNoDistill, body: charCmdNoDistill},
 	},
 }
 
@@ -172,15 +169,12 @@ func charSeed() map[string]*Bundle {
 // anywhere BELOW this type, the relocation changed behavior.
 type charExposure struct {
 	pipe   *Pipeline
-	seen   map[string][2]string // gate ref → {hash, form}
 	prefer bool
 }
 
 func newCharExposure(preferDistilled bool) *charExposure {
-	seen := map[string][2]string{}
 	return &charExposure{
-		pipe:   NewPipeline(NewLoader(seedLocal(charSeed())), blockingGate(seen), LinksUnchecked(), preferDistilled),
-		seen:   seen,
+		pipe:   admitAllPipe(NewLoader(seedLocal(charSeed())), preferDistilled),
 		prefer: preferDistilled,
 	}
 }
@@ -234,16 +228,6 @@ func assertExposure(t *testing.T, path string, e *charExposure, want charExpecta
 	}
 	if got.IsDistilled != (want.form == "distilled") {
 		t.Errorf("%s: IsDistilled = %v, want %v", path, got.IsDistilled, want.form == "distilled")
-	}
-	hf, ok := e.seen[want.gateRef]
-	if !ok {
-		t.Fatalf("%s: trust gate never keyed on %q; saw %v", path, want.gateRef, collections.SortedKeys(e.seen))
-	}
-	if hf[0] != want.hash {
-		t.Errorf("%s: gate hashed %s, want %s — THE TRUST PREIMAGE MOVED; every existing grant for this item just staled", path, hf[0], want.hash)
-	}
-	if hf[1] != want.form {
-		t.Errorf("%s: gate saw form %q, want %q — a grant binds (bytes, form); the form half moved", path, hf[1], want.form)
 	}
 }
 

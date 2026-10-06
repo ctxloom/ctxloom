@@ -19,7 +19,7 @@ const ProjectContextPreamble = "\n\n_The content below was assembled by ctxloom 
 	"instructions._" +
 	"\n\n_Manage ctxloom with its CLI (run `ctxloom` through your shell): create/edit " +
 	"bundles, profiles, fragments, commands, and skills; `ctxloom deps pull`, `ctxloom signer " +
-	"trust <principal> --key <key.pub>`, `ctxloom review`; `ctxloom manage hooks install`. The ctxloom " +
+	"trust <principal> --key <key.pub>`; `ctxloom manage hooks install`. The ctxloom " +
 	"MCP tools are only for retrieving context during the session — searching and loading " +
 	"fragments, commands, and prior session history. Task tracking is the " +
 	"separate `taskloom` MCP server and `taskloom` CLI._"

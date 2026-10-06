@@ -12,14 +12,11 @@ import (
 // either a bug upstream or an attack, never authored intent.
 //
 // It is a security property, not tidiness. A ref is interpolated verbatim into
-// the LF-delimited countersign preimage (signing.CountersignPayload), where an
-// embedded LF closes the `ref:` line early and lets the remainder of the ref
-// forge the `form:` and `len:` lines the framing emits after it — two distinct
-// (assertion, ref, form, payload) tuples framing to identical bytes, so one
-// signature verifies for both and both file at one index hash. It is also
-// rendered to the human whose approval is the entire point of the review gate:
-// CR, backspace and ESC let a hostile ref repaint the terminal so the string
-// shown is not the string being approved.
+// line-delimited text — canonical strings, lockfile keys, terminal output —
+// where an embedded LF closes a line early and lets the remainder forge the
+// lines after it — two distinct refs rendering to identical bytes. It is also
+// rendered to a human: CR, backspace and ESC let a hostile ref repaint the
+// terminal so the string shown is not the string being acted on.
 //
 // The whole C0 range plus DEL is stripped rather than only CR/LF, because both
 // hazards above generalise past the two characters that happen to break the

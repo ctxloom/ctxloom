@@ -184,7 +184,7 @@ func TestDepWalker_RecurseParent_NotBundleProfileRefRecordsUnexpanded(t *testing
 // mechanism protecting existing lockfile entries from being erased when the
 // closure narrows; a root failure had no way to reach it.
 func TestNamedRoots_LoadFailureRecordsUnexpanded(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{})
+	cfg := config.NewFixture(config.Fixture{})
 	loader := profiles.NewLoader([]string{t.TempDir()}) // empty dir: nothing loads
 
 	roots, unexpanded := namedRoots(cfg, loader, []string{"missing-profile"})
@@ -217,7 +217,7 @@ func TestNamedRoots_LoadableProfileIsNeverUnexpanded(t *testing.T) {
 // UpgradeDependencies and `remote lock` both call) must merge namedRoots'
 // own failures into its returned unexpanded set, not just the walker's.
 func TestFlattenDependencies_RootLoadFailureSurfacesInUnexpanded(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{})
+	cfg := config.NewFixture(config.Fixture{})
 	testsupport.Isolate(t)
 
 	_, _, unexpanded, _ := FlattenDependencies(context.Background(), cfg, []string{"missing-profile"})

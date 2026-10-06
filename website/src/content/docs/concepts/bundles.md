@@ -165,9 +165,8 @@ fragments:
 ## Content References
 
 Reference bundle content using hash syntax. These forms work on the command
-line — `ctxloom fragment show`, `ctxloom command show`, `ctxloom bundle trust`, and
-similar item-addressing commands (`bundle trust` takes only the `#<kind>/<name>`
-forms, and never a profile):
+line — `ctxloom fragment show`, `ctxloom command show`, and similar
+item-addressing commands:
 
 | Syntax | Description |
 |--------|-------------|
@@ -193,6 +192,6 @@ instead.
 These fields serve different purposes:
 
 - `notes` - Internal documentation for humans only. Never sent to the AI.
-- `installation` - Setup instructions for a person to read. `ctxloom bundle show` prints them, and `ctxloom review` shows an MCP server's alongside the command it runs. `ctxloom deps pull` does not surface them, and ctxloom never runs them.
+- `installation` - Setup instructions for a person to read. `ctxloom bundle show` prints them. `ctxloom deps pull` does not surface them, and ctxloom never runs them.
 
 Setup that a tool needs on every machine where agents run belongs to a companion, whose loadout declares it as typed setup guidance and tooling (see [Tooling declarations](/concepts/agents/#tooling-declarations)).

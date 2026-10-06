@@ -1,7 +1,6 @@
 package bundles
 
 import (
-	"bytes"
 	"context"
 	"path/filepath"
 	"testing"
@@ -17,70 +16,22 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// A bundle in the project's own content tree is trusted BY VIRTUE OF BEING
-// LOCAL — the decision function allows it at its local step, above every
-// signature step, and no filesystem load path verifies a publisher signature at
-// all. So a stale or invalid sibling `.sig` cannot and must not withhold it.
-//
-// What it MUST do is say something. A signature that no longer covers its bytes
-// is a promotion failure waiting to happen: `bundle push` and `bundle move --to`
-// both refuse to publish that pair (they would hand every consumer a tamper
-// alarm), so the author finds out at the moment they publish rather than at the
-// moment they broke it. Saying it at load turns a deferred, confusing failure
-// into an immediate, actionable one — and, unlike a withhold, costs the user
-// none of their content.
-//
-// Every test below therefore asserts BOTH halves: the content is delivered, AND
-// the diagnostic is (or is not) emitted. Asserting only the warning would let a
-// regression that withholds the content pass.
-//
-// The diagnostic RIDES THE VERDICT: the Authorizer answers the decision
-// table's `local | invalid | *` row with {Allow: true, Reason:
-// ReasonStaleLocalSignature, Detail: StaleSignatureAdvice}, and the delivery
-// path prints Detail. So these tests drive a Pipeline, which is the only place
-// both halves are observable at once. signatureRowsAuthorizer below is the row
-// itself, spelled locally; the production decision that produces it is pinned
-// in internal/adapters/operations.
-
-// signatureRowsAuthorizer is the two decision-table rows that key on the signature
-// axis, and nothing else:
-//
-//	local  | invalid | * -> ADMIT + WARN  (locality already answered the trust
-//	                                       question; the author has to be told)
-//	remote | invalid | * -> WITHHOLD      (tamper — never degraded to unsigned)
-//
-// Everything else admits plainly. It is the ROWS, spelled here so a test can
-// observe the delivery path acting on a Verdict; the production decision that
-// produces these verdicts is pinned in internal/adapters/operations.
-func signatureRowsAuthorizer() Authorizer {
-	return authorizerFunc(func(e Exposure) Verdict {
-		if e.Read.Signature() != SignatureInvalid {
-			return admitVerdict()
-		}
-		if e.Read.TrustCtx() == TrustCtxRemote {
-			return Verdict{Reason: ReasonTampered, Detail: e.Read.SignatureDetail()}
-		}
-		return Verdict{Allow: true, Reason: ReasonStaleLocalSignature, Detail: StaleSignatureAdvice(e.Read)}
-	})
-}
+// A bundle in the project's own content tree is delivered whatever its
+// signature says: no filesystem load path verifies a publisher signature for
+// local content, so a stale, corrupt or absent sibling signature never
+// withholds it. The author learns about a stale signature when they publish
+// (`bundle push` / `bundle move --to` refuse, ErrStaleSignature).
 
 // deliverKeeper resolves the fixture bundle's one fragment through a pipeline
-// carrying signatureRowsAuthorizer, capturing everything the user was told, and returns
-// the delivered content plus those diagnostics.
-func deliverKeeper(t *testing.T, fsys afero.Fs, bundleName string) (*LoadedContent, string) {
+// and returns the delivered content.
+func deliverKeeper(t *testing.T, fsys afero.Fs, bundleName string) *LoadedContent {
 	t.Helper()
-	var warnings bytes.Buffer
-	restore := clidiag.SetSink(&warnings)
-	t.Cleanup(restore)
-
-	pipe := NewPipeline(NewLoader(NewProjectReader(fsys, []string{"/bundles"}, WithReaderReporter(ledger()))).WithReporter(ledger()),
-		signatureRowsAuthorizer(), LinksUnchecked(), false)
+	pipe := admitAllPipe(NewLoader(NewProjectReader(fsys, []string{"/bundles"}, WithReaderReporter(ledger()))).WithReporter(ledger()), false)
 	lc, err := pipe.GetFragment(bundleName + "#fragments/keeper")
 	require.NoError(t, err, "a signature fact about LOCAL content must never withhold it")
-	return lc, warnings.String()
+	return lc
 }
 
 // signBytesFor signs data under the publish namespace with a throwaway key and
@@ -118,59 +69,35 @@ func editItemFile(t *testing.T, mem afero.Fs, dir string) {
 	require.NotEmpty(t, mutateAnItemFile(t, mem, dir))
 }
 
-func TestLoader_LoadFile_StaleLocalSignature_WarnsAndDelivers(t *testing.T) {
+func TestLoader_LoadFile_StaleLocalSignature_Delivers(t *testing.T) {
 	mem, dir := localTreeFixture(t, "stale-tools", true)
 	editItemFile(t, mem, dir)
 
-	lc, warnings := deliverKeeper(t, mem, "stale-tools")
+	lc := deliverKeeper(t, mem, "stale-tools")
 
 	require.NotNil(t, lc)
 	assert.Equal(t, "KEEPER-PAYLOAD\nTAMPERED\n", lc.Content,
-		"the content must be delivered — locality already answered the trust question")
-	assert.Contains(t, warnings, "ctxloom: warning:")
-	assert.Contains(t, warnings, content.ManifestPath, "the warning names the manifest the files no longer match")
-	assert.Contains(t, warnings, "ctxloom bundle sign stale-tools",
-		"the warning must name the command that fixes it")
+		"the content must be delivered — it is local")
 }
 
-func TestLoader_LoadFile_ValidLocalSignature_Silent(t *testing.T) {
+func TestLoader_LoadFile_ValidLocalSignature_Delivers(t *testing.T) {
 	mem, _ := localTreeFixture(t, "valid-tools", true)
 
-	lc, warnings := deliverKeeper(t, mem, "valid-tools")
-
-	assert.Equal(t, "KEEPER-PAYLOAD", lc.Content)
-	assert.Empty(t, warnings, "a signature that still covers the files is not a problem")
+	assert.Equal(t, "KEEPER-PAYLOAD", deliverKeeper(t, mem, "valid-tools").Content)
 }
 
-func TestLoader_LoadFile_UnsignedLocalBundle_Silent(t *testing.T) {
+func TestLoader_LoadFile_UnsignedLocalBundle_Delivers(t *testing.T) {
 	mem, _ := localTreeFixture(t, "plain-tools", false)
 
-	lc, warnings := deliverKeeper(t, mem, "plain-tools")
-
-	assert.Equal(t, "KEEPER-PAYLOAD", lc.Content)
-	assert.Empty(t, warnings)
+	assert.Equal(t, "KEEPER-PAYLOAD", deliverKeeper(t, mem, "plain-tools").Content)
 }
 
-func TestLoader_LoadFile_CorruptLocalSignature_WarnsAndDelivers(t *testing.T) {
+func TestLoader_LoadFile_CorruptLocalSignature_Delivers(t *testing.T) {
 	mem, dir := localTreeFixture(t, "corrupt-tools", true)
 	entries, err := afero.ReadDir(mem, filepath.Join(dir, content.SigDirName))
 	require.NoError(t, err)
 	require.NotEmpty(t, entries, "the fixture signed the manifest")
 	testsupport.WriteFile(t, mem, filepath.Join(dir, content.SigDirName, entries[0].Name()), []byte("not a signature\n"), 0o644)
 
-	lc, warnings := deliverKeeper(t, mem, "corrupt-tools")
-
-	assert.Equal(t, "KEEPER-PAYLOAD", lc.Content)
-	assert.Contains(t, warnings, content.ManifestPath)
-}
-
-func TestLoader_LoadFile_StaleLocalSignature_WarnsOncePerBundle(t *testing.T) {
-	mem, dir := localTreeFixture(t, "repeat-tools", true)
-	editItemFile(t, mem, dir)
-
-	_, first := deliverKeeper(t, mem, "repeat-tools")
-	_, second := deliverKeeper(t, mem, "repeat-tools")
-
-	assert.Contains(t, first, content.ManifestPath)
-	assert.Empty(t, second, "the same stale tree must not be reported twice in one process")
+	assert.Equal(t, "KEEPER-PAYLOAD", deliverKeeper(t, mem, "corrupt-tools").Content)
 }

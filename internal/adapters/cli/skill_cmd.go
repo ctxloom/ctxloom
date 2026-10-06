@@ -361,15 +361,12 @@ traversal, symlinks, hardlinks/device files, entry-count bombs, and
 decompression bombs are all rejected before anything is written to disk.
 Accepts either the canonical Anthropic-shaped .zip or a .tar.gz.
 
-The imported tree lands as REVIEWABLE content — pending review like any
-freshly-pulled remote bundle content, never auto-trusted. If --sig names a
-detached signature (as 'ctxloom skill export --sign' produces), it is
-verified against the extracted tree's own recomputed manifest before the
-import is reported; an unsigned or untrusted-publisher signature does not
-block the import (ctxloom never auto-trusts remote content on import —
-'ctxloom review'/'ctxloom signer trust' still govern whether it is ever exposed),
-but a STRUCTURALLY invalid archive or package (a rejected entry, or a
-SKILL.md that fails frontmatter validation) is refused and cleaned up.`,
+If --sig names a detached signature (as 'ctxloom skill export --sign'
+produces), it is verified against the extracted tree's own recomputed
+manifest before the import is reported; an unsigned or untrusted-publisher
+signature does not block the import, but a STRUCTURALLY invalid archive or
+package (a rejected entry, or a SKILL.md that fails frontmatter validation) is
+refused and cleaned up.`,
 	Example: `  ctxloom skill import ./code-reviewer.zip --bundle my-bundle
   ctxloom skill import ./code-reviewer.zip --bundle my-bundle --sig ./code-reviewer.zip.sig`,
 	Args: cobra.ExactArgs(1),
@@ -403,12 +400,6 @@ func renderSkillImport(out io.Writer, res *operations.ImportSkillResult) {
 	fmt.Fprintf(out, "Imported skill %q into bundle %q (%d file(s))\n", res.Name, res.Bundle, res.FileCount)
 	fmt.Fprintf(out, "  %s\n", inertField(res.Dir))
 	fmt.Fprintf(out, "  signature: %s\n", inertField(res.SignatureState))
-	// The bundle name is NOT appended as an argument: reviewCmd is
-	// cobra.NoArgs, so `ctxloom review <bundle>` — which this line used to
-	// print — is rejected by the very tool that advised it. The bundle is
-	// already named on the first line of this output; what the user needs
-	// here is a command that runs.
-	fmt.Fprintln(out, "Pending review — run: ctxloom review")
 }
 
 func init() {

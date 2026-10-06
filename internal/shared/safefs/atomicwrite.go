@@ -19,9 +19,8 @@ type writeConfig struct {
 
 // AllowEmpty strips the empty-write guard (NewGuardFs) for this write. The
 // one legitimate shape is a writer that has already decided, with its own
-// narrower reasoning, that a zero-byte result is meaningful — a countersign
-// index whose last entry was just removed, a gitignore whose only rule was
-// retired.
+// narrower reasoning, that a zero-byte result is meaningful — a gitignore
+// whose only rule was retired.
 func AllowEmpty() Option {
 	return func(c *writeConfig) { c.allowEmpty = true }
 }

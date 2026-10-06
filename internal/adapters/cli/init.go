@@ -12,11 +12,9 @@ import (
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -153,12 +151,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 		// exited 0, printed "ctxloom directory already exists", and added
 		// zero remotes. Honour the flags here too, on a pre-existing dir.
 		addPersonalRemotesFn(cmd, appDir, initRemotes, initForge)
-		// A project initialized before the approvals store was provisioned
-		// withholds everything until it is: re-running init is the remedy the
-		// trust finding and doctor both name.
-		if err := operations.ProvisionApprovalsStore(nil, appDir); err != nil {
-			return err
-		}
 		// A re-init installs the declared closure too. A project whose first
 		// init ran offline, or a fresh clone of one, has references it can
 		// resolve only through a lockfile entry it does not have; re-running
@@ -279,34 +271,6 @@ func engineForExistingDir(selected, appDir string) string {
 	return ""
 }
 
-// ctxloomDefaultTrusted reports whether THIS machine actually trusts
-// ctxloom's own embedded publishing key for the publish namespace — the key
-// that signs every bundle the "ctxloom-default" remote serves. It reads the
-// live trust root (Config.TrustRoot) rather than asserting trust
-// unconditionally: a human can locally distrust an embedded principal
-// (`ctxloom signer untrust <principal>`, writing
-// ~/.ctxloom/distrusted_signers or its project equivalent), and init used to
-// claim "this binary trusts" the seeded remote regardless, then in the same
-// run print a dozen "withheld: signed by a key this machine does not trust"
-// warnings when that remote's content was actually admitted.
-//
-// A nil cfg (the config init just wrote could not be read back) answers
-// false: the honest answer when trust cannot be established is "do not
-// claim it," not "assume the common case."
-func ctxloomDefaultTrusted(cfg *config.Config) bool {
-	if cfg == nil {
-		return false
-	}
-	root := cfg.Trust().Root()
-	now := time.Now()
-	for _, e := range configload.EmbeddedSigners().Entries() {
-		if root.TrustedForNamespace(e.PublicKey, signing.NamespacePublish, now).Trusted {
-			return true
-		}
-	}
-	return false
-}
-
 // setupNewCtxloomDir performs first-time setup for a non-existent .ctxloom dir:
 // resolve the engine (with interactive prompts), write the skeleton, register
 // personal/discovery remotes, pull the seeded dependencies, and write the
@@ -327,15 +291,6 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
 	fmt.Printf("Default AI engine: %s\n", engine)
 	fmt.Println("Seeded remote \"ctxloom-default\" (official curated repo).")
-	trustCfg, trustCfgErr := GetConfig()
-	if trustCfgErr != nil {
-		trustCfg = nil
-	}
-	if ctxloomDefaultTrusted(trustCfg) {
-		fmt.Println("Its bundles are signed by ctxloom's publishing key, which this binary trusts, so they need no review.")
-	} else {
-		fmt.Println("Its bundles are signed by ctxloom's publishing key, which this machine does not trust — they will await `ctxloom review`.")
-	}
 
 	// Targeted system-dependency gate, right after the marker dir/minimal
 	// config and BEFORE the clone two lines down: git is a hard prerequisite
@@ -465,7 +420,7 @@ func addPersonalRemotes(cmd *cobra.Command, appDir string, repos []string, forge
 			if res.Warning != "" {
 				clidiag.Warn("ctxloom", "%s", res.Warning)
 			}
-			fmt.Printf("Added remote %q: %s (content takes the review path — 'ctxloom review')\n", req.Name, req.URL)
+			fmt.Printf("Added remote %q: %s\n", req.Name, req.URL)
 		}
 	}
 }

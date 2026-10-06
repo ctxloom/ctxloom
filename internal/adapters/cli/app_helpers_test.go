@@ -10,10 +10,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -70,23 +69,21 @@ func (s probeSources) Read(context.Context) (*config.Config, []config.Warning, e
 }
 
 func (s probeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.Trust().Root()
+	root := cfg.TrustRoot()
 	return []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
 		bundles.NewCompanionReader(s.probe, bundles.WithTrustRoot(root)),
 	}, nil
 }
 
-// TrustPorts builds the root a generation read over the fixture's app dir
-// holds (its signer files, read now), over compositetest's review and
-// retraction records.
-func (s probeSources) TrustPorts(_ context.Context, cfg *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
+// TrustRoot builds the root a generation read over the fixture's app dir
+// holds (its signer files, read now).
+func (s probeSources) TrustRoot(_ context.Context, cfg *config.Config) (trust.TrustRoot, error) {
 	read, err := configload.Load(configload.WithRoot(safefs.NewMem(cfg.FS())), configload.WithAppDir(cfg.GetAppPaths()[0]))
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
-	_, records, retraction := compositetest.Ports()
-	return read.Trust().Root(), records, retraction, nil
+	return read.TrustRoot(), nil
 }
 
 // withCompanionProbe returns cfg as the generation a process would hold when

@@ -11,10 +11,8 @@ import (
 // the recognizers for spellings the reference grammar no longer accepts.
 //
 // It lives HERE, in the package that owns Ref and BundleRef, rather than in
-// operations, because the delivery pipeline (bundles.Pipeline) must judge a
-// selector exactly as a `ctxloom bundle trust` mutation does. Two parsers
-// would be two addressing schemes, and an item approved under one spelling
-// would be gated under another.
+// operations, because every caller must judge a selector the same way. Two
+// parsers would be two addressing schemes.
 
 // IsRetiredBuiltinSpelling reports whether ask is written as "builtin:<name>",
 // the one bundle-reference spelling NOTHING in this system still mints: the
@@ -84,8 +82,7 @@ func ParseSelector(sel string) (ItemKind, string, error) {
 		// "commands" is the current spelling (the CLI list emits #commands/<name>);
 		// "prompts" is the legacy alias from the prompt→skill rename before it.
 		// Both map to KindPrompt so the stored key (KindPrompt.Dir() ==
-		// "prompts"), the assembly-time content gate, and existing acceptances
-		// stay valid — the content lives in bundle.Commands, which the hash
+		// "prompts") and existing references stay valid — the content lives in bundle.Commands, which the hash
 		// helpers read under KindPrompt.
 		//
 		// NOTE: "skills" is deliberately NOT an alias here. Before the

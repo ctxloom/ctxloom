@@ -3,8 +3,9 @@ package operations
 import (
 	"context"
 	"errors"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"sort"
+
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
@@ -79,13 +80,11 @@ type UpgradeResult struct {
 // written.
 //
 // There is no review gate here: the lockfile is pure dependency pinning.
-// Whether any newly-pinned content ever reaches the agent is decided per item
-// at exposure by the content-hash trust gate (EffectiveTrust).
 //
 // ONE ADVANCE IS REFUSED OUTRIGHT: content whose publisher signature does not
-// verify over its own bytes. That content is withheld as TAMPERED and is
-// deliberately not reviewable, so moving the pin past the last commit that DID
-// verify leaves the consumer with nothing. Such an entry keeps its existing
+// verify over its own bytes. A reader refuses that content as TAMPERED, so
+// moving the pin past the last commit that DID verify leaves the consumer with
+// nothing. Such an entry keeps its existing
 // lockfile values verbatim and is reported in UpgradeResult.Refused, which the
 // caller must tell the human about. See verifyAdvance for the exact rule.
 //
@@ -235,7 +234,7 @@ func reResolveClosure(ctx context.Context, cfg *config.Config, loader *profiles.
 	}
 	fetchFailed = refreshRepoCaches(ctx, NewRepoCache(cfg), unionLockedRepoURLs(directRepoURLs(roots), active), registered)
 	resolve := newConstraintResolver(ctx, active, factory, auth, true)
-	proposed, conflicts, unexpanded, err := flattenRootsWith(ctx, loader, factory, auth, cfg.Trust().Root(), roots, resolve, registered)
+	proposed, conflicts, unexpanded, err := flattenRootsWith(ctx, loader, factory, auth, cfg.TrustRoot(), roots, resolve, registered)
 	if err != nil {
 		return nil, nil, false, err
 	}

@@ -15,7 +15,7 @@ Print the context, commands, hooks and MCP servers ltk contributes to a session
 
 loadout emits the ctxloom loadout ltk contributes — a document with the RUN
 bundle a session consumes and the typed INIT section setup consumes — for
-ctxloom's companion discovery to seed into its trust gate under the source ref
+ctxloom's companion discovery to seed under the source ref
 ctxloom:companion@ltk (signature-envelope spec §4.3, §6).
 
 --format json is the machine contract ctxloom's companion discovery execs

@@ -36,9 +36,6 @@ reference at its pin. A changed constraint is reported and left for
 'ctxloom deps upgrade', which is the one command that moves a pin; 'ctxloom deps
 check' is what tells you one could be moved.
 
-Pulling does not expose content to your assistant. Content from an untrusted
-source is withheld per item until you accept it with 'ctxloom review'.
-
 ```
 ctxloom deps pull [flags]
 ```

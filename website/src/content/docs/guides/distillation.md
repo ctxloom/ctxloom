@@ -56,8 +56,8 @@ the agent named `distiller` (or on `bundle distill --llm <label>`; with neither,
 on the **fast role**, `llm.defaults.fast`), as one internal one-shot session
 whose turns are the items being distilled. The
 prompt is ctxloom's built-in one unless a bundle you use ships a `distill`
-command, which replaces it; a `distill` command the trust gate withholds stops the
-run rather than falling back to the built-in prompt (`ctxloom review` settles it).
+command, which replaces it; a `distill` command that cannot be delivered stops the
+run rather than falling back to the built-in prompt.
 
 1. **Original content** is analyzed by an AI model
 2. **Key information** is extracted and condensed

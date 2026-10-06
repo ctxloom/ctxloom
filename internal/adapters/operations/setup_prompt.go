@@ -28,7 +28,7 @@ func ResolveSetupPrompt(cfg *config.Config, builtin string) string {
 		return builtin
 	}
 	// preferDistilled stays false: the INIT loadout has no distilled form.
-	pipe := bundles.NewPipeline(loader, cfg.ExecutableTrustGate(), bundles.LinksUnchecked(), false)
+	pipe := bundles.NewPipeline(loader, bundles.LinksUnchecked(), false)
 	parts := []string{builtin}
 	for _, admitted := range pipe.InitLoadouts() {
 		if text := strings.TrimSpace(admitted.Init.SetupGuidance); text != "" {

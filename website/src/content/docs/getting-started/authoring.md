@@ -251,13 +251,12 @@ Name your repository `ctxloom` or `ctxloom-*` so `ctxloom remote discover` can f
 ### Using a Shared Bundle
 
 Registering a remote installs nothing. A consumer references the bundle from a
-profile, pulls it, and accepts it:
+profile, and pulls it:
 
 ```bash
 ctxloom remote create standards you/ctxloom-standards
 ctxloom profile create standards --include standards/my-standards
 ctxloom deps pull
-ctxloom review
 ctxloom run -p standards "help me"
 ```
 

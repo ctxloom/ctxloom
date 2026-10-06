@@ -31,7 +31,7 @@ func memMoveFS(t *testing.T, _ bool) (afero.Fs, *config.Config) {
 	bdir := authoredV1(appDir)
 	require.NoError(t, fs.MkdirAll(bdir, 0755))
 	bundletree.Write(t, fs, bdir, "seed", moveBundleBody)
-	return fs, gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 func srcBundlePath(cfg *config.Config) string {
@@ -231,7 +231,7 @@ func memMoveDirFS(t *testing.T) (afero.Fs, *config.Config) {
 		[]byte("version: 1.0.0\n"), 0644))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "skills", "reviewer", "SKILL.md"),
 		[]byte("---\nname: reviewer\ndescription: d\n---\n\nbody\n"), 0644))
-	return fs, gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 // THE FORMER DATA-LOSS PATH (taskloom hurried-showplace), now fixed rather than
@@ -279,7 +279,7 @@ func TestMoveBundle_DirectoryFormWithNoPayloadBesideTheManifest_StillMoves(t *te
 	dir := filepath.Join(authoredV1(appDir), "seed")
 	require.NoError(t, fs.MkdirAll(dir, 0755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "bundle.yaml"), []byte("version: 1.0.0\n"), 0644))
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	require.NoError(t, fs.MkdirAll("/out", 0755))
 
 	res, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
@@ -300,7 +300,7 @@ func TestMoveBundle_TreeEnvelope_LandsUnderTheDestinationsV2Root(t *testing.T) {
 	testsupport.WriteFileString(t, fs,
 		filepath.Join(authoredV1(appDir), "seed", bundles.DirectoryFormManifest),
 		"version: 1.0.0\ndescription: a tree envelope\n", 0644)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	require.NoError(t, fs.MkdirAll("/other/.ctxloom", 0755))
 
 	res, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/other", FS: fs})

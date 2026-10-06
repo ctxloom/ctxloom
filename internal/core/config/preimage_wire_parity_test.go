@@ -49,10 +49,9 @@ import (
 // byte is a fact. So this gate asserts on bytes, from the real code path, at
 // both ends:
 //
-//  1. THE SIGNED SET IS TAKEN FROM THE PREIMAGE THE PRODUCTION PATH ACTUALLY
-//     HASHED. extractHooksFromBundle / extractMCPFromBundle build the preimage
-//     themselves and hand it to the trust gate; the test installs a capturing
-//     gate and reads the field set off THOSE bytes. It never reflects over
+//  1. THE SIGNED SET IS TAKEN FROM THE PREIMAGE BYTES THEMSELVES. The item's
+//     own ContentPayload — the bytes a signature covers — is decoded and the
+//     field set read off it. It never reflects over
 //     hookContentPayload's Go field names — a field added to the preimage
 //     struct shows up here the moment ContentPayload emits it, and there is no
 //     second list to keep in sync.
@@ -115,9 +114,9 @@ var preimageWireExemptions = map[string]string{
 }
 
 // preimageSubject is one signed bundle item plus the REAL production path that
-// turns it into wire types. Deliver returns the preimage bytes that path itself
-// fed to the trust gate — not a preimage the test built — so the two ends being
-// compared provably come from the same value in the same code path.
+// turns it into wire types. Deliver returns the item's preimage bytes beside
+// the wire output that same item produced, so both ends being compared come
+// from one value.
 type preimageSubject struct {
 	Name     string
 	ItemType reflect.Type
@@ -146,9 +145,9 @@ func preimageSubjects() []preimageSubject {
 }
 
 // deliverHookToWire puts the item in all seven hook events and runs
-// extractHooksFromBundle — the production path — with a capturing always-allow
-// gate. Using every event is not redundancy: the seven slots are wired by hand,
-// and a slot that dropped the hook would otherwise be invisible here.
+// extractHooksFromBundle — the production path — beside the hook's own
+// preimage (BundleHook.ContentPayload). Using every event is not redundancy:
+// the seven slots are wired by hand, and a slot that dropped the hook would otherwise be invisible here.
 func deliverHookToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]byte) {
 	t.Helper()
 	h, ok := item.Interface().(bundles.BundleHook)
@@ -165,16 +164,13 @@ func deliverHookToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]b
 		TurnEnd:      one(),
 	}}
 
-	var payloads [][]byte
-	gate := bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
-		payloads = append(payloads, append([]byte(nil), e.Bytes...))
-		return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
-	})
+	payload, err := h.ContentPayload()
+	require.NoError(t, err, "build the hook's preimage")
 
 	// Set on a reader-established read, not written as a tree: the sentinel
 	// fill populates every field, and a tree round-trip would test which of
 	// them the tree format carries rather than whether extraction delivers them.
-	got := extractHooksFromBundle(report.Reporter{}, readWithHooks(t, bundle.Hooks), mustLocalRef(t, "parity-src"), gate, bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, readWithHooks(t, bundle.Hooks), mustLocalRef(t, "parity-src"), bundles.LinksUnchecked())
 
 	out := map[string][]byte{}
 	for label, hooks := range map[string][]wire.Hook{
@@ -203,32 +199,25 @@ func deliverHookToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]b
 		out[label] = raw
 	}
 
-	require.NotEmpty(t, payloads, "the trust gate was never called — no preimage was built, so there is nothing to compare against")
-	for i, p := range payloads[1:] {
-		require.Equalf(t, string(payloads[0]), string(p),
-			"event %d hashed a DIFFERENT preimage for the same hook — the signed bytes must not depend on which event a hook is wired to", i+1)
-	}
-	return payloads[0], out
+	require.NotEmpty(t, payload, "no preimage was built, so there is nothing to compare against")
+	return payload, out
 }
 
-// deliverMCPToWire runs extractMCPFromBundle — the production path — with a
-// capturing always-allow gate.
+// deliverMCPToWire runs extractMCPFromBundle — the production path — beside
+// the server's own preimage (BundleMCP.ContentPayload).
 func deliverMCPToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]byte) {
 	t.Helper()
 	m, ok := item.Interface().(bundles.BundleMCP)
 	require.True(t, ok, "subject item is not a bundles.BundleMCP")
 
-	var payload []byte
-	gate := bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
-		payload = append([]byte(nil), e.Bytes...)
-		return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
-	})
+	payload, err := m.ContentPayload()
+	require.NoError(t, err, "build the MCP server's preimage")
 
 	// Set on a reader-established read for the reason deliverHookToWire gives:
 	// the tree format does not carry every field the sentinel fill sets.
 	read := bundletree.ProjectRead(t, "fixture", &bundles.Bundle{}, bundletree.Unsigned)
 	read.Bundle.MCP = map[string]bundles.BundleMCP{"parity": m}
-	servers := extractMCPFromBundle(report.Reporter{}, read, mustLocalRef(t, "parity-src"), gate)
+	servers := extractMCPFromBundle(report.Reporter{}, read, mustLocalRef(t, "parity-src"))
 	srv, ok := servers["parity"]
 	if !ok {
 		t.Fatal("the production path produced no wire MCP server — nothing to compare against")
@@ -236,7 +225,7 @@ func deliverMCPToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]by
 	raw, err := json.Marshal(srv)
 	require.NoError(t, err, "marshal wire MCP server")
 
-	require.NotEmpty(t, payload, "the trust gate was never called — no preimage was built")
+	require.NotEmpty(t, payload, "no preimage was built")
 	return payload, map[string][]byte{"server": raw}
 }
 

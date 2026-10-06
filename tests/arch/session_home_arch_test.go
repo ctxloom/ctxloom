@@ -62,7 +62,7 @@ func TestArch_LayoutHasNoHarpKeyedRows(t *testing.T) {
 		// is added here deliberately, and a harp can never be.
 		head := strings.SplitN(strings.TrimPrefix(e.Rel, statePrefix), sep, 2)[0]
 		switch head {
-		case paths.TrustFileName, paths.LocksDir:
+		case paths.LocksDir:
 		default:
 			t.Errorf("Layout row %q sits under state/%s, which is neither a known fixed resident nor allowed to be a per-session key", e.Rel, head)
 		}

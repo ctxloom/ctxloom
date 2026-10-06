@@ -59,9 +59,6 @@ Claude Code has `CLAUDE.md` - but it is **project-level only** and encourage int
 # Initialize
 ctxloom init
 
-# Review what the remotes shipped - pulled content is withheld until you accept it
-ctxloom review
-
 # Run with context fragments (-f takes FRAGMENT names, not bundle names)
 ctxloom run -f go-rules -f tdd "implement auth"
 
@@ -124,7 +121,7 @@ flowchart LR
 1. **Bundles** contain fragments (context), commands (slash commands), and MCP servers
 2. **Profiles** combine bundles with inheritance and exclusions
 3. **Context** is assembled and handed to the engine on its own context channel - Claude Code is launched with `--append-system-prompt-file`. The same session also carries ctxloom's MCP server, served by the running session, which your agent can *retrieve* from mid-session. Nothing is registered in the project itself.
-4. **Remotes** provide team sharing and community bundles. Pulled content is withheld from the agent until you accept it with `ctxloom review`
+4. **Remotes** provide team sharing and community bundles. Adding a remote is the trust decision: what it serves reaches the agent
 
 ## Core Concepts
 

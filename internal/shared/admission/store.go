@@ -24,8 +24,8 @@ import (
 // companion exec gate and the publish-destination gate independently built.
 //
 // A record is DATA, not a signature: its authority is the filesystem
-// permissions on the user's home directory, exactly like the unsigned approval
-// markers of the signature-envelope spec §9.5. That is why the store is
+// permissions on the user's home directory, exactly like ssh's known_hosts.
+// That is why the store is
 // personal-only and has no committable project twin.
 //
 // TWO KEYS, ONE RULE. A record lives in a SCOPE (what a human means when they

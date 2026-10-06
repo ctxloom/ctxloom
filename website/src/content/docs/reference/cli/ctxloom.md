@@ -27,7 +27,6 @@ FIND AND ADD CONTENT
   ctxloom search <query>           Search installed and remote content
   ctxloom profile list             The profiles you can launch with 'run -p <ref>'
   ctxloom deps pull                Install what the project's profiles name
-  ctxloom review                   Accept or reject content waiting for review
 
 KEY CONCEPTS
   Fragment   A reusable piece of context: a coding standard, a pattern
@@ -76,7 +75,6 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - List the MCP servers this project registers
 * [ctxloom profile](/reference/cli/ctxloom_profile/)	 - Manage profiles (named fragment collections)
 * [ctxloom remote](/reference/cli/ctxloom_remote/)	 - Register and browse the sources content comes from
-* [ctxloom review](/reference/cli/ctxloom_review/)	 - Review pending items: trust or reject what the agent may see
 * [ctxloom run](/reference/cli/ctxloom_run/)	 - Assemble context and run AI
 * [ctxloom search](/reference/cli/ctxloom_search/)	 - Search content across local and remote sources
 * [ctxloom session](/reference/cli/ctxloom_session/)	 - Browse and manage your recorded sessions

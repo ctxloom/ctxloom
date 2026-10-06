@@ -12,18 +12,15 @@ import (
 )
 
 // Every path in this package that renders PUBLISHER-AUTHORED bytes onto a
-// terminal goes through here — `review`'s listing, header, item bodies and
-// diffs, `fragment|command show`, `bundle view`, and every identifier a
-// listing interpolates (inertField). Four display paths once had the same
+// terminal goes through here — `fragment|command show`, `bundle view`, and
+// every identifier a listing interpolates (inertField). Four display paths once had the same
 // defect independently (delicious-goatskin), which is why this is one seam and
 // not four patches: a new display path adopts it by construction.
 //
-// The threat it closes is a TRUST-DECISION FORGERY, not a cosmetic glitch.
-// `ctxloom review` renders content a publisher wrote at exactly the moment a
-// human is deciding whether to trust that publisher, and a terminal executes
-// what it is sent: a cursor-up plus erase-line pair lets the rendered body
-// rewrite the line above it — the line naming which bundle and which signer
-// the item came from. A double-quoted YAML scalar decodes "\e[1A" into a live
+// The threat it closes is a FORGERY of what the reader sees, not a cosmetic
+// glitch. A terminal executes what it is sent: a cursor-up plus erase-line
+// pair lets a rendered body rewrite the line above it — the line naming which
+// bundle the item came from. A double-quoted YAML scalar decodes "\e[1A" into a live
 // ESC at RENDER time, so nothing on disk looks dangerous; the render seam is
 // the only place that sees the bytes as the terminal will. The escaping itself
 // is displaysafe.Text's, the one policy every human-facing surface shares.

@@ -57,7 +57,7 @@ func TestResolveSetupPrompt_NoGuidanceIsBuiltinAlone(t *testing.T) {
 		"ltk": "run:\n  version: 1.0.0\n  fragments:\n    ltk:\n      content: RUN-ONLY\n",
 	})
 	appDir, _ := regenTestApp(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	assert.Equal(t, "BUILTIN", ResolveSetupPrompt(published(t, cfg), "BUILTIN"),
 		"no companion declares setup_guidance → the built-in prompt alone")
@@ -76,7 +76,7 @@ func TestResolveSetupPrompt_CompanionSetupGuidanceAugmentsBuiltin(t *testing.T) 
 		"ltk": "run:\n  version: 1.0.0\ninit:\n  setup_guidance: COMPANION-SHIPPED-SETUP-GUIDANCE\n",
 	})
 	appDir, _ := regenTestApp(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	got := ResolveSetupPrompt(published(t, cfg), "BUILTIN-DEFAULT")
 	assert.Contains(t, got, "BUILTIN-DEFAULT", "the built-in guidance must still be present")
@@ -94,7 +94,7 @@ func TestResolveSetupPrompt_TwoCompanionsComposeInStableOrder(t *testing.T) {
 		"ltk":      "init:\n  setup_guidance: ALPHA-SETUP-CONTENT\n",
 	})
 	appDir, _ := regenTestApp(t)
-	cfg := published(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
+	cfg := published(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 
 	got := ResolveSetupPrompt(cfg, "BUILTIN")
 	require.Contains(t, got, "BUILTIN")
@@ -126,7 +126,7 @@ commands:
   agent-setup:
     content: "PROJECT-MAGIC-COMMAND"
 `)
-	cfg := published(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
+	cfg := published(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 
 	got := ResolveSetupPrompt(cfg, "BUILTIN")
 	assert.Equal(t, "BUILTIN", got, "a command named agent-setup is not setup guidance")
@@ -141,7 +141,7 @@ func TestResolveSetupPrompt_HealthyPathNeverWarns(t *testing.T) {
 		"ltk": "init:\n  setup_guidance: COMPANION-SHIPPED-SETUP-GUIDANCE\n",
 	})
 	appDir, _ := regenTestApp(t)
-	cfg := published(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
+	cfg := published(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)

@@ -123,7 +123,7 @@ func treeBundleReader(cfg *config.Config, canonical trust.BundleKey, entry remot
 	// The owner ruled that --disable-sig-check also accepts an installed signed
 	// tree edited after signing. The verifier still says so; the generation's
 	// waived gate decides, and names it.
-	if cfg.Trust().SignatureCheckDisabled() {
+	if cfg.SignatureCheckDisabled() {
 		opts = append(opts, bundles.WithEditedTreesCarried())
 	}
 	return bundles.NewRepoFSReader(tree, string(canonical), opts...), nil
@@ -328,7 +328,7 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 	// The trust root (embedded + user + project allowed_signers) is resolved once
 	// for the whole set and handed to every reader, so no two pinned bundles are
 	// judged against different roots.
-	root := cfg.Trust().Root()
+	root := cfg.TrustRoot()
 
 	// EVERY remote bundle is a TREE, so treeBundleReaders is the whole set.
 	//

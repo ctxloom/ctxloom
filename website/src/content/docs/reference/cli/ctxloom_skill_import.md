@@ -18,15 +18,12 @@ traversal, symlinks, hardlinks/device files, entry-count bombs, and
 decompression bombs are all rejected before anything is written to disk.
 Accepts either the canonical Anthropic-shaped .zip or a .tar.gz.
 
-The imported tree lands as REVIEWABLE content — pending review like any
-freshly-pulled remote bundle content, never auto-trusted. If --sig names a
-detached signature (as 'ctxloom skill export --sign' produces), it is
-verified against the extracted tree's own recomputed manifest before the
-import is reported; an unsigned or untrusted-publisher signature does not
-block the import (ctxloom never auto-trusts remote content on import —
-'ctxloom review'/'ctxloom signer trust' still govern whether it is ever exposed),
-but a STRUCTURALLY invalid archive or package (a rejected entry, or a
-SKILL.md that fails frontmatter validation) is refused and cleaned up.
+If --sig names a detached signature (as 'ctxloom skill export --sign'
+produces), it is verified against the extracted tree's own recomputed
+manifest before the import is reported; an unsigned or untrusted-publisher
+signature does not block the import, but a STRUCTURALLY invalid archive or
+package (a rejected entry, or a SKILL.md that fails frontmatter validation) is
+refused and cleaned up.
 
 ```
 ctxloom skill import <archive> [flags]

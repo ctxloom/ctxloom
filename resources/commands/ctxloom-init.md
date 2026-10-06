@@ -205,13 +205,6 @@ Bind the chosen profile(s) into an agent and point `default_agent` there
 (`ctxloom agent create dev --profiles <name>`, `ctxloom agent default dev`) so
 a bare `ctxloom run` picks it up — confirm the choice with the user.
 
-### 3e. Review
-
-Anything pulled from a remote the user hasn't seen before is held, not
-silently active. Run `ctxloom review` (`--list` for just the queue) and walk
-them through accept/reject — a standing surface, not a one-time setup step,
-so it's fine to point it out again on a later reconfigure too.
-
 ## Phase 4 — Agents
 
 Bind **ctxloom agents** — named, LOCAL bindings of an **engine** (LLM

@@ -38,28 +38,12 @@ bind those remotes to a specific forge, `--non-interactive` to skip all prompts,
 `--skip-launch` to skip the auto-launch, and `--no-pull` to skip the dependency
 pull.
 
-## Review What the Remote Shipped
+## What the Remote Shipped
 
-`ctxloom-default`'s bundles are signed by ctxloom's publishing key, which the
-binary trusts, so after a fresh `init` nothing is pending. Content pulled from
-any other remote is **withheld from the agent until you accept it**. Until then
-`run -f` naming it fails with `no fragments loaded: requested fragments not
-found`, and a profile that draws on it runs without it, warning `awaiting review
-— run 'ctxloom review'`. Review after every pull from a new remote:
-
-```bash
-# See what is waiting, without reviewing (non-interactive)
-ctxloom review --list
-
-# Walk each pending item: [t]rust, [r]eject, [s]kip; [T]/[R] for the rest of the bundle
-ctxloom review
-```
-
-Accepting countersigns the item's exact bytes with your SSH key; if that content
-later changes, it goes back to pending and you review the diff. Content you
-authored in this project is exempt and never appears here. No SSH key yet? See
-[Prerequisites → Signing and publishing](/getting-started/installation/#signing-and-publishing-needs-ssh) —
-review still works with no key, recorded as an explicit unsigned decision.
+Adding a remote is the trust decision: what a remote you registered serves
+reaches the agent, with no separate review step. `ctxloom deps upgrade` shows
+what moving each pin would bring in before `--yes` applies it — see
+[Trust](/concepts/review-and-trust/).
 
 ## Browse Available Content
 
@@ -204,8 +188,7 @@ ctxloom remote show community
 ctxloom profile create go-testing --include community/go-testing
 ctxloom deps pull
 
-# Accept the newly pulled content, then run with it
-ctxloom review
+# Run with it
 ctxloom run -p go-testing "help with tests"
 ```
 

@@ -136,8 +136,7 @@ func (r BundleRef) String() string {
 	return r.render(true)
 }
 
-// Identity renders the canonical reference WITHOUT "@<version>". This is the
-// countersign store address and the string that enters the signature preimage.
+// Identity renders the canonical reference WITHOUT "@<version>".
 //
 // It replaces the CanonicalURL()+"|"+Key() composition, and replacing it is
 // the point (R5). That join was redundant — a canonical URI already carries

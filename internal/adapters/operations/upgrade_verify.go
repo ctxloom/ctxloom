@@ -63,11 +63,9 @@ type RefusedAdvance struct {
 // publisher signature that FAILS to verify — the tree read's withheld outcome
 // (bundles.ErrTreeBundleWithheld), the one outcome the verifier never calls
 // benign. Unsigned content, or content signed by a key this machine does not
-// trust, reads as unsigned-to-you and takes the review path. A signature that
-// does not cover its bytes is deliberately not reviewable
-// (bundles.Reason.NeedsReview), so advancing onto it strands the user with
-// nothing — the new copy withheld as tampered and the old copy unreachable
-// past the moved pin.
+// trust, is not refused. A signature that does not cover its bytes is refused
+// by the reader, so advancing onto it strands the user with nothing — the new
+// copy refused as tampered and the old copy unreachable past the moved pin.
 //
 // ON TOP of that, a pin that recorded a signed version (prior.SignedVersion) is
 // held to it: a lower signed version, or content no longer signed at all, is
@@ -95,7 +93,7 @@ func verifyAdvance(ctx context.Context, cfg *config.Config, factory remote.Fetch
 		return remote.Verified{}, nil
 	}
 	var v remote.Verified
-	_, v, err = bundles.ReadRemoteRef(ctx, factory, auth, ref, p.Hash, remotetree.PullTreeFetcher, cfg.Trust().Root())
+	_, v, err = bundles.ReadRemoteRef(ctx, factory, auth, ref, p.Hash, remotetree.PullTreeFetcher, cfg.TrustRoot())
 	switch {
 	case err == nil:
 	case errors.Is(err, errs.ErrRemoteContentNotFound) || errors.Is(err, content.ErrNotFound),

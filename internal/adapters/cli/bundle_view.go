@@ -126,8 +126,8 @@ func writeBundleViewText(w io.Writer, ref, itemPath string, content []byte) erro
 //
 // The profiles arm is the ONE addition to that vocabulary, and it lives here
 // because `view` walks the bundle DOCUMENT: a profile is content a reader may
-// want to see, while trust.ParseSelector addresses only what can be delivered
-// and countersigned, which a profile never is.
+// want to see, while trust.ParseSelector addresses only what can be
+// delivered, which a profile never is.
 //
 // For fragments and commands the distilled view is preferred when useDistilled
 // is true AND the entry has a distilled payload; otherwise the raw Content is

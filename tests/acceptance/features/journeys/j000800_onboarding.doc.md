@@ -31,11 +31,9 @@ pinned, not whatever an upstream happens to be serving the morning he joins —
 or "we all use the same standard" is a hope, not a fact. His own machine is
 not a clone of anyone else's, so whatever guidance depends on a companion tool
 he hasn't installed yet has to degrade cleanly rather than break his very
-first session. And a fresh machine must never become a quiet way around the
-trust gate: what the project itself authored reaches Bob immediately, but
-anything the project only *references* from elsewhere is still gated on Bob
-himself trusting that publisher — exactly as if he had met it any other way.
-Onboarding is not a special, looser tier of trust.
+first session. And what the project references from other repositories has
+to arrive as readily as what it authored: the team made the trust decision
+once, when it added the repository, and Bob inherits it with the clone.
 <!-- /doc:intro -->
 
 <!-- doc:scenario: Bob clones the project and his assistant already has the team's context -->
@@ -57,32 +55,12 @@ fall back on: Bob receives exactly the version the team froze, not whatever
 happens to be newest that morning.
 <!-- /doc:scenario -->
 
-<!-- doc:scenario: Content from a publisher Bob has not trusted is held, even on a fresh clone -->
-Onboarding must never quietly become a loophole around the trust gate. The
-project's own context is first-party — the team wrote it, so it reaches Bob
-unconditionally, exactly as J000700 already established for anyone on the team. But
-the instant the project *references* a bundle published by someone else, that
-reference is only a pointer until Bob personally trusts the key behind it, and
-a brand-new machine changes nothing about that: the content is held for his
-review precisely as it would be for anyone else meeting an untrusted publisher.
-
-This is also the first moment a new hire meets "held for your review," and it
-is worth being precise about what that phrase actually decides — approval and
-denial mean something different for a paragraph of guidance than for an MCP
-server or a hook that runs a command. See
-[The trust surface](/journeys/trust-surface/) for the exhaustive approve/deny
-table across fragments, skills, MCP servers, and hooks (and why a bundle
-*profile* is not on that table at all) — a new hire hitting this hold can see
-exactly what he is being asked to decide.
-<!-- /doc:scenario -->
-
-<!-- doc:scenario: Once Bob trusts the company key, the held content reaches him -->
-The gate has to open the ordinary way too, or the previous scenario would only
-prove that content gets stuck, not that trust is the actual lever. Bob makes
-his own trust decision here — the same kind of decision Alice or Carol would
-make anywhere else in this project — and the company's content reaches him the
-moment he makes it. Nothing about being new changes what unlocks the content;
-only trust does.
+<!-- doc:scenario: Content the project references from another repository reaches Bob on a fresh clone -->
+Adding a git repository is the trust act, and the team made it once, when it
+registered the remote the project draws on. A brand-new machine changes
+nothing about that: Bob's first fetch takes the content the lockfile pins from
+that remote, and his assistant receives it beside the team's own context with
+no second decision asked of him.
 <!-- /doc:scenario -->
 
 <!-- doc:scenario: Companion-dependent guidance reaches Bob only if he has the companion -->
@@ -114,13 +92,12 @@ file was *written* correctly; it does not prove his engine has read it.
 
 <!-- doc:outro -->
 Taken together, "cloning is the onboarding" is not one claim but five holding
-at once: nothing to configure, the same pinned versions everyone else has, the
-trust gate surviving a fresh machine without weakening it, graceful
+at once: nothing to configure, the same pinned versions everyone else has,
+referenced content arriving with the clone, graceful
 degradation across whatever companions Bob happens to have, and the team's
 context landing in each of three engines' own native surface regardless of
 which one Bob actually uses. J000800 builds directly on
-[J000700](/journeys/j000700-team-authoring/)'s first-party authoring,
-[J001500](/journeys/j001500-corporate-signed/)'s trust gate, and
+[J000700](/journeys/j000700-team-authoring/)'s team authoring and
 [J000400](/journeys/j000400-multi-engine/)'s engine-native materialization — onboarding
-is where all three have to hold at once, on a machine nobody set up by hand.
+is where both have to hold at once, on a machine nobody set up by hand.
 <!-- /doc:outro -->

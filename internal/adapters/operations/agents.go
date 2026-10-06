@@ -703,9 +703,7 @@ type ResolvedAgent struct {
 //     primary/default backend ("default = the project backend"). Pass "" for no
 //     override.
 //
-// The agent DEFINITION is ungated config: resolution touches no trust gate
-// and no baseline. (Its constituent fragments/mcp/hooks still gate downstream
-// when the composed context is actually assembled/applied.)
+// The agent DEFINITION is plain config: resolution touches no baseline.
 func ResolveAgent(ctx context.Context, reg engine.Registry, cfg *config.Config, name, engineOverride string) (*ResolvedAgent, error) {
 	sub, ok := cfg.Agent(name)
 	if !ok {

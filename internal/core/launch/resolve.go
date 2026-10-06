@@ -222,7 +222,7 @@ func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, 
 	passthrough := map[string]string{}
 	maps.Copy(passthrough, deps.Assembler.LabelEnv(deps.Snapshot, label))
 	maps.Copy(passthrough, src.Env)
-	sessionSigCheck(passthrough, deps.Snapshot.Trust)
+	sessionSigCheck(passthrough, deps.Snapshot.Config.SignatureCheckDisabled())
 	env := sessions.HookEnv(src.Identity)
 	maps.Copy(env, passthrough)
 	markOwner(env, src.Identity, src.Mode)
@@ -248,11 +248,11 @@ func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, 
 }
 
 // sessionSigCheck sets the engine's session signature-check carrier from the
-// generation's Trust, and only from it: on when the generation was built
-// waived, absent otherwise — whatever the caller's passthrough said, so no
-// caller can hand a waiver to a child it launches.
-func sessionSigCheck(env map[string]string, tr composite.Trust) {
-	if tr.SignatureCheckDisabled() {
+// generation, and only from it: on when the generation was built waived,
+// absent otherwise — whatever the caller's passthrough said, so no caller can
+// hand a waiver to a child it launches.
+func sessionSigCheck(env map[string]string, waived bool) {
+	if waived {
 		env[sessions.EnvSigCheckWaived] = sessions.SigCheckWaivedOn
 		return
 	}

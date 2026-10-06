@@ -2,7 +2,6 @@ package spawn
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -12,14 +11,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // Owner ruling 2026-10-02 (corrected the same day): an agent DELEGATED from a
@@ -60,29 +55,12 @@ func delegate(t *testing.T, s *spawner, projectDir string) (*coord.SpawnPlan, co
 	return plan, resolved, harp
 }
 
-// unsignedRemoteExecutable is remote content nobody signed: what the waiver
-// exists to admit.
-func unsignedRemoteExecutable(t *testing.T) bundles.Exposure {
-	t.Helper()
-	br, err := trust.ParseBundleRef("ctxloom+git://github.com/acme/repo//bundles/tools#prompts/deploy")
-	require.NoError(t, err)
-	return bundles.Exposure{
-		Read: bundletree.RemoteRead(t, "https://github.com/acme/repo@bundles/tools", &bundles.Bundle{
-			Commands: map[string]bundles.BundleCommand{"deploy": {ItemBody: bundles.ItemBody{Content: "echo deploy"}}},
-		}, bundletree.Unsigned),
-		BundleRef: br, Bytes: []byte("#!/bin/sh\necho deploy\n"), Form: bundles.FormRaw,
-	}
-}
-
 func TestSpawner_ADelegatedChildOfAWaivedSessionIsWaivedAndSaysSo(t *testing.T) {
 	s, appDir := sigCheckSpawner(t, config.WithoutSignatureCheck())
 
 	plan, resolved, harp := delegate(t, s, filepath.Dir(appDir))
 
-	require.True(t, plan.Snapshot.Trust.SignatureCheckDisabled(), "the child decides with its parent's posture")
-	v := plan.Snapshot.Trust.Authorizer().Admit(unsignedRemoteExecutable(t))
-	assert.True(t, v.Allow, "unsigned remote content reaches the child")
-	assert.Equal(t, bundles.ReasonSigCheckDisabled, v.Reason, "and its decision names the waiver")
+	require.True(t, plan.Snapshot.Config.SignatureCheckDisabled(), "the child decides with its parent's posture")
 	assert.Equal(t, sessions.SigCheckWaivedOn, resolved.Launch.EngineEnv()[sessions.EnvSigCheckWaived],
 		"the child's engine hands its own hooks the waiver")
 	entry, err := operations.GetSession(harp)
@@ -96,31 +74,12 @@ func TestSpawner_ADelegatedChildOfAnEnforcedSessionIsEnforced(t *testing.T) {
 
 	plan, resolved, harp := delegate(t, s, filepath.Dir(appDir))
 
-	assert.False(t, plan.Snapshot.Trust.SignatureCheckDisabled())
-	assert.False(t, plan.Snapshot.Trust.Authorizer().Admit(unsignedRemoteExecutable(t)).Allow)
+	assert.False(t, plan.Snapshot.Config.SignatureCheckDisabled())
 	assert.NotContains(t, resolved.Launch.EngineEnv(), sessions.EnvSigCheckWaived)
 	entry, err := operations.GetSession(harp)
 	require.NoError(t, err)
 	assert.False(t, entry.SigCheckDisabled)
 	assert.Equal(t, sessions.OriginAgent, entry.Origin)
-}
-
-// The waiver a child inherits is the signature step's and nothing more: an
-// approvals store that cannot be read still refuses in the child. (A
-// rejection and a retraction outrank the signature step in the same cascade —
-// composite's TestWithoutSignatureCheck_* — and the child's Trust is built by
-// the same option.)
-func TestSpawner_AWaivedChildStillRefusesWhenTheApprovalsStoreIsUnreadable(t *testing.T) {
-	s, appDir := sigCheckSpawner(t, config.WithoutSignatureCheck())
-	require.NoError(t, os.RemoveAll(paths.ApprovalsPath(appDir)))
-
-	plan, err := s.Resolve(context.Background(), "dev")
-	require.NoError(t, err)
-
-	require.True(t, plan.Snapshot.Trust.SignatureCheckDisabled())
-	v := plan.Snapshot.Trust.Authorizer().Admit(unsignedRemoteExecutable(t))
-	assert.False(t, v.Allow, "a store fault is not the signature step, so the waiver does not reach it")
-	assert.Equal(t, bundles.ReasonRecordsUnreadable, v.Reason)
 }
 
 // tacky-carload: a delegated child's mail is its runner's to deliver, so the

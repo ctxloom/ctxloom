@@ -124,7 +124,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:b3e98baa2b78c6b1a39ca6db24bc5e6e5f7a8c103fb46ed0cc49901172721584",
+      "Content": "blob:8ba3d9729823c486497759018f3cbbd3461f775f1e2f2c72c6d90ac4732e8084",
       "Description": "Configure or reconfigure ctxloom for this project — companions, profiles, and agents",
       "Enabled": true,
       "Model": "",
@@ -392,7 +392,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:b3e98baa2b78c6b1a39ca6db24bc5e6e5f7a8c103fb46ed0cc49901172721584",
+      "Content": "blob:8ba3d9729823c486497759018f3cbbd3461f775f1e2f2c72c6d90ac4732e8084",
       "Description": "Configure or reconfigure ctxloom for this project — companions, profiles, and agents",
       "Enabled": true,
       "Model": "",
@@ -662,7 +662,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:b3e98baa2b78c6b1a39ca6db24bc5e6e5f7a8c103fb46ed0cc49901172721584",
+      "Content": "blob:8ba3d9729823c486497759018f3cbbd3461f775f1e2f2c72c6d90ac4732e8084",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -927,7 +927,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:b3e98baa2b78c6b1a39ca6db24bc5e6e5f7a8c103fb46ed0cc49901172721584",
+      "Content": "blob:8ba3d9729823c486497759018f3cbbd3461f775f1e2f2c72c6d90ac4732e8084",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1194,7 +1194,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:b3e98baa2b78c6b1a39ca6db24bc5e6e5f7a8c103fb46ed0cc49901172721584",
+      "Content": "blob:8ba3d9729823c486497759018f3cbbd3461f775f1e2f2c72c6d90ac4732e8084",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1459,7 +1459,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:b3e98baa2b78c6b1a39ca6db24bc5e6e5f7a8c103fb46ed0cc49901172721584",
+      "Content": "blob:8ba3d9729823c486497759018f3cbbd3461f775f1e2f2c72c6d90ac4732e8084",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1726,7 +1726,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:b3e98baa2b78c6b1a39ca6db24bc5e6e5f7a8c103fb46ed0cc49901172721584",
+      "Content": "blob:8ba3d9729823c486497759018f3cbbd3461f775f1e2f2c72c6d90ac4732e8084",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1991,7 +1991,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:b3e98baa2b78c6b1a39ca6db24bc5e6e5f7a8c103fb46ed0cc49901172721584",
+      "Content": "blob:8ba3d9729823c486497759018f3cbbd3461f775f1e2f2c72c6d90ac4732e8084",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -2235,7 +2235,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:b3e98baa2b78c6b1a39ca6db24bc5e6e5f7a8c103fb46ed0cc49901172721584",
+      "Content": "blob:8ba3d9729823c486497759018f3cbbd3461f775f1e2f2c72c6d90ac4732e8084",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -2454,7 +2454,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:b3e98baa2b78c6b1a39ca6db24bc5e6e5f7a8c103fb46ed0cc49901172721584",
+      "Content": "blob:8ba3d9729823c486497759018f3cbbd3461f775f1e2f2c72c6d90ac4732e8084",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -3295,11 +3295,7 @@ credentials/state to a global path regardless.
 A bad or missing agent name silently degrades to `host`+`none` with only
 a stderr warning, discarding the runtime and permissions you asked for —
 confirm the name resolves before trusting the isolation you requested.
-== blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e
-You are adding or changing a flag, an environment variable, or a config key; working out which layer won when a setting resolved unexpectedly; or reading configuration to decide how something is declared. For anyone touching how this family of binaries is configured, however the moment is worded.
-== blob:a27754173e5860b7ab5b9204c294ecdbbcec9ba5cf885cc84d69e5a811ccd159
-You are about to run git commit, git merge or git push through the shell tool — directly, inside a script, or as the last step of a change. For anyone whose next command fires this repository's git hooks, however the moment is worded.
-== blob:b3e98baa2b78c6b1a39ca6db24bc5e6e5f7a8c103fb46ed0cc49901172721584
+== blob:8ba3d9729823c486497759018f3cbbd3461f775f1e2f2c72c6d90ac4732e8084
 
 Welcome to ctxloom! You are running the ctxloom **setup interview** — the same
 guidance whether this is a brand-new project (launched by `ctxloom init`
@@ -3503,13 +3499,6 @@ not imply a declined item is remembered — ask again where it is relevant.
 Bind the chosen profile(s) into an agent and point `default_agent` there
 (`ctxloom agent create dev --profiles <name>`, `ctxloom agent default dev`) so
 a bare `ctxloom run` picks it up — confirm the choice with the user.
-
-### 3e. Review
-
-Anything pulled from a remote the user hasn't seen before is held, not
-silently active. Run `ctxloom review` (`--list` for just the queue) and walk
-them through accept/reject — a standing surface, not a one-time setup step,
-so it's fine to point it out again on a later reconfigure too.
 
 ## Phase 4 — Agents
 
@@ -3718,6 +3707,10 @@ Then tell the user, plainly:
   session — nothing here was a one-shot wizard; come back whenever something
   needs to change (a new profile, a new agent, a new companion).
 
+== blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e
+You are adding or changing a flag, an environment variable, or a config key; working out which layer won when a setting resolved unexpectedly; or reading configuration to decide how something is declared. For anyone touching how this family of binaries is configured, however the moment is worded.
+== blob:a27754173e5860b7ab5b9204c294ecdbbcec9ba5cf885cc84d69e5a811ccd159
+You are about to run git commit, git merge or git push through the shell tool — directly, inside a script, or as the last step of a change. For anyone whose next command fires this repository's git hooks, however the moment is worded.
 == blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34
 You are about to give an agent docker access, ask for docker-in-docker for a cell, or work out why an ordinary build, test or lint recipe fails inside an agent container. For anyone reaching for a container runtime from inside a cell, however the moment is worded. This is about whether the cell needs docker AT ALL; turn-gates is about which gate proves a change.
 == blob:c85bbaac232e231fc17bf38f20af6c2d937c403995b35815e161495b185f0481

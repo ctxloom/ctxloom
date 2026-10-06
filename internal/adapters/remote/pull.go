@@ -16,10 +16,8 @@ import (
 
 // PullOptions configures pull behavior.
 //
-// A pull only records a dependency pin; it never exposes content to the agent.
-// Whether the pulled bytes ever reach the LLM is decided later, per item, by the
-// content-hash-keyed trust gate (operations.EffectiveTrust) — so pull carries no
-// security-review ceremony of its own (trust-simplify slice 3).
+// A pull only records a dependency pin; it carries no review ceremony of its
+// own.
 type PullOptions struct {
 	// Force skips the retracted-version confirmation prompt.
 	Force bool
@@ -215,9 +213,7 @@ type fetchedItem struct {
 // Pull downloads an item from a remote and records its pin. It is the
 // orchestrator: fetch (resolve → retraction → SHA → download), then install
 // (write → lock). Each phase is a helper below so this stays readable and each
-// piece is independently testable. Exposure of the pulled content to the agent
-// is gated later, per item, by the content-hash trust gate — pull itself only
-// pins.
+// piece is independently testable.
 func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*PullResult, error) {
 	if opts.Stdout == nil {
 		opts.Stdout = os.Stdout
@@ -664,9 +660,8 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// to be demoted to a printed warning while Pull still returned success —
 	// so a pull whose sole persistent record failed to write reported a SHA
 	// and LocalPath for a pin that does not exist on disk, and on a retracted
-	// item silently dropped the Retracted verdict, leaving
-	// operations.EffectiveTrust with nothing to withhold against. The lockfile
-	// is the only record; its write failing means the pull failed.
+	// item silently dropped the Retracted verdict. The lockfile is the only
+	// record; its write failing means the pull failed.
 	// hadExisting reports whether localName already had a lockfile entry
 	// BEFORE this write — i.e. this pull re-recorded an existing pin rather
 	// than creating a new one: the signal for "reinstalled" vs "installed".
@@ -801,17 +796,13 @@ func (p *Puller) heldPin(itemType ItemType, localName trust.BundleKey, requested
 }
 
 // updateLockfile records provenance in the (active) lockfile. Every pull writes
-// straight to the active lock — there is no pending-review split anymore;
-// whether the pulled content ever reaches the agent is decided per item by the
-// content-hash trust gate, not by which lockfile the pin lives in.
+// straight to the active lock.
 //
 // retracted/retractedReason/retractionCheckedAt are THIS pull's own
 // confirmRetraction verdict — a FRESH read of the live manifest when the
 // remote answered, or a fail-stale FALLBACK to the previously persisted
 // verdict (unchanged, timestamp and all) when it did not (see
-// resolveRetraction) — persisted here so operations.EffectiveTrust can
-// withhold exposure later without a network call of its own (see
-// operations.RetractionRecords).
+// resolveRetraction) — persisted here.
 //
 // hadExisting reports whether localName already had a lockfile entry before
 // this write — the caller (installPulledItem) surfaces it as

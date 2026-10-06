@@ -334,7 +334,6 @@ FIND AND ADD CONTENT
   ctxloom search <query>           Search installed and remote content
   ctxloom profile list             The profiles you can launch with 'run -p <ref>'
   ctxloom deps pull                Install what the project's profiles name
-  ctxloom review                   Accept or reject content waiting for review
 
 KEY CONCEPTS
   Fragment   A reusable piece of context: a coding standard, a pattern

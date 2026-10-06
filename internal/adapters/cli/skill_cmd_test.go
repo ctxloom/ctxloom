@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -96,63 +95,4 @@ func TestSkillCommands_UseCobraContextNotBackground(t *testing.T) {
 	}
 	assert.Empty(t, offending,
 		"skill subcommands must pass cmd.Context() to the operations layer, not a detached root context")
-}
-
-// dirFormBundle creates an empty bundle tree, ready to hold skill packages.
-func dirFormBundle(t *testing.T, appDir, name string) {
-	t.Helper()
-	dir := filepath.Join(authoredV1(appDir), name)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "bundle.yaml"), []byte("version: \"1.0\"\n"), 0o644))
-}
-
-// TestRunSkillImport_AdvisesAReviewCommandTheCLIAccepts closes an honesty gap:
-// the import footer printed "run: ctxloom review <bundle>", and reviewCmd is
-// declared cobra.NoArgs — so the one command the tool told the user to run was
-// rejected by the tool that told them to run it.
-//
-// The assertion deliberately does NOT match the footer's wording. It takes the
-// advice the command actually printed, splits off whatever it advised passing
-// to `ctxloom review`, and hands that argv to reviewCmd's OWN argument
-// validator. That keeps the two in agreement no matter how either is reworded,
-// and it fails the moment the bundle name is appended back on.
-func TestRunSkillImport_AdvisesAReviewCommandTheCLIAccepts(t *testing.T) {
-	root := agentProject(t, "schema_version: 7\n")
-	appDir := filepath.Join(root, ".ctxloom")
-	cfg, err := GetConfig()
-	require.NoError(t, err)
-	dirFormBundle(t, appDir, "src")
-	dirFormBundle(t, appDir, "dst")
-
-	_, err = operations.CreateSkill(context.Background(), cfg, operations.CreateSkillRequest{
-		Bundle: "src", Name: "reviewer", Description: "Reviews Go diffs.",
-	})
-	require.NoError(t, err)
-	// The package was written to disk; the next generation is what sees it.
-	cfg = reloaded(t)
-
-	zipPath := filepath.Join(t.TempDir(), "reviewer.zip")
-	_, err = operations.ExportSkill(context.Background(), cfg, operations.ExportSkillRequest{
-		Bundle: "src", Name: "reviewer", OutPath: zipPath,
-	})
-	require.NoError(t, err)
-
-	skillImportBundle = "dst"
-	t.Cleanup(func() { skillImportBundle = "" })
-
-	var out bytes.Buffer
-	cmd := &cobra.Command{}
-	cmd.SetContext(context.Background())
-	cmd.SetOut(&out)
-	cmd.SetErr(&bytes.Buffer{})
-	require.NoError(t, runSkillImport(cmd, []string{zipPath}))
-
-	const advised = "ctxloom review"
-	printed := out.String()
-	require.Contains(t, printed, advised, "the import must still point the user at review")
-	idx := strings.Index(printed, advised)
-	rest, _, _ := strings.Cut(printed[idx+len(advised):], "\n")
-
-	assert.NoError(t, reviewCmd.Args(reviewCmd, strings.Fields(rest)),
-		"`%s%s` is what the import told the user to run; `ctxloom review` must accept it", advised, rest)
 }

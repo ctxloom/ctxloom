@@ -170,7 +170,7 @@ func TestLockDependencies_ConflictSurfacedImmediately(t *testing.T) {
 
 // testConfigWithSCMPath creates a config with the given ctxloom path for testing.
 func testConfigWithSCMPath(path string) *config.Config {
-	return gatedFixture(config.Fixture{
+	return config.NewFixture(config.Fixture{
 		AppPaths: []string{path},
 	})
 }

@@ -14,7 +14,7 @@ import (
 )
 
 // LoadedContent is a fragment or command that has been through the PROCESS
-// stage: one form SELECTED and those exact bytes ADMITTED by the trust gate. It
+// stage: one form SELECTED and those exact bytes ADMITTED by Pipeline. It
 // is what gets delivered, and Pipeline is the only thing that produces one — a
 // read produces an ItemRead, which carries no selected body at all.
 type LoadedContent struct {
@@ -81,7 +81,7 @@ type ItemRead struct {
 	// re-deriving "the bytes of this item" from separate fields.
 	Resolve func(preferDistilled bool) ItemSurface
 
-	// TrustRef is the ref the trust gate keys this item by: the canonical
+	// TrustRef is the ref this item is addressed by: the canonical
 	// bundle-reference grammar's item selector (ItemRefFor,
 	// trust.BundleRef.WithItem), "ctxloom+<class>:...#fragments/<name>" or
 	// "...#prompts/<name>", minted from the bundle's HONEST typed source ref
@@ -101,17 +101,17 @@ type ItemRead struct {
 	// It is the COLLAPSED form of two of Read's axes and cannot express the
 	// third: signing.VerifyPublisher returns "" for both "unsigned" and "signed
 	// by a key we do not trust", and nothing about it can say "invalid". Read is
-	// the un-collapsed truth and is what the Authorizer decides on; this stays
-	// because a DELIVERED item names its own publisher.
+	// the un-collapsed truth; this stays because a DELIVERED item names its
+	// own publisher.
 	Signer string
 
 	// Read is the owning bundle's read — the trust FACTS its reader established,
-	// on all three axes. It is what Authorizer.Admit decides on (bundles.Exposure).
+	// on all three axes.
 	//
 	// Exported, and safe to be: BundleRead's axes are unexported and settable
 	// only by a reader, so an ItemRead built from a struct literal outside this
-	// package carries an UNCLAIMED read, which every Authorizer withholds. The field
-	// hands out facts; it cannot mint them.
+	// package carries an UNCLAIMED read. The field hands out facts; it cannot
+	// mint them.
 	Read BundleRead
 }
 
@@ -329,8 +329,8 @@ func ParseItemAsk(ask string) (ItemAsk, error) {
 // for a cloned bundle so its text gates like an executable, the local name
 // for a project bundle so its text auto-trusts — through the canonical
 // bundle-reference grammar (ItemRefFor), not hand-concatenated from
-// Bundle.contentSourceRef's string. That is the SAME keying the exec gate
-// uses. What differs between the kinds — a fragment's premise, a command's
+// Bundle.contentSourceRef's string. That is the SAME keying hook and MCP
+// extraction uses. What differs between the kinds — a fragment's premise, a command's
 // blocks — the caller sets on the result.
 func itemRead(read BundleRead, kind trust.ItemKind, name string, body ItemBody, resolve func(bool) ItemSurface) (*ItemRead, error) {
 	bundle := read.Bundle

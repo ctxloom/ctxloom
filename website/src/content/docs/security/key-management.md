@@ -2,10 +2,10 @@
 title: "Key management"
 ---
 
-Trusting a publisher is the single highest-leverage act in ctxloom. It is also the only one
-that is hard to take back. Trust a key, and **everything that key ever signs** — text,
-executables, every future update — reaches your agent without review. That is the payoff, and
-it is the risk, and they are the same sentence.
+The trust decision in ctxloom is adding a repository (see [Trust](/concepts/review-and-trust/)).
+A signing key says *who* published bytes: a signed bundle tree is verified over its files when
+it is installed, and a signature that does not cover the bytes beside it is refused as
+tampering.
 
 So this page is mostly about limits. What a key buys you, what it does not, and — most
 importantly — **what revocation does not reach**.
@@ -34,12 +34,6 @@ A publisher signature covers the **raw bundle file bytes** and is carried as a d
 `<bundle>.yaml.sig` sibling in the same git tree at the same pinned commit. It is verified
 *before* the YAML is parsed.
 
-:::caution[`ctxloom review` does not accept `--key`]
-Review resolves its countersigning key through the same discovery chain, but it does not
-expose `--key` or honour the `sign.key` config default. On `review`, only `git config
-user.signingkey` and `ssh-agent` are consulted.
-:::
-
 ## The trust root
 
 Trust is a property of a **signing key**, not of a repository. The trust root is the union of
@@ -51,9 +45,7 @@ three `allowed_signers` files, in OpenSSH format, read verbatim:
 | `~/.ctxloom/allowed_signers` | You |
 | `.ctxloom/allowed_signers` | The project — committable, so a team inherits it |
 
-All three are **unioned**. There is no precedence between them; precedence lives entirely in
-the [decision function](/security/trust-states/#the-decision-function), never in the
-filesystem. Hand-editing an `allowed_signers` file is fully equivalent to using the CLI —
+All three are **unioned**. There is no precedence between them. Hand-editing an `allowed_signers` file is fully equivalent to using the CLI —
 it is read verbatim either way.
 
 ```bash
@@ -76,15 +68,11 @@ assertion from being replayed as another:
 | Namespace | Assertion |
 |---|---|
 | `publish.v1.ctxloom.dev` | "I, key K, published these bytes" — made by an author, over a bundle file |
-| `approve.v1.ctxloom.dev` | "I reviewed these exact bytes and allow them to reach my agent" — made by you |
-| `reject.v1.ctxloom.dev` | "I refuse these exact bytes / this ref" |
 
-A key trusted only to `publish` **cannot approve content on your behalf**, and vice versa.
-This is why a stolen publish key cannot forge approvals. ctxloom's own embedded key is scoped
-to `publish` only, for exactly this reason.
+ctxloom's own embedded key is scoped to `publish` only.
 
 A signature by a key that is not in your trust root, or that is scoped to the wrong namespace,
-is simply **unsigned content to you**: quiet, no error, it takes the review path.
+is simply **unsigned content to you**: quiet, no error.
 
 A signature that is present but does **not** verify over the bytes it sits beside — a trusted
 key over different bytes, or a corrupted blob — is **tamper**. The bundle is withheld
@@ -93,27 +81,14 @@ downgrade a signed bundle into an unsigned one.
 
 ## Hardware keys vs software keys
 
-This distinction is not academic, and it has a specific consequence.
+If your signing key is a plain software key held in `ssh-agent`, then **any process that can
+reach `SSH_AUTH_SOCK` can ask the agent to sign as you** — including an agent that ctxloom
+itself just launched. Prefer:
 
-If your countersigning key is a plain software key held in `ssh-agent`, then **any process
-that can reach `SSH_AUTH_SOCK` can ask the agent to sign as you** — including an agent that
-ctxloom itself just launched. That agent could countersign its own approvals. ctxloom detects
-this and warns **once per review session**:
-
-- **Hardware-backed** keys (`sk-ssh-ed25519@openssh.com`, `sk-ecdsa-sha2-nistp256@openssh.com`)
-  require a physical touch. The agent cannot sign without you.
-- **Confirm-guarded** keys (`ssh-add -c`) prompt on every use.
-- **Containerized runs** simply do not carry the socket.
-
-It is a warning, not a block. ctxloom will not stop you from reviewing with a bare software
-key on a host where the agent you are reviewing *for* can reach your `ssh-agent`. If the
-approvals in your store are load-bearing for a team, use a hardware key.
-
-With **no key at all**, review offers an explicit, confirmed **unsigned** path: decisions are
-recorded as bare markers, exactly as forgeable as any file on disk. Those are written to the
-personal store only. `ctxloom review --project` — which writes the committable store an entire
-team then inherits — **requires** a real key and refuses to run without one. An unsigned
-decision in a shared store would be a forgery primitive with a friendly name.
+- **Hardware-backed** keys (`sk-ssh-ed25519@openssh.com`, `sk-ecdsa-sha2-nistp256@openssh.com`),
+  which require a physical touch.
+- **Confirm-guarded** keys (`ssh-add -c`), which prompt on every use.
+- **Containerized runs**, which simply do not carry the socket.
 
 ## What revocation does and does not reach
 
@@ -121,10 +96,6 @@ Read this section before you rely on `signer untrust`.
 
 **What it reaches.** Removing a key from `~/.ctxloom/allowed_signers` or
 `.ctxloom/allowed_signers` stops that key's signatures counting as trusted on the next load.
-Content that key signed falls back to the review path — it re-gates to pending and is withheld
-until a human reviews it. Content you had *already approved* stays approved: your approval is
-your own countersignature over the bytes, and it does not depend on the publisher's key.
-Rejections likewise survive; nothing un-rejects.
 
 **What it does not reach.**
 
@@ -132,10 +103,9 @@ Rejections likewise survive; nothing un-rejects.
 The compiled-in key ships in the binary, and no command removes it. Running
 `ctxloom signer untrust ben+ctxloom@abbitt.me` records the principal in a `distrusted_signers`
 file instead (`.ctxloom/distrusted_signers` by default, `~/.ctxloom/distrusted_signers` with
-`--user`), and the trust root is rebuilt without that key on every decision after it. Bundles
-whose only credential was that key's signature go to review. The suppression does not reach
-ctxloom's companion loadout, which is admitted as companion content and never on its
-signature. A `distrusted_signers` file that exists but cannot be read suppresses every
+`--user`), and the trust root is rebuilt without that key on every verification after it. The
+suppression does not reach ctxloom's companion loadout, which is admitted at exec (companion
+allow) and never on its signature. A `distrusted_signers` file that exists but cannot be read suppresses every
 embedded key, so an I/O error cannot quietly re-trust a key you removed. To trust the key
 again, delete its line from the file.
 :::
@@ -160,13 +130,7 @@ Signing and verification are **CLI-only** and are never exposed over MCP. Handin
 
 ## Practical guidance
 
-- **Trust a publisher only when you would run anything it publishes.** The exemption covers
-  every future update from that key, unreviewed.
-- **Scope keys with `namespaces=`.** A publisher does not need approve rights.
-- **Keep reviewer keys hardware-backed**, especially if you use `review --project` and a team
-  inherits your decisions.
-- **Remember rejection is supreme.** You can always reject unilaterally, no matter who signed
-  it.
+- **Scope keys with `namespaces=`.**
+- **Keep signing keys hardware-backed.**
 
-Back to: [Threat model](/security/threat-model/) · [Trust states and the
-gate](/security/trust-states/)
+Back to: [Threat model](/security/threat-model/)

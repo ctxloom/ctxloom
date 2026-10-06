@@ -22,7 +22,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/agentkey"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -163,8 +162,6 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckTranscriptReaders(ctx, reg, cfg, app.ProbeEngineVersion),
 			doctorCheckHooksTrust(ctx, reg, cfg, cfgErr),
 			doctorCheckMCPInvocation(reg, doctorProjectDir(cfg)),
-			doctorCheckApprovalsStore(cfg, cfgErr),
-			doctorCheckContentTrust(cfg, cfgErr),
 			doctorCheckSigCheck(app.SigCheckDisabled, app.SessionSigCheckWaived, editedSignedTreesOf(cfg, cfgErr)),
 			doctorCheckUpstreamSignatures(cfg, cfgErr),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
@@ -384,26 +381,18 @@ func doctorMissingEngineClients(reg engine.Registry, cfg *config.Config) []strin
 
 // doctorCheckSignKey is a machine-capability probe like DOCTOR-CHECK-DEPS-a1
 // (included in --deps scope): it asks whether a signing IDENTITY would
-// resolve right now, using the EXACT SAME resolver `ctxloom review`'s
-// approve path AND `ctxloom sign`/`--sign` both use (internal/adapters/signing/
-// agentkey.Discoverer.Discover, behind ResolveLocalSigner — see
-// cli.resolveReviewSigner and `ctxloom sign`) rather than re-deriving
+// resolve right now, using the EXACT SAME resolver `ctxloom sign`/`--sign`
+// use (internal/adapters/signing/agentkey.Discoverer.Discover) rather than
+// re-deriving
 // discovery here. Read-only:
 // Discover only lists ssh-agent identities (agent.Agent.Signers/List over
 // SSH_AUTH_SOCK), it never signs or reads private key bytes.
 //
-// This is NOT publishing-only: approving reviewed content (`ctxloom review`)
-// countersigns the approval record with this same identity, and review is a
-// normal part of setup (pulling/approving a seeded remote's content), not
-// something only publishers do. Absence is still never a hard failure —
-// review degrades to an explicit unsigned-approval confirmation rather than
-// blocking (spec §9.5) — but it is a WARN, not silent, because a project that
-// only ever consumes ALREADY-trusted/embedded content (the common case: the
-// seeded ctxloom-default remote is pre-trusted, nothing to approve) genuinely
-// has no need for one; this is advisory, same posture as the ssh-keygen/
-// container-runtime warns beside it. Surfacing it here (and in init PRIME's
-// cli.checkSystemDeps) beats a user hitting agentkey.NoKeyError or
-// the unsigned-approval prompt cold at their first real `ctxloom review`/
+// Absence is never a hard failure — a project that only ever consumes
+// content genuinely has no need for a key — but it is a WARN, not silent;
+// this is advisory, same posture as the ssh-keygen/container-runtime warns
+// beside it. Surfacing it here (and in init PRIME's cli.checkSystemDeps)
+// beats a user hitting agentkey.NoKeyError cold at their first real
 // `ctxloom sign`.
 func doctorCheckSignKey(ctx context.Context, cfg *config.Config, discoverer *agentkey.Discoverer) DoctorCheck {
 	const marker = "DOCTOR-CHECK-SIGNKEY-k1"
@@ -452,7 +441,7 @@ func SignKeyResolutionDetail(ctx context.Context, discoverer *agentkey.Discovere
 		return true, fmt.Sprintf("signing key resolves via %s (%s)", discovered.Source, discovered.Fingerprint)
 	}
 
-	const why = "needed to approve reviewed content (`ctxloom review`) and to publish or sign your own content (`ctxloom bundle sign`) — merely consuming already-trusted/embedded content does not require a signing key"
+	const why = "needed to publish or sign your own content (`ctxloom bundle sign`) — merely consuming content does not require a signing key"
 
 	var ambig *agentkey.AmbiguousKeyError
 	if errors.As(err, &ambig) {
@@ -840,7 +829,6 @@ const (
 	doctorConfigEditRemedy   = "ctxloom config edit"
 	doctorSignKeyRemedy      = "ssh-add ~/.ssh/<key>"
 	doctorGitIdentityRemedy  = `git config --global user.name "Your Name"; git config --global user.email you@example.com`
-	doctorReviewRemedy       = "ctxloom review"
 	doctorGitignoreRemedy    = "ctxloom manage gitignore install"
 	doctorHooksInstallRemedy = "ctxloom manage hooks install"
 )
@@ -900,8 +888,7 @@ func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) DoctorCheck {
 // (remote.LockfileManager — the SAME reader `ctxloom sync`/`lock` use) parses
 // without error, and a real context assembly (AssembleContext —
 // the SAME entry point `ctxloom run`'s configured-default path uses) succeeds
-// end to end. AssembleContext exercises the trust gate, companion-loadout
-// seeding, and fragment/profile resolution for real; none of that is
+// end to end. AssembleContext exercises companion-loadout seeding, and fragment/profile resolution for real; none of that is
 // reimplemented here.
 func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cfgErr error) DoctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-DEPS-h8"
@@ -1219,41 +1206,6 @@ func localTierDetail(missing, present []string) string {
 	return detail
 }
 
-// doctorCheckApprovalsStore reports whether the project approvals store is
-// provisioned. It is the migration signpost: an absent project store withholds
-// EVERYTHING (countersign.Records.Fault), so a project initialized before init
-// provisioned the store reads as a project whose content all vanished, and
-// this row names the cause and the remedy before the user goes looking for it
-// in the content.
-//
-// The home fallback is exempt: outside a project the generation reads over
-// ~/.ctxloom, whose store IS the user store, and "run ctxloom init" there
-// would scaffold a project in whatever directory the user is standing in.
-func doctorCheckApprovalsStore(cfg *config.Config, cfgErr error) DoctorCheck {
-	const marker = "DOCTOR-CHECK-APPROVALS-STORE-a2"
-	if cfgErr != nil {
-		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "config did not load: " + cfgErr.Error()}
-	}
-	appDir := doctorAppDir(cfg)
-	if appDir == "" {
-		return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: "no .ctxloom marker directory found; nothing to check"}
-	}
-	store := paths.ApprovalsPath(appDir)
-	if userDir, err := countersign.HomeDir(); err == nil && filepath.Clean(userDir) == filepath.Clean(store) {
-		return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: "no project: " + store + " is the user approvals store, which needs no provisioning"}
-	}
-	if ApprovalsStoreProvisioned(cfg.FS(), appDir) {
-		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "the project approvals store is provisioned (" + store + ")"}
-	}
-	const remedy = "run `ctxloom init` in the project to provision it, then commit " + paths.ApprovalsDirName + "/" + paths.ApprovalsPlaceholderName
-	if exists, _ := afero.DirExists(getFS(cfg.FS()), store); exists {
-		return DoctorCheck{Marker: marker, Status: DoctorWarn, Remedy: remedy,
-			Detail: store + " has no tracked " + paths.ApprovalsPlaceholderName + ", so a clone that has recorded no decision arrives without it and every item is withheld there"}
-	}
-	return DoctorCheck{Marker: marker, Status: DoctorWarn, Remedy: remedy,
-		Detail: store + " does not exist, so every item is withheld: an absent store cannot be told from one that went away"}
-}
-
 // doctorSigCheckMarker is the signature-check row's marker.
 const doctorSigCheckMarker = "DOCTOR-CHECK-SIG-CHECK-e2"
 
@@ -1291,114 +1243,6 @@ func editedSignedTreesOf(cfg *config.Config, cfgErr error) []string {
 		return nil
 	}
 	return bundles.EditedSignedTrees(cfg.Catalog().Reads())
-}
-
-// doctorCheckContentTrust names remote bundles whose content is being WITHHELD
-// because ctxloom cannot attribute it to a publisher it trusts.
-//
-// This is the diagnosis gap J001900's B2 hop exists to close, and it is sharp
-// because every other inspector is legitimately silent about it:
-//
-//   - `review --list` does NOT name it, and that is correct by design — unsigned
-//     is not PENDING. Pending means "signed by someone, awaiting your review";
-//     unsigned content never enters that queue at all.
-//   - `bundle list` shows the bundle as an ordinary installed entry, because it
-//     IS installed. The bytes are on disk; it is the EXPOSURE that is withheld.
-//   - `doctor`'s trust check reports how many signers the store holds, which
-//     says nothing about whether any particular bundle matched one.
-//
-// So a user whose guidance silently stopped arriving had nothing to run. The
-// documented workflow was diffing lockfiles by hand.
-//
-// It reads Bundle.Signer() carried onto the listing — a value only a load path
-// that already VERIFIED a signature against the trust root ever sets, so an
-// empty signer means "no signature, or one by a key this machine does not trust
-// to publish". It makes no trust decision of its own and parses no signature.
-//
-// LOCAL bundles are excluded deliberately: project-authored content is trusted
-// by provenance and is not expected to carry a publisher signature, so flagging
-// it would be noise on every healthy project.
-func doctorCheckContentTrust(cfg *config.Config, cfgErr error) DoctorCheck {
-	const marker = "DOCTOR-CHECK-CONTENT-TRUST-n4"
-	if cfgErr != nil {
-		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "config did not load: " + cfgErr.Error()}
-	}
-	// Ask the SAME question `ctxloom review` asks, through the same function.
-	//
-	// This check used to derive "withheld" from the publisher signature alone,
-	// and that is the wrong bar. A countersignature covers the BYTES, so content
-	// a human reviewed and accepted is fully attributable without the publisher
-	// ever signing it — the two are independent attestations, not a preference
-	// and a fallback. Deriving from the signature reported accepted content as a
-	// problem and told the user to go ask someone else to fix it.
-	//
-	// PendingReview answers what is ACTUALLY awaiting a decision, counting a
-	// trusted publisher signature and a local acceptance alike, so doctor and
-	// the review command can no longer disagree about what the agent can see.
-	pending, err := PendingReview(cfg, PendingReviewRequest{Loader: cfg.BundleLoader()})
-	if err != nil {
-		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "could not determine review state: " + err.Error()}
-	}
-	return classifyContentTrust(marker, pending)
-}
-
-// classifyContentTrust turns the review state into the check.
-//
-// It groups by WHY an item is still pending, because the reasons are not
-// variations on one problem and their remedies differ sharply:
-//
-//   - an invalid signature means the bytes and the signature disagree. That is
-//     indistinguishable from tampering, and neither trusting a key nor accepting
-//     the content is an answer to it — accepting bytes their own signature
-//     refutes is the one remedy that must never be suggested.
-//   - an untrusted key needs recognising, OR the content reviewing.
-//   - no signature at all is not a defect to be fixed by the publisher: a
-//     countersignature covers the bytes, so reviewing and accepting it is a
-//     complete attestation on its own.
-func classifyContentTrust(marker string, pending *PendingReviewResult) DoctorCheck {
-	if pending == nil || pending.Total == 0 {
-		return DoctorCheck{Marker: marker, Status: DoctorOK,
-			Detail: "no content is awaiting review: everything installed is either signed by a publisher you trust or accepted by you"}
-	}
-
-	var invalid, untrusted, unsigned []string
-	for _, b := range pending.Bundles {
-		switch b.Publisher {
-		case bundles.ReasonTampered:
-			invalid = append(invalid, b.Ref)
-		case bundles.ReasonUntrustedSigner:
-			untrusted = append(untrusted, b.Ref)
-		default:
-			unsigned = append(unsigned, b.Ref)
-		}
-	}
-
-	var parts []string
-	if len(invalid) > 0 {
-		sort.Strings(invalid)
-		parts = append(parts, fmt.Sprintf("%d with a signature that does NOT cover their bytes — treat as tampered until the publisher explains it; do not trust a key or accept the content to make this go away: %s",
-			len(invalid), strings.Join(invalid, ", ")))
-	}
-	if len(untrusted) > 0 {
-		sort.Strings(untrusted)
-		parts = append(parts, fmt.Sprintf("%d signed by a key this machine does not trust (`ctxloom signer trust` if you recognise the publisher, or review the content and accept it): %s",
-			len(untrusted), strings.Join(untrusted, ", ")))
-	}
-	if len(unsigned) > 0 {
-		sort.Strings(unsigned)
-		parts = append(parts, fmt.Sprintf("%d never reviewed (accept them with `ctxloom review` — your acceptance countersigns exactly those bytes and re-pends if they change, so an unsigned publisher is not a blocker): %s",
-			len(unsigned), strings.Join(unsigned, ", ")))
-	}
-
-	// The structured fix is review, and only when no pending item's
-	// signature refutes its bytes: accepting those is never a remedy.
-	remedy := doctorReviewRemedy
-	if len(invalid) > 0 {
-		remedy = ""
-	}
-	return DoctorCheck{Marker: marker, Status: DoctorWarn, Remedy: remedy,
-		Detail: fmt.Sprintf("%d item(s) are withheld from your assistant pending review — %s",
-			pending.Total, strings.Join(parts, "; "))}
 }
 
 // doctorCheckUpstreamSignatures names every revision `deps upgrade` REFUSED
@@ -1779,27 +1623,6 @@ func doctorNamedList(items []string, maxNamed int) string {
 		list += fmt.Sprintf(", … +%d more", more)
 	}
 	return list
-}
-
-// doctorIsRemoteBundle reports whether a listing name is a REMOTE bundle — one
-// pulled from a forge, and therefore one a publisher signature is expected for.
-//
-// Local project bundles and companion loadouts legitimately carry no
-// publisher signature: local content is trusted by provenance, and a
-// companion's bytes are verified by its own loadout envelope. Flagging them
-// would put a warning on every healthy project, which is how a check trains
-// users to ignore it.
-func doctorIsRemoteBundle(name string) bool {
-	// The LOCAL and COMPANION sources are scheme-qualified too, so they parse as
-	// canonical refs — "ctxloom:companion@ltk" is a perfectly well-formed
-	// canonical ref. Excluding them by prefix rather than by parse result is the
-	// difference between a check that fires on a real gap and one that fires on
-	// every project that has ltk installed.
-	if strings.HasPrefix(name, remote.LocalSource+"@") || strings.HasPrefix(name, remote.CompanionSource+"@") {
-		return false
-	}
-	ref, err := remote.ParseReference(name)
-	return err == nil && ref.IsCanonical()
 }
 
 // StartupFindingsMarker is the DOCTOR-CHECK row under which the findings a

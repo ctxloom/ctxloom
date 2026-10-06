@@ -44,10 +44,9 @@
 // for confirmation when the value came from repo-local config (it adds a
 // consent surface to a flow that most often runs unattended in CI).
 //
-// This package is the shared seam between the publisher-signing slice
-// (ctxloom sign, --sign) and the countersigning slice (ctxloom review):
-// both need "which key should I sign with right now", and this is the one
-// place that question is answered.
+// Publisher signing (ctxloom sign, --sign) needs "which key should I sign
+// with right now", and this package is the one place that question is
+// answered.
 package agentkey
 
 import (

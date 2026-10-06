@@ -16,12 +16,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/testsupport/admitall"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -480,7 +478,7 @@ func TestExtractMCPFromBundle(t *testing.T) {
 		},
 	}
 
-	result := extractMCPFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", bundle, bundletree.Unsigned), mustLocalRef(t, "my-bundle"), admitall.Authorizer())
+	result := extractMCPFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", bundle, bundletree.Unsigned), mustLocalRef(t, "my-bundle"))
 
 	assert.Len(t, result, 1)
 	assert.Equal(t, "test-cmd", result["test-server"].Command)
@@ -512,7 +510,6 @@ func TestConfig_ResolveBundleMCPServers_NoDefaultProfile(t *testing.T) {
 	cfg := &Config{
 		appPaths: []string{"/project/.ctxloom"},
 	}
-	cfg.BindTrustForTesting(compositetest.Trust())
 
 	noMCPServers(t, cfg.ResolveBundleMCPServers(nil))
 }
@@ -522,7 +519,6 @@ func TestConfig_ResolveBundleMCPServers_NoAppPaths(t *testing.T) {
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"test"}}},
 		appPaths: []string{},
 	}
-	cfg.BindTrustForTesting(compositetest.Trust())
 
 	noMCPServers(t, cfg.ResolveBundleMCPServers(nil))
 }
@@ -546,7 +542,6 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 			root:     safefs.NewMem(fs),
 			rep:      ledgerReporter(),
 		}
-		cfg.BindTrustForTesting(compositetest.Trust())
 		return cfg
 	}
 
@@ -644,7 +639,6 @@ func TestConfig_ItemScopedBundleRefIsNotAFailure(t *testing.T) {
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
 		appPaths: []string{appDir},
 	}
-	cfg.BindTrustForTesting(compositetest.Trust())
 
 	mark := strictness.Checkpoint()
 	cfg.ResolveBundleMCPServers(nil)
@@ -703,7 +697,6 @@ func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"child"}}},
 		appPaths: []string{appDir},
 	}
-	cfg.BindTrustForTesting(compositetest.Trust())
 
 	result := cfg.ResolveBundleMCPServers(nil)
 	assert.Contains(t, result, "sequential-thinking",
@@ -728,7 +721,6 @@ func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
 		appPaths: []string{appDir},
 	}
-	cfg.BindTrustForTesting(compositetest.Trust())
 
 	result := cfg.ResolveBundleMCPServers(nil)
 	assert.Contains(t, result, "quiet-server",
@@ -759,7 +751,6 @@ func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"developer"}}},
 		appPaths: []string{appDir},
 	}
-	cfg.BindTrustForTesting(compositetest.Trust())
 
 	// Selecting finder scopes MCP to finder's bundle only — NOT the default
 	// (developer) profile's.
@@ -826,7 +817,6 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 			[]byte("bundles:\n  - hook-bundle\n"), 0644))
 
 		cfg := &Config{defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, appPaths: []string{appDir}}
-		cfg.BindTrustForTesting(compositetest.Trust())
 		result := cfg.ResolveBundleHooks(nil)
 
 		assert.True(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
@@ -847,7 +837,6 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 			[]byte("parents:\n  - parent\n"), 0644))
 
 		cfg := &Config{defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"child"}}}, appPaths: []string{appDir}}
-		cfg.BindTrustForTesting(compositetest.Trust())
 		result := cfg.ResolveBundleHooks(nil)
 
 		assert.True(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
@@ -862,7 +851,6 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 			[]byte("bundles:\n  - ghost-bundle\n"), 0644))
 
 		cfg := &Config{defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"missing", "real"}}}, appPaths: []string{appDir}}
-		cfg.BindTrustForTesting(compositetest.Trust())
 		result := cfg.ResolveBundleHooks(nil)
 
 		assert.False(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
@@ -894,7 +882,7 @@ mcp:
 	bundletree.WriteOS(t, v2Dir, "test-bundle", bundleContent)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadMCPFromBundleRef(report.Reporter{}, "test-bundle", loader.Catalog(), admitall.Authorizer())
+	result := loadMCPFromBundleRef(report.Reporter{}, "test-bundle", loader.Catalog())
 
 	assert.Len(t, result, 1)
 	assert.Equal(t, "test-cmd", result["test-server"].Command)
@@ -905,7 +893,7 @@ func TestLoadMCPFromBundleRef_InvalidRef(t *testing.T) {
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{tmpDir}))
 
 	// Invalid bundle reference
-	result := loadMCPFromBundleRef(report.Reporter{}, "nonexistent-bundle", loader.Catalog(), admitall.Authorizer())
+	result := loadMCPFromBundleRef(report.Reporter{}, "nonexistent-bundle", loader.Catalog())
 	assert.Empty(t, result)
 }
 
@@ -935,7 +923,7 @@ func TestLoadMCPFromBundleRef_SeededRemoteBundle(t *testing.T) {
 	require.NoError(t, err)
 	loader := bundles.NewLoader(bundles.NewRepoFSReader(tree, ref, bundles.WithRepoURL("https://example.test/repo")))
 
-	result := loadMCPFromBundleRef(report.Reporter{}, ref, loader.Catalog(), admitall.Authorizer())
+	result := loadMCPFromBundleRef(report.Reporter{}, ref, loader.Catalog())
 	assert.Contains(t, result, "sequential-thinking",
 		"a remote bundle resolved only via the seed must still yield its MCP server")
 	assert.Equal(t, "npx", result["sequential-thinking"].Command)
@@ -967,7 +955,7 @@ hooks:
 	bundletree.WriteOS(t, v2Dir, "with-hooks", bundleContent)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadHooksFromBundleRef(report.Reporter{}, "with-hooks", loader.Catalog(), admitall.Authorizer(), bundles.LinksUnchecked())
+	result := loadHooksFromBundleRef(report.Reporter{}, "with-hooks", loader.Catalog(), bundles.LinksUnchecked())
 
 	require.Len(t, result.PostTool, 1)
 	assert.Equal(t, "TodoWrite", result.PostTool[0].Matcher)
@@ -993,7 +981,7 @@ mcp:
 	bundletree.WriteOS(t, bundlesDir, "no-hooks", bundleContent)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadHooksFromBundleRef(report.Reporter{}, "no-hooks", loader.Catalog(), admitall.Authorizer(), bundles.LinksUnchecked())
+	result := loadHooksFromBundleRef(report.Reporter{}, "no-hooks", loader.Catalog(), bundles.LinksUnchecked())
 
 	assert.Empty(t, result.PostTool)
 	assert.Empty(t, result.PreTool)

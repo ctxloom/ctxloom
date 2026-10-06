@@ -12,8 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines"
@@ -46,7 +44,7 @@ func (s fixtureSources) Read(context.Context) (*config.Config, []config.Warning,
 }
 
 func (s fixtureSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.Trust().Root()
+	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
 	}
@@ -60,9 +58,8 @@ func (s fixtureSources) Readers(_ context.Context, cfg *config.Config) ([]bundle
 	return append(readers, companions.Prober{}.ReaderSource()(cfg)...), nil
 }
 
-func (s fixtureSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
-	root, records, retraction := compositetest.Ports()
-	return root, records, retraction, nil
+func (s fixtureSources) TrustRoot(context.Context, *config.Config) (trust.TrustRoot, error) {
+	return trust.NoSigners{}, nil
 }
 
 // fixtureApp opens the process composition over a fixture Config.
@@ -75,34 +72,9 @@ func fixtureApp(t *testing.T, cfg *config.Config) *App {
 // reads handed in directly (see fixtureSources.loadouts).
 func fixtureAppWith(t *testing.T, cfg *config.Config, loadouts []bundles.CompanionLoadout) *App {
 	t.Helper()
-	// The gate the fixture already carries survives publication: the Owner
-	// binds a Trust over the fake ports, and a test that stated a gate of its
-	// own (BindTrustForTesting) meant that one.
-	carried := cfg.Trust()
 	owner, err := config.Open(context.Background(), fixtureSources{cfg: cfg, loadouts: loadouts})
 	require.NoError(t, err)
-	if carried.Authorizer() != nil {
-		owner.Current().Config.BindTrustForTesting(carried)
-	}
 	return OpenedApp(owner, Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
-}
-
-// realGated binds the gate built over cfg's PRODUCTION adapters — the
-// on-disk approvals stores and lockfile — for a test that writes real
-// records and expects the gate to read them.
-func realGated(cfg *config.Config) *config.Config {
-	cfg.BindTrustForTesting(NewExecutableTrustGate(cfg).Trust())
-	return cfg
-}
-
-// gatedFixture is config.NewFixture with a gate bound that admits by
-// locality and withholds what travelled (compositetest.Trust): a fixture that
-// exercises an executable surface must state its gate, and this is what a
-// test about anything other than trust means.
-func gatedFixture(f config.Fixture) *config.Config {
-	cfg := config.NewFixture(f)
-	cfg.BindTrustForTesting(compositetest.Trust())
-	return cfg
 }
 
 // published returns the fixture as the generation the process would hold:
@@ -128,12 +100,6 @@ func loaded(t *testing.T, load func() (*config.Config, error)) *config.Config {
 	t.Helper()
 	cfg, err := load()
 	require.NoError(t, err)
-	// A test's loader hands back a bare value; the generation it stands in
-	// for would carry its gate, so state the admitting one unless the loader
-	// bound its own.
-	if cfg.ExecutableTrustGate() == nil {
-		cfg.BindTrustForTesting(compositetest.Trust())
-	}
 	return cfg
 }
 
@@ -168,19 +134,15 @@ func onDiskRoot(t *testing.T, appDir string) trust.TrustRoot {
 	t.Helper()
 	cfg, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
-	return cfg.Trust().Root()
+	return cfg.TrustRoot()
 }
 
-// withOnDiskRoot rebinds cfg's gate over the trust root a generation read over
-// appDir holds (onDiskRoot), keeping compositetest's review and retraction
-// records: for a fixture whose test trusts a publisher by writing its
-// allowed_signers, as a user would.
+// withOnDiskRoot rebinds cfg's trust root to the one a generation read over
+// appDir holds (onDiskRoot): for a fixture whose test trusts a publisher by
+// writing its allowed_signers, as a user would.
 func withOnDiskRoot(t *testing.T, cfg *config.Config, appDir string) *config.Config {
 	t.Helper()
-	_, records, retraction := compositetest.Ports()
-	tr, err := composite.NewTrust(onDiskRoot(t, appDir), records, retraction)
-	require.NoError(t, err)
-	cfg.BindTrustForTesting(tr)
+	cfg.BindTrustRootForTesting(onDiskRoot(t, appDir), cfg.SignatureCheckDisabled())
 	return cfg
 }
 

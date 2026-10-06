@@ -76,7 +76,7 @@ func TestListProfiles_UnknownSortByIsDeterministicAndLoud(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), name+".yaml"),
 			[]byte("select_tags: [a]\n"), 0o644))
 	}
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	res, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{SortBy: "nonsense"})
 	require.NoError(t, err)

@@ -29,10 +29,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -262,8 +261,8 @@ func TestDoctorCheckSignKey_WrongState_NothingResolvable(t *testing.T) {
 	check := doctorCheckSignKey(context.Background(), &config.Config{}, disc)
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "no signing key resolves")
-	assert.Contains(t, check.Detail, "ctxloom review", "must lead with approve — a missing key blocks ordinary review, not just publishing")
-	assert.Contains(t, check.Detail, "ctxloom bundle sign", "must also name the publishing feature this gap affects")
+	assert.NotContains(t, check.Detail, "ctxloom review", "names no command that does not exist")
+	assert.Contains(t, check.Detail, "ctxloom bundle sign", "must name the publishing feature this gap affects")
 	assert.Contains(t, check.Detail, "ssh-add", "must give an actionable fix")
 	assert.Equal(t, doctorSignKeyRemedy, check.Remedy)
 }
@@ -446,7 +445,7 @@ func TestDoctorCheckSetupLockAndAssembly_WrongState_SkippedProfileRefs(t *testin
 	f.Agents = map[string]agents.Agent{
 		"default": {Profiles: []string{"doctor-missing-profile-one", "doctor-missing-profile-two"}},
 	}
-	cfg = gatedFixture(f)
+	cfg = config.NewFixture(f)
 
 	// Guard: prove this exact fixture makes assembly skip TWO refs, by
 	// capturing the real stderr warning lines a raw AssembleContext call
@@ -944,37 +943,6 @@ func TestGitIdentityDetail_ReadErrorIsReported(t *testing.T) {
 	assert.Contains(t, detail, "user.email unreadable", "both failures must be reported, not just the first")
 }
 
-// --- DOCTOR-CHECK-CONTENT-TRUST-n4 -------------------------------------------
-
-// A config that will not load must WARN, never report the content-trust check
-// as ok: "I could not look" and "I looked and everything is attributable" are
-// opposite answers, and only one of them is safe to render green.
-func TestDoctorCheckContentTrust_ConfigErrorWarnsRatherThanReportingOK(t *testing.T) {
-	got := doctorCheckContentTrust(nil, errors.New("config exploded"))
-	assert.Equal(t, DoctorWarn, got.Status)
-	assert.Contains(t, got.Detail, "config did not load")
-}
-
-// The predicate that decides which bundles are EXPECTED to carry a publisher
-// signature. Local, companion and builtin bundles legitimately carry none —
-// local content is trusted by provenance and a companion's bytes are verified
-// by its own loadout envelope — so flagging them would put a warning on every
-// healthy project, which is how a check trains users to ignore it.
-func TestDoctorIsRemoteBundle_OnlyCanonicalRemoteRefsAreExpectedToBeSigned(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		want bool
-	}{
-		{"https://github.com/acme/ctx@bundles/deploy-runbook", true},
-		{"file:///tmp/remote.git@bundles/deploy-runbook", true},
-		{"seed", false},
-		{"ctxloom:companion@ltk", false},
-		{"ctxloom:local@bundles/my-tools", false},
-	} {
-		assert.Equal(t, tc.want, doctorIsRemoteBundle(tc.name), "%s", tc.name)
-	}
-}
-
 // --- DOCTOR-CHECK-GITIGNORE-f6 (J001300 row 1) -----------------------------------
 
 func TestDoctorCheckGitignorePosture_RightState_NoBlanketRule(t *testing.T) {
@@ -1284,16 +1252,15 @@ func (s probeSources) Read(context.Context) (*config.Config, []config.Warning, e
 }
 
 func (s probeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.Trust().Root()
+	root := cfg.TrustRoot()
 	return []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
 		bundles.NewCompanionReader(s.probe, bundles.WithTrustRoot(root)),
 	}, nil
 }
 
-func (s probeSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
-	root, records, retraction := compositetest.Ports()
-	return root, records, retraction, nil
+func (s probeSources) TrustRoot(context.Context, *config.Config) (trust.TrustRoot, error) {
+	return trust.NoSigners{}, nil
 }
 
 // withCompanionProbe returns cfg as the generation a process would hold when

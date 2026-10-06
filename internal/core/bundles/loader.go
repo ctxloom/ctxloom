@@ -16,7 +16,7 @@ import (
 // each reported by the reader that owns that source — plus the version seam,
 // whose space is unbounded and so can never be part of a set.
 //
-// It carries NO policy — no form preference and no trust gate. Both are
+// It carries NO policy — no form preference and no link grant. Both are
 // PROCESS-stage decisions (docs/design/engine-delivery-seam.design.md, "ALL
 // processing lives in the middle") and both live on Pipeline. What the loader
 // keeps is the trust FACTS its readers established: a publisher signature is
@@ -124,9 +124,8 @@ func (l *Loader) Reads() []BundleRead { return l.Catalog().Reads() }
 // Read resolves a bundle by name to the READ a reader produced for it — the
 // content plus the trust facts that reader established.
 //
-// It exists because the decision function keys on those facts (Authorizer's
-// Exposure carries a BundleRead), and the executable surfaces resolve a bundle
-// by ref without ever going through a Pipeline: config.loadMCPFromBundleRef and
+// It exists because the executable surfaces resolve a bundle by ref without
+// ever going through a Pipeline: config.loadMCPFromBundleRef and
 // config.loadHooksFromBundleRef both need the read, not just the content. Load
 // remains for callers that genuinely only want the bundle.
 func (l *Loader) Read(name string) (BundleRead, error) { return l.Catalog().Read(name) }

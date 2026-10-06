@@ -16,7 +16,7 @@ import (
 func eventCommands(t *testing.T, event string) []string {
 	t.Helper()
 	m := newHooks()
-	appendManagedDynamicHooks(m, gatedFixture(config.Fixture{}), nil, sessions.MailByHook)
+	appendManagedDynamicHooks(m, config.NewFixture(config.Fixture{}), nil, sessions.MailByHook)
 
 	var cmds []string
 	for _, h := range m.For(event) {
@@ -51,7 +51,7 @@ func TestAppendManagedDynamicHooks_InstallsTheMailDrainHookOnTurnStart(t *testin
 // one that capability-loss reporting reads (see the next-step twin).
 func TestAppendManagedDynamicHooks_MailDrainIsDeliveredNotOnlyDeclared(t *testing.T) {
 	m := newHooks()
-	appendManagedDynamicHooks(m, gatedFixture(config.Fixture{}), nil, sessions.MailByHook)
+	appendManagedDynamicHooks(m, config.NewFixture(config.Fixture{}), nil, sessions.MailByHook)
 
 	delivered := wireCommandsOf(m.Wire().Unified.TurnStart)
 	if !strings.Contains(strings.Join(delivered, " "), "hook mail-drain") {
@@ -77,7 +77,7 @@ func TestAppendManagedDynamicHooks_MailDrainIsDeliveredNotOnlyDeclared(t *testin
 func TestAppendManagedDynamicHooks_MailDrainIsTheOwnersOnly(t *testing.T) {
 	commandsFor := func(reader sessions.MailReader) string {
 		m := newHooks()
-		appendManagedDynamicHooks(m, gatedFixture(config.Fixture{}), nil, reader)
+		appendManagedDynamicHooks(m, config.NewFixture(config.Fixture{}), nil, reader)
 		var cmds []string
 		for _, h := range m.For(bundles.HookEventTurnStart) {
 			cmds = append(cmds, strings.Join(append([]string{h.Hook.Command}, h.Hook.Args...), " "))

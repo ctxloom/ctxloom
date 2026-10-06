@@ -767,15 +767,10 @@ func (e *TestEnvironment) CreateProjectConfig() error {
 			return fmt.Errorf("failed to create %s: %w", dir, err)
 		}
 	}
-	return e.provisionApprovals()
+	return nil
 }
 
 // WriteFile writes content to a file relative to the project directory.
-//
-// A write under the project's .ctxloom stands for an INITIALIZED project, so it
-// also provisions the approvals store the way `ctxloom init` does: an
-// unprovisioned project withholds everything. A scenario about an
-// unprovisioned or removed store deletes it after its last such write.
 //
 // A file written into the project bundle gets the bundle's envelope too when
 // it has none — the current-generation one a writer stamps — because a tree
@@ -787,11 +782,6 @@ func (e *TestEnvironment) WriteFile(relPath, content string) error {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 	clean := filepath.ToSlash(filepath.Clean(relPath))
-	if strings.HasPrefix(clean, paths.AppDirName+"/") {
-		if err := e.provisionApprovals(); err != nil {
-			return err
-		}
-	}
 	if bundle := filepath.ToSlash(projectBundleDir()); strings.HasPrefix(clean, bundle+"/") && clean != bundle+"/"+bundles.DirectoryFormManifest {
 		if err := e.ensureProjectBundleEnvelope(); err != nil {
 			return err
@@ -823,20 +813,6 @@ func (e *TestEnvironment) ensureProjectBundleEnvelope() error {
 		return err
 	}
 	return os.WriteFile(envelope, raw, 0644)
-}
-
-// provisionApprovals creates the project approvals store with its tracked
-// placeholder if it is missing, as `ctxloom init` leaves it.
-func (e *TestEnvironment) provisionApprovals() error {
-	store := paths.ApprovalsPath(filepath.Join(e.ProjectDir, paths.AppDirName))
-	if err := os.MkdirAll(store, 0755); err != nil {
-		return fmt.Errorf("failed to provision %s: %w", store, err)
-	}
-	placeholder := filepath.Join(store, paths.ApprovalsPlaceholderName)
-	if _, err := os.Stat(placeholder); err == nil {
-		return nil
-	}
-	return os.WriteFile(placeholder, nil, 0644)
 }
 
 // WriteHomeFile writes content to a file relative to the home directory.

@@ -12,27 +12,22 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // Under --disable-sig-check the owner ruled that an installed signed tree
-// edited after signing is ACCEPTED. The reader does not decide that: it carries
-// the tree as a read whose signature is INVALID, so the generation's gate — the
-// same trust option — admits it under a reason of its own. An enforced
-// generation's reader still refuses it outright (bundle_readers_tree_test.go).
+// edited after signing is ACCEPTED: the reader carries the tree as a read
+// whose signature is INVALID. An enforced generation's reader still refuses it
+// outright (bundle_readers_tree_test.go).
 
-// waiveGeneration binds a waived Trust to cfg, as an Owner opened
+// waiveGeneration binds the waived posture to cfg, as an Owner opened
 // WithoutSignatureCheck would.
 func waiveGeneration(t *testing.T, cfg interface {
-	BindTrustForTesting(composite.Trust)
+	BindTrustRootForTesting(trust.TrustRoot, bool)
 }) {
 	t.Helper()
-	root, records, retraction := compositetest.Ports()
-	waived, err := composite.NewTrust(root, records, retraction, composite.WithoutSignatureCheck())
-	require.NoError(t, err)
-	cfg.BindTrustForTesting(waived)
+	cfg.BindTrustRootForTesting(trust.NoSigners{}, true)
 }
 
 func TestLoadTreeBundle_UnderTheWaiverAnEditedSignedTreeIsCarriedAsInvalid(t *testing.T) {
@@ -45,7 +40,7 @@ func TestLoadTreeBundle_UnderTheWaiverAnEditedSignedTreeIsCarriedAsInvalid(t *te
 
 	b, read, err := readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
 
-	require.NoError(t, err, "the waived generation carries the edited tree to its gate")
+	require.NoError(t, err, "the waived generation carries the edited tree")
 	assert.Equal(t, bundles.SignatureInvalid, read.Signature(), "its signature does not cover these bytes, and the read says so")
 	assert.Equal(t, bundles.SignerTrusted, read.Signer(), "a key this machine trusts signed what it was before the edit")
 	assert.NotEmpty(t, read.SignatureDetail(), "the mismatch is named")

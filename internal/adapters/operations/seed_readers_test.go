@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
@@ -21,7 +20,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // seedReaders presents authored bundle VALUES as the pinned content a reader
@@ -92,50 +90,11 @@ func seedReaders(t *testing.T, seed map[string]*bundles.Bundle) []bundles.Reader
 	return out
 }
 
-// seedItemRef is the CANONICAL item reference addressing an item in the bundle
-// seeded under key. A seed key is the lockfile/pipeline spelling a reader is
-// handed ("<url>@bundles/<path>", or a bare project bundle name); a trust
-// mutation is typed by a human and takes the canonical URI. Minting through
-// trust.Ref.AsBundleRef is the same bridge the reader itself stamps its source
-// ref with, so a fixture can never address an identity the reader did not
-// produce.
-func seedItemRef(t *testing.T, key, selector string) string {
-	t.Helper()
-	kind, name, err := trust.ParseSelector(selector)
-	require.NoError(t, err, "selector %q", selector)
-	src := trust.Ref{Bundle: key, IsLocal: true}
-	if parsed, perr := remote.ParseReference(key); perr == nil {
-		src = trust.Ref{RepoURL: parsed.URL, Bundle: parsed.Path, IsLocal: parsed.IsLocal, IsCompanion: parsed.IsCompanion}
-	}
-	base, err := src.AsBundleRef()
-	require.NoError(t, err, "seed key %q", key)
-	full, err := base.WithItem(kind, name)
-	require.NoError(t, err, "seed key %q selector %q", key, selector)
-	return full.String()
-}
-
 // seedLoader is seedReaders wired into a loader, for the many tests whose only
 // interest is "a loader that can see this content".
 func seedLoader(t *testing.T, seed map[string]*bundles.Bundle) *bundles.Loader {
 	t.Helper()
 	return bundles.NewLoader(seedReaders(t, seed)...)
-}
-
-// seedUntrustedSigned presents b as pinned content signed by a key NOTHING on
-// this machine trusts, and returns the loader plus the fingerprint of the key
-// that made the signature — the display-only value a reviewer compares against
-// what the publisher told them out of band.
-//
-// It signs for real rather than stamping a string, because a fingerprint that
-// did not come from a key is not the fact the review surface claims to be
-// showing.
-func seedUntrustedSigned(t *testing.T, ref string, b *bundles.Bundle) (*bundles.Loader, string) {
-	t.Helper()
-	signer, _, pub := bundletree.PublisherKey(t, "nobody@example.test")
-	// No trust root: nothing here trusts the key, which is the state under test.
-	l := bundles.NewLoader(bundles.NewRepoFSReader(seedTree(t, ref, b, signer), ref,
-		bundles.WithRepoURL(seedRepoURL(t, ref))))
-	return l, ssh.FingerprintSHA256(pub)
 }
 
 // seedRepoURL is the publisher repository a seeded ref claims to have come
@@ -154,21 +113,6 @@ func seedRepoURL(_ *testing.T, ref string) string {
 		return url
 	}
 	return ref
-}
-
-// seedTree stages b as the TREE a repofs reader now requires, and serves it
-// through the same TreeFS seam a pinned remote does.
-//
-// It writes through the production store save and content writer
-// (bundletree), so a seeded fixture is the shape a publisher would publish.
-//
-// signer, when non-nil, signs the finished tree's manifest.
-func seedTree(t *testing.T, ref string, b *bundles.Bundle, signer ssh.Signer) bundles.TreeFS {
-	t.Helper()
-	fsys, root, _ := stageSeedTree(t, ref, b, signer)
-	tfs, err := content.NewAferoTreeFS(fsys, root)
-	require.NoError(t, err)
-	return tfs
 }
 
 // stageSeedTree writes the tree and hands back the filesystem it lives on, so a
@@ -220,44 +164,12 @@ func signedTreeFiles(t *testing.T, id string, b *bundles.Bundle, signer ssh.Sign
 	return out
 }
 
-// seedHostileTree stages b as a tree and then writes extra files into it
-// DIRECTLY, bypassing the writer.
-//
-// That bypass is the point, not a shortcut. content.Writer refuses to write a
-// malformed package — a path with a newline in it, a skill
-// with no SKILL.md — which is exactly right for a publisher using ctxloom, and
-// exactly wrong for a fixture about a publisher who does NOT. A hostile tree is
-// bytes in a repository, not the output of our own writer, so it has to be
-// written the way an attacker would: straight onto the filesystem.
-func seedHostileTree(t *testing.T, ref string, b *bundles.Bundle, extra map[string][]byte) bundles.TreeFS {
-	t.Helper()
-	fsys, root, id := stageSeedTree(t, ref, b, nil)
-	for rel, data := range extra {
-		full := filepath.Join(root, string(id), filepath.FromSlash(rel))
-		require.NoError(t, fsys.MkdirAll(filepath.Dir(full), 0o755))
-		require.NoError(t, afero.WriteFile(fsys, full, data, 0o644))
-	}
-	tfs, err := content.NewAferoTreeFS(fsys, root)
-	require.NoError(t, err)
-	return tfs
-}
-
 // seedSkillPackages holds the package a test states for a seeded bundle's
 // skill, keyed by the bundle value. A skill is a directory of files, and a
 // bundle value no longer carries them, so a test that cares what the package
 // holds states it here (withSeedSkillPackage); every other seeded skill gets
 // defaultSeedSkillPackage.
 var seedSkillPackages = map[*bundles.Bundle]map[string]map[string]bundletree.File{}
-
-// withSeedSkillPackage states the package b's skill carries when b is seeded.
-func withSeedSkillPackage(t *testing.T, b *bundles.Bundle, skill string, files map[string]bundletree.File) {
-	t.Helper()
-	if seedSkillPackages[b] == nil {
-		seedSkillPackages[b] = map[string]map[string]bundletree.File{}
-		t.Cleanup(func() { delete(seedSkillPackages, b) })
-	}
-	seedSkillPackages[b][skill] = files
-}
 
 // defaultSeedSkillPackage is a minimal readable package: SKILL.md and one
 // executable script.
@@ -280,66 +192,4 @@ func seedSkillOptions(b *bundles.Bundle) []bundletree.Option {
 		out = append(out, bundletree.WithSkill(name, files))
 	}
 	return out
-}
-
-// seedTampered presents b as pinned content that was SIGNED AND THEN ALTERED —
-// the spec §10.2 downgrade attempt, in the only form a tree can express it.
-//
-// The document form expressed this as a signature made over different bytes.
-// A tree cannot: its signature covers a MANIFEST, and the manifest covers the
-// item files, so "signed then altered" is a tree whose files no longer match
-// SHA256SUMS. That is a genuinely different mechanism and it is caught in a
-// genuinely different place — at the READ, by attest.VerifyBundle, which is why
-// the loader below yields no read at all rather than a read carrying
-// SignatureInvalid.
-//
-// It REQUIRES that it found a file to alter. A tamper helper that tampered with
-// nothing would make every assertion resting on it vacuous.
-func seedTampered(t *testing.T, ref, principal string, b *bundles.Bundle) *bundles.Loader {
-	t.Helper()
-	signer, root, _ := bundletree.PublisherKey(t, principal)
-	fsys, treeRoot, id := stageSeedTree(t, ref, b, signer)
-
-	altered := false
-	require.NoError(t, afero.Walk(fsys, path.Join(treeRoot, string(id)), func(p string, info os.FileInfo, err error) error {
-		if err != nil || altered || info.IsDir() {
-			return err
-		}
-		// Anything but the manifest and its signature: the publisher's key must
-		// still verify over SHA256SUMS, so that what fails is the tree/manifest
-		// agreement rather than the signature itself.
-		if strings.Contains(p, content.ManifestPath) || strings.Contains(p, content.SigDirName) {
-			return nil
-		}
-		before, rerr := afero.ReadFile(fsys, p)
-		require.NoError(t, rerr)
-		require.NoError(t, afero.WriteFile(fsys, p, append(before, []byte("\nnot these bytes\n")...), 0o644))
-		altered = true
-		return nil
-	}))
-	require.True(t, altered, "the fixture must have altered an item file, or it is testing nothing")
-
-	tfs, err := content.NewAferoTreeFS(fsys, treeRoot)
-	require.NoError(t, err)
-	return bundles.LoaderOf(bundles.Resolve(context.Background(), strictness.Sink("ctxloom"), bundles.NewRepoFSReader(tfs, ref,
-		bundles.WithRepoURL(seedRepoURL(t, ref)), bundles.WithTrustRoot(root),
-		bundles.WithReaderReporter(strictness.Sink("ctxloom")))))
-}
-
-// seedTrustedSigned is seedUntrustedSigned's counterpart: b as pinned content
-// signed by a key this machine DOES trust to publish as principal.
-func seedTrustedSigned(t *testing.T, ref, principal string, b *bundles.Bundle) *bundles.Loader {
-	t.Helper()
-	signer, root, _ := bundletree.PublisherKey(t, principal)
-	return bundles.NewLoader(bundles.NewRepoFSReader(seedTree(t, ref, b, signer), ref,
-		bundles.WithRepoURL(seedRepoURL(t, ref)), bundles.WithTrustRoot(root)))
-}
-
-// readOf resolves ref through loader to the READ its reader produced — the
-// value every trust decision now keys on.
-func readOf(t *testing.T, loader *bundles.Loader, ref string) bundles.BundleRead {
-	t.Helper()
-	read, err := loader.Read(ref)
-	require.NoError(t, err, "the fixture bundle %q must resolve", ref)
-	return read
 }

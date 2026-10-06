@@ -221,7 +221,7 @@ func TestDeleteProfileResult_Fields(t *testing.T) {
 }
 
 func TestProfileLoader_UsesConfigPaths(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 	})
 
@@ -279,7 +279,7 @@ bundles:
 // the project at testBaseDir, over the same filesystem its profiles were
 // written to, so the loader and the write paths see one project.
 func profileTestCfg(fs afero.Fs) *config.Config {
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetRoot(safefs.NewMem(fs))
 	return cfg
 }
@@ -381,7 +381,7 @@ func TestListProfiles_SortDescending(t *testing.T) {
 
 func TestListProfiles_SortByDefault(t *testing.T) {
 	fs, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths:     []string{testBaseDir},
 		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"base"}}},
 	})
@@ -402,7 +402,7 @@ func TestListProfiles_SortByDefault(t *testing.T) {
 
 func TestListProfiles_SortByDefaultDescending(t *testing.T) {
 	fs, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths:     []string{testBaseDir},
 		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"base"}}},
 	})
@@ -759,7 +759,7 @@ exclude_fragments:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "test.yaml"), []byte(profile), 0644))
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{tmpDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{tmpDir}})
 	loader := cfg.GetProfileLoader()
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
@@ -783,7 +783,7 @@ func TestUpdateProfile_AddExcludeMCP(t *testing.T) {
 	profile := `description: Test profile`
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "test.yaml"), []byte(profile), 0644))
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{tmpDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{tmpDir}})
 	loader := cfg.GetProfileLoader()
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{

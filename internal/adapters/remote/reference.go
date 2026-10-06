@@ -50,8 +50,8 @@ import (
 func ParseReference(ref string) (*Reference, error) {
 	// Ingest boundary: a reference reaching the grammar carries no control
 	// characters (NormalizeRef). Doing it here rather than in each caller is
-	// what lets every downstream consumer — canonical strings, lockfile keys,
-	// the countersign preimage — treat a parsed Reference's fields as clean.
+	// what lets every downstream consumer — canonical strings, lockfile keys —
+	// treat a parsed Reference's fields as clean.
 	ref = NormalizeRef(ref)
 	if ref == "" {
 		return nil, fmt.Errorf("empty reference")
@@ -533,9 +533,8 @@ func (r *Reference) BundleRef() (trust.BundleRef, error) {
 
 // LockKey is the key this reference's lockfile entry is stored under: its
 // version-less bundle identity, BundleRef().BundleIdentity(). The lockfile
-// keys on identity rather than on the address as typed because the trust gate
-// looks a publisher's retraction up by identity, and two spellings of one
-// repository must not be two entries — one of which no lookup reaches.
+// keys on identity rather than on the address as typed because two spellings
+// of one repository must not be two entries — one of which no lookup reaches.
 func (r *Reference) LockKey() (trust.BundleKey, error) {
 	br, err := r.BundleRef()
 	if err != nil {

@@ -5,8 +5,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
 // TestParseBundle_LoadsProfiles confirms the new ungated, compound `profiles:`
@@ -54,46 +52,6 @@ func TestParseBundle_NoProfiles_InitsEmptyMap(t *testing.T) {
 	assert.NotNil(t, b.Profiles)
 	assert.Equal(t, 0, b.ProfileCount())
 	assert.Empty(t, b.ProfileNames())
-}
-
-// TestBundleProfile_GateExempt is the explicit gate-exemption invariant at the
-// content choke: a bundle's fragment STILL gates (a deny gate withholds it),
-// but the profile DEFINITION is never run through the content trust gate — the
-// bundle loader has no profile-resolution path, so the gate is never consulted
-// for any "#profiles/" ref. (Profile resolution happens in the shared profile
-// loader via the seed; the profile def is orchestration/config, ungated.)
-func TestBundleProfile_GateExempt(t *testing.T) {
-	b, err := ParseBundle([]byte(`version: "1.0.0"
-fragments:
-  f1:
-    content: "FRAG-ONE"
-profiles:
-  p1:
-    description: "p one"
-    bundles:
-      - ctxloom:local@bundles/kit#fragments/f1
-`))
-	require.NoError(t, err)
-	b.Name = "kit"
-
-	var gated []string
-	denyGate := authorizerFunc(func(e Exposure) Verdict {
-		gated = append(gated, exposureRefKey(e))
-		return denyVerdict() // withhold everything the choke is consulted about
-	})
-	pipe := gatedPipe(NewLoader(seedLocal(map[string]*Bundle{"kit": b})), denyGate, false)
-
-	// The constituent fragment gates at content assembly: a deny gate withholds it.
-	_, err = pipe.GetFragment("kit#fragments/f1")
-	require.ErrorIs(t, err, errs.ErrFragmentWithheld)
-
-	// The gate was consulted for the fragment, but NEVER for the profile
-	// definition — profiles are not a gated content kind.
-	require.Contains(t, gated, "kit#fragments/f1")
-	for _, ref := range gated {
-		assert.NotContains(t, ref, ProfileSelectorForTest,
-			"the content trust gate must never be consulted for a profile definition")
-	}
 }
 
 // ProfileSelectorForTest mirrors refuri.ProfileSelector without importing remote

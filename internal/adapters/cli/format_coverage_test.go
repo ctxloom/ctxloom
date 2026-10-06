@@ -122,7 +122,7 @@ func formatCoverageProject(t *testing.T) *config.Config {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv(projectroot.EnvVar, dir)
-	provisionApprovals(t, filepath.Join(dir, paths.AppDirName))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.AppDirName), 0o755))
 	resetApp()
 	cfg, err := configload.Load()
 	require.NoError(t, err)

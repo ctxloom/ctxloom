@@ -146,11 +146,9 @@ func HasScheme(raw string) bool {
 //
 // Canonicalization happens HERE, at the parse boundary, and nowhere else:
 // every consumer downstream compares canonical strings byte-exact. That
-// placement is the whole security property. The canonical string is the
-// countersign store address AND part of the signature preimage, so two
-// spellings that fail to collapse to one string are not a near miss, they are
-// a store MISS — and a missed rejection on a bundle carrying a verified
-// publisher signature is not "rejected → pending" but "rejected → ALLOW".
+// placement is the whole security property: the canonical string is the key
+// every store looks an item up by, so two spellings that fail to collapse to
+// one string are not a near miss, they are a store MISS.
 //
 // Normalization here is RFC 3986 §6.2 and NOTHING MORE. ".git" suffixes,
 // "www." prefixes and repository-path case are PRESERVED byte-exact, and two
@@ -196,9 +194,9 @@ func Parse(raw string) (Parts, error) {
 		// string reaches the grammar it has passed that door, so a control
 		// character here is a bug in a caller that skipped ingest, and
 		// silently repairing it would hide exactly that. The hazard is
-		// concrete: a ref is interpolated verbatim into the LF-delimited
-		// countersign preimage, where an embedded LF closes the "ref:" line
-		// early and lets the rest of the ref forge the following header lines.
+		// concrete: a ref is interpolated verbatim into line-delimited text,
+		// where an embedded LF closes a line early and lets the rest of the ref
+		// forge the lines after it.
 		return Parts{}, fmt.Errorf("%w: control character at byte %d", ErrSyntax, i)
 	}
 	if i := indexEncodedSlash(raw); i >= 0 {

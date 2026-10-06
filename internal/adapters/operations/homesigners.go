@@ -8,8 +8,7 @@ import "github.com/ctxloom/ctxloom/internal/core/paths"
 // a stray write there does not withhold content, it TRUSTS a signing key on
 // the developer's machine, permanently — so it gets the same refusal.
 //
-// No override seam, unlike the approvals store: nothing needs one yet, and an
-// injection point no caller uses is a branch no test can hold honest. The
+// No override seam: nothing needs one yet, and an injection point no caller uses is a branch no test can hold honest. The
 // guard is the half that has to exist, because it protects callers that have
 // not been written.
 //

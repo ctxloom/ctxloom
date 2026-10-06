@@ -495,7 +495,7 @@ type ImportSkillRequest struct {
 	// the OS filesystem.
 	FS afero.Fs `json:"-"`
 	// Root resolves which keys are trusted to publish (trust.TrustRoot);
-	// nil uses cfg.Trust().Root() (embedded + user + project allowed_signers,
+	// nil uses cfg.TrustRoot() (embedded + user + project allowed_signers,
 	// unioned).
 	Root trust.TrustRoot `json:"-"`
 }
@@ -514,13 +514,9 @@ type ImportSkillResult struct {
 	// (SigPath given, cryptographically covers the extracted tree's
 	// manifest, by a key this machine trusts to publish), or "unverified:
 	// <reason>" (a signature was given but is by a key not trusted here).
-	// None of these three changes whether the tree lands: it lands as
-	// pending-review, exactly like any other freshly-pulled remote content.
+	// None of these three changes whether the tree lands.
 	// A TAMPERED signature never reaches this field — ImportSkill refuses the
-	// import instead (see there). A verified signature is
-	// NOT auto-trust; the ordinary `ctxloom review`/`trust` flow still
-	// governs whether the skill is ever actually exposed (skillContent's
-	// trust gate, loader_skills.go).
+	// import instead (see there).
 	SignatureState string `json:"signature_state"`
 }
 
@@ -592,7 +588,7 @@ func ImportSkill(ctx context.Context, cfg *config.Config, req ImportSkillRequest
 			}
 			root := req.Root
 			if root == nil {
-				root = cfg.Trust().Root()
+				root = cfg.TrustRoot()
 			}
 			verifier := bundles.PublisherSkillSignatureVerifier{ArmoredSignature: sigBytes, Root: root}
 			verr := verifier.VerifyManifestSignature(p.Manifest)

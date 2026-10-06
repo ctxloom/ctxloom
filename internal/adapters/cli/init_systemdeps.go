@@ -59,21 +59,17 @@ func checkSystemDeps() error {
 
 // warnIfNoSignKey is checkSystemDeps' companion to the ssh-keygen PATH probe
 // above: even with ssh-keygen present, a resolvable signing IDENTITY is
-// needed both to approve reviewed content (`ctxloom review` countersigns an
-// approval with it — spec §9.5, and review is a normal part of ordinary
-// setup, not a publishing-only step) and to publish or sign your own content
-// (`ctxloom sign`). It runs the SAME resolver both of those use
-// (internal/adapters/signing/agentkey.Discoverer.Discover — see review.go's
-// resolveReviewSigner and sign.go's runSign) and reuses
+// needed to publish or sign your own content (`ctxloom sign`). It runs the
+// SAME resolver signing uses (internal/adapters/signing/agentkey.Discoverer.
+// Discover — see sign.go's runSign) and reuses
 // operations.SignKeyResolutionDetail so this warn says the exact same
 // thing `ctxloom doctor --deps`'s DOCTOR-CHECK-SIGNKEY-k1 check reports —
 // one resolver, one message, two surfaces. explicit is always "" here: a
 // brand-new init has no sign.key configured yet, so this checks the
 // zero-config chain (git config user.signingkey, then ssh-agent's sole
-// identity) exactly as `ctxloom review`/`ctxloom sign` would try it today.
-// Informational only, like ssh-keygen/container-runtime above — never blocks
-// init: a project that only ever consumes already-trusted/embedded content
-// has nothing to approve and genuinely needs no key.
+// identity) exactly as `ctxloom sign` would try it today. Informational
+// only, like ssh-keygen/container-runtime above — never blocks init: a
+// project that only ever consumes content genuinely needs no key.
 func warnIfNoSignKey() {
 	discoverer, err := operations.SignerDiscoverer()
 	if err != nil {

@@ -5,9 +5,11 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 
@@ -16,8 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -31,7 +31,7 @@ type fakeSources struct {
 	reads   atomic.Int32
 	read    func(context.Context) (*config.Config, []config.Warning, error)
 	readers func(*config.Config) []bundles.Reader
-	ports   func(*config.Config) []compositetest.Option
+	root    func(*config.Config) trust.TrustRoot
 }
 
 func (f *fakeSources) Read(ctx context.Context) (*config.Config, []config.Warning, error) {
@@ -46,13 +46,11 @@ func (f *fakeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.
 	return f.readers(cfg), nil
 }
 
-func (f *fakeSources) TrustPorts(_ context.Context, cfg *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
-	var opts []compositetest.Option
-	if f.ports != nil {
-		opts = f.ports(cfg)
+func (f *fakeSources) TrustRoot(_ context.Context, cfg *config.Config) (trust.TrustRoot, error) {
+	if f.root == nil {
+		return trust.NoSigners{}, nil
 	}
-	root, records, retraction := compositetest.Ports(opts...)
-	return root, records, retraction, nil
+	return f.root(cfg), nil
 }
 
 // sequenceSources returns a Sources whose Read hands back the given configs
@@ -117,42 +115,30 @@ func TestOwner_Reload_NewGenerationLeavesOldSnapshotUnchanged(t *testing.T) {
 	assert.Equal(t, int32(2), src.reads.Load(), "one Read per generation")
 }
 
-func TestOwner_Reload_TrustIsBuiltPerGenerationFromTrustPorts(t *testing.T) {
-	// Generation 1's records approve nothing; generation 2's approve
-	// everything. The snapshot's Trust must decide with the ports of ITS
-	// generation, so a review that lands between two reloads is visible on
-	// the next one and never retroactively on the previous.
+func TestOwner_Reload_TrustRootIsBuiltPerGeneration(t *testing.T) {
+	// Each generation binds the root its sources built for it, so a signer
+	// file that changes between two reloads is visible on the next one and
+	// never retroactively on the previous.
 	var gen atomic.Int32
+	roots := []trust.TrustRoot{namedRoot("gen-1"), namedRoot("gen-2")}
 	src := sequenceSources(fixtureWithDefault("a"), fixtureWithDefault("b"))
-	src.ports = func(*config.Config) []compositetest.Option {
-		if gen.Add(1) == 1 {
-			return nil
-		}
-		return []compositetest.Option{compositetest.ApproveAll()}
-	}
+	src.root = func(*config.Config) trust.TrustRoot { return roots[gen.Add(1)-1] }
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
 	first := owner.Current()
-	e := remoteExposure(t)
-	assert.False(t, first.Trust.Authorizer().Admit(e).Allow, "generation 1's records approve nothing")
+	assert.Equal(t, roots[0], first.Config.TrustRoot())
 
 	second, err := owner.Reload(context.Background())
 	require.NoError(t, err)
-	assert.True(t, second.Trust.Authorizer().Admit(e).Allow, "generation 2's records approve")
-	assert.False(t, first.Trust.Authorizer().Admit(e).Allow, "the retired generation's trust is unchanged")
+	assert.Equal(t, roots[1], second.Config.TrustRoot(), "generation 2 binds its own root")
+	assert.Equal(t, roots[0], first.Config.TrustRoot(), "the retired generation's root is unchanged")
 }
 
-// remoteExposure is an unsigned command that travelled: admitted by nothing
-// but a review record.
-func remoteExposure(t *testing.T) bundles.Exposure {
-	t.Helper()
-	const refStr = "ctxloom+git://github.com/acme/repo//bundles/tools#prompts/deploy"
-	br, err := trust.ParseBundleRef(refStr)
-	require.NoError(t, err)
-	read := bundletree.RemoteRead(t, "https://github.com/acme/repo@bundles/tools", &bundles.Bundle{
-		Commands: map[string]bundles.BundleCommand{"deploy": {ItemBody: bundles.ItemBody{Content: "echo"}}},
-	}, bundletree.Unsigned)
-	return bundles.Exposure{Read: read, BundleRef: br, Bytes: []byte("echo"), Form: bundles.FormRaw}
+// namedRoot is a distinguishable TrustRoot that trusts no key.
+type namedRoot string
+
+func (namedRoot) TrustedForNamespace(ssh.PublicKey, string, time.Time) trust.SignerDecision {
+	return trust.SignerDecision{}
 }
 
 func TestOwner_Reload_CatalogIsResolvedFromReaders(t *testing.T) {

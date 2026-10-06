@@ -11,8 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -317,24 +315,4 @@ func TestPrintPushReminder_WritesToTheGivenWriter(t *testing.T) {
 	out := buf.String()
 	assert.Contains(t, out, "Bundle modified. To publish changes:")
 	assert.Contains(t, out, "ctxloom bundle push mybundle [remote]")
-}
-
-// fragmentBytes frames a premise-less fragment body the way the trust gate
-// hashes it. A fragment's approval binds to signing.FragmentPreimage — the
-// contract line, the declared lengths, then premise and body — NOT to the bare
-// body, so an assertion written against the raw string does not merely fail, it
-// tests nothing: the negative form passes while the approval sits on file under
-// the framed bytes. Mirrors operations' helper of the same name.
-func fragmentBytes(rawBody string) []byte {
-	return signing.FragmentPreimage("", []byte(rawBody))
-}
-
-// commandBytes is the same for an undescribed command with the zero export
-// config: its approval binds to the framed surface (description, exports,
-// body on the command contract), not the bare body. Built through the
-// production builder because the exports encoding is package bundles' own.
-// Mirrors operations' helper of the same name.
-func commandBytes(rawBody string) []byte {
-	payload, _ := (&bundles.BundleCommand{ItemBody: bundles.ItemBody{Content: rawBody}}).ContentPayload(false)
-	return payload
 }

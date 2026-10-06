@@ -8,9 +8,8 @@ package wire
 //
 // Order exists to solve exactly one problem: inserting a hook must not change any
 // OTHER hook's bytes. Under the retired `<NN>-<slug>` filename ordinal, inserting
-// at the top of an event renamed every hook below it — their files moved, their
-// bytes changed, and their countersignatures staled for a change they had not
-// made. That is connascence of position wearing a different hat.
+// at the top of an event renamed every hook below it — their files moved and
+// their bytes changed for a change they had not made. That is connascence of position wearing a different hat.
 //
 //   - DENSE integers (0, 1, 2…) fail the same way: an insert renumbers the tail.
 //     They are the problem, not a fix.

@@ -32,10 +32,6 @@ This is the only command that moves an existing pin. 'deps pull', 'init' and
 startup create first pins and keep every existing one, even when you change a
 constraint; that change takes effect here.
 
-The lockfile is pure dependency pinning: upgrading a pin does not expose new
-content to the agent. Any changed content from an untrusted source is withheld
-until you accept it with 'ctxloom review'.
-
 A pin is NOT advanced onto content whose publisher signature does not verify
 over its bytes: that content is withheld as tampered and cannot be reviewed, so
 advancing past the last commit that did verify would leave you with neither

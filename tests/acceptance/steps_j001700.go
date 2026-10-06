@@ -27,30 +27,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
-	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 const (
-	// j001700Marker is the company's incident-runbook bundle's distinctive content
-	// — the payload scenario 1 asserts reached (and, after retraction, no
-	// longer reaches) Carol's and Bob's assembled context.
-	j001700Marker = "J001700-INCIDENT-RUNBOOK-MARKER"
-	// j001700BundleName is the bundle name Trent retracts — must match the name
-	// given in the feature's "Carol leads a team..." step.
-	j001700BundleName = "incident-runbook"
-	// j001700RetractReason is the publisher's own stated reason, asserted
-	// verbatim in the "retracted by the publisher (<reason>)" wording
-	// (operations/trust.go:159-177) that reaches both Carol's and Bob's
-	// materialize output.
-	j001700RetractReason = "shipped an incorrect deploy step; do not use"
 	// j001700EmbeddedPrincipal is ctxloom's OWN compiled-in publisher principal
 	// (internal/core/config/embedded_signers.allowed_signers) — scenario 2 targets
 	// this REAL identity, not a stand-in, so the finding is about the actual
@@ -60,14 +44,6 @@ const (
 
 // j001700State is this journey's fixture state.
 type j001700State struct {
-	companyBare   string              // bare repo path (no file:// prefix) for the company's signed bundle remote, for AdvanceRemote
-	companySigner *testenv.TestSigner // the company's publishing key, which signs its retracting release
-
-	// Carol's and Bob's retraction-sync {pull, materialize} outputs are read
-	// off their own run histories (w.env / w.j000700().bobRuns) at assertion
-	// time — no snapshot fields needed, since each developer's history is
-	// their own and nothing else runs in it between their sync and the Then.
-
 	embeddedShowBefore   string // `signer show <embedded principal>` output BEFORE the removal attempt
 	embeddedRemoveOutput string // `signer untrust <embedded principal> --project` output
 	embeddedShowAfter    string // `signer show <embedded principal>` output AFTER the removal attempt
@@ -90,237 +66,10 @@ func j001700Of(w *World) *j001700State {
 	return w.j001700s
 }
 
-// j001700TreeEnvelope/j001700TreeItems render the company's bundle as a true
-// tree — one fragment named "guidance" whose content is marker — mirroring
-// j001500TreeEnvelope/j001500TreeItems exactly (same shape, new marker)
-// rather than reusing J001500's constant, since J001700's content is
-// thematically distinct (an incident runbook, not secure-coding guidance)
-// even though the underlying mechanism is identical.
-const j001700TreeEnvelope = "version: \"1.0.0\"\n"
-
-func j001700TreeItems(marker string) map[string]string {
-	return map[string]string{"fragments/guidance.md": marker}
-}
-
 func registerJ001700Steps(ctx *godog.ScenarioContext) {
 	// --- Scenario 1: retraction across more than one already-installed developer ---
 
-	ctx.Step(`^Carol leads a team that already uses the company's "([^"]*)" bundle$`, func(c context.Context, bundleName string) error {
-		w := worldFrom(c)
-		j001700 := j001700Of(w)
-
-		// Carol's checkout (w.env.ProjectDir) IS the shared team project —
-		// mirrors j000700SetupProject's git-init/config/commit/push scaffold, but
-		// with a claude-code engine (buildJ000200Config) so materialize writes
-		// CLAUDE.md, exactly the surface J001500's mechanism assembles into.
-		if err := w.env.InitGitRepo(); err != nil {
-			return err
-		}
-		if _, err := j000700Git(w.env.ProjectDir, "symbolic-ref", "HEAD", "refs/heads/main"); err != nil {
-			return err
-		}
-		if err := w.env.WriteFile(".ctxloom/config.yaml", buildJ000200Config("claude-code", "claude-code")); err != nil {
-			return err
-		}
-		if err := runOK(w, "bundle", "create", "seed", "-d", "J001700 seed bundle"); err != nil {
-			return err
-		}
-		if err := runOK(w, "profile", "create", "default", "--include", "seed", "-d", "J001700 default profile"); err != nil {
-			return err
-		}
-
-		// Trent's company publishes a SIGNED bundle — reuses J001500's signing
-		// primitives directly (TestSigner/SeedSignedTreeRemote), not reinvented.
-		signer, err := testenv.GenerateTestSigner()
-		if err != nil {
-			return fmt.Errorf("generate company signer: %w", err)
-		}
-		root := treeBundlePath(bundleName)
-		url, err := w.env.SeedSignedTreeRemote(root, bundleName, j001700TreeEnvelope, j001700TreeItems(j001700Marker), signer)
-		if err != nil {
-			return fmt.Errorf("seed signed company remote: %w", err)
-		}
-		j001700.companyBare = strings.TrimPrefix(url, "file://")
-		j001700.companySigner = signer
-
-		// Carol trusts the company key in the PROJECT store, so it is
-		// committed to the team's own git history and Bob inherits it on
-		// clone — he never runs `signer trust` himself, exactly as a teammate
-		// would inherit a lead's trust decision in reality.
-		if err := w.env.TrustSigner(signer, "trent@example.com", true); err != nil {
-			return fmt.Errorf("trust company signer: %w", err)
-		}
-
-		// Wire (but do not yet pull) the reference.
-		if err := runOK(w, "remote", "create", "company", url, "--forge", "git"); err != nil {
-			return err
-		}
-		if err := runOK(w, "profile", "modify", "default", "--add-bundle", "company/"+bundleName); err != nil {
-			return err
-		}
-
-		// Commit + push to a fresh team origin BEFORE anyone pulls, so the
-		// reference and the trust decision are shared git history but no
-		// local lockfile/clone-cache is — each developer's "already
-		// installed" state below must be genuinely their own, independently
-		// arrived at, never inherited via git.
-		if err := w.env.GitCommit("wire the company's " + bundleName + " bundle"); err != nil {
-			return err
-		}
-		bare, err := j000700NewBareOrigin(w)
-		if err != nil {
-			return err
-		}
-		w.j000700().bareOrigin = bare
-		if _, err := j000700Git(w.env.ProjectDir, "remote", "add", "origin", bare); err != nil {
-			return err
-		}
-		if _, err := j000700Git(w.env.ProjectDir, "push", "-u", "origin", "main"); err != nil {
-			return err
-		}
-
-		// Carol's OWN first pull: her own local install, her own local
-		// lockfile — the "already installed" state her retraction-sync step
-		// re-checks later.
-		if err := runOK(w, "deps", "pull"); err != nil {
-			return err
-		}
-		body, err := materializeDefault(w, "out")
-		if err != nil {
-			return err
-		}
-		if !strings.Contains(body, j001700Marker) {
-			return fmt.Errorf("setup failed: Carol does not yet have the bundle installed; content:\n%s", body)
-		}
-		return nil
-	})
-
-	ctx.Step(`^Bob has already pulled the team project and installed the bundle too$`, func(c context.Context) error {
-		w := worldFrom(c)
-		// Bob's OWN separate clone (j000700State.bobDir, steps_j000700_team.go) — a
-		// genuinely different checkout inheriting the committed reference and
-		// trust decision, then his OWN `deps pull`: his own local install,
-		// his own local lockfile, entirely independent of Carol's.
-		if err := j000700BobPull(w); err != nil {
-			return err
-		}
-		if err := runBob(w, "deps", "pull"); err != nil {
-			return err
-		}
-		if err := runBob(w, "profile", "materialize", "default", "--target", "out"); err != nil {
-			return err
-		}
-		body, err := readBobFile(w, filepath.Join("out", "CLAUDE.md"))
-		if err != nil {
-			return err
-		}
-		if !strings.Contains(body, j001700Marker) {
-			return fmt.Errorf("setup failed: Bob does not yet have the bundle installed; content:\n%s", body)
-		}
-		return nil
-	})
-
-	// A retraction is a new SIGNED release: its bundle.yaml withdraws the
-	// bundle, and the retraction check reads only the signed tip manifest.
-	ctx.Step(`^Trent retracts the bundle$`, func(c context.Context) error {
-		w := worldFrom(c)
-		j001700 := j001700Of(w)
-		root := treeBundlePath(j001700BundleName)
-		envelope := "version: 1.1.0\nwithdrawn: " + j001700RetractReason + "\n"
-		return w.env.AdvanceSignedTreeRemote(j001700.companyBare, root, j001700BundleName, envelope, j001700TreeItems(j001700Marker), j001700.companySigner)
-	})
-
-	// Both routine syncs pin --format text: what a developer is TOLD is the
-	// terminal summary, and a non-terminal stdout (this harness) otherwise
-	// defaults to the JSON payload, which assertToldOfRetraction does not read.
-	ctx.Step(`^Carol runs her next routine sync$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if err := runOK(w, "--format", "text", "deps", "pull"); err != nil {
-			return err
-		}
-		if _, err := materializeDefault(w, "out"); err != nil {
-			return err
-		}
-		return nil
-	})
-
-	ctx.Step(`^Bob runs his next routine sync$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if err := runBob(w, "--format", "text", "deps", "pull"); err != nil {
-			return err
-		}
-		return runBob(w, "profile", "materialize", "default", "--target", "out")
-	})
-
-	ctx.Step(`^Carol is told the bundle was retracted, and her assistant no longer receives it$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if err := assertToldOfRetraction(w, "Carol", &w.env.RunHistory); err != nil {
-			return err
-		}
-		body, err := w.env.ReadFile(filepath.Join("out", "CLAUDE.md"))
-		if err != nil {
-			return fmt.Errorf("read Carol's materialized CLAUDE.md: %w", err)
-		}
-		if strings.Contains(body, j001700Marker) {
-			return fmt.Errorf("the materialized context for Carol still contains the retracted marker; content:\n%s", body)
-		}
-		return nil
-	})
-
-	ctx.Step(`^Bob is told the bundle was retracted too, and his assistant no longer receives it either$`, func(c context.Context) error {
-		w := worldFrom(c)
-		bob := &w.j000700().bobRuns
-		if err := assertToldOfRetraction(w, "Bob", bob); err != nil {
-			return err
-		}
-		// readBobFile sets docStepMaterialized itself (to the file it read), so
-		// this must run BEFORE the evidence assignment below or it would clobber
-		// it — the reader's evidence pane for this step must show Bob being TOLD
-		// (the retraction notice + the reasoned withheld advisory), which is the
-		// claim the step's own text makes.
-		body, err := readBobFile(w, filepath.Join("out", "CLAUDE.md"))
-		if err != nil {
-			return err
-		}
-		if strings.Contains(body, j001700Marker) {
-			return fmt.Errorf("the materialized context for Bob still contains the retracted marker; content:\n%s", body)
-		}
-		w.docStepMaterialized = bob.NthLastOutput(1) + "\n" + bob.LastOutput()
-		return nil
-	})
-
 	// --- Scenario 3: retraction survives the remote going unreachable ---------
-
-	ctx.Step(`^the company's remote becomes unreachable$`, func(c context.Context) error {
-		w := worldFrom(c)
-		j001700 := j001700Of(w)
-		// The bare repo IS the remote at this URL (file://<companyBare>) — renaming
-		// it away breaks every subsequent fetch/clone against it exactly like a
-		// real network partition or outage would: the fetcher gets an
-		// undifferentiated failure, indistinguishable at that seam from any other
-		// unreachable remote (see internal/adapters/remote/retract.go CheckRetracted's doc).
-		broken := j001700.companyBare + ".unreachable"
-		if err := os.Rename(j001700.companyBare, broken); err != nil {
-			return fmt.Errorf("break the company remote: %w", err)
-		}
-		j001700.companyBare = broken
-		return nil
-	})
-
-	ctx.Step(`^Carol is told the bundle is still retracted, and her assistant still does not receive it$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if err := assertToldOfRetraction(w, "Carol", &w.env.RunHistory); err != nil {
-			return err
-		}
-		body, err := w.env.ReadFile(filepath.Join("out", "CLAUDE.md"))
-		if err != nil {
-			return fmt.Errorf("read Carol's materialized CLAUDE.md: %w", err)
-		}
-		if strings.Contains(body, j001700Marker) {
-			return fmt.Errorf("THE SECURITY-CRITICAL CASE: the remote being unreachable let a previously-retracted bundle reach Carol's assembled context again; content:\n%s", body)
-		}
-		return nil
-	})
 
 	// --- Scenario 2: the irrevocable embedded key -----------------------------
 
@@ -479,31 +228,4 @@ func jsonAtPathFrom(raw, path string) (any, error) {
 		return nil, fmt.Errorf("not valid JSON: %w", err)
 	}
 	return jsonAtPath(doc, path)
-}
-
-// assertToldOfRetraction checks that a developer's routine sync — a `deps
-// pull` then a `profile materialize`, the two newest entries in THEIR OWN run
-// history — told them about the retraction, and attaches both outputs as the
-// step's evidence. Each output is anchored on something only that command
-// prints: the pull's "Retracted: N" summary line and the materialize's JSON
-// report (operations.MaterializeProfileResult on stdout). The withheld
-// warning alone cannot tell them apart — both commands emit it — so a check
-// on that would pass with the two registers swapped, or with one of them
-// stale from an earlier command.
-func assertToldOfRetraction(w *World, who string, runs *testenv.RunHistory) error {
-	syncOutput := runs.NthLastOutput(1)
-	materialized := runs.LastOutput()
-	w.docStepMaterialized = syncOutput + "\n" + materialized
-	if !strings.Contains(syncOutput, "Retracted: 1") {
-		return fmt.Errorf("the sync output for %s does not report the retraction; output:\n%s", who, syncOutput)
-	}
-	var report operations.MaterializeProfileResult
-	if err := json.Unmarshal([]byte(runs.LastStdout()), &report); err != nil || len(report.Wrote) == 0 {
-		return fmt.Errorf("the newest command for %s did not report as a materialize (err=%v); stdout:\n%s", who, err, runs.LastStdout())
-	}
-	wantWarn := fmt.Sprintf("retracted by the publisher (%s)", j001700RetractReason)
-	if !strings.Contains(materialized, wantWarn) {
-		return fmt.Errorf("the materialize output for %s does not carry the exact withheld reason %q; output:\n%s", who, wantWarn, materialized)
-	}
-	return nil
 }

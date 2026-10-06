@@ -1,8 +1,6 @@
 package operations
 
 import (
-	"github.com/spf13/afero"
-
 	"context"
 	"os"
 	"path/filepath"
@@ -43,7 +41,6 @@ func writeBundleFixture(t *testing.T, root string) {
 
 	profilesDir := bundletree.ProjectProfilesDir(t, filepath.Join(root, ".ctxloom"))
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
-	provisionApprovals(t, afero.NewOsFs(), filepath.Join(root, paths.AppDirName))
 
 	profileYAML := `description: "Test profile for bundle expansion"
 bundles:
@@ -78,7 +75,7 @@ fragments:
 // default set a bare regenerate reads). No inline profiles are declared, which
 // is the case that previously failed.
 func fixtureConfig(root string) *config.Config {
-	return gatedFixture(config.Fixture{
+	return config.NewFixture(config.Fixture{
 		AppPaths:     []string{filepath.Join(root, ".ctxloom")},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"test"}}},

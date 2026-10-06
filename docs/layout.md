@@ -69,7 +69,7 @@ consuming project are identical in shape.
 
 Alongside it, and committed for the same reason, sit the root files and
 directories: `config.yaml`, `remotes.yaml`, `lock.yaml`, `profiles/`,
-`allowed_signers`, `distrusted_signers` and `approvals/`.
+`allowed_signers` and `distrusted_signers`.
 
 `lock.yaml` is the deliberate oddity: it is **derived** (`ctxloom remote lock`
 regenerates it) and **committed anyway**, because a lockfile whose job is to pin
@@ -106,7 +106,6 @@ Fixed residents at the root of `state/`:
 | Path | What it is | Losing it costs |
 |---|---|---|
 | `state/dirty_tree_commit_ack.yaml` | the record that a human authorized ctxloom to auto-commit a dirty tree here (`paths.DirtyTreeCommitAckPath`) | you are asked again |
-| `state/trust/objects` | content-addressed copies of the bytes a human approved at review (`paths.TrustObjectsPath`) | update review degrades from a diff to a full-content dump; committed approval signatures still verify |
 | `state/locks/` | advisory lock sidecars guarding project files (`paths.LocksPath`, named by `paths.ProjectPathFor`) | nothing |
 
 Two more local-only paths live at the `.ctxloom` root rather than under
@@ -138,7 +137,6 @@ what actually exists is worth telling you about.
 | Path | What it is | Losing it costs |
 |---|---|---|
 | `~/.ctxloom/sessions/` | every ctxloom session on this machine, across every project (`paths.HomeSessionsDir`): one directory per session holding its machine state, whose members are the rows of `paths.HarpMembers` | the session's raw history; nothing rebuilds it (its `home/`, `work/` and `scratch/` members are rebuilt, triaged or regenerated) |
-| `~/.ctxloom/approvals/` | your personal countersignature store (`paths.HomeApprovalsPath`) | update review degrades from a diff to a full-content dump for approvals only this store held; committed approval signatures still verify |
 | `~/.ctxloom/allowed_signers` | every signing key you personally trusted (`paths.HomeAllowedSignersPath`, `ctxloom signer trust`) | each key must be re-trusted by hand |
 | `~/.ctxloom/distrusted_signers` | every embedded signing key you personally distrusted (`paths.HomeDistrustedSignersPath`, `ctxloom signer untrust`) | each suppression must be re-recorded by hand |
 | `~/.ctxloom/cache/triggers/` | cached revive-trigger verdicts (`paths.TriggerCacheDir`) | nothing durable — the next trigger check recomputes them, just not for free |
@@ -268,7 +266,7 @@ can delete them deliberately; it will not edit a file it does not own.
 
 **Everything else under `.ctxloom/` is committed by omission** — `config.yaml`,
 `remotes.yaml`, `lock.yaml`, `content/`, `profiles/`,
-`allowed_signers`, `distrusted_signers`, `approvals/`. That is intentional:
+`allowed_signers`, `distrusted_signers`. That is intentional:
 each is content, configuration, or trust state your project depends on.
 
 Two notes on that list, because both look like mistakes and are not:
@@ -321,5 +319,4 @@ launch-only reason for exactly that purpose.
   them.
 - [architecture/engines/isolation.md](architecture/engines/isolation.md) — the
   isolation axes, `engine_home`, and the per-engine home variables.
-- [trust-model.md](trust-model.md) — what `approvals/`, `allowed_signers` and
-  the review snapshots under `state/trust/objects` mean.
+- [trust-model.md](trust-model.md) — what `allowed_signers` means.

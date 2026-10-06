@@ -46,7 +46,7 @@ func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src lau
 	if err != nil {
 		return launch.Launch{}, err
 	}
-	id, err := MintIdentity(deps.Sessions, seed, deps.Snapshot.Trust, base)
+	id, err := MintIdentity(deps.Sessions, seed, deps.Snapshot.Config.SignatureCheckDisabled(), base)
 	if err != nil {
 		return launch.Launch{}, err
 	}
@@ -67,11 +67,11 @@ func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src lau
 // MintIdentity is THE mint on the host: the harp assigned in the store (its
 // directory and sidecar), the liveness lock held by this process, the
 // identity returned. The engine is not known here — Resolve decides it and
-// records it (Store.BindEngine). tr is the generation the launch decides with:
-// its signature-check posture is stamped beside the origin. The session's
+// records it (Store.BindEngine). sigCheckDisabled is the launching
+// generation's signature-check posture, stamped beside the origin. The session's
 // output dir is recorded under outputBase (OutputBase); a session that cannot
 // say where its outputs go is refused.
-func MintIdentity(store sessions.Store, seed sessions.Seed, tr composite.Trust, outputBase string) (sessions.Identity, error) {
+func MintIdentity(store sessions.Store, seed sessions.Seed, sigCheckDisabled bool, outputBase string) (sessions.Identity, error) {
 	entry, err := store.AssignHarp(seed.ProjectDir, seed.Engine)
 	if err != nil {
 		return sessions.Identity{}, fmt.Errorf("session naming failed, refusing to run: %w", err)
@@ -81,7 +81,7 @@ func MintIdentity(store sessions.Store, seed sessions.Seed, tr composite.Trust, 
 	}
 	// A failed stamp warns rather than refuses: an unstamped session reads as
 	// a human's, the reading a sweep never purges undistilled.
-	if oerr := store.StampMint(entry.HarpName, sessions.MintStamp{Origin: seed.Origin(), SigCheckDisabled: tr.SignatureCheckDisabled()}); oerr != nil {
+	if oerr := store.StampMint(entry.HarpName, sessions.MintStamp{Origin: seed.Origin(), SigCheckDisabled: sigCheckDisabled}); oerr != nil {
 		clidiag.Warn("ctxloom", "session %s: cannot record its origin, so a sweep will treat it as a human's session: %v", entry.HarpName, oerr)
 	}
 	// THIS PROCESS OWNS THE SESSION FROM HERE: hold its liveness lock until
@@ -214,8 +214,6 @@ func (a *assembler) Assemble(ctx context.Context, snap *config.Snapshot, sel lau
 	if err := refuseEmptySelection(req, contextResultOf(pkg)); err != nil {
 		return composite.Package{}, err
 	}
-	// A withheld executable is reported, content-free, never silently.
-	WarnWithheldBy(snap.Config.ExecutableTrustGate())
 	return pkg, nil
 }
 

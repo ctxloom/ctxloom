@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // ToolingDeclaration is one companion's collected tooling declaration.
@@ -32,19 +33,16 @@ type ToolingDeclaration struct {
 }
 
 // CollectTooling gathers every admitted companion's typed `init.tooling`
-// declaration. SECURITY: collection goes through the TRUST-GATED pipeline —
-// a companion the human rejected is withheld exactly like any other gated
-// content (loadout-supplied text driving Dockerfile edits is a
-// code-execution vector), and the withholding is surfaced content-free.
+// declaration. Only a companion binary the user allowed (companion allow)
+// produces a loadout, so only allowed companions contribute.
 // Fault-tolerant: a nil config or any load failure returns nil, never errors.
-// pipe is a test seam; nil uses the gated exposure pipeline.
+// pipe is a test seam; nil uses the exposure pipeline.
 func CollectTooling(cfg *config.Config, pipe *bundles.Pipeline) []ToolingDeclaration {
 	if cfg == nil {
 		return nil
 	}
-	var gate bundles.Authorizer
 	if pipe == nil {
-		pipe, gate = exposurePipelineGated(cfg, bundles.LinksUnchecked())
+		pipe = exposurePipeline(cfg)
 	}
 	if pipe == nil {
 		return nil
@@ -56,7 +54,6 @@ func CollectTooling(cfg *config.Config, pipe *bundles.Pipeline) []ToolingDeclara
 		}
 		out = append(out, ToolingDeclaration{Source: admitted.Ref, Content: admitted.Init.Tooling})
 	}
-	warnWithheld(gate)
 	return out
 }
 
@@ -118,4 +115,15 @@ func ScaffoldDevcontainer(cfg *config.Config) (string, error) {
 		return "", fmt.Errorf("write devcontainer.json: %w", err)
 	}
 	return dir, nil
+}
+
+// lstatIfPossible stats path WITHOUT following a final symlink where the
+// filesystem supports it (afero.OsFs does; MemMapFs has no symlinks to
+// confuse), so a symlink is reported as itself rather than as its target.
+func lstatIfPossible(fs afero.Fs, path string) (os.FileInfo, error) {
+	if lstater, ok := fs.(afero.Lstater); ok {
+		info, _, err := lstater.LstatIfPossible(path)
+		return info, err
+	}
+	return fs.Stat(path)
 }

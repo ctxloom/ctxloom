@@ -142,11 +142,10 @@ var LayeringRules = []LayeringRule{
 			"internal/core/bundles -> internal/adapters/content/remotetree": "slice 5: readers become adapters behind bundles.Reader",
 			"internal/core/bundles -> internal/adapters/remote":             "slice 5: readers become adapters behind bundles.Reader",
 			"internal/core/bundles -> internal/adapters/signing":            "slice 5: one verifier, behind the trust ports",
-			"internal/core/bundles -> internal/shared/admission":            "slice 5: admission is decided by composite.Trust, not by the bundle package",
 			"internal/core/bundles -> internal/shared/upgrade":              "the envelope's schema-upgrade steps (upgrade.Upgrader), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (slice 5); slice 5 landed without the move, which is still open",
 
 			// core/config
-			"internal/core/config -> internal/shared/admission": "slice 5: admission is decided by composite.Trust",
+			"internal/core/config -> internal/shared/admission": "the dirty-tree acknowledgement store is an admission.Store (dirtyTreeAckStore)",
 
 			// shared/agent → its contract half becomes core/engine. Its
 			// lockwait and safefs edges reach the toolbox, which is excepted, so they
@@ -178,12 +177,9 @@ var LayeringRules = []LayeringRule{
 		},
 		Allowed: map[string]string{
 			// sanctioned: the trust adapters compose each other at the
-			// root — config.Sources.TrustPorts builds the generation's three ports
-			// from the config's trust root (already the port), the countersignature
-			// stores and the lockfile.
-			"internal/adapters/configload -> internal/adapters/signing/countersign":    "sanctioned: Sources.TrustPorts builds the generation's review records",
-			"internal/adapters/configload -> internal/adapters/remote":                 "sanctioned: Sources.TrustPorts reads the generation's retraction records from the lockfile",
-			"internal/adapters/configload -> internal/adapters/signing/allowedsigners": "sanctioned: Sources.TrustPorts builds the generation's trust root from the embedded and on-disk allowed_signers stores",
+			// root — config.Sources.TrustRoot builds the generation's trust root.
+			"internal/adapters/configload -> internal/adapters/remote":                 "sanctioned: configload reads the lockfile through the remote adapter",
+			"internal/adapters/configload -> internal/adapters/signing/allowedsigners": "sanctioned: Sources.TrustRoot builds the generation's trust root from the embedded and on-disk allowed_signers stores",
 			"internal/adapters/companions -> internal/adapters/companions/loadout":     "sanctioned: a package's own subpackage",
 			"internal/adapters/companions/loadout -> internal/adapters/signing":        "slice 5: the loadout envelope is signed and verified through the trust ports",
 			"internal/adapters/configload -> internal/adapters/projectroot":            "slice 7: launch.HostFacts carries the project root from cmd/*",
@@ -212,7 +208,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/transcript/vendorreader/mock -> internal/adapters/transcript":                "sanctioned: a package's own parent tree (transcript/*)",
 			"internal/adapters/transcript/vendorreader -> internal/adapters/transcript":                     "sanctioned: a package's own parent tree (transcript/*)",
 			"internal/adapters/transcript -> internal/adapters/transcript/policy":                           "sanctioned: a package's own subpackage (the read-side content policy FilteredSource applies)",
-			"internal/adapters/signing/countersign -> internal/adapters/signing":                            "sanctioned: a package's own parent tree (signing/*)",
 			"internal/adapters/content/attest -> internal/adapters/content":                                 "sanctioned: a package's own parent tree (content/*)",
 			"internal/adapters/content/remotetree -> internal/adapters/content":                             "sanctioned: a package's own parent tree (content/*)",
 			"internal/adapters/coordgrpc/mcpschema/gen -> internal/adapters/coordgrpc/mcpschema":            "sanctioned: a package's own parent tree (coordgrpc/*)",
@@ -258,7 +253,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/adapters/memory":           "slice 14a: the compactor (memory.NewCompactor) is called by operations.Compact",
 			"internal/adapters/cli -> internal/adapters/remote":           "measured: `bundle push` drives remote.PublishManager, `deps list` reads the lockfile, the item listing parses references and `remote discover` normalises URLs directly; they belong behind operations and no slice names them",
 			"internal/adapters/cli -> internal/adapters/signing":          "measured: init and `signer trust` spell signing.NamespacePublish, the trust namespace they write into; leaves when the namespace is a value operations hands back",
-			"internal/adapters/cli -> internal/adapters/signing/agentkey": "measured: the signing frontends (review, sign, bundle push) hold the *agentkey.Discoverer operations.SignerDiscoverer composes and render agentkey's own candidate listing and hardware-key posture over operations.ResolveLocalSigner; a rendering vocabulary, not an orchestration",
+			"internal/adapters/cli -> internal/adapters/signing/agentkey": "measured: the signing frontends (sign, bundle push) hold the *agentkey.Discoverer operations.SignerDiscoverer composes and render agentkey's own candidate listing and hardware-key posture; a rendering vocabulary, not an orchestration",
 			"internal/adapters/cli -> internal/adapters/termui":           "slice 13: termui sits over the pty master the runner owns",
 			"internal/adapters/cli -> internal/adapters/transcript":       "slice 13: cli/tui reads the transcript file; the CLI does not open transcripts itself",
 			"internal/adapters/cli -> internal/adapters/confpatch":        "slice 12: delivery.Ownership (adapters/confpatch) is reached through delivery, not from the CLI",
@@ -269,7 +264,7 @@ var LayeringRules = []LayeringRule{
 
 			// operations reaching sibling adapters (it is the application-services
 			// layer; it holds ports, not adapters)
-			"internal/adapters/operations -> internal/adapters/content/attest":          "slice 5: attest.VerifyBundle is behind the trust ports composite.Trust holds",
+			"internal/adapters/operations -> internal/adapters/content/attest":          "slice 5: attest.VerifyBundle is behind the trust root",
 			"internal/adapters/operations -> internal/adapters/isolation":               "slice 7: launch.Cells is the port; isolation is injected at cmd/*",
 			"internal/adapters/operations -> internal/adapters/memory":                  "slice 14a: memory.NewCompactor; the compactor is injected",
 			"internal/adapters/operations -> internal/adapters/remote":                  "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
@@ -278,7 +273,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/operations -> internal/adapters/signing":                 "slice 5: one verifier behind the trust ports",
 			"internal/adapters/operations -> internal/adapters/signing/agentkey":        "slice 5: one verifier behind the trust ports",
 			"internal/adapters/operations -> internal/adapters/signing/allowedsigners":  "slice 5: composite.SignerDecision is core-owned; the adapter is injected",
-			"internal/adapters/operations -> internal/adapters/signing/countersign":     "slice 5: one signature (the .sigs/ manifest); countersigning goes",
 			"internal/adapters/operations -> internal/adapters/transcript":              "slice 14a: sessions.Entry.NativeSession is the one record; transcript is an injected reader",
 			"internal/adapters/operations -> internal/adapters/transcript/policy":       "slice 14a: transcript policy rides with the reader adapter",
 			"internal/adapters/operations -> internal/adapters/transcript/vendorreader": "slice 11b: the readers become engine.TranscriptReader values (Engine.Transcripts)",

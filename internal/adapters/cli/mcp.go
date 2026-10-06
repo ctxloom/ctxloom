@@ -30,8 +30,7 @@ own companion loadout declares as SERVED BY THE RUNNING SESSION'S ENDPOINT:
 there is no command to launch, and nothing is registered in the project at
 rest. A ` + "`ctxloom run`" + ` session's runner serves the endpoint and the
 session's own registry names it (URL + bearer). Add a server by composing a
-bundle that declares it; withhold one with a profile's exclude_mcp, or with
-  ctxloom bundle reject <bundle>#mcp/<name>
+bundle that declares it; withhold one with a profile's exclude_mcp.
 
 Tools the session endpoint serves:
   Context:  assemble_context, search_content, search_library
@@ -98,11 +97,8 @@ var mcpServerListCmd = &cobra.Command{
 }
 
 // mcpListRow is the --format json shape for `ctxloom mcp list`: one registered
-// MCP server and the bundle that ships it. Source is also the server's TRUST
-// identity — every entry is a bundle item, addressed <bundle>#mcp/<name>, and
-// gated at the bundle exec choke — so the posture is read and changed through
-// the bundle surfaces (`ctxloom bundle show -i`, `ctxloom bundle trust|reject`,
-// `ctxloom review`) rather than restated here.
+// MCP server and the bundle that ships it. Source is the server's identity:
+// every entry is a bundle item, addressed <bundle>#mcp/<name>.
 type mcpListRow struct {
 	Name     string   `json:"name"`
 	Command  string   `json:"command,omitempty"`

@@ -55,12 +55,11 @@ Reference format: bundle#fragments/name`,
 }
 
 func runFragmentShow(cmd *cobra.Command, args []string) error {
-	return showItem(cmd, args[0], ItemTypeFragment, fragmentShowDistilled, fragmentShowInteractive)
+	return showItem(cmd, args[0], ItemTypeFragment, fragmentShowDistilled)
 }
 
 var (
-	fragmentShowDistilled   bool
-	fragmentShowInteractive bool
+	fragmentShowDistilled bool
 )
 
 var fragmentCreateCmd = &cobra.Command{
@@ -156,7 +155,6 @@ func init() {
 
 	fragmentListCmd.Flags().StringVarP(&fragmentListBundle, "bundle", "b", "", "Filter by bundle name")
 	fragmentShowCmd.Flags().BoolVarP(&fragmentShowDistilled, "distilled", "d", false, "Show distilled version")
-	fragmentShowCmd.Flags().BoolVarP(&fragmentShowInteractive, "interactive", "i", false, "Review effective trust and offer to trust/blacklist (interactive terminal only)")
 	fragmentEditCmd.Flags().BoolVar(&fragmentEditNoDistill, "no-distill", false, "Skip re-distillation for this edit (leaves the distilled form empty, never stale)")
 	fragmentDistillCmd.Flags().BoolVarP(&fragmentDistillForce, "force", "f", false, "Re-distill even if unchanged")
 	fragmentRemoveCmd.Flags().BoolVarP(&fragmentRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")

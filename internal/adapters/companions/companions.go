@@ -129,19 +129,13 @@ func (p Prober) ProbeCompanions() []CompanionStatus {
 //
 // THE CONTROL POINT IS EXEC, NOT CONTENT. Reading a loadout means RUNNING the
 // companion binary, so by the time any content exists that binary has already
-// executed arbitrary code with the user's privileges. Reviewing the content
-// afterwards buys ~nothing and costs a review prompt for content the user
-// deliberately installed, so the decision the human is asked to make is moved
-// to where it has purchase: may ctxloom EXECUTE this file (see
+// executed arbitrary code with the user's privileges, so the decision the
+// human is asked to make is the one that has purchase: may ctxloom EXECUTE this file (see
 // companion_admission.go's trust-on-first-use, keyed on absolute path + binary
-// hash). Content that survives that gate is LOCAL-EQUIVALENT and allowed at
-// EffectiveTrust's companion step — it is NOT reviewed like a remote bundle,
-// and its SIGNATURE does not gate it either (a loadout's bytes cross no
+// hash). Its SIGNATURE does not gate the content (a loadout's bytes cross no
 // intermediary, so a publisher signature has nothing to protect them from
 // here; signature facts are reported as diagnostics — see
-// ProbeCompanionLoadouts). Rejection still reaches it (step 1) and an
-// unreadable approvals store still denies it along with everything else. See
-// docs/trust-model.md, "Companion loadouts".
+// ProbeCompanionLoadouts).
 //
 // Discovery here only finds candidate binaries; admission decides which get
 // exec'd, and every surviving loadout is seeded into Config.SeededBundleLoader
@@ -288,7 +282,7 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 		if len(cfg.GetAppPaths()) == 0 {
 			return nil
 		}
-		root := cfg.Trust().Root()
+		root := cfg.TrustRoot()
 		probe := func(ctx context.Context) (bundles.CompanionProbe, error) {
 			return p.ProbeCompanionLoadouts(ctx)
 		}

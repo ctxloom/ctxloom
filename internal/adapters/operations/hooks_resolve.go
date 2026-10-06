@@ -123,9 +123,8 @@ func resolvedHookEventOrder() []string { return wire.HookEvents() }
 // resolution, upstream of this function's read, so what is reported is the
 // post-override effect and never the pre-override order.
 //
-// The executable trust gate is attached, so a hook withheld from apply is
-// withheld from the report too. Showing a hook that will not run is the same lie
-// in the other direction.
+// A hook withheld from apply is withheld from the report too. Showing a hook
+// that will not run is the same lie in the other direction.
 func ResolveHooks(ctx context.Context, req ResolveHooksRequest) (*ResolveHooksResult, error) {
 	if req.Event != "" && !wire.IsHookEvent(req.Event) {
 		return nil, fmt.Errorf("unknown hook event %q; the lifecycle events are %s",

@@ -15,7 +15,7 @@ import (
 // the inverse of Convert, and the half the tree format shipped without.
 //
 // It exists because the rest of ctxloom still consumes a Bundle —
-// assembly, the trust gate, profile resolution and materialize all take one —
+// assembly, profile resolution and materialize all take one —
 // so a tree has to become one somewhere. Doing it HERE, in the package that
 // already owns the other direction, is what keeps the two mappings adjacent:
 // a field added to one kind's conversion and forgotten in the other is a
@@ -271,8 +271,7 @@ func (r *reader) finishHooks() {
 				Tags:            h.Tags,
 				// Order is carried through rather than dropped: it is what made
 				// this sequence resolvable, and a re-conversion that lost it
-				// would fall back to positional spacing and stale every
-				// countersignature on the way past.
+				// would fall back to positional spacing.
 				Order: h.Order,
 			})
 		}

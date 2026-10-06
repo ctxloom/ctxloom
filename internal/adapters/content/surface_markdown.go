@@ -236,8 +236,7 @@ type Fragment struct {
 	ItemMeta
 }
 
-func (Fragment) Kind() trust.ItemKind      { return trust.KindFragment }
-func (Fragment) TrustKind() trust.ItemKind { return trust.KindFragment }
+func (Fragment) Kind() trust.ItemKind { return trust.KindFragment }
 
 type fragmentType struct{}
 
@@ -299,8 +298,7 @@ type Command struct {
 	Exports EngineExports
 }
 
-func (Command) Kind() trust.ItemKind      { return trust.KindPrompt }
-func (Command) TrustKind() trust.ItemKind { return trust.KindPrompt }
+func (Command) Kind() trust.ItemKind { return trust.KindPrompt }
 
 type commandType struct{}
 

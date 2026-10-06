@@ -292,12 +292,6 @@ func (b *OneShotBuilder) Start(ctx context.Context) (*OneShotSession, error) {
 	if b.workDir == "" {
 		return nil, ErrOneShotNoWorkDir
 	}
-	// A Config built outside the Owner carries no Trust: refuse here, at the
-	// entry point, rather than let the assembler withhold every executable
-	// with the "no authorizer" defect reason.
-	if _, err := b.cfg.RequireTrust(); err != nil {
-		return nil, fmt.Errorf("internal one-shot: %w", err)
-	}
 	deps, err := LaunchDepsFor(b.facts, &config.Snapshot{Config: b.cfg})
 	if err != nil {
 		return nil, err

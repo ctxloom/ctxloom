@@ -45,7 +45,7 @@ func TestAssemble_ProvenanceNamesDirectoryProfileAndItsBundles(t *testing.T) {
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte(
 		"bundles:\n  - kit\nhooks:\n  unified:\n    pre_tool:\n      - command: from-dir-profile\n        type: command\n"), 0o644))
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},

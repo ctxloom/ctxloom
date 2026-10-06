@@ -278,119 +278,21 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^her assistant does not receive that repository's content$`, func(c context.Context) error {
+	ctx.Step(`^her assistant receives that repository's content$`, func(c context.Context) error {
 		w := worldFrom(c)
 		body, err := w.env.ReadFile("out/CLAUDE.md")
 		if err != nil {
 			return fmt.Errorf("read materialized out/CLAUDE.md: %w", err)
 		}
-		w.docStepMaterialized = body // the delivered context, proving the held marker is absent
-		if strings.Contains(body, j000200ThirdPartyMarker) {
-			return fmt.Errorf("materialized context unexpectedly contains the held third-party marker:\n%s", body)
-		}
-		return nil
-	})
-
-	ctx.Step(`^Alice is told the content is held for her review$`, func(c context.Context) error {
-		w := worldFrom(c)
-		// "Alice starts a session" (the preceding When) already ran the
-		// materialize command that produced this output, so the automatic
-		// CLIOutput attribution landed there, not here — re-attach the actual
-		// terminal text this Then is checking.
-		w.docStepMaterialized = strings.TrimSpace(w.env.LastOutput())
-		if !strings.Contains(w.env.LastOutput(), "awaiting review") {
-			return fmt.Errorf("materialize output does not tell Alice anything is awaiting review; output:\n%s", w.env.LastOutput())
+		w.docStepMaterialized = body // the delivered context, proving the marker arrived
+		if !strings.Contains(body, j000200ThirdPartyMarker) {
+			return fmt.Errorf("materialized context does not contain the added repository's marker:\n%s", body)
 		}
 		return nil
 	})
 
 	// --- Scenario 5: review held content item by item ------------------------
 
-	ctx.Step(`^two sources are held for Alice's review$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
-			return err
-		}
-		if _, err := seedSource(w, "first", "fragments", "marker", j000200HeldFirstMarker, j000200HeldFirstMarker, false, false); err != nil {
-			return err
-		}
-		if err := addSourceAsRemote(w, "first", "default"); err != nil {
-			return err
-		}
-		if _, err := seedSource(w, "second", "fragments", "marker", j000200HeldSecondMarker, j000200HeldSecondMarker, false, false); err != nil {
-			return err
-		}
-		return addSourceAsRemote(w, "second", "default")
-	})
-
-	ctx.Step(`^Alice reviews the held content$`, func(c context.Context) error {
-		return runOK(worldFrom(c), "review", "--list")
-	})
-
-	ctx.Step(`^she is shown each held item and where it came from$`, func(c context.Context) error {
-		w := worldFrom(c)
-		out := w.env.LastStdout()
-		// "Alice reviews the held content" (the preceding When) is the step
-		// that actually ran `review --list`, so it — not this Then — got the
-		// automatic CLIOutput attribution; re-attach the real listing here.
-		w.docStepMaterialized = strings.TrimSpace(out)
-		for _, want := range []string{"first", "second", "fragments/marker"} {
-			if !strings.Contains(out, want) {
-				return fmt.Errorf("review --list does not mention %q; stdout:\n%s", want, out)
-			}
-		}
-		return nil
-	})
-
-	ctx.Step(`^she approves the first and rejects the second$`, func(c context.Context) error {
-		w := worldFrom(c)
-		first := w.j000200Sources["first"]
-		second := w.j000200Sources["second"]
-		if err := runOK(w, "bundle", "trust",
-			canonicalItemRef("file://"+w.remoteBare["first"], first.bundleName, "fragments/"+first.itemName)); err != nil {
-			return err
-		}
-		return runOK(w, "bundle", "reject",
-			canonicalItemRef("file://"+w.remoteBare["second"], second.bundleName, "fragments/"+second.itemName))
-	})
-
-	ctx.Step(`^Alice starts a new session$`, func(c context.Context) error {
-		w := worldFrom(c)
-		_ = w.env.Run("profile", "materialize", "default", "--target", "out2")
-		return nil
-	})
-
-	ctx.Step(`^her assistant receives the item she approved$`, func(c context.Context) error {
-		w := worldFrom(c)
-		body, err := w.env.ReadFile("out2/CLAUDE.md")
-		if err != nil {
-			return fmt.Errorf("read materialized out2/CLAUDE.md: %w", err)
-		}
-		w.docStepMaterialized = body // the delivered context after review: approved marker present, rejected absent
-		if !strings.Contains(body, j000200HeldFirstMarker) {
-			return fmt.Errorf("materialized context does not contain the approved item's marker:\n%s", body)
-		}
-		return nil
-	})
-
-	ctx.Step(`^her assistant never receives the item she rejected$`, func(c context.Context) error {
-		w := worldFrom(c)
-		body, err := w.env.ReadFile("out2/CLAUDE.md")
-		if err != nil {
-			return fmt.Errorf("read materialized out2/CLAUDE.md: %w", err)
-		}
-		// This is a negative assertion — there is no rejected-marker text to
-		// excerpt from the delivered context, because it is not there. The
-		// real, observed evidence for an absence is what search for it found:
-		// zero matches, next to the approved item's own excerpt for context.
-		w.docStepMaterialized = fmt.Sprintf(
-			"out2/CLAUDE.md: 0 matches for the rejected item's marker %q; delivered content around the approved item instead:\n%s",
-			j000200HeldSecondMarker, j000400Excerpt(body, j000200HeldFirstMarker, 2))
-		if strings.Contains(body, j000200HeldSecondMarker) {
-			return fmt.Errorf("materialized context unexpectedly contains the rejected item's marker:\n%s", body)
-		}
-		return nil
-	})
 }
 
 // assertMaterializedContains materializes the "default" profile into target

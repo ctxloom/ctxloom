@@ -29,8 +29,7 @@ type HostFacts struct {
 }
 
 // Deps are the ports Resolve needs; every one built once at the composition
-// root. The catalog and the trust gate come from the ONE Snapshot the
-// operation captured. Resolve reads no file and no env. Inline and ClaimCheck
+// root. The catalog comes from the ONE Snapshot the operation captured. Resolve reads no file and no env. Inline and ClaimCheck
 // are the two package transports; InlineMax is the size at which Resolve
 // switches from one to the other.
 type Deps struct {

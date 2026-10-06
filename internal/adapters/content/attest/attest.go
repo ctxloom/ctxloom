@@ -15,9 +15,8 @@
 // # Only NamespacePublish is ever consulted
 //
 // Publish is the one assertion that must travel to a consumer who has never
-// seen the content, and it is the only one stored in the tree. Approvals and
-// rejections live in the countersignature store and are a different question
-// asked by a different layer. This package therefore reads signatures under
+// seen the content, and it is the only one stored in the tree. This package
+// therefore reads signatures under
 // NamespacePublish and nothing else, and it verifies them only against keys the
 // trust root authorizes for THAT namespace — so an approve-only key can never
 // satisfy a publish slot, in either direction (storage or trust).
@@ -39,7 +38,7 @@ import (
 
 // publishNS is the ONE namespace this package reads or writes. It is a constant
 // rather than a parameter on purpose: making it an argument is what would let a
-// caller pass NamespaceApprove and turn a review record into a publication.
+// caller pass another namespace and turn its signature into a publication.
 const publishNS = content.Namespace(signing.NamespacePublish)
 
 // Status is the outcome of verifying one bundle or one item form.

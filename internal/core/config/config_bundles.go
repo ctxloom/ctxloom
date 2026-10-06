@@ -12,42 +12,20 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
-// hookPreimage and mcpPreimage are the executable-surface preimage builders for
-// a bundle hook / MCP server, indirected through package vars so a test can
-// force the (in production near-unreachable) build failure that
-// extractHooksFromBundle / extractMCPFromBundle must report rather than swallow
-// (U049-F17). SetPreimageBuildersForTesting swaps them and returns a restore.
-var (
-	hookPreimage = func(h bundles.BundleHook) ([]byte, error) { return h.ContentPayload() }
-	mcpPreimage  = func(m bundles.BundleMCP) ([]byte, error) { return m.ContentPayload() }
-)
-
-// SetPreimageBuildersForTesting swaps the hook/MCP preimage builders (either may
-// be nil to leave that one unchanged) and returns a function that restores both.
-func SetPreimageBuildersForTesting(hook func(bundles.BundleHook) ([]byte, error), mcp func(bundles.BundleMCP) ([]byte, error)) func() {
-	prevHook, prevMCP := hookPreimage, mcpPreimage
-	if hook != nil {
-		hookPreimage = hook
-	}
-	if mcp != nil {
-		mcpPreimage = mcp
-	}
-	return func() { hookPreimage, mcpPreimage = prevHook, prevMCP }
-}
-
-// bindTrust and bindCatalog attach the generation's Trust and resolved
-// Catalog to the Config the Owner is about to publish, so a consumer reaching
-// this generation through its *Config sees exactly what the Snapshot carries.
-// Trust is bound first because the readers the catalog resolves verify
-// against its root. Called once per generation, before publication; never on
+// bindTrustRoot and bindCatalog attach the generation's signer trust root and
+// resolved Catalog to the Config the Owner is about to publish, so a consumer
+// reaching this generation through its *Config sees exactly what the Snapshot
+// carries. The root is bound first because the readers the catalog resolves
+// verify against it. Called once per generation, before publication; never on
 // a published value.
-func (c *Config) bindTrust(trust composite.Trust) { c.trust = trust }
+func (c *Config) bindTrustRoot(root trust.TrustRoot, sigCheckDisabled bool) {
+	c.trustRoot, c.sigCheckDisabled = root, sigCheckDisabled
+}
 
 func (c *Config) bindCatalog(catalog func() bundles.Catalog) { c.catalog = catalog }
 
@@ -57,52 +35,36 @@ func (c *Config) bindCatalog(catalog func() bundles.Catalog) { c.catalog = catal
 // fixture — has no generation to pin: it resolves the one reader core
 // itself can build, the project's authored bundles, on every call, and never
 // sees remote or companion content, which only the composition root's
-// Sources supply. It verifies against its Trust's root, which for a fixture
+// Sources supply. It verifies against its TrustRoot, which for a fixture
 // nobody bound trusts no signer (trust.NoSigners): a signed bundle reads as
 // untrusted rather than as whatever the machine's signer files say.
 func (c *Config) Catalog() bundles.Catalog {
 	if c.catalog != nil {
 		return c.catalog()
 	}
-	root := c.trust.Root()
+	root := c.TrustRoot()
 	return bundles.Resolve(context.Background(), c.rep.Sink,
 		bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs(), bundles.WithTrustRoot(root), bundles.WithReaderReporter(c.rep.Sink)))
 }
 
-// Trust is the generation's gate holder, bound before publication
-// (bindTrust). A Config no Owner published — a fixture — holds a ZERO
-// Trust, whose nil authorizer bundles.Decide withholds on and names
-// (ReasonUngoverned): a surface that forgot its gate is a defect, never an
-// admit.
-func (c *Config) Trust() composite.Trust { return c.trust }
-
-// ExecutableTrustGate returns the authorizer the bundle executable surfaces
-// decide with: the generation's Trust. Nil for a fixture nobody bound, which
-// bundles.Decide withholds on loudly.
-func (c *Config) ExecutableTrustGate() bundles.Authorizer { return c.trust.Authorizer() }
-
-// ErrTrustUnbound is the refusal a delivery entry point gives a Config that
-// carries no gate: it was constructed outside the Owner (config.Open
-// publishes every generation with its Trust) and never bound (a fixture
-// states its gate with BindTrustForTesting). Refused at the entry, by
-// sentinel — a construction bug is caught first, not surfaced as one
-// withheld item per executable later.
-var ErrTrustUnbound = errors.New("config: this configuration carries no trust gate — it was constructed outside the Owner and never bound")
-
-// RequireTrust returns the bound Trust, or ErrTrustUnbound for a Config
-// nobody bound. Every operation that delivers content asks this at entry.
-func (c *Config) RequireTrust() (composite.Trust, error) {
-	if c == nil || c.trust.Authorizer() == nil {
-		return composite.Trust{}, ErrTrustUnbound
+// TrustRoot is the generation's signer trust root (bindTrustRoot). A Config
+// no Owner published trusts no signer (trust.NoSigners).
+func (c *Config) TrustRoot() trust.TrustRoot {
+	if c == nil || c.trustRoot == nil {
+		return trust.NoSigners{}
 	}
-	return c.trust, nil
+	return c.trustRoot
 }
 
-// BindTrustForTesting binds tr as this Config's generation gate, exactly as
-// the Owner does before publishing a Snapshot. A fixture that exercises an
-// executable surface states its gate this way — compositetest.Trust over
-// fake ports for a decision.
-func (c *Config) BindTrustForTesting(tr composite.Trust) { c.trust = tr }
+// SignatureCheckDisabled reports whether this generation was built with
+// signature verification waived (WithoutSignatureCheck).
+func (c *Config) SignatureCheckDisabled() bool { return c != nil && c.sigCheckDisabled }
+
+// BindTrustRootForTesting binds root and the signature-check posture to this
+// Config exactly as the Owner does before publishing a Snapshot.
+func (c *Config) BindTrustRootForTesting(root trust.TrustRoot, sigCheckDisabled bool) {
+	c.bindTrustRoot(root, sigCheckDisabled)
+}
 
 // mcpNameClaims settles the MCP server-name contest at the BUNDLE-RESOLUTION
 // layer: two ctxloom source refs both declaring one server name, before any
@@ -274,7 +236,7 @@ func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[
 	// than allowed to override (see mcpNameClaims).
 	cat := bundleLoader.Catalog()
 	for _, ref := range cat.CompanionRefs() {
-		addServers(ref, loadMCPFromBundleRef(c.rep, ref, cat, c.ExecutableTrustGate()))
+		addServers(ref, loadMCPFromBundleRef(c.rep, ref, cat))
 	}
 
 	// Finally the profile-referenced bundles. A bundle listed by two profiles
@@ -283,7 +245,7 @@ func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[
 	// claimed is a contest between two different refs, and mcpNameClaims
 	// withholds it loudly.
 	eachBundleRef(set, func(bundleRef string) {
-		addServers(bundleRef, loadMCPFromBundleRef(c.rep, bundleRef, cat, c.ExecutableTrustGate()))
+		addServers(bundleRef, loadMCPFromBundleRef(c.rep, bundleRef, cat))
 	})
 
 	return result
@@ -346,13 +308,13 @@ func resolveProfileOrReport(rep report.Reporter, profileLoader *profiles.Loader,
 // the seeded-bundle map first: remote bundles are no longer extracted to disk
 // (they live only in the SeededBundleLoader seed), so resolving a remote ref by
 // a computed filesystem path would silently find nothing and drop its servers.
-func loadMCPFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.Catalog, gate bundles.Authorizer) map[string]wire.MCPServer {
+func loadMCPFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.Catalog) map[string]wire.MCPServer {
 	read, err := cat.Read(bundleRef)
 	if err != nil {
 		reportBundleRefLoadFailure(rep, bundleRef, err)
 		return nil
 	}
-	return extractMCPFromBundle(rep, read, read.SourceRef(), gate)
+	return extractMCPFromBundle(rep, read, read.SourceRef())
 }
 
 // reportBundleRefLoadFailure reports a bundle ref that could not be loaded on
@@ -421,11 +383,11 @@ func (c *Config) ResolveBundleHooksFor(set []profiles.ResolvedProfile) wire.Unif
 	// companion's OWN bundle. Sorted for a deterministic result across runs.
 	cat := bundleLoader.Catalog()
 	for _, ref := range cat.CompanionRefs() {
-		result.Append(loadHooksFromBundleRef(c.rep, ref, cat, c.ExecutableTrustGate(), links))
+		result.Append(loadHooksFromBundleRef(c.rep, ref, cat, links))
 	}
 
 	eachBundleRef(set, func(bundleRef string) {
-		result.Append(loadHooksFromBundleRef(c.rep, bundleRef, cat, c.ExecutableTrustGate(), links))
+		result.Append(loadHooksFromBundleRef(c.rep, bundleRef, cat, links))
 	})
 	return result
 }
@@ -458,33 +420,28 @@ func (c *Config) resolveProfileScope(profileNames []string) []string {
 // loadHooksFromBundleRef loads hooks from a bundle reference. Like
 // loadMCPFromBundleRef it resolves via loader.Load (seed-aware) rather than a
 // computed fs path, so remote bundles' hooks aren't silently dropped.
-func loadHooksFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.Catalog, gate bundles.Authorizer, links bundles.LinkGrant) wire.UnifiedHooks {
+func loadHooksFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.Catalog, links bundles.LinkGrant) wire.UnifiedHooks {
 	read, err := cat.Read(bundleRef)
 	if err != nil {
 		reportBundleRefLoadFailure(rep, bundleRef, err)
 		return wire.UnifiedHooks{}
 	}
-	return extractHooksFromBundle(rep, read, read.SourceRef(), gate, links)
+	return extractHooksFromBundle(rep, read, read.SourceRef(), links)
 }
 
-// extractHooksFromBundle converts a bundle's hooks to wire.Hooks. Each
-// hook's executable surface is
-// hashed (bundles.HashPayload over BundleHook.ContentPayload) and run through the cascade keyed on
-// the canonical bundle-reference grammar's item selector over source
-// (bundles.ItemRefFor(src, trust.KindHook, "<event>/<index>")); a DENY omits the
-// hook — a bundle hook is an arbitrary-command executable that must never be
-// applied unevaluated (fail-closed). gate is the executable trust gate (TR5);
-// a nil gate withholds every hook (bundles.Decide). The identity scheme is
-// bundles.HookEntry.ID() ("<event>/<index>"), shared with the migration
-// baseline so a baselined hook's ref matches.
+// extractHooksFromBundle converts a bundle's hooks to wire.Hooks. Each hook is
+// addressed by the canonical bundle-reference grammar's item selector over
+// source (bundles.ItemRefFor(src, trust.KindHook, "<event>/<index>")); a hook
+// nothing can address is a named load error and costs only itself. The
+// identity scheme is bundles.HookEntry.ID() ("<event>/<index>").
 //
 // links is the run's link grant (bundles.LinkGrant): a hook linked to an MCP
-// server the run was not granted is withheld here, after trust, exactly as the
-// content pipeline withholds a linked fragment — hooks never pass through that
+// server the run was not granted is withheld here, exactly as the content
+// pipeline withholds a linked fragment — hooks never pass through that
 // pipeline, so this is where the group's atomicity is enforced for them. A nil
-// grant withholds every linked hook; a surface that gates nothing says
+// grant withholds every linked hook; a surface that checks no links says
 // bundles.LinksUnchecked.
-func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src trust.BundleRef, gate bundles.Authorizer, links bundles.LinkGrant) wire.UnifiedHooks {
+func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src trust.BundleRef, links bundles.LinkGrant) wire.UnifiedHooks {
 	bundle := read.Bundle
 	if !bundle.Hooks.HasAny() {
 		return wire.UnifiedHooks{}
@@ -499,11 +456,9 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src tr
 		// the merge sequence is still the bundles' order, not any hook's.
 		//
 		// This sorts a permutation of AUTHORED INDICES rather than the hooks
-		// themselves, because the authored index is a hook's trust identity on
-		// this path ("<bundle>#hooks/<event>/<index>", shared with the migration
-		// baseline and every recorded grant). Resolving to a new position must
-		// not renumber that ref, or every existing hook approval silently
-		// detaches from the hook it was granted for.
+		// themselves, because the authored index is a hook's identity on this
+		// path ("<bundle>#hooks/<event>/<index>", shared with the migration
+		// baseline). Resolving to a new position must not renumber that ref.
 		//
 		// SliceStable over an already-ascending permutation is what makes ties —
 		// and a bundle where nothing declares an order at all — resolve to
@@ -524,36 +479,15 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src tr
 			// Key by the bundle's source ref (canonical for a remote/cloned
 			// bundle, the local name for a project bundle) — NOT bundle.Name,
 			// whose short form is ambiguous across local and cloned bundles.
-			// This makes the cascade's IsLocal/RepoURL honest (local hooks
-			// auto-trust; a cloned one is judged by WHO SIGNED it) and aligns
-			// the gate key with the baseline/grant key (both source).
-			ref, rerr := bundles.ItemRefFor(src, trust.KindHook, id)
-			if rerr != nil {
-				// Fail CLOSED and NAMED: a hook nothing can address is a
-				// hook nothing can decide about, and one such hook costs
-				// itself, never the bundle's other hooks.
+			if _, rerr := bundles.ItemRefFor(src, trust.KindHook, id); rerr != nil {
+				// A hook nothing can address is a named load error, and one
+				// such hook costs itself, never the bundle's other hooks.
 				rep.Failf(report.KindBundle,
 					"fix or re-pull the bundle, or pass --degraded",
 					"bundle hook withheld: %v", rerr)
 				continue
 			}
-			payload, perr := hookPreimage(h)
-			if perr != nil {
-				// Cannot build the preimage → cannot evaluate → withhold. Fail
-				// CLOSED, but never SILENTLY: a hook the user configured would
-				// otherwise vanish from the launched engine with no trace
-				// (U049-F17). Name the ref and the fault.
-				rep.Failf(report.KindBundle,
-					"fix or re-pull the bundle, or pass --degraded",
-					"bundle hook %q withheld: cannot build its trust preimage: %v", ref, perr)
-				continue
-			}
-			if !bundles.Decide(rep, gate, read, ref, payload, bundles.FormRaw).Allow {
-				continue // withheld by the trust gate
-			}
-			// Trust decided first, so a trust withhold is reported as one;
-			// links are the second question, asked only of a hook trust
-			// would deliver. Effective tags, as LinkGroups computes them.
+			// Effective tags, as LinkGroups computes them.
 			if linkID, server, withheld := bundles.LinkWithholds(links, read, slices.Concat(bundle.Tags, h.Tags)); withheld {
 				bundles.WarnLinkWithheld(rep, read.DisplayName()+"#hooks/"+id, linkID, server)
 				continue
@@ -583,43 +517,22 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src tr
 	}
 }
 
-// extractMCPFromBundle extracts MCP servers from a loaded bundle. Each
-// server's executable surface
-// (Command+Args+Env+Installation) is hashed and run through the cascade keyed
-// on the canonical bundle-reference grammar's item selector over source
-// (bundles.ItemRefFor(src, trust.KindMCP, name)); a DENY omits the server entirely
-// — an arbitrary-command executable must never reach settings unevaluated
-// (fail-closed). gate is the executable trust gate (TR5); a nil gate
-// withholds every server (bundles.Decide).
-func extractMCPFromBundle(rep report.Reporter, read bundles.BundleRead, src trust.BundleRef, gate bundles.Authorizer) map[string]wire.MCPServer {
+// extractMCPFromBundle extracts MCP servers from a loaded bundle. Each server
+// is addressed by the canonical bundle-reference grammar's item selector over
+// source (bundles.ItemRefFor(src, trust.KindMCP, name)); a server nothing can
+// address is a named load error and costs only itself.
+func extractMCPFromBundle(rep report.Reporter, read bundles.BundleRead, src trust.BundleRef) map[string]wire.MCPServer {
 	bundle := read.Bundle
 	result := make(map[string]wire.MCPServer)
 
 	for name, mcp := range bundle.MCP {
 		// Key by the source ref (canonical for a cloned bundle, local name for
-		// a project bundle) so the cascade's IsLocal/RepoURL are honest and the
-		// gate key matches the baseline/grant key. See extractHooksFromBundle.
-		ref, rerr := bundles.ItemRefFor(src, trust.KindMCP, name)
-		if rerr != nil {
-			// See extractHooksFromBundle: fail closed, named, per item.
+		// a project bundle). See extractHooksFromBundle.
+		if _, rerr := bundles.ItemRefFor(src, trust.KindMCP, name); rerr != nil {
 			rep.Failf(report.KindBundle,
 				"fix or re-pull the bundle, or pass --degraded",
 				"bundle MCP server withheld: %v", rerr)
 			continue
-		}
-		payload, perr := mcpPreimage(mcp)
-		if perr != nil {
-			// Cannot build the preimage → cannot evaluate → withhold. Fail
-			// CLOSED, but never SILENTLY: an MCP server the user configured
-			// would otherwise vanish from the launched engine with no trace
-			// (U049-F17). Name the ref and the fault.
-			rep.Failf(report.KindBundle,
-				"fix or re-pull the bundle, or pass --degraded",
-				"bundle MCP server %q withheld: cannot build its trust preimage: %v", ref, perr)
-			continue
-		}
-		if !bundles.Decide(rep, gate, read, ref, payload, bundles.FormRaw).Allow {
-			continue // withheld by the trust gate
 		}
 		srv := mcp.AsWire()
 		srv.Notes = mcp.Notes

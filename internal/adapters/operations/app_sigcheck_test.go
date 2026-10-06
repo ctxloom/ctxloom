@@ -24,7 +24,7 @@ func TestApp_TheSigCheckSwitchReachesTheGenerationsTrust(t *testing.T) {
 			app := NewApp(fixtureSources{cfg: config.NewFixture(config.Fixture{})}, tc.sw, nil, strictness.Mode{Prog: "ctxloom"}, Handed{Open: config.Open})
 			snap, err := app.Snapshot(context.Background())
 			require.NoError(t, err)
-			assert.Equal(t, tc.want, snap.Trust.SignatureCheckDisabled())
+			assert.Equal(t, tc.want, snap.Config.SignatureCheckDisabled())
 		})
 	}
 }

@@ -34,21 +34,19 @@ var (
 	// ErrProfileNotFound indicates a profile could not be located.
 	ErrProfileNotFound = errors.New("profile not found")
 
-	// ErrFragmentWithheld indicates a fragment resolved but the per-item trust
-	// gate (trust rework, TR5) withheld it: it exists but is not exposed because
-	// the effective-content trust cascade denied it (untrusted, blacklisted, or
-	// fail-closed on an evaluation error). Distinct from ErrFragmentNotFound so a
-	// caller can tell "missing" from "exists-but-withheld" via errors.Is.
-	ErrFragmentWithheld = errors.New("fragment withheld by trust gate")
+	// ErrFragmentWithheld indicates a fragment resolved but the delivery
+	// pipeline withheld it: its ref could not be addressed, or it is linked to
+	// an MCP server the run was not granted. Distinct from ErrFragmentNotFound
+	// so a caller can tell "missing" from "exists-but-withheld" via errors.Is.
+	ErrFragmentWithheld = errors.New("fragment withheld")
 
-	// ErrCommandWithheld indicates a command resolved but the per-item trust
-	// gate (trust rework, TR5) withheld it. See ErrFragmentWithheld.
-	ErrCommandWithheld = errors.New("command withheld by trust gate")
+	// ErrCommandWithheld indicates a command resolved but the delivery
+	// pipeline withheld it. See ErrFragmentWithheld.
+	ErrCommandWithheld = errors.New("command withheld")
 
 	// ErrSkillWithheld indicates an Agent Skill package resolved but the
-	// per-item trust gate withheld it (or its on-disk tree failed manifest
-	// verification against a signed bundle.yaml entry). See ErrFragmentWithheld.
-	ErrSkillWithheld = errors.New("skill withheld by trust gate")
+	// delivery pipeline withheld it. See ErrFragmentWithheld.
+	ErrSkillWithheld = errors.New("skill withheld")
 
 	// ErrDanglingLink indicates a bundle carries a ctxloom:link_id tag on
 	// exactly one item. A link binds two or more items in one bundle into a

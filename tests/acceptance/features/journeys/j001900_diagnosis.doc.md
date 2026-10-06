@@ -16,13 +16,13 @@ renumbered.
 Every product that delivers content to somewhere else eventually gets this
 support ticket, and it is always the same ticket: *it worked on Friday.* No
 error, no red, no crash — the thing simply stopped arriving, and now somebody
-has to work out which of eight hops between "a human wrote it down" and "the
+has to work out which of the hops between "a human wrote it down" and "the
 model read it" quietly dropped it on the floor.
 
 ctxloom's answer to that ticket is supposed to be a rule, and the rule is
 strong: every stage boundary NAMES ITS INSPECTOR. Content is authored, then
-packaged, then attested, then distributed, then admitted, then composed, then
-delivered, then ingested — and at each of those seams there is meant to be one
+packaged, then attested, then distributed, then composed, then delivered, then
+ingested — and at each of those seams there is meant to be one
 command you can run that tells you, in words, whether the content made it
 across and why not. A boundary that has no such command is not an untested
 boundary. It is a defect, because it converts a one-minute question into a
@@ -42,16 +42,14 @@ command succeeds" would be asserting the bug.
 
 ## What the walk found
 
-Six hops answer. Six do not. The three cells that moved against the
-prediction are marked.
+Cells that moved against the prediction are marked.
 
 | Boundary | Predicted | Measured | The inspector's actual words |
 |---|---|---|---|
 | B1 authored → packaged | OK | **green** | `search` names no packaged item, and does not answer with silence |
 | B2 packaged → attested | PARTIAL | **red** | nothing, anywhere, says "unsigned" |
 | B3 attested → distributed | OK | **red** ← moved | `bundle list` renders a held bundle as an ordinary entry |
-| B4 distributed → admitted | OK | **green** for "pending"; **red** for "by whom" |`1 item(s) pending review`, and no signer information at all |
-| B5 admitted → composed | OK | **green**, all three inspectors | `profile show`, `agent show`, and `run --dry-run` ← moved |
+| B5 distributed → composed | OK | **green**, all three inspectors | `profile show`, `agent show`, and `run --dry-run` ← moved |
 | B6 composed → delivered | OK | **red** ← moved | `manage check` never mentions a materialized surface |
 | B7 delivered → ingested | DEFECT | **red** | nothing, by design-so-far |
 | M5 two machines | miss | **red** | `unknown flag: --compare` |
@@ -84,21 +82,8 @@ the old content still arriving, and Alice being told are three different ways
 this can go wrong, and a scenario checking only that the revised bytes were
 absent would pass for all of them.
 
-One detail is worth keeping, because it is this journey's own thesis turned on
-the product: the sync used to end by pointing at `ctxloom review`, and
-`ctxloom review` answered "Nothing is pending review." Content withheld as
-tampered is *deliberately* never offered for review, so the only remedy the
-product named was a circle. A remedy that cannot act is worse than none, and
-the scenario now asserts against exactly that.
-
-Then there is the trap, which has its own scenario because Alice will
-absolutely fall into it. Her first instinct is `review --list`, and
-`review --list` shows nothing — not because nothing is wrong, but because
-*unsigned* is a different state from *pending*. The most obvious inspector at
-this hop is silent by design, and any diagnosis that stops there stops in the
-wrong place. That scenario's failure message says so, so that if
-`review --list` ever does start naming the runbook, whoever sees the red
-learns it is good news rather than a regression.
+The sync also has to name a remedy she can act on — getting the runbook
+re-signed — and the scenario asserts that it does.
 
 ### B3 and B6 — two hops the boundary table credits with work they do not do
 

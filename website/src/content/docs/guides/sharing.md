@@ -186,13 +186,10 @@ Context bundles for [description].
 ctxloom remote create mybundles username/my-ctxloom-bundles
 ctxloom profile create dev --include mybundles/go-development
 ctxloom deps pull
-ctxloom review
 ```
 
-`ctxloom deps pull` only fetches this bundle; `ctxloom review` is what
-actually lets its fragments and commands reach the agent — pulled content is
-born pending and withheld until a human reviews it, unless you already trust
-this bundle's publisher key.
+Registering the remote is the trust decision: once pulled, the bundle's
+fragments and commands reach the agent.
 
 ## Available Bundles
 
@@ -297,7 +294,6 @@ Users can then pin to specific versions by referencing the tagged ref:
 ```bash
 ctxloom profile create dev --include mybundles/go-development@v1.0.0
 ctxloom deps pull
-ctxloom review
 ```
 
 ## Best Practices

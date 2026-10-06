@@ -48,7 +48,7 @@ func w74ShortNameFS(t *testing.T, withLocalFile bool) (afero.Fs, *config.Config,
 	if withLocalFile {
 		bundletree.Write(t, fs, filepath.Join(bdir, "personal"), "tool", "version: 1.0.0\nfragments:\n  a:\n    content: hi\n")
 	}
-	return fs, gatedFixture(config.Fixture{AppPaths: []string{appDir}}),
+	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}),
 		[]string{paths.LocalBundlesPath(appDir)}
 }
 
@@ -125,7 +125,7 @@ func TestNewBundleReaderForConfig_WarnsWhenLockfileUnreadable(t *testing.T) {
 	restore := clidiag.SetSink(&sink)
 	defer restore()
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	reader := NewBundleReaderForConfig(cfg)
 
 	assert.Nil(t, reader, "an unreadable lockfile still yields no reader")
@@ -150,7 +150,7 @@ func TestNewBundleReaderForConfig_SilentOnGoodLockfile(t *testing.T) {
 	restore := clidiag.SetSink(&sink)
 	defer restore()
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	assert.NotNil(t, NewBundleReaderForConfig(cfg))
 	assert.Empty(t, sink.String())
 }

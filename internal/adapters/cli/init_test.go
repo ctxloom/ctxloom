@@ -8,19 +8,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -68,50 +64,10 @@ func TestGenerateConfig_TheHumansSessionRunsOnTheToken(t *testing.T) {
 	assert.Contains(t, string(data), "auth: "+string(engine.AuthToken), "written out, not left to the parser's default")
 }
 
-// TestCtxloomDefaultTrusted pins init's trust claim about the seeded
-// "ctxloom-default" remote to the ACTUAL trust root, rather than asserting it
-// unconditionally regardless of local state.
-//
-// MUTATION TARGET: replacing ctxloomDefaultTrusted's body with `return true`
-// turns the "locally distrusted" subtest red; replacing it with `return
-// false` turns the "default trust root" subtest red.
-func TestCtxloomDefaultTrusted(t *testing.T) {
-	t.Run("nil config never claims trust", func(t *testing.T) {
-		assert.False(t, ctxloomDefaultTrusted(nil))
-	})
-
-	t.Run("an unmodified trust root trusts ctxloom's embedded publishing key", func(t *testing.T) {
-		dir := t.TempDir()
-		cfg, err := configload.Load(configload.WithRoot(safefs.NewMem(afero.NewMemMapFs())), configload.WithAppDir(dir))
-		require.NoError(t, err)
-
-		assert.True(t, ctxloomDefaultTrusted(cfg),
-			"an unmodified trust root must still trust ctxloom's own embedded publishing key")
-	})
-
-	t.Run("a locally distrusted embedded principal is no longer trusted", func(t *testing.T) {
-		embedded := configload.EmbeddedSigners().Entries()
-		require.NotEmpty(t, embedded, "the embedded trust root must ship at least one signer for this test to mean anything")
-		principal := embedded[0].Principals[0]
-
-		dir := t.TempDir()
-		fs := afero.NewMemMapFs()
-		require.NoError(t, afero.WriteFile(fs, paths.DistrustedSignersPath(dir), []byte(principal+"\n"), 0o644))
-
-		cfg, err := configload.Load(configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(dir))
-		require.NoError(t, err)
-
-		assert.False(t, ctxloomDefaultTrusted(cfg),
-			"a locally distrusted embedded principal must no longer be reported as trusted")
-	})
-}
-
 // TestPersonalRemoteRequests covers the pure request builder behind
 // `ctxloom init`'s personal-repo registration: the first repo is named
 // "personal" and the rest "personal-N", and the --forge label (when set) binds
-// every personal remote to that forge. A remote no longer carries trust on add
-// (spec §11) — its content takes the review path until its publisher key is
-// added — so there is no trust flag to assert.
+// every personal remote to that forge.
 func TestPersonalRemoteRequests(t *testing.T) {
 	t.Run("names and empty forge", func(t *testing.T) {
 		reqs := personalRemoteRequests([]string{"me/a", "me/b", "me/c"}, "")
@@ -203,11 +159,8 @@ func TestRunInit_ExistingDir_ProvisionsTheApprovalsStore(t *testing.T) {
 	origHome, origNonInteractive, origSkipLaunch := initHome, initNonInteractive, initSkipLaunch
 	initHome, initNonInteractive, initSkipLaunch = false, true, true
 	t.Cleanup(func() { initHome, initNonInteractive, initSkipLaunch = origHome, origNonInteractive, origSkipLaunch })
-	require.False(t, operations.ApprovalsStoreProvisioned(nil, appDir), "precondition: an unprovisioned project")
-
 	require.NoError(t, runInit(&cobra.Command{}, nil))
 
-	assert.True(t, operations.ApprovalsStoreProvisioned(nil, appDir))
 	cfg, err := os.ReadFile(filepath.Join(appDir, "config.yaml"))
 	require.NoError(t, err)
 	assert.Equal(t, "version: 5\n", string(cfg), "re-init must not re-scaffold an existing project's config")

@@ -52,10 +52,6 @@ This is the only command that moves an existing pin. 'deps pull', 'init' and
 startup create first pins and keep every existing one, even when you change a
 constraint; that change takes effect here.
 
-The lockfile is pure dependency pinning: upgrading a pin does not expose new
-content to the agent. Any changed content from an untrusted source is withheld
-until you accept it with 'ctxloom review'.
-
 A pin is NOT advanced onto content whose publisher signature does not verify
 over its bytes: that content is withheld as tampered and cannot be reviewed, so
 advancing past the last commit that did verify would leave you with neither
@@ -142,10 +138,6 @@ func renderUpgrade(out io.Writer, res operations.UpgradeResult) {
 	switch {
 	case res.Applied && len(res.Changes) > 0:
 		fmt.Fprintf(out, "Applied %d pin(s).\n", len(res.Changes))
-		// Content withheld as TAMPERED is deliberately not reviewable, so
-		// `ctxloom review` would answer "Nothing is pending review." here;
-		// doctor answers whatever the state actually is.
-		fmt.Fprintln(out, "Newly pinned content is not exposed to your assistant until it passes the trust gate: run 'ctxloom doctor' to see whether any of it is withheld, and why.")
 	case !res.Applied && len(res.Changes)+len(res.Removed) > 0:
 		fmt.Fprintf(out, "%d pin(s) would move. Re-run with --yes to apply.\n", len(res.Changes))
 	}
@@ -199,10 +191,7 @@ const (
 // refused (operations.RefusalCause — only a signature failure is worded as a
 // tamper signal), and WHICH pin is being kept instead.
 //
-// It names no command that cannot help. `ctxloom review` in particular is
-// wrong here by construction — bytes a signature does not cover are never
-// offered for review (bundles.Reason.NeedsReview), so sending the user there
-// answers "Nothing is pending review." and teaches them the message is noise.
+// It names no command that cannot help.
 func reportRefusedAdvances(out io.Writer, refused []operations.RefusedAdvance) {
 	for _, r := range refused {
 		if r.Cause == operations.RefusalBelowFloor {

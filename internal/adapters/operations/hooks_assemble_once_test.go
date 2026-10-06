@@ -28,11 +28,11 @@ func TestApplyHooks_ResolvesTheDefaultProfilesOnce(t *testing.T) {
 	writeBundleFixture(t, tmpDir)
 
 	const missingProfile = "not-installed"
-	cfg := realGated(gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths:     []string{filepath.Join(tmpDir, ".ctxloom")},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"test", missingProfile}}},
-	}))
+	})
 
 	mark := strictness.Checkpoint()
 	t.Cleanup(func() { strictness.Close(mark) })

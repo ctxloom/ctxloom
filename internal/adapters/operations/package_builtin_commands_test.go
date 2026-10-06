@@ -50,7 +50,7 @@ func TestLoadCommandExports_CtxloomInitAlwaysPresent(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	prompts := commandsOf(t, cfg, nil)
 	found := findByName(prompts, "ctxloom-init")

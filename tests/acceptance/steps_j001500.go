@@ -17,15 +17,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/cucumber/godog"
 	"golang.org/x/crypto/ssh"
-
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -45,40 +40,9 @@ const (
 	j001500UnsignedMarker = "J001500-UNSIGNED-OUTSIDE-MARKER"
 )
 
-// The unsigned bundle Alice references from outside the company, by remote and
-// bundle name.
-const (
-	j001500UnsignedRemote = "outside"
-	j001500UnsignedBundle = "outside-tools"
-)
-
-// j001500WithheldLine captures one per-item withheld advisory line
-// (operations.WarnWithheldBy): the ref, possibly empty, and its reason. The
-// reason stops at a double quote because off a terminal each warning is a JSON
-// object, whose closing `"}` would otherwise read as part of the reason.
-var j001500WithheldLine = regexp.MustCompile(`(?m)withheld (\S*): ([^"\n]*)`)
-
-// j001500CheckHeldReason checks one held item's reason against bare, the
-// reason's own rendering with no detail: a fragment's is exactly that, and an
-// executable's extends it with what would admit it.
-func j001500CheckHeldReason(ref, reason, bare string) error {
-	if strings.Contains(ref, "#fragment") {
-		if reason != bare {
-			return fmt.Errorf("the held guidance's reason is %q, want exactly %q: a fragment has nothing to add", reason, bare)
-		}
-		return nil
-	}
-	if !strings.HasPrefix(reason, bare) || reason == bare {
-		return fmt.Errorf("the held executable %s says only %q; it must also say what would admit it", ref, reason)
-	}
-	return nil
-}
-
 // j001500State is this journey's fixture state: the company's signed bundle
 // (signer identity, seeded remote, bundle name), whether Alice has wired it
-// into her project yet, and bookkeeping the later scenarios need (rejected
-// hook, extra company-signed bundles, the review --project PTY session's
-// outcome).
+// into her project yet, and the refused tamper pull's outcome.
 type j001500State struct {
 	signer     *testenv.TestSigner
 	principal  string
@@ -86,11 +50,6 @@ type j001500State struct {
 	bare       string // bare repo path (no file:// prefix), for AdvanceRemote/AdvanceSignedTreeRemote
 	bundleName string
 	referenced bool // remote added + profile modified (addRemoteBundleBase wiring done)
-
-	extraMarkers []string // scenario 6: additional company-signed bundles' markers
-
-	reviewPTYOutput string // scenario 7: captured `ctxloom review --project` pty output
-	reviewPTYExit   int
 
 	tamperPullOutput string // scenario 2: the refused `deps pull`'s output
 	tamperPullExit   int
@@ -161,21 +120,6 @@ func j001500EnsureReferenced(w *World) error {
 		return err
 	}
 	return runOK(w, "deps", "pull")
-}
-
-// j001500StartSession is "Alice starts a session": ensure the company bundle is
-// referenced and pulled, then materialize the default profile into "out" —
-// the single command that writes CLAUDE.md AND the generated settings files
-// (.mcp.json, .claude/settings.json) together (operations.MaterializeProfile),
-// so scenarios 1/3/4 share one implementation. Exit code is ignored here (a
-// strictness abort on a fatal trust finding is itself asserted by dedicated
-// Then steps, mirroring steps_j000200_setup.go's materializeDefault).
-func j001500StartSession(w *World) error {
-	if err := j001500EnsureReferenced(w); err != nil {
-		return err
-	}
-	_ = w.env.Run("profile", "materialize", "default", "--target", "out")
-	return nil
 }
 
 // j001500ReadMaterialized reads out/CLAUDE.md, the assembled content surface.
@@ -309,15 +253,6 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		return j001500WireReference(w)
 	})
 
-	ctx.Step(`^Alice syncs her project$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if err := j001500EnsureReferenced(w); err != nil {
-			return err
-		}
-		_ = w.env.Run("profile", "materialize", "default", "--target", "out")
-		return nil
-	})
-
 	// The tamper scenario's sync. Unlike "Alice syncs her project" the pull is
 	// EXPECTED to fail: a pull verifies what it fetched before pinning it, so a
 	// tree whose files no longer match their signed SHA256SUMS is refused at
@@ -390,27 +325,12 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		return j001500EnsureReferenced(w)
 	})
 
-	ctx.Step(`^Alice has rejected the hook$`, func(c context.Context) error {
-		w := worldFrom(c)
-		j001500 := j001500Of(w)
-		ref := canonicalItemRef(j001500.url, j001500.bundleName, "hooks/session_start/0")
-		return runOK(w, "bundle", "reject", ref)
-	})
-
 	ctx.Step(`^the MCP server appears in her assistant's configuration$`, func(c context.Context) error {
 		return j001500AssertMCPPresence(worldFrom(c), true)
 	})
 
 	ctx.Step(`^the hook appears in her assistant's configuration$`, func(c context.Context) error {
 		return j001500AssertHookPresence(worldFrom(c), true)
-	})
-
-	ctx.Step(`^the MCP server still appears in her configuration$`, func(c context.Context) error {
-		return j001500AssertMCPPresence(worldFrom(c), true)
-	})
-
-	ctx.Step(`^the hook is absent, because she rejected it$`, func(c context.Context) error {
-		return j001500AssertHookPresence(worldFrom(c), false)
 	})
 
 	// --- Scenario 5: RETRACTION — @wip, see the feature file's comment --------
@@ -421,300 +341,8 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 	// all. Retraction currently has NO effect on already-distributed content
 	// through any CLI path — see this journey's final report.)
 
-	ctx.Step(`^Alice already receives the company's secure-coding guidance$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if err := j001500StartSession(w); err != nil {
-			return err
-		}
-		body, err := j001500ReadMaterialized(w)
-		if err != nil {
-			return err
-		}
-		if !strings.Contains(body, j001500CompanyMarker) {
-			return fmt.Errorf("setup failed: Alice does not yet receive the company's guidance; content:\n%s", body)
-		}
-		return nil
-	})
-
-	// A retraction is a new SIGNED release: its bundle.yaml withdraws the
-	// bundle, and the retraction check reads only the signed tip manifest.
-	ctx.Step(`^Trent retracts that version of the bundle$`, func(c context.Context) error {
-		w := worldFrom(c)
-		j001500 := j001500Of(w)
-		root := treeBundlePath(j001500.bundleName)
-		envelope := "version: 1.1.0\nwithdrawn: found to be incorrect guidance; do not use\n"
-		return w.env.AdvanceSignedTreeRemote(j001500.bare, root, j001500.bundleName, envelope, j001500TreeItems(j001500CompanyMarker, false), j001500.signer)
-	})
-
-	ctx.Step(`^Alice is told the content was retracted$`, func(c context.Context) error {
-		w := worldFrom(c)
-		// The retraction notice lives in the pull's OWN output — the run
-		// immediately before the materialize that followed it in "Alice
-		// syncs her project", so NthLastOutput(1) reaches it even though
-		// LastOutput() now reflects the later materialize.
-		out := w.env.NthLastOutput(1)
-		w.docStepMaterialized = out
-		if !strings.Contains(out, "retracted") {
-			return fmt.Errorf("sync output does not mention retraction; output:\n%s", out)
-		}
-		return nil
-	})
-
-	ctx.Step(`^her assistant no longer receives it$`, func(c context.Context) error {
-		w := worldFrom(c)
-		body, err := j001500ReadMaterialized(w)
-		if err != nil {
-			return err
-		}
-		if strings.Contains(body, j001500CompanyMarker) {
-			return fmt.Errorf("materialized context still contains the retracted guidance; content:\n%s", body)
-		}
-		return nil
-	})
-
 	// --- Scenario 6: KEY REVOCATION --------------------------------------------
-
-	ctx.Step(`^Alice receives several bundles the company signed with its key$`, func(c context.Context) error {
-		w := worldFrom(c)
-		j001500 := j001500Of(w)
-		if err := j001500EnsureReferenced(w); err != nil { // the background's "secure-coding" bundle
-			return err
-		}
-		for _, extra := range []struct{ name, marker string }{
-			{"extra-a", j001500ExtraMarkerA},
-			{"extra-b", j001500ExtraMarkerB},
-		} {
-			root := treeBundlePath(extra.name)
-			url, err := w.env.SeedSignedTreeRemote(root, extra.name, j001500TreeEnvelope, j001500TreeItems(extra.marker, false), j001500.signer)
-			if err != nil {
-				return fmt.Errorf("seed signed extra bundle %q: %w", extra.name, err)
-			}
-			remoteName := "company-" + extra.name
-			if err := runOK(w, "remote", "create", remoteName, url, "--forge", "git"); err != nil {
-				return err
-			}
-			if err := runOK(w, "profile", "modify", "default", "--add-bundle", remoteName+"/"+extra.name); err != nil {
-				return err
-			}
-			j001500.extraMarkers = append(j001500.extraMarkers, extra.marker)
-		}
-		return runOK(w, "deps", "pull")
-	})
-
-	ctx.Step(`^the company key is compromised$`, func(c context.Context) error {
-		// Narrative beat only — the consequence is what the next two steps
-		// (revoking trust, then syncing) actually drive and assert.
-		return nil
-	})
-
-	ctx.Step(`^Alice revokes her trust in the company key$`, func(c context.Context) error {
-		w := worldFrom(c)
-		// Drives the real "ctxloom signer untrust" leaf — see
-		// completeness_test.go's knownUncoveredCLI, pruned for this ref by J001500.
-		return runOK(w, "signer", "untrust", j001500Of(w).principal, "--project")
-	})
-
-	ctx.Step(`^her assistant no longer receives any content signed by that key$`, func(c context.Context) error {
-		w := worldFrom(c)
-		body, err := j001500ReadMaterialized(w)
-		if err != nil {
-			return err
-		}
-		markers := append([]string{j001500CompanyMarker}, j001500Of(w).extraMarkers...)
-		for _, m := range markers {
-			if strings.Contains(body, m) {
-				return fmt.Errorf("materialized context still contains %q after revoking the company key; content:\n%s", m, body)
-			}
-		}
-		return nil
-	})
-
-	ctx.Step(`^that content is held for her review, as if it had never been signed$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if err := runOK(w, "review", "--list"); err != nil {
-			return err
-		}
-		out := w.env.LastStdout()
-		for _, want := range []string{j001500Of(w).bundleName, "guidance", "new"} {
-			if !strings.Contains(out, want) {
-				return fmt.Errorf("review --list does not show the formerly-signed content as pending %q; stdout:\n%s", want, out)
-			}
-		}
-		return nil
-	})
-
-	// The withheld advisory "Alice syncs her project" printed (its materialize is
-	// the last run) must give the SIGNER as the reason. The expected sentence is
-	// the reason's own rendering, so the step follows the wording wherever it
-	// is changed; what it pins is WHICH reason was chosen, and "awaiting review"
-	// alone is shared by the unsigned and pending reasons, so it cannot tell
-	// them apart.
-	ctx.Step(`^Alice is told the content is held because this machine no longer trusts the key that signed it$`, func(c context.Context) error {
-		w := worldFrom(c)
-		out := w.env.LastOutput()
-		w.docStepMaterialized = strings.TrimSpace(out)
-		want := bundles.ReasonUntrustedSigner.Explain("")
-		if !strings.Contains(out, want) {
-			return fmt.Errorf("sync output does not give the untrusted signing key as the reason content is held (want %q); output:\n%s", want, out)
-		}
-		return nil
-	})
-
-	ctx.Step(`^Alice references a bundle nobody signed, shipping guidance, an MCP server and a hook$`, func(c context.Context) error {
-		w := worldFrom(c)
-		root := treeBundlePath(j001500UnsignedBundle)
-		files := map[string]string{root + "/" + bundles.DirectoryFormManifest: j001500TreeEnvelope}
-		for rel, body := range j001500TreeItems(j001500UnsignedMarker, true) {
-			files[root+"/"+rel] = body
-		}
-		url, err := w.env.SeedRemote(files)
-		if err != nil {
-			return fmt.Errorf("seed unsigned bundle remote: %w", err)
-		}
-		if err := runOK(w, "remote", "create", j001500UnsignedRemote, url, "--forge", "git"); err != nil {
-			return err
-		}
-		if err := runOK(w, "profile", "modify", "default", "--add-bundle", j001500UnsignedRemote+"/"+j001500UnsignedBundle); err != nil {
-			return err
-		}
-		return runOK(w, "deps", "pull")
-	})
-
-	// Reads the per-item withheld advisory the sync's materialize printed. An
-	// executable's line must say more than the bare "awaiting review" sentence
-	// (what would admit it), and the fragment's must not: its reason already
-	// says everything. Both sides are measured against the reason's own
-	// rendering rather than a copy of the detail's wording.
-	ctx.Step(`^Alice is told, item by item and in name order, why each piece of it is held, and what would admit each executable$`, func(c context.Context) error {
-		w := worldFrom(c)
-		out := w.env.LastOutput()
-		w.docStepMaterialized = strings.TrimSpace(out)
-		bare := bundles.ReasonPending.Explain("")
-		var refs []string
-		for _, line := range j001500WithheldLine.FindAllStringSubmatch(out, -1) {
-			ref, reason := line[1], line[2]
-			if ref == "" {
-				return fmt.Errorf("a withheld line names no item: %q; output:\n%s", line[0], out)
-			}
-			if !strings.Contains(ref, j001500UnsignedBundle) {
-				continue
-			}
-			// One command, one gate: the sync reaches the advisory from more
-			// than one site, and each held item is named once across all of
-			// them — a second line for it is noise that buries the first.
-			if slices.Contains(refs, ref) {
-				return fmt.Errorf("withheld item %s is named more than once in one sync; output:\n%s", ref, out)
-			}
-			refs = append(refs, ref)
-			if err := j001500CheckHeldReason(ref, reason, bare); err != nil {
-				return fmt.Errorf("%w; output:\n%s", err, out)
-			}
-		}
-		if len(refs) != 3 {
-			return fmt.Errorf("want a withheld line for each of the unsigned bundle's 3 items, got %d distinct (%v); output:\n%s", len(refs), refs, out)
-		}
-		if !slices.IsSorted(refs) {
-			return fmt.Errorf("withheld items are not listed in name order: %v; output:\n%s", refs, out)
-		}
-		return nil
-	})
 
 	// --- Scenario 7: FORGERY PRIMITIVE ------------------------------------------
 
-	ctx.Step(`^Alice has no signing key available$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
-			return err
-		}
-		// "No key anywhere" is deterministic because testenv's isolatedEnv
-		// drops the host's SSH_AUTH_SOCK: a developer's real agent cannot
-		// satisfy key discovery here.
-
-		// One unsigned, untrusted pending item so `review --project` has
-		// something to act on: an empty pending set short-circuits ("Nothing is
-		// pending review.") before ever resolving a signer.
-		root := treeBundlePath("bystander")
-		files := map[string]string{root + "/" + bundles.DirectoryFormManifest: j001500TreeEnvelope}
-		for rel, body := range j001500TreeItems(j001500ForgeryMarker, false) {
-			files[root+"/"+rel] = body
-		}
-		url, err := w.env.SeedRemote(files)
-		if err != nil {
-			return fmt.Errorf("seed unsigned bystander remote: %w", err)
-		}
-		if err := runOK(w, "remote", "create", "bystander", url, "--forge", "git"); err != nil {
-			return err
-		}
-		if err := runOK(w, "profile", "modify", "default", "--add-bundle", "bystander/bystander"); err != nil {
-			return err
-		}
-		return runOK(w, "deps", "pull")
-	})
-
-	ctx.Step(`^Alice tries to record a review decision into the team's shared store$`, func(c context.Context) error {
-		w := worldFrom(c)
-		// `ctxloom review` (sans --list) only reaches resolveReviewSigner on a
-		// REAL tty (isInteractiveTerminal()) — a plain piped Run/RunWithStdin
-		// would take the non-interactive list branch and never exercise this
-		// path at all, mirroring steps_j000200_common.go's driveDiscoverySessionViaMock.
-		sess, err := w.env.RunPTY(100, 30, nil, "review", "--project")
-		if err != nil {
-			return fmt.Errorf("start 'ctxloom review --project' pty: %w", err)
-		}
-		defer sess.Close()
-		exited, waitErr := sess.Wait(eventBudget())
-		if !exited {
-			return fmt.Errorf("'ctxloom review --project' never exited; captured output:\n%s", sess.Output())
-		}
-		_ = waitErr // the exit code (checked below) is the authoritative signal
-		j001500 := j001500Of(w)
-		j001500.reviewPTYOutput = sess.Output()
-		j001500.reviewPTYExit = sess.ExitCode()
-		// The refusal ("no signing key available") is PTY output, invisible to
-		// the @doc sidecar's w.env view — surface it as this step's evidence.
-		w.docStepMaterialized = j001500.reviewPTYOutput
-		return nil
-	})
-
-	ctx.Step(`^ctxloom refuses, because a team decision must be signed$`, func(c context.Context) error {
-		w := worldFrom(c)
-		j001500 := j001500Of(w)
-		// j001500.reviewPTYOutput was already attached to "Alice tries to record a
-		// review decision..." via the set-and-consume docStepMaterialized
-		// field, which that step already spent — this Then re-checks the same
-		// PTY transcript, so re-attach it (plus the exit code the assertion is
-		// actually keyed on) rather than leave this step's pane empty.
-		w.docStepMaterialized = fmt.Sprintf("'ctxloom review --project' exit=%d:\n%s", j001500.reviewPTYExit, strings.TrimSpace(j001500.reviewPTYOutput))
-		if j001500.reviewPTYExit == 0 {
-			return fmt.Errorf("expected 'ctxloom review --project' to refuse (non-zero exit) with no signing key available, got exit 0; output:\n%s", j001500.reviewPTYOutput)
-		}
-		if !strings.Contains(j001500.reviewPTYOutput, "no signing key available") {
-			return fmt.Errorf("output does not explain the missing signing key; output:\n%s", j001500.reviewPTYOutput)
-		}
-		return nil
-	})
-
-	ctx.Step(`^nothing is written to the team store$`, func(c context.Context) error {
-		w := worldFrom(c)
-		// An initialized project is a PROVISIONED one: its team store exists
-		// from `init` on, holding only the tracked placeholder. "Nothing was
-		// written" is therefore a store that still holds nothing else — the
-		// listing is the observed evidence.
-		store := paths.ApprovalsPath(filepath.Join(w.env.ProjectDir, paths.AppDirName))
-		entries, err := os.ReadDir(store)
-		if err != nil {
-			return fmt.Errorf("read the team store %s: %w", store, err)
-		}
-		var written []string
-		for _, e := range entries {
-			if e.Name() != paths.ApprovalsPlaceholderName {
-				written = append(written, e.Name())
-			}
-		}
-		w.docStepMaterialized = fmt.Sprintf("team store contents after the refused review, beyond its placeholder: %q", written)
-		if len(written) > 0 {
-			return fmt.Errorf("the team store holds %v after a refused 'ctxloom review --project'", written)
-		}
-		return nil
-	})
 }

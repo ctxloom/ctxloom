@@ -41,7 +41,7 @@ func newLLMDistiller(cfg *config.Config, label string) (*llmDistiller, error) {
 		return nil, nil
 	}
 	// The ONE error this constructor has: the project configured a `distill`
-	// prompt and the trust gate withheld it. Warning-and-continuing here would
+	// prompt and it was withheld. Warning-and-continuing here would
 	// be exactly the swallow being fixed — the run would proceed on ctxloom's
 	// own default and report success. The error is returned so the command
 	// refuses (refuseWithheldDistillPrompt), which is a decision, not a fault.

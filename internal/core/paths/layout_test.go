@@ -138,7 +138,6 @@ func TestLayout_HomeRowsResolveUnderHomeNeverProject(t *testing.T) {
 func TestLayout_HomeRowsNameStoreRootsOnly(t *testing.T) {
 	allowedHomeRels := map[string]bool{
 		filepath.Join(AppDirName, SessionsDir):                    true,
-		filepath.Join(AppDirName, ApprovalsDirName):               true,
 		filepath.Join(AppDirName, AllowedSignersFileName):         true,
 		filepath.Join(AppDirName, DistrustedSignersFileName):      true,
 		filepath.Join(AppDirName, CacheDir, TriggersDir):          true,

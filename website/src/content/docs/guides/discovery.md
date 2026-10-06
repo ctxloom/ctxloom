@@ -116,24 +116,11 @@ ctxloom profile create go-dev \
 
 # Fetch everything your profiles reference and update the lockfile
 ctxloom deps pull
-
-# Let a human see what came in before the agent can
-ctxloom review
 ```
 
-`ctxloom deps pull` only fetches — it never exposes anything. Everything
-from a remote is born pending and withheld from the agent until a human
-reviews it, unless you already trust the publisher's signing key. `ctxloom
-review` walks the pending items and shows each one's content: `[t]rust`,
-`[r]eject`, `[s]kip`, or `[T]`/`[R]` to answer for everything left in a bundle.
-Trusting countersigns the exact bytes you saw with your own SSH key (an
-sshsig signature, never GPG/PGP), so any
-later change to that content — including a version upgrade — drops it back to
-pending until you review it again. `ctxloom bundle trust <ref>` and `ctxloom
-bundle reject <ref>` are the same two decisions as scriptable one-liners, for
-scripts or CI, and `ctxloom bundle forget <ref>` clears either one — returning
-the item to pending rather than answering a mistake with its opposite. Trusting a publisher's key instead (`ctxloom signer trust`)
-skips this per-item review for everything they sign.
+Adding the remote was the trust decision: what `deps pull` installs from it
+reaches the agent. A first pull lists everything it pinned — every item, and
+what every hook and MCP server runs.
 
 ### Use Content Directly
 
@@ -150,11 +137,10 @@ ctxloom run -f 'https://github.com/alice/ctxloom-golang@bundles/testing#fragment
 `-f` does not accept the `<remote-alias>/<bundle>` form that `profile create --include`
 does: a bundle token in front of `#fragments/` is read as a local bundle.
 
-This only works once the fragment is already pulled and reviewed: `-f` never
-fetches on demand, and unreviewed content isn't silently added to context —
-since it's the only fragment requested here, ctxloom refuses to run with
-nothing to assemble rather than send an empty prompt. Pull and review it
-first (as in Reference Remote Content above) if you haven't already.
+This only works once the fragment is already pulled: `-f` never fetches on
+demand — since it's the only fragment requested here, ctxloom refuses to run
+with nothing to assemble rather than send an empty prompt. Pull it first (as in
+Reference Remote Content above) if you haven't already.
 
 Remote profiles ship inside bundles. To run one, create a local profile that
 inherits it (as above), then `ctxloom run -p go-dev`.
@@ -236,9 +222,8 @@ ctxloom deps upgrade
 ctxloom deps upgrade --yes
 ```
 
-Content that changes under an upgraded pin re-gates to pending, even if
-you'd already reviewed the old bytes — run `ctxloom review` again afterward
-to see what changed and decide.
+Run without `--yes` first: the preview shows what changes under each pin
+before anything moves.
 
 `ctxloom deps check [ref]` is a different, narrower command: it reports which
 lockfile entries have a newer commit that satisfies their constraint, and

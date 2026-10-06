@@ -140,13 +140,14 @@ func TestMutationTargets_IgnorePatternScopesToTheEntry(t *testing.T) {
 // substring of another path today is luck of naming, not a guarantee).
 func TestBuildIgnorePattern_AnchorsWholePaths(t *testing.T) {
 	root := repoRoot(t)
-	pattern, _ := buildIgnorePattern(t, root, trustCascadeTarget.SourceRelPath)
+	const target = "internal/adapters/remote/registry.go"
+	pattern, _ := buildIgnorePattern(t, root, target)
 
 	// A real ignored file matches; the same path with anything appended or
 	// prepended does not.
 	const ignored = "internal/adapters/operations/sign.go"
 	if !pattern.MatchString(ignored) {
-		t.Fatalf("expected %q to be ignored when the target is %q", ignored, trustCascadeTarget.SourceRelPath)
+		t.Fatalf("expected %q to be ignored when the target is %q", ignored, target)
 	}
 	for _, near := range []string{
 		"x/" + ignored,

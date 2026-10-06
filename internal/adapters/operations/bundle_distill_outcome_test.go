@@ -7,14 +7,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // TestDistillOutcome_FailureReportedSkipped is a regression guard: a per-item
@@ -100,74 +94,4 @@ type okDistiller struct{ body string }
 
 func (d okDistiller) Distill(context.Context, DistillRequest) (DistillResult, error) {
 	return DistillResult{Distilled: d.body, ModelID: "fake-model"}, nil
-}
-
-// TestDistillBundleFile_InvalidatesPriorApproval is the re-distill LOUD PATH
-// (spec §10.4) end to end: a fragment with a PRIOR approve countersignature
-// over its distilled bytes is re-distilled to DIFFERENT bytes; the old
-// approval necessarily no longer covers the new bytes, so the file result
-// must report the item invalidated.
-func TestDistillBundleFile_InvalidatesPriorApproval(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	dir := t.TempDir()
-	const treeName = "mybundle"
-	bundleYAML := `version: 1.0.0
-fragments:
-  rules:
-    content: "fresh content the stale distillation no longer matches"
-    distilled: "old distilled text"
-    distilled_by: "stale-model"
-    content_hash: "0000000000000000000000000000000000000000000000000000000000000000"
-`
-	path := bundletree.WriteOS(t, dir, treeName, bundleYAML)
-
-	// Seed a prior UNSIGNED approve countersignature over the OLD distilled
-	// bytes (spec §9.5's degraded path; unsigned is sufficient here — the
-	// invalidation check only asks "did ANY prior approve record exist",
-	// which the sidecar index answers regardless of signedness).
-	ref := trust.Ref{Bundle: "mybundle", Kind: trust.KindFragment, Name: "rules", IsLocal: true}
-	home, err := paths.HomeApprovalsPath()
-	require.NoError(t, err)
-	store := countersign.NewStore(home, afero.NewOsFs())
-	refStr, err := countersign.CountersignRef(ref)
-	require.NoError(t, err)
-	require.NoError(t, store.WriteUnsignedApprove(refStr, signing.AttestFragmentDistilled, []byte("old distilled text")))
-	require.NoError(t, store.AppendIndex(countersign.IndexEntry{
-		Ref: refStr, Kind: string(trust.KindFragment), Form: string(signing.FormDistilled),
-		Assertion: string(signing.AssertionApprove), Unsigned: true, PayloadHash: "sha256:old", ReviewedAt: "2026-01-01T00:00:00Z",
-	}))
-
-	res, err := DistillBundleFile(context.Background(), DistillBundleFileRequest{
-		Path:      path,
-		Distiller: okDistiller{body: "brand new distilled text"},
-	})
-	require.NoError(t, err)
-	require.Len(t, res.Items, 1)
-	require.Equal(t, DistillStatusDistilled, res.Items[0].Status)
-	assert.Equal(t, []string{"fragment/rules"}, res.Invalidated,
-		"a prior approval over the distilled form must be reported invalidated")
-}
-
-// TestDistillBundleFile_NoInvalidationWhenNeverApproved proves the loud path
-// is silent when nothing was ever approved — no false alarms.
-func TestDistillBundleFile_NoInvalidationWhenNeverApproved(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	dir := t.TempDir()
-	const treeName = "mybundle"
-	bundleYAML := `version: 1.0.0
-fragments:
-  rules:
-    content: "fresh content the stale distillation no longer matches"
-    distilled: "old distilled text"
-    distilled_by: "stale-model"
-    content_hash: "0000000000000000000000000000000000000000000000000000000000000000"
-`
-	path := bundletree.WriteOS(t, dir, treeName, bundleYAML)
-
-	res, err := DistillBundleFile(context.Background(), DistillBundleFileRequest{
-		Path:      path,
-		Distiller: okDistiller{body: "brand new distilled text"},
-	})
-	require.NoError(t, err)
-	assert.Empty(t, res.Invalidated)
 }

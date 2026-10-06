@@ -12,10 +12,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // seedReader presents authored bundle VALUES as what they are — project
@@ -63,24 +62,18 @@ func withSeedAndCompanions(t *testing.T, cfg *config.Config, seed map[string]*bu
 func publish(t *testing.T, cfg *config.Config, src seededSources) *config.Config {
 	t.Helper()
 	src.cfg = cfg
-	// The gate the fixture already carries survives publication: the Owner
-	// binds a Trust over the fake ports, and a test that stated a gate of its
-	// own (BindTrustForTesting) meant that one.
-	carried := cfg.Trust()
+	// The root the fixture already carries survives publication: a test that
+	// bound one of its own meant that one.
+	root, waived := cfg.TrustRoot(), cfg.SignatureCheckDisabled()
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
 	out := owner.Current().Config
-	if carried.Authorizer() != nil {
-		out.BindTrustForTesting(carried)
-	} else {
-		out.BindTrustForTesting(compositetest.Trust())
-	}
+	out.BindTrustRootForTesting(root, waived)
 	return out
 }
 
 // seededSources publishes a fixture with the project and builtin readers,
-// optionally the companion reader and one extra; the gate is the fixture's
-// own (publish), else a Trust that admits by locality.
+// optionally the companion reader and one extra.
 type seededSources struct {
 	cfg        *config.Config
 	extra      bundles.Reader
@@ -92,7 +85,7 @@ func (s seededSources) Read(context.Context) (*config.Config, []config.Warning, 
 }
 
 func (s seededSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.Trust().Root()
+	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
 	}
@@ -105,9 +98,8 @@ func (s seededSources) Readers(_ context.Context, cfg *config.Config) ([]bundles
 	return readers, nil
 }
 
-func (s seededSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
-	root, records, retraction := compositetest.Ports()
-	return root, records, retraction, nil
+func (s seededSources) TrustRoot(context.Context, *config.Config) (trust.TrustRoot, error) {
+	return trust.NoSigners{}, nil
 }
 
 // withResolver returns cfg's value with the pinned-version resolver bound,
@@ -115,10 +107,10 @@ func (s seededSources) TrustPorts(context.Context, *config.Config) (composite.Tr
 func withResolver(cfg *config.Config, r bundles.BundleVersionResolver) *config.Config {
 	f := cfg.ToFixture()
 	f.VersionResolver = r
-	out := gatedFixture(f)
+	out := config.NewFixture(f)
 	if fs := cfg.FS(); fs != nil {
 		out.SetRoot(safefs.NewMem(fs))
 	}
-	out.BindTrustForTesting(cfg.Trust())
+	out.BindTrustRootForTesting(cfg.TrustRoot(), cfg.SignatureCheckDisabled())
 	return out
 }

@@ -16,11 +16,10 @@ Feature: A new engineer clones the repo and is already set up
   others, and the context that does not depend on the missing ones must still
   arrive intact.
 
-  # NOTE ON TRUST: what Bob inherits by cloning is the TEAM tier — the project's
-  # own committed context, first-party, no review. That is a different tier from
-  # anything the project REFERENCES from elsewhere, which is still gated on Bob
-  # trusting the publisher's key. Onboarding must not become a way to smuggle
-  # untrusted content onto a fresh machine (see J001500 for the trust story itself).
+  # NOTE ON TRUST: adding a git repository is the trust act, and the team made it
+  # once, when it registered the remote the project draws on. What Bob inherits
+  # by cloning is the project's own committed context and the content its
+  # lockfile pins from those remotes — nothing is asked of him a second time.
 
   Background:
     Given the team's project carries the context Carol has standardized on
@@ -32,7 +31,6 @@ Feature: A new engineer clones the repo and is already set up
     When Bob clones the project
     And Bob starts a session
     Then his assistant receives the team's standardized context
-    And he was not asked to configure anything to get it
 
   # LOCKED — REPRODUCIBILITY, the point of the lockfile. Bob must get what the
   # TEAM pinned, not whatever the remote is serving today. Without this, "we all
@@ -52,26 +50,17 @@ Feature: A new engineer clones the repo and is already set up
     Then he receives the pinned versions, the same ones the rest of the team has
     And he does not receive the newer upstream version
 
-  # LOCKED — the trust gate SURVIVES onboarding. A fresh machine must not be a
-  # loophole: content the project references from a publisher Bob has not trusted
-  # is HELD, exactly as if he had encountered it any other way. The team's OWN
-  # context still flows — the two tiers are decided independently.
-  Scenario: Content from a publisher Bob has not trusted is held, even on a fresh clone
+  # LOCKED — referenced content arrives on a fresh clone exactly as the team's
+  # own does: the remote was registered by the team, and the lockfile pins what
+  # it serves, so Bob's fresh machine takes the same content with no second
+  # decision. The team's own context flows beside it.
+  Scenario: Content the project references from another repository reaches Bob on a fresh clone
     Given the project references a bundle published by Trent's company
-    And Bob has not trusted the company key
     When Bob clones the project
     And Bob fetches the context the project draws on
-    Then the company's content is held for his review
-    But his assistant still receives the team's own context, because the project is first-party
-
-  # LOCKED — and the gate opens the ordinary way, which shows the hold was about
-  # trust and not about being new.
-  Scenario: Once Bob trusts the company key, the held content reaches him
-    Given the project references a bundle published by Trent's company
-    And Bob has cloned the project and the company's content is held for his review
-    When Bob trusts the company key
     And Bob starts a session
     Then his assistant receives the company's content
+    And his assistant still receives the team's own context, because the project is first-party
 
   # LOCKED — GRACEFUL DEGRADATION and its contrast in one place, the case a new
   # machine makes unavoidable: Bob will have some of the team's companion tools and

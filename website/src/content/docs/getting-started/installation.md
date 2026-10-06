@@ -306,12 +306,10 @@ share its usage limits with your own interactive use. See
 
 ### Signing and publishing (needs SSH)
 
-Verifying a signature (accepting a remote bundle, trusting a publisher) is pure Go and needs no
-external binary at all — it runs the same inside a minimal container with no SSH tooling
+Verifying a signature is pure Go and needs no external binary at all — it runs the same inside a minimal container with no SSH tooling
 present. **Producing** one does need SSH tooling, because ctxloom never generates, stores, or
 reads private key material itself (see [Key management](/security/key-management/)) — it always
-signs through your existing `ssh-agent`. `ctxloom bundle sign`, `ctxloom review --project`, and
-countersigning a `ctxloom review` decision all need:
+signs through your existing `ssh-agent`. `ctxloom bundle sign` needs:
 
 - The OpenSSH client tools (`ssh-keygen`, `ssh-add`) — to create a key, if you don't already have
   one. These ship with the OS on macOS/Linux and with Git for Windows; nothing extra to install
@@ -320,10 +318,8 @@ countersigning a `ctxloom review` decision all need:
   user.signingkey` naming one — either satisfies ctxloom's key-discovery chain.
 
 If you already sign git commits over SSH, there is nothing extra to set up — ctxloom reuses that
-key. If you have neither, `ctxloom bundle sign` and `ctxloom review --project` fail with an actionable
-error (the exact `ssh-add`/`ssh-keygen` commands to run) rather than a silent no-op. Reviewing
-content for yourself only — `ctxloom review` without `--project` — never requires a key: with
-none found, it offers an explicit, confirmed **unsigned** path instead.
+key. If you have neither, `ctxloom bundle sign` fails with an actionable error (the exact
+`ssh-add`/`ssh-keygen` commands to run) rather than a silent no-op.
 
 ### Container isolation (`runtime: container-rootless` / `container-rootful`)
 

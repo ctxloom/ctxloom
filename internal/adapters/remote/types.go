@@ -188,9 +188,7 @@ type LockEntry struct {
 	// Retracted records that the publisher withdrew this bundle (or the exact
 	// version pinned here) — learned from the remote manifest at the last
 	// sync/pull that had the network in hand (internal/adapters/remote/retract.go
-	// CheckRetracted), never derived locally. operations.EffectiveTrust reads
-	// this field (via its RetractionRecords seam) to withhold exposure WITHOUT
-	// making a network call at exposure time. A lock rebuild (operations.
+	// CheckRetracted), never derived locally. A lock rebuild (operations.
 	// LockDependencies) carries it forward from the previous lockfile the same
 	// way it carries Pinned forward — a full relock must not silently
 	// un-retract something no fresh check has actually cleared.

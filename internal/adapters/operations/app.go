@@ -78,9 +78,8 @@ type Compose struct {
 // ComposeSources builds the process's config.Sources: the file/env/flag
 // reader with the remote readers behind the lockfile, the companion prober,
 // the profile-ref canonicalizer and the bundle version resolver wired in.
-// The ONE place these adapters meet. The trust ports are the Sources' own
-// (configload.Sources.TrustPorts): nothing here can leave a generation
-// ungated.
+// The ONE place these adapters meet. The trust root is the Sources' own
+// (configload.Sources.TrustRoot).
 // A flag or env override that cannot be bound is returned alongside a
 // usable Sources; the root degrades it to a warning.
 func ComposeSources(c Compose) (config.Sources, error) {

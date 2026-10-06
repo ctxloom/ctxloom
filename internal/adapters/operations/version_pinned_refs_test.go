@@ -1,8 +1,8 @@
 // Version-pinned profile-ref tests verify that a profile's "@<commit>" suffix
 // (on bundle_items cherry-picks, on whole bundles, and on fragment refs) is
 // threaded through assembly to the loader's version-aware resolution — so the
-// pinned historical version is what assembles, gated by ITS OWN content hash —
-// while an unversioned ref keeps resolving to the lockfile-pinned default.
+// pinned historical version is what assembles — while an unversioned ref keeps
+// resolving to the lockfile-pinned default.
 package operations
 
 import (
@@ -19,9 +19,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
+// acmeBundle is the bundle-ref prefix of the acme test repository.
+const acmeBundle = "https://github.com/acme/repo@bundles/"
+
+// acmeBundleID is acmeBundle's canonical identity prefix.
+const acmeBundleID = "ctxloom+git://github.com/acme/repo//bundles/"
+
 // cqVersionRef is the canonical bundle ref of the acme "cq" bundle used by these
-// tests; its repo (trustRepo) is registered UNtrusted so only explicit grants
-// expose content — exactly the surface a pinned version is gated against.
+// tests.
 const cqVersionRef = acmeBundle + "cq" // https://github.com/acme/repo@bundles/cq
 
 // cqVersionID is cqVersionRef's canonical identity.
@@ -29,13 +34,11 @@ const cqVersionID = acmeBundleID + "cq"
 
 // versionPinnedLoader builds an exposure-style loader over the acme/cq bundle:
 // a seeded lockfile-default bundle, a fake version resolver serving per-commit
-// bundles (an absent commit errors, simulating a fetch failure), and a real
-// trust contentGate resolving against records + an untrusted acme remote. It
-// is the operations-level analogue of bundles.versionedLoader.
-func versionPinnedLoader(t *testing.T, records ReviewRecords, def *bundles.Bundle, versions map[string]*bundles.Bundle) (*bundles.Pipeline, *config.Config) {
+// bundles (an absent commit errors, simulating a fetch failure). It is the
+// operations-level analogue of bundles.versionedLoader.
+func versionPinnedLoader(t *testing.T, def *bundles.Bundle, versions map[string]*bundles.Bundle) (*bundles.Pipeline, *config.Config) {
 	t.Helper()
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	gate := &contentGate{cfg: cfg, records: records}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	resolver := func(_canonical, commit string, _ trust.TrustRoot) (*bundles.Bundle, error) {
 		b, ok := versions[commit]
@@ -48,7 +51,7 @@ func versionPinnedLoader(t *testing.T, records ReviewRecords, def *bundles.Bundl
 
 	pipe := bundles.NewPipeline(
 		seedLoader(t, map[string]*bundles.Bundle{cqVersionRef: def}).WithVersionResolver(resolver, nil),
-		gate, bundles.LinksUnchecked(), true)
+		bundles.LinksUnchecked(), true)
 	return pipe, cfg
 }
 
@@ -62,7 +65,7 @@ func profileCfg(t *testing.T, cfg *config.Config, name string, p config.Profile)
 
 // TestVersionPinned_BundleItem_ResolvesHistoricalVersion proves a profile
 // bundle_items cherry-pick of "<ref>@<commit>:fragments/x" assembles that
-// commit's content (granted), distinct from the lockfile default.
+// commit's content, distinct from the lockfile default.
 func TestVersionPinned_BundleItem_ResolvesHistoricalVersion(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {
@@ -77,10 +80,7 @@ func TestVersionPinned_BundleItem_ResolvesHistoricalVersion(t *testing.T) {
 			},
 		}}},
 	}
-	fx := newTrustFixture(t)
-	// Trust the PINNED version's content (its own hash) — `ctxloom trust` on it.
-	fx.approveFragment("cq", "solid", "V1-BODY")
-	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
+	loader, cfg := versionPinnedLoader(t, def, versions)
 	cfg = profileCfg(t, cfg, "pinned", config.Profile{
 		BundleItems: []string{cqVersionRef + "@c1:fragments/solid"},
 	})
@@ -93,7 +93,7 @@ func TestVersionPinned_BundleItem_ResolvesHistoricalVersion(t *testing.T) {
 
 // TestVersionPinned_FragmentRef_ResolvesHistoricalVersion proves the third
 // version-honoring field: a profile `fragments:` ref carrying "@<commit>" on its
-// bundle part assembles that commit's content (granted), not the default.
+// bundle part assembles that commit's content, not the default.
 func TestVersionPinned_FragmentRef_ResolvesHistoricalVersion(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {
@@ -108,9 +108,7 @@ func TestVersionPinned_FragmentRef_ResolvesHistoricalVersion(t *testing.T) {
 			},
 		}}},
 	}
-	fx := newTrustFixture(t)
-	fx.approveFragment("cq", "solid", "V1-BODY")
-	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
+	loader, cfg := versionPinnedLoader(t, def, versions)
 	cfg = profileCfg(t, cfg, "fragpin", config.Profile{
 		Fragments: []config.FragmentRef{{Name: cqVersionRef + "@c1#fragments/solid"}},
 	})
@@ -137,9 +135,7 @@ func TestVersionPinned_UnversionedRefUnchanged(t *testing.T) {
 			},
 		}}},
 	}
-	fx := newTrustFixture(t)
-	fx.approveFragment("cq", "solid", "DEFAULT-BODY")
-	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
+	loader, cfg := versionPinnedLoader(t, def, versions)
 	cfg = profileCfg(t, cfg, "plain", config.Profile{
 		BundleItems: []string{cqVersionRef + ":fragments/solid"},
 	})
@@ -174,10 +170,7 @@ func TestVersionPinned_WholeBundle_PinsAllItems(t *testing.T) {
 			},
 		}},
 	}
-	fx := newTrustFixture(t)
-	fx.approveFragment("cq", "alpha", "ALPHA-V1")
-	fx.approveFragment("cq", "beta", "BETA-V1")
-	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
+	loader, cfg := versionPinnedLoader(t, def, versions)
 	cfg = profileCfg(t, cfg, "wholepin", config.Profile{
 		Bundles: []string{cqVersionRef + "@c1"},
 	})
@@ -187,46 +180,6 @@ func TestVersionPinned_WholeBundle_PinsAllItems(t *testing.T) {
 	assert.Contains(t, res.Context, "ALPHA-V1", "whole-bundle pin enumerates and resolves the commit's items")
 	assert.Contains(t, res.Context, "BETA-V1")
 	assert.NotContains(t, res.Context, "DEFAULT-BODY", "the default version's items must not leak in")
-}
-
-// TestVersionPinned_GateEvaluatesPinnedHash proves the trust gate keys on the
-// PINNED version's content hash: an un-granted pinned version is withheld
-// (surfaced content-free under the version-less ref), and a `ctxloom trust` grant
-// of that version's hash then exposes it.
-func TestVersionPinned_GateEvaluatesPinnedHash(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	def := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"solid": {
-		ItemBody: bundles.ItemBody{
-			Content: "DEFAULT-BODY",
-		},
-	}}}
-	versions := map[string]*bundles.Bundle{
-		"c2": {Fragments: map[string]bundles.BundleFragment{"solid": {
-			ItemBody: bundles.ItemBody{
-				Content: "V2-BODY",
-			},
-		}}},
-	}
-	fx := newTrustFixture(t) // no grant yet for V2-BODY
-	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
-	cfg = profileCfg(t, cfg, "pinned2", config.Profile{
-		BundleItems: []string{cqVersionRef + "@c2:fragments/solid"},
-	})
-
-	// Un-granted pinned version → withheld, content-free under the version-less ref.
-	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "pinned2", Pipeline: loader})
-	require.NoError(t, err)
-	assert.NotContains(t, res.Context, "V2-BODY", "an un-granted pinned version must be withheld")
-	assert.Equal(t, []string{canonicalWithheldRef(t, cqVersionRef+"#fragments/solid")}, loader.Withheld(),
-		"the withheld pinned version is tallied under its version-less ref")
-
-	// `ctxloom trust` of the pinned version's own hash exposes it (fresh loader so
-	// the version cache + withheld set don't carry the prior decision).
-	fx.approveFragment("cq", "solid", "V2-BODY")
-	loader2, _ := versionPinnedLoader(t, fx.records(), def, versions)
-	res2, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "pinned2", Pipeline: loader2})
-	require.NoError(t, err)
-	assert.Contains(t, res2.Context, "V2-BODY", "granting the pinned version's hash exposes it")
 }
 
 // TestVersionPinned_FetchFailureWithholdsOnlyThatItem proves a per-version fetch
@@ -259,9 +212,7 @@ func TestVersionPinned_FetchFailureWithholdsOnlyThatItem(t *testing.T) {
 		}}},
 		// "broken" is intentionally absent ⇒ the fake resolver errors.
 	}
-	fx := newTrustFixture(t)
-	fx.approveFragment("cq", "good", "GOOD-V1")
-	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
+	loader, cfg := versionPinnedLoader(t, def, versions)
 	cfg = profileCfg(t, cfg, "mixed", config.Profile{
 		BundleItems: []string{
 			cqVersionRef + "@c1:fragments/good",

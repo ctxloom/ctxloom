@@ -88,6 +88,14 @@ func registerSigCheckSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// The waived counterpart of steps_j000200_setup.go's "Alice starts a
+	// session": same materialize, with the waiver on the command line. Its exit
+	// is not asserted — the Then step reads what was delivered.
+	ctx.Step(`^Alice starts a session with signature verification disabled$`, func(c context.Context) error {
+		_ = worldFrom(c).env.Run("--"+bundles.SigCheckFlag, "profile", "materialize", "default", "--target", "out")
+		return nil
+	})
+
 	ctx.Step(`^doctor, with signature verification disabled, names the company's bundle as accepted although edited$`, func(c context.Context) error {
 		w := worldFrom(c)
 		_ = w.env.Run("--"+bundles.SigCheckFlag, "--format", "json", "doctor")

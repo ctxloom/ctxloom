@@ -1340,7 +1340,7 @@ test-mutation-container: _mutation-prereqs
 # acceptance suite execs a PRE-BUILT ctxloom binary
 # (tests/integration/testenv/environment.go), so the mutant is never in the
 # process under test and Go coverage cannot cross the exec boundary. See the
-# doc comment on tests/mutation/trust_cascade_mutation_test.go. ooze's laboratory
+# doc comment on tests/mutation/acceptance_mutation_test.go. ooze's laboratory
 # instead symlinks the repo into a tmpdir, overwrites ONLY the mutated file
 # with real bytes at that path (never the source tree), and runs
 # tests/mutation/run_scoped_suite.sh with that tmpdir as cwd — which
@@ -1350,11 +1350,11 @@ test-mutation-container: _mutation-prereqs
 # actually verify.
 #
 # Which file is paired with which features is the mutationTargets table in
-# tests/mutation/trust_cascade_mutation_test.go — a data change, not a code
+# tests/mutation/acceptance_mutation_test.go — a data change, not a code
 # change. Each entry runs as its own subtest of TestAcceptanceMutation, so a
 # single one can be run alone:
 #
-#   just test-mutation-acceptance -run 'TestAcceptanceMutation/^trust_cascade$'
+#   just test-mutation-acceptance -run 'TestAcceptanceMutation/^remote_registry$'
 #
 # Cost: every mutant is a full build + a ~15-20s scoped suite run (measured
 # ~28s/mutant on this machine), so one entry is tens of minutes and the whole

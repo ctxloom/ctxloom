@@ -4,9 +4,6 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -18,15 +15,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// itemRefFor mints the canonical "<source>#<kind>/<item>" reference this
-// file's executable-surface producers key their gate on, and REFUSES a source
-// it cannot address, NAMING that source. It takes the source as a STRING
-// (unlike bundles.ItemRefFor, which callers holding a BundleRead can call
-// directly) because a directory profile's gate identity (profileGateRef.Base,
-// from profiles.ResolvedProfile.SourceRef) has no typed sibling — see
-// gateProfileHooks's tests, which build a profileGateRef with a
-// Base and no Read at all. parseSourceRef resolves that string into the
-// bundles.ItemRefFor.
+// itemRefFor mints the canonical "<source>#<kind>/<item>" reference a
+// profile's declared hook is addressed by, and REFUSES a source it cannot
+// address, NAMING that source. It takes the source as a STRING (unlike
+// bundles.ItemRefFor, which callers holding a BundleRead can call directly)
+// because a directory profile's identity (profileRefBase, from
+// profiles.ResolvedProfile.SourceRef) has no typed sibling. parseSourceRef
+// resolves that string into the bundles.ItemRefFor.
 //
 // The refusal is the boundary: an item whose source will not parse has no
 // identity, and inventing one for it would smuggle a parse failure downstream
@@ -118,20 +113,17 @@ func AssembleFor(cfg *config.Config, set []profiles.ResolvedProfile, mail sessio
 	if cfg == nil {
 		return hooks
 	}
-	// Selected-profile-shipped hooks. A profile's directly-declared hooks
-	// pass the executable trust gate first — the SAME gate bundle hooks pass
-	// — since the profile may be remote-sourced. There is no ungated arm:
-	// every declared hook is evaluated.
-	gate := cfg.ExecutableTrustGate()
+	// Selected-profile-shipped hooks: a profile's directly-declared hooks,
+	// each addressed under the profile's own source.
 	for i := range set {
 		resolved := &set[i]
 		profileName := resolved.Name
-		gated := gateProfileHooks(profileGateRefFor(cfg, resolved, profileName), resolved.Hooks, gate)
+		declared := addressableProfileHooks(profileRefBase(resolved, profileName), resolved.Hooks)
 		// Ref carries the ORIGIN BUNDLE for a bundle-shipped profile (empty for
-		// a genuinely local one) — the same distinction the gate keys on, so the
-		// report names the bundle a remote-sourced profile came from rather than
-		// only the ref a user pasted into their agent's profile list.
-		hooks.mergeHooks(gated, fixedSource(Source{
+		// a genuinely local one), so the report names the bundle a
+		// remote-sourced profile came from rather than only the ref a user
+		// pasted into their agent's profile list.
+		hooks.mergeHooks(declared, fixedSource(Source{
 			Origin:  OriginProfileDirectory,
 			Profile: profileName,
 			Ref:     resolved.SourceRef,
@@ -195,69 +187,34 @@ func appendManagedDynamicHooks(m *Hooks, cfg *config.Config, set []profiles.Reso
 	}
 }
 
-// profileGateRef is the identity gateProfileHooks keys the
-// executable trust gate by — the profile's own SOURCE, never its display
-// name (a display name is neither honestly local nor a parseable trust
-// ref). Base is the ref the gate composes "#<kind>/<name>" onto.
-type profileGateRef struct {
-	Base string
-	// Read is the trust posture the decision keys on: the read of the bundle
-	// the profile is an item of — a local bundle's for a project's own
-	// profile, a remote bundle's for a shipped one.
-	//
-	// A verified principal string alone cannot say whether the signature still
-	// covers the bytes, and an empty one means BOTH "unsigned" and "signed by a
-	// key we do not trust" — so this carries the read's own axes instead. An
-	// unresolvable origin leaves it UNCLAIMED, which every Authorizer
-	// withholds: fail-closed.
-	Read bundles.BundleRead
-}
-
-// profileGateRefFor derives a profile's gate identity from its resolved
-// provenance: resolved.SourceRef (profiles.ResolvedProfile) is the canonical
-// ref of the bundle the profile is an item of, WITHOUT the "#profiles/<name>"
-// selector, so the composed "<SourceRef>#hooks/..." ref carries exactly one
-// '#' and parses. Every resolved profile has one: a project's own profiles are
-// the project bundle's items. A profile without one has no source to key the
-// gate by, so its Base is the bare name and its read is left UNCLAIMED, which
-// every Authorizer withholds: fail-closed.
-func profileGateRefFor(cfg *config.Config, resolved *profiles.ResolvedProfile, profileName string) profileGateRef {
+// profileRefBase is the ref a profile's declared hooks are addressed under —
+// the profile's own SOURCE, never its display name: resolved.SourceRef
+// (profiles.ResolvedProfile) is the canonical ref of the bundle the profile is
+// an item of, WITHOUT the "#profiles/<name>" selector, so the composed
+// "<SourceRef>#hooks/..." ref carries exactly one '#' and parses. A profile
+// without one falls back to its bare name, which addresses it as
+// project-local.
+func profileRefBase(resolved *profiles.ResolvedProfile, profileName string) string {
 	if resolved == nil || resolved.SourceRef == "" {
-		return profileGateRef{Base: profileName}
+		return profileName
 	}
-	ref := profileGateRef{Base: resolved.SourceRef}
-	if cfg != nil {
-		// The bundle's own read, from the loader that read it — not a posture
-		// this call site invents. A source that will not resolve leaves the
-		// read unclaimed, and an unclaimed read withholds.
-		if read, err := cfg.BundleLoader().Read(resolved.SourceRef); err == nil {
-			ref.Read = read
-		}
-	}
-	return ref
+	return resolved.SourceRef
 }
 
-// gateProfileHooks returns the hooks of a directory-resolved profile that the
-// executable trust gate allows. Each hook is keyed on itemRefFor(ref.Base,
-// trust.KindHook, "<event>/<index>") (the SAME identity scheme bundle hooks
-// use, bundles.HookEntry) with
-// its executable-surface hash; a DENY omits it (fail-closed).
-func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Authorizer) wire.HooksConfig {
+// addressableProfileHooks returns the hooks of a directory-resolved profile
+// that can be addressed: each is keyed on itemRefFor(base, trust.KindHook,
+// "<event>/<index>") (the SAME identity scheme bundle hooks use,
+// bundles.HookEntry); one nothing can address is a named load error and is
+// omitted.
+func addressableProfileHooks(base string, h wire.HooksConfig) wire.HooksConfig {
 	keep := func(event string, hooks []wire.Hook) []wire.Hook {
 		var out []wire.Hook
 		for i, hook := range hooks {
-			hookRef, err := itemRefFor(ref.Base, trust.KindHook, event+"/"+strconv.Itoa(i))
-			if err != nil {
+			if _, err := itemRefFor(base, trust.KindHook, event+"/"+strconv.Itoa(i)); err != nil {
 				clidiag.Warn("ctxloom", "profile hook %q withheld: %v", hook.Line(), err)
 				continue
 			}
-			if gateProfileExec(gate, ref, hookRef, hookExecPayload(hook)) {
-				out = append(out, hook)
-			} else {
-				// Same fail-closed-but-diagnosable shape as gateProfileHooks's
-				// warn — the gate's decision is unchanged.
-				clidiag.Warn("ctxloom", "profile hook %q withheld by trust gate (%s); its executable is pending review", hook.Line(), hookRef)
-			}
+			out = append(out, hook)
 		}
 		return out
 	}
@@ -276,8 +233,8 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 			PermissionAsk: keep(wire.HookEventPermissionAsk, h.Unified.PermissionAsk),
 		},
 	}
-	// Engine-native (ext) hooks gate too; keyed on
-	// itemRefFor(ref.Base, trust.KindHook, "<engine>/<event>/<index>").
+	// Engine-native (ext) hooks are addressed too; keyed on
+	// itemRefFor(base, trust.KindHook, "<engine>/<event>/<index>").
 	if len(h.Ext) > 0 {
 		out.Ext = make(map[string]wire.BackendHooks, len(h.Ext))
 		for engine, backend := range h.Ext {
@@ -293,37 +250,4 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 		}
 	}
 	return out
-}
-
-// gateProfileExec consults the executable trust filter for one directly-declared
-// profile executable, binding the raw form (no distilled variant for
-// executables, matching config.extractMCPFromBundle / extractHooksFromBundle).
-//
-// The POSTURE comes from ref.Read — the origin bundle's own read for a
-// bundle-shipped profile, the project's for a project-authored one. That is
-// parity with bundle-declared execs, which are decided on their document's own
-// read: without it, a trusted publisher's profile would send its inline
-// hooks/mcp to manual review even when the publisher key is already trusted.
-//
-// A nil payload (the preimage could not be built) withholds: an executable we
-// cannot even describe is one we certainly cannot justify running.
-func gateProfileExec(gate bundles.Authorizer, ref profileGateRef, itemRef string, payload []byte) bool {
-	if payload == nil {
-		return false
-	}
-	return bundles.Decide(report.To(strictness.Sink("ctxloom")), gate, ref.Read, itemRef, payload, bundles.FormRaw).Allow
-}
-
-// hookExecPayload builds a profile hook's executable-surface preimage via the
-// shared bundle primitive (Matcher+Type+Command+Prompt+PreToolFallback), so a
-// profile-declared hook and an identical bundle-declared one bind to exactly the
-// SAME bytes — exec-form arguments included, bound by the primitive's own rule.
-// nil on an (unreachable) encoding failure — see gateProfileExec.
-func hookExecPayload(h wire.Hook) []byte {
-	bh := bundles.BundleHook{Matcher: h.Matcher, Command: h.Command, Args: h.Args, Type: h.Type, Prompt: h.Prompt, PreToolFallback: h.PreToolFallback}
-	payload, err := bh.ContentPayload()
-	if err != nil {
-		return nil
-	}
-	return payload
 }

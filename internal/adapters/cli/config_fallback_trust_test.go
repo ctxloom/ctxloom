@@ -28,7 +28,7 @@ func TestLoadConfigOrFallback_TrustsNoSignerAndSaysTheConfigFailedToLoad(t *test
 		return nil, errors.New("yaml: line 3: did not find expected key")
 	}, &w)
 
-	root := cfg.Trust().Root()
+	root := cfg.TrustRoot()
 	require.NotNil(t, root, "the fallback's root is a value to ask, never a nil")
 	// The embedded release key is trusted to publish by every real root, so a
 	// fallback that still read the signer files would trust it.

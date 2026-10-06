@@ -467,7 +467,7 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 	tmpDir := "/project"
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return withCtxloomLoadout(t, gatedFixture(config.Fixture{})), nil
+		return withCtxloomLoadout(t, config.NewFixture(config.Fixture{})), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
@@ -668,7 +668,7 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 	tmpDir := "/project"
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return withCtxloomLoadout(t, gatedFixture(config.Fixture{
+		return withCtxloomLoadout(t, config.NewFixture(config.Fixture{
 			// No profiles or fragments: only ctxloom's own loadout contributes.
 		})), nil
 	}

@@ -242,17 +242,3 @@ func TestBodyRenderer_PropagatesWriteError(t *testing.T) {
 type inertFailWriter struct{}
 
 func (inertFailWriter) Write([]byte) (int, error) { return 0, assert.AnError }
-
-// TestPrintReviewItemBody_InvisiblesAreShown: what a reviewer judges includes
-// the characters that change what a line SHOWS without being seen — a
-// zero-width space splitting an argument, a bidi override reversing a
-// filename — so the review body names each one.
-func TestPrintReviewItemBody_InvisiblesAreShown(t *testing.T) {
-	var out bytes.Buffer
-	item := forgingBundle().Bundles[0].Items[0]
-	item.CurrentContent = "rm\u200b -rf\nls \u202egnp.exe\n"
-
-	printReviewItemBody(&out, item)
-
-	assert.Equal(t, "  rm⟨U+200B⟩ -rf\n  ls ⟨U+202E⟩gnp.exe\n", out.String())
-}

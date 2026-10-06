@@ -23,11 +23,12 @@ import (
 const contextSectionSeparator = "\n\n---\n\n"
 
 // Assemble is the ONE constructor from sources. It reads nothing: cat is
-// resolved, profiles loaded, trust built. It refuses a withheld required
+// resolved and profiles loaded. root verifies the signature of a pinned
+// historical version (Options.Versions). It refuses a withheld required
 // item (unless Options.DropWithheld, recorded in the
 // attestation).
 //
-// The context: every fragment in selection order, loaded through the gated
+// The context: every fragment in selection order, loaded through the
 // process stage, the profile variables substituted, a premised fragment
 // held back for the catalog unless the caller named it or the assembly is
 // static, then the builtin injections; the same item reaching the context
@@ -36,17 +37,14 @@ const contextSectionSeparator = "\n\n---\n\n"
 // bundles and the catalog's companion loadouts ship, one per item. Hooks,
 // MCP servers, the deny list and the statusline are carried as the caller
 // resolved them.
-func Assemble(ctx context.Context, cat bundles.Catalog, sel Selection, tr Trust, opts Options) (Package, error) {
-	// No refusal of tr is needed here: no production-constructible Trust
-	// admits everything, and a zero Trust's nil authorizer is withheld on by
-	// bundles.Decide (ReasonUngoverned), so an unbound tr delivers nothing.
+func Assemble(ctx context.Context, cat bundles.Catalog, sel Selection, root trust.TrustRoot, opts Options) (Package, error) {
 	pipe := opts.Pipeline
 	if pipe == nil {
 		loader := bundles.LoaderOf(cat)
 		if opts.Versions != nil {
-			loader.WithVersionResolver(opts.Versions, tr.Root())
+			loader.WithVersionResolver(opts.Versions, root)
 		}
-		pipe = bundles.NewPipeline(loader, tr.Authorizer(), bundles.ServerGrant(opts.MCP), opts.PreferDistilled)
+		pipe = bundles.NewPipeline(loader, bundles.ServerGrant(opts.MCP), opts.PreferDistilled)
 	}
 	a := &assembly{sel: sel, opts: opts, pipe: pipe, ingest: newIngest()}
 
@@ -155,11 +153,10 @@ func (a *assembly) fragment(ask FragmentAsk) {
 		return
 	}
 	item := Item[Fragment]{
-		Value:    Fragment{Name: ask.Name, Premise: lc.Premise},
-		Ref:      ask.Name,
-		Form:     lc.Form,
-		Decision: trust.Allow,
-		Signer:   lc.Signer,
+		Value:  Fragment{Name: ask.Name, Premise: lc.Premise},
+		Ref:    ask.Name,
+		Form:   lc.Form,
+		Signer: lc.Signer,
 	}
 	if a.holdBack(lc.Premise, ask.Name) {
 		item.Value.Body = a.substitute(ask.Name, lc.Content)
@@ -216,7 +213,7 @@ func (a *assembly) deliver(item Item[Fragment], identity string) {
 }
 
 func (a *assembly) row(ref, body string) {
-	a.rows = append(a.rows, ItemAttestation{Ref: ref, Decision: trust.Allow, Hash: digest([]byte(body))})
+	a.rows = append(a.rows, ItemAttestation{Ref: ref, Hash: digest([]byte(body))})
 }
 
 // commands: the injected ones, then the curated asks or the bundles' set.
@@ -271,7 +268,7 @@ func (cc *commandCollector) add(c Command, ref, signer string, form bundles.Cont
 	if c.Item != "" {
 		cc.seen[c.Item] = true
 	}
-	cc.a.commandItems = append(cc.a.commandItems, Item[Command]{Value: c, Ref: ref, Form: form, Decision: trust.Allow, Signer: signer})
+	cc.a.commandItems = append(cc.a.commandItems, Item[Command]{Value: c, Ref: ref, Form: form, Signer: signer})
 	cc.a.row(ref, c.Body)
 }
 
@@ -356,9 +353,9 @@ func (a *assembly) skills() {
 				Exports:     blocks(ls.Exports),
 				Curated:     curated,
 			},
-			Ref: ls.TrustRef, Form: bundles.FormRaw, Decision: trust.Allow, Signer: ls.Signer,
+			Ref: ls.TrustRef, Form: bundles.FormRaw, Signer: ls.Signer,
 		})
-		a.rows = append(a.rows, ItemAttestation{Ref: ls.TrustRef, Decision: trust.Allow, Hash: hex.EncodeToString(h.Sum(nil))})
+		a.rows = append(a.rows, ItemAttestation{Ref: ls.TrustRef, Hash: hex.EncodeToString(h.Sum(nil))})
 	}
 	if len(a.sel.Skills) > 0 {
 		for _, ask := range a.sel.Skills {

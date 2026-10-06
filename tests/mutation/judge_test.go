@@ -54,7 +54,7 @@ func TestUnitJudge_PreparesTheScopeTheRunnerReads(t *testing.T) {
 // The tag selection is declared PER ENTRY, and the two sides of the split are
 // pinned by name. isolation_axes must run j002200's @container scenario: its
 // container-only guards are reachable by nothing else, so under the default
-// filter they survive by construction. trust_cascade must NOT: it would gain a
+// filter they survive by construction. bundle_sign must NOT: it would gain a
 // runtime requirement and an image build per mutant for scenarios it has none
 // of — and an ACCEPTANCE_INCLUDE_CONTAINER leaked from the caller's shell must
 // not widen it either.
@@ -87,10 +87,10 @@ func TestAcceptanceJudge_TagSelectionIsDeclaredPerEntry(t *testing.T) {
 		}
 	})
 
-	t.Run("trust_cascade does not, even when the shell exports it", func(t *testing.T) {
+	t.Run("bundle_sign does not, even when the shell exports it", func(t *testing.T) {
 		t.Setenv("ACCEPTANCE_INCLUDE_CONTAINER", "1")
 		t.Setenv("ACCEPTANCE_TAGS", "@live")
-		judgeOf(t, "trust_cascade").prepare(t)
+		judgeOf(t, "bundle_sign").prepare(t)
 		if got := os.Getenv("ACCEPTANCE_INCLUDE_CONTAINER"); got != "" {
 			t.Errorf("ACCEPTANCE_INCLUDE_CONTAINER = %q after prepare, want empty — a leaked value widened this entry's selection", got)
 		}

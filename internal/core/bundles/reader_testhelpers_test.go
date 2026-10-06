@@ -3,7 +3,6 @@ package bundles
 import (
 	"context"
 	"path"
-	"strings"
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
@@ -158,56 +157,6 @@ func seedLocal(seeded map[string]*Bundle) Reader {
 			SignatureFacts{Signature: SignatureNone, Signer: SignerNone}))
 	}
 	return staticReader{reads: reads}
-}
-
-// seedRemote presents already-parsed bundles as REMOTE (pinned, repofs-read)
-// content, one real repoFSReader per seed entry, keyed by canonical ref
-// ("https://…@bundles/<name>"). Unlike seedLocal — TrustCtxLocal by design,
-// documented as the wrong tool when a test's premise is specifically about
-// remote-vs-local trust identity — this goes through the REAL reader, so a
-// bundle's typed SourceRef is minted through the actual class minter
-// (ClassGit/ClassFile via canonicalBundleRefTyped), not forced through
-// LocalRef the way seedLocal's newRead fallback would.
-func seedRemote(t *testing.T, seeded map[string]*Bundle) []Reader {
-	t.Helper()
-	var readers []Reader
-	for ref, b := range seeded {
-		if b == nil {
-			continue
-		}
-		if b.Name == "" {
-			b.Name = ref
-		}
-		requireFragmentsOnly(t, ref, b)
-		frags := map[string]string{}
-		for name, f := range b.Fragments {
-			frags[name] = f.Content
-		}
-		leaf := path.Base(strings.TrimSuffix(ref, "/"))
-		envelope := "name: " + b.Name + "\nversion: 1.0.0\n"
-		// The repo URL is the canonical ref's own prefix, so a seed claims the
-		// origin it names rather than a fixture constant that could disagree
-		// with the ref the gate keys trust by.
-		repoURL, _, found := strings.Cut(ref, "@")
-		if !found {
-			t.Fatalf("seedRemote: %q is not a canonical remote ref, so it has no repo URL to claim", ref)
-		}
-		readers = append(readers, NewRepoFSReader(repoTree(t, leaf, envelope, frags, nil), ref, WithRepoURL(repoURL)))
-	}
-	return readers
-}
-
-// requireFragmentsOnly fails for a seed carrying any kind but fragments. A
-// seed becomes a TREE, because that is the only form a repofs reader
-// accepts. Fragments are the only kind any seed has ever carried, and an
-// unhandled kind FAILS here rather than being dropped: a seed whose commands
-// silently vanished would make whatever it was seeded for pass while testing
-// nothing.
-func requireFragmentsOnly(t *testing.T, ref string, b *Bundle) {
-	t.Helper()
-	if len(b.Commands) > 0 || len(b.Skills) > 0 || len(b.MCP) > 0 || len(b.Profiles) > 0 || b.Hooks.HasAny() {
-		t.Fatalf("seedRemote: %q carries a kind this helper does not stage as tree items; teach it that kind rather than losing them", ref)
-	}
 }
 
 // loadoutProbe is a CompanionProber over a fixed set of loadouts and no

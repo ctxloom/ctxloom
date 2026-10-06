@@ -42,23 +42,7 @@ ctxloom profile create go-dev \
 ctxloom deps pull
 ```
 
-### 4. Review the Pulled Content
-
-```bash
-# Decide on each item the remote just delivered
-ctxloom review
-```
-
-Content from a third-party remote is withheld from the engine until a human has
-looked at it. Skip this and the run still launches — the fragments are simply
-missing from the assembled context, with an "N item(s) awaiting review" notice
-on stderr. (Content signed by a key you trust is exempt. The binary embeds
-ctxloom's publishing key, so `ctxloom-default` bundles signed with it need no
-review; unsigned content from any remote, `ctxloom-default` included, takes the
-review path. A `community` or `team` remote needs review unless you trust its
-publisher's key.)
-
-### 5. Start Coding
+### 4. Start Coding
 
 ```bash
 # Run with your profile
@@ -79,8 +63,8 @@ ctxloom profile show default
 
 ### During Development
 
-Your context reaches the engine on its own in every `ctxloom run` session,
-provided the content has passed the trust gate. An engine you start directly
+Your context reaches the engine on its own in every `ctxloom run` session.
+An engine you start directly
 gets it only after `ctxloom manage hooks install`. When
 it does not, the troubleshooting section below is where to look. For specific
 tasks:
@@ -166,9 +150,6 @@ ctxloom profile create my-dev \
 
 # Pull the referenced team content
 ctxloom deps pull
-
-# Review it — until you do, the team's fragments are withheld from the engine
-ctxloom review
 
 # Use the profile
 ctxloom run -p my-dev "help with code"
@@ -373,12 +354,9 @@ jobs:
           ctxloom run -p code-reviewer --dry-run "review changes in this PR"
 ```
 
-Two things make this work in a fresh checkout. The lockfile (committed, below)
-gives `deps pull` the exact revisions to fetch. And the project approvals store
-is what lets CI see the pulled content at all — a fresh machine has trusted
-nothing, so run `ctxloom review --project` locally and commit `.ctxloom/approvals`
-alongside the lockfile. Without it the profile still resolves but its remote
-fragments are withheld, and the assembled context comes out empty.
+What makes this work in a fresh checkout is the lockfile (committed, below):
+it gives `deps pull` the exact revisions to fetch from the remotes the project
+registered.
 
 Actually running the engine in CI (`ctxloom run -p code-reviewer --one-shot
 "..." > review.md`) is possible, but it is a bigger lift than it looks: `run`
@@ -413,9 +391,6 @@ ctxloom profile show default
 
 # Preview assembled context
 ctxloom run --dry-run
-
-# Check nothing is being withheld pending review
-ctxloom review --list
 
 # Only for an engine you start directly, outside `ctxloom run`:
 # check hooks are applied, and reapply them

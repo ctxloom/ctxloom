@@ -11,9 +11,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // Draft is the mutable view an Owner.Update transaction hands fn: every
@@ -26,15 +26,12 @@ import (
 type Draft = configDoc
 
 // Snapshot is one GENERATION of everything that derives from the config files
-// and the lockfile: the Config value, the bundle Catalog resolved from the
-// sources' readers, and the Trust built from the sources' trust ports. Nothing
+// and the lockfile: the Config value and the bundle Catalog resolved from the
+// sources' readers, verified against the sources' trust root. Nothing
 // in it re-reads the world; a consumer that holds one sees one state for the
 // whole operation it threads it through.
 type Snapshot struct {
-	Config *Config
-	// Trust is built per generation, so a retraction that lands in the
-	// lockfile is in force on the next Reload and never retroactively.
-	Trust      composite.Trust
+	Config     *Config
 	Generation uint64
 	LoadedAt   time.Time
 	Warnings   []Warning
@@ -61,10 +58,10 @@ type Sources interface {
 	Read(ctx context.Context) (*Config, []Warning, error)
 	// Readers are the bundle sources a generation's Catalog is resolved from.
 	Readers(ctx context.Context, cfg *Config) ([]bundles.Reader, error)
-	// TrustPorts are the three ports the generation's Trust decides with,
-	// built for cfg: the trust root, the review records and the retraction
-	// records (the lockfile), so none of them outlives the generation.
-	TrustPorts(ctx context.Context, cfg *Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error)
+	// TrustRoot is the signer trust root the generation's readers verify a
+	// publisher signature against, built for cfg so it never outlives the
+	// generation.
+	TrustRoot(ctx context.Context, cfg *Config) (trust.TrustRoot, error)
 }
 
 // Option adjusts an Owner at Open.
@@ -85,12 +82,12 @@ func WithReporter(sink report.Sink) Option {
 	return func(o *Owner) { o.rep = report.To(sink) }
 }
 
-// WithoutSignatureCheck builds every generation's Trust with the signature
-// step waived (composite.WithoutSignatureCheck). It is an Owner option and not
-// a config value on purpose: the switch belongs to the invocation that asked
+// WithoutSignatureCheck builds every generation with signature verification
+// waived (Config.SignatureCheckDisabled). It is an Owner option and not a
+// config value on purpose: the switch belongs to the invocation that asked
 // for it, so no file can carry it into a later run.
 func WithoutSignatureCheck() Option {
-	return func(o *Owner) { o.trustOpts = append(o.trustOpts, composite.WithoutSignatureCheck()) }
+	return func(o *Owner) { o.sigCheckDisabled = true }
 }
 
 // Owner is the one owner of the loaded configuration in a process (the
@@ -100,10 +97,11 @@ type Owner struct {
 	src     Sources
 	engines *engine.Registry // the engines each generation is validated against; nil = none composed
 	rep     report.Reporter  // where every generation's per-item findings go
-	// trustOpts shape every generation's Trust (WithoutSignatureCheck).
-	trustOpts []composite.TrustOption
-	current   atomic.Pointer[Snapshot]
-	gen       atomic.Uint64
+	// sigCheckDisabled waives signature verification for every generation
+	// (WithoutSignatureCheck).
+	sigCheckDisabled bool
+	current          atomic.Pointer[Snapshot]
+	gen              atomic.Uint64
 	// writeMu serializes generation builds (Reload, Update): generation
 	// numbers are then monotonic with publication order, and an Update's
 	// read-modify-write cannot interleave with a concurrent Reload.
@@ -148,12 +146,12 @@ func (o *Owner) reloadLocked(ctx context.Context) (*Snapshot, error) {
 	return snap, nil
 }
 
-// build resolves the generation's Trust and then its Catalog from the
+// build resolves the generation's trust root and then its Catalog from the
 // sources and binds both to the generation's OWN Config value, so a consumer that
-// reaches this generation through its *Config sees the same catalog and gate
+// reaches this generation through its *Config sees the same catalog
 // the Snapshot carries — and a consumer still holding an earlier
 // generation's *Config keeps that generation's. The Config the source read
-// is copied here rather than bound in place: bindTrust/bindCatalog are never called
+// is copied here rather than bound in place: bindTrustRoot/bindCatalog are never called
 // on a published value, and that must hold whatever the source returns (a
 // source that hands back one shared value on every read would otherwise
 // have a reload rebind a generation under a reader mid-assembly).
@@ -166,18 +164,14 @@ func (o *Owner) build(ctx context.Context, read *Config, warnings []Warning) (*S
 			warnings = append(warnings, Warning{Kind: WarnKindValidate, Text: err.Error()})
 		}
 	}
-	// Trust first: the readers verify signatures against the generation's
-	// root, so it is built once and bound before they are asked for, and every
-	// reader and gate of one generation decides against the same root.
-	root, records, retraction, err := o.src.TrustPorts(ctx, cfg)
+	// The root first: the readers verify signatures against it, so it is
+	// built once and bound before they are asked for, and every reader of one
+	// generation decides against the same root.
+	root, err := o.src.TrustRoot(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("config: resolving trust: %w", err)
+		return nil, fmt.Errorf("config: resolving trust root: %w", err)
 	}
-	trust, err := composite.NewTrust(root, records, retraction, o.trustOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("config: resolving trust: %w", err)
-	}
-	cfg.bindTrust(trust)
+	cfg.bindTrustRoot(root, o.sigCheckDisabled)
 	readers, err := o.src.Readers(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("config: resolving bundle sources: %w", err)
@@ -186,7 +180,6 @@ func (o *Owner) build(ctx context.Context, read *Config, warnings []Warning) (*S
 	cfg.bindCatalog(catalog)
 	return &Snapshot{
 		Config:     cfg,
-		Trust:      trust,
 		Generation: o.gen.Add(1),
 		LoadedAt:   time.Now(),
 		Warnings:   warnings,

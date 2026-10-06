@@ -26,7 +26,7 @@ func TestCollectTooling_CollectsCompanionToolingDeclarations(t *testing.T) {
 		"taskloom": "run:\n  version: 1.0.0\n",
 	})
 	appDir, _ := regenTestApp(t)
-	cfg := published(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
+	cfg := published(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 
 	got := CollectTooling(cfg, nil)
 	require.Len(t, got, 1, "only the companion declaring tooling is collected")
@@ -48,7 +48,7 @@ commands:
   tooling:
     content: "PROJECT-MAGIC-COMMAND"
 `)
-	cfg := published(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
+	cfg := published(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 
 	assert.Empty(t, CollectTooling(cfg, nil), "a command named tooling is not a tooling declaration")
 }

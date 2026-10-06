@@ -38,7 +38,7 @@ func newIsolatedFlowProject(t *testing.T) string {
 	t.Helper()
 	dir := testsupport.ProjectDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
-	provisionApprovals(t, filepath.Join(dir, ".ctxloom"))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
 	resetApp()
 	t.Cleanup(resetApp)
 	return dir

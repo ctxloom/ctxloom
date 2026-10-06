@@ -77,8 +77,8 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 	// recorded anywhere under it becomes an error here rather than a warning
 	// nobody's exit code reflects. See trustStoreFindingsError: this is the
 	// third production site that turns findings into an error, and its absence
-	// is why the same corrupt approvals store aborted `ctxloom run` loudly and
-	// let `ctxloom manage hooks install` report "applied" over zero bytes.
+	// is why the same corrupt trust store aborted `ctxloom run` loudly and let
+	// `ctxloom manage hooks install` report "applied" over zero bytes.
 	mark := strictness.Checkpoint()
 	defer strictness.Close(mark)
 
@@ -124,11 +124,6 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 		return nil, err
 	}
 
-	// The executable surfaces about to be written to backend settings — bundle
-	// MCP servers, bundle hooks, and prompt command-file exports — bypass the
-	// content loader, so each decides at its own choke with the generation's
-	// Trust (freshCfg.ExecutableTrustGate); a DENY omits the executable.
-
 	// The ONE package, for the configured DEFAULT profiles: ApplyHooks writes
 	// the project's STATIC managed config (the `manage hooks install` path)
 	// and there is no per-run `-p` selection here. The regenerated context and
@@ -141,12 +136,11 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 
 	contextHash, regenFailed := maybeRegenerateContext(req, pkg, workDir, contextOpts)
 
-	// The trust gate, checked BEFORE a single backend is written. A deny-all
-	// posture (unreadable/unconfigured approvals store, unreadable trust root)
-	// withholds every fragment, so regeneration legitimately produces nothing
-	// and returns ("", nil) — the exact shape an empty profile set produces.
-	// Writing on through would strip every native-file backend's managed
-	// context to match a "verdict" no readable store ever gave.
+	// Trust-class findings, checked BEFORE a single backend is written. An
+	// unreadable trust root can leave regeneration with nothing and return
+	// ("", nil) — the exact shape an empty profile set produces. Writing on
+	// through would strip every native-file backend's managed context to match
+	// a result no readable store ever gave.
 	if terr := trustStoreFindingsError(mark); terr != nil {
 		return nil, terr
 	}
@@ -184,18 +178,13 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 		applyErrors = append(applyErrors, "context regeneration failed; existing native-file managed context left untouched rather than cleared (see the warning above for the underlying error)")
 	}
 
-	// Advisory: tell the user if a bundle executable (MCP server / hook / prompt
-	// export) was withheld by the trust gate (content-free).
-	WarnWithheldBy(freshCfg.ExecutableTrustGate())
-
 	warnRetractions(retracted)
 
 	result := newApplyHooksResult(applied, retracted, applyErrors, contextHash)
-	// The same gate again, for a trust fault first recorded AFTER regeneration
-	// — the executable surfaces (bundle MCP servers, bundle hooks, prompt
-	// command exports) run their own EffectiveTrust pass through execGate, so
-	// a store that only fails there would otherwise still report success.
-	// Since is documented safe to re-read against one mark.
+	// The same check again, for a trust fault first recorded AFTER
+	// regeneration, so a store that only fails while the executable surfaces
+	// resolve would not still report success. Since is documented safe to
+	// re-read against one mark.
 	if terr := trustStoreFindingsError(mark); terr != nil {
 		return nil, terr
 	}
@@ -297,9 +286,6 @@ func resolveHookConfig(req ApplyHooksRequest) (*config.Config, error) {
 	if req.Cfg == nil {
 		return nil, fmt.Errorf("apply hooks: a config generation is required")
 	}
-	if _, err := req.Cfg.RequireTrust(); err != nil {
-		return nil, fmt.Errorf("apply hooks: %w", err)
-	}
 	return req.Cfg, nil
 }
 
@@ -368,8 +354,8 @@ func maybeRegenerateContext(req ApplyHooksRequest, pkg composite.Package, workDi
 //
 // IT DOES NOT DEGRADE, and that is a deliberate exception worth reading before
 // relaxing it. Everywhere else --degraded means "deliver less"; here it meant
-// "deliver something FALSE". An unreadable trust store denies every item, so
-// ApplyHooks goes on to write a managed context surface with the whole set
+// "deliver something FALSE". An unreadable trust store can leave every item
+// undeliverable, so ApplyHooks goes on to write a managed context surface with the whole set
 // stripped and then reports success — the caller, and the user, are told a set
 // of verdicts was applied when what actually happened is that no verdict could
 // be read at all. Writing that surface is the harm, and it is done BY
@@ -378,8 +364,8 @@ func maybeRegenerateContext(req ApplyHooksRequest, pkg composite.Package, workDi
 //
 // This is expressed as an unconditional gate rather than by raising the
 // underlying findings non-degradably, because the raise sites are CORRECT as
-// they stand: a corrupt approvals store denying everything is fail-CLOSED and
-// perfectly safe in isolation. The damage appears only when this particular
+// they stand: a corrupt trust store failing closed is perfectly safe in
+// isolation. The damage appears only when this particular
 // caller turns that denial into written bytes. The refusal therefore belongs
 // here, at the writer, not at the detector.
 //
@@ -387,8 +373,8 @@ func maybeRegenerateContext(req ApplyHooksRequest, pkg composite.Package, workDi
 // EVERY class: ApplyHooks reports a per-backend apply failure as partial
 // success on purpose (ClassApply), and widening this to all findings would
 // convert that documented partial into a hard error. ClassTrust is the one
-// class whose meaning is "the trust store could not be read, so every item is
-// being denied" — a whole-session posture, not one backend's bad day, and the
+// class whose meaning is "the trust store could not be read" — a
+// whole-session posture, not one backend's bad day, and the
 // only class for which a written-and-stripped context surface is a lie about a
 // verdict rather than a report of one.
 func trustStoreFindingsError(mark strictness.Mark) error {

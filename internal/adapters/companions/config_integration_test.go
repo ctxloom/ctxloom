@@ -17,8 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -27,11 +25,9 @@ import (
 
 // companionSources is a config.Sources over a fixture Config whose readers
 // are exactly what the composition root wires: the project's bundles, the
-// builtins and every discovered companion's loadout. The trust ports are the
-// test's own fakes, so a verdict can be pinned per item.
+// builtins and every discovered companion's loadout.
 type companionSources struct {
-	cfg   *config.Config
-	ports []compositetest.Option
+	cfg *config.Config
 }
 
 func (s companionSources) Read(context.Context) (*config.Config, []config.Warning, error) {
@@ -39,30 +35,15 @@ func (s companionSources) Read(context.Context) (*config.Config, []config.Warnin
 }
 
 func (s companionSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.Trust().Root()
+	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
 	}
 	return append(readers, companions.Prober{}.ReaderSource()(cfg)...), nil
 }
 
-func (s companionSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
-	root, records, retraction := compositetest.Ports(s.ports...)
-	return root, records, retraction, nil
-}
-
-// rejecting is a human rejection of every item whose "#<kind dir>/<name>"
-// tail contains one of denySubstrs; with none, a rejection of nothing.
-func rejecting(denySubstrs ...string) compositetest.Option {
-	return compositetest.RejectWhen(func(ref trust.Ref, _ []byte) bool {
-		tail := "#" + ref.Kind.Dir() + "/" + ref.Name
-		for _, s := range denySubstrs {
-			if strings.Contains(tail, s) {
-				return true
-			}
-		}
-		return false
-	})
+func (s companionSources) TrustRoot(context.Context, *config.Config) (trust.TrustRoot, error) {
+	return trust.NoSigners{}, nil
 }
 
 // fakeCompanion puts one companion named bin on the fake PATH, admitted, with
@@ -122,16 +103,6 @@ func TestCompanionLoadoutMCPServer_RidesTheGenerationsGate(t *testing.T) {
 		assert.True(t, found, "the companion's MCP server passes the gate like any other")
 	})
 
-	t.Run("withheld by name", func(t *testing.T) {
-		cfg := projectWith(t, profiles, bundlesYAML)
-		owner, err := config.Open(context.Background(), companionSources{cfg: cfg, ports: []compositetest.Option{rejecting("#mcp/ltk-server")}})
-		require.NoError(t, err)
-		result := owner.Current().Config.ResolveBundleMCPServers(nil)
-		assert.Contains(t, result, "quiet-server")
-		for name, srv := range result {
-			assert.False(t, strings.HasPrefix(srv.SCM, "bundle:ctxloom+companion:"), "companion server %q must be withheld when the gate names it", name)
-		}
-	})
 }
 
 // Companion loadout hooks survive when profile-gated resolution skips

@@ -13,7 +13,6 @@ ctxloom's configuration lives in YAML files under the `.ctxloom/` directory.
 ├── config.yaml              # Main configuration
 ├── remotes.yaml             # Remote registry (and custom forges)
 ├── lock.yaml                # Dependency lockfile
-├── approvals/               # Review decisions, one countersignature per approve/reject
 ├── allowed_signers          # Publisher keys this project trusts
 ├── profiles/                # Profile YAML files
 │   └── developer.yaml

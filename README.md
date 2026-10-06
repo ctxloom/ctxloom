@@ -75,9 +75,6 @@ Learn more: [Concepts](https://ctxloom.dev/concepts/bundles)
 | `ctxloom profile` | Manage profiles (named fragment collections) |
 | `ctxloom agent` | Inspect local agents (engine↔profile bindings) |
 | `ctxloom remote` | Manage remotes and discover content |
-| `ctxloom review` | Review pending items: accept or reject what the agent may see |
-| `ctxloom trust` | Accept an item's current content (fragment, command, MCP server, or hook) |
-| `ctxloom trust reject` | Reject an item so it is withheld from the agent |
 | `ctxloom session` | Browse and manage harp-named sessions |
 | `ctxloom memory` | Manage session memory (external compaction) |
 | `ctxloom mcp` | List configured MCP servers (`ctxloom mcp serve` runs ctxloom as one) |

@@ -431,22 +431,6 @@ func TestSnapshot_LoadsOnceAndCanBeAmendedInMemory(t *testing.T) {
 	assert.Len(t, snap.Records(), 2)
 }
 
-// TestAuthorizerFunc_AdaptsAPlainFunction pins the one-expression adapter the
-// content gate uses.
-func TestAuthorizerFunc_AdaptsAPlainFunction(t *testing.T) {
-	var a admission.Authorizer[string, testReason] = admission.AuthorizerFunc[string, testReason](
-		func(q string) admission.Decision[testReason] {
-			if q == "ok" {
-				return admission.Decision[testReason]{Allow: true, Reason: reasonApproved}
-			}
-			return admission.Decision[testReason]{Reason: reasonDeclined, Detail: "not ok"}
-		})
-	assert.True(t, a.Admit("ok").Allow)
-	no := a.Admit("nope")
-	assert.False(t, no.Allow)
-	assert.Equal(t, "not ok", no.Detail)
-}
-
 // TestNewStore_WithoutAKeyFunctionRefuses: a store that cannot say what two
 // records mean by "the same thing" cannot decide anything.
 func TestNewStore_WithoutAKeyFunctionRefuses(t *testing.T) {

@@ -20,7 +20,7 @@ import (
 // red.
 func TestAppendManagedDynamicHooks_InstallsTheSkillMatesHook(t *testing.T) {
 	m := newHooks()
-	appendManagedDynamicHooks(m, gatedFixture(config.Fixture{}), nil, sessions.MailByHook)
+	appendManagedDynamicHooks(m, config.NewFixture(config.Fixture{}), nil, sessions.MailByHook)
 
 	var matchers []string
 	for _, h := range m.For(bundles.HookEventPostTool) {

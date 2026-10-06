@@ -15,11 +15,8 @@
 // assignment is a user/cost/environment decision, not an author's, so it travels
 // with the project, not with shippable content.
 //
-// The agent DEFINITION is also UNGATED orchestration/config: there is no
-// trust.ItemKind for agents, they carry no review state, and they never pass
-// through EffectiveTrust. (Their constituent profiles' fragments/commands/mcp/hooks
-// still gate when the composed context is assembled/applied — but the binding
-// itself is not a trust-addressable surface.)
+// The agent DEFINITION is plain orchestration/config: there is no
+// trust.ItemKind for agents, so the binding itself is not an addressable item.
 //
 // This package owns only the entity type and its value vocabulary. Resolution
 // (composing the profiles into one context and applying the engine override)

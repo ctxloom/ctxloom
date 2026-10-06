@@ -63,35 +63,6 @@ func streamFormat(cmd *cobra.Command) (clifmt.Format, error) {
 	return cliemit.Resolve(cmd)
 }
 
-// reviewWantsListing decides which half of `ctxloom review` an invocation
-// gets: the machine-readable pending table (true) or the interactive
-// countersigning walk (false). interactive is the caller's TTY answer, kept a
-// parameter so the decision is testable without one.
-//
-// --format is part of the decision, not just of the rendering. An invocation
-// that asked for json/yaml/toml/markdown asked for a value it can parse, and
-// the walk renders nothing through emit — so without this it would prompt a
-// human through an approval session and only afterwards fail the
-// format-was-honored guard, having already written countersignatures. A
-// --format that will not parse lands here too: an invocation whose output
-// contract cannot be interpreted is not one to start an approval session on,
-// and emit reports the parse failure properly.
-//
-// Only a format the caller ASKED for (cliemit.Explicit) counts. One Resolve
-// would derive from stdout is not a request, and an interactive invocation
-// that asked for nothing is a human at a terminal, which is who the walk is
-// for. That also keeps cliemit's own stdout check out of this decision, so
-// both arms are testable from here.
-//
-// This deliberately does NOT mark formatWasHonored: the proof of honoring is
-// emit() actually rendering, further down the listing path.
-func reviewWantsListing(cmd *cobra.Command, listFlag, interactive bool) bool {
-	if listFlag || !interactive {
-		return true
-	}
-	return cliemit.Explicit(cmd) && wantsNonTextOutput(cmd)
-}
-
 // wantsNonTextOutput reports whether this invocation's --format is anything
 // but text. It is THE predicate for a decision made AROUND rendering —
 // stamping a field the human view does not show, or withholding a prompt from

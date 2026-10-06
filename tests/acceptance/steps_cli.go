@@ -365,21 +365,6 @@ func formatAskedFor(w *World) clifmt.Format {
 	return derivedNonTerminalFormat
 }
 
-// formatExplicit reports whether the last command's own command line SET a
-// format, as opposed to having one derived for it.
-//
-// The distinction governs the ERROR stream: cliemit.EmitError renders a
-// structured error only when the format was EXPLICITLY asked for, because a
-// derived format is not a request, and stdout's consumer says nothing about
-// who reads stderr — a different fd with a different reader. So a no-flag row
-// gets the human "Error: ..." line even though its STDOUT would have been
-// JSON, and an error assertion that branches on formatAskedFor alone tries to
-// decode prose as an envelope.
-func formatExplicit(w *World) bool {
-	_, ok := formatOnCommandLine(w)
-	return ok
-}
-
 // formatOnCommandLine scans the last command's own argv for a format request.
 // Both callers above read the same flags, so they read them in one place: two
 // copies of this scan would drift the moment a spelling is added.

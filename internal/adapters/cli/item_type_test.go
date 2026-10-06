@@ -78,7 +78,7 @@ func TestShowItem_MissingItemStillListsWhatExists(t *testing.T) {
 	chdir(t, root) // GetConfig() (the config read) resolves <root>/.ctxloom
 
 	cmd, _ := testCmd()
-	err := showItem(cmd, "demo#fragments/ghost", ItemTypeFragment, false, false)
+	err := showItem(cmd, "demo#fragments/ghost", ItemTypeFragment, false)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, operations.ErrItemNotFound, "the sentinel must survive for errors.Is callers")

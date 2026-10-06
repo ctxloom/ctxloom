@@ -34,7 +34,7 @@ func envelopeOnDisk(t *testing.T, path string) map[string]any {
 
 func TestCreateBundle_StampsTheFormatGeneration(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	res, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "authored", Version: "1.2.0"})
 	require.NoError(t, err)
@@ -75,7 +75,7 @@ func TestSignBundleFile_PersistsTheEnvelopeUpgradeBeforeHashing(t *testing.T) {
 // reads before anything lands.
 func TestImportBundle_RefusesANewerEnvelope(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 	bundletree.Write(t, fs, "/incoming", "incoming", "version: 1.0.0\nfragments:\n  a:\n    content: hi\n")
 	testsupport.WriteFile(t, fs, filepath.Join("/incoming", "incoming", bundles.DirectoryFormManifest),
 		[]byte(schemaver.Key+": 99\nversion: 1.0.0\n"), 0o644)

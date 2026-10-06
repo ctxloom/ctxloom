@@ -11,8 +11,7 @@ Feature: A signature somebody can check
   unaltered — and that his teammates inherit that decision by cloning, not by
   each being told to run a command.
 
-  # NOTE ON SCOPE: J001500 owns the ADVERSARY — tamper detection, retraction, key
-  # revocation, rejection beating a trusted publisher. This journey owns the
+  # NOTE ON SCOPE: J001500 owns the ADVERSARY — tamper detection. This journey owns the
   # PRODUCTION of the artifacts J001500 assumes: the signature itself, the trust
   # roots on disk, and the relocation that must carry both. Nothing here
   # re-proves tamper detection.
@@ -195,74 +194,18 @@ Feature: A signature somebody can check
       | --format json |
       | --format text |
 
-  # The acceptance binds to the item's CURRENT content hashes, so a later
-  # revision returns it to pending rather than riding the old decision.
-  #
-  # THREE assertions after the pull, not one, because "the revised marker is
-  # absent" alone was satisfied by the revision NEVER ARRIVING (audit
-  # irate-catfish, F1): a plain `deps pull` is passive and never advances an
-  # existing pin ("Skipped (kept at their locked commit)"), so Alice went on
-  # holding — and being served — the ORIGINAL bytes, and the scenario proved
-  # nothing about what an acceptance binds to. Taking the new commit needs
-  # `deps upgrade` first, and the two assertions added here are the
-  # ones an absence cannot fake:
-  #   - the ORIGINAL guidance stops being delivered. It was approved and
-  #     flowing one step earlier, so this can only be true if the revision
-  #     actually reached her project and displaced it.
-  #   - the item reads as PENDING again — the claim in the scenario title,
-  #     and the state a still-pinned, still-approved original could never be in.
-  Scenario: Alice accepts one item, and a later revision returns it to review
-    Given Trent's project publishes the "secure-coding" bundle his team depends on
-    And Trent has signed the bundle "secure-coding"
-    And Alice's own review key is trusted for approve and reject as "reviewer@acme.example"
-    And Trent publishes the signed bundle to his company repo, and Alice references it
-    And her assistant does not receive the "tdd" guidance
-    When I run "ctxloom bundle trust" on the published "tdd" fragment
-    Then her assistant receives the "tdd" guidance
-    When Trent revises the "tdd" fragment, re-signs it, and publishes again
-    And Alice pulls the newly published version
-    Then her assistant does not receive the "revised tdd" guidance
-    And her assistant no longer receives the "tdd" guidance either
-    And the published "tdd" fragment's review state is "pending"
-
-  # A rejection writes two companion records: the ref-level block (sticky,
-  # survives content changes) and the item's content hashes on the denylist (so
-  # a renamed or moved identical copy stays rejected too). Asserted through
-  # what ctxloom reports it wrote AND through what stops being delivered.
-  Scenario Outline: Alice rejects one item and it stays out, though the signature still verifies
-    Given Trent's project publishes the "secure-coding" bundle his team depends on
-    And Trent has signed the bundle "secure-coding"
-    And Trent's key is trusted in the committable project store as "context@acme.example"
-    And Alice's own review key is trusted for approve and reject as "reviewer@acme.example"
-    And Trent publishes the signed bundle to his company repo, and Alice references it
-    And her assistant receives the "curl-pipe-sh" guidance
-    When I run "ctxloom bundle reject <flags>" on the published "curl-pipe-sh" fragment
-    Then the output reports "status" as "<the ref block>"
-    And the output reports "content_forms" containing "<the content>"
-    And her assistant does not receive the "curl-pipe-sh" guidance
-    And the content Trent signed still verifies against the bytes he published
-
-    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-      | flags         | the ref block       | the content           |
-      |               | rejected            | raw                   |
-      | --format json | rejected            | raw                   |
-      | --format text | ref block: recorded | rejected in form(s)   |
-
-  # Removing a signer means "I will review this myself from now on", not
-  # "deny" — so the content is held, not refused. The assertion that makes the
-  # removal real rather than cosmetic is on the STORE FILE, not the listing.
+  # The assertion that makes the removal real rather than cosmetic is on the
+  # STORE FILE, not the listing.
   Scenario Outline: Withdrawing trust in Trent's key removes the key line itself
     Given Trent's project publishes the "secure-coding" bundle his team depends on
     And Trent has signed the bundle "secure-coding"
     And Trent's key is trusted in the committable project store as "context@acme.example"
     And Trent publishes the signed bundle to his company repo, and Alice references it
-    And her assistant receives the "tdd" guidance
     When I run "ctxloom signer untrust context@acme.example --project <flags>"
     Then the command succeeds
     And the output reports "removed" as "<one entry gone>"
     And the project store ".ctxloom/allowed_signers" no longer names Trent's key
     And the project store ".ctxloom/allowed_signers" holds nothing at all
-    And her assistant does not receive the "tdd" guidance
 
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | one entry gone                           |
@@ -442,51 +385,6 @@ Feature: A signature somebody can check
     When I run "ctxloom signer untrust ben+ctxloom@abbitt.me --project"
     Then the command succeeds
     And the distrusted store ".ctxloom/distrusted_signers" records every principal that entry names
-
-  # This scenario is the SECOND branch of its own title, and it was a PRODUCT
-  # BUG until it was one — carried @wip for as long as neither branch held.
-  #
-  # What it used to do, on the ORDINARY developer setup — a signing key in
-  # ssh-agent, which is exactly what the rest of this feature establishes:
-  # `ctxloom bundle trust` recorded a SIGNED approval, printed "Approved …
-  # signed by SHA256:…", exited 0, and the item stayed withheld. The signed
-  # record and the unsigned one carried the SAME ref and the SAME payload_hash
-  # in ~/.ctxloom/approvals/index.yaml, differing only in `unsigned: true`
-  # versus `principal: SHA256:…`, and only the unsigned one took effect —
-  # because a signed decision is honoured only when its signer is trusted for
-  # the approve namespace (VerifyCountersignature asks TrustedForNamespace
-  # before it verifies a single byte, and answers a flat "not countersigned"
-  # when the answer is no), and nothing in the accept flow said so. Removing
-  # the key from the agent made the identical command work. Exit 0, a success
-  # message naming the key, and no effect — the flagship trust command, in the
-  # default configuration, doing this project's signature failure.
-  #
-  # It is closed by authorizing the key on the WRITE side too, against the same
-  # trust root and through the same namespace derivation the verifier uses
-  # (operations.resolveDecisionSigner / requireTrustedForAssertion), so the two
-  # sides cannot disagree about which namespace a decision needs. The command
-  # now REFUSES, at the point of decision, before anything is written.
-  #
-  # Asserted on all three things a silent no-op gets wrong at once: the exit
-  # code, the message a human acts on, and what landed on disk. The RECORD
-  # assertion is the load-bearing one — a refusal that still wrote the useless
-  # approval would satisfy the other two — and it reads the store's own files
-  # rather than the honoured-decision lookup, which answers "no" for a written
-  # record too and so cannot tell "refused" from the bug.
-  #
-  # The passing twin is the acceptance scenario above, which differs by exactly
-  # one Given: Alice's review key trusted for approve and reject.
-  Scenario: A review decision recorded with an untrusted key is honoured, or says why it is not
-    Given Trent's project publishes the "secure-coding" bundle his team depends on
-    And Trent has signed the bundle "secure-coding"
-    And Trent publishes the signed bundle to his company repo, and Alice references it
-    And her assistant does not receive the "tdd" guidance
-    When I try to run "ctxloom bundle trust" on the published "tdd" fragment
-    Then the command fails
-    And the refusal names Alice's key, the "approve" namespace, and how to trust it
-    And the approvals store holds no approve record at all
-    And her assistant does not receive the "tdd" guidance
-    And the published "tdd" fragment's review state is "pending"
 
   # Bytes carried VERBATIM — never re-parsed, never re-serialized, never
   # re-signed. This is the scenario that catches a "helpful" round-trip: if the

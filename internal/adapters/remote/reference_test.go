@@ -432,33 +432,6 @@ func TestReference_LocalRemoteName(t *testing.T) {
 	}
 }
 
-// TestExtractRepoName pins the wrapper's own contract: it names a remote by the
-// grammar's naming renderer (refuri's TestRepoURL_Name holds the per-form
-// table), and an address that grammar refuses names nothing.
-func TestExtractRepoName(t *testing.T) {
-	tests := []struct {
-		name    string
-		repoURL string
-		want    string
-	}{
-		{"URL form", "https://github.com/owner/repo.git", "repo"},
-		{"shorthand keeps owner/repo", "owner/repo", "owner/repo"},
-		{"refused bare word", "foo", ""},
-		{"refused absolute path", "/abs/path", ""},
-		{"refused relative path", "./rel", ""},
-		{"refused home-relative path", "~/x", ""},
-		{"refused empty", "", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := ExtractRepoName(tt.repoURL); got != tt.want {
-				t.Errorf("ExtractRepoName(%q) = %q, want %q", tt.repoURL, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestReference_CanonicalString(t *testing.T) {
 	tests := []struct {
 		name string

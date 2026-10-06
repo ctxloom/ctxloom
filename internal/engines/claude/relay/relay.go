@@ -295,19 +295,47 @@ func downward(ctx context.Context, uc, dc mcp.Connection) error {
 	}
 }
 
+// The diagnostics watchWake prints when its session closes under it — the
+// endpoint ended it, or a keepalive ping failed and the client closed it.
+// The wake is then gone until something subscribes again, and nothing else
+// would notice: a runner firing it learns only that nobody is subscribed.
+const (
+	wakeLost = "the wake subscription was lost; subscribing again, once"
+	wakeDown = "the wake subscription was lost again; this session can no longer be woken"
+)
+
 // watchWake binds claude's wake from the relay's environment and, when it
 // binds, subscribes to the endpoint's wake on a session of its own and fires
 // the wake for each notification. A relay that cannot bind says so once and
 // never subscribes: the runner then learns, when it fires, that nobody can
-// wake this session.
+// wake this session. A lost subscription is said so and taken again ONCE, on
+// a fresh session; a second loss, or a resubscription that fails, leaves the
+// wake down with its diagnostic printed — a retry loop against an endpoint
+// that went away would only repeat it.
 func watchWake(ctx context.Context, cfg Config, url string, httpc *http.Client) {
+	client, ok := wakeClient(ctx, cfg)
+	if !ok {
+		return
+	}
+	for _, lost := range []string{wakeLost, wakeDown} {
+		cs, ok := subscribeWake(ctx, cfg, client, url, httpc)
+		if !ok || !awaitLoss(ctx, cs) {
+			return
+		}
+		fmt.Fprintf(cfg.Stderr, "ctxloom %s: %s\n", claude.RelayCommand, lost)
+	}
+}
+
+// wakeClient binds claude's wake and returns the MCP client whose sessions
+// carry it; false, said so, when the wake cannot be bound.
+func wakeClient(ctx context.Context, cfg Config) (*mcp.Client, bool) {
 	spec, _ := claude.Claude{}.Wake().Get()
 	w, err := spec.Bind(ctx, cfg.Env)
 	if err != nil {
 		fmt.Fprintf(cfg.Stderr, "ctxloom %s: this session cannot be woken: %v\n", claude.RelayCommand, err)
-		return
+		return nil, false
 	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "ctxloom-" + claude.RelayCommand, Version: version.Version}, &mcp.ClientOptions{
+	return mcp.NewClient(&mcp.Implementation{Name: "ctxloom-" + claude.RelayCommand, Version: version.Version}, &mcp.ClientOptions{
 		KeepAlive: cfg.keepAlive(),
 		ResourceUpdatedHandler: func(_ context.Context, req *mcp.ResourceUpdatedNotificationRequest) {
 			nonce, _ := req.Params.Meta["nonce"].(string)
@@ -315,16 +343,35 @@ func watchWake(ctx context.Context, cfg Config, url string, httpc *http.Client) 
 				fmt.Fprintf(cfg.Stderr, "ctxloom %s: wake %s was not posted: %v\n", claude.RelayCommand, nonce, err)
 			}
 		},
-	})
+	}), true
+}
+
+// subscribeWake opens a session for the wake and subscribes on it; false,
+// said so, when either fails.
+func subscribeWake(ctx context.Context, cfg Config, client *mcp.Client, url string, httpc *http.Client) (*mcp.ClientSession, bool) {
 	cs, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: url, HTTPClient: httpc}, nil)
 	if err != nil {
 		fmt.Fprintf(cfg.Stderr, "ctxloom %s: cannot reach the session endpoint for the wake: %v\n", claude.RelayCommand, err)
-		return
+		return nil, false
 	}
-	defer cs.Close()
 	if err := cs.Subscribe(ctx, &mcp.SubscribeParams{URI: engine.WakeURI}); err != nil {
+		_ = cs.Close()
 		fmt.Fprintf(cfg.Stderr, "ctxloom %s: cannot subscribe to the wake: %v\n", claude.RelayCommand, err)
-		return
+		return nil, false
 	}
-	<-ctx.Done()
+	return cs, true
+}
+
+// awaitLoss holds cs until ctx ends (false) or the session closes under it
+// (true), and closes it either way.
+func awaitLoss(ctx context.Context, cs *mcp.ClientSession) bool {
+	closed := make(chan struct{})
+	go func() { _ = cs.Wait(); close(closed) }()
+	defer cs.Close()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-closed:
+		return ctx.Err() == nil
+	}
 }

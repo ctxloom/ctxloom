@@ -323,10 +323,10 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 	// the pull not running. Only with the skip disabled AND the pin removed did
 	// it go red.
 	//
-	// `--force` puts the pull back on the path the pin actually guards: the
-	// reference IS re-resolved against the advanced upstream, and the hold is
-	// what has to hold it back.
-	ctx.Step(`^Bob fetches the context the project draws on, re-resolving every reference$`, func(c context.Context) error {
+	// `--force` puts the pull back on the full fetch-and-record path
+	// (Puller.Pull, then Puller.updateLockfile) against the advanced upstream,
+	// and what lands must still be the pinned commit.
+	ctx.Step(`^Bob fetches the context the project draws on, reinstalling every reference$`, func(c context.Context) error {
 		return runBob(worldFrom(c), "deps", "pull", "--force")
 	})
 
@@ -345,7 +345,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("reading Bob's lockfile: %w", err)
 		}
 		if got != j000800.pinnedSHA {
-			return fmt.Errorf("the pull moved Bob's upstream bundle off the team's pin: lockfile now records sha %q, the team pinned %q — a hold must freeze the resolved commit even when the pull re-resolves against a newer upstream; Bob's lockfile:\n%s", got, j000800.pinnedSHA, raw)
+			return fmt.Errorf("the pull moved Bob's upstream bundle off the team's pin: lockfile now records sha %q, the team pinned %q — a pull never moves an existing pin, even against a newer upstream; Bob's lockfile:\n%s", got, j000800.pinnedSHA, raw)
 		}
 		return assertBobMaterializedContains(w, j000800PinnedMarker)
 	})

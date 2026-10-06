@@ -1253,7 +1253,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	// mode impossible to re-introduce silently.
 	ctx.Step(`^Alice pulls the newly published version$`, func(c context.Context) error {
 		w := worldFrom(c)
-		if err := runOK(w, "deps", "upgrade"); err != nil {
+		if err := runOK(w, "deps", "upgrade", "--yes"); err != nil {
 			return err
 		}
 		return runOK(w, "deps", "pull")

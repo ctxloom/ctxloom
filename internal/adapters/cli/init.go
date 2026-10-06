@@ -523,7 +523,7 @@ func pullSeededDependencies(cmd *cobra.Command, appDir string) {
 		fmt.Println("  ctxloom deps pull")
 		return
 	}
-	result, syncErr := operations.SyncDependencies(cmd.Context(), App(), operations.SyncDependenciesRequest{
+	result, syncErr := syncDependencies(cmd.Context(), App(), operations.SyncDependenciesRequest{
 		Lock:       true,
 		ApplyHooks: false, // applyInitHooks runs right after
 	})

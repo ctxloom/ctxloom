@@ -423,3 +423,22 @@ func TestTakeInterviewDefaults_ChoosesTheRecommendationsAndSaysSo(t *testing.T) 
 	assert.Contains(t, initDefaultHeadlessLine, posture, "the line names the default it chose")
 	assert.Equal(t, initDefaultDirtyTreeLine+"\n"+initDefaultHeadlessLine+"\n", buf.String())
 }
+
+// init creates first pins like `deps pull` does, and discloses them the same
+// way: each new pin with everything it brings in, executables included.
+func TestPullSeededDependencies_DisclosesFirstPins(t *testing.T) {
+	testsupport.Isolate(t)
+	stub(t, &syncDependencies, func(context.Context, *operations.App, operations.SyncDependenciesRequest) (*operations.SyncDependenciesResult, error) {
+		return &operations.SyncDependenciesResult{Status: "completed", Total: 1, Installed: 1,
+			Changes: []operations.PinChange{{Identity: "corp/kit", ToSHA: "3333333333",
+				Items: []operations.ItemChange{{Kind: "mcp", Name: "srv", Change: operations.ChangeAdded,
+					Exec: &operations.ExecDelta{After: &operations.ExecSpec{Command: "fixture-mcp"}}}}}}}, nil
+	})
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+
+	out := captureStdout(t, func() { pullSeededDependencies(cmd, t.TempDir()) })
+
+	assert.Contains(t, out, operations.MsgNewPinsHeader)
+	assert.Contains(t, out, "  + mcp srv\n      command: fixture-mcp\n")
+}

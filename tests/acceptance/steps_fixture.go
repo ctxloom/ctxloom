@@ -546,6 +546,24 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		return w.env.AdvanceRemote(bare, fixtureDemoTreeFiles("1.1.0", "Demo bundle", frag, content, true))
 	})
 
+	// Publishes a commit giving the demo bundle an MCP server that runs command
+	// and a skill whose script prints say: the executable surfaces a pin
+	// disclosure has to show. Publishing it again with other values changes
+	// both, which is what an upgrade's before -> after shows.
+	ctx.Step(`^the remote "([^"]*)" ships an MCP server "([^"]*)" running "([^"]*)" and a skill script printing "([^"]*)"$`, func(c context.Context, name, server, command, say string) error {
+		w := worldFrom(c)
+		bare := w.remoteBare[name]
+		if bare == "" {
+			return fmt.Errorf("remote %q was not seeded", name)
+		}
+		root := treeBundlePath("demo")
+		return w.env.AdvanceRemote(bare, map[string]string{
+			root + "/mcp/" + server + ".yaml":      "command: " + command + "\n",
+			root + "/skills/runner/SKILL.md":       "---\nname: runner\ndescription: Runs things.\n---\n\nbody\n",
+			root + "/skills/runner/scripts/run.sh": "#!/bin/sh\necho " + say + "\n",
+		})
+	})
+
 	// Forces the project's local cache clone for a seeded remote back to its
 	// very first commit — a stronger, deliberate version of the staleness a
 	// clone's checked-out HEAD always carries by construction (fetch advances

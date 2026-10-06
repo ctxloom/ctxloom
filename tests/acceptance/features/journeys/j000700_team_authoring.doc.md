@@ -24,16 +24,10 @@ agree on how the team works.
 ctxloom's answer is to make the standard part of the project itself. Carol, the
 team lead, authors a skill or a fragment *in the repository* — the same repo
 everyone already clones and pulls. When Bob pulls, his assistant gains it. No
-one exports a prompt, no one re-pastes anything, and — this is the part that
-separates J000700 from every remote-source journey — no one reviews it. The project
-is the team's own; content authored inside it is **first-party** and trusted on
-that basis alone. There is nothing to sign and nothing to approve, because the
-team already owns what it wrote (see [Review and trust](/concepts/review-and-trust/)
-for the first-party exemption, and [A prompt is executable code](/security/prompts-are-code/)
-for why *remote* content does not get that pass).
+one exports a prompt and no one re-pastes anything.
 
 This journey proves the authoring loop end to end: a skill authored in-project
-reaches a teammate untouched by review; verbose guidance distilled once is
+reaches a teammate; verbose guidance distilled once is
 delivered in its compact form; and an edit propagates so the new version
 arrives and the stale one is gone — the case the whole suite exists to catch,
 because "the change silently didn't arrive" is the failure that erodes trust in
@@ -43,13 +37,7 @@ the whole mechanism.
 <!-- doc:scenario: Carol authors a skill and a teammate gains it -->
 This is the core loop, stripped to its essentials. Carol writes a
 `conventional-commits` skill into the team's project and commits it; Bob pulls;
-Bob's assistant can invoke it. The load-bearing clause is the last one — *it
-reached him without any review*. Compare this with J000200, where a remote source's
-content is held at the gate until a human approves it. Here there is no gate to
-clear, because the content is local to a project the team owns: the trust
-resolver's **local** rule allows first-party content outright, ahead of any
-signing or approval check. The team's own repository is not a stranger handing
-you a prompt; it is the team, and you already trust the team.
+Bob's assistant can invoke it. Nothing travels but the repository itself.
 <!-- /doc:scenario -->
 
 <!-- doc:scenario: Carol distills verbose guidance and teammates receive the compact form -->
@@ -91,12 +79,8 @@ recorded intent; the empty proof is the honest state of it today.
 <!-- /doc:scenario -->
 
 <!-- doc:outro -->
-J000700 is the first-party half of the trust model: content the team authors in its
-own project, trusted because the team owns it, propagating to every teammate
-without ceremony. The moment content comes from *outside* that boundary — a
-personal repo, a company repo, a stranger's bundle — the ceremony returns, and
-that is the subject of the other journeys: [Setting up ctxloom on a
-project](/journeys/j000200-setup/) for adding and reviewing remote sources, and
-[Skills my company has validated](/journeys/j001500-corporate-signed/) for the signed,
-company-published case.
+J000700 is content the team authors in its own project, propagating to every
+teammate without ceremony. Content from *outside* the project — a personal
+repo, a company repo — arrives through a remote the team adds; that is the
+subject of [Setting up ctxloom on a project](/journeys/j000200-setup/).
 <!-- /doc:outro -->

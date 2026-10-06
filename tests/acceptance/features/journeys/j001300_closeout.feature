@@ -218,9 +218,7 @@ Feature: The close-out — the end of a workstream
   #
   # The behaviours those rows described are still worth keeping in mind if that
   # design happens: extraction must complete BEFORE any write (so "nothing was
-  # written" is true by construction, not by luck); the output must be signed in
-  # the same apply, because an edited-unsigned bundle is silently withheld once
-  # a pin advances; a run extracting zero fragments must fail loudly rather than
+  # written" is true by construction, not by luck); a run extracting zero fragments must fail loudly rather than
   # report success over an empty bundle; and a withheld extraction skill must
   # refuse rather than silently fall back to a built-in prompt —
   # operations.GetSkill already returns errs.ErrSkillWithheld for that.

@@ -53,14 +53,12 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
 	"golang.org/x/crypto/ssh"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
@@ -936,30 +934,6 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		return runOK(worldFrom(c), "signer", "trust", principal, "--key", j001600PubKeyFile, "--user", "--yes")
 	})
 
-	// A review decision recorded by someone holding a signing key is SIGNED
-	// (J001500's forgery scenario proves the converse: a team decision refuses to be
-	// recorded without one), and a signed decision is only honoured when its
-	// signer is trusted for the approve/reject namespaces. Granting that here
-	// is what makes the accept/reject scenarios measure the decision rather
-	// than measure a trust gap.
-	//
-	// This hermetic world holds ONE ssh-agent identity, so the same key plays
-	// the publisher and the reviewer. That is not a shortcut being papered
-	// over — it is the seam worth showing: the store distinguishes the two
-	// roles by NAMESPACE, not by key, so `context@…` (publish) and
-	// `reviewer@…` (approve, reject) are separate grants over the same bytes.
-	//
-	// PRODUCT BUG FOUND HERE, reported not fixed — see the @wip scenario in
-	// j001600_signing.feature: WITHOUT this grant, `ctxloom bundle trust` prints
-	// "Approved …  signed by SHA256:…", exits 0, writes a well-formed signed
-	// approval record — and the item stays withheld. The byte-identical
-	// UNSIGNED record (same ref, same payload_hash) is honoured. So on the
-	// ordinary developer setup — a key in ssh-agent — the flagship trust
-	// command is a silent no-op.
-	ctx.Step(`^Alice's own review key is trusted for approve and reject as "([^"]*)"$`, func(c context.Context, principal string) error {
-		return runOK(worldFrom(c), "signer", "trust", principal, "--key", j001600PubKeyFile, "--namespace", "approve,reject", "--yes")
-	})
-
 	ctx.Step(`^the project store "([^"]*)" trusts "([^"]*)" for publishing, with Trent's own key$`, func(c context.Context, rel, principal string) error {
 		w := worldFrom(c)
 		body, err := w.env.ReadFile(rel)
@@ -1236,162 +1210,6 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		return j001600Reference(w)
 	})
 
-	// A plain `deps pull` is PASSIVE by design — remote_upgrade.go's own doc:
-	// "Passive 'deps pull' installs exactly what is already pinned and never
-	// advances" — so on a bundle this project already installed once it reports
-	// "Skipped (kept at their locked commit)" and Alice keeps the ORIGINAL
-	// bytes. Taking Trent's newly published commit needs `deps check
-	// --apply` first (--force skips the per-item confirmation prompt these
-	// stdin-less exec.Command runs cannot answer), exactly as
-	// steps_trust_surface.go's tsUpdateAndPull already documents.
-	//
-	// Getting this wrong is not a slow test, it is a silently vacuous one: with
-	// the passive pull, "the revised guidance is not delivered" passed against
-	// bytes that had never entered the project at all (audit irate-catfish, F1).
-	// The scenario's two companion assertions — the ORIGINAL stops being
-	// delivered, and the item reads pending again — are what make that failure
-	// mode impossible to re-introduce silently.
-	ctx.Step(`^Alice pulls the newly published version$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if err := runOK(w, "deps", "upgrade", "--yes"); err != nil {
-			return err
-		}
-		return runOK(w, "deps", "pull")
-	})
-
-	ctx.Step(`^her assistant no longer receives the "([^"]*)" guidance either$`, func(c context.Context, which string) error {
-		marker, err := j001600MarkerFor(which)
-		if err != nil {
-			return err
-		}
-		return j001600AssertDelivery(worldFrom(c), marker, false)
-	})
-
-	ctx.Step(`^the published "([^"]*)" fragment's review state is "([^"]*)"$`, func(c context.Context, frag, want string) error {
-		return j001600AssertReviewState(worldFrom(c), frag, want)
-	})
-
-	ctx.Step(`^Trent revises the "([^"]*)" fragment, re-signs it, and publishes again$`, func(c context.Context, frag string) error {
-		w := worldFrom(c)
-		if frag != "tdd" {
-			return fmt.Errorf("this fixture only revises the tdd fragment, not %q", frag)
-		}
-		// The first j001600SeedFromDisk already handed the authoring tree off
-		// (removed it from the project — see that function's doc), so this
-		// re-authors the WHOLE tree rather than editing one file in place;
-		// j001600WritePublishedBundle is deterministic, so curl-pipe-sh's file
-		// comes back byte-identical and only tdd's content actually changes.
-		if err := j001600WritePublishedBundle(w, "1.1.0", j001600TDDRevised); err != nil {
-			return err
-		}
-		if err := runOK(w, "bundle", "sign", j001600PublishedName); err != nil {
-			return err
-		}
-		return j001600SeedFromDisk(w, j001600PublishedName)
-	})
-
-	ctx.Step(`^I run "ctxloom bundle trust" on the published "([^"]*)" fragment$`, func(c context.Context, frag string) error {
-		return runOK(worldFrom(c), "bundle", "trust", j001600ItemRef(worldFrom(c), frag))
-	})
-
-	// The trailing flags are optional so a Scenario Outline can drive this one
-	// command once per output format: the ref is built here, but WHICH
-	// encoding to render it in is the scenario's to vary.
-	ctx.Step(`^I run "ctxloom bundle reject\s*([^"]*)" on the published "([^"]*)" fragment$`, func(c context.Context, flags, frag string) error {
-		w := worldFrom(c)
-		args := append([]string{"bundle", "reject"}, strings.Fields(flags)...)
-		return runOK(w, append(args, j001600ItemRef(w, frag))...)
-	})
-
-	// "try to run", not runOK: this scenario's whole subject is a REFUSAL, so
-	// the exit code is an assertion the scenario makes explicitly rather than
-	// a precondition the step swallows.
-	ctx.Step(`^I try to run "ctxloom bundle trust" on the published "([^"]*)" fragment$`, func(c context.Context, frag string) error {
-		w := worldFrom(c)
-		_ = w.env.Run("bundle", "trust", j001600ItemRef(w, frag))
-		return nil
-	})
-
-	// The message a human acts on, in three parts, because a refusal missing
-	// any one of them leaves them stuck: WHICH key was refused (there may be
-	// several in the agent), WHICH namespace it lacks (approve and reject are
-	// separate grants over the same key), and the command that fixes it.
-	// Asserted as three independent substrings so a message that drops one
-	// fails naming the part it dropped.
-	ctx.Step(`^the refusal names Alice's key, the "([^"]*)" namespace, and how to trust it$`, func(c context.Context, ns string) error {
-		w := worldFrom(c)
-		out := w.env.LastOutput()
-		fp := j001600Of(w).signer.Fingerprint()
-		for _, want := range []struct{ what, text string }{
-			{"the key it refused", fp},
-			{"the namespace that key lacks", ns},
-			{"the command that grants it", "ctxloom signer trust"},
-			{"the namespaces to grant", "--namespace approve,reject"},
-		} {
-			if !strings.Contains(out, want.text) {
-				return fmt.Errorf("the refusal does not name %s (%q); a refusal a user cannot act on is barely better "+
-					"than the silent success it replaced. ctxloom said:\n%s", want.what, want.text, out)
-			}
-		}
-		w.docStepMaterialized = out
-		return nil
-	})
-
-	// NOTHING WAS WRITTEN — read off the store's own files, deliberately not
-	// through countersign.Store's verified lookup. That lookup answers "no"
-	// for a record that WAS written by an untrusted key (which is the bug),
-	// so it cannot tell a refusal from the failure being fixed. Record
-	// filenames carry the assertion (`<indexHash>.<assertion>.<keyTag>.sig`
-	// / `.unsigned`), and the sidecar index carries it as a field, so both
-	// halves of what `bundle trust` writes are checked.
-	ctx.Step(`^the approvals store holds no approve record at all$`, func(c context.Context) error {
-		w := worldFrom(c)
-		dir := filepath.Join(w.env.HomeDir, paths.AppDirName, paths.ApprovalsDirName)
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			if os.IsNotExist(err) {
-				// The store was never even created: the strongest form of
-				// "nothing was recorded".
-				w.docStepMaterialized = "approvals store " + dir + ": never created — nothing was recorded"
-				return nil
-			}
-			return fmt.Errorf("read approvals store %s: %w", dir, err)
-		}
-		marker := "." + string(signing.AssertionApprove) + "."
-		var found []string
-		for _, e := range entries {
-			if !e.IsDir() && strings.Contains(e.Name(), marker) {
-				found = append(found, e.Name())
-			}
-		}
-		if len(found) > 0 {
-			return fmt.Errorf("the approvals store %s holds %d approve record(s) after the refusal: %v — "+
-				"refusing and writing anyway leaves exactly the record nothing honours, which is the bug being fixed",
-				dir, len(found), found)
-		}
-		index := filepath.Join(dir, "index.yaml")
-		body, rerr := os.ReadFile(index)
-		if rerr != nil && !os.IsNotExist(rerr) {
-			return fmt.Errorf("read approvals index %s: %w", index, rerr)
-		}
-		if rerr == nil {
-			var rows []countersign.IndexEntry
-			if err := yaml.Unmarshal(body, &rows); err != nil {
-				return fmt.Errorf("parse approvals index %s: %w\ncontents:\n%s", index, err, body)
-			}
-			for _, row := range rows {
-				if row.Assertion == string(signing.AssertionApprove) {
-					return fmt.Errorf("the approvals index %s records an approval of %q after the refusal "+
-						"(principal %q, unsigned=%v); the sidecar is what `ctxloom review` reads to label an item, "+
-						"so an entry here tells the user a decision was made that was not",
-						index, row.Ref, row.Principal, row.Unsigned)
-				}
-			}
-		}
-		w.docStepMaterialized = fmt.Sprintf("approvals store %s: %d file(s), no approve record, no approve index entry", dir, len(entries))
-		return nil
-	})
-
 	ctx.Step(`^her assistant receives the "([^"]*)" guidance$`, func(c context.Context, which string) error {
 		marker, err := j001600MarkerFor(which)
 		if err != nil {
@@ -1406,10 +1224,6 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		return j001600AssertDelivery(worldFrom(c), marker, false)
-	})
-
-	ctx.Step(`^the content Trent signed still verifies against the bytes he published$`, func(c context.Context) error {
-		return j001600VerifyPublished(worldFrom(c), j001600PublishedName)
 	})
 
 	// --- bundle move ---------------------------------------------------------

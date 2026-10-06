@@ -24,12 +24,3 @@ func TestRefCanonicalURL_Local(t *testing.T) {
 		t.Errorf("local Ref.CanonicalURL() = %q, want %q", got, "ctxloom:local")
 	}
 }
-
-func TestItemKind_IsContent(t *testing.T) {
-	if !KindFragment.IsContent() || !KindPrompt.IsContent() {
-		t.Error("fragment and prompt must be content")
-	}
-	if KindMCP.IsContent() {
-		t.Error("mcp must NOT be content (executable surface, never auto-trusted)")
-	}
-}

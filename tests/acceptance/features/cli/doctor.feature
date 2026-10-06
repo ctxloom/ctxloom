@@ -112,28 +112,6 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
     empty tree while every consumer's bundle refs fail to resolve. Nothing else
     in the system can see it, which is exactly the kind of thing doctor is for.
 
-    # THE EXIT-CODE CLAIM, made concrete. This project is genuinely broken in a
-    # way that will cost someone an afternoon, and the command still succeeds.
-    # That is specified, not tolerated — asserting a failure here would be
-    # asserting the opposite of the design. The report is where the alarm
-    # lives, so the report is what is asserted: the marker, the status decoded
-    # from the structured form, and the command that fixes it.
-    # An absent project approvals store withholds EVERYTHING — it cannot be
-    # told from one that went away — so a project initialized before init
-    # provisioned the store must be told why and how to repair it, and the
-    # repair must be the `ctxloom init` the warning names.
-    Scenario: A project with no approvals store is told to re-run init, and init repairs it
-      Given an initialized ctxloom project
-      And the project's approvals store is missing
-      When I run "ctxloom --format json doctor"
-      Then the command succeeds
-      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-APPROVALS-STORE-a2" and whose "status" is "warn"
-      When I run "ctxloom init --non-interactive --skip-launch --no-pull"
-      Then the command succeeds
-      When I run "ctxloom --format json doctor"
-      Then the command succeeds
-      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-APPROVALS-STORE-a2" and whose "status" is "ok"
-
     # --disable-sig-check is per invocation, so doctor reports the invocation
     # it is part of: a waiver is a warning, never "ok", and the very next
     # invocation without it is back to enforced.

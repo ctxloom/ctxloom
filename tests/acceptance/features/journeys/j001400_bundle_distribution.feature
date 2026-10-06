@@ -31,8 +31,8 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   #   is the thing this journey is about, so it cannot live there.
   #
   #   J001500 (corporate signed) is about PROVENANCE AND INTEGRITY of content that
-  #   already flows: its Background fixes a "secure-coding" bundle and every
-  #   scenario perturbs the TRUST inputs — tamper, reject, retract, revoke.
+  #   already flows: its Background fixes a "secure-coding" bundle and its
+  #   scenarios perturb the content's integrity.
   #   Adding "and can this kind of content be published at all" there would
   #   conflate a trust question with a capability question, and its scenarios
   #   are LOCKED and green. A red capability row inside a locked trust journey

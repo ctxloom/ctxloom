@@ -1,12 +1,10 @@
 // Package admission is the one shape every "may this happen" decision in
 // ctxloom takes, and the one store that records the human answers behind them.
 //
-// Three gates arrived at the same design independently — content exposure
-// (internal/core/bundles), companion execution (internal/core/config) and publish
-// destinations (internal/adapters/remote) — and two of them grew separate
+// Gates arrived at the same design independently and grew separate
 // trust-on-first-use stores on the same day. This package is that convergence
-// stated once, so the FOURTH gate inherits the six properties the three
-// currently hold only by coincidence of three good decisions:
+// stated once, so the next gate inherits the six properties below rather than
+// re-deriving them:
 //
 //  1. THE ZERO VALUE WITHHOLDS. A Decision nobody populated denies, and its
 //     Reason is its domain's own zero — which every domain spells "unset".
@@ -41,8 +39,8 @@ package admission
 // produced it, and the human-facing elaboration on it.
 //
 // The Reason is meaningful for admits as well as refusals — "allowed because
-// it is builtin" and "allowed because a human countersigned it" are different
-// facts, and a review surface needs both. A caller that reports Allow without
+// the path is on record" and "allowed because it is ctxloom itself" are
+// different facts, and a report needs both. A caller that reports Allow without
 // reporting Reason is reporting less than the decision knew.
 //
 // The zero value is a REFUSAL with the domain's zero Reason. That is load
@@ -53,25 +51,8 @@ type Decision[R comparable] struct {
 	Allow bool
 	// Reason names WHICH rule decided, in the domain's own closed vocabulary.
 	Reason R
-	// Detail is the human-readable elaboration on Reason — a publisher's
-	// stated retraction reason, the error behind an unreadable store, the
-	// sentence a warning consists of. It is display-only and is NEVER an
+	// Detail is the human-readable elaboration on Reason — the error behind
+	// an unreadable store, the sentence a warning consists of. It is display-only and is NEVER an
 	// input to any decision.
 	Detail string
 }
-
-// Authorizer decides one thing, purely: no sink, no logging, no side effects.
-// Everything it wants a human to know comes back on the Decision and the
-// CALLER emits it.
-type Authorizer[Q any, R comparable] interface {
-	Admit(Q) Decision[R]
-}
-
-// AuthorizerFunc adapts a plain function to Authorizer, for a decision that is
-// genuinely one expression (and for tests). It carries no state, which is the
-// tell that a real authorizer — one that opens a consent store — should be a
-// named type whose construction says what it reads.
-type AuthorizerFunc[Q any, R comparable] func(Q) Decision[R]
-
-// Admit implements Authorizer.
-func (f AuthorizerFunc[Q, R]) Admit(q Q) Decision[R] { return f(q) }

@@ -434,7 +434,7 @@ func ambiguousAsk(ask string, matches []BundleRead) error {
 // retiredSpelling refuses an ask written in a reference grammar this version
 // no longer accepts, and says where the current one is written down.
 func retiredSpelling(ask string) error {
-	return fmt.Errorf("%w: %q — see `ctxloom bundle trust --help`; re-run `ctxloom init` to migrate a project",
+	return fmt.Errorf("%w: %q — re-run `ctxloom init` to migrate a project",
 		errs.ErrRetiredRefSpelling, ask)
 }
 

@@ -24,17 +24,15 @@ Feature: bundle — the container authored content lives in, and everything that
   70-character preview, which is the single most common wrong turn on this
   noun.
 
-  SIX OF THIS NOUN'S LEAVES BELONG TO MECHANISMS BIGGER THAN THE CONTAINER,
+  SOME OF THIS NOUN'S LEAVES BELONG TO MECHANISMS BIGGER THAN THE CONTAINER,
   and are specified where that mechanism is, rather than duplicated here:
 
   | leaf                               | specified in                     |
-  | bundle trust / reject / forget     | cli/content_decision.feature     |
   | bundle distill                     | cli/content_distill.feature      |
   | bundle sign, bundle move           | journeys/j001600_signing.feature |
 
   Each of those is a state machine or a ceremony that spans more than one noun
-  — a decision that also governs `ctxloom review`, a distillation that also
-  governs `fragment distill` and `command distill`, a signature that also
+  — a distillation that also governs `fragment distill` and `command distill`, a signature that also
   governs `signer trust` — and splitting one across two files would leave
   neither able to assert the transition that matters.
 

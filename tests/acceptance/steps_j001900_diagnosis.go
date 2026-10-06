@@ -683,30 +683,9 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		return j001900NamesAll(out, "Monday's sync", j001900Bundle, "does not verify", kept)
 	})
 
-	// The remedy has to be one that EXISTS. Before this row was written,
-	// upgrade exited 0 saying "Changed content from untrusted sources is
-	// withheld until reviewed: ctxloom review" — and `ctxloom review` answered
-	// "Nothing is pending review.", because content withheld as tampered is
-	// deliberately never offered for review. This step re-proves that dead end
-	// is still a dead end, and then holds the sync's own words to it.
-	ctx.Step(`^the remedy it named is not the review queue, which has nothing to offer her$`, func(c context.Context) error {
-		w := worldFrom(c)
-		out := j001900Of(w).syncOutput
-		// Pinned to --format text: this is an internal diagnostic probe (not
-		// this row's own `When`), and the claim it checks is the exact prose
-		// "Nothing is pending review." — a fact that has no JSON row of its
-		// own to prove here, since this step's whole job is re-confirming a
-		// dead end, not exercising review --list's own format handling.
-		_ = w.env.Run("--format", "text", "review", "--list")
-		reviewSays := w.env.LastStdout()
-		if !strings.Contains(reviewSays, "Nothing is pending review") {
-			return fmt.Errorf("`review --list` no longer answers 'Nothing is pending review.' here — if tampered content became "+
-				"reviewable, this row's premise changed and the assertion below is stale. It said:\n%s", reviewSays)
-		}
-		if strings.Contains(out, "ctxloom review") {
-			return fmt.Errorf("the sync sent her to `ctxloom review`, which answers %q for this content — a remedy that cannot act "+
-				"is worse than none. The sync said:\n%s", strings.TrimSpace(reviewSays), out)
-		}
+	// The remedy has to be one she can act on: getting the runbook re-signed.
+	ctx.Step(`^the remedy it named is getting the runbook re-signed$`, func(c context.Context) error {
+		out := j001900Of(worldFrom(c)).syncOutput
 		if !strings.Contains(out, "re-sign") {
 			return fmt.Errorf("the sync named no action she can actually take: nothing in it points at getting the content re-signed. "+
 				"It said:\n%s", out)
@@ -741,29 +720,6 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		}
 	})
 
-	// Reads LastStdout, not LastOutput, and that is the whole assertion.
-	// LastOutput merges stderr, and the withhold advisory that rides stderr
-	// here names the bundle by its full remote URL — a URL with
-	// "deploy-runbook" in it. Against the merged stream this step tripped on
-	// the WARNING while the pending list itself was printing exactly "Nothing
-	// is pending review.", i.e. it reported the opposite of what the product
-	// did. The claim is about what the LIST says, so it reads the list's own
-	// stream. The empty-stdout guard below is what keeps that from becoming a
-	// free pass.
-	ctx.Step(`^the pending-review list does not name the runbook at all$`, func(c context.Context) error {
-		w := worldFrom(c)
-		out := w.env.LastStdout()
-		if strings.TrimSpace(out) == "" {
-			return fmt.Errorf("`review --list` printed NOTHING on stdout — an inspector that answers with zero bytes cannot be "+
-				"read as saying the runbook is absent; it never said anything. The merged streams were:\n%s", w.env.LastOutput())
-		}
-		if strings.Contains(out, j001900Bundle) {
-			return fmt.Errorf("review --list DID name %q — if that is now true, this scenario has become stale and "+
-				"the B2 inspector scenario below should be the one that passes; output:\n%s", j001900Bundle, out)
-		}
-		return nil
-	})
-
 	// THE ROW'S SUBJECT MOVED WITH THE PRODUCT, and the assertion moved with
 	// it. It used to look for the word "unsigned", which was never true of the
 	// cause this fixture plants: Carol's bundle IS signed — she edited the
@@ -796,7 +752,6 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		// plausible spellings a user would reach for. None of them is claimed
 		// to exist; the assertion is that SOMETHING answers.
 		j001900Probe(w, "doctor")
-		j001900Probe(w, "review", "--list")
 		j001900Probe(w, "bundle", "list")
 		j001900Probe(w, "bundle", "show", j001900LockedName())
 		j001900Probe(w, "signer", "list")
@@ -865,33 +820,6 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 	})
 
 	// --- B4: distributed -> admitted ----------------------------------------
-
-	ctx.Step(`^Carol published the signed runbook from a key Alice has never reviewed$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if err := j001900Setup(w); err != nil {
-			return err
-		}
-		if err := j001900WriteAuthored(w, j001900DeployMarker); err != nil {
-			return err
-		}
-		if err := runOK(w, "bundle", "sign", j001900Bundle); err != nil {
-			return err
-		}
-		// Deliberately NOT trusted: this is B4's cause.
-		if err := j001900PublishFromDisk(w); err != nil {
-			return err
-		}
-		return j001900Reference(w)
-	})
-
-	ctx.Step(`^the pending list names the deploy fragment of the runbook$`, func(c context.Context) error {
-		return j001900OutputNamesAll(worldFrom(c), "the pending-review list", j001900Bundle, j001900Fragment)
-	})
-
-	ctx.Step(`^the pending list says the runbook's signer is one she does not trust, naming the key$`, func(c context.Context) error {
-		w := worldFrom(c)
-		return j001900OutputNamesAll(worldFrom(c), "the pending-review list", "untrusted", j001900Of(w).signer.Fingerprint())
-	})
 
 	ctx.Step(`^her assistant does not receive the deploy guidance$`, func(c context.Context) error {
 		return j001900AssertDelivery(worldFrom(c), j001900DeployMarker, false)

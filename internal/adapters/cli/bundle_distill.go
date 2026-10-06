@@ -275,11 +275,10 @@ var defaultDistillPrompt = resources.MustGetPromptText("distill-default")
 // this function was written around. No configured `distill` command at all —
 // no config, none in any bundle, an empty one — legitimately falls back to the
 // embedded default: a project that never configured a prompt gets ctxloom's.
-// But a command the trust gate WITHHELD is a decision, not an absence. The gate
-// declined to supply that prompt; substituting the default there converts a
-// withheld item into a used one and hands back a distillation the user believes
-// came from their own configured prompt. So that one case returns an error, and
-// the callers refuse (docs/trust-model.md, docs/cli-ux-principles.md §7).
+// But a configured command that was WITHHELD (it could not be delivered) is not
+// an absence; substituting the default there hands back a distillation the user
+// believes came from their own configured prompt. So that one case returns an
+// error, and the callers refuse (docs/cli-ux-principles.md §7).
 //
 // cfg is the caller's generation, so the prompt is resolved against the very
 // bundles the run is using. A nil cfg has no bundles to consult and yields
@@ -294,7 +293,7 @@ func loadDistillPrompt(cfg *config.Config) (string, error) {
 	case err == nil && prompt.Content != "":
 		return strings.TrimSpace(prompt.Content), nil
 	case errors.Is(err, errs.ErrCommandWithheld):
-		return "", fmt.Errorf("the project's `distill` prompt is withheld by the trust gate, and distilling with ctxloom's built-in default instead would silently substitute a prompt nobody approved (%w) — accept or reject it with `ctxloom review`, or delete the bundle's `distill` command to use the built-in default deliberately", err)
+		return "", fmt.Errorf("the project's `distill` prompt could not be delivered, and distilling with ctxloom's built-in default instead would silently substitute a prompt nobody chose (%w) — fix the bundle's `distill` command, or delete it to use the built-in default deliberately", err)
 	}
 
 	// No `distill` command anywhere (or an empty one): the embedded default.

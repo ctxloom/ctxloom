@@ -99,7 +99,7 @@ func TestLayout_HasNoHarpKeyedRows(t *testing.T) {
 		}
 		head := strings.SplitN(strings.TrimPrefix(e.Rel, statePrefix), sep, 2)[0]
 		switch head {
-		case TrustFileName, LocksDir:
+		case LocksDir:
 		default:
 			t.Errorf("Layout row %q sits under state/%s, which is neither a known fixed resident nor allowed to be a per-session key", e.Rel, head)
 		}

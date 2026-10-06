@@ -20,7 +20,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -50,9 +49,6 @@ const hookBundleYAML = "version: \"1.0.0\"\nfragments:\n  sentinel:\n    content
 func applyWithContextRegen(t *testing.T) (projectDir, contextHash string) {
 	t.Helper()
 
-	// Context regeneration resolves every fragment through the trust gate, and
-	// that gate reads the USER countersignature store out of the real home.
-	isolatedApprovals(t)
 	isolatedRecords(t)
 	isolatedLocks(t)
 

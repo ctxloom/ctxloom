@@ -19,12 +19,6 @@ import (
 // and they cost nothing to run:
 //
 //	just test-pkg ./tests/mutation/... -tags mutation -run TestSurvivorBaseline
-//
-// baselineGuardTarget is the one row that names a released test rather than a
-// mutationTargets entry: TestTrustCascadeGuardMutation releases trust.go under
-// guardNegate alone, which is a different mutant set from the stock run and so
-// a different measurement with its own count.
-const baselineGuardTarget = "TestTrustCascadeGuardMutation"
 
 // baselineProvenances are the words a row may use to say what licenses its
 // number. Their meanings are stated in survivor_baseline.txt itself; the set
@@ -93,9 +87,6 @@ func TestSurvivorBaseline_HasARowForEveryTarget(t *testing.T) {
 			t.Errorf("no baseline row for %q — that package's unverified mutants are not ratcheted, and a run of it would have nothing to be judged against", key)
 		}
 	}
-	if _, ok := rows[baselineGuardTarget]; !ok {
-		t.Errorf("no baseline row for %q — the cascade guard run would be unratcheted", baselineGuardTarget)
-	}
 }
 
 // TestSurvivorBaseline_NamesOnlyTargetsThatExist is the other direction: a row
@@ -104,7 +95,7 @@ func TestSurvivorBaseline_HasARowForEveryTarget(t *testing.T) {
 func TestSurvivorBaseline_NamesOnlyTargetsThatExist(t *testing.T) {
 	rows := readSurvivorBaseline(t)
 
-	known := map[string]bool{baselineGuardTarget: true}
+	known := map[string]bool{}
 	for _, target := range mutationTargets {
 		known["TestAcceptanceMutation/"+target.Name] = true
 	}

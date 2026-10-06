@@ -1,5 +1,5 @@
 #!/bin/sh
-# Invoked by ooze (see trust_cascade_mutation_test.go) as the mutant test
+# Invoked by ooze (see acceptance_mutation_test.go) as the mutant test
 # command. Runs with cwd = a SYMLINKED-then-partially-materialized copy of
 # this repo living in a tmpdir (ooze's laboratory.Test): every file is a
 # symlink back to the real checkout except the one mutated source file,

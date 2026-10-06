@@ -845,7 +845,7 @@ type PublisherSkillSignatureVerifier struct {
 // package (ImportSkill parses the staged tree); it is never recomputed here.
 func (v PublisherSkillSignatureVerifier) VerifyManifestSignature(manifest SkillManifest) error {
 	if len(v.ArmoredSignature) == 0 {
-		return fmt.Errorf("no signature present for this skill package — an unsigned skill must go through ctxloom review, not install")
+		return fmt.Errorf("no signature present for this skill package")
 	}
 	now := time.Now
 	if v.Now != nil {

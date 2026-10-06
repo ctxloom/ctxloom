@@ -17,14 +17,11 @@ package acceptance
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/cucumber/godog"
-	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
@@ -218,34 +215,6 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		return assertBobMaterializedContains(worldFrom(c), j000800TeamMarker)
 	})
 
-	ctx.Step(`^he was not asked to configure anything to get it$`, func(c context.Context) error {
-		w := worldFrom(c)
-		// The only way this harness could have forced a configuration/review
-		// step on Bob is an item landing pending — first-party team content
-		// never does (see EffectiveTrust step 3, LOCAL). Mirrors
-		// steps_j000700_team.go's "it reached him without any review" check.
-		//
-		// Asserts the structured total from --format json rather
-		// than grepping for the exact prose sentence "Nothing is pending
-		// review." (a wording change would silently break the assertion into
-		// a false red, or a false green if the new wording still contained
-		// that substring).
-		if err := runBob(w, "review", "--list", "--format", "json"); err != nil {
-			return err
-		}
-		out := w.j000700().bobRuns.LastStdout()
-		var res struct {
-			Total int `json:"total"`
-		}
-		if err := json.Unmarshal([]byte(out), &res); err != nil {
-			return fmt.Errorf("review --list --format json: not valid JSON: %w (output:\n%s)", err, out)
-		}
-		if res.Total != 0 {
-			return fmt.Errorf("expected nothing to require Bob's review/configuration (total=0), got total=%d; `review --list --format json` output:\n%s", res.Total, out)
-		}
-		return nil
-	})
-
 	// --- Scenario 2: pinned, not latest -----------------------------------
 
 	ctx.Step(`^the project pins the versions of the context it draws from elsewhere$`, func(c context.Context) error {
@@ -382,52 +351,8 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		return j000700CommitAndPush(w, "reference trent's company bundle")
 	})
 
-	ctx.Step(`^Bob has not trusted the company key$`, func(c context.Context) error {
-		return nil // default state: nothing to arrange
-	})
-
-	ctx.Step(`^the company's content is held for his review$`, func(c context.Context) error {
-		w := worldFrom(c)
-		body, err := bobMaterialized(w)
-		if err != nil {
-			return err
-		}
-		if out := w.j000700().bobRuns.LastOutput(); !strings.Contains(out, "awaiting review") {
-			return fmt.Errorf("expected Bob to be told the company's content is awaiting review; materialize output:\n%s", out)
-		}
-		if strings.Contains(body, j000800CompanyMarker) {
-			return fmt.Errorf("the materialized context for Bob unexpectedly contains the held company marker; content:\n%s", body)
-		}
-		return nil
-	})
-
 	ctx.Step(`^his assistant still receives the team's own context, because the project is first-party$`, func(c context.Context) error {
 		return assertBobMaterializedContains(worldFrom(c), j000800TeamMarker)
-	})
-
-	ctx.Step(`^Bob has cloned the project and the company's content is held for his review$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if err := j000700BobPull(w); err != nil {
-			return err
-		}
-		if err := runBob(w, "deps", "pull"); err != nil {
-			return err
-		}
-		return assertBobMaterializedDoesNotContain(w, j000800CompanyMarker)
-	})
-
-	ctx.Step(`^Bob trusts the company key$`, func(c context.Context) error {
-		w := worldFrom(c)
-		j000800 := w.j000800()
-		pubBytes := ssh.MarshalAuthorizedKey(j000800.companySigner.Public)
-		keyPath := filepath.Join(w.env.Root, "company-signer.pub")
-		if err := os.WriteFile(keyPath, pubBytes, 0o644); err != nil {
-			return fmt.Errorf("write company public key: %w", err)
-		}
-		// Bob's OWN project-scoped trust decision, in his own checkout — the
-		// gate opening the ordinary way, exactly like J001500's "Alice trusts the
-		// company key".
-		return runBob(w, "signer", "trust", j000800CompanyPrincipal, "--key", keyPath, "--project", "--yes")
 	})
 
 	ctx.Step(`^his assistant receives the company's content$`, func(c context.Context) error {

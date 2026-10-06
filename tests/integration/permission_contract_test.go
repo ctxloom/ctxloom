@@ -30,12 +30,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
@@ -342,9 +341,8 @@ func (s laneSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.R
 	return []bundles.Reader{bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(cfg.TrustRoot()))}, nil
 }
 
-func (s laneSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
-	root, records, retraction := compositetest.Ports()
-	return root, records, retraction, nil
+func (s laneSources) TrustRoot(context.Context, *config.Config) (trust.TrustRoot, error) {
+	return trust.NoSigners{}, nil
 }
 
 // laneApp opens the process composition over the fixture.

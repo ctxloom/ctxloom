@@ -28,10 +28,8 @@ func pkgSource(t *testing.T, name string) string {
 	return string(b)
 }
 
-// TestAllowedSignersFile_IsExtensionless pins the invariant ApprovalsPath's
-// corrected doc now asserts. The doc used to place the approvals directory
-// "next to allowed_signers.yaml", a file that has never existed: the trust root
-// is deliberately extensionless because its contents are OpenSSH's
+// TestAllowedSignersFile_IsExtensionless pins that the trust root is
+// deliberately extensionless because its contents are OpenSSH's
 // allowed_signers format, not ctxloom's YAML, and it must stay hand-editable by
 // anyone who knows ssh-keygen(1). A reader who trusted the comment would look
 // for the wrong filename on disk, and anyone "fixing" the constant to match it
@@ -43,13 +41,6 @@ func TestAllowedSignersFile_IsExtensionless(t *testing.T) {
 			"would both misdescribe it and relocate the file every deployment reads")
 
 	assert.Equal(t, ".ctxloom/allowed_signers", AllowedSignersPath(".ctxloom"))
-
-	// "Next to" is the other half of the claim: both live directly at the app
-	// dir root, so the approvals store really is the trust root's sibling.
-	assert.Equal(t,
-		filepath.Dir(AllowedSignersPath("/project/.ctxloom")),
-		filepath.Dir(ApprovalsPath("/project/.ctxloom")),
-		"the approvals store and the trust root are siblings at the app dir root")
 }
 
 // TestPackageDocs_NameNoNonexistentTrustRootFile is the drivable-red half: the

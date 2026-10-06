@@ -60,29 +60,16 @@ Feature: Setting up ctxloom on a project
     Then its reply contains her personal repository's marker
     And its reply contains her company repository's marker
 
-  # LOCKED — held content. Unsigned and untrusted-key are EQUIVALENT: both yield
-  # an empty verified signer, so both are held. Verified in config.go:1408
-  # (StampSigner is "" for unsigned OR unverified; the principal only when a
-  # trusted key's signature verifies) and trust.go step 4.
-  Scenario Outline: Content ctxloom cannot verify is held, not delivered
+  # LOCKED — adding a repository is the trust act. Whether its content is
+  # signed, or signed by a key Alice never trusted, does not decide whether it
+  # is delivered: she added the repository, so its content reaches her.
+  Scenario Outline: Content from a repository Alice adds reaches her assistant, signed or not
     Given a third-party ctxloom repository whose content is <trust_state>
     When Alice adds it as a source
     And Alice starts a session
-    Then her assistant does not receive that repository's content
-    And Alice is told the content is held for her review
+    Then her assistant receives that repository's content
 
     Examples:
       | trust_state                            |
       | unsigned                               |
       | signed with a key Alice does not trust |
-
-  # LOCKED — illustrate the REVIEW: what Alice sees, the per-item decision, and
-  # that approve and reject diverge.
-  Scenario: Alice reviews held content and decides item by item
-    Given two sources are held for Alice's review
-    When Alice reviews the held content
-    Then she is shown each held item and where it came from
-    When she approves the first and rejects the second
-    And Alice starts a new session
-    Then her assistant receives the item she approved
-    And her assistant never receives the item she rejected

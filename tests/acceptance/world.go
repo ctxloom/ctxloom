@@ -106,7 +106,6 @@ type World struct {
 	p16          *p16State          // P16 strict MCP connectors: the cell's raw-claude fixture and its two turns (steps_p16_strict_mcp_connectors.go)
 	p17          *p17State          // P17 inline settings: the cell's raw-claude fixture and captured run (steps_p17_inline_settings.go)
 	p6           *p6State           // P6 capability probe: the steer-echo cell's minted harp and its cell id (steps_p6_steer_echo.go)
-	ts           *tsState           // trust-surface matrix: fixture state (steps_trust_surface.go)
 	contract     *contractState     // coordination_contract.feature: the advertised runner-terminated tool surface (steps_coordination_contract.go)
 
 	skillSigners map[string]*testenv.TestSigner // skill.feature: cached per-name test signers (steps_skill.go), so "Trent"/"Mallory" resolve to the same key across a scenario's steps regardless of order
@@ -311,10 +310,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ002000Steps(ctx)
 	registerJ000900RecoverSteps(ctx)
 	registerCompanionConsentSteps(ctx)
-	registerContentDecisionSteps(ctx)
-	registerTrustSurfaceSteps(ctx)
 	registerSigCheckSteps(ctx)
-	registerTrustVocabularySteps(ctx)
 	registerSkillSteps(ctx)
 	registerRecoverSessionSteps(ctx)
 	registerContextStatusSteps(ctx)

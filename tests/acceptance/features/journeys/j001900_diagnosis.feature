@@ -4,23 +4,20 @@ Feature: The day the assistant goes blind
   Monday morning. "The assistant knew our deploy process on Friday. It doesn't
   today." And the worst part of the report is the second half: it is still
   reaching HER assistant and not his. Nothing errored. Nothing is red. Content
-  simply stopped arriving, and the person who has to find out why has eight
+  simply stopped arriving, and the person who has to find out why has a row of
   hops to search and no idea which one dropped it.
 
   This journey is a binary search over the delivery pipeline, and the product's
   bar is stated as a rule: EVERY stage boundary either names its inspector, or
   it is a defect. Content travels authored -> packaged -> attested ->
-  distributed -> admitted -> composed -> delivered -> ingested. One scenario per
+  distributed -> composed -> delivered -> ingested. One scenario per
   boundary. Each plants the cause at exactly that hop and then asks the
   inspector that owns it to say so out loud. A boundary whose inspector cannot
   name the cause is not a missing test — it is the reason a Monday like this one
   takes a day instead of a minute.
 
-  Two boundaries have no inspector at all, and their scenarios are here to stay
-  red until they do: an edited-but-never-re-signed bundle is withheld with
-  nothing anywhere naming "unsigned" as the reason, and NOTHING in the product
-  can tell a user whether the engine ever read the file it was handed. That
-  second fact has not changed and never will — whether a vendor engine reads a
+  NOTHING in the product can tell a user whether the engine ever read the file
+  it was handed. That fact has not changed and never will — whether a vendor engine reads a
   file happens inside a process ctxloom does not own. What changed 2026-08-05
   is that ctxloom now SAYS so, plainly, instead of leaving that question
   unanswered in a way a reader could mistake for "checked and confirmed"; the
@@ -47,9 +44,8 @@ Feature: The day the assistant goes blind
   # a round with nothing to do. It sits beside four payload assertions that
   # cover what the human is told; neither substitutes for the other.
   #
-  # NOTE ON TAGS. Two of the twelve scenarios are still @wip, each carrying its
-  # own untag condition; the other ten pass. Every scenario in this file
-  # STARTED @wip, including the ones believed to pass, because this file is a
+  # NOTE ON TAGS. A scenario still @wip carries its own untag condition. Every
+  # scenario in this file STARTED @wip, including the ones believed to pass, because this file is a
   # to-do list to be walked one at a time and a scenario that arrived green
   # would be indistinguishable from one nobody had looked at. Untagging is
   # therefore the record that somebody looked — see the UNTAGGED notes below,
@@ -116,9 +112,8 @@ Feature: The day the assistant goes blind
   #     assertion red, naming both SHAs;
   #   - deleting cli.runRemoteUpgrade's call to reportRefusedAdvances — the pin
   #     still holds, and nobody is told — turns the MESSAGE assertion red;
-  #   - putting the old "…withheld until reviewed: ctxloom review" line back as
-  #     the remedy turns the LAST assertion red, quoting what `review --list`
-  #     actually answers.
+  #   - dropping the re-sign remedy from the refusal turns the LAST assertion
+  #     red.
   #
   # The first mutation reports only the pin: godog stops a scenario at its first
   # failed step, so the three later Thens are skipped rather than separately
@@ -131,13 +126,8 @@ Feature: The day the assistant goes blind
   # while the SCRIPT is not — an unattended sync that refuses and exits 0 is,
   # to the cron job that ran it, the same as one with nothing to do, so exit 2
   # is asserted on its own (cli.exitCodeRefused, docs/cli-ux-principles.md §7;
-  # decided in taskloom monstrous-speech). And the sync can name
-  # a remedy that does not exist: it used to say "Changed content from
-  # untrusted sources is withheld until reviewed: ctxloom review", and
-  # `ctxloom review` answered "Nothing is pending review." — content withheld
-  # as tampered is deliberately never offered for review, so the remedy sent
-  # Alice in a circle. The last Then re-proves that dead end is still a dead
-  # end and holds the sync's own words to it.
+  # decided in taskloom monstrous-speech). And the sync can name no action she
+  # can take: the last Then holds it to naming the re-sign.
   Scenario: An edited, never-re-signed runbook is refused, and the verified pin is kept
     Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance
     When Carol edits the runbook on Friday and never re-signs it
@@ -147,50 +137,13 @@ Feature: The day the assistant goes blind
     And her assistant is still served the content at that pin
     And the sync told her the runbook cannot be verified, naming the pin it kept
     And the sync exited with the code for "did some of this deliberately not happen"
-    And the remedy it named is not the review queue, which has nothing to offer her
-
-  # THE TRAP, asserted deliberately. Alice's first instinct is `review --list`,
-  # and it shows nothing — not because nothing is wrong, but because "unsigned"
-  # is a DIFFERENT STATE from "pending" (docs/trust-model.md, "Item states").
-  # This scenario exists to pin that: the most obvious inspector is silent here
-  # BY DESIGN, and any diagnosis that stops at it stops in the wrong place.
-  #
-  # UNTAGGED 2026-08-05, after the sync above was fixed to actually advance the
-  # pin and this row's assertion was fixed to read the right stream. The
-  # product's behaviour was correct throughout and was never changed.
-  #
-  # Before the pin advanced, `review --list` had nothing to be silent ABOUT, so
-  # the green here proved nothing. After it, the pending list still prints
-  # exactly "Nothing is pending review." — unsigned really is not pending, and
-  # the trap this scenario documents is real — but the step was reading
-  # w.env.LastOutput(), which MERGES stderr, and the withhold advisory on
-  # stderr names the bundle by its full remote URL, "deploy-runbook" included.
-  # The assertion therefore tripped on the WARNING and reported the opposite of
-  # what the product did. It now reads the list's own stdout, with an
-  # empty-stdout guard so that is not a free pass.
-  #
-  # Two mutations, both red: removing the `!v.Reason.NeedsReview()` filter from
-  # operations.reviewEnumerator.classify (so withheld items are listed as
-  # pending) trips the naming assertion, and deleting "Nothing is pending
-  # review." from cli.renderReviewList trips the silence guard.
-  #
-  # The scenario's own escape clause still stands: if the pending list ITSELF
-  # starts naming the runbook, that is good news, not a regression — it means
-  # B2 grew an inspector, and the scenario below is the one that should then be
-  # green.
-  Scenario: The pending-review list is silent, because unsigned is not pending
-    Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance
-    And Carol edits the runbook on Friday and never re-signs it
-    And Alice syncs on Monday
-    When I run "ctxloom review --list"
-    Then the pending-review list does not name the runbook at all
-    And her assistant never receives the revised deploy guidance
+    And the remedy it named is getting the runbook re-signed
 
   # B2's DEFECT, and it is CLOSED. Boundary-table verdict was PARTIAL — nothing
   # named the cause, and Alice found it by diffing lockfiles by hand. The step
-  # probes every inspector the boundary table nominates (doctor, review --list,
-  # bundle list, bundle show, signer list) and fails with all five outputs
-  # quoted, so a red run is itself the evidence of what each surface says.
+  # probes every inspector the boundary table nominates (doctor, bundle list,
+  # bundle show, signer list) and fails with every output quoted, so a red run
+  # is itself the evidence of what each surface says.
   #
   # UNTAGGED 2026-08-05. `ctxloom doctor` answers it:
   # DOCTOR-CHECK-UPSTREAM-SIGNATURES-o5 names the bundle, the revision that was
@@ -203,16 +156,10 @@ Feature: The day the assistant goes blind
   # entry forward, which is a signature that does not cover what it sits
   # beside — a different state from unsigned entirely (docs/trust-model.md,
   # "Item states").
-  # The old green would have been an accident: while upgrade still advanced the
-  # pin, DOCTOR-CHECK-CONTENT-TRUST-n4 warned "1 remote bundle(s) are UNSIGNED
-  # to this machine …", and only "UNSIGNED" vs the step's "unsigned" kept it
-  # red — a case fold away from passing on a report that misdescribed the cause.
   #
   # And since upgrade REFUSES the advance, "withheld" is wrong too: nothing is
   # withheld, the kept pin verifies, and the guidance keeps arriving. Only the
-  # REVISION is missing. n4 now truthfully reports "[ok] every remote bundle's
-  # content is attributable to a publisher this machine trusts", which is why it
-  # cannot be the inspector for this row and a second check had to exist.
+  # REVISION is missing.
   #
   # The QUESTION is unchanged — "why is the newer copy not here, days after the
   # sync?" — so the three facts an answer needs are asserted instead of the two
@@ -272,58 +219,8 @@ Feature: The day the assistant goes blind
       | --format json |
       | --format text |
 
-  # ---- B4: distributed -> admitted --------------------------------------
-  # Silent-loss mode: it arrived and is waiting on her own review. Inspector:
-  # `review --list`. Verdict OK — trust is per-consumer, and content sitting in
-  # review is the system working, provided the list actually names the item.
-  #
-  # UNTAGGED 2026-08-05, confirmed to pass as written AND to bite. Mutation:
-  # reducing cli.renderReviewList's per-item line from
-  # `"  %-8s %s/%s\n", it.Status, it.Kind, it.Name` to the status alone turns
-  # this red — the assertion names the bundle AND the fragment inside it, so a
-  # pending list that says only "1 item(s) pending" cannot satisfy it.
-  Scenario: The runbook is waiting on her review, and the pending list names it
-    Given Carol published the signed runbook from a key Alice has never reviewed
-    When I run "ctxloom review --list"
-    Then the pending list names the deploy fragment of the runbook
-    And her assistant does not receive the deploy guidance
-
-  # B4's second half, and the one likely to be red. "Pending" and "pending
-  # because I do not trust who signed it" are different diagnoses with different
-  # fixes — the first wants `ctxloom review`, the second wants `ctxloom signer
-  # trust`. A pending list that renders them identically sends Alice to the
-  # wrong command. The assertion names the actual key fingerprint, so a generic
-  # "review these items" banner cannot satisfy it.
-  #
-  # MEASURED: RED. The pending list renders exactly one line of item state —
-  # "new      fragments/deploy-process" — and carries no signer information of
-  # any kind: not the fingerprint, not the principal, not whether the key is
-  # trusted. Content signed by a stranger and content signed by the team's own
-  # publisher are typographically identical in the surface whose whole job is
-  # deciding whether to admit them.
-  #
-  # UNTAGGED 2026-08-04, condition met: the pending list now renders three
-  # distinct publisher states — unsigned, signed by an untrusted key (with that
-  # key's fingerprint), signed by a trusted key — and names a DIFFERENT next
-  # command for each, which is the part that closes the diagnosis gap: an
-  # untrusted signer sends Alice to `signer trust`, not to `ctxloom
-  # review`. The fingerprint is display-only and comes from
-  # signing.SignatureKeyFingerprint, which reads the key out of the signature
-  # blob and is never a trust input; VerifyPublisher is unchanged and still
-  # collapses "unsigned" and "untrusted" for the GATE, which is correct — the
-  # collapse was only ever wrong for the human. The related bug — `trust
-  # accept` silently no-opping when the user holds a signing key untrusted for
-  # the approve namespace (taskloom tiny-bankbook) — is FIXED: the accept flow
-  # now refuses and names the missing grant, proved by j001600_signing.feature's
-  # own scenario. It lives one hop further on and is still NOT restated here.
-  Scenario: The pending list says whether the signer is one she trusts
-    Given Carol published the signed runbook from a key Alice has never reviewed
-    When I run "ctxloom review --list"
-    Then the pending list says the runbook's signer is one she does not trust, naming the key
-    And her assistant does not receive the deploy guidance
-
-  # ---- B5: admitted -> composed -----------------------------------------
-  # Silent-loss mode: the item is installed and admitted and belongs to no
+  # ---- B5: distributed -> composed --------------------------------------
+  # Silent-loss mode: the item is installed and belongs to no
   # profile the agent composes. Inspectors: `profile show`, `agent show`.
   # Verdict OK.
   #
@@ -492,7 +389,7 @@ Feature: The day the assistant goes blind
   # not a new responsibility bolted onto `show` (declared config, not
   # delivered payload) or `doctor` (system-health checks with no profile
   # argument). --diff makes --target optional and prints/returns a unified
-  # diff (difflib, the same library `review` already uses) between the two
+  # diff (difflib) between the two
   # delivered contexts, naming every line present on one side and not the
   # other.
   Scenario: His assistant has the guidance and hers does not, and something compares the two

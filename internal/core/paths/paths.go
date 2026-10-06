@@ -31,14 +31,6 @@ const (
 	// RemotesFileName is the name of the remotes file (without extension).
 	RemotesFileName = "remotes"
 
-	// TrustFileName is the "trust" path segment. Despite the name it is NOT a
-	// file: no .ctxloom/trust.yaml exists and nothing in this package builds
-	// one. Its sole use is as the DIRECTORY segment in TrustObjectsPath
-	// (state/trust/objects), the approved-content snapshot store — and in
-	// LegacyTrustObjectsPath, the pre-relocation cache/trust/objects the
-	// one-time migration reads.
-	TrustFileName = "trust"
-
 	// AllowedSignersFileName is the name of the trust-root file: the set of
 	// public keys authorized to make signed assertions, in the OpenSSH
 	// `allowed_signers` format verbatim (ssh-keygen(1), ALLOWED SIGNERS).
@@ -61,23 +53,6 @@ const (
 	// allowed_signers format: this store asserts no trust of its own, only a
 	// negative record the trust root (configload) subtracts from the embedded root.
 	DistrustedSignersFileName = "distrusted_signers"
-
-	// ApprovalsDirName is the name of the countersignature store directory
-	// (signature-envelope spec §9.2): one armored .sig file per approve/reject
-	// countersignature. It replaces trust.yaml as the review-decision record —
-	// the signature IS the approval, not a row a plain-file write can forge.
-	// Two physical stores share this name, at different roots: the user store
-	// (~/.ctxloom/approvals, personal) and the project store (.ctxloom/approvals,
-	// committable) — see HomeApprovalsPath / ApprovalsPath.
-	ApprovalsDirName = "approvals"
-
-	// ApprovalsPlaceholderName is the empty file `ctxloom init` writes into the
-	// project approvals store. Git does not track an empty directory, so
-	// without it a project that has recorded no decision yet would arrive in a
-	// fresh clone with no store at all — and an absent project store withholds
-	// everything, because absence is indistinguishable from a store that went
-	// away (countersign.Store.Readable).
-	ApprovalsPlaceholderName = ".gitkeep"
 
 	// LockFileName is the name of the lock file (without extension).
 	LockFileName = "lock"
@@ -192,13 +167,6 @@ const (
 	// TriggersDir is the cache/ subdirectory holding ctxloom's cached
 	// revive-trigger verdicts, one file per project (see TriggerCacheDir).
 	TriggersDir = "triggers"
-
-	// TrustObjectsDir is the leaf directory, under the TrustFileName segment,
-	// holding content-addressed copies of the bytes a human approved at review
-	// (see TrustObjectsPath). Named separately from TrustFileName because the
-	// two segments are independently meaningful: "trust" groups the store,
-	// "objects" says the store is content-addressed.
-	TrustObjectsDir = "objects"
 
 	// SessionsDir is the subdirectory for per-session state (index, harp dirs).
 	SessionsDir = "sessions"
@@ -422,7 +390,6 @@ const (
 	whatTriggerCache      = "the trigger verdict cache"
 	whatHomeCoord         = "the coordinator state root"
 	whatHomeLocks         = "the home lock directory"
-	whatHomeApprovals     = "the user countersignature store"
 	whatAllowedSigners    = "the user trust root"
 	whatDistrustedSigners = "the user distrust record"
 	whatHomeRecords       = "the home records directory"
@@ -766,8 +733,7 @@ func HomeRecordsDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Guarded for the same reason the approvals store is, and because this
-	// store is where the omission was actually paid: a record names a FOREIGN
+	// Guarded because this store is where the omission was actually paid: a record names a FOREIGN
 	// file by absolute path and outlives the run that wrote it, so a test
 	// applying to its own temp dir still deposits a durable record in the
 	// developer's real home. Found there: 1046 of them.
@@ -794,26 +760,7 @@ func RemotesPath(appPath string) string {
 	return filepath.Join(appPath, RemotesFileName+".yaml")
 }
 
-// ApprovalsPath returns the path to the PROJECT (committable) countersignature
-// store directory, at appPath root next to the extensionless allowed_signers
-// trust root (AllowedSignersFileName — OpenSSH's format, not ctxloom's, so it
-// carries no .yaml suffix). "Our team's
-// approvals": a lead reviews, commits the signatures here, and every developer
-// / CI run who trusts the lead's key (via the project allowed_signers)
-// inherits the approval without re-reviewing (spec §9.2).
-func ApprovalsPath(appPath string) string {
-	return filepath.Join(appPath, ApprovalsDirName)
-}
-
-// HomeApprovalsPath returns ~/.ctxloom/approvals — the user-scoped
-// countersignature store. "My approvals follow me": the default write target
-// of `ctxloom review`, never committed, never shared (spec §9.2).
-func HomeApprovalsPath() (string, error) {
-	return homeUnder(whatHomeApprovals, ApprovalsDirName)
-}
-
-// AllowedSignersPath returns the path to the trust-root file (at appPath root,
-// next to the approvals/ directory). Committable: a team distributes "trust
+// AllowedSignersPath returns the path to the trust-root file (at appPath root). Committable: a team distributes "trust
 // our lead's approve key / our org's publish key" by checking this file in,
 // which is trust-on-first-clone and strictly inside a boundary the clone
 // already crossed (spec §7.3, path A).
@@ -911,35 +858,6 @@ func LocalBundlesPath(appPath string) string {
 // ReposCachePath returns the path to the repos cache directory (under cache/).
 func ReposCachePath(appPath string) string {
 	return filepath.Join(CachePath(appPath), ReposCacheDir)
-}
-
-// TrustObjectsPath returns the approved-content snapshot directory (under
-// state/): content-addressed copies of the bytes a human approved at review,
-// keyed by a payload hash. The review porcelain diffs an UPDATE against them.
-//
-// STATE, not cache, and the distinction is the whole of Tier's doc: nothing
-// rebuilds these. They are the bytes that existed at the moment a human said
-// yes, and once they are gone no pull, sync or re-derivation brings them back —
-// every later update review degrades from a diff to a full-content dump, which
-// is a quieter loss than an error and therefore an easier one to cause. Under
-// cache/ they sat in a directory whose whole contract is "delete me freely",
-// which is an invitation to exactly that.
-//
-// Losing them is not a correctness failure: the countersignature stores remain
-// authoritative about what was approved. It is a review-quality failure, which
-// is why this is TierLocal-with-a-Lost-string rather than something that fails
-// loud.
-func TrustObjectsPath(appPath string) string {
-	return filepath.Join(StatePath(appPath), TrustFileName, TrustObjectsDir)
-}
-
-// LegacyTrustObjectsPath returns the pre-relocation snapshot directory under
-// cache/. It exists for ONE reader — the one-time migration in
-// internal/adapters/operations' snapshot store — so the retired location is named once,
-// beside its replacement, instead of being re-derived as a literal wherever
-// somebody remembers it. Nothing writes here.
-func LegacyTrustObjectsPath(appPath string) string {
-	return filepath.Join(CachePath(appPath), TrustFileName, TrustObjectsDir)
 }
 
 // RefusedAdvancesPath returns the refused-advance record (under cache/): what
@@ -1051,7 +969,7 @@ const (
 	RootProject RootKind = iota
 	// RootHome entries resolve relative to the user's home directory
 	// (os.UserHomeDir()), matching the Home* function family (HomeSessionsDir,
-	// HomeApprovalsPath, TriggerCacheDir, HomeCoordDir, ...).
+	// TriggerCacheDir, HomeCoordDir, ...).
 	RootHome
 )
 
@@ -1143,7 +1061,6 @@ func Layout() []Entry {
 		{Rel: filepath.Join(AppDirName, ProfilesDir), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, AllowedSignersFileName), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, DistrustedSignersFileName), Tier: TierCommitted},
-		{Rel: filepath.Join(AppDirName, ApprovalsDirName), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, CacheDir, BundlesDir), Tier: TierDerived, Rebuild: "ctxloom deps pull"},
 		{Rel: filepath.Join(AppDirName, CacheDir, ReposCacheDir), Tier: TierDerived, Rebuild: "ctxloom deps pull"},
 		{Rel: filepath.Join(AppDirName, CacheDir, RefusedAdvancesFileName+".yaml"), Tier: TierDerived, Rebuild: "ctxloom deps upgrade"},
@@ -1168,10 +1085,6 @@ func Layout() []Entry {
 		{
 			Rel: filepath.Join(AppDirName, CacheDir, CompanionPinCacheDir), Tier: TierDerived,
 			Rebuild: "ctxloom run (every host launch re-pins the admitted companions)",
-		},
-		{
-			Rel: filepath.Join(AppDirName, StateDir, TrustFileName, TrustObjectsDir), Tier: TierLocal,
-			Lost: "the content-addressed snapshots review diffed an update against; update review degrades from a diff to a full-content dump, but committed approval signatures still verify",
 		},
 		{
 			Rel: filepath.Join(AppDirName, ProjectIDFileName), Tier: TierLocal,
@@ -1201,10 +1114,6 @@ func Layout() []Entry {
 		{
 			Rel: filepath.Join(AppDirName, SessionsDir), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
 			Lost: "this machine's distilled record of every ctxloom session, across every project",
-		},
-		{
-			Rel: filepath.Join(AppDirName, ApprovalsDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
-			Lost: "the user-scoped countersignature store (HomeApprovalsPath); update review degrades from a diff to a full-content dump for approvals only this store held, though committed approval signatures still verify",
 		},
 		{
 			Rel: filepath.Join(AppDirName, AllowedSignersFileName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,

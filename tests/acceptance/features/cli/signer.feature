@@ -4,18 +4,15 @@ Feature: signer — whose signature stands in for your review
   Covers: `ctxloom signer list`, `signer show`, `signer trust`,
   `signer untrust`, and the bare `ctxloom signer` form.
 
-  A signer is a PUBLIC KEY plus the namespaces it is trusted for. Trusting one
-  is the single most consequential command in the product: everything that key
-  ever publishes — text AND executables, now and in every future update —
-  reaches your agent WITHOUT REVIEW until you untrust it. An approve/reject
-  grant is narrower and no less serious: it delegates your review decisions to
-  somebody else, permanently.
+  A signer is a PUBLIC KEY plus the namespaces it is trusted for: a publisher
+  signature is verified against the signers trusted for the publish
+  namespace.
 
   THERE ARE THREE STORES, AND WHICH ONE A DECISION LANDS IN IS THE POINT.
   ctxloom's own EMBEDDED trust root is compiled into the binary and always
   listed. The PROJECT store (.ctxloom/allowed_signers) is committable — it is
-  how a team distributes "trust our lead's approval key" to everyone who
-  clones, without each colleague trusting the publisher individually. The USER
+  how a team distributes "trust our lead's key" to everyone who clones,
+  without each colleague trusting the publisher individually. The USER
   store (~/.ctxloom/allowed_signers) follows one person across every project
   and travels with nobody else. `signer trust` writes the PROJECT store by
   default, because a trust root in the wrong store is invisible until a
@@ -36,8 +33,7 @@ Feature: signer — whose signature stands in for your review
   publisher trust for itself, which is exactly the capability the signature
   envelope exists to deny it.
 
-  Trust in a piece of CONTENT is a different decision on a different noun
-  (`ctxloom bundle trust`), and trust in a BINARY is another again — see
+  Trust in a BINARY is a different decision on a different noun — see
   cli/companion.feature. The narrative version of publishing and trusting is
   journeys/j001600_signing.feature and j001500_corporate_signed.feature, which
   assert what a PERSON sees, against a real ssh-agent.
@@ -217,9 +213,8 @@ Feature: signer — whose signature stands in for your review
 
   Rule: Untrusting withdraws from the store it names, and only that one
 
-    `signer untrust` means "I will review this myself from now on", not "deny":
-    it removes entries, and rejects nothing the signer already published — that
-    is `ctxloom bundle reject`'s job.
+    `signer untrust` removes entries; it changes nothing the signer already
+    published.
 
     Both verbs default to the PROJECT store, and `--user` is what reaches the
     per-machine one. The destructive verb must not default to the wider blast

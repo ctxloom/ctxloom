@@ -113,9 +113,8 @@ Feature: deps — the installed dependency closure, and everything that moves it
 
   Rule: Pull installs exactly what is pinned, and never overstates what happened
 
-    `deps pull` records the pin straight into the active lock, trusted or not
-    — the bundle's content is gated per item at exposure (`ctxloom review`),
-    not by the lockfile. It is also incremental: an item whose lock entry
+    `deps pull` records the pin straight into the active lock. It is also
+    incremental: an item whose lock entry
     already resolves from the clone cache is not re-fetched, and is reported
     as kept at its locked commit rather than "already installed" — a phrase
     that reads as "you have the latest", which upstream having since moved
@@ -207,7 +206,6 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
-      And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And the remote "origin" changes fragment "demo-frag" to "MARKER-SKIPPED-PULL-never-seen"
       When Alice pulls again while upstream has moved on:
         """
@@ -265,7 +263,6 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
-      And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And the remote "origin" becomes unreachable
       When Alice pulls while the remote is unreachable:
         """
@@ -357,8 +354,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
     what makes it safe to run anywhere. `deps upgrade` re-resolves each
     profile's closure to the newest commit its constraint allows and shows what
     every move brings in; with --yes it writes the advance straight to the
-    active lock — no staging, no approval; changed untrusted content is withheld
-    per item until accepted via `ctxloom review`.
+    active lock — no staging, no approval.
 
     Scenario: Check reports an available advance and changes nothing
       Given an initialized ctxloom project
@@ -576,7 +572,6 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
-      And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And I run "ctxloom deps hold origin/demo"
       And the remote "origin" advances its bundle
       When Alice forces a pull of every reference:
@@ -609,18 +604,17 @@ Feature: deps — the installed dependency closure, and everything that moves it
   Rule: What lands in the lockfile is not what reaches the agent
 
     The pin is not the point: what actually lands in front of the agent is.
-    Upgrading to changed upstream content, then accepting it, must replace
+    Upgrading to changed upstream content must replace
     what the agent sees — not just what the lockfile records. And content is
     served by resolving the remote-tracking ref a fetch advanced, never by
     whatever the cached clone's checked-out working tree happens to hold.
 
-    Scenario: An upstream content change reaches the assembled context only once accepted
+    Scenario: An upstream content change reaches the assembled context once the pin advances
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
-      And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And I run "ctxloom profile materialize dev --target before"
       Then the file "before/CLAUDE.md" contains "Demo fragment content."
       When the remote "origin" changes fragment "demo-frag" to "MARKER-BRAVO-second-edition"
@@ -628,7 +622,6 @@ Feature: deps — the installed dependency closure, and everything that moves it
         """
         ctxloom deps upgrade --yes
         """
-      And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And I run "ctxloom profile materialize dev --target after"
       Then the command succeeds
       And the file "after/CLAUDE.md" contains "MARKER-BRAVO-second-edition"
@@ -643,10 +636,8 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
-      And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And the remote "origin" changes fragment "demo-frag" to "MARKER-STALE-CHECKOUT-current"
       And I run "ctxloom deps upgrade --yes"
-      And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And the remote "origin"'s cached clone is forced back to its first commit
       When Alice materializes after the local checkout went stale:
         """

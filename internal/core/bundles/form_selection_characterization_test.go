@@ -63,12 +63,12 @@ const (
 	hashCmdNoDistill = "sha256:d114a21386da623b2bcc1de6425f86a80a6d89ca5c38c77214b3df5e27f12071"
 )
 
-// charExpectation is one pinned exposure: for a given gate ref and form
-// preference, exactly these bytes (by hash), served in exactly this form, with
-// exactly this body handed to the caller.
+// charExpectation is one pinned exposure: for a given item and form
+// preference, exactly these preimage bytes (by hash), served in exactly this
+// form, with exactly this body handed to the caller.
 type charExpectation struct {
-	form string // "raw" | "distilled" — the form half of the grant
-	hash string // sha256 of the EXACT bytes hashed for the gate
+	form string // "raw" | "distilled"
+	hash string // sha256 of the item's preimage in that form
 	body string // the exact bytes exposed to the caller
 }
 

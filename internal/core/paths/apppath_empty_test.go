@@ -25,7 +25,6 @@ func appPathFamily() []appPathFunc {
 		{"CachePath", CachePath, "cache"},
 		{"ConfigPath", ConfigPath, "config.yaml"},
 		{"RemotesPath", RemotesPath, "remotes.yaml"},
-		{"ApprovalsPath", ApprovalsPath, "approvals"},
 		{"AllowedSignersPath", AllowedSignersPath, "allowed_signers"},
 		{"DistrustedSignersPath", DistrustedSignersPath, "distrusted_signers"},
 		{"LockPath", LockPath, "lock.yaml"},
@@ -35,8 +34,6 @@ func appPathFamily() []appPathFunc {
 		{"LocalPath", LocalPath, "content"},
 		{"LocalBundlesPath", LocalBundlesPath, filepath.Join("content", "bundles")},
 		{"ReposCachePath", ReposCachePath, filepath.Join("cache", "repos")},
-		{"TrustObjectsPath", TrustObjectsPath, filepath.Join("state", "trust", "objects")},
-		{"LegacyTrustObjectsPath", LegacyTrustObjectsPath, filepath.Join("cache", "trust", "objects")},
 	}
 }
 

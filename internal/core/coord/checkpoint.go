@@ -3,10 +3,10 @@ package coord
 import (
 	"encoding/json"
 	"errors"
-	"github.com/spf13/afero"
 	"io/fs"
-	"os"
 	"path/filepath"
+
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -61,7 +61,7 @@ func (c *Coordinator) writeItemsSnapshot() {
 	// coordinators checkpointing the same stateDir one shared temp path, and
 	// without an fsync a power loss can persist the rename ahead of the data.
 	// safefs.WriteFile owns that invariant.
-	if err := safefs.WriteFile(afero.NewOsFs(), itemsSnapshotPath(c.stateDir), raw, 0o600); err != nil {
+	if err := safefs.WriteFile(c.fs, itemsSnapshotPath(c.stateDir), raw, 0o600); err != nil {
 		c.rep.Warnf("coordinator: checkpoint snapshot: write: %v", err)
 	}
 }
@@ -77,9 +77,9 @@ func (c *Coordinator) writeItemsSnapshot() {
 // because compaction is a performance contract rather than a functional one,
 // that failure has no symptom of its own — the coordinator just replays the
 // whole journal on every boot, permanently and quietly.
-func loadItemsSnapshot(rep report.Reporter, stateDir string) (snap itemsSnapshot, ok bool) {
+func loadItemsSnapshot(rep report.Reporter, fsys afero.Fs, stateDir string) (snap itemsSnapshot, ok bool) {
 	path := itemsSnapshotPath(stateDir)
-	raw, err := os.ReadFile(path)
+	raw, err := afero.ReadFile(fsys, path)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			rep.Warnf("coordinator: checkpoint snapshot %s unreadable, falling back to a full replay: %v", path, err)

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -26,7 +27,7 @@ import (
 func TestLoadItemsSnapshot_UnreadableWarns(t *testing.T) {
 	dir := t.TempDir()
 	// A directory where the snapshot file belongs is the deterministic,
-	// non-root-dependent way to make os.ReadFile fail with something that is
+	// non-root-dependent way to make the read fail with something that is
 	// not "not exist" (a chmod-based EACCES is a no-op when tests run as root).
 	require.NoError(t, os.MkdirAll(itemsSnapshotPath(dir), 0o700))
 
@@ -34,7 +35,7 @@ func TestLoadItemsSnapshot_UnreadableWarns(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	snap, ok := loadItemsSnapshot(termRep(), dir)
+	snap, ok := loadItemsSnapshot(termRep(), afero.NewOsFs(), dir)
 	assert.False(t, ok, "an unreadable snapshot must still fall back to a full replay")
 	assert.Equal(t, itemsSnapshot{}, snap)
 	assert.Contains(t, buf.String(), "warning:",
@@ -52,7 +53,7 @@ func TestLoadItemsSnapshot_MissingIsSilent(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	snap, ok := loadItemsSnapshot(termRep(), dir)
+	snap, ok := loadItemsSnapshot(termRep(), afero.NewOsFs(), dir)
 	assert.False(t, ok)
 	assert.Equal(t, itemsSnapshot{}, snap)
 	assert.Empty(t, buf.String(), "a first boot with no checkpoint must not warn")
@@ -68,7 +69,7 @@ func TestLoadItemsSnapshot_CorruptWarns(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	_, ok := loadItemsSnapshot(termRep(), dir)
+	_, ok := loadItemsSnapshot(termRep(), afero.NewOsFs(), dir)
 	assert.False(t, ok)
 	assert.Contains(t, buf.String(), "warning:")
 }

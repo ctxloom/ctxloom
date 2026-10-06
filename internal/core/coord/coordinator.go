@@ -195,7 +195,10 @@ type Coordinator struct {
 	projectDir string
 	projectID  string
 	stateDir   string
-	now        func() time.Time
+	// fs is the filesystem the coordinator's own state and saved reports are
+	// read and written through, so a decorator on it sees them.
+	fs  afero.Fs
+	now func() time.Time
 
 	baseCtx context.Context
 	cancel  context.CancelFunc
@@ -561,6 +564,7 @@ func New(opts Options) (*Coordinator, error) {
 		projectDir:         opts.ProjectDir,
 		projectID:          opts.ProjectID,
 		stateDir:           claim.dir,
+		fs:                 afero.NewOsFs(),
 		now:                t.now,
 		releaseOwner:       claim.release,
 		ownsRoot:           claim.release != nil,
@@ -778,7 +782,7 @@ func (c *Coordinator) openJournals() error {
 	// starts at its offset instead of byte 0 — openStoreFromOffset falls
 	// back to a full replay by itself if the offset is stale (journal.go).
 	itemsOffset := int64(0)
-	if snap, ok := loadItemsSnapshot(c.rep, c.stateDir); ok {
+	if snap, ok := loadItemsSnapshot(c.rep, c.fs, c.stateDir); ok {
 		c.itemsF.restore(snap)
 		itemsOffset = snap.Offset
 	}

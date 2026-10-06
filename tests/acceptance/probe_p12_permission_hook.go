@@ -207,6 +207,8 @@ type p12Frame struct {
 	Skills            []string        `json:"skills"`      // the init frame's loaded skills
 	Agents            []string        `json:"agents"`      // the init frame's loaded agents
 	MCPServers        []p16MCPServer  `json:"mcp_servers"` // the init frame's MCP servers
+	SessionID         string          `json:"session_id"`
+	PermissionMode    string          `json:"permissionMode"` // the init frame's mode: the one the turn starts in
 	Timestamp         string          `json:"timestamp"`
 	Message           json.RawMessage `json:"message"`
 	PermissionDenials []p12Denial     `json:"permission_denials"`
@@ -245,8 +247,8 @@ type p12ToolResult struct {
 }
 
 // p12Stream is a decoded run: the gated tool's calls in order, every
-// tool_result by id, the result frame's denials, and the skills, agents and
-// MCP servers the init frame says the session loaded.
+// tool_result by id, the result frame's denials, and the session, mode,
+// skills, agents and MCP servers the init frame says the session started with.
 type p12Stream struct {
 	GatedCalls []string
 	Results    map[string]p12ToolResult
@@ -255,6 +257,10 @@ type p12Stream struct {
 	Skills     []string
 	Agents     []string
 	MCPServers []p16MCPServer
+	// SessionID and PermissionMode are the init frame's; both "" when the
+	// stream carried no init frame.
+	SessionID      string
+	PermissionMode string
 }
 
 // p12Decode reads stream-json. A line that is not a JSON object is an error:
@@ -276,6 +282,7 @@ func p12Decode(stdout string) (p12Stream, error) {
 		case "system":
 			if f.Subtype == "init" {
 				s.Skills, s.Agents, s.MCPServers = f.Skills, f.Agents, f.MCPServers
+				s.SessionID, s.PermissionMode = f.SessionID, f.PermissionMode
 			}
 		case "result":
 			s.SawResult = true

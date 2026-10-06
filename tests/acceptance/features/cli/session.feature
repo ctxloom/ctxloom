@@ -33,6 +33,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     ctxloom session worktrees list [<harp>]
     ctxloom session worktrees purge <harp> [--yes]
     ctxloom session purge <harp> [--yes]
+    ctxloom session approvals
 
   Rule: Reading the record touches nothing
 
@@ -407,3 +408,49 @@ Feature: session — the record of what your assistant did, and the tools to pru
       And the home file ".ctxloom/sessions/brisk-copper-moth/transcripts/transcript.jsonl" exists
       When I run "ctxloom session list --all"
       Then the output contains "brisk-copper-moth"
+
+  Rule: Pending approvals are readable from any terminal, and only readable
+
+    # `session approvals` asks every live coordinator on this host, found by
+    # the endpoint files coordinators write under the state root. With none
+    # running nothing is parked anywhere, so that is a message naming where
+    # discovery looked, not a failure; the structured form says how many
+    # coordinators answered, which is what separates "none running" from
+    # "running with nothing pending".
+    Scenario: With no coordinator running, the text says so and where it looked
+      Given an initialized ctxloom project
+      When I run "ctxloom --format text session approvals"
+      Then the command succeeds
+      And the output contains "no coordinator is running"
+      And the output contains "no live endpoint under"
+
+    Scenario: With no coordinator running, the JSON reports none answered and nothing pending
+      Given an initialized ctxloom project
+      When I run "ctxloom --format json session approvals"
+      Then the command succeeds
+      And the output reports "coordinators" as "0"
+      And the output reports "approvals" as empty, saying "no coordinator is running"
+
+    # A SECOND PROCESS reaching a LIVE coordinator: the standing owner is a
+    # real `ctxloom run` hosting one, and this command finds it by discovery
+    # and asks it over RPC. "coordinators" is 1 only because that round trip
+    # happened. The owner is interactive and routes no approvals, so nothing
+    # is parked — a request parked by a headless child is not staged here.
+    Scenario: Another terminal reaches the running session's coordinator and finds nothing parked
+      Given an initialized ctxloom project
+      And a session owner is standing
+      When I run "ctxloom --format json session approvals"
+      Then the command succeeds
+      And the output reports "coordinators" as "1"
+      And the output reports "approvals" as empty, saying "no pending approvals"
+      When I run "ctxloom --format text session approvals"
+      Then the command succeeds
+      And the output contains "no pending approvals"
+
+    # The command only lists: there is no argument that names a request to
+    # answer, so one passed is refused rather than acted on.
+    Scenario: Naming a request to answer is refused
+      Given an initialized ctxloom project
+      When I run "ctxloom session approvals amber-swift-owl"
+      Then the command fails
+      And the output contains "unknown command"

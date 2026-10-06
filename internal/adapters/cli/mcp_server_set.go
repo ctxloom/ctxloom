@@ -116,46 +116,57 @@ func runMCPServerSet(cmd *cobra.Command, args []string) error {
 }
 
 // input is the patch the typed flags describe: an untyped flag is absent from
-// it, so the stored field is kept.
+// it, so the stored field is kept. Each flag is tested by its literal name in an
+// `if`, the one shape the acceptance flag-coverage census can credit.
 func (f *mcpServerSetFlags) input(fs *pflag.FlagSet) (operations.BundleMCPInput, error) {
-	named := func(flag string, v *string) *string {
-		if fs.Changed(flag) {
-			return v
+	var in operations.BundleMCPInput
+	if fs.Changed("command") {
+		in.Command = &f.command
+	}
+	if fs.Changed("url") {
+		in.URL = &f.url
+	}
+	if fs.Changed("served-by") {
+		in.ServedBy = &f.servedBy
+	}
+	if fs.Changed("notes") {
+		in.Notes = &f.notes
+	}
+	if fs.Changed("installation") {
+		in.Installation = &f.installation
+	}
+	if fs.Changed("arg") {
+		in.Args = nonEmptyList(f.args)
+	}
+	if fs.Changed("tag") {
+		in.Tags = nonEmptyList(f.tags)
+	}
+	if fs.Changed("env") {
+		env, err := namedPairs("env", f.env)
+		if err != nil {
+			return in, err
 		}
-		return nil
+		in.Env = env
 	}
-	in := operations.BundleMCPInput{
-		Command:      named("command", &f.command),
-		URL:          named("url", &f.url),
-		ServedBy:     named("served-by", &f.servedBy),
-		Notes:        named("notes", &f.notes),
-		Installation: named("installation", &f.installation),
-		Args:         namedList(fs, "arg", f.args),
-		Tags:         namedList(fs, "tag", f.tags),
+	if fs.Changed("header") {
+		headers, err := namedPairs("header", f.headers)
+		if err != nil {
+			return in, err
+		}
+		in.Headers = headers
 	}
-	var err error
-	if in.Env, err = namedPairs(fs, "env", f.env); err != nil {
-		return in, err
-	}
-	in.Headers, err = namedPairs(fs, "header", f.headers)
-	return in, err
+	return in, nil
 }
 
-// namedList is a typed repeatable flag's values with empty entries dropped, so
-// a lone "" sends an empty list, which clears; nil when the flag was not typed.
-func namedList(fs *pflag.FlagSet, flag string, vals []string) *[]string {
-	if !fs.Changed(flag) {
-		return nil
-	}
+// nonEmptyList is a typed repeatable flag's values with empty entries dropped,
+// so a lone "" sends an empty list, which clears.
+func nonEmptyList(vals []string) *[]string {
 	return new(slices.DeleteFunc(slices.Clone(vals), func(v string) bool { return v == "" }))
 }
 
 // namedPairs is a typed NAME=value flag as a map, split at the first "=" so a
-// value may contain one; empty entries are dropped as in namedList.
-func namedPairs(fs *pflag.FlagSet, flag string, vals []string) (*map[string]string, error) {
-	if !fs.Changed(flag) {
-		return nil, nil
-	}
+// value may contain one; empty entries are dropped as in nonEmptyList.
+func namedPairs(flag string, vals []string) (*map[string]string, error) {
 	out := map[string]string{}
 	for _, v := range vals {
 		if v == "" {

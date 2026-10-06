@@ -84,6 +84,14 @@ func j002100RosterHold(c context.Context, harp string) (*j002100Hold, error) {
 	return nil, nil
 }
 
+// j002100ReleaseTolerance is how late after its deadline a hold may be seen
+// released and still count as on time. The release is the hold's own timer
+// (Coordinator.armLocked, re-armed by adoptHolds), not a periodic sweep, so
+// lateness is timer firing plus journaling, one j002100AwaitHold poll interval,
+// the roster tool call, and the deadline's whole-second truncation in
+// until_unix; the rest is headroom for a contended box.
+const j002100ReleaseTolerance = 15 * time.Second
+
 // j002100AwaitHold polls the roster until want reports true for harp's hold,
 // bounded by the suite deadline (eventBudget). It polls because the roster is
 // read through a tool call and nothing announces a hold changing.
@@ -221,8 +229,8 @@ func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// Released means released: gone, and not before the deadline the hold
-	// showed. A held child whose run ended still shows its hold (the hold
+	// Released means released: gone, not before the deadline the hold showed
+	// and not later than j002100ReleaseTolerance after it. A held child whose run ended still shows its hold (the hold
 	// covers the harp), so a missing hold is a release, which the journal
 	// step after this one attributes to the backoff.
 	ctx.Step(`^the roster comes to show "([^"]*)" released on time$`, func(c context.Context, name string) error {
@@ -232,15 +240,27 @@ func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		until := time.Unix(j002100Of(w).holdUntil, 0)
-		if err := j002100AwaitHold(c, harp,
-			func(h *j002100Hold) bool { return h == nil }, "with no hold"); err != nil {
+		var gone time.Time // stamped by the poll that first sees no hold
+		if err := j002100AwaitHold(c, harp, func(h *j002100Hold) bool {
+			if h != nil {
+				return false
+			}
+			gone = time.Now()
+			return true
+		}, "with no hold"); err != nil {
 			return err
 		}
-		if now := time.Now(); now.Before(until) {
-			return fmt.Errorf("%s's hold was gone at %s, before its deadline %s; %s; terminals:\n%s\nresumed owner output (tail):\n%q", name, now.Format(time.RFC3339), until.Format(time.RFC3339),
-				j002100Of(w).restartDiag, j002100Terminals(w), tail(w.owner.sess.Output(), 4000))
+		var when string
+		switch {
+		case gone.Before(until):
+			when = "before its deadline"
+		case gone.After(until.Add(j002100ReleaseTolerance)):
+			when = fmt.Sprintf("more than %s after its deadline", j002100ReleaseTolerance)
+		default:
+			return nil
 		}
-		return nil
+		return fmt.Errorf("%s's hold was gone at %s, %s %s; %s; terminals:\n%s\nresumed owner output (tail):\n%q", name, gone.Format(time.RFC3339), when, until.Format(time.RFC3339),
+			j002100Of(w).restartDiag, j002100Terminals(w), tail(w.owner.sess.Output(), 4000))
 	})
 
 	ctx.Step(`^"([^"]*)"'s hold deadline is remembered$`, func(c context.Context, name string) error {

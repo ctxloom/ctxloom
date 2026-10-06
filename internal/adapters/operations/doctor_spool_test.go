@@ -617,9 +617,9 @@ func TestDoctorCheckSpoolBacklog_ReadsTheSpoolThroughItsFs(t *testing.T) {
 	old := time.Now().Add(-2 * doctorSpoolStuckAge)
 	stuck := spool.Name{Nanos: old.UnixNano(), Seq: 1, Writer: "coord"}.String()
 	data := fmt.Sprintf("---\nkind: message\ncreated: %s\n---\nbody\n", old.UTC().Format(time.RFC3339Nano))
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(inDir, stuck), []byte(data), 0o600))
+	testsupport.WriteFileString(t, fs, filepath.Join(inDir, stuck), data, 0o600)
 	refused := spool.Name{Nanos: old.UnixNano(), Seq: 2, Writer: "coord"}.String()
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(failedDir, refused), []byte(data), 0o600))
+	testsupport.WriteFileString(t, fs, filepath.Join(failedDir, refused), data, 0o600)
 	_, statErr := os.Stat(inDir)
 	require.True(t, os.IsNotExist(statErr), "the spool must exist only in the injected fs")
 

@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/tokens"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -1532,4 +1533,13 @@ func TestCompact_BelowCompactFloor_DumpsVerbatimWithoutLLM(t *testing.T) {
 func aboveCompactFloor(entries []agent.SessionEntry) []agent.SessionEntry {
 	filler := strings.Repeat("The session worked through the design and settled its open questions. ", 40)
 	return append(entries, agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: filler})
+}
+
+// The floor is exclusive: a transcript estimating exactly minCompactTokens is
+// compacted, and only one strictly below it is dumped verbatim.
+func TestTooLittleToCompact_FloorIsExclusive(t *testing.T) {
+	assert.False(t, tooLittleToCompact(strings.Repeat("x", tokens.Budget(minCompactTokens))),
+		"a transcript exactly at the floor is compacted")
+	assert.True(t, tooLittleToCompact(strings.Repeat("x", tokens.Budget(minCompactTokens-1))),
+		"a transcript one token below the floor is not")
 }

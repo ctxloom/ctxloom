@@ -54,7 +54,53 @@ func TestLoadCompactedSession_GenerationZeroKeepsItsTimestamp(t *testing.T) {
 	assert.True(t, loaded.CompactedAt.Equal(generationZeroCompactedAt),
 		"distilled_at must migrate to compacted_at with its value intact, got %v", loaded.CompactedAt)
 	assert.Equal(t, 8, loaded.SourceEntries)
-	assert.Contains(t, loaded.Body, "Old body.")
+	assert.Equal(t, "# Session summary\n\nOld body.\n", loaded.Body,
+		"the body is exactly what follows the closing delimiter — no front-matter bytes leak into it")
+}
+
+// The rename finds distilled_at wherever it sits among the keys, not only in
+// the first pairs a short fixture happens to exercise.
+func TestLoadCompactedSession_RenamesDistilledAtAtAnyPosition(t *testing.T) {
+	late := "---\n" +
+		"session_id: late-one\n" +
+		"entry_count: 3\n" +
+		"tokens_out: 40\n" +
+		"distilled_at: 2024-01-15T10:00:00Z\n" +
+		"---\n\nbody\n"
+	fsys := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(fsys, "/s/late-one.md", []byte(late), 0o644))
+
+	loaded, err := LoadCompactedSession(fsys, "/s", "late-one")
+	require.NoError(t, err)
+	assert.True(t, loaded.CompactedAt.Equal(generationZeroCompactedAt),
+		"a distilled_at after other keys must still migrate, got %v", loaded.CompactedAt)
+}
+
+// An empty front-matter block written with a blank line is terminated: the
+// closing delimiter immediately after the opening one is still a closing
+// delimiter, and the body is what follows it.
+func TestUpgradeEssence_EmptyFrontMatterIsTerminated(t *testing.T) {
+	res, err := upgradeEssence([]byte("---\n\n---\nbody\n"))
+	require.NoError(t, err)
+	assert.True(t, strings.HasSuffix(string(res.Data), "\n---\nbody\n"), "the body follows the closing delimiter, got %q", res.Data)
+}
+
+// Reading an essence already at the current generation never writes, even
+// under --write-upgrades: there is nothing to persist.
+func TestLoadCompactedSession_WriteUpgradesLeavesCurrentEssenceUntouched(t *testing.T) {
+	t.Cleanup(func() { schemaver.BindWriteUpgrades(pflag.NewFlagSet("reset", pflag.ContinueOnError)) })
+	flags := pflag.NewFlagSet("t", pflag.ContinueOnError)
+	schemaver.BindWriteUpgrades(flags)
+	require.NoError(t, flags.Set(schemaver.WriteUpgradesFlag, "true"))
+
+	current := "---\n" + schemaver.Key + ": " + strconv.Itoa(essenceKind.Current()) + "\n" +
+		"session_id: now\ncompacted_at: 2024-01-15T10:00:00Z\n---\n\nbody\n"
+	base := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(base, "/s/now.md", []byte(current), 0o644))
+
+	loaded, err := LoadCompactedSession(afero.NewReadOnlyFs(base), "/s", "now")
+	require.NoError(t, err, "a read with nothing to migrate must not attempt a write")
+	assert.Equal(t, "body\n", loaded.Body)
 }
 
 func TestLoadCompactedSession_RefusesANewerGeneration(t *testing.T) {

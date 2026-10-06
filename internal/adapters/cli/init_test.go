@@ -365,9 +365,7 @@ func TestDiscoverySessionPrompt_CarriesCompanionSetupGuidance(t *testing.T) {
 
 // An interactive init asks neither advanced question. It takes the commit
 // dirty-tree handler and the accept-edits headless posture and says, one line
-// each, what it chose and how to change it. It never grants the commit
-// acknowledgement: that consent is a human act (`ctxloom manage commit
-// trust`), so the first delegation from a dirty tree stops and names it.
+// each, what it chose and how to change it.
 func TestTakeInterviewDefaults_ChoosesTheRecommendationsAndSaysSo(t *testing.T) {
 	var buf bytes.Buffer
 	handler, posture := takeInterviewDefaults(&buf)

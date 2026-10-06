@@ -197,6 +197,5 @@ Feature: init — the setup interview, and what it does to a project that alread
       And the file ".ctxloom/config.yaml" contains "type: claude-code"
       And the file ".ctxloom/config.yaml" contains "dirty_tree_handler: commit"
       And the default agent's headless posture is "acceptEdits"
-      And init's terminal output says "ctxloom manage commit trust"
+      And init's terminal output says "Choose copy, stale or fail instead with dirty_tree_handler"
       And init's terminal output says "ctxloom agent edit default --permissions <posture>"
-      And the file ".ctxloom/state/dirty_tree_commit_ack.yaml" does not exist

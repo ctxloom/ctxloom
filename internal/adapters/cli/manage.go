@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -871,87 +870,6 @@ func runManageGitignoreInstall(cmd *cobra.Command, _ []string) error {
 	})
 }
 
-// --- manage commit ---------------------------------------------------
-
-// manageCommitCmd is the scriptable counterpart to `ctxloom init`'s
-// dirty-tree interview question: the ONLY other place allowed to write
-// paths.DirtyTreeCommitAckPath, since the record is no longer a hand-editable
-// config.yaml key (see config.DirtyTreeCommitAcknowledged for why consent
-// leaves the config chain). Both writers exist because the record must be settable without
-// re-running init on an already-initialized project.
-var manageCommitCmd = groupNode(&cobra.Command{
-	Use:   "commit",
-	Short: "Trust or untrust ctxloom to auto-commit a dirty tree on your behalf",
-	Long: `Trust or untrust ctxloom, for THIS checkout, to auto-commit its uncommitted
-changes onto its current branch when dirty_tree_handler is "commit", so a
-delegated agent_run child (which only ever sees committed state in its own
-worktree) can see them.
-
-This is deliberately NOT a config.yaml key: the config chain has three
-channels an agent can reach (a home file, an environment variable, an argv),
-and this decision must come from a human, once, through this command.
-
-An absent decision is untrusted, and the spawn is refused rather than
-committing on your behalf.`,
-})
-
-var manageCommitTrustCmd = &cobra.Command{
-	Use:     "trust",
-	Short:   "Trust ctxloom to auto-commit this checkout's dirty tree",
-	Example: `  ctxloom manage commit trust`,
-	Args:    cobra.NoArgs,
-	RunE:    runManageCommitTrust,
-}
-
-var manageCommitUntrustCmd = &cobra.Command{
-	Use:     "untrust",
-	Short:   "Withdraw that trust for this checkout",
-	Example: `  ctxloom manage commit untrust`,
-	Args:    cobra.NoArgs,
-	RunE:    runManageCommitUntrust,
-}
-
-// runManageCommitTrust and runManageCommitUntrust are named rather than inline
-// closures over the bool. A RunE written as a func literal in a package-level
-// var initializer compiles into `init.funcN`, which carries no trace of the
-// command it belongs to — so every tool that identifies a leaf by its RunE
-// symbol loses these two, and loses them SILENTLY. `go tool covdata func` does
-// not emit closures at all, so they simply do not appear in a coverage report
-// rather than appearing as uncovered.
-func runManageCommitTrust(cmd *cobra.Command, _ []string) error {
-	return runManageDirtyTreeAck(cmd, true)
-}
-
-func runManageCommitUntrust(cmd *cobra.Command, _ []string) error {
-	return runManageDirtyTreeAck(cmd, false)
-}
-
-// manageDirtyTreeAckResult is the emit()-friendly payload both grant/revoke
-// render — a bool an automation script can act on, plus a human summary.
-type manageDirtyTreeAckResult struct {
-	Status       string `json:"status"`
-	Acknowledged bool   `json:"acknowledged"`
-}
-
-func runManageDirtyTreeAck(cmd *cobra.Command, ack bool) error {
-	cfg, err := GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-	if err := config.SetDirtyTreeCommitAck(cfg.Root(), cfg.GetAppDir(), ack); err != nil {
-		return fmt.Errorf("failed to record dirty-tree-commit acknowledgement: %w", err)
-	}
-	state := "granted"
-	if !ack {
-		state = "revoked"
-	}
-	out := manageDirtyTreeAckResult{Status: state, Acknowledged: ack}
-	return emit(cmd, out, func() error {
-		fmt.Fprintf(cmd.OutOrStdout(), "dirty-tree-commit acknowledgement: %s\n", state)
-		return nil
-	})
-}
-
 func init() {
 	rootCmd.AddCommand(manageCmd)
 
@@ -993,9 +911,4 @@ func init() {
 	// gitignore.
 	manageCmd.AddCommand(manageGitignoreCmd)
 	manageGitignoreCmd.AddCommand(manageGitignoreInstallCmd)
-
-	// dirty-tree-commit acknowledgement.
-	manageCmd.AddCommand(manageCommitCmd)
-	manageCommitCmd.AddCommand(manageCommitTrustCmd)
-	manageCommitCmd.AddCommand(manageCommitUntrustCmd)
 }

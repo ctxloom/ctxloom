@@ -176,24 +176,10 @@ Four options:
 - **`fail`**. ctxloom refuses the spawn outright and names the uncommitted paths. No automatic
   action at all; you decide what happens next.
 
-`commit` being the default is why it's the one gated behind more than a config value. A commit
-landing on your branch that you didn't ask for in the moment is the one outcome here worth a
-deliberate yes, so it doesn't fire the first time you hit it. It requires a separate, one-time
-acknowledgement for this checkout, which a human grants with `ctxloom manage commit trust` and
-withdraws with
-`ctxloom manage commit untrust`. Until it's granted, the spawn is refused and the refusal names
-that command. The acknowledgement is not a config key. It can't be set from
-`.ctxloom/config.yaml`, an environment variable or an `agent_run` parameter, since an agent can
-reach every one of those. A coordinator agent calling `agent_run` typically has no TTY and is
-often running while you're away, so an agent consenting on your behalf wouldn't be your
-consent. Once granted, every individual auto-commit still prints a warning naming the branch
-and the files being touched: the acknowledgement authorizes the behavior once, not any single
-commit silently.
-
-The handler choice itself is lighter-weight than that acknowledgement: a project default you
-can set in `.ctxloom/config.yaml`, and any `agent_run` call can override it for itself. It's
-only the *permission to commit on your behalf* that's locked to a human running that
-command; picking among the three alternatives that never touch your branch is not.
+The handler is a project default you set in `.ctxloom/config.yaml`, and any `agent_run` call
+can override it for itself. Choosing `commit`, in config or on the call, is the whole
+authorization. Every individual auto-commit still prints a warning naming the branch and the
+files being touched.
 
 See the [config reference](/reference/config/#top-level-fields) and [`agent_run`'s
 parameters](/reference/mcp-tools/#agent_run) for the exact keys, values, and precedence.

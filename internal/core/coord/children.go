@@ -244,12 +244,7 @@ type RunOutcome struct {
 // cfg.GetDirtyTreeHandler()). It is the TYPED value: callers parse the
 // caller-supplied spelling at their own edge, so an unrecognized one is
 // refused where the caller can see it rather than resolved here — see
-// operations.handleDirtyParentTree. Deliberately does NOT carry any
-// acknowledgement for the "commit" handler's mutation: that is a
-// per-checkout, human-only acknowledgement (dirty_tree_commit_ack — see
-// config.DirtyTreeCommitAcknowledged) that this per-call parameter can never
-// set: it is not even a config key any longer, precisely so no channel an
-// agent can reach (config, env, argv) can grant it.
+// operations.handleDirtyParentTree.
 func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, prompt string, workspace launch.WorkspaceAxis, dirtyTreeHandler launch.DirtyTreeHandler) (*RunOutcome, error) {
 	if err := c.admitAgentRun(caller, agentName, prompt); err != nil {
 		return nil, err

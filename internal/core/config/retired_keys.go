@@ -34,8 +34,8 @@ var retiredKeys = map[string]string{
 	"isolation_base_containerfile": "`isolation_base_containerfile` was REPLACED by `isolation_base: ctxloom | devcontainer | <image ref>`: " +
 		"move the Containerfile into the project devcontainer (`ctxloom container scaffold` writes one) " +
 		"or build it and name the image, then delete this key",
-	"dirty_tree_commit_ack": "`dirty_tree_commit_ack` was RETIRED: the consent is no longer a config key, and a value here " +
-		"grants nothing. Re-grant it for this checkout with `ctxloom manage commit trust`",
+	"dirty_tree_commit_ack": "`dirty_tree_commit_ack` was RETIRED: `dirty_tree_handler: commit` alone decides the auto-commit; " +
+		"delete this key",
 }
 
 // RetiredKeyMessage renders the user-visible line for a retired key at the

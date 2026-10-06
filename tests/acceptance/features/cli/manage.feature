@@ -540,34 +540,6 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Then the command succeeds
       And the file ".ctxloom/.gitignore" contains "ctxloom's private working state" exactly 1 times
 
-    # The dirty-tree-commit acknowledgement moved out of config.yaml into its
-    # own gitignored state-store record: the value records a prior HUMAN
-    # authorization, not configuration, and is ScopeNever — no config layer may
-    # set it. `manage commit` is the scriptable counterpart to
-    # `ctxloom init`'s interview question, the only other writer.
-    # The two states are asserted rather than "absent, then present": a record
-    # that reads `approved: true` after granting and `approved: false` after
-    # revoking cannot be a file that was already lying there, so the pair
-    # proves both commands WRITE. Checking for absence first would prove less
-    # and would assert a starting state no command produced.
-    Scenario: The dirty-tree-commit acknowledgement can be granted and revoked
-      Given an initialized ctxloom project
-      When Alice grants the acknowledgement:
-        """
-        ctxloom manage commit trust
-        """
-      Then the command succeeds
-      And the output contains "granted"
-      And the file ".ctxloom/state/dirty_tree_commit_ack.yaml" exists
-      And the file ".ctxloom/state/dirty_tree_commit_ack.yaml" contains "approved: true"
-      When Alice revokes it again:
-        """
-        ctxloom manage commit untrust
-        """
-      Then the command succeeds
-      And the output contains "revoked"
-      And the file ".ctxloom/state/dirty_tree_commit_ack.yaml" contains "approved: false"
-
   Rule: Uninstalling removes what ctxloom wired and keeps what the team authored
 
     # BOTH halves are asserted on payload: the files ctxloom created in this

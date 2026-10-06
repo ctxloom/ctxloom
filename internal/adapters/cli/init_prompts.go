@@ -148,19 +148,15 @@ const initDefaultHeadlessPosture = "acceptEdits"
 // init prints for the two answers it takes without asking: what it chose and
 // how to change it.
 const (
-	initDefaultDirtyTreeLine = "Delegation from a dirty tree: ctxloom commits your uncommitted work for the child only " +
-		"after you run `ctxloom manage commit trust`; until then such a delegation stops and says so. " +
-		"Choose copy, stale or fail instead with dirty_tree_handler in `ctxloom config edit`."
+	initDefaultDirtyTreeLine = "Delegation from a dirty tree: ctxloom commits your uncommitted work so the child sees it " +
+		"(dirty_tree_handler: commit). Choose copy, stale or fail instead with dirty_tree_handler in `ctxloom config edit`."
 	initDefaultHeadlessLine = "Headless runs (one-shot and delegated) use the " + initDefaultHeadlessPosture +
 		" posture: file edits go through, anything else that would ask is denied. " +
 		"Change it: ctxloom agent edit default --permissions <posture>"
 )
 
 // takeInterviewDefaults answers the two advanced questions init no longer
-// asks: the commit dirty-tree handler and the acceptEdits headless posture. It does
-// not grant the commit acknowledgement. That consent is only ever a human act
-// (config.DirtyTreeCommitAcknowledged), and the delegation that first needs
-// it refuses and names `ctxloom manage commit trust`.
+// asks: the commit dirty-tree handler and the acceptEdits headless posture.
 func takeInterviewDefaults(out io.Writer) (dirtyTreeHandler, headlessPermissions string) {
 	_, _ = fmt.Fprintln(out, initDefaultDirtyTreeLine)
 	_, _ = fmt.Fprintln(out, initDefaultHeadlessLine)

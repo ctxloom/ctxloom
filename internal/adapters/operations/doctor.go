@@ -1111,8 +1111,7 @@ func doctorCheckIngestionLimit(reg engine.Registry, cfg *config.Config) DoctorCh
 // that is absent — the thing a fresh clone (RootProject rows) or a fresh
 // machine (RootHome rows) has no way to learn today: local-only state nothing
 // rebuilds, so its absence is silent everywhere else (a clone gets no warning
-// that it started a new task-log project-id, lost the dirty-tree-commit
-// acknowledgement, has no distilled session history, or degraded review's
+// that it started a new task-log project-id, has no distilled session history, or degraded review's
 // diff to a full-content dump). TierCommitted/TierDerived entries are not
 // reported here: a derived entry's absence is fine (its own Rebuild command
 // produces it) and a committed entry's absence means the repository itself is

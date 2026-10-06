@@ -21,6 +21,7 @@ import (
 	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/spf13/afero"
 	yaml "gopkg.in/yaml.v3"
+	"mvdan.cc/sh/v3/shell"
 
 	// The formats a claim's place is found in: registered HERE, by the
 	// record that needs them, so a file's claims never depend on which
@@ -32,6 +33,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
@@ -865,6 +867,9 @@ func (t *targetOps) structured(cur []byte, exists bool, from, to fileState, rec 
 	if err := e.setAll(pointers, from, to, rec); err != nil {
 		return nil, false, err
 	}
+	if err := e.removeSuperseded(from, to); err != nil {
+		return nil, false, err
+	}
 	rec.Containers = e.prune(rec.Containers)
 	if err := e.err(); err != nil {
 		return nil, false, err
@@ -1142,6 +1147,114 @@ func (e *editor) setElement(container string, hadClaim bool, v any) ([]string, b
 		return nil, !hadClaim && !ownedElement(el), nil
 	}
 	return nil, false, e.applyAt(p, func(s *hew.Sel) { s.Add(v) })
+}
+
+// removeSuperseded takes out of each array ctxloom claims elements in the
+// leftovers of its own that no record names: an element that runs ctxloom
+// (confpatch.OwnedBy), invokes the same ctxloom subcommand as an element
+// claimed into that array now, and holds a value no record knows. A tracked
+// settings file carries such entries onto a machine with no record of them,
+// and an older spelling of a callback ctxloom still installs (its shell form,
+// or another argument set) would otherwise run beside the current one.
+//
+// The subcommand, not the executable, is the identity: a user's own entry
+// running ctxloom with a verb ctxloom does not claim in that array is theirs
+// and stays.
+//
+// It runs AFTER setAll: every array it sweeps then already holds a current
+// claim, so it never empties one that an append would have to fill — hew
+// mis-renders an append into an emptied multi-line array.
+func (e *editor) removeSuperseded(from, to fileState) error {
+	known := map[string][]any{}
+	claimed := map[string][]string{}
+	for _, st := range []fileState{from, to} {
+		for key, entry := range st.Values {
+			if container, ok := elementOf(key); ok {
+				known[container] = append(known[container], entry.Value)
+			}
+		}
+	}
+	for key, entry := range to.Values {
+		container, ok := elementOf(key)
+		if !ok {
+			continue
+		}
+		if sub, ok := ctxloomSubcommand(entry.Value); ok {
+			claimed[container] = appendNew(claimed[container], sub)
+		}
+	}
+	for _, container := range slices.Sorted(maps.Keys(claimed)) {
+		if err := e.removeSupersededIn(container, known[container], claimed[container]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// removeSupersededIn is removeSuperseded for one array, last element first so
+// an earlier index stays valid across a removal.
+func (e *editor) removeSupersededIn(container string, known []any, claimed []string) error {
+	n, p, ok, err := e.at(container)
+	if err != nil || !ok || n.Kind() != hew.KindSeq {
+		return err
+	}
+	for i := n.Len() - 1; i >= 0; i-- {
+		el, ok := n.Elem(i)
+		if !ok || !confpatch.OwnedBy(el, ctxloomOwner) || slices.ContainsFunc(known, func(v any) bool { return same(el, v) }) {
+			continue
+		}
+		var v any
+		if el.Value().Decode(&v) != nil {
+			continue
+		}
+		if sub, ok := ctxloomSubcommand(v); !ok || !slices.Contains(claimed, sub) {
+			continue
+		}
+		if err := e.applyAt(p.Append(hew.Index(i).(hew.Segment)), func(s *hew.Sel) { s.Remove() }); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ctxloomSubcommand is the ctxloom subcommand a hook entry invokes — its
+// leading argument words up to the first flag, joined by a space — whichever
+// form it is spelled in: claude's exec form (the executable in "command", its
+// arguments in "args") or a shell line in "command" alone. ok is false for an
+// entry that does not run ctxloom or names no subcommand.
+func ctxloomSubcommand(v any) (string, bool) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	command, ok := m["command"].(string)
+	if !ok || !exectoken.IsManaged(command, ctxloomOwner) {
+		return "", false
+	}
+	var words []string
+	if args, ok := m["args"].([]any); ok {
+		for _, a := range args {
+			w, ok := a.(string)
+			if !ok {
+				return "", false
+			}
+			words = append(words, w)
+		}
+	} else {
+		fields, err := shell.Fields(command, func(string) string { return "" })
+		if err != nil || len(fields) == 0 {
+			return "", false
+		}
+		words = fields[1:]
+	}
+	var sub []string
+	for _, w := range words {
+		if strings.HasPrefix(w, "-") {
+			break
+		}
+		sub = append(sub, w)
+	}
+	return strings.Join(sub, " "), len(sub) > 0
 }
 
 // ownedElement reports whether an array element is ctxloom's own: an entry

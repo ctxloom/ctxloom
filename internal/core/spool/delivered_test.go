@@ -1,6 +1,7 @@
 package spool
 
 import (
+	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"testing"
@@ -35,7 +36,7 @@ func recordOnly(t *testing.T, m PathMapper, identity string, at time.Time) {
 
 func entryFor(t *testing.T, m PathMapper, ref Ref) Entry {
 	t.Helper()
-	res, err := Sweep(m, testHarp, ref.Dir)
+	res, err := Sweep(afero.NewOsFs(), m, testHarp, ref.Dir)
 	require.NoError(t, err)
 	for _, e := range res.Entries {
 		if e.Ref.Name == ref.Name {

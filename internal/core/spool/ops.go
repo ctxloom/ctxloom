@@ -30,12 +30,12 @@ var ErrAlreadyGone = errors.New("spool: file is no longer (or not yet) at that r
 // A missing file returns an error wrapping ErrAlreadyGone: a doorbell naming
 // a file that is not there is the expected outcome of a lost race, and the
 // caller answers it with a retry or a sweep, not a failure.
-func Read(m PathMapper, ref Ref) (*Message, error) {
+func Read(fs afero.Fs, m PathMapper, ref Ref) (*Message, error) {
 	path, err := m.Resolve(ref)
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := afero.ReadFile(fs, path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("spool: reading %s: %w", ref, ErrAlreadyGone)
@@ -345,12 +345,12 @@ func (r SweepResult) ProblemErr() error {
 //
 // Sub-directories (consumed/, withdrawn/) are skipped as structure. EVERY
 // other entry is either an Entry or a Problem; nothing is dropped in between.
-func Sweep(m PathMapper, harp string, dir Dir) (SweepResult, error) {
+func Sweep(fs afero.Fs, m PathMapper, harp string, dir Dir) (SweepResult, error) {
 	path, err := DirPath(m, harp, dir)
 	if err != nil {
 		return SweepResult{Dir: dir}, err
 	}
-	res, err := sweepDir(harp, dir, path)
+	res, err := sweepDir(fs, harp, dir, path)
 	if err != nil {
 		return res, fmt.Errorf("spool: sweeping %s: %w", path, err)
 	}
@@ -360,9 +360,9 @@ func Sweep(m PathMapper, harp string, dir Dir) (SweepResult, error) {
 // sweepDir is Sweep's body over an already-resolved directory path. The
 // readdir error is returned bare so a caller that treats "not there" as
 // empty (Claim, for a spool nothing has written to yet) can tell it apart.
-func sweepDir(harp string, dir Dir, path string) (SweepResult, error) {
+func sweepDir(fs afero.Fs, harp string, dir Dir, path string) (SweepResult, error) {
 	res := SweepResult{Dir: dir}
-	names, isDir, err := sortedDirEntries(path)
+	names, isDir, err := sortedDirEntries(fs, path)
 	if err != nil {
 		return res, err
 	}
@@ -377,7 +377,7 @@ func sweepDir(harp string, dir Dir, path string) (SweepResult, error) {
 			res.Problems = append(res.Problems, Problem{Path: full, Err: err})
 			continue
 		}
-		data, err := os.ReadFile(full)
+		data, err := afero.ReadFile(fs, full)
 		if err != nil {
 			if os.IsNotExist(err) {
 				// Consumed or withdrawn between readdir and read: the other
@@ -399,8 +399,8 @@ func sweepDir(harp string, dir Dir, path string) (SweepResult, error) {
 
 // sortedDirEntries lists path's entries in filename (sort.Strings) order,
 // alongside which of them are sub-directories (structure, never a message).
-func sortedDirEntries(path string) (names []string, isDir map[string]bool, err error) {
-	entries, err := os.ReadDir(path)
+func sortedDirEntries(fs afero.Fs, path string) (names []string, isDir map[string]bool, err error) {
+	entries, err := afero.ReadDir(fs, path)
 	if err != nil {
 		return nil, nil, err
 	}

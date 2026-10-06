@@ -43,7 +43,7 @@ func TestWriter_PublishesReadableMessage(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, raw, "empty-source guard: a zero-byte file would pass a naive parse-and-compare")
 
-	got, err := Read(m, ref)
+	got, err := Read(afero.NewOsFs(), m, ref)
 	require.NoError(t, err)
 	require.Equal(t, "do the thing\n", got.Body)
 	require.Equal(t, "message", got.Kind)
@@ -152,7 +152,7 @@ func TestWriter_NeverPublishesAPartialFile(t *testing.T) {
 	}
 	require.Equal(t, 1, files)
 
-	res, err := Sweep(m, testHarp, DirIn)
+	res, err := Sweep(afero.NewOsFs(), m, testHarp, DirIn)
 	require.NoError(t, err)
 	require.NoError(t, res.ProblemErr())
 	require.Len(t, res.Entries, 1)
@@ -185,7 +185,7 @@ func TestWriter_RefusesKindlessMessage(t *testing.T) {
 	_, err = w.Write(&Message{Body: "no kind\n"})
 	require.Error(t, err, "a message with no kind cannot be routed and must be refused at the writer")
 
-	res, err := Sweep(m, testHarp, DirIn)
+	res, err := Sweep(afero.NewOsFs(), m, testHarp, DirIn)
 	require.NoError(t, err)
 	require.Empty(t, res.Entries, "a refused write must leave nothing behind")
 	require.NoError(t, res.ProblemErr())
@@ -344,7 +344,7 @@ func TestWriter_PrePublishFailureStillErrorsAndPublishesNothing(t *testing.T) {
 	require.Zero(t, synced, "nothing was published, so nothing is fsynced")
 	require.Zero(t, logs.FilterMessage(logDirSyncFailed).Len())
 
-	res, err := Sweep(m, testHarp, DirIn)
+	res, err := Sweep(afero.NewOsFs(), m, testHarp, DirIn)
 	require.NoError(t, err)
 	require.Empty(t, res.Entries, "nothing may be published")
 	require.Empty(t, res.Problems)

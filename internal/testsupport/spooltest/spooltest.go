@@ -41,10 +41,11 @@ func Entries(t *testing.T, harp string, dir spool.Dir) []spool.Entry {
 	t.Helper()
 	path, err := spool.DirPath(spool.NewHomeMapper(), harp, dir)
 	require.NoError(t, err)
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+	fs := afero.NewOsFs()
+	if _, statErr := fs.Stat(path); os.IsNotExist(statErr) {
 		return nil
 	}
-	res, err := spool.Sweep(spool.NewHomeMapper(), harp, dir)
+	res, err := spool.Sweep(fs, spool.NewHomeMapper(), harp, dir)
 	require.NoError(t, err)
 	require.NoError(t, res.ProblemErr())
 	return res.Entries

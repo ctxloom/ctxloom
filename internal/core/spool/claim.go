@@ -64,7 +64,7 @@ func Claim(m PathMapper, harp string) (SweepResult, error) {
 	// a message stays in in/, where the operator tooling that reports
 	// malformed spool files looks, rather than being carried into the
 	// in-flight set and re-reported on every turn for the life of the session.
-	unclaimed, err := sweepExisting(harp, DirIn, inPath)
+	unclaimed, err := sweepExisting(afero.NewOsFs(), harp, DirIn, inPath)
 	if err != nil {
 		return res, fmt.Errorf("spool: claiming from %s: %w", inPath, err)
 	}
@@ -72,7 +72,7 @@ func Claim(m PathMapper, harp string) (SweepResult, error) {
 	if err := moveUnclaimed(m, harp, inPath, claimedPath, unclaimed.Entries); err != nil {
 		return res, err
 	}
-	claimed, err := sweepExisting(harp, ClaimedDirName, claimedPath)
+	claimed, err := sweepExisting(afero.NewOsFs(), harp, ClaimedDirName, claimedPath)
 	if err != nil {
 		return res, fmt.Errorf("spool: reading %s: %w", claimedPath, err)
 	}
@@ -85,8 +85,8 @@ func Claim(m PathMapper, harp string) (SweepResult, error) {
 
 // sweepExisting is sweepDir, with a directory that was never created
 // sweeping as empty.
-func sweepExisting(harp string, dir Dir, path string) (SweepResult, error) {
-	res, err := sweepDir(harp, dir, path)
+func sweepExisting(fs afero.Fs, harp string, dir Dir, path string) (SweepResult, error) {
+	res, err := sweepDir(fs, harp, dir, path)
 	if err != nil && !os.IsNotExist(err) {
 		return res, err
 	}
@@ -189,7 +189,7 @@ func identitiesIn(m PathMapper, harp string, dirs ...Dir) (map[string]bool, erro
 		if err != nil {
 			return nil, err
 		}
-		res, err := sweepDir(harp, d, path)
+		res, err := sweepDir(afero.NewOsFs(), harp, d, path)
 		if err != nil && !os.IsNotExist(err) {
 			return nil, fmt.Errorf("spool: reading %s: %w", path, err)
 		}

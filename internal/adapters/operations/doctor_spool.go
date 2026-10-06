@@ -13,6 +13,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
+	"github.com/spf13/afero"
 )
 
 // doctorSpoolBacklogMarker is the DOCTOR-CHECK-* vocabulary entry for stuck
@@ -100,7 +101,7 @@ const doctorSpoolStuckMaxNamed = 5
 // check at all, and nothing else looked at in/failed/. This clause is that
 // look. in/failed/ is deliberately NOT one of spool.Dirs()'s closed set (see
 // FailedDirName's doc); it is created lazily, so this check reads it directly
-// with os.ReadDir — absence is a normal state, not a sweep failure — and never
+// with a readdir on the check's fs — absence is a normal state, not a sweep failure — and never
 // renames or deletes what it finds. A
 // failed entry is worded a fourth, distinct way from the other three: it did
 // not sit pending delivery (it was actively rejected), it is not "malformed"
@@ -124,13 +125,13 @@ const doctorSpoolStuckMaxNamed = 5
 //     rarer but equally clean state) — kept as two different sentences so
 //     neither is mistaken for the other, and so an existing-but-empty
 //     in/failed/ cannot be confused with "we never looked."
-func doctorCheckSpoolBacklog() DoctorCheck {
+func doctorCheckSpoolBacklog(fs afero.Fs) DoctorCheck {
 	sessionsRoot, err := paths.HomeSessionsDir()
 	if err != nil {
 		return DoctorCheck{Marker: doctorSpoolBacklogMarker, Status: DoctorWarn,
 			Detail: "cannot resolve sessions dir: " + err.Error()}
 	}
-	entries, err := os.ReadDir(sessionsRoot)
+	entries, err := afero.ReadDir(fs, sessionsRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return DoctorCheck{Marker: doctorSpoolBacklogMarker, Status: DoctorOK,
@@ -140,7 +141,7 @@ func doctorCheckSpoolBacklog() DoctorCheck {
 			Detail: "cannot read sessions dir: " + err.Error()}
 	}
 
-	scan := spoolBacklogScan{mapper: spool.NewHomeMapper(), now: time.Now()}
+	scan := spoolBacklogScan{fs: fs, mapper: spool.NewHomeMapper(), now: time.Now()}
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue // a lock file or the retired index, sitting beside the harp dirs
@@ -154,6 +155,7 @@ func doctorCheckSpoolBacklog() DoctorCheck {
 // session's spool; each finding kind is kept in its own slice because each is
 // worded distinctly in the report.
 type spoolBacklogScan struct {
+	fs             afero.Fs
 	mapper         spool.PathMapper
 	now            time.Time
 	spoolsFound    int
@@ -171,7 +173,7 @@ func (s *spoolBacklogScan) session(harp string) {
 	if err != nil {
 		return // not a syntactically valid harp id; not this check's job
 	}
-	if _, statErr := os.Stat(root); statErr != nil {
+	if _, statErr := s.fs.Stat(root); statErr != nil {
 		return // this session never turned spool delivery on: no spool root at all
 	}
 	s.spoolsFound++
@@ -186,7 +188,7 @@ func (s *spoolBacklogScan) session(harp string) {
 
 // sweepDir records the stuck and malformed entries of one spool direction.
 func (s *spoolBacklogScan) sweepDir(harp string, dir spool.Dir) {
-	res, sweepErr := spool.Sweep(s.mapper, harp, dir)
+	res, sweepErr := spool.Sweep(s.fs, s.mapper, harp, dir)
 	if dir == spool.ClaimedDirName && errors.Is(sweepErr, os.ErrNotExist) {
 		return // created on the first claim, so its absence is normal
 	}
@@ -229,7 +231,7 @@ func (s *spoolBacklogScan) alreadyDelivered(harp string, entry spool.Entry) bool
 // failedDirs lists one session's failed/ directories. They are created
 // lazily, on the first refusal, so a session that never refused a message has
 // none — absence is a normal state this check must not report as a failure,
-// which is why they are read directly with os.ReadDir rather than swept. List
+// which is why they are read directly with a readdir rather than swept. List
 // only, never rename or delete. BOTH directions are enumerated from
 // spool.FailedDirNames rather than named here: a refused outbound report is
 // exactly as invisible as a refused inbound one if nothing looks at its
@@ -237,7 +239,7 @@ func (s *spoolBacklogScan) alreadyDelivered(harp string, entry spool.Entry) bool
 func (s *spoolBacklogScan) failedDirs(harp, root string) {
 	for _, failedName := range spool.FailedDirNames() {
 		failedDir := filepath.Join(root, filepath.FromSlash(string(failedName)))
-		failedEntries, failedErr := os.ReadDir(failedDir)
+		failedEntries, failedErr := afero.ReadDir(s.fs, failedDir)
 		switch {
 		case failedErr == nil:
 			s.failedDirsSeen++

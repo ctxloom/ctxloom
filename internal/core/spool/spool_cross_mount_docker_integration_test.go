@@ -142,7 +142,7 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	// The container's write is visible on the host, byte-complete and
 	// parseable — the rename-publish contract across the mount.
 	outName := probeValue(t, string(out), "PROBE_OUT_NAME")
-	res, err := Sweep(m, harp, DirOut)
+	res, err := Sweep(afero.NewOsFs(), m, harp, DirOut)
 	require.NoError(t, err)
 	require.NoError(t, res.ProblemErr(), "the container's message must not land malformed on the host")
 	require.Len(t, res.Entries, 1)

@@ -540,10 +540,10 @@ func (c *Coordinator) sweepSpoolDir(harp string, dir spool.Dir, why string) (spo
 		c.spoolDeliveryCount.Failed.Add(1)
 		return spool.SweepResult{}, false
 	}
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+	if _, statErr := c.fs.Stat(path); os.IsNotExist(statErr) {
 		return spool.SweepResult{Dir: dir}, false
 	}
-	res, err := spool.Sweep(mapper, harp, dir)
+	res, err := spool.Sweep(c.fs, mapper, harp, dir)
 	if err != nil {
 		c.rep.Warnf("coordinator: sweeping %s's %s spool (%s): %v", harp, dir, why, err)
 		c.spoolDeliveryCount.Failed.Add(1)

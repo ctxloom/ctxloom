@@ -182,7 +182,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckHarpDurability(),
 			doctorCheckLegacyLayout(),
 			doctorCheckSecretsStorage(os.Getenv),
-			doctorCheckSpoolBacklog(),
+			doctorCheckSpoolBacklog(configFS(cfg)),
 			doctorCheckSpoolCounters(ctx),
 			doctorCheckTTYInjection(),
 			doctorCheckProjectOwner(doctorProjectDir(cfg), coord.ListRoots),

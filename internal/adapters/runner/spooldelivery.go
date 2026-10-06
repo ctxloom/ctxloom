@@ -83,10 +83,10 @@ func (h *Home) sweepSpoolIn() {
 		h.spoolDeliveryCount.Failed.Add(1)
 		return
 	}
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+	if _, statErr := h.fs.Stat(path); os.IsNotExist(statErr) {
 		return // nothing has ever been written for this run
 	}
-	res, err := spool.Sweep(mapper, h.Harp(), spool.DirIn)
+	res, err := spool.Sweep(h.fs, mapper, h.Harp(), spool.DirIn)
 	if err != nil {
 		h.rep.Warnf("runner: sweeping this run's in/ spool: %v", err)
 		h.spoolDeliveryCount.Failed.Add(1)

@@ -6,11 +6,14 @@ import (
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/logboot"
 	"github.com/ctxloom/ctxloom/internal/shared/mountns"
 	"github.com/ctxloom/ctxloom/internal/shared/procsec"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -51,7 +54,14 @@ func main() {
 	// exit — in that order, with the exit as the LAST thing this process does
 	// (see logboot.Install for why the flush cannot be a defer).
 	flush := logboot.Install("ctxloom", envSwitchOn("CTXLOOM_VERBOSE", os.Stderr))
-	comp := compose(strictness.Sink("ctxloom"))
+	// ctxloom's root is the filesystem this process runs on, built once here
+	// and threaded down; its private home roots are established before any
+	// command can write beneath them (paths.EnsureHomeRoots).
+	root := safefs.New()
+	if err := paths.EnsureHomeRoots(root.Private); err != nil {
+		clidiag.Warn("ctxloom", "%v", err)
+	}
+	comp := compose(strictness.Sink("ctxloom"), root)
 	code := cli.Run(comp)
 	flush()
 	os.Exit(code)

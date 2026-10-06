@@ -6,13 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	harpid "github.com/ctxloom/ctxloom/internal/shared/harp"
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // State layout (all 0700 dirs / 0600 files — journals carry message bodies
@@ -70,13 +70,16 @@ func projectKey(projectID, projectDir string) string {
 	return pathDerivedProjectKey(projectDir)
 }
 
-// ensureRootStateDir resolves and creates a root's state dir.
-func ensureRootStateDir(projectID, projectDir, rootHarp string) (string, error) {
+// ensureRootStateDir resolves and creates a root's state dir on fsys. It is
+// created owner-only, and lies under paths.HomeCoordDir, which every ctxloom
+// process establishes owner-only at startup (safefs.Private.Ensure): the
+// protection is the established root's, inherited, not re-applied here.
+func ensureRootStateDir(fsys afero.Fs, projectID, projectDir, rootHarp string) (string, error) {
 	dir, err := RootStateDir(projectID, projectDir, rootHarp)
 	if err != nil {
 		return "", err
 	}
-	if err := owneronly.EnsureDir(dir); err != nil {
+	if err := fsys.MkdirAll(dir, safefs.PrivateDirMode); err != nil {
 		return "", fmt.Errorf("coord: state dir: %w", err)
 	}
 	return dir, nil
@@ -100,13 +103,13 @@ type RootStatus struct {
 // coordinator ever stood up in has no roots, which is not an error. A root
 // whose owner cannot be probed is left out and its failure joined into the
 // error; the roots that could be probed are returned beside it.
-func ListRoots(projectID, projectDir string) ([]RootStatus, error) {
+func ListRoots(root safefs.Root, projectID, projectDir string) ([]RootStatus, error) {
 	home, err := paths.HomeCoordDir()
 	if err != nil {
 		return nil, fmt.Errorf("coord: list roots: %w", err)
 	}
 	parent := filepath.Join(home, sanitizeKey(projectKey(projectID, projectDir)))
-	entries, err := os.ReadDir(parent)
+	entries, err := afero.ReadDir(root.Fs, parent)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -122,10 +125,10 @@ func ListRoots(projectID, projectDir string) ([]RootStatus, error) {
 			continue
 		}
 		dir := filepath.Join(parent, e.Name())
-		if _, err := os.Lstat(filepath.Join(dir, OwnerLockFileName)); err != nil {
+		if _, err := root.Fs.Stat(filepath.Join(dir, OwnerLockFileName)); err != nil {
 			continue
 		}
-		st, err := ProbeOwner(dir)
+		st, err := ProbeOwner(root, dir)
 		if err != nil {
 			errs = append(errs, err)
 			continue

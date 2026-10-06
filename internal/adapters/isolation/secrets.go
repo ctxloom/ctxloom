@@ -11,7 +11,6 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -19,7 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
@@ -120,7 +118,7 @@ func (f *secretsFile) put(vals map[string]string) error {
 	if err != nil {
 		return err
 	}
-	if err := safefs.WriteFile(afero.NewOsFs(), f.path(), b, owneronly.FileMode); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), f.path(), b, safefs.PrivateFileMode); err != nil {
 		return fmt.Errorf("run secrets: write %s: %w", f.path(), err)
 	}
 	f.values = merged
@@ -141,22 +139,21 @@ var ErrSecretsOwned = errors.New("run secrets: the secrets file's owner still ho
 // dead owner's; release, once the run is over, removes the dir and lets go.
 func RefreshSecrets(file string, vals map[string]string) (release func(), err error) {
 	dir := filepath.Dir(file)
-	fl := flock.New(filepath.Join(dir, ownedScratchLockName), flock.SetPermissions(owneronly.FileMode))
-	locked, err := fl.TryLock()
+	lock, err := safefs.New().Locks.TryLock(doneContext(), filepath.Join(dir, ownedScratchLockName))
+	if errors.Is(err, safefs.ErrLockHeld) {
+		return nil, fmt.Errorf("%w: %s", ErrSecretsOwned, dir)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("run secrets: take over %s: %w", dir, err)
 	}
-	if !locked {
-		return nil, fmt.Errorf("%w: %s", ErrSecretsOwned, dir)
-	}
 	if err := rewriteSecrets(file, vals); err != nil {
-		_ = fl.Unlock()
+		_ = lock.Unlock()
 		return nil, err
 	}
 	return func() {
 		// Removed while holding the lock, as reapDeadScratch does.
 		_ = os.RemoveAll(dir)
-		_ = fl.Unlock()
+		_ = lock.Unlock()
 		_ = os.RemoveAll(dir)
 	}, nil
 }
@@ -175,7 +172,7 @@ func rewriteSecrets(file string, vals map[string]string) error {
 	if b, err = sessions.EncodeSecrets(merged); err != nil {
 		return err
 	}
-	if err := safefs.WriteFile(afero.NewOsFs(), file, b, owneronly.FileMode); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), file, b, safefs.PrivateFileMode); err != nil {
 		return fmt.Errorf("run secrets: write %s: %w", file, err)
 	}
 	return nil

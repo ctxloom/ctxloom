@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 const (
@@ -204,7 +204,7 @@ func readEndpoint(m string) (Endpoint, bool, error) {
 		// make the common case noisy.
 		return Endpoint{}, false, nil
 	}
-	live, err := filelock.Held(filepath.Join(filepath.Dir(m), paths.CoordOwnerLockFileName))
+	live, err := safefs.New().Locks.Held(filepath.Join(filepath.Dir(m), paths.CoordOwnerLockFileName))
 	if err != nil {
 		return Endpoint{}, false, fmt.Errorf("discover: %s: %w", m, err)
 	}

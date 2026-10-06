@@ -7,7 +7,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/spf13/afero"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/spf13/cobra"
 )
 
@@ -181,7 +181,7 @@ var companionAllowCmd = &cobra.Command{
 // path and its hash, or the hash change when the path is already allowed for
 // other bytes — and writes it only with --yes.
 func runCompanionAllowCmd(cmd *cobra.Command, args []string) error {
-	res, err := operations.AllowCompanion(cmd.Context(), afero.NewOsFs(),
+	res, err := operations.AllowCompanion(cmd.Context(), safefs.New(),
 		operations.CompanionAllowRequest{PathOrName: args[0], Apply: companionAllowYes})
 	if err != nil {
 		return err
@@ -219,7 +219,7 @@ var companionForgetCmd = &cobra.Command{
 // runCompanionForgetCmd reports the allow records it would drop and drops them
 // only with --yes, in the shared remove-preview shape.
 func runCompanionForgetCmd(cmd *cobra.Command, args []string) error {
-	res, err := operations.ForgetCompanion(cmd.Context(), afero.NewOsFs(), args[0], companionForgetYes)
+	res, err := operations.ForgetCompanion(cmd.Context(), safefs.New(), args[0], companionForgetYes)
 	if err != nil {
 		return err
 	}

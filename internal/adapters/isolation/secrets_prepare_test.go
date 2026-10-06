@@ -116,7 +116,7 @@ func TestContainer_TheNextPrepareSweepsACrashedRunsSecret(t *testing.T) {
 	crashed, err := newOwnedScratch(runtimeDir, secretScratchPrefix)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(crashed.dir, secretVar), []byte(fixtureSecret), 0o600))
-	require.NoError(t, crashed.lock.Close(), "the owner dies: its lock goes, its dir stays")
+	require.NoError(t, crashed.lock.Unlock(), "the owner dies: its lock goes, its dir stays")
 
 	preparedSecretCell(t)
 	assert.NoDirExists(t, crashed.dir, "the dead owner's secret was swept")
@@ -163,7 +163,7 @@ func TestRefreshSecrets_ARestartRewritesADeadOwnersSecretInPlace(t *testing.T) {
 	require.NoError(t, cw.secrets.put(map[string]string{sessions.EnvCoordCred: "c0ffee"}))
 	_, err := RefreshSecrets(file, map[string]string{secretVar: "sk-fresh"})
 	require.ErrorIs(t, err, ErrSecretsOwned, "a live owner's secrets are never taken over")
-	require.NoError(t, cw.secrets.scratch.lock.Close(), "the owner dies: its lock goes, its dir stays")
+	require.NoError(t, cw.secrets.scratch.lock.Unlock(), "the owner dies: its lock goes, its dir stays")
 
 	release, err := RefreshSecrets(file, map[string]string{secretVar: "sk-fresh"})
 	require.NoError(t, err)

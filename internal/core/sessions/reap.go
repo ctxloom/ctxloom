@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
+	"github.com/spf13/afero"
 )
 
 // ErrNoAgeBound is the refusal when a caller asks to reap aged session data
@@ -373,7 +374,7 @@ func triageSpares(ctx context.Context, triage Triage, name string, probe LockPro
 // it owns the session we are still deleting — the exact race holding the
 // lock exists to prevent.
 func removeReapMembers(l Layout, name string, members []paths.HarpMember, c ReapCandidate) ReapCandidate {
-	if err := KeepHomeHistory(l.Dir(name)); err != nil {
+	if err := KeepHomeHistory(afero.NewOsFs(), l.Dir(name)); err != nil {
 		c.Verdict = ReapSkipped
 		c.Reason = fmt.Sprintf("its engine homes' history could not be moved into native/, so its data is left alone: %v", err)
 		return c

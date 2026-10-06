@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/spf13/afero"
 )
@@ -61,12 +60,12 @@ func wakeDir(m PathMapper, harp string) (string, error) {
 // causes always finds it — a wake fired first and recorded second races its
 // own acknowledgement.
 func ArmWake(fs afero.Fs, m PathMapper, harp string) (string, error) {
-	root, err := ensureRoot(m, harp)
+	root, err := Root(m, harp)
 	if err != nil {
 		return "", err
 	}
 	dir := filepath.Join(root, filepath.FromSlash(wakeDirName))
-	if err := fs.MkdirAll(dir, owneronly.DirMode); err != nil {
+	if err := fs.MkdirAll(dir, safefs.PrivateDirMode); err != nil {
 		return "", fmt.Errorf("spool: create %s: %w", dir, err)
 	}
 	b := make([]byte, nonceBytes)
@@ -75,7 +74,7 @@ func ArmWake(fs afero.Fs, m PathMapper, harp string) (string, error) {
 	}
 	nonce := hex.EncodeToString(b)
 	path := filepath.Join(dir, nonce)
-	if err := safefs.WriteFile(fs, path, nil, owneronly.FileMode, safefs.Durable()); err != nil {
+	if err := safefs.WriteFile(fs, path, nil, safefs.PrivateFileMode, safefs.Durable()); err != nil {
 		return "", fmt.Errorf("spool: arming wake %s: %w", path, err)
 	}
 	return nonce, nil

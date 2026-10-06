@@ -5,7 +5,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // ===== Dirty-tree-commit human acknowledgement ===============================
@@ -64,7 +66,10 @@ func dirtyTreeAckReasons() admission.Reasons[dirtyTreeAckReason] {
 
 // dirtyTreeAckStore opens appPath's dirty-tree-commit acknowledgement record.
 // fs defaults to the OS filesystem when nil, matching every other store
-// constructor in this package.
+// constructor in this package. The store locks through a safefs.Root, and
+// this package is handed only an afero.Fs (cfg.FS()), so the Root is chosen
+// from it: the controller's own for the OS filesystem, an in-memory one for a
+// test double — the same split config.Owner.Update's injectedFS makes.
 //
 // WithLockPathFor(paths.ProjectPathFor): this record lives inside a
 // PROJECT .ctxloom tree (paths.DirtyTreeCommitAckPath, under
@@ -75,10 +80,11 @@ func dirtyTreeAckReasons() admission.Reasons[dirtyTreeAckReason] {
 // as an untracked sibling, one more surface for a stray file to turn up on
 // where the home-rooted convention has none of that problem to begin with.
 func dirtyTreeAckStore(fs afero.Fs, appPath string) *admission.Store[dirtyTreeAckKey, dirtyTreeAckReason] {
-	if fs == nil {
-		fs = afero.NewOsFs()
+	root := safefs.New()
+	if fs != nil && !filelock.IsOSBackedFs(fs) {
+		root = safefs.NewMem(fs)
 	}
-	return admission.NewStore(fs, paths.DirtyTreeCommitAckPath(appPath), dirtyTreeAckKeyFunc, dirtyTreeAckReasons(),
+	return admission.NewStore(root, paths.DirtyTreeCommitAckPath(appPath), dirtyTreeAckKeyFunc, dirtyTreeAckReasons(),
 		admission.WithLockPathFor[dirtyTreeAckKey](paths.ProjectPathFor))
 }
 

@@ -27,10 +27,10 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
-	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -242,7 +242,7 @@ func forgetCompanionAllow(w *World, path string) error {
 	if err != nil {
 		return err
 	}
-	store := companions.NewAllowStoreAt(afero.NewOsFs(),
+	store := companions.NewAllowStoreAt(safefs.New(),
 		filepath.Join(w.env.HomeDir, paths.AppDirName, paths.CompanionAllowFileName+".yaml"))
 	_, err = store.Forget(key)
 	return err

@@ -12,9 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
-	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
 // scratchDirs lists the directories directly under parent carrying prefix.
@@ -44,7 +42,7 @@ func TestNewOwnedScratch_ReclaimsAfterReaperWinsClaimRace(t *testing.T) {
 	scratchCreated = func(dir string) {
 		if len(raced) == 0 {
 			raced = append(raced, dir)
-			reapDeadScratch(parent, prefix)
+			reapDeadScratch(safefs.New().Locks, parent, prefix)
 		}
 	}
 	t.Cleanup(func() { scratchCreated = orig })
@@ -57,7 +55,7 @@ func TestNewOwnedScratch_ReclaimsAfterReaperWinsClaimRace(t *testing.T) {
 	assert.NoDirExists(t, raced[0], "precondition: the reaper took the first dir")
 	assert.NotEqual(t, raced[0], s.dir)
 	assert.DirExists(t, s.dir, "the owner claimed a dir that exists")
-	reapDeadScratch(parent, prefix)
+	reapDeadScratch(safefs.New().Locks, parent, prefix)
 	assert.DirExists(t, s.dir, "and holds it live against the next reaper")
 }
 
@@ -88,37 +86,12 @@ func TestReapDeadScratch_DeletesOnlyWhileHoldingLock(t *testing.T) {
 	}
 	t.Cleanup(func() { scratchReapRemove = orig })
 
-	reapDeadScratch(parent, prefix)
+	reapDeadScratch(safefs.New().Locks, parent, prefix)
 
 	require.Equal(t, []string{dead}, removed, "precondition: the reaper took the dead dir")
 	require.NoError(t, probeErr)
 	assert.False(t, probeLocked, "the reaper holds the owner lock at the moment it deletes")
 	assert.NoDirExists(t, dead)
-}
-
-// TestOwnerLock_ConflictsWithFlock pins the invariant the owner/reaper
-// protocol rests on: the owner's own lock (safefs.OpenLockFile + lockOwnerFile)
-// and the reaper's gofrs/flock contend on the same object. A different
-// primitive, byte range or mode would let a reaper take a live owner's dir.
-func TestOwnerLock_ConflictsWithFlock(t *testing.T) {
-	path := filepath.Join(t.TempDir(), ownedScratchLockName)
-	f, err := safefs.OpenLockFile(path, owneronly.FileMode)
-	require.NoError(t, err)
-	require.NoError(t, lockOwnerFile(f))
-
-	probe := flock.New(path)
-	locked, err := probe.TryLock()
-	require.NoError(t, err)
-	assert.False(t, locked, "a reaper must not take a lock the owner holds")
-	shared, err := probe.TryRLock()
-	require.NoError(t, err)
-	assert.False(t, shared, "the owner's lock is exclusive")
-
-	require.NoError(t, f.Close())
-	locked, err = probe.TryLock()
-	require.NoError(t, err)
-	assert.True(t, locked, "closing the owner's handle releases its lock")
-	require.NoError(t, probe.Unlock())
 }
 
 // raceStepTimeout bounds each wait in a forced interleaving, so a seam that
@@ -134,33 +107,34 @@ func awaitStep(ch <-chan struct{}, what string) error {
 	}
 }
 
-// TestNewOwnedScratch_OwnerOpeningInsideReapersHoldNeverContinuesInDeletedDir:
-// the owner opens its lock file AFTER a reaper has locked the dir but BEFORE
-// the reaper deletes it, then locks only once the reaper is completely done.
-// Whatever the platform makes of that — unix unlinks the file under the open
-// handle, Windows refuses to delete a file someone has open — the owner must
-// end up holding a lock on a dir that exists, with nothing left behind.
+// TestNewOwnedScratch_OwnerContendingInsideReapersHoldNeverContinuesInDeletedDir:
+// the owner tries its lock AFTER a reaper has locked the dir but BEFORE the
+// reaper deletes it, then waits only once the reaper is completely done.
+// Whatever the platform makes of that, the owner must end up holding a lock
+// on a dir that exists, with nothing left behind.
 //
 // Forced, not waited for: scratchCreated runs the reaper up to its delete and
-// parks it there, holding the lock; the owner opens (scratchOpened), which
-// releases the delete, and the owner then waits for the reaper to finish its
-// delete, unlock and second pass before it locks.
-func TestNewOwnedScratch_OwnerOpeningInsideReapersHoldNeverContinuesInDeletedDir(t *testing.T) {
+// parks it there, holding the lock; the owner's first attempt meets that hold
+// (scratchContended), which releases the delete, and the owner then waits for
+// the reaper to finish its delete, unlock and second pass before it retries.
+func TestNewOwnedScratch_OwnerContendingInsideReapersHoldNeverContinuesInDeletedDir(t *testing.T) {
 	parent := t.TempDir()
 	const prefix = "ctxloom-holdrace-"
 
 	var (
-		raced               string
-		opened              bool
-		probeLocked         bool
-		probeErr, removeErr error
-		holdErr, openErr    error
-		reaperErr           error
-		inHold, ownerOpened = make(chan struct{}), make(chan struct{})
-		reaperDone          = make(chan struct{})
+		raced                  string
+		contended              bool
+		probeLocked            bool
+		probeErr, removeErr    error
+		holdErr, contendErr    error
+		reaperErr              error
+		inHold, ownerContended = make(chan struct{}), make(chan struct{})
+		reaperDone             = make(chan struct{})
 	)
-	origCreated, origOpened, origRemove := scratchCreated, scratchOpened, scratchReapRemove
-	restore := func() { scratchCreated, scratchOpened, scratchReapRemove = origCreated, origOpened, origRemove }
+	origCreated, origContended, origRemove := scratchCreated, scratchContended, scratchReapRemove
+	restore := func() {
+		scratchCreated, scratchContended, scratchReapRemove = origCreated, origContended, origRemove
+	}
 	t.Cleanup(restore)
 
 	scratchReapRemove = func(dir string) error {
@@ -170,7 +144,7 @@ func TestNewOwnedScratch_OwnerOpeningInsideReapersHoldNeverContinuesInDeletedDir
 			_ = probe.Unlock()
 		}
 		close(inHold)
-		openErr = awaitStep(ownerOpened, "the owner to open its lock file")
+		contendErr = awaitStep(ownerContended, "the owner to meet the reaper's hold")
 		removeErr = os.RemoveAll(dir)
 		return removeErr
 	}
@@ -179,15 +153,15 @@ func TestNewOwnedScratch_OwnerOpeningInsideReapersHoldNeverContinuesInDeletedDir
 			return
 		}
 		raced = dir
-		go func() { defer close(reaperDone); reapDeadScratch(parent, prefix) }()
+		go func() { defer close(reaperDone); reapDeadScratch(safefs.New().Locks, parent, prefix) }()
 		holdErr = awaitStep(inHold, "the reaper to reach its delete")
 	}
-	scratchOpened = func(dir string) {
-		if dir != raced || opened {
+	scratchContended = func(dir string) {
+		if dir != raced || contended {
 			return
 		}
-		opened = true
-		close(ownerOpened)
+		contended = true
+		close(ownerContended)
 		reaperErr = awaitStep(reaperDone, "the reaper to finish")
 	}
 
@@ -197,7 +171,7 @@ func TestNewOwnedScratch_OwnerOpeningInsideReapersHoldNeverContinuesInDeletedDir
 	require.NoError(t, err)
 	t.Cleanup(s.release)
 	require.NoError(t, holdErr)
-	require.NoError(t, openErr)
+	require.NoError(t, contendErr)
 	require.NoError(t, reaperErr)
 
 	require.NoError(t, probeErr)
@@ -216,18 +190,17 @@ func TestNewOwnedScratch_OwnerOpeningInsideReapersHoldNeverContinuesInDeletedDir
 	} else {
 		assert.NoDirExists(t, raced, "the reaper took the raced dir")
 	}
-	reapDeadScratch(parent, prefix)
+	reapDeadScratch(safefs.New().Locks, parent, prefix)
 	assert.DirExists(t, s.dir, "and the owner holds it live against the next reaper")
 }
 
-// A claimed scratch is owner-only, its lock file included: whoever can open
-// the lock file can hold the scratch live. On Windows that is the DACL, which
-// the directory's parent (here a plain temp dir) would otherwise hand down.
+// A claimed scratch is owner-only: whoever can open its lock file can hold
+// the scratch live, and the lock file is reached only through the dir — on
+// unix its mode blocks traversal, on Windows the lock file inherits its DACL.
 func TestNewOwnedScratch_IsOwnerOnly(t *testing.T) {
 	s, err := newOwnedScratch(t.TempDir(), "ctxloom-owneronly-")
 	require.NoError(t, err)
 	t.Cleanup(s.release)
 
-	fileperm.OwnerOnly(t, s.dir)
-	fileperm.OwnerOnly(t, filepath.Join(s.dir, ownedScratchLockName))
+	require.NoError(t, safefs.New().Private.Check(s.dir))
 }

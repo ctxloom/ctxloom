@@ -53,7 +53,7 @@ func (c *Coordinator) saveFinalReport(harp string, s Summary) {
 
 // writeFinalReport writes s and its artifacts into dir.
 func (c *Coordinator) writeFinalReport(dir, harp string, s Summary) error {
-	fsys := c.fs
+	fsys := c.root.Fs
 	if err := fsys.MkdirAll(dir, reportDirMode); err != nil {
 		return err
 	}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -45,7 +46,7 @@ func TestReplay_DoesNotHoldTheWholeJournalInMemory(t *testing.T) {
 	writeFatJournal(t, path, lineCount, lineSize)
 
 	fold := &heapSamplingFold{}
-	s, err := openStore(path, fold)
+	s, err := openStore(afero.NewOsFs(), path, fold)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 
@@ -64,7 +65,7 @@ func TestReplay_TornTailIsStillTruncated(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(good+`{"kind":"item","at":`), 0o600))
 
 	fold := &countingFold{}
-	s, err := openStore(path, fold)
+	s, err := openStore(afero.NewOsFs(), path, fold)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 
@@ -83,7 +84,7 @@ func TestReplay_UnparseableTailIsTruncated(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(good+"not json at all\n"), 0o600))
 
 	fold := &countingFold{}
-	s, err := openStore(path, fold)
+	s, err := openStore(afero.NewOsFs(), path, fold)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 
@@ -101,7 +102,7 @@ func TestReplay_CorruptionMidJournalFailsLoudly(t *testing.T) {
 	body := mustFactLine(t, "one") + "not json at all\n" + mustFactLine(t, "three")
 	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
 
-	_, err := openStore(path, &countingFold{})
+	_, err := openStore(afero.NewOsFs(), path, &countingFold{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "corrupt")
 }
@@ -114,7 +115,7 @@ func TestReplay_AppendsLandAfterTheReplayedTail(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(mustFactLine(t, "one")+mustFactLine(t, "two")), 0o600))
 
 	fold := &countingFold{}
-	s, err := openStore(path, fold)
+	s, err := openStore(afero.NewOsFs(), path, fold)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 	require.Equal(t, 2, fold.n)

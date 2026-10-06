@@ -1,26 +1,24 @@
-//go:build !windows
-
 package coord
 
 import (
-	"os"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // The state dir holds the journals and endpoint.json (the consumer
-// credential): a dir loosened after it was made is tightened again the next
-// time it is resolved.
-func TestEnsureRootStateDir_ALoosenedDirIsOwnerOnlyAgain(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	dir, err := ensureRootStateDir("proj-key", "", "root-harp")
-	require.NoError(t, err)
-	require.NoError(t, os.Chmod(dir, 0o755))
+// credential): it is created owner-only, on the coordinator's own fs. Its
+// protection beyond that is the established home root's
+// (paths.EnsureHomeRoots), not re-applied on every resolve.
+func TestEnsureRootStateDir_CreatesTheDirOwnerOnly(t *testing.T) {
+	t.Setenv("HOME", "/home/u")
+	t.Setenv("USERPROFILE", "/home/u")
+	root := safefs.NewMem(afero.NewMemMapFs())
 
-	again, err := ensureRootStateDir("proj-key", "", "root-harp")
+	dir, err := ensureRootStateDir(root.Fs, "proj-key", "", "root-harp")
 	require.NoError(t, err)
-	require.NoError(t, owneronly.Check(again))
+	require.NoError(t, root.Private.Check(dir))
 }

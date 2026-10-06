@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -37,7 +36,7 @@ func restoreNativeHistory(instanceHome, nativeHome, rel string) error {
 	if err != nil || at == historyRealDir {
 		return err
 	}
-	if err := os.MkdirAll(target, owneronly.DirMode); err != nil {
+	if err := os.MkdirAll(target, safefs.PrivateDirMode); err != nil {
 		return fmt.Errorf("native history %s: %w", target, err)
 	}
 	return swapInCopy(target, link, at == historyLinked || at == historyLinkedBeforeRename)
@@ -86,7 +85,7 @@ func copyTree(src, dst string) error {
 		to := filepath.Join(dst, rel)
 		switch {
 		case d.IsDir():
-			return os.MkdirAll(to, owneronly.DirMode)
+			return os.MkdirAll(to, safefs.PrivateDirMode)
 		case !d.Type().IsRegular():
 			return nil
 		}
@@ -94,6 +93,6 @@ func copyTree(src, dst string) error {
 		if err != nil {
 			return err
 		}
-		return safefs.WriteFile(historyFs, to, data, owneronly.FileMode, safefs.AllowEmpty())
+		return safefs.WriteFile(historyFs, to, data, safefs.PrivateFileMode, safefs.AllowEmpty())
 	})
 }

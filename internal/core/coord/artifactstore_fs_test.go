@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -151,7 +152,7 @@ func TestArtifactStore_EmptyUploadRacingAnIdenticalOneSucceeds(t *testing.T) {
 func TestCoordinator_ArtifactRoundTripOnAnInjectedFs(t *testing.T) {
 	resetStrictness(t)
 	mem := afero.NewMemMapFs()
-	c := newTestCoordinatorWith(t, researcherSpawner(t), func(o *Options) { o.FS = mem })
+	c := newTestCoordinatorWith(t, researcherSpawner(t), func(o *Options) { o.Root = safefs.NewMem(mem) })
 	out := spawnResearcher(t, c)
 	child := childHome(t, c, out.RunID)
 

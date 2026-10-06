@@ -13,7 +13,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/spf13/afero"
 )
@@ -137,9 +136,7 @@ const logDirSyncFailed = "spool_publish_dir_sync_failed"
 // consumed/withdrawn directories are reached by rename, never written into
 // directly), publishing under the given writer id through fs.
 //
-// The spool directories are created through fs by EnsureDirs, except the
-// root's owner-only restriction, which ensureRoot applies on the OS (see
-// there).
+// The spool directories are created through fs by EnsureDirs.
 //
 // The sequence counter is re-seeded from the highest seq already on disk
 // across the direction and its consumed/withdrawn siblings, so a restarted
@@ -275,7 +272,7 @@ func (w *Writer) Write(msg *Message) (Ref, error) {
 	// are named, so the rename below publishes durable bytes rather than a
 	// promise. Its own temp file lives in tmp/ too, where no sweep looks.
 	tmp := filepath.Join(w.root, tmpDirName, name.String())
-	if err := safefs.WriteFile(w.fs, tmp, data, owneronly.FileMode); err != nil {
+	if err := safefs.WriteFile(w.fs, tmp, data, safefs.PrivateFileMode); err != nil {
 		return Ref{}, fmt.Errorf("spool: staging %s: %w", ref, err)
 	}
 	if err := safefs.Rename(safefs.NewGuardFs(w.fs), tmp, final); err != nil {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // treesSentinel is the line typed into the first session's pty whose echo
@@ -75,7 +76,7 @@ func TestSecondRun_FoundsItsOwnTree_AndTheFirstKeepsItsState(t *testing.T) {
 	locks := ownerLocks(t, env.HomeDir)
 	require.Len(t, locks, 1, "the first session must hold exactly one root; found %v", locks)
 	lock := locks[0]
-	owner, err := coord.ProbeOwner(filepath.Dir(lock))
+	owner, err := coord.ProbeOwner(safefs.New(), filepath.Dir(lock))
 	require.NoError(t, err)
 	require.True(t, owner.Held, "the first session must hold its root's owner lock")
 	require.Equal(t, first.PID(), owner.PID, "the root must be stamped with the first session's pid")
@@ -103,11 +104,11 @@ func TestSecondRun_FoundsItsOwnTree_AndTheFirstKeepsItsState(t *testing.T) {
 			continue
 		}
 		require.Equal(t, filepath.Dir(filepath.Dir(lock)), filepath.Dir(filepath.Dir(l)), "both roots belong to the one project")
-		st, err := coord.ProbeOwner(filepath.Dir(l))
+		st, err := coord.ProbeOwner(safefs.New(), filepath.Dir(l))
 		require.NoError(t, err)
 		require.False(t, st.Held, "the exited second run holds nothing")
 	}
-	ownerAfter, err := coord.ProbeOwner(filepath.Dir(lock))
+	ownerAfter, err := coord.ProbeOwner(safefs.New(), filepath.Dir(lock))
 	require.NoError(t, err)
 	require.Equal(t, owner, ownerAfter, "the second run must not take or restamp the first session's root")
 	require.Equal(t, journalsBefore, journalsBeside(t, lock), "the second run must not touch the first session's journals")
@@ -117,7 +118,7 @@ func TestSecondRun_FoundsItsOwnTree_AndTheFirstKeepsItsState(t *testing.T) {
 	require.NoError(t, err)
 	exited, _ := first.AwaitExit(t)
 	require.True(t, exited, "the first session did not exit after quit; output:\n%s", first.Output())
-	released, err := coord.ProbeOwner(filepath.Dir(lock))
+	released, err := coord.ProbeOwner(safefs.New(), filepath.Dir(lock))
 	require.NoError(t, err)
 	require.False(t, released.Held, "the first session must release its root on exit")
 }

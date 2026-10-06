@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
 )
 
@@ -35,7 +36,9 @@ func reclaimTriage(g git.Git, projectDir string) sessions.Triage {
 // refused and kept. The root is keyed by the project identity the
 // coordinator host keys it by, read (never resolved, which would mint one)
 // like doctor reads it. Any other failure is returned, so the reaper leaves
-// the session alone and reports why rather than half-reaping it.
+// the session alone and reports why rather than half-reaping it. The root is
+// the controller's own filesystem, where the reaper's Layout removes the
+// session's members.
 func removeSessionRoot(projectDir, harp string) error {
 	if projectDir == "" {
 		return nil
@@ -44,7 +47,7 @@ func removeSessionRoot(projectDir, harp string) error {
 	if err != nil {
 		id = ""
 	}
-	if err := coord.RemoveRoot(id, projectDir, harp); err != nil && !errors.Is(err, coord.ErrStateOwned) {
+	if err := coord.RemoveRoot(safefs.New(), id, projectDir, harp); err != nil && !errors.Is(err, coord.ErrStateOwned) {
 		return fmt.Errorf("its coordinator root: %w", err)
 	}
 	return nil

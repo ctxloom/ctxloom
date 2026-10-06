@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,7 +27,7 @@ func TestStore_OffsetViewIsAtomicWithConcurrentExec(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "items.jsonl")
 	itemsF := newItemsFold()
-	store, err := openStore(path, itemsF)
+	store, err := openStore(afero.NewOsFs(), path, itemsF)
 	require.NoError(t, err)
 	defer store.Close()
 

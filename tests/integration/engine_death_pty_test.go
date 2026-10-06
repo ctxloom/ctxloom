@@ -60,14 +60,15 @@ var (
 func announcedPID(t *testing.T, sess *testenv.PTYSession, line *regexp.Regexp) int {
 	t.Helper()
 	var pid int
-	require.True(t, sess.WaitForOutput(ptyRunTimeout, func(out string) bool {
+	out, announced := sess.AwaitOutput(t, func(out string) bool {
 		m := line.FindStringSubmatch(out)
 		if m == nil {
 			return false
 		}
 		pid, _ = strconv.Atoi(m[1])
 		return true
-	}), "no %s announced; captured so far: %q", line, sess.Output())
+	})
+	require.True(t, announced, "no %s announced; captured: %q", line, out)
 	return pid
 }
 
@@ -99,9 +100,10 @@ func TestRunPTY_EngineKilledMidSessionEndsTheRunnerAndTheRun(t *testing.T) {
 			// runner and the engine before anything is killed.
 			_, err := sess.Write([]byte("before-the-crash\r"))
 			require.NoError(t, err)
-			require.True(t, sess.WaitForOutput(ptyRunTimeout, func(out string) bool {
+			out, carried := sess.AwaitOutput(t, func(out string) bool {
 				return strings.Contains(out, "FAKE-ENGINE-GOT:before-the-crash")
-			}), "the session never carried a line to the engine; captured so far: %q", sess.Output())
+			})
+			require.True(t, carried, "the session never carried a line to the engine; captured: %q", out)
 
 			runners := testenv.RunnerChildrenOf(sess.PID())
 			require.Len(t, runners, 1, "exactly one runner serves the session")

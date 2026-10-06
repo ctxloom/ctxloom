@@ -5,7 +5,6 @@ package integration
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,12 +38,13 @@ import (
 // reads them before the turn ends is the race this replaces: under load the
 // turn ended first and the overlay never drew.
 
-const ptyRows, ptyCols = 24, 80
+//
+// Every wait is for an event (bytes the pty delivers, the process exiting)
+// and is bounded only by the test binary's deadline (testenv.TestExpiry): the
+// plugin subprocess spawn and the engine behind it run at whatever pace a
+// loaded machine allows, so no fixed cap separates late from broken.
 
-// ptyRunTimeout is generous for CI: the plugin subprocess spawn (a real
-// `ctxloom serve` re-exec + go-plugin handshake) alone has been observed to
-// take over a second under load.
-const ptyRunTimeout = 20 * time.Second
+const ptyRows, ptyCols = 24, 80
 
 // setupPTYTestEnv builds an env wired for a MockLM-backed `ctxloom run` over
 // a pty: the fragment gives run an explicit context source, so it never
@@ -71,17 +71,17 @@ func TestRunPTY_SurroundBarPaints(t *testing.T) {
 	require.NoError(t, err)
 	defer sess.Close()
 
-	// Deadline-poll for the bar's establish signature rather than waiting for
-	// the whole run to finish first: DECSTBM 1;23 protects rows 1..23 (rows=24,
-	// SurroundReserve=1), and its bar body carries the rendered PrefixHint
-	// (CaretHint of the default ctrl-] prefix).
-	established := sess.WaitForOutput(ptyRunTimeout, func(out string) bool {
+	// Await the bar's establish signature rather than the whole run finishing
+	// first: DECSTBM 1;23 protects rows 1..23 (rows=24, SurroundReserve=1), and
+	// its bar body carries the rendered PrefixHint (CaretHint of the default
+	// ctrl-] prefix).
+	out, established := sess.AwaitOutput(t, func(out string) bool {
 		return strings.Contains(out, "\x1b[1;23r") && strings.Contains(out, "^] viewer")
 	})
-	require.True(t, established, "surround bar never established within %s; captured so far: %q", ptyRunTimeout, sess.Output())
+	require.True(t, established, "surround bar never established; captured: %q", out)
 
-	exited, waitErr := sess.Wait(ptyRunTimeout)
-	require.True(t, exited, "ctxloom run did not exit within %s; captured so far: %q", ptyRunTimeout, sess.Output())
+	exited, waitErr := sess.AwaitExit(t)
+	require.True(t, exited, "ctxloom run never exited; captured: %q", sess.Output())
 	require.NoError(t, waitErr)
 	assert.Equal(t, 0, sess.ExitCode())
 
@@ -109,8 +109,8 @@ func typeLineAndAwaitEcho(t *testing.T, sess *testenv.PTYSession, line string) {
 	t.Helper()
 	_, err := sess.Write([]byte(line + "\n"))
 	require.NoError(t, err)
-	echoed := sess.WaitForOutput(ptyRunTimeout, func(out string) bool { return strings.Contains(out, "mock echo: "+line) })
-	require.True(t, echoed, "the engine never echoed %q within %s; captured so far: %q", line, ptyRunTimeout, sess.Output())
+	out, echoed := sess.AwaitOutput(t, func(out string) bool { return strings.Contains(out, "mock echo: "+line) })
+	require.True(t, echoed, "the engine never echoed %q; captured: %q", line, out)
 }
 
 // quitAndAwaitCleanExit ends the held mock session and requires a clean exit.
@@ -118,8 +118,8 @@ func quitAndAwaitCleanExit(t *testing.T, sess *testenv.PTYSession) {
 	t.Helper()
 	_, err := sess.Write([]byte("quit\n"))
 	require.NoError(t, err)
-	exited, waitErr := sess.Wait(ptyRunTimeout)
-	require.True(t, exited, "ctxloom run did not exit within %s; captured so far: %q", ptyRunTimeout, sess.Output())
+	exited, waitErr := sess.AwaitExit(t)
+	require.True(t, exited, "ctxloom run never exited; captured: %q", sess.Output())
 	require.NoError(t, waitErr)
 	assert.Equal(t, 0, sess.ExitCode())
 }
@@ -136,18 +136,18 @@ func TestRunPTY_CtrlBracketEngagesOverlay(t *testing.T) {
 
 	_, err := sess.Write([]byte{0x1d})
 	require.NoError(t, err)
-	engaged := sess.WaitForOutput(ptyRunTimeout, func(out string) bool {
+	out, engaged := sess.AwaitOutput(t, func(out string) bool {
 		return strings.Contains(out, "\x1b[?1049h\x1b[r") && strings.Contains(out, "j/k move")
 	})
-	require.True(t, engaged, "overlay never engaged/rendered within %s; captured so far: %q", ptyRunTimeout, sess.Output())
+	require.True(t, engaged, "overlay never engaged/rendered; captured: %q", out)
 
 	_, err = sess.Write([]byte{'q'})
 	require.NoError(t, err)
-	released := sess.WaitForOutput(ptyRunTimeout, func(out string) bool {
+	out, released := sess.AwaitOutput(t, func(out string) bool {
 		_, after, _ := strings.Cut(out, "j/k move")
 		return strings.Contains(after, "\x1b[?1049l\x1b7")
 	})
-	require.True(t, released, "'q' never returned the screen to the engine within %s; captured so far: %q", ptyRunTimeout, sess.Output())
+	require.True(t, released, "'q' never returned the screen to the engine; captured: %q", out)
 	typeLineAndAwaitEcho(t, sess, "after-release")
 
 	quitAndAwaitCleanExit(t, sess)

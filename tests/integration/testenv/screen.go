@@ -88,8 +88,12 @@ var csiOps = map[byte]func(s *screen, n int){
 	'E': func(s *screen, n int) { s.row, s.col = s.row+n, 0 },
 	'F': func(s *screen, n int) { s.row, s.col = s.row-n, 0 },
 	'G': func(s *screen, n int) { s.col = n - 1 },
-	'P': func(s *screen, n int) { s.edit(func(r []string) []string { return slices.Delete(r, s.col, min(s.col+n, len(r))) }) },
-	'@': func(s *screen, n int) { s.edit(func(r []string) []string { return slices.Insert(r, s.col, blanks(n)...) }) },
+	'P': func(s *screen, n int) {
+		s.edit(func(r []string) []string { return slices.Delete(r, s.col, min(s.col+n, len(r))) })
+	},
+	'@': func(s *screen, n int) {
+		s.edit(func(r []string) []string { return slices.Insert(r, s.col, blanks(n)...) })
+	},
 	'X': func(s *screen, n int) { s.edit(func(r []string) []string { return blankFrom(r, s.col, n) }) },
 	'b': func(s *screen, n int) {
 		for range n {

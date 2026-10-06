@@ -2,12 +2,14 @@ package isolation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +17,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // worktreeBaseRef is the ref each per-agent worktree's branch starts from:
@@ -70,6 +74,10 @@ type Worktree struct {
 	// refused (checkoutPath); SpecBuilder.Session makes every prepared run
 	// carry one.
 	state SessionState
+	// primary is the controller's own layer when a runtime identified it
+	// (the worktree-in-container base); nil when nothing has — a host
+	// worktree policy, which consults no daemon. relativeWorktree reads it.
+	primary *Layer
 }
 
 // Ensure Worktree satisfies the policy interface.
@@ -134,7 +142,11 @@ func (w Worktree) resolveWorkspace(ctx context.Context, projectDir, agentID stri
 		return nil, err
 	}
 	if !reused {
-		if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, worktreeBranchName(wtPath), worktreeBaseRef); err != nil {
+		relative, err := w.relativeWorktree(ctx, projectDir)
+		if err != nil {
+			return nil, err
+		}
+		if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, worktreeBranchName(wtPath), worktreeBaseRef, relative); err != nil {
 			return nil, fmt.Errorf("worktree add: %w", err)
 		}
 	}
@@ -681,4 +693,69 @@ func sanitizeAgentID(agentID string) string {
 		id = "agent"
 	}
 	return id
+}
+
+// relativeWorktreeGit is the first git that records relative worktree paths
+// (`git worktree add --relative-paths`).
+var relativeWorktreeGit = [2]int{2, 48}
+
+// errGitTooOldForRelativeWorktrees refuses a worktree whose absolute
+// registration the host would read as a checkout that is gone.
+var errGitTooOldForRelativeWorktrees = errors.New("isolation: this git cannot record relative worktree paths")
+
+// relativeWorktreeRemedy names the fix for errGitTooOldForRelativeWorktrees.
+const relativeWorktreeRemedy = "install git 2.48 or later where ctxloom runs, or run ctxloom on the host that owns the repository"
+
+// relativeWorktree decides how a new checkout is registered. A controller in
+// a container records it RELATIVE, so the registration in the repository's
+// common dir resolves the same from the host and from any container mount of
+// it: an absolute path in this process's view is one a host `git worktree
+// prune` (or gc's automatic prune) reads as gone, and deletes. Off-container
+// git's default stands.
+//
+// A git too old for relative paths is refused, naming its version, where
+// this process's own layer shows the host names the common dir differently.
+// Where it does not — the repository is private to the container (no host
+// name at all) or shared at the same path, or no runtime identified the layer
+// — an absolute registration is the only one git can write.
+func (w Worktree) relativeWorktree(ctx context.Context, projectDir string) (bool, error) {
+	if !selfInContainer() {
+		return false, nil
+	}
+	version, err := w.git.Version(ctx)
+	if err != nil {
+		return false, fmt.Errorf("worktree add: reading git's version: %w", err)
+	}
+	if gitAtLeast(version, relativeWorktreeGit) {
+		return true, nil
+	}
+	if w.primary == nil {
+		return false, nil
+	}
+	common, err := w.git.CommonDir(ctx, projectDir)
+	if err != nil {
+		return false, fmt.Errorf("worktree add: %w", err)
+	}
+	host, err := w.primary.Reverse(common)
+	if err != nil || host == common {
+		return false, nil
+	}
+	strictness.FailAlways(report.KindIsolation, relativeWorktreeRemedy,
+		"git %s cannot record relative worktree paths (needs %d.%d+), and the host names this repository's %s as %s: an absolute registration would be one the host prunes as gone", version, relativeWorktreeGit[0], relativeWorktreeGit[1], common, host)
+	return false, report.Errorf(relativeWorktreeRemedy, "%w: git %s (needs %d.%d+)", errGitTooOldForRelativeWorktrees, version, relativeWorktreeGit[0], relativeWorktreeGit[1])
+}
+
+// gitAtLeast reports whether version ("2.48.1", "2.39.5.windows.1") is at
+// least min; an unreadable version is not.
+func gitAtLeast(version string, min [2]int) bool {
+	parts := strings.SplitN(version, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	major, err1 := strconv.Atoi(parts[0])
+	minor, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return major > min[0] || (major == min[0] && minor >= min[1])
 }

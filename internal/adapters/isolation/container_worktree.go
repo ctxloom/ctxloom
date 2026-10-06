@@ -205,6 +205,11 @@ func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (m mount, ok
 // builds), the worktree half from the Git seam.
 func NewContainerWorktreeFor(rt Runtime, backend string, img ImageConfig, g git.Git) Container {
 	c := containerFor(rt, backend, img)
-	c.base = worktreeBase{wt: NewWorktree(g)}
+	wt := NewWorktree(g)
+	if rt.identified() == nil {
+		primary := rt.primary()
+		wt.primary = &primary
+	}
+	c.base = worktreeBase{wt: wt}
 	return c
 }

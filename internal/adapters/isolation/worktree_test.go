@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -701,4 +702,86 @@ func TestWorktree_RefusesWrongBranchAtTheResumePath(t *testing.T) {
 	_, err = w.prepareWorkspace(context.Background(), "/proj", "worker")
 	require.Error(t, err, "a registered worktree on the wrong branch is not provably this agent's own")
 	assert.Contains(t, err.Error(), strconv.Quote(path))
+}
+
+// addCall is the one worktree add f recorded.
+func addCall(t *testing.T, f *git.Fake) string {
+	t.Helper()
+	var adds []string
+	for _, c := range f.Calls {
+		if strings.HasPrefix(c, "add ") {
+			adds = append(adds, c)
+		}
+	}
+	require.Len(t, adds, 1)
+	return adds[0]
+}
+
+// A controller in a container records its worktrees with RELATIVE paths, so
+// the registration resolves the same from the host and from any container
+// mount of the repository; off-container git's own default stands.
+func TestWorktree_AContainerizedControllerAddsRelativePaths(t *testing.T) {
+	for name, tc := range map[string]struct {
+		inContainer bool
+		relative    bool
+	}{
+		"in a container": {inContainer: true, relative: true},
+		"on the host":    {inContainer: false, relative: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stubSelfHarp(t, "", tc.inContainer)
+			f := &git.Fake{CommonDirValue: t.TempDir(), VersionValue: "2.48.0"}
+			ws, err := sessionWorktree(t, f).prepareWorkspace(context.Background(), "/proj", "member-a")
+			require.NoError(t, err)
+			requireCleanWorkspace(t, ws)
+			assert.Equal(t, tc.relative, strings.HasSuffix(addCall(t, f), git.RelativePathsFlag), addCall(t, f))
+		})
+	}
+}
+
+// A git too old to record relative paths is refused — naming its version — when
+// the controller's own layer shows the host names the repository elsewhere:
+// an absolute registration would be one the host reads as gone and prunes.
+func TestWorktree_OldGitIsRefusedWhereTheHostNamesTheRepoElsewhere(t *testing.T) {
+	resetStrictness(t)
+	stubSelfHarp(t, "", true)
+	common := t.TempDir()
+	f := &git.Fake{CommonDirValue: common, VersionValue: "2.43.0"}
+	w := sessionWorktree(t, f)
+	elsewhere := Layer{mounts: []LayerMount{{Host: "/srv/host-side", View: common}}}
+	w.primary = &elsewhere
+
+	mark := strictness.Checkpoint()
+	t.Cleanup(func() { strictness.Close(mark) })
+	_, err := w.prepareWorkspace(context.Background(), "/proj", "member-a")
+	require.ErrorIs(t, err, errGitTooOldForRelativeWorktrees)
+	assert.Contains(t, err.Error(), "2.43.0")
+	for _, c := range f.Calls {
+		assert.False(t, strings.HasPrefix(c, "add "), "nothing is registered: %s", c)
+	}
+	found := strictness.Since(mark)
+	require.Len(t, found, 1)
+	assert.True(t, found[0].NonDegradable)
+	assert.Contains(t, found[0].Text, "2.43.0")
+}
+
+// Where no host name differs — a repository private to the container, or one
+// shared at the same path — an absolute registration resolves wherever it is
+// read, so an older git proceeds.
+func TestWorktree_OldGitProceedsWhereNoHostNameDiffers(t *testing.T) {
+	for name, layer := range map[string]Layer{
+		"private to the container": {mounts: []LayerMount{{Host: "/srv/other", View: "/elsewhere"}}},
+		"shared at the same path":  HostLayer(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			stubSelfHarp(t, "", true)
+			f := &git.Fake{CommonDirValue: t.TempDir(), VersionValue: "2.43.0"}
+			w := sessionWorktree(t, f)
+			w.primary = &layer
+			ws, err := w.prepareWorkspace(context.Background(), "/proj", "member-a")
+			require.NoError(t, err)
+			requireCleanWorkspace(t, ws)
+			assert.False(t, strings.HasSuffix(addCall(t, f), git.RelativePathsFlag))
+		})
+	}
 }

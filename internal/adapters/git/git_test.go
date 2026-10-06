@@ -113,7 +113,7 @@ func TestExecGit_Lifecycle(t *testing.T) {
 	assert.Equal(t, resolvePath(t, filepath.Join(repo, ".git")), resolvePath(t, common))
 
 	wt := filepath.Join(t.TempDir(), "wt")
-	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/lifecycle", "HEAD"))
+	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/lifecycle", "HEAD", false))
 
 	list, err := g.WorktreeList(ctx, repo)
 	require.NoError(t, err)
@@ -154,7 +154,7 @@ func TestExecGit_CommonDir_SymlinkedWorktreePath(t *testing.T) {
 	repo := initRepo(t)
 
 	wt := filepath.Join(t.TempDir(), "wt")
-	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/symlinked", "HEAD"))
+	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/symlinked", "HEAD", false))
 
 	// A symlinked ALIAS to the worktree — the scenario a repo reached via a
 	// symlinked path (a symlinked project dir, or a worktree on a symlinked
@@ -355,7 +355,7 @@ func TestExecGit_CurrentBranch(t *testing.T) {
 	assert.Equal(t, "main", branch)
 
 	wt := filepath.Join(t.TempDir(), "named-wt")
-	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/named", "HEAD"))
+	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/named", "HEAD", false))
 	named, err := g.CurrentBranch(ctx, wt)
 	require.NoError(t, err)
 	assert.Equal(t, "agent/named", named, "a seam-created worktree is on its named branch, never detached")
@@ -384,7 +384,7 @@ func TestExecGit_WorktreeAdd_NamedBranch(t *testing.T) {
 	require.NoError(t, err)
 
 	wt := filepath.Join(t.TempDir(), "wt")
-	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/member-a", "HEAD"))
+	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/member-a", "HEAD", false))
 
 	list, err := g.WorktreeList(ctx, repo)
 	require.NoError(t, err)
@@ -409,7 +409,7 @@ func TestExecGit_WorktreeAdd_NamedBranch(t *testing.T) {
 	// git's own refusal stands: a second add on an existing branch name is
 	// an error, never a silent reset of that branch (-b, not -B).
 	other := filepath.Join(t.TempDir(), "wt2")
-	err = g.WorktreeAdd(ctx, repo, other, "agent/member-a", "HEAD")
+	err = g.WorktreeAdd(ctx, repo, other, "agent/member-a", "HEAD", false)
 	require.Error(t, err, "a branch name already taken is refused")
 	assert.NoDirExists(t, other)
 	assert.Equal(t, sha, taskstest.Git(t, repo, nil, "rev-parse", "agent/member-a"),
@@ -553,7 +553,7 @@ func TestExecGit_DiffPatch_ApplyPatch_RoundTrip(t *testing.T) {
 
 	// A second, independent worktree checked out at the SAME HEAD, clean.
 	target := filepath.Join(t.TempDir(), "copy-target")
-	require.NoError(t, g.WorktreeAdd(ctx, repo, target, "agent/copy-target", "HEAD"))
+	require.NoError(t, g.WorktreeAdd(ctx, repo, target, "agent/copy-target", "HEAD", false))
 	dirtyBefore, err := g.IsDirty(ctx, target)
 	require.NoError(t, err)
 	require.False(t, dirtyBefore)
@@ -717,4 +717,11 @@ func TestExecGit_ListUntracked(t *testing.T) {
 	assert.NotContains(t, files, "ignored-by-gitignore.log")
 	assert.NotContains(t, files, "ignored-by-info-exclude.tmp")
 	assert.Contains(t, files, ".gitignore", ".gitignore itself is untracked and not itself excluded by anything")
+}
+
+// Version names the git binary's version, as git reports it.
+func TestExecGit_Version(t *testing.T) {
+	v, err := NewExec().Version(context.Background())
+	require.NoError(t, err)
+	assert.Regexp(t, `^\d+\.\d+`, v)
 }

@@ -49,10 +49,31 @@ func (execGit) CommonDir(ctx context.Context, dir string) (string, error) {
 	return filepath.Clean(p), nil
 }
 
+// RelativePathsFlag is `git worktree add`'s flag for relative registration
+// paths (git 2.48+).
+const RelativePathsFlag = "--relative-paths"
+
 // WorktreeAdd creates a worktree at path on the new branch `branch`, starting
 // at ref. -b (not -B) so an existing branch name is refused, never reset.
-func (execGit) WorktreeAdd(ctx context.Context, repoDir, path, branch, ref string) error {
-	return run(ctx, repoDir, "worktree", "add", "-b", branch, path, ref)
+func (execGit) WorktreeAdd(ctx context.Context, repoDir, path, branch, ref string, relativePaths bool) error {
+	args := []string{"worktree", "add", "-b", branch, path, ref}
+	if relativePaths {
+		args = append(args, RelativePathsFlag)
+	}
+	return run(ctx, repoDir, args...)
+}
+
+// Version reads `git version`'s "git version X.Y.Z[.suffix]".
+func (execGit) Version(ctx context.Context) (string, error) {
+	out, err := output(ctx, "", "version")
+	if err != nil {
+		return "", err
+	}
+	fields := strings.Fields(out)
+	if len(fields) < 3 {
+		return "", fmt.Errorf("git version: unreadable answer %q", strings.TrimSpace(out))
+	}
+	return fields[2], nil
 }
 
 // WorktreeRemove removes the worktree at path. Never --force: git refuses a

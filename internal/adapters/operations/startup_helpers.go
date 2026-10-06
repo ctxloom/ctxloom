@@ -94,9 +94,11 @@ func WriteAndRecordSyncSummary(w io.Writer, result *SyncDependenciesResult) {
 	// path that must never block, so a failed write to the summary target is
 	// intentionally dropped (captured-but-unchecked via errwriter.Writer).
 	ew := errwriter.New(w)
-	if result.Status != "up_to_date" && result.Installed+result.Updated > 0 {
+	if result.Status != "up_to_date" && result.Installed+result.Reinstalled > 0 {
 		ew.Printf("ctxloom: %s\n", result.Message)
 	}
+	WriteConstraintChanges(ew, result.ConstraintChanges)
+	WriteNewPins(ew, result.Changes)
 	if result.Errors > 0 {
 		clidiag.Fwarn(ew, "ctxloom", "sync completed with %d errors", result.Errors)
 		for _, item := range result.Failed {

@@ -36,9 +36,9 @@ import (
 // WHEN A RECORD CLEARS — two independent mechanisms, because one of them is
 // not enough:
 //
-//  1. WHOLESALE REPLACEMENT. Every UpgradeDependencies round that reaches its
-//     lockfile write also rewrites this file with THAT round's refusals, and a
-//     round with none DELETES it. The file therefore says what the last
+//  1. WHOLESALE REPLACEMENT. Every APPLIED UpgradeDependencies round (a
+//     preview writes nothing) also rewrites this file with THAT round's
+//     refusals, and a round with none DELETES it. The file therefore says what the last
 //     upgrade said and nothing older: a refusal fixed upstream disappears the
 //     next time anyone upgrades, without anybody having to remember to clear
 //     it. It cannot accumulate, and there is no "manual clear" verb to forget

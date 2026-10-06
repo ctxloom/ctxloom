@@ -220,16 +220,20 @@ Choose descriptive names that indicate the content type:
 
 ### Staying Updated
 
-`ctxloom deps pull` only installs what's already pinned in the lockfile —
-it never advances anything. To move a dependency's pin forward to the newest
-commit its version constraint allows, use `ctxloom deps upgrade`:
+`ctxloom deps pull` pins what is not yet pinned and installs exactly what
+the lockfile pins — it never moves an existing pin, even when you change its
+constraint. To move a dependency's pin forward to the newest commit its version
+constraint allows, use `ctxloom deps upgrade`:
 
 ```bash
 # Pull exactly what's already pinned
 ctxloom deps pull
 
-# Advance pins to the newest commit each constraint allows
+# Show every pin that would move, and what each brings in
 ctxloom deps upgrade
+
+# Apply it
+ctxloom deps upgrade --yes
 ```
 
 Content that changes under an upgraded pin re-gates to pending, even if
@@ -238,7 +242,7 @@ to see what changed and decide.
 
 `ctxloom deps check [ref]` is a different, narrower command: it reports which
 lockfile entries have a newer commit that satisfies their constraint, and
-changes nothing. `ctxloom deps upgrade` is what advances them. Its optional
+changes nothing. `ctxloom deps upgrade --yes` is what advances them. Its optional
 argument is a canonical bundle reference, not a remote name. A bare
 `golang-bundles` is rejected; use a repository URL plus its bundle path, e.g.
 `ctxloom deps check 'https://github.com/alice/ctxloom-golang@bundles/testing'`,

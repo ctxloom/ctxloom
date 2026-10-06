@@ -59,6 +59,6 @@ func TestLockDependencies_UnregisteredRepositoryIsRefusedBeforeAnyFetch(t *testi
 // refusal.
 func TestUpgradeDependencies_UnregisteredRepositoryIsRefusedBeforeAnyFetch(t *testing.T) {
 	baseDir, srcURL := unregisteredSourceProject(t)
-	_, err := UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir), nil)
+	_, err := UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir), UpgradeRequest{Apply: true})
 	assertRefusedBeforeAnyFetch(t, err, baseDir, srcURL)
 }

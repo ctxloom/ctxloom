@@ -259,3 +259,25 @@ func TestLockDependencies_StampsFetchedAt(t *testing.T) {
 	assert.True(t, first.FetchedAt.Equal(load().FetchedAt),
 		"a relock that does not move the pin keeps the time it was fetched")
 }
+
+// The post-pull lock rebuild carries an existing pin whatever the manifest now
+// asks for: only `deps upgrade` moves a pin, and the entry keeps recording the
+// constraint its SHA was resolved from.
+func TestLockDependencies_ChangedConstraintNeverMovesAnExistingPin(t *testing.T) {
+	baseDir, ref, identity, c1 := setupUpgrade(t)
+	cfg := testConfigWithSCMPath(baseDir)
+	ctx := context.Background()
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
+	require.NoError(t, err)
+
+	c2 := addFileToLocalRepo(t, srcDirOf(ref), repoV2("demo2"), "name: demo2\n")
+	writeLocalProfile(t, baseDir, "default", "bundles:\n  - "+ref+"@"+c2+"\n")
+
+	_, err = LockDependencies(ctx, testConfigWithSCMPath(baseDir), LockDependenciesRequest{FailOnConflict: true})
+	require.NoError(t, err)
+
+	e, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, identity))
+	require.True(t, ok)
+	assert.Equal(t, c1, e.SHA, "a relock never moves an existing pin")
+	assert.Empty(t, e.RequestedVersion, "the entry keeps the constraint its SHA was resolved from")
+}

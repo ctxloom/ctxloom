@@ -205,8 +205,8 @@ func TestDepsPull_PipedEmitsTheApprovedShapeThenFails(t *testing.T) {
 	require.Error(t, err, "a failed item still fails the pull — after the payload")
 
 	got := decodeObject(t, stdout)
-	assertKeys(t, got, "status", "total", "installed", "updated", "errors", "synced", "skipped", "retracted",
-		"failed", "removed", "incomplete", "unreachable", "message", "reconcile")
+	assertKeys(t, got, "status", "total", "installed", "reinstalled", "errors", "synced", "skipped", "retracted",
+		"failed", "removed", "incomplete", "unreachable", "constraint_changes", "changes", "message", "reconcile")
 	assert.Equal(t, "completed_with_errors", got["status"])
 	assert.Equal(t, []any{}, got["skipped"])
 	assertKeys(t, got["synced"].([]any)[0], "reference", "type", "status", "local_path")
@@ -308,8 +308,8 @@ func TestDepsCheckRef_PipedEmitsTheApprovedShape(t *testing.T) {
 }
 
 func TestDepsUpgrade_PipedEmitsTheApprovedShapeThenExitsRefused(t *testing.T) {
-	stub(t, &upgradeDependencies, func(context.Context, *config.Config, []string) (operations.UpgradeResult, error) {
-		return operations.UpgradeResult{Advanced: 1, Refused: []operations.RefusedAdvance{{Identity: "corp/a",
+	stub(t, &upgradeDependencies, func(context.Context, *config.Config, operations.UpgradeRequest) (operations.UpgradeResult, error) {
+		return operations.UpgradeResult{Changes: []operations.PinChange{{Identity: "corp/b"}}, Refused: []operations.RefusedAdvance{{Identity: "corp/a",
 			KeptSHA: "1111", ProposedSHA: "2222", Detail: "bad sig", Cause: operations.RefusalSignature}}}, nil
 	})
 	cmd, stdout, stderr := pipedCmd(t)
@@ -320,7 +320,8 @@ func TestDepsUpgrade_PipedEmitsTheApprovedShapeThenExitsRefused(t *testing.T) {
 	require.ErrorAs(t, err, &exitErr)
 	assert.Equal(t, exitCodeRefused, exitErr.Code, "a refusal exits 2 — after the payload")
 	got := decodeObject(t, stdout)
-	assertKeys(t, got, "advanced", "incomplete", "nothing_declared", "refused", "removed")
+	assertKeys(t, got, "applied", "changes", "incomplete", "nothing_declared", "refused", "removed")
+	assertKeys(t, got["changes"].([]any)[0], "identity", "url", "from_sha", "to_sha", "from_version", "to_version", "items", "files")
 	assert.Equal(t, []any{}, got["removed"])
 	assertKeys(t, got["refused"].([]any)[0], "identity", "kept_sha", "proposed_sha", "detail", "cause")
 	assert.Equal(t, "signature", got["refused"].([]any)[0].(map[string]any)["cause"])

@@ -67,12 +67,53 @@ func TestRemoteUpgrade_NothingDeclaredIsNotReportedAsUpToDate(t *testing.T) {
 // wholesale, and an unnamed removal reads as a pin that never existed.
 func TestRemoteUpgrade_ReportsEachRemovedPinByName(t *testing.T) {
 	out := captureStdout(t, func() {
-		reportRemovedPins(os.Stdout, []string{"ctxloom+git://github.com/o/r//bundles/a", "ctxloom+git://github.com/o/r//bundles/b"})
+		reportRemovedPins(os.Stdout, []string{"ctxloom+git://github.com/o/r//bundles/a", "ctxloom+git://github.com/o/r//bundles/b"}, true)
 	})
 	assert.Equal(t,
 		"Removed ctxloom+git://github.com/o/r//bundles/a from the lockfile: nothing this project composes depends on it any more.\n"+
 			"Removed ctxloom+git://github.com/o/r//bundles/b from the lockfile: nothing this project composes depends on it any more.\n",
 		out)
+
+	preview := captureStdout(t, func() {
+		reportRemovedPins(os.Stdout, []string{"ctxloom+git://github.com/o/r//bundles/a"}, false)
+	})
+	assert.Equal(t, "Would remove ctxloom+git://github.com/o/r//bundles/a from the lockfile: nothing this project composes depends on it any more.\n", preview)
+}
+
+func upgradeChange() operations.PinChange {
+	return operations.PinChange{Identity: "corp/kit", FromSHA: "1111111111", ToSHA: "2222222222", FromVersion: "v1.0.0", ToVersion: "v1.1.0",
+		Items: []operations.ItemChange{{Kind: "hook", Name: "session_start/0", Change: operations.ChangeModified,
+			Exec: &operations.ExecDelta{Before: &operations.ExecSpec{Command: "./a.sh"}, After: &operations.ExecSpec{Command: "./b.sh"}}}}}
+}
+
+// Without --yes an upgrade shows each move and says how to apply it.
+func TestRenderUpgrade_PreviewShowsEachMoveAndHowToApplyIt(t *testing.T) {
+	out := captureStdout(t, func() {
+		renderUpgrade(os.Stdout, operations.UpgradeResult{Changes: []operations.PinChange{upgradeChange()}})
+	})
+	assert.Equal(t, "corp/kit  v1.0.0 -> v1.1.0  (1111111 -> 2222222)\n"+
+		"  ~ hook session_start/0\n"+
+		"      command: ./a.sh -> ./b.sh\n"+
+		"1 pin(s) would move. Re-run with --yes to apply.\n", out)
+}
+
+// With --yes it shows what it applied.
+func TestRenderUpgrade_AppliedSaysWhatItApplied(t *testing.T) {
+	out := captureStdout(t, func() {
+		renderUpgrade(os.Stdout, operations.UpgradeResult{Applied: true, Changes: []operations.PinChange{upgradeChange()}})
+	})
+	assert.Contains(t, out, "corp/kit  v1.0.0 -> v1.1.0  (1111111 -> 2222222)\n")
+	assert.Contains(t, out, "Applied 1 pin(s).\n")
+	assert.NotContains(t, out, "--yes")
+}
+
+// A preview that would only drop entries still needs --yes, and says so.
+func TestRenderUpgrade_PreviewOfARemovalNamesYes(t *testing.T) {
+	out := captureStdout(t, func() {
+		renderUpgrade(os.Stdout, operations.UpgradeResult{Removed: []string{"corp/old"}})
+	})
+	assert.Contains(t, out, "Would remove corp/old from the lockfile")
+	assert.Contains(t, out, "Re-run with --yes to apply.")
 }
 
 // A refusal is worded by its cause. A tamper report is the most alarming thing

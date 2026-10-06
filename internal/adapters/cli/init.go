@@ -523,7 +523,7 @@ func pullSeededDependencies(cmd *cobra.Command, appDir string) {
 		fmt.Println("  ctxloom deps pull")
 		return
 	}
-	result, syncErr := operations.SyncDependencies(cmd.Context(), App(), operations.SyncDependenciesRequest{
+	result, syncErr := syncDependencies(cmd.Context(), App(), operations.SyncDependenciesRequest{
 		Lock:       true,
 		ApplyHooks: false, // applyInitHooks runs right after
 	})
@@ -546,6 +546,8 @@ func pullSeededDependencies(cmd *cobra.Command, appDir string) {
 	if result.Installed > 0 {
 		fmt.Printf("Pulled %d seeded dependencies\n", result.Installed)
 	}
+	operations.WriteConstraintChanges(os.Stdout, result.ConstraintChanges)
+	operations.WriteNewPins(os.Stdout, result.Changes)
 }
 
 // warnDependencyPullFailed reports a dependency pull that did not complete

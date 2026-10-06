@@ -24,25 +24,11 @@ type PullOptions struct {
 	// Force skips the retracted-version confirmation prompt.
 	Force bool
 
-	// Reresolve resolves the ref's constraint afresh even when the lockfile
-	// already pins it. Without it an existing pin is what gets installed: a
-	// pull never advances a pin, and reinstalling a missing tree must not
-	// either. A held pin stays put regardless.
-	Reresolve bool
-
 	// LocalDir overrides the default .ctxloom directory path.
 	LocalDir string
 
 	// ItemType specifies what type of item to pull.
 	ItemType ItemType
-
-	// RequestedVersion, when non-nil, overrides the version constraint recorded in
-	// the lockfile entry (RequestedVersion) instead of deriving it from the pulled
-	// ref. `update --apply` uses it to pull a constraint-bounded SHA pin
-	// ("<ref>@<sha>") for the CONTENT while preserving the manifest's original
-	// constraint in the lock — otherwise pinning the pull would freeze "^1.2" into a
-	// concrete SHA. A non-nil pointer to "" preserves a constraint-less entry.
-	RequestedVersion *string
 
 	// AllowDowngrade accepts, for THIS pull's ref only, content signed at a
 	// version below the lockfile's recorded floor (or no longer signed at all).
@@ -66,10 +52,10 @@ type PullResult struct {
 	// SHA is the commit SHA of the fetched content.
 	SHA string
 
-	// Overwritten is true when this pull replaced a lockfile pin the item
-	// already had, false when it recorded the item's first pin — the signal
-	// sync reports as "updated" rather than "installed".
-	Overwritten bool
+	// Reinstalled is true when the item already had a lockfile pin, which this
+	// pull re-recorded at that same pin (pinFor never moves one); false when it
+	// recorded the item's first pin — sync's "reinstalled" vs "installed".
+	Reinstalled bool
 
 	// Content holds the fetched bytes for callers that would otherwise
 	// re-read from LocalPath. Populated for bundles (whose LocalPath is
@@ -610,15 +596,15 @@ func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string,
 	return res.SHA, requestedVersion, res.Version, res.Kind, nil
 }
 
-// pinFor is the commit a pull installs: the existing pin when there is one for
-// the same constraint, else the constraint resolved now. It is the carry-forward
-// rule the lock rebuild applies (operations.newConstraintResolver), so pull and
-// lock agree on which commit a pinned ref names. opts.Reresolve waives it.
+// pinFor is the commit a pull installs: the existing pin when there is one,
+// whatever the ref's constraint now says, else the constraint resolved now. A
+// pull creates first pins and never moves one — that is `deps upgrade`'s alone.
+// It is the carry-forward rule the lock rebuild applies
+// (operations.newConstraintResolver), so pull and lock agree on which commit a
+// pinned ref names.
 func (p *Puller) pinFor(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, localName trust.BundleKey, opts PullOptions) (sha, requestedVersion, resolvedVersion string, kind SelectorKind, err error) {
-	if !opts.Reresolve {
-		if entry, ok := p.recordedEntry(opts.ItemType, localName); ok && entry.SHA != "" && entry.RequestedVersion == ref.ContentVersion {
-			return entry.SHA, entry.RequestedVersion, entry.Version, entry.Kind, nil
-		}
+	if entry, ok := p.recordedEntry(opts.ItemType, localName); ok && entry.SHA != "" {
+		return entry.SHA, entry.RequestedVersion, entry.Version, entry.Kind, nil
 	}
 	return resolveContentSHA(ctx, fetcher, owner, repo, ref)
 }
@@ -637,15 +623,9 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// checkout lands in the CACHE (gitignored, regenerable): the pin in the
 	// lockfile stays the authority, and the worktree is checked out from it.
 	// The commit that is CHECKED OUT and the commit that is RECORDED must be
-	// one commit. Resolving the hold here rather than only at the lockfile write
-	// is what stops a forced pull from advancing the bytes past a pin the hold
-	// is successfully defending.
+	// one commit, so the hold is resolved here and not only at the lockfile
+	// write: a held pin installs its own commit with the floor it recorded.
 	requestedVersion := item.requestedVersion
-	if opts.RequestedVersion != nil {
-		// Caller pins the content SHA but wants the manifest constraint preserved
-		// (see PullOptions.RequestedVersion).
-		requestedVersion = *opts.RequestedVersion
-	}
 	installSHA := item.sha
 	var signed Verified
 	pinned := LockEntry{}
@@ -688,8 +668,8 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// operations.EffectiveTrust with nothing to withhold against. The lockfile
 	// is the only record; its write failing means the pull failed.
 	// hadExisting reports whether localName already had a lockfile entry
-	// BEFORE this write — i.e. this pull replaced an existing pin rather than
-	// creating a new one: the signal for "updated" vs "installed".
+	// BEFORE this write — i.e. this pull re-recorded an existing pin rather
+	// than creating a new one: the signal for "reinstalled" vs "installed".
 	hadExisting, err := p.updateLockfile(item.localName, opts, item.rem, installSHA, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason, item.retractionCheckedAt, signed)
 	if err != nil {
 		return nil, fmt.Errorf("pulled %s but failed to record its lockfile pin (the only on-disk record of this pull): %w", item.localName, err)
@@ -698,7 +678,7 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	return &PullResult{
 		LocalPath:       localPath,
 		SHA:             installSHA,
-		Overwritten:     hadExisting,
+		Reinstalled:     hadExisting,
 		Content:         content,
 		Retracted:       item.retracted,
 		RetractedReason: item.retractedReason,
@@ -835,7 +815,7 @@ func (p *Puller) heldPin(itemType ItemType, localName trust.BundleKey, requested
 //
 // hadExisting reports whether localName already had a lockfile entry before
 // this write — the caller (installPulledItem) surfaces it as
-// PullResult.Overwritten.
+// PullResult.Reinstalled.
 func (p *Puller) updateLockfile(localName trust.BundleKey, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind, retracted bool, retractedReason string, retractionCheckedAt time.Time, signed Verified) (hadExisting bool, err error) {
 	itemType := opts.ItemType
 	target := p.lockfileManager

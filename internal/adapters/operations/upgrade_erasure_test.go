@@ -81,7 +81,7 @@ func TestUpgrade_EmptyClosureDoesNotEraseTheLockfile(t *testing.T) {
 
 	// The config failed to load: `deps upgrade` proceeds on the empty
 	// fallback, so the closure is empty and there is nothing to propose.
-	_, err = UpgradeDependencies(ctx, fallbackShapedConfig(baseDir), nil)
+	_, err = UpgradeDependencies(ctx, fallbackShapedConfig(baseDir), UpgradeRequest{Apply: true})
 	require.Error(t, err, "an upgrade that resolved no dependencies must fail, not silently erase the lock")
 	assert.ErrorIs(t, err, remote.ErrLockfileWouldErase)
 
@@ -119,7 +119,7 @@ func TestUpgrade_EmptyClosurePreservesHoldsAndRetractions(t *testing.T) {
 	lf.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, ref), entry)
 	require.NoError(t, mgr.Save(lf))
 
-	_, err = UpgradeDependencies(ctx, fallbackShapedConfig(baseDir), nil)
+	_, err = UpgradeDependencies(ctx, fallbackShapedConfig(baseDir), UpgradeRequest{Apply: true})
 	require.Error(t, err)
 
 	after, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
@@ -164,9 +164,9 @@ func TestUpgrade_RetractionSurvivesNonEmptyReresolve(t *testing.T) {
 	c2 := addFileToLocalRepo(t, srcDirOf(ref), repoV2("demo2")+"/bundle.yaml", "name: demo2\n")
 	require.NotEqual(t, c1, c2)
 
-	res, err := UpgradeDependencies(ctx, cfg, nil)
+	res, err := UpgradeDependencies(ctx, cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)
-	assert.Equal(t, 1, res.Advanced)
+	assert.Len(t, res.Changes, 1)
 
 	after, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, identity))
 	require.True(t, ok)
@@ -189,9 +189,9 @@ func TestUpgrade_GenuinelyEmptyProjectStillSucceeds(t *testing.T) {
 	require.NoError(t, os.MkdirAll(baseDir, 0o755))
 	lockPath := remote.NewLockfileManager(baseDir).Path()
 
-	res, err := UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir), nil)
+	res, err := UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir), UpgradeRequest{Apply: true})
 	require.NoError(t, err, "an empty project has nothing to upgrade and nothing to lose")
-	assert.Equal(t, 0, res.Advanced)
+	assert.Len(t, res.Changes, 0)
 	assert.True(t, res.NothingDeclared,
 		"an empty closure is 'nothing is declared here', not 'everything is up to date'")
 	_, statErr := os.Stat(lockPath)
@@ -206,9 +206,9 @@ func TestUpgrade_GenuinelyEmptyProjectStillSucceeds(t *testing.T) {
 	before, err := os.Stat(lockPath)
 	require.NoError(t, err)
 
-	res, err = UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir), nil)
+	res, err = UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir), UpgradeRequest{Apply: true})
 	require.NoError(t, err)
-	assert.Equal(t, 0, res.Advanced)
+	assert.Len(t, res.Changes, 0)
 	assert.True(t, res.NothingDeclared)
 
 	after, err := os.Stat(lockPath)
@@ -218,7 +218,7 @@ func TestUpgrade_GenuinelyEmptyProjectStillSucceeds(t *testing.T) {
 }
 
 // The DISCRIMINATING half of the pair above, and the reason NothingDeclared
-// cannot simply be an alias for Advanced==0: a project that really does declare
+// cannot simply be an alias for an empty Changes: a project that really does declare
 // a dependency, and whose pin really is current, is the case that still earns
 // an unqualified "everything is up to date".
 func TestUpgrade_DeclaredAndCurrentIsNotNothingDeclared(t *testing.T) {
@@ -231,9 +231,9 @@ func TestUpgrade_DeclaredAndCurrentIsNotNothingDeclared(t *testing.T) {
 
 	// Nothing moved upstream, so nothing advances — the same Advanced==0 the
 	// empty project produces, from a completely different situation.
-	res, err := UpgradeDependencies(ctx, cfg, nil)
+	res, err := UpgradeDependencies(ctx, cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)
-	require.Equal(t, 0, res.Advanced)
+	require.Len(t, res.Changes, 0)
 	assert.False(t, res.NothingDeclared,
 		"this project declares a dependency and it is current: that IS 'up to date'")
 	assert.False(t, mustLoadActive(t, baseDir).IsEmpty(),
@@ -267,7 +267,7 @@ func TestUpgrade_HonoursInjectedLockfileFS(t *testing.T) {
 	memFS := afero.NewMemMapFs()
 	cfg.SetFS(memFS)
 
-	_, err := UpgradeDependencies(context.Background(), cfg, nil)
+	_, err := UpgradeDependencies(context.Background(), cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)
 
 	// The OS-disk lockfile must be untouched: still 1 entry, same SHA.
@@ -296,4 +296,15 @@ func TestUpgrade_HonoursInjectedLockfileFS(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, exists,
 		"a round with nothing declared must not fabricate a lockfile on the injected FS either")
+}
+
+// A preview refuses exactly what applying it would: an upgrade that would
+// erase the lock fails before --yes, not only on it.
+func TestUpgrade_PreviewRefusesTheErasureApplyingWould(t *testing.T) {
+	baseDir, _, cfg := setupSeededLockProject(t)
+	_, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
+	require.NoError(t, err)
+
+	_, err = UpgradeDependencies(context.Background(), fallbackShapedConfig(baseDir), UpgradeRequest{})
+	assert.ErrorIs(t, err, remote.ErrLockfileWouldErase)
 }

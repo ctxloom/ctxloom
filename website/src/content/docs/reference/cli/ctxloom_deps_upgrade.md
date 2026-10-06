@@ -9,14 +9,28 @@ This page is generated from `ctxloom deps upgrade --help`.
 
 ## ctxloom deps upgrade
 
-Upgrade pinned dependencies to the latest available
+Show, then apply, the newest pins your constraints allow
 
 ### Synopsis
 
 Re-resolve each local profile's dependency closure to the newest commit each
-version constraint allows and write the advances straight to the active lock —
-your profile YAML is never rewritten. A held entry ('ctxloom deps hold') stays
-frozen.
+version constraint allows, and show what every moved pin brings in: each hook,
+MCP server, skill, command, fragment and profile added, removed or changed —
+with what hooks and MCP servers run, before and after — and a unified diff of
+every changed script. Env and header values are never shown: each appears by
+name with a fingerprint of its value (the first 8 hex characters of its
+SHA-256, like <a1b2c3d4>), so a changed value is visible and a secret is not.
+The same holds for --format json.
+
+Nothing is written without --yes. With it, the closure is resolved again,
+applied to the active lock, each moved bundle's installed tree is moved with
+it, and what was actually applied is shown — so a remote that moved since the
+preview is what lands, and what you see. Your profile YAML is never rewritten.
+A held entry ('ctxloom deps hold') stays frozen.
+
+This is the only command that moves an existing pin. 'deps pull', 'init' and
+startup create first pins and keep every existing one, even when you change a
+constraint; that change takes effect here.
 
 The lockfile is pure dependency pinning: upgrading a pin does not expose new
 content to the agent. Any changed content from an untrusted source is withheld
@@ -29,13 +43,9 @@ copy. The old pin is kept and the refusal is reported.
 
 A refusal EXITS 2, not 0 and not 1: the command ran fine and deliberately did
 not do part of what it was asked, so an unattended sync can tell "I refused
-something" apart from both "nothing to do" (0) and a failure (1). The refusal
-also survives the run — 'ctxloom doctor' reports it until an upgrade advances
-that pin.
-
-Mirrors apt: 'deps check' reports what is out of date, 'deps upgrade' advances
-your pins to the newest commit. 'deps pull' installs exactly what is already
-pinned and never advances one.
+something" apart from both "nothing to do" (0) and a failure (1). An applied
+refusal also survives the run — 'ctxloom doctor' reports it until an upgrade
+advances that pin.
 
 A pin is also NOT moved below the version its publisher signed at the last pin
 — a rollback to an older signed release — nor from signed to unsigned content.
@@ -49,14 +59,16 @@ ctxloom deps upgrade [flags]
 ### Examples
 
 ```
-  ctxloom deps upgrade                   # Advance pins to the latest available
-  ctxloom deps upgrade --allow-downgrade <ref>   # Accept a lower signed version for <ref>
+  ctxloom deps upgrade                   # Show what would move, and what it brings in
+  ctxloom deps upgrade --yes             # Apply it
+  ctxloom deps upgrade --yes --allow-downgrade <ref>   # Accept a lower signed version for <ref>
 ```
 
 ### Options
 
 ```
       --allow-downgrade stringArray   Accept a lower signed version (or unsigned content) for this ref, and record it as the new floor; repeat per ref
+  -y, --yes                           Apply the upgrade this invocation would report (default: report only)
 ```
 
 ### Options inherited from parent commands

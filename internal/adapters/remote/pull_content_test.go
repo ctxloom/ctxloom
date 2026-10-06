@@ -15,13 +15,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
-// TestInstallPulledItem_OverwrittenReflectsExistingEntry pins that
-// PullResult.Overwritten used to be hard-coded false, making
-// operations/sync.go's "updated" status unreachable — a re-pull of an
-// already-installed item was always reported as "installed". Overwritten must
+// TestInstallPulledItem_ReinstalledReflectsExistingEntry pins that
+// PullResult.Reinstalled used to be hard-coded false, making
+// operations/sync.go's "reinstalled" status unreachable — a re-pull of an
+// already-installed item was always reported as "installed". Reinstalled must
 // be true exactly when localName already had a lockfile entry before this
 // write.
-func TestInstallPulledItem_OverwrittenReflectsExistingEntry(t *testing.T) {
+func TestInstallPulledItem_ReinstalledReflectsExistingEntry(t *testing.T) {
 	const baseDir = "/proj/.ctxloom"
 	ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeBundle, Path: "mybundle"}
 	rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
@@ -40,14 +40,14 @@ func TestInstallPulledItem_OverwrittenReflectsExistingEntry(t *testing.T) {
 		tree: map[string]TreeFile{"bundle.yaml": {Data: []byte("version: \"1.0.0\"\n")}},
 	})
 	require.NoError(t, err)
-	assert.False(t, first.Overwritten, "the first pull of a new item is not an overwrite")
+	assert.False(t, first.Reinstalled, "the first pull of a new item is not a reinstall")
 
 	second, err := p.installPulledItem(context.Background(), ref, opts, &fetchedItem{
 		rem: rem, localName: "ctxloom+git://github.com/alice/ctxloom//bundles/mybundle", sha: "def456", treeRoot: ref.TreeRepoPath(),
 		tree: map[string]TreeFile{"bundle.yaml": {Data: []byte("version: \"2.0.0\"\n")}},
 	})
 	require.NoError(t, err)
-	assert.True(t, second.Overwritten, "re-pulling an already-installed item must report Overwritten so sync can report status \"updated\"")
+	assert.True(t, second.Reinstalled, "re-pulling an already-installed item must report Reinstalled so sync can report status \"reinstalled\"")
 }
 
 // TestConfirmRetraction covers the retraction gate: a clean version passes

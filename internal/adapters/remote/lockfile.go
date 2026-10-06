@@ -346,6 +346,17 @@ func (m *LockfileManager) Save(lockfile *Lockfile, opts ...SaveOption) error {
 	return m.write(lockfile)
 }
 
+// CheckSave reports the refusal Save would give for lockfile, writing
+// nothing: a caller that previews a write refuses exactly what applying it
+// would.
+func (m *LockfileManager) CheckSave(lockfile *Lockfile, opts ...SaveOption) error {
+	var o saveOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return m.guardDestructiveWrite(lockfile, o)
+}
+
 // guardDestructiveWrite reads back what is currently on disk and reports the
 // refusals documented on Save. Nothing on disk means nothing to protect.
 func (m *LockfileManager) guardDestructiveWrite(incoming *Lockfile, o saveOptions) error {

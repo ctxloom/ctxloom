@@ -44,7 +44,7 @@ func newRefusal(t *testing.T) refusal {
 	r.proposed = addFileToLocalRepo(t, r.src, repoV2("demo")+"/fragments/keeper.md", "EDITED AFTER SIGNING\n")
 	require.NotEqual(t, r.kept, r.proposed)
 
-	res, err := UpgradeDependencies(ctx, r.cfg, nil)
+	res, err := UpgradeDependencies(ctx, r.cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)
 	require.Len(t, res.Refused, 1, "the fixture must actually reach the refusal, or every assertion below is vacuous")
 	return r
@@ -90,9 +90,9 @@ func TestRefusals_ASuccessfulAdvanceClearsTheRecord(t *testing.T) {
 	// Carol finally re-signs and republishes.
 	commitTree(t, r.src, demoTreeFiles(t, r.signer, "REVISED AND RE-SIGNED\n"), false)
 
-	res, err := UpgradeDependencies(context.Background(), r.cfg, nil)
+	res, err := UpgradeDependencies(context.Background(), r.cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)
-	require.Equal(t, 1, res.Advanced)
+	require.Len(t, res.Changes, 1)
 	require.Empty(t, res.Refused)
 
 	assert.NoFileExists(t, paths.RefusedAdvancesPath(r.baseDir),

@@ -36,10 +36,10 @@ func TestWriteAndRecordSyncSummary_UpToDateIsSilent(t *testing.T) {
 func TestWriteAndRecordSyncSummary_InstalledOrUpdatedPrintsMessage(t *testing.T) {
 	var buf bytes.Buffer
 	WriteAndRecordSyncSummary(&buf, &SyncDependenciesResult{
-		Status:    "synced",
-		Installed: 2,
-		Updated:   1,
-		Message:   "installed 2, updated 1",
+		Status:      "synced",
+		Installed:   2,
+		Reinstalled: 1,
+		Message:     "installed 2, updated 1",
 	})
 
 	out := buf.String()
@@ -200,4 +200,31 @@ func TestSweepOrphanedWorktrees_SilentWhenNothingToReap(t *testing.T) {
 	SweepOrphanedWorktrees(context.Background(), &buf)
 
 	assert.Empty(t, buf.String(), "an all-clear sweep reports nothing")
+}
+
+// Startup never moves an existing pin, so an up-to-date startup that found a
+// changed constraint must still say so — the quiet steady state is not quiet
+// about an edit it did not apply.
+func TestWriteAndRecordSyncSummary_UpToDateStillNamesAConstraintChange(t *testing.T) {
+	var buf bytes.Buffer
+	WriteAndRecordSyncSummary(&buf, &SyncDependenciesResult{
+		Status: "up_to_date",
+		ConstraintChanges: []ConstraintChange{{
+			Identity: "corp/a", Pinned: "^1.0", Declared: "^2.0", SHA: "2222222222222222222222222222222222222222",
+		}},
+	})
+	assert.Contains(t, buf.String(), "corp/a: the manifest now asks for ^2.0; the pin stays at 2222222 (resolved from ^1.0).")
+	assert.Contains(t, buf.String(), "ctxloom deps upgrade --yes")
+}
+
+// Startup creates first pins with the same disclosure pull gives.
+func TestWriteAndRecordSyncSummary_DisclosesNewPins(t *testing.T) {
+	var buf bytes.Buffer
+	WriteAndRecordSyncSummary(&buf, &SyncDependenciesResult{
+		Status: "completed", Installed: 1,
+		Changes: []PinChange{{Identity: "corp/a", ToSHA: "3333333333",
+			Items: []ItemChange{{Kind: "mcp", Name: "srv", Change: ChangeAdded, Exec: &ExecDelta{After: &ExecSpec{Command: "node"}}}}}},
+	})
+	assert.Contains(t, buf.String(), MsgNewPinsHeader)
+	assert.Contains(t, buf.String(), "  + mcp srv\n      command: node\n")
 }

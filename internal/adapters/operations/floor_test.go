@@ -2,7 +2,6 @@ package operations
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,7 +11,6 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/core/release"
 )
 
 // floorRepo is a repository whose demo bundle was signed at firstVersion, a
@@ -61,7 +59,7 @@ func TestUpgrade_ARollbackToAnOlderSignedReleaseIsRefused(t *testing.T) {
 	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	commitTree(t, src, demoTreeFilesAt(t, signer, "old\n", "1.1.0"), false)
 
-	res, err := UpgradeDependencies(context.Background(), cfg, nil)
+	res, err := UpgradeDependencies(context.Background(), cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)
 	require.Len(t, res.Refused, 1)
 	assert.Contains(t, res.Refused[0].Detail, "below")
@@ -76,7 +74,7 @@ func TestUpgrade_AllowDowngradeNamingTheRefMovesItAndLowersTheFloor(t *testing.T
 	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	older := commitTree(t, src, demoTreeFilesAt(t, signer, "old\n", "1.1.0"), false)
 
-	res, err := UpgradeDependencies(context.Background(), cfg, []string{ref})
+	res, err := UpgradeDependencies(context.Background(), cfg, UpgradeRequest{Apply: true, AllowDowngrade: []string{ref}})
 	require.NoError(t, err)
 	assert.Empty(t, res.Refused)
 	got := floorEntry(t, baseDir, ref)
@@ -89,7 +87,7 @@ func TestUpgrade_AllowDowngradeNamingAnotherRefDoesNotApply(t *testing.T) {
 	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	commitTree(t, src, demoTreeFilesAt(t, signer, "old\n", "1.1.0"), false)
 
-	res, err := UpgradeDependencies(context.Background(), cfg, []string{"https://example.test/other@bundles/x"})
+	res, err := UpgradeDependencies(context.Background(), cfg, UpgradeRequest{Apply: true, AllowDowngrade: []string{"https://example.test/other@bundles/x"}})
 	require.NoError(t, err)
 	require.Len(t, res.Refused, 1)
 	assert.Equal(t, first, floorEntry(t, baseDir, ref).SHA)
@@ -100,7 +98,7 @@ func TestUpgrade_AForwardMoveRecordsTheNewFloorAndPublisher(t *testing.T) {
 	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	newer := commitTree(t, src, demoTreeFilesAt(t, signer, "new\n", "1.3.0"), false)
 
-	res, err := UpgradeDependencies(context.Background(), cfg, nil)
+	res, err := UpgradeDependencies(context.Background(), cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)
 	assert.Empty(t, res.Refused)
 	got := floorEntry(t, baseDir, ref)
@@ -114,7 +112,7 @@ func TestUpgrade_StrippingTheSignatureDoesNotEscapeTheFloor(t *testing.T) {
 	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	commitTree(t, src, demoTreeFilesAt(t, nil, "unsigned\n", "9.0.0"), false)
 
-	res, err := UpgradeDependencies(context.Background(), cfg, nil)
+	res, err := UpgradeDependencies(context.Background(), cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)
 	require.Len(t, res.Refused, 1)
 	assert.Contains(t, res.Refused[0].Detail, "no longer signed")
@@ -128,29 +126,6 @@ func TestLockDependencies_CarriesTheFloorForward(t *testing.T) {
 	got := floorEntry(t, baseDir, ref)
 	assert.Equal(t, "1.2.0", got.SignedVersion)
 	assert.Equal(t, "publisher@example.com", got.Publisher)
-}
-
-// A relock whose closure moves a pin (here: the profile now names the older
-// commit outright) is a writer of LockEntry.SHA like any other, and the floor
-// applies to it.
-func TestLockDependencies_RefusesToMoveAPinBelowItsFloor(t *testing.T) {
-	baseDir, src, ref, signer, first := floorRepo(t, "1.2.0")
-	older := commitTree(t, src, demoTreeFilesAt(t, signer, "old\n", "1.1.0"), false)
-	writeLocalProfile(t, baseDir, "default", "bundles:\n  - "+ref+"@"+older+"\n")
-	// A relock reads the clone cache as it stands; sync refreshes it first, and
-	// so does this test, so the older commit is actually readable and the
-	// refusal is the rollback rather than "not found, so not signed".
-	refreshRepoCaches(context.Background(), NewRepoCache(withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)), []string{"file://" + src}, func(string) bool { return true })
-
-	_, err := LockDependencies(context.Background(), withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir), LockDependenciesRequest{FailOnConflict: true})
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, release.ErrRollback), "got %v", err)
-
-	_, err = LockDependencies(context.Background(), withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir), LockDependenciesRequest{})
-	require.NoError(t, err, "the startup relock never blocks: it keeps the pin and warns")
-	got := floorEntry(t, baseDir, ref)
-	assert.Equal(t, first, got.SHA)
-	assert.Equal(t, "1.2.0", got.SignedVersion)
 }
 
 // RULED: a lockfile that cannot be read may hold version floors, and a rebuild

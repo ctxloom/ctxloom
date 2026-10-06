@@ -63,7 +63,7 @@ type SyncDependenciesRequest struct {
 type SyncItem struct {
 	Reference string `json:"reference"`
 	Type      string `json:"type"`
-	Status    string `json:"status"` // "installed", "updated", "skipped", "retracted", "failed"
+	Status    string `json:"status"` // "installed", "reinstalled", "skipped", "retracted", "failed"
 	Error     string `json:"error,omitempty"`
 	LocalPath string `json:"local_path,omitempty"`
 	// cause is the failure Error was rendered from, kept typed so Remedy can
@@ -138,9 +138,11 @@ type SyncDependenciesResult struct {
 	Failed    []SyncItem `json:"failed,omitempty"`
 	Total     int        `json:"total"`
 	Installed int        `json:"installed"`
-	Updated   int        `json:"updated"`
-	Errors    int        `json:"errors"`
-	Message   string     `json:"message,omitempty"`
+	// Reinstalled counts refs re-pulled at the pin they already had (a missing
+	// tree, or --force): a sync never moves an existing pin.
+	Reinstalled int    `json:"reinstalled"`
+	Errors      int    `json:"errors"`
+	Message     string `json:"message,omitempty"`
 	// Removed names the lockfile entries the post-pull lock rebuild dropped
 	// because nothing the project composes reaches them any more.
 	Removed []string `json:"removed,omitempty"`
@@ -149,6 +151,24 @@ type SyncDependenciesResult struct {
 	// these items' previous lock entries were kept rather than rebuilt.
 	Incomplete  bool     `json:"incomplete,omitempty"`
 	Unreachable []string `json:"unreachable,omitempty"`
+	// ConstraintChanges names each pin whose manifest constraint no longer
+	// matches the one it was resolved from. Only `deps upgrade` moves a pin, so
+	// these stay where they are until the user upgrades.
+	ConstraintChanges []ConstraintChange `json:"constraint_changes,omitempty"`
+	// Changes discloses each pin this sync created: everything the bundle
+	// brings in, executables included. A sync never moves an existing pin.
+	Changes []PinChange `json:"changes,omitempty"`
+}
+
+// ConstraintChange is a pin kept at its commit although the manifest now asks
+// for something else.
+type ConstraintChange struct {
+	Identity string `json:"identity"`
+	// Pinned is the constraint the pin's SHA was resolved from.
+	Pinned string `json:"pinned"`
+	// Declared is what the manifest asks for now.
+	Declared string `json:"declared"`
+	SHA      string `json:"sha"`
 }
 
 // SyncDependencies syncs remote bundles and profiles referenced in config.
@@ -195,6 +215,11 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 
 	result := &SyncDependenciesResult{
 		Status: "completed",
+	}
+	lockManager := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
+	before, err := lockBeforeSync(req, lockManager)
+	if err != nil {
+		return nil, err
 	}
 
 	// The loop's two dependencies, named as arguments rather than reached for
@@ -246,9 +271,69 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 	}
 
 	runSyncPostSteps(ctx, reg, cfg, req, result, fs)
+	result.ConstraintChanges = constraintChangesIn(cfg, req.Profiles, baseDir, fs)
+	result.Changes = newPinChanges(ctx, cfg, before, lockManager)
 
 	summarizeSync(result)
 	return result, nil
+}
+
+// lockBeforeSync is the lock a sync starts from, for disclosing the pins it
+// creates; nil when a Puller is injected, since the disclosure reads each new
+// pin from the clone cache and a test double populates none.
+func lockBeforeSync(req SyncDependenciesRequest, m *remote.LockfileManager) (*remote.Lockfile, error) {
+	if req.Puller != nil {
+		return nil, nil
+	}
+	return m.Load()
+}
+
+// newPinChanges discloses each pin the sync created since before; nothing
+// when before is nil or the lock can no longer be read.
+func newPinChanges(ctx context.Context, cfg *config.Config, before *remote.Lockfile, m *remote.LockfileManager) []PinChange {
+	if before == nil {
+		return nil
+	}
+	after, err := m.Load()
+	if err != nil {
+		return nil
+	}
+	return pinChanges(ctx, cfg, before, after)
+}
+
+// constraintChangesIn is constraintChanges against the active lock in baseDir.
+// An unreadable lock reports nothing: the pull itself has already said why.
+func constraintChangesIn(cfg *config.Config, profileNames []string, baseDir string, fs afero.Fs) []ConstraintChange {
+	lock, err := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs)).Load()
+	if err != nil {
+		return nil
+	}
+	return constraintChanges(cfg, profileNames, lock)
+}
+
+// constraintChanges names each unheld pin in lock whose manifest constraint is
+// no longer the one it was resolved from. Pull, init and startup never move an
+// existing pin, so without this a constraint edit would be silently ignored
+// until the next `deps upgrade`. A declared bare commit equal to the pin is
+// already satisfied and is not a change.
+func constraintChanges(cfg *config.Config, profileNames []string, lock *remote.Lockfile) []ConstraintChange {
+	var out []ConstraintChange
+	for _, r := range closureBundleRefs(cfg, profileNames) {
+		ref, err := remote.ParseReference(r.ref)
+		if err != nil {
+			continue
+		}
+		key, err := ref.LockKey()
+		if err != nil {
+			continue
+		}
+		e, ok := lock.GetEntry(remote.ItemTypeBundle, key)
+		if !ok || e.Held || e.RequestedVersion == ref.ContentVersion || ref.ContentVersion == e.SHA {
+			continue
+		}
+		out = append(out, ConstraintChange{Identity: string(key), Pinned: e.RequestedVersion, Declared: ref.ContentVersion, SHA: e.SHA})
+	}
+	return out
 }
 
 // summarizeSync settles the result's status and one-line tally.
@@ -256,8 +341,8 @@ func summarizeSync(result *SyncDependenciesResult) {
 	if result.Errors > 0 {
 		result.Status = "completed_with_errors"
 	}
-	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d updated, %d skipped, %d retracted, %d failed",
-		result.Total, result.Installed, result.Updated, len(result.Skipped), len(result.Retracted), result.Errors)
+	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d reinstalled, %d skipped, %d retracted, %d failed",
+		result.Total, result.Installed, result.Reinstalled, len(result.Skipped), len(result.Retracted), result.Errors)
 }
 
 // RefCollector reports every remote ref currently visible.
@@ -402,7 +487,7 @@ func init() {
 // Each step warns and continues on failure — partial success is success and a
 // post-step failure must not fail the sync the user just completed (CLAUDE.md).
 func runSyncPostSteps(ctx context.Context, reg engine.Registry, cfg *config.Config, req SyncDependenciesRequest, result *SyncDependenciesResult, fs afero.Fs) {
-	if req.Lock && result.Installed+result.Updated > 0 {
+	if req.Lock && result.Installed+result.Reinstalled > 0 {
 		// The puller already wrote the lockfile inline during this sync, so the
 		// lock step only needs to surface it — SkipSync avoids a redundant
 		// second sync pass.
@@ -644,7 +729,6 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	// warnings) must never land there.
 	opts := remote.PullOptions{
 		Force:          true,
-		Reresolve:      force,
 		ItemType:       itemType,
 		Stdout:         os.Stderr,
 		AllowDowngrade: downgrades.allowsRef(ref),
@@ -669,8 +753,8 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 		item.Error = result.RetractedReason
 		return item
 	}
-	if result.Overwritten {
-		item.Status = "updated"
+	if result.Reinstalled {
+		item.Status = "reinstalled"
 	} else {
 		item.Status = "installed"
 	}
@@ -731,9 +815,9 @@ func addSyncItem(result *SyncDependenciesResult, item SyncItem) {
 	case "installed":
 		result.Synced = append(result.Synced, item)
 		result.Installed++
-	case "updated":
+	case "reinstalled":
 		result.Synced = append(result.Synced, item)
-		result.Updated++
+		result.Reinstalled++
 	case "skipped":
 		result.Skipped = append(result.Skipped, item)
 	case "retracted":
@@ -909,8 +993,9 @@ func SyncOnStartup(ctx context.Context, app *App) (*SyncDependenciesResult, erro
 	// If nothing is missing, return early
 	if checkResult.Count == 0 {
 		return &SyncDependenciesResult{
-			Status:  "up_to_date",
-			Message: "All dependencies are already installed",
+			Status:            "up_to_date",
+			Message:           "All dependencies are already installed",
+			ConstraintChanges: constraintChangesIn(cfg, nil, ProjectAppDir(cfg), getFS(nil)),
 		}, nil
 	}
 

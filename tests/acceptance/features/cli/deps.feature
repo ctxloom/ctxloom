@@ -12,8 +12,10 @@ Feature: deps — the installed dependency closure, and everything that moves it
   FOUR VERBS, FOUR DIFFERENT JOBS, and the boundaries between them are what
   this file specifies. `list` reads the lockfile and nothing else. `pull` makes
   the installation match upstream. `check` reports which pins could move.
-  `upgrade` moves them. Only `upgrade` and a forced `pull` ever re-resolve a
-  reference; a plain `pull` honors what is already pinned.
+  `upgrade` moves them — and it is the only thing that does: `pull` (forced or
+  not) creates first pins and keeps every existing one, even when a profile
+  changed its constraint. `upgrade` shows each move first and applies it only
+  with --yes.
 
   Where content comes FROM is the other noun — see cli/remote.feature.
 
@@ -349,13 +351,14 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the output does not contain "Everything is up to date"
       And the output contains "unreachable"
 
-  Rule: Check reads and upgrade writes
+  Rule: Check reads, upgrade shows, and upgrade --yes writes
 
     `deps check` reaches the network and reports; it changes nothing, which is
     what makes it safe to run anywhere. `deps upgrade` re-resolves each
-    profile's closure to the newest commit its constraint allows and writes the
-    advance straight to the active lock — no staging, no approval; changed
-    untrusted content is withheld per item until accepted via `ctxloom review`.
+    profile's closure to the newest commit its constraint allows and shows what
+    every move brings in; with --yes it writes the advance straight to the
+    active lock — no staging, no approval; changed untrusted content is withheld
+    per item until accepted via `ctxloom review`.
 
     Scenario: Check reports an available advance and changes nothing
       Given an initialized ctxloom project
@@ -388,10 +391,10 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the remote "origin" advances its bundle
       When Alice advances her pins to the newest commit:
         """
-        ctxloom deps upgrade --format text
+        ctxloom deps upgrade --yes --format text
         """
       Then the command succeeds
-      And the output contains "Advanced"
+      And the output contains "Applied 1 pin(s)."
 
     # Upgrade rewrites the lock wholesale from the closure, so an entry the
     # project stopped composing disappears in that write. Unnamed, a removal
@@ -406,7 +409,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom profile modify dev --remove-bundle other/demo"
       When Alice advances her pins to the newest commit:
         """
-        ctxloom deps upgrade --format text
+        ctxloom deps upgrade --yes --format text
         """
       Then the command succeeds
       And the output contains "from the lockfile: nothing this project composes depends on it any more."
@@ -422,7 +425,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And the remote "origin" advances its bundle
-      And I run "ctxloom deps upgrade"
+      And I run "ctxloom deps upgrade --yes"
       When Alice pulls immediately after advancing her pins:
         """
         ctxloom deps pull
@@ -430,12 +433,121 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the command succeeds
       And the output does not contain "ctxloom deps upgrade"
 
-  Rule: A hold freezes one dependency, even against a forced re-resolve
+  Rule: Only upgrade moves a pin, and it shows the move before --yes applies it
+
+    A pin is the decision to run what a bundle ships, so moving one is shown
+    before it happens: every item added, removed or changed, what each hook and
+    MCP server runs before and after, and the diff of every changed script. Env
+    and header VALUES may be credentials, so they are shown only by name and a
+    fingerprint of the value: a change is visible, the secret is not.
+    Without --yes nothing is written; with it the closure is resolved again and
+    what was actually applied is shown. A FIRST pin — the one `pull` creates —
+    is shown the same way, with everything the bundle brings in. `pull` never
+    moves an existing pin: a changed constraint is reported and waits for
+    `upgrade`.
+
+    Scenario: An upgrade without --yes shows the move and writes nothing
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And I run "ctxloom remote default origin"
+      And I run "ctxloom profile create dev --include origin/demo"
+      And I run "ctxloom deps pull"
+      And the remote "origin" ships an MCP server "srv" running "fixture-mcp-one" and a skill script printing "SCRIPT-ONE"
+      When Alice asks what an upgrade would do:
+        """
+        ctxloom deps upgrade --format text
+        """
+      Then the command succeeds
+      And the output contains "+ mcp srv"
+      And the output contains "command: fixture-mcp-one"
+      And the output contains "+ skill runner"
+      And the output contains "+echo SCRIPT-ONE"
+      And the output contains "1 pin(s) would move. Re-run with --yes to apply."
+      When I run "ctxloom deps upgrade --format text"
+      Then the output contains "1 pin(s) would move."
+
+    Scenario: An upgrade with --yes applies the move and shows what it applied
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And I run "ctxloom remote default origin"
+      And I run "ctxloom profile create dev --include origin/demo"
+      And I run "ctxloom deps pull"
+      And the remote "origin" ships an MCP server "srv" running "fixture-mcp-one" and a skill script printing "SCRIPT-ONE"
+      When Alice applies the upgrade:
+        """
+        ctxloom deps upgrade --yes --format text
+        """
+      Then the command succeeds
+      And the output contains "+ mcp srv"
+      And the output contains "Applied 1 pin(s)."
+      When I run "ctxloom deps upgrade --format text"
+      Then the output contains "Everything is up to date."
+
+    Scenario: An upgrade shows what an MCP server and a script run before and after
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And the remote "origin" ships an MCP server "srv" running "fixture-mcp-one" and a skill script printing "SCRIPT-ONE"
+      And I run "ctxloom remote default origin"
+      And I run "ctxloom profile create dev --include origin/demo"
+      And I run "ctxloom deps pull"
+      And the remote "origin" ships an MCP server "srv" running "fixture-mcp-two" and a skill script printing "SCRIPT-TWO"
+      When Alice asks what an upgrade would change:
+        """
+        ctxloom deps upgrade --format text
+        """
+      Then the command succeeds
+      And the output contains "~ mcp srv"
+      And the output contains "command: fixture-mcp-one -> fixture-mcp-two"
+      And the output contains "-echo SCRIPT-ONE"
+      And the output contains "+echo SCRIPT-TWO"
+      And the output contains "~ API_KEY: <"
+      And the output does not contain "secret-SCRIPT-ONE"
+      And the output does not contain "secret-SCRIPT-TWO"
+
+    Scenario: A first pin shows everything the bundle brings in, executables included
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And the remote "origin" ships an MCP server "srv" running "fixture-mcp-one" and a skill script printing "SCRIPT-ONE"
+      And I run "ctxloom remote default origin"
+      And I run "ctxloom profile create dev --include origin/demo"
+      When Alice pulls a bundle for the first time:
+        """
+        ctxloom deps pull --format text
+        """
+      Then the command succeeds
+      And the output contains "New pins, with everything each one brings in:"
+      And the output contains "first pin"
+      And the output contains "+ mcp srv"
+      And the output contains "command: fixture-mcp-one"
+      And the output contains "+ fragment demo-frag"
+      And the output contains "+echo SCRIPT-ONE"
+      And the output contains "API_KEY: <"
+      And the output does not contain "secret-SCRIPT-ONE"
+
+    Scenario: A pull never moves an existing pin, even when its constraint changed
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And I run "ctxloom remote default origin"
+      And I run "ctxloom profile create dev --include origin/demo"
+      And I run "ctxloom deps pull"
+      And the remote "origin" advances its bundle
+      And I run "ctxloom profile modify dev --remove-bundle origin/demo --add-bundle origin/demo@main"
+      When Alice pulls after changing the constraint:
+        """
+        ctxloom deps pull --force --format text
+        """
+      Then the command succeeds
+      And the output contains "the manifest now asks for main; the pin stays at"
+      And the output contains "ctxloom deps upgrade --yes"
+      And the output does not contain "New pins"
+      When I run "ctxloom deps upgrade --format text"
+      Then the output contains "1 pin(s) would move."
+
+  Rule: A hold freezes one dependency, even against a forced pull
 
     `deps hold` is the opt-out: a held entry stays frozen against `upgrade`,
-    and — this is the part easy to get wrong — against a `pull --force` too,
-    because forcing a pull re-resolves the reference exactly like an upgrade
-    would.
+    and against a `pull --force`, which reinstalls each reference rather than
+    skipping it.
 
     Scenario: A held dependency is not upgraded
       Given an initialized ctxloom project
@@ -455,15 +567,10 @@ Feature: deps — the installed dependency closure, and everything that moves it
     # THE MECHANIC A NEW CLONE RELIES ON (see j000800_onboarding.feature's
     # "Bob receives the versions the team pinned, not the latest ones"): an
     # ordinary pull SKIPS a reference it already considers installed and
-    # never consults the pin at all, so a hold's protection was never
-    # actually exercised by scenario coverage that only ever ran a plain
-    # pull. `--force` puts the pull back on the path a hold has to defend:
-    # the reference IS re-resolved against the advanced remote, on the very
-    # same lockfile-write path `upgrade` uses
-    # (internal/adapters/remote/pull.go:Puller.updateLockfile's `hadExisting &&
-    # existing.Pinned` branch) — and the hold has to hold it back there too,
-    # not just on `upgrade`'s.
-    Scenario: A held dependency's content survives even a pull forced to re-resolve
+    # never consults the pin at all. `--force` puts the pull on the full
+    # fetch-and-record path (Puller.Pull, then Puller.updateLockfile) against
+    # the advanced remote, and the held content has to survive it.
+    Scenario: A held dependency's content survives even a forced pull
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
@@ -472,7 +579,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And I run "ctxloom deps hold origin/demo"
       And the remote "origin" advances its bundle
-      When Alice forces a pull to re-resolve every reference:
+      When Alice forces a pull of every reference:
         """
         ctxloom deps pull --force
         """
@@ -495,9 +602,9 @@ Feature: deps — the installed dependency closure, and everything that moves it
         ctxloom deps unhold origin/demo
         """
       Then the command succeeds
-      When I run "ctxloom deps upgrade --format text"
+      When I run "ctxloom deps upgrade --yes --format text"
       Then the command succeeds
-      And the output contains "Advanced"
+      And the output contains "Applied 1 pin(s)."
 
   Rule: What lands in the lockfile is not what reaches the agent
 
@@ -519,7 +626,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       When the remote "origin" changes fragment "demo-frag" to "MARKER-BRAVO-second-edition"
       And Alice advances the pin to the revised content:
         """
-        ctxloom deps upgrade
+        ctxloom deps upgrade --yes
         """
       And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And I run "ctxloom profile materialize dev --target after"
@@ -538,7 +645,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom deps pull"
       And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And the remote "origin" changes fragment "demo-frag" to "MARKER-STALE-CHECKOUT-current"
-      And I run "ctxloom deps upgrade"
+      And I run "ctxloom deps upgrade --yes"
       And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And the remote "origin"'s cached clone is forced back to its first commit
       When Alice materializes after the local checkout went stale:

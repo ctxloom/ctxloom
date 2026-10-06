@@ -16,59 +16,78 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// UpgradeResult is what one `deps upgrade` round did. It is a struct rather
-// than a tuple because the three facts are not independent: a caller that reads
-// Advanced without reading Refused prints "Everything is up to date." over a
-// refused advance, which is the exact silence this feature exists to prevent.
+// UpgradeRequest is one `deps upgrade` invocation.
+type UpgradeRequest struct {
+	// Apply writes what the round computed (`--yes`). Without it the round is
+	// a preview: it computes and reports the same result and changes nothing.
+	Apply bool `json:"apply"`
+	// AllowDowngrade names the refs whose signed version floor the operator
+	// waives for this run (`--allow-downgrade <ref>`); every other pin is held
+	// to the signed version it recorded (see verifyAdvance).
+	AllowDowngrade []string `json:"allow_downgrade,omitempty"`
+}
+
+// UpgradeResult is what one `deps upgrade` round would do (a preview) or did
+// (Applied). It is a struct rather than a tuple because the facts are not
+// independent: a caller that reads Changes without reading Refused prints
+// "Everything is up to date." over a refused advance, which is the exact
+// silence this feature exists to prevent.
 type UpgradeResult struct {
-	// Advanced counts the entries whose SHA actually moved.
-	Advanced int `json:"advanced"`
+	// Applied reports that this round wrote what it computed.
+	Applied bool `json:"applied"`
+	// Changes discloses each pin that moves (or is first created), with
+	// everything the move brings in, sorted by identity.
+	Changes []PinChange `json:"changes"`
 	// Incomplete reports that part of the dependency closure could not be
 	// reached this round — a parent that did not expand, or a repository that
-	// could not be fetched — so Advanced==0 does not mean "everything checked
+	// could not be fetched — so no Changes does not mean "everything checked
 	// out".
 	Incomplete bool `json:"incomplete"`
 	// NothingDeclared reports that the resolved closure was EMPTY and there was
 	// no existing lock state either: nothing in reach of this run declares a
 	// dependency at all. It is a different fact from "your dependencies are all
 	// current", and a caller that collapses the two tells a user who ran the
-	// command outside their project that everything is fine. Advanced==0 alone
-	// cannot distinguish them — it counts moves among what was resolved, and
+	// command outside their project that everything is fine. No Changes alone
+	// cannot distinguish them — it lists moves among what was resolved, and
 	// here nothing was resolved because nothing was asked for.
 	NothingDeclared bool `json:"nothing_declared"`
-	// Refused lists the pins that were NOT moved because the content at the
+	// Refused lists the pins that do NOT move because the content at the
 	// proposed commit failed publisher verification. Non-empty means the human
-	// must be told: the lockfile deliberately did not change.
+	// must be told: the lockfile deliberately does not change for them.
 	Refused []RefusedAdvance `json:"refused"`
-	// Removed names, sorted, the lockfile entries this round dropped because
-	// the closure no longer reaches them. The lock is rewritten wholesale, so
+	// Removed names, sorted, the lockfile entries this round drops because the
+	// closure no longer reaches them. The lock is rewritten wholesale, so
 	// without this a removal is indistinguishable from never having been
 	// pinned.
 	Removed []string `json:"removed"`
 }
 
 // UpgradeDependencies re-resolves the project's dependency closure to the newest
-// commit each manifest constraint allows and writes the advances straight to the
-// active lock — the manifest is never rewritten. A held entry (Pinned) stays
-// frozen and never advances. A hash conflict in the proposed closure is a hard
-// error; nothing is written.
+// commit each manifest constraint allows. It is the ONLY operation that moves
+// an existing pin: pull, init and startup create first pins and keep the rest.
+//
+// It runs in two phases. The compute phase (planUpgrade) resolves the new lock
+// in memory and discloses every pin that would move (UpgradeResult.Changes); it
+// writes nothing and moves no worktree. Without req.Apply that is the whole
+// round — a preview. With req.Apply the apply phase writes the lock, moves each
+// moved bundle's worktree, and records the round's refusals. Apply recomputes
+// rather than replaying a preview, so a tip that moved since the preview is
+// what lands, and what Changes reports.
+//
+// The manifest is never rewritten. A held entry stays frozen and never
+// advances. A hash conflict in the proposed closure is a hard error; nothing is
+// written.
 //
 // There is no review gate here: the lockfile is pure dependency pinning.
-// Whether any newly-pinned content ever reaches the
-// agent is decided per item at exposure by the content-hash trust gate
-// (EffectiveTrust) — changed content from an untrusted source re-hashes to
-// pending and is withheld until `ctxloom review` accepts it.
+// Whether any newly-pinned content ever reaches the agent is decided per item
+// at exposure by the content-hash trust gate (EffectiveTrust).
 //
-// ONE ADVANCE IS REFUSED OUTRIGHT, and it is the one exposure cannot rescue:
-// content whose publisher signature does not verify over its own bytes. That
-// content is withheld as TAMPERED and is deliberately not reviewable, so moving
-// the pin past the last commit that DID verify leaves the consumer with
-// nothing — the new copy refused, the old copy unreachable. Such an entry keeps
-// its existing lockfile values verbatim and is reported in
-// UpgradeResult.Refused, which the caller must tell the human about (a silent
-// non-advance is indistinguishable from "already up to date"). See
-// verifyAdvance for the exact rule and why unsigned content is not covered by
-// it.
+// ONE ADVANCE IS REFUSED OUTRIGHT: content whose publisher signature does not
+// verify over its own bytes. That content is withheld as TAMPERED and is
+// deliberately not reviewable, so moving the pin past the last commit that DID
+// verify leaves the consumer with nothing. Such an entry keeps its existing
+// lockfile values verbatim and is reported in UpgradeResult.Refused, which the
+// caller must tell the human about. See verifyAdvance for the exact rule.
 //
 // UpgradeResult.NothingDeclared is true when the closure resolved to nothing
 // and no lock state existed either. Such a round writes NO lockfile: a file
@@ -77,78 +96,40 @@ type UpgradeResult struct {
 //
 // UpgradeResult.Incomplete is true when part of the dependency closure could
 // not be reached this round: the caller must not report "everything is up to
-// date" on that basis alone — Advanced counts only what WAS resolved, and an
-// incomplete closure means part of the project was never actually checked
-// against upstream.
-//
-// allowDowngrade names the refs whose version floor the operator waives for
-// this run (`deps upgrade --allow-downgrade <ref>`); every other pin is held to
-// the signed version it recorded (see verifyAdvance).
-func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade []string) (UpgradeResult, error) {
-	downgrades, err := newDowngradeSet(allowDowngrade)
+// date" on that basis alone.
+func UpgradeDependencies(ctx context.Context, cfg *config.Config, req UpgradeRequest) (UpgradeResult, error) {
+	plan, err := planUpgrade(ctx, cfg, req.AllowDowngrade)
 	if err != nil {
 		return UpgradeResult{}, err
 	}
-	loader := cfg.GetProfileLoader()
-	// The closure roots must match FlattenDependencies' canonical set (inline
-	// config.yaml definitions, directory profiles, and config-default remote
-	// profiles). A narrower set omits deps rooted in inline/config-default
-	// profiles, and the wholesale Save(newActive) below would then erase their
-	// active lock entries.
-	roots, rootsUnexpanded := closureRoots(cfg, loader)
-	var result UpgradeResult
-
-	baseDir := ProjectAppDir(cfg)
-	auth := remote.LoadAuth(baseDir)
-	factory := remote.FetcherFactory(NewCachedFetcherFactory(cfg))
+	result := UpgradeResult{
+		Incomplete: plan.incomplete,
+		Refused:    plan.refused,
+		Removed:    droppedEntries(plan.active, plan.next),
+		Changes:    pinChanges(ctx, cfg, plan.active, plan.next),
+	}
 	// Every lockfile manager here carries WithLockfileFS(cfg's FS): the closure
 	// walk enumerates roots from cfg's FS, so a manager on any other
 	// filesystem would read and write a DIFFERENT lock.yaml than the one the
-	// rest of the resolution sees. ErrLockfileWouldErase must never be the
-	// only thing standing between an FS mismatch and a wiped lockfile.
-	lockFS := getFS(cfg.FS())
-	active, err := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(lockFS)).Load()
-	if err != nil {
+	// rest of the resolution sees.
+	lockManager := remote.NewLockfileManager(ProjectAppDir(cfg), remote.WithLockfileFS(getFS(cfg.FS())))
+	record, err := checkUpgradedLock(lockManager, plan, &result)
+	if err != nil || !req.Apply {
 		return result, err
 	}
-
-	proposed, unexpanded, fetchFailed, err := reResolveClosure(ctx, cfg, loader, roots, active, factory, auth)
-	if err != nil {
-		return result, err
+	if record {
+		if err := lockManager.Save(plan.next); err != nil {
+			return result, err
+		}
 	}
-	// closureRoots' OWN failures (a root that could not load) feed the
-	// preserve-existing-entries guard below alongside the walker's internal
-	// unexpanded set.
-	unexpanded = append(unexpanded, rootsUnexpanded...)
-	// A repository that could not be fetched was resolved from its stale clone,
-	// so "nothing advanced" is not "everything is current" for it either. It
-	// does not widen the carry-forward below, which is about subtrees the walk
-	// never reached.
-	result.Incomplete = len(unexpanded) > 0 || fetchFailed
-
-	round := upgradeRound{
-		ctx: ctx, cfg: cfg, factory: factory, auth: auth, downgrades: downgrades,
-		active:    active,
-		newActive: &remote.Lockfile{Version: remote.LockfileVersion, Bundles: map[trust.BundleKey]remote.LockEntry{}},
-		result:    &result,
+	result.Applied = true
+	// A MOVED PIN MOVES THE TREE WITH IT. The worktree is a git checkout
+	// detached at a commit, so "which commit is this tree?" is a question the
+	// tree itself answers — and advancing the pin without advancing the
+	// checkout would leave the two disagreeing while both look well-formed.
+	for _, p := range plan.moved {
+		movePinnedWorktree(ctx, cfg, p)
 	}
-	for _, p := range proposed {
-		round.apply(p)
-	}
-
-	// An INCOMPLETE closure (a remote parent profile could not be expanded) must
-	// not erase healthy entries: carry forward every active entry the proposed
-	// closure no longer reaches, so the wholesale Save(newActive) below cannot
-	// lose lock state to a transient fetch failure. The unexpanded subtrees'
-	// entries simply don't advance this round.
-	if len(unexpanded) > 0 {
-		preserveUnreachedEntries(active, round.newActive, len(unexpanded))
-	}
-
-	if serr := saveUpgradedLock(remote.NewLockfileManager(baseDir, remote.WithLockfileFS(lockFS)), active, round.newActive, &result); serr != nil {
-		return result, serr
-	}
-	result.Removed = droppedEntries(active, round.newActive)
 
 	// Persist this round's refusals AFTER the lockfile write, never before: a
 	// record says "the pin for X is being KEPT at <sha>", and a record written
@@ -166,6 +147,75 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 		clidiag.Warn("ctxloom", "could not record this upgrade's refusal(s) for later inspection (`ctxloom doctor` will not report them): %v", rerr)
 	}
 	return result, nil
+}
+
+// upgradePlan is the compute phase's answer: the lock the round read, the lock
+// it would write, and what moving to it involves.
+type upgradePlan struct {
+	active, next *remote.Lockfile
+	// moved is every proposed pin whose SHA moves (or is first created).
+	moved      []PinnedRef
+	refused    []RefusedAdvance
+	incomplete bool
+}
+
+// planUpgrade is the compute phase: it resolves the new lock in memory and
+// writes nothing.
+func planUpgrade(ctx context.Context, cfg *config.Config, allowDowngrade []string) (*upgradePlan, error) {
+	downgrades, err := newDowngradeSet(allowDowngrade)
+	if err != nil {
+		return nil, err
+	}
+	loader := cfg.GetProfileLoader()
+	// The closure roots must match FlattenDependencies' canonical set (inline
+	// config.yaml definitions, directory profiles, and config-default remote
+	// profiles). A narrower set omits deps rooted in inline/config-default
+	// profiles, and the wholesale Save(next) would then erase their active
+	// lock entries.
+	roots, rootsUnexpanded := closureRoots(cfg, loader)
+
+	baseDir := ProjectAppDir(cfg)
+	auth := remote.LoadAuth(baseDir)
+	factory := remote.FetcherFactory(NewCachedFetcherFactory(cfg))
+	active, err := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(getFS(cfg.FS()))).Load()
+	if err != nil {
+		return nil, err
+	}
+
+	proposed, unexpanded, fetchFailed, err := reResolveClosure(ctx, cfg, loader, roots, active, factory, auth)
+	if err != nil {
+		return nil, err
+	}
+	// closureRoots' OWN failures (a root that could not load) feed the
+	// preserve-existing-entries guard below alongside the walker's internal
+	// unexpanded set.
+	unexpanded = append(unexpanded, rootsUnexpanded...)
+
+	round := upgradeRound{
+		ctx: ctx, cfg: cfg, factory: factory, auth: auth, downgrades: downgrades,
+		plan: &upgradePlan{
+			active: active,
+			next:   &remote.Lockfile{Version: remote.LockfileVersion, Bundles: map[trust.BundleKey]remote.LockEntry{}},
+			// A repository that could not be fetched was resolved from its
+			// stale clone, so "nothing moves" is not "everything is current"
+			// for it either. It does not widen the carry-forward below, which
+			// is about subtrees the walk never reached.
+			incomplete: len(unexpanded) > 0 || fetchFailed,
+		},
+	}
+	for _, p := range proposed {
+		round.decide(p)
+	}
+
+	// An INCOMPLETE closure (a remote parent profile could not be expanded) must
+	// not erase healthy entries: carry forward every active entry the proposed
+	// closure no longer reaches, so the wholesale Save(next) cannot lose lock
+	// state to a transient fetch failure. The unexpanded subtrees' entries
+	// simply don't advance this round.
+	if len(unexpanded) > 0 {
+		preserveUnreachedEntries(active, round.plan.next, len(unexpanded))
+	}
+	return round.plan, nil
 }
 
 // reResolveClosure re-resolves the closure of roots in upgrade mode: every
@@ -195,27 +245,25 @@ func reResolveClosure(ctx context.Context, cfg *config.Config, loader *profiles.
 	return proposed, unexpanded, fetchFailed, nil
 }
 
-// upgradeRound is one UpgradeDependencies pass: the active lock it reads,
-// the new lock it builds, and the result it tallies into.
+// upgradeRound is one planUpgrade pass: the plan it builds, and what it
+// needs to verify each proposed advance.
 type upgradeRound struct {
 	ctx        context.Context
 	cfg        *config.Config
 	factory    remote.FetcherFactory
 	auth       remote.AuthConfig
 	downgrades downgradeSet
-	active     *remote.Lockfile
-	newActive  *remote.Lockfile
-	result     *UpgradeResult
+	plan       *upgradePlan
 }
 
-// apply decides one proposed pin: a held entry carries forward unchanged, a
-// refused advance keeps its current pin, anything else lands at the proposed
-// commit (and a moved pin moves its worktree).
-func (u *upgradeRound) apply(p PinnedRef) {
-	cur, has := u.active.GetEntry(p.Type, p.Identity)
+// decide places one proposed pin in the plan: a held entry carries forward
+// unchanged, a refused advance keeps its current pin, anything else lands at
+// the proposed commit (and, if it moved, is listed for the apply phase).
+func (u *upgradeRound) decide(p PinnedRef) {
+	cur, has := u.plan.active.GetEntry(p.Type, p.Identity)
 	// A held entry never advances — carry its current pin forward unchanged.
 	if has && cur.Held {
-		u.newActive.AddEntry(p.Type, p.Identity, cur)
+		u.plan.next.AddEntry(p.Type, p.Identity, cur)
 		return
 	}
 	moved := !has || cur.SHA != p.Hash
@@ -235,22 +283,16 @@ func (u *upgradeRound) apply(p PinnedRef) {
 			return
 		}
 	}
-	u.newActive.AddEntry(p.Type, p.Identity, upgradedEntry(p, cur, has, moved, verified))
+	u.plan.next.AddEntry(p.Type, p.Identity, upgradedEntry(p, cur, has, moved, verified))
 	if moved {
-		u.result.Advanced++
-		// A MOVED PIN MOVES THE TREE WITH IT. The worktree is a git
-		// checkout detached at a commit, so "which commit is this tree?"
-		// is a question the tree itself answers — and advancing the pin
-		// without advancing the checkout would leave the two disagreeing
-		// while both look well-formed.
-		movePinnedWorktree(u.ctx, u.cfg, p)
+		u.plan.moved = append(u.plan.moved, p)
 	}
 }
 
 // refuse keeps cur verbatim and records why p's advance was refused.
 func (u *upgradeRound) refuse(p PinnedRef, cur remote.LockEntry, refusal error) {
-	u.newActive.AddEntry(p.Type, p.Identity, cur)
-	u.result.Refused = append(u.result.Refused, RefusedAdvance{
+	u.plan.next.AddEntry(p.Type, p.Identity, cur)
+	u.plan.refused = append(u.plan.refused, RefusedAdvance{
 		Identity:    string(p.Identity),
 		KeptSHA:     cur.SHA,
 		ProposedSHA: p.Hash,
@@ -314,8 +356,9 @@ func preserveUnreachedEntries(active, newActive *remote.Lockfile, unexpandedCoun
 	}
 }
 
-// saveUpgradedLock writes newActive unless there is nothing to record, and
-// sets result.NothingDeclared.
+// checkUpgradedLock decides whether plan.next is to be recorded, sets
+// result.NothingDeclared, and returns the refusal Save would give — so a
+// preview refuses exactly what applying it would.
 //
 // NOTHING DECLARED, AND NOTHING ON DISK TO PROTECT. Writing then would
 // CREATE a lockfile that pins nothing — a project marker for a project that
@@ -332,13 +375,13 @@ func preserveUnreachedEntries(active, newActive *remote.Lockfile, unexpandedCoun
 // "nothing declared": something may well be declared behind the part of the
 // closure that could not be reached, and saying otherwise would be a
 // confident wrong answer rather than an honest empty one.
-func saveUpgradedLock(m *remote.LockfileManager, active, newActive *remote.Lockfile, result *UpgradeResult) error {
-	nothingToRecord := newActive.IsEmpty() && active.IsEmpty()
+func checkUpgradedLock(m *remote.LockfileManager, plan *upgradePlan, result *UpgradeResult) (record bool, err error) {
+	nothingToRecord := plan.next.IsEmpty() && plan.active.IsEmpty()
 	result.NothingDeclared = nothingToRecord && !result.Incomplete
 	if nothingToRecord {
-		return nil
+		return false, nil
 	}
-	return m.Save(newActive)
+	return true, m.CheckSave(plan.next)
 }
 
 // droppedEntries names, sorted, the entries of before that after no longer

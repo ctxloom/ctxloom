@@ -13,9 +13,9 @@ import (
 // should pin. Resolution follows a fixed precedence, so the lock is stable across
 // relocks yet always satisfies the manifest:
 //
-//  1. Active lock carry-forward — a held entry, or one whose constraint is
-//     unchanged, keeps its locked SHA (npm-style stability; `upgrade` is what
-//     re-resolves within a range).
+//  1. Active lock carry-forward — in lock mode every existing pin keeps its
+//     locked SHA, whatever the manifest constraint now says: only `upgrade`
+//     moves a pin. A held entry keeps its SHA in upgrade mode too.
 //  2. Bare commit — a ref already pinned to a hex SHA is recorded verbatim, with
 //     no clone (this is also every legacy "@<sha>" ref).
 //  3. Fresh resolution — a branch, semver range, or empty (default-branch)
@@ -28,8 +28,8 @@ import (
 //     an unparseable repository URL and an unsatisfiable constraint need
 //     different remedies and used to be indistinguishable.
 //
-// reResolve selects the mode: false (lock) carries an unchanged-constraint entry
-// forward for stability; true (upgrade) re-resolves it to the newest commit the
+// reResolve selects the mode: false (lock — pull, init, startup) carries every
+// existing pin forward; true (upgrade) re-resolves it to the newest commit the
 // constraint allows. A HELD entry is frozen in BOTH modes — hold always wins.
 //
 // Results are memoized per (identity, constraint) within a single flatten, and a
@@ -89,11 +89,10 @@ func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory
 		return e, ok && e.SHA != ""
 	}
 	// carried is the lock entry to carry forward without resolving: a held
-	// entry always; an unchanged-constraint entry only in lock mode (upgrade
-	// re-resolves it).
-	carried := func(ref *remote.Reference, expr string) (remote.LockEntry, bool) {
+	// entry always; any existing entry in lock mode (upgrade re-resolves it).
+	carried := func(ref *remote.Reference) (remote.LockEntry, bool) {
 		e, ok := lockedSHA(ref)
-		return e, ok && (e.Held || (!reResolve && e.RequestedVersion == expr))
+		return e, ok && (e.Held || !reResolve)
 	}
 
 	return func(ref *remote.Reference) (string, string, remote.SelectorKind, bool) {
@@ -119,7 +118,7 @@ func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory
 
 		// 1. Carry forward what the lock already settles (see carried). The kind
 		//    rides along, derived for entries locked before it was persisted.
-		if e, ok := carried(ref, expr); ok {
+		if e, ok := carried(ref); ok {
 			return store(e.SHA, e.Version, e.SelectorKind())
 		}
 		// 2. A bare commit name is already concrete — no clone needed.

@@ -3,6 +3,9 @@ package operations
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -29,7 +32,7 @@ mcp:
     command: node
     args: [server.js]
     env:
-      TOKEN: one
+      TOKEN: SECRET-ENV-ONE
 hooks:
   session_start:
     - type: command
@@ -48,11 +51,11 @@ mcp:
     command: node
     args: [server.js, --v2]
     env:
-      TOKEN: two
+      TOKEN: SECRET-ENV-TWO
   hosted:
     url: https://mcp.example.test/sse
     headers:
-      Authorization: Bearer x
+      Authorization: Bearer SECRET-HDR
 hooks:
   session_start:
     - type: command
@@ -141,7 +144,7 @@ func TestDiffPin_FirstPinListsEverythingItBringsIn(t *testing.T) {
 	assert.Equal(t, ChangeAdded, srv.Change)
 	require.NotNil(t, srv.Exec)
 	assert.Nil(t, srv.Exec.Before)
-	assert.Equal(t, &ExecSpec{Command: "node", Args: []string{"server.js"}, Env: map[string]string{"TOKEN": "one"}}, srv.Exec.After)
+	assert.Equal(t, &ExecSpec{Command: "node", Args: []string{"server.js"}, Env: map[string]string{"TOKEN": fp("SECRET-ENV-ONE")}}, srv.Exec.After)
 	hook := itemChange(t, pc, "hook", "session_start/0")
 	assert.Equal(t, ChangeAdded, hook.Change)
 	require.NotNil(t, hook.Exec)
@@ -173,12 +176,12 @@ func TestDiffPin_AdvanceShowsExecDeltasAndScriptDiffs(t *testing.T) {
 	srv := itemChange(t, pc, "mcp", "srv")
 	assert.Equal(t, ChangeModified, srv.Change)
 	assert.Equal(t, &ExecDelta{
-		Before: &ExecSpec{Command: "node", Args: []string{"server.js"}, Env: map[string]string{"TOKEN": "one"}},
-		After:  &ExecSpec{Command: "node", Args: []string{"server.js", "--v2"}, Env: map[string]string{"TOKEN": "two"}},
+		Before: &ExecSpec{Command: "node", Args: []string{"server.js"}, Env: map[string]string{"TOKEN": fp("SECRET-ENV-ONE")}},
+		After:  &ExecSpec{Command: "node", Args: []string{"server.js", "--v2"}, Env: map[string]string{"TOKEN": fp("SECRET-ENV-TWO")}},
 	}, srv.Exec)
 	hosted := itemChange(t, pc, "mcp", "hosted")
 	assert.Equal(t, ChangeAdded, hosted.Change)
-	assert.Equal(t, &ExecSpec{URL: "https://mcp.example.test/sse", Headers: map[string]string{"Authorization": "Bearer x"}}, hosted.Exec.After)
+	assert.Equal(t, &ExecSpec{URL: "https://mcp.example.test/sse", Headers: map[string]string{"Authorization": fp("Bearer SECRET-HDR")}}, hosted.Exec.After)
 	hook := itemChange(t, pc, "hook", "session_start/0")
 	assert.Equal(t, ChangeModified, hook.Change)
 	assert.Equal(t, "./hello.sh", hook.Exec.Before.Command)
@@ -239,11 +242,11 @@ func TestWritePinChanges_RendersHeaderItemsExecAndScriptDiffs(t *testing.T) {
 		Identity: "corp/kit", FromSHA: "1111111111", ToSHA: "2222222222", FromVersion: "v1.0.0", ToVersion: "v1.1.0",
 		Items: []ItemChange{
 			{Kind: "mcp", Name: "srv", Change: ChangeModified, Exec: &ExecDelta{
-				Before: &ExecSpec{Command: "node", Args: []string{"server.js"}, Env: map[string]string{"TOKEN": "one"}},
-				After:  &ExecSpec{Command: "node", Args: []string{"server.js", "--v2"}, Env: map[string]string{"TOKEN": "two"}},
+				Before: &ExecSpec{Command: "node", Args: []string{"server.js"}, Env: map[string]string{"TOKEN": "<11111111>", "KEEP": "<22222222>"}},
+				After:  &ExecSpec{Command: "node", Args: []string{"server.js", "--v2"}, Env: map[string]string{"TOKEN": "<33333333>", "KEEP": "<22222222>", "NEW": "<44444444>"}},
 			}},
 			{Kind: "mcp", Name: "hosted", Change: ChangeAdded, Exec: &ExecDelta{
-				After: &ExecSpec{URL: "https://mcp.example.test/sse", Headers: map[string]string{"Authorization": "Bearer x"}},
+				After: &ExecSpec{URL: "https://mcp.example.test/sse", Headers: map[string]string{"Authorization": "<55555555>"}},
 			}},
 			{Kind: "fragment", Name: "frag", Change: ChangeRemoved},
 		},
@@ -257,10 +260,14 @@ func TestWritePinChanges_RendersHeaderItemsExecAndScriptDiffs(t *testing.T) {
   ~ mcp srv
       command: node
       args: "server.js" -> "server.js" "--v2"
-      env: TOKEN=one -> TOKEN=two
+      env:
+          KEEP: <22222222>
+        + NEW: <44444444>
+        ~ TOKEN: <11111111> -> <33333333>
   + mcp hosted
       url: https://mcp.example.test/sse
-      headers: Authorization: Bearer x
+      headers:
+          Authorization: <55555555>
   - fragment frag
   ~ file scripts/run.sh
       --- a/scripts/run.sh
@@ -271,4 +278,35 @@ corp/new  first pin -> unversioned  (new -> 3333333)
   + hook session_start/0
       command: ./hello.sh
 `, out.String())
+}
+
+// fp is the fingerprint a disclosure shows in place of an env or header value,
+// computed here independently of the code under test.
+func fp(v string) string {
+	sum := sha256.Sum256([]byte(v))
+	return "<" + hex.EncodeToString(sum[:])[:8] + ">"
+}
+
+// No raw env or header value may appear anywhere a disclosure is rendered —
+// text or JSON — and a changed value must still read as changed.
+func TestDiffPin_MasksEnvAndHeaderValuesInEveryRendering(t *testing.T) {
+	d := newDisclosureRepo(t)
+	c1 := d.commit(t, kitV1, "one")
+	c2 := d.commit(t, kitV2, "two")
+	first, err := diffPin(context.Background(), d.cfg, d.pin(t, c1), remote.LockEntry{}, false)
+	require.NoError(t, err)
+	move, err := diffPin(context.Background(), d.cfg, d.pin(t, c2), remote.LockEntry{SHA: c1}, true)
+	require.NoError(t, err)
+
+	var text bytes.Buffer
+	WritePinChanges(&text, []PinChange{first, move})
+	js, err := json.Marshal([]PinChange{first, move})
+	require.NoError(t, err)
+	for _, raw := range []string{"SECRET-ENV-ONE", "SECRET-ENV-TWO", "SECRET-HDR"} {
+		assert.NotContains(t, text.String(), raw, "text rendering leaks a raw value")
+		assert.NotContains(t, string(js), raw, "JSON rendering leaks a raw value")
+	}
+	assert.Contains(t, text.String(), "~ TOKEN: "+fp("SECRET-ENV-ONE")+" -> "+fp("SECRET-ENV-TWO"))
+	assert.Contains(t, text.String(), "Authorization: "+fp("Bearer SECRET-HDR"))
+	assert.Contains(t, text.String(), `args: "server.js" -> "server.js" "--v2"`, "args stay in clear")
 }

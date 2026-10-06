@@ -2,6 +2,8 @@ package operations
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path"
 	"reflect"
@@ -57,6 +59,9 @@ type ItemChange struct {
 }
 
 // ExecSpec is what a hook or MCP server executes or dials.
+//
+// Env and Headers carry each value's fingerprint (valueFingerprint), never the
+// value: they may hold credentials.
 type ExecSpec struct {
 	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
@@ -221,8 +226,31 @@ func hookExec(h bundles.BundleHook) *ExecSpec {
 	return &ExecSpec{Command: h.Command, Args: h.Args}
 }
 
+// mcpExec is what an MCP server runs or dials. Env and header VALUES are
+// fingerprinted (valueFingerprint) here, at the source, so no rendering of a
+// disclosure — text or JSON — can carry a raw secret; the names stay visible.
 func mcpExec(m bundles.BundleMCP) *ExecSpec {
-	return &ExecSpec{Command: m.Command, Args: m.Args, Env: m.Env, URL: m.URL, Headers: m.Headers}
+	return &ExecSpec{Command: m.Command, Args: m.Args, Env: fingerprintValues(m.Env), URL: m.URL, Headers: fingerprintValues(m.Headers)}
+}
+
+// fingerprintValues is m with every value replaced by its valueFingerprint.
+func fingerprintValues(m map[string]string) map[string]string {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = valueFingerprint(v)
+	}
+	return out
+}
+
+// valueFingerprint stands in for a value that may be a secret: the first 8 hex
+// characters of its SHA-256, as "<a1b2c3d4>". Equal values match and a changed
+// value reads as changed, without the value itself ever being shown.
+func valueFingerprint(v string) string {
+	sum := sha256.Sum256([]byte(v))
+	return "<" + hex.EncodeToString(sum[:])[:8] + ">"
 }
 
 // diffTreeFiles lists, by sorted path, the files that differ between two

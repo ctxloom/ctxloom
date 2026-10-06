@@ -547,8 +547,9 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	})
 
 	// Publishes a commit giving the demo bundle an MCP server that runs command
-	// and a skill whose script prints say: the executable surfaces a pin
-	// disclosure has to show. Publishing it again with other values changes
+	// with API_KEY set to "secret-<say>", and a skill whose script prints say:
+	// the executable surfaces a pin disclosure has to show, and an env value it
+	// must never show raw. Publishing it again with other values changes
 	// both, which is what an upgrade's before -> after shows.
 	ctx.Step(`^the remote "([^"]*)" ships an MCP server "([^"]*)" running "([^"]*)" and a skill script printing "([^"]*)"$`, func(c context.Context, name, server, command, say string) error {
 		w := worldFrom(c)
@@ -558,7 +559,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		}
 		root := treeBundlePath("demo")
 		return w.env.AdvanceRemote(bare, map[string]string{
-			root + "/mcp/" + server + ".yaml":      "command: " + command + "\n",
+			root + "/mcp/" + server + ".yaml":      "command: " + command + "\nenv:\n  API_KEY: secret-" + say + "\n",
 			root + "/skills/runner/SKILL.md":       "---\nname: runner\ndescription: Runs things.\n---\n\nbody\n",
 			root + "/skills/runner/scripts/run.sh": "#!/bin/sh\necho " + say + "\n",
 		})

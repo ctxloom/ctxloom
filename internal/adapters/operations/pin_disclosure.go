@@ -3,10 +3,10 @@ package operations
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
@@ -88,10 +88,15 @@ func changeMark(c ChangeKind) string {
 }
 
 // writeExecDelta prints each exec field either side sets: once when the two
-// agree (or only one side exists), as before -> after when they differ.
+// agree (or only one side exists), as before -> after when they differ. Env
+// and headers print one line per name, marked + - ~ when both sides exist.
 func writeExecDelta(w io.Writer, d ExecDelta) {
 	for _, f := range execFields {
-		before, after := f.get(d.Before), f.get(d.After)
+		if f.kv != nil {
+			writeKVDelta(w, f.name, d, f.kv)
+			continue
+		}
+		before, after := specText(d.Before, f.text), specText(d.After, f.text)
 		switch {
 		case before == "" && after == "":
 		case d.Before == nil || d.After == nil || before == after:
@@ -106,23 +111,67 @@ func writeExecDelta(w io.Writer, d ExecDelta) {
 	}
 }
 
-// execFields are ExecSpec's fields in display order, each rendered as text.
-var execFields = []struct {
-	name string
-	get  func(*ExecSpec) string
-}{
-	{"command", func(s *ExecSpec) string { return specField(s, func(s *ExecSpec) string { return s.Command }) }},
-	{"args", func(s *ExecSpec) string { return specField(s, func(s *ExecSpec) string { return quoteAll(s.Args) }) }},
-	{"env", func(s *ExecSpec) string { return specField(s, func(s *ExecSpec) string { return pairs(s.Env, "=") }) }},
-	{"url", func(s *ExecSpec) string { return specField(s, func(s *ExecSpec) string { return s.URL }) }},
-	{"headers", func(s *ExecSpec) string {
-		return specField(s, func(s *ExecSpec) string { return pairs(s.Headers, ": ") })
-	}},
+// writeKVDelta prints one map field (env, headers) name by name.
+func writeKVDelta(w io.Writer, name string, d ExecDelta, kv func(*ExecSpec) map[string]string) {
+	before, after := specKV(d.Before, kv), specKV(d.After, kv)
+	keys := unionKeys(before, after)
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "      %s:\n", name)
+	oneSided := d.Before == nil || d.After == nil
+	for _, k := range keys {
+		b, inBefore := before[k]
+		a, inAfter := after[k]
+		change, differs := changeOf(inBefore, inAfter, b == a)
+		switch {
+		case oneSided || !differs:
+			fmt.Fprintf(w, "          %s: %s\n", k, presentValue(a, inAfter, b))
+		case change == ChangeModified:
+			fmt.Fprintf(w, "        ~ %s: %s -> %s\n", k, b, a)
+		case change == ChangeAdded:
+			fmt.Fprintf(w, "        + %s: %s\n", k, a)
+		default:
+			fmt.Fprintf(w, "        - %s: %s\n", k, b)
+		}
+	}
 }
 
-func specField(s *ExecSpec, get func(*ExecSpec) string) string {
+// presentValue is after when present, else before.
+func presentValue(after string, inAfter bool, before string) string {
+	if inAfter {
+		return after
+	}
+	return before
+}
+
+// execField is one ExecSpec field in display order: text for a scalar, kv for
+// a name -> value map.
+type execField struct {
+	name string
+	text func(*ExecSpec) string
+	kv   func(*ExecSpec) map[string]string
+}
+
+var execFields = []execField{
+	{name: "command", text: func(s *ExecSpec) string { return s.Command }},
+	{name: "args", text: func(s *ExecSpec) string { return quoteAll(s.Args) }},
+	{name: "env", kv: func(s *ExecSpec) map[string]string { return s.Env }},
+	{name: "url", text: func(s *ExecSpec) string { return s.URL }},
+	{name: "headers", kv: func(s *ExecSpec) map[string]string { return s.Headers }},
+}
+
+func specText(s *ExecSpec, get func(*ExecSpec) string) string {
 	if s == nil {
 		return ""
+	}
+	return get(s)
+}
+
+func specKV(s *ExecSpec, get func(*ExecSpec) map[string]string) map[string]string {
+	if s == nil {
+		return nil
 	}
 	return get(s)
 }
@@ -133,14 +182,6 @@ func quoteAll(args []string) string {
 		q[i] = strconv.Quote(a)
 	}
 	return strings.Join(q, " ")
-}
-
-func pairs(m map[string]string, sep string) string {
-	out := make([]string, 0, len(m))
-	for _, k := range collections.SortedKeys(m) {
-		out = append(out, k+sep+m[k])
-	}
-	return strings.Join(out, ", ")
 }
 
 func noneIfEmpty(s string) string {

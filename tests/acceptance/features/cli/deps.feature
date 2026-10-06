@@ -437,7 +437,9 @@ Feature: deps — the installed dependency closure, and everything that moves it
 
     A pin is the decision to run what a bundle ships, so moving one is shown
     before it happens: every item added, removed or changed, what each hook and
-    MCP server runs before and after, and the diff of every changed script.
+    MCP server runs before and after, and the diff of every changed script. Env
+    and header VALUES may be credentials, so they are shown only by name and a
+    fingerprint of the value: a change is visible, the secret is not.
     Without --yes nothing is written; with it the closure is resolved again and
     what was actually applied is shown. A FIRST pin — the one `pull` creates —
     is shown the same way, with everything the bundle brings in. `pull` never
@@ -498,6 +500,9 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the output contains "command: fixture-mcp-one -> fixture-mcp-two"
       And the output contains "-echo SCRIPT-ONE"
       And the output contains "+echo SCRIPT-TWO"
+      And the output contains "~ API_KEY: <"
+      And the output does not contain "secret-SCRIPT-ONE"
+      And the output does not contain "secret-SCRIPT-TWO"
 
     Scenario: A first pin shows everything the bundle brings in, executables included
       Given an initialized ctxloom project
@@ -516,6 +521,8 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the output contains "command: fixture-mcp-one"
       And the output contains "+ fragment demo-frag"
       And the output contains "+echo SCRIPT-ONE"
+      And the output contains "API_KEY: <"
+      And the output does not contain "secret-SCRIPT-ONE"
 
     Scenario: A pull never moves an existing pin, even when its constraint changed
       Given an initialized ctxloom project

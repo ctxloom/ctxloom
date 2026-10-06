@@ -155,8 +155,9 @@ Locking happens automatically as part of `pull` — there is no separate lock st
 `upgrade` resolves a range (`@^1.2`) to the newest matching tag, a branch to its
 new tip, and leaves exact pins and [held](#holds) items untouched. It is the only
 command that moves an existing pin, and it shows each move first — every item
-added, removed or changed, what hooks and MCP servers run before and after, and a
-diff of every changed script — and writes nothing until you re-run it with
+added, removed or changed, what hooks and MCP servers run before and after (env
+and header values only as a fingerprint such as `<a1b2c3d4>`, never the value),
+and a diff of every changed script — and writes nothing until you re-run it with
 `--yes`. A constraint you change in a profile takes effect there too: `pull`
 reports it and keeps the pin. `upgrade --yes` writes only the lockfile — your
 profile YAML is never rewritten, so a version bump is a clean `lock.yaml` diff. Whether any changed content reaches the agent is decided per

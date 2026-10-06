@@ -17,7 +17,10 @@ Re-resolve each local profile's dependency closure to the newest commit each
 version constraint allows, and show what every moved pin brings in: each hook,
 MCP server, skill, command, fragment and profile added, removed or changed —
 with what hooks and MCP servers run, before and after — and a unified diff of
-every changed script.
+every changed script. Env and header values are never shown: each appears by
+name with a fingerprint of its value (the first 8 hex characters of its
+SHA-256, like <a1b2c3d4>), so a changed value is visible and a secret is not.
+The same holds for --format json.
 
 Nothing is written without --yes. With it, the closure is resolved again,
 applied to the active lock, each moved bundle's installed tree is moved with

@@ -281,7 +281,9 @@ Grouped by what you would have to change.
 - `deps upgrade` previews by default: it shows every pin that would move and
   what each brings in — items added, removed or changed, what hooks and MCP
   servers run before and after, a diff of every changed script — and writes
-  nothing. `deps upgrade --yes` applies it. It is the only command that moves
+  nothing. Env and header values appear only as a fingerprint of the value
+  (`<a1b2c3d4>`, in text and JSON alike), so a changed credential shows as
+  changed without being printed. `deps upgrade --yes` applies it. It is the only command that moves
   an existing pin.
 - `deps pull`, `init` and startup sync never move an existing pin. A changed
   constraint is reported and takes effect only on `deps upgrade --yes`;

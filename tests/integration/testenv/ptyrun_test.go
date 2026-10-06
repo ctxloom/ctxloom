@@ -1,6 +1,7 @@
 package testenv
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -45,5 +46,31 @@ func TestPtyCaptureAwaitReportsWhatArrivedWhenExpired(t *testing.T) {
 	out, ok := c.await(expired, containsText("never written"))
 	if ok || out != "partial screen" {
 		t.Fatalf("await = (%q, %v), want (%q, false)", out, ok, "partial screen")
+	}
+}
+
+// TestBudgetUntilEndsAMarginBeforeTheDeadline: a duration-form wait ends where
+// TestExpiry fires, deadlineMargin ahead of the deadline, so a failure still
+// has room to print what it waited on.
+func TestBudgetUntilEndsAMarginBeforeTheDeadline(t *testing.T) {
+	deadline := time.Now().Add(time.Minute)
+	before := time.Until(deadline)
+	got := BudgetUntil(deadline, true)
+	after := time.Until(deadline)
+	if got > before-deadlineMargin || got < after-deadlineMargin {
+		t.Fatalf("BudgetUntil = %s, want between %s and %s", got, after-deadlineMargin, before-deadlineMargin)
+	}
+}
+
+// TestBudgetUntilWithoutADeadlineOutlastsAnyRun: no deadline means no bound
+// worth the name, and the stand-in survives conversion to nanoseconds from
+// milliseconds (a poll(2) timeout's unit) without overflowing.
+func TestBudgetUntilWithoutADeadlineOutlastsAnyRun(t *testing.T) {
+	got := BudgetUntil(time.Time{}, false)
+	if got < 24*time.Hour {
+		t.Fatalf("BudgetUntil without a deadline = %s, want longer than any run", got)
+	}
+	if got.Milliseconds() > math.MaxInt64/int64(time.Millisecond) {
+		t.Fatalf("BudgetUntil without a deadline = %s overflows once its milliseconds are converted back to nanoseconds", got)
 	}
 }

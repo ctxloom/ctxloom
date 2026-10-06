@@ -20,22 +20,38 @@ import (
 // its own.
 const ptyGracefulShutdown = 2 * time.Second
 
-// deadlineMargin is how far ahead of the test binary's deadline TestExpiry
-// fires: room for the failing assertion to print what the wait saw before go
+// deadlineMargin is how far ahead of the test binary's deadline BudgetUntil
+// ends: room for the failing assertion to print what the wait saw before go
 // test's own timeout panics over it.
 const deadlineMargin = 10 * time.Second
 
-// TestExpiry bounds a wait on a pty event by the test binary's own deadline,
-// less deadlineMargin. A wait for bytes crossing a real pty from a real
-// subprocess carries no deadline of its own: a loaded machine delays those by
-// any amount, and a deadline short enough to matter fails on an event that was
-// merely late. Without a test deadline it never fires.
-func TestExpiry(t *testing.T) <-chan time.Time {
-	d, ok := t.Deadline()
+// noDeadline stands in for a bound when there is no deadline to honour: longer
+// than any run, yet short enough that a callee converting it to milliseconds
+// and back to nanoseconds (a poll(2) timeout) does not overflow.
+const noDeadline = 100 * 365 * 24 * time.Hour
+
+// BudgetUntil is how long a wait on a pty or process event may take when the
+// only bound is deadline (ok reports whether there is one): until
+// deadlineMargin before it, or noDeadline without one. A wait for bytes
+// crossing a real pty, or for a real process to exit, carries no deadline of
+// its own: a loaded machine delays those by any amount, and a deadline short
+// enough to matter fails on an event that was merely late.
+func BudgetUntil(deadline time.Time, ok bool) time.Duration {
 	if !ok {
-		return nil
+		return noDeadline
 	}
-	return time.After(time.Until(d) - deadlineMargin)
+	return time.Until(deadline) - deadlineMargin
+}
+
+// TestBudget is BudgetUntil the test binary's own deadline, for a wait that
+// takes a duration.
+func TestBudget(t *testing.T) time.Duration {
+	return BudgetUntil(t.Deadline())
+}
+
+// TestExpiry is TestBudget as a channel that fires when it runs out.
+func TestExpiry(t *testing.T) <-chan time.Time {
+	return time.After(TestBudget(t))
 }
 
 // ptyCapture is a goroutine-safe accumulator for everything read off a pty's

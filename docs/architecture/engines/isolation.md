@@ -227,22 +227,39 @@ runtime name:
   `present.ErrUnreachableRoot` with the remedy to run the Linux build inside the
   WSL distro that holds the project.
 
-Every mount is built by the runtime's path seam (`pathSeam`, from
-`Runtime.paths()`), and nowhere else — `TestArch_MountsAreBuiltByThePathSeam`
-refuses a mount literal outside it. The container side of a HOST-anchored path
-is the seam's `targetFor(host)` (`expose` binds it there); the container side of a CONTAINER-anchored path
-(under the instance home or `$HOME`) is `path.Join` over a POSIX root;
-`filepath` never builds a container path. `Prepare` routes the requested
-environment's roots once, with no effects, before the workspace chain, so an
-unroutable project is refused as unreachable rather than read as an
-unstartable container. `mountArgs` renders each `--mount` as one CSV record,
-because both runtimes parse it with `encoding/csv`.
+Every path that crosses between the controller and a child goes through the
+host: out of the controller by its own `Layer` (`Runtime.primary()`,
+`Layer.Reverse`), into the child by the child's (`Layer.Map`). The daemon
+resolves a bind source in host path space, so every source is a reversal,
+never a controller path. A `Crossing{Primary, Child}` composes the two:
+`ToChild` names a controller path in the child, `FromChild` names a child path
+back in the controller. The child's layer is DERIVED from the mount plan
+(`childLayer`), so it cannot drift from what the daemon is asked to bind, and
+`mountArgs` renders it.
 
-Docker-outside-of-docker is the seam's OTHER rule: there this process's paths
-are not the daemon's, so the bind SOURCE is rewritten (`sourceFor`, through
-this process's own container mounts) while the target is not. Targets never
-read that rule; it is applied only when `mountArgs` renders the argv, which is
-where a path the daemon has no name for is refused.
+Every mount is built in `layer.go` and nowhere else —
+`TestArch_MountsAreBuiltByThePathSeam` refuses a mount literal outside it. A
+HOST-anchored root (the project, a worktree checkout, a git dir) is placed by
+the runtime's placement policy (`Runtime.placement()`, `anchor`); children
+MAY see a host directory at a path different from the controller's. A path
+nested in a root is named through the root's own mount (`childPath`), never
+placed on its own, so a policy that moves a root moves everything in it. The
+container side of a CONTAINER-anchored path (under the instance home or
+`$HOME`) is `path.Join` over a POSIX root (`bind`); `filepath` never builds a
+container path. `Prepare` routes the requested environment's roots once, with
+no effects, before the workspace chain, so an unroutable project — or one the
+controller's layer cannot name on the host — is refused as unreachable rather
+than read as an unstartable container. `mountArgs` renders each `--mount` as
+one CSV record, because both runtimes parse it with `encoding/csv`.
+
+The controller's own layer is the HOST's when it is no container of the
+daemon's, else that container's daemon-reported mounts (`primaryLayer`). Which
+container it is in is never guessed: a container ctxloom launches carries its
+harp as env and as a `ctxloom.harp` label (`RunSpec.Harp`), and a process in
+one is identified by the label matching the harp it carries (`findSelf`); any
+other container by its own traces. A containerized process its daemon cannot
+identify is refused at the container gate (`settleSelf`), a non-degradable
+finding.
 
 A Windows host's container reaches the coordinator through the runtime's own
 route (`reachRoute`): Docker Desktop's `host.docker.internal`; a podman

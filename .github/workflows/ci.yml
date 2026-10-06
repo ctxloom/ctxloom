@@ -395,7 +395,7 @@ jobs:
       - name: Run the path-crossing container tests
         env:
           CTXLOOM_REQUIRE_DOCKER: "1"
-        run: go test -trimpath -v -count=1 -tags docker_integration -run '^(TestCrossing_ThreePaths|TestSelfRoute_TakenInsideADaemonContainer)$' ./internal/adapters/isolation
+        run: just test-docker-crossing
 
   acceptance:
     name: Acceptance Tests (hermetic)

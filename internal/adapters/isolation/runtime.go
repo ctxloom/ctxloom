@@ -269,9 +269,9 @@ type mount struct {
 // rootless-specific run-arg head (identityEnvArgs stays shared, called from each
 // head). The rootless flag itself stays on the concrete types: it is consulted
 // solely by that per-type head, so the base never needs it.
-// pathMap overrides the host OS's mapper; nil (every production value) is
-// hostMapper via newPathSeam. Only tests set it, to run the mount sites
-// under a mapper that is not identity on the host they run on.
+// pathMap is the child placement policy (placement); nil (every production
+// value) is the host OS's hostMapper. Only tests set it, to run the mount
+// sites under a policy that is not identity on the host they run on.
 type ociRuntime struct {
 	pathMap   pathMapper
 	self      *selfContainer // nil: this process is not one of the daemon's containers
@@ -505,12 +505,7 @@ func renderRunSpec(spec RunSpec, primary Layer) ([]string, error) {
 	if spec.Trace != nil && spec.Trace.SeccompProfile != "" {
 		args = append(args, "--security-opt", "seccomp="+spec.Trace.SeccompProfile)
 	}
-	if spec.Home != "" {
-		args = append(args, "-e", "HOME="+spec.Home)
-	}
-	if spec.Harp != "" {
-		args = append(args, "--label", labelHarp+"="+spec.Harp, "-e", sessions.EnvHarp+"="+spec.Harp)
-	}
+	args = append(args, identityArgs(spec)...)
 	// Each Env entry renders as `-e <entry>`. Two forms cross here, both native to
 	// the docker/podman `-e` grammar: "KEY=VAL" sets an explicit value
 	// (IS_SANDBOX, TERM), while a BARE "KEY" (no '=') is a
@@ -542,6 +537,19 @@ func renderRunSpec(spec RunSpec, primary Layer) ([]string, error) {
 	return args, nil
 }
 
+// identityArgs are the run's home and the session it serves: HOME, and the
+// harp as env and label (RunSpec.Harp).
+func identityArgs(spec RunSpec) []string {
+	var args []string
+	if spec.Home != "" {
+		args = append(args, "-e", "HOME="+spec.Home)
+	}
+	if spec.Harp != "" {
+		args = append(args, "--label", labelHarp+"="+spec.Harp, "-e", sessions.EnvHarp+"="+spec.Harp)
+	}
+	return args
+}
+
 // runMounts is the spec's mounts, plus — PROBE-ONLY — the trace dir bound
 // OUT so the strace output written from inside survives the container's
 // `--rm` teardown (no docker cp race). A separate slice so the spec's own
@@ -551,7 +559,7 @@ func runMounts(spec RunSpec) []mount {
 		return spec.Mounts
 	}
 	return append(append([]mount(nil), spec.Mounts...),
-		mount{Host: spec.Trace.HostDir, Container: spec.Trace.ContainerDir})
+		bind(spec.Trace.HostDir, spec.Trace.ContainerDir, false))
 }
 
 // mountArgs renders each mount as a --mount flag.

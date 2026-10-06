@@ -172,10 +172,7 @@ func (c Container) harpStateMounts() ([]mount, error) {
 		if err != nil {
 			return nil, fmt.Errorf("container session-state mounts: %w", err)
 		}
-		mounts = append(mounts, mount{
-			Host:      host,
-			Container: path.Join(c.home, paths.AppDirName, paths.SessionsDir, c.state.Harp, m.Rel()),
-		})
+		mounts = append(mounts, bind(host, path.Join(c.home, paths.AppDirName, paths.SessionsDir, c.state.Harp, m.Rel()), false))
 	}
 	return mounts, nil
 }
@@ -193,7 +190,7 @@ func (c Container) outputMounts() ([]mount, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("container output mount: %w", err)
 	}
-	return []mount{{Host: dir, Container: containerOutputDir}}, nil
+	return []mount{bind(dir, containerOutputDir, false)}, nil
 }
 
 // taskStoreMounts binds the project's task log and its lock, or — with no
@@ -229,10 +226,7 @@ func (c Container) taskStoreMounts() ([]mount, error) {
 			if err := ensureFile(src); err != nil {
 				return nil, fmt.Errorf("container task-store mount: %w", err)
 			}
-			mounts = append(mounts, mount{
-				Host:      src,
-				Container: path.Join(c.home, taskpaths.AppDirName, taskpaths.TasksDir, filepath.Base(src)),
-			})
+			mounts = append(mounts, bind(src, path.Join(c.home, taskpaths.AppDirName, taskpaths.TasksDir, filepath.Base(src)), false))
 		}
 	}
 	return mounts, nil
@@ -265,7 +259,7 @@ func (c Container) lockMounts(dir, scratchRoot string) ([]mount, error) {
 		return nil, fmt.Errorf("container lock mounts: %w", err)
 	}
 	containerLocks := path.Join(c.home, paths.AppDirName, paths.HomeLocksDirName)
-	mounts := []mount{{Host: runLocks, Container: containerLocks}}
+	mounts := []mount{bind(runLocks, containerLocks, false)}
 	for _, rel := range c.engineSpec.inPlaceFiles {
 		protected := filepath.Join(dir, rel)
 		hostLock, err := paths.HomePathFor(protected)
@@ -285,7 +279,7 @@ func (c Container) lockMounts(dir, scratchRoot string) ([]mount, error) {
 				return nil, fmt.Errorf("container lock mounts: %w", err)
 			}
 		}
-		mounts = append(mounts, mount{Host: hostLock, Container: path.Join(containerLocks, name)})
+		mounts = append(mounts, bind(hostLock, path.Join(containerLocks, name), false))
 	}
 	return mounts, nil
 }

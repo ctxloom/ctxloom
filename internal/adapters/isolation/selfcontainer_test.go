@@ -331,7 +331,7 @@ func TestResolveSelf_AnUnknownSelfRefusesTheContainerGate(t *testing.T) {
 		inCont bool
 		want   error
 	}{
-		"undecidable":                    {ps: func() (string, error) { return "", errors.New("permission denied on the socket") }, want: errSelfUndecidable},
+		"undecidable":                     {ps: func() (string, error) { return "", errors.New("permission denied on the socket") }, want: errSelfUndecidable},
 		"in a container it does not list": {ps: out(""), inCont: true, want: errSelfUnidentified},
 	} {
 		t.Run(name, func(t *testing.T) {

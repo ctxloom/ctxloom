@@ -98,7 +98,7 @@ func gitRegistryMask(rt Runtime, common, dir, scratchRoot string) ([]mount, erro
 	if err != nil {
 		return nil, fmt.Errorf("git worktree registry %s has no route into the container: %w", registry, err)
 	}
-	mounts := []mount{{Host: mask, Container: target, ReadOnly: true}}
+	mounts := []mount{bind(mask, target, true)}
 	if !own {
 		return mounts, nil
 	}
@@ -107,7 +107,7 @@ func gitRegistryMask(rt Runtime, common, dir, scratchRoot string) ([]mount, erro
 	if err != nil {
 		return nil, fmt.Errorf("git admin dir %s has no route into the container: %w", admin, err)
 	}
-	return append(mounts, mount{Host: admin, Container: adminTarget}), nil
+	return append(mounts, bind(admin, adminTarget, false)), nil
 }
 
 // gitRegistryPresent reports whether registry is a directory. A missing
@@ -166,13 +166,9 @@ func gitPointerMounts(rt Runtime, dir, commonDir, scratchRoot string) ([]mount, 
 	if err != nil || !ok || !filepath.IsAbs(admin) {
 		return nil, err
 	}
-	checkout, err := anchor(rt, dir, false)
+	checkout, common, err := checkoutAnchors(rt, dir, commonDir)
 	if err != nil {
-		return nil, fmt.Errorf("git checkout %s has no route into the container: %w", dir, err)
-	}
-	common, err := anchor(rt, commonDir, false)
-	if err != nil {
-		return nil, fmt.Errorf("git common dir %s has no route into the container: %w", commonDir, err)
+		return nil, err
 	}
 	// The pointer text names the admin dir as the CHILD sees it, through the
 	// common dir's mount; the back-pointer names the checkout's .git through
@@ -189,18 +185,38 @@ func gitPointerMounts(rt Runtime, dir, commonDir, scratchRoot string) ([]mount, 
 	if err != nil {
 		return nil, fmt.Errorf("git pointer for %s has no route into the container: %w", dir, err)
 	}
+	return writePointerShadows(scratchRoot, gitdirPrefix+mappedAdmin+"\n", targets[0], targets[1])
+}
+
+// writePointerShadows writes the generated pointer (naming the admin dir) and
+// back-pointer (naming the checkout's .git, at dotGit in the child) into the
+// run's scratch, and binds them read-only over the child's dotGit and
+// backPointer.
+func writePointerShadows(scratchRoot, pointer, dotGit, backPointer string) ([]mount, error) {
 	if err := os.MkdirAll(scratchRoot, 0o755); err != nil {
 		return nil, fmt.Errorf("git pointer scratch: %w", err)
 	}
 	pointerFile := filepath.Join(scratchRoot, "git-pointer")
 	backFile := filepath.Join(scratchRoot, "git-backpointer")
-	if err := safefs.WriteFile(afero.NewOsFs(), pointerFile, []byte(gitdirPrefix+mappedAdmin+"\n"), 0o644); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), pointerFile, []byte(pointer), 0o644); err != nil {
 		return nil, fmt.Errorf("git pointer: %w", err)
 	}
-	if err := safefs.WriteFile(afero.NewOsFs(), backFile, []byte(targets[0]+"\n"), 0o644); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), backFile, []byte(dotGit+"\n"), 0o644); err != nil {
 		return nil, fmt.Errorf("git back-pointer: %w", err)
 	}
-	return []mount{{Host: pointerFile, Container: targets[0], ReadOnly: true}, {Host: backFile, Container: targets[1], ReadOnly: true}}, nil
+	return []mount{bind(pointerFile, dotGit, true), bind(backFile, backPointer, true)}, nil
+}
+
+// checkoutAnchors are the mounts a linked checkout's two halves are visible
+// through: the checkout itself and its common dir, each placed by policy.
+func checkoutAnchors(rt Runtime, dir, commonDir string) (checkout, common mount, err error) {
+	if checkout, err = anchor(rt, dir, false); err != nil {
+		return checkout, common, fmt.Errorf("git checkout %s has no route into the container: %w", dir, err)
+	}
+	if common, err = anchor(rt, commonDir, false); err != nil {
+		return checkout, common, fmt.Errorf("git common dir %s has no route into the container: %w", commonDir, err)
+	}
+	return checkout, common, nil
 }
 
 // readGitfile returns the git dir a .git FILE points to. ok is false for no

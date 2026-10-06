@@ -183,10 +183,20 @@ func childPath(rt Runtime, ctl string, mounts ...mount) (string, error) {
 // anchor binds host where rt's placement policy puts it: the mount a
 // host-anchored root (the project, a git dir) gets, which the paths nested in
 // it are then named through (childPath).
-func anchor(rt Runtime, host string, readOnly bool) (mount, error) {
+func anchor(rt Runtime, host string, readOnly bool) (m mount, err error) {
 	view, err := rt.placement().toContainer(host)
 	if err != nil {
-		return mount{}, err
+		return m, err
 	}
-	return mount{Host: host, Container: view, ReadOnly: readOnly}, nil
+	return bind(host, view, readOnly), nil
+}
+
+// bind binds host at a target the caller already decided: a
+// container-anchored path (under the instance home, /probe), or a path the
+// child names through a root's mount (childPath). Every mount this package
+// plans is built here or by anchor, so no mount site picks its own target;
+// mount.Host stays the path as THIS process sees it, and childLayer reverses
+// it at render.
+func bind(host, target string, readOnly bool) mount {
+	return mount{Host: host, Container: target, ReadOnly: readOnly}
 }

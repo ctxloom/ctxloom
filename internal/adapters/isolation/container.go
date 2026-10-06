@@ -376,7 +376,7 @@ func (c Container) bind(ctx context.Context, ws workspace) (mountPlan, error) {
 		return mountPlan{}, fmt.Errorf("container secrets: %w", err)
 	}
 	cw.secrets = secrets
-	mounts = append(mounts, mount{Host: secrets.scratch.dir, Container: secretsTarget, ReadOnly: true})
+	mounts = append(mounts, bind(secrets.scratch.dir, secretsTarget, true))
 	// The shared-filesystem probe runs HERE, once every real mount root is
 	// known (mountProbeRoots): cw.dir (the project dir, or the worktree
 	// checkout resolveBase created), cw.scratchRoot (the config overlays), and
@@ -805,7 +805,7 @@ func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayD
 		if err != nil {
 			return nil, fmt.Errorf("container config overlay target %s has no route into the container: %w", target, err)
 		}
-		mounts = append(mounts, mount{Host: host, Container: inContainer})
+		mounts = append(mounts, bind(host, inContainer, false))
 	}
 	return mounts, nil
 }

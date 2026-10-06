@@ -192,7 +192,7 @@ func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (m mount, ok
 	if err == nil {
 		var target string
 		if target, err = childPath(rt, hostTarget, checkout); err == nil {
-			return mount{Host: source, Container: target, ReadOnly: true}, true, nil
+			return bind(source, target, true), true, nil
 		}
 	}
 	return m, false, fmt.Errorf("container-worktree: the checkout's %s has no route into the container: %w", paths.AppDirName, err)

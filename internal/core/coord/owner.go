@@ -11,10 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/procpin"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -114,11 +112,11 @@ var (
 //
 // A held lock is refused unless its holder is provably an abandoned
 // interactive session (judgeOrphan); that one is ended and the claim retried.
-func claimOwner(rep report.Reporter, dir string, stamp ownerStamp) (release func(), err error) {
+func claimOwner(root safefs.Root, rep report.Reporter, dir string, stamp ownerStamp) (release func(), err error) {
 	lockPath := filepath.Join(dir, OwnerLockFileName)
-	fl, err := lockOwner(lockPath)
+	lk, err := lockOwner(root.Locks, lockPath)
 	if errors.Is(err, errOwnerLockHeld) {
-		st, held := heldOwner(dir)
+		st, held := heldOwner(root.Fs, dir)
 		if !st.Orphan {
 			return nil, ownedError(st)
 		}
@@ -126,9 +124,9 @@ func claimOwner(rep report.Reporter, dir string, stamp ownerStamp) (release func
 			return nil, fmt.Errorf("%w: ending the orphaned owner failed: %w", ownedError(st), rerr)
 		}
 		rep.Warnf("coordinator: ended the orphaned session %s (pid %d, started %s): %s", st.Harp, st.PID, st.Started.Format(time.RFC3339), st.Reason)
-		fl, err = lockOwner(lockPath)
+		lk, err = lockOwner(root.Locks, lockPath)
 		if errors.Is(err, errOwnerLockHeld) {
-			st, _ = heldOwner(dir)
+			st, _ = heldOwner(root.Fs, dir)
 			return nil, ownedError(st)
 		}
 	}
@@ -138,7 +136,7 @@ func claimOwner(rep report.Reporter, dir string, stamp ownerStamp) (release func
 	stampPath := filepath.Join(dir, ownerStampFileName)
 	raw, merr := json.Marshal(stamp)
 	if merr == nil {
-		merr = safefs.WriteFile(afero.NewOsFs(), stampPath, raw, 0o600)
+		merr = safefs.WriteFile(root.Fs, stampPath, raw, safefs.PrivateFileMode)
 	}
 	if merr != nil {
 		// The lock, not the stamp, is ownership: an unstamped owner is only
@@ -147,8 +145,8 @@ func claimOwner(rep report.Reporter, dir string, stamp ownerStamp) (release func
 	}
 	return func() {
 		// Unstamp while still holding the lock, so no claimant is mid-stamp.
-		_ = os.Remove(stampPath)
-		_ = fl.Close()
+		_ = root.Fs.Remove(stampPath)
+		_ = lk.Unlock()
 	}, nil
 }
 
@@ -173,36 +171,32 @@ var (
 // claim on the root if the file it locks is still the one at lockPath: a
 // removal (RemoveRoot) unlinks the lock file under its own lock, and a
 // claimant that opened the file before that and locks it after holds a lock
-// nobody else can see. Both that and a dir that vanished mid-wait are
-// errRootRemoved.
-func lockOwner(lockPath string) (*flock.Flock, error) {
-	fl := flock.New(lockPath, flock.SetPermissions(0o600))
-	got, err := fl.TryLock()
-	if err == nil && !got {
+// nobody else can see (Lock.Current). Both that and a dir that vanished
+// mid-wait are errRootRemoved.
+func lockOwner(locks safefs.Locks, lockPath string) (safefs.Lock, error) {
+	once, cancelOnce := context.WithCancel(context.Background())
+	cancelOnce() // a done context: TryLock makes exactly one attempt
+	lk, err := locks.TryLock(once, lockPath)
+	if errors.Is(err, safefs.ErrLockHeld) {
 		onOwnerLockContended(lockPath)
 		ctx, cancel := context.WithTimeout(context.Background(), claimWait)
-		got, err = fl.TryLockContext(ctx, claimRetry)
+		lk, err = locks.TryLock(ctx, lockPath)
 		cancel()
 	}
-	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
-		_ = fl.Close()
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, errRootRemoved
-		}
+	switch {
+	case errors.Is(err, safefs.ErrLockHeld):
+		return nil, errOwnerLockHeld
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, errRootRemoved
+	case err != nil:
 		return nil, fmt.Errorf("coord: owner lock %s: %w", lockPath, err)
 	}
-	if !got {
-		_ = fl.Close()
-		return nil, errOwnerLockHeld
-	}
 	afterOwnerLock(lockPath)
-	held, herr := fl.Stat()
-	onDisk, derr := os.Lstat(lockPath)
-	if herr != nil || derr != nil || !os.SameFile(held, onDisk) {
-		_ = fl.Close()
+	if !lk.Current() {
+		_ = lk.Unlock()
 		return nil, errRootRemoved
 	}
-	return fl, nil
+	return lk, nil
 }
 
 // whileRemovingRoot is a test seam: RemoveRoot calls it holding the root's
@@ -219,29 +213,29 @@ var whileRemovingRoot = func(dir string) {}
 // lock file in between holds a handle that refuses the delete in turn, so the
 // retry can never unlink a lock someone holds. A root that does not exist is
 // already removed.
-func RemoveRoot(projectID, projectDir, rootHarp string) error {
+func RemoveRoot(root safefs.Root, projectID, projectDir, rootHarp string) error {
 	dir, err := RootStateDir(projectID, projectDir, rootHarp)
 	if err != nil {
 		return err
 	}
-	if _, err := os.Lstat(dir); errors.Is(err, fs.ErrNotExist) {
+	if _, err := root.Fs.Stat(dir); errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
-	fl, err := lockOwner(filepath.Join(dir, OwnerLockFileName))
+	lk, err := lockOwner(root.Locks, filepath.Join(dir, OwnerLockFileName))
 	switch {
 	case errors.Is(err, errRootRemoved):
 		return nil
 	case errors.Is(err, errOwnerLockHeld):
-		st, _ := heldOwner(dir)
+		st, _ := heldOwner(root.Fs, dir)
 		return ownedError(st)
 	case err != nil:
 		return err
 	}
 	whileRemovingRoot(dir)
-	rmErr := os.RemoveAll(dir)
-	_ = fl.Close()
+	rmErr := root.Fs.RemoveAll(dir)
+	_ = lk.Unlock()
 	if rmErr != nil {
-		if err := os.RemoveAll(dir); err != nil {
+		if err := root.Fs.RemoveAll(dir); err != nil {
 			return fmt.Errorf("coord: remove root %s: %w", dir, err)
 		}
 	}
@@ -251,23 +245,23 @@ func RemoveRoot(projectID, projectDir, rootHarp string) error {
 // ProbeOwner reports who owns a root state dir without claiming it.
 // Held is the kernel's answer; the rest is the holder's stamp and the orphan
 // judgement a claim would act on.
-func ProbeOwner(dir string) (OwnerStatus, error) {
-	held, err := filelock.Held(filepath.Join(dir, OwnerLockFileName))
+func ProbeOwner(root safefs.Root, dir string) (OwnerStatus, error) {
+	held, err := root.Locks.Held(filepath.Join(dir, OwnerLockFileName))
 	if err != nil {
 		return OwnerStatus{}, fmt.Errorf("coord: probe owner lock: %w", err)
 	}
 	if !held {
 		return OwnerStatus{}, nil
 	}
-	st, _ := heldOwner(dir)
+	st, _ := heldOwner(root.Fs, dir)
 	return st, nil
 }
 
 // heldOwner describes a HELD lock from its holder's stamp, and returns the
 // stamp itself for the reclaim.
-func heldOwner(dir string) (OwnerStatus, ownerStamp) {
+func heldOwner(fsys afero.Fs, dir string) (OwnerStatus, ownerStamp) {
 	st := OwnerStatus{Held: true}
-	raw, err := os.ReadFile(filepath.Join(dir, ownerStampFileName))
+	raw, err := afero.ReadFile(fsys, filepath.Join(dir, ownerStampFileName))
 	var s ownerStamp
 	if err == nil {
 		err = json.Unmarshal(raw, &s)

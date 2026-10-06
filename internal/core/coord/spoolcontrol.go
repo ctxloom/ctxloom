@@ -123,7 +123,7 @@ func (c *Coordinator) WithdrawSteer(by ControlInitiator, harp, messageID string)
 			// Not a name any spool file or record entry can have.
 			return fmt.Errorf("%w: %s", ErrNoSuchSteer, messageID)
 		}
-		taken, err := spool.Delivered(c.fs, mapper, harp, messageID)
+		taken, err := spool.Delivered(c.root.Fs, mapper, harp, messageID)
 		if err != nil {
 			return fmt.Errorf("steer withdraw: %w", err)
 		}
@@ -135,7 +135,7 @@ func (c *Coordinator) WithdrawSteer(by ControlInitiator, harp, messageID string)
 		}
 		return fmt.Errorf("%w: %s", ErrNoSuchSteer, messageID)
 	}
-	withdrawn, err := spool.Withdraw(c.fs, mapper, ref)
+	withdrawn, err := spool.Withdraw(c.root.Fs, mapper, ref)
 	if err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			// The reader won between the scan and the rename. Same answer as

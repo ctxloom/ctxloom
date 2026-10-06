@@ -4,11 +4,14 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"os"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/logboot"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // reportExecuteError writes a terminal error in the format the invocation
@@ -30,6 +33,11 @@ func main() {
 	// taskloom is an MCP server and a hook-driven CLI, and a stderr tee is
 	// ctxloom's operator switch, not this binary's.
 	flush := logboot.Install("taskloom", false)
+	// taskloom writes ownership records beneath ctxloom's private home roots,
+	// so it establishes them as every ctxloom process does.
+	if err := paths.EnsureHomeRoots(safefs.New().Private); err != nil {
+		fmt.Fprintf(os.Stderr, "taskloom: %v\n", err)
+	}
 
 	// A no-op unless built with `-tags docsgen` (`just gen-docs`), which mounts
 	// the shared reference-doc generator on the tree. See docs_gen.go.

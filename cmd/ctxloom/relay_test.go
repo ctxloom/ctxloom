@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // The command claude's MCP entry spawns is composed into the binary, hidden
@@ -19,7 +20,7 @@ func TestComposedBinary_CarriesClaudesHiddenRelay(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(claude.EnvRelayURL, "")
 	t.Setenv(claude.EnvRelayBearer, "")
-	comp := compose(&report.Collector{})
+	comp := compose(&report.Collector{}, safefs.New())
 
 	cmd, _, err := cli.GetRootCmd(comp).Find([]string{claude.RelayCommand})
 	require.NoError(t, err)

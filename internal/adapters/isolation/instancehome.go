@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gofrs/flock"
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -182,7 +183,7 @@ func linkNativeHistory(instanceHome, nativeHome, rel string) error {
 	case at == historyLinked:
 		return nil
 	case at == historyRealDir:
-		if err := sessions.AdoptHistory(link, target); err != nil {
+		if err := sessions.AdoptHistory(afero.NewOsFs(), link, target); err != nil {
 			return fmt.Errorf("native history: move %s into %s: %w", link, target, err)
 		}
 	case at == historyLinkedBeforeRename:
@@ -227,7 +228,7 @@ func historyAt(link, nativeHome, rel string) (historyState, error) {
 		return historyAbsent, fmt.Errorf("native history link %s: %w", link, err)
 	case ok:
 		return historyLinked, nil
-	case sessions.IsRealDir(link):
+	case sessions.IsRealDir(afero.NewOsFs(), link):
 		return historyRealDir, nil
 	case renamedSessionLink(link, nativeHome, rel):
 		return historyLinkedBeforeRename, nil

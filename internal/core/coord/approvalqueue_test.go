@@ -13,6 +13,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -44,7 +45,7 @@ func (g *grantPush) push(harp string, eng engine.Name, rules []string) error {
 // reads — the shape the coordinator opens runs.jsonl in.
 func openQueueStore(t *testing.T, path string) *Store {
 	t.Helper()
-	s, err := openStore(path, newGrantsFold())
+	s, err := openStore(afero.NewOsFs(), path, newGrantsFold())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 	return s

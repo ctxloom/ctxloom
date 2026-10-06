@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
@@ -55,7 +53,7 @@ func (c *Coordinator) saveFinalReport(harp string, s Summary) {
 
 // writeFinalReport writes s and its artifacts into dir.
 func (c *Coordinator) writeFinalReport(dir, harp string, s Summary) error {
-	fsys := afero.NewOsFs()
+	fsys := c.fs
 	if err := fsys.MkdirAll(dir, reportDirMode); err != nil {
 		return err
 	}

@@ -36,6 +36,8 @@ import (
 type Home struct {
 	cfg HomeConfig
 	rep report.Reporter // HomeConfig.Reporter, or silence
+	// fs is the filesystem a downloaded artifact is placed through.
+	fs afero.Fs
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -289,6 +291,7 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	h := &Home{
 		cfg:         cfg,
 		rep:         report.To(cfg.Reporter),
+		fs:          afero.NewOsFs(),
 		ctx:         hctx,
 		cancel:      cancel,
 		target:      target,

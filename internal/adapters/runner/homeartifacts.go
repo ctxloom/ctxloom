@@ -8,12 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
+
+	"github.com/spf13/afero"
 
 	"google.golang.org/grpc"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // E1 — the RUNNER side of artifact transfer: Home dials
@@ -90,7 +93,7 @@ func (h *Home) UploadArtifact(ctx context.Context, artifactID, name, mediaType s
 func (h *Home) DownloadArtifact(ctx context.Context, agentID, artifactID, destPath string) (shaHex string, size int64, err error) {
 	stream, header, err := h.openDownload(ctx, agentID, artifactID)
 	if err == nil {
-		shaHex, size, err = placeVerified(stream, header.GetSha256(), destPath)
+		shaHex, size, err = placeVerified(h.fs, stream, header.GetSha256(), destPath)
 	}
 	if err != nil {
 		return "", 0, fmt.Errorf("download %s/%s: %w", agentID, artifactID, err)
@@ -120,33 +123,27 @@ func (h *Home) openDownload(ctx context.Context, agentID, artifactID string) (gr
 	return stream, header, nil
 }
 
-// placeVerified streams the remaining chunks into a same-directory temp file
-// and renames it onto destPath only once the content is non-empty and hashes
-// to want. On any refusal the deferred Remove discards the temp file and
-// destPath is never touched.
-func placeVerified(stream grpc.ServerStreamingClient[agentcoordpb.ArtifactDownloadFrame], want []byte, destPath string) (string, int64, error) {
-	dir := filepath.Dir(destPath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+// placeVerified streams the remaining chunks into a safefs.AtomicFile on fsys
+// and commits it onto destPath, owner-only, only once the content is
+// non-empty and hashes to want. On any refusal the deferred Abort discards
+// the temp file and destPath is never touched.
+func placeVerified(fsys afero.Fs, stream grpc.ServerStreamingClient[agentcoordpb.ArtifactDownloadFrame], want []byte, destPath string) (string, int64, error) {
+	if err := fsys.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return "", 0, err
 	}
-	tmp, err := os.CreateTemp(dir, ".ctxloom-fetch-*")
+	tmp, err := safefs.NewAtomicFile(fsys, destPath, owneronly.FileMode)
 	if err != nil {
 		return "", 0, err
 	}
-	tmpPath := tmp.Name()
+	placed := false
 	defer func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath) // no-op once renamed away
+		if !placed {
+			_ = tmp.Abort()
+		}
 	}()
 
 	sum, n, err := receiveChunks(stream, tmp)
 	if err != nil {
-		return "", 0, err
-	}
-	if err := tmp.Sync(); err != nil {
-		return "", 0, err
-	}
-	if err := tmp.Close(); err != nil {
 		return "", 0, err
 	}
 
@@ -164,7 +161,8 @@ func placeVerified(stream grpc.ServerStreamingClient[agentcoordpb.ArtifactDownlo
 	if !bytes.Equal(sum, want) {
 		return "", 0, fmt.Errorf("content does not match the manifest sha256 (store corruption?) — refusing to place %s", destPath)
 	}
-	if err := os.Rename(tmpPath, destPath); err != nil {
+	placed = true // Commit removes the temp file itself on failure
+	if err := tmp.Commit(); err != nil {
 		return "", 0, fmt.Errorf("place %s: %w", destPath, err)
 	}
 	return hex.EncodeToString(sum), n, nil

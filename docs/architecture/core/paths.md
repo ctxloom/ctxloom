@@ -193,11 +193,8 @@ are documented in full in [layout.md](../../layout.md)'s "The home tree"
 table — this page states the mechanism, that page states the list. The
 `locks` row (`HomeLocksDirName`) has its own dedicated resolvers: `HomeLocksDir`
 (the directory) and `HomePathFor` (`lockpath.go`, the per-protected-file lock
-path within it) both live in this package now — the deleted `internal/shared/
-filelock` package used to carry its own internal copy of the `"locks"` leaf
-name to dodge the path-authority gate (a Join call outside this package
-mixing a literal `paths.X` selector with a bare local segment); moving the
-whole derivation here removed the need for that copy entirely.
+path within it) both live in this package, so no other package names the
+`"locks"` leaf.
 
 ## Invariants
 

@@ -58,7 +58,7 @@ type ownedScratch struct {
 // then creates and locks a fresh one. The dir's name carries prefix, as
 // os.MkdirTemp makes it.
 //
-// The scratch is owner-only (owneronly), lock file included: a lock is taken
+// The scratch is owner-only (safefs Private), lock file included: a lock is taken
 // on an open handle, so whoever can open the lock file can hold the scratch
 // live. It is restricted only once it is held (claim): before that a
 // concurrent reaper may have removed it, and restricting would recreate it.

@@ -4,13 +4,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // lockIsFree reports whether nobody holds the advisory lock guarding target,
@@ -21,14 +20,9 @@ func lockIsFree(t *testing.T, target string) bool {
 	t.Helper()
 	lockPath, err := paths.HomePathFor(target)
 	require.NoError(t, err)
-	require.NoError(t, filelock.Prepare(lockPath))
-	probe := flock.New(lockPath)
-	free, err := probe.TryLock()
+	held, err := safefs.New().Locks.Held(lockPath)
 	require.NoError(t, err)
-	if free {
-		require.NoError(t, probe.Unlock())
-	}
-	return free
+	return !held
 }
 
 // TestLedger_Write_ExcludesACoLocatedWriterFromItsWindow forces the lost

@@ -69,6 +69,7 @@ ARG JUST_VERSION
 ARG GOPLS_VERSION
 ARG GITLEAKS_VERSION
 ARG LEFTHOOK_VERSION
+ARG GIT_MIN_VERSION
 
 RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-image', which reads .devcontainer/tool-versions.env}" \
     && : "${UPX_VERSION:?missing --build-arg UPX_VERSION — see .devcontainer/tool-versions.env}" \
@@ -84,7 +85,33 @@ RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-imag
     && : "${JUST_VERSION:?missing --build-arg JUST_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${GOPLS_VERSION:?missing --build-arg GOPLS_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${GITLEAKS_VERSION:?missing --build-arg GITLEAKS_VERSION — see .devcontainer/tool-versions.env}" \
-    && : "${LEFTHOOK_VERSION:?missing --build-arg LEFTHOOK_VERSION — see .devcontainer/tool-versions.env}"
+    && : "${LEFTHOOK_VERSION:?missing --build-arg LEFTHOOK_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${GIT_MIN_VERSION:?missing --build-arg GIT_MIN_VERSION — see .devcontainer/tool-versions.env}"
+
+# git from the git-core PPA, over the one Ubuntu 24.04 ships: ctxloom registers
+# container-side worktrees with `git worktree add --relative-paths`
+# (internal/adapters/git RelativePathsFlag), which needs git 2.48+, and the
+# tests exercising it against real git can only run where real git has it.
+#
+# GIT_MIN_VERSION is a FLOOR, not an exact pin like the other tools here, and
+# that is forced: the PPA publishes only its newest build per series and
+# deletes superseded ones, so an exact `git=<version>` would stop resolving on
+# the PPA's next upload. The assertion below is what keeps the floor binding —
+# a build that ends up with an older git fails here instead of shipping one.
+# The repository is registered by hand rather than with add-apt-repository so
+# the image gains no software-properties-common; the key is fetched by its full
+# fingerprint (the one Launchpad reports for ~git-core/ppa), so a different
+# key cannot be substituted under the same name.
+RUN curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF911AB184317630C59970973E363C90F8F1B6217" \
+        -o /etc/apt/keyrings/git-core-ppa.asc \
+    && echo "deb [signed-by=/etc/apt/keyrings/git-core-ppa.asc] https://ppa.launchpadcontent.net/git-core/ppa/ubuntu noble main" \
+        > /etc/apt/sources.list.d/git-core-ppa.list \
+    && apt-get update && apt-get install -y git \
+    && rm -rf /var/lib/apt/lists/* \
+    && installed="$(git --version | awk '{print $3}')" \
+    && if [ "$(printf '%s\n%s\n' "${GIT_MIN_VERSION}" "${installed}" | sort -V | head -n1)" != "${GIT_MIN_VERSION}" ]; then \
+        echo "git ${installed} is older than GIT_MIN_VERSION=${GIT_MIN_VERSION}" >&2; exit 1; \
+    fi
 
 # Install Go
 RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -xzf -

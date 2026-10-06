@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -27,10 +28,10 @@ const DefaultMaterializeBackend = "claude-code"
 // runtime injection — so an externally-launched agent on that backend inherits
 // the profile with ctxloom out of the loop.
 type MaterializeProfileRequest struct {
-	Profiles []string `json:"profiles"`
-	Target   string   `json:"target"`
-	Backend  string   `json:"backend,omitempty"` // "" or "claude" → claude-code
-	FS       afero.Fs `json:"-"`
+	Profiles []string    `json:"profiles"`
+	Target   string      `json:"target"`
+	Backend  string      `json:"backend,omitempty"` // "" or "claude" → claude-code
+	Root     safefs.Root `json:"-"`                 // zero = safefs.New()
 }
 
 // MaterializeProfileResult reports which managed surfaces were written under
@@ -142,7 +143,8 @@ func MaterializeProfile(ctx context.Context, reg engine.Registry, cfg *config.Co
 	if err != nil {
 		return nil, err
 	}
-	fs := getFS(req.FS)
+	root := rootOf(req.Root)
+	fs := root.Fs
 	// The target is ours to create: materialize's whole point is standing up a
 	// fresh native surface, so a nonexistent --target dir is expected input,
 	// not an error. It is delivered to by its absolute path: the ownership
@@ -215,7 +217,7 @@ func MaterializeProfile(ctx context.Context, reg engine.Registry, cfg *config.Co
 	if !ok {
 		return nil, fmt.Errorf("materialize: no engine kind is composed for %s", backend)
 	}
-	deliverMaterialized(ctx, fs, cfg, kind, pkg, res)
+	deliverMaterialized(ctx, root, cfg, kind, pkg, res)
 	return res, nil
 }
 
@@ -223,8 +225,8 @@ func MaterializeProfile(ctx context.Context, reg engine.Registry, cfg *config.Co
 // written and what the engine does not carry. A write failure is a
 // fatal-class strictness finding and a warning on res, not an error: the
 // choke owner decides, and --degraded keeps the partial target.
-func deliverMaterialized(ctx context.Context, fs afero.Fs, cfg *config.Config, kind engine.Engine, pkg composite.Package, res *MaterializeProfileResult) {
-	delivered, plan, err := DeliverProject(ctx, fs, kind, pkg, res.Target)
+func deliverMaterialized(ctx context.Context, root safefs.Root, cfg *config.Config, kind engine.Engine, pkg composite.Package, res *MaterializeProfileResult) {
+	delivered, plan, err := DeliverProject(ctx, root, kind, pkg, res.Target)
 	if err != nil {
 		strictness.Fail(report.KindApply,
 			"fix the write failure, then re-run (ctxloom profile materialize)",

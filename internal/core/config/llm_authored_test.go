@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -27,7 +28,7 @@ func TestIsLLMUserAuthored_EmptyRegistry_DefaultLabelsAreNotUserAuthored(t *test
 	appDir := "/proj/.ctxloom"
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("schema_version: 7\n"), 0644))
 
-	cfg, err := configload.Load(configload.WithFS(fs), configload.WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 
 	require.Contains(t, cfg.GetLLMLabels(), "claude-code", "sanity: the default merge really does inject it")
@@ -44,7 +45,7 @@ func TestIsLLMUserAuthored_ExplicitEntry_IsUserAuthored(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(
 		"schema_version: 7\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n"), 0644))
 
-	cfg, err := configload.Load(configload.WithFS(fs), configload.WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	assert.True(t, cfg.IsLLMUserAuthored("big"))
 }
@@ -60,7 +61,7 @@ func TestIsLLMUserAuthored_ExplicitOverrideOfADefaultName_IsUserAuthored(t *test
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(
 		"schema_version: 7\nllm:\n  configs:\n    claude-code: { permissions: { mode: bypass } }\n"), 0644))
 
-	cfg, err := configload.Load(configload.WithFS(fs), configload.WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	assert.True(t, cfg.IsLLMUserAuthored("claude-code"))
 }
@@ -72,7 +73,7 @@ func TestIsLLMUserAuthored_UnknownLabel_IsFalse(t *testing.T) {
 	appDir := "/proj/.ctxloom"
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("schema_version: 7\n"), 0644))
 
-	cfg, err := configload.Load(configload.WithFS(fs), configload.WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	assert.False(t, cfg.IsLLMUserAuthored("nonexistent"))
 }

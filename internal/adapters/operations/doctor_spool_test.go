@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,6 +17,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -434,11 +434,9 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedOutboundEntry(t *testi
 // is held.
 func holdRootLock(t *testing.T, dir string) {
 	t.Helper()
-	fl := flock.New(filepath.Join(dir, paths.CoordOwnerLockFileName), flock.SetPermissions(0o600))
-	got, err := fl.TryLock()
+	l, err := safefs.New().Locks.Lock(filepath.Join(dir, paths.CoordOwnerLockFileName))
 	require.NoError(t, err)
-	require.True(t, got)
-	t.Cleanup(func() { _ = fl.Close() })
+	t.Cleanup(func() { _ = l.Unlock() })
 }
 
 // writeEndpointFile records an endpoint nothing listens on, in projectKey's

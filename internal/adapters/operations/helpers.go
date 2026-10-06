@@ -7,7 +7,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
+
+// rootOf is root, or the controller's own filesystem when none was handed.
+func rootOf(root safefs.Root) safefs.Root {
+	if root.Fs == nil {
+		return safefs.New()
+	}
+	return root
+}
 
 // getFS returns the provided filesystem or a default OS filesystem if nil.
 func getFS(fs afero.Fs) afero.Fs {

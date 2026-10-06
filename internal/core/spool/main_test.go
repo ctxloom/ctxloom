@@ -74,7 +74,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr,
 			"spool test isolation FAILED: a test wrote into the package source dir instead of a "+
 				"temp dir: %v\nThe entries were removed. Fixtures belong under t.TempDir() or, when a "+
-				"test bind-mounts it into a container, under dockergate.BindFixtureRoot() — never inside the checkout.\n",
+				"test bind-mounts it into a container, under the fixture root daemonfixture.Require places it in — never inside the checkout.\n",
 			leaks)
 		if code == 0 {
 			code = 1

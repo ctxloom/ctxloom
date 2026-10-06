@@ -4,14 +4,16 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/testsupport/atrest"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/atrest"
 )
 
 // ctxloomManagedHooks is a hook set whose command is recognized as
@@ -63,7 +65,7 @@ func TestUninstall_AbsentFilesAreNoOp(t *testing.T) {
 	for _, name := range []string{"claude-code", "mock"} {
 		kind, ok := Registry().Lookup(engine.Name(name))
 		require.True(t, ok)
-		require.NoError(t, atrest.New(t, fs, kind, "/empty").Uninstall())
+		require.NoError(t, atrest.New(t, safefs.NewMem(fs), kind, "/empty").Uninstall())
 	}
 
 	// Uninstall must never create config files.

@@ -33,6 +33,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
+	"github.com/ctxloom/ctxloom/internal/testsupport/daemonfixture"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
@@ -73,6 +74,7 @@ func TestContainerCell_DeliversAcrossTheProcessBoundary(t *testing.T) {
 // ctxloom in a container of this runtime, and observe the mount from the host.
 func assertCellDelivers(t *testing.T, ctx context.Context, rt containercell.Runtime) {
 	t.Helper()
+	daemon := daemonfixture.Root(t, rt.Command)
 	root := t.TempDir()
 	project := writeCellFixture(t, root)
 	if err := requireCellBundle(project); err != nil {
@@ -81,7 +83,7 @@ func assertCellDelivers(t *testing.T, ctx context.Context, rt containercell.Runt
 	target := filepath.Join(root, "target")
 
 	res, err := rt.Run(ctx, containercell.Spec{
-		Mounts:  []string{root},
+		Mounts:  []containercell.Mount{{Source: daemonfixture.Source(t, daemon, root), Path: root}},
 		WorkDir: project,
 		// `FROM scratch` inherits no environment at all, so HOME — the only
 		// variable ctxloom needs here — is passed explicitly. Its absence would

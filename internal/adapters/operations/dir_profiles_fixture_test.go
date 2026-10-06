@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -39,6 +40,6 @@ func cfgWithDirProfiles(t *testing.T, fs afero.Fs, appDir string, defs map[strin
 		extra.AppPaths = append(extra.AppPaths, appDir)
 	}
 	cfg := config.NewFixture(extra)
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	return cfg
 }

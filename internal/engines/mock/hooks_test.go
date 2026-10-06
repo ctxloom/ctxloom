@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // deliverHooked delivers a package carrying one pre_tool hook (its command
@@ -103,7 +104,7 @@ func TestMock_AContextFileItCreatesIsOwnerOnly(t *testing.T) {
 			start := present.ProjectOnHost(project)
 			plan, err := delivery.Route(pkg.EngineItems(eng.Root().Name), eng.Root(), delivery.Preference{}, start.Paths())
 			require.NoError(t, err)
-			_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(),
+			_, err = fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(),
 				delivery.Target{Root: start, Ownership: rec, Writer: delivery.ProjectWriter})
 			require.NoError(t, err)
 			info, err := os.Stat(path)
@@ -128,7 +129,7 @@ func deliverHookedAt(t *testing.T, set func(u *wire.UnifiedHooks, h wire.Hook), 
 	rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
 	require.NoError(t, err)
 	target := delivery.Target{Root: present.New(present.OnHost(roots)), Ownership: rec, Writer: delivery.SessionWriter("h")}
-	d, err := fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), target)
+	d, err := fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), target)
 	require.NoError(t, err)
 	require.Contains(t, d.Wrote, present.Hooks, "the hook item was delivered statically")
 	inst, err := eng.Instance(engine.Session{Mode: engine.Structured, WorkDir: home})

@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -443,9 +444,9 @@ func ackedFixture(t *testing.T, f config.Fixture) *config.Config {
 		f.AppDir = "/proj/.ctxloom"
 	}
 	fs := afero.NewMemMapFs()
-	require.NoError(t, config.SetDirtyTreeCommitAck(fs, f.AppDir, true))
+	require.NoError(t, config.SetDirtyTreeCommitAck(safefs.NewMem(fs), f.AppDir, true))
 	cfg := config.NewFixture(f)
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	return cfg
 }
 

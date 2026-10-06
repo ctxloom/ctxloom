@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -28,7 +29,7 @@ func TestCreateProfile_DoesNotClobberAnUnparseableProfile(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, mine, []byte(authored), 0o644))
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{"/app"}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	loader := cfg.GetProfileLoader()
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
@@ -54,7 +55,7 @@ func TestProfileLoader_HonoursTheInjectedFilesystem(t *testing.T) {
 	bundletree.WriteDirProfiles(t, fs, "/app", map[string]any{"alpha": map[string]any{"bundles": []string{"go-development"}}})
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{"/app"}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 
 	list, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{})
 	require.NoError(t, err)
@@ -83,7 +84,7 @@ func TestUpdateProfile_LeavesTheSharedSeedUntouched(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll("/app/profiles", 0o755))
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{"/app"}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	loader := profiles.NewLoader([]string{"/app/profiles"}, profiles.WithFS(fs),
 		profiles.WithSeededProfiles(map[string]*profiles.Profile{key: seeded}))
 

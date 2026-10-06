@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -20,7 +21,7 @@ func TestRead_BindsProfileResolversFromTheRemotesRegistry(t *testing.T) {
 	testsupport.WriteFileString(t, fs, paths.RemotesPath(appDir),
 		"remotes:\n  personal:\n    name: personal\n    url: https://github.com/owner/repo\n", 0o644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	require.NoError(t, err)
 
 	urlOf := cfg.ProfileRemoteURLResolver()

@@ -156,3 +156,43 @@ func TestRepoTrust_AContainerizedControllerLooksUpTheHostName(t *testing.T) {
 	pl, _ = placeOn(t, homeSpec(t, claudeEngine(t), home, harpA, agents.HomeModeSession), cwd, plain)
 	assert.Equal(t, engine.TrustUntrusted, pl.Trust, "under the controller's own name the answer is not there")
 }
+
+// A HOST-runtime child of a containerized controller runs in the controller's
+// own container, and ctxloom mounts nothing for it: the child's config home is
+// the session home, at one path in both views, and the .claude.json it reads
+// there is generated from the controller process's OWN ~/.claude.json. That
+// file was written by a claude running in the same view (ctxloom never mounts
+// a host ~/.claude.json into any container), so the human's answers in it are
+// keyed by the controller's names, and the lookup takes them unreversed
+// (hostRelocator.primary is HostLayer).
+func TestRepoTrust_AHostRuntimeChildReadsTheControllersOwnHome(t *testing.T) {
+	home := fakeHostHome(t, tokenFixture)
+	cwd := t.TempDir()
+	trustedByHuman(t, home, cwd, true)
+
+	pl, mounts := placeOn(t, homeSpec(t, claudeEngine(t), home, harpA, agents.HomeModeSession), cwd, hostRelocator{})
+	assert.Empty(t, mounts, "a host-runtime child is given no mount: every file it reads is the controller process's own")
+	sh := pl.Paths.Paths().SessionHome
+	assert.Equal(t, claudeHome(home, harpA), sh.Host)
+	assert.Equal(t, sh.Host, sh.Engine, "the child names its config home as the controller does")
+	assert.Contains(t, pl.Env, "CLAUDE_CONFIG_DIR")
+	assert.Equal(t, sh.Engine, pl.Env["CLAUDE_CONFIG_DIR"], "the .claude.json the child reads is the session home's")
+	assert.Equal(t, engine.TrustTrusted, pl.Trust, "the answer recorded under the controller's own name is found")
+	accepted, written := sessionHomeTrust(t, home, cwd)
+	assert.True(t, written && accepted, "the child's .claude.json carries it under the cwd it runs in")
+}
+
+// The converse: an answer recorded only under some other name for the
+// project (a host name the controller's container never sees) is not the
+// host-runtime child's — the lookup does not reverse.
+func TestRepoTrust_AHostRuntimeChildDoesNotReverseToHostNames(t *testing.T) {
+	home := fakeHostHome(t, tokenFixture)
+	cwd := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(cwd, ".git"), 0o755))
+	data, err := json.Marshal(map[string]any{"projects": map[string]any{"/host" + cwd: map[string]any{"hasTrustDialogAccepted": true}}})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude.json"), data, 0o600))
+
+	pl, _ := placeOn(t, homeSpec(t, claudeEngine(t), home, harpA, agents.HomeModeSession), cwd, hostRelocator{})
+	assert.Equal(t, engine.TrustUntrusted, pl.Trust)
+}

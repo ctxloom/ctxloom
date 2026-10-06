@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -37,7 +38,7 @@ func TestProfileOperations_ListCreateDelete_RoundTrip(t *testing.T) {
 		require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, name+".yaml"), []byte("description: seeded\n"), 0o644))
 	}
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	loader := cfg.GetProfileLoader()
 
 	list, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{Loader: loader})

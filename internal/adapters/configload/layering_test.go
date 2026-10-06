@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -17,7 +18,7 @@ import (
 
 // writeLayers seeds a project config.yaml at "/proj/.ctxloom" and, when
 // homeBody is non-empty, a home config.yaml under an isolated HOME — both on
-// the SAME fake fs, so Load(WithFS(fs), WithAppDir(...)) exercises real
+// the SAME fake fs, so Load(WithRoot(safefs.NewMem(fs)), WithAppDir(...)) exercises real
 // layering without ever touching the developer's actual ~/.ctxloom. It
 // returns the loaded config.Config.
 func writeLayers(t *testing.T, homeBody, projectBody string) *config.Config {
@@ -26,7 +27,7 @@ func writeLayers(t *testing.T, homeBody, projectBody string) *config.Config {
 	fs := afero.NewMemMapFs()
 	projectAppDir := seedLayers(t, fs, home, homeBody, projectBody)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(projectAppDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(projectAppDir))
 	require.NoError(t, err)
 	return cfg
 }
@@ -149,7 +150,7 @@ func TestLoad_ExplicitAppDirEqualToHome_ResolvesSourceHome(t *testing.T) {
 	homeAppDir := filepath.Join(home, config.AppDirName)
 	testsupport.WriteFile(t, fs, paths.ConfigPath(homeAppDir), []byte("schema_version: 7\n"), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(homeAppDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(homeAppDir))
 	require.NoError(t, err)
 	assert.Equal(t, config.SourceHome, cfg.ToFixture().Source, "an explicit appDir that IS the home directory must resolve as config.SourceHome")
 }
@@ -164,7 +165,7 @@ func TestLoad_ExplicitAppDirDifferentFromHome_StaysSourceProject(t *testing.T) {
 	projectAppDir := "/proj/.ctxloom"
 	testsupport.WriteFile(t, fs, paths.ConfigPath(projectAppDir), []byte("schema_version: 7\n"), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(projectAppDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(projectAppDir))
 	require.NoError(t, err)
 	assert.Equal(t, config.SourceProject, cfg.ToFixture().Source)
 }

@@ -26,7 +26,8 @@
       "JUST_VERSION": "1.40.0",
       "GOPLS_VERSION": "0.21.0",
       "GITLEAKS_VERSION": "8.30.1",
-      "LEFTHOOK_VERSION": "1.13.6"
+      "LEFTHOOK_VERSION": "1.13.6",
+      "GIT_MIN_VERSION": "2.48.0"
     }
   },
   "customizations": {

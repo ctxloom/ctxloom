@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -18,17 +18,15 @@ func ownerLockOf(endpoint string) string { return filepath.Join(filepath.Dir(end
 
 // heldLocks is each live fixture writer's owner lock, by endpoint path. The
 // package's tests are not parallel.
-var heldLocks = map[string]*flock.Flock{}
+var heldLocks = map[string]safefs.Lock{}
 
 // holdOwnerLock is a LIVE writer: a coordinator holds its root's owner lock
 // for as long as it runs, and the kernel drops it the moment it dies.
 func holdOwnerLock(t *testing.T, endpoint string) {
 	t.Helper()
-	fl := flock.New(ownerLockOf(endpoint), flock.SetPermissions(0o600))
-	got, err := fl.TryLock()
+	l, err := safefs.New().Locks.Lock(ownerLockOf(endpoint))
 	require.NoError(t, err)
-	require.True(t, got)
-	heldLocks[endpoint] = fl
+	heldLocks[endpoint] = l
 	t.Cleanup(func() { releaseOwnerLock(t, endpoint) })
 }
 
@@ -37,7 +35,7 @@ func holdOwnerLock(t *testing.T, endpoint string) {
 func releaseOwnerLock(t *testing.T, endpoint string) {
 	t.Helper()
 	if fl, ok := heldLocks[endpoint]; ok {
-		require.NoError(t, fl.Close())
+		require.NoError(t, fl.Unlock())
 		delete(heldLocks, endpoint)
 	}
 }

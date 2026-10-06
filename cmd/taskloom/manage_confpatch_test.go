@@ -14,6 +14,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // A user's .mcp.json, spelled the way a person spells one and NOT the way a
@@ -140,7 +141,7 @@ func TestManageInstall_LeavesCtxloomsOwnRecordAlone(t *testing.T) {
 	ctxloomDir, err := paths.HomeRecordsDir()
 	require.NoError(t, err)
 	fs := afero.NewOsFs()
-	ctxloomStore, err := confpatch.NewStore(fs, ctxloomDir, "ctxloom")
+	ctxloomStore, err := confpatch.NewStore(safefs.NewMem(fs), ctxloomDir, "ctxloom")
 	require.NoError(t, err)
 	addCtxloom := func(doc *hew.Doc, cur hew.Document) (int, error) {
 		p, err := hew.ParsePathIn(doc.Format(), "/mcpServers/ctxloom")

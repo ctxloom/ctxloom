@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -46,7 +47,7 @@ func TestLoad_UnreadableConfigTaggedRead(t *testing.T) {
 	cfgPath := paths.ConfigPath(appDir)
 	testsupport.WriteFile(t, base, cfgPath, []byte("llm: {}\n"), 0644)
 
-	cfg, err := Load(WithFS(failOpenFs{Fs: base, path: cfgPath}), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(failOpenFs{Fs: base, path: cfgPath})), WithAppDir(appDir))
 	require.NoError(t, err, "unreadable config must not hard-error the load itself")
 	require.Len(t, cfg.GetWarnings(), 1)
 	assert.Equal(t, config.WarnKindRead, cfg.GetWarnings()[0].Kind)
@@ -62,7 +63,7 @@ func TestLoad_BrokenYAMLTaggedParse(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("llm: [unclosed\n"), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	require.ErrorIs(t, err, ErrUnparsableLayer, "a PRESENT file that cannot be parsed is refused, never dropped with a warning")
 	assert.Contains(t, err.Error(), paths.ConfigPath(appDir), "the refusal names the file")
 	assert.Nil(t, cfg)
@@ -75,7 +76,7 @@ func TestLoad_AbsentConfigNoWarnings(t *testing.T) {
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	require.NoError(t, err)
 	assert.Empty(t, cfg.GetWarnings())
 }

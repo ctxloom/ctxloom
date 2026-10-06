@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -279,7 +280,7 @@ bundles:
 // written to, so the loader and the write paths see one project.
 func profileTestCfg(fs afero.Fs) *config.Config {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	return cfg
 }
 
@@ -384,7 +385,7 @@ func TestListProfiles_SortByDefault(t *testing.T) {
 		AppPaths:     []string{testBaseDir},
 		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"base"}}},
 	})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		SortBy: "default",
@@ -405,7 +406,7 @@ func TestListProfiles_SortByDefaultDescending(t *testing.T) {
 		AppPaths:     []string{testBaseDir},
 		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"base"}}},
 	})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		SortBy:    "default",

@@ -20,7 +20,7 @@ flowchart TB
     ROUTE["delivery.Route(items, engine root, pref, cell roots) → Plan{Static routes, Dynamic refs, Losses} | ErrUncarried | Unrootable"]:::decide
     LO["delivery.Loadout — launch.Launch.Loadout(pkg): the ONE builder the runner and the local launcher share; delivery.InputsFor(lo) projects it into every kind's typed inputs once"]:::consume
     TGT["delivery.Target{Root (absolute), Ownership, Writer} — Validate refuses the zero value and a relative root; launch.Launch.Target(records) for a session, operations.ProjectTarget for a materialize"]:::decide
-    STATIC["fsstatic.Static.Deliver(lo, surfaces, target): PREPARE the record (Ownership.Prepare: owner-only before anything writes through it) → ONE safefs.Batch: release the writer's claims under the target's roots → per static item: the engine's typed Deliver stages its claims (a place in a file, a section, an array element) and every file it writes over an OVERLAY of the target fs is staged as a claim on the whole file → Commit writes each changed file once"]:::consume
+    STATIC["fsstatic.Static.Deliver(lo, surfaces, target): ONE safefs.Batch: release the writer's claims under the target's roots → per static item: the engine's typed Deliver stages its claims (a place in a file, a section, an array element) and every file it writes over an OVERLAY of the target fs is staged as a claim on the whole file → Commit writes each changed file once"]:::consume
     REC[("fsstatic.Records — ONE claims record per target file, home-rooted: per place, the writers that put a value there (a session's value over the project's; the latest among sessions); a place leaves the file with its last writer; a user's value is never claimed, and ctxloom's own drifted value is refused")]:::store
     DYN["Dynamic.Serve(lo, ServePolicy) — the runner's MCP package BINDS Launch.MCP"]:::consume
     EMPTY["the EMPTY plan = uninstall for that writer: only what the record names under the target's roots is removed (manage uninstall / hooks uninstall → operations.RemoveProject)"]:::consume
@@ -89,9 +89,7 @@ into the file it describes. The store lives under `paths.HomeRecordsDir`, one
 of the home roots every ctxloom process establishes owner-only at startup
 (`paths.EnsureHomeRoots`, through `safefs.Root`'s `Private`: a mode on unix,
 an owner-only DACL on Windows), and every directory a delivery creates beneath
-it is created `safefs.PrivateDirMode`. `Static.Deliver` calls
-`delivery.Ownership.Prepare` first, before anything is staged;
-`fsstatic.Records.Prepare` has nothing left to apply
+it is created `safefs.PrivateDirMode`; opening the store applies nothing
 (`TestDeliver_CreatesAMissingRecordDirOwnerOnly`,
 `TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir`).
 

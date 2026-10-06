@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/taskloom/engine"
 )
 
@@ -43,12 +43,12 @@ func recordStoreDir() (string, error) {
 	return filepath.Join(dir, recordsSubdir), nil
 }
 
-func recordStore(fs afero.Fs) (*confpatch.Store, error) {
+func recordStore(root safefs.Root) (*confpatch.Store, error) {
 	dir, err := recordStoreDir()
 	if err != nil {
 		return nil, err
 	}
-	return confpatch.NewStore(fs, dir, engine.TaskloomCommand)
+	return confpatch.NewStore(root, dir, engine.TaskloomCommand)
 }
 
 var (
@@ -136,8 +136,9 @@ func manageInstall(name, dir string, global, printOnly bool, errOut io.Writer) e
 	if err := engine.VerifyCommandResolvable(); err != nil {
 		fmt.Fprintf(errOut, "taskloom: warning: %v\n  the registered MCP entry runs %q, which the agent resolves against ITS OWN PATH at startup; install taskloom somewhere on that PATH or the server will not start\n", err, engine.TaskloomCommand)
 	}
-	fs := afero.NewOsFs()
-	store, err := recordStore(fs)
+	root := safefs.New()
+	fs := root.Fs
+	store, err := recordStore(root)
 	if err != nil {
 		return err
 	}
@@ -180,8 +181,9 @@ func manageUninstall(name, dir string, global bool, errOut io.Writer) error {
 		fmt.Fprintln(errOut, "taskloom: nothing to remove (no agent backends detected; name one with --engine)")
 		return nil
 	}
-	fs := afero.NewOsFs()
-	store, err := recordStore(fs)
+	root := safefs.New()
+	fs := root.Fs
+	store, err := recordStore(root)
 	if err != nil {
 		return err
 	}

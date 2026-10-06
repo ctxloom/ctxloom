@@ -255,6 +255,10 @@ var (
 		Shape: "VERSION-REPORT failure",
 		Where: "the installed engine binary's own version output (no nonce: nothing is planted, so nothing can be echoed)",
 	}
+	channelTurnPosture = probeChannel{
+		Shape: "TURN-POSTURE failure",
+		Where: "each turn's init frame permissionMode, and the files and permission asks that turn's tool calls left behind",
+	}
 	channelForeignLedger = probeChannel{
 		Shape: shapeLeak,
 		Where: "no channel at all — this probe asserts the ABSENCE of every other cell's minted harp",
@@ -281,6 +285,7 @@ const (
 	probeP15 = "p15-hook-interrupt"
 	probeP16 = "p16-strict-mcp-connectors"
 	probeP17 = "p17-inline-settings"
+	probeP18 = "p18-turn-posture"
 	// The two rungs deliberately NOT built. Present as deferred rows so rows
 	// 9 and 10 of the inventory are visibly un-probed rather than invisibly so.
 	probePCmd   = "p10-command-invocation"
@@ -561,6 +566,26 @@ var probeRegistry = []probeSpec{
 		Cells: []probeCell{
 			hostCell("claude-code", probeLiveVerified,
 				"conformance cell S1, measured 2026-10-05 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. Under --setting-sources user with an inline-JSON --settings carrying defaultMode and one allow rule, the config home's settings.json still applied in full: its SessionStart and PreToolUse hooks both wrote their markers, and the echo only its own allow rule permits ran beside the echo only the inline rule permits. The two sources merge; the inline document replaces neither the home's hooks nor its rules."),
+		},
+	},
+	// P18 measures the vendor half of a child's posture moving between turns:
+	// a resumed turn starts in the mode its inline --settings names, after a
+	// plan approval and after an allowed mode change (conformance P1, D2 and
+	// P2; probe_p18_turn_posture.go).
+	{
+		Name:         probeP18,
+		Title:        "turn posture: a claude -p --resume turn starts in, and behaves as, the defaultMode its inline --settings names — plan after acceptEdits, an approved plan's posture, an allowed setMode held",
+		Capabilities: []int{11, 12, 14},
+		Channel:      channelTurnPosture,
+		Feature:      "probes/capability_turn_posture.feature",
+		Paid:         true,
+		Cells: []probeCell{
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p18PlanResumed), Status: probeLiveVerified,
+				Reason: "conformance cell P1, measured 2026-10-06 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 9s. Turn 1, settings defaultMode acceptEdits, reported permissionMode acceptEdits and wrote first.txt (the control). Turn 2, --resume on the same session with settings defaultMode plan, reported permissionMode plan and its ordered write of second.txt did not land; no ask was raised in either turn. So defaultMode plan from an inline --settings starts a resumed -p turn in plan, overriding the mode the session last ran in. Judge MUTATION-CONFIRMED hermetically (TestP18_Verdict)."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p18PlanApproved), Status: probeLiveVerified,
+				Reason: "conformance cell D2, measured 2026-10-06 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 19s. Turn 1, settings defaultMode plan, reported permissionMode plan, left one native plan under the config home's plans/ and did not create first.txt. Turn 2, --resume on the same session with settings defaultMode acceptEdits and only the prompt \"Your plan was approved. Carry it out now.\", reported permissionMode acceptEdits and created first.txt with its content; no ask was raised. The approval is the between-turns route the runner takes (planApprovalIn), not the deleted mid-turn ExitPlanMode one."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p18SetModeHeld), Status: probeLiveVerified,
+				Reason: "conformance cell P2, measured 2026-10-06 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 8s. Turn 1, settings defaultMode default, reported permissionMode default; the Write raised exactly one PermissionRequest, which production's DecodeAsk read as offering setMode acceptEdits, and the hook's answer, production's EncodeAnswer allow + session setMode acceptEdits, let first.txt land. Turn 2, --resume on the same session with settings defaultMode acceptEdits (the held mode, as turnSettings carries it), reported permissionMode acceptEdits and wrote second.txt with no ask."},
 		},
 	},
 	{

@@ -10,32 +10,20 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"sync"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
 	corepaths "github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
-	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
-)
-
-// lockFileMode and lockDirMode are the modes this registry's advisory-lock
-// sidecar and its parent directory are created with, before umask — not
-// group- or world-WRITABLE, matching every other lock site in this project
-// (see internal/core/agent/rmw_lock.go's identically-reasoned pair).
-const (
-	lockFileMode = 0o644
-	lockDirMode  = 0o755
 )
 
 // Entry is one row in the project registry: a stable project-id and the path
@@ -59,11 +47,11 @@ type registry struct {
 
 // Manager owns load/save of a single registry file with a cooperative lock,
 // mirroring sessions.Manager. All mutations go through its methods so the file
-// lock and in-memory state stay consistent. The registry file is read and
-// saved through fs; the file lock is an OS lock and does not go through it.
+// lock and in-memory state stay consistent. The registry file is read,
+// saved and locked through root.
 type Manager struct {
 	path string
-	fs   afero.Fs
+	root safefs.Root
 	mu   sync.Mutex
 }
 
@@ -80,7 +68,7 @@ func Open(override string) (*Manager, error) {
 		}
 		path = p
 	}
-	return &Manager{path: path, fs: afero.NewOsFs()}, nil
+	return &Manager{path: path, root: safefs.New()}, nil
 }
 
 // load reads the registry from disk. Returns an empty registry if the file
@@ -92,7 +80,7 @@ func (m *Manager) load() (*registry, error) {
 }
 
 func (m *Manager) loadLocked() (*registry, error) {
-	data, err := afero.ReadFile(m.fs, m.path)
+	data, err := afero.ReadFile(m.root.Fs, m.path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return &registry{}, nil
 	}
@@ -121,7 +109,7 @@ func (m *Manager) saveLocked(reg *registry) error {
 	if err != nil {
 		return fmt.Errorf("marshal registry: %w", err)
 	}
-	return safefs.WriteFile(m.fs, m.path, data, 0o644)
+	return safefs.WriteFile(m.root.Fs, m.path, data, 0o644)
 }
 
 // ResolveByPath returns a copy of the entry whose path matches projectDir, or
@@ -186,18 +174,11 @@ func (m *Manager) mutate(fn func(reg *registry) error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	lockPath := corepaths.PathFor(m.path)
-	if err := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
-		return fmt.Errorf("lock: prepare lock directory: %w", err)
-	}
-	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
-	stop := lockwait.Watch(lockPath)
-	err := fl.Lock()
-	stop()
+	l, err := m.root.Locks.Lock(corepaths.PathFor(m.path))
 	if err != nil {
 		return fmt.Errorf("lock: %w", err)
 	}
-	defer func() { _ = fl.Unlock() }()
+	defer func() { _ = l.Unlock() }()
 
 	reg, err := m.loadLocked()
 	if err != nil {

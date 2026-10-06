@@ -32,6 +32,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -82,6 +83,10 @@ func (e ErrUnsupported) Error() string {
 	return fmt.Sprintf("engine %q does not support %s", e.Engine, e.Capability)
 }
 
+// ErrForeignTranscript refuses a file that is not a transcript of the
+// engine's own store, so it records no session of that engine.
+var ErrForeignTranscript = errors.New("engine: not a transcript of this engine's store")
+
 // Engine is the port. The engine package's own struct type satisfies it by
 // embedding Base — the engine root: the Definition plus the views and the
 // common decisioning written once in core — and adding the methods that
@@ -126,6 +131,13 @@ type Engine interface {
 	// Transcripts are the version-scoped readers of the engine's own store.
 	// Empty means none, and every consumer of transcripts keeps operating.
 	Transcripts() []TranscriptReader
+	// TranscriptSession names the native session the transcript at path
+	// records: the key Instance.Resume takes. It is how a session found BY
+	// LOCATION (sessions.LocateTranscript, a containerized child's) is
+	// bound, since no hook inside the container can write the controller's
+	// record. ErrForeignTranscript for a file that is not one of the engine's
+	// transcripts; ErrUnsupported for an engine with no store of its own.
+	TranscriptSession(path string) (string, error)
 	// Hooks decodes the engine's native hook payloads. An engine that fires
 	// no hooks returns a codec whose Decode refuses with ErrUnsupported —
 	// unreachable, since no payload arrives.

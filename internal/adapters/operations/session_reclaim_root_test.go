@@ -5,13 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -54,11 +54,9 @@ func TestSweepReclaim_RemovesTheSessionsUnheldCoordinatorRoot(t *testing.T) {
 func TestSweepReclaim_LeavesARootALiveProcessHolds(t *testing.T) {
 	testsupport.Isolate(t)
 	sessionDir, rootDir := srSeedRoot(t, "aged-quiet-heron")
-	fl := flock.New(filepath.Join(rootDir, coord.OwnerLockFileName))
-	got, err := fl.TryLock()
+	l, err := safefs.New().Locks.Lock(filepath.Join(rootDir, coord.OwnerLockFileName))
 	require.NoError(t, err)
-	require.True(t, got)
-	t.Cleanup(func() { _ = fl.Close() })
+	t.Cleanup(func() { _ = l.Unlock() })
 
 	res := srReclaim(t, sessions.ReapPolicy{Cutoff: srCutoff(), Apply: true})
 

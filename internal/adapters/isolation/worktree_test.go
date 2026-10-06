@@ -785,3 +785,27 @@ func TestWorktree_OldGitProceedsWhereNoHostNameDiffers(t *testing.T) {
 		})
 	}
 }
+
+// TestGitAtLeast_Boundaries pins the version comparison at the exact edges of
+// relativeWorktreeGit: neither the host's git nor the image's sits on 2.48, so
+// only a table reaches the boundary the real-git gate test cannot.
+func TestGitAtLeast_Boundaries(t *testing.T) {
+	for _, tc := range []struct {
+		version string
+		want    bool
+	}{
+		{"2.48.0", true},
+		{"2.48", true},
+		{"2.47.9", false},
+		{"2.49.1", true},
+		{"3.0.0", true},
+		{"1.99.0", false},
+		{"2.48.1.windows.1", true},
+		{"2.47.3.windows.2", false},
+		{"", false},
+		{"2", false},
+		{"two.48", false},
+	} {
+		assert.Equal(t, tc.want, gitAtLeast(tc.version, relativeWorktreeGit), "gitAtLeast(%q, 2.48)", tc.version)
+	}
+}

@@ -5,12 +5,13 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
@@ -415,7 +416,7 @@ func (d *recordingDriver) Drive(_ context.Context, t runner.Turn) error {
 // records an empty ownership record for one test.
 func staticWriter(t *testing.T) *fsstatic.Static {
 	t.Helper()
-	return fsstatic.New(afero.NewOsFs())
+	return fsstatic.New(safefs.New())
 }
 
 func records(t *testing.T) delivery.Ownership {
@@ -695,7 +696,9 @@ func TestExecute_TheSweepReversesEveryDeadSessionInOneWrite(t *testing.T) {
 
 	counter := &changeCounter{Fs: afero.NewOsFs(), n: map[string]int{}}
 	d := s.deps(t, &recordingDriver{})
-	d.Static = fsstatic.New(counter)
+	root := safefs.New()
+	root.Fs = counter
+	d.Static = fsstatic.New(root)
 	_, err := runner.Execute(context.Background(), d, s.resolve(t, "x", "run-next"))
 	require.NoError(t, err)
 	require.False(t, s.projectHolds(t, a.MCP.Credential))

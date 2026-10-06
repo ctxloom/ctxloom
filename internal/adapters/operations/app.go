@@ -215,9 +215,4 @@ func (a *App) Update(ctx context.Context, fn func(*config.Draft) error) (*config
 
 // root is the App's Root, or the controller's own filesystem when none was
 // handed.
-func (a *App) root() safefs.Root {
-	if a.Root.Fs == nil {
-		return safefs.New()
-	}
-	return a.Root
-}
+func (a *App) root() safefs.Root { return rootOf(a.Root) }

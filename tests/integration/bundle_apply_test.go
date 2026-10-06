@@ -9,16 +9,17 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
-	"github.com/spf13/afero"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // A bundle that ships both an MCP server and a hook. The bug class under test
@@ -81,7 +82,7 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 		// means the project's CONFIGURED engines, and a named one must resolve.
 		Backend: "",
 		WorkDir: projectDir,
-		FS:      afero.NewOsFs(),
+		Root:    safefs.New(),
 		Cfg:     cfg,
 	})
 	require.NoError(t, err)

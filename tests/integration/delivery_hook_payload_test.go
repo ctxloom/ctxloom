@@ -12,9 +12,9 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -77,7 +77,7 @@ func applyWithContextRegen(t *testing.T) (projectDir, contextHash string) {
 		Backend:           "",
 		RegenerateContext: true,
 		WorkDir:           projectDir,
-		FS:                afero.NewOsFs(),
+		Root:              safefs.New(),
 		Cfg:               cfg,
 	})
 	require.NoError(t, err)

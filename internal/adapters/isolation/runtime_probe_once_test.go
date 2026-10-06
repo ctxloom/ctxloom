@@ -100,7 +100,12 @@ func stubEngine(t *testing.T, a *engineAnswers) {
 		a.owns.Add(1)
 		return a.ownership()
 	}
+	// The daemon lists no container for this process, and the process shows
+	// no container marker: a host process. Left to the real markers, the same
+	// stub reads as an unidentified container wherever the suite itself runs
+	// in one (CI does), and resolveSelf refuses.
 	findSelf = func(context.Context, Runtime) (selfContainer, bool, error) { return selfContainer{}, false, nil }
+	stubSelfHarp(t, "", false)
 	t.Cleanup(func() { engineInfo, findSelf = prev, prevSelf })
 }
 

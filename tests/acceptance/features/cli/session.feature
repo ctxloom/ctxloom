@@ -435,7 +435,10 @@ Feature: session — the record of what your assistant did, and the tools to pru
     # real `ctxloom run` hosting one, and this command finds it by discovery
     # and asks it over RPC. "coordinators" is 1 only because that round trip
     # happened. The owner is interactive and routes no approvals, so nothing
-    # is parked — a request parked by a headless child is not staged here.
+    # is parked — a request parked by a headless child is not staged here:
+    # nothing in this harness can wait on another process's queue without
+    # polling it. That proof is the integration lane's
+    # TestPermissionContract_AnotherProcessListsTheParkedAsk.
     Scenario: Another terminal reaches the running session's coordinator and finds nothing parked
       Given an initialized ctxloom project
       And a session owner is standing

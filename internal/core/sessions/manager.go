@@ -28,27 +28,20 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
-	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
-// lockFileMode and lockDirMode are the modes a sidecar's advisory-lock file
-// and its parent directory are created with, before umask — not group- or
-// world-WRITABLE, matching every other lock site in this project (see
-// internal/core/agent/rmw_lock.go's identically-reasoned pair).
-const (
-	lockFileMode = 0o644
-	lockDirMode  = 0o755
-)
+// lockDirMode is the mode the sessions root and a session directory are
+// created with, before umask: traversable, not group- or world-WRITABLE.
+const lockDirMode = 0o755
 
 // sidecarFileMode and sessionDirMode keep a session private to its owner: the
 // directory holds the session's transcript, essence and delivered engine
@@ -341,23 +334,19 @@ func (m *Manager) writeSidecar(harpName string, e *Entry) error {
 // lock takes harpName's exclusive sidecar lock (paths.HarpSidecarLockPath)
 // and returns its release func, already wrapped for return. Every mutating
 // method acquires through here, so the lock's identity and the error's shape
-// are decided once rather than re-agreed at each call site.
+// are decided once rather than re-agreed at each call site. The Manager works
+// on the controller's own filesystem (it reaches it through os), so its lock
+// is the controller's own too: safefs.New's.
 func (m *Manager) lock(harpName string) (func(), error) {
 	lockPath, err := paths.HarpSidecarLockPath(harpName)
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
-		return nil, fmt.Errorf("lock: prepare lock directory: %w", err)
+	l, err := safefs.New().Locks.Lock(lockPath)
+	if err != nil {
+		return nil, fmt.Errorf("lock: %w", err)
 	}
-	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
-	stop := lockwait.Watch(lockPath)
-	lockErr := fl.Lock()
-	stop()
-	if lockErr != nil {
-		return nil, fmt.Errorf("lock: %w", lockErr)
-	}
-	return func() { _ = fl.Unlock() }, nil
+	return func() { _ = l.Unlock() }, nil
 }
 
 // update applies mutate to harpName's sidecar under its lock: read, mutate,
@@ -603,13 +592,13 @@ func (m *Manager) AppendRotations(harpName string, rotations []Rotation) error {
 }
 
 // enrich fills an entry's derived fields: the transcript located by
-// position, the canonical transcript, and essence.md's summary/detail. Every
+// position and the session it records, the canonical transcript, and essence.md's summary/detail. Every
 // read path — one-harp lookups and listings alike — goes through it, so an
 // entry whose CanonicalTranscriptPath is empty means no capture exists, not
 // that this path skipped the stat; SourceStale reads that field to decide
 // which file the staleness fingerprint is even about.
 func enrich(e *Entry) {
-	fillTranscriptByLocation(e)
+	fillBindingByLocation(e)
 	fillCanonicalTranscript(e)
 	fillFromEssence(e)
 }
@@ -656,6 +645,16 @@ func (m *Manager) FindBySessionID(sessionID string) (*Entry, error) {
 				enrich(e)
 				return e, nil
 			}
+		}
+	}
+	// No record holds it: a session bound only by location (a containerized
+	// child's) is named by its transcript, so look there — only on a miss, as
+	// it walks each harp's native dir.
+	for i := range entries {
+		e := &entries[i]
+		if fillBindingByLocation(e) && e.SessionID == sessionID {
+			enrich(e)
+			return e, nil
 		}
 	}
 	return nil, nil

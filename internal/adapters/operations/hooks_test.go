@@ -36,6 +36,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
@@ -121,13 +122,13 @@ func TestApplyHooksRequest_BackendValues(t *testing.T) {
 	}
 }
 
-func TestApplyHooksRequest_FSField(t *testing.T) {
+func TestApplyHooksRequest_RootField(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	req := ApplyHooksRequest{
-		FS: fs,
+		Root: safefs.NewMem(fs),
 	}
 
-	assert.NotNil(t, req.FS)
+	assert.Equal(t, fs, req.Root.Fs)
 }
 
 // deliverManagedSettings delivers a backend's settings, hooks and MCP servers
@@ -140,7 +141,7 @@ func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfi
 	if hooks != nil {
 		pkg.Hooks = *hooks
 	}
-	_, _, err := DeliverProject(context.Background(), fs, kind, pkg, dir)
+	_, _, err := DeliverProject(context.Background(), safefs.NewMem(fs), kind, pkg, dir)
 	require.NoError(t, err)
 }
 
@@ -300,7 +301,7 @@ func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
-		FS:      fs,
+		Root:    safefs.NewMem(fs),
 		Cfg:     loaded(t, mockConfigLoader),
 		WorkDir: tmpDir,
 	})
@@ -330,7 +331,7 @@ func TestApplyHooks_NamedBackendTargetsOnlyThatOne(t *testing.T) {
 
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
-		FS:      fs,
+		Root:    safefs.NewMem(fs),
 		Cfg:     loaded(t, mockConfigLoader),
 		WorkDir: tmpDir,
 	})
@@ -356,7 +357,7 @@ func TestApplyHooks_DefaultBackend(t *testing.T) {
 
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "", // empty should default to "all"
-		FS:      fs,
+		Root:    safefs.NewMem(fs),
 		Cfg:     loaded(t, mockConfigLoader),
 		WorkDir: tmpDir,
 	})
@@ -422,7 +423,7 @@ func TestApplyHooks_NamedBackendLeavesOtherConfiguredEnginesUntouched(t *testing
 
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
-		FS:      fs,
+		Root:    safefs.NewMem(fs),
 		Cfg:     loaded(t, mockConfigLoader),
 		WorkDir: tmpDir,
 	})
@@ -447,7 +448,7 @@ func TestApplyHooks_NamedBackendLeavesOtherConfiguredEnginesUntouched(t *testing
 func TestApplyHooks_NoGeneration_Refuses(t *testing.T) {
 	_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
-		FS:      afero.NewMemMapFs(),
+		Root:    safefs.NewMem(afero.NewMemMapFs()),
 		WorkDir: "/project",
 	})
 
@@ -471,7 +472,7 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
-		FS:      fs,
+		Root:    safefs.NewMem(fs),
 		Cfg:     loaded(t, mockConfigLoader),
 		WorkDir: tmpDir,
 	})
@@ -521,7 +522,7 @@ func TestApplyHooks_RefusesHomeCollision(t *testing.T) {
 
 	_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
-		FS:      fs,
+		Root:    safefs.NewMem(fs),
 		Cfg:     loaded(t, mockConfigLoader),
 		WorkDir: home, // == the resolved Claude Code GLOBAL settings scope
 	})
@@ -546,7 +547,7 @@ func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
 		var err error
 		result, err = ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 			Backend: "claude-code",
-			FS:      fs,
+			Root:    safefs.NewMem(fs),
 			Cfg:     loaded(t, mockConfigLoader),
 			WorkDir: home,
 			Force:   true,
@@ -595,7 +596,7 @@ func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) 
 
 	_, err := ApplyHooks(context.Background(), reg, ApplyHooksRequest{
 		Backend: fakeBackend,
-		FS:      fs,
+		Root:    safefs.NewMem(fs),
 		Cfg:     loaded(t, mockConfigLoader),
 		WorkDir: home,
 	})
@@ -618,7 +619,7 @@ func TestApplyHooks_SubdirOfHomeIsNotACollision(t *testing.T) {
 
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
-		FS:      fs,
+		Root:    safefs.NewMem(fs),
 		Cfg:     loaded(t, mockConfigLoader),
 		WorkDir: projectDir,
 	})
@@ -645,7 +646,7 @@ func TestApplyHooks_WarnsWhenNotInAGitRepository(t *testing.T) {
 	stderr := captureStderr(t, func() {
 		_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 			Backend: "claude-code",
-			FS:      fs,
+			Root:    safefs.NewMem(fs),
 			Cfg:     loaded(t, mockConfigLoader),
 		})
 		require.NoError(t, err)
@@ -675,7 +676,7 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		FS:                fs,
+		Root:              safefs.NewMem(fs),
 		Cfg:               loaded(t, mockConfigLoader),
 		WorkDir:           tmpDir,
 	})
@@ -754,7 +755,7 @@ func TestApplyHooks_ClaudeCode_NoNativeContextFile(t *testing.T) {
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		FS:                fs,
+		Root:              safefs.NewMem(fs),
 		Cfg:               loaded(t, mockConfigLoader),
 		WorkDir:           tmpDir,
 	})
@@ -1174,7 +1175,7 @@ func TestApplyHooks_NoWorkDir(t *testing.T) {
 	// Call without WorkDir - exercises the gitutil.FindRoot fallback path
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
-		FS:      fs,
+		Root:    safefs.NewMem(fs),
 		Cfg:     loaded(t, mockConfigLoader),
 		// WorkDir not set - will use "." or git root
 	})
@@ -1201,7 +1202,7 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		FS:                fs,
+		Root:              safefs.NewMem(fs),
 		Cfg:               loaded(t, mockConfigLoader),
 		WorkDir:           "/project",
 	})

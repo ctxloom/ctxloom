@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // treeFailure runs treeBundleReader over a project whose cache holds only what
@@ -18,7 +19,7 @@ func treeFailure(t *testing.T, entry remote.LockEntry, stage func(fsys afero.Fs)
 	fsys := afero.NewMemMapFs()
 	stage(fsys)
 	c := config.NewFixture(config.Fixture{AppPaths: []string{treeBase}})
-	c.SetFS(fsys)
+	c.SetRoot(safefs.NewMem(fsys))
 	_, err = treeBundleReader(c, treeCanonical, entry, nil)
 	require.Error(t, err)
 	f := withheldFinding(t, err)

@@ -82,7 +82,7 @@ func TestLocateTranscript_SkipsSubagentInteriors(t *testing.T) {
 // file to fall back to): it pins that fs.SkipDir on the "subagents" subtree
 // genuinely removes those files from consideration rather than merely
 // demoting their rank, which is what LocateTranscript's callers (Find,
-// ListForProject, Reconcile, via fillTranscriptByLocation at index.go's
+// ListForProject, Reconcile, via fillBindingByLocation at index.go's
 // production call site) depend on to avoid ever binding a harp to another
 // session's private interior.
 func TestLocateTranscript_SubagentOnlyStore_NeverResolves(t *testing.T) {

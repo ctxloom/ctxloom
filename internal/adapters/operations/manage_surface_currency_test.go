@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -62,7 +63,7 @@ func currencyFor(surfaces []SurfaceCurrency, backend string) (SurfaceCurrency, b
 func materializeInto(t *testing.T, cfg *config.Config, backend, dir string) {
 	t.Helper()
 	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
-		Profiles: cfg.DefaultAgentProfiles(), Target: dir, Backend: backend, FS: afero.NewOsFs(),
+		Profiles: cfg.DefaultAgentProfiles(), Target: dir, Backend: backend, Root: safefs.New(),
 	})
 	require.NoError(t, err)
 	require.Contains(t, res.Wrote, "context")
@@ -163,7 +164,7 @@ func TestContextFileCurrency_ReadsOnlyWhatTheRecordOwns(t *testing.T) {
 	kind, ok := engines.Registry().Lookup(engine.Name("mock"))
 	require.True(t, ok)
 	pkg := composite.Package{Context: composite.Context{Text: "COMPOSED"}, Fragments: []composite.Item[composite.Fragment]{{Ref: "t#fragment/f", Value: composite.Fragment{Name: "f", Body: "COMPOSED"}}}}
-	_, _, err = DeliverProject(context.Background(), fs, kind, pkg, dir)
+	_, _, err = DeliverProject(context.Background(), safefs.NewMem(fs), kind, pkg, dir)
 	require.NoError(t, err)
 	rel, ok := contextFileOf(kind)
 	require.True(t, ok)

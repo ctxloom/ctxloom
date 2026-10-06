@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -37,6 +38,6 @@ func cfgWithProfileHooks(t *testing.T, fs afero.Fs, appDir string, h wire.HooksC
 		f.Agents = map[string]agents.Agent{"default": {Profiles: []string{"hooked"}}}
 	}
 	cfg := config.NewFixture(f)
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	return cfg
 }

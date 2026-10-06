@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -36,7 +37,7 @@ func loadFindings(t *testing.T, fs afero.Fs, opts ...Option) []report.Finding {
 	strictness.Reset()
 	t.Cleanup(func() { strictness.Reset() })
 	mark := strictness.Checkpoint()
-	_, err := Load(append([]Option{WithFS(fs), WithAppDir(refusalAppDir)}, opts...)...)
+	_, err := Load(append([]Option{WithRoot(safefs.NewMem(fs)), WithAppDir(refusalAppDir)}, opts...)...)
 	require.NoError(t, err, "a version refusal is a FINDING, not a load error: the gate decides")
 	return strictness.Since(mark)
 }
@@ -128,7 +129,7 @@ func TestLoad_LegacyVersionKey_Loads(t *testing.T) {
 	t.Cleanup(func() { strictness.Reset() })
 	mark := strictness.Checkpoint()
 
-	cfg, err := Load(WithFS(fs), WithAppDir(refusalAppDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(refusalAppDir))
 	require.NoError(t, err)
 	assert.Empty(t, strictness.Since(mark), "a legacy-keyed current config must raise nothing")
 	assert.Equal(t, "claude-code", cfg.GetLMConfig().Defaults.Primary, "the legacy-keyed file's values must be read")
@@ -248,7 +249,7 @@ func TestLoad_OldSpellingAgentRefs_MigrateInMemory(t *testing.T) {
 	t.Cleanup(func() { strictness.Reset() })
 	mark := strictness.Checkpoint()
 
-	cfg, err := Load(WithFS(fs), WithAppDir(refusalAppDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(refusalAppDir))
 	require.NoError(t, err)
 	assert.Empty(t, strictness.Since(mark), "a migratable config raises nothing")
 	agent, ok := cfg.Agent("dev")

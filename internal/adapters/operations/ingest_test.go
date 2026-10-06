@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
@@ -76,7 +77,7 @@ func TestIngest_CompanionFragmentAlsoSelectedByRefIsAssembledOnce(t *testing.T) 
 	body := companionIsolationContent(t)
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"picks-isolation": {Fragments: []config.FragmentRef{{Name: companionIsolationFragmentRef}}},
 	})
@@ -103,7 +104,7 @@ func TestIngest_ProjectTwinOfACompanionFragmentIsAnotherItem(t *testing.T) {
 	writeIngestBundle(t, fs, "isolation", "version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"picks-isolation": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
 	})
@@ -125,7 +126,7 @@ func TestIngest_SameFragmentSelectedByTwoProfilesIsAssembledOnce(t *testing.T) {
 	_ = fs
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"a": {Fragments: []config.FragmentRef{{Name: "dev#fragments/security-rules"}}},
 		"b": {Fragments: []config.FragmentRef{{Name: "dev#fragments/security-rules"}}},
@@ -155,7 +156,7 @@ fragments:
 `)
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"twins": {Fragments: []config.FragmentRef{
 			{Name: "twins#fragments/twin-one"},
@@ -190,7 +191,7 @@ fragments:
 `)
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"both": {Fragments: []config.FragmentRef{
 			{Name: "pub-a#fragments/standards"},
@@ -222,7 +223,7 @@ func TestIngest_OrderIsUnchangedByTheDuplicate(t *testing.T) {
 		t.Helper()
 		fs, _ := setupContextTestFS(t)
 		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-		cfg.SetFS(fs)
+		cfg.SetRoot(safefs.NewMem(fs))
 		cfg = withProfileDefs(t, cfg, map[string]config.Profile{"p": {Fragments: refs}})
 		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 			Profile:  "p",
@@ -276,7 +277,7 @@ func TestIngest_DuplicateWarningIsOnlyForATrueDuplicate(t *testing.T) {
 		fs, _ := setupContextTestFS(t)
 		writeIngestBundle(t, fs, "isolation", "version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-		cfg.SetFS(fs)
+		cfg.SetRoot(safefs.NewMem(fs))
 		cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 			"p": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
 		})
@@ -309,7 +310,7 @@ func TestIngest_CollapsedDuplicateStaysReportedAsLoaded(t *testing.T) {
 	fs, _ := setupContextTestFS(t)
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"p": {Fragments: []config.FragmentRef{{Name: companionIsolationFragmentRef}}},
 	})
@@ -468,7 +469,7 @@ fragments:
 `)
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"p": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
 	})
@@ -501,7 +502,7 @@ func TestIngest_FirstOccurrenceIsTheOneKept(t *testing.T) {
 	fs, _ := setupContextTestFS(t)
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"p": {Fragments: []config.FragmentRef{
 			{Name: companionIsolationFragmentRef},
@@ -539,7 +540,7 @@ func TestIngest_CompanionFragmentsAreIngestedAfterSelectedContent(t *testing.T) 
 	loader := ingestLoader(t, fs)
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"p": {Fragments: []config.FragmentRef{{Name: "dev#fragments/security-rules"}}},
 	})

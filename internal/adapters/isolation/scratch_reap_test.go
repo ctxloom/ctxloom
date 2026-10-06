@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -78,10 +77,9 @@ func TestReapDeadScratch_DeletesOnlyWhileHoldingLock(t *testing.T) {
 	orig := scratchReapRemove
 	scratchReapRemove = func(dir string) error {
 		removed = append(removed, dir)
-		probe := flock.New(filepath.Join(dir, ownedScratchLockName))
-		if probeLocked, probeErr = probe.TryLock(); probeLocked {
-			_ = probe.Unlock()
-		}
+		var held bool
+		held, probeErr = safefs.New().Locks.Held(filepath.Join(dir, ownedScratchLockName))
+		probeLocked = !held
 		return os.RemoveAll(dir)
 	}
 	t.Cleanup(func() { scratchReapRemove = orig })
@@ -139,10 +137,9 @@ func TestNewOwnedScratch_OwnerContendingInsideReapersHoldNeverContinuesInDeleted
 
 	scratchReapRemove = func(dir string) error {
 		// Nobody but the reaper may be able to take the lock here.
-		probe := flock.New(filepath.Join(dir, ownedScratchLockName))
-		if probeLocked, probeErr = probe.TryLock(); probeLocked {
-			_ = probe.Unlock()
-		}
+		var held bool
+		held, probeErr = safefs.New().Locks.Held(filepath.Join(dir, ownedScratchLockName))
+		probeLocked = !held
 		close(inHold)
 		contendErr = awaitStep(ownerContended, "the owner to meet the reaper's hold")
 		removeErr = os.RemoveAll(dir)
@@ -179,9 +176,9 @@ func TestNewOwnedScratch_OwnerContendingInsideReapersHoldNeverContinuesInDeleted
 	lockPath := filepath.Join(s.dir, ownedScratchLockName)
 	assert.DirExists(t, s.dir, "the owner never continues in a deleted dir")
 	assert.FileExists(t, lockPath)
-	held, err := flock.New(lockPath).TryLock()
+	held, err := safefs.New().Locks.Held(lockPath)
 	require.NoError(t, err)
-	assert.False(t, held, "the owner really holds the lock at its path")
+	assert.True(t, held, "the owner really holds the lock at its path")
 	assert.Equal(t, []string{s.dir}, scratchDirs(t, parent, prefix), "nothing left behind")
 	// Not vacuous on either platform: the reaper's delete either failed and the
 	// owner kept a live dir, or succeeded and the owner moved on.

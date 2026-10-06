@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -18,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // runnerDepsFor composes the runner's ports for the one engine this process
@@ -43,7 +42,7 @@ func runnerDepsFor(backend agent.Backend, backendName string, host *runner.Engin
 		Kind:       kind,
 		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
 		ClaimCheck: composite.ClaimCheck{Store: fsstore.PackageStore{Root: filepath.Join(ctxHome, paths.SessionsDir)}},
-		Static:     fsstatic.New(afero.NewOsFs()),
+		Static:     fsstatic.New(safefs.New()),
 		Records:    records,
 		Locks:      operations.SessionLocks(),
 		Dynamic:    dynamic,

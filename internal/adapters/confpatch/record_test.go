@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -29,7 +30,7 @@ func osStore(t *testing.T) (*Store, afero.Fs, string) {
 	t.Helper()
 	fs := afero.NewOsFs()
 	dir := filepath.Join(t.TempDir(), "records")
-	s, err := NewStore(fs, dir, "ctxloom")
+	s, err := NewStore(safefs.NewMem(fs), dir, "ctxloom")
 	require.NoError(t, err)
 	return s, fs, dir
 }

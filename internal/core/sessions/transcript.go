@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -93,28 +94,88 @@ func keepNewest(best *string, bestTime *time.Time, path string, modTime time.Tim
 	}
 }
 
-// fillTranscriptByLocation resolves a missing (or dangling) transcript binding
-// by location for a returned entry COPY. Computed on read and never persisted,
-// so the on-disk index keeps only what a bind actually recorded. A live host-bound
-// entry short-circuits on the stat and is untouched.
-func fillTranscriptByLocation(e *Entry) {
+// TranscriptSessionFunc names the native session the transcript at path
+// records, for the engine an entry's Backend names. It is the engine's
+// own knowledge (engine.Engine.TranscriptSession), handed in by the
+// composition root because this package sits below the engine port.
+type TranscriptSessionFunc func(backend, transcript string) (string, error)
+
+var (
+	transcriptSessionsMu sync.RWMutex
+	transcriptSessions   TranscriptSessionFunc
+)
+
+// UseTranscriptSessions installs f as how a transcript found BY LOCATION
+// names its session, until restore is called. The composition root installs
+// one over the engine registry; with none installed, a located transcript
+// names no session.
+func UseTranscriptSessions(f TranscriptSessionFunc) (restore func()) {
+	transcriptSessionsMu.Lock()
+	defer transcriptSessionsMu.Unlock()
+	prev := transcriptSessions
+	transcriptSessions = f
+	return func() {
+		transcriptSessionsMu.Lock()
+		defer transcriptSessionsMu.Unlock()
+		transcriptSessions = prev
+	}
+}
+
+// fillBindingByLocation resolves a missing (or dangling) transcript binding
+// BY LOCATION for a returned entry COPY, and names the session from the
+// transcript it located. Computed on read and never persisted, so the on-disk
+// record keeps only what a bind actually recorded. A live bound transcript —
+// a SessionStart hook in the controller's own view recorded it — short-circuits
+// on the stat and its session id is untouched.
+//
+// A located transcript always names the session. A containerized child
+// cannot write the controller's record, so the only key its record can hold
+// is one the coordinator learned over the wire, which never displaces a
+// binding (Manager.BindSession) and so stays on the first transcript after a
+// /clear; the newest transcript in the harp's native dir is where the
+// session actually is. Reported ok=true when the transcript was located.
+func fillBindingByLocation(e *Entry) bool {
 	if e == nil || e.HarpName == "" {
-		return
+		return false
 	}
 	if e.TranscriptPath != "" {
 		if _, err := os.Stat(e.TranscriptPath); err == nil {
-			return
+			return false
 		}
 	}
-	if p, ok := LocateTranscript(e.HarpName); ok {
-		e.TranscriptPath = p
+	p, ok := LocateTranscript(e.HarpName)
+	if !ok {
+		return false
 	}
+	e.TranscriptPath = p
+	if id := locatedSession(e.Backend, p); id != "" {
+		e.SessionID = id
+	}
+	return true
+}
+
+// locatedSession is the session the installed TranscriptSessionFunc names
+// for transcript, or "" when none is installed or the engine cannot name it
+// (it keeps no store of its own, or the file is not one of its transcripts):
+// the record's key then stands, never blanked.
+func locatedSession(backend, transcript string) string {
+	transcriptSessionsMu.RLock()
+	f := transcriptSessions
+	transcriptSessionsMu.RUnlock()
+	if f == nil {
+		return ""
+	}
+	id, err := f(backend, transcript)
+	if err != nil {
+		return ""
+	}
+	return id
 }
 
 // fillCanonicalTranscript stats a harp's canonical transcript
 // (paths.HarpCanonicalTranscriptPath, the one name it is ever written under)
 // and records its path on the entry COPY when present — computed on read like
-// fillTranscriptByLocation, never persisted. This is
+// fillBindingByLocation, never persisted. This is
 // how a session becomes discoverable by ctxloom's own captured transcript
 // independent of whatever the legacy engine-file
 // TranscriptPath does or doesn't resolve to.

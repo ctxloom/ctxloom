@@ -35,7 +35,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -158,7 +159,19 @@ func (l Ledger) Write(s Surface, names []string) error {
 			return fmt.Errorf("ledger: refusing to record %q for surface %q: it contains a field or line separator and could forge another surface's entry", n, s)
 		}
 	}
-	return sessions.WithFileLock(l.FS, l.Path(), func() error { return l.writeLocked(s, names) })
+	write := func() error { return l.writeLocked(s, names) }
+	// The managed-files chain is handed only an afero.Fs, not a safefs.Root,
+	// so the fs decides whether it locks: a non-OS fs takes no lock and
+	// resolves none (marshy-capture: threading a Root through the engine
+	// approaches that reach this is escalated).
+	if !filelock.IsOSBackedFs(l.FS) {
+		return write()
+	}
+	lockPath, err := paths.HomePathFor(l.Path())
+	if err != nil {
+		return fmt.Errorf("ledger: deriving home lock path for %s: %w", l.Path(), err)
+	}
+	return filelock.WithLock(l.FS, lockPath, write)
 }
 
 // writeLocked is Write's read-modify-write, run under the marker's lock.

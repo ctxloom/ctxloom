@@ -2,7 +2,6 @@ package fsstatic
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -149,8 +148,11 @@ const (
 	ctxloomOwner = "ctxloom"
 )
 
-// NewRecords opens the record store at dir on fs. dir is created on the first
-// record written; an existing one is tightened to owner-only.
+// NewRecords opens the record store at dir on fs. It creates nothing: dir is
+// created on the first record written, owner-only. The store's protection is
+// the established home root it lies under (paths.EnsureHomeRoots, at process
+// start), and every directory a write creates below it is created
+// safefs.PrivateDirMode.
 func NewRecords(recordFS afero.Fs, dir string) (*Records, error) {
 	if recordFS == nil {
 		return nil, errors.New("fsstatic: nil record filesystem")
@@ -158,15 +160,8 @@ func NewRecords(recordFS afero.Fs, dir string) (*Records, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, errors.New("fsstatic: empty record directory")
 	}
-	c := &Records{fs: recordFS, dir: dir}
-	return c, c.Prepare(context.Background())
+	return &Records{fs: recordFS, dir: dir}, nil
 }
-
-// Prepare has nothing to apply: the record dir's protection is the
-// established home root it lies under (paths.EnsureHomeRoots, at process
-// start), and every directory a write creates below it is created
-// owner-only (safefs.PrivateDirMode).
-func (c *Records) Prepare(context.Context) error { return nil }
 
 // claimsRecord is one target's record on disk.
 type claimsRecord struct {

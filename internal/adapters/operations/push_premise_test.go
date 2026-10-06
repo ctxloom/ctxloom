@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
@@ -98,7 +99,7 @@ func pushPremiseConfig(t *testing.T, appDir string, defs map[string]config.Profi
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	return cfg
 }
 

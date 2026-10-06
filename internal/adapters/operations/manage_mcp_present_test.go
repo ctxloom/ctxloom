@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -52,7 +53,7 @@ func TestHarnessStatus_MCPPresentIsWhatTheProjectWriterInstalled(t *testing.T) {
 
 	kind, ok := engines.Registry().Lookup(engine.Name("claude-code"))
 	require.True(t, ok)
-	require.NoError(t, RemoveProject(context.Background(), fs, kind, dir))
+	require.NoError(t, RemoveProject(context.Background(), safefs.NewMem(fs), kind, dir))
 	require.False(t, mcpPresent(t, fs, dir), "an uninstall ends the install")
 }
 
@@ -72,7 +73,7 @@ func TestHarnessStatus_ASessionsEntryIsNotTheProjectsInstall(t *testing.T) {
 	require.NoError(t, err)
 	target := delivery.ProjectTarget(dir, records)
 	target.Writer = delivery.SessionWriter("brisk-otter")
-	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, WorkDir: dir}, root, target)
+	_, err = fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, WorkDir: dir}, root, target)
 	require.NoError(t, err)
 	require.False(t, mcpPresent(t, fs, dir))
 }
@@ -108,6 +109,6 @@ func TestHarnessStatus_AnUninstallOverAPreChangeInstallIsNotAnInstall(t *testing
 
 	kind, ok := engines.Registry().Lookup(engine.Name("claude-code"))
 	require.True(t, ok)
-	require.NoError(t, RemoveProject(context.Background(), fs, kind, dir))
+	require.NoError(t, RemoveProject(context.Background(), safefs.NewMem(fs), kind, dir))
 	require.False(t, mcpPresent(t, fs, dir), "status reports MCP present after an uninstall")
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // TestApplyHooksDryRunWritesNothing pins the dry-run posture against a real
@@ -47,7 +48,7 @@ func TestApplyHooksDryRunWritesNothing(t *testing.T) {
 
 		_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 			Backend: "claude-code",
-			FS:      fs,
+			Root:    safefs.NewMem(fs),
 			Cfg:     loaded(t, loader),
 			WorkDir: "/project",
 		})
@@ -64,7 +65,7 @@ func TestApplyHooksDryRunWritesNothing(t *testing.T) {
 
 		_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 			Backend: "claude-code",
-			FS:      fs,
+			Root:    safefs.NewMem(fs),
 			Cfg:     loaded(t, loader),
 			WorkDir: "/project",
 			DryRun:  true,
@@ -102,7 +103,7 @@ func TestApplyHooksDryRunLeavesExistingSettingsByteIdentical(t *testing.T) {
 
 	_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
-		FS:      fs,
+		Root:    safefs.NewMem(fs),
 		Cfg:     loaded(t, loader),
 		WorkDir: "/project",
 		DryRun:  true,

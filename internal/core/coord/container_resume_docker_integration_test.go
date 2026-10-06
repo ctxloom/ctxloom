@@ -42,7 +42,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
+	"github.com/ctxloom/ctxloom/internal/testsupport/daemonfixture"
 )
 
 const resumeAgentName = "resume-container-worker"
@@ -215,7 +215,7 @@ func awaitResult(t *testing.T, c *coord.Coordinator, want string, within time.Du
 // coordinator, the spawner, the harp and both incarnations' run ids.
 func reapedAndResumed(t *testing.T) (*coord.Coordinator, *resumeSpawner, string, string, string) {
 	t.Helper()
-	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the container-resume integration test")
+	daemonfixture.Require(t, "the container-resume integration test")
 	coord.ResetStrictness(t)
 	image := buildBusIntegrationImage(t)
 	projectDir := testsupport.ProjectDir(t)

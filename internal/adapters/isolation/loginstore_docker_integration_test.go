@@ -23,6 +23,7 @@ import (
 
 func TestLoginStore_ALiveContainerRunRefusesTheLogin(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the login-store refusal integration test")
+	daemonFixtures(t, "docker")
 	resetStrictness(t)
 	// Demand the ownership this daemon HAS: a demand it cannot serve never
 	// reaches a container at all (chainFor refuses it at the gate instead), so

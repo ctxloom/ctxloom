@@ -80,6 +80,31 @@ func RuntimeDecision(available bool, what string) (Decision, string) {
 		what, EnvRequireDocker)
 }
 
+// DaemonPathDecision is RequireDaemonPath's policy without a testing.TB. err
+// is why the daemon cannot name a path the test must hand it (a fixture root,
+// the socket a controller cell mounts); nil proceeds. It is promoted like
+// reachability, not treated as a capability: a lane that demands the docker
+// suite and then cannot hand the daemon a single source it can bind has run
+// nothing, and a skip there reports that as green.
+func DaemonPathDecision(err error, what string) (Decision, string) {
+	if err == nil {
+		return Proceed, ""
+	}
+	if required {
+		return Fail, fmt.Sprintf("the daemon cannot name %s, but %s=1 demands the docker suite: %v. "+
+			"A skip here would report green for a test that ran nothing; give this process a directory the daemon shares, "+
+			"or unset %s to go back to skipping.", what, EnvRequireDocker, err, EnvRequireDocker)
+	}
+	return Skip, fmt.Sprintf("the daemon cannot name %s: %v (set %s=1 to make this a failure instead)", what, err, EnvRequireDocker)
+}
+
+// RequireDaemonPath applies DaemonPathDecision to a testing.TB.
+func RequireDaemonPath(t testing.TB, err error, what string) {
+	t.Helper()
+	d, msg := DaemonPathDecision(err, what)
+	Apply(t, d, msg)
+}
+
 // RequireRuntime gates a test on container-runtime REACHABILITY. available is
 // the caller's probe (isolation.Docker{}.Available()); what names the test in
 // the resulting message, e.g. "the container-progress integration test".
@@ -157,21 +182,12 @@ func DockerIsRootless() bool {
 	return strings.Contains(string(out), "rootless")
 }
 
-// BindFixtureRoot is the parent directory for a fixture a docker-gated test
-// bind-mounts into a container. It has to satisfy two constraints at once:
-//
-//   - OUTSIDE the source tree: `just test`'s leak check scans the checkout,
-//     and in-tree residue confuses worktree-safe WIP detection even when
-//     .gitignore hides it from `git status`.
-//   - at the SAME path for the docker daemon: under docker-outside-of-docker
-//     (the CI job container) the daemon resolves a bind source against ITS
-//     filesystem, and a source it cannot see is created there EMPTY — the
-//     container reads a blank directory, never a mount error. The workflow's
-//     job `volumes:` share the temp root with the runner for that reason.
-//
-// The temp root is usually tmpfs, so a durability test over a fixture here
-// proves its substrate over RAM; that trade was accepted for sharing one root
-// with the daemon.
-func BindFixtureRoot() string {
-	return os.TempDir()
+// FixtureCandidates are the directories, in order, a docker-gated test may
+// root the fixtures it binds into a container under (isolation.FixtureRoot
+// keeps the first the daemon can name): the process temp dir — the daemon's
+// own on its host, or in a container sharing it — then $RUNNER_TEMP, the
+// runner directory a CI job container is given from the host at a path of its
+// own. Both are outside the checkout, which `just test`'s leak check scans.
+func FixtureCandidates() []string {
+	return []string{os.TempDir(), os.Getenv("RUNNER_TEMP")}
 }

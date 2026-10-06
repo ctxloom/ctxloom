@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -32,6 +31,7 @@ import (
 // is the REAL one a run gets (prepareWorkspace), not a hand-picked subset.
 func TestContainerLockMounts_HostLocksUnreachableFromChild(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the container lock-mount isolation test")
+	primary := daemonFixtures(t, "docker")
 	rt := ProbeRuntime("docker")
 	registerVendorlessFixture(t, "mock", engine.DistributionTestOnly)
 	home := testsupport.Isolate(t)
@@ -70,7 +70,7 @@ func TestContainerLockMounts_HostLocksUnreachableFromChild(t *testing.T) {
 		script += "; rm -f " + in + "; ln -s /etc/hostname " + in
 	}
 	script += "; echo planted > " + path.Join(locksIn, "planted.lock") + "; true"
-	out, err := dockerRun(ctx, "alpine:latest", projectDir, mounts, "sh", "-c", script)
+	out, err := dockerRun(ctx, primary, "alpine:latest", projectDir, mounts, "sh", "-c", script)
 	require.NoError(t, err, out)
 
 	for _, lp := range hostLocks {
@@ -94,6 +94,7 @@ func TestContainerLockMounts_HostLocksUnreachableFromChild(t *testing.T) {
 // sides exclude each other on one inode. Released, the child gets it.
 func TestContainerLockMounts_InPlaceFileLockExcludesAcrossBoundary(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the container lock-mount exclusion test")
+	primary := daemonFixtures(t, "docker")
 	rt := ProbeRuntime("docker")
 	registerVendorlessFixture(t, "mock", engine.DistributionTestOnly)
 	testsupport.Isolate(t)
@@ -115,13 +116,13 @@ func TestContainerLockMounts_InPlaceFileLockExcludesAcrossBoundary(t *testing.T)
 	require.NoError(t, err)
 	containerLock := path.Join(defaultContainerHome, paths.AppDirName, paths.HomeLocksDirName, paths.HomeLockName(protected))
 	try := func() string {
-		out, err := dockerRun(ctx, "alpine:latest", projectDir, mounts, "sh", "-c", "flock -n "+containerLock+" true; echo rc=$?")
+		out, err := dockerRun(ctx, primary, "alpine:latest", projectDir, mounts, "sh", "-c", "flock -n "+containerLock+" true; echo rc=$?")
 		require.NoError(t, err, out)
 		return out
 	}
 
-	fl := flock.New(hostLock)
-	require.NoError(t, fl.Lock())
+	fl, err := safefs.New().Locks.Lock(hostLock)
+	require.NoError(t, err)
 	assert.Contains(t, try(), "rc=1", "the child must not take the lock the host holds")
 	require.NoError(t, fl.Unlock())
 	assert.Contains(t, try(), "rc=0", "released by the host, the lock is the child's to take")

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
@@ -265,7 +266,7 @@ func TestUpgrade_HonoursInjectedLockfileFS(t *testing.T) {
 	// lock.yaml on it at all.
 	cfg := testConfigWithSCMPath(baseDir)
 	memFS := afero.NewMemMapFs()
-	cfg.SetFS(memFS)
+	cfg.SetRoot(safefs.NewMem(memFS))
 
 	_, err := UpgradeDependencies(context.Background(), cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)

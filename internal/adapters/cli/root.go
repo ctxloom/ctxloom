@@ -568,13 +568,34 @@ func init() {
 // the same registry as the cells adapter's facts accessor: isolation
 // resolves engines by NAME (PrepareInstanceHome is handed an engine name) and
 // cannot import the engine packages, so the root that built the registry
-// hands it over here. Idempotent, like Compose.
+// hands it over here. The sessions store, below the engine port, is handed
+// the same registry's TranscriptSession for the same reason. Idempotent, like
+// Compose.
 func composeEngines() error {
 	if err := engines.Compose(); err != nil {
 		return err
 	}
-	engineFactsOnce.Do(func() { isolation.UseFacts(isolation.RegistryFacts{Registry: engines.Registry()}) })
+	engineFactsOnce.Do(func() {
+		reg := engines.Registry()
+		isolation.UseFacts(isolation.RegistryFacts{Registry: reg})
+		sessions.UseTranscriptSessions(transcriptSessions(reg))
+	})
 	return nil
 }
+
+// transcriptSessions asks the engine an entry's backend names which session
+// a transcript records; a backend the registry does not know names none.
+func transcriptSessions(reg engine.Registry) sessions.TranscriptSessionFunc {
+	return func(backend, transcript string) (string, error) {
+		kind, ok := reg.Lookup(engine.Name(backend))
+		if !ok {
+			return "", fmt.Errorf("%w: %q", errUnknownBackend, backend)
+		}
+		return kind.TranscriptSession(transcript)
+	}
+}
+
+// errUnknownBackend refuses a session backend no registered engine answers to.
+var errUnknownBackend = errors.New("no registered engine for session backend")
 
 var engineFactsOnce sync.Once

@@ -38,6 +38,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -79,6 +80,14 @@ type contractLane struct {
 
 func newContractLane(t *testing.T) *contractLane {
 	t.Helper()
+	return openContractLane(t, t.TempDir())
+}
+
+// openContractLane stands the lane up on stateDir; "" is the coordinator's
+// own root under the lane's HOME, claimed under its owner lock — the root
+// another process discovers.
+func openContractLane(t *testing.T, stateDir string) *contractLane {
+	t.Helper()
 	ctxloomOnPath(t)
 	t.Setenv("HOME", t.TempDir())
 	cfg, root := askerFixture(t)
@@ -87,14 +96,14 @@ func newContractLane(t *testing.T) *contractLane {
 	records, err := fsstatic.NewRecords(afero.NewOsFs(), filepath.Join(t.TempDir(), "records"))
 	require.NoError(t, err)
 	served := make(chan delivery.Loadout, 4)
-	runners.Static, runners.Records = fsstatic.New(afero.NewOsFs()), records
+	runners.Static, runners.Records = fsstatic.New(safefs.New()), records
 	runners.Endpoint = func(h *runner.Home) delivery.Dynamic {
 		return recordedEndpoint{Endpoint: interaction.Endpoint{Home: h, Wake: interaction.NewWakeSignal(h.SetWake)}, served: served}
 	}
 	t.Cleanup(runners.Close)
 
 	c, err := coord.New(coord.Options{
-		Spawner: spawn.New(nil, laneApp(t, cfg), root, runners.Starter), ProjectDir: root, StateDir: t.TempDir(),
+		Spawner: spawn.New(nil, laneApp(t, cfg), root, runners.Starter), ProjectDir: root, StateDir: stateDir,
 		OwnerHarp: ownerHarp,
 	})
 	require.NoError(t, err)

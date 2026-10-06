@@ -41,6 +41,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -108,7 +109,7 @@ func deliverContextAcrossRoots(t *testing.T, engineName string, root present.Roo
 	require.NoError(t, err)
 	rec, err := fsstatic.NewRecords(fs, recordsDir)
 	require.NoError(t, err)
-	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, kind.Root(),
+	_, err = fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, kind.Root(),
 		delivery.Target{Root: present.New(present.OnHost(paths)), Ownership: rec, Writer: delivery.SessionWriter(channelProbeHarp)})
 	require.NoError(t, err, "%s context at %v must deliver when every root is advised", engineName, root)
 

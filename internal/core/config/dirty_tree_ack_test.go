@@ -11,19 +11,20 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 func TestDirtyTreeCommitAcknowledged_AbsentRecordDefaultsFalse(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	assert.False(t, DirtyTreeCommitAcknowledged(ledgerReporter(), fs, "/proj/.ctxloom"))
+	assert.False(t, DirtyTreeCommitAcknowledged(ledgerReporter(), safefs.NewMem(fs), "/proj/.ctxloom"))
 }
 
 func TestSetDirtyTreeCommitAck_GrantThenRevoke(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 
-	require.NoError(t, SetDirtyTreeCommitAck(fs, appDir, true))
-	assert.True(t, DirtyTreeCommitAcknowledged(ledgerReporter(), fs, appDir))
+	require.NoError(t, SetDirtyTreeCommitAck(safefs.NewMem(fs), appDir, true))
+	assert.True(t, DirtyTreeCommitAcknowledged(ledgerReporter(), safefs.NewMem(fs), appDir))
 
 	// PAYLOAD assertion, not just "no error": the record must actually be on
 	// disk, at the documented path, not merely reported as granted in memory.
@@ -31,8 +32,8 @@ func TestSetDirtyTreeCommitAck_GrantThenRevoke(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, data, "the ack store file must not be empty after granting")
 
-	require.NoError(t, SetDirtyTreeCommitAck(fs, appDir, false))
-	assert.False(t, DirtyTreeCommitAcknowledged(ledgerReporter(), fs, appDir), "revoking must flip the acknowledgement back to false")
+	require.NoError(t, SetDirtyTreeCommitAck(safefs.NewMem(fs), appDir, false))
+	assert.False(t, DirtyTreeCommitAcknowledged(ledgerReporter(), safefs.NewMem(fs), appDir), "revoking must flip the acknowledgement back to false")
 }
 
 // TestSetDirtyTreeCommitAck_TwoProjectsAreIndependent proves the record is
@@ -40,10 +41,10 @@ func TestSetDirtyTreeCommitAck_GrantThenRevoke(t *testing.T) {
 // one appPath must not acknowledge a different one.
 func TestSetDirtyTreeCommitAck_TwoProjectsAreIndependent(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, SetDirtyTreeCommitAck(fs, "/proj-a/.ctxloom", true))
+	require.NoError(t, SetDirtyTreeCommitAck(safefs.NewMem(fs), "/proj-a/.ctxloom", true))
 
-	assert.True(t, DirtyTreeCommitAcknowledged(ledgerReporter(), fs, "/proj-a/.ctxloom"))
-	assert.False(t, DirtyTreeCommitAcknowledged(ledgerReporter(), fs, "/proj-b/.ctxloom"),
+	assert.True(t, DirtyTreeCommitAcknowledged(ledgerReporter(), safefs.NewMem(fs), "/proj-a/.ctxloom"))
+	assert.False(t, DirtyTreeCommitAcknowledged(ledgerReporter(), safefs.NewMem(fs), "/proj-b/.ctxloom"),
 		"a different project's checkout must not inherit another's acknowledgement")
 }
 
@@ -53,7 +54,7 @@ func TestSetDirtyTreeCommitAck_TwoProjectsAreIndependent(t *testing.T) {
 func TestDirtyTreeCommitAckPath_LivesUnderState(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	require.NoError(t, SetDirtyTreeCommitAck(fs, appDir, true))
+	require.NoError(t, SetDirtyTreeCommitAck(safefs.NewMem(fs), appDir, true))
 
 	exists, err := afero.Exists(fs, paths.ConfigPath(appDir))
 	require.NoError(t, err)
@@ -76,7 +77,7 @@ func TestDirtyTreeCommitAcknowledged_AbsentRecordWarnsNothing(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	assert.False(t, DirtyTreeCommitAcknowledged(ledgerReporter(), fs, "/proj/.ctxloom"))
+	assert.False(t, DirtyTreeCommitAcknowledged(ledgerReporter(), safefs.NewMem(fs), "/proj/.ctxloom"))
 	assert.Empty(t, buf.String(), "an absent record is the ordinary unasked case, not a fault — it must not warn")
 }
 
@@ -103,7 +104,7 @@ func TestDirtyTreeCommitAcknowledged_UnreadableStoreWarnsAndDenies(t *testing.T)
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	assert.False(t, DirtyTreeCommitAcknowledged(ledgerReporter(), fs, appDir), "an unreadable store must still deny — fail closed")
+	assert.False(t, DirtyTreeCommitAcknowledged(ledgerReporter(), safefs.NewMem(fs), appDir), "an unreadable store must still deny — fail closed")
 
 	warning := buf.String()
 	assert.Contains(t, warning, ackPath, "the warning must name the file that could not be read")
@@ -118,16 +119,13 @@ func TestDirtyTreeCommitAcknowledged_UnreadableStoreWarnsAndDenies(t *testing.T)
 // paths.ProjectPathFor exists for — admission.Store's own DEFAULT
 // (paths.PathFor, beside the file) is the wrong one here and would leave
 // `.ctxloom/state/dirty_tree_commit_ack.yaml.lock` sitting next to the
-// record it guards. A real OS filesystem is required: Store skips locking
-// entirely for a non-OS-backed one (see filelock.IsOSBackedFs), so this
-// could not observe anything on afero.NewMemMapFs the way every other test
-// in this file uses.
+// record it guards.
 func TestSetDirtyTreeCommitAck_LocksUnderStateLocksNotBesideTheAckFile(t *testing.T) {
 	fs := afero.NewOsFs()
 	appDir := filepath.Join(t.TempDir(), "proj", ".ctxloom")
 	require.NoError(t, fs.MkdirAll(appDir, 0o755))
 
-	require.NoError(t, SetDirtyTreeCommitAck(fs, appDir, true))
+	require.NoError(t, SetDirtyTreeCommitAck(safefs.NewMem(fs), appDir, true))
 
 	ackPath := paths.DirtyTreeCommitAckPath(appDir)
 	want, err := paths.ProjectPathFor(ackPath)

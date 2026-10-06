@@ -3,12 +3,12 @@
 package paths
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // The mapping is only worth anything if the file it names is the file that
@@ -32,13 +32,8 @@ func TestProjectPathFor_LockTakenViaOneSpellingExcludesTheOther(t *testing.T) {
 	viaUnrelated, err := ProjectPathFor(unrelated)
 	require.NoError(t, err)
 
-	// flock.New does not create the lock's parent directory the way the old
-	// filelock.Lock's internal ensureDir used to — every real call site
-	// creates it itself before acquiring (see e.g. config.Owner.Update),
-	// so the probe does the same here.
-	require.NoError(t, os.MkdirAll(filepath.Dir(held), 0o755))
-	heldLock := flock.New(held)
-	require.NoError(t, heldLock.Lock())
+	heldLock, err := safefs.New().Locks.Lock(held)
+	require.NoError(t, err)
 
 	require.False(t, lockFree(t, viaOther),
 		"a second writer spelling the same file differently did not exclude the first")

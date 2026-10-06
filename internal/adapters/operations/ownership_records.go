@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // OwnershipRecords is the ONE ownership record every static delivery on
@@ -33,7 +34,7 @@ func OwnershipRecordsOn(fs afero.Fs) (delivery.Ownership, error) {
 
 // DeliverProject delivers pkg at rest into dir through the ONE static
 // writer: materialize, and the harness install, are this call.
-func DeliverProject(ctx context.Context, fs afero.Fs, kind engine.Engine, pkg composite.Package, dir string) (delivery.Delivered, delivery.Plan, error) {
+func DeliverProject(ctx context.Context, fsRoot safefs.Root, kind engine.Engine, pkg composite.Package, dir string) (delivery.Delivered, delivery.Plan, error) {
 	root := kind.Root()
 	items := pkg.EngineItems(root.Name)
 	exports, err := kind.Exports(items)
@@ -44,22 +45,22 @@ func DeliverProject(ctx context.Context, fs afero.Fs, kind engine.Engine, pkg co
 	if err != nil {
 		return delivery.Delivered{}, delivery.Plan{}, err
 	}
-	records, err := OwnershipRecordsOn(fs)
+	records, err := OwnershipRecordsOn(fsRoot.Fs)
 	if err != nil {
 		return delivery.Delivered{}, delivery.Plan{}, err
 	}
 	lo := delivery.Loadout{Plan: plan, Package: pkg, Exports: exports, WorkDir: dir}
-	d, err := fsstatic.New(fs).Deliver(ctx, lo, root, delivery.ProjectTarget(dir, records))
+	d, err := fsstatic.New(fsRoot).Deliver(ctx, lo, root, delivery.ProjectTarget(dir, records))
 	return d, plan, err
 }
 
 // RemoveProject delivers the EMPTY plan against the project target: the
 // record says what the project writer put there, and only that is removed.
-func RemoveProject(ctx context.Context, fs afero.Fs, kind engine.Engine, dir string) error {
-	records, err := OwnershipRecordsOn(fs)
+func RemoveProject(ctx context.Context, fsRoot safefs.Root, kind engine.Engine, dir string) error {
+	records, err := OwnershipRecordsOn(fsRoot.Fs)
 	if err != nil {
 		return err
 	}
-	_, err = fsstatic.New(fs).Deliver(ctx, delivery.Loadout{WorkDir: dir}, kind.Root(), delivery.ProjectTarget(dir, records))
+	_, err = fsstatic.New(fsRoot).Deliver(ctx, delivery.Loadout{WorkDir: dir}, kind.Root(), delivery.ProjectTarget(dir, records))
 	return err
 }

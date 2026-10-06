@@ -64,13 +64,15 @@ func TestDelivery_TheAtRestInstallWritesEachFileOnce(t *testing.T) {
 	pkg.Statusline = true
 
 	fs := &renameCounter{Fs: afero.NewOsFs(), n: map[string]int{}}
-	_, _, err = operations.DeliverProject(context.Background(), fs, kind, pkg, project)
+	root := safefs.New()
+	root.Fs = fs
+	_, _, err = operations.DeliverProject(context.Background(), root, kind, pkg, project)
 	require.NoError(t, err)
 	require.Equal(t, 1, fs.count(mcpPath), ".mcp.json is written once")
 	require.Equal(t, 1, fs.count(settingsPath), "settings.json is written once, for both the settings and the hooks items")
 
 	fs.n = map[string]int{}
-	_, _, err = operations.DeliverProject(context.Background(), fs, kind, pkg, project)
+	_, _, err = operations.DeliverProject(context.Background(), root, kind, pkg, project)
 	require.NoError(t, err)
 	require.Zero(t, fs.count(mcpPath), "a redelivery of the same package does not rewrite .mcp.json")
 	require.Zero(t, fs.count(settingsPath), "nor settings.json")

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -112,7 +113,7 @@ func profileTransferFixture(t *testing.T, name, body string) (*config.Config, af
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{"/app/.ctxloom"}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	bundletree.ProjectProfilesDirFS(t, fs, cfg.GetAppPaths()[0])
 	require.NoError(t, afero.WriteFile(fs, profilePath(cfg, name), []byte(body), 0o644))
 	return cfg, fs

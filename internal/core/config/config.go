@@ -473,6 +473,16 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	if err := node.Decode(&doc); err != nil {
 		return err
 	}
+	if err := validateDoc(doc); err != nil {
+		return err
+	}
+	c.fromDoc(doc)
+	return nil
+}
+
+// validateDoc refuses a decoded document whose values are well-formed YAML
+// but unusable — each refused at load rather than replaced by a default.
+func validateDoc(doc configDoc) error {
 	if err := validateIdleTimeout(doc.Delegation.IdleTimeout); err != nil {
 		return err
 	}
@@ -482,11 +492,8 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	if err := validateIsolationBase(doc.IsolationBase); err != nil {
 		return err
 	}
-	if _, err := engine.ParseAuthMode(string(doc.Auth)); err != nil {
-		return err
-	}
-	c.fromDoc(doc)
-	return nil
+	_, err := engine.ParseAuthMode(string(doc.Auth))
+	return err
 }
 
 // The two named isolation_base choices; any other non-empty value is an image

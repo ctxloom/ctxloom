@@ -82,8 +82,8 @@ the old content still arriving, and Alice being told are three different ways
 this can go wrong, and a scenario checking only that the revised bytes were
 absent would pass for all of them.
 
-The sync also has to name a remedy she can act on — getting the runbook
-re-signed — and the scenario asserts that it does.
+The sync also has to name the remedy — the publisher repairing the runbook and
+publishing it again — and the scenario asserts that it does.
 
 ### B3 and B6 — two hops the boundary table credits with work they do not do
 

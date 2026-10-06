@@ -1199,15 +1199,7 @@ func (e *editor) removeSupersededIn(container string, known []any, claimed []str
 		return err
 	}
 	for i := n.Len() - 1; i >= 0; i-- {
-		el, ok := n.Elem(i)
-		if !ok || !confpatch.OwnedBy(el, ctxloomOwner) || slices.ContainsFunc(known, func(v any) bool { return same(el, v) }) {
-			continue
-		}
-		var v any
-		if el.Value().Decode(&v) != nil {
-			continue
-		}
-		if sub, ok := ctxloomSubcommand(v); !ok || !slices.Contains(claimed, sub) {
+		if el, ok := n.Elem(i); !ok || !superseded(el, known, claimed) {
 			continue
 		}
 		if err := e.applyAt(p.Append(hew.Index(i).(hew.Segment)), func(s *hew.Sel) { s.Remove() }); err != nil {
@@ -1217,44 +1209,65 @@ func (e *editor) removeSupersededIn(container string, known []any, claimed []str
 	return nil
 }
 
+// superseded reports whether el is a leftover of ctxloom's own (see
+// removeSuperseded): it runs ctxloom, no record knows its value, and it
+// invokes a subcommand claimed into its array now.
+func superseded(el hew.Node, known []any, claimed []string) bool {
+	if !confpatch.OwnedBy(el, ctxloomOwner) || slices.ContainsFunc(known, func(v any) bool { return same(el, v) }) {
+		return false
+	}
+	var v any
+	if el.Value().Decode(&v) != nil {
+		return false
+	}
+	sub, ok := ctxloomSubcommand(v)
+	return ok && slices.Contains(claimed, sub)
+}
+
 // ctxloomSubcommand is the ctxloom subcommand a hook entry invokes — its
-// leading argument words up to the first flag, joined by a space — whichever
-// form it is spelled in: claude's exec form (the executable in "command", its
-// arguments in "args") or a shell line in "command" alone. ok is false for an
-// entry that does not run ctxloom or names no subcommand.
+// leading argument words up to the first flag, joined by a space. ok is false
+// for an entry that does not run ctxloom or names no subcommand.
 func ctxloomSubcommand(v any) (string, bool) {
-	m, ok := v.(map[string]any)
+	args, ok := ctxloomArgs(v)
 	if !ok {
 		return "", false
 	}
+	end := slices.IndexFunc(args, func(w string) bool { return strings.HasPrefix(w, "-") })
+	if end < 0 {
+		end = len(args)
+	}
+	return strings.Join(args[:end], " "), end > 0
+}
+
+// ctxloomArgs is the argument words of a hook entry that runs ctxloom,
+// whichever form it is spelled in: claude's exec form (the executable in
+// "command", its arguments in "args") or a shell line in "command" alone.
+func ctxloomArgs(v any) ([]string, bool) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, false
+	}
 	command, ok := m["command"].(string)
 	if !ok || !exectoken.IsManaged(command, ctxloomOwner) {
-		return "", false
+		return nil, false
 	}
-	var words []string
-	if args, ok := m["args"].([]any); ok {
-		for _, a := range args {
-			w, ok := a.(string)
-			if !ok {
-				return "", false
-			}
-			words = append(words, w)
-		}
-	} else {
+	raw, exec := m["args"].([]any)
+	if !exec {
 		fields, err := shell.Fields(command, func(string) string { return "" })
 		if err != nil || len(fields) == 0 {
-			return "", false
+			return nil, false
 		}
-		words = fields[1:]
+		return fields[1:], true
 	}
-	var sub []string
-	for _, w := range words {
-		if strings.HasPrefix(w, "-") {
-			break
+	args := make([]string, 0, len(raw))
+	for _, a := range raw {
+		w, ok := a.(string)
+		if !ok {
+			return nil, false
 		}
-		sub = append(sub, w)
+		args = append(args, w)
 	}
-	return strings.Join(sub, " "), len(sub) > 0
+	return args, true
 }
 
 // ownedElement reports whether an array element is ctxloom's own: an entry

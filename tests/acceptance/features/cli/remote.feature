@@ -287,3 +287,23 @@ Feature: remote — registering the sources content comes from, and browsing the
       When I run "ctxloom remote list"
       Then the command succeeds
       And the output contains "origin"
+
+  Rule: A command finds the registry from wherever it runs
+
+    Scenario: A remote registered at the root is listed from a subdirectory
+      Given an initialized ctxloom project
+      And I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
+      When I run "ctxloom remote list" from the project subdirectory "docs"
+      Then the command succeeds
+      And the output contains "origin"
+
+    # Outside any project a remote is registered in the home layer, and on a
+    # machine ctxloom has never run on, that registration creates the home
+    # .ctxloom directory — which its owner must then be able to use.
+    Scenario: Registering a first remote outside any project creates a usable home registry
+      Given an empty project directory
+      And the home has no ".ctxloom" directory yet
+      When I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
+      Then the command succeeds
+      And the home directory ".ctxloom" is readable, writable and searchable by its owner
+      And the home file ".ctxloom/remotes.yaml" contains "origin"

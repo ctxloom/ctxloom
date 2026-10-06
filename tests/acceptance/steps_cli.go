@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -22,6 +24,25 @@ func registerCLISteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^I run "([^"]*)" with input:$`, func(c context.Context, cmdline string, doc *godog.DocString) error {
 		return runCLI(c, cmdline, doc.Content)
+	})
+
+	// A command finds its project by walking up from the working directory, so
+	// "works from anywhere inside the project" is checked only by starting
+	// below the root — every other step runs at it.
+	ctx.Step(`^I run "([^"]*)" from the project subdirectory "([^"]*)"$`, func(c context.Context, cmdline, sub string) error {
+		w := worldFrom(c)
+		args, err := ctxloomArgs(cmdline)
+		if err != nil {
+			return err
+		}
+		dir := filepath.Join(w.env.ProjectDir, sub)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("create subdirectory %q: %w", sub, err)
+		}
+		cmd := w.env.Command(nil, args...)
+		cmd.Dir = dir
+		_ = w.env.Exec(cmd)
+		return nil // exit status is asserted by a dedicated step
 	})
 
 	// THE NARRATED-COMMAND STEP. The step TEXT carries the generality in

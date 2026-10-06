@@ -528,7 +528,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     And Alice's agent declares engine_home "session"
     And Alice's own session authenticates with "login"
     When Alice runs the isolated "claude-code" agent under workspace "none"
-    Then the run fails without any isolation finding, naming "auth: token"
+    Then the run is refused without any isolation finding, naming "auth: token"
 
   # The token riding the environment reaches the run: the engine really
   # launches, and the config-home variable it is handed points at this
@@ -584,7 +584,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     And Alice has set the "claude-code" API key in the environment
     And Alice's agent declares engine_home "session"
     When Alice runs the isolated "claude-code" agent under workspace "none"
-    Then the run fails without any isolation finding, naming "claude setup-token"
+    Then the run is refused without any isolation finding, naming "claude setup-token"
 
   # ARGV/STDIN VISIBILITY (U161-F01) — the spy previously dumped only its own
   # environment; it never emitted "$@" and never read stdin, so every argv

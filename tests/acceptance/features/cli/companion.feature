@@ -77,20 +77,20 @@ Feature: companion — which binaries on your machine ctxloom may execute
     Scenario: Allow without --yes shows the hash and records nothing
       Given an initialized ctxloom project
       And a discovered companion "ctxloom-companion-acme" is on PATH, not allowed
-      When I run "ctxloom companion allow ctxloom-companion-acme"
+      When I run "ctxloom companion allow ctxloom-companion-acme --format text"
       Then the command succeeds
       And the output contains "sha256:"
       And the output contains "Re-run with --yes"
       When I run "ctxloom doctor"
       Then the companion "ctxloom-companion-acme" was never executed
-      When I run "ctxloom companion allow ctxloom-companion-acme --yes"
+      When I run "ctxloom companion allow ctxloom-companion-acme --yes --format text"
       Then the output contains "Allowed."
 
     Scenario: Re-allowing a rebuilt companion shows the hash change before recording it
       Given an initialized ctxloom project
       And a discovered companion "ctxloom-companion-acme" is on PATH, not allowed
       And the companion "ctxloom-companion-acme" is allowed, then rebuilt
-      When I run "ctxloom companion allow ctxloom-companion-acme"
+      When I run "ctxloom companion allow ctxloom-companion-acme --format text"
       Then the command succeeds
       And the output contains "hash changed:"
       And the output names the allowed and the current hash of "ctxloom-companion-acme"
@@ -99,7 +99,7 @@ Feature: companion — which binaries on your machine ctxloom may execute
       Given an initialized ctxloom project
       And a discovered companion "ctxloom-companion-acme" is on PATH, not allowed
       And the companion "ctxloom-companion-acme" is allowed
-      When I run "ctxloom companion forget ctxloom-companion-acme"
+      When I run "ctxloom companion forget ctxloom-companion-acme --format text"
       Then the command succeeds
       And the output contains "Nothing was removed"
       When I run "ctxloom companion forget ctxloom-companion-acme --yes"

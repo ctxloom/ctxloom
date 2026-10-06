@@ -85,9 +85,13 @@ func registerCompanionConsentSteps(ctx *godog.ScenarioContext) {
 		if !ok {
 			return fmt.Errorf("no rebuild of %q was recorded by this scenario", bin)
 		}
-		want := h[0] + " -> " + h[1]
-		if !strings.Contains(w.env.LastOutput(), want) {
-			return fmt.Errorf("output does not name the hash change %q; output:\n%s", want, w.env.LastOutput())
+		// Both hashes, not the arrow between them: a JSON-rendered warning
+		// escapes ">" and the claim is about which hashes are named.
+		out := w.env.LastOutput()
+		for _, sum := range h {
+			if !strings.Contains(out, sum) {
+				return fmt.Errorf("output does not name hash %s (allowed %s, current %s); output:\n%s", sum, h[0], h[1], out)
+			}
 		}
 		return nil
 	})

@@ -26,6 +26,11 @@ ctxloom remote discover                 # Find public ctxloom repositories
 ctxloom remote default <name>           # Set the default remote
 ```
 
+Content is reached only through a registered remote. A reference to a repository
+no remote is registered for is refused, naming the `ctxloom remote create` that
+admits it, and a profile shipped in a remote may name only that repository's
+bundles; composing several remotes is what a profile of your own is for.
+
 A remote is an **address**, and nothing more: registering one grants its content
 no access to the agent. Content published under an SSH signing key you trust reaches
 the agent automatically; everything else from a remote lands as **pending** and is

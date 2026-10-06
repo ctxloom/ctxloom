@@ -117,7 +117,7 @@ func relocateOn(t *testing.T, s Spec, cwd string, r relocator) (launch.Placement
 	stores, err := stageStores(s.backend(), s.creds.Stores)
 	require.NoError(t, err)
 	_, inContainer := r.(containerRelocator)
-	return r.relocate(stageLayout(s, cwd, nil, stores, inContainer))
+	return r.relocate(stageLayout(s, r, cwd, nil, stores, inContainer))
 }
 
 var containerOf = containerRelocator{rt: fakeRuntime{name: "docker", available: true}, instanceHome: defaultContainerInstanceHome, home: defaultContainerHome}

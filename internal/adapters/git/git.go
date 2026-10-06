@@ -53,8 +53,15 @@ type Git interface {
 	// harness auto-clean, a /tmp wipe. A detached checkout's commits were held
 	// only by its own HEAD and went unreachable the moment it was removed.
 	// The branch is -b, never -B: a name already taken is git's own refusal,
-	// never a silent reset of someone else's branch.
-	WorktreeAdd(ctx context.Context, repoDir, path, branch, ref string) error
+	// never a silent reset of someone else's branch. relativePaths records
+	// the checkout and its registration relative to each other
+	// (RelativePathsFlag, git 2.48+), so they resolve from any mount of the
+	// repository that keeps their relative position.
+	WorktreeAdd(ctx context.Context, repoDir, path, branch, ref string, relativePaths bool) error
+
+	// Version is the git binary's version ("2.48.1"), as `git version`
+	// reports it.
+	Version(ctx context.Context) (string, error)
 
 	// WorktreeRemove removes the worktree at path (no --force: git REFUSES a
 	// dirty worktree, the WIP-safe default the teardown relies on). There is

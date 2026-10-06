@@ -253,19 +253,19 @@ func unsetVersionStamp(t *testing.T) {
 	t.Cleanup(func() { SetBinaryVersion(orig) })
 }
 
-// mapped is rt's target rule applied to host, failing the test where it cannot
-// route — for assertions that compare against the mapped path.
+// mapped is rt's placement policy applied to host, failing the test where it
+// cannot route — for assertions that compare against the mapped path.
 func mapped(t *testing.T, rt Runtime, host string) string {
 	t.Helper()
-	p, err := rt.paths().targetFor(host)
+	p, err := rt.placement().toContainer(host)
 	require.NoError(t, err)
 	return p
 }
 
-// exposedMapped is rt.paths().expose, failing the test where it cannot route.
+// exposedMapped is anchor, failing the test where it cannot route.
 func exposedMapped(t *testing.T, rt Runtime, host string, readOnly bool) mount {
 	t.Helper()
-	m, err := rt.paths().expose(host, readOnly)
+	m, err := anchor(rt, host, readOnly)
 	require.NoError(t, err)
 	return m
 }
@@ -331,7 +331,7 @@ func mustRunArgs(t testing.TB, rt Runtime, spec RunSpec) []string {
 // mustRender renders spec's shared tail with identity sources.
 func mustRender(t testing.TB, spec RunSpec) []string {
 	t.Helper()
-	args, err := renderRunSpec(spec, pathSeam{})
+	args, err := renderRunSpec(spec, HostLayer())
 	require.NoError(t, err)
 	return args
 }

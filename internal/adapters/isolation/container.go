@@ -240,6 +240,11 @@ func (c Container) Name() string {
 // resolved tree into a container mapping — NOTHING here builds a mount, so a
 // caller may write into Dir() before calling mount and the run will see it.
 func (c Container) resolveWorkspace(ctx context.Context, projectDir, agentID string) (workspace, error) {
+	// Every path below is named to the daemon through this process's own
+	// layer, so an unknown one refuses before anything is created.
+	if err := settleSelf(c.runtime); err != nil {
+		return nil, err
+	}
 	sc, err := c.prepareContainerScratch(ctx)
 	if err != nil {
 		return nil, err
@@ -371,7 +376,7 @@ func (c Container) bind(ctx context.Context, ws workspace) (mountPlan, error) {
 		return mountPlan{}, fmt.Errorf("container secrets: %w", err)
 	}
 	cw.secrets = secrets
-	mounts = append(mounts, c.runtime.paths().bind(secrets.scratch.dir, secretsTarget, true))
+	mounts = append(mounts, bind(secrets.scratch.dir, secretsTarget, true))
 	// The shared-filesystem probe runs HERE, once every real mount root is
 	// known (mountProbeRoots): cw.dir (the project dir, or the worktree
 	// checkout resolveBase created), cw.scratchRoot (the config overlays), and
@@ -766,6 +771,10 @@ func hostTerminalEnv(getenv func(string) string) []string {
 // NOT overlaid (flagged residue, see the Container doc).
 func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayDirs []string) ([]mount, error) {
 	mounts := make([]mount, 0, len(overlayDirs))
+	project, err := anchor(rt, projectDir, false)
+	if err != nil {
+		return nil, fmt.Errorf("container config overlay: project %s has no route into the container: %w", projectDir, err)
+	}
 	for i, rel := range overlayDirs {
 		host := filepath.Join(scratchRoot, fmt.Sprintf("cfg%d", i))
 		if err := os.MkdirAll(host, 0o755); err != nil {
@@ -790,14 +799,13 @@ func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayD
 		if err := os.MkdirAll(target, 0o755); err != nil {
 			return nil, fmt.Errorf("container config overlay target: %w", err)
 		}
-		// The path is host-anchored, so its container side is the runtime's
-		// mapping of it — the same one the project root it sits in takes.
-		seam := rt.paths()
-		inContainer, err := seam.targetFor(target)
+		// The target sits in the project, so the child names it through the
+		// project's own mount — wherever the placement put the project.
+		inContainer, err := childPath(rt, target, project)
 		if err != nil {
 			return nil, fmt.Errorf("container config overlay target %s has no route into the container: %w", target, err)
 		}
-		mounts = append(mounts, seam.bind(host, inContainer, false))
+		mounts = append(mounts, bind(host, inContainer, false))
 	}
 	return mounts, nil
 }

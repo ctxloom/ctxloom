@@ -29,9 +29,11 @@ func (Host) RunArgs(RunSpec) ([]string, error) { return nil, nil }
 // RemoveArgs is a noop — Host has nothing to tear down.
 func (Host) RemoveArgs(string) []string { return nil }
 
-// paths is identity on both rules — Host launches no container, so there is
-// no host↔container path translation to perform.
-func (Host) paths() pathSeam { return newPathSeam(identityMapper{}, nil) }
+// primary and placement are identity — Host launches no container, so there
+// is no host↔container path translation to perform.
+func (Host) primary() Layer { return HostLayer() }
+
+func (Host) placement() pathMapper { return identityMapper{} }
 
 // Enumerate is a noop — Host launches no containers, so there is never
 // anything to list.
@@ -58,3 +60,5 @@ func (Host) passesPUID() bool                                           { return
 func (Host) gatewayInspectArgs() []string                               { return nil }
 func (Host) containerByIDArgs(string) []string                          { return nil }
 func (Host) selfInspectArgs(string) []string                            { return nil }
+func (Host) containerByLabelArgs(string) []string                       { return nil }
+func (Host) identified() error                                          { return nil }

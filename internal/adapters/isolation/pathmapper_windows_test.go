@@ -10,9 +10,8 @@ import (
 
 // On a Windows host every Docker/Podman runtime names a host path in the
 // Linux container by its drive letter; Host maps nothing.
-func TestPathSeam_NilTargetIsHostMapper(t *testing.T) {
-	assert.Equal(t, driveLetterMapper{}, newPathSeam(nil, nil).target)
-	assert.Equal(t, driveLetterMapper{}, Docker{}.paths().target)
-	assert.Equal(t, driveLetterMapper{}, Podman{}.paths().target)
-	assert.Equal(t, identityMapper{}, Host{}.paths().target)
+func TestPlacement_NilIsHostMapper(t *testing.T) {
+	assert.Equal(t, driveLetterMapper{}, Docker{}.placement())
+	assert.Equal(t, driveLetterMapper{}, Podman{}.placement())
+	assert.Equal(t, identityMapper{}, Host{}.placement())
 }

@@ -119,14 +119,15 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	// workspace or an image: a requested container never degrades to the
 	// host. Any other refusal is left to the prepared link.
 	head := chain[0].relocator()
-	if _, _, err := head.relocate(previewLayout(s, stores, IsContainerPolicyName(chain[0].Name()))); errors.Is(err, present.ErrUnreachableRoot) {
+	if _, _, err := head.relocate(previewLayout(s, head, stores, IsContainerPolicyName(chain[0].Name()))); errors.Is(err, present.ErrUnreachableRoot) {
 		return nil, refuseUnreachable(err)
 	} else if errors.Is(err, engine.ErrHostOnlyStore) {
 		return nil, err
 	}
 	p, ws := prepareChain(ctx, chain, survey, s.axes.Runtime, s.project, s.state.Harp)
-	l := stageLayout(s, ws.Dir(), workspaceEnv(ws), stores, IsContainerPolicyName(p.Name()))
-	pl, roots, err := p.relocator().relocate(l)
+	r := p.relocator()
+	l := stageLayout(s, r, ws.Dir(), workspaceEnv(ws), stores, IsContainerPolicyName(p.Name()))
+	pl, roots, err := r.relocate(l)
 	if err != nil {
 		_ = ws.Cleanup()
 		return nil, refuseUnreachable(err)
@@ -196,14 +197,14 @@ func Preview(ctx context.Context, s Spec) Environment {
 	if err != nil {
 		recordRefusal(err)
 	}
-	l := previewLayout(s, stores, s.axes.WantsContainer())
+	survey := surveyRuntimes()
+	p := chainFor(survey, s.axes, s.backend(), s.img)[0]
+	l := previewLayout(s, p.relocator(), stores, s.axes.WantsContainer())
 	if s.axes.WantsWorktree() {
 		w := NewWorktree(nil)
 		w.state = s.state
 		l.cwd = w.previewCwd(s.project, s.state.Harp)
 	}
-	survey := surveyRuntimes()
-	p := chainFor(survey, s.axes, s.backend(), s.img)[0]
 	if s.axes.WantsContainer() && !IsContainerPolicyName(p.Name()) {
 		// chainFor recorded the refusal. p is the host fallback the run
 		// refuses to take, so only its workspace axis is shown: no runtime

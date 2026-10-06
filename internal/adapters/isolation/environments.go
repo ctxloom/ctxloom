@@ -212,6 +212,7 @@ func (c Container) environment(ws workspace, pl launch.Placement, roots []mount,
 // does, recording what a run would refuse; a failed probe leaves the reach
 // unknown.
 func (c Container) preview(ctx context.Context) (present.Listen, Description) {
+	_ = settleSelf(c.runtime) // recorded for the preview's gate; the reach still shows
 	route, err := settleReach(ctx, c.runtime)
 	if err != nil {
 		desc := c.describe(hostRoute{})

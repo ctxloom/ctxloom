@@ -56,14 +56,29 @@ type relocator interface {
 	// beside the Placement with each of them unreachable (no Engine side) and
 	// no mounts.
 	relocate(l layout) (launch.Placement, []mount, error)
+	// engineRoot is cwd, the run's project root, as the engine will see it:
+	// the key the session home's trust answer is written under. It fails
+	// where relocate would refuse the root.
+	engineRoot(cwd string) (string, error)
+	// primary is the controller's own layer: the human's records are keyed
+	// in host path space, and this names a controller path there.
+	primary() Layer
 }
 
 // stageLayout builds stage 1 for a prepared workspace: the session home is
-// CREATED and prepared here, so stage 2 maps it with everything else.
+// CREATED and prepared here, so stage 2 maps it with everything else. r is
+// the stage 2 that will present it: the trust verdict is read under the
+// project's host name, and the answer written under the engine's.
 // inContainer is whether the prepared environment is a container
 // (nativeHomeFor).
-func stageLayout(s Spec, cwd string, env map[string]string, stores []sharedStore, inContainer bool) layout {
-	l := layout{cwd: cwd, env: env, creds: s.creds, stores: stores, trust: repoTrust(s.eng, cwd), envHost: s.curatedEnv()}
+func stageLayout(s Spec, r relocator, cwd string, env map[string]string, stores []sharedStore, inContainer bool) layout {
+	l := layout{cwd: cwd, env: env, creds: s.creds, stores: stores, trust: repoTrust(s.eng, cwd, r.primary()), envHost: s.curatedEnv()}
+	// A root r cannot present is refused by r.relocate; until then it has no
+	// engine-side name to key an answer by, and claude skips an empty one.
+	engineCwd, err := r.engineRoot(cwd)
+	if err != nil {
+		engineCwd = ""
+	}
 	dir, ok := launch.SessionHome(s.sessionDir, s.eng, s.home)
 	if !ok {
 		return l
@@ -73,7 +88,7 @@ func stageLayout(s Spec, cwd string, env map[string]string, stores []sharedStore
 	if inHome {
 		clidiag.WarnOnce("ctxloom", "%s", historyInHomeNotice)
 	}
-	req := InstanceHomeRequest{InstanceHome: dir, NativeHome: native, HistoryInHome: inHome, WorkDir: cwd, Trust: l.trust, Auth: s.creds.Mode}
+	req := InstanceHomeRequest{InstanceHome: dir, NativeHome: native, HistoryInHome: inHome, WorkDir: engineCwd, Trust: l.trust, Auth: s.creds.Mode}
 	if !prepareSessionHome(s.eng, req) {
 		return l
 	}
@@ -85,8 +100,8 @@ func stageLayout(s Spec, cwd string, env map[string]string, stores []sharedStore
 // previewLayout is stage 1 with no effects on disk: the live project as the
 // cwd (Preview puts a worktree's checkout there) and the session home the run
 // WOULD create.
-func previewLayout(s Spec, stores []sharedStore, inContainer bool) layout {
-	l := layout{cwd: s.project, creds: s.creds, stores: stores, trust: repoTrust(s.eng, s.project), envHost: s.curatedEnv()}
+func previewLayout(s Spec, r relocator, stores []sharedStore, inContainer bool) layout {
+	l := layout{cwd: s.project, creds: s.creds, stores: stores, trust: repoTrust(s.eng, s.project, r.primary()), envHost: s.curatedEnv()}
 	if dir, ok := launch.SessionHome(s.sessionDir, s.eng, s.home); ok {
 		placeHome(&l, s.eng, dir)
 		l.nativeHome = nativeHomeFor(s, inContainer)
@@ -127,10 +142,13 @@ func placeHome(l *layout, eng engine.Engine, dir string) {
 }
 
 // repoTrust is eng's verdict on cwd's repository, read from the human's own
-// record under the host home. An engine that declares none trusts nothing;
-// a record that cannot be read is untrusted, and said so — the run goes
-// ahead without the repository's surfaces rather than not at all.
-func repoTrust(eng engine.Engine, cwd string) engine.WorkspaceTrust {
+// record under the host home. The repository is walked at cwd, in this
+// process's view; each directory is looked up under its host name
+// (primary.Reverse), which is how the human's answers are keyed. An engine
+// that declares none trusts nothing; a record that cannot be read is
+// untrusted, and said so — the run goes ahead without the repository's
+// surfaces rather than not at all.
+func repoTrust(eng engine.Engine, cwd string, primary Layer) engine.WorkspaceTrust {
 	t, ok := eng.Trust().Get()
 	if !ok {
 		return engine.TrustUntrusted
@@ -139,7 +157,7 @@ func repoTrust(eng engine.Engine, cwd string) engine.WorkspaceTrust {
 	if err != nil {
 		home = ""
 	}
-	v, err := t.Verdict(nil, engine.TrustQuery{HostHome: home, WorkDir: cwd})
+	v, err := t.Verdict(nil, engine.TrustQuery{HostHome: home, WorkDir: cwd, HostPath: primary.Reverse})
 	if err != nil {
 		clidiag.Warn("ctxloom", "%s: %v — running %s as an untrusted repository (its own settings, hooks and MCP servers will not load)", eng.Root().Name, err, cwd)
 		return engine.TrustUntrusted
@@ -225,6 +243,13 @@ func (hostRelocator) relocate(l layout) (launch.Placement, []mount, error) {
 	return pl, nil, nil
 }
 
+func (hostRelocator) engineRoot(cwd string) (string, error) { return cwd, nil }
+
+// primary is the host layer: a host run's paths are the controller's own,
+// and the controller's own layer is known only to a runtime that has
+// identified it (ociRuntime.self).
+func (hostRelocator) primary() Layer { return HostLayer() }
+
 func inPlace(dir string) present.Root { return present.Root{Host: dir, Engine: dir} }
 
 // containerRelocator presents each root inside the container, WITH the mount
@@ -286,6 +311,13 @@ func (r containerRelocator) relocate(l layout) (launch.Placement, []mount, error
 	return containerPlacement(paths, l), mounts, nil
 }
 
+func (r containerRelocator) engineRoot(cwd string) (string, error) {
+	project, err := relocateRoot(r.rt, cwd, "")
+	return project.root.Engine, err
+}
+
+func (r containerRelocator) primary() Layer { return r.rt.primary() }
+
 // hostOnlyRemedy is the fix for a container run whose mode shares a store:
 // only the human's own session in login mode declares one, and the token is
 // what a container carries.
@@ -316,20 +348,31 @@ type relocated struct {
 // relocateRoot is the ONE way the container relocator presents a host path
 // to the engine: the engine-side path and the mount that makes it true are
 // produced together, so a presented root cannot exist without its mount.
-// target "" places the root where the runtime's seam routes it; a fixed
-// target (the instance home, $HOME) still has its host side routed, so a
-// source the runtime cannot reach fails here rather than at the daemon,
-// returning the root unreachable: its Host side, no Engine side, no mount.
+// target "" places the root where the runtime's placement policy puts it
+// (anchor); a fixed target (the instance home, $HOME) is taken as given once
+// the policy has accepted the host path. The
+// Engine side is the root named through its own mount (Crossing.ToChild), so
+// a root the controller's layer cannot name on the host fails here rather
+// than at the daemon, returning the root unreachable: its Host side, no
+// Engine side, no mount.
 func relocateRoot(rt Runtime, host, target string) (relocated, error) {
-	seam := rt.paths()
-	routed, err := seam.targetFor(host)
-	if err != nil {
+	unreachable := func(err error) (relocated, error) {
 		return relocated{root: present.Root{Host: host}}, fmt.Errorf("%w: %s: %w", present.ErrUnreachableRoot, host, err)
 	}
-	if target == "" {
-		target = routed
+	// The policy is consulted even for a fixed target: it is what refuses a
+	// host path no runtime can bind at all (a share path on Windows).
+	m, err := anchor(rt, host, false)
+	if err != nil {
+		return unreachable(err)
 	}
-	return relocated{root: present.Root{Host: host, Engine: target}, mount: seam.bind(host, target, false)}, nil
+	if target != "" {
+		m.Container = target
+	}
+	engine, err := childPath(rt, host, m)
+	if err != nil {
+		return unreachable(err)
+	}
+	return relocated{root: present.Root{Host: host, Engine: engine}, mount: m}, nil
 }
 
 // workspaceEnv is what a prepared workspace provisioned for the run, or nil

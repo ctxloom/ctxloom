@@ -22,6 +22,10 @@ func (fakeRuntime) reachRoute(context.Context) (hostRoute, error) { return hostR
 func (fakeRuntime) gatewayInspectArgs() []string                  { return ociRuntime{}.gatewayInspectArgs() }
 func (fakeRuntime) containerByIDArgs(id string) []string          { return ociRuntime{}.containerByIDArgs(id) }
 func (fakeRuntime) selfInspectArgs(id string) []string            { return ociRuntime{}.selfInspectArgs(id) }
+func (fakeRuntime) containerByLabelArgs(l string) []string {
+	return ociRuntime{}.containerByLabelArgs(l)
+}
+func (fakeRuntime) identified() error { return nil }
 
 // The CLI grammar is the shared OCI default, so a call site routed through the
 // seam renders the same argv against the fake as against a real runtime.
@@ -55,7 +59,7 @@ func (fakeRuntime) removeOutcome(stdout []byte, err error) removeOutcome {
 }
 func (fakeRuntime) passesPUID() bool { return ociRuntime{}.passesPUID() }
 
-// paths routes targets through a non-identity prefixMapper — deliberately NOT
+// placement routes targets through a non-identity prefixMapper — deliberately NOT
 // identityMapper. Under identity, expose(p) == mount{p, p} whether or not a
 // call site actually threads its path through the target rule, so a call site
 // that binds the raw host path is byte-identical to a correct one and every
@@ -64,7 +68,10 @@ func (fakeRuntime) passesPUID() bool { return ociRuntime{}.passesPUID() }
 // host paths stay distinct after mapping), so a test comparing against the
 // ACTUAL mapped value catches a call site that silently reverts to the raw
 // host path.
-func (fakeRuntime) paths() pathSeam { return pathSeam{target: prefixMapper{prefix: "/ctr"}} }
+func (fakeRuntime) placement() pathMapper { return prefixMapper{prefix: "/ctr"} }
+
+// primary is the host layer: the fake is no container of any daemon.
+func (fakeRuntime) primary() Layer { return HostLayer() }
 
 // Enumerate is a no-op default for the many tests that never exercise the
 // container-reap sweep; container_reap_test.go defines its own fake that

@@ -36,6 +36,9 @@ type Fake struct {
 	IgnoredContent map[string]bool
 	// CommonDirValue is what CommonDir returns (empty → <dir>/.git).
 	CommonDirValue string
+	// VersionValue is what Version returns (empty → the first git with
+	// relative worktree paths, 2.48.0). Not recorded in Calls.
+	VersionValue string
 	// CommonDirErr, when set, is returned by CommonDir instead of
 	// CommonDirValue. A caller that resolves the common dir to build a
 	// container gitdir mount must UNWIND anything it already created when
@@ -170,15 +173,29 @@ func (f *Fake) scripted(err *error, value *string, fallback string) (string, err
 // WorktreeAdd records the add and (unless AddErr is set) appends the new
 // worktree — attached to branch, as the real seam leaves it — to the list so a
 // subsequent WorktreeList reflects it.
-func (f *Fake) WorktreeAdd(_ context.Context, _, path, branch, ref string) error {
+func (f *Fake) WorktreeAdd(_ context.Context, _, path, branch, ref string, relativePaths bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.record(fmt.Sprintf("add %s@%s -b %s", path, ref, branch))
+	call := fmt.Sprintf("add %s@%s -b %s", path, ref, branch)
+	if relativePaths {
+		call += " " + RelativePathsFlag
+	}
+	f.record(call)
 	if f.AddErr != nil {
 		return f.AddErr
 	}
 	f.Worktrees = append(f.Worktrees, Worktree{Path: path, Branch: branch})
 	return nil
+}
+
+// Version returns VersionValue, or 2.48.0 when unset.
+func (f *Fake) Version(context.Context) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.VersionValue == "" {
+		return "2.48.0", nil
+	}
+	return f.VersionValue, nil
 }
 
 // WorktreeRemove records the removal, fails when the target is dirty

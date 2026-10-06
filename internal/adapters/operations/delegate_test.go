@@ -643,7 +643,7 @@ func TestCellsPrepare_Commit_ChildSeesCommittedContent(t *testing.T) {
 
 	// Exactly what worktree isolation does next: a fresh checkout from HEAD.
 	childWT := filepath.Join(t.TempDir(), "child-wt")
-	require.NoError(t, real.WorktreeAdd(context.Background(), repo, childWT, "agent/child", "HEAD"))
+	require.NoError(t, real.WorktreeAdd(context.Background(), repo, childWT, "agent/child", "HEAD", false))
 	got, err := os.ReadFile(filepath.Join(childWT, "wip.go"))
 	require.NoError(t, err, "the child's worktree sees the file — it is no longer parent-only WIP")
 	assert.Equal(t, "package wip", string(got))

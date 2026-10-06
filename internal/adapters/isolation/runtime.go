@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
 	"github.com/ctxloom/ctxloom/internal/shared/hostnet"
@@ -47,16 +48,19 @@ type Runtime interface {
 	// FOREGROUND with stdout/stderr attached — no -d, and -t only when the spec
 	// says so (RunSpec.TTY: an interactive launch's runner on the originator's
 	// pty). It fails for a mount source the daemon has no name for
-	// (errNoDaemonSource).
+	// (ErrUnmapped).
 	RunArgs(spec RunSpec) ([]string, error)
 	// RemoveArgs builds the argv that force-removes the named container (teardown).
 	RemoveArgs(name string) []string
-	// paths is this runtime's host↔container path seam: every mount it binds
-	// and every bind source its argv names (unexported: internal wiring, not
-	// part of the public contract external packages implement). The container
-	// relocator routes every presented root through it (relocateRoot), so a
-	// root and a mount never disagree about where a host path lands.
-	paths() pathSeam
+	// primary is this process's own Layer as the runtime's daemon sees it:
+	// every bind source its argv names is that layer's Reverse of the
+	// controller path (childLayer), so a source is always a host path.
+	// placement is the policy that picks where a host-anchored root lands in
+	// the child (anchor); a path nested in a root is named through the root's
+	// mount (childPath), never placed on its own. Unexported: internal wiring,
+	// not part of the public contract external packages implement.
+	primary() Layer
+	placement() pathMapper
 	// Enumerate lists containers whose name starts with namePrefix that are
 	// RUNNING right now (no -a: --rm already means an EXITED container is
 	// already gone by itself, so there is nothing among exited containers for
@@ -68,7 +72,7 @@ type Runtime interface {
 	Enumerate(ctx context.Context, namePrefix string) ([]ContainerInfo, error)
 
 	// The methods below are the CLI grammar a runtime's own tooling differs
-	// in. Unexported like paths(): internal wiring, each with one default on
+	// in. Unexported like primary(): internal wiring, each with one default on
 	// ociRuntime and overridden only by the runtime that really differs.
 
 	// inspectRunningArgs builds the argv that prints "true" while name runs.
@@ -125,6 +129,13 @@ type Runtime interface {
 	// selfInspectArgs builds the argv printing selfInspectTemplate for the
 	// container id.
 	selfInspectArgs(id string) []string
+	// containerByLabelArgs builds the argv printing the full id of every
+	// RUNNING container carrying label (key=value).
+	containerByLabelArgs(label string) []string
+	// identified is nil when this process's own container is known (or it
+	// runs in none), else why it is not: the container gate refuses on it
+	// (settleSelf).
+	identified() error
 }
 
 // hostRoute is a runtime's answer to reachRoute: the host part a container
@@ -228,6 +239,11 @@ type RunSpec struct {
 	// Network is the run's --network, taken from the route home; "" is the
 	// runtime's default network.
 	Network string
+	// Harp is the session the container serves, stamped as its env
+	// (sessions.EnvHarp) and as a label (labelHarp) the daemon holds: a
+	// process inside is identified by the one verified against the other
+	// (findSelf). "" for a container that serves no session (a probe).
+	Harp string
 
 	// Trace, when non-nil, marks a PROBE-ONLY run: renderRunSpec then grants
 	// --cap-add=SYS_PTRACE, bind-mounts the trace dir out, and wraps Command in
@@ -253,14 +269,18 @@ type mount struct {
 // rootless-specific run-arg head (identityEnvArgs stays shared, called from each
 // head). The rootless flag itself stays on the concrete types: it is consulted
 // solely by that per-type head, so the base never needs it.
-// pathMap overrides the host OS's mapper; nil (every production value) is
-// hostMapper via newPathSeam. Only tests set it, to run the mount sites
-// under a mapper that is not identity on the host they run on.
+// pathMap is the child placement policy (placement); nil (every production
+// value) is the host OS's hostMapper. Only tests set it, to run the mount
+// sites under a policy that is not identity on the host they run on.
 type ociRuntime struct {
 	pathMap   pathMapper
 	self      *selfContainer // nil: this process is not one of the daemon's containers
+	selfErr   error          // non-nil: whether it is, and which, could not be told (settleSelf)
 	reachable bool           // selection's verdict (launchable); set only by the engine probe
 }
+
+// identified is selection's verdict on this process's own container.
+func (o ociRuntime) identified() error { return o.selfErr }
 
 func (o ociRuntime) launchable() bool { return o.reachable }
 
@@ -357,6 +377,11 @@ func (ociRuntime) containerByIDArgs(id string) []string {
 	return []string{"ps", "-a", "-q", "--no-trunc", "--filter", "id=" + id}
 }
 
+// containerByLabelArgs is the docker-CLI-compatible label-filtered listing.
+func (ociRuntime) containerByLabelArgs(label string) []string {
+	return []string{"ps", "-q", "--no-trunc", "--filter", "label=" + label}
+}
+
 // selfInspectArgs is the docker-CLI-compatible narrow container inspect.
 func (ociRuntime) selfInspectArgs(id string) []string {
 	return []string{"container", "inspect", "--format", selfInspectTemplate, id}
@@ -373,16 +398,24 @@ func (ociRuntime) passesPUID() bool { return true }
 // command) rendered by renderRunSpec. The single append site both Docker and
 // Podman funnel through.
 func (rt ociRuntime) runArgs(head []string, spec RunSpec) ([]string, error) {
-	tail, err := renderRunSpec(spec, rt.paths())
+	tail, err := renderRunSpec(spec, rt.primary())
 	if err != nil {
 		return nil, err
 	}
 	return append(head, tail...), nil
 }
 
-// paths is DERIVED on each call from pathMap and self, so the seam can never
-// disagree with the runtime value it came from.
-func (rt ociRuntime) paths() pathSeam { return newPathSeam(rt.pathMap, rt.self) }
+// primary is DERIVED on each call from self, so the layer can never disagree
+// with the runtime value it came from.
+func (rt ociRuntime) primary() Layer { return primaryLayer(rt.self) }
+
+// placement is pathMap, defaulting to the host OS's policy.
+func (rt ociRuntime) placement() pathMapper {
+	if rt.pathMap == nil {
+		return hostMapper()
+	}
+	return rt.pathMap
+}
 
 // enumerate is the shared Docker/Podman Enumerate body: `<binary> ps --filter
 // name=<namePrefix> --format {{.Names}}\t{{json .Labels}}`, one line per
@@ -448,8 +481,8 @@ func identityEnvArgs() []string {
 // renderRunSpec renders the runtime-agnostic tail of a run argv (env, mounts,
 // workdir, image, in-container command) shared by Docker and Podman. The
 // runtime-specific head (--rm/--name/--user) is prepended by each RunArgs.
-// s names each mount's source on the daemon (mountArgs).
-func renderRunSpec(spec RunSpec, s pathSeam) ([]string, error) {
+// Each mount's source is primary's name for it on the daemon (childLayer).
+func renderRunSpec(spec RunSpec, primary Layer) ([]string, error) {
 	var args []string
 	if spec.TTY {
 		args = append(args, "-i", "-t")
@@ -472,9 +505,7 @@ func renderRunSpec(spec RunSpec, s pathSeam) ([]string, error) {
 	if spec.Trace != nil && spec.Trace.SeccompProfile != "" {
 		args = append(args, "--security-opt", "seccomp="+spec.Trace.SeccompProfile)
 	}
-	if spec.Home != "" {
-		args = append(args, "-e", "HOME="+spec.Home)
-	}
+	args = append(args, identityArgs(spec)...)
 	// Each Env entry renders as `-e <entry>`. Two forms cross here, both native to
 	// the docker/podman `-e` grammar: "KEY=VAL" sets an explicit value
 	// (IS_SANDBOX, TERM), while a BARE "KEY" (no '=') is a
@@ -485,11 +516,11 @@ func renderRunSpec(spec RunSpec, s pathSeam) ([]string, error) {
 	for _, e := range spec.Env {
 		args = append(args, "-e", e)
 	}
-	mounts, err := mountArgs(runMounts(spec, s), s)
+	child, err := childLayer(primary, runMounts(spec))
 	if err != nil {
 		return nil, err
 	}
-	args = append(args, mounts...)
+	args = append(args, mountArgs(child)...)
 	if spec.WorkDir != "" {
 		args = append(args, "-w", spec.WorkDir)
 	}
@@ -506,16 +537,29 @@ func renderRunSpec(spec RunSpec, s pathSeam) ([]string, error) {
 	return args, nil
 }
 
+// identityArgs are the run's home and the session it serves: HOME, and the
+// harp as env and label (RunSpec.Harp).
+func identityArgs(spec RunSpec) []string {
+	var args []string
+	if spec.Home != "" {
+		args = append(args, "-e", "HOME="+spec.Home)
+	}
+	if spec.Harp != "" {
+		args = append(args, "--label", labelHarp+"="+spec.Harp, "-e", sessions.EnvHarp+"="+spec.Harp)
+	}
+	return args
+}
+
 // runMounts is the spec's mounts, plus — PROBE-ONLY — the trace dir bound
 // OUT so the strace output written from inside survives the container's
 // `--rm` teardown (no docker cp race). A separate slice so the spec's own
 // Mounts are never mutated.
-func runMounts(spec RunSpec, s pathSeam) []mount {
+func runMounts(spec RunSpec) []mount {
 	if spec.Trace == nil {
 		return spec.Mounts
 	}
 	return append(append([]mount(nil), spec.Mounts...),
-		s.bind(spec.Trace.HostDir, spec.Trace.ContainerDir, false))
+		bind(spec.Trace.HostDir, spec.Trace.ContainerDir, false))
 }
 
 // mountArgs renders each mount as a --mount flag.
@@ -533,24 +577,20 @@ func runMounts(spec RunSpec, s pathSeam) []mount {
 // path holding a comma or a quote is quoted here or it splits into fields
 // that are not there.
 //
-// The SOURCE is s's name for m.Host on the daemon (sourceFor); the TARGET is
-// m.Container untouched. m.Host itself stays the path as THIS process sees it,
-// which every mount planner, the shared-fs probe's roots and scratch reaping
-// rely on, so the translation happens here, at render, and nowhere else.
-func mountArgs(mounts []mount, s pathSeam) ([]string, error) {
+// It renders the CHILD layer the plan derives (childLayer): each SOURCE is a
+// LayerMount.Host, already in host path space, and each TARGET its View. The
+// plan's own mount.Host stays the path as THIS process sees it, which every
+// mount planner, the shared-fs probe's roots and scratch reaping rely on.
+func mountArgs(child Layer) []string {
 	var args []string
-	for _, m := range mounts {
-		source, err := s.sourceFor(m.Host)
-		if err != nil {
-			return nil, err
-		}
-		fields := []string{"type=bind", "source=" + source, "target=" + m.Container}
+	for _, m := range child.mounts {
+		fields := []string{"type=bind", "source=" + m.Host, "target=" + m.View}
 		if m.ReadOnly {
 			fields = append(fields, "readonly")
 		}
 		args = append(args, "--mount", csvRecord(fields))
 	}
-	return args, nil
+	return args
 }
 
 // csvRecord renders fields as one CSV record, the inverse of the reader the

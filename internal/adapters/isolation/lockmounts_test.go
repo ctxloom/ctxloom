@@ -60,8 +60,7 @@ func TestLockMounts_ContainerResolverFindsTheHostLock(t *testing.T) {
 
 	hostLock, err := paths.HomePathFor(protected)
 	require.NoError(t, err)
-	inContainer, err := c.runtime.paths().targetFor(protected)
-	require.NoError(t, err)
+	inContainer := mapped(t, c.runtime, protected)
 	require.NotEqual(t, protected, inContainer, "the fake runtime maps paths, so host and container names differ")
 	// What runs inside: HOME is the container home in every container run.
 	testsupport.PointHomeAt(t, defaultContainerHome)

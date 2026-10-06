@@ -13,20 +13,22 @@ import (
 	"testing"
 )
 
-// isolationDir is the package whose mounts must all be built by its path seam.
+// isolationDir is the package whose mounts must all be built by its path layer.
 const isolationDir = "internal/adapters/isolation"
 
 // pathSeamFile is the one production file in isolationDir allowed to spell a
-// mount out field by field: the seam's own bind.
-const pathSeamFile = "pathseam.go"
+// mount out field by field: the layer's own bind and anchor.
+const pathSeamFile = "layer.go"
 
-// A MOUNT IS BUILT BY THE PATH SEAM.
+// A MOUNT IS BUILT BY THE PATH LAYER.
 //
-// Host↔container translation lives in ONE seam (pathSeam): its target rule
-// decides where the container sees a host path, its source rule what the
-// daemon calls it. A mount literal written anywhere else picks its own target
-// and skips the seam — which is how translation had grown three paths plus a
-// second seam before it was folded into one. So outside the seam's file, EVERY
+// Host↔container translation lives in ONE place (layer.go): the runtime's
+// placement policy decides where the child sees a host-anchored root
+// (anchor), a path nested in a root is named through the root's mount
+// (childPath, then bind), and the controller's own Layer names every source
+// to the daemon (childLayer). A mount literal written anywhere else picks its
+// own target and skips that — which is how translation had grown three paths
+// plus a second seam before it was folded into one. So outside layer.go, EVERY
 // mount literal is refused, whether spelled mount{...}, &mount{...}, or as an
 // element of a []mount{...} — the empty mount{} included, so the rule needs no
 // judgment about which literals are harmless. A zero value for an error path
@@ -35,16 +37,16 @@ const pathSeamFile = "pathseam.go"
 func TestArch_MountsAreBuiltByThePathSeam(t *testing.T) {
 	findings, scanned, sawSeam := isolationMountLiterals(t, moduleRoot(t))
 	if !sawSeam {
-		t.Fatalf("%s/%s not found — the seam moved; point pathSeamFile at the file that now holds pathSeam.bind", isolationDir, pathSeamFile)
+		t.Fatalf("%s/%s not found — the layer moved; point pathSeamFile at the file that now holds bind and anchor", isolationDir, pathSeamFile)
 	}
 	if scanned < 20 {
 		t.Fatalf("only %d production files scanned in %s — the sweep is too small to be believed", scanned, isolationDir)
 	}
 	for _, f := range findings {
-		t.Errorf("mount literal outside the path seam: %s\n"+
-			"    build it with the runtime's seam: rt.paths().bind(host, target, readOnly) for a target you "+
-			"decided, rt.paths().expose(host, readOnly) to route the host path; for an error path's zero "+
-			"value, name the result (m mount, err error) and return m.", f)
+		t.Errorf("mount literal outside the path layer: %s\n"+
+			"    build it with bind(host, target, readOnly) for a target you decided (a container anchor, or "+
+			"childPath through a root's mount), anchor(rt, host, readOnly) to place a host-anchored root by "+
+			"policy; for an error path's zero value, name the result (m mount, err error) and return m.", f)
 	}
 }
 

@@ -105,7 +105,7 @@ type mapperRuntime struct {
 	m pathMapper
 }
 
-func (r mapperRuntime) paths() pathSeam { return pathSeam{target: r.m} }
+func (r mapperRuntime) placement() pathMapper { return r.m }
 
 // A root the runtime cannot route is refused by name, as
 // present.ErrUnreachableRoot — never presented at a guessed path.

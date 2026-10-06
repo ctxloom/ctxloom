@@ -9,27 +9,26 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
-// pathMapper names, inside the container's mount namespace, where the SAME
-// resource a host path names is mounted. It decides the mount TARGET only:
-// the bind SOURCE is always the host path as this process sees it, and the
-// runtime translates that itself (Docker Desktop and podman machine both
-// accept a native `C:\...` source). Identity is one configuration of the
-// seam, not an assumption built into its callers.
+// pathMapper is the child PLACEMENT POLICY: where a host-anchored root (the
+// project, a worktree checkout, a git dir) is mounted in the child. It
+// decides a mount's TARGET only; the bind SOURCE is the primary Layer's
+// Reverse of the controller path (childLayer), so a controller that is itself
+// one of the daemon's containers still hands the daemon host paths. A path
+// nested in a root is never placed on its own: the child names it through the
+// root's mount (childPath), so a policy that moves a root moves everything in
+// it.
 //
-// Which mapper applies depends on the HOST OS alone, so it is chosen at
-// compile time (hostMapper, in the build-constrained twins) and never by
-// runtime name.
+// The default depends on the HOST OS alone, so it is chosen at compile time
+// (hostMapper, in the build-constrained twins) and never by runtime name:
+// identity on POSIX, drive letters under /mnt on Windows. A runtime may carry
+// another (ociRuntime.pathMap) — children MAY see a host directory at a path
+// different from the controller's.
 //
 // The rule every mount site follows: the container side of a HOST-anchored
-// path is toContainer(hostPath); the container side of a CONTAINER-anchored
-// path (under the fixed instance home or $HOME) is path.Join over a POSIX
-// root. filepath never builds a container path — on Windows it would emit
-// backslashes the daemon rejects.
-//
-// Not this rule: docker-outside-of-docker, where this process's paths are
-// not the daemon's. That rewrites the SOURCE (the daemon's name for our
-// path) — sourceMapper, the other rule pathSeam carries; overloading
-// toContainer would conflate the two.
+// root is the policy's toContainer(hostPath); the container side of a
+// CONTAINER-anchored path (under the fixed instance home or $HOME) is
+// path.Join over a POSIX root. filepath never builds a container path — on
+// Windows it would emit backslashes the daemon rejects.
 type pathMapper interface {
 	// toContainer maps a host path to the in-container path the SAME resource
 	// is mounted/reached at. It fails for a host path the runtime cannot

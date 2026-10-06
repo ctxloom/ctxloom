@@ -329,11 +329,26 @@ func deliverSettingsFile(name string, start present.Start, root present.RootKind
 	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Claims: map[string][]present.Claim{p.HostPath: cs}}, nil
 }
 
-// settingsClaims claims the statusline when asked for and free to claim, and
+// bashTimeoutEnv is the env claude's Bash tool reads its timeouts from, in
+// milliseconds: the foreground default, and the most the model may ask for.
+// claude's own default (two minutes) is shorter than a git commit behind a
+// project's pre-commit hooks takes on a loaded machine, and a command that
+// outlives it is moved to the background — so a headless turn or an
+// in-process sub-agent ends with its commit orphaned, never told how it went.
+var bashTimeoutEnv = map[string]string{
+	"BASH_DEFAULT_TIMEOUT_MS": "600000",
+	"BASH_MAX_TIMEOUT_MS":     "1200000",
+}
+
+// settingsClaims claims the statusline when asked for and free to claim,
 // each denied tool as an element of permissions.deny — a deny the user
-// already has is theirs, and the record finds it rather than taking it.
+// already has is theirs, and the record finds it rather than taking it —
+// and each of bashTimeoutEnv the user has not set to a value of their own.
 func settingsClaims(fs afero.Fs, path string, statusline bool, deny []string) ([]present.Claim, error) {
-	var claims []present.Claim
+	claims, err := bashTimeoutClaims(fs, path)
+	if err != nil {
+		return nil, err
+	}
 	if statusline {
 		free, err := statuslineClaimable(fs, path)
 		if err != nil {
@@ -351,6 +366,39 @@ func settingsClaims(fs afero.Fs, path string, statusline bool, deny []string) ([
 		}
 		seen[tool] = true
 		claims = append(claims, present.Claim{Pointer: present.PointerKey("permissions") + present.PointerKey("deny") + "/-", Value: tool})
+	}
+	return claims, nil
+}
+
+// bashTimeoutClaims claims each of bashTimeoutEnv in settings.json's env
+// that is absent or already holds ctxloom's value; one the user set to any
+// other value is theirs.
+func bashTimeoutClaims(fs afero.Fs, path string) ([]present.Claim, error) {
+	w := &ClaudeCodeHookWriter{FS: fs}
+	settings, err := w.loadSettings(path) // a missing file is empty settings
+	if err != nil {
+		return nil, err
+	}
+	env := map[string]json.RawMessage{}
+	if raw, ok := settings.Other["env"]; ok {
+		if err := json.Unmarshal(raw, &env); err != nil {
+			data, readErr := afero.ReadFile(fs, path)
+			if readErr != nil {
+				return nil, readErr
+			}
+			return nil, w.corruptSettings(path, data, "env", err, "to avoid overwriting the user's environment")
+		}
+	}
+	var claims []present.Claim
+	for _, name := range collections.SortedKeys(bashTimeoutEnv) {
+		want := bashTimeoutEnv[name]
+		if have, set := env[name]; set {
+			var v string
+			if json.Unmarshal(have, &v) != nil || v != want {
+				continue
+			}
+		}
+		claims = append(claims, present.Claim{Pointer: present.PointerKey("env") + present.PointerKey(name), Value: want})
 	}
 	return claims, nil
 }
@@ -419,8 +467,8 @@ func hookValue(h wire.Hook) (map[string]any, error) {
 // default. A binding still naming it is refused, told to select the default.
 const ApproachHewRecord = "hew-record"
 
-// settingsApproach is claude's settings surface: statusline and the deny
-// list, in .claude/settings.json.
+// settingsApproach is claude's settings surface: ctxloom's own keys in
+// .claude/settings.json (settingsClaims).
 type settingsApproach struct{ traits }
 
 func (*settingsApproach) Name() string { return "settings" }

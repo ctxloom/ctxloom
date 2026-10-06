@@ -749,6 +749,38 @@ func TestHoldRestart_ARefusalReplayedAfterAReauthRestartOpensNoHold(t *testing.T
 	assert.Zero(t, f.findingsWith(refusedFinding), "the human is not told the fresh credential was refused: %v", f.findings.All())
 }
 
+// TestHoldRestart_ARefusalOfTheReplacingCredentialStillHolds: the restart
+// replaces the refused credential with another that is refused too. A turn
+// that starts on the replacement is not a replay from before the restart, so
+// its refusal holds the replacement — and the human is told.
+func TestHoldRestart_ARefusalOfTheReplacingCredentialStillHolds(t *testing.T) {
+	const alsoRefused = "sk-fixture-also-refused-token"
+	f, clk := newSecretsFixture(t, nil)
+	f.send(t, f.worker, credRefused+" do the work")
+	f.awaitHold(t, f.worker, f.sibling)
+	f.awaitParks(t, f.worker, f.sibling)
+
+	f.opts.RefreshSecrets = (&secretsRefresher{}).refresh
+	f.opts.LookupEnv = envOf(map[string]string{tokenVar: alsoRefused})
+	reasserted := make(chan struct{}, 8)
+	f.restart(t, clk, 0, stepSignal(holdStepReasserted, reasserted))
+	require.Empty(t, f.c.CredentialHolds(), "premise: a different credential released the hold at adoption")
+	f.redial(t)
+	within(t, reasserted, "the worker's owed resume was never delivered")
+	within(t, reasserted, "the sibling's owed resume was never delivered")
+	f.awaitReplayed(t, 0)
+
+	f.send(t, f.worker, credRefused+" again, on the replacement")
+	awaitChatText(t, f.sp, 0, "again, on the replacement")
+	f.awaitHold(t, f.worker, f.sibling)
+	assert.Equal(t, alsoRefused, lastExecEnv(f.sp, 0)[tokenVar], "premise: the turn ran on the replacement")
+	opened := journaled[holdOpened](t, f.c, factHoldOpened)
+	require.Len(t, opened, 2, "the replacement's refusal opened a hold of its own")
+	assert.Equal(t, engine.Credentials{Env: map[string]string{tokenVar: alsoRefused}}.Fingerprint(), opened[1].Fingerprint,
+		"the replacement is the credential held as refused")
+	assert.Equal(t, 1, f.findingsWith(refusedFinding), "the human is told: %v", f.findings.All())
+}
+
 // lastExecEnv is the env the i-th child's latest turn started its engine with.
 func lastExecEnv(sp *fakeSpawner, i int) map[string]string {
 	sc := sp.chat(i)

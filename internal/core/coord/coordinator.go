@@ -373,6 +373,11 @@ type Coordinator struct {
 	// releases of the secrets files it took over, by run id, guarded by mu.
 	refreshSecrets func(file string, vals map[string]string) (release func(), err error)
 	secretReleases map[string]func()
+	// replacedCreds are the re-adopted runs whose credential refreshRunSecrets
+	// replaced and that have not started a turn since, by run id, guarded by
+	// mu: a turn boundary such a run reports is from a turn that began before
+	// the replacement, on the credential it replaced (failedTurnOf).
+	replacedCreds map[string]bool
 	// onAskPublished, when set, is called by controlAsk between RECORDING the
 	// ask open and PUBLISHING it — the record-before-publish test seam. It
 	// fires on that side of the publish deliberately: a hook fired after it
@@ -591,6 +596,7 @@ func New(opts Options) (*Coordinator, error) {
 		lookupEnv:          t.lookupEnv,
 		refreshSecrets:     opts.RefreshSecrets,
 		secretReleases:     make(map[string]func()),
+		replacedCreds:      make(map[string]bool),
 		runners:            make(map[string]*RunnerSession),
 		runnerReady:        make(map[string]chan struct{}),
 		chans:              make(map[string]*RunChannel),

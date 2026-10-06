@@ -385,7 +385,13 @@ func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
 
 // failedTurnOf reads what runID's turned-away turn is decided from: the
 // attached runs (under c.mu), keyed by their journaled launches. False for a
-// run no longer attached.
+// run no longer attached, and for a credential's failure on a run whose
+// credential this coordinator replaced before seeing any turn of it start
+// (replacedCreds): that turn began before the restart, on the replaced
+// credential — a boundary its runner re-sends because the crashed
+// coordinator folded it but never acked it — so it says nothing about the
+// credential the run carries now, and folded against that one's launch it
+// would hold the fresh credential as refused.
 func (c *Coordinator) failedTurnOf(role, runID string, f agent.TurnFailure) (failedTurn, bool) {
 	c.mu.Lock()
 	rt := c.runtimeForLocked(role, runID)
@@ -393,6 +399,7 @@ func (c *Coordinator) failedTurnOf(role, runID string, f agent.TurnFailure) (fai
 		c.mu.Unlock()
 		return failedTurn{}, false
 	}
+	replaced := c.replacedCreds[runID]
 	t := failedTurn{f: f, own: heldRun{runID, rt.harp}}
 	attached := make([]heldRun, 0, len(c.attach))
 	for id, srt := range c.attach {
@@ -411,6 +418,9 @@ func (c *Coordinator) failedTurnOf(role, runID string, f agent.TurnFailure) (fai
 			}
 		}
 	})
+	if replaced && t.scope == holdScopeCredential {
+		return failedTurn{}, false
+	}
 	slices.SortFunc(t.candidates, func(a, b heldRun) int { return cmp.Compare(a.runID, b.runID) })
 	return t, true
 }
@@ -1057,10 +1067,14 @@ func (c *Coordinator) refreshRunSecrets(runID string) {
 		c.rep.Warnf("coordinator: could not give re-adopted run %s this environment's credential; it keeps the one it was launched with: %v", runID, err)
 		return
 	}
+	fresh := engine.EnvFingerprint(l.Source.EnvVars, c.lookupEnv)
 	c.mu.Lock()
 	c.secretReleases[runID] = release
+	if fresh != l.Fingerprint {
+		c.replacedCreds[runID] = true
+	}
 	c.mu.Unlock()
-	l.Fingerprint = engine.EnvFingerprint(l.Source.EnvVars, c.lookupEnv)
+	l.Fingerprint = fresh
 	at := c.now()
 	if err := c.runs.Exec(func() ([]Fact, error) { return []Fact{factAt(factRunLaunched, at, l)}, nil }); err != nil {
 		c.rep.Warnf("coordinator: could not journal %s's refreshed credential: %v", runID, err)
@@ -1073,6 +1087,7 @@ func (c *Coordinator) releaseRunSecrets(runID string) {
 	c.mu.Lock()
 	release := c.secretReleases[runID]
 	delete(c.secretReleases, runID)
+	delete(c.replacedCreds, runID)
 	c.mu.Unlock()
 	if release != nil {
 		release()

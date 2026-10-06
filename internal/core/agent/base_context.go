@@ -4,24 +4,27 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
+
+	"github.com/spf13/afero"
 )
 
 // BaseContextProvider provides shared context management logic for backends
-// that use file-based context injection via hooks.
+// that use file-based context injection via hooks. The context file is
+// written and removed through fs.
 type BaseContextProvider struct {
+	fs          afero.Fs
 	contextHash string
 }
 
-// NewBaseContextProvider creates a new context provider.
+// NewBaseContextProvider creates a new context provider on the real filesystem.
 func NewBaseContextProvider() *BaseContextProvider {
-	return &BaseContextProvider{}
+	return &BaseContextProvider{fs: afero.NewOsFs()}
 }
 
 // Provide writes context to a file that the session start hook will read.
 func (c *BaseContextProvider) Provide(workDir string, fragments []*Fragment) error {
-	hash, err := WriteContextFile(workDir, fragments)
+	hash, err := WriteContextFile(workDir, fragments, WithContextFS(c.fs))
 	if err != nil {
 		return err
 	}
@@ -39,7 +42,7 @@ func (c *BaseContextProvider) Clear(workDir string) error {
 		return nil
 	}
 	contextPath := filepath.Join(workDir, SCMContextSubdir, c.contextHash+".md")
-	if err := os.Remove(contextPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := c.fs.Remove(contextPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("failed to remove context file for %s: %w", c.contextHash, err)
 	}
 	c.contextHash = ""

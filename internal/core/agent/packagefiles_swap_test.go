@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -239,4 +240,99 @@ func TestWriteManagedPackageFiles_FirstDeliveryIntoWhollyNonexistentTree(t *test
 	info, err := fs.Stat(filepath.Join(dir, "reviewer", "scripts", "run.sh"))
 	require.NoError(t, err)
 	fileperm.Equal(t, 0o755, info.Mode(), "the exec bit must survive a from-scratch delivery")
+}
+
+// withRename substitutes the swap's per-file rename (managedWriteOptions.rename).
+func withRename(fn func(fs afero.Fs, oldpath, newpath string) error) ManagedWriteOption {
+	return func(o *managedWriteOptions) { o.rename = fn }
+}
+
+// nonAtomicReplace models MoveFileEx(MOVEFILE_REPLACE_EXISTING) at its worst:
+// the destination name resolves to nothing for a moment before the source
+// takes it, which a concurrent reader on Windows can observe. observe runs in
+// exactly that gap, so the interleaving is forced rather than hoped for.
+func nonAtomicReplace(observe func()) func(fs afero.Fs, oldpath, newpath string) error {
+	return func(fs afero.Fs, oldpath, newpath string) error {
+		if err := fs.Remove(newpath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		observe()
+		return fs.Rename(oldpath, newpath)
+	}
+}
+
+// TestWriteManagedPackageFiles_RedeliveryNeverReplacesAnUnchangedLiveFile is
+// the forcing test for the Windows-only failure of
+// TestWriteManagedPackageFiles_ConcurrentReaderNeverObservesMissingLedgeredFile
+// (dodgy-hull): re-delivering a package whose rendered files are identical to
+// the live ones must not route any live file through a replace, because on
+// Windows a replace is a window in which a reader can find the file missing.
+func TestWriteManagedPackageFiles_RedeliveryNeverReplacesAnUnchangedLiveFile(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	dir := "/work/.claude/skills"
+	item := []fakeItem{{
+		name:    "reviewer",
+		enabled: true,
+		files: []PackageFile{
+			{RelPath: "reviewer/SKILL.md", Content: []byte("---\nname: reviewer\n---\nBody"), Mode: 0644},
+			{RelPath: "reviewer/scripts/run.sh", Content: []byte("#!/bin/sh\necho reviewer\n"), Mode: 0755},
+		},
+	}}
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, item, fakeItemEnabled, fakeItemName, fakeItemRender))
+
+	var missing []string
+	observe := func() {
+		for _, f := range item[0].files {
+			if ok, _ := afero.Exists(fs, filepath.Join(dir, f.RelPath)); !ok {
+				missing = append(missing, f.RelPath)
+			}
+		}
+	}
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, item, fakeItemEnabled, fakeItemName, fakeItemRender,
+		withRename(nonAtomicReplace(observe))))
+
+	assert.Empty(t, missing, "an unchanged re-delivery took a live file through a replace a concurrent reader observed as missing")
+	for _, f := range item[0].files {
+		got, err := afero.ReadFile(fs, filepath.Join(dir, f.RelPath))
+		require.NoError(t, err)
+		assert.Equal(t, f.Content, got)
+	}
+}
+
+// TestWriteManagedPackageFiles_RedeliverySwapsChangedContentAndMode pins the
+// other side of the unchanged-file skip: a file whose bytes differ, or whose
+// bytes match but whose mode differs, is still swapped in. The two SKILL.md
+// versions are the same length so a size check alone cannot tell them apart.
+func TestWriteManagedPackageFiles_RedeliverySwapsChangedContentAndMode(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	dir := "/work/.claude/skills"
+	render := func(skill string, scriptMode os.FileMode) []fakeItem {
+		return []fakeItem{{
+			name:    "reviewer",
+			enabled: true,
+			files: []PackageFile{
+				{RelPath: "reviewer/SKILL.md", Content: []byte(skill), Mode: 0644},
+				{RelPath: "reviewer/scripts/run.sh", Content: []byte("#!/bin/sh\n"), Mode: scriptMode},
+			},
+		}}
+	}
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, render("v1", 0644), fakeItemEnabled, fakeItemName, fakeItemRender))
+
+	var swapped []string
+	recording := func(fs afero.Fs, oldpath, newpath string) error {
+		rel, err := filepath.Rel(dir, newpath)
+		require.NoError(t, err)
+		swapped = append(swapped, filepath.ToSlash(rel))
+		return fs.Rename(oldpath, newpath)
+	}
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, render("v2", 0755), fakeItemEnabled, fakeItemName, fakeItemRender,
+		withRename(recording)))
+
+	assert.ElementsMatch(t, []string{"reviewer/SKILL.md", "reviewer/scripts/run.sh"}, swapped)
+	got, err := afero.ReadFile(fs, filepath.Join(dir, "reviewer", "SKILL.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "v2", string(got))
+	info, err := fs.Stat(filepath.Join(dir, "reviewer", "scripts", "run.sh"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0755), info.Mode().Perm())
 }

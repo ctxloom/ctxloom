@@ -57,7 +57,7 @@ func writeManagedPackageFilesLocked[T any](
 	render func(T) ([]PackageFile, error),
 	opts ...ManagedWriteOption,
 ) error {
-	o := &managedWriteOptions{}
+	o := &managedWriteOptions{rename: safefs.Rename}
 	for _, opt := range opts {
 		opt(o)
 	}
@@ -227,60 +227,15 @@ func writeManagedPackageFilesLocked[T any](
 		return revertManagedSurface(o.rep, fs, dir, surface, previous, led)
 	}
 
-	// PHASE 3 — swap. Each fully-rendered temp file moves into dir at its
-	// final path with ONE fs.Rename: a single atomic replace, not an
-	// unlink-then-create, so a concurrent reader of that path sees either the
-	// complete old content or the complete new content and NEVER an absence.
-	//
-	// This is the file-scoped realization of "rename old → aside, rename temp
-	// → live, remove aside" — a whole-DIRECTORY version of that dance (renaming
-	// dir itself aside and a fully-assembled temp tree into its place) was
-	// ruled out on reading the actual call sites: dir is shared territory a
-	// bare directory swap would destroy. Two ledger surfaces may share one
-	// native directory, and a hand-authored file can sit right beside managed
-	// content in any engine's dir. Swapping dir itself
-	// would evict the co-located surface's files and any user content in the
-	// same breath as this call's own content. Per-file rename against a temp
-	// tree that is a sibling of dir (same parent, same volume) gets the
-	// identical atomicity guarantee at the granularity dir's sharing contract
-	// actually allows, without an "aside" step: replacing an existing FILE via
-	// rename(2) is already a single atomic substitution — the aside dance is
-	// only needed to replace a non-empty DIRECTORY, which this design never
-	// attempts.
-	//
-	// REMAINING WINDOW: between the first rename in this loop and the last, a
-	// concurrent reader can observe a MIX of old and new content across
-	// DIFFERENT files of the same call (e.g. one skill's new SKILL.md already
-	// swapped in while a second skill's old scripts/run.sh has not been
-	// reached yet). What it can never observe, at any point in this loop, is a
-	// tracked path that is simply ABSENT — every rename is a single
-	// substitution of one complete version for another. That makes this a
-	// staleness window, not a data-loss window, and it is strictly smaller
-	// than the old delete-everything-then-rerender window: the old code's gap
-	// could and did (taskloom dutiful-water) leave a tracked file gone
-	// entirely, observable by any reader, for the full duration of the
-	// re-render. A rename failing partway through this loop (possible in
-	// principle — a permission or ENOSPC failure on the metadata update;
-	// vanishingly unlikely in practice since tempDir and dir share a parent
-	// and every rename is a pure metadata operation) stops the loop
-	// immediately: whatever already swapped stays swapped at its new content,
-	// whatever had not been reached yet stays at its old content, and the
-	// error propagates WITHOUT running phase 4's stale-cleanup or writing the
-	// ledger — so the ledger never claims ownership of a state that was not
-	// actually reached.
-	for _, relPath := range written {
-		dst := filepath.Join(dir, relPath)
-		src := filepath.Join(tempDir, relPath)
-		if err := fs.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-			return fmt.Errorf("write managed package files %s: create %s: %w", dir, filepath.Dir(dst), err)
-		}
-		if err := safefs.Rename(fs, src, dst); err != nil {
-			return fmt.Errorf("write managed package files %s: swap %s into place: %w", dir, relPath, err)
-		}
+	// PHASE 3 — swap; see swapIntoPlace. A failure stops here WITHOUT running
+	// phase 4's stale-cleanup or writing the ledger, so the ledger never
+	// claims ownership of a state that was not actually reached.
+	if err := swapIntoPlace(o, fs, dir, tempDir, written); err != nil {
+		return err
 	}
-	// The rename loop above drained every file phase 2 wrote; RemoveAll here
-	// is a best-effort prune of the now-empty temp subdirectories it leaves
-	// behind (mirroring pruneEmptyDirs' role for dir itself). The deferred
+	// swapIntoPlace moved every rendered file that differed from live; this
+	// RemoveAll drops the identical copies it left behind and the temp
+	// subdirectories (mirroring pruneEmptyDirs' role for dir itself). The deferred
 	// cleanup above would do the same on any earlier return; skip it here only
 	// to avoid a second, redundant walk on the success path.
 	tempDirLive = false
@@ -324,6 +279,72 @@ func writeManagedPackageFilesLocked[T any](
 	return led.Write(surface, written)
 }
 
+// swapIntoPlace moves each rendered temp file into dir at its final path with
+// ONE rename — a substitution, never an unlink-then-create — EXCEPT where the
+// live file is already identical to the rendered one (see liveFileMatches),
+// which is left untouched.
+//
+// The skip is a correctness property, not an optimisation. A replace is only
+// atomic for a concurrent reader where rename(2) is: on Windows os.Rename is
+// MoveFileEx(MOVEFILE_REPLACE_EXISTING), and a reader looking the path up
+// while it runs can find it missing or be refused. Re-delivering an unchanged
+// package — every session start — therefore must not replace anything (see
+// TestWriteManagedPackageFiles_RedeliveryNeverReplacesAnUnchangedLiveFile).
+// A file whose content or mode really changed still goes through that
+// replace, so on Windows it alone carries a brief window.
+//
+// Files are swapped one by one, so between the first rename and the last a
+// reader can see a MIX of old and new versions across different files of one
+// call. dir is never swapped wholesale: it is shared territory — two ledger
+// surfaces may share one native directory, and hand-authored files can sit
+// beside managed ones — so a directory-level swap would evict both. A rename
+// failure stops the loop: what already swapped stays new, the rest stays old.
+func swapIntoPlace(o *managedWriteOptions, fs afero.Fs, dir, tempDir string, written []string) error {
+	for _, relPath := range written {
+		dst := filepath.Join(dir, relPath)
+		src := filepath.Join(tempDir, relPath)
+		if liveFileMatches(fs, src, dst) {
+			continue
+		}
+		if err := fs.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			return fmt.Errorf("write managed package files %s: create %s: %w", dir, filepath.Dir(dst), err)
+		}
+		if err := o.rename(fs, src, dst); err != nil {
+			return fmt.Errorf("write managed package files %s: swap %s into place: %w", dir, relPath, err)
+		}
+	}
+	return nil
+}
+
+// liveFileMatches reports whether dst is already a regular file with the same
+// mode and bytes as the rendered src. Both modes are read back from the same
+// filesystem rather than compared against the requested PackageFile.Mode, so
+// a platform that cannot represent the requested bits (Windows) still compares
+// like with like. Any error answers false: the caller then replaces, which is
+// always correct.
+func liveFileMatches(fs afero.Fs, src, dst string) bool {
+	var live os.FileInfo
+	var err error
+	if l, ok := fs.(afero.Lstater); ok {
+		live, _, err = l.LstatIfPossible(dst)
+	} else {
+		live, err = fs.Stat(dst)
+	}
+	if err != nil || !live.Mode().IsRegular() {
+		return false
+	}
+	rendered, err := fs.Stat(src)
+	if err != nil || rendered.Mode() != live.Mode() || rendered.Size() != live.Size() {
+		return false
+	}
+	want, err := afero.ReadFile(fs, src)
+	if err != nil {
+		return false
+	}
+	have, err := afero.ReadFile(fs, dst)
+	return err == nil && bytes.Equal(want, have)
+}
+
 // WriteManagedPackageFiles is the manifest-scoped TREE writer shared by every
 // per-agent package writer (a command-file writer with exactly one rendered
 // file per item, and a skill-package writer with SKILL.md plus its sibling
@@ -344,8 +365,9 @@ func writeManagedPackageFilesLocked[T any](
 // RENDER-THEN-SWAP, not delete-then-rerender. Every enabled item is rendered
 // and path-validated ENTIRELY OFF the live tree first (nothing under dir is
 // touched); the complete new file set is then written into a temp sibling of
-// dir and, once fully materialized there, moved into place file-by-file with
-// atomic renames. Only after every new file is safely live are the
+// dir and, once fully materialized there, moved into place file-by-file by
+// rename, leaving any live file that is already identical untouched (see
+// swapIntoPlace for what a concurrent reader can and cannot observe). Only after every new file is safely live are the
 // now-unwanted previously-tracked files (an item that got disabled) removed.
 // This ordering — validate, render, swap, THEN clean up stale entries — is
 // the fix for the historical bug: the old writer deleted this surface's

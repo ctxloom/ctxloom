@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -269,4 +270,43 @@ func TestWriteInstanceConfig_TrustedCopiesTheAnswer(t *testing.T) {
 	projects, _ := readInstanceConfig(t, instance)["projects"].(map[string]any)
 	entry, _ := projects[workDir].(map[string]any)
 	assert.Equal(t, true, entry["hasTrustDialogAccepted"])
+}
+
+// hostPrefixed names a controller path under /host: a controller in a
+// container whose view of the host's / is its own /.
+func hostPrefixed(dir string) (string, error) { return "/host" + dir, nil }
+
+// A controller in a container walks the repository in ITS view, where it can
+// be read, and looks each directory up under its HOST name, which is how the
+// human's answers are keyed.
+func TestVerdict_KeysAreLookedUpUnderTheirHostNames(t *testing.T) {
+	root := gitRepo(t, t.TempDir())
+	host := hostWithProjects(t, map[string]any{"/host" + root: accepted(true)})
+	v, err := claudeRepoTrust{}.Verdict(nil, engine.TrustQuery{HostHome: host, WorkDir: root, HostPath: hostPrefixed})
+	require.NoError(t, err)
+	assert.Equal(t, engine.TrustTrusted, v)
+
+	assert.Equal(t, engine.TrustUntrusted, verdict(t, host, root), "without the host names the answer is not found")
+}
+
+// The walk still stops at the repository top, so trust above the repository
+// in host space does not reach into it either.
+func TestVerdict_HostNamedTrustAboveTheRepositoryDoesNotReachIntoIt(t *testing.T) {
+	parent := t.TempDir()
+	root := gitRepo(t, filepath.Join(parent, "cloned"))
+	host := hostWithProjects(t, map[string]any{"/host" + parent: accepted(true)})
+	v, err := claudeRepoTrust{}.Verdict(nil, engine.TrustQuery{HostHome: host, WorkDir: root, HostPath: hostPrefixed})
+	require.NoError(t, err)
+	assert.Equal(t, engine.TrustUntrusted, v)
+}
+
+// A directory with no host name was never answerable by the human: it
+// trusts nothing.
+func TestVerdict_AKeyWithNoHostNameTrustsNothing(t *testing.T) {
+	root := gitRepo(t, t.TempDir())
+	host := hostWithProjects(t, map[string]any{root: accepted(true)})
+	unnamed := func(string) (string, error) { return "", errors.New("no host name") }
+	v, err := claudeRepoTrust{}.Verdict(nil, engine.TrustQuery{HostHome: host, WorkDir: root, HostPath: unnamed})
+	require.NoError(t, err)
+	assert.Equal(t, engine.TrustUntrusted, v)
 }

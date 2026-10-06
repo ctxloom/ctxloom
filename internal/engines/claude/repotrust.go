@@ -28,7 +28,7 @@ type claudeRepoTrust struct{}
 var _ engine.RepoTrust = claudeRepoTrust{}
 
 // Verdict is TrustTrusted when any directory claude would consult for
-// q.WorkDir carries an accepted answer. No host home, no host file, or no
+// q.WorkDir carries an accepted answer under its host name (q.HostKey). No host home, no host file, or no
 // answer is TrustUntrusted; a host file that does not parse is an error.
 func (claudeRepoTrust) Verdict(fs afero.Fs, q engine.TrustQuery) (engine.WorkspaceTrust, error) {
 	if q.HostHome == "" || q.WorkDir == "" {
@@ -45,7 +45,12 @@ func (claudeRepoTrust) Verdict(fs afero.Fs, q engine.TrustQuery) (engine.Workspa
 		return engine.TrustUntrusted, fmt.Errorf("claude repo trust: %w", err)
 	}
 	for _, dir := range trustKeys(fs, filepath.Clean(workDir)) {
-		entry, _ := projects[dir].(map[string]any)
+		// A key with no host name was never answerable by the human.
+		key, err := q.HostKey(dir)
+		if err != nil {
+			continue
+		}
+		entry, _ := projects[key].(map[string]any)
 		if accepted, _ := entry[trustAcceptedKey].(bool); accepted {
 			return engine.TrustTrusted, nil
 		}

@@ -149,10 +149,23 @@ type RepoTrust interface {
 
 // TrustQuery is what a verdict is taken over: the host user's real home,
 // where the engine keeps the human's own answers, and the run's working
-// directory on the host.
+// directory as THIS process sees it — the repository is walked there, where
+// it can be read. HostPath names a directory of that walk in the host path
+// space the human's answers are keyed by: a process in a container reads its
+// own view, while the human answered on the host. nil is identity (this
+// process shares the host's paths).
 type TrustQuery struct {
 	HostHome string
 	WorkDir  string
+	HostPath func(dir string) (string, error)
+}
+
+// HostKey is dir as the human's answers name it (HostPath).
+func (q TrustQuery) HostKey(dir string) (string, error) {
+	if q.HostPath == nil {
+		return dir, nil
+	}
+	return q.HostPath(dir)
 }
 
 // InstanceConfigReport is what it wrote and what it skipped.

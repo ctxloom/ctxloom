@@ -1,36 +1,36 @@
 //go:build acceptance
 
-// Companion EXEC consent (trust_cli.feature): a binary that merely SITS on
-// $PATH under a companion name is not yet something ctxloom will run.
+// Companion EXEC admission (cli/companion.feature): a binary that merely SITS
+// on $PATH under a companion name is not yet something ctxloom will run.
 //
 // The assertion that matters here is not "the command exited 0" — it is WHICH
 // BINARIES ACTUALLY RAN. The fake companion these steps install appends a line
 // to a witness file every time it is invoked, so "was never executed" is read
 // off the filesystem rather than inferred from a missing warning or an empty
 // output section. ctxloom's characteristic bug is the silent no-op, and a
-// consent gate is exactly the kind of change that can pass every exit-code
+// admission gate is exactly the kind of change that can pass every exit-code
 // assertion while quietly doing nothing (or quietly doing everything).
 //
 // These steps deliberately do NOT use testenv.InstallFakeCompanion: that
-// helper grants consent as part of installing, because every OTHER journey's
+// helper records an allow as part of installing, because every OTHER journey's
 // point is what a companion CONTRIBUTES, not whether it was allowed to run.
 // Here the refusal is the subject, so the fixture stops at "on PATH".
 package acceptance
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"golang.org/x/crypto/ssh"
-
 	"github.com/cucumber/godog"
+	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -38,45 +38,58 @@ import (
 const companionWitnessName = "companion-exec-witness.txt"
 
 func registerCompanionConsentSteps(ctx *godog.ScenarioContext) {
-	ctx.Step(`^a discovered companion "([^"]*)" is on PATH, unsigned$`, func(c context.Context, bin string) error {
+	ctx.Step(`^a discovered companion "([^"]*)" is on PATH, not allowed$`, func(c context.Context, bin string) error {
 		w := worldFrom(c)
-		return installUnsignedCompanion(w, bin)
+		return installUnallowedCompanion(w, bin)
 	})
 
-	// Signed by a publisher the SCENARIO trusts: the fixture form of a
-	// publisher vouching for the bytes, which is the only thing that admits a
-	// companion.
-	ctx.Step(`^the companion "([^"]*)" is signed by a publisher this project trusts$`, func(c context.Context, bin string) error {
+	// Allowed the way `ctxloom companion allow --yes` records it, in the
+	// scenario's own HOME.
+	ctx.Step(`^the companion "([^"]*)" is allowed$`, func(c context.Context, bin string) error {
 		w := worldFrom(c)
-		return w.env.SignCompanion(companionPath(w, bin))
+		return w.env.AllowCompanion(companionPath(w, bin))
 	})
 
-	// Signed by a well-formed key the trust root does not carry. Distinct from
-	// unsigned on purpose: the two are different refusals and a reader who
-	// cannot tell them apart cannot tell "nobody vouched" from "someone I do
-	// not know vouched".
-	ctx.Step(`^the companion "([^"]*)" is signed by a key this project does not trust$`, func(c context.Context, bin string) error {
-		w := worldFrom(c)
-		return signCompanionWithUntrustedKey(w, companionPath(w, bin))
-	})
-
-	// Signed, then EDITED. The signature over the release statement is intact
-	// and its signer is trusted; the hash that statement carries simply no
-	// longer matches these bytes. Never degraded to "unsigned" — a broken
-	// signature is a signal, not an absence.
-	ctx.Step(`^the companion "([^"]*)" is edited after it was signed$`, func(c context.Context, bin string) error {
+	// Allowed, then its bytes change — a rebuild. The path is still allowed;
+	// the hash on record no longer matches. Both hashes are remembered so a
+	// later step can check the disclosure names them.
+	ctx.Step(`^the companion "([^"]*)" is allowed, then rebuilt$`, func(c context.Context, bin string) error {
 		w := worldFrom(c)
 		path := companionPath(w, bin)
-		if err := w.env.SignCompanion(path); err != nil {
+		if err := w.env.AllowCompanion(path); err != nil {
+			return err
+		}
+		allowed, err := fileSHA256(path)
+		if err != nil {
 			return err
 		}
 		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o755) //nolint:gosec // a fixture binary this step just wrote
 		if err != nil {
-			return fmt.Errorf("open %q to edit it: %w", path, err)
+			return fmt.Errorf("open %q to rebuild it: %w", path, err)
 		}
 		defer func() { _ = f.Close() }()
-		_, err = f.WriteString("\n# edited after signing\n")
-		return err
+		if _, err := f.WriteString("\n# rebuilt after it was allowed\n"); err != nil {
+			return err
+		}
+		current, err := fileSHA256(path)
+		if err != nil {
+			return err
+		}
+		companionHashes[bin] = [2]string{allowed, current}
+		return nil
+	})
+
+	ctx.Step(`^the output names the allowed and the current hash of "([^"]*)"$`, func(c context.Context, bin string) error {
+		w := worldFrom(c)
+		h, ok := companionHashes[bin]
+		if !ok {
+			return fmt.Errorf("no rebuild of %q was recorded by this scenario", bin)
+		}
+		want := h[0] + " -> " + h[1]
+		if !strings.Contains(w.env.LastOutput(), want) {
+			return fmt.Errorf("output does not name the hash change %q; output:\n%s", want, w.env.LastOutput())
+		}
+		return nil
 	})
 
 	// A companion that SHIPS A HOOK, for scenarios about where a hook came
@@ -105,7 +118,7 @@ hooks:
 			return err
 		}
 		if ran != 0 {
-			return fmt.Errorf("companion %q was executed %d time(s); it was never confirmed and must not have run", bin, ran)
+			return fmt.Errorf("companion %q was executed %d time(s); it was never allowed and must not have run", bin, ran)
 		}
 		return nil
 	})
@@ -117,25 +130,25 @@ hooks:
 			return err
 		}
 		if ran == 0 {
-			return fmt.Errorf("companion %q was never executed, but consent for it was recorded", bin)
+			return fmt.Errorf("companion %q was never executed, but an allow for it was recorded", bin)
 		}
 		return nil
 	})
 }
 
-// installUnconfirmedCompanion writes an executable fake named bin into a fresh
+// installUnallowedCompanion writes an executable fake named bin into a fresh
 // directory prepended to $PATH — the same reachability testenv.
-// InstallFakeCompanion produces — and stops there: no consent is recorded, so
+// InstallFakeCompanion produces — and stops there: no allow is recorded, so
 // ctxloom meets it for the first time exactly as it would meet a binary an npm
 // dependency dropped into ./node_modules/.bin.
 //
 // The script witnesses its own invocation FIRST, before answering anything, so
 // even a probe whose output ctxloom discards still leaves a mark. It answers
-// `version` and `loadout` with the empty-but-valid shapes so a companion that
-// IS allowed through contributes without erroring — the difference between the
-// two scenarios is then consent alone, not a broken fixture.
-func installUnsignedCompanion(w *World, bin string) error {
-	dir, err := os.MkdirTemp(w.env.Root, "unsigned-companion-*")
+// `version` with a valid shape so a companion that IS allowed through runs
+// without erroring — the difference between the scenarios is then the allow
+// alone, not a broken fixture.
+func installUnallowedCompanion(w *World, bin string) error {
+	dir, err := os.MkdirTemp(w.env.Root, "unallowed-companion-*")
 	if err != nil {
 		return fmt.Errorf("create companion dir: %w", err)
 	}
@@ -143,7 +156,7 @@ func installUnsignedCompanion(w *World, bin string) error {
 		return err
 	}
 	prependPATH(w, dir)
-	// Remembered so a LATER step can vouch for this exact file. A step that
+	// Remembered so a LATER step can allow this exact file. A step that
 	// re-derived the path would have to agree with this one about the temp
 	// directory, and the two would drift the first time either changed.
 	companionDirs[bin] = dir
@@ -151,14 +164,15 @@ func installUnsignedCompanion(w *World, bin string) error {
 }
 
 // companionDirs records where each fixture companion was installed, keyed by
-// binary name, so the signing steps can name the file this suite actually
-// wrote rather than searching $PATH for it.
+// binary name, so the allow steps can name the file this suite actually wrote
+// rather than searching $PATH for it.
 var companionDirs = map[string]string{}
 
-// writeFakeCompanion writes the witnessing fake named bin into dir. Split out
-// of installUnconfirmedCompanion so the first-party fixture below installs the
-// IDENTICAL binary: the only thing that differs between the two scenarios is
-// WHERE it resolves from, which is the entire content of the provenance rule.
+// companionHashes records, per binary, the hash it was allowed at and the hash
+// it was rebuilt to.
+var companionHashes = map[string][2]string{}
+
+// writeFakeCompanion writes the witnessing fake named bin into dir.
 func writeFakeCompanion(w *World, dir, bin string) error {
 	witness := filepath.Join(w.env.Root, companionWitnessName)
 	script := fmt.Sprintf(`#!/bin/sh
@@ -206,32 +220,26 @@ func companionPath(_ *World, bin string) string {
 	return filepath.Join(companionDirs[bin], bin)
 }
 
-// signCompanionWithUntrustedKey signs path with a key minted here and trusted
-// NOWHERE — deliberately not added to any allowed_signers.
-//
-// It exists so "untrusted signer" can be witnessed as its own outcome. Without
-// it a scenario could only show unsigned-vs-signed, and the arm that refuses a
-// real signature from a stranger would have no test at all.
-func signCompanionWithUntrustedKey(w *World, path string) error {
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
+// fileSHA256 is the lowercase hex SHA-256 of the file at path — the hash an
+// allow record holds.
+func fileSHA256(path string) (string, error) {
+	b, err := os.ReadFile(path) //nolint:gosec // a fixture path this suite wrote
 	if err != nil {
-		return fmt.Errorf("mint an untrusted key: %w", err)
+		return "", fmt.Errorf("hash %q: %w", path, err)
 	}
-	signer, err := ssh.NewSignerFromSigner(priv)
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// forgetCompanionAllow withdraws the allow for the binary at path from the
+// scenario's HOME, so ctxloom refuses it.
+func forgetCompanionAllow(w *World, path string) error {
+	key, err := companions.ResolveCompanion(path)
 	if err != nil {
-		return fmt.Errorf("wrap the untrusted key: %w", err)
+		return err
 	}
-	binary, err := os.ReadFile(path) //nolint:gosec // a fixture path this suite wrote
-	if err != nil {
-		return fmt.Errorf("read %q to sign it: %w", path, err)
-	}
-	statement := testsupport.CompanionReleaseStatement(filepath.Base(path), "1.0.0", binary)
-	if err := os.WriteFile(path+".release", statement, 0o600); err != nil {
-		return fmt.Errorf("write the release statement for %q: %w", path, err)
-	}
-	sig, err := signing.Sign(statement, signer, signing.NamespaceCompanion)
-	if err != nil {
-		return fmt.Errorf("sign %q: %w", path, err)
-	}
-	return os.WriteFile(path+".sig", sig, 0o600)
+	store := companions.NewAllowStoreAt(afero.NewOsFs(),
+		filepath.Join(w.env.HomeDir, paths.AppDirName, paths.CompanionAllowFileName+".yaml"))
+	_, err = store.Forget(key)
+	return err
 }

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -117,10 +116,10 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 
 	warnFallbackProjectRoot(req, workDir)
 
-	// A companion that could not be verified never ran, so what it would
+	// A companion that is not allowed never ran, so what it would
 	// contribute is unknown — and every surface below would be written without
-	// it. Refuse before the first write. See unverifiedCompanionsError.
-	if err := unverifiedCompanionsError(freshCfg); err != nil {
+	// it. Refuse before the first write. See notAllowedCompanionsError.
+	if err := notAllowedCompanionsError(freshCfg); err != nil {
 		return nil, err
 	}
 
@@ -206,13 +205,14 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 	return result, markTotalHookFailure(result)
 }
 
-// ErrUnverifiedCompanion is ApplyHooks' refusal to write any surface while a
-// companion on PATH could not be verified.
-var ErrUnverifiedCompanion = errors.New("apply hooks: a companion on PATH could not be verified, so its hooks, MCP servers and context are unknown; every surface is left unchanged")
+// ErrCompanionNotAllowed is the refusal for a companion binary the allow
+// store does not admit: ApplyHooks refuses to write any surface while one is on
+// PATH, and forgetting a binary that was never allowed reports it too.
+var ErrCompanionNotAllowed = errors.New("companion binary not allowed")
 
-// unverifiedCompanionsError names every companion the catalog holds as present
-// but refused (unsigned, untrusted signer, signature tampered, unreadable), or
-// returns nil when there is none.
+// notAllowedCompanionsError names every companion the catalog holds as present
+// but refused (not allowed, hash changed, unreadable), or returns nil when
+// there is none.
 //
 // LEAVE UNCHANGED, NOT "WRITE WITHOUT IT". The refused companion never ran, so
 // its contribution is not empty, it is UNKNOWN — and the surfaces it feeds
@@ -222,18 +222,19 @@ var ErrUnverifiedCompanion = errors.New("apply hooks: a companion on PATH could 
 // nothing. A companion that is absent, or that ran and produced no loadout,
 // is not this case: the first contributes nothing by fact, the second is
 // reported by its own probe.
-func unverifiedCompanionsError(cfg *config.Config) error {
-	var named []string
+func notAllowedCompanionsError(cfg *config.Config) error {
+	var named, fixes []string
 	for _, cand := range cfg.BundleLoader().Catalog().Candidates() {
 		if cand.Reason == bundles.CandidateUnconsented {
 			named = append(named, fmt.Sprintf("%s (%s)", companionBinOf(cand.Ref), cand.Path))
+			fixes = append(fixes, "ctxloom companion allow "+cand.Path+" --yes")
 		}
 	}
 	if len(named) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%w: %s — 'ctxloom companion show <path>' says why; sign it with a key you trust, trust its publisher for the %q namespace, or take it off PATH, then re-apply",
-		ErrUnverifiedCompanion, strings.Join(named, ", "), signing.NamespaceCompanion)
+	return fmt.Errorf("apply hooks: %w: %s — its hooks, MCP servers and context are unknown, so every surface is left unchanged; allow it (%s) or take it off PATH, then re-apply",
+		ErrCompanionNotAllowed, strings.Join(named, ", "), strings.Join(fixes, "; "))
 }
 
 // warnFallbackProjectRoot is the general "not in a project" advisory: only

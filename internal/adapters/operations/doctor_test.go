@@ -772,25 +772,22 @@ func TestDoctorTrustStoreDetail_UnreadableEntriesWarnAndAreNotCountedActive(t *t
 	assert.Contains(t, detail, "grant NO trust")
 }
 
-// TestDoctorTrustStoreDetail_ListsProjectStoreExecuteAndApproveGrants: the
-// project store is committed, so anyone who can land a commit can add a line
-// to it. Doctor names every principal it grants companion execution or
-// approval, so such a grant is visible rather than inferred. Publish grants
-// and grants from other stores are not listed.
-func TestDoctorTrustStoreDetail_ListsProjectStoreExecuteAndApproveGrants(t *testing.T) {
+// TestDoctorTrustStoreDetail_ListsProjectStoreApproveGrants: the project store
+// is committed, so anyone who can land a commit can add a line to it. Doctor
+// names every principal it grants approval, so such a grant is visible rather
+// than inferred. Publish grants and grants from other stores are not listed.
+func TestDoctorTrustStoreDetail_ListsProjectStoreApproveGrants(t *testing.T) {
 	const path = "/p/.ctxloom/allowed_signers"
 	grant := func(principal, source string, ns ...string) SignerListing {
 		return SignerListing{Source: source, Path: path, Entry: allowedsigners.Entry{Principals: []string{principal}, Namespaces: ns}}
 	}
 	detail, ok := doctorTrustStoreDetail([]SignerListing{
-		grant("ci@example.com", signerSourceProject, signing.NamespaceCompanion),
 		grant("lead@example.com", signerSourceProject, signing.NamespaceApprove, signing.NamespaceReject),
 		grant("publisher@example.com", signerSourceProject, signing.NamespacePublish),
-		grant("me@example.com", "user", signing.NamespaceCompanion),
+		grant("me@example.com", "user", signing.NamespaceApprove),
 	}, nil)
 
 	assert.True(t, ok, "listing a grant is information, not a fault")
-	assert.Contains(t, detail, signing.NamespaceCompanion+" (execute companions) to ci@example.com")
 	assert.Contains(t, detail, signing.NamespaceApprove+" to lead@example.com")
 	assert.Contains(t, detail, path)
 	assert.NotContains(t, detail, "publisher@example.com", "a publish-only grant is not listed")

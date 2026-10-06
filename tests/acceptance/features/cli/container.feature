@@ -305,9 +305,8 @@ Feature: container — the images isolated agents run in, and the questions you 
     # Adjusted under the loadout contract v2 (ugly-yodel): a bundle no longer
     # declares tooling — the well-known `tooling` command is gone. A companion
     # declares it, typed, in its loadout; "untrusted" is therefore a companion
-    # whose binary is signed by a key this project does not trust, which is
-    # refused at EXEC (the companion model's control point) and so declares
-    # nothing at all.
+    # this machine has not allowed to run, which is refused at EXEC (the
+    # companion model's control point) and so declares nothing at all.
     #
     # ABSENCE SATISFIED ABSENCE. With nothing declared anywhere, "none
     # reported" was equally consistent with the trust gate working and with
@@ -327,7 +326,7 @@ Feature: container — the images isolated agents run in, and the questions you 
     # are what pin that no route — output or warning — carries the body.
     Scenario Outline: An untrusted declaration is withheld, and a trusted one comes through
       Given an initialized ctxloom project
-      And a companion "shady" declaring container tooling "TOOLING-DECL-SHADY", signed by a key this project does not trust
+      And a companion "shady" declaring container tooling "TOOLING-DECL-SHADY", not allowed to run here
       When Alice collects what her installed content needs in the image:
         """
         ctxloom container tooling list <flags>

@@ -41,7 +41,7 @@ func TestProbeCompanions_ReportsVersionFromJSONProbe(t *testing.T) {
 	})
 	defer restoreProbe()
 
-	statuses := Prober{}.ProbeCompanions(nil)
+	statuses := Prober{}.ProbeCompanions()
 	require.Len(t, statuses, 3)
 	for _, st := range statuses {
 		assert.Equal(t, "/usr/bin/"+st.Bin, st.Path)
@@ -62,7 +62,7 @@ func TestProbeCompanions_MissingBinaryYieldsEmptyPathAndNoProbe(t *testing.T) {
 	})
 	defer restoreProbe()
 
-	for _, st := range (Prober{}).ProbeCompanions(nil) {
+	for _, st := range (Prober{}).ProbeCompanions() {
 		assert.Empty(t, st.Path)
 		assert.Empty(t, st.Version)
 		assert.NoError(t, st.Err, "missing is a state, not a probe error")
@@ -81,7 +81,7 @@ func TestProbeCompanions_ProbeFailureIsNonFatal(t *testing.T) {
 			return nil, errors.New("boom")
 		})
 		defer restore()
-		for _, st := range (Prober{}).ProbeCompanions(nil) {
+		for _, st := range (Prober{}).ProbeCompanions() {
 			assert.NotEmpty(t, st.Path, "binary still counts as present")
 			assert.Error(t, st.Err)
 		}
@@ -92,7 +92,7 @@ func TestProbeCompanions_ProbeFailureIsNonFatal(t *testing.T) {
 			return []byte("not json"), nil
 		})
 		defer restore()
-		for _, st := range (Prober{}).ProbeCompanions(nil) {
+		for _, st := range (Prober{}).ProbeCompanions() {
 			assert.Error(t, st.Err)
 			assert.Empty(t, st.Version)
 		}
@@ -103,7 +103,7 @@ func TestProbeCompanions_ProbeFailureIsNonFatal(t *testing.T) {
 			return []byte(`{"name":"ltk"}`), nil
 		})
 		defer restore()
-		for _, st := range (Prober{}).ProbeCompanions(nil) {
+		for _, st := range (Prober{}).ProbeCompanions() {
 			assert.Error(t, st.Err)
 		}
 	})
@@ -204,7 +204,7 @@ func TestProbeCompanions_DisabledYieldsNothing(t *testing.T) {
 	})
 	defer restoreLook()
 
-	assert.Empty(t, Prober{Disabled: true}.ProbeCompanions(nil), "no companion binary may be probed when disabled")
+	assert.Empty(t, Prober{Disabled: true}.ProbeCompanions(), "no companion binary may be probed when disabled")
 }
 
 // The reader source of a disabled prober contributes nothing — no exec, no
@@ -234,7 +234,7 @@ func TestProbeCompanionLoadouts_DisabledYieldsNothing(t *testing.T) {
 	})
 	defer restoreLook()
 
-	got, err := Prober{Disabled: true}.ProbeCompanionLoadouts(context.Background(), nil)
+	got, err := Prober{Disabled: true}.ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, got.Loadouts, "no loadout may be probed when disabled")
 	assert.Empty(t, got.Candidates, "nothing was discovered, so nothing is reported")
@@ -280,7 +280,7 @@ func TestProbeCompanionLoadouts_WedgedCompanionWarns(t *testing.T) {
 	restoreSink := clidiag.SetSink(buf)
 	defer restoreSink()
 
-	out, err := Prober{}.ProbeCompanionLoadouts(context.Background(), nil)
+	out, err := Prober{}.ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, out.Loadouts, "a wedged companion still contributes nothing")
 	assert.Contains(t, buf.String(), "loadout probe failed", "a non-benign failure must be diagnosed, not silent")
@@ -306,7 +306,7 @@ func TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet(t *testing.T) {
 	restoreSink := clidiag.SetSink(buf)
 	defer restoreSink()
 
-	out, err := Prober{}.ProbeCompanionLoadouts(context.Background(), nil)
+	out, err := Prober{}.ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, out.Loadouts)
 	assert.Empty(t, buf.String(), "an unadopted loadout subcommand is the ordinary case, not a warning")

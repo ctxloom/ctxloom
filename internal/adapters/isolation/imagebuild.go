@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	containerfiles "github.com/ctxloom/ctxloom/container"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -387,6 +389,7 @@ func overlayContainerfile(baseImage, validate string) []byte {
 	b.WriteString(overlayUserGate + "\n")
 	b.WriteString("COPY ctxloom /usr/local/bin/ctxloom\n")
 	b.WriteString("COPY companions/ /usr/local/bin/\n")
+	b.WriteString(companionHomeCopy + "\n")
 	b.WriteString(companionPathLeads + "\n")
 	b.WriteString("COPY ctxloom-entrypoint /usr/local/bin/ctxloom-entrypoint\n")
 	b.WriteString("RUN chmod 0755 /usr/local/bin/ctxloom-entrypoint\n")
@@ -493,6 +496,7 @@ func composeAgentContainerfile(engine string) []byte {
 	b.WriteString("LABEL " + labelEngine + "=\"" + engine + "\"\n")
 	b.WriteString("COPY ctxloom /usr/local/bin/ctxloom\n")
 	b.WriteString("COPY companions/ /usr/local/bin/\n")
+	b.WriteString(companionHomeCopy + "\n")
 	b.WriteString(companionPathLeads + "\n")
 	b.WriteString("RUN /usr/local/bin/ctxloom version\n")
 	b.WriteString(companionGate + "\n")
@@ -565,19 +569,34 @@ func companionGateFor(names []string) string {
 	return `RUN set -e; for b in ` + strings.Join(names, " ") + `; do \
         if command -v "$b" >/dev/null && ! "$b" --version; then \
             echo "warning: companion $b cannot run on this base (ABI mismatch); dropping it from the image" >&2; \
-            rm -f "/usr/local/bin/$b" "/usr/local/bin/$b.sig" "/usr/local/bin/$b.release"; \
+            rm -f "/usr/local/bin/$b"; \
         fi; \
     done`
 }
 
+// imageHomeContextDir is the build-context directory copied over the image
+// user's home (companionHomeCopy). It carries the allow file that admits the
+// staged companions at their in-image paths, and exists even when empty
+// because the COPY needs a source.
+const imageHomeContextDir = "companion-home"
+
+// imageCompanionDir is where the staged companions are installed in the image.
+const imageCompanionDir = "/usr/local/bin"
+
+// companionHomeCopy installs the staged home into the image user's home
+// (defaultContainerHome), owned by the image user so a run that is not
+// remapped can still write beside the allow file.
+var companionHomeCopy = fmt.Sprintf("COPY --chown=%d:%d %s/ %s/", imageUserID, imageUserID, imageHomeContextDir, defaultContainerHome)
+
 // stageCompanions populates <contextDir>/companions with every ADMITTED
-// companion — the bytes companions.admitCompanion verified, with their release
-// statement and signature beside them (companionLookPath resolves only the admitted copy).
-// A companion that is absent, or present but not admitted, is refused and
-// warned about, and the image builds without it (CLAUDE.md fault tolerance);
-// baking whatever binary of that name the host PATH resolved first would ship
-// unverified code as the in-container pre-tool hook. The directory always
-// exists — the agent stages' `COPY companions/` requires it even when empty —
+// companion — the bytes admission read (companionLookPath resolves only the
+// admitted copy) — and <contextDir>/companion-home with the allow file that
+// admits them at their in-image paths, so an in-image ctxloom runs them under
+// the same rule. A companion that is absent, or present but not admitted, is
+// refused and warned about, and the image builds without it (CLAUDE.md fault
+// tolerance); baking whatever binary of that name the host PATH resolved first
+// would ship unallowed code as the in-container pre-tool hook. Both
+// directories always exist — the Containerfiles COPY them even when empty —
 // and a copy failure of an admitted binary errors, since shipping a silently
 // truncated tool would be worse than no image.
 func stageCompanions(contextDir string) error {
@@ -585,39 +604,50 @@ func stageCompanions(contextDir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("companions build context: %w", err)
 	}
+	home := filepath.Join(contextDir, imageHomeContextDir)
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		return fmt.Errorf("companions build context: %w", err)
+	}
+	installed := map[string]string{}
 	for _, name := range companionBinaries {
 		src, err := companionLookPath(name)
 		if err != nil {
-			clidiag.Warn("ctxloom", "companion %s is not admitted (absent, or not signed by a publisher you trust); "+
-				"the agent image builds without it", name)
+			clidiag.Warn("ctxloom", "companion %s is not admitted (absent, or not allowed: ctxloom companion allow %s); "+
+				"the agent image builds without it", name, name)
 			continue
 		}
-		if err := copyExecutable(src, filepath.Join(dir, name)); err != nil {
+		staged := filepath.Join(dir, name)
+		if err := copyExecutable(src, staged); err != nil {
 			return fmt.Errorf("companions build context: stage %s: %w", name, err)
 		}
-		// The signature covers the release statement (the binary's name,
-		// version and hash), not the binary, so both travel with it: an
-		// in-image ctxloom admits these companions under the same rule.
-		for _, suffix := range []string{companionReleaseSuffix, companionSigSuffix} {
-			data, err := os.ReadFile(src + suffix) //nolint:gosec // beside an admitted companion
-			if err != nil {
-				return fmt.Errorf("companions build context: stage %s%s: %w", name, suffix, err)
-			}
-			if err := safefs.WriteFile(afero.NewOsFs(), filepath.Join(dir, name+suffix), data, 0o644); err != nil { //nolint:gosec // public, signed metadata
-				return fmt.Errorf("companions build context: stage %s%s: %w", name, suffix, err)
-			}
-		}
+		installed[path.Join(imageCompanionDir, name)] = staged
+	}
+	return stageImageAllowFile(home, installed)
+}
+
+// stageImageAllowFile writes the allow file admitting installed into the
+// staged home, or nothing when nothing was staged.
+func stageImageAllowFile(home string, installed map[string]string) error {
+	if len(installed) == 0 {
+		return nil
+	}
+	if companionAllowFile == nil {
+		clidiag.Warn("ctxloom", "no companion allow renderer is wired; the agent image's ctxloom will run none of its companions")
+		return nil
+	}
+	data, err := companionAllowFile(installed)
+	if err != nil {
+		return fmt.Errorf("companions build context: allow file: %w", err)
+	}
+	appDir := filepath.Join(home, paths.AppDirName)
+	if err := os.MkdirAll(appDir, 0o755); err != nil { //nolint:gosec // the image user's home directory
+		return fmt.Errorf("companions build context: %w", err)
+	}
+	if err := safefs.WriteFile(afero.NewOsFs(), filepath.Join(appDir, paths.CompanionAllowFileName+".yaml"), data, 0o644); err != nil { //nolint:gosec // readable by whichever uid the run is remapped to
+		return fmt.Errorf("companions build context: allow file: %w", err)
 	}
 	return nil
 }
-
-// companionSigSuffix and companionReleaseSuffix are the two files companions
-// admission reads beside a binary: the signed release statement and the
-// signature over it.
-const (
-	companionSigSuffix     = ".sig"
-	companionReleaseSuffix = ".release"
-)
 
 // binaryVersion is the running binary's version stamp, injected by the CLI at
 // startup (isolation cannot import internal/adapters/cli — the dependency runs the other

@@ -42,7 +42,7 @@ func TestProbeCompanionLoadouts_ProbesItselfThroughSelfexec(t *testing.T) {
 		return envelope, nil
 	}))
 
-	probe, err := Prober{Self: selfAt("/opt/build/ctxloom")}.ProbeCompanionLoadouts(context.Background(), nil)
+	probe, err := Prober{Self: selfAt("/opt/build/ctxloom")}.ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
 
 	require.Len(t, probe.Loadouts, 1, "only ctxloom itself answers when nothing else is installed")
@@ -66,7 +66,7 @@ func TestProbeCompanionLoadouts_SelfProbeFailureIsACandidate(t *testing.T) {
 	t.Cleanup(SetLookPathForTesting(func(string) (string, error) { return "", exec.ErrNotFound }))
 	t.Cleanup(SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return nil, context.DeadlineExceeded }))
 
-	probe, err := Prober{Self: selfAt("/opt/build/ctxloom")}.ProbeCompanionLoadouts(context.Background(), nil)
+	probe, err := Prober{Self: selfAt("/opt/build/ctxloom")}.ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, probe.Loadouts)
 	assert.Contains(t, probe.Candidates, bundles.CompanionCandidate{Bin: SelfCompanion, Path: "/opt/build/ctxloom", Reason: bundles.CandidateProbeFailed})
@@ -90,7 +90,7 @@ func TestProbeCompanionLoadouts_DisabledStillProbesItself(t *testing.T) {
 		return envelope, nil
 	}))
 
-	probe, err := Prober{Disabled: true, Self: selfAt("/opt/build/ctxloom")}.ProbeCompanionLoadouts(context.Background(), nil)
+	probe, err := Prober{Disabled: true, Self: selfAt("/opt/build/ctxloom")}.ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
 	require.Len(t, probe.Loadouts, 1, "only ctxloom itself")
 	assert.True(t, probe.Loadouts[0].Self)
@@ -108,7 +108,7 @@ func TestProbeCompanionLoadouts_UnarmedNeverProbesItself(t *testing.T) {
 		t.Fatalf("an unarmed prober exec'd %s", path)
 		return nil, nil
 	}))
-	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background(), nil)
+	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, probe.Loadouts)
 	for _, c := range probe.Candidates {

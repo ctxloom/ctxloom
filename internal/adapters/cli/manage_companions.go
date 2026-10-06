@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 )
@@ -46,16 +45,13 @@ func hintForCompanion(bin string) companionHint {
 // property of the command rather than of the fixture it happens to run in.
 // Someone typing `ctxloom manage check` is asking what the state of things is,
 // and the answer to that question must never be a trust-on-first-use question
-// that changes the state of things — a consent prompt raised in the middle of a
-// report is one a reader is primed to dismiss, which is how a security decision
-// becomes a rubber stamp. So this reads the admission decision with prompt
-// FALSE (the arm that leaves admission.Ask nil, so there is nothing to ask
-// with) and never touches the resolved bundle set, whose companion reader IS
-// the exec. An APPROVED companion is not executed here either: a report has no
-// use for what running it would produce.
+// that changes the state of things. So this reads the admission decision from
+// the allow store and never touches the resolved bundle set, whose companion
+// reader IS the exec. An ALLOWED companion is not executed here either: a
+// report has no use for what running it would produce.
 //
-// Presence alone stopped being the whole answer when exec consent landed: a
-// binary that is on PATH but never confirmed is skipped, so printing its path
+// Presence alone is not the whole answer: a binary that is on PATH but not
+// allowed is skipped, so printing its path
 // and nothing else would tell the user everything is fine while the companion
 // contributes nothing.
 func printCompanionStatus(w io.Writer) {
@@ -64,14 +60,13 @@ func printCompanionStatus(w io.Writer) {
 		fmt.Fprintln(w, "  (companion discovery disabled for this run — --no-companions/CTXLOOM_NO_COMPANIONS)")
 		return
 	}
-	root := loadConfigOrFallback(GetConfig, os.Stderr).Trust().Root()
-	for _, adm := range companions.AdmitCompanions(companions.DiscoverCompanions(), root) {
+	for _, adm := range companions.AdmitCompanions(companions.DiscoverCompanions(), companions.LoadAllowed()) {
 		hint := hintForCompanion(adm.Bin)
 		switch {
 		case adm.Path == "":
 			fmt.Fprintf(w, "  %s: NOT FOUND — %s disabled (install: %s)\n", adm.Bin, hint.feature, hint.install)
 		case !adm.Allow:
-			fmt.Fprintf(w, "  %s: %s — NOT RUN (%s); %s disabled (why, and how to allow it: ctxloom companion show %s)\n",
+			fmt.Fprintf(w, "  %s: %s — NOT RUN (%s); %s disabled (to allow it: ctxloom companion allow %s)\n",
 				adm.Bin, adm.Path, adm.Reason, hint.feature, adm.Path)
 		default:
 			fmt.Fprintf(w, "  %s: %s\n", adm.Bin, adm.Path)

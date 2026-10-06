@@ -44,11 +44,10 @@ func TestLoadConfigOrFallback_TrustsNoSignerAndSaysTheConfigFailedToLoad(t *test
 		"the consequence for trust is named, so a denied companion is traced back to the config")
 }
 
-// The companion commands run on that fallback when the project's config is
-// broken: a companion signed and trusted in the project's own allowed_signers
-// — one a loaded config would admit — is reported DENIED / NOT RUN, because
-// the fallback trusts nothing.
-func TestCompanionCommands_OnTheFallbackConfig_DenyWithoutPanicking(t *testing.T) {
+// The companion commands do not depend on the project's config: with it
+// broken, an allowed companion is still reported allowed, because admission is
+// decided from the per-user allow store alone.
+func TestCompanionCommands_WithABrokenConfig_StillReadTheAllowStore(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the sentinel companion is an sh script")
 	}
@@ -58,7 +57,7 @@ func TestCompanionCommands_OnTheFallbackConfig_DenyWithoutPanicking(t *testing.T
 	resetApp()
 	t.Cleanup(resetApp)
 	_, binPath := plantRealCompanion(t, bin)
-	testsupport.SignCompanionForTesting(t, binPath, filepath.Join(root, ".ctxloom", "allowed_signers"))
+	allowWithYes(t, binPath)
 	testsupport.WriteFileString(t, afero.NewOsFs(), filepath.Join(root, ".ctxloom", "config.yaml"), "agents: [unclosed\n", 0o644)
 
 	_, err := GetConfig()
@@ -66,15 +65,15 @@ func TestCompanionCommands_OnTheFallbackConfig_DenyWithoutPanicking(t *testing.T
 
 	var status bytes.Buffer
 	assert.NotPanics(t, func() { printCompanionStatus(&status) })
-	assert.Contains(t, companionLineFor(t, status.String(), bin), "NOT RUN")
+	assert.NotContains(t, companionLineFor(t, status.String(), bin), "NOT RUN")
 
 	listCmd, listOut := textCmd()
 	assert.NotPanics(t, func() { require.NoError(t, runCompanionListCmd(listCmd, nil)) })
-	assert.Contains(t, companionLineFor(t, listOut.String(), bin), "DENIED")
+	assert.Contains(t, companionLineFor(t, listOut.String(), bin), "allowed")
 
 	showCmd, showOut := formatCmd("json")
 	assert.NotPanics(t, func() { require.NoError(t, runCompanionShowCmd(showCmd, []string{binPath})) })
 	var shown map[string]any
 	require.NoError(t, json.Unmarshal(showOut.Bytes(), &shown), showOut.String())
-	assert.Equal(t, false, shown["allowed"])
+	assert.Equal(t, true, shown["allowed"])
 }

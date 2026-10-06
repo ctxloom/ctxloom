@@ -757,16 +757,13 @@ func doctorTrustStoreDetail(signers []SignerListing, err error) (detail string, 
 }
 
 // doctorProjectPowerGrants names every principal the PROJECT store trusts to
-// execute companions or to approve content, or "" when it trusts none.
+// approve content, or "" when it trusts none.
 //
 // The project store is committed with the repository, so whoever can land a
-// commit can add a line to it; these two namespaces are the ones that turn such
-// a line into running code or into skipping review. Listing them is
-// information, not a fault: a project that ships its own companions
-// legitimately grants companion execution here.
+// commit can add a line to it; the approve namespace is the one that turns
+// such a line into skipping review. Listing it is information, not a fault.
 func doctorProjectPowerGrants(signers []SignerListing) string {
 	powers := []struct{ ns, label string }{
-		{signing.NamespaceCompanion, signing.NamespaceCompanion + " (execute companions)"},
 		{signing.NamespaceApprove, signing.NamespaceApprove},
 	}
 	var parts []string

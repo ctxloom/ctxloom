@@ -137,8 +137,8 @@ const (
 	// classify the directory without either side inventing the name twice.
 	ContextCacheDir = "context"
 
-	// CompanionPinCacheDir is the CacheDir subdirectory holding the admitted
-	// companions' verified bytes and signatures, one directory per admitted
+	// CompanionPinCacheDir is the CacheDir subdirectory holding copies of the
+	// admitted companions' bytes, one directory per admitted
 	// set's digest (companions.PinAdmittedCompanions) — what a host launch puts
 	// first on the engine's PATH.
 	CompanionPinCacheDir = "companions"

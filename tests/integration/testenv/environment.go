@@ -18,7 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"golang.org/x/crypto/ssh"
 )
 
 // mcpStdinGrace is the CEILING RunWithStdin will keep stdin open after
@@ -50,9 +49,6 @@ type TestEnvironment struct {
 
 	// ProjectDir is the fake project directory (a git repo)
 	ProjectDir string
-	// companionKey is this environment's fixture publisher, minted lazily by
-	// companionSigner and trusted only in this scenario's allowed_signers.
-	companionKey ssh.Signer
 
 	// AppBinary is the path to the ctxloom binary to test
 	AppBinary string

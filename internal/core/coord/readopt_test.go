@@ -117,6 +117,35 @@ func TestReadopt_ARunnerThatNeverReturns_IsRunnerLoss(t *testing.T) {
 	assert.Equal(t, CauseRunnerLoss, runCause(second, out.RunID))
 }
 
+// TestReadopt_ARunRefusedAtSealEndsAsRunnerLossUnlaunched: the run an
+// agent_run left enqueued when its launch was refused at seal
+// (TestAgentRun_RefusedOnceSealedLeavesTheRunEnqueued) has no runner and
+// never had one. The next coordinator's adopt gives it the same grace as any
+// unended run; when the grace runs out it ends as runner loss, and nothing
+// launches it on the way.
+func TestReadopt_ARunRefusedAtSealEndsAsRunnerLossUnlaunched(t *testing.T) {
+	resetStrictness(t)
+	stateDir := t.TempDir()
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
+
+	first := newTestCoordinatorOver(t, stateDir, sp)
+	first.tracked.Seal()
+	_, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	require.ErrorIs(t, err, ErrGroupSealed)
+	require.Len(t, sp.assignedSessions(), 1)
+	harp := sp.assignedSessions()[0]
+	rec := first.currentRunRecord(harp)
+	require.NotNil(t, rec, "the refused run was never enqueued")
+	crashCoordinator(first)
+
+	second := newTestCoordinatorOver(t, stateDir, sp)
+	assert.Equal(t, StateQueued, second.runState(rec.RunID), "adopt must carry the enqueued run into its grace, not end or launch it")
+	second.expireRunnerGrace()
+	assert.Equal(t, StateEnded, second.runState(rec.RunID))
+	assert.Equal(t, CauseRunnerLoss, runCause(second, rec.RunID))
+	assert.Zero(t, sp.spawnCount(), "a run refused at seal was launched")
+}
+
 // TestReadopt_ARestartSlowerThanTheGraceStillReadoptsTheRunner: a coordinator
 // that is DOWN ends nothing, so a restart that takes longer than the
 // coordinator's own runner-loss grace (runnerLossTimeout) must still find its

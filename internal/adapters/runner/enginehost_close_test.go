@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -135,4 +136,40 @@ func TestEngineHost_CloseWaitsForADriveInFlight(t *testing.T) {
 	rec := eh.rec
 	eh.mu.Unlock()
 	assert.Nil(t, rec, "Drive's transcript recorder is open after Close returned")
+}
+
+// TestEngineHost_ADriveOutlastingCloseInstallsNoRecorder forces the window
+// Close's bounded wait leaves: Drive passes its closed check, Close gives up
+// waiting for it, seals and closes the recorder, and only THEN does Drive go
+// on to open the run's recorder. Installed, that recorder would sit on a
+// closed host that nothing ever closes again.
+func TestEngineHost_ADriveOutlastingCloseInstallsNoRecorder(t *testing.T) {
+	testsupport.Isolate(t)
+	home := &heldHome{fakeEngineHome: &fakeEngineHome{}, reached: make(chan struct{}), release: make(chan struct{})}
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(home.release) }) }
+	t.Cleanup(release)
+
+	sc := &eventScript{running: make(chan struct{})}
+	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh.BindHome(home)
+
+	driveErr := make(chan error, 1)
+	go func() {
+		driveErr <- testRunner{eh: eh, inst: sc}.Execute(context.Background(), testStartRun("run-1").GetLaunch())
+	}()
+	<-home.reached // Drive is past its closed check, held before it opens the recorder
+
+	expired := make(chan time.Time)
+	close(expired)
+	eh.closeDriveExpired = expired // Close's wait for the held Drive runs out at once
+	eh.Close()
+
+	release()
+	<-driveErr // Drive has returned: whatever it installs is installed
+
+	eh.mu.Lock()
+	rec := eh.rec
+	eh.mu.Unlock()
+	assert.Nil(t, rec, "a Drive that outlasted Close installed a transcript recorder nothing will close")
 }

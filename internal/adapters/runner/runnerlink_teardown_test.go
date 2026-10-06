@@ -21,8 +21,8 @@ import (
 // stream dead. That is the frame a real stream delivered just as Abort began —
 // the window is opened by the stub, not hoped for.
 type lateRequestStream struct {
-	ctx      context.Context
-	once     sync.Once
+	ctx  context.Context
+	once sync.Once
 }
 
 func (s *lateRequestStream) Recv() (*agentcoordpb.RuntimeFrame, error) {

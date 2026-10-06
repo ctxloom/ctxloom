@@ -84,14 +84,12 @@ func TestDepWalker_RecordsAndConflicts(t *testing.T) {
 
 func TestDepWalker_WalksRemoteParentClosure(t *testing.T) {
 	// Local profile P pins bundle X@h1 directly AND has a remote parent that is a
-	// bundle profile A#profiles/a; the bundle A ships profile `a`, which composes
-	// the SAME bundle X at a DIFFERENT hash h2 — a diamond conflict that must
+	// bundle profile akit#profiles/a of the SAME repository; akit's profile `a`
+	// composes bundle X at a DIFFERENT hash h2 — a diamond conflict that must
 	// surface through the bundle-profile-parent walk (the parent bundle is
-	// fetched, its named profile extracted, and its closure walked).
-	const (
-		urlX = "https://github.com/x/repo"
-		urlA = "https://github.com/a/repo"
-	)
+	// fetched, its named profile extracted, and its closure walked). One
+	// repository, because a remote profile may name only its own.
+	const urlX = "https://github.com/x/repo"
 	// The parent is a SIGNED TREE, which is the only form a bundle-profile
 	// parent can be published in: its profile is a file beside the envelope,
 	// and the walk verifies the tree before reading it.
@@ -111,7 +109,7 @@ func TestDepWalker_WalksRemoteParentClosure(t *testing.T) {
 	root := &profiles.Profile{
 		Name:    "local",
 		Bundles: []string{urlX + "@bundles/x@h1111111"},
-		Parents: []string{urlA + "@bundles/akit@hAAAAAAA#profiles/a"},
+		Parents: []string{urlX + "@bundles/akit@hAAAAAAA#profiles/a"},
 	}
 	w.walkProfile(root, remote.LocalSource, "")
 
@@ -123,7 +121,7 @@ func TestDepWalker_WalksRemoteParentClosure(t *testing.T) {
 		identities[string(p.Identity)] = p.Hash
 	}
 	assert.Contains(t, identities, string(lockKeyOf(t, urlX+"@bundles/x")))
-	assert.Contains(t, identities, string(lockKeyOf(t, urlA+"@bundles/akit")))
+	assert.Contains(t, identities, string(lockKeyOf(t, urlX+"@bundles/akit")))
 
 	require.Len(t, conflicts, 1)
 	assert.Equal(t, string(lockKeyOf(t, urlX+"@bundles/x")), conflicts[0].Item)

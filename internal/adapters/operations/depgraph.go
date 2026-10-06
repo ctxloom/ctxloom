@@ -290,6 +290,10 @@ func (w *depWalker) walkProfile(p *profiles.Profile, sourceURL, sourceHash strin
 	cp.Bundles = append([]string(nil), p.Bundles...)
 	cp.Parents = append([]string(nil), p.Parents...)
 	cp.ResolveShortRefs(sourceURL, sourceHash)
+	if err := cp.CheckOwnRepo(); err != nil {
+		w.markUnexpanded(cp.Name, err)
+		return
+	}
 
 	for _, b := range cp.Bundles {
 		w.record(b, remote.ItemTypeBundle)
@@ -436,6 +440,11 @@ func (w *depWalker) recurseBundleProfile(bundleRef, profName string) {
 		w.markUnexpanded(string(recKey), fmt.Errorf("bundle has no profile %q", profName))
 		return
 	}
+	// Read straight out of the fetched bundle, never through the seeded
+	// loader, so it carries its identity and its repository here: walkProfile
+	// holds it to that repository (profiles.Profile.CheckOwnRepo).
+	child.Name = string(recKey) + refuri.ProfileSelector + profName
+	child.SourceURL = rec.URL
 	w.walkProfile(&child, rec.URL, hash)
 }
 

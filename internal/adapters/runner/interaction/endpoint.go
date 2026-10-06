@@ -45,6 +45,9 @@ type Endpoint struct {
 	// its way out, so without this every session they opened stays open,
 	// with its goroutines, for the life of the runner. Nil registers nowhere.
 	ClientExit func(onExit func()) (release func())
+	// SessionTimeout closes an MCP session no request has reached for that
+	// long; zero is IdleSessionTimeout.
+	SessionTimeout time.Duration
 
 	// serveGate, when set, runs at the head of the serve goroutine — before
 	// http.Server.Serve has registered the listener. Tests hold it to force
@@ -53,6 +56,29 @@ type Endpoint struct {
 	// reaped, when set, runs once a reap has closed every session it took;
 	// see WithReapHook in export_test.go.
 	reaped func()
+	// served, when set, is handed the MCP server Serve builds; see
+	// WithServerHook in export_test.go.
+	served func(*mcp.Server)
+}
+
+// IdleSessionTimeout is how long a session may go without a request before
+// the endpoint closes it. It collects the sessions ClientExit cannot
+// attribute: a client that is still alive but has abandoned its session (a
+// relay claude replaced, the spare session a re-initialization opened) never
+// sends DELETE and never exits while the engine lives. It is generous
+// because a live session can be legitimately idle for hours while its
+// coordinator waits on a human, and because the production client, claude's
+// relay, does not re-initialize after the 404 a closed session answers: the
+// relay pings each of its sessions (relay.KeepAliveInterval) to stay inside
+// it, and only a POST resets go-sdk's idle timer.
+const IdleSessionTimeout = 12 * time.Hour
+
+// sessionTimeout is SessionTimeout, or IdleSessionTimeout when it is zero.
+func (e Endpoint) sessionTimeout() time.Duration {
+	if e.SessionTimeout == 0 {
+		return IdleSessionTimeout
+	}
+	return e.SessionTimeout
 }
 
 // ErrNoHome refuses to serve without the reach-back link: every
@@ -88,11 +114,14 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 		path = "/"
 	}
 	mux := http.NewServeMux()
-	mux.Handle(path, guard(lo.MCP.Credential, policy.AllowedOrigins, mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)))
+	mux.Handle(path, guard(lo.MCP.Credential, policy.AllowedOrigins, mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{SessionTimeout: e.sessionTimeout()})))
 	// The approval hook's POST rides the same listener, behind the same
 	// bearer and Origin rules.
 	mux.Handle(runner.HookPath, guard(lo.MCP.Credential, policy.AllowedOrigins, hookHandler(e.Home)))
 	srv := &http.Server{Handler: mux}
+	if e.served != nil {
+		e.served(server)
+	}
 	release := func() {}
 	if e.ClientExit != nil {
 		release = e.ClientExit(func() { e.reap(server) })

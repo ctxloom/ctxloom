@@ -24,6 +24,7 @@ import (
 	"io"
 	"net/http"
 	"sync/atomic"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -41,6 +42,27 @@ type Config struct {
 	// Stderr carries the relay's diagnostics; claude keeps an MCP server's
 	// stderr in its own logs. Never stdout: stdout is the MCP channel.
 	Stderr io.Writer
+	// KeepAlive is how often the relay pings each of its endpoint sessions;
+	// zero is KeepAliveInterval.
+	KeepAlive time.Duration
+}
+
+// KeepAliveInterval is how often the relay pings each of its sessions on the
+// endpoint. The endpoint closes a session no request reached for
+// interaction.IdleSessionTimeout, and only a request resets that clock: the
+// wake session asks nothing after subscribing, and claude's own session sits
+// idle for as long as the human does. A closed session answers 404, which the
+// MCP client treats as terminal: the wake would be lost, and every later
+// tool call refused, until claude restarts the relay. Pinging well inside
+// the timeout keeps both sessions as alive as the relay is.
+const KeepAliveInterval = time.Hour
+
+// keepAlive is KeepAlive, or KeepAliveInterval when it is zero.
+func (c Config) keepAlive() time.Duration {
+	if c.KeepAlive == 0 {
+		return KeepAliveInterval
+	}
+	return c.KeepAlive
 }
 
 // ErrNoEndpoint refuses a relay whose entry named no endpoint to relay to.
@@ -66,7 +88,7 @@ func Run(ctx context.Context, cfg Config, down mcp.Transport) error {
 	httpc := &http.Client{Transport: bearerTransport{bearer: bearer, refused: refused}}
 	watched := make(chan struct{})
 	go func() { defer close(watched); watchWake(ctx, cfg, url, httpc) }()
-	err := pump(ctx, down, &mcp.StreamableClientTransport{Endpoint: url, HTTPClient: httpc})
+	err := pump(ctx, down, &mcp.StreamableClientTransport{Endpoint: url, HTTPClient: httpc}, cfg.keepAlive())
 	// The relay's process exits when Run returns, so the wake subscription
 	// must be closed by then: otherwise the endpoint keeps counting a
 	// subscriber that is gone, and a wake fires into nothing.
@@ -109,7 +131,7 @@ func (b bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // failure), and that close can reach the pump before the endpoint-to-claude
 // side reads the failure, which it may not be reading at all while it is busy
 // writing to claude. So a clean end still reports what the endpoint holds.
-func pump(ctx context.Context, down, up mcp.Transport) error {
+func pump(ctx context.Context, down, up mcp.Transport, keepAlive time.Duration) error {
 	dc, err := down.Connect(ctx)
 	if err != nil {
 		return fmt.Errorf("claude relay: connecting claude's stdio: %w", err)
@@ -121,7 +143,7 @@ func pump(ctx context.Context, down, up mcp.Transport) error {
 	}
 	defer uc.Close()
 	ended := make(chan error, 2)
-	go func() { ended <- upward(ctx, dc, uc) }()
+	go func() { ended <- upward(ctx, dc, uc, keepAlive) }()
 	go func() { ended <- downward(ctx, uc, dc) }()
 	if err := <-ended; err != nil {
 		return err
@@ -160,8 +182,10 @@ func endpointFailure(uc mcp.Connection) error {
 // good. Claude opens a stdio server with such calls (server/discover,
 // measured on claude 2.1.286), so the relay answers any call before
 // initialize itself: method not found, what a stdio server answers to a
-// method it does not have, and what claude falls back from.
-func upward(ctx context.Context, dc, uc mcp.Connection) error {
+// method it does not have, and what claude falls back from. For the same
+// reason the relay's keepalive starts only once initialize was written: the
+// write returns when the endpoint answered it, so the session id is held.
+func upward(ctx context.Context, dc, uc mcp.Connection, keepAlive time.Duration) error {
 	initialized := false
 	for {
 		msg, err := dc.Read(ctx)
@@ -172,10 +196,16 @@ func upward(ctx context.Context, dc, uc mcp.Connection) error {
 			return fmt.Errorf("claude relay: reading claude's stdio: %w", err)
 		}
 		req, isReq := msg.(*jsonrpc.Request)
-		initialized = initialized || (isReq && req.Method == "initialize")
+		initializing := !initialized && isReq && req.Method == "initialize"
+		initialized = initialized || initializing
 		switch {
 		case !initialized:
 			answerUninitialized(ctx, dc, req, isReq)
+		case initializing:
+			go func() {
+				relayUp(ctx, dc, uc, req)
+				keepUp(ctx, uc, keepAlive)
+			}()
 		case isReq && req.IsCall():
 			go relayUp(ctx, dc, uc, req)
 		default:
@@ -216,7 +246,31 @@ func relayUp(ctx context.Context, dc, uc mcp.Connection, msg jsonrpc.Message) {
 	}})
 }
 
-// downward relays the endpoint's messages to claude.
+// keepAliveID is the id of the relay's own pings: their responses are the
+// relay's, and never reach claude.
+var keepAliveID, _ = jsonrpc.MakeID("ctxloom-relay-keepalive")
+
+// keepUp pings the endpoint every interval until ctx ends, so claude's
+// session outlives the endpoint's idle timeout however long claude is idle.
+// A ping the endpoint did not take fails the connection, which downward
+// then reports: a lost session ends the relay loudly, never silently.
+func keepUp(ctx context.Context, uc mcp.Connection, interval time.Duration) {
+	tick := time.NewTicker(interval)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		if err := uc.Write(ctx, &jsonrpc.Request{ID: keepAliveID, Method: "ping"}); err != nil {
+			return
+		}
+	}
+}
+
+// downward relays the endpoint's messages to claude, except the answers to
+// the relay's own pings.
 func downward(ctx context.Context, uc, dc mcp.Connection) error {
 	for {
 		msg, err := uc.Read(ctx)
@@ -225,6 +279,9 @@ func downward(ctx context.Context, uc, dc mcp.Connection) error {
 				return nil
 			}
 			return fmt.Errorf("claude relay: the session endpoint stopped answering: %w", err)
+		}
+		if resp, ok := msg.(*jsonrpc.Response); ok && resp.ID == keepAliveID {
+			continue
 		}
 		if err := dc.Write(ctx, msg); err != nil {
 			return nil
@@ -245,6 +302,7 @@ func watchWake(ctx context.Context, cfg Config, url string, httpc *http.Client) 
 		return
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "ctxloom-" + claude.RelayCommand, Version: version.Version}, &mcp.ClientOptions{
+		KeepAlive: cfg.keepAlive(),
 		ResourceUpdatedHandler: func(_ context.Context, req *mcp.ResourceUpdatedNotificationRequest) {
 			nonce, _ := req.Params.Meta["nonce"].(string)
 			if err := w.Fire(ctx, nonce); err != nil {

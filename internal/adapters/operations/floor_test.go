@@ -29,6 +29,7 @@ func floorRepo(t *testing.T, firstVersion string) (baseDir, src, ref string, sig
 	trustPublisher(t, baseDir, signer)
 	ref = "file://" + src + "@bundles/demo"
 	writeLocalProfile(t, baseDir, "default", "bundles:\n  - "+ref+"\n")
+	registerRefRemotes(t, baseDir, ref)
 
 	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	_, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
@@ -139,7 +140,7 @@ func TestLockDependencies_RefusesToMoveAPinBelowItsFloor(t *testing.T) {
 	// A relock reads the clone cache as it stands; sync refreshes it first, and
 	// so does this test, so the older commit is actually readable and the
 	// refusal is the rollback rather than "not found, so not signed".
-	refreshRepoCaches(context.Background(), NewRepoCache(withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)), []string{"file://" + src})
+	refreshRepoCaches(context.Background(), NewRepoCache(withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)), []string{"file://" + src}, func(string) bool { return true })
 
 	_, err := LockDependencies(context.Background(), withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir), LockDependenciesRequest{FailOnConflict: true})
 	require.Error(t, err)

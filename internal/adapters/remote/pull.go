@@ -395,16 +395,16 @@ func (p *Puller) fetchItemBytes(ctx context.Context, fetcher Fetcher, owner, rep
 }
 
 // resolveRemoteTarget maps a reference to its repo URL, remote, and lockfile
-// local-name. Canonical refs auto-register the remote by URL; plain refs look
-// it up in the registry.
+// local-name. It is the fetch chokepoint's registration rule: a repository no
+// remote is registered for is refused (NotRegisteredError), never registered.
 func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remote, localName trust.BundleKey, err error) {
 	if !ref.IsCanonical() {
 		return "", nil, "", fmt.Errorf("not a canonical reference: %s", ref.String())
 	}
 	repoURL = ref.URL
-	rem, err = p.registry.GetOrCreateByURL(repoURL)
-	if err != nil {
-		return "", nil, "", fmt.Errorf("failed to register remote: %w", err)
+	rem, ok := p.registry.LookupURL(repoURL)
+	if !ok {
+		return "", nil, "", NotRegisteredError(repoURL)
 	}
 	// The lockfile key is the bundle's identity — the key a retraction is
 	// looked up by — while repoURL stays the address as typed, which is the

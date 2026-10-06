@@ -65,6 +65,7 @@ func pulledProject(t *testing.T) (appDir, repoURL string) {
 
 	appDir = filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, appDir), 0o755))
+	registerTestRemote(t, appDir, repoURL)
 	provisionApprovals(t, afero.NewOsFs(), appDir)
 	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), "dev.yaml"),
 		[]byte("bundles:\n  - "+bundleRef+"\n"), 0o644))

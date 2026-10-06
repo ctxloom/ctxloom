@@ -140,6 +140,7 @@ func signedBundleRepo(t *testing.T, fragBody string) (baseDir, src, ref string, 
 	trustPublisher(t, baseDir, signer)
 	ref = "file://" + src + "@bundles/demo" // version-less → track the default branch
 	writeLocalProfile(t, baseDir, "default", "bundles:\n  - "+ref+"\n")
+	registerRefRemotes(t, baseDir, ref)
 	return baseDir, src, ref, signer, verified
 }
 
@@ -221,6 +222,7 @@ func TestUpgrade_UnsignedContentStillAdvances(t *testing.T) {
 	c1 := initLocalRepoWithFile(t, src, repoV2("demo")+"/bundle.yaml", "name: demo\n")
 	ref := "file://" + src + "@bundles/demo"
 	writeLocalProfile(t, baseDir, "default", "bundles:\n  - "+ref+"\n")
+	registerRefRemotes(t, baseDir, ref)
 
 	cfg := testConfigWithSCMPath(baseDir)
 	ctx := context.Background()

@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
@@ -82,7 +83,10 @@ func seedBundleRemote(t *testing.T) string {
 // seedProjectReferencing scaffolds a .ctxloom whose directory profile depends
 // on bundleRef — the shape `ctxloom init` itself seeds (resources/profiles/
 // default.yaml declares a REMOTE parent), with the address pointed at a local
-// fixture instead of github. Returns the project dir and its .ctxloom.
+// fixture instead of github. Like init, which registers the repository its
+// seeded profile names (operations.writeDefaultRemotes), it registers that
+// repository as a remote: nothing resolves an unregistered one. Returns the
+// project dir and its .ctxloom.
 func seedProjectReferencing(t *testing.T, bundleRef string) (project, appDir string) {
 	t.Helper()
 	project = t.TempDir()
@@ -97,6 +101,12 @@ func seedProjectReferencing(t *testing.T, bundleRef string) (project, appDir str
 		"bundles:\n" +
 		"  - " + bundleRef + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), "default.yaml"), []byte(profile), 0o644))
+
+	ref, err := remote.ParseReference(bundleRef)
+	require.NoError(t, err)
+	reg, err := remote.NewRegistry(paths.RemotesPath(appDir))
+	require.NoError(t, err)
+	require.NoError(t, reg.Add("fixture", ref.URL))
 	return project, appDir
 }
 

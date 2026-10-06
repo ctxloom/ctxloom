@@ -131,23 +131,54 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the command succeeds
       And the file ".ctxloom/lock.yaml" contains "//bundles/demo"
 
-    # A bundle referenced by its repository's full address needs no remote
-    # registered first: pulling it registers one, named for the repository,
-    # and a name already taken by another address gets the next free suffix
-    # rather than being overwritten.
-    Scenario: Pulling straight from an address registers its repository as a remote
+    # Registering a remote is the one act that admits a repository's content.
+    # An address alone admits nothing: the pull is refused, it says how to
+    # register the repository, and nothing is registered or pinned behind the
+    # user's back.
+    Scenario: Pulling straight from an unregistered address is refused
       Given an initialized ctxloom project
-      And I run "ctxloom remote create remote file:///tmp/acceptance-elsewhere.git --forge git"
       And the profile "dev" draws on a bundle straight from an unregistered git repository
       When Alice installs the content her profile draws on:
         """
         ctxloom deps pull
         """
-      Then the command succeeds
-      And the file ".ctxloom/lock.yaml" contains "//bundles/demo"
+      Then the command fails
+      And the output contains "remote not registered"
+      And the output contains "ctxloom remote create <name> file://"
+      And the file ".ctxloom/lock.yaml" does not exist
       When I run "ctxloom remote list --format json"
-      Then the JSON output array "remotes" contains an object whose "name" is "remote" and whose "url" is "file:///tmp/acceptance-elsewhere.git"
-      And the JSON output array "remotes" contains an object whose "name" is "remote-2"
+      Then the JSON output array "remotes" contains no object whose "name" is "remote"
+
+    # A profile shipped in a repository may name only that repository's
+    # content: registering one remote must never admit another repository its
+    # profiles happen to name.
+    Scenario: A remote profile reaching into another repository is refused
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And a git remote "vendor" serving a bundle "kit" whose profile "reach" draws on bundle "demo" of the remote "origin"
+      And I run "ctxloom profile create dev --include vendor/kit"
+      And I run "ctxloom deps pull"
+      When Alice looks at the vendor's profile:
+        """
+        ctxloom profile show vendor/kit#profiles/reach
+        """
+      Then the command fails
+      And the output contains "a remote profile may refer only to bundles in its own repository"
+      And the output contains "//bundles/demo"
+
+    # Composing several repositories is what a profile of the user's own is
+    # for: each repository it names was registered, so each is admitted.
+    Scenario: A local profile draws on several registered remotes
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And a git remote "vendor" serving a ctxloom bundle
+      And I run "ctxloom profile create dev --include origin/demo --include vendor/demo"
+      When Alice installs the content her profile draws on:
+        """
+        ctxloom deps pull
+        """
+      Then the command succeeds
+      And the file ".ctxloom/lock.yaml" contains "//bundles/demo" exactly 2 times
 
     Scenario: A second pull is incremental — an already-locked dependency is not re-fetched
       Given an initialized ctxloom project
@@ -271,11 +302,12 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
+      And I run "ctxloom remote create gone file:///nonexistent/nonexistent-ctxloom-remote --forge git"
       And I run "ctxloom profile create dev --include origin/demo"
       And the project already has the file ".ctxloom/content/bundles/v2/project/profiles/orphan.yaml":
         """
         parents:
-          - file:///nonexistent-ctxloom-remote@bundles/kit#profiles/parent
+          - file:///nonexistent/nonexistent-ctxloom-remote@bundles/kit#profiles/parent
         """
       When Alice pulls with part of the closure unreachable:
         """

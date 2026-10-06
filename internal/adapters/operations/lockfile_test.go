@@ -91,6 +91,7 @@ func TestLockDependencies_UnreachableParentIsAnIncompleteEmptyLock(t *testing.T)
 	baseDir := filepath.Join(tmp, ".ctxloom")
 	missing := filepath.Join(tmp, "no-such-repo")
 	writeLocalProfile(t, baseDir, "default", "parents:\n  - file://"+missing+"@bundles/kit#profiles/parent\n")
+	registerTestRemote(t, baseDir, "file://"+missing)
 	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 
 	var result *LockDependenciesResult
@@ -107,6 +108,7 @@ func TestLockDependencies_UnreachableParentIsAnIncompleteEmptyLock(t *testing.T)
 
 func TestLockDependencies_BuildsFromClosure(t *testing.T) {
 	tmp := t.TempDir()
+	registerTestRemote(t, tmp, "https://github.com/test/repo")
 	writeLocalProfile(t, tmp, "default",
 		"bundles:\n  - https://github.com/test/repo@bundles/demo@abc123def456\n")
 	cfg := testConfigWithSCMPath(tmp)
@@ -129,6 +131,7 @@ func TestLockDependencies_BuildsFromClosure(t *testing.T) {
 // startup.
 func TestLockDependencies_ProfileBundleSurvives(t *testing.T) {
 	tmp := t.TempDir()
+	registerTestRemote(t, tmp, "https://github.com/test/repo")
 	base := testConfigWithSCMPath(tmp)
 	cfg := withProfileDefs(t, base, map[string]config.Profile{
 		"inline": {Bundles: []string{"https://github.com/test/repo@bundles/demo@abc123def456"}},
@@ -148,6 +151,7 @@ func TestLockDependencies_ProfileBundleSurvives(t *testing.T) {
 
 func TestLockDependencies_ConflictSurfacedImmediately(t *testing.T) {
 	tmp := t.TempDir()
+	registerTestRemote(t, tmp, "https://github.com/test/repo")
 	writeLocalProfile(t, tmp, "a", "bundles:\n  - https://github.com/test/repo@bundles/demo@aaaaaaa\n")
 	writeLocalProfile(t, tmp, "b", "bundles:\n  - https://github.com/test/repo@bundles/demo@bbbbbbb\n")
 	cfg := testConfigWithSCMPath(tmp)
@@ -177,6 +181,7 @@ func testConfigWithSCMPath(path string) *config.Config {
 // enough to erase lock state.
 func TestLockDependencies_UnparseableProfileKeepsItsEntries(t *testing.T) {
 	tmp := t.TempDir()
+	registerTestRemote(t, tmp, "https://github.com/test/repo")
 	writeLocalProfile(t, tmp, "good",
 		"bundles:\n  - https://github.com/test/repo@bundles/kept@abc123def456\n")
 	writeLocalProfile(t, tmp, "fragile",
@@ -226,6 +231,7 @@ func TestClosureRoots_UnparseableProfileIsUnexpanded(t *testing.T) {
 // not. A zero value here is the defect: it serializes and reads as data.
 func TestLockDependencies_StampsFetchedAt(t *testing.T) {
 	tmp := t.TempDir()
+	registerTestRemote(t, tmp, "https://github.com/test/repo")
 	identity := "https://github.com/test/repo@bundles/demo"
 	writeLocalProfile(t, tmp, "default", "bundles:\n  - "+identity+"@abc123def456\n")
 	cfg := testConfigWithSCMPath(tmp)

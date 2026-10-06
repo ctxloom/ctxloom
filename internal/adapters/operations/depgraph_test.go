@@ -29,8 +29,10 @@ import (
 // nil-means-identity mode; this is the resolver that used to be implicit).
 func newTestWalker(fetcher remote.Fetcher) *depWalker {
 	return &depWalker{
-		ctx:     context.Background(),
-		factory: func(string, remote.AuthConfig) (remote.Fetcher, error) { return fetcher, nil },
+		ctx:        context.Background(),
+		registered: func(string) bool { return true },
+		refused:    map[string]error{},
+		factory:    func(string, remote.AuthConfig) (remote.Fetcher, error) { return fetcher, nil },
 		resolveHash: func(ref *remote.Reference) (string, string, remote.SelectorKind, bool) {
 			return ref.ContentVersion, "", "", true
 		},
@@ -84,14 +86,12 @@ func TestDepWalker_RecordsAndConflicts(t *testing.T) {
 
 func TestDepWalker_WalksRemoteParentClosure(t *testing.T) {
 	// Local profile P pins bundle X@h1 directly AND has a remote parent that is a
-	// bundle profile A#profiles/a; the bundle A ships profile `a`, which composes
-	// the SAME bundle X at a DIFFERENT hash h2 — a diamond conflict that must
+	// bundle profile akit#profiles/a of the SAME repository; akit's profile `a`
+	// composes bundle X at a DIFFERENT hash h2 — a diamond conflict that must
 	// surface through the bundle-profile-parent walk (the parent bundle is
-	// fetched, its named profile extracted, and its closure walked).
-	const (
-		urlX = "https://github.com/x/repo"
-		urlA = "https://github.com/a/repo"
-	)
+	// fetched, its named profile extracted, and its closure walked). One
+	// repository, because a remote profile may name only its own.
+	const urlX = "https://github.com/x/repo"
 	// The parent is a SIGNED TREE, which is the only form a bundle-profile
 	// parent can be published in: its profile is a file beside the envelope,
 	// and the walk verifies the tree before reading it.
@@ -111,7 +111,7 @@ func TestDepWalker_WalksRemoteParentClosure(t *testing.T) {
 	root := &profiles.Profile{
 		Name:    "local",
 		Bundles: []string{urlX + "@bundles/x@h1111111"},
-		Parents: []string{urlA + "@bundles/akit@hAAAAAAA#profiles/a"},
+		Parents: []string{urlX + "@bundles/akit@hAAAAAAA#profiles/a"},
 	}
 	w.walkProfile(root, remote.LocalSource, "")
 
@@ -123,7 +123,7 @@ func TestDepWalker_WalksRemoteParentClosure(t *testing.T) {
 		identities[string(p.Identity)] = p.Hash
 	}
 	assert.Contains(t, identities, string(lockKeyOf(t, urlX+"@bundles/x")))
-	assert.Contains(t, identities, string(lockKeyOf(t, urlA+"@bundles/akit")))
+	assert.Contains(t, identities, string(lockKeyOf(t, urlX+"@bundles/akit")))
 
 	require.Len(t, conflicts, 1)
 	assert.Equal(t, string(lockKeyOf(t, urlX+"@bundles/x")), conflicts[0].Item)
@@ -220,7 +220,7 @@ func TestFlattenDependencies_RootLoadFailureSurfacesInUnexpanded(t *testing.T) {
 	cfg := gatedFixture(config.Fixture{})
 	testsupport.Isolate(t)
 
-	_, _, unexpanded := FlattenDependencies(context.Background(), cfg, []string{"missing-profile"})
+	_, _, unexpanded, _ := FlattenDependencies(context.Background(), cfg, []string{"missing-profile"})
 	require.Len(t, unexpanded, 1)
 	assert.Equal(t, "missing-profile", unexpanded[0])
 }
@@ -248,16 +248,15 @@ func TestConflictError(t *testing.T) {
 // degraded mode the anchorless rebuild is still barred from being PERSISTED by
 // Save's unreadable-file refusal.
 //
-// The comparison to the sibling upgrade path is also not actionable here:
-// FlattenDependencies returns no error at all, and its signature is a public
-// contract this row is not entitled to change. So this pins the property that
-// makes the discard a decision rather than an oversight: the failure IS
-// reported, exactly once, before resolution runs anchorless.
+// So this pins the property that makes the discard a decision rather than an
+// oversight: the failure IS reported, exactly once, before resolution runs
+// anchorless.
 func TestFlattenDependencies_UnreadableLockfileIsReported(t *testing.T) {
 	resetStrictness(t)
 	tmp := t.TempDir()
 	writeLocalProfile(t, tmp, "default",
 		"bundles:\n  - https://github.com/test/repo@bundles/demo@abc123def456\n")
+	registerTestRemote(t, tmp, "https://github.com/test/repo")
 	cfg := testConfigWithSCMPath(tmp)
 
 	lockPath := remote.NewLockfileManager(tmp).Path()
@@ -265,7 +264,8 @@ func TestFlattenDependencies_UnreadableLockfileIsReported(t *testing.T) {
 	require.NoError(t, os.WriteFile(lockPath, []byte("   \n"), 0o644))
 
 	warnings := captureWarnings(t)
-	FlattenDependencies(context.Background(), published(t, cfg), nil)
+	_, _, _, err := FlattenDependencies(context.Background(), published(t, cfg), nil)
+	require.NoError(t, err)
 
 	out := warnings.String()
 	assert.Contains(t, out, lockPath, "the failure names the file that could not be read")
@@ -282,9 +282,11 @@ func TestFlattenDependencies_MissingLockfileIsSilent(t *testing.T) {
 	tmp := t.TempDir()
 	writeLocalProfile(t, tmp, "default",
 		"bundles:\n  - https://github.com/test/repo@bundles/demo@abc123def456\n")
+	registerTestRemote(t, tmp, "https://github.com/test/repo")
 	cfg := testConfigWithSCMPath(tmp)
 
 	warnings := captureWarnings(t)
-	FlattenDependencies(context.Background(), published(t, cfg), nil)
+	_, _, _, err := FlattenDependencies(context.Background(), published(t, cfg), nil)
+	require.NoError(t, err)
 	assert.NotContains(t, warnings.String(), "lockfile")
 }

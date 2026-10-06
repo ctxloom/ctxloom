@@ -62,6 +62,7 @@ func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef 
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	registerTestRemote(t, appDir, repoURL)
 	lm := remote.NewLockfileManager(appDir)
 	lock, err := lm.Load()
 	require.NoError(t, err)

@@ -151,6 +151,7 @@ func setupRemoteParentSigned(t *testing.T, signed bool) (baseDir, src, parentBun
 	}
 
 	writeLocalProfile(t, baseDir, "default", "parents:\n  - "+parentBundleID+"#profiles/parent\n")
+	registerRefRemotes(t, baseDir, parentBundleID)
 	return baseDir, src, parentBundleID, bundleID
 }
 
@@ -325,6 +326,7 @@ func TestUpgrade_UnreachableParentPreservesEntries(t *testing.T) {
 	a1 := initLocalRepoWithFile(t, srcA, repoV2("demoA")+"/bundle.yaml", "name: demoA\n")
 	refA := "file://" + srcA + "@bundles/demoA"
 	writeLocalProfile(t, baseDir, "otherprof", "bundles:\n  - "+refA+"\n")
+	registerRefRemotes(t, baseDir, refA)
 
 	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	ctx := context.Background()

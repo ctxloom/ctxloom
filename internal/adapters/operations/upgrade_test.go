@@ -37,6 +37,7 @@ func setupUpgrade(t *testing.T) (cfgBase string, ref, identity, c1 string) {
 	identity = ref
 
 	writeLocalProfile(t, baseDir, "default", "bundles:\n  - "+ref+"\n")
+	registerTestRemote(t, baseDir, "file://"+src)
 	return baseDir, ref, identity, c1
 }
 
@@ -121,11 +122,13 @@ func TestUpgrade_PreservesInlineRootedEntry(t *testing.T) {
 	a1 := initLocalRepoWithFile(t, srcA, repoV2("demoA")+"/bundle.yaml", "name: demoA\n")
 	refA := "file://" + srcA + "@bundles/demoA"
 	writeLocalProfile(t, baseDir, "dirprof", "bundles:\n  - "+refA+"\n")
+	registerRefRemotes(t, baseDir, refA)
 
 	// Bundle in repo B, referenced ONLY by an inline config.yaml definition.
 	srcB := filepath.Join(tmp, "srcB")
 	b1 := initLocalRepoWithFile(t, srcB, repoV2("demoB"), "name: demoB\n")
 	refB := "file://" + srcB + "@bundles/demoB"
+	registerRefRemotes(t, baseDir, refB)
 
 	cfg := withProfileDefs(t, testConfigWithSCMPath(baseDir), map[string]config.Profile{
 		"inlineprof": {Bundles: []string{refB}},

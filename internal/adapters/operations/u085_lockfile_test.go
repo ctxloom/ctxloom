@@ -49,8 +49,10 @@ func TestFlattenDependencies_OnlyEverPinsBundles(t *testing.T) {
 	writeLocalProfile(t, tmp, "default",
 		"bundles:\n  - https://github.com/test/repo@bundles/demo@abc123def456\n")
 	cfg := testConfigWithSCMPath(tmp)
+	registerTestRemote(t, tmp, "https://github.com/test/repo")
 
-	pins, conflicts, unexpanded := FlattenDependencies(t.Context(), cfg, nil)
+	pins, conflicts, unexpanded, err := FlattenDependencies(t.Context(), cfg, nil)
+	require.NoError(t, err)
 	require.Empty(t, conflicts)
 	require.Empty(t, unexpanded)
 	require.NotEmpty(t, pins, "the fixture closure must produce at least one pin")

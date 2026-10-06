@@ -65,7 +65,10 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	baseDir := ProjectAppDir(cfg)
 
 	// Run sync first so the clones the closure walk reads are present.
-	pins, conflicts, unexpanded := FlattenDependencies(ctx, cfg, nil)
+	pins, conflicts, unexpanded, err := FlattenDependencies(ctx, cfg, nil)
+	if err != nil {
+		return nil, err
+	}
 	if len(conflicts) > 0 {
 		if req.FailOnConflict {
 			return nil, ConflictError(conflicts)
@@ -280,8 +283,14 @@ type RepoUpdater interface {
 // failures warn and continue rather than abort; it reports whether any fetch
 // failed, so a caller that reports currency can say its answer is incomplete.
 // Shared by UpgradeDependencies (upgrade.go) and the sync path (sync.go).
-func refreshRepoCaches(ctx context.Context, cache RepoUpdater, urls []string) (fetchFailed bool) {
+//
+// A URL registered answers false for is never fetched: it is not a remote, and
+// the walk or pull that reaches it refuses it by name.
+func refreshRepoCaches(ctx context.Context, cache RepoUpdater, urls []string, registered func(repoURL string) bool) (fetchFailed bool) {
 	for _, url := range urls {
+		if !registered(url) {
+			continue
+		}
 		forgeType, _, err := remote.DetectForge(url)
 		if err != nil {
 			clidiag.Warn("ctxloom", "detect forge for %s: %v", url, err)

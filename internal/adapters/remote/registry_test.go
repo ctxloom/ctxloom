@@ -244,49 +244,6 @@ func TestRegistry_Has(t *testing.T) {
 	assert.True(t, registry.Has("test"))
 }
 
-func TestRegistry_GetOrCreateByURL(t *testing.T) {
-	t.Run("returns existing remote if URL matches", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		configPath := filepath.Join(tmpDir, "remotes.yaml")
-
-		registry, err := NewRegistry(configPath)
-		require.NoError(t, err)
-
-		_ = registry.Add("existing", "https://github.com/owner/repo")
-
-		remote, err := registry.GetOrCreateByURL("https://github.com/owner/repo")
-		require.NoError(t, err)
-		assert.Equal(t, "existing", remote.Name)
-	})
-
-	t.Run("creates new remote with repo name", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		configPath := filepath.Join(tmpDir, "remotes.yaml")
-
-		registry, err := NewRegistry(configPath)
-		require.NoError(t, err)
-
-		remote, err := registry.GetOrCreateByURL("https://github.com/owner/myrepo")
-		require.NoError(t, err)
-		assert.Equal(t, "myrepo", remote.Name)
-		assert.True(t, registry.Has("myrepo"))
-	})
-
-	t.Run("handles name conflict with suffix", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		configPath := filepath.Join(tmpDir, "remotes.yaml")
-
-		registry, err := NewRegistry(configPath)
-		require.NoError(t, err)
-
-		_ = registry.Add("repo", "https://github.com/first/repo")
-
-		remote, err := registry.GetOrCreateByURL("https://github.com/second/repo")
-		require.NoError(t, err)
-		assert.Equal(t, "repo-2", remote.Name)
-	})
-}
-
 // TestRegistry_Save_CorruptExistingFileIsNotSwallowed pins that
 // Registry.save used to swallow the parse error of the file it merges into
 // (`_ = yaml.Unmarshal(...)`), silently replacing an unparseable existing file
@@ -301,8 +258,7 @@ func TestRegistry_Save_CorruptExistingFileIsNotSwallowed(t *testing.T) {
 
 	// Simulate the file going corrupt on disk between load and the next
 	// save (a concurrent writer, or a hand-edit) — the exposure this package's
-	// own concurrency notes call out (GetOrCreateByURL auto-registers on
-	// every pull, and agent children run concurrently).
+	// own concurrency notes call out (agent children run concurrently).
 	require.NoError(t, os.WriteFile(configPath, []byte("not: [valid: yaml"), 0644))
 
 	err = registry.Add("test", "https://github.com/owner/repo")

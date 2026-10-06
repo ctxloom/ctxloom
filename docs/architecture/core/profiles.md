@@ -50,7 +50,7 @@ flowchart TD
     REC --> LOAD["Loader.Load -> lookupSeeded"]
     LOAD --> PAR["recurse each parent"]
     PAR --> MERGE["ResolvedProfile.Merge"]
-    MERGE --> OUT["ResolvedProfile<br/>+ SourceRef / Signer of THIS profile's bundle"]
+    MERGE --> OUT["ResolvedProfile<br/>+ SourceRef of THIS profile's bundle"]
     OUT --> GATE["managedhooks.profileGateRefFor<br/>the bundle's own read keys the exec gate"]
 
     ITEM["content.profileType.Decode"] --> DEC["profiles.Decode<br/>schema check as written, then decodeNormalizers"]
@@ -60,10 +60,10 @@ flowchart TD
 
 | Type | What it carries |
 |---|---|
-| `Profile` | The document: `Bundles`, `BundleItems`, `Fragments`, `Commands`, `Skills`, `SelectTags`, `Hooks`, `Description`, `Tags`, `LLM`, `Variables`, `ExcludeFragments`, `ExcludeMCP`, `DenyTools`, `Parents`, plus the `yaml:"-"` derived fields (`Name`, `Path`, `Signer`) the seed stamps. |
+| `Profile` | The document: `Bundles`, `BundleItems`, `Fragments`, `Commands`, `Skills`, `SelectTags`, `Hooks`, `Description`, `Tags`, `LLM`, `Variables`, `ExcludeFragments`, `ExcludeMCP`, `DenyTools`, `Parents`, plus the `yaml:"-"` derived fields (`Name`, `Path`, `SourceURL`) the seed stamps. |
 | `FragmentRef` | `{Name, Priority}`; a bare string or a `{name, priority}` map. |
 | `Loader` | `dirs` (the local bundles roots a new item is written under), `fs`, the alias resolver and local-bundle oracle, `seeded` (every profile it resolves). |
-| `ResolvedProfile` | The flattened answer. `SourceRef` and `Signer` are this profile's own provenance and are deliberately not merged from parents. |
+| `ResolvedProfile` | The flattened answer. `SourceRef` is this profile's own provenance and is deliberately not merged from parents. |
 
 ## Key functions
 
@@ -76,7 +76,8 @@ flowchart TD
 | `Loader.Delete(name)` | Removes a local profile item's file and drops it from the seed; refuses a remote profile. |
 | `CanonicalRefs` / `Profile.CanonicalizeRefs` | The profile-document step (and its struct form) that re-spells stored bundle and parent refs canonically (`remote.CanonicalSpelling`). Carried by the bundle envelope kind. |
 | `RewriteRetiredParents(seed)` | Rewrites retired `@profiles/` parents to the one bundle profile the repo ships under that name; unmatched or ambiguous stay verbatim. |
-| `ResolvedProfile.Merge(parent)` | Folds a parent in. Must not touch `SourceRef`/`Signer`. |
+| `ResolvedProfile.Merge(parent)` | Folds a parent in. Must not touch `SourceRef`. |
+| `Profile.CheckOwnRepo()` | Refuses, with `ErrCrossRepoReference` naming the profile and the ref, a profile with a `SourceURL` that names content outside that repository through any bundle-bearing field. Enforced by `Loader.Load` and by the lock walk (`operations` `depWalker.walkProfile`). |
 
 ## Invariants
 
@@ -93,6 +94,9 @@ flowchart TD
 7. **The exec gate keys a profile's own hooks by its own bundle.** `SourceRef` is the bundle the
    profile is an item of; a profile with none has an unclaimed read, which withholds.
 8. **This package cannot import `internal/core/config`** (the dependency runs the other way).
+9. **A remote profile names only its own repository.** `SourceURL` is set for a profile shipped
+   in a repository; `Load` refuses it if it reaches elsewhere, so every reader sees one refusal.
+   Only a local profile (`SourceURL` "") composes several repositories.
 
 ## Boundaries
 

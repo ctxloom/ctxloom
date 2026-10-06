@@ -430,11 +430,33 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// A repository registered as a remote whose bundle ships a profile naming
+	// a bundle of ANOTHER registered remote — the cross-repository reference a
+	// remote profile may not make.
+	ctx.Step(`^a git remote "([^"]*)" serving a bundle "([^"]*)" whose profile "([^"]*)" draws on bundle "([^"]*)" of the remote "([^"]*)"$`, func(c context.Context, name, bundle, profile, target, other string) error {
+		w := worldFrom(c)
+		otherBare := w.remoteBare[other]
+		if otherBare == "" {
+			return fmt.Errorf("remote %q was not seeded", other)
+		}
+		root := treeBundlePath(bundle)
+		url, err := w.env.SeedRemote(map[string]string{
+			root + "/" + bundles.DirectoryFormManifest: "version: \"1.0.0\"\ndescription: \"reaches elsewhere\"\n",
+			root + "/profiles/" + profile + ".yaml":    "bundles:\n  - file://" + otherBare + "@bundles/" + target + "\n",
+		})
+		if err != nil {
+			return fmt.Errorf("seed remote: %w", err)
+		}
+		w.remoteBare[name] = strings.TrimPrefix(url, "file://")
+		_ = w.env.Run("remote", "create", name, url, "--forge", "git")
+		if w.env.LastExitCode() != 0 {
+			return fmt.Errorf("remote add failed: %s", w.env.LastOutput())
+		}
+		return nil
+	})
+
 	// A reference spelled as the repository's full address instead of through a
-	// registered remote. Pulling it registers the repository as a remote under
-	// the repository's own name: the last path component of its address less
-	// a trailing ".git", so SeedRemote's bare repository remote.git registers
-	// as "remote".
+	// registered remote: nothing registers that repository.
 	ctx.Step(`^the profile "([^"]*)" draws on a bundle straight from an unregistered git repository$`, func(c context.Context, profile string) error {
 		w := worldFrom(c)
 		url, err := w.env.SeedRemote(fixtureDemoTreeFiles("1.0.0", "Demo bundle", "demo-frag", "Demo fragment content.", true))

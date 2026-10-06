@@ -83,7 +83,6 @@ type ItemAsk struct{ Ref string }
 type ProfileHooks struct {
 	Profile   string
 	SourceRef string
-	Signer    string
 	Hooks     wire.HooksConfig
 }
 

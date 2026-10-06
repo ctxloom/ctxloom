@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -33,12 +34,29 @@ const ciJobContainerInspect = `{"Id":"` + selfID + `","NetworkMode":"github_netw
 	`{"Type":"volume","Source":"/var/lib/docker/volumes/home/_data","Destination":"/root/.ctxloom"},` +
 	`{"Type":"tmpfs","Source":"","Destination":"/run/scratch"}]}`
 
-// stubSelfCandidates fixes the ids this process "may be".
+// stubSelfCandidates fixes the ids this process "may be", and that it
+// carries no harp and shows no container markers unless a test says so.
 func stubSelfCandidates(t *testing.T, ids ...string) {
 	t.Helper()
 	orig := selfIDCandidates
 	selfIDCandidates = func() []string { return ids }
 	t.Cleanup(func() { selfIDCandidates = orig })
+	stubSelfHarp(t, "", false)
+}
+
+// stubSelfHarp fixes the harp this process carries and whether it shows the
+// markers of running in a container.
+func stubSelfHarp(t *testing.T, harp string, inContainer bool) {
+	t.Helper()
+	origHarp, origIn := selfHarp, selfInContainer
+	selfHarp = func() string { return harp }
+	selfInContainer = func() bool { return inContainer }
+	t.Cleanup(func() { selfHarp, selfInContainer = origHarp, origIn })
+}
+
+// dockerPSHarp is the listing of the running containers stamped with harp.
+func dockerPSHarp(harp string) string {
+	return "docker " + strings.Join(ociRuntime{}.containerByLabelArgs(labelHarp+"="+harp), " ")
 }
 
 // scriptExec answers probeExec per argv (joined with spaces, binary first),
@@ -249,39 +267,112 @@ func TestSettleReach_SelfWithoutANetworkIsRefused(t *testing.T) {
 	}
 }
 
-// TestResolveSelf_UndecidableIsAWarningAndNotSelf: a daemon whose CLI cannot
-// list containers (socket permission, a restricted proxy) leaves the question
-// "is this one of yours" undecidable. The ruled outcome: construction records
-// NO finding (nothing for strict mode to refuse on), the runtime is not-self so
-// the host routes and their honest refusals decide, and ONE warning — however
-// many times the runtime is built in this process — names the likely cause.
-func TestResolveSelf_UndecidableIsAWarningAndNotSelf(t *testing.T) {
+// A ctxloom-launched container carries its harp twice — in its env and as
+// a label the daemon holds — so a process in it is identified by the label
+// that matches the harp it carries, before any guess from its own traces.
+func TestFindSelf_TheHarpLabelNamesTheContainer(t *testing.T) {
+	stubSelfCandidates(t)
+	stubSelfHarp(t, "brisk-amber-fox", true)
+	scriptExec(t, map[string]func() (string, error){
+		dockerPSHarp("brisk-amber-fox"): out(selfID + "\n"),
+		dockerInspectSelf(selfID):       out(ciJobContainerInspect + "\n"),
+	})
+	s, ok, err := findSelf(context.Background(), Docker{})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, selfID, s.id)
+}
+
+// Two running containers carrying one harp name no one: the claim cannot be
+// verified, and that is an error, never a pick.
+func TestFindSelf_TwoContainersCarryingOneHarpIsAnError(t *testing.T) {
+	stubSelfCandidates(t)
+	stubSelfHarp(t, "brisk-amber-fox", true)
+	scriptExec(t, map[string]func() (string, error){dockerPSHarp("brisk-amber-fox"): out(selfID + "\n" + otherSelf + "\n")})
+	_, _, err := findSelf(context.Background(), Docker{})
+	require.ErrorIs(t, err, errHarpAmbiguous)
+}
+
+// A harp no container of this daemon carries (a host agent's engine, or a
+// container ctxloom did not launch) is not an identity: the traces decide.
+func TestFindSelf_AHarpNoContainerCarriesFallsBackToTheTraces(t *testing.T) {
+	stubSelfCandidates(t, selfID)
+	stubSelfHarp(t, "brisk-amber-fox", true)
+	scriptExec(t, map[string]func() (string, error){
+		dockerPSHarp("brisk-amber-fox"): out(""),
+		dockerPS + selfID:               out(selfID + "\n"),
+		dockerInspectSelf(selfID):       out(ciJobContainerInspect + "\n"),
+	})
+	s, ok, err := findSelf(context.Background(), Docker{})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, selfID, s.id)
+}
+
+// Off-container a harp names nothing to look for: the daemon is not asked.
+func TestFindSelf_OffContainerTheHarpIsNotLookedUp(t *testing.T) {
+	stubSelfCandidates(t)
+	stubSelfHarp(t, "brisk-amber-fox", false)
+	calls := scriptExec(t, nil)
+	_, ok, err := findSelf(context.Background(), Docker{})
+	require.NoError(t, err)
+	assert.False(t, ok)
+	assert.Empty(t, *calls)
+}
+
+// An undecidable lookup (a CLI that cannot list its daemon's containers) and a
+// container the daemon does not list both leave this process's own layer
+// unknown. Selection is not refused for it — a host run never needs it — but
+// the container gate is: a run that would name its paths to that daemon by
+// guesswork is a non-degradable finding.
+func TestResolveSelf_AnUnknownSelfRefusesTheContainerGate(t *testing.T) {
+	for name, tc := range map[string]struct {
+		ps     func() (string, error)
+		inCont bool
+		want   error
+	}{
+		"undecidable":                    {ps: func() (string, error) { return "", errors.New("permission denied on the socket") }, want: errSelfUndecidable},
+		"in a container it does not list": {ps: out(""), inCont: true, want: errSelfUnidentified},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resetStrictness(t)
+			prevInfo := engineInfo
+			t.Cleanup(func() { engineInfo = prevInfo })
+			engineInfo = func(context.Context, string, string) (string, error) { return "[name=seccomp]", nil }
+			stubSelfCandidates(t, selfID)
+			stubSelfHarp(t, "", tc.inCont)
+			scriptExec(t, map[string]func() (string, error){dockerPS + selfID: tc.ps})
+
+			mark := strictness.Checkpoint()
+			t.Cleanup(func() { strictness.Close(mark) })
+			d, _ := newDockerRuntime(func(string) bool { return true })
+			assert.Nil(t, d.self)
+			assert.Empty(t, strictness.Since(mark), "selection itself is not refused: a host run never names a path to the daemon")
+
+			err := settleSelf(d)
+			require.ErrorIs(t, err, tc.want)
+			found := strictness.Since(mark)
+			require.Len(t, found, 1)
+			assert.Equal(t, report.KindIsolation, found[0].Kind)
+			require.Error(t, strictness.Mode{Degraded: true}.FindingsError(mark), "not degradable")
+		})
+	}
+}
+
+// Off-container, an unmatched lookup is the host: nothing to refuse.
+func TestResolveSelf_OffContainerIsTheHost(t *testing.T) {
 	resetStrictness(t)
-	clidiag.ResetWarnOnce()
-	t.Cleanup(clidiag.ResetWarnOnce)
-	var warned bytes.Buffer
-	t.Cleanup(clidiag.SetSink(&warned))
 	prevInfo := engineInfo
 	t.Cleanup(func() { engineInfo = prevInfo })
 	engineInfo = func(context.Context, string, string) (string, error) { return "[name=seccomp]", nil }
 	stubSelfCandidates(t, selfID)
-	scriptExec(t, map[string]func() (string, error){
-		dockerPS + selfID: func() (string, error) { return "", errors.New("permission denied on the socket") },
-	})
-
+	scriptExec(t, map[string]func() (string, error){dockerPS + selfID: out("")})
 	mark := strictness.Checkpoint()
 	t.Cleanup(func() { strictness.Close(mark) })
-	for range 2 {
-		d, _ := newDockerRuntime(func(string) bool { return true })
-		assert.Nil(t, d.self, "an undecidable lookup proceeds as not-self")
-	}
-	assert.Empty(t, strictness.Since(mark), "an undecidable self-lookup is not a finding")
-	require.NoError(t, strictness.Mode{}.FindingsError(mark), "strict mode must not refuse on it")
-
-	got := warned.String()
-	assert.Equal(t, 1, strings.Count(got, "warning:"), "warned exactly once per process; got %q", got)
-	assert.Contains(t, got, "permission denied on the socket")
-	assert.Contains(t, got, selfLookupRemedy("docker"))
+	d, _ := newDockerRuntime(func(string) bool { return true })
+	require.NoError(t, settleSelf(d))
+	assert.Empty(t, strictness.Since(mark))
+	assert.Equal(t, HostLayer(), d.primary())
 }
 
 // TestResolveSelf_DecidedAnswersAreKept: a confirmed self is kept and a
@@ -292,11 +383,17 @@ func TestResolveSelf_DecidedAnswersAreKept(t *testing.T) {
 	var warned bytes.Buffer
 	t.Cleanup(clidiag.SetSink(&warned))
 
+	stubSelfHarp(t, "", false)
+
 	findSelf = func(context.Context, Runtime) (selfContainer, bool, error) { return ciSelf, true, nil }
-	assert.Equal(t, &ciSelf, resolveSelf(Docker{}))
+	self, err := resolveSelf(Docker{})
+	require.NoError(t, err)
+	assert.Equal(t, &ciSelf, self)
 
 	findSelf = func(context.Context, Runtime) (selfContainer, bool, error) { return selfContainer{}, false, nil }
-	assert.Nil(t, resolveSelf(Docker{}))
+	self, err = resolveSelf(Docker{})
+	require.NoError(t, err)
+	assert.Nil(t, self)
 	assert.Empty(t, warned.String())
 }
 
@@ -310,4 +407,32 @@ func TestDescribe_SelfRoutes(t *testing.T) {
 		c.describe(hostRoute{network: "container:" + selfID}).Reach)
 	assert.Equal(t, "169.254.1.3", c.describe(hostRoute{dial: "169.254.1.3", network: "pasta:--map-host-loopback,169.254.1.3"}).Reach,
 		"a translator route is described as before")
+}
+
+// Every container a run launches carries its harp twice — in its env, so
+// every process in it (the runner, not only the engine) has it, and as a
+// label only the daemon holds — so a process inside can be identified by
+// the one verified against the other (findSelf).
+func TestRunArgs_StampTheHarpAsEnvAndLabel(t *testing.T) {
+	spec := sampleSpec()
+	spec.Harp = "brisk-amber-fox"
+	for _, rt := range []Runtime{Docker{}, Podman{}} {
+		args, err := rt.RunArgs(spec)
+		require.NoError(t, err)
+		joined := " " + strings.Join(args, " ") + " "
+		assert.Contains(t, joined, " --label "+labelHarp+"=brisk-amber-fox ", rt.Name())
+		assert.Contains(t, joined, " -e "+sessions.EnvHarp+"=brisk-amber-fox ", rt.Name())
+		assert.Less(t, strings.Index(joined, labelHarp), strings.Index(joined, " "+spec.Image+" "), "a run flag precedes the image")
+	}
+	args, err := Docker{}.RunArgs(sampleSpec())
+	require.NoError(t, err)
+	assert.NotContains(t, strings.Join(args, " "), labelHarp, "a spec with no harp (a probe) carries none")
+}
+
+// The runner's container is stamped with the session it serves.
+func TestBuildRunnerSpec_CarriesTheSessionHarp(t *testing.T) {
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "mock").WithImage("img").WithSessionState(SessionState{Harp: "brisk-amber-fox"})
+	cw := &containerWorkspace{dir: "/proj", agentID: "m"}
+	placeRoots(c, cw)
+	assert.Equal(t, "brisk-amber-fox", c.buildRunnerSpec("mock", "name", cw, nil).Harp)
 }

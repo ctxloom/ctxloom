@@ -119,6 +119,6 @@ func newDockerRuntime(reachable func(string) bool) (Docker, RuntimeAxis) {
 	owns, _ := probeOwnership("docker", dockerOwnershipFormat, dockerRootless)
 	d := Docker{rootless: owns == RuntimeContainerRootless}
 	d.reachable = true
-	d.self = resolveSelf(d)
+	d.self, d.selfErr = resolveSelf(d)
 	return d, owns
 }

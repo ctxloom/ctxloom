@@ -22,6 +22,8 @@ func (fakeRuntime) reachRoute(context.Context) (hostRoute, error) { return hostR
 func (fakeRuntime) gatewayInspectArgs() []string                  { return ociRuntime{}.gatewayInspectArgs() }
 func (fakeRuntime) containerByIDArgs(id string) []string          { return ociRuntime{}.containerByIDArgs(id) }
 func (fakeRuntime) selfInspectArgs(id string) []string            { return ociRuntime{}.selfInspectArgs(id) }
+func (fakeRuntime) containerByLabelArgs(l string) []string        { return ociRuntime{}.containerByLabelArgs(l) }
+func (fakeRuntime) identified() error                             { return nil }
 
 // The CLI grammar is the shared OCI default, so a call site routed through the
 // seam renders the same argv against the fake as against a real runtime.

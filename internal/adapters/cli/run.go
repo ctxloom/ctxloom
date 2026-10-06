@@ -679,10 +679,18 @@ func (st *runState) resolveLaunch() error {
 
 // bindLaunch projects the resolved launch onto the fields the transport and
 // drive arms read. Decided once, here; nothing downstream re-derives.
+//
+// The controller also carries its own harp in its environment
+// (sessions.EnvHarp), replacing whatever it inherited: every process it
+// starts then names this session unless its own launch names another (the
+// engine's env always does, launch.Launch.EngineEnv).
 func (st *runState) bindLaunch(l launch.Launch, opened operations.Opened) {
 	st.launch = l
 	st.opened = opened
 	st.activeHarp = l.Identity.Harp
+	if err := os.Setenv(sessions.EnvHarp, l.Identity.Harp); err != nil {
+		clidiag.Warn("ctxloom", "cannot carry the session harp in this process's environment: %v", err)
+	}
 	st.label = l.Label.Label
 	st.backendName = string(l.Engine)
 	st.labelModel = l.Label.Model

@@ -5,20 +5,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // selfContainer is THIS process's container as the driving daemon reports it:
 // ctxloom running inside a container that drives its daemon through a mounted
 // socket (docker-outside-of-docker — a devcontainer, a CI job container).
 // Resolved once per runtime value, at selection (resolveSelf), so the route
-// home, every run's mounts and the shared-fs probe read the same answer.
+// home, every run's mounts and the shared-fs probe read the same answer; a
+// container run whose answer is unknown is refused (settleSelf).
 type selfContainer struct {
 	id      string
 	network selfNetwork // zero: none a sibling can join
@@ -38,15 +43,39 @@ type selfMount struct{ source, destination string }
 // package var so tests decide it without the real /proc.
 var selfIDCandidates = containerprobe.SelfIDCandidates
 
+// selfHarp is the harp this process carries (sessions.EnvHarp): ctxloom
+// stamps it into every container it launches, beside a labelHarp label.
+var selfHarp = func() string { return os.Getenv(sessions.EnvHarp) }
+
+// selfInContainer reports whether this process shows the markers of running
+// in a container; a package var so tests decide it.
+var selfInContainer = containerprobe.InContainer
+
+// labelHarp is the label carrying the session a ctxloom-launched container
+// serves (RunSpec.Harp).
+const labelHarp = "ctxloom.harp"
+
+// errHarpAmbiguous refuses a harp several running containers carry: the
+// claim cannot be verified.
+var errHarpAmbiguous = errors.New("isolation: several running containers carry this process's harp")
+
 // findSelf resolves this process's container on rt's daemon. ok=false: not
 // one of its containers (or not containerized). err: the daemon could not
 // answer. Package var: unit tests script it.
 //
-// The trigger is behavioural: a candidate is us only when THIS daemon lists
-// it. A candidate another daemon owns (a docker-in-docker sidecar reached over
-// TCP) is simply absent here, so a run falls through to the host routes —
-// correct, since that daemon's containers share no network with ours.
+// A container ctxloom launched is identified FIRST, and exactly: the harp
+// this process carries must match the label of exactly one running container
+// of this daemon — the env claim verified against what only the daemon holds.
+// Any other container is identified by its traces (selfIDCandidates), and a
+// candidate is us only when THIS daemon lists it. A candidate another daemon
+// owns (a docker-in-docker sidecar reached over TCP) is simply absent here.
 var findSelf = func(ctx context.Context, rt Runtime) (selfContainer, bool, error) {
+	if harp := selfHarp(); harp != "" && selfInContainer() {
+		s, ok, err := findSelfByHarp(ctx, rt, harp)
+		if err != nil || ok {
+			return s, ok, err
+		}
+	}
 	for _, cand := range selfIDCandidates() {
 		out, err := probeExec(ctx, rt.Binary(), rt.containerByIDArgs(cand))
 		if err != nil {
@@ -58,17 +87,41 @@ var findSelf = func(ctx context.Context, rt Runtime) (selfContainer, bool, error
 		if len(ids) != 1 {
 			continue
 		}
-		out, err = probeExec(ctx, rt.Binary(), rt.selfInspectArgs(ids[0]))
-		if err != nil {
-			return selfContainer{}, false, fmt.Errorf("%s: inspecting this process's container %s: %w", rt.Name(), ids[0], err)
-		}
-		s, err := decodeSelf(out)
-		if err != nil {
-			return selfContainer{}, false, fmt.Errorf("%s: this process's container %s: %w", rt.Name(), ids[0], err)
-		}
-		return s, true, nil
+		s, err := inspectSelf(ctx, rt, ids[0])
+		return s, err == nil, err
 	}
 	return selfContainer{}, false, nil
+}
+
+// findSelfByHarp is the running container labelled with harp, when exactly
+// one is.
+func findSelfByHarp(ctx context.Context, rt Runtime, harp string) (selfContainer, bool, error) {
+	out, err := probeExec(ctx, rt.Binary(), rt.containerByLabelArgs(labelHarp+"="+harp))
+	if err != nil {
+		return selfContainer{}, false, fmt.Errorf("%s: listing the containers labelled %s=%s: %w", rt.Name(), labelHarp, harp, err)
+	}
+	switch ids := strings.Fields(out); len(ids) {
+	case 0:
+		return selfContainer{}, false, nil
+	case 1:
+		s, err := inspectSelf(ctx, rt, ids[0])
+		return s, err == nil, err
+	default:
+		return selfContainer{}, false, fmt.Errorf("%w: %s (%s)", errHarpAmbiguous, harp, strings.Join(ids, ", "))
+	}
+}
+
+// inspectSelf decodes the container id as this process's own.
+func inspectSelf(ctx context.Context, rt Runtime, id string) (selfContainer, error) {
+	out, err := probeExec(ctx, rt.Binary(), rt.selfInspectArgs(id))
+	if err != nil {
+		return selfContainer{}, fmt.Errorf("%s: inspecting this process's container %s: %w", rt.Name(), id, err)
+	}
+	s, err := decodeSelf(out)
+	if err != nil {
+		return selfContainer{}, fmt.Errorf("%s: this process's container %s: %w", rt.Name(), id, err)
+	}
+	return s, nil
 }
 
 // selfInspectTemplate renders only the fields findSelf reads, as one JSON
@@ -137,31 +190,68 @@ func pickSelfNetwork(in selfInspect) selfNetwork {
 	return nets[0]
 }
 
-// resolveSelf is the constructors' one call into findSelf. An undecidable
-// answer is a warning, once per process, not a finding: proceeding as not-self
-// is safe, because today's routes then decide — and on a foreign bridge they
-// still refuse (foreignBridgeRemedy), never a silent wrong route. A finding
-// here would let strict mode refuse every container run from a container whose
-// CLI merely cannot list its daemon's containers.
-func resolveSelf(rt Runtime) *selfContainer {
+// resolveSelf is the constructors' one call into findSelf: this process's
+// container, or nil for none, and why that could not be told. Selection
+// itself never refuses on it — a host run names no path to the daemon — so
+// the verdict rides the runtime value and the container gate refuses on it
+// (settleSelf).
+//
+// Unknown is either an UNDECIDABLE lookup (the CLI cannot list or inspect its
+// daemon's containers) or a process that shows the markers of a container
+// the daemon does not list. Proceeding as "the host" in either would hand the
+// daemon this process's paths as bind sources, and a source the daemon
+// resolves elsewhere is created empty — the run would see a blank tree.
+func resolveSelf(rt Runtime) (*selfContainer, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	s, ok, err := findSelf(ctx, rt)
-	if err != nil {
-		clidiag.WarnRemedyOnce("ctxloom", selfLookupRemedy(rt.Name()),
-			"cannot tell whether this process runs in one of %s's containers (%v); proceeding as if it does not", rt.Name(), err)
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("%w: %w", errSelfUndecidable, err)
+	case ok:
+		return &s, nil
+	case selfInContainer():
+		return nil, fmt.Errorf("%w (%s): %s does not list it", errSelfUnidentified, strings.Join(containerprobe.Markers(), ", "), rt.Name())
+	}
+	return nil, nil
+}
+
+var (
+	// errSelfUndecidable is a self-lookup the daemon could not answer.
+	errSelfUndecidable = errors.New("isolation: cannot tell which of the daemon's containers this process runs in")
+	// errSelfUnidentified is a containerized process its daemon does not
+	// list as one of its own.
+	errSelfUnidentified = errors.New("isolation: this process runs in a container the daemon does not identify")
+)
+
+// settleSelf is the container gate's identity check: rt's verdict on this
+// process's own container, or a non-degradable ClassIsolation finding and the
+// refusal. A container run names every path to the daemon through that
+// container's layer (primaryLayer), so a guess is never a fallback.
+func settleSelf(rt Runtime) error {
+	if rt == nil {
+		return nil // no runtime: the gate after this one refuses
+	}
+	err := rt.identified()
+	if err == nil {
 		return nil
 	}
-	if !ok {
-		return nil
+	remedy := selfLookupRemedy(rt.Name())
+	if errors.Is(err, errSelfUnidentified) {
+		remedy = unidentifiedSelfRemedy
 	}
-	return &s
+	strictness.FailAlways(report.KindIsolation, remedy, "refusing to run a container whose bind sources cannot be named: %v", err)
+	return report.Errorf(remedy, "%w", err)
 }
 
 // selfLookupRemedy names the likely cause of an undecidable self-lookup.
 func selfLookupRemedy(runtime string) string {
 	return "check that the " + runtime + " CLI can list and inspect containers on its daemon (permission on its socket, or a proxy that forbids listing)"
 }
+
+// unidentifiedSelfRemedy names the ways a containerized ctxloom becomes
+// identifiable to the daemon it drives.
+const unidentifiedSelfRemedy = "run ctxloom on the daemon's host, or in a container of that same daemon (one ctxloom launched carries its harp as a label; any other is found by its id, so keep the container's hostname or cgroup naming it), or use runtime: host"
 
 // errNoSelfNetwork refuses a self whose container has no network a sibling
 // container can join (none, pasta, slirp4netns, container:<x>).

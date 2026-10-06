@@ -60,3 +60,5 @@ func (Host) passesPUID() bool                                           { return
 func (Host) gatewayInspectArgs() []string                               { return nil }
 func (Host) containerByIDArgs(string) []string                          { return nil }
 func (Host) selfInspectArgs(string) []string                            { return nil }
+func (Host) containerByLabelArgs(string) []string                       { return nil }
+func (Host) identified() error                                          { return nil }

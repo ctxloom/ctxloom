@@ -240,6 +240,11 @@ func (c Container) Name() string {
 // resolved tree into a container mapping — NOTHING here builds a mount, so a
 // caller may write into Dir() before calling mount and the run will see it.
 func (c Container) resolveWorkspace(ctx context.Context, projectDir, agentID string) (workspace, error) {
+	// Every path below is named to the daemon through this process's own
+	// layer, so an unknown one refuses before anything is created.
+	if err := settleSelf(c.runtime); err != nil {
+		return nil, err
+	}
 	sc, err := c.prepareContainerScratch(ctx)
 	if err != nil {
 		return nil, err

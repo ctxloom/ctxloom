@@ -136,6 +136,7 @@ func (c Container) buildRunnerSpec(backendName, name string, cw *containerWorksp
 		Env:     env,
 		Mounts:  mounts,
 		Network: cw.reach.network,
+		Harp:    c.state.Harp,
 		// nil on every production run — set only when the isolation probe's
 		// dedicated env var is present (traceProbeFromEnv). This is the sole
 		// env→field bridge that turns a run into a read-observing probe run;

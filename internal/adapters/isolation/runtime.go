@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
 	"github.com/ctxloom/ctxloom/internal/shared/hostnet"
@@ -128,6 +129,13 @@ type Runtime interface {
 	// selfInspectArgs builds the argv printing selfInspectTemplate for the
 	// container id.
 	selfInspectArgs(id string) []string
+	// containerByLabelArgs builds the argv printing the full id of every
+	// RUNNING container carrying label (key=value).
+	containerByLabelArgs(label string) []string
+	// identified is nil when this process's own container is known (or it
+	// runs in none), else why it is not: the container gate refuses on it
+	// (settleSelf).
+	identified() error
 }
 
 // hostRoute is a runtime's answer to reachRoute: the host part a container
@@ -231,6 +239,11 @@ type RunSpec struct {
 	// Network is the run's --network, taken from the route home; "" is the
 	// runtime's default network.
 	Network string
+	// Harp is the session the container serves, stamped as its env
+	// (sessions.EnvHarp) and as a label (labelHarp) the daemon holds: a
+	// process inside is identified by the one verified against the other
+	// (findSelf). "" for a container that serves no session (a probe).
+	Harp string
 
 	// Trace, when non-nil, marks a PROBE-ONLY run: renderRunSpec then grants
 	// --cap-add=SYS_PTRACE, bind-mounts the trace dir out, and wraps Command in
@@ -262,8 +275,12 @@ type mount struct {
 type ociRuntime struct {
 	pathMap   pathMapper
 	self      *selfContainer // nil: this process is not one of the daemon's containers
+	selfErr   error          // non-nil: whether it is, and which, could not be told (settleSelf)
 	reachable bool           // selection's verdict (launchable); set only by the engine probe
 }
+
+// identified is selection's verdict on this process's own container.
+func (o ociRuntime) identified() error { return o.selfErr }
 
 func (o ociRuntime) launchable() bool { return o.reachable }
 
@@ -358,6 +375,11 @@ func (ociRuntime) gatewayInspectArgs() []string {
 // containerByIDArgs is the docker-CLI-compatible id-filtered listing.
 func (ociRuntime) containerByIDArgs(id string) []string {
 	return []string{"ps", "-a", "-q", "--no-trunc", "--filter", "id=" + id}
+}
+
+// containerByLabelArgs is the docker-CLI-compatible label-filtered listing.
+func (ociRuntime) containerByLabelArgs(label string) []string {
+	return []string{"ps", "-q", "--no-trunc", "--filter", "label=" + label}
 }
 
 // selfInspectArgs is the docker-CLI-compatible narrow container inspect.
@@ -485,6 +507,9 @@ func renderRunSpec(spec RunSpec, primary Layer) ([]string, error) {
 	}
 	if spec.Home != "" {
 		args = append(args, "-e", "HOME="+spec.Home)
+	}
+	if spec.Harp != "" {
+		args = append(args, "--label", labelHarp+"="+spec.Harp, "-e", sessions.EnvHarp+"="+spec.Harp)
 	}
 	// Each Env entry renders as `-e <entry>`. Two forms cross here, both native to
 	// the docker/podman `-e` grammar: "KEY=VAL" sets an explicit value

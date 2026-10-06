@@ -158,6 +158,6 @@ func newPodmanRuntime(reachable func(string) bool) (Podman, RuntimeAxis) {
 	_, network, _ := strings.Cut(strings.TrimSpace(answer), " ")
 	p := Podman{rootless: owns == RuntimeContainerRootless, rootlessNet: network}
 	p.reachable = true
-	p.self = resolveSelf(p)
+	p.self, p.selfErr = resolveSelf(p)
 	return p, owns
 }

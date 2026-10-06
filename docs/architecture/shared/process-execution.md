@@ -43,15 +43,17 @@ flowchart TD
   end
 
   subgraph pa["internal/shared/pidalive"]
-    AU["Alive(pid) bool — !windows<br/>Signal(0); EPERM counts as alive"]
-    AW["Alive(pid) bool — windows<br/>os.FindProcess err == nil"]
+    PU["Probe(pid) State — !windows<br/>Signal(0) → classifySignalErr; EPERM counts as Alive"]
+    PW["Probe(pid) State — windows<br/>OpenProcess + WaitForSingleObject(h, 0)"]
+    MA["State.MaybeAlive() — false only for Dead"]
+    PU --> MA
+    PW --> MA
   end
 
   R --> LAUNCH --> RI
   LAUNCH -->|"cmd.Stderr"| TEE
-  AU --> LIVE["internal/shared/liveness/probe.go:75<br/>ProcState{Observed:true, Alive:alive}"]
-  AU --> REAP["internal/adapters/isolation/worktree_reap.go:205<br/>dead ⇒ DELETE worktree"]
-  AU --> SD["internal/core/coord/statedir.go:76"]
+  MA --> CREAP["isolation.classifyContainer<br/>Dead only ⇒ ContainerOrphaned"]
+  MA --> SBX["testsupport.reapSandboxes<br/>Dead only ⇒ remove pid dir"]
 
 ```
 
@@ -76,20 +78,19 @@ One child on a pty, with the caller supplying stdin, the output writer, and a re
 
 ## `internal/shared/pidalive`
 
-One function, two build-tagged implementations, no types and no state. Exists as a dependency-free leaf specifically to break an import cycle: `internal/adapters/isolation` cannot import `agentcoord/coord` (which depends on isolation transitively via `lm/backends`).
+One tri-state verdict type and one build-tagged probe, no state. A leaf with no internal dependencies, so any layer may import it without creating a cycle.
 
-| Symbol | file:line | Purpose |
+| Symbol | File | Purpose |
 |---|---|---|
-| `Alive(pid int) bool` (!windows) | `internal/shared/pidalive/pidalive_unix.go:19` | `os.FindProcess` → `p.Signal(syscall.Signal(0))`; true iff `err == nil \|\| err == syscall.EPERM` (`:25`) |
-| `Alive(pid int) bool` (windows) | `internal/shared/pidalive/pidalive_windows.go:11` | `_, err := os.FindProcess(pid); return err == nil`. The `*os.Process` (and its `OpenProcess` HANDLE) is discarded |
+| `State` (`Dead`, `Alive`, `Unsure`) | `internal/shared/pidalive/pidalive.go` | `Unsure` makes "I could not tell" representable instead of collapsing it into a confident answer |
+| `(State).MaybeAlive() bool` | `internal/shared/pidalive/pidalive.go` | True for `Alive` and `Unsure`, false only for a confirmed `Dead` — the conservative policy for a refuse/skip decision |
+| `Probe(pid int) State` (!windows) | `internal/shared/pidalive/pidalive_unix.go` | `Unsure` for a pid that cannot name one process (`pidNamesOneProcess`); otherwise `os.FindProcess` → `p.Signal(syscall.Signal(0))` → `classifySignalErr`: nil or `EPERM` ⇒ `Alive`, `ESRCH` or `os.ErrProcessDone` ⇒ `Dead`, anything else ⇒ `Unsure`, all via `errors.Is` |
+| `Probe(pid int) State` (windows) | `internal/shared/pidalive/pidalive_windows.go` | `Unsure` for a pid that cannot name one process or exceeds `uint32`; otherwise `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION\|SYNCHRONIZE)`: `ERROR_ACCESS_DENIED` ⇒ `Alive`, `ERROR_INVALID_PARAMETER` ⇒ `Dead`, other errors ⇒ `Unsure`. An opened handle is closed on every return, and `WaitForSingleObject(h, 0)` decides: `WAIT_OBJECT_0` ⇒ `Dead`, `WAIT_TIMEOUT` ⇒ `Alive`, anything else ⇒ `Unsure` |
 
 | Consumer | Site | Cost of a false "dead" | Cost of a false "alive" |
 |---|---|---|---|
-| `internal/shared/liveness` watchdog | `internal/shared/liveness/probe.go:75` | a live child is declared `StateDied` | a reaped child is never noticed |
-| `internal/adapters/isolation` reaper | `internal/adapters/isolation/worktree_reap.go:205` | a live agent's worktree is deleted | an orphaned worktree lingers |
-| `internal/core/coord` state lock | `internal/core/coord/statedir.go:76` | two coordinators share a state dir | a coordinator is locked out of its state |
-
-Four one-line wrappers re-export it under local names: `coord.PidAlive` (`internal/core/coord/pidalive_unix.go:9` + `_windows` twin) and `isolation.pidAlive` (`internal/adapters/isolation/pidalive_unix.go:12` + twin). The build tags on those four files are ceremony — the platform split already happened inside `pidalive`.
+| `internal/adapters/isolation` container reaper | `classifyContainer` — reaps only on `!MaybeAlive()` | a live owner's container is removed | an orphaned container lingers |
+| `internal/testsupport` sandbox sweep | `reapSandboxes` — removes a pid-named dir on `!MaybeAlive()` or age | a running test's sandbox is deleted | a stale sandbox lingers until the age fallback |
 
 ## `internal/shared/stderrtail`
 
@@ -148,13 +149,12 @@ Widens binary resolution from the process's inherited `PATH` to the user's login
 
 **Liveness (`pidalive`)**
 
-- **EPERM means alive.** The naive `syscall.Kill(pid, 0) == nil` reports every process the caller does not own as dead; ctxloom runs agents under remapped UIDs, so this matters. The consumer contract states the rule: "a process this user cannot signal is still a process" (`internal/shared/liveness/probe.go:25-27`).
-- The return type is a total `bool`, so **"I could not tell" is inexpressible** and every probe failure collapses to `false` ("dead") — the destructive direction for two of the three consumers. `internal/shared/liveness/probe.go:75-76` therefore hardcodes `ProcState{Observed: true}`, and `monitor.go:260`'s `!Observed || Alive` guard can never fire.
-- On Unix, `os.FindProcess` never returns a non-nil error (`$GOROOT/src/os/exec_unix.go:121`), so the `if err != nil { return false }` guard at `pidalive_unix.go:20-22` is unreachable.
-- `err == syscall.EPERM` uses `==`, not `errors.Is` — it works today only because `os` passes the bare errno through for everything except `ESRCH`.
-- **No PID-reuse protection.** The question answered is "is *a* process alive at this pid", never "is *my* process alive". All three consumers store a bare `int` and none captures a start time.
-- **No positivity guard.** `Alive(-5)` probes process *group* 5. All three production callers guard `pid > 0` themselves.
-- Real vs documented: `pidalive_windows.go:7-10` claims Windows "errs toward 'alive'"; `os.FindProcess` there is `syscall.OpenProcess`, which returns `ERROR_ACCESS_DENIED` for a live process owned by another user or at a higher integrity level — so it errs toward *dead*, with no analogue of the Unix EPERM branch.
+- **EPERM means alive.** The naive `syscall.Kill(pid, 0) == nil` reports every process the caller does not own as dead; ctxloom runs agents under remapped UIDs, so this matters. `ERROR_ACCESS_DENIED` is the Windows analogue and maps the same way.
+- **Opening is not liveness on Windows.** A process object outlives its process while any handle to it is held, so `OpenProcess` succeeds on an exited process; the zero-timeout wait on the handle is what decides.
+- **Every caller decides on `MaybeAlive`, never `== Alive`.** Both consumers make a destructive decision, so `Unsure` must skip exactly like a confirmed-live owner.
+- **Out-of-range pids are `Unsure` on both platforms.** `kill(2)` reads 0 and negatives as process groups; `pidNamesOneProcess` rejects them before probing so the platforms give the same answer.
+- **No PID-reuse protection.** The question answered is "is *a* process alive at this pid", never "is *my* process alive". A recycled pid reads as `Alive`, which errs toward a skipped reap; closing that window needs an identity token persisted alongside the pid by the record's owner, not by this package.
+- The `internal/shared/liveness` watchdog does not use this package: its `ProcState` comes from `coord.runnerHeartbeatProbe`, which reports `Observed:false` when no runner is connected, so `deathRung`'s `!ev.Proc.Observed || ev.Proc.Alive` guard is what keeps an unseen runtime from being declared dead.
 
 **Stderr tail (`stderrtail`)**
 

@@ -32,7 +32,7 @@ import (
 // real Entry, not a Problem.
 func writeRawSpoolMessage(t *testing.T, mapper spool.PathMapper, harp string, dir spool.Dir, nanos int64, seq uint64, writer string, created time.Time) spool.Ref {
 	t.Helper()
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 	dirPath, err := spool.DirPath(mapper, harp, dir)
 	require.NoError(t, err)
 	name := spool.Name{Nanos: nanos, Seq: seq, Writer: writer}
@@ -43,7 +43,7 @@ func writeRawSpoolMessage(t *testing.T, mapper spool.PathMapper, harp string, di
 
 func TestDoctorCheckSpoolBacklog_RightState_NoSessionsDirYet(t *testing.T) {
 	testsupport.Isolate(t)
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "no session directories yet")
 }
@@ -60,7 +60,7 @@ func TestDoctorCheckSpoolBacklog_SessionsExistButNoSpool_IsNotAPass(t *testing.T
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(harpDir, 0o755))
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorWarn, check.Status, "nothing was examined; that is not a healthy state")
 	assert.Contains(t, check.Detail, "nothing was examined")
 }
@@ -76,13 +76,13 @@ func TestDoctorCheckSpoolBacklog_RightState_HealthySpoolNothingStuck(t *testing.
 	testsupport.Isolate(t)
 	mapper := spool.NewHomeMapper()
 	harp := "amber-quiet-heron"
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 	w, err := spool.NewWriter(afero.NewOsFs(), mapper, harp, spool.DirIn, "coord")
 	require.NoError(t, err)
 	_, err = w.Write(&spool.Message{Kind: "message", Body: "hello"})
 	require.NoError(t, err)
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "1 session spool(s) checked")
 	assert.Contains(t, check.Detail, "0 entries "+doctorSpoolPendingPhrase)
@@ -106,7 +106,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheStuckEntry(t *testing.T) {
 	fresh := time.Now()
 	_ = writeRawSpoolMessage(t, mapper, harp, spool.DirIn, fresh.UnixNano(), 1, "coord", fresh)
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, stuckRef.String(), "the stuck entry must be named by its ref")
 	assert.Contains(t, check.Detail, "1 spool entr(ies) "+doctorSpoolPendingPhrase)
@@ -126,7 +126,7 @@ func TestDoctorCheckSpoolBacklog_NamesAnInstructionNobodyRead(t *testing.T) {
 	old := time.Now().Add(-10 * time.Minute)
 	ref := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, old.UnixNano(), 1, "coord", old)
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, ref.String(), "the unread steer must be named by harp, direction and file")
 	assert.Contains(t, check.Detail, "10m0s old", "the unread steer's age must be stated")
@@ -142,11 +142,11 @@ func TestDoctorCheckSpoolBacklog_NamesAClaimNoHookFinished(t *testing.T) {
 	harp := "amber-quiet-heron"
 	old := time.Now().Add(-10 * time.Minute)
 	ref := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, old.UnixNano(), 1, "coord", old)
-	res, err := spool.Claim(mapper, harp)
+	res, err := spool.Claim(afero.NewOsFs(), mapper, harp)
 	require.NoError(t, err)
 	require.Len(t, res.Entries, 1, "the entry must now be in flight in in/claimed/")
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, string(spool.ClaimedDirName)+"/"+ref.Name, "the unacknowledged claim must be named where it sits")
 }
@@ -163,7 +163,7 @@ func TestDoctorCheckSpoolBacklog_ARecordedDeliveryIsNotStuck(t *testing.T) {
 	old := time.Now().Add(-10 * time.Minute)
 	inRef := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, old.UnixNano(), 1, "coord", old)
 	claimedRef := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, old.UnixNano(), 2, "coord", old)
-	res, err := spool.Claim(mapper, harp)
+	res, err := spool.Claim(afero.NewOsFs(), mapper, harp)
 	require.NoError(t, err)
 	require.Len(t, res.Entries, 2)
 	// Put one back in in/: the runner's shape. The other stays claimed: the
@@ -181,7 +181,7 @@ func TestDoctorCheckSpoolBacklog_ARecordedDeliveryIsNotStuck(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(record, strings.TrimSuffix(ref.Name, spool.MessageFileExt)), nil, 0o600))
 	}
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorOK, check.Status, check.Detail)
 	assert.NotContains(t, check.Detail, inRef.Name)
 	assert.NotContains(t, check.Detail, claimedRef.Name)
@@ -202,7 +202,7 @@ func TestDoctorCheckSpoolBacklog_TheRecordExcusesOnlyTheInbox(t *testing.T) {
 	require.NoError(t, os.MkdirAll(record, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(record, strings.TrimSuffix(outRef.Name, spool.MessageFileExt)), nil, 0o600))
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, outRef.String())
 }
@@ -220,7 +220,7 @@ func TestDoctorCheckSpoolBacklog_CapsNamedListWithCount(t *testing.T) {
 		writeRawSpoolMessage(t, mapper, harp, spool.DirOut, old.UnixNano()+int64(i), uint64(i+1), "amber-quiet-heron", old)
 	}
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "8 spool entr(ies)")
 	assert.Contains(t, check.Detail, "more")
@@ -234,7 +234,7 @@ func TestDoctorCheckSpoolBacklog_CapsNamedListWithCount(t *testing.T) {
 // all" shape spool.Sweep reports as a Problem rather than an Entry.
 func writeRawSpoolFile(t *testing.T, mapper spool.PathMapper, harp string, dir spool.Dir, name string, content string) string {
 	t.Helper()
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 	dirPath, err := spool.DirPath(mapper, harp, dir)
 	require.NoError(t, err)
 	full := filepath.Join(dirPath, name)
@@ -258,7 +258,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedFilename(t *testing
 	fresh := time.Now()
 	_ = writeRawSpoolMessage(t, mapper, harp, spool.DirIn, fresh.UnixNano(), 1, "coord", fresh)
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "1 spool entr(ies) are malformed")
 	assert.Contains(t, check.Detail, "not-a-spool-message.txt", "the malformed entry must be named")
@@ -279,7 +279,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedContent(t *testing.
 	name := spool.Name{Nanos: time.Now().UnixNano(), Seq: 1, Writer: "coord"}
 	writeRawSpoolFile(t, mapper, harp, spool.DirIn, name.String(), "no frontmatter here, just a body\n")
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "1 spool entr(ies) are malformed")
 	assert.Contains(t, check.Detail, name.String(), "the malformed entry must be named")
@@ -298,7 +298,7 @@ func TestDoctorCheckSpoolBacklog_RightState_MalformedFileDoesNotCountAsStuck(t *
 	harp := "amber-quiet-heron"
 	writeRawSpoolFile(t, mapper, harp, spool.DirOut, "garbage.md.bak", "irrelevant")
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.NotContains(t, check.Detail, "0 spool entr(ies) "+doctorSpoolPendingPhrase)
 	assert.NotContains(t, check.Detail, doctorSpoolPendingPhrase)
@@ -316,9 +316,9 @@ func TestDoctorCheckSpoolBacklog_RightState_NoFailedDirIsNormal(t *testing.T) {
 	testsupport.Isolate(t)
 	mapper := spool.NewHomeMapper()
 	harp := "amber-quiet-heron"
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "no session has a failed/ directory")
 	assert.NotContains(t, check.Detail, "checked, all empty",
@@ -335,12 +335,12 @@ func TestDoctorCheckSpoolBacklog_RightState_EmptyFailedDirDistinctFromAbsent(t *
 	testsupport.Isolate(t)
 	mapper := spool.NewHomeMapper()
 	harp := "amber-quiet-heron"
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 	root, err := spool.Root(mapper, harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "in", "failed"), 0o755))
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "1 failed/ director(ies) checked, all empty")
 	assert.NotContains(t, check.Detail, "no session has a failed/ directory")
@@ -358,14 +358,14 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedEntry(t *testing.T) {
 	testsupport.Isolate(t)
 	mapper := spool.NewHomeMapper()
 	harp := "amber-quiet-heron"
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 
 	failedRef := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano(), 1, "coord", time.Now())
-	require.NoError(t, spool.Fail(mapper, failedRef))
+	require.NoError(t, spool.Fail(afero.NewOsFs(), mapper, failedRef))
 
 	live := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano(), 2, "coord", time.Now())
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "1 spool entr(ies) were REFUSED into in/failed/")
 	assert.Contains(t, check.Detail, harp+":in/failed/"+failedRef.Name, "the refused entry must be named by harp and filename")
@@ -386,14 +386,14 @@ func TestDoctorCheckSpoolBacklog_CapsFailedListWithCount(t *testing.T) {
 	testsupport.Isolate(t)
 	mapper := spool.NewHomeMapper()
 	harp := "amber-quiet-heron"
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 
 	for i := range 8 {
 		ref := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano()+int64(i), uint64(i+1), "coord", time.Now())
-		require.NoError(t, spool.Fail(mapper, ref))
+		require.NoError(t, spool.Fail(afero.NewOsFs(), mapper, ref))
 	}
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "8 spool entr(ies) were REFUSED")
 	assert.Contains(t, check.Detail, "more")
@@ -412,15 +412,15 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedOutboundEntry(t *testi
 	testsupport.Isolate(t)
 	mapper := spool.NewHomeMapper()
 	harp := "amber-quiet-heron"
-	require.NoError(t, spool.EnsureDirs(mapper, harp))
+	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), mapper, harp))
 
 	w, err := spool.NewWriter(afero.NewOsFs(), mapper, harp, spool.DirOut, harp)
 	require.NoError(t, err)
 	ref, err := w.Write(&spool.Message{Kind: "result", FromHarp: harp, To: "parent", Body: "my findings"})
 	require.NoError(t, err)
-	require.NoError(t, spool.Fail(mapper, ref))
+	require.NoError(t, spool.Fail(afero.NewOsFs(), mapper, ref))
 
-	check := doctorCheckSpoolBacklog()
+	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorWarn, check.Status,
 		"a report ctxloom was given and refused to route must not read as a healthy spool")
 	assert.Contains(t, check.Detail, ref.Name, "the doctor must name the file an operator has to go and read")
@@ -598,4 +598,33 @@ func TestDoctorCheckSpoolCounters_UndecodableEndpointFile_Warns(t *testing.T) {
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "could not be read")
 	assert.Contains(t, check.Detail, "corrupt")
+}
+
+// TestDoctorCheckSpoolBacklog_ReadsTheSpoolThroughItsFs pins that the check
+// reaches every spool path — the sessions listing, the root stat, the sweep
+// and the failed/ listing — through the fs it is handed: a stuck message and
+// a failed one that exist ONLY in memory are both named.
+func TestDoctorCheckSpoolBacklog_ReadsTheSpoolThroughItsFs(t *testing.T) {
+	testsupport.Isolate(t)
+	fs := afero.NewMemMapFs()
+	mapper := spool.NewHomeMapper()
+	const harp = "amber-quiet-heron"
+	inDir, err := spool.DirPath(mapper, harp, spool.DirIn)
+	require.NoError(t, err)
+	failedDir, err := spool.DirPath(mapper, harp, spool.FailedDirName)
+	require.NoError(t, err)
+	require.NoError(t, fs.MkdirAll(failedDir, 0o700))
+	old := time.Now().Add(-2 * doctorSpoolStuckAge)
+	stuck := spool.Name{Nanos: old.UnixNano(), Seq: 1, Writer: "coord"}.String()
+	data := fmt.Sprintf("---\nkind: message\ncreated: %s\n---\nbody\n", old.UTC().Format(time.RFC3339Nano))
+	testsupport.WriteFileString(t, fs, filepath.Join(inDir, stuck), data, 0o600)
+	refused := spool.Name{Nanos: old.UnixNano(), Seq: 2, Writer: "coord"}.String()
+	testsupport.WriteFileString(t, fs, filepath.Join(failedDir, refused), data, 0o600)
+	_, statErr := os.Stat(inDir)
+	require.True(t, os.IsNotExist(statErr), "the spool must exist only in the injected fs")
+
+	check := doctorCheckSpoolBacklog(fs)
+	assert.Equal(t, DoctorWarn, check.Status)
+	assert.Contains(t, check.Detail, stuck, "the stuck in-memory entry must be named")
+	assert.Contains(t, check.Detail, refused, "the in-memory failed/ entry must be named")
 }

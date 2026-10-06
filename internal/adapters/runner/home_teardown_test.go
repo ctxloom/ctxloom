@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -36,7 +37,7 @@ func TestHome_ConsumeAfterCrashTouchesNoSpool(t *testing.T) {
 	h.sweepSpoolIn()
 
 	assert.Len(t, spoolEntries(t, harp, spool.DirIn), 1, "a crashed Home consumes nothing")
-	ids, err := spool.DeliveredIdentities(spool.NewHomeMapper(), harp)
+	ids, err := spool.DeliveredIdentities(afero.NewOsFs(), spool.NewHomeMapper(), harp)
 	require.NoError(t, err)
 	assert.Empty(t, ids, "nothing is recorded as delivered by a crashed Home")
 }

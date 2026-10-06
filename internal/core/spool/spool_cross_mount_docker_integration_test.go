@@ -88,7 +88,7 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	t.Setenv("HOME", fixture)
 
 	m := NewHomeMapper()
-	require.NoError(t, EnsureDirs(m, harp))
+	require.NoError(t, EnsureDirs(afero.NewOsFs(), m, harp))
 
 	// Host side: write one in/ message and deliver it, so the container has
 	// both a record entry to observe and an empty in/ to confirm.
@@ -96,7 +96,7 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	require.NoError(t, err)
 	inRef, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: harp, OriginID: marker + "-in", Body: marker + "-in\n"})
 	require.NoError(t, err)
-	require.NoError(t, Deliver(m, inRef, marker+"-in", time.Now()))
+	require.NoError(t, Deliver(afero.NewOsFs(), m, inRef, marker+"-in", time.Now()))
 	hostRoot, err := Root(m, harp)
 	require.NoError(t, err)
 	hostDeliveredPath := filepath.Join(hostRoot, filepath.FromSlash(deliveredDirName), marker+"-in")
@@ -142,7 +142,7 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	// The container's write is visible on the host, byte-complete and
 	// parseable — the rename-publish contract across the mount.
 	outName := probeValue(t, string(out), "PROBE_OUT_NAME")
-	res, err := Sweep(m, harp, DirOut)
+	res, err := Sweep(afero.NewOsFs(), m, harp, DirOut)
 	require.NoError(t, err)
 	require.NoError(t, res.ProblemErr(), "the container's message must not land malformed on the host")
 	require.Len(t, res.Entries, 1)
@@ -161,7 +161,7 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 
 	// And the host can consume what the container wrote: the reverse
 	// direction's rename works over the same mount.
-	outConsumed, err := Consume(m, res.Entries[0].Ref, time.Now())
+	outConsumed, err := Consume(afero.NewOsFs(), m, res.Entries[0].Ref, time.Now())
 	require.NoError(t, err)
 	after, err := os.ReadFile(mustResolve(t, m, outConsumed))
 	require.NoError(t, err)

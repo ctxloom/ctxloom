@@ -52,7 +52,7 @@ func TestConsume_MovesToConsumedAndKeepsTheBytes(t *testing.T) {
 	m := NewHomeMapper()
 	ref, before := seedOut(t, m, "payload for the audit trail\n")
 
-	moved, err := Consume(m, ref, time.Now())
+	moved, err := Consume(afero.NewOsFs(), m, ref, time.Now())
 	require.NoError(t, err)
 	require.Equal(t, DirOutConsumed, moved.Dir)
 	require.Equal(t, ref.Name, moved.Name, "consumption must not rename the file's identity")
@@ -69,15 +69,15 @@ func TestConsume_MovesToConsumedAndKeepsTheBytes(t *testing.T) {
 	require.NotEmpty(t, after, "empty-source guard: the consumed copy must have bytes")
 	require.Equal(t, before, after, "the consumed copy must be byte-identical to what was routed")
 
-	msg, err := Read(m, moved)
+	msg, err := Read(afero.NewOsFs(), m, moved)
 	require.NoError(t, err)
 	require.Equal(t, "payload for the audit trail\n", msg.Body)
 
-	res, err := Sweep(m, testHarp, DirOut)
+	res, err := Sweep(afero.NewOsFs(), m, testHarp, DirOut)
 	require.NoError(t, err)
 	require.Empty(t, res.Entries)
 
-	consumedRes, err := Sweep(m, testHarp, DirOutConsumed)
+	consumedRes, err := Sweep(afero.NewOsFs(), m, testHarp, DirOutConsumed)
 	require.NoError(t, err)
 	require.Len(t, consumedRes.Entries, 1, "out/consumed/ must list the routed message")
 }
@@ -88,7 +88,7 @@ func TestConsume_AnInboxMessageIsNotConsumable(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 	ref, _ := seedIn(t, m, "inbox\n")
-	_, err := Consume(m, ref, time.Now())
+	_, err := Consume(afero.NewOsFs(), m, ref, time.Now())
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrAlreadyGone)
 }
@@ -100,10 +100,10 @@ func TestConsume_SecondTakeIsAlreadyGone(t *testing.T) {
 	m := NewHomeMapper()
 	ref, _ := seedOut(t, m, "once\n")
 
-	_, err := Consume(m, ref, time.Now())
+	_, err := Consume(afero.NewOsFs(), m, ref, time.Now())
 	require.NoError(t, err)
 
-	_, err = Consume(m, ref, time.Now())
+	_, err = Consume(afero.NewOsFs(), m, ref, time.Now())
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrAlreadyGone, "a lost consume race must be ErrAlreadyGone, not a generic failure")
 }
@@ -111,7 +111,7 @@ func TestConsume_SecondTakeIsAlreadyGone(t *testing.T) {
 // consumedNames lists the routed copies in out/consumed/ by file name.
 func consumedNames(t *testing.T, m PathMapper) []string {
 	t.Helper()
-	res, err := Sweep(m, testHarp, DirOutConsumed)
+	res, err := Sweep(afero.NewOsFs(), m, testHarp, DirOutConsumed)
 	require.NoError(t, err)
 	var names []string
 	for _, e := range res.Entries {
@@ -131,13 +131,13 @@ func TestConsume_PrunesRoutedCopiesOlderThanTheRetentionWindow(t *testing.T) {
 	young, _ := seedOut(t, m, "routed recently\n")
 	fresh, _ := seedOut(t, m, "routed now\n")
 
-	_, err := Consume(m, old, now.Add(-DeliveredRetention-time.Minute))
+	_, err := Consume(afero.NewOsFs(), m, old, now.Add(-DeliveredRetention-time.Minute))
 	require.NoError(t, err)
-	_, err = Consume(m, young, now.Add(-DeliveredRetention+time.Minute))
+	_, err = Consume(afero.NewOsFs(), m, young, now.Add(-DeliveredRetention+time.Minute))
 	require.NoError(t, err)
 	require.Len(t, consumedNames(t, m), 2, "nothing is past the window until a later Consume says so")
 
-	_, err = Consume(m, fresh, now)
+	_, err = Consume(afero.NewOsFs(), m, fresh, now)
 	require.NoError(t, err)
 	got := consumedNames(t, m)
 	require.NotContains(t, got, string(old.Name), "routed before the window: pruned")
@@ -159,10 +159,10 @@ func TestConsume_AFileWrittenLongAgoIsKeptFromItsRouteTime(t *testing.T) {
 	written := now.Add(-2 * DeliveredRetention)
 	require.NoError(t, os.Chtimes(path, written, written))
 
-	_, err = Consume(m, stale, now)
+	_, err = Consume(afero.NewOsFs(), m, stale, now)
 	require.NoError(t, err)
 	other, _ := seedOut(t, m, "a later route\n")
-	_, err = Consume(m, other, now.Add(time.Minute))
+	_, err = Consume(afero.NewOsFs(), m, other, now.Add(time.Minute))
 	require.NoError(t, err)
 
 	require.Contains(t, consumedNames(t, m), string(stale.Name), "routed just now: inside the window")
@@ -176,7 +176,7 @@ func TestWithdraw_RacesConsumeThroughTheFilesystem(t *testing.T) {
 
 	t.Run("writer wins", func(t *testing.T) {
 		ref, before := seedIn(t, m, "retract me\n")
-		moved, err := Withdraw(m, ref)
+		moved, err := Withdraw(afero.NewOsFs(), m, ref)
 		require.NoError(t, err)
 		require.Equal(t, DirInWithdrawn, moved.Dir)
 
@@ -186,15 +186,15 @@ func TestWithdraw_RacesConsumeThroughTheFilesystem(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, before, after, "a withdrawn message must be preserved, not deleted")
 
-		err = Deliver(m, ref, "m-retracted", time.Now())
+		err = Deliver(afero.NewOsFs(), m, ref, "m-retracted", time.Now())
 		require.ErrorIs(t, err, ErrAlreadyGone, "the reader must learn the message was retracted")
 	})
 
 	t.Run("reader wins", func(t *testing.T) {
 		ref, _ := seedIn(t, m, "too late\n")
-		require.NoError(t, Deliver(m, ref, "m-too-late", time.Now()))
+		require.NoError(t, Deliver(afero.NewOsFs(), m, ref, "m-too-late", time.Now()))
 
-		_, err := Withdraw(m, ref)
+		_, err := Withdraw(afero.NewOsFs(), m, ref)
 		require.ErrorIs(t, err, ErrAlreadyGone, "a withdrawal that lost the race must report pulled, not fail loudly")
 	})
 }
@@ -202,7 +202,7 @@ func TestWithdraw_RacesConsumeThroughTheFilesystem(t *testing.T) {
 func TestWithdraw_RefusesUnwithdrawableDirections(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	_, err := Withdraw(m, Ref{Harp: testHarp, Dir: DirOut, Name: "00000000000000000001.00000001.agent.md"})
+	_, err := Withdraw(afero.NewOsFs(), m, Ref{Harp: testHarp, Dir: DirOut, Name: "00000000000000000001.00000001.agent.md"})
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrAlreadyGone, "a direction that has no withdrawn state is a caller bug, not a race")
 }
@@ -214,9 +214,9 @@ func TestWithdraw_RefusesUnwithdrawableDirections(t *testing.T) {
 func TestRead_MissingFileIsTyped(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	require.NoError(t, EnsureDirs(m, testHarp))
+	require.NoError(t, EnsureDirs(afero.NewOsFs(), m, testHarp))
 
-	_, err := Read(m, Ref{Harp: testHarp, Dir: DirIn, Name: "00000000000000000001.00000001.coord.md"})
+	_, err := Read(afero.NewOsFs(), m, Ref{Harp: testHarp, Dir: DirIn, Name: "00000000000000000001.00000001.coord.md"})
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrAlreadyGone)
 }
@@ -224,7 +224,7 @@ func TestRead_MissingFileIsTyped(t *testing.T) {
 func TestRead_RefusesInvalidRef(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	_, err := Read(m, Ref{Harp: testHarp, Dir: DirIn, Name: ".."})
+	_, err := Read(afero.NewOsFs(), m, Ref{Harp: testHarp, Dir: DirIn, Name: ".."})
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrAlreadyGone, "a hostile ref must fail as invalid, never as a benign race")
 }
@@ -251,7 +251,7 @@ func TestSweep_ReportsMalformedFilesLoudly(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(inDir, name), []byte(body), 0o600))
 	}
 
-	res, err := Sweep(m, testHarp, DirIn)
+	res, err := Sweep(afero.NewOsFs(), m, testHarp, DirIn)
 	require.NoError(t, err, "a malformed file must not abort the whole drain")
 
 	require.Len(t, res.Entries, 1, "the readable message must still be delivered")
@@ -288,7 +288,7 @@ func TestSweep_OrdersByFilenameAndSkipsSubdirs(t *testing.T) {
 		refs = append(refs, ref)
 	}
 
-	res, err := Sweep(m, testHarp, DirIn)
+	res, err := Sweep(afero.NewOsFs(), m, testHarp, DirIn)
 	require.NoError(t, err)
 	require.NoError(t, res.ProblemErr(), "consumed/ and withdrawn/ are structure, not junk")
 	require.Len(t, res.Entries, len(refs))
@@ -301,14 +301,14 @@ func TestSweep_OrdersByFilenameAndSkipsSubdirs(t *testing.T) {
 func TestSweep_MissingDirectoryIsAnError(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	_, err := Sweep(m, testHarp, DirIn)
+	_, err := Sweep(afero.NewOsFs(), m, testHarp, DirIn)
 	require.Error(t, err, "sweeping a spool that was never created must say so, not report an empty drain")
 	require.True(t, errors.Is(err, os.ErrNotExist))
 }
 
 func TestSweep_RefusesInvalidHarp(t *testing.T) {
 	hostHome(t)
-	_, err := Sweep(NewHomeMapper(), "../escape", DirIn)
+	_, err := Sweep(afero.NewOsFs(), NewHomeMapper(), "../escape", DirIn)
 	require.Error(t, err)
 }
 
@@ -321,14 +321,14 @@ func TestConsume_AnEmptyFileNeverReplacesARoutedRecord(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 	ref, before := seedOut(t, m, "routed once\n")
-	moved, err := Consume(m, ref, time.Now())
+	moved, err := Consume(afero.NewOsFs(), m, ref, time.Now())
 	require.NoError(t, err)
 
 	livePath, err := m.Resolve(ref)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(livePath, nil, 0o600))
 
-	_, err = Consume(m, ref, time.Now())
+	_, err = Consume(afero.NewOsFs(), m, ref, time.Now())
 	require.ErrorIs(t, err, safefs.ErrEmptyOverwrite)
 
 	routedPath, err := m.Resolve(moved)

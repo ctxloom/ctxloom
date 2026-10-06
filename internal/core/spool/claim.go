@@ -50,7 +50,7 @@ const ClaimedDirName Dir = "in/claimed"
 // still find it; a file that vanished between readdir and rename was taken
 // by another reader, which is ordinary. A spool that was never created
 // claims nothing and is not an error.
-func Claim(m PathMapper, harp string) (SweepResult, error) {
+func Claim(fs afero.Fs, m PathMapper, harp string) (SweepResult, error) {
 	res := SweepResult{Dir: ClaimedDirName}
 	inPath, err := DirPath(m, harp, DirIn)
 	if err != nil {
@@ -64,19 +64,19 @@ func Claim(m PathMapper, harp string) (SweepResult, error) {
 	// a message stays in in/, where the operator tooling that reports
 	// malformed spool files looks, rather than being carried into the
 	// in-flight set and re-reported on every turn for the life of the session.
-	unclaimed, err := sweepExisting(harp, DirIn, inPath)
+	unclaimed, err := sweepExisting(fs, harp, DirIn, inPath)
 	if err != nil {
 		return res, fmt.Errorf("spool: claiming from %s: %w", inPath, err)
 	}
 	res.Problems = append(res.Problems, unclaimed.Problems...)
-	if err := moveUnclaimed(m, harp, inPath, claimedPath, unclaimed.Entries); err != nil {
+	if err := moveUnclaimed(fs, m, harp, inPath, claimedPath, unclaimed.Entries); err != nil {
 		return res, err
 	}
-	claimed, err := sweepExisting(harp, ClaimedDirName, claimedPath)
+	claimed, err := sweepExisting(fs, harp, ClaimedDirName, claimedPath)
 	if err != nil {
 		return res, fmt.Errorf("spool: reading %s: %w", claimedPath, err)
 	}
-	if res.Entries, err = undelivered(m, harp, claimedPath, claimed.Entries); err != nil {
+	if res.Entries, err = undelivered(fs, m, harp, claimedPath, claimed.Entries); err != nil {
 		return res, err
 	}
 	res.Problems = append(res.Problems, claimed.Problems...)
@@ -85,8 +85,8 @@ func Claim(m PathMapper, harp string) (SweepResult, error) {
 
 // sweepExisting is sweepDir, with a directory that was never created
 // sweeping as empty.
-func sweepExisting(harp string, dir Dir, path string) (SweepResult, error) {
-	res, err := sweepDir(harp, dir, path)
+func sweepExisting(fs afero.Fs, harp string, dir Dir, path string) (SweepResult, error) {
+	res, err := sweepDir(fs, harp, dir, path)
 	if err != nil && !os.IsNotExist(err) {
 		return res, err
 	}
@@ -99,11 +99,11 @@ func sweepExisting(harp string, dir Dir, path string) (SweepResult, error) {
 // handed out. A copy of something already DELIVERED is moved like any other
 // and dropped by undelivered, the one place the delivered record is read. An
 // entry another reader took first is ordinary.
-func moveUnclaimed(m PathMapper, harp, inPath, claimedPath string, entries []Entry) error {
+func moveUnclaimed(fs afero.Fs, m PathMapper, harp, inPath, claimedPath string, entries []Entry) error {
 	var inFlight map[string]bool
 	if len(entries) > 0 {
 		var err error
-		if inFlight, err = identitiesIn(m, harp, ClaimedDirName); err != nil {
+		if inFlight, err = identitiesIn(fs, m, harp, ClaimedDirName); err != nil {
 			return err
 		}
 	}
@@ -111,13 +111,13 @@ func moveUnclaimed(m PathMapper, harp, inPath, claimedPath string, entries []Ent
 		from := filepath.Join(inPath, e.Ref.Name)
 		id := e.Identity()
 		if inFlight[id] {
-			if err := discard(from); err != nil {
+			if err := discard(fs, from); err != nil {
 				return fmt.Errorf("spool: dropping in-flight copy %s: %w", e.Ref, err)
 			}
 			continue
 		}
 		inFlight[id] = true
-		if err := renameInto(from, filepath.Join(claimedPath, e.Ref.Name)); err != nil && !errors.Is(err, ErrAlreadyGone) {
+		if err := renameInto(fs, from, filepath.Join(claimedPath, e.Ref.Name)); err != nil && !errors.Is(err, ErrAlreadyGone) {
 			return fmt.Errorf("spool: claiming %s: %w", e.Ref, err)
 		}
 	}
@@ -127,10 +127,10 @@ func moveUnclaimed(m PathMapper, harp, inPath, claimedPath string, entries []Ent
 // undelivered drops, from what Claim is about to return, every claimed entry
 // whose identity is already recorded as delivered — a delivery whose delete
 // was interrupted — finishing that delete.
-func undelivered(m PathMapper, harp, claimedPath string, entries []Entry) ([]Entry, error) {
+func undelivered(fs afero.Fs, m PathMapper, harp, claimedPath string, entries []Entry) ([]Entry, error) {
 	out := entries[:0]
 	for _, e := range entries {
-		delivered, err := Delivered(m, harp, e.Identity())
+		delivered, err := Delivered(fs, m, harp, e.Identity())
 		if err != nil {
 			return nil, fmt.Errorf("spool: reading %s: %w", e.Ref, err)
 		}
@@ -138,7 +138,7 @@ func undelivered(m PathMapper, harp, claimedPath string, entries []Entry) ([]Ent
 			out = append(out, e)
 			continue
 		}
-		if err := discard(filepath.Join(claimedPath, e.Ref.Name)); err != nil {
+		if err := discard(fs, filepath.Join(claimedPath, e.Ref.Name)); err != nil {
 			return nil, fmt.Errorf("spool: finishing the delivery of %s: %w", e.Ref, err)
 		}
 	}
@@ -147,23 +147,23 @@ func undelivered(m PathMapper, harp, claimedPath string, entries []Entry) ([]Ent
 
 // discard deletes a copy that must not be delivered. One another reader
 // already removed is the same outcome.
-func discard(path string) error {
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+func discard(fs afero.Fs, path string) error {
+	if err := fs.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return syncDir(afero.NewOsFs(), filepath.Dir(path))
+	return syncDir(fs, filepath.Dir(path))
 }
 
 // Pending reports whether harp's in/ holds at least one unclaimed file — the
 // only question a caller that is not the reader may ask of the owner's spool.
 // A claimed message is spoken for and does not count; a spool that was never
 // created has nothing pending.
-func Pending(m PathMapper, harp string) (bool, error) {
+func Pending(fs afero.Fs, m PathMapper, harp string) (bool, error) {
 	path, err := DirPath(m, harp, DirIn)
 	if err != nil {
 		return false, err
 	}
-	entries, err := os.ReadDir(path)
+	entries, err := afero.ReadDir(fs, path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
@@ -182,14 +182,14 @@ func Pending(m PathMapper, harp string) (bool, error) {
 // there that does not parse is skipped rather than reported: Claim parses
 // before it moves, so nothing unparseable got there by claiming, and the
 // operator tooling that reports malformed files already looks at in/.
-func identitiesIn(m PathMapper, harp string, dirs ...Dir) (map[string]bool, error) {
+func identitiesIn(fs afero.Fs, m PathMapper, harp string, dirs ...Dir) (map[string]bool, error) {
 	seen := map[string]bool{}
 	for _, d := range dirs {
 		path, err := DirPath(m, harp, d)
 		if err != nil {
 			return nil, err
 		}
-		res, err := sweepDir(harp, d, path)
+		res, err := sweepDir(fs, harp, d, path)
 		if err != nil && !os.IsNotExist(err) {
 			return nil, fmt.Errorf("spool: reading %s: %w", path, err)
 		}

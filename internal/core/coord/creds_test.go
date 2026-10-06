@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -68,7 +69,7 @@ func TestMailbox_AtLeastOnceRedelivery(t *testing.T) {
 	require.NoError(t, err)
 	_, err = c1.queueMail("sender", role, KindMessage, "second")
 	require.NoError(t, err)
-	claimed, err := spool.Claim(c1.mapper, role)
+	claimed, err := spool.Claim(afero.NewOsFs(), c1.mapper, role)
 	require.NoError(t, err)
 	require.Len(t, claimed.Entries, 2, "both pending messages are claimed")
 	c1.Close()

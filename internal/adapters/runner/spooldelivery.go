@@ -83,10 +83,10 @@ func (h *Home) sweepSpoolIn() {
 		h.spoolDeliveryCount.Failed.Add(1)
 		return
 	}
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+	if _, statErr := h.fs.Stat(path); os.IsNotExist(statErr) {
 		return // nothing has ever been written for this run
 	}
-	res, err := spool.Sweep(mapper, h.Harp(), spool.DirIn)
+	res, err := spool.Sweep(h.fs, mapper, h.Harp(), spool.DirIn)
 	if err != nil {
 		h.rep.Warnf("runner: sweeping this run's in/ spool: %v", err)
 		h.spoolDeliveryCount.Failed.Add(1)
@@ -104,14 +104,14 @@ func (h *Home) sweepSpoolIn() {
 // deliverSpoolEntry projects one swept in/ entry onto the delivery seam and
 // delivers it, or moves it to in/failed/ naming why it could not be.
 func (h *Home) deliverSpoolEntry(e spool.Entry) {
-	delivered, err := spool.Delivered(h.cfg.Mapper, h.Harp(), e.Identity())
+	delivered, err := spool.Delivered(h.fs, h.cfg.Mapper, h.Harp(), e.Identity())
 	if err != nil {
 		h.rep.Warnf("runner: cannot tell whether %s was already delivered, delivering it: %v", e.Ref, err)
 	}
 	if delivered {
 		// Recorded but not deleted: a delivery interrupted between its
 		// record and its delete. Finish it; never deliver it twice.
-		if err := spool.Deliver(h.cfg.Mapper, e.Ref, e.Identity(), time.Now()); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
+		if err := spool.Deliver(h.fs, h.cfg.Mapper, e.Ref, e.Identity(), time.Now()); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
 			h.rep.Warnf("runner: could not finish the delivery of %s: %v", e.Ref, err)
 			h.spoolDeliveryCount.Failed.Add(1)
 		}
@@ -154,7 +154,7 @@ func (h *Home) deliverSpoolEntry(e spool.Entry) {
 // which is the three-way distinction a bare warning-and-retry cannot make.
 func (h *Home) failSpoolEntry(e spool.Entry, why string, cause error) {
 	h.spoolDeliveryCount.Failed.Add(1)
-	coord.FailSpool(h.rep, h.cfg.Mapper, "runner", e.Ref, why, cause)
+	coord.FailSpool(h.rep, h.fs, h.cfg.Mapper, "runner", e.Ref, why, cause)
 }
 
 // rememberSpoolRef records which file a delivered id came from, so the
@@ -202,7 +202,7 @@ func (h *Home) ackMailConsumed(ids []string) {
 			h.spoolDeliveryCount.Failed.Add(1)
 			continue
 		}
-		if err := spool.Deliver(h.cfg.Mapper, ref, id, time.Now()); err != nil {
+		if err := spool.Deliver(h.fs, h.cfg.Mapper, ref, id, time.Now()); err != nil {
 			if errors.Is(err, spool.ErrAlreadyGone) {
 				continue
 			}

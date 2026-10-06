@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
+
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -862,7 +864,7 @@ func spoolMail(t *testing.T, c *Coordinator, harp string, wait time.Duration) ([
 	t.Helper()
 	deadline := time.Now().Add(wait)
 	for {
-		res, err := spool.Claim(c.mapper, harp)
+		res, err := spool.Claim(afero.NewOsFs(), c.mapper, harp)
 		if err != nil {
 			return nil, err
 		}
@@ -872,7 +874,7 @@ func spoolMail(t *testing.T, c *Coordinator, harp string, wait time.Duration) ([
 			if err != nil {
 				return nil, err
 			}
-			if err := spool.Deliver(c.mapper, e.Ref, e.Identity(), time.Now()); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
+			if err := spool.Deliver(afero.NewOsFs(), c.mapper, e.Ref, e.Identity(), time.Now()); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
 				return nil, err
 			}
 			out = append(out, msg)

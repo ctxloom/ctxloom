@@ -41,10 +41,11 @@ func Entries(t *testing.T, harp string, dir spool.Dir) []spool.Entry {
 	t.Helper()
 	path, err := spool.DirPath(spool.NewHomeMapper(), harp, dir)
 	require.NoError(t, err)
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+	fs := afero.NewOsFs()
+	if _, statErr := fs.Stat(path); os.IsNotExist(statErr) {
 		return nil
 	}
-	res, err := spool.Sweep(spool.NewHomeMapper(), harp, dir)
+	res, err := spool.Sweep(fs, spool.NewHomeMapper(), harp, dir)
 	require.NoError(t, err)
 	require.NoError(t, res.ProblemErr())
 	return res.Entries
@@ -90,7 +91,7 @@ func WriteMail(t *testing.T, harp, from, spoolKind, body, writerID string) {
 // delivered and deleted, still inside the record's retention.
 func Delivered(t *testing.T, harp string) map[string]time.Time {
 	t.Helper()
-	ids, err := spool.DeliveredIdentities(spool.NewHomeMapper(), harp)
+	ids, err := spool.DeliveredIdentities(afero.NewOsFs(), spool.NewHomeMapper(), harp)
 	require.NoError(t, err)
 	return ids
 }

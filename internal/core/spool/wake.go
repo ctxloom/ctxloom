@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // A WAKE IS A NONCE ON DISK.
@@ -60,13 +60,13 @@ func wakeDir(m PathMapper, harp string) (string, error) {
 // file exists before the caller fires anything, so the hook that the wake
 // causes always finds it — a wake fired first and recorded second races its
 // own acknowledgement.
-func ArmWake(m PathMapper, harp string) (string, error) {
+func ArmWake(fs afero.Fs, m PathMapper, harp string) (string, error) {
 	root, err := ensureRoot(m, harp)
 	if err != nil {
 		return "", err
 	}
 	dir := filepath.Join(root, filepath.FromSlash(wakeDirName))
-	if err := os.MkdirAll(dir, owneronly.DirMode); err != nil {
+	if err := fs.MkdirAll(dir, owneronly.DirMode); err != nil {
 		return "", fmt.Errorf("spool: create %s: %w", dir, err)
 	}
 	b := make([]byte, nonceBytes)
@@ -75,7 +75,7 @@ func ArmWake(m PathMapper, harp string) (string, error) {
 	}
 	nonce := hex.EncodeToString(b)
 	path := filepath.Join(dir, nonce)
-	if err := safefs.WriteFile(afero.NewOsFs(), path, nil, owneronly.FileMode, safefs.Durable()); err != nil {
+	if err := safefs.WriteFile(fs, path, nil, owneronly.FileMode, safefs.Durable()); err != nil {
 		return "", fmt.Errorf("spool: arming wake %s: %w", path, err)
 	}
 	return nonce, nil
@@ -84,7 +84,7 @@ func ArmWake(m PathMapper, harp string) (string, error) {
 // ConsumeWake redeems nonce: true when it was outstanding for harp and is now
 // consumed, false when it was not (already redeemed, never armed, or armed for
 // another harp). A nonce outside the minted grammar is ErrBadNonce.
-func ConsumeWake(m PathMapper, harp, nonce string) (bool, error) {
+func ConsumeWake(fs afero.Fs, m PathMapper, harp, nonce string) (bool, error) {
 	if !nonceRE.MatchString(nonce) {
 		return false, fmt.Errorf("%w: %q", ErrBadNonce, nonce)
 	}
@@ -92,7 +92,7 @@ func ConsumeWake(m PathMapper, harp, nonce string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if err := os.Remove(filepath.Join(dir, nonce)); err != nil {
+	if err := fs.Remove(filepath.Join(dir, nonce)); err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
@@ -103,12 +103,12 @@ func ConsumeWake(m PathMapper, harp, nonce string) (bool, error) {
 
 // OutstandingWake lists harp's armed, unredeemed nonces, sorted. A spool that
 // was never created has none.
-func OutstandingWake(m PathMapper, harp string) ([]string, error) {
+func OutstandingWake(fs afero.Fs, m PathMapper, harp string) ([]string, error) {
 	dir, err := wakeDir(m, harp)
 	if err != nil {
 		return nil, err
 	}
-	entries, err := os.ReadDir(dir)
+	entries, err := afero.ReadDir(fs, dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -130,14 +130,14 @@ func OutstandingWake(m PathMapper, harp string) ([]string, error) {
 // that turn delivered what every armed wake announced, and a nonce left on
 // disk would refuse every later wake. A wake that lands after the clear finds
 // no nonce and no mail, and the hook blocks it.
-func ClearWakes(m PathMapper, harp string) (int, error) {
-	out, err := OutstandingWake(m, harp)
+func ClearWakes(fs afero.Fs, m PathMapper, harp string) (int, error) {
+	out, err := OutstandingWake(fs, m, harp)
 	if err != nil {
 		return 0, err
 	}
 	cleared := 0
 	for _, nonce := range out {
-		gone, err := ConsumeWake(m, harp, nonce)
+		gone, err := ConsumeWake(fs, m, harp, nonce)
 		if err != nil {
 			return cleared, err
 		}

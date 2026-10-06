@@ -77,7 +77,7 @@ func TestHome_ConsumeThatLostItsRaceIsNotAFailure(t *testing.T) {
 	require.NoError(t, err)
 	inRef, err := inW.Write(&spool.Message{Kind: coord.KindMessage, FromHarp: "coordinator-harp", To: harp, Body: "raced"})
 	require.NoError(t, err)
-	require.NoError(t, spool.Deliver(mapper, inRef, "m-raced", time.Now())) // the other path wins
+	require.NoError(t, spool.Deliver(afero.NewOsFs(), mapper, inRef, "m-raced", time.Now())) // the other path wins
 
 	failedBefore := home.SpoolDeliveryStats().Failed
 	home.rememberSpoolRef("m-raced", inRef)

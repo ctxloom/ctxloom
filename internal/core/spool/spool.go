@@ -33,13 +33,13 @@ package spool
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	harpid "github.com/ctxloom/ctxloom/internal/shared/harp"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/spf13/afero"
 )
 
 // Dir is the closed set of spool subdirectories a Ref may name. It is a
@@ -387,8 +387,9 @@ func DirPath(m PathMapper, harp string, dir Dir) (string, error) {
 // it: the directories are shared bytes.
 //
 // The root is made owner-only first (ensureRoot), so everything beneath it
-// is created inside that boundary.
-func EnsureDirs(m PathMapper, harp string) error {
+// is created inside that boundary; every directory beneath it is created
+// through fs.
+func EnsureDirs(fs afero.Fs, m PathMapper, harp string) error {
 	root, err := ensureRoot(m, harp)
 	if err != nil {
 		return err
@@ -399,7 +400,7 @@ func EnsureDirs(m PathMapper, harp string) error {
 	}
 	want = append(want, filepath.Join(root, tmpDirName))
 	for _, dir := range want {
-		if err := os.MkdirAll(dir, owneronly.DirMode); err != nil {
+		if err := fs.MkdirAll(dir, owneronly.DirMode); err != nil {
 			return fmt.Errorf("spool: create %s: %w", dir, err)
 		}
 	}
@@ -414,6 +415,10 @@ func EnsureDirs(m PathMapper, harp string) error {
 // into it whatever the modes below; on Windows its protected DACL is
 // inherited by everything created beneath. It is re-applied on every call,
 // so a root loosened after the fact is tightened by the next writer.
+//
+// It is the one spool step that does not go through the caller's afero.Fs,
+// and that is not an oversight: the restriction is the OS's (mode bits on
+// unix, a protected DACL on Windows) and no afero.Fs can carry it.
 func ensureRoot(m PathMapper, harp string) (string, error) {
 	root, err := Root(m, harp)
 	if err != nil {

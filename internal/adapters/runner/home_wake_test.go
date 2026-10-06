@@ -34,7 +34,7 @@ type recordingWake struct {
 }
 
 func (w *recordingWake) Fire(_ context.Context, nonce string) error {
-	out, _ := spool.OutstandingWake(w.h.cfg.Mapper, w.h.Harp())
+	out, _ := spool.OutstandingWake(afero.NewOsFs(), w.h.cfg.Mapper, w.h.Harp())
 	for _, n := range out {
 		if n == nonce {
 			w.armed.Store(true)
@@ -84,7 +84,7 @@ func seedOwnerIn(t *testing.T, h *Home) {
 
 func outstandingOf(t *testing.T, h *Home) []string {
 	t.Helper()
-	out, err := spool.OutstandingWake(h.cfg.Mapper, h.Harp())
+	out, err := spool.OutstandingWake(afero.NewOsFs(), h.cfg.Mapper, h.Harp())
 	require.NoError(t, err)
 	return out
 }
@@ -201,7 +201,7 @@ func TestHomeWake_AnAnsweredWakeRaisesNoAlarm(t *testing.T) {
 	seedOwnerIn(t, h)
 	h.sweepSpoolIn()
 	nonce := fired(t, w)
-	redeemed, err := spool.ConsumeWake(h.cfg.Mapper, h.Harp(), nonce)
+	redeemed, err := spool.ConsumeWake(afero.NewOsFs(), h.cfg.Mapper, h.Harp(), nonce)
 	require.NoError(t, err)
 	require.True(t, redeemed)
 

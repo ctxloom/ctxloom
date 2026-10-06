@@ -149,7 +149,7 @@ func runProbe(phase string) int {
 
 	// 1. The host wrote one in/ message and delivered it. In-container, in/
 	//    must be EMPTY and the delivered record must hold its identity.
-	live, err := Sweep(m, harp, DirIn)
+	live, err := Sweep(afero.NewOsFs(), m, harp, DirIn)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "probe: sweeping in/: %v\n", err)
 		return 1
@@ -163,7 +163,7 @@ func runProbe(phase string) int {
 		return 1
 	}
 	identity := marker + "-in"
-	delivered, err := Delivered(m, harp, identity)
+	delivered, err := Delivered(afero.NewOsFs(), m, harp, identity)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "probe: reading the delivered record: %v\n", err)
 		return 1

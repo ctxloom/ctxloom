@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -21,6 +22,7 @@ func newNoticeHome(t *testing.T) *Home {
 	close(present)
 	return &Home{
 		rep:         termRep(),
+		fs:          afero.NewOsFs(),
 		ctx:         context.Background(),
 		consumed:    map[string]bool{},
 		turnPending: map[string]bool{},

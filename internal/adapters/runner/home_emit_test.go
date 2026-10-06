@@ -5,6 +5,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -22,6 +23,7 @@ func testHome(t *testing.T) *Home {
 	t.Cleanup(cancel)
 	return &Home{
 		rep:         termRep(),
+		fs:          afero.NewOsFs(),
 		ctx:         ctx,
 		cancel:      cancel,
 		ackCh:       make(chan struct{}),

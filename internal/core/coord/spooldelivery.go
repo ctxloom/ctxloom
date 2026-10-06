@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/spf13/afero"
 )
 
 // THE MAIL PLANE: coordinator<->child mail is DELIVERED FROM FILES.
@@ -518,7 +519,7 @@ func (c *Coordinator) spoolPendingCount(role string) int {
 		// A file whose identity is already in the delivered record is a
 		// delivery whose delete was interrupted: the reader's next sweep
 		// finishes it, and it is nothing the child still has to see.
-		delivered, err := spool.Delivered(c.mapper, role, e.Identity())
+		delivered, err := spool.Delivered(c.fs, c.mapper, role, e.Identity())
 		if err != nil {
 			c.rep.Warnf("coordinator: %s: cannot tell whether %s was delivered, counting it as pending: %v", role, e.Ref, err)
 		}
@@ -540,10 +541,10 @@ func (c *Coordinator) sweepSpoolDir(harp string, dir spool.Dir, why string) (spo
 		c.spoolDeliveryCount.Failed.Add(1)
 		return spool.SweepResult{}, false
 	}
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+	if _, statErr := c.fs.Stat(path); os.IsNotExist(statErr) {
 		return spool.SweepResult{Dir: dir}, false
 	}
-	res, err := spool.Sweep(mapper, harp, dir)
+	res, err := spool.Sweep(c.fs, mapper, harp, dir)
 	if err != nil {
 		c.rep.Warnf("coordinator: sweeping %s's %s spool (%s): %v", harp, dir, why, err)
 		c.spoolDeliveryCount.Failed.Add(1)
@@ -681,7 +682,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 // the process while later entries delivered around it, which is the
 // silent-skip this project treats as its characteristic defect.
 func (c *Coordinator) failSpoolOut(role string, ref spool.Ref, cause error) {
-	FailSpool(c.rep, c.mapper, "coordinator", ref, fmt.Sprintf("could not route %s's message", role), cause)
+	FailSpool(c.rep, c.fs, c.mapper, "coordinator", ref, fmt.Sprintf("could not route %s's message", role), cause)
 }
 
 // FailSpool moves ref out of its live directory into the failed/ sibling
@@ -689,8 +690,8 @@ func (c *Coordinator) failSpoolOut(role string, ref spool.Ref, cause error) {
 // terminal-state move for a file a reader parsed but could not deliver or
 // route, on both sides and in both directions. A lost race (ErrAlreadyGone)
 // is the other path having won: nothing to strand, nothing to warn about.
-func FailSpool(rep report.Reporter, mapper spool.PathMapper, side string, ref spool.Ref, why string, cause error) {
-	if err := spool.Fail(mapper, ref); err != nil {
+func FailSpool(rep report.Reporter, fs afero.Fs, mapper spool.PathMapper, side string, ref spool.Ref, why string, cause error) {
+	if err := spool.Fail(fs, mapper, ref); err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			return
 		}
@@ -798,7 +799,7 @@ func (c *Coordinator) spoolSenderIdentity(role string) (Identity, bool) {
 // race (ErrAlreadyGone) is the expected outcome of the other path having won
 // and is never reported as a failure.
 func (c *Coordinator) consumeSpool(role string, ref spool.Ref) {
-	if _, err := spool.Consume(c.mapper, ref, c.now()); err != nil {
+	if _, err := spool.Consume(c.fs, c.mapper, ref, c.now()); err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			return
 		}
@@ -815,7 +816,7 @@ func (c *Coordinator) seedSpoolCredit() {
 		if c.ownerSpool(role) {
 			continue // the owner's deliveries are never credited
 		}
-		ids, err := spool.DeliveredIdentities(c.mapper, role)
+		ids, err := spool.DeliveredIdentities(c.fs, c.mapper, role)
 		if err != nil {
 			c.rep.Warnf("coordinator: reading %s's delivered record at start: %v (its first sweep may credit history as progress)", role, err)
 			continue
@@ -832,7 +833,7 @@ func (c *Coordinator) seedSpoolCredit() {
 // this coordinator started is history and is never credited, so a restart
 // credits nothing, and an entry already credited is not credited again.
 func (c *Coordinator) sweepChildDelivered(role string) {
-	ids, err := spool.DeliveredIdentities(c.mapper, role)
+	ids, err := spool.DeliveredIdentities(c.fs, c.mapper, role)
 	if err != nil {
 		c.rep.Warnf("coordinator: reading %s's delivered record: %v", role, err)
 		c.spoolDeliveryCount.Failed.Add(1)

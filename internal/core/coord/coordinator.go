@@ -195,8 +195,9 @@ type Coordinator struct {
 	projectDir string
 	projectID  string
 	stateDir   string
-	// fs is the filesystem the coordinator's own state and saved reports are
-	// read and written through, so a decorator on it sees them.
+	// fs is the filesystem the coordinator's own state, saved reports and
+	// spool traffic are read and written through, so a decorator on it sees
+	// them all.
 	fs  afero.Fs
 	now func() time.Time
 
@@ -562,6 +563,7 @@ func New(opts Options) (*Coordinator, error) {
 	if mapper == nil {
 		mapper = spool.NewHomeMapper()
 	}
+	fs := afero.NewOsFs()
 	c := &Coordinator{
 		rep:                rep,
 		tracked:            TrackedGroup{rep: rep},
@@ -569,7 +571,7 @@ func New(opts Options) (*Coordinator, error) {
 		projectDir:         opts.ProjectDir,
 		projectID:          opts.ProjectID,
 		stateDir:           claim.dir,
-		fs:                 afero.NewOsFs(),
+		fs:                 fs,
 		now:                t.now,
 		releaseOwner:       claim.release,
 		ownsRoot:           claim.release != nil,
@@ -609,7 +611,7 @@ func New(opts Options) (*Coordinator, error) {
 		ownerHarp:          opts.OwnerHarp,
 		mapper:             mapper,
 		spoolSweepInterval: opts.SpoolSweepInterval,
-		spoolIn:            NewSpoolWriterCache(afero.NewOsFs(), mapper, spool.DirIn, spoolWriterIDCoordinator),
+		spoolIn:            NewSpoolWriterCache(fs, mapper, spool.DirIn, spoolWriterIDCoordinator),
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {

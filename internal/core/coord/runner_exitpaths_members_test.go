@@ -68,7 +68,7 @@ func persistentMembers(t *testing.T, harp string) sessionMembers {
 // dropped to failed/ instead, is lost.
 func lostPersistent(before sessionMembers) []string {
 	mapper := spool.NewHomeMapper()
-	delivered, err := spool.DeliveredIdentities(mapper, before.harp)
+	delivered, err := spool.DeliveredIdentities(afero.NewOsFs(), mapper, before.harp)
 	if err != nil {
 		delivered = nil
 	}
@@ -128,7 +128,7 @@ func TestRunnerExitPaths_ConsumedSpoolMessageIsKept(t *testing.T) {
 	before := persistentMembers(t, harp)
 	require.Contains(t, before.Paths, outPath, "the member set must be taken while the message is still in out/")
 
-	done, err := spool.Consume(mapper, ref, time.Now())
+	done, err := spool.Consume(afero.NewOsFs(), mapper, ref, time.Now())
 	require.NoError(t, err)
 	require.Empty(t, lostPersistent(before), "a message the coordinator consumed was delivered, not lost")
 
@@ -158,7 +158,7 @@ func TestRunnerExitPaths_DeliveredInboxMessageIsKept(t *testing.T) {
 	require.NoError(t, err)
 
 	before := persistentMembers(t, harp)
-	require.NoError(t, spool.Deliver(mapper, kept, "m-kept", time.Now()))
+	require.NoError(t, spool.Deliver(afero.NewOsFs(), mapper, kept, "m-kept", time.Now()))
 	require.NoError(t, os.Remove(goneP))
 	assert.Equal(t, []string{goneP}, lostPersistent(before),
 		"a delivered inbox message is kept by its record; one removed without it is lost")

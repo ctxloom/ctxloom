@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -187,7 +188,7 @@ func TestDir_TerminalDirs(t *testing.T) {
 func TestEnsureDirs_CreatesTheWholeLayout(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	require.NoError(t, EnsureDirs(m, testHarp))
+	require.NoError(t, EnsureDirs(afero.NewOsFs(), m, testHarp))
 
 	root, err := Root(m, testHarp)
 	require.NoError(t, err)
@@ -198,10 +199,10 @@ func TestEnsureDirs_CreatesTheWholeLayout(t *testing.T) {
 		require.True(t, st, "%s must be a directory", rel)
 	}
 	// Idempotent: a second call on both sides of a mount is normal.
-	require.NoError(t, EnsureDirs(m, testHarp))
+	require.NoError(t, EnsureDirs(afero.NewOsFs(), m, testHarp))
 }
 
 func TestEnsureDirs_RefusesInvalidHarp(t *testing.T) {
 	hostHome(t)
-	require.Error(t, EnsureDirs(NewHomeMapper(), "../escape"))
+	require.Error(t, EnsureDirs(afero.NewOsFs(), NewHomeMapper(), "../escape"))
 }

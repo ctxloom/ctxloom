@@ -116,46 +116,68 @@ func runMCPServerSet(cmd *cobra.Command, args []string) error {
 }
 
 // input is the patch the typed flags describe: an untyped flag is absent from
-// it, so the stored field is kept.
+// it, so the stored field is kept. Each flag is tested by its literal name in an
+// `if`, the one shape the acceptance flag-coverage census can credit.
 func (f *mcpServerSetFlags) input(fs *pflag.FlagSet) (operations.BundleMCPInput, error) {
-	named := func(flag string, v *string) *string {
-		if fs.Changed(flag) {
-			return v
-		}
-		return nil
-	}
-	in := operations.BundleMCPInput{
-		Command:      named("command", &f.command),
-		URL:          named("url", &f.url),
-		ServedBy:     named("served-by", &f.servedBy),
-		Notes:        named("notes", &f.notes),
-		Installation: named("installation", &f.installation),
-		Args:         namedList(fs, "arg", f.args),
-		Tags:         namedList(fs, "tag", f.tags),
-	}
-	var err error
-	if in.Env, err = namedPairs(fs, "env", f.env); err != nil {
-		return in, err
-	}
-	in.Headers, err = namedPairs(fs, "header", f.headers)
-	return in, err
+	in := f.scalars(fs)
+	f.lists(fs, &in)
+	return in, f.pairs(fs, &in)
 }
 
-// namedList is a typed repeatable flag's values with empty entries dropped, so
-// a lone "" sends an empty list, which clears; nil when the flag was not typed.
-func namedList(fs *pflag.FlagSet, flag string, vals []string) *[]string {
-	if !fs.Changed(flag) {
-		return nil
+// scalars is the patch's single-valued fields: the target and the metadata.
+func (f *mcpServerSetFlags) scalars(fs *pflag.FlagSet) operations.BundleMCPInput {
+	var in operations.BundleMCPInput
+	if fs.Changed("command") {
+		in.Command = &f.command
 	}
+	if fs.Changed("url") {
+		in.URL = &f.url
+	}
+	if fs.Changed("served-by") {
+		in.ServedBy = &f.servedBy
+	}
+	if fs.Changed("notes") {
+		in.Notes = &f.notes
+	}
+	if fs.Changed("installation") {
+		in.Installation = &f.installation
+	}
+	return in
+}
+
+// lists sets the patch's repeatable list fields.
+func (f *mcpServerSetFlags) lists(fs *pflag.FlagSet, in *operations.BundleMCPInput) {
+	if fs.Changed("arg") {
+		in.Args = nonEmptyList(f.args)
+	}
+	if fs.Changed("tag") {
+		in.Tags = nonEmptyList(f.tags)
+	}
+}
+
+// pairs sets the patch's NAME=value map fields.
+func (f *mcpServerSetFlags) pairs(fs *pflag.FlagSet, in *operations.BundleMCPInput) error {
+	var err error
+	if fs.Changed("env") {
+		if in.Env, err = namedPairs("env", f.env); err != nil {
+			return err
+		}
+	}
+	if fs.Changed("header") {
+		in.Headers, err = namedPairs("header", f.headers)
+	}
+	return err
+}
+
+// nonEmptyList is a typed repeatable flag's values with empty entries dropped,
+// so a lone "" sends an empty list, which clears.
+func nonEmptyList(vals []string) *[]string {
 	return new(slices.DeleteFunc(slices.Clone(vals), func(v string) bool { return v == "" }))
 }
 
 // namedPairs is a typed NAME=value flag as a map, split at the first "=" so a
-// value may contain one; empty entries are dropped as in namedList.
-func namedPairs(fs *pflag.FlagSet, flag string, vals []string) (*map[string]string, error) {
-	if !fs.Changed(flag) {
-		return nil, nil
-	}
+// value may contain one; empty entries are dropped as in nonEmptyList.
+func namedPairs(flag string, vals []string) (*map[string]string, error) {
 	out := map[string]string{}
 	for _, v := range vals {
 		if v == "" {

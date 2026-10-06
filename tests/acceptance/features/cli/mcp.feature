@@ -6,8 +6,8 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
   BUNDLE: composing a bundle that declares an `mcp:` server is what registers
   it, and that one registration is what every backend's own MCP configuration
   is generated from, and what an agent sees listed as a resource inside the
-  running session. `ctxloom mcp server` reads that roster; the only write it
-  offers is `edit`, which edits the bundle the server lives in.
+  running session. `ctxloom mcp server` reads that roster; its writes, `edit`
+  and `set`, change the bundle the server lives in.
 
   This is the comprehensive per-noun spec: what the noun DOES, leaf by leaf,
   including the refusals and the shapes that only matter to a machine. The
@@ -172,6 +172,71 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
       When I run "ctxloom mcp server edit demo#mcp/absent"
       Then the command fails
       And the output contains "not found"
+
+  Rule: Setting a bundle's server from flags changes exactly the fields passed
+
+    # `mcp server set` is a PATCH: a typed flag reaches the entry, an untyped
+    # one leaves the stored field alone, and an empty value clears. Each
+    # scenario therefore asserts both halves — the passed fields landed in the
+    # bundle file on disk, and a field nobody passed survived — because an
+    # implementation that rewrote the whole entry from the flags would satisfy
+    # the first half alone. A server's tags, notes and installation live in
+    # its `.<name>.meta.yaml` sidecar beside the runtime file. The output is
+    # SetBundleMCPResult (JSON off a terminal), whose status separates a new
+    # entry from a changed one.
+    Background:
+      Given an initialized ctxloom project
+      And the project already has the bundle "demo":
+        """
+        version: 1.0.0
+        description: mcp set fixture
+        mcp:
+            tools:
+                command: echo
+                args:
+                    - KEEP-THIS-ARGUMENT
+                notes: KEEP-THESE-NOTES
+        """
+
+    Scenario: A name the bundle lacks is created as a remote server
+      When I run "ctxloom mcp server set demo#mcp/search --url https://mcp.example.com/v1 --header X-Team=core --tag search-index --notes 'Team search index' --installation 'Ask core for a seat'"
+      Then the command succeeds
+      And the output reports "status" as "created"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/search.yaml" contains "url: https://mcp.example.com/v1"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/search.yaml" contains "X-Team: core"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/.search.meta.yaml" contains "search-index"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/.search.meta.yaml" contains "Team search index"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/.search.meta.yaml" contains "Ask core for a seat"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "KEEP-THIS-ARGUMENT"
+
+    # A repeatable flag REPLACES the stored list or map: the fixture's
+    # argument is gone, the notes nobody passed are not.
+    Scenario: Updating an existing server replaces its arguments and keeps what was not passed
+      When I run "ctxloom mcp server set demo#mcp/tools --command search-mcp --arg=--stdio --env LOG_LEVEL=debug"
+      Then the command succeeds
+      And the output reports "status" as "updated"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "command: search-mcp"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "--stdio"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "LOG_LEVEL: debug"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" does not contain "KEEP-THIS-ARGUMENT"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/.tools.meta.yaml" contains "KEEP-THESE-NOTES"
+
+    # Moving to another target means clearing the old one in the same call:
+    # an empty value is a clear, not an absence.
+    Scenario: Clearing the old target in the same call moves a server to the session endpoint
+      When I run "ctxloom mcp server set demo#mcp/tools --command= --arg= --served-by session-endpoint"
+      Then the command succeeds
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "served_by: session-endpoint"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" does not contain "echo"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" does not contain "KEEP-THIS-ARGUMENT"
+
+    # A server has exactly one target. A set that would leave two is refused
+    # and nothing is saved — the stored command is still the only target.
+    Scenario: A set that would leave two targets is refused and saves nothing
+      When I run "ctxloom mcp server set demo#mcp/tools --url https://mcp.example.com/v1"
+      Then the command fails
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" does not contain "mcp.example.com"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "command: echo"
 
   Rule: A server registered once reaches every engine in its own native configuration file
 

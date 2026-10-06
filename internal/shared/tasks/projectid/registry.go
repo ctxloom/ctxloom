@@ -9,6 +9,7 @@ package projectid
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -58,9 +59,11 @@ type registry struct {
 
 // Manager owns load/save of a single registry file with a cooperative lock,
 // mirroring sessions.Manager. All mutations go through its methods so the file
-// lock and in-memory state stay consistent.
+// lock and in-memory state stay consistent. The registry file is read and
+// saved through fs; the file lock is an OS lock and does not go through it.
 type Manager struct {
 	path string
+	fs   afero.Fs
 	mu   sync.Mutex
 }
 
@@ -77,7 +80,7 @@ func Open(override string) (*Manager, error) {
 		}
 		path = p
 	}
-	return &Manager{path: path}, nil
+	return &Manager{path: path, fs: afero.NewOsFs()}, nil
 }
 
 // load reads the registry from disk. Returns an empty registry if the file
@@ -89,8 +92,8 @@ func (m *Manager) load() (*registry, error) {
 }
 
 func (m *Manager) loadLocked() (*registry, error) {
-	data, err := os.ReadFile(m.path)
-	if errors.Is(err, os.ErrNotExist) {
+	data, err := afero.ReadFile(m.fs, m.path)
+	if errors.Is(err, fs.ErrNotExist) {
 		return &registry{}, nil
 	}
 	if err != nil {
@@ -118,7 +121,7 @@ func (m *Manager) saveLocked(reg *registry) error {
 	if err != nil {
 		return fmt.Errorf("marshal registry: %w", err)
 	}
-	return safefs.WriteFile(afero.NewOsFs(), m.path, data, 0o644)
+	return safefs.WriteFile(m.fs, m.path, data, 0o644)
 }
 
 // ResolveByPath returns a copy of the entry whose path matches projectDir, or

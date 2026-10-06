@@ -432,77 +432,22 @@ func TestReference_LocalRemoteName(t *testing.T) {
 	}
 }
 
-// TestExtractRepoName pins the name a remote is auto-registered under for every
-// address form. Shorthand and host-qualified addresses keep their slash-bearing
-// "owner/repo" spelling; URL and scp forms name the last path segment; one
-// trailing ".git" is dropped unless that would empty the name.
+// TestExtractRepoName pins the wrapper's own contract: it names a remote by the
+// grammar's naming renderer (refuri's TestRepoURL_Name holds the per-form
+// table), and an address that grammar refuses names nothing.
 func TestExtractRepoName(t *testing.T) {
 	tests := []struct {
 		name    string
 		repoURL string
 		want    string
 	}{
-		{"https", "https://github.com/owner/repo", "repo"},
-		{"https trailing slash", "https://github.com/owner/repo/", "repo"},
-		{"https .git", "https://github.com/owner/repo.git", "repo"},
-		{"https .git before trailing slash", "https://github.com/owner/repo.git/", "repo"},
-		{"http", "http://example.com/owner/my-repo", "my-repo"},
-		{"http trailing slash", "http://example.com/owner/my-repo/", "my-repo"},
-		{"https subgroups", "https://gitlab.com/group/subgroup/repo", "repo"},
-		{"https port", "https://host:8443/owner/repo.git", "repo"},
-		{"https userinfo", "https://user:pw@host/owner/repo", "repo"},
-		{"https query and fragment", "https://github.com/owner/repo?x=1#frag", "repo"},
-		{"https bare host", "https://github.com", ""},
-		{"https bare host trailing slash", "https://github.com/", ""},
-		{"https with neither host nor path", "https://", ""},
-		{"only one .git is dropped", "https://github.com/owner/repo.git.git", "repo.git"},
-		{".git inside the name is kept", "https://github.com/owner/repo.github.io", "repo.github.io"},
-		{"a name that is only .git is kept rather than emptied", "https://example.com/owner/.git", ".git"},
-		{"scp", "git@github.com:owner/repo", "repo"},
-		{"scp .git", "git@github.com:owner/repo.git", "repo"},
-		{"scp non-git user", "forge@gitlab.example.com:group/repo", "repo"},
-		{"scp subgroups .git", "git@gitlab.com:group/subgroup/repo.git", "repo"},
-		{"scp empty user", "@github.com:owner/repo", "repo"},
-		{"scp single segment", "git@github.com:repo", "repo"},
-		{"scp name that is only .git", "git@github.com:owner/.git", ".git"},
-		{"ssh URL", "ssh://git@github.com/owner/repo", "ssh/git/github.com/owner/repo"},
-		{"ssh URL .git", "ssh://git@github.com/owner/repo.git", "ssh/git/github.com/owner/repo"},
-		{"ssh URL port", "ssh://git@github.com:2222/owner/repo.git", "ssh/git/github.com/2222/owner/repo"},
-		{"ssh URL trailing slash", "ssh://github.com/owner/repo/", "ssh/github.com/owner/repo/"},
-		{"git URL", "git://example.com/owner/repo.git", "git/example.com/owner/repo"},
-		{"unparseable scheme URL", "unknown://weird:format", "unknown/weird/format"},
-		{"file", "file:///path/to/repo", "repo"},
-		{"file trailing slash", "file:///path/to/repo/", "repo"},
-		{"file .git", "file:///path/to/repo.git", "repo"},
-		{"file single segment", "file:///repo", "repo"},
-		{"file single segment .git", "file:///repo.git", "repo"},
-		{"file local bare repository", "file:///tmp/acceptance-elsewhere/remote.git", "remote"},
-		{"file with host", "file://localhost/srv/repo", "repo"},
-		{"file percent-encoded", "file:///srv/my%20repo", "my repo"},
-		{"shorthand", "owner/repo", "owner/repo"},
-		{"shorthand .git", "owner/repo.git", "owner/repo"},
-		{"shorthand trailing slash", "owner/repo/", "owner/repo/"},
-		{"shorthand .git before trailing slash", "owner/repo.git/", "owner/repo.git/"},
-		{"shorthand dotted repo", "owner/repo.js", "owner/repo.js"},
-		{"shorthand-shaped three segments", "a/b/c", "a/b/c"},
-		{"host-qualified", "github.com/owner/repo", "github.com/owner/repo"},
-		{"host-qualified .git", "github.com/owner/repo.git", "github.com/owner/repo"},
-		{"host-qualified trailing slash", "github.com/owner/repo/", "github.com/owner/repo/"},
-		{"host-qualified subgroups", "gitlab.com/group/subgroup/repo", "gitlab.com/group/subgroup/repo"},
-		{"host-qualified port", "gitlab.com:8080/group/repo", "gitlab.com/8080/group/repo"},
-		{"bare host", "gitlab.com", "gitlab.com"},
-		{"bare host .git", "example.com.git", "example.com"},
-		{"local sentinel", "ctxloom:local", "ctxloom/local"},
-		{"companion sentinel", "ctxloom:companion", "ctxloom/companion"},
-		{"opaque @ form", "ctxloom:local@bundles/x", "ctxloom/local/bundles/x"},
-		{"scp trailing slash", "git@github.com:owner/repo/", ""},
-		{"scp .git before trailing slash", "git@github.com:owner/repo.git/", ""},
-		{"surrounding whitespace", " https://github.com/owner/repo ", " https/github.com/owner/repo "},
-		{"bare word", "foo", "foo"},
-		{"absolute path", "/abs/path", "/abs/path"},
-		{"relative path", "./rel", "./rel"},
-		{"home-relative path", "~/x", "~/x"},
-		{"empty", "", ""},
+		{"URL form", "https://github.com/owner/repo.git", "repo"},
+		{"shorthand keeps owner/repo", "owner/repo", "owner/repo"},
+		{"refused bare word", "foo", ""},
+		{"refused absolute path", "/abs/path", ""},
+		{"refused relative path", "./rel", ""},
+		{"refused home-relative path", "~/x", ""},
+		{"refused empty", "", ""},
 	}
 
 	for _, tt := range tests {

@@ -344,15 +344,14 @@ func cloneHost(cloneURL string) string {
 // e.g., https://github.com/owner/repo → baseDir/github.com/owner/repo
 //
 // It is the FILESYSTEM renderer over the shared ParseRepoURL grammar
-// (RepoURL.CacheSegments). It used to re-parse normalizeCloneURL's output with
-// url.Parse and fall back to sanitizePath on error — which is why the scp form
-// keyed a "git/" user segment into the path, and why "git@host:owner/repo" and
-// "git@host:owner/repo.git" cached the SAME repository in two directories.
+// (RepoURL.CacheSegments), so every spelling of one repository — scp or https,
+// with or without ".git" — caches in ONE directory with no transport user
+// segment in its path.
 //
 // A degenerate/pathless URL (empty, ".", a bare scheme like
 // "https://") must not silently resolve to the cache root itself — see
-// safeRepoPath. Callers that used to discard this error and clone/RemoveAll
-// whatever came back must now handle it explicitly.
+// safeRepoPath. Callers must handle the error rather than clone or RemoveAll
+// whatever comes back.
 func (c *RepoCache) RepoDirForURL(repoURL string) (string, error) {
 	parsed, err := ParseRepoURL(repoURL)
 	if err != nil {

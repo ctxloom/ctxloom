@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -747,68 +746,13 @@ func (r *Reference) localRemoteName() string {
 	return ""
 }
 
-// sanitizePath makes a string safe for use in file paths.
-func sanitizePath(s string) string {
-	// Remove/replace problematic characters
-	s = strings.ReplaceAll(s, "://", "/")
-	s = strings.ReplaceAll(s, ":", "/")
-	s = strings.ReplaceAll(s, "@", "/")
-	return s
-}
-
-// ExtractRepoName extracts the repository name from a URL. One trailing
-// ".git" is dropped in every form: it is the bare-repository convention, not
-// part of the name, so an address and its ".git" spelling derive the same name.
-//
-// Examples:
-//
-//	https://github.com/owner/repo -> repo
-//	https://github.com/owner/repo.git -> repo
-//	https://github.com/owner/my-ctxloom-content -> my-ctxloom-content
-//	git@github.com:owner/repo.git -> repo
-//	file:///path/to/repo.git -> repo
+// ExtractRepoName derives the name a remote is auto-registered under from its
+// repository URL; refuri.RepoURL.Name owns the naming rule. It is "" for a URL
+// the repository grammar refuses.
 func ExtractRepoName(repoURL string) string {
-	var name string
-	switch {
-	case strings.HasPrefix(repoURL, "https://"), strings.HasPrefix(repoURL, "http://"):
-		name = lastURLPathComponent(repoURL)
-	case strings.HasPrefix(repoURL, "file://"):
-		name = lastURLPathComponent(repoURL)
-	case refuri.IsSCPForm(repoURL):
-		name = sshRepoName(repoURL)
-	default:
-		name = sanitizePath(repoURL)
-	}
-	// A name that is nothing but ".git" is kept: trimming it would leave an
-	// empty remote name.
-	if trimmed := strings.TrimSuffix(name, ".git"); trimmed != "" {
-		return trimmed
-	}
-	return name
-}
-
-// lastURLPathComponent returns the final path component of an http(s)/file URL
-// (the repo name), falling back to a sanitized form on parse failure.
-func lastURLPathComponent(repoURL string) string {
-	u, err := url.Parse(repoURL)
+	parsed, err := refuri.ParseRepoURL(repoURL)
 	if err != nil {
-		return sanitizePath(repoURL)
+		return ""
 	}
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) > 0 {
-		return parts[len(parts)-1]
-	}
-	return sanitizePath(repoURL)
-}
-
-// sshRepoName returns the repo name from a user@host:owner/repo URL.
-func sshRepoName(repoURL string) string {
-	re := regexp.MustCompile(`^[^@]*@[^:]+:(.+)$`)
-	if matches := re.FindStringSubmatch(repoURL); len(matches) == 2 {
-		parts := strings.Split(matches[1], "/")
-		if len(parts) > 0 {
-			return parts[len(parts)-1]
-		}
-	}
-	return sanitizePath(repoURL)
+	return parsed.Name()
 }

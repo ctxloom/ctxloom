@@ -50,6 +50,6 @@ TestAcceptanceMutation/bundle_sign            31         6  recorded
 TestAcceptanceMutation/trust_cascade          41        11  measured
 TestAcceptanceMutation/signer_store          138        83  stale
 TestAcceptanceMutation/isolation_axes         78        40  stale
-TestAcceptanceMutation/remote_registry         -         -  unknown
+TestAcceptanceMutation/remote_registry        80        12  measured
 TestTrustCascadeGuardMutation                  4         0  measured
 TestPackageMutation/isolation                761       110  measured

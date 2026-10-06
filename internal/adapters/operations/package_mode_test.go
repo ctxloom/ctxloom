@@ -25,7 +25,7 @@ func TestAssemblePackage_ARunnerFedPackageCarriesNoMailDrain(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	turnStart := func(reader sessions.MailReader) string {
 		pkg, err := AssemblePackage(context.Background(), cfg, PackageRequest{Mail: reader})
 		require.NoError(t, err)
@@ -48,7 +48,7 @@ func TestAssembler_HandsTheMailReaderToThePackage(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	snap := &config.Snapshot{Config: gatedFixture(config.Fixture{AppPaths: []string{appDir}})}
+	snap := &config.Snapshot{Config: config.NewFixture(config.Fixture{AppPaths: []string{appDir}})}
 	pkg, err := (&assembler{engines: engines.Registry()}).Assemble(context.Background(), snap, launch.Selection{Mail: sessions.MailByRunner})
 	require.NoError(t, err)
 	for _, h := range pkg.Hooks.Unified.TurnStart {

@@ -24,7 +24,7 @@ import (
 // ends up untracked by git (and invisible to `sign --all`).
 func TestCreateBundle_WritesToCommittedContentTree(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	res, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "authored"})
 	require.NoError(t, err)
@@ -55,7 +55,7 @@ func TestListLocalBundleNames_FindsContentTreeBundles(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(cacheDir, "remote.yaml"),
 		[]byte("version: 1.0.0\n_source:\n  sha: deadbeef\n"), 0o644))
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	names, err := ListLocalBundleNames(cfg, fs)
 	require.NoError(t, err)
@@ -119,7 +119,7 @@ func TestListLocalBundleNames_TreeBundleIsOneName(t *testing.T) {
 		"agent-ensemble/profiles/finder.yaml":      "description: finder\n",
 		"agent-ensemble/fragments/delegation.md":   "# delegation\n",
 	})
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	names, err := ListLocalBundleNames(cfg, fs)
 	require.NoError(t, err)
@@ -138,7 +138,7 @@ func TestListLocalBundleNames_TreeBundleWithNestedItemsIsOneName(t *testing.T) {
 		"humanizer/skills/humanize/meta.yaml": "kind: skill\n",
 		"humanizer/mcp/taskloom.yaml":         "command: taskloom\n",
 	})
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	names, err := ListLocalBundleNames(cfg, fs)
 	require.NoError(t, err)
@@ -158,7 +158,7 @@ func TestListLocalBundleNames_NestedTreeNamesSurvive(t *testing.T) {
 		"personal/foo/bundle.yaml":     "version: 1.0.0\n",
 		"personal/lang/go/bundle.yaml": "version: 1.0.0\n",
 	})
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	names, err := ListLocalBundleNames(cfg, fs)
 	require.NoError(t, err)
@@ -175,7 +175,7 @@ func TestListLocalBundleNames_AStrayDocumentIsNotEnumerated(t *testing.T) {
 		"converted/bundle.yaml":         "version: 1.0.0\n",
 		"converted/profiles/coder.yaml": "description: coder\n",
 	})
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	names, err := ListLocalBundleNames(cfg, fs)
 	require.NoError(t, err)

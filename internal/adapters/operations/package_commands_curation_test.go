@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -41,7 +40,7 @@ func curationCfg(t *testing.T, defaults []string, defs map[string]config.Profile
 		seed[name] = p
 	}
 	bundletree.WriteDirProfiles(t, fs, appDir, seed)
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: defaults}},
@@ -175,22 +174,9 @@ func TestLoadCommandExports_CuratedForceEnablesOptOut(t *testing.T) {
 	assert.True(t, found, "the curated prompt must reach the backend export set")
 }
 
-// promptRawHash is the effective-content hash of a no-distill prompt body
-// (preferDistilled true ⇒ raw bytes), the value the gate keys on.
-func promptRawHash(body string) string {
-	p := bundles.BundleCommand{
-		ItemBody: bundles.ItemBody{
-			Content: body,
-		},
-	}
-	h, _ := p.EffectiveContentHash(true)
-	return h
-}
-
-// TestLoadCommandExports_CuratedVersionPinnedAndGated proves a curated prompt
-// pinned to "@<commit>" exports that historical version, and that the export is
-// gated by the pinned version's own content hash (a deny withholds it).
-func TestLoadCommandExports_CuratedVersionPinnedAndGated(t *testing.T) {
+// TestLoadCommandExports_CuratedVersionPinned proves a curated prompt pinned to
+// "@<commit>" exports that historical version.
+func TestLoadCommandExports_CuratedVersionPinned(t *testing.T) {
 	resolver := func(_canonical, commit string, _ trust.TrustRoot) (*bundles.Bundle, error) {
 		if commit != "c1" {
 			t.Fatalf("unexpected commit %q", commit)
@@ -205,9 +191,6 @@ func TestLoadCommandExports_CuratedVersionPinnedAndGated(t *testing.T) {
 		"p": {Commands: []string{"dev-tools#commands/review@c1"}},
 	})
 
-	// Gate granting exactly the pinned version's hash → exported as that version.
-	want := promptRawHash("V1-PINNED")
-	cfg.BindTrustForTesting(hashTrust(want))
 	prompts := commandsOf(t, withResolver(cfg, resolver), nil)
 	require.Equal(t, []string{"review"}, bundlePromptItems(prompts))
 	for _, p := range prompts {
@@ -215,10 +198,4 @@ func TestLoadCommandExports_CuratedVersionPinnedAndGated(t *testing.T) {
 			assert.Equal(t, "V1-PINNED", p.Body, "the pinned historical version is exported, not the default")
 		}
 	}
-
-	// Gate denying the pinned version → withheld, so no bundle prompt exports
-	// (fail-closed; only builtins remain).
-	cfg.BindTrustForTesting(compositetest.Trust(compositetest.RejectAll()))
-	denied := commandsOf(t, withResolver(cfg, resolver), nil)
-	assert.Empty(t, bundlePromptItems(denied), "an un-granted pinned curated version must be withheld")
 }

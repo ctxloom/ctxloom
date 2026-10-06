@@ -63,7 +63,7 @@ func loaderWith(t *testing.T, names ...string) *profiles.Loader {
 		defs[n] = map[string]any{"description": "seeded"}
 	}
 	bundletree.WriteDirProfiles(t, fs, appDir, defs)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	cfg.SetFS(fs)
 	return cfg.GetProfileLoader()
 }

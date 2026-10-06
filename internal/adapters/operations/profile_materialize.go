@@ -138,9 +138,6 @@ func registeredBackend(reg engine.Registry, name string) (string, error) {
 // ("partial success is success"). Bad arguments and a failed context assembly
 // (the core payload) stay hard errors regardless of mode.
 func MaterializeProfile(ctx context.Context, reg engine.Registry, cfg *config.Config, req MaterializeProfileRequest) (*MaterializeProfileResult, error) {
-	if _, err := cfg.RequireTrust(); err != nil {
-		return nil, fmt.Errorf("materialize: %w", err)
-	}
 	backend, err := resolveMaterializeTarget(reg, cfg, req)
 	if err != nil {
 		return nil, err
@@ -219,9 +216,6 @@ func MaterializeProfile(ctx context.Context, reg engine.Registry, cfg *config.Co
 		return nil, fmt.Errorf("materialize: no engine kind is composed for %s", backend)
 	}
 	deliverMaterialized(ctx, fs, cfg, kind, pkg, res)
-
-	// Surface (content-free) any executable the trust gate withheld.
-	WarnWithheldBy(cfg.ExecutableTrustGate())
 	return res, nil
 }
 

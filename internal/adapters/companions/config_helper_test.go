@@ -7,17 +7,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // companionSources is a config.Sources over a fixture whose readers are what
 // the composition root wires — project, builtin and every discovered
-// companion's loadout — with the test's own trust ports.
+// companion's loadout.
 type companionSources struct {
-	cfg   *config.Config
-	ports []compositetest.Option
+	cfg *config.Config
 }
 
 func (s companionSources) Read(context.Context) (*config.Config, []config.Warning, error) {
@@ -25,24 +23,22 @@ func (s companionSources) Read(context.Context) (*config.Config, []config.Warnin
 }
 
 func (s companionSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.Trust().Root()
+	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
 	}
 	return append(readers, Prober{}.ReaderSource()(cfg)...), nil
 }
 
-func (s companionSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
-	root, records, retraction := compositetest.Ports(s.ports...)
-	return root, records, retraction, nil
+func (s companionSources) TrustRoot(context.Context, *config.Config) (trust.TrustRoot, error) {
+	return trust.NoSigners{}, nil
 }
 
 // companionConfig publishes f through a real config.Owner whose generation
-// carries the companion reader and a Trust over the given fake ports (none:
-// a companion's own loadout is admitted by locality), and returns its Config.
-func companionConfig(t *testing.T, f config.Fixture, ports ...compositetest.Option) *config.Config {
+// carries the companion reader, and returns its Config.
+func companionConfig(t *testing.T, f config.Fixture) *config.Config {
 	t.Helper()
-	owner, err := config.Open(context.Background(), companionSources{cfg: config.NewFixture(f), ports: ports})
+	owner, err := config.Open(context.Background(), companionSources{cfg: config.NewFixture(f)})
 	require.NoError(t, err)
 	return owner.Current().Config
 }

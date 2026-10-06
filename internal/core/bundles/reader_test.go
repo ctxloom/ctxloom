@@ -18,11 +18,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -333,12 +331,8 @@ func TestNewCompanionReader_UnparseableLoadoutIsWarnedAndSkipped(t *testing.T) {
 // it lets an attacker downgrade signed content to merely-reviewable content by
 // corrupting a `.sig`.
 //
-// The READ still reports it — no reader drops, and a bundle nobody can see is a
-// bundle nobody can diagnose — and the PROCESS stage withholds every item in it.
-// That is the half asserted here: the read carries remote|invalid honestly, the
-// delivery path answers ErrFragmentWithheld, and the withhold raises a trust
-// finding rather than vanishing. The production decision that returns
-// ReasonTampered lives in internal/adapters/operations and is pinned there.
+// The READER refuses it against the signed manifest and raises a finding, so
+// there is no read for any later stage to deliver.
 func TestLoader_RemoteTamperedTreeIsRefusedNotDegradedToUnsigned(t *testing.T) {
 	strictness.Reset()
 	t.Cleanup(strictness.Reset)
@@ -356,7 +350,7 @@ func TestLoader_RemoteTamperedTreeIsRefusedNotDegradedToUnsigned(t *testing.T) {
 	// nowhere downstream to be mishandled.
 	assert.Empty(t, l.Reads(), "a tree whose files moved must never become content")
 
-	pipe := NewPipeline(l, signatureRowsAuthorizer(), LinksUnchecked(), false)
+	pipe := admitAllPipe(l, false)
 	_, ferr := pipe.GetFragment(ref + "#fragments/keeper")
 	require.Error(t, ferr, "and it must not resolve as an unsigned bundle awaiting review")
 
@@ -376,25 +370,18 @@ func TestLoader_RemoteTamperedTreeIsRefusedNotDegradedToUnsigned(t *testing.T) {
 			"(this also proves the fixture actually tampered, so the assertion above cannot pass vacuously)")
 }
 
-// local | invalid | trusted -> ADMIT + WARN. The author edited and did not
-// re-sign: their content is theirs and still arrives, and they are told at the
-// moment it stopped being publishable rather than at publish time.
-func TestLoader_LocalInvalidSignatureIsAdmittedAndTheAuthorIsTold(t *testing.T) {
+// local | invalid | trusted -> DELIVERED. The author edited and did not
+// re-sign: their content is theirs and still arrives.
+func TestLoader_LocalInvalidSignatureIsDelivered(t *testing.T) {
 	fsys, dir, root := stageSignedTree(t, "/bundles", "KEEPER-PAYLOAD")
 	mutateAnItemFile(t, fsys, dir)
 
-	var warnings bytes.Buffer
-	restore := clidiag.SetSink(&warnings)
-	t.Cleanup(restore)
-	pipe := NewPipeline(NewLoader(NewProjectReader(fsys, []string{"/bundles"}, WithTrustRoot(root), WithReaderReporter(ledger()))).WithReporter(ledger()),
-		signatureRowsAuthorizer(), LinksUnchecked(), false)
+	pipe := admitAllPipe(NewLoader(NewProjectReader(fsys, []string{"/bundles"}, WithTrustRoot(root), WithReaderReporter(ledger()))).WithReporter(ledger()), false)
 
 	lc, err := pipe.GetFragment(verifyTreeName + "#fragments/house-style")
 
-	require.NoError(t, err, "locality already answered the trust question; a stale manifest cannot withhold")
+	require.NoError(t, err, "a stale manifest cannot withhold local content")
 	assert.Contains(t, lc.Content, "KEEPER-PAYLOAD")
-	assert.Contains(t, warnings.String(), content.ManifestPath)
-	assert.Contains(t, warnings.String(), "ctxloom bundle sign "+verifyTreeName, "the warning must name the command that fixes it")
 }
 
 // captureWarnings returns a reader option that funnels a reader's diagnostics

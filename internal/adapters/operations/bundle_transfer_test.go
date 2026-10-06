@@ -25,7 +25,7 @@ func memBundleFS(t *testing.T) (afero.Fs, *config.Config) {
 	bdir := authoredV1(appDir)
 	require.NoError(t, fs.MkdirAll(bdir, 0755))
 	bundletree.Write(t, fs, bdir, "seed", "version: 1.0.0\nfragments:\n  a:\n    content: hi\n")
-	return fs, gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 func TestExportBundle_ToDestDir(t *testing.T) {
@@ -49,7 +49,7 @@ func TestExportBundle_RequiresDestination(t *testing.T) {
 
 func TestImportBundle_RoundTrip(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 	src := "/incoming/incoming"
 	bundletree.Write(t, fs, "/incoming", "incoming", "version: 1.0.0\nfragments:\n  a:\n    content: hi\n")
 
@@ -79,7 +79,7 @@ func TestImportBundle_RoundTrip(t *testing.T) {
 // reproduce byte-for-byte would prove nothing.
 func TestImportBundle_WritesTheSourceBytesVerbatim(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 	src := "/incoming/verbatim"
 	body := "# a comment no re-emission keeps\nversion: 1.0.0\ndescription: last\n"
 	testsupport.WriteFileString(t, fs, filepath.Join(src, bundles.DirectoryFormManifest), body, 0644)
@@ -95,7 +95,7 @@ func TestImportBundle_WritesTheSourceBytesVerbatim(t *testing.T) {
 
 func TestImportBundle_InvalidFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 	src := "/bad"
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(src, bundles.DirectoryFormManifest), []byte("\tnot: [valid"), 0644))
 
@@ -112,7 +112,7 @@ func TestImportBundle_InvalidFile(t *testing.T) {
 func TestImportBundle_WritesToCommittedContentTree(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	require.NoError(t, afero.WriteFile(fs, "/in/imported/bundle.yaml", []byte("version: 1.0.0\n"), 0644))
 
 	res, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: "/in/imported", FS: fs})

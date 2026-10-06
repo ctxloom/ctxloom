@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
@@ -17,41 +18,21 @@ import (
 // middle").
 //
 // The read stage — Loader — REPORTS. It resolves an ask to every candidate it
-// holds, attaches the trust FACTS it established while reading (the gate ref
-// the item is addressed by, and the bundle's verified publisher identity), and
-// drops nothing on policy grounds. It has no gate and no opinion about which
-// items are admissible.
-//
-// Pipeline is the stage that decides. It applies the trust gate to the bytes
-// the read reported, tallies what it withheld, and hands the survivor on. Two
-// consequences are the point of the split:
-//
-//   - "Is this exposure gated" is a property of the PIPELINE, not of the
-//     reader. One Loader serves management, listing and exposure alike;
-//     management and listing read candidates straight off the Loader, and
-//     every delivery wraps it in a Pipeline, which always decides.
-//   - The authorizer can no longer be forgotten by OMISSION. A caller holding a
-//     Loader cannot reach an exposed body at all — Loader's read methods are
-//     named Read* and return candidate sets, and every delivery-shaped Get*
-//     lives here. A pipeline built with a nil authorizer delivers nothing
-//     (see Decide), and no production authorizer admits everything.
-//
-// FAIL-CLOSED is preserved verbatim and is the Authorizer's own contract: a resolve
-// or store error inside it withholds, and a withheld verdict here means the
-// item is not delivered. This stage adds no arm that can turn an error into an
-// exposure — an item is admitted only when the authorizer positively says so.
+// holds and drops nothing on policy grounds. Pipeline is the stage that
+// processes: it picks the layout form to serve, withholds an item linked to an
+// MCP server the run was not granted, tallies what it withheld, and hands the
+// survivor on. One Loader serves management, listing and exposure alike;
+// every delivery-shaped Get* lives here.
 
 // Pipeline pairs a read stage (a *Loader) with the process stage's two
-// policies: which Authorizer decides admissibility, and which layout form to
+// policies: which linked groups are deliverable, and which layout form to
 // serve.
 type Pipeline struct {
-	loader     *Loader
-	authorizer Authorizer
+	loader *Loader
 
 	// links decides whether a LINKED item's group is deliverable to this run
-	// (see LinkGrant). Like authorizer it is a stated policy: a surface that
-	// does not assemble a run passes LinksUnchecked, and nil is an omission
-	// that withholds every linked item.
+	// (see LinkGrant). A surface that does not assemble a run passes
+	// LinksUnchecked, and nil is an omission that withholds every linked item.
 	links LinkGrant
 
 	// preferDistilled is the caller's raw-vs-distilled choice, held HERE
@@ -67,11 +48,9 @@ type Pipeline struct {
 
 // NewPipeline builds the process stage over loader. A surface that does not
 // assemble a run passes LinksUnchecked — a deliberate statement, spelled as a
-// value. A nil
-// authorizer is an omission, and this pipeline then delivers nothing; a nil
-// links grant is the same omission for every linked item.
-func NewPipeline(loader *Loader, authorizer Authorizer, links LinkGrant, preferDistilled bool) *Pipeline {
-	return &Pipeline{loader: loader, authorizer: authorizer, links: links, preferDistilled: preferDistilled}
+// value; a nil links grant withholds every linked item.
+func NewPipeline(loader *Loader, links LinkGrant, preferDistilled bool) *Pipeline {
+	return &Pipeline{loader: loader, links: links, preferDistilled: preferDistilled}
 }
 
 // Loader returns the read stage this pipeline processes. Callers that need
@@ -85,20 +64,10 @@ func (p *Pipeline) Loader() *Loader {
 	return p.loader
 }
 
-// Authorizer returns the authorizer this pipeline decides with. Lets a caller
-// that must decide about OTHER items through the IDENTICAL decision share
-// this authorizer rather than building a redundant one.
-func (p *Pipeline) Authorizer() Authorizer {
-	if p == nil {
-		return nil
-	}
-	return p.authorizer
-}
-
 // PreferDistilled reports the form preference this pipeline serves.
 func (p *Pipeline) PreferDistilled() bool { return p != nil && p.preferDistilled }
 
-// Withheld returns the item refs this pipeline's authorizer withheld over its
+// Withheld returns the item refs this pipeline withheld over its
 // lifetime, deduplicated and sorted. Empty when nothing was
 // withheld. Callers surface the COUNT (or the refs) so the user knows content
 // was hidden; returning refs and never bodies keeps the disclosure
@@ -117,26 +86,16 @@ func (p *Pipeline) Withheld() []string {
 	return out
 }
 
-// admit reports whether these bytes may be delivered, recording the ref when
-// they may not and SURFACING a verdict that admits with a warning. A nil
-// authorizer delivers nothing.
-//
-// The authorizer is handed the EXACT bytes about to be exposed (pre-mustache)
-// rather than a hash: a hash can only be compared against a recorded hash, and a
-// recorded hash is a file anything can write, while bytes can be VERIFIED
-// against a signature (spec §9.3, trap #2).
-//
-// Decide is where the ref is parsed, the authorizer is consulted, and whatever the
-// verdict obliges the caller to say gets said. All this adds is the tally: a
-// withheld ref is recorded so the caller can report "N withheld" without leaking
-// content.
-func (p *Pipeline) admit(read BundleRead, ref string, payload []byte, form ContentForm) bool {
-	v := Decide(p.loader.cat.rep, p.authorizer, read, ref, payload, form)
-	if v.Allow {
-		return true
+// addressable reports whether ref parses in the canonical bundle-reference
+// grammar. An item nothing can address is a load error: it is named, tallied,
+// and not delivered.
+func (p *Pipeline) addressable(ref string) bool {
+	if _, err := trust.ParseBundleRef(ref); err != nil {
+		p.loader.cat.rep.Warnf("withheld %s: its ref could not be parsed: %v", ref, err)
+		p.recordWithheld(ref)
+		return false
 	}
-	p.recordWithheld(ref)
-	return false
+	return true
 }
 
 // recordWithheld tallies a ref this pipeline did not deliver (deduplicated,
@@ -162,26 +121,16 @@ func (p *Pipeline) withholdLinked(ref, linkID, server string) {
 }
 
 // deliver is the process stage in one function: RESOLVE a form from everything
-// the read reported, then decide whether that resolution may be exposed.
-// Returns nil when it may not.
-//
-// The two steps are here, in this order, and nowhere else. Resolving first is
-// what makes the gate's decision cover the bytes actually served — a grant
-// binds the PAIR (bytes, form), so a raw-form approval must never validate a
-// distilled exposure. The gate is handed the resolution's PREIMAGE, not its
-// body: for a fragment those differ (the preimage frames the premise too), and
-// a gate that saw only the body would let the premise reach the agent
-// unsigned.
+// the read reported, then withhold it if it is unaddressable or linked to an
+// ungranted server. Returns nil when it is withheld.
 func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 	if r == nil {
 		return nil
 	}
 	s := r.Resolve(p.preferDistilled)
-	if !p.admit(r.Read, r.TrustRef, s.Preimage, s.Form) {
+	if !p.addressable(r.TrustRef) {
 		return nil
 	}
-	// Trust decided first, so a trust withhold is reported as one; links are
-	// the second question, asked only of an item trust would deliver.
 	if id, server, withheld := p.linkWithholds(r.Read, r.Tags); withheld {
 		p.withholdLinked(r.TrustRef, id, server)
 		return nil
@@ -208,26 +157,15 @@ func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 	}
 }
 
-// admitSkill is admit for a resolved skill package. A skill's preimage is its
-// package manifest, not a single body blob, taken from the same parse its
-// files were read by — so what the gate decides on is exactly what is
-// delivered.
+// admitSkill reports whether a resolved skill package may be delivered: it
+// exists and its ref is addressable.
 func (p *Pipeline) admitSkill(ls *LoadedSkill) bool {
-	if ls == nil {
-		return false
-	}
-	return p.admit(ls.Read, ls.TrustRef, ls.TrustPayload, FormRaw)
+	return ls != nil && p.addressable(ls.TrustRef)
 }
 
 // deliverSkill is the process stage for a skill package: ADMIT the package,
 // then SELECT the body an engine receives. Returns nil when the package may
 // not be delivered.
-//
-// Admission comes first and covers the WHOLE package. A skill's preimage is
-// its manifest, which names every body the package carries, so the gate has
-// already decided on the bytes of whichever body is selected here — unlike a
-// command, where the selected bytes ARE the preimage and selection must
-// therefore precede the gate (deliver).
 //
 // Selection only PREFERS, like BundleFragment.Resolve: a package with no
 // distilled body serves raw. What it never does is deliver both bodies or an
@@ -272,10 +210,9 @@ func (p *Pipeline) deliverSkill(ls *LoadedSkill) *LoadedSkill {
 	return &out
 }
 
-// firstAdmissible returns the first candidate the gate admits, gating every
-// earlier one on the way (so each rejection is tallied). A withheld match does
-// not end the scan — a trusted copy of the same bare name in another bundle
-// still wins. found reports whether the read produced any candidate at all,
+// firstAdmissible returns the first candidate the pipeline delivers, tallying
+// every earlier withhold on the way. A withheld match does not end the scan —
+// a deliverable copy of the same bare name in another bundle still wins. found reports whether the read produced any candidate at all,
 // which is what separates "withheld" from "not found".
 func (p *Pipeline) firstAdmissible(reads []*ItemRead) (lc *LoadedContent, found bool) {
 	for _, cand := range reads {
@@ -331,7 +268,7 @@ func (p *Pipeline) CommandsFromBundleRef(bundleRef string) []*LoadedContent {
 	return deliverEach(p.loader.ReadBundleCommands(bundleRef), p.deliver)
 }
 
-// deliverEach runs one item's delivery gate over a bundle's reads and keeps
+// deliverEach runs one item's delivery step over a bundle's reads and keeps
 // what it lets through. A nil read set is returned as nil, never an empty
 // slice: the reader could not resolve the bundle at all (and already warned),
 // and "this bundle would not load" must stay distinguishable from "this
@@ -350,9 +287,8 @@ func deliverEach[R, D any](reads []*R, deliver func(*R) *D) []*D {
 }
 
 // GetFragmentAtVersion resolves a fragment from a specific commit-version of
-// its bundle, gated by THAT version's own bytes — so each historical version
-// is trusted or withheld independently. A fetch/parse failure surfaces as a
-// resolve error; both it and a gate denial withhold only that version.
+// its bundle. A fetch/parse failure surfaces as a resolve error and withholds
+// only that version.
 func (p *Pipeline) GetFragmentAtVersion(ref, commit string) (*LoadedContent, error) {
 	reads, err := p.loader.ReadFragmentAtVersion(ref, commit)
 	if err != nil {
@@ -385,15 +321,14 @@ func (p *Pipeline) GetPromptAtVersion(ref, commit string) (*LoadedContent, error
 }
 
 // ResolveFragmentVersions resolves the fragment named by ref at each requested
-// commit (use "" for the lockfile-pinned default), gating each version
+// commit (use "" for the lockfile-pinned default), resolving each version
 // independently and collapsing versions whose delivered bytes are identical to
 // a single item. It is the multi-version coexistence primitive: several
-// commit-versions of one ref carried in one assembly, each its own decision.
+// commit-versions of one ref carried in one assembly.
 //
-//   - A version the gate withholds, or that failed to fetch/parse, is DROPPED
-//     (fail-closed) — the surviving versions still resolve, so a blacklisted
-//     v2 vanishes while a trusted v1 remains.
-//   - Dedup runs AFTER gating, on the exact bytes the gate decided on, keeping
+//   - A version that is withheld, or that failed to fetch/parse, is DROPPED —
+//     the surviving versions still resolve.
+//   - Dedup runs AFTER withholding, on the exact bytes delivered, keeping
 //     the FIRST requested commit's resolution.
 //
 // Results preserve request order. Withheld versions are tallied through
@@ -438,7 +373,7 @@ func (p *Pipeline) GetSkill(name string) (*LoadedSkill, error) {
 
 // ListAllSkills lists every Agent Skill package that may be delivered, across
 // every bundle. An exposure surface's listing must not advertise a package it
-// would then withhold, so the gate runs here too.
+// would then withhold, so the same admission runs here too.
 func (p *Pipeline) ListAllSkills() ([]SkillInfo, error) {
 	skills, err := p.loader.ReadAllSkills()
 	if err != nil {
@@ -460,8 +395,7 @@ func (p *Pipeline) SkillsFromBundleRef(bundleRef string) []*LoadedSkill {
 }
 
 // AdmittedInit is one companion's INIT loadout as this pipeline delivers it:
-// the companion's ref, and the typed fields the gate admitted — a withheld
-// field is blank, never a stale copy.
+// the companion's ref and its typed setup-time fields.
 type AdmittedInit struct {
 	// Ref is the companion's bundle ref (ctxloom:companion@<bin>), the source
 	// a consumer attributes each field to.
@@ -470,16 +404,8 @@ type AdmittedInit struct {
 }
 
 // InitLoadouts is the process stage for the INIT half of every companion
-// loadout the catalog read: the typed setup-time fields, ADMITTED through the
-// same gate as every session-time item, in ref order.
-//
-// Setup guidance and tooling text are exposure surfaces — text that reaches
-// an agent with tool access, or steers a Containerfile edit — so they ride
-// the same decision the RUN bundle's items do. The INIT section has no item
-// kind of its own: each field is decided under the companion's BUNDLE ref
-// with the field's own bytes as the payload, which is enough for the cascade
-// that matters here — a human's rejection (by ref or by bytes) beats the
-// companion exemption, and everything else admits as companion content.
+// loadout the catalog read: the typed setup-time fields, in ref order. The
+// companion binary that produced them was admitted at exec (companion allow).
 // Companions that declare no INIT section are skipped, not reported.
 func (p *Pipeline) InitLoadouts() []AdmittedInit {
 	var out []AdmittedInit
@@ -487,18 +413,7 @@ func (p *Pipeline) InitLoadouts() []AdmittedInit {
 		if read.Provenance != ProvenanceCompanion || read.Init.IsZero() {
 			continue
 		}
-		ref := string(read.Key())
-		init := read.Init
-		if init.SetupGuidance != "" && !p.admit(read, ref, []byte(init.SetupGuidance), FormRaw) {
-			init.SetupGuidance = ""
-		}
-		if init.Tooling != "" && !p.admit(read, ref, []byte(init.Tooling), FormRaw) {
-			init.Tooling = ""
-		}
-		if init.IsZero() {
-			continue
-		}
-		out = append(out, AdmittedInit{Ref: ref, Init: init})
+		out = append(out, AdmittedInit{Ref: string(read.Key()), Init: read.Init})
 	}
 	return out
 }

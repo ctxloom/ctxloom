@@ -4,12 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/spf13/afero"
 )
 
@@ -24,11 +19,6 @@ type DistillBundleFileRequest struct {
 	// Store, when non-nil, is the bundle storage adapter the result is saved
 	// through (ADR 0026); nil defaults to the filesystem.
 	Store bundles.Store `json:"-"`
-
-	// Cfg locates the countersignature stores consulted for the re-distill
-	// invalidation report (spec §10.4, DistillBundleFileResult.Invalidated).
-	// Optional: nil still checks the default (real OS / HOME) stores.
-	Cfg *config.Config `json:"-"`
 }
 
 // DistillBundleItemStatus is an item's per-file distill outcome.
@@ -61,14 +51,6 @@ type DistillBundleFileResult struct {
 	Path  string              `json:"path"`
 	Items []DistillBundleItem `json:"items"`
 	Saved bool                `json:"saved"`
-
-	// Invalidated lists the "<kind>/<name>" of every item in this file whose
-	// DISTILLED bytes just changed AND had a prior approve countersignature
-	// recorded over the distilled form — that approval no longer verifies
-	// (the bytes it covered no longer exist), so the item is back to pending
-	// (spec §10.4). This is the re-distill LOUD PATH: report it at the moment
-	// it is caused, not silently at the next `ctxloom review`.
-	Invalidated []string `json:"invalidated,omitempty"`
 }
 
 // DistillBundleFile distills every distillable item in a bundle tree — named by
@@ -137,7 +119,6 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 			return nil, fmt.Errorf("save %s: %w", req.Path, err)
 		}
 		res.Saved = true
-		res.Invalidated = invalidatedByDistill(req.Cfg, bundle.Name, res.Items)
 	}
 	return res, nil
 }
@@ -162,60 +143,6 @@ func anyDistilled(items []DistillBundleItem) bool {
 		}
 	}
 	return false
-}
-
-// invalidatedByDistill checks each successfully-DISTILLED item against the
-// countersignature stores' sidecar index (display-only) for a prior approve
-// record over the DISTILLED form: presence proves invalidation (see
-// countersign.Records.HadPriorApprove). bundleName addresses this as a LOCAL
-// bundle (ctxloom:local) — the addressing `bundle distill <path>` operates
-// under; best-effort and never errors.
-func invalidatedByDistill(cfg *config.Config, bundleName string, items []DistillBundleItem) []string {
-	records := buildCountersignRecords(cfg, nil, nil, nil, nil)
-	var out []string
-	for _, it := range items {
-		if it.Status != DistillStatusDistilled {
-			continue
-		}
-		tKind, ok := distillItemKindToTrust(it.Kind)
-		if !ok {
-			continue
-		}
-		ref := trust.Ref{Bundle: bundleName, Kind: tKind, Name: it.Name, IsLocal: true}
-		refStr, refErr := countersign.CountersignRef(ref)
-		if refErr != nil {
-			// Cannot address it → it has no recorded approval to invalidate,
-			// and the gate withholds it regardless. Say so and move on; one
-			// unaddressable item must not cost the rest of the report.
-			clidiag.Warn("ctxloom", "distill: cannot address %s/%s to check its approval: %v", it.Kind, it.Name, refErr)
-			continue
-		}
-		prior, err := records.HadPriorApprove(refStr, signing.FormDistilled)
-		if err != nil {
-			// Cannot tell whether this item had a prior approval — say so and
-			// list it anyway. Over-warning costs a re-review; under-warning
-			// leaves a signature the user believes still covers these bytes.
-			clidiag.Warn("ctxloom", "distill: cannot read the approvals index for %s/%s, assuming its approval is invalidated: %v", it.Kind, it.Name, err)
-			prior = true
-		}
-		if prior {
-			out = append(out, string(it.Kind)+"/"+it.Name)
-		}
-	}
-	return out
-}
-
-// distillItemKindToTrust maps operations.ItemKind onto trust.ItemKind (the
-// two kinds distill touches: fragment, command/prompt).
-func distillItemKindToTrust(k ItemKind) (trust.ItemKind, bool) {
-	switch k {
-	case ItemKindFragment:
-		return trust.KindFragment, true
-	case ItemKindCommand:
-		return trust.KindPrompt, true
-	default:
-		return "", false
-	}
 }
 
 // planBundleItemDistill returns a skip item (and ok=true) when an item should be

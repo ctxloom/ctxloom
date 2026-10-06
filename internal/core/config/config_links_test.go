@@ -14,11 +14,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/testsupport/admitall"
 )
 
 // writeLinkedBundleFixture lays down one bundle whose session_start hook is
@@ -53,7 +51,6 @@ hooks:
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"with"}}},
 		appPaths: []string{appDir},
 	}
-	cfg.BindTrustForTesting(compositetest.Trust())
 	return cfg
 }
 
@@ -96,11 +93,11 @@ func TestExtractHooksFromBundle_NilLinkGrantWithholdsLinkedHooksOnly(t *testing.
 		PreTool:      []bundles.BundleHook{{Command: "free-guard"}},
 	})
 
-	got := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), admitall.Authorizer(), nil)
+	got := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), nil)
 	assert.Empty(t, hookCommands(got.SessionStart))
 	assert.Equal(t, []string{"free-guard"}, hookCommands(got.PreTool))
 
-	unchecked := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), admitall.Authorizer(), bundles.LinksUnchecked())
+	unchecked := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), bundles.LinksUnchecked())
 	assert.Equal(t, []string{"think-warmup"}, hookCommands(unchecked.SessionStart))
 }
 

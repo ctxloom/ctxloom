@@ -321,7 +321,7 @@ func entryFingerprint(e allowedsigners.Entry) string {
 // (embedded defaults, user store, project store — spec §7), each tagged
 // with the store it came from. Malformed lines are silently omitted (they
 // grant no trust and Parse already reports them via clidiag warnings at
-// config load time — cfg.Trust().Root() is the load-bearing union; this
+// config load time — cfg.TrustRoot() is the load-bearing union; this
 // function is display-only and re-parses the same files to retain
 // per-entry Source tagging that Union collapses).
 //

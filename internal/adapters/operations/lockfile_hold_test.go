@@ -21,7 +21,7 @@ func TestActiveLockfileHold(t *testing.T) {
 
 	mkCfg := func(t *testing.T) *config.Config {
 		t.Helper()
-		return gatedFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
+		return config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 	}
 
 	readActive := func(t *testing.T, cfg *config.Config) *remote.Lockfile {

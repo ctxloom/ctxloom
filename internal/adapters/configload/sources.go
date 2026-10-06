@@ -22,12 +22,10 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/schema"
 	"github.com/ctxloom/ctxloom/resources"
@@ -235,12 +233,12 @@ func (s *Sources) target(fs afero.Fs) (string, config.ConfigSource) {
 
 // Readers are the bundle sources of cfg's generation, in precedence order —
 // verifying against the generation's trust root, which the Owner binds
-// (TrustPorts runs first) before it asks for them —
+// (TrustRoot runs first) before it asks for them —
 // a later reader wins a name collision, so pinned remote content shadows a
 // stale extracted copy on disk and a companion's own ref, which nothing else
 // can claim, comes last.
 func (s *Sources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.Trust().Root()
+	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root), bundles.WithReaderReporter(cfg.Reporter())),
 	}
@@ -250,39 +248,9 @@ func (s *Sources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Read
 	return append(readers, s.extraReaders...), nil
 }
 
-// TrustPorts builds the three ports the generation's Trust decides with,
-// each read ONCE for cfg: the trust root (the embedded signers minus the
-// distrusted ones, unioned with the user's and the project's allowed_signers),
-// the review records (the user's and the project's countersignature stores)
-// and the retraction records (the lockfile). There is no option to leave one
-// out: a generation with a port missing is refused (composite.NewTrust), and
-// no production Trust admits everything.
-func (s *Sources) TrustPorts(_ context.Context, cfg *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
-	root := signerFilesOf(cfg).trustStore()
-	fs := cfg.FS()
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
-	baseDir := appDirOf(cfg)
-	var fault error
-	userDir, err := countersign.HomeDir()
-	if err != nil {
-		clidiag.Warn("ctxloom", "cannot locate the user approvals store (%v) — every personal approval and rejection is unreadable this session", err)
-		fault = err
-		userDir = ""
-	}
-	records := countersign.NewRecords(
-		countersign.NewStore(userDir, fs),
-		countersign.NewStore(paths.ApprovalsPath(baseDir), fs),
-		root, fault)
-	retraction := remote.NewLockfileRetraction(remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs)))
-	return root, records, retraction, nil
-}
-
-// appDirOf is the app directory cfg's generation was read over.
-func appDirOf(cfg *config.Config) string {
-	if dirs := cfg.GetAppPaths(); len(dirs) > 0 {
-		return dirs[0]
-	}
-	return paths.AppDirName
+// TrustRoot builds the signer trust root the generation's readers verify
+// against, read ONCE for cfg: the embedded signers minus the distrusted ones,
+// unioned with the user's and the project's allowed_signers.
+func (s *Sources) TrustRoot(_ context.Context, cfg *config.Config) (trust.TrustRoot, error) {
+	return signerFilesOf(cfg).trustStore(), nil
 }

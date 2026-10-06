@@ -18,17 +18,13 @@ import (
 // show|create|remove|edit|distill`. Each is a thin frontend over an operations
 // call: argument parsing, the $EDITOR round-trip, and rendering — no bundle IO.
 
-// showItem displays the content of a specific item. With interactive set AND an
-// interactive terminal, it then offers the TR4 trust review/marking surface; in
-// any non-interactive context (piped, redirected, scripted, or -i unset) it
-// behaves exactly as before — the content is written to cmd.OutOrStdout (os.Stdout
-// by default) with no trust UI, so piped output is byte-for-byte unchanged.
+// showItem displays the content of a specific item on cmd.OutOrStdout.
 //
 // The read is operations.GetItemContent: one bundle resolution, one item lookup,
 // one not-found message for every frontend. Doing it here instead (load the
 // bundle, switch on the kind, pick content+distilled) is what let `show` and
 // `edit` disagree about which bundle refs exist.
-func showItem(cmd *cobra.Command, ref string, itemType ItemType, showDistilled, interactive bool) error {
+func showItem(cmd *cobra.Command, ref string, itemType ItemType, showDistilled bool) error {
 	bundleName, itemName, err := itemRefTarget(ref, itemType)
 	if err != nil {
 		return err
@@ -53,14 +49,6 @@ func showItem(cmd *cobra.Command, ref string, itemType ItemType, showDistilled, 
 		content = item.Distilled
 	}
 	printItemBody(cmd.OutOrStdout(), ref, itemName, content, distilled)
-
-	// TTY-gated interactive trust review (-i). The content above is emitted
-	// identically whether or not -i is set, and all trust UI goes to stderr, so
-	// non-interactive/piped output never sees the trust surface. Viewing never
-	// trusts — only an explicit t/b choice mutates.
-	if interactive && isInteractiveTerminal() {
-		return offerItemTrust(cmd, cfg, ref)
-	}
 	return nil
 }
 

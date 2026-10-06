@@ -277,7 +277,7 @@ func goldenLoad(t *testing.T, appDir string) *config.Config {
 		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{self}}, nil
 	}
 	cfg, err := configload.Load(configload.WithAppDir(appDir), configload.WithReaderSource(func(cfg *config.Config) []bundles.Reader {
-		return []bundles.Reader{bundles.NewCompanionReader(probe, bundles.WithTrustRoot(cfg.Trust().Root()))}
+		return []bundles.Reader{bundles.NewCompanionReader(probe, bundles.WithTrustRoot(cfg.TrustRoot()))}
 	}))
 	require.NoError(t, err)
 	return cfg

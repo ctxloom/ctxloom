@@ -58,8 +58,7 @@ type bundleDistillFileOutcome struct {
 }
 
 // bundleDistillResult is emit()'s result for `ctxloom bundle distill`: the
-// full per-file, per-item detail plus the run-level summary counts and
-// invalidated-approval refs, so every format carries what --format text has
+// full per-file, per-item detail plus the run-level summary counts, so every format carries what --format text has
 // always printed. Errors is populated for input files that failed to load —
 // bundle distill keeps processing the rest rather than aborting the run.
 type bundleDistillResult struct {
@@ -69,7 +68,6 @@ type bundleDistillResult struct {
 	TotalItems   int                        `json:"total_items"`
 	TotalFiles   int                        `json:"total_files"`
 	TotalSkipped int                        `json:"total_skipped"`
-	Invalidated  []string                   `json:"invalidated,omitempty"`
 }
 
 func runBundleDistill(cmd *cobra.Command, args []string) error {
@@ -107,7 +105,6 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 			Force:     bundleDistillForce,
 			DryRun:    bundleDistillDryRun,
 			Distiller: distillerOrNone(distiller),
-			Cfg:       cfg,
 		})
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", filePath, err))
@@ -130,7 +127,6 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 			printDistillItems(w, f.Items)
 		}
 		printDistillSummary(w, result.TotalItems, result.TotalFiles, result.TotalSkipped, result.DryRun)
-		printDistillInvalidatedApprovals(w, result.Invalidated)
 		if err := w.Err(); err != nil {
 			return err
 		}
@@ -158,9 +154,6 @@ func (r *bundleDistillResult) record(filePath string, res *operations.DistillBun
 	r.TotalSkipped += skipped
 	if res.Saved {
 		r.TotalFiles++
-	}
-	for _, inv := range res.Invalidated {
-		r.Invalidated = append(r.Invalidated, filePath+"#"+inv)
 	}
 }
 
@@ -193,29 +186,6 @@ func countFailedDistillItems(files []bundleDistillFileOutcome) int {
 		}
 	}
 	return n
-}
-
-// printDistillInvalidatedApprovals is the re-distill LOUD PATH (spec §10.4):
-// fired at the moment invalidation is CAUSED, by the command that caused it —
-// never silently discovered later at the next `ctxloom review`. It explains
-// WHY in one sentence (so a user does not go looking for a way to silence it)
-// and names the exact recovery command.
-func printDistillInvalidatedApprovals(w *errwriter.Writer, refs []string) {
-	if len(refs) == 0 {
-		return
-	}
-	w.Printf("\n⚠ %d approval(s) invalidated.\n\n", len(refs))
-	w.Println("  Re-distilling rewrote the DISTILLED form of these items. Your approvals")
-	w.Println("  covered the previous bytes — the agent would now see text nobody has")
-	w.Println("  reviewed, so they are back to pending and are withheld until you review")
-	w.Println("  them.")
-	w.Println()
-	for _, ref := range refs {
-		w.Printf("    %s\n", inertField(ref))
-	}
-	w.Println()
-	w.Println("  Review them:            ctxloom review")
-	w.Println("  (Raw forms are unaffected — their approvals still stand.)")
 }
 
 // countDistillItems tallies distilled/planned items vs. skipped ones for the

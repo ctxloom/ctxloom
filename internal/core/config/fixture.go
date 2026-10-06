@@ -59,6 +59,9 @@ type Fixture struct {
 	// the reader in production); carried so a fixture can exercise a
 	// version-pinned read.
 	VersionResolver bundles.BundleVersionResolver
+	// SignatureCheckDisabled is whether the generation was built with
+	// signature verification waived (WithoutSignatureCheck).
+	SignatureCheckDisabled bool
 }
 
 // ToFixture returns a Fixture carrying a copy of every one of c's fields —
@@ -105,6 +108,7 @@ func (c *Config) ToFixture() Fixture {
 		Source:                       c.source,
 		Warnings:                     cloneWarnings(c.warnings),
 		VersionResolver:              c.versionResolver,
+		SignatureCheckDisabled:       c.sigCheckDisabled,
 	}
 }
 
@@ -155,5 +159,6 @@ func NewFixture(f Fixture) *Config {
 		source:                       f.Source,
 		warnings:                     cloneWarnings(f.Warnings),
 		versionResolver:              f.VersionResolver,
+		sigCheckDisabled:             f.SignatureCheckDisabled,
 	}
 }

@@ -20,7 +20,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -70,7 +69,7 @@ func companionCfg(t *testing.T) *config.Config {
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	return gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 // TestLoadCommandExports_IncludesCompanionCommandUnconditionally proves ltk's
@@ -85,7 +84,6 @@ func TestLoadCommandExports_IncludesCompanionCommandUnconditionally(t *testing.T
 	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
-	cfg.BindTrustForTesting(compositetest.Trust())
 
 	prompts := commandsOf(t, withCompanions(t, cfg), nil)
 	items := bundlePromptItems(prompts)
@@ -110,26 +108,6 @@ func TestLoadCommandExports_IncludesCompanionCommandUnconditionally(t *testing.T
 	assert.True(t, exists, "ltk's task-runner command must materialize as /ltk-task-runner")
 }
 
-// TestLoadCommandExports_WithheldCompanionCommand_DenyingGateNotBuiltinExemption
-// proves the red line S8 held for fragments/hooks/MCP: a denying trust gate
-// withholds the companion command, so it is NOT the builtin nil-gate exemption
-// (a true builtin would still export under a denying gate below rejection).
-func TestLoadCommandExports_WithheldCompanionCommand_DenyingGateNotBuiltinExemption(t *testing.T) {
-	// This test's subject is the DENYING CONTENT GATE, so exec consent must be
-	// granted: without it the companion is never run at all, and the assertion
-	// below would pass because nothing was ever produced rather than because
-	// the gate withheld it — the same green-for-the-wrong-reason shape as
-	// trust_surface.feature:269.
-	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
-	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
-	cfg := companionCfg(t)
-	cfg.BindTrustForTesting(compositetest.Trust(compositetest.RejectAll()))
-
-	prompts := commandsOf(t, withCompanions(t, cfg), nil)
-	assert.NotContains(t, bundlePromptItems(prompts), "task-runner",
-		"an unsigned/withheld companion loadout must not export its commands as slash commands")
-}
-
 // TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand proves
 // companion commands are ADDED to the export set, not a replacement for
 // profile command curation: a profile that curates its own bundle command
@@ -142,17 +120,15 @@ func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T
 	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
-	cfg.BindTrustForTesting(compositetest.Trust())
 	appDir := cfg.GetAppPaths()[0]
 	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, appDir), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), "p.yaml"),
 		[]byte("commands:\n  - dev-tools#commands/review\n"), 0o644))
-	cfg = gatedFixture(config.Fixture{
+	cfg = config.NewFixture(config.Fixture{
 		AppPaths:     cfg.GetAppPaths(),
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
 	})
-	cfg.BindTrustForTesting(compositetest.Trust())
 
 	prompts := commandsOf(t, withSeedAndCompanions(t, cfg, devToolsSeed()), nil)
 	items := bundlePromptItems(prompts)
@@ -168,7 +144,6 @@ func TestLoadCommandExports_NoCompanionOnPath_NoCommandExported(t *testing.T) {
 	cfg := companionCfg(t)
 	restoreLook := companions.SetLookPathForTesting(func(string) (string, error) { return "", os.ErrNotExist })
 	defer restoreLook()
-	cfg.BindTrustForTesting(compositetest.Trust())
 
 	prompts := commandsOf(t, withCompanions(t, cfg), nil)
 	assert.NotContains(t, bundlePromptItems(prompts), "task-runner",

@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -53,8 +52,7 @@ profiles:
 }
 
 func bundleProfileConfig(root string) *config.Config {
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join(root, ".ctxloom")}})
-	cfg.BindTrustForTesting(compositetest.Trust())
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join(root, ".ctxloom")}})
 	return cfg
 }
 
@@ -125,33 +123,21 @@ func TestBundleProfile_ListAndShowAttribution(t *testing.T) {
 	assert.Equal(t, "fast", show.LLM)
 }
 
-// TestBundleProfile_MCPStillGatesAtExecChoke is the exec-side half of the
-// gate-exemption invariant: the profile DEFINITION is ungated, but an MCP server
-// the profile pulls in still passes the executable trust gate — a deny gate
-// withholds it.
-func TestBundleProfile_MCPStillGatesAtExecChoke(t *testing.T) {
+// TestBundleProfile_MCPResolves: an MCP server a bundle-shipped profile pulls
+// in resolves through the bundle MCP resolver.
+func TestBundleProfile_MCPResolves(t *testing.T) {
 	root := t.TempDir()
 	writeBundleProfileFixture(t, root)
 	cfg := bundleProfileConfig(root)
 
-	// Admitted by locality: the profile's bundle MCP server is present.
 	servers := cfg.ResolveBundleMCPServers([]string{kitProfileKey})
 	_, ok := servers["db"]
-	assert.True(t, ok, "the profile's MCP server resolves under a gate that admits it")
-
-	// A rejection: the same MCP server is withheld at the exec choke.
-	cfg.BindTrustForTesting(compositetest.Trust(compositetest.RejectAll()))
-	servers = cfg.ResolveBundleMCPServers([]string{kitProfileKey})
-	_, ok = servers["db"]
-	assert.False(t, ok, "the profile's MCP server still gates at the exec choke")
+	assert.True(t, ok, "the profile's MCP server resolves")
 }
 
-// TestBundleProfile_NotAReviewableKind is the structural gate-exemption
-// invariant: the trust ref grammar addresses fragment/prompt/mcp/hook but
-// NEVER profiles, so a profile definition can carry no review state and is
-// never run through EffectiveTrust (its constituent items are). (This replaces
-// the retired TR6-baseline enumeration proxy with the grammar itself.)
-func TestBundleProfile_NotAReviewableKind(t *testing.T) {
+// TestBundleProfile_NotAnItemKind: the item-ref grammar addresses
+// fragment/prompt/mcp/hook/skill but NEVER profiles.
+func TestBundleProfile_NotAnItemKind(t *testing.T) {
 	_, _, err := trust.ParseSelector("profiles/dev")
 	assert.Error(t, err, "a profile must not be addressable as a trust item kind")
 }

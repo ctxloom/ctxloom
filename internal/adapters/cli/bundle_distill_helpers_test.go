@@ -19,7 +19,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
@@ -342,27 +341,6 @@ func reloaded(t *testing.T) *config.Config {
 	return cfg
 }
 
-// withholdDistillCommand puts the seeded `distill` command into a genuinely
-// withheld state through the SAME operation `ctxloom review`'s reject arm uses
-// (operations.SetBlacklist, via reviewApplier), rather than by injecting a
-// denying authorizer. The point of the test is that the real trust gate's real
-// verdict is honoured, so the real verdict is what it produces.
-func withholdDistillCommand(t *testing.T, cfg *config.Config) {
-	t.Helper()
-	// An unsigned rejection lands in the USER countersignature store
-	// (~/.ctxloom/approvals), which is process-wide state shared with the
-	// developer's real machine and with every later test in this package.
-	// isolatedHome must already have redirected it.
-	require.NotEqual(t, "", os.Getenv("HOME"))
-	_, err := operations.SetBlacklist(cfg, operations.SetBlacklistRequest{Ref: "distiller#commands/distill"})
-	require.NoError(t, err)
-
-	// Precondition, asserted rather than assumed: the gate really does withhold
-	// it now. Without this the test below could pass for the wrong reason.
-	_, gerr := operations.GetCommand(context.Background(), cfg, operations.GetCommandRequest{Name: "distill"})
-	require.ErrorIs(t, gerr, errs.ErrCommandWithheld, "fixture precondition: the trust gate must withhold the distill command")
-}
-
 // isolatedHome points $HOME at a fresh temp dir for one test. The USER
 // countersignature store is resolved from $HOME (paths.HomeApprovalsPath), so a
 // test that records a rejection writes into the developer's real ~/.ctxloom and
@@ -377,90 +355,6 @@ func isolatedHome(t *testing.T) {
 // actually constructed — without a resolvable label newLLMDistiller
 // returns early and the prompt is never resolved at all.
 const distillProjectYAML = "schema_version: 7\nllm:\n  configs:\n    fast: { type: claude-code, model: haiku }\n  defaults:\n    fast: fast\n"
-
-// TestBundleDistill_WithheldPromptRefuses is the decisive assertion for the
-// swallow. A withheld `distill` prompt means the trust gate DECLINED to supply
-// it; substituting ctxloom's default converts a withheld item into a used one
-// and hands back a distillation the user believes came from their own prompt —
-// exit 0, plausible output, wrong provenance.
-//
-// It asserts EFFECTS, not a returned error: the bundle file on disk is
-// BYTE-IDENTICAL afterwards (nothing was distilled with the default), stdout
-// never claims a distillation, the exit code is the refusal 2, and the message
-// names the withheld item and the command that resolves it. Restoring the
-// swallow leaves the run proceeding on the default and exiting 0, so these
-// assertions fail.
-func TestBundleDistill_WithheldPromptRefuses(t *testing.T) {
-	isolatedHome(t)
-	root := agentProject(t, distillProjectYAML)
-	cfg, err := GetConfig()
-	require.NoError(t, err)
-	cfg = seedDistillCommand(t, cfg)
-	withholdDistillCommand(t, cfg)
-
-	target := filepath.Join(root, "target.yaml")
-	const targetBody = "name: target\ndescription: a bundle\nfragments:\n  f:\n    content: some prose worth compressing, at length, repeatedly.\n"
-	require.NoError(t, os.WriteFile(target, []byte(targetBody), 0o644))
-
-	var out, errBuf bytes.Buffer
-	cmd := &cobra.Command{}
-	cmd.SetContext(context.Background())
-	cmd.SetOut(&out)
-	cmd.SetErr(&errBuf)
-
-	runErr := runBundleDistill(cmd, []string{target})
-
-	// EFFECT 1: the distill pass never BEGAN. "Processing: <file>" is printed
-	// per input file the moment the run starts working through them, so its
-	// absence is the observable difference between refusing and proceeding on
-	// the default prompt — and it does not depend on an LLM being reachable,
-	// which in a unit test it is not.
-	assert.NotContains(t, out.String(), "Processing:", "the run must stop before it starts processing files")
-	assert.NotContains(t, out.String(), "Distilled", "no item may be reported distilled when the configured prompt was withheld")
-
-	// EFFECT 2: the bundle on disk is untouched. Weaker than EFFECT 1 on a test
-	// host (no engine resolves, so a proceeding run would leave the content raw
-	// anyway) but it is the property that actually matters in production, and
-	// it must hold on every path.
-	after, rerr := os.ReadFile(target)
-	require.NoError(t, rerr)
-	assert.Equal(t, targetBody, string(after), "a withheld prompt must leave the bundle exactly as it was, not distill it with ctxloom's default")
-
-	// EFFECT 3: the refusal is exit 2 — completed, deliberately did not do it —
-	// not 0 (indistinguishable from a clean run) and not 1 (a fault that isn't).
-	var exitErr *ExitError
-	require.ErrorAs(t, runErr, &exitErr, "a withheld prompt must refuse, not succeed (stderr: %s)", errBuf.String())
-	assert.Equal(t, exitCodeRefused, exitErr.Code)
-
-	// EFFECT 4: the message names the withheld item and the way out.
-	said := errBuf.String()
-	assert.Contains(t, said, "distill", "the refusal must name the withheld item")
-	assert.Contains(t, said, "withheld", "the refusal must say WHY")
-	assert.Contains(t, said, "ctxloom review", "the refusal must name the command that resolves it")
-}
-
-// TestDistillerForEdit_WithheldPromptRefusesUnlessNoDistill covers the OTHER
-// frontend that resolves a distill prompt: an item edit re-distills by default,
-// so a withheld prompt has to stop it for the same reason it stops
-// `bundle distill` — otherwise the edit is silently distilled with ctxloom's
-// default and written back. --no-distill resolves no prompt at all and must
-// stay unaffected.
-func TestDistillerForEdit_WithheldPromptRefusesUnlessNoDistill(t *testing.T) {
-	isolatedHome(t)
-	agentProject(t, distillProjectYAML)
-	cfg, err := GetConfig()
-	require.NoError(t, err)
-	cfg = seedDistillCommand(t, cfg)
-	withholdDistillCommand(t, cfg)
-
-	d, err := distillerForEdit(cfg, false)
-	require.ErrorIs(t, err, errs.ErrCommandWithheld, "an edit that will distill must refuse on a withheld prompt")
-	assert.Nil(t, d, "a refused edit gets no distiller to fall back on")
-
-	skipped, err := distillerForEdit(cfg, true)
-	require.NoError(t, err, "--no-distill resolves no prompt, so a withheld one cannot refuse it")
-	assert.Nil(t, skipped)
-}
 
 // TestBundleDistill_TrustedPromptIsNotRefused is the negative control for the
 // test above: the SAME project with the SAME configured prompt, only NOT

@@ -11,7 +11,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/testsupport/admitall"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -47,7 +46,7 @@ func TestExtractHooksFromBundle_OrderFieldSequencesWithinAnEvent(t *testing.T) {
 			Order:   hookOrderP((12 - i) * 100),
 		})
 	}
-	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundletree.Unsigned), mustLocalRef(t, "src"), admitall.Authorizer(), bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundletree.Unsigned), mustLocalRef(t, "src"), bundles.LinksUnchecked())
 
 	require.Len(t, got.PreTool, 12)
 	var cmds []string
@@ -68,7 +67,7 @@ func TestExtractHooksFromBundle_NoDeclaredOrderKeepsAuthoredPosition(t *testing.
 		{Type: "command", Command: "alpha"},
 		{Type: "command", Command: "mike"},
 	}
-	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundletree.Unsigned), mustLocalRef(t, "src"), admitall.Authorizer(), bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundletree.Unsigned), mustLocalRef(t, "src"), bundles.LinksUnchecked())
 
 	var cmds []string
 	for _, h := range got.PreTool {
@@ -88,59 +87,13 @@ func TestExtractHooksFromBundle_DeclaredOrderBeatsUndeclared(t *testing.T) {
 		{Type: "command", Command: "legacy-second"},
 		{Type: "command", Command: "sequenced", Order: hookOrderP(900000)},
 	}
-	got := extractHooksFromBundle(report.Reporter{}, readWithHooks(t, bundles.BundleHooks{PreTool: in}), mustLocalRef(t, "src"), admitall.Authorizer(), bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, readWithHooks(t, bundles.BundleHooks{PreTool: in}), mustLocalRef(t, "src"), bundles.LinksUnchecked())
 
 	var cmds []string
 	for _, h := range got.PreTool {
 		cmds = append(cmds, h.Command)
 	}
 	assert.Equal(t, []string{"sequenced", "legacy-first", "legacy-second"}, cmds)
-}
-
-// TestExtractHooksFromBundle_GateRefsStayAuthoredIndex is the trust-side
-// invariant. A hook's trust identity on this path is "<bundle>#hooks/<event>/
-// <authored-index>", shared with the migration baseline and every recorded grant.
-// If reordering renumbered the gate refs, every existing hook approval would
-// silently stop matching the hook it was granted for — a trust decision quietly
-// reattached to different bytes.
-func TestExtractHooksFromBundle_GateRefsStayAuthoredIndex(t *testing.T) {
-	seen := map[string]string{}
-	in := []bundles.BundleHook{
-		{Type: "command", Command: "runs-last", Order: hookOrderP(900)},
-		{Type: "command", Command: "runs-first", Order: hookOrderP(100)},
-	}
-	got := extractHooksFromBundle(report.Reporter{},
-		readWithHooks(t, bundles.BundleHooks{PreTool: in}),
-		mustLocalRef(t, "remote/tools"), recordingGate(seen), bundles.LinksUnchecked())
-
-	require.Len(t, got.PreTool, 2)
-	assert.Equal(t, "runs-first", got.PreTool[0].Command, "resolution still honours order")
-
-	// "runs-last" is authored at index 0 and must be gated as index 0.
-	authored0 := bundles.BundleHook{Type: "command", Command: "runs-last", Order: hookOrderP(900)}
-	payload, err := authored0.ContentPayload()
-	require.NoError(t, err)
-	assert.Equal(t, bundles.HashPayload(payload), seen["ctxloom+local:remote/tools#hooks/pre_tool/0"],
-		"the gate ref must key on AUTHORED index, not resolved position, or every recorded hook grant detaches")
-}
-
-// A gate DENIAL must not shift anyone's identity either: the survivors keep their
-// declared sequence, and the denied hook simply is not there.
-func TestExtractHooksFromBundle_DenialDoesNotDisturbRemainingOrder(t *testing.T) {
-	in := []bundles.BundleHook{
-		{Type: "command", Command: "third", Order: hookOrderP(300)},
-		{Type: "command", Command: "denied", Order: hookOrderP(200)},
-		{Type: "command", Command: "first", Order: hookOrderP(100)},
-	}
-	got := extractHooksFromBundle(report.Reporter{},
-		bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundletree.Unsigned),
-		mustLocalRef(t, "remote/tools"), recordingGate(nil, "#hooks/pre_tool/1"), bundles.LinksUnchecked())
-
-	var cmds []string
-	for _, h := range got.PreTool {
-		cmds = append(cmds, h.Command)
-	}
-	assert.Equal(t, []string{"first", "third"}, cmds)
 }
 
 // Order is ctxloom's scheduling bookkeeping, not part of what the hook DOES, and
@@ -154,7 +107,7 @@ func TestExtractHooksFromBundle_DenialDoesNotDisturbRemainingOrder(t *testing.T)
 // against.
 func TestExtractHooksFromBundle_OrderIsConsumedAndNeverSerialized(t *testing.T) {
 	in := []bundles.BundleHook{{Type: "command", Command: "x", Order: hookOrderP(4242)}}
-	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundletree.Unsigned), mustLocalRef(t, "src"), admitall.Authorizer(), bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundletree.Unsigned), mustLocalRef(t, "src"), bundles.LinksUnchecked())
 	require.Len(t, got.PreTool, 1)
 
 	encoded, err := json.Marshal(got.PreTool[0])

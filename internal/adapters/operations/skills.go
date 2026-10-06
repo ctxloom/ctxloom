@@ -495,7 +495,7 @@ type ImportSkillRequest struct {
 	// the OS filesystem.
 	FS afero.Fs `json:"-"`
 	// Root resolves which keys are trusted to publish (trust.TrustRoot);
-	// nil uses cfg.Trust().Root() (embedded + user + project allowed_signers,
+	// nil uses cfg.TrustRoot() (embedded + user + project allowed_signers,
 	// unioned).
 	Root trust.TrustRoot `json:"-"`
 }
@@ -592,7 +592,7 @@ func ImportSkill(ctx context.Context, cfg *config.Config, req ImportSkillRequest
 			}
 			root := req.Root
 			if root == nil {
-				root = cfg.Trust().Root()
+				root = cfg.TrustRoot()
 			}
 			verifier := bundles.PublisherSkillSignatureVerifier{ArmoredSignature: sigBytes, Root: root}
 			verr := verifier.VerifyManifestSignature(p.Manifest)

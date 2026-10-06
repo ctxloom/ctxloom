@@ -10,12 +10,13 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
@@ -238,7 +239,7 @@ func Deps(t *testing.T, opts ...Option) Env {
 		DirtyTreeHandler: f.projectDirtyTree,
 		Auth:             f.sessionAuth,
 	})
-	snap := &config.Snapshot{Config: cfg, Trust: composite.Trust{}}
+	snap := &config.Snapshot{Config: cfg}
 
 	modes := []engine.Mode{engine.Interactive, engine.Structured}
 	if f.noStructured {

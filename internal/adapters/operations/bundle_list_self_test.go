@@ -23,7 +23,7 @@ import (
 func TestListBundles_SelfLoadoutIsNotAnInstalledBundle(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
-	cfg := publishedWith(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}),
+	cfg := publishedWith(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}),
 		ctxloomOwnLoadout(t),
 		bundles.CompanionLoadout{Bin: "ltk", Path: "/fake/ltk", Document: testsupport.RunLoadout("version: 1.0.0\nfragments:\n  ltk:\n    content: LTK\n")},
 	)

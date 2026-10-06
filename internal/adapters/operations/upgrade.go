@@ -3,8 +3,9 @@ package operations
 import (
 	"context"
 	"errors"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"sort"
+
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
@@ -235,7 +236,7 @@ func reResolveClosure(ctx context.Context, cfg *config.Config, loader *profiles.
 	}
 	fetchFailed = refreshRepoCaches(ctx, NewRepoCache(cfg), unionLockedRepoURLs(directRepoURLs(roots), active), registered)
 	resolve := newConstraintResolver(ctx, active, factory, auth, true)
-	proposed, conflicts, unexpanded, err := flattenRootsWith(ctx, loader, factory, auth, cfg.Trust().Root(), roots, resolve, registered)
+	proposed, conflicts, unexpanded, err := flattenRootsWith(ctx, loader, factory, auth, cfg.TrustRoot(), roots, resolve, registered)
 	if err != nil {
 		return nil, nil, false, err
 	}

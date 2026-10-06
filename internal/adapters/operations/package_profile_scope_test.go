@@ -43,7 +43,7 @@ func scopeFixture(t *testing.T, profileBundles map[string]string) (appDir, bundl
 }
 
 func defaultsTo(appDir string, profiles ...string) *config.Config {
-	return gatedFixture(config.Fixture{
+	return config.NewFixture(config.Fixture{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: profiles}},

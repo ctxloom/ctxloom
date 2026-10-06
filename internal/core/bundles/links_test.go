@@ -157,7 +157,7 @@ func grantOnly(servers ...string) LinkGrant {
 
 func TestPipeline_LinkedItemDeliversWhenItsMCPMemberIsGranted(t *testing.T) {
 	seed := map[string]*Bundle{"b": linkedBundle()}
-	pipe := NewPipeline(NewLoader(seedLocal(seed)), admitAllForTest(), grantOnly("think"), false)
+	pipe := NewPipeline(NewLoader(seedLocal(seed)), grantOnly("think"), false)
 
 	got, err := pipe.GetFragment("b#fragments/guide")
 	require.NoError(t, err)
@@ -171,7 +171,7 @@ func TestPipeline_LinkedItemDeliversWhenItsMCPMemberIsGranted(t *testing.T) {
 
 func TestPipeline_LinkedItemIsWithheldWhenItsMCPMemberIsNotGranted(t *testing.T) {
 	seed := map[string]*Bundle{"b": linkedBundle()}
-	pipe := NewPipeline(NewLoader(seedLocal(seed)), admitAllForTest(), grantOnly(), false)
+	pipe := NewPipeline(NewLoader(seedLocal(seed)), grantOnly(), false)
 
 	_, err := pipe.GetFragment("b#fragments/guide")
 	require.Error(t, err)
@@ -188,7 +188,7 @@ func TestPipeline_LinkedItemIsWithheldWhenItsMCPMemberIsNotGranted(t *testing.T)
 // property of the GROUP, never collateral for the bundle.
 func TestPipeline_UnlinkedItemIgnoresTheLinkGrant(t *testing.T) {
 	seed := map[string]*Bundle{"b": linkedBundle()}
-	pipe := NewPipeline(NewLoader(seedLocal(seed)), admitAllForTest(), grantOnly(), false)
+	pipe := NewPipeline(NewLoader(seedLocal(seed)), grantOnly(), false)
 
 	got, err := pipe.GetFragment("b#fragments/unlinked")
 	require.NoError(t, err)
@@ -204,7 +204,7 @@ func TestPipeline_LinkGrantIsAskedForTheOwningBundle(t *testing.T) {
 		asked = append(asked, read.DisplayName()+"/"+server)
 		return true
 	})
-	_, err := NewPipeline(NewLoader(seedLocal(seed)), admitAllForTest(), grant, false).GetFragment("b#fragments/guide")
+	_, err := NewPipeline(NewLoader(seedLocal(seed)), grant, false).GetFragment("b#fragments/guide")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"b/think"}, asked)
 }
@@ -230,7 +230,7 @@ func TestServerGrant_GrantsOnlyTheOwningBundlesServer(t *testing.T) {
 // spelled LinksUnchecked, out loud.
 func TestPipeline_NilLinkGrantWithholdsLinkedItemsOnly(t *testing.T) {
 	seed := map[string]*Bundle{"b": linkedBundle()}
-	pipe := NewPipeline(NewLoader(seedLocal(seed)), admitAllForTest(), nil, false)
+	pipe := NewPipeline(NewLoader(seedLocal(seed)), nil, false)
 
 	_, err := pipe.GetFragment("b#fragments/guide")
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "got %v", err)
@@ -238,7 +238,7 @@ func TestPipeline_NilLinkGrantWithholdsLinkedItemsOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "UNLINKED", got.Content)
 
-	unchecked := NewPipeline(NewLoader(seedLocal(seed)), admitAllForTest(), LinksUnchecked(), false)
+	unchecked := NewPipeline(NewLoader(seedLocal(seed)), LinksUnchecked(), false)
 	got, err = unchecked.GetFragment("b#fragments/guide")
 	require.NoError(t, err)
 	assert.Equal(t, "GUIDE", got.Content)

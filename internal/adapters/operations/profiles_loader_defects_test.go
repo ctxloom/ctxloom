@@ -27,7 +27,7 @@ func TestCreateProfile_DoesNotClobberAnUnparseableProfile(t *testing.T) {
 	mine := bundletree.ProjectProfilesDirFS(t, fs, "/app") + "/mine.yaml"
 	require.NoError(t, afero.WriteFile(fs, mine, []byte(authored), 0o644))
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{"/app"}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{"/app"}})
 	cfg.SetFS(fs)
 	loader := cfg.GetProfileLoader()
 
@@ -53,7 +53,7 @@ func TestProfileLoader_HonoursTheInjectedFilesystem(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	bundletree.WriteDirProfiles(t, fs, "/app", map[string]any{"alpha": map[string]any{"bundles": []string{"go-development"}}})
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{"/app"}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{"/app"}})
 	cfg.SetFS(fs)
 
 	list, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{})
@@ -82,7 +82,7 @@ func TestUpdateProfile_LeavesTheSharedSeedUntouched(t *testing.T) {
 
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll("/app/profiles", 0o755))
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{"/app"}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{"/app"}})
 	cfg.SetFS(fs)
 	loader := profiles.NewLoader([]string{"/app/profiles"}, profiles.WithFS(fs),
 		profiles.WithSeededProfiles(map[string]*profiles.Profile{key: seeded}))

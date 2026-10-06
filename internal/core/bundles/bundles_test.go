@@ -1717,7 +1717,7 @@ func TestLoader_ExpandBundleRefs_WholeBundleVersionEnumeratesPinned(t *testing.T
 			},
 		}}},
 	}
-	l := versionedLoader(t, cqRef, def, versions, nil)
+	l := versionedLoader(t, cqRef, def, versions)
 
 	got := l.Loader().ExpandBundleRefs([]string{cqRef + "@c1"})
 
@@ -1743,7 +1743,7 @@ func TestLoader_ExpandBundleRefs_ExplicitVersionWinsOverDefault(t *testing.T) {
 			},
 		}}},
 	}
-	l := versionedLoader(t, cqRef, def, versions, nil)
+	l := versionedLoader(t, cqRef, def, versions)
 
 	got := l.Loader().ExpandBundleRefs([]string{cqRef, cqRef + "@c1:fragments/solid"})
 
@@ -1758,7 +1758,7 @@ func TestLoader_ExpandBundleRefs_WholeBundleVersionFetchFailureSkipped(t *testin
 			Content: "default body",
 		},
 	}}}
-	l := versionedLoader(t, cqRef, def, map[string]*Bundle{}, nil) // resolver errors on every commit
+	l := versionedLoader(t, cqRef, def, map[string]*Bundle{}) // resolver errors on every commit
 
 	assert.Empty(t, l.Loader().ExpandBundleRefs([]string{cqRef + "@missing"}))
 }

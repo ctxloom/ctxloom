@@ -24,7 +24,7 @@ func TestPinnedTreeReaders_FailedTreeIsReportedOnceAndKnownToTheCatalog(t *testi
 	strictness.Reset()
 	t.Cleanup(strictness.Reset)
 
-	c := gatedFixture(config.Fixture{AppPaths: []string{treeBase}})
+	c := config.NewFixture(config.Fixture{AppPaths: []string{treeBase}})
 	lock := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{treeCanonical: treeEntry()}}
 
 	mark := strictness.Checkpoint()

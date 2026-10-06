@@ -66,34 +66,23 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 	fromDefaults := len(req.Profiles) == 0
 
 	var (
-		tr   composite.Trust
-		gate bundles.Authorizer
 		cat  bundles.Catalog
 		opts = composite.Options{DropWithheld: true, Static: static}
 	)
 	var versions bundles.BundleVersionResolver
 	var versionRoot trust.TrustRoot
 	if req.Pipeline != nil {
-		// An injected stage carries its own gate, links, form and versions.
+		// An injected stage carries its own links, form and versions.
 		opts.Pipeline = req.Pipeline
 		opts.PreferDistilled = req.Pipeline.PreferDistilled()
-		gate = req.Pipeline.Authorizer()
-		tr = composite.Gated(gate)
 		cat = req.Pipeline.Loader().Catalog()
 		versions = req.Pipeline.Loader().VersionResolver()
 		versionRoot = req.Pipeline.Loader().VersionRoot()
 	} else {
-		// A generation with no gate cannot deliver: refused at entry, by
-		// sentinel.
-		tr, err = cfg.RequireTrust()
-		if err != nil {
-			return composite.Package{}, fmt.Errorf("assemble context: %w", err)
-		}
-		gate = tr.Authorizer()
 		cat = cfg.Catalog()
 		opts.PreferDistilled = cfgPreferDistilled(cfg)
 		versions = cfg.VersionResolver()
-		versionRoot = tr.Root()
+		versionRoot = cfg.TrustRoot()
 		opts.Versions = versions
 	}
 
@@ -118,21 +107,18 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 	opts.DenyTools = sel.DenyTools
 	// ctxloom's embedded commands are always present. Companion loadout
 	// fragments need no input here: Assemble reads them off the catalog
-	// (composite assembly's companionAsks) through the same gate as every
-	// selected fragment.
+	// (composite assembly's companionAsks) through the same process stage as
+	// every selected fragment.
 	opts.Commands = builtinCommands()
 	opts.CarryForward = carriedSources(cat.Candidates())
 
-	pkg, err := composite.Assemble(ctx, cat, sel, tr, opts)
+	pkg, err := composite.Assemble(ctx, cat, sel, versionRoot, opts)
 	if err != nil {
 		return composite.Package{}, err
 	}
 	voiceFindings(pkg)
-	// Surface (content-free) any items the trust gate withheld during this
-	// assembly so the user knows content was hidden, WHY, and how to review
-	// it; and name any SELECTED profile the gate emptied out completely.
-	warnWithheld(gate)
-	warnGuttedProfiles(sel.Declared, pkg.Loaded, gate)
+	// Name any SELECTED profile whose content was withheld in full.
+	warnGuttedProfiles(sel.Declared, pkg.Loaded, pkg.Attestation().Withheld)
 	return pkg, nil
 }
 
@@ -374,29 +360,25 @@ func guttedProfiles(declared map[string][]string, loaded []string) []string {
 }
 
 // warnGuttedProfiles surfaces a profile the user explicitly SELECTED whose
-// content the trust gate withheld in full: assembly then produces a stub
-// and exits 0 — the agent still answers, with its whole role missing — so
-// the profile is named. It stays a WARNING rather than a startup fault:
-// trust withholding is never a startup fault.
-func warnGuttedProfiles(declared map[string][]string, loaded []string, gate bundles.Authorizer) {
-	warnGuttedProfilesTo(os.Stderr, declared, loaded, gate)
+// content was withheld in full (withheld is the assembly's tally): assembly
+// then produces a stub and exits 0 — the agent still answers, with its whole
+// role missing — so the profile is named. It stays a WARNING rather than a
+// startup fault.
+func warnGuttedProfiles(declared map[string][]string, loaded, withheld []string) {
+	warnGuttedProfilesTo(os.Stderr, declared, loaded, withheld)
 }
 
 // warnGuttedProfilesTo is warnGuttedProfiles with the sink injected.
-func warnGuttedProfilesTo(w io.Writer, declared map[string][]string, loaded []string, gate bundles.Authorizer) {
-	var withheld []string
-	for _, it := range composite.WithheldBy(gate) {
-		withheld = append(withheld, it.Ref)
-	}
+func warnGuttedProfilesTo(w io.Writer, declared map[string][]string, loaded, withheld []string) {
 	if len(withheld) == 0 {
-		// The profile may be empty for reasons that are not the gate's doing
-		// (an empty bundle, an exclusion filter). Only speak to withholding.
+		// The profile may be empty for reasons that are not withholding (an
+		// empty bundle, an exclusion filter). Only speak to withholding.
 		return
 	}
 	for _, p := range guttedProfiles(declared, loaded) {
 		clidiag.Fwarn(w, "ctxloom",
 			"profile %q contributed NO content to this context: every fragment it declares was withheld. "+
-				"Withheld item(s): %s — run 'ctxloom review' to see and accept them",
+				"Withheld item(s): %s",
 			p, strings.Join(withheld, ", "))
 	}
 }

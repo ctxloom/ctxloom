@@ -1,8 +1,6 @@
 package spawn
 
 import (
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-
 	"context"
 	"os"
 	"path/filepath"
@@ -70,8 +68,6 @@ func TestResolveResumeMode(t *testing.T) {
 func writeSpawnerConfig(t *testing.T, appDir, body string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	// Provisioned as `ctxloom init` leaves it: an absent store withholds all.
-	require.NoError(t, operations.ProvisionApprovalsStore(nil, appDir))
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0o644))
 }
 

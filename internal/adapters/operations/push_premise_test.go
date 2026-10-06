@@ -93,7 +93,7 @@ func pushPremiseConfig(t *testing.T, appDir string, defs map[string]config.Profi
 	}
 	bundletree.WriteDirProfiles(t, fs, appDir, seed)
 
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},

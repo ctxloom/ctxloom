@@ -8,9 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
@@ -24,9 +22,9 @@ func emptyContextMaterializeFixture(t *testing.T) (*config.Config, string) {
 	// materializeFixture writes "reviewer"; overwriting it here is what makes
 	// the assembled context empty — under the gate that reads the real
 	// rejections just recorded.
-	return realGated(withProfileDefs(t, cfg, map[string]config.Profile{
+	return withProfileDefs(t, cfg, map[string]config.Profile{
 		"reviewer": {SelectTags: []string{"no-fragment-carries-this-tag"}},
-	})), target
+	}), target
 }
 
 // TestMaterializeProfile_RefusesEmptyAssembledContext pins this
@@ -53,26 +51,4 @@ func TestMaterializeProfile_RefusesEmptyAssembledContext(t *testing.T) {
 	assert.Nil(t, res)
 	assert.Contains(t, err.Error(), "reviewer", "the error must name the profile set that assembled to nothing")
 	assert.NoFileExists(t, filepath.Join(target, "CLAUDE.md"))
-}
-
-// TestMaterializeProfile_DecidesWithTheGenerationsGate: materialize installs
-// no gate of its own. The executable surfaces it writes decide with the
-// generation's Trust — the one bound on cfg — and the config carries that
-// same gate afterwards, so a long-lived process's later operations inherit
-// nothing materialize asked for.
-func TestMaterializeProfile_DecidesWithTheGenerationsGate(t *testing.T) {
-	cfg, target := materializeFixture(t, "MATERIALIZED-CONTENT")
-
-	generationsGateConsulted := 0
-	gate := compositetest.Trust(compositetest.Observe(func(trust.Ref, []byte) { generationsGateConsulted++ }))
-	cfg.BindTrustForTesting(gate)
-
-	_, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
-		Profiles: []string{"reviewer"},
-		Target:   target,
-	})
-	require.NoError(t, err)
-
-	assert.Positive(t, generationsGateConsulted, "materialize decides with the generation's gate")
-	assert.Equal(t, gate.Authorizer(), cfg.ExecutableTrustGate(), "the config carries the generation's gate afterwards, not one materialize installed")
 }

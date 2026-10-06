@@ -79,7 +79,7 @@ func TestLoadSkillExports_CuratedSetExportsExactlyThoseAndSuppressesUncurated(t 
 	skillCurationFixture(t, appDir)
 	writeSkillProfile(t, appDir, "curated", "skills:\n  - skill-bundle#skills/shown\n")
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	skills := skillsOf(t, cfg, []string{"curated"})
 
 	assert.ElementsMatch(t, []string{"shown"}, skillItemNames(skills),
@@ -96,7 +96,7 @@ func TestLoadSkillExports_UncuratedProfileExportsAllBundleSkills(t *testing.T) {
 	skillCurationFixture(t, appDir)
 	writeSkillProfile(t, appDir, "uncurated", "")
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	skills := skillsOf(t, cfg, []string{"uncurated"})
 
 	assert.ElementsMatch(t, []string{"shown", "hidden"}, skillItemNames(skills),
@@ -127,7 +127,7 @@ func TestLoadSkillExports_CuratedForceEnablesBundleOptOut(t *testing.T) {
 	skillCurationFixture(t, appDir)
 	writeSkillProfile(t, appDir, "curated-hidden", "skills:\n  - skill-bundle#skills/hidden\n")
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	skills := skillsOf(t, cfg, []string{"curated-hidden"})
 	require.ElementsMatch(t, []string{"hidden"}, skillItemNames(skills))
 

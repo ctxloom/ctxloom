@@ -30,7 +30,7 @@ import (
 // touching this repo's real bundle content.
 func authPingTestConfig(t *testing.T) *config.Config {
 	t.Helper()
-	return gatedFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
+	return config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 }
 
 // testLaunchDeps composes the resolver's ports over cfg with stateless
@@ -462,7 +462,7 @@ func TestPingEngineAuth_RunsInTheTokenWhateverTheHumansSessionUses(t *testing.T)
 	} {
 		t.Run(name, func(t *testing.T) {
 			stubPingHosts(t, &stubRunHost{})
-			cfg := gatedFixture(config.Fixture{Auth: session, AppPaths: []string{t.TempDir()}})
+			cfg := config.NewFixture(config.Fixture{Auth: session, AppPaths: []string{t.TempDir()}})
 			deps := testLaunchDeps(t, cfg)
 			var got launch.CellRequest
 			deps.Cells = recordingCells{inner: deps.Cells, got: &got}

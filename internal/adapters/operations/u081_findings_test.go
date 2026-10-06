@@ -243,7 +243,7 @@ func TestImportBundle_RejectsEmptyBundle(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
-			cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+			cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 			require.NoError(t, fs.MkdirAll("/incoming/hollow", 0755))
 			require.NoError(t, afero.WriteFile(fs, "/incoming/hollow/bundle.yaml", []byte(body), 0644))
 
@@ -293,7 +293,7 @@ func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 		for _, name := range tc.unusable {
 			t.Run(tc.kind+"/rejects/"+name, func(t *testing.T) {
 				fs := afero.NewMemMapFs()
-				cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+				cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 				cfg.SetFS(fs)
 				require.NoError(t, fs.MkdirAll("/incoming", 0755))
 				require.NoError(t, afero.WriteFile(fs, "/incoming/"+name, []byte(tc.body), 0644))
@@ -306,7 +306,7 @@ func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 		for _, name := range tc.loadable {
 			t.Run(tc.kind+"/accepts/"+name, func(t *testing.T) {
 				fs := afero.NewMemMapFs()
-				cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+				cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 				cfg.SetFS(fs)
 				require.NoError(t, fs.MkdirAll("/incoming", 0755))
 				require.NoError(t, afero.WriteFile(fs, "/incoming/"+name, []byte(tc.body), 0644))
@@ -323,7 +323,7 @@ func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 func TestImportBundle_DoesNotDestroyOnRejection(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	bdir := authoredV1(appDir)
 	envelope := bundletree.Write(t, fs, bdir, "seed", "version: 1.0.0\nfragments:\n  keep:\n    content: precious\n")
 	require.NoError(t, fs.MkdirAll("/incoming/seed", 0755))

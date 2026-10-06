@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -36,26 +35,12 @@ func itemRefs[T any](items []composite.Item[T]) []string {
 	return out
 }
 
-// A zero Trust holds no gate, and no gate is never an admit: assembling over
-// one withholds every item, so a caller that forgot to bind its Trust
-// delivers nothing. This is what catches an allow-everything default.
-func TestAssemble_ZeroTrustWithholdsEverything(t *testing.T) {
-	cat := corpus(t)
-	_, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), composite.Trust{}, composite.Options{})
-	require.ErrorIs(t, err, composite.ErrItemWithheld)
-
-	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), composite.Trust{}, composite.Options{DropWithheld: true})
-	require.NoError(t, err)
-	assert.Empty(t, pkg.Fragments, "a zero Trust admitted a fragment")
-	assert.Empty(t, pkg.Context.Text)
-}
-
 // The context is the selected fragments in selection order, each with the
 // profile variables substituted, joined by the section separator; a premised
 // fragment is held back for the catalog, not written.
 func TestAssemble_ContextIsTheSelectionInOrderSubstituted(t *testing.T) {
 	cat := corpus(t)
-	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), compositetest.Trust(), composite.Options{})
+	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), trust.NoSigners{}, composite.Options{})
 	require.NoError(t, err)
 
 	assert.Equal(t, "Prefer small functions.\n\n---\n\nRules for golden.", pkg.Context.Text)
@@ -63,7 +48,6 @@ func TestAssemble_ContextIsTheSelectionInOrderSubstituted(t *testing.T) {
 	assert.Equal(t, []string{alphaStyle, alphaRules}, itemRefs(pkg.Fragments))
 	assert.Equal(t, []string{alphaMaybe}, itemRefs(pkg.Premised))
 	assert.Equal(t, "the agent is about to touch a signed bundle", pkg.Premised[0].Value.Premise)
-	assert.Equal(t, trust.Allow, pkg.Fragments[0].Decision)
 	assert.Equal(t, bundles.FormRaw, pkg.Fragments[0].Form)
 }
 
@@ -75,32 +59,16 @@ func TestAssemble_PremisedFragmentsLoadWhenExplicitOrStatic(t *testing.T) {
 
 	sel, err := composite.Select(nil, cat, composite.SelectRequest{Fragments: []string{"maybe"}})
 	require.NoError(t, err)
-	pkg, err := composite.Assemble(context.Background(), cat, sel, compositetest.Trust(), composite.Options{})
+	pkg, err := composite.Assemble(context.Background(), cat, sel, trust.NoSigners{}, composite.Options{})
 	require.NoError(t, err)
 	assert.Equal(t, []string{alphaMaybe}, itemRefs(pkg.Fragments))
 	assert.Empty(t, pkg.Premised)
 
-	static, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), compositetest.Trust(), composite.Options{Static: true})
+	static, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), trust.NoSigners{}, composite.Options{Static: true})
 	require.NoError(t, err)
 	assert.Equal(t, []string{alphaMaybe, alphaStyle, alphaRules}, itemRefs(static.Fragments))
 	assert.Empty(t, static.Premised)
 	assert.Contains(t, static.Context.Text, "Do not edit a signed bundle in place.")
-}
-
-// A withheld required item refuses the assembly unless the caller accepts
-// the loss; either way the attestation names what was withheld.
-func TestAssemble_WithheldItemRefusesUnlessDropped(t *testing.T) {
-	cat := corpus(t)
-	tr := compositetest.Trust(compositetest.RejectWhen(func(ref trust.Ref, _ []byte) bool { return ref.Name == "style" }))
-
-	_, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), tr, composite.Options{})
-	assert.ErrorIs(t, err, composite.ErrItemWithheld)
-
-	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), tr, composite.Options{DropWithheld: true})
-	require.NoError(t, err)
-	assert.Equal(t, []string{alphaRules}, itemRefs(pkg.Fragments))
-	assert.Equal(t, []string{alphaStyle}, pkg.Attestation().Withheld)
-	assert.NotContains(t, pkg.Context.Text, "Prefer small functions.")
 }
 
 // Two sources publishing byte-identical content under one item name are two
@@ -110,7 +78,7 @@ func TestAssemble_WithheldItemRefusesUnlessDropped(t *testing.T) {
 func TestAssemble_IdenticalContentFromTwoSourcesBothArrive(t *testing.T) {
 	cat := corpusWith(t, bundles.CompanionLoadout{Bin: "alpha", Document: []byte(
 		"run:\n  version: 1.0.0\n  fragments:\n    style:\n      content: Prefer small functions.\n    axes:\n      content: Axes.\n")})
-	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), compositetest.Trust(), composite.Options{})
+	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), trust.NoSigners{}, composite.Options{})
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, strings.Count(pkg.Context.Text, "Prefer small functions."))
@@ -126,7 +94,7 @@ func TestAssemble_AnAskThatDoesNotLoadIsAFinding(t *testing.T) {
 	p := profiles.ResolvedProfile{Fragments: []profiles.FragmentRef{{Name: "alpha#fragments/style"}, {Name: "alpha#fragments/nope"}}}
 	sel, err := composite.Select([]profiles.ResolvedProfile{p}, cat, composite.SelectRequest{})
 	require.NoError(t, err)
-	pkg, err := composite.Assemble(context.Background(), cat, sel, compositetest.Trust(), composite.Options{})
+	pkg, err := composite.Assemble(context.Background(), cat, sel, trust.NoSigners{}, composite.Options{})
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{alphaStyle}, itemRefs(pkg.Fragments))
@@ -144,7 +112,7 @@ func TestAssemble_CommandsUncuratedFromBundlesOrCuratedByAsk(t *testing.T) {
 	own := composite.Command{Name: "init", Item: "init", Body: "Set up."}
 
 	sel := selectAlpha(t, cat, profiles.ResolvedProfile{Bundles: []string{"beta"}})
-	pkg, err := composite.Assemble(context.Background(), cat, sel, compositetest.Trust(), composite.Options{Commands: []composite.Command{own}})
+	pkg, err := composite.Assemble(context.Background(), cat, sel, trust.NoSigners{}, composite.Options{Commands: []composite.Command{own}})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"init", alphaRelease, alphaReview, betaShip}, itemRefs(pkg.Commands))
 	assert.False(t, pkg.Commands[1].Value.Curated)
@@ -153,7 +121,7 @@ func TestAssemble_CommandsUncuratedFromBundlesOrCuratedByAsk(t *testing.T) {
 	curated := profiles.ResolvedProfile{Commands: []string{"alpha#commands/release"}}
 	sel, err = composite.Select([]profiles.ResolvedProfile{curated}, cat, composite.SelectRequest{})
 	require.NoError(t, err)
-	pkg, err = composite.Assemble(context.Background(), cat, sel, compositetest.Trust(), composite.Options{Commands: []composite.Command{own}})
+	pkg, err = composite.Assemble(context.Background(), cat, sel, trust.NoSigners{}, composite.Options{Commands: []composite.Command{own}})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"init", alphaRelease}, itemRefs(pkg.Commands))
 	assert.True(t, pkg.Commands[1].Value.Curated)
@@ -164,7 +132,7 @@ func TestAssemble_CommandsUncuratedFromBundlesOrCuratedByAsk(t *testing.T) {
 // an item with no block for the engine carries none.
 func TestAssemble_EngineItemsCarriesOnlyThatEnginesBlock(t *testing.T) {
 	cat := corpus(t)
-	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), compositetest.Trust(), composite.Options{})
+	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), trust.NoSigners{}, composite.Options{})
 	require.NoError(t, err)
 
 	items := pkg.EngineItems(engine.Name("claude-code"))
@@ -206,14 +174,13 @@ func premiseOf(items engine.Items, ref string) string {
 // fragments, commands — each with its decision and content hash.
 func TestAssemble_AttestationHasOneRowPerDeliveredItem(t *testing.T) {
 	cat := corpus(t)
-	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), compositetest.Trust(), composite.Options{})
+	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), trust.NoSigners{}, composite.Options{})
 	require.NoError(t, err)
 
 	att := pkg.Attestation()
 	var refs []string
 	for _, row := range att.Items {
 		refs = append(refs, row.Ref)
-		assert.Equal(t, trust.Allow, row.Decision)
 		assert.NotEmpty(t, row.Hash, row.Ref)
 	}
 	assert.ElementsMatch(t, []string{alphaRules, alphaStyle, alphaMaybe, alphaReview, alphaRelease}, refs)
@@ -225,7 +192,7 @@ func TestAssemble_AttestationHasOneRowPerDeliveredItem(t *testing.T) {
 func TestAssemble_CarriesTheResolvedSurfacesAndTheSelection(t *testing.T) {
 	cat := corpus(t)
 	sel := selectAlpha(t, cat, profiles.ResolvedProfile{LLM: "fast", DenyTools: []string{"Task"}})
-	pkg, err := composite.Assemble(context.Background(), cat, sel, compositetest.Trust(), composite.Options{DenyTools: []string{"Task"}, Statusline: true})
+	pkg, err := composite.Assemble(context.Background(), cat, sel, trust.NoSigners{}, composite.Options{DenyTools: []string{"Task"}, Statusline: true})
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"Task"}, pkg.DenyTools)
@@ -268,7 +235,7 @@ func TestAssemble_CompanionFragmentsAreUnconditionalAndHonourTheirPremise(t *tes
 	require.NoError(t, err)
 
 	t.Run("dynamic: the premised fragment stays OUT of the assembled bytes and is offered", func(t *testing.T) {
-		pkg, err := composite.Assemble(context.Background(), cat, empty, compositetest.Trust(), composite.Options{})
+		pkg, err := composite.Assemble(context.Background(), cat, empty, trust.NoSigners{}, composite.Options{})
 		require.NoError(t, err)
 		assert.Contains(t, pkg.Context.Text, "ALWAYS-BODY", "an unpremised companion fragment is unconditional")
 		assert.NotContains(t, pkg.Context.Text, "TASKLOOM-BODY", "a premised companion fragment must be HELD BACK")
@@ -279,14 +246,14 @@ func TestAssemble_CompanionFragmentsAreUnconditionalAndHonourTheirPremise(t *tes
 	t.Run("explicit: naming it IS the selection", func(t *testing.T) {
 		sel := empty
 		sel.Explicit = []string{"ctxloom+companion:taskloom#fragments/taskloom"}
-		pkg, err := composite.Assemble(context.Background(), cat, sel, compositetest.Trust(), composite.Options{})
+		pkg, err := composite.Assemble(context.Background(), cat, sel, trust.NoSigners{}, composite.Options{})
 		require.NoError(t, err)
 		assert.Contains(t, pkg.Context.Text, "TASKLOOM-BODY")
 		assert.Empty(t, pkg.Premised)
 	})
 
 	t.Run("static: both are delivered, because nothing can pull later", func(t *testing.T) {
-		pkg, err := composite.Assemble(context.Background(), cat, empty, compositetest.Trust(), composite.Options{Static: true})
+		pkg, err := composite.Assemble(context.Background(), cat, empty, trust.NoSigners{}, composite.Options{Static: true})
 		require.NoError(t, err)
 		assert.Contains(t, pkg.Context.Text, "ALWAYS-BODY")
 		assert.Contains(t, pkg.Context.Text, "TASKLOOM-BODY", "a static surface loses a held-back fragment rather than deferring it")
@@ -294,13 +261,6 @@ func TestAssemble_CompanionFragmentsAreUnconditionalAndHonourTheirPremise(t *tes
 		assert.Empty(t, pkg.Premised)
 	})
 
-	t.Run("rejected: a human's rejection beats the companion exemption", func(t *testing.T) {
-		tr := compositetest.Trust(compositetest.RejectWhen(func(ref trust.Ref, _ []byte) bool { return ref.Name == "always" }))
-		pkg, err := composite.Assemble(context.Background(), cat, empty, tr, composite.Options{DropWithheld: true})
-		require.NoError(t, err)
-		assert.NotContains(t, pkg.Context.Text, "ALWAYS-BODY")
-		assert.Contains(t, pkg.Attestation().Withheld, "ctxloom+companion:core#fragments/always")
-	})
 }
 
 // A command's export name is the SHORT name — the owning bundle's last path
@@ -312,7 +272,7 @@ func TestAssemble_CompanionFragmentsAreUnconditionalAndHonourTheirPremise(t *tes
 func TestAssemble_ExportNamesShortenAndResolveCollisions(t *testing.T) {
 	cat := corpus(t)
 	own := composite.Command{Name: "check-triggers", Body: "Set up."}
-	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat, profiles.ResolvedProfile{Bundles: []string{"beta"}}), compositetest.Trust(), composite.Options{Commands: []composite.Command{own}})
+	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat, profiles.ResolvedProfile{Bundles: []string{"beta"}}), trust.NoSigners{}, composite.Options{Commands: []composite.Command{own}})
 	require.NoError(t, err)
 
 	byRef := map[string]composite.Command{}

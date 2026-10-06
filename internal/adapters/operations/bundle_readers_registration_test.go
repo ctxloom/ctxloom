@@ -51,7 +51,7 @@ func TestRegisteredEntries_WithholdsAnUnregisteredRepository(t *testing.T) {
 // refused before the clone cache is touched.
 func TestBundleVersionResolver_RefusesAnUnregisteredRepository(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	c := gatedFixture(config.Fixture{AppPaths: []string{treeBase}})
+	c := config.NewFixture(config.Fixture{AppPaths: []string{treeBase}})
 	c.SetFS(fsys)
 
 	resolve := BundleVersionResolver(c)

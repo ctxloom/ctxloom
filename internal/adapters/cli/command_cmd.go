@@ -51,12 +51,11 @@ Reference format: bundle#commands/name`,
 }
 
 func runCommandShow(cmd *cobra.Command, args []string) error {
-	return showItem(cmd, args[0], ItemTypeCommand, commandShowDistilled, commandShowInteractive)
+	return showItem(cmd, args[0], ItemTypeCommand, commandShowDistilled)
 }
 
 var (
-	commandShowDistilled   bool
-	commandShowInteractive bool
+	commandShowDistilled bool
 )
 
 var commandCreateCmd = &cobra.Command{
@@ -151,7 +150,6 @@ func init() {
 
 	commandListCmd.Flags().StringVarP(&commandListBundle, "bundle", "b", "", "Filter by bundle name")
 	commandShowCmd.Flags().BoolVarP(&commandShowDistilled, "distilled", "d", false, "Show distilled version")
-	commandShowCmd.Flags().BoolVarP(&commandShowInteractive, "interactive", "i", false, "Review effective trust and offer to trust/blacklist (interactive terminal only)")
 	commandEditCmd.Flags().BoolVar(&commandEditNoDistill, "no-distill", false, "Skip re-distillation for this edit (leaves the distilled form empty, never stale)")
 	commandDistillCmd.Flags().BoolVarP(&commandDistillForce, "force", "f", false, "Re-distill even if unchanged")
 	commandRemoveCmd.Flags().BoolVarP(&commandRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")

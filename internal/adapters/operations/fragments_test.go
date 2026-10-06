@@ -16,7 +16,7 @@ import (
 )
 
 func TestGetFragment_ValidationError(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	_, err := GetFragment(context.Background(), cfg, GetFragmentRequest{
 		Name: "",

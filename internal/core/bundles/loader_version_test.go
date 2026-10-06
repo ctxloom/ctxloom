@@ -9,49 +9,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
-// effHash is the effective-content hash of a raw body — the exact key the trust
-// gate receives for an undistilled fragment/prompt (preferDistilled true, no
-// distilled form ⇒ raw bytes).
-func effHash(body string) string {
-	h, _ := (&BundleFragment{
-		ItemBody: ItemBody{
-			Content: body,
-		},
-	}).EffectiveContentHash(true)
-	return h
-}
-
-// effCmdHash is effHash for a COMMAND. The two kinds no longer share a
-// preimage — a fragment's is framed, a command's is bare — so a command
-// fixture must derive its grant from the command shape.
-func effCmdHash(body string) string {
-	h, _ := (&BundleCommand{
-		ItemBody: ItemBody{
-			Content: body,
-		},
-	}).EffectiveContentHash(true)
-	return h
-}
-
-// hashGate allows only items whose effective-content hash is in allowed,
-// recording every ref it denies. It mirrors the real per-(ref, content_hash)
-// cascade: a single version-less ref can have one version trusted (its hash in
-// allowed) and another withheld (its hash absent), which is exactly how two
-// commit-versions of one ref are gated independently.
-func hashGate(allowed map[string]bool) Authorizer {
-	return authorizerFunc(func(e Exposure) Verdict {
-		if allowed[HashPayload(e.Bytes)] {
-			return admitVerdict()
-		}
-		return denyVerdict()
-	})
-}
-
 // versionedLoader builds a loader seeded with a default (lockfile-pinned) bundle
 // for canonicalRef and a fake version resolver serving the given per-commit
 // bundles. A commit absent from versions resolves to an error (simulating a
 // per-version fetch failure).
-func versionedLoader(t *testing.T, canonicalRef string, def *Bundle, versions map[string]*Bundle, gate Authorizer) *Pipeline {
+func versionedLoader(t *testing.T, canonicalRef string, def *Bundle, versions map[string]*Bundle) *Pipeline {
 	t.Helper()
 	resolver := func(_canonical, commit string, _ trust.TrustRoot) (*Bundle, error) {
 		b, ok := versions[commit]
@@ -63,7 +25,7 @@ func versionedLoader(t *testing.T, canonicalRef string, def *Bundle, versions ma
 	}
 	return NewPipeline(
 		NewLoader(seedLocal(map[string]*Bundle{canonicalRef: def})).WithVersionResolver(resolver, nil),
-		gate, LinksUnchecked(), true)
+		LinksUnchecked(), true)
 }
 
 const cqRef = "https://github.com/acme/b@bundles/cq"
@@ -73,11 +35,9 @@ const cqRef = "https://github.com/acme/b@bundles/cq"
 const cqIdentity = "ctxloom+git://github.com/acme/b//bundles/cq"
 const cqFrag = cqRef + "#fragments/solid"
 
-// TestMultiVersion_CoexistGatedIndependently proves two commit-versions of one
-// ref coexist in a single resolution, each gated by its OWN content hash: v1 is
-// trusted (its hash granted) and v2 is withheld (blacklisted/un-granted), so only
-// v1 survives — the headline multi-version contract.
-func TestMultiVersion_CoexistGatedIndependently(t *testing.T) {
+// TestMultiVersion_Coexist proves two commit-versions of one ref coexist in a
+// single resolution, in request order, with nothing withheld.
+func TestMultiVersion_Coexist(t *testing.T) {
 	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {
 		ItemBody: ItemBody{
 			Content: "default body",
@@ -95,31 +55,17 @@ func TestMultiVersion_CoexistGatedIndependently(t *testing.T) {
 			},
 		}}},
 	}
-	// Trust v1's content only; v2's hash is absent ⇒ withheld.
-	gate := hashGate(map[string]bool{effHash("v1 body"): true})
-	l := versionedLoader(t, cqRef, def, versions, gate)
+	l := versionedLoader(t, cqRef, def, versions)
 
 	got := l.ResolveFragmentVersions(cqFrag, []string{"c1", "c2"})
-	if len(got) != 1 {
-		t.Fatalf("got %d versions, want 1 (v2 withheld)", len(got))
+	if len(got) != 2 {
+		t.Fatalf("got %d versions, want 2", len(got))
 	}
-	if got[0].Content != "v1 body" {
-		t.Errorf("surviving content = %q, want %q", got[0].Content, "v1 body")
+	if got[0].Content != "v1 body" || got[1].Content != "v2 body" {
+		t.Errorf("contents = [%q %q], want [v1 body, v2 body]", got[0].Content, got[1].Content)
 	}
-	// The withheld v2 is tallied under the version-less ref (content-free),
-	// in the canonical bundle-reference grammar (Decide's own parse, and
-	// therefore the ref it withholds under) — not cqFrag's old-grammar
-	// spelling, which is still what a caller ASKS for the fragment by.
-	wantWithheld, err := trust.GitRef("github.com", "/acme/b", "cq")
-	if err != nil {
-		t.Fatalf("trust.GitRef: %v", err)
-	}
-	wantWithheldStr, err := wantWithheld.WithItem(trust.KindFragment, "solid")
-	if err != nil {
-		t.Fatalf("WithItem: %v", err)
-	}
-	if w := l.Withheld(); len(w) != 1 || w[0] != wantWithheldStr.String() {
-		t.Errorf("Withheld() = %v, want [%s]", w, wantWithheldStr.String())
+	if w := l.Withheld(); len(w) != 0 {
+		t.Errorf("Withheld() = %v, want none", w)
 	}
 }
 
@@ -143,8 +89,7 @@ func TestMultiVersion_IdenticalContentDedups(t *testing.T) {
 			},
 		}}},
 	}
-	gate := hashGate(map[string]bool{effHash("same body"): true})
-	l := versionedLoader(t, cqRef, def, versions, gate)
+	l := versionedLoader(t, cqRef, def, versions)
 
 	got := l.ResolveFragmentVersions(cqFrag, []string{"c1", "c2"})
 	if len(got) != 1 {
@@ -171,8 +116,7 @@ func TestMultiVersion_FetchFailureWithholdsOnlyThatVersion(t *testing.T) {
 		}}},
 		// "broken" is intentionally absent ⇒ the fake resolver errors.
 	}
-	gate := hashGate(map[string]bool{effHash("v1 body"): true})
-	l := versionedLoader(t, cqRef, def, versions, gate)
+	l := versionedLoader(t, cqRef, def, versions)
 
 	got := l.ResolveFragmentVersions(cqFrag, []string{"c1", "broken"})
 	if len(got) != 1 {
@@ -204,11 +148,7 @@ func TestMultiVersion_DefaultPathUnchanged(t *testing.T) {
 			},
 		}}},
 	}
-	gate := hashGate(map[string]bool{
-		effHash("default body"): true,
-		effHash("v1 body"):      true,
-	})
-	l := versionedLoader(t, cqRef, def, versions, gate)
+	l := versionedLoader(t, cqRef, def, versions)
 
 	// Plain GetFragment is the untouched lockfile path.
 	lc, err := l.GetFragment(cqFrag)
@@ -250,8 +190,7 @@ func TestMultiVersion_EmbeddedCommitAddressing(t *testing.T) {
 			},
 		}}},
 	}
-	gate := hashGate(map[string]bool{effHash("v1 body"): true})
-	l := versionedLoader(t, cqRef, def, versions, gate)
+	l := versionedLoader(t, cqRef, def, versions)
 
 	// "<ref>@<commit>" with no explicit commit arg pins via the embedded version.
 	lc, err := l.GetFragmentAtVersion(cqRef+"@c1#fragments/solid", "")
@@ -308,8 +247,7 @@ func TestMultiVersion_TypedSourceRefIsStamped(t *testing.T) {
 			},
 		}}},
 	}
-	gate := hashGate(map[string]bool{effHash("v1 body"): true})
-	l := versionedLoader(t, cqRef, def, versions, gate)
+	l := versionedLoader(t, cqRef, def, versions)
 
 	read, err := l.loader.bundleAtVersion(cqRef, "c1")
 	if err != nil {
@@ -325,7 +263,7 @@ func TestMultiVersion_TypedSourceRefIsStamped(t *testing.T) {
 }
 
 // TestMultiVersion_Prompt covers the prompt counterpart: a historical prompt
-// version is gated by its own effective hash under the version-less ref.
+// version resolves under the version-less ref.
 func TestMultiVersion_Prompt(t *testing.T) {
 	promptRef := cqRef + "#commands/review"
 	def := &Bundle{Commands: map[string]BundleCommand{"review": {
@@ -345,8 +283,7 @@ func TestMultiVersion_Prompt(t *testing.T) {
 			},
 		}}},
 	}
-	gate := hashGate(map[string]bool{effCmdHash("v1 review"): true})
-	l := versionedLoader(t, cqRef, def, versions, gate)
+	l := versionedLoader(t, cqRef, def, versions)
 
 	v1, err := l.GetPromptAtVersion(promptRef, "c1")
 	if err != nil {
@@ -355,7 +292,11 @@ func TestMultiVersion_Prompt(t *testing.T) {
 	if v1.Content != "v1 review" {
 		t.Errorf("c1 prompt = %q, want v1 review", v1.Content)
 	}
-	if _, err := l.GetPromptAtVersion(promptRef, "c2"); !errors.Is(err, errs.ErrCommandWithheld) {
-		t.Errorf("GetPromptAtVersion(c2) err = %v, want ErrCommandWithheld", err)
+	v2, err := l.GetPromptAtVersion(promptRef, "c2")
+	if err != nil {
+		t.Fatalf("GetPromptAtVersion(c2): %v", err)
+	}
+	if v2.Content != "v2 review" {
+		t.Errorf("c2 prompt = %q, want v2 review", v2.Content)
 	}
 }

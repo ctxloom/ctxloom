@@ -39,18 +39,6 @@ type itemRow struct {
 	Remote      string `json:"remote"`
 	BundleLabel string `json:"bundle_label"`
 	SourceURL   string `json:"source_url,omitempty"`
-	// Trusted, TrustSource, and State are the effective-trust stamp: whether
-	// the decision function currently exposes this item, which step decided it
-	// (rejected|local|companion|trusted-signer|accepted|pending), and the three-state
-	// review rendering (pending|accepted|rejected — exempt allows render
-	// accepted, with TrustSource saying why). They are populated only for
-	// --format json (see stampItemTrust); the human listing is unchanged. An
-	// item whose content cannot be resolved/hashed is stamped conservatively
-	// (trusted=false, pending) rather than failing the listing — the stamp is
-	// read-only and never enforces here.
-	Trusted     bool   `json:"trusted"`
-	TrustSource string `json:"trust_source"`
-	State       string `json:"state"`
 }
 
 // remoteURLMap maps each configured remote's URL to its name (best-effort: a
@@ -182,22 +170,6 @@ func printItemInfos(w io.Writer, rows []itemRow, itemType ItemType, show func(st
 	}
 }
 
-// stampItemTrust annotates each row with its effective trust. It builds a
-// single TrustStamper for the whole listing — trust store and remote registry
-// read once, each bundle materialized+hashed once via the shared loader cache —
-// so the content-keyed stamp does not re-fetch per item. Per-item failures are
-// swallowed by the stamper (conservative trusted=false), never crashing the
-// listing.
-func stampItemTrust(cfg *config.Config, itemType ItemType, rows []itemRow) {
-	stamper := operations.NewTrustStamper(cfg)
-	for i := range rows {
-		res := stamper.ForRef(rows[i].Ref)
-		rows[i].Trusted = res.Trusted()
-		rows[i].TrustSource = string(res.Source)
-		rows[i].State = string(res.State())
-	}
-}
-
 // listItems lists all items of the given type, optionally filtered by bundle.
 func listItems(cmd *cobra.Command, itemType ItemType, bundleFilter string) error {
 	cfg, err := GetConfig()
@@ -228,11 +200,6 @@ func listItems(cmd *cobra.Command, itemType ItemType, bundleFilter string) error
 				return err
 			}
 		}
-	}
-	// Stamp effective trust for every format but text: it materializes
-	// and hashes each item, so the cheaper ref-only human listing stays unchanged.
-	if wantsNonTextOutput(cmd) {
-		stampItemTrust(cfg, itemType, filtered)
 	}
 	return emit(cmd, filtered, func() error {
 		// Tested on the FILTERED slice, not the unfiltered one: the

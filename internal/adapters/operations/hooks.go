@@ -123,11 +123,6 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 		return nil, err
 	}
 
-	// The executable surfaces about to be written to backend settings — bundle
-	// MCP servers, bundle hooks, and prompt command-file exports — bypass the
-	// content loader, so each decides at its own choke with the generation's
-	// Trust (freshCfg.ExecutableTrustGate); a DENY omits the executable.
-
 	// The ONE package, for the configured DEFAULT profiles: ApplyHooks writes
 	// the project's STATIC managed config (the `manage hooks install` path)
 	// and there is no per-run `-p` selection here. The regenerated context and
@@ -182,10 +177,6 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 	if regenFailed {
 		applyErrors = append(applyErrors, "context regeneration failed; existing native-file managed context left untouched rather than cleared (see the warning above for the underlying error)")
 	}
-
-	// Advisory: tell the user if a bundle executable (MCP server / hook / prompt
-	// export) was withheld by the trust gate (content-free).
-	WarnWithheldBy(freshCfg.ExecutableTrustGate())
 
 	warnRetractions(retracted)
 
@@ -295,9 +286,6 @@ func markTotalHookFailure(result *ApplyHooksResult) error {
 func resolveHookConfig(req ApplyHooksRequest) (*config.Config, error) {
 	if req.Cfg == nil {
 		return nil, fmt.Errorf("apply hooks: a config generation is required")
-	}
-	if _, err := req.Cfg.RequireTrust(); err != nil {
-		return nil, fmt.Errorf("apply hooks: %w", err)
 	}
 	return req.Cfg, nil
 }

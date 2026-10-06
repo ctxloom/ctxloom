@@ -202,11 +202,8 @@ func TestRunInit_ExistingDir_ProvisionsTheApprovalsStore(t *testing.T) {
 	origHome, origNonInteractive, origSkipLaunch := initHome, initNonInteractive, initSkipLaunch
 	initHome, initNonInteractive, initSkipLaunch = false, true, true
 	t.Cleanup(func() { initHome, initNonInteractive, initSkipLaunch = origHome, origNonInteractive, origSkipLaunch })
-	require.False(t, operations.ApprovalsStoreProvisioned(nil, appDir), "precondition: an unprovisioned project")
-
 	require.NoError(t, runInit(&cobra.Command{}, nil))
 
-	assert.True(t, operations.ApprovalsStoreProvisioned(nil, appDir))
 	cfg, err := os.ReadFile(filepath.Join(appDir, "config.yaml"))
 	require.NoError(t, err)
 	assert.Equal(t, "version: 5\n", string(cfg), "re-init must not re-scaffold an existing project's config")

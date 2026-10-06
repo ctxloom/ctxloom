@@ -81,7 +81,7 @@ func TestHarnessStatus_ReportsStatuslinePreference(t *testing.T) {
 	wireClaudeHarness(t, fs, dir)
 
 	off := false
-	cfg := gatedFixture(config.Fixture{Settings: config.SettingsConfig{Statusline: &off}})
+	cfg := config.NewFixture(config.Fixture{Settings: config.SettingsConfig{Statusline: &off}})
 	res, err := HarnessStatus(context.Background(), engines.Registry(), cfg, HarnessStatusRequest{FS: fs, WorkDir: dir})
 	require.NoError(t, err)
 	assert.False(t, res.ManageStatusline, "status reflects the statusline opt-out")

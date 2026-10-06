@@ -962,9 +962,10 @@ const (
 	signatureCheckDisabled = "disabled"
 )
 
-// signatureCheckOf names whether tr verifies bundle signatures.
-func signatureCheckOf(tr composite.Trust) string {
-	if tr.SignatureCheckDisabled() {
+// signatureCheckOf names whether a generation built with this posture verifies
+// bundle signatures.
+func signatureCheckOf(disabled bool) string {
+	if disabled {
 		return signatureCheckDisabled
 	}
 	return signatureCheckEnforced
@@ -973,8 +974,8 @@ func signatureCheckOf(tr composite.Trust) string {
 // sessionSignatureCheckOf names the posture of the session this preview runs
 // in, when it differs from the preview's own: a waived session around a run
 // that verifies.
-func sessionSignatureCheckOf(tr composite.Trust, sessionWaived bool) string {
-	if sessionWaived && !tr.SignatureCheckDisabled() {
+func sessionSignatureCheckOf(disabled, sessionWaived bool) string {
+	if sessionWaived && !disabled {
 		return signatureCheckDisabled
 	}
 	return ""
@@ -1024,9 +1025,9 @@ func (st *runState) emitDryRun() error {
 		Runtime:               string(l.Declared.Runtime),
 		Resolved:              axesJSON{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
 		Environment:           probedEnvironment(l.Cell),
-		SignatureCheck:        signatureCheckOf(deps.Snapshot.Trust),
+		SignatureCheck:        signatureCheckOf(deps.Snapshot.Config.SignatureCheckDisabled()),
 		EditedSignedTrees:     bundles.EditedSignedTrees(deps.Snapshot.Catalog().Reads()),
-		SessionSignatureCheck: sessionSignatureCheckOf(deps.Snapshot.Trust, App().SessionSigCheckWaived),
+		SessionSignatureCheck: sessionSignatureCheckOf(deps.Snapshot.Config.SignatureCheckDisabled(), App().SessionSigCheckWaived),
 		LLM:                   l.Label.Label,
 		Backend:               string(l.Engine),
 		Profiles:              pkg.Selection.Profiles,

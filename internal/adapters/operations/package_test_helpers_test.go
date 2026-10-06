@@ -10,10 +10,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
@@ -36,19 +34,6 @@ func skillsOf(t *testing.T, cfg *config.Config, profileNames []string) []*bundle
 	pkg, err := AssemblePackage(context.Background(), cfg, PackageRequest{Profiles: profileNames})
 	require.NoError(t, err)
 	return LoadedSkills(pkg)
-}
-
-// hashTrust admits exactly the payloads whose hash is in want — the shape a
-// countersignature has: one approval covers one set of bytes — by REJECTING
-// every other payload.
-func hashTrust(want ...string) composite.Trust {
-	granted := make(map[string]bool, len(want))
-	for _, w := range want {
-		granted[w] = true
-	}
-	return compositetest.Trust(compositetest.RejectWhen(func(_ trust.Ref, payload []byte) bool {
-		return !granted[bundles.HashPayload(payload)]
-	}))
 }
 
 // claudeExportsOf is claude-code's command exports for the configured

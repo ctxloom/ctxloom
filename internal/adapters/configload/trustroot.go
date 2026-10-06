@@ -45,7 +45,7 @@ func EmbeddedSigners() *allowedsigners.Store {
 
 // signerFiles is where one generation's trust root is read from: the
 // filesystem, the app directories whose project stores join the user ones, and
-// the reporter a degraded read is announced through. Sources.TrustPorts builds
+// the reporter a degraded read is announced through. Sources.TrustRoot builds
 // it from the Config it is building a generation for (signerFilesOf).
 type signerFiles struct {
 	fs       afero.Fs
@@ -85,8 +85,8 @@ func (c *signerFiles) getFS() afero.Fs {
 // on the union as a failed source, so a silently-shortened root is never
 // presented as the whole one.
 //
-// Sources.TrustPorts hands it out as the port (trust.TrustRoot), once per
-// generation; every consumer reads it back as Config.Trust().Root().
+// Sources.TrustRoot hands it out (trust.TrustRoot), once per
+// generation; every consumer reads it back as Config.TrustRoot().
 func (c *signerFiles) trustStore() *allowedsigners.Store {
 	fs := c.getFS()
 	stores := []*allowedsigners.Store{c.embeddedSignersTrusted()}

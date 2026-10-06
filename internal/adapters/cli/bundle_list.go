@@ -196,19 +196,8 @@ func runBundleShow(cmd *cobra.Command, args []string) error {
 	}); err != nil {
 		return err
 	}
-
-	// TR4 interactive trust review: render per-item effective trust and offer a
-	// per-hook trust/blacklist action. TTY-gated and suppressed for every
-	// format but text so the bundle body above is byte-for-byte unchanged and
-	// a non-text caller is never parked on a prompt; all trust UI goes to
-	// stderr. Viewing never trusts.
-	if bundleShowInteractive && !wantsNonTextOutput(cmd) && isInteractiveTerminal() {
-		return offerBundleTrust(cmd, cfg, name, bundle)
-	}
 	return nil
 }
-
-var bundleShowInteractive bool
 
 // renderBundleShow writes the detailed bundle view to out. Sections
 // (MCP/Fragments/Commands/Notes) are suppressed when empty. Fragment and
@@ -343,5 +332,4 @@ func renderBundleCommandEntry(w *errwriter.Writer, name string, prompt bundles.B
 
 // registerBundleShowFlags defines `bundle show`'s flags.
 func registerBundleShowFlags(cmd *cobra.Command) {
-	cmd.Flags().BoolVarP(&bundleShowInteractive, "interactive", "i", false, "Review per-item effective trust and trust/blacklist individual hooks (interactive terminal only)")
 }

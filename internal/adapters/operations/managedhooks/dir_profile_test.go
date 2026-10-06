@@ -9,7 +9,6 @@
 package managedhooks
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,11 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -40,7 +37,7 @@ func dirProfileCfg(t *testing.T, defaults []string, dirProfiles map[string]strin
 	for name, body := range dirProfiles {
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, name+".yaml"), []byte(body), 0o644))
 	}
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: defaults}},
@@ -62,22 +59,14 @@ func preToolCommandSet(h wire.UnifiedHooks) []string {
 
 const dirHookBody = "hooks:\n  unified:\n    pre_tool:\n      - command: keep-hook\n        type: command\n      - command: drop-hook\n        type: command\n"
 
-// TestAssemble_DirProfileInlineHooks_FlowAndGate is the hook twin: a
-// directory profile's inline hooks: reach the managed hook set, and the exec gate
-// withholds an un-granted one.
-func TestAssemble_DirProfileInlineHooks_FlowAndGate(t *testing.T) {
+// TestAssemble_DirProfileInlineHooks_Flow is the hook twin: a directory
+// profile's inline hooks reach the managed hook set.
+func TestAssemble_DirProfileInlineHooks_Flow(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody})
 	assembled := Assemble(cfg, nil)
 	cmds := preToolCommandSet(assembled.Wire().Unified)
 	assert.Contains(t, cmds, "keep-hook", "directory profile inline hooks reach the managed set")
 	assert.Contains(t, cmds, "drop-hook")
-
-	cfg2 := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody})
-	keepHash := bundles.HashPayload(hookExecPayload(wire.Hook{Command: "keep-hook", Type: "command"}))
-	cfg2.BindTrustForTesting(hashTrust(keepHash))
-	gated := preToolCommandSet(Assemble(cfg2, nil).Wire().Unified)
-	assert.Contains(t, gated, "keep-hook", "a granted directory-profile hook is applied")
-	assert.NotContains(t, gated, "drop-hook", "an un-granted directory-profile hook is withheld by the exec gate")
 }
 
 // TestAssemble_DirProfileMergesWithAnotherDefault is the hook twin of
@@ -92,21 +81,9 @@ func TestAssemble_DirProfileMergesWithAnotherDefault(t *testing.T) {
 			"dirP":   "hooks:\n  unified:\n    pre_tool:\n      - command: dir-hook\n        type: command\n",
 			"otherP": "hooks:\n  unified:\n    pre_tool:\n      - command: other-hook\n        type: command\n",
 		})
-	// BOTH hooks must be granted now. This is the behaviour change the inline
-	// arm's retirement makes visible: an inline profile's hooks were
-	// trusted-local and reached the set UNGATED, so this test used to authorize
-	// only dir-hook and still see both. Every declared hook is gated today, so
-	// a hook the gate does not grant is withheld regardless of which profile
-	// declared it.
-	grant := hashTrust(
-		bundles.HashPayload(hookExecPayload(wire.Hook{Command: "dir-hook", Type: "command"})),
-		bundles.HashPayload(hookExecPayload(wire.Hook{Command: "other-hook", Type: "command"})),
-	)
-	cfg.BindTrustForTesting(grant)
-
 	cmds := preToolCommandSet(Assemble(cfg, nil).Wire().Unified)
-	assert.Contains(t, cmds, "other-hook", "the second default profile's granted hook is applied")
-	assert.Contains(t, cmds, "dir-hook", "the first default profile's granted hook is applied")
+	assert.Contains(t, cmds, "other-hook", "the second default profile's hook is applied")
+	assert.Contains(t, cmds, "dir-hook", "the first default profile's hook is applied")
 }
 
 // TestAssemble_DirProfileInheritsParentHooks proves a directory
@@ -122,36 +99,4 @@ func TestAssemble_DirProfileInheritsParentHooks(t *testing.T) {
 	cmds := preToolCommandSet(Assemble(cfg, nil).Wire().Unified)
 	assert.Contains(t, cmds, "base-hook", "a directory profile inherits its parent's inline hooks")
 	assert.Contains(t, cmds, "child-hook")
-}
-
-func TestAssemble_DeniedHookIsWarned(t *testing.T) {
-	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody})
-	keepHash := bundles.HashPayload(hookExecPayload(wire.Hook{Command: "keep-hook", Type: "command"}))
-	cfg.BindTrustForTesting(hashTrust(keepHash))
-
-	var buf bytes.Buffer
-	restore := clidiag.SetSink(&buf)
-	defer restore()
-
-	gated := preToolCommandSet(Assemble(cfg, nil).Wire().Unified)
-	assert.NotContains(t, gated, "drop-hook", "the gate's deny decision is unchanged")
-	assert.Contains(t, buf.String(), "drop-hook",
-		"a denied hook must be warned by name, not silently dropped: got %q", buf.String())
-}
-
-// A locally authored profile's directly-declared hooks key the exec gate by the
-// project's own posture: a claimed read, project provenance, local trust
-// context, and no signature — never an unclaimed read (which withholds) and
-// never a signer nothing verified.
-func TestProfileGateRef_LocallyAuthoredProfileReadsAsProjectLocalUnsigned(t *testing.T) {
-	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody})
-	resolved, err := cfg.GetProfileLoader().ResolveProfile("dir", nil)
-	require.NoError(t, err)
-
-	read := profileGateRefFor(cfg, resolved, "dir").Read
-	assert.True(t, read.Claimed())
-	assert.Equal(t, bundles.ProvenanceProject, read.Provenance)
-	assert.Equal(t, bundles.TrustCtxLocal, read.TrustCtx())
-	assert.Equal(t, bundles.SignatureNone, read.Signature())
-	assert.Equal(t, bundles.SignerNone, read.Signer())
 }

@@ -5,9 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -15,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -126,9 +124,8 @@ func (s stubSources) Read(context.Context) (*config.Config, []config.Warning, er
 func (stubSources) Readers(context.Context, *config.Config) ([]bundles.Reader, error) {
 	return nil, nil
 }
-func (stubSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
-	root, records, retraction := compositetest.Ports()
-	return root, records, retraction, nil
+func (stubSources) TrustRoot(context.Context, *config.Config) (trust.TrustRoot, error) {
+	return trust.NoSigners{}, nil
 }
 
 // TestOpen_WithEngines_ValidatesEveryGeneration: a process composed with

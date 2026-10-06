@@ -153,12 +153,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 		// exited 0, printed "ctxloom directory already exists", and added
 		// zero remotes. Honour the flags here too, on a pre-existing dir.
 		addPersonalRemotesFn(cmd, appDir, initRemotes, initForge)
-		// A project initialized before the approvals store was provisioned
-		// withholds everything until it is: re-running init is the remedy the
-		// trust finding and doctor both name.
-		if err := operations.ProvisionApprovalsStore(nil, appDir); err != nil {
-			return err
-		}
 		// A re-init installs the declared closure too. A project whose first
 		// init ran offline, or a fresh clone of one, has references it can
 		// resolve only through a lockfile entry it does not have; re-running
@@ -297,7 +291,7 @@ func ctxloomDefaultTrusted(cfg *config.Config) bool {
 	if cfg == nil {
 		return false
 	}
-	root := cfg.Trust().Root()
+	root := cfg.TrustRoot()
 	now := time.Now()
 	for _, e := range configload.EmbeddedSigners().Entries() {
 		if root.TrustedForNamespace(e.PublicKey, signing.NamespacePublish, now).Trusted {

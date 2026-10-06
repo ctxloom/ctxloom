@@ -191,11 +191,10 @@ type LinkGroup struct {
 
 // Item pairs an admitted value with the read facts it was admitted on.
 type Item[T any] struct {
-	Value    T
-	Ref      string
-	Form     bundles.ContentForm
-	Decision trust.Decision
-	Signer   string
+	Value  T
+	Ref    string
+	Form   bundles.ContentForm
+	Signer string
 }
 
 // Finding is one content-free fact about the assembly a surface voices.
@@ -232,9 +231,8 @@ type Attestation struct {
 
 // ItemAttestation is one delivered item's decision row.
 type ItemAttestation struct {
-	Ref      string
-	Decision trust.Decision
-	Hash     string
+	Ref  string
+	Hash string
 }
 
 // Attestation returns the record that decided this package.
@@ -257,7 +255,7 @@ func (p Package) WithLead(blocks ...Fragment) Package {
 			continue
 		}
 		parts = append(parts, b.Body)
-		fragments = append(fragments, Item[Fragment]{Value: b, Ref: b.Name, Decision: trust.Allow})
+		fragments = append(fragments, Item[Fragment]{Value: b, Ref: b.Name})
 	}
 	if len(fragments) == len(p.Fragments) {
 		return p
@@ -291,8 +289,8 @@ type Options struct {
 	// adapter's and rides in here; nil refuses every pinned ask.
 	Versions bundles.BundleVersionResolver
 	// Pipeline is the injected-stage seam: a process stage built elsewhere
-	// (a test's, over its own gate and link grant) that Assemble reads
-	// through instead of building one from cat and tr.
+	// (a test's, over its own link grant) that Assemble reads through
+	// instead of building one from cat.
 	Pipeline *bundles.Pipeline
 	// DropWithheld accepts a withheld required item instead of refusing.
 	DropWithheld bool

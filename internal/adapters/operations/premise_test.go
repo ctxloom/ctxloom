@@ -52,7 +52,7 @@ profiles:
 }
 
 func selectionConfig(root string) *config.Config {
-	return gatedFixture(config.Fixture{AppPaths: []string{filepath.Join(root, ".ctxloom")}})
+	return config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join(root, ".ctxloom")}})
 }
 
 func assembleSelection(t *testing.T, premised bool, req AssembleContextRequest) *AssembleContextResult {

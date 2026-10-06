@@ -174,7 +174,7 @@ func deliverHookToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]b
 	// Set on a reader-established read, not written as a tree: the sentinel
 	// fill populates every field, and a tree round-trip would test which of
 	// them the tree format carries rather than whether extraction delivers them.
-	got := extractHooksFromBundle(report.Reporter{}, readWithHooks(t, bundle.Hooks), mustLocalRef(t, "parity-src"), gate, bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, readWithHooks(t, bundle.Hooks), mustLocalRef(t, "parity-src"), bundles.LinksUnchecked())
 
 	out := map[string][]byte{}
 	for label, hooks := range map[string][]wire.Hook{
@@ -228,7 +228,7 @@ func deliverMCPToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]by
 	// the tree format does not carry every field the sentinel fill sets.
 	read := bundletree.ProjectRead(t, "fixture", &bundles.Bundle{}, bundletree.Unsigned)
 	read.Bundle.MCP = map[string]bundles.BundleMCP{"parity": m}
-	servers := extractMCPFromBundle(report.Reporter{}, read, mustLocalRef(t, "parity-src"), gate)
+	servers := extractMCPFromBundle(report.Reporter{}, read, mustLocalRef(t, "parity-src"))
 	srv, ok := servers["parity"]
 	if !ok {
 		t.Fatal("the production path produced no wire MCP server — nothing to compare against")

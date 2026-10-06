@@ -25,7 +25,7 @@ func u085ProfileProject(t *testing.T) *config.Config {
 	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, appDir), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), "local-one.yaml"),
 		[]byte("description: real\n"), 0o644))
-	return gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 // TestUpdateProfile_PreservesLoaderError pins the write path:
@@ -78,7 +78,7 @@ func TestLoadLocalProfile_PreservesLoaderError(t *testing.T) {
 func TestCreateProfile_FreshProjectCreatesTheProjectBundle(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{Name: "fresh", Bundles: []string{"go-development"}})
 	require.NoError(t, err)

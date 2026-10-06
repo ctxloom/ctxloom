@@ -19,7 +19,7 @@ import (
 // may still carry one. It must degrade like any unknown type: the ordinary
 // decode-failure warning, and no config.
 func TestDecodeBackendConfig_GeminiTypeWarnsAsUnknown(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				"gem": {Type: "gemini", Body: map[string]interface{}{}},
@@ -45,7 +45,7 @@ func TestDecodeBackendConfig_GeminiTypeWarnsAsUnknown(t *testing.T) {
 // on the PAYLOAD: every line ctxloom writes to the diagnostic channel must be
 // one envelope, and the warning's content must still be in there.
 func TestDecodeBackendConfig_DecodeFailureRidesTheDiagnosticChannel(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				"x": {Type: "nope", Body: map[string]interface{}{}},
@@ -78,7 +78,7 @@ func TestDecodeBackendConfig_DecodeFailureRidesTheDiagnosticChannel(t *testing.T
 // nothing — a real engine's environment is ambient, never config-declared
 // (config.RetiredLLMEnvKey), so there is no map on its config to read.
 func TestMockControlFor_ReadsTheMockLabelsControlMapAndNothingElse(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				"m": {Type: config.BackendMock, Body: map[string]interface{}{

@@ -37,7 +37,7 @@ func linkedSkillsProject(t *testing.T) string {
 
 	appDir := filepath.Join(root, paths.AppDirName)
 	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, appDir), 0o755))
-	provisionApprovals(t, appDir)
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir),
 		[]byte(fmt.Sprintf("schema_version: %d\ndefault_agent: default\nagents:\n  default:\n    profiles:\n      - ops\n", config.CurrentConfigVersion)), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), "ops.yaml"),

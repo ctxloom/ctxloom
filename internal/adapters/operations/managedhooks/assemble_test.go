@@ -72,7 +72,7 @@ func TestAssemble_DoesNotMutateConfig(t *testing.T) {
 // TestAssemble_WithInvalidProfile must not panic on a default
 // profile reference that has no definition.
 func TestAssemble_WithInvalidProfile(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"non-existent-profile"}}},
 	})

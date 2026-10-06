@@ -165,34 +165,6 @@ func TestListAllSkills_NoBundlesReturnsEmpty(t *testing.T) {
 	assert.Empty(t, infos)
 }
 
-// TestListAllSkills_WithheldSkillOmittedNotErrored proves a skill the trust
-// gate withholds is silently omitted from ListAllSkills (skillContent already
-// warns) rather than aborting the whole listing or leaking a partial entry.
-//
-// Both skills live in the SAME bundle, with the withheld one sorting FIRST
-// (bundle.SkillNames() is sorted) — this pins ListAllSkills' inner loop
-// CONTINUES past a withheld skill to the next name rather than stopping the
-// bundle's scan there: an INVERT_LOOPCTRL mutant turning that `continue` into
-// `break` would drop the trusted sibling that sorts after it, which a
-// single-skill-per-bundle fixture could never distinguish.
-func TestListAllSkills_WithheldSkillOmittedNotErrored(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	bundlesDir := "/bundles"
-	root := paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2)
-	bundleDir := filepath.Join(root, "bundle-a")
-	writeSkillFixture(t, fsys, bundleDir+"/skills/aaa-blocked", "aaa-blocked")
-	writeSkillFixture(t, fsys, bundleDir+"/skills/zzz-trusted", "zzz-trusted")
-	writeTree(t, fsys, root, "bundle-a", "version: \"1.0\"\n")
-
-	pipe := gatedPipe(NewLoader(NewProjectReader(fsys, []string{bundlesDir})),
-		blockingGate(nil, "bundle-a#skills/aaa-blocked"), false)
-
-	infos, err := pipe.ListAllSkills()
-	require.NoError(t, err)
-	require.Len(t, infos, 1, "the withheld skill (sorts first) must be skipped, not stop the scan of its bundle's remaining skills")
-	assert.Equal(t, "bundle-a/zzz-trusted", infos[0].Name)
-}
-
 // =============================================================================
 // GetSkill tests: ref form (skillFromBundle) and bare-name form (searchSkill)
 // =============================================================================
@@ -224,22 +196,6 @@ func TestGetSkill_RefFormUnknownSkillInBundleErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-// TestGetSkill_RefFormWithheldByTrustGateReturnsErrSkillWithheld proves the
-// ref-form path (skillFromBundle) surfaces ErrSkillWithheld — distinct from
-// ErrSkillNotFound — when the trust gate withholds a skill that DOES exist in
-// the named bundle.
-func TestGetSkill_RefFormWithheldByTrustGateReturnsErrSkillWithheld(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	bundlesDir := "/bundles"
-	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
-
-	pipe := gatedPipe(NewLoader(NewProjectReader(fsys, []string{bundlesDir})),
-		blockingGate(nil, "#skills/humanize"), false)
-
-	_, err := pipe.GetSkill("skill-bundle#skills/humanize")
-	require.True(t, errors.Is(err, errs.ErrSkillWithheld), "got %v, want ErrSkillWithheld", err)
-}
-
 // TestGetSkill_BareNameSearchesAllBundles proves the bare-name form routes
 // through searchSkill and resolves the same payload as the ref form.
 func TestGetSkill_BareNameSearchesAllBundles(t *testing.T) {
@@ -266,24 +222,6 @@ func TestGetSkill_BareNameNotFoundAnywhereReturnsErrSkillNotFound(t *testing.T) 
 	require.True(t, errors.Is(err, errs.ErrSkillNotFound), "got %v, want ErrSkillNotFound", err)
 }
 
-// TestSearchSkill_WithheldInOneBundleStillResolvesFromTrustedSibling proves
-// searchSkill's documented contract: a gate-withheld match in one bundle does
-// NOT end the scan — a trusted copy of the SAME skill name in another bundle
-// still wins.
-func TestSearchSkill_WithheldInOneBundleStillResolvesFromTrustedSibling(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	bundlesDir := "/bundles"
-	writeSkillBundle(t, fsys, bundlesDir, "bundle-blocked", "humanize", true)
-	writeSkillBundle(t, fsys, bundlesDir, "bundle-trusted", "humanize", true)
-
-	pipe := gatedPipe(NewLoader(NewProjectReader(fsys, []string{bundlesDir})),
-		blockingGate(nil, "bundle-blocked#skills/humanize"), false)
-
-	ls, err := pipe.GetSkill("humanize")
-	require.NoError(t, err)
-	assert.Equal(t, "bundle-trusted/humanize", ls.Name, "a withheld copy in one bundle must not block a trusted copy in another")
-}
-
 // TestSearchSkill_SkipsBundleWithoutTheSkillAndContinuesToNextBundle proves
 // searchSkill's `!ok` continue (a bundle that simply doesn't carry the named
 // skill at all) does not end the scan: "bundle-a" sorts first and does NOT
@@ -301,23 +239,6 @@ func TestSearchSkill_SkipsBundleWithoutTheSkillAndContinuesToNextBundle(t *testi
 	ls, err := admitAllPipe(loader, false).GetSkill("humanize")
 	require.NoError(t, err, "a bundle without the named skill must be skipped, not stop the scan")
 	assert.Equal(t, "bundle-b/humanize", ls.Name)
-}
-
-// TestSearchSkill_AllWithheldReturnsErrSkillWithheld proves that when EVERY
-// bundle's match is withheld, searchSkill reports ErrSkillWithheld — not
-// ErrSkillNotFound, since the skill does exist, just not for this trust
-// posture.
-func TestSearchSkill_AllWithheldReturnsErrSkillWithheld(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	bundlesDir := "/bundles"
-	writeSkillBundle(t, fsys, bundlesDir, "bundle-a", "humanize", true)
-	writeSkillBundle(t, fsys, bundlesDir, "bundle-b", "humanize", true)
-
-	pipe := gatedPipe(NewLoader(NewProjectReader(fsys, []string{bundlesDir})),
-		blockingGate(nil, "#skills/humanize"), false)
-
-	_, err := pipe.GetSkill("humanize")
-	require.True(t, errors.Is(err, errs.ErrSkillWithheld), "got %v, want ErrSkillWithheld", err)
 }
 
 // =============================================================================

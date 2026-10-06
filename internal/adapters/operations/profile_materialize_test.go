@@ -16,10 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -187,7 +185,7 @@ func materializeHookFixture(t *testing.T) (cfg *config.Config, target string) {
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "reviewer.yaml"), []byte(
 		"select_tags:\n  - security\nhooks:\n  unified:\n    session_start:\n      - type: command\n        command: echo team-guardrail\n",
 	), 0o644))
-	return gatedFixture(f), target
+	return config.NewFixture(f), target
 }
 
 // TestMaterializeProfile_ReportsHooksAnEngineCannotCarry is the
@@ -284,7 +282,7 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 
 	// A skills-only bundle assembles no context text on its own; ctxloom's
 	// own loadout supplies the always-on guidance a real materialize carries.
-	cfg := withCtxloomLoadout(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
+	cfg := withCtxloomLoadout(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 	target := t.TempDir()
 
 	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
@@ -330,7 +328,7 @@ func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
 
 	// A skills-only bundle assembles no context text on its own; ctxloom's
 	// own loadout supplies the always-on guidance a real materialize carries.
-	cfg := withCtxloomLoadout(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
+	cfg := withCtxloomLoadout(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 	target := t.TempDir()
 
 	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
@@ -363,7 +361,7 @@ func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
 // TestMaterializeProfile_Validation covers the guard rails.
 func TestMaterializeProfile_Validation(t *testing.T) {
 	ctx := context.Background()
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 
 	_, err := MaterializeProfile(ctx, engines.Registry(), cfg, MaterializeProfileRequest{Profiles: []string{"p"}})
 	assert.Error(t, err, "missing target is rejected")
@@ -390,7 +388,7 @@ func TestMaterializeProfile_Validation(t *testing.T) {
 // one-entry alias table (`backend == "claude"`) — the second copy that
 // drifts — so the refusals here are what keep one from growing back.
 func TestResolveMaterializeTarget_AcceptsOnlyTheRegisteredName(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 
 	got, err := resolveMaterializeTarget(engines.Registry(), cfg, MaterializeProfileRequest{
 		Target: t.TempDir(), Profiles: []string{"p"}, Backend: "claude-code",
@@ -454,7 +452,7 @@ func TestMaterializeProfile_ReportsAFragmentWithheldByItsPremise(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "premised.yaml"),
 		[]byte("bundles:\n  - premise-bundle\n"), 0644))
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	target := t.TempDir()
 
 	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
@@ -510,7 +508,7 @@ func TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext(t *t
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "premised2.yaml"),
 		[]byte("bundles:\n  - premise-bundle-2\n"), 0644))
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	target := t.TempDir()
 
 	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
@@ -525,28 +523,4 @@ func TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext(t *t
 
 	assert.Empty(t, res.WithheldByPremise,
 		"nothing was withheld — the assembly ran static — so the withhold report must be empty. Reporting a withhold here would be a false alarm about content that WAS delivered")
-}
-
-// One materialize reports each withheld item ONCE. The generation's gate
-// tallies every withhold for its whole life, and both AssemblePackage and
-// MaterializeProfile print the advisory from that tally — so a gate that
-// already held an item printed it twice per command (three withheld items
-// were measured as six lines). The item is recorded on the command's own gate
-// before the run, the same way a withhold during assembly records it.
-func TestMaterializeProfile_ReportsEachWithheldItemOnce(t *testing.T) {
-	cfg, target := materializeFixture(t, "ONCE-CONTENT")
-
-	v := bundles.Decide(report.Reporter{}, cfg.ExecutableTrustGate(), execRead(t, ""), gateHookRef, toolingHookPayload(), bundles.FormRaw)
-	require.False(t, v.Allow, "precondition: the unreviewed remote hook is withheld and so tallied on the gate")
-
-	stderr := captureStderr(t, func() {
-		_, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
-			Profiles: []string{"reviewer"},
-			Target:   target,
-		})
-		require.NoError(t, err)
-	})
-
-	assert.Equal(t, 1, strings.Count(stderr, gateHookRef),
-		"one materialize must report the withheld item exactly once; stderr:\n%s", stderr)
 }

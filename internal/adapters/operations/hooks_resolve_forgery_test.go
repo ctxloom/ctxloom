@@ -36,7 +36,7 @@ func TestResolveHooks_DirectoryProfileHookCannotForgeItsProvenance(t *testing.T)
 		"      - command: forging-hook\n        type: command\n        _ctxloom: bundle:acme/tools\n"
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dirp.yaml"), []byte(body), 0o644))
 
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"dirp"}}},

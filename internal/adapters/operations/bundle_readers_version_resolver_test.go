@@ -28,7 +28,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/testsupport/admitall"
 )
 
 const localGoTools = "ctxloom:local@bundles/go-tools"
@@ -67,7 +66,7 @@ func localContentRepo(t *testing.T) (appDir, rev1, rev2 string) {
 // to resolve (mirroring how assembly sees today's working copy).
 func localResolverLoader(t *testing.T, appDir string) *bundles.Pipeline {
 	t.Helper()
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	resolver := BundleVersionResolver(cfg)
 	require.NotNil(t, resolver, "an app dir must yield a version resolver")
 	// The working-tree default is read as what it is: a project bundle on a
@@ -79,7 +78,7 @@ func localResolverLoader(t *testing.T, appDir string) *bundles.Pipeline {
 	bundletree.Write(t, fsys, paths.BundlesLayoutRoot(searchRoot, paths.LayoutV2), "go-tools", "version: 1.0.0\nfragments:\n  fmt:\n    content: WORKTREE-BODY\ncommands:\n  review:\n    content: WORKTREE-PROMPT\n")
 	loader := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{searchRoot})).WithVersionResolver(resolver, nil)
 	// AdmitAll: this test resolves versions, not trust, and states so.
-	return bundles.NewPipeline(loader, admitall.Authorizer(), bundles.LinksUnchecked(), false)
+	return bundles.NewPipeline(loader, bundles.LinksUnchecked(), false)
 }
 
 // TestLocalRev_FragmentResolvesHistoricalVersion proves a local fragment ref

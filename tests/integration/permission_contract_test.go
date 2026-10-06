@@ -339,7 +339,7 @@ func (s laneSources) Read(context.Context) (*config.Config, []config.Warning, er
 }
 
 func (s laneSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	return []bundles.Reader{bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(cfg.Trust().Root()))}, nil
+	return []bundles.Reader{bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(cfg.TrustRoot()))}, nil
 }
 
 func (s laneSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {

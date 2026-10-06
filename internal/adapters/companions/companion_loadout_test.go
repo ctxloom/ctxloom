@@ -24,7 +24,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -403,14 +402,10 @@ func TestBundleLoader_NoAppPaths_SkipsCompanionProbing(t *testing.T) {
 	assert.False(t, probed, "no AppPaths means no project to seed companion content into — must not probe at all")
 }
 
-// --- Unconditional resolvers pick up companion loadout content, GATED -----
+// --- Unconditional resolvers pick up companion loadout content ------------
 //
-// These prove item 5's acceptance bar directly: ltk/taskloom content must
-// still reach a real session via the companion loadout, unconditionally
-// (matching the old embedded-bundle behavior), but — the RED LINE — never
-// through the builtin nil-gate exemption. Each test below drives the SAME
-// gate a real session would (a plain deny/allow func, not nil), so an
-// exemption bug would show up as content leaking through a DENY.
+// ltk/taskloom content must reach a real session via the companion loadout,
+// unconditionally.
 
 const companionLoadoutWithEverything = `
 version: "1.0.0"
@@ -440,7 +435,7 @@ func fakeCompanionEnvelope(t *testing.T, bundleYAML string) func(string) ([]byte
 	return func(string) ([]byte, error) { return envelope, nil }
 }
 
-func TestResolveBundleHooks_IncludesCompanionLoadoutHooks_Gated(t *testing.T) {
+func TestResolveBundleHooks_IncludesCompanionLoadoutHooks(t *testing.T) {
 	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
@@ -450,7 +445,7 @@ func TestResolveBundleHooks_IncludesCompanionLoadoutHooks_Gated(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
-	t.Run("trusted gate: companion hook is included", func(t *testing.T) {
+	t.Run("companion hook is included", func(t *testing.T) {
 		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}})
 		result := cfg.ResolveBundleHooks(nil)
 		require.Len(t, result.PreTool, 1)
@@ -458,14 +453,9 @@ func TestResolveBundleHooks_IncludesCompanionLoadoutHooks_Gated(t *testing.T) {
 		assert.Equal(t, "bundle:ctxloom+companion:ltk", result.PreTool[0].SCM)
 	})
 
-	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
-		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}}, compositetest.RejectAll())
-		result := cfg.ResolveBundleHooks(nil)
-		assert.Empty(t, result.PreTool, "a companion hook must be withheld by a denying gate — a builtin would NOT be (it's exempt below rejection)")
-	})
 }
 
-func TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated(t *testing.T) {
+func TestResolveBundleMCPServers_IncludesCompanionLoadoutServers(t *testing.T) {
 	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
@@ -475,18 +465,13 @@ func TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated(t *testin
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
-	t.Run("trusted gate: companion MCP server is included", func(t *testing.T) {
+	t.Run("companion MCP server is included", func(t *testing.T) {
 		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}})
 		result := cfg.ResolveBundleMCPServers(nil)
 		require.Contains(t, result, "ltk-server")
 		assert.Equal(t, "bundle:ctxloom+companion:ltk", result["ltk-server"].SCM)
 	})
 
-	t.Run("denying gate withholds it", func(t *testing.T) {
-		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}}, compositetest.RejectAll())
-		result := cfg.ResolveBundleMCPServers(nil)
-		assert.NotContains(t, result, "ltk-server")
-	})
 }
 
 // TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers is the

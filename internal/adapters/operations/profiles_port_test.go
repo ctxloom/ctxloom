@@ -36,7 +36,7 @@ func TestProfileOperations_ListCreateDelete_RoundTrip(t *testing.T) {
 	for _, name := range []string{"alpha", "beta"} {
 		require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, name+".yaml"), []byte("description: seeded\n"), 0o644))
 	}
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	cfg.SetFS(fs)
 	loader := cfg.GetProfileLoader()
 

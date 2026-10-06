@@ -74,7 +74,6 @@ func applyWithContextRegen(t *testing.T) (projectDir, contextHash string) {
 	// The generation's gate: a Config reaching delivery without one is
 	// refused at entry (config.ErrTrustUnbound). A project-local bundle and
 	// the builtins are admitted by locality; nothing here travelled.
-	cfg.BindTrustForTesting(compositetest.Trust())
 
 	res, err := operations.ApplyHooks(context.Background(), engines.Registry(), operations.ApplyHooksRequest{
 		// Empty, not "all": that selector was removed. An omitted backend now

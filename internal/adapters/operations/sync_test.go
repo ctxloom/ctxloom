@@ -180,7 +180,7 @@ func TestCollectRemoteReferences_DefaultProfilesAreRoots(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	seededDefaultBundle := "https://github.com/ctxloom/ctxloom-default@bundles/default"
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents: map[string]agents.Agent{"default": {Profiles: []string{
 			seededDefaultBundle + "#profiles/default", // bundle-profile default
@@ -235,7 +235,7 @@ func TestCollectRemoteReferences_RetiredProfileRefsSkipped(t *testing.T) {
 func TestCollectRemoteReferences_RetiredDefaultProfileSkipped(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"https://github.com/o/r@profiles/dev"}}},
 		AppPaths:     []string{testBaseDir},
@@ -964,7 +964,7 @@ func TestCheckMissingDependencies_RetiredProfileRefNotOffered(t *testing.T) {
 	t.Setenv("HOME", t.TempDir()) // no host ~/.ctxloom leak into the defaults path
 	fs := afero.NewMemMapFs()
 
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"https://github.com/o/r@profiles/dev"}}},
 		AppPaths:     []string{testBaseDir},

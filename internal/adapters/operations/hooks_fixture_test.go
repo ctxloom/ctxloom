@@ -36,7 +36,7 @@ func cfgWithProfileHooks(t *testing.T, fs afero.Fs, appDir string, h wire.HooksC
 		f.DefaultAgent = "default"
 		f.Agents = map[string]agents.Agent{"default": {Profiles: []string{"hooked"}}}
 	}
-	cfg := gatedFixture(f)
+	cfg := config.NewFixture(f)
 	cfg.SetFS(fs)
 	return cfg
 }

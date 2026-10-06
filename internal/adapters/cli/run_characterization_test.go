@@ -58,7 +58,7 @@ func runCLIFixture(t *testing.T) string {
 	t.Cleanup(resetApp)
 
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
-	provisionApprovals(t, filepath.Join(dir, ".ctxloom"))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"),
 		[]byte(fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion)), 0o644))
 	// editor.command lives in HOME, not the project fixture: it is

@@ -104,7 +104,7 @@ func TestRemoteRev_ResolvesHistoricalVersionOfATreeBundle(t *testing.T) {
 		[]byte("publisher@example.com namespaces=\""+signing.NamespacePublish+"\" "+
 			string(ssh.MarshalAuthorizedKey(pub))), 0o644))
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	resolve := BundleVersionResolver(cfg)
 	require.NotNil(t, resolve, "an app dir must yield a version resolver")
 

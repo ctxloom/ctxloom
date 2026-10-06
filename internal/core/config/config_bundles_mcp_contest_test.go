@@ -13,7 +13,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -45,7 +44,6 @@ func mcpContestFixture(t *testing.T, bundleYAML map[string]string, profileBundle
 		appPaths:     []string{appDir},
 		rep:          ledgerReporter(),
 	}
-	cfg.BindTrustForTesting(compositetest.Trust())
 	return cfg
 }
 
@@ -172,7 +170,7 @@ func withCtxloomCompanion(t *testing.T, cfg *Config) *Config {
 			Document: []byte("run:\n  version: 1.0.0\n  mcp:\n    ctxloom:\n      command: ctxloom\n      args: [mcp, serve]\n"),
 		}}}, nil
 	}
-	root := cfg.Trust().Root()
+	root := cfg.TrustRoot()
 	cat := bundles.Resolve(context.Background(), cfg.rep.Sink,
 		bundles.NewProjectReader(cfg.getFS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
 		bundles.NewCompanionReader(probe, bundles.WithTrustRoot(root)))

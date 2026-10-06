@@ -58,7 +58,7 @@ func agentTestConfig(root string, subs map[string]agents.Agent) *config.Config {
 // (set via the Fixture directly, since Config's fields are unexported outside
 // internal/core/config and cannot be assigned after construction).
 func agentTestConfigWithDefault(root string, subs map[string]agents.Agent, defaultAgent string) *config.Config {
-	return gatedFixture(config.Fixture{
+	return config.NewFixture(config.Fixture{
 		AppPaths: []string{filepath.Join(root, ".ctxloom")},
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
@@ -282,7 +282,7 @@ func TestListAgents_MultipleNamed(t *testing.T) {
 func TestResolveAgent_BundleProfileMember(t *testing.T) {
 	root := t.TempDir()
 	writeBundleProfileFixture(t, root) // ships bundle profile kitProfileKey (llm: fast)
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{filepath.Join(root, ".ctxloom")},
 		LM: config.LMConfig{
 			Configs:  map[string]config.LLMConfig{"fast": {Type: "mock"}},
@@ -395,7 +395,7 @@ func TestAgent_LocalOnly_NeverFromBundle(t *testing.T) {
 func TestAgent_Ungated(t *testing.T) {
 	root := t.TempDir()
 	writeBundleProfileFixture(t, root) // kit: 1 fragment + 1 mcp + 1 hook + 1 profile
-	cfg := gatedFixture(config.Fixture{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{filepath.Join(root, ".ctxloom")},
 		Agents:   map[string]agents.Agent{"reviewer": {Profiles: []string{kitProfileKey}}},
 	})

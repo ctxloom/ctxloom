@@ -111,7 +111,7 @@ func versionedProject(t *testing.T, source config.ConfigSource, version string) 
 	root := t.TempDir()
 	appDir := filepath.Join(root, ".ctxloom")
 	require.NoError(t, os.MkdirAll(authoredV1(appDir), 0o755))
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}, AppDir: appDir, AppRoot: root, Source: source})
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}, AppDir: appDir, AppRoot: root, Source: source})
 	if version != "" {
 		writeRepoVersion(t, root, version)
 	}

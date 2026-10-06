@@ -288,7 +288,7 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 		if len(cfg.GetAppPaths()) == 0 {
 			return nil
 		}
-		root := cfg.Trust().Root()
+		root := cfg.TrustRoot()
 		probe := func(ctx context.Context) (bundles.CompanionProbe, error) {
 			return p.ProbeCompanionLoadouts(ctx)
 		}

@@ -188,21 +188,6 @@ func TestPublisherDisplayPaths_ControlBytesAreEscaped(t *testing.T) {
 			})
 			return buf.String()
 		}},
-		{"bundle trust", func(t *testing.T) string {
-			var buf bytes.Buffer
-			renderItemTrust(&buf, &operations.SetItemTrustResult{
-				Ref: h, RepoURL: h, Store: "user", KeyFingerprint: "SHA256:abc",
-			})
-			return buf.String()
-		}},
-		{"bundle reject", func(t *testing.T) string {
-			var buf bytes.Buffer
-			renderItemReject(&buf, &operations.SetBlacklistResult{
-				Ref: h, RepoURL: h, Store: "user", KeyFingerprint: "SHA256:abc",
-				ContentForms: []string{"raw"},
-			})
-			return buf.String()
-		}},
 		{"bundle distill", func(t *testing.T) string {
 			var buf bytes.Buffer
 			w := errwriter.New(&buf)
@@ -211,7 +196,6 @@ func TestPublisherDisplayPaths_ControlBytesAreEscaped(t *testing.T) {
 				{Kind: "fragment", Name: h, Status: operations.DistillStatusPlanned},
 				{Kind: "fragment", Name: h, Status: operations.DistillStatusDistilled, ModelID: h},
 			})
-			printDistillInvalidatedApprovals(w, []string{h})
 			require.NoError(t, w.Err())
 			return buf.String()
 		}},

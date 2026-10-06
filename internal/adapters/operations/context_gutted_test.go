@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
 // A profile whose content the review gate withholds ENTIRELY
@@ -60,25 +58,20 @@ func TestGuttedProfiles(t *testing.T) {
 }
 
 // TestWarnGuttedProfiles_NamesProfileAndWithheldItems pins the advisory: it
-// fires only when the gate actually withheld something (a profile that is
-// empty for any other reason is not the trust gate's story to tell), and it
-// names the profile — the thing the old generic tally never did.
+// fires only when the assembly actually withheld something (a profile that is
+// empty for any other reason is not withholding's story to tell), and it names
+// the profile — the thing the old generic tally never did.
 func TestWarnGuttedProfiles_NamesProfileAndWithheldItems(t *testing.T) {
-	gate := &contentGate{}
-	// An unaddressable ref is the one withhold a gate records without deciding
-	// a claimed exposure, so it is the shortest way to a tallied item.
-	gate.Unaddressable("ctxloom+git://github.com/acme/repo//bundles/ensemble#fragments/role",
-		bundles.Verdict{Reason: bundles.ReasonPending})
+	withheld := []string{"ctxloom+git://github.com/acme/repo//bundles/ensemble#fragments/role"}
 
 	var out bytes.Buffer
-	warnGuttedProfilesTo(&out, map[string][]string{"coordinator": {"role"}}, nil, gate.Authorizer())
+	warnGuttedProfilesTo(&out, map[string][]string{"coordinator": {"role"}}, nil, withheld)
 	text := out.String()
 	assert.Contains(t, text, "coordinator", "the gutted PROFILE must be named")
 	assert.Contains(t, text, "bundles/ensemble", "the withheld item's bundle must be named")
-	assert.Contains(t, text, "ctxloom review")
 
-	// Nothing withheld → the gate has no story; stay silent.
+	// Nothing withheld → silent.
 	var quiet bytes.Buffer
-	warnGuttedProfilesTo(&quiet, map[string][]string{"coordinator": {"role"}}, nil, &contentGate{})
+	warnGuttedProfilesTo(&quiet, map[string][]string{"coordinator": {"role"}}, nil, nil)
 	assert.Empty(t, quiet.String())
 }

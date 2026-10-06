@@ -10,8 +10,6 @@
 package operations
 
 import (
-	"github.com/spf13/afero"
-
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,7 +20,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
@@ -61,7 +58,6 @@ func dirCurationCfg(t *testing.T, defaults []string, dirProfiles map[string]stri
 	data, err := yaml.Marshal(doc)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	provisionApprovals(t, afero.NewOsFs(), appDir)
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), data, 0o644))
 
 	cfg, err := configload.Load(configload.WithAppDir(appDir))
@@ -161,36 +157,25 @@ func TestLoadCommandExports_CurationUnionsAcrossDefaults(t *testing.T) {
 		"the curated set unions both defaults; taking only the first would yield one item")
 }
 
-// TestLoadCommandExports_DirProfileCuratedGated proves a directory-curated prompt
-// is trust-gated exactly like an inline one: granting its content hash exports
-// it, denying withholds it (fail-closed; only builtins remain). The gate is the
-// same per-item executable gate the inline path uses.
+// TestLoadCommandExports_DirProfileCurated proves a directory-curated prompt
+// is exported exactly like an inline one.
 //
-// NOTE: unlike the inline CuratedVersionPinnedAndGated test, this exercises the
+// NOTE: unlike the inline CuratedVersionPinned test, this exercises the
 // UN-pinned ref. A directory profile requires AppPaths, which always wires the
 // production bundleVersionResolver (config.SeededBundleLoader, last-wins over any
 // injected resolver), so a fake "@<commit>" resolver can't be substituted here —
 // successful version resolution is shared loadCuratedPrompts code already covered
-// by TestLoadCommandExports_CuratedVersionPinnedAndGated. The pin ROUTING through
+// by TestLoadCommandExports_CuratedVersionPinned. The pin ROUTING through
 // the directory path is proven by DirProfileCuratedPinRoutedAndFailClosed below.
-func TestLoadCommandExports_DirProfileCuratedGated(t *testing.T) {
+func TestLoadCommandExports_DirProfileCurated(t *testing.T) {
 	cfg := dirCurationCfg(t, []string{"x"}, map[string]string{
 		"x": "commands:\n  - \"dev-tools#commands/review\"\n",
 	})
 	seed := devToolsSeed()
 
-	// Gate granting exactly the review prompt's content hash → exported.
-	want := promptRawHash("REVIEW")
-	cfg.BindTrustForTesting(hashTrust(want))
 	prompts := commandsOf(t, withSeed(t, cfg, seed), nil)
 	require.Equal(t, []string{"review"}, bundlePromptItems(prompts),
-		"a granted directory-curated prompt is exported")
-
-	// Gate denying → withheld (fail-closed); only builtins remain.
-	cfg.BindTrustForTesting(compositetest.Trust(compositetest.RejectAll()))
-	denied := commandsOf(t, withSeed(t, cfg, seed), nil)
-	assert.Empty(t, bundlePromptItems(denied),
-		"an un-granted directory-curated prompt must be withheld")
+		"a directory-curated prompt is exported")
 }
 
 // TestLoadCommandExports_DirProfileCuratedPinRoutedAndFailClosed proves the

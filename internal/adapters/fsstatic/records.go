@@ -1152,10 +1152,6 @@ func (e *editor) setElement(container string, hadClaim bool, v any) ([]string, b
 // The subcommand, not the executable, is the identity: a user's own entry
 // running ctxloom with a verb ctxloom does not claim in that array is theirs
 // and stays.
-//
-// It runs AFTER setAll: every array it sweeps then already holds a current
-// claim, so it never empties one that an append would have to fill — hew
-// mis-renders an append into an emptied multi-line array.
 func (e *editor) removeSuperseded(from, to fileState) error {
 	known := map[string][]any{}
 	claimed := map[string][]string{}

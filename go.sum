@@ -21,8 +21,8 @@ github.com/aymanbagabas/go-pty v0.2.3 h1:hsqcTIUV8I4iTSh3HQl61CR2wh0YPS6gHOYLhAf
 github.com/aymanbagabas/go-pty v0.2.3/go.mod h1:GLkgQovzqN5A1xMB79yHWiG1rhcquZCjkwKQGKFPdPg=
 github.com/aymanbagabas/go-udiff v0.4.1 h1:OEIrQ8maEeDBXQDoGCbbTTXYJMYRCRO1fnodZ12Gv5o=
 github.com/aymanbagabas/go-udiff v0.4.1/go.mod h1:0L9PGwj20lrtmEMeyw4WKJ/TMyDtvAoK9bf2u/mNo3w=
-github.com/benjaminabbitt/hew/go v0.2.2 h1:yp8ZCD9QhrIVBVRIVVvKFVI3W+cpcnZNUADh+vCykB0=
-github.com/benjaminabbitt/hew/go v0.2.2/go.mod h1:aCgiyzmOzNUxe7I6+KzPWOQ557JJ76SGYRdk+xyHuGc=
+github.com/benjaminabbitt/hew/go v0.2.3-0.20261006190523-23e75de33349 h1:e8RhoHfQ6adYD0gjQmuyv36e6fDg9RhsdyVKeC89ugM=
+github.com/benjaminabbitt/hew/go v0.2.3-0.20261006190523-23e75de33349/go.mod h1:aCgiyzmOzNUxe7I6+KzPWOQ557JJ76SGYRdk+xyHuGc=
 github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260905185216-9a2b04465c57 h1:y6EDmFhLPXIp+m4XcSNFU+E2bgm82RQ9wwg969V39rE=
 github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260905185216-9a2b04465c57/go.mod h1:Vk2gDTQ9CKv6LcaYBSWz0qX5pCZ3PvVBIJxAJ0hZBFQ=
 github.com/bmatcuk/doublestar/v4 v4.10.0 h1:zU9WiOla1YA122oLM6i4EXvGW62DvKZVxIe6TYWexEs=

@@ -46,7 +46,7 @@ require (
 	charm.land/bubbles/v2 v2.1.1
 	charm.land/bubbletea/v2 v2.0.7
 	charm.land/lipgloss/v2 v2.0.4
-	github.com/benjaminabbitt/hew/go v0.2.2
+	github.com/benjaminabbitt/hew/go v0.2.3-0.20261006190523-23e75de33349
 	github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260905185216-9a2b04465c57
 	github.com/expr-lang/expr v1.17.8
 	github.com/joho/godotenv v1.5.1

@@ -848,23 +848,14 @@ func TestRecordJSONPatch_RecursionBoundary(t *testing.T) {
 }
 
 // TestBuildAndWriteApplicationRecord_RecordDirIsOwnerOnly: the record keeps the
-// previous value of the key it undoes, so its directory is owner-only — a fresh
-// one created so, and a pre-existing looser one tightened on the write.
+// previous value of the key it undoes, so a directory the write creates is
+// owner-only; an existing one is the established home root's
+// (paths.EnsureHomeRoots).
 func TestBuildAndWriteApplicationRecord_RecordDirIsOwnerOnly(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		existing bool
-	}{
-		{name: "fresh directory", existing: false},
-		{name: "pre-existing 0755 directory", existing: true},
-	} {
+	for _, tc := range []struct{ name string }{{name: "fresh directory"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			recordsDir := filepath.Join(t.TempDir(), "records")
 			t.Cleanup(paths.SetHomeRecordsDirForTesting(recordsDir))
-			if tc.existing {
-				require.NoError(t, os.MkdirAll(recordsDir, 0o755))
-				require.NoError(t, os.Chmod(recordsDir, 0o755))
-			}
 			fs := afero.NewOsFs()
 			target := filepath.Join(t.TempDir(), "settings.json")
 			before, after := []byte(`{"theme":"dark"}`), []byte(`{"theme":"light"}`)

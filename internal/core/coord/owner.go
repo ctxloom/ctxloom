@@ -88,8 +88,6 @@ func newOwnerStamp(harp string, mode OwnerMode) ownerStamp {
 // a lock still held after this is an owner.
 const claimWait = 500 * time.Millisecond
 
-const claimRetry = 25 * time.Millisecond
-
 // reclaimTermWait bounds an orphan's own shutdown after SIGTERM; reclaimKillWait
 // bounds its death after SIGKILL. Vars so a test can shorten them.
 var (

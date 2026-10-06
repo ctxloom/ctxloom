@@ -239,9 +239,9 @@ func probeOneRoot(ctx context.Context, rt Runtime, image, root string) error {
 		Image:   image,
 		Name:    marker,
 		Command: []string{"cat", "/probe/marker"},
-		Mounts:  []mount{rt.paths().bind(dir, "/probe", true)},
+		Mounts:  []mount{{Host: dir, Container: "/probe", ReadOnly: true}},
 	})
-	if errors.Is(err, errNoDaemonSource) {
+	if errors.Is(err, ErrUnmapped) {
 		// ctxloom runs in one of the daemon's containers and no mount of that
 		// container covers root: the daemon has no name for it. Definitive,
 		// and decided before any container runs.

@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -62,13 +61,14 @@ func TestContainerConfigOverlay_UnroutableTargetIsRefused(t *testing.T) {
 	assert.Nil(t, mounts, "no partial overlay is handed back alongside the refusal")
 }
 
-// B3: the delivered config's target is the mapping of the host mountpoint
-// itself, not a mapped checkout joined with the host's separator.
+// B3: the delivered config's target is the mountpoint as the child names it
+// through the checkout's own mount — the checkout's placement joined as a
+// POSIX path, never the host's separator — so a policy that moves the
+// checkout moves its config with it.
 func TestProjectConfigMount_TargetIsTheMappedMountpoint(t *testing.T) {
 	projectDir, worktreeDir := newCell(t)
 	writeConfigTree(t, projectDir, "project config")
-	host := filepath.Join(worktreeDir, paths.AppDirName)
-	rt := mapperRuntime{fakeRuntime: fakeRuntime{name: "docker", available: true}, m: exactMapper{host: "/mnt/c/wt/.ctxloom"}}
+	rt := mapperRuntime{fakeRuntime: fakeRuntime{name: "docker", available: true}, m: exactMapper{worktreeDir: "/mnt/c/wt"}}
 
 	m, ok, err := projectConfigMount(rt, projectDir, worktreeDir)
 	require.NoError(t, err)

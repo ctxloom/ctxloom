@@ -1,6 +1,6 @@
 //go:build !windows
 
-// Self-mount translation is docker-outside-of-docker from a Linux container:
+// Primary-layer translation is docker-outside-of-docker from a Linux container:
 // only there does findSelf ever resolve a self (containerprobe.SelfIDCandidates
 // proposes nothing elsewhere), and its mounts are Linux paths a Windows
 // filesystem cannot resolve.
@@ -23,18 +23,21 @@ import (
 // ciJobContainerInspect): a nested bind, /tmp shared at the same path, a
 // named volume — plus a nested bind whose source is NOT under its parent's,
 // the only shape that tells the longest match from the first.
-var ciMounts = selfMountSource{mounts: []selfMount{
+var ciMounts = []selfMount{
 	{source: "/home/runner/work", destination: "/__w"},
 	{source: "/home/runner/work/_temp", destination: "/__w/_temp"},
 	{source: "/srv/cache", destination: "/__w/.cache"},
 	{source: "/tmp", destination: "/tmp"},
 	{source: "/var/lib/docker/volumes/home/_data", destination: "/root/.ctxloom"},
-}}
+}
 
-// TestSelfMountSource_ToDaemon: the bind SOURCE is the daemon's name for the
+// ciPrimary is the CI job container's own layer.
+var ciPrimary = primaryLayer(&selfContainer{id: selfID, mounts: ciMounts})
+
+// TestPrimaryLayer_Reverse: the bind SOURCE is the daemon's name for the
 // file this process sees at p — the longest of self's mount destinations that
 // is p or a /-bounded prefix of it, with the rest of p kept.
-func TestSelfMountSource_ToDaemon(t *testing.T) {
+func TestPrimaryLayer_Reverse(t *testing.T) {
 	cases := []struct {
 		name, in, want string
 	}{
@@ -48,44 +51,44 @@ func TestSelfMountSource_ToDaemon(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := ciMounts.toDaemon(tc.in)
+			got, err := ciPrimary.Reverse(tc.in)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
 		})
 	}
 }
 
-// TestSelfMountSource_UncoveredIsRefused: a path no mount covers has no name
+// TestPrimaryLayer_UncoveredIsRefused: a path no mount covers has no name
 // on the daemon — including a sibling that merely shares a destination's
 // leading characters (/__wx is not under /__w) and a tmpfs, which decodeSelf
 // drops because it names nothing a bind can.
-func TestSelfMountSource_UncoveredIsRefused(t *testing.T) {
+func TestPrimaryLayer_UncoveredIsRefused(t *testing.T) {
 	for _, p := range []string{"/__wx/a", "/home/u/.ctxloom", "/run/scratch/x", "/"} {
-		_, err := ciMounts.toDaemon(p)
-		require.ErrorIs(t, err, errNoDaemonSource, p)
+		_, err := ciPrimary.Reverse(p)
+		require.ErrorIs(t, err, ErrUnmapped, p)
 		assert.Contains(t, err.Error(), p)
 	}
 }
 
-// TestSelfMountSource_ResolvesSymlinksFirst: a mount destination is a real
+// TestPrimaryLayer_ResolvesSymlinksFirst: a mount destination is a real
 // path, so a symlinked path is matched by what it points at.
-func TestSelfMountSource_ResolvesSymlinksFirst(t *testing.T) {
+func TestPrimaryLayer_ResolvesSymlinksFirst(t *testing.T) {
 	real, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
 	require.NoError(t, os.Mkdir(filepath.Join(real, "sub"), 0o755))
 	link := filepath.Join(t.TempDir(), "ln")
 	require.NoError(t, os.Symlink(real, link))
-	src := selfMountSource{mounts: []selfMount{{source: "/daemon/side", destination: real}}}
-	got, err := src.toDaemon(filepath.Join(link, "sub"))
+	src := primaryLayer(&selfContainer{mounts: []selfMount{{source: "/daemon/side", destination: real}}})
+	got, err := src.Reverse(filepath.Join(link, "sub"))
 	require.NoError(t, err)
 	assert.Equal(t, "/daemon/side/sub", got)
 }
 
-func TestPaths_SelfDecidesSource(t *testing.T) {
-	assert.Equal(t, sharedSource{}, ociRuntime{}.paths().source, "not a container of the daemon: it shares our mount namespace")
-	s := selfContainer{id: selfID, mounts: ciMounts.mounts}
-	assert.Equal(t, ciMounts, ociRuntime{self: &s}.paths().source)
-	got, err := sharedSource{}.toDaemon("/any/path")
+func TestPrimary_SelfDecidesTheLayer(t *testing.T) {
+	assert.Equal(t, HostLayer(), ociRuntime{}.primary(), "not a container of the daemon: it shares our mount namespace")
+	s := selfContainer{id: selfID, mounts: ciMounts}
+	assert.Equal(t, ciPrimary, ociRuntime{self: &s}.primary())
+	got, err := HostLayer().Reverse("/any/path")
 	require.NoError(t, err)
 	assert.Equal(t, "/any/path", got)
 }
@@ -95,21 +98,21 @@ func TestPaths_SelfDecidesSource(t *testing.T) {
 // runner name every file by the same path (the cross-view invariant spool
 // refs, present.Mapped and delivery rest on).
 func TestMountArgs_SourceTranslatedTargetKept(t *testing.T) {
-	args, err := mountArgs([]mount{{Host: "/__w/ctxloom/ctxloom", Container: "/__w/ctxloom/ctxloom"}}, pathSeam{source: ciMounts})
+	child, err := childLayer(ciPrimary, []mount{{Host: "/__w/ctxloom/ctxloom", Container: "/__w/ctxloom/ctxloom"}})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"--mount", "type=bind,source=/home/runner/work/ctxloom/ctxloom,target=/__w/ctxloom/ctxloom"}, args)
+	assert.Equal(t, []string{"--mount", "type=bind,source=/home/runner/work/ctxloom/ctxloom,target=/__w/ctxloom/ctxloom"}, mountArgs(child))
 }
 
 // TestRunArgs_AnUncoveredMountIsAnError: a run whose mount the daemon has no
 // name for is refused while it is rendered, never launched to bind the wrong
 // (auto-created, empty) directory.
 func TestRunArgs_AnUncoveredMountIsAnError(t *testing.T) {
-	s := selfContainer{id: selfID, network: selfNetwork{"n", "172.18.0.2"}, mounts: ciMounts.mounts}
+	s := selfContainer{id: selfID, network: selfNetwork{"n", "172.18.0.2"}, mounts: ciMounts}
 	spec := sampleSpec()
 	spec.Mounts = []mount{{Host: "/home/u/.ctxloom/x", Container: "/home/u/.ctxloom/x"}}
 	for _, rt := range []Runtime{Docker{ociRuntime: withSelf(s)}, Podman{ociRuntime: withSelf(s)}} {
 		_, err := rt.RunArgs(spec)
-		require.ErrorIs(t, err, errNoDaemonSource, rt.Name())
+		require.ErrorIs(t, err, ErrUnmapped, rt.Name())
 	}
 }
 

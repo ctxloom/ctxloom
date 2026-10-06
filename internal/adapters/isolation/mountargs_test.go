@@ -25,8 +25,7 @@ func TestMountArgs_Golden(t *testing.T) {
 			`type=bind,"source=/q""x","target=/q""x"`},
 	}
 	for _, tc := range cases {
-		got, err := mountArgs([]mount{tc.m}, pathSeam{})
-		require.NoError(t, err)
+		got := mountArgs(Layer{mounts: []LayerMount{{Host: tc.m.Host, View: tc.m.Container, ReadOnly: tc.m.ReadOnly}}})
 		assert.Equal(t, []string{"--mount", tc.want}, got)
 	}
 }
@@ -35,8 +34,7 @@ func TestMountArgs_Golden(t *testing.T) {
 // meant: source and target intact, nothing extra.
 func TestMountArgs_RoundTripsThroughTheRuntimesCSVParse(t *testing.T) {
 	for _, p := range []string{"/plain", "/a b", "/a,b", `/q"x`, `/"lead`, "/trail,", `C:\x,y "z"`} {
-		args, err := mountArgs([]mount{{Host: p, Container: p, ReadOnly: true}}, pathSeam{})
-		require.NoError(t, err)
+		args := mountArgs(Layer{mounts: []LayerMount{{Host: p, View: p, ReadOnly: true}}})
 		fields, err := csv.NewReader(strings.NewReader(args[1])).Read()
 		require.NoError(t, err, args[1])
 		assert.Equal(t, []string{"type=bind", "source=" + p, "target=" + p, "readonly"}, fields)

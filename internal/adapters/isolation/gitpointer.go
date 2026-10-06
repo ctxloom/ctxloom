@@ -43,9 +43,9 @@ func gitDirMounts(ctx context.Context, rt Runtime, g git.Git, dir, scratchRoot s
 	if err != nil {
 		return nil, fmt.Errorf("resolve git common dir for container gitdir mount: %w", err)
 	}
-	// expose (not bind(common, common, ...)) routes through the runtime's
-	// target rule — the SAME translation the project root gets.
-	commonMount, err := rt.paths().expose(common, false)
+	// anchor (not a mount at common's own path) places it by the runtime's
+	// placement policy — the SAME one the project root gets.
+	commonMount, err := anchor(rt, common, false)
 	if err != nil {
 		return nil, fmt.Errorf("git common dir %s has no route into the container: %w", common, err)
 	}
@@ -53,7 +53,7 @@ func gitDirMounts(ctx context.Context, rt Runtime, g git.Git, dir, scratchRoot s
 	if err != nil {
 		return nil, err
 	}
-	pointers, err := gitPointerMounts(rt, dir, scratchRoot)
+	pointers, err := gitPointerMounts(rt, dir, common, scratchRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -88,20 +88,26 @@ func gitRegistryMask(rt Runtime, common, dir, scratchRoot string) ([]mount, erro
 	if err := os.MkdirAll(mountpoint, 0o755); err != nil {
 		return nil, fmt.Errorf("git worktree registry mask: %w", err)
 	}
-	seam := rt.paths()
-	target, err := seam.targetFor(registry)
+	// The registry and the admin dir sit in the common dir, so the child names
+	// both through the common dir's own mount.
+	commonMount, err := anchor(rt, common, false)
+	if err != nil {
+		return nil, fmt.Errorf("git common dir %s has no route into the container: %w", common, err)
+	}
+	target, err := childPath(rt, registry, commonMount)
 	if err != nil {
 		return nil, fmt.Errorf("git worktree registry %s has no route into the container: %w", registry, err)
 	}
-	mounts := []mount{seam.bind(mask, target, true)}
+	mounts := []mount{{Host: mask, Container: target, ReadOnly: true}}
 	if !own {
 		return mounts, nil
 	}
-	adminMount, err := seam.expose(filepath.Clean(admin), false)
+	admin = filepath.Clean(admin)
+	adminTarget, err := childPath(rt, admin, commonMount)
 	if err != nil {
 		return nil, fmt.Errorf("git admin dir %s has no route into the container: %w", admin, err)
 	}
-	return append(mounts, adminMount), nil
+	return append(mounts, mount{Host: admin, Container: adminTarget}), nil
 }
 
 // gitRegistryPresent reports whether registry is a directory. A missing
@@ -137,26 +143,41 @@ func ownAdminDir(dir, registry string) (admin string, own bool, err error) {
 const gitdirPrefix = "gitdir: "
 
 // gitPointerMounts makes a linked checkout's git pointers true inside the
-// container. `git worktree add` writes two absolute HOST paths: the
-// checkout's .git file names its admin dir (<common>/worktrees/<name>), and
-// that admin dir's gitdir file names the checkout back. Where the runtime
-// names those paths differently in the container (a Windows host), git there
-// cannot open the one and reads the other as a checkout that is gone — which
-// `git worktree prune`, and gc's automatic prune, act on through the
+// container. `git worktree add` writes two absolute paths, as the process
+// that ran it named them: the checkout's .git file names its admin dir
+// (<common>/worktrees/<name>), and that admin dir's gitdir file names the
+// checkout back. Where the child names those paths differently (a Windows
+// host, or a placement policy that moves the checkout or the common dir), git
+// there cannot open the one and reads the other as a checkout that is gone —
+// which `git worktree prune`, and gc's automatic prune, act on through the
 // read-write common-dir mount. So each is shadowed by a READ-ONLY generated
-// copy naming the mapped path; the host's own files are never touched.
+// copy naming the child's path (Crossing.ToChild through the checkout's and
+// commonDir's mounts, which make them visible); the host's own files are
+// never touched.
 //
 // Nothing is mounted where the pointer already resolves in the container:
-// no .git, a .git directory, a relative pointer (the mapping preserves
-// prefixes), or a mapping that names the admin dir as written (identity).
-func gitPointerMounts(rt Runtime, dir, scratchRoot string) ([]mount, error) {
+// no .git, a .git directory, a relative pointer (it resolves wherever the
+// placement keeps the checkout and the common dir at the same relative
+// position, as every prefix-preserving policy does), or an admin dir the
+// child names as written (identity).
+func gitPointerMounts(rt Runtime, dir, commonDir, scratchRoot string) ([]mount, error) {
 	dotGit := filepath.Join(dir, ".git")
 	admin, ok, err := readGitfile(dotGit)
 	if err != nil || !ok || !filepath.IsAbs(admin) {
 		return nil, err
 	}
-	seam := rt.paths()
-	mappedAdmin, err := seam.targetFor(admin)
+	checkout, err := anchor(rt, dir, false)
+	if err != nil {
+		return nil, fmt.Errorf("git checkout %s has no route into the container: %w", dir, err)
+	}
+	common, err := anchor(rt, commonDir, false)
+	if err != nil {
+		return nil, fmt.Errorf("git common dir %s has no route into the container: %w", commonDir, err)
+	}
+	// The pointer text names the admin dir as the CHILD sees it, through the
+	// common dir's mount; the back-pointer names the checkout's .git through
+	// the checkout's.
+	mappedAdmin, err := childPath(rt, admin, common)
 	if err != nil {
 		return nil, fmt.Errorf("git admin dir %s has no route into the container: %w", admin, err)
 	}
@@ -164,7 +185,7 @@ func gitPointerMounts(rt Runtime, dir, scratchRoot string) ([]mount, error) {
 		return nil, nil
 	}
 	backPointer := filepath.Join(admin, "gitdir")
-	targets, err := mapAll(seam, dotGit, backPointer)
+	targets, err := childPaths(rt, []string{dotGit, backPointer}, checkout, common)
 	if err != nil {
 		return nil, fmt.Errorf("git pointer for %s has no route into the container: %w", dir, err)
 	}
@@ -179,7 +200,7 @@ func gitPointerMounts(rt Runtime, dir, scratchRoot string) ([]mount, error) {
 	if err := safefs.WriteFile(afero.NewOsFs(), backFile, []byte(targets[0]+"\n"), 0o644); err != nil {
 		return nil, fmt.Errorf("git back-pointer: %w", err)
 	}
-	return []mount{seam.bind(pointerFile, targets[0], true), seam.bind(backFile, targets[1], true)}, nil
+	return []mount{{Host: pointerFile, Container: targets[0], ReadOnly: true}, {Host: backFile, Container: targets[1], ReadOnly: true}}, nil
 }
 
 // readGitfile returns the git dir a .git FILE points to. ok is false for no
@@ -203,16 +224,18 @@ func readGitfile(dotGit string) (gitdir string, ok bool, err error) {
 	return gitdir, true, nil
 }
 
-// mapAll routes each host path through s's target rule, failing on the first
-// it cannot route.
-func mapAll(s pathSeam, hosts ...string) ([]string, error) {
-	out := make([]string, len(hosts))
-	for i, h := range hosts {
-		c, err := s.targetFor(h)
-		if err != nil {
+// childPaths names each controller path in the child whose mounts are
+// mounts, failing on the first it cannot name.
+func childPaths(rt Runtime, ctl []string, mounts ...mount) ([]string, error) {
+	c, err := crossingOver(rt, mounts...)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(ctl))
+	for i, p := range ctl {
+		if out[i], _, err = c.ToChild(p); err != nil {
 			return nil, err
 		}
-		out[i] = c
 	}
 	return out, nil
 }

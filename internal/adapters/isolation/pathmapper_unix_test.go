@@ -11,10 +11,9 @@ import (
 // On a POSIX host every Docker/Podman runtime shares the host's path
 // namespace (natively, or through a VM that shares it at the same path), so
 // an unset mapper is identity.
-func TestPathSeam_NilTargetIsHostMapper(t *testing.T) {
-	assert.Equal(t, identityMapper{}, newPathSeam(nil, nil).target)
-	assert.Equal(t, identityMapper{}, Docker{}.paths().target)
-	assert.Equal(t, identityMapper{}, Podman{}.paths().target)
+func TestPlacement_NilIsHostMapper(t *testing.T) {
+	assert.Equal(t, identityMapper{}, Docker{}.placement())
+	assert.Equal(t, identityMapper{}, Podman{}.placement())
 }
 
 // On a POSIX host the unmapped runtime renders the identical-path project

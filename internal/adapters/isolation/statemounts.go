@@ -172,11 +172,10 @@ func (c Container) harpStateMounts() ([]mount, error) {
 		if err != nil {
 			return nil, fmt.Errorf("container session-state mounts: %w", err)
 		}
-		mounts = append(mounts, c.runtime.paths().bind(
-			host,
-			path.Join(c.home, paths.AppDirName, paths.SessionsDir, c.state.Harp, m.Rel()),
-			false,
-		))
+		mounts = append(mounts, mount{
+			Host:      host,
+			Container: path.Join(c.home, paths.AppDirName, paths.SessionsDir, c.state.Harp, m.Rel()),
+		})
 	}
 	return mounts, nil
 }
@@ -194,7 +193,7 @@ func (c Container) outputMounts() ([]mount, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("container output mount: %w", err)
 	}
-	return []mount{c.runtime.paths().bind(dir, containerOutputDir, false)}, nil
+	return []mount{{Host: dir, Container: containerOutputDir}}, nil
 }
 
 // taskStoreMounts binds the project's task log and its lock, or — with no
@@ -230,11 +229,10 @@ func (c Container) taskStoreMounts() ([]mount, error) {
 			if err := ensureFile(src); err != nil {
 				return nil, fmt.Errorf("container task-store mount: %w", err)
 			}
-			mounts = append(mounts, c.runtime.paths().bind(
-				src,
-				path.Join(c.home, taskpaths.AppDirName, taskpaths.TasksDir, filepath.Base(src)),
-				false,
-			))
+			mounts = append(mounts, mount{
+				Host:      src,
+				Container: path.Join(c.home, taskpaths.AppDirName, taskpaths.TasksDir, filepath.Base(src)),
+			})
 		}
 	}
 	return mounts, nil
@@ -257,21 +255,24 @@ func (c Container) taskStoreMounts() ([]mount, error) {
 // rewrite. Overlaid files need no such lock: the overlay puts the container's
 // copy on a different inode from the host's.
 func (c Container) lockMounts(dir, scratchRoot string) ([]mount, error) {
-	seam := c.runtime.paths()
 	locks := safefs.New().Locks
+	project, err := anchor(c.runtime, dir, false)
+	if err != nil {
+		return nil, fmt.Errorf("container lock mounts: project %s has no route into the container: %w", dir, err)
+	}
 	runLocks := filepath.Join(scratchRoot, paths.HomeLocksDirName)
 	if err := os.MkdirAll(runLocks, 0o755); err != nil {
 		return nil, fmt.Errorf("container lock mounts: %w", err)
 	}
 	containerLocks := path.Join(c.home, paths.AppDirName, paths.HomeLocksDirName)
-	mounts := []mount{seam.bind(runLocks, containerLocks, false)}
+	mounts := []mount{{Host: runLocks, Container: containerLocks}}
 	for _, rel := range c.engineSpec.inPlaceFiles {
 		protected := filepath.Join(dir, rel)
 		hostLock, err := paths.HomePathFor(protected)
 		if err != nil {
 			return nil, fmt.Errorf("container lock mounts: %w", err)
 		}
-		inContainer, err := seam.targetFor(protected)
+		inContainer, err := childPath(c.runtime, protected, project)
 		if err != nil {
 			return nil, fmt.Errorf("container lock mounts: %s has no route into the container: %w", protected, err)
 		}
@@ -284,7 +285,7 @@ func (c Container) lockMounts(dir, scratchRoot string) ([]mount, error) {
 				return nil, fmt.Errorf("container lock mounts: %w", err)
 			}
 		}
-		mounts = append(mounts, seam.bind(hostLock, path.Join(containerLocks, name), false))
+		mounts = append(mounts, mount{Host: hostLock, Container: path.Join(containerLocks, name)})
 	}
 	return mounts, nil
 }

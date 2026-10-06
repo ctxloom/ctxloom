@@ -316,20 +316,31 @@ type relocated struct {
 // relocateRoot is the ONE way the container relocator presents a host path
 // to the engine: the engine-side path and the mount that makes it true are
 // produced together, so a presented root cannot exist without its mount.
-// target "" places the root where the runtime's seam routes it; a fixed
-// target (the instance home, $HOME) still has its host side routed, so a
-// source the runtime cannot reach fails here rather than at the daemon,
-// returning the root unreachable: its Host side, no Engine side, no mount.
+// target "" places the root where the runtime's placement policy puts it
+// (anchor); a fixed target (the instance home, $HOME) is taken as given once
+// the policy has accepted the host path. The
+// Engine side is the root named through its own mount (Crossing.ToChild), so
+// a root the controller's layer cannot name on the host fails here rather
+// than at the daemon, returning the root unreachable: its Host side, no
+// Engine side, no mount.
 func relocateRoot(rt Runtime, host, target string) (relocated, error) {
-	seam := rt.paths()
-	routed, err := seam.targetFor(host)
-	if err != nil {
+	unreachable := func(err error) (relocated, error) {
 		return relocated{root: present.Root{Host: host}}, fmt.Errorf("%w: %s: %w", present.ErrUnreachableRoot, host, err)
 	}
-	if target == "" {
-		target = routed
+	// The policy is consulted even for a fixed target: it is what refuses a
+	// host path no runtime can bind at all (a share path on Windows).
+	m, err := anchor(rt, host, false)
+	if err != nil {
+		return unreachable(err)
 	}
-	return relocated{root: present.Root{Host: host, Engine: target}, mount: seam.bind(host, target, false)}, nil
+	if target != "" {
+		m.Container = target
+	}
+	engine, err := childPath(rt, host, m)
+	if err != nil {
+		return unreachable(err)
+	}
+	return relocated{root: present.Root{Host: host, Engine: engine}, mount: m}, nil
 }
 
 // workspaceEnv is what a prepared workspace provisioned for the run, or nil

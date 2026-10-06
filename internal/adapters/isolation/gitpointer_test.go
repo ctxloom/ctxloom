@@ -17,6 +17,12 @@ import (
 // does: the checkout's .git is a pointer file naming its admin dir under the
 // common dir, and the admin dir's gitdir file points back at the checkout.
 func linkedCheckout(t *testing.T, pointer string) (dir, admin string) {
+	dir, admin, _ = linkedCheckoutIn(t, pointer)
+	return dir, admin
+}
+
+// linkedCheckoutIn is linkedCheckout also returning the common dir.
+func linkedCheckoutIn(t *testing.T, pointer string) (dir, admin, common string) {
 	t.Helper()
 	root := t.TempDir()
 	dir = filepath.Join(root, "wt")
@@ -28,8 +34,11 @@ func linkedCheckout(t *testing.T, pointer string) (dir, admin string) {
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: "+pointer+"\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(admin, "gitdir"), []byte(filepath.Join(dir, ".git")+"\n"), 0o644))
-	return dir, admin
+	return dir, admin, filepath.Join(root, "repo", ".git")
 }
+
+// commonOf is the common dir linkedCheckout lays the admin dir under.
+func commonOf(admin string) string { return filepath.Dir(filepath.Dir(admin)) }
 
 // Under a mapper that renames paths, the checkout's pointer names a host
 // path git in the container cannot open. A read-only pointer naming the
@@ -41,7 +50,7 @@ func TestGitPointerMounts_RewritesBothPointers(t *testing.T) {
 	rt := fakeRuntime{name: "docker", available: true} // maps under /ctr
 	scratch := t.TempDir()
 
-	mounts, err := gitPointerMounts(rt, dir, scratch)
+	mounts, err := gitPointerMounts(rt, dir, commonOf(admin), scratch)
 	require.NoError(t, err)
 	require.Len(t, mounts, 2)
 
@@ -64,23 +73,24 @@ func TestGitPointerMounts_RewritesBothPointers(t *testing.T) {
 // rewrite: identity mapping, a relative pointer, a .git directory, no .git.
 func TestGitPointerMounts_NothingToRewrite(t *testing.T) {
 	identity := mapperRuntime{fakeRuntime: fakeRuntime{name: "docker", available: true}, m: identityMapper{}}
-	dir, _ := linkedCheckout(t, "")
-	mounts, err := gitPointerMounts(identity, dir, t.TempDir())
+	dir, admin := linkedCheckout(t, "")
+	mounts, err := gitPointerMounts(identity, dir, commonOf(admin), t.TempDir())
 	require.NoError(t, err)
 	assert.Empty(t, mounts, "identity: the host pointer already resolves in-container")
 
-	rel, _ := linkedCheckout(t, "../repo/.git/worktrees/wt")
-	mounts, err = gitPointerMounts(fakeRuntime{name: "docker"}, rel, t.TempDir())
+	rel, _, relCommon := linkedCheckoutIn(t, "../repo/.git/worktrees/wt")
+	mounts, err = gitPointerMounts(fakeRuntime{name: "docker"}, rel, relCommon, t.TempDir())
 	require.NoError(t, err)
 	assert.Empty(t, mounts, "a relative pointer resolves under a prefix-preserving mapping")
 
 	mainRepo := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(mainRepo, ".git"), 0o755))
-	mounts, err = gitPointerMounts(fakeRuntime{name: "docker"}, mainRepo, t.TempDir())
+	mounts, err = gitPointerMounts(fakeRuntime{name: "docker"}, mainRepo, filepath.Join(mainRepo, ".git"), t.TempDir())
 	require.NoError(t, err)
 	assert.Empty(t, mounts)
 
-	mounts, err = gitPointerMounts(fakeRuntime{name: "docker"}, t.TempDir(), t.TempDir())
+	none := t.TempDir()
+	mounts, err = gitPointerMounts(fakeRuntime{name: "docker"}, none, none, t.TempDir())
 	require.NoError(t, err)
 	assert.Empty(t, mounts)
 }
@@ -89,16 +99,55 @@ func TestGitPointerMounts_NothingToRewrite(t *testing.T) {
 func TestGitPointerMounts_MalformedPointerFails(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git"), []byte("not a pointer\n"), 0o644))
-	_, err := gitPointerMounts(fakeRuntime{name: "docker"}, dir, t.TempDir())
+	_, err := gitPointerMounts(fakeRuntime{name: "docker"}, dir, dir, t.TempDir())
 	require.Error(t, err)
 }
 
-// A pointer whose admin dir the runtime cannot route fails the workspace.
+// A pointer whose admin dir the child cannot name fails the workspace: the
+// admin dir is named through the common dir's mount, so a common dir the
+// policy cannot route leaves it unnamed.
 func TestGitPointerMounts_UnroutableAdminFails(t *testing.T) {
 	dir, admin := linkedCheckout(t, "")
-	rt := mapperRuntime{fakeRuntime: fakeRuntime{name: "docker"}, m: unroutableMapper{under: admin}}
-	_, err := gitPointerMounts(rt, dir, t.TempDir())
+	rt := mapperRuntime{fakeRuntime: fakeRuntime{name: "docker"}, m: unroutableMapper{under: commonOf(admin)}}
+	_, err := gitPointerMounts(rt, dir, commonOf(admin), t.TempDir())
 	require.ErrorIs(t, err, errNoRoute)
+}
+
+// A placement that moves the checkout and the common dir to unrelated places
+// still yields pointers the child can follow: each is named through the
+// mount that makes it visible, not placed on its own.
+func TestGitPointerMounts_NamesEachSideThroughItsOwnMount(t *testing.T) {
+	dir, admin := linkedCheckout(t, "")
+	common := commonOf(admin)
+	rt := mapperRuntime{fakeRuntime: fakeRuntime{name: "docker"}, m: rootsMapper{dir: "/agent/work", common: "/agent/git"}.with(dir, common)}
+	mounts, err := gitPointerMounts(rt, dir, common, t.TempDir())
+	require.NoError(t, err)
+	require.Len(t, mounts, 2)
+	rel, err := filepath.Rel(common, admin)
+	require.NoError(t, err)
+	assert.Equal(t, "/agent/work/.git", mounts[0].Container)
+	assert.Equal(t, "gitdir: /agent/git/"+filepath.ToSlash(rel)+"\n", readFile(t, mounts[0].Host))
+	assert.Equal(t, "/agent/git/"+filepath.ToSlash(rel)+"/gitdir", mounts[1].Container)
+	assert.Equal(t, "/agent/work/.git\n", readFile(t, mounts[1].Host))
+}
+
+// rootsMapper places two exact roots at fixed child paths and refuses
+// anything else: a per-root placement policy no prefix rule expresses.
+type rootsMapper struct{ dir, common, hostDir, hostCommon string }
+
+func (m rootsMapper) with(hostDir, hostCommon string) rootsMapper {
+	m.hostDir, m.hostCommon = hostDir, hostCommon
+	return m
+}
+
+func (m rootsMapper) toContainer(host string) (string, error) {
+	switch host {
+	case m.hostDir:
+		return m.dir, nil
+	case m.hostCommon:
+		return m.common, nil
+	}
+	return "", errNoRoute
 }
 
 func readFile(t *testing.T, p string) string {

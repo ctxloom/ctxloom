@@ -21,7 +21,7 @@ import (
 type probeRuntime struct{ fakeRuntime }
 
 func (p probeRuntime) RunArgs(spec RunSpec) ([]string, error) {
-	tail, err := renderRunSpec(spec, pathSeam{})
+	tail, err := renderRunSpec(spec, HostLayer())
 	return append([]string{"run", "--rm", "--name", spec.Name}, tail...), err
 }
 

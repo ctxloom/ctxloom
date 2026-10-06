@@ -12,10 +12,8 @@ import (
 	"github.com/spf13/afero"
 	yaml "gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -72,7 +70,7 @@ func (c *Records) mark(w, target string) error {
 	if err != nil {
 		return err
 	}
-	if err := confpatch.EnsureRecordDir(c.fs, c.claimantsPath()); err != nil {
+	if err := c.fs.MkdirAll(c.claimantsPath(), safefs.PrivateDirMode); err != nil {
 		return err
 	}
 	if !existed {
@@ -81,11 +79,11 @@ func (c *Records) mark(w, target string) error {
 			return err
 		}
 	}
-	return safefs.WriteFile(c.fs, path, data, owneronly.FileMode, safefs.Durable())
+	return safefs.WriteFile(c.fs, path, data, safefs.PrivateFileMode, safefs.Durable())
 }
 
 func (c *Records) markIndexed() error {
-	return safefs.WriteFile(c.fs, filepath.Join(c.claimantsPath(), indexedName), nil, owneronly.FileMode, safefs.Durable())
+	return safefs.WriteFile(c.fs, filepath.Join(c.claimantsPath(), indexedName), nil, safefs.PrivateFileMode, safefs.Durable())
 }
 
 func (c *Records) unmark(w, target string) error {
@@ -185,7 +183,7 @@ func (c *Records) ensureIndexed() error {
 	if err != nil {
 		return err
 	}
-	if err := confpatch.EnsureRecordDir(c.fs, c.claimantsPath()); err != nil {
+	if err := c.fs.MkdirAll(c.claimantsPath(), safefs.PrivateDirMode); err != nil {
 		return err
 	}
 	return c.markIndexed()

@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // InstanceHomeRequest is one preparation of a session's engine home: which
@@ -172,7 +173,7 @@ var ErrHistoryNotLinked = errors.New("the session home's history dir is not the 
 // anything else is ErrHistoryNotLinked.
 func linkNativeHistory(instanceHome, nativeHome, rel string) error {
 	target := filepath.Join(nativeHome, filepath.FromSlash(rel))
-	if err := os.MkdirAll(target, owneronly.DirMode); err != nil {
+	if err := os.MkdirAll(target, safefs.PrivateDirMode); err != nil {
 		return fmt.Errorf("native history %s: %w", target, err)
 	}
 	link := filepath.Join(instanceHome, filepath.FromSlash(rel))
@@ -191,7 +192,7 @@ func linkNativeHistory(instanceHome, nativeHome, rel string) error {
 			return fmt.Errorf("native history link %s: %w", link, err)
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(link), owneronly.DirMode); err != nil {
+	if err := os.MkdirAll(filepath.Dir(link), safefs.PrivateDirMode); err != nil {
 		return fmt.Errorf("native history link %s: %w", link, err)
 	}
 	if err := hostOS.LinkDir(link, target); err != nil {

@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	hew "github.com/benjaminabbitt/hew/go"
@@ -105,32 +103,6 @@ type RecordOp struct {
 // recordFileSuffix is the record's extension, named once because FreeRecordPath
 // has to split a filename on it to insert its counter.
 const recordFileSuffix = ".hew-record.yaml"
-
-// EnsureRecordDir creates dir owner-only, and tightens it if it already exists
-// looser: a record's inverse keeps the previous value of the key it undoes,
-// verbatim — undo needs it — and that value may be anything the user kept in
-// the file. Every writer of a record calls it before the write, and a record
-// file created inside inherits the protection where the platform's is an
-// inherited ACL (owneronly says what owner-only means per platform).
-//
-// Only the OS filesystem has access control to set. A test double has none,
-// and fsstatic's copy-on-write overlay cannot change a directory in its base
-// (its Chmod tries to copy the directory up as a file, and fails). The overlay
-// does not need to: fsstatic's Static.Deliver prepares the owning store
-// (delivery.Ownership.Prepare) on the real directory before any approach
-// writes through it. So on any other filesystem this only creates.
-func EnsureRecordDir(fs afero.Fs, dir string) error {
-	if filelock.IsOSBackedFs(fs) {
-		if err := owneronly.EnsureDir(dir); err != nil {
-			return fmt.Errorf("confpatch: restrict %s to its owner: %w", dir, err)
-		}
-		return nil
-	}
-	if err := fs.MkdirAll(dir, owneronly.DirMode); err != nil {
-		return fmt.Errorf("confpatch: create %s: %w", dir, err)
-	}
-	return nil
-}
 
 // Last returns the newest record ctxloom wrote for target.
 //
@@ -249,7 +221,7 @@ func (s *Store) write(target string, format hew.FormatID, tl hew.TransformList, 
 	if err != nil {
 		return "", fmt.Errorf("confpatch: marshal application record: %w", err)
 	}
-	if err := EnsureRecordDir(s.fs, s.dir); err != nil {
+	if err := s.fs.MkdirAll(s.dir, safefs.PrivateDirMode); err != nil {
 		return "", err
 	}
 	recordPath, err := FreeRecordPath(s.fs, s.dir, target, at)

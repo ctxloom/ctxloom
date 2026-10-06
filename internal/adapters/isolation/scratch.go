@@ -80,7 +80,7 @@ func newOwnedScratch(parent, prefix string) (*ownedScratch, error) {
 		}
 		scratchCreated(dir)
 		lockPath := filepath.Join(dir, ownedScratchLockName)
-		f, err := safefs.OpenLockFile(lockPath, owneronly.FileMode)
+		f, err := safefs.OpenLockFile(lockPath, safefs.PrivateFileMode)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				continue
@@ -146,7 +146,7 @@ func reapDeadScratch(parent, prefix string) {
 			continue
 		}
 		dir := filepath.Join(parent, e.Name())
-		fl := flock.New(filepath.Join(dir, ownedScratchLockName), flock.SetPermissions(owneronly.FileMode))
+		fl := flock.New(filepath.Join(dir, ownedScratchLockName), flock.SetPermissions(safefs.PrivateFileMode))
 		if locked, err := fl.TryLock(); err != nil || !locked {
 			continue
 		}

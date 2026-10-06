@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/spf13/afero"
 )
@@ -121,10 +120,10 @@ func recordDelivered(fs afero.Fs, entry, identity string) error {
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("spool: reading the delivered record for %s: %w", identity, err)
 	}
-	if err := fs.MkdirAll(filepath.Dir(entry), owneronly.DirMode); err != nil {
+	if err := fs.MkdirAll(filepath.Dir(entry), safefs.PrivateDirMode); err != nil {
 		return fmt.Errorf("spool: create %s: %w", filepath.Dir(entry), err)
 	}
-	if err := safefs.WriteFile(fs, entry, nil, owneronly.FileMode, safefs.Durable()); err != nil {
+	if err := safefs.WriteFile(fs, entry, nil, safefs.PrivateFileMode, safefs.Durable()); err != nil {
 		return fmt.Errorf("spool: recording %s as delivered: %w", identity, err)
 	}
 	return nil

@@ -17,20 +17,22 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir: the claims record
 // for claude's .mcp.json holds every value ctxloom put there, so a records
-// directory an older binary left 0755 must be tightened before the record
-// lands in it; Deliver prepares the ownership record
-// (delivery.Ownership.Prepare) to do exactly that.
+// directory an older binary left 0755 must be owner-only before the record
+// lands in it; the process establishes it at startup
+// (paths.EnsureHomeRoots), before any delivery can run.
 func TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir(t *testing.T) {
 	testsupport.Isolate(t)
 	recordsDir, err := paths.HomeRecordsDir()
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(recordsDir, 0o755))
 	require.NoError(t, os.Chmod(recordsDir, 0o755))
+	require.NoError(t, paths.EnsureHomeRoots(safefs.New().Private))
 
 	kind, ok := engines.Registry().Lookup(engine.Name("claude-code"))
 	require.True(t, ok)
@@ -47,12 +49,10 @@ func TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir(t *testing.T) {
 	require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
 }
 
-// TestDeliver_PreparesTheRecordDirItself: a delivery path that opened its
-// ownership record while the records directory did not exist yet, so opening
-// tightened nothing, still lands its record over the 0755 directory an older
-// binary then left. Deliver prepares the record store itself before anything
-// is staged; no caller ordering is involved.
-func TestDeliver_PreparesTheRecordDirItself(t *testing.T) {
+// TestDeliver_CreatesAMissingRecordDirOwnerOnly: a delivery path that opened
+// its ownership record while the records directory did not exist yet lands
+// its record in a directory the delivery itself creates owner-only.
+func TestDeliver_CreatesAMissingRecordDirOwnerOnly(t *testing.T) {
 	testsupport.Isolate(t)
 	recordsDir, err := paths.HomeRecordsDir()
 	require.NoError(t, err)
@@ -60,9 +60,7 @@ func TestDeliver_PreparesTheRecordDirItself(t *testing.T) {
 	fs := afero.NewOsFs()
 	records, err := OwnershipRecordsOn(fs)
 	require.NoError(t, err)
-	require.NoDirExists(t, recordsDir, "opening the store must have had nothing to tighten")
-	require.NoError(t, os.MkdirAll(recordsDir, 0o755))
-	require.NoError(t, os.Chmod(recordsDir, 0o755))
+	require.NoDirExists(t, recordsDir, "opening the store creates nothing")
 
 	kind, ok := engines.Registry().Lookup(engine.Name("claude-code"))
 	require.True(t, ok)

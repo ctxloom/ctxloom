@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // A file the engine reports writing that others can read fails the
@@ -28,7 +28,7 @@ func TestPrepareInstanceHome_RefusesAGeneratedFileLooserThanOwnerOnly(t *testing
 	withInstanceConfigWriter(t, "claude-code", &recordingInstanceConfig{report: engine.InstanceConfigReport{Wrote: []string{loose}}})
 
 	_, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
-	var exposed *owneronly.ExposedError
+	var exposed *safefs.ExposedError
 	require.True(t, errors.As(err, &exposed), "got %v", err)
 	assert.Equal(t, loose, exposed.Path)
 }

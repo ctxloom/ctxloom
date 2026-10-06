@@ -15,7 +15,6 @@ import (
 	"google.golang.org/grpc"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -131,7 +130,7 @@ func placeVerified(fsys afero.Fs, stream grpc.ServerStreamingClient[agentcoordpb
 	if err := fsys.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return "", 0, err
 	}
-	tmp, err := safefs.NewAtomicFile(fsys, destPath, owneronly.FileMode)
+	tmp, err := safefs.NewAtomicFile(fsys, destPath, safefs.PrivateFileMode)
 	if err != nil {
 		return "", 0, err
 	}

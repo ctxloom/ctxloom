@@ -38,7 +38,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	harpid "github.com/ctxloom/ctxloom/internal/shared/harp"
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/spf13/afero"
 )
 
@@ -386,46 +386,29 @@ func DirPath(m PathMapper, harp string, dir Dir) (string, error) {
 // the staging directory. It is idempotent, and both sides of a mount may call
 // it: the directories are shared bytes.
 //
-// The root is made owner-only first (ensureRoot), so everything beneath it
-// is created inside that boundary; every directory beneath it is created
-// through fs.
+// Every directory, the root included, is created owner-only through fs. The
+// root lies under paths.HomeSessionsDir, which every ctxloom process
+// establishes owner-only at startup (paths.EnsureHomeRoots), and that
+// established root is the spool's protection boundary: the trust boundary is
+// the user account (any same-user process can write into these dirs — stated
+// in the design's honest-counter §9.4), and an owner-only ancestor bounds it
+// there — on unix nobody else can traverse into it whatever the modes below;
+// on Windows its protected DACL is inherited by everything created beneath.
 func EnsureDirs(fs afero.Fs, m PathMapper, harp string) error {
-	root, err := ensureRoot(m, harp)
+	root, err := Root(m, harp)
 	if err != nil {
 		return err
 	}
-	want := make([]string, 0, len(allDirs)+1)
+	want := make([]string, 0, len(allDirs)+2)
+	want = append(want, root)
 	for _, d := range allDirs {
 		want = append(want, filepath.Join(root, filepath.FromSlash(string(d))))
 	}
 	want = append(want, filepath.Join(root, tmpDirName))
 	for _, dir := range want {
-		if err := fs.MkdirAll(dir, owneronly.DirMode); err != nil {
+		if err := fs.MkdirAll(dir, safefs.PrivateDirMode); err != nil {
 			return fmt.Errorf("spool: create %s: %w", dir, err)
 		}
 	}
 	return nil
-}
-
-// ensureRoot creates harp's spool root if it is missing and makes it
-// owner-only, returning it. The root is the spool's one protection boundary:
-// the trust boundary is the user account (any same-user process can write
-// into these dirs — stated in the design's honest-counter §9.4), and an
-// owner-only root is what bounds it there. On unix nobody else can traverse
-// into it whatever the modes below; on Windows its protected DACL is
-// inherited by everything created beneath. It is re-applied on every call,
-// so a root loosened after the fact is tightened by the next writer.
-//
-// It is the one spool step that does not go through the caller's afero.Fs,
-// and that is not an oversight: the restriction is the OS's (mode bits on
-// unix, a protected DACL on Windows) and no afero.Fs can carry it.
-func ensureRoot(m PathMapper, harp string) (string, error) {
-	root, err := Root(m, harp)
-	if err != nil {
-		return "", err
-	}
-	if err := owneronly.EnsureDir(root); err != nil {
-		return "", fmt.Errorf("spool: restrict %s to its owner: %w", root, err)
-	}
-	return root, nil
 }

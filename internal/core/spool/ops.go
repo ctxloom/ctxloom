@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/spf13/afero"
 )
@@ -234,7 +233,7 @@ func Fail(fs afero.Fs, m PathMapper, ref Ref) error {
 // It reports a missing source as ErrAlreadyGone: another sweep winning the
 // race is ordinary, not a fault.
 func renameInto(fs afero.Fs, from, to string) error {
-	if err := fs.MkdirAll(filepath.Dir(to), owneronly.DirMode); err != nil {
+	if err := fs.MkdirAll(filepath.Dir(to), safefs.PrivateDirMode); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(to), err)
 	}
 	if err := safefs.Rename(safefs.NewGuardFs(fs), from, to); err != nil {

@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
@@ -102,7 +101,7 @@ func TestReapDeadScratch_DeletesOnlyWhileHoldingLock(t *testing.T) {
 // primitive, byte range or mode would let a reaper take a live owner's dir.
 func TestOwnerLock_ConflictsWithFlock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ownedScratchLockName)
-	f, err := safefs.OpenLockFile(path, owneronly.FileMode)
+	f, err := safefs.OpenLockFile(path, safefs.PrivateFileMode)
 	require.NoError(t, err)
 	require.NoError(t, lockOwnerFile(f))
 

@@ -11,33 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The spool root is the spool's owner-only boundary: a root that already
-// exists looser (created by an older binary, or by hand) is tightened by
-// whichever call reaches it first, not trusted — MkdirAll alone leaves an
-// existing directory's mode as it found it. Creating the layout from nothing
-// makes every directory 0700, and what is written into it 0600.
-func TestSpool_TheRootIsTightenedToOwnerOnly(t *testing.T) {
-	for name, reach := range map[string]func(m PathMapper) error{
-		"EnsureDirs": func(m PathMapper) error { return EnsureDirs(afero.NewOsFs(), m, testHarp) },
-		"ArmWake":    func(m PathMapper) error { _, err := ArmWake(afero.NewOsFs(), m, testHarp); return err },
-	} {
-		t.Run(name, func(t *testing.T) {
-			hostHome(t)
-			m := NewHomeMapper()
-			root, err := Root(m, testHarp)
-			require.NoError(t, err)
-			require.NoError(t, os.MkdirAll(root, 0o755))
-			require.NoError(t, os.Chmod(root, 0o755))
-
-			require.NoError(t, reach(m))
-
-			info, err := os.Stat(root)
-			require.NoError(t, err)
-			require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
-		})
-	}
-}
-
+// A layout created from nothing makes every directory, the root included,
+// 0700, and what is written into it 0600. Its boundary beyond that is the
+// established sessions root (paths.EnsureHomeRoots).
 func TestSpool_AFreshLayoutAndItsFilesAreOwnerOnly(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()

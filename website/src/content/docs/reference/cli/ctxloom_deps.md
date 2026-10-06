@@ -28,9 +28,6 @@ of the same project install the same bytes.
 
 Where content comes FROM is the other noun: 'ctxloom remote --help'.
 
-Pulling a dependency does not expose it to your assistant. Content from an
-untrusted source is withheld until you accept it with 'ctxloom review'.
-
 ```
 ctxloom deps [flags]
 ```

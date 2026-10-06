@@ -18,6 +18,23 @@ Manage ctxloom bundles - versioned collections of fragments, commands, and MCP s
 Bundles are the primary content unit in ctxloom. They group related context fragments,
 commands, and optional MCP server configurations with a single version.
 
+REFERENCE FORMAT
+
+An item reference is <bundle>#<kind>/<name>. The kinds are fragments, commands
+(prompts is accepted as an alias), mcp, hooks, and skills; a hook's name is
+<event>/<index>.
+
+The bundle half is either a CANONICAL URI or a plain bundle NAME:
+
+  ctxloom+local:<name>                        a bundle in this project's tree
+  ctxloom+companion:<binary>                  a companion binary's loadout
+  ctxloom+git://<host>/<repo>//bundles/<name> a bundle in a remote repository
+  ctxloom+file://<abs-repo>//bundles/<name>   the same, in a repo on this disk
+
+A plain name is looked up, and is refused when it names more than one bundle —
+the URI in that refusal says which is which. Every form needs shell quoting,
+because '#' starts a comment in most shells.
+
 ```
 ctxloom bundle [flags]
 ```
@@ -52,15 +69,12 @@ ctxloom bundle [flags]
 * [ctxloom bundle distill](/reference/cli/ctxloom_bundle_distill/)	 - Distill bundles to create token-efficient versions
 * [ctxloom bundle edit](/reference/cli/ctxloom_bundle_edit/)	 - Edit a bundle
 * [ctxloom bundle export](/reference/cli/ctxloom_bundle_export/)	 - Export a bundle to a directory
-* [ctxloom bundle forget](/reference/cli/ctxloom_bundle_forget/)	 - Clear an item's recorded decision (approval or rejection), back to pending
 * [ctxloom bundle import](/reference/cli/ctxloom_bundle_import/)	 - Import a bundle from a local directory
 * [ctxloom bundle list](/reference/cli/ctxloom_bundle_list/)	 - List installed bundles
 * [ctxloom bundle move](/reference/cli/ctxloom_bundle_move/)	 - Move an authored bundle to a remote or another project, carrying its signature
 * [ctxloom bundle push](/reference/cli/ctxloom_bundle_push/)	 - Publish a bundle to a remote repository
-* [ctxloom bundle reject](/reference/cli/ctxloom_bundle_reject/)	 - Reject an item so it is withheld from the agent, always
 * [ctxloom bundle remove](/reference/cli/ctxloom_bundle_remove/)	 - Remove a bundle
 * [ctxloom bundle show](/reference/cli/ctxloom_bundle_show/)	 - Show bundle contents
 * [ctxloom bundle sign](/reference/cli/ctxloom_bundle_sign/)	 - Sign a local bundle for publication
-* [ctxloom bundle trust](/reference/cli/ctxloom_bundle_trust/)	 - Trust an item's current content (fragment, command, MCP server, or hook)
 * [ctxloom bundle view](/reference/cli/ctxloom_bundle_view/)	 - View bundle content
 

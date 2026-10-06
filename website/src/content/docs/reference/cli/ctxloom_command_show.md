@@ -31,8 +31,7 @@ ctxloom command show <bundle>#commands/<name> [flags]
 ### Options
 
 ```
-  -d, --distilled     Show distilled version
-  -i, --interactive   Review effective trust and offer to trust/blacklist (interactive terminal only)
+  -d, --distilled   Show distilled version
 ```
 
 ### Options inherited from parent commands

@@ -73,7 +73,7 @@ a named, local-only engine↔profile binding (`ctxloom agent create`), consumed 
 
 These `bundle#kind/name` forms address one item and work everywhere ctxloom
 takes an item reference on the command line — `ctxloom command show`,
-`ctxloom fragment edit`, `ctxloom bundle trust` (which never takes a profile), and so on:
+`ctxloom fragment edit`, and so on:
 
 | Format | Description |
 |--------|-------------|

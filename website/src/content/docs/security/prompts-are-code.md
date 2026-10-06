@@ -13,9 +13,9 @@ carry is a shell command line, and the harness executes it — no model in the l
 approval dialog, no sandbox. The AI ecosystem ships these things unsigned, over git, from
 strangers, and calls them "context".
 
-ctxloom's answer is narrow and it is the whole product: **a human sees third-party content
-— including every update to it — before the agent does.** Not because we can tell good
-prompts from bad ones. Because nobody can, and pretending otherwise is how you get owned.
+ctxloom's answer is narrow: **adding a git repository is the trust act, and every update to
+what it serves is shown to you before it lands.** Not because we can tell good prompts from
+bad ones. Because nobody can, and pretending otherwise is how you get owned.
 
 ## Three tiers of execution
 
@@ -81,16 +81,11 @@ The industry treats tier 3 as documentation. That assumption is the opening.
 
 ## ctxloom's own name for this
 
-The codebase does not hedge. The trust gate that decides whether an MCP server, a hook, or
-an exported slash-command reaches your harness calls them, in its user-facing advisory,
-**bundle executables**. Fragments and commands go through the same decision function as the
-command lines do, because text to an LLM is executable.
-
-Every one of these surfaces is fail-closed. If ctxloom cannot positively justify exposing an
-item — unsigned, signed by a key you don't trust, changed since you approved it, or simply
-not evaluable — the item is **withheld**. A withheld hook is not written into your settings
-file. A withheld MCP server is not registered. A withheld fragment is absent from the
-context. You get one content-free line on stderr telling you how many items are waiting.
+The codebase does not hedge: MCP servers, hooks and exported slash-commands are **bundle
+executables**, and fragments and commands are treated as the same kind of thing, because text
+to an LLM is executable. That is why the decision that admits them is a deliberate one —
+adding the repository they come from — and why `deps upgrade` shows what every hook and MCP
+server runs, before and after, before a pin moves.
 
 ## What signing buys, and what it does not
 
@@ -109,13 +104,9 @@ system. Bundles travel over git in the clear, and anyone who can read the reposi
 read the content. ctxloom proves where content came from and that it was not tampered with.
 It does not hide it.
 
-**A signature authenticates; it never authorizes.** A trusted publisher can sign something
-harmful, and the signature will verify perfectly. Signed does not mean safe. That is why
-review is a separate axis from signing, and why **rejection beats trust** — you can reject
-an item from a publisher you trust, and even ctxloom's own content.
-
-**A key you do not trust is not a credential.** Content signed by a stranger is treated
-exactly like unsigned content: it takes the review path. A signature is not a badge.
+**A signature authenticates; it never authorizes.** A publisher can sign something harmful,
+and the signature will verify perfectly. Signed does not mean safe. A signature is not a
+badge.
 
 ## Where to go next
 
@@ -123,7 +114,6 @@ exactly like unsigned content: it takes the review path. A signature is not a ba
   and what each one executes.
 - [Threat model](/security/threat-model/) — who we defend against, and what we explicitly do
   not defend.
-- [Trust states and the gate](/security/trust-states/) — pending, approved, rejected, and
-  the decision function.
+- [Trust](/concepts/review-and-trust/) — where ctxloom's trust decision is made.
 - [Key management](/security/key-management/) — signing keys, `allowed_signers`, and the
   limits of revocation.

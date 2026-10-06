@@ -23,9 +23,7 @@ PER-MACHINE USER store (~/.ctxloom/allowed_signers) instead. Run outside a
 project (no .ctxloom directory found), the default falls back to the user
 store automatically and says so.
 
-This does NOT reject any content that signer already published or approved
-— it means "I will review this myself from now on", not "deny". Use
-'ctxloom bundle reject <ref>' to actually reject content.
+This does NOT reject any content that signer already published.
 
 <principal> naming ctxloom's OWN embedded release key is a special case: that
 key is compiled into the binary and cannot be deleted by this command.

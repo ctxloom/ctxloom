@@ -120,9 +120,7 @@ ctxloom profile materialize default --target .
 ctxloom run --dry-run -p myprofile
 ```
 `fragments` lists what is included and `delivery` lists where each surface goes.
-Content from an unreviewed remote is withheld with an `awaiting review — run
-'ctxloom review'` warning; accept it with `ctxloom review`. `ctxloom doctor`
-checks the rest of the setup.
+`ctxloom doctor` checks the rest of the setup.
 
 ### Wrong Directory
 
@@ -328,8 +326,7 @@ way, including from a materialized profile, has no ctxloom MCP server.
 ```bash
 ctxloom mcp server list   # ctxloom is listed as "Served by: the running session's endpoint"
 ```
-If it is missing, a profile's `exclude_mcp` is withholding it, or it has been
-rejected (`ctxloom review`, or clear the rejection with `ctxloom bundle forget`).
+If it is missing, a profile's `exclude_mcp` is withholding it.
 
 ### Tool Execution Fails
 

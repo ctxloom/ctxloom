@@ -27,12 +27,6 @@ ctxloom bundle show <name> [flags]
   ctxloom bundle show go-tools
 ```
 
-### Options
-
-```
-  -i, --interactive   Review per-item effective trust and trust/blacklist individual hooks (interactive terminal only)
-```
-
 ### Options inherited from parent commands
 
 ```

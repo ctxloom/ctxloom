@@ -251,13 +251,11 @@ flowchart TD
 │                        # a bundle may also be a <name>/ directory)
 ├── profiles/            # Profile definitions
 │   └── default.yaml
-├── approvals/           # Committable countersignatures (review decisions)
 │
 │                              # gitignored:
 ├── project-id           # Stable project identity (keys the task log)
 ├── sessions/            # This machine's distilled session records
 ├── state/               # Local-only checkout state
-│   └── trust/objects/   # Approved-content snapshots that review diffs against
 └── cache/               # Regeneratable, safe to delete
     ├── bundles/         # Remote-pulled bundle artifacts only, NOT authored content
     ├── context/         # Generated context files
@@ -266,16 +264,10 @@ flowchart TD
 ```
 
 Everything above the blank line is committed: it's the project's own
-content, config, and trust state. Everything below is gitignored. The cache is
-regenerable and safe to delete. `project-id`, `sessions/` and `state/` are
-purely local; deleting them costs what they record (the task log's key, the
-distilled sessions, the snapshots review diffs against). `ctxloom doctor` walks
-the same classification.
-
-Trust is not a file of grants you edit — it is a store of **signatures**.
-Approving a bundle writes a countersignature into `approvals/`; a key you trust
-is listed in `allowed_signers`. The signature *is* the approval, so no plain-file
-write can forge one.
+content and config. Everything below is gitignored. The cache is regenerable
+and safe to delete. `project-id`, `sessions/` and `state/` are purely local;
+deleting them costs what they record (the task log's key, the distilled
+sessions). `ctxloom doctor` walks the same classification.
 
 ### User Level (`~/.ctxloom/`)
 
@@ -297,7 +289,6 @@ write can forge one.
 │       └── scratch/     # Per-run scratch
 ├── coord/               # Coordinator state (owner locks, journals)
 ├── tasks/               # Per-project task logs (<project-id>.jsonl)
-├── approvals/           # Personal countersignatures ("my approvals follow me")
 ├── records/             # Undo records for config files ctxloom patches but does not own
 ├── allowed_signers      # Personal trust root
 └── remotes.yaml         # User-wide remotes

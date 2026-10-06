@@ -36,7 +36,7 @@ commands:
 
 ## Slash Command Integration
 
-**A trusted command is exposed as a slash command.** Command export is a trust choke: a command from a bundle that's still pending review isn't written out at all — only local, companion, trusted-signer, or already-approved content reaches your AI CLI. See [Review & Trust](/concepts/review-and-trust/).
+**A command is exposed as a slash command.** Commands from your project, from an allowed companion, and from the bundles your remotes serve are written out to your AI CLI. See [Trust](/concepts/review-and-trust/).
 
 The slash command name isn't the bare command name — it's `<bundle>-<command>`, taken from the owning bundle's last path segment. A `code-review` command defined in a bundle called `my-bundle` becomes:
 

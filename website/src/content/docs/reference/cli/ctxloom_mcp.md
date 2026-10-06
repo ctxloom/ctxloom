@@ -24,8 +24,7 @@ own companion loadout declares as SERVED BY THE RUNNING SESSION'S ENDPOINT:
 there is no command to launch, and nothing is registered in the project at
 rest. A `ctxloom run` session's runner serves the endpoint and the
 session's own registry names it (URL + bearer). Add a server by composing a
-bundle that declares it; withhold one with a profile's exclude_mcp, or with
-  ctxloom bundle reject <bundle>#mcp/<name>
+bundle that declares it; withhold one with a profile's exclude_mcp.
 
 Tools the session endpoint serves:
   Context:  assemble_context, search_content, search_library

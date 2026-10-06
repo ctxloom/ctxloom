@@ -31,11 +31,9 @@ no remote is registered for is refused, naming the `ctxloom remote create` that
 admits it, and a profile shipped in a remote may name only that repository's
 bundles; composing several remotes is what a profile of your own is for.
 
-A remote is an **address**, and nothing more: registering one grants its content
-no access to the agent. Content published under an SSH signing key you trust reaches
-the agent automatically; everything else from a remote lands as **pending** and is
-withheld per item until you approve it with `ctxloom review`. Trust follows the
-key, not the repository — see [Review and trust](/concepts/review-and-trust/).
+Registering a remote is the **trust decision**: content resolves only through a
+remote you registered, and what it serves reaches the agent — see
+[Trust](/concepts/review-and-trust/).
 
 ### Add a Remote
 
@@ -146,8 +144,7 @@ ctxloom deps pull      # pin anything not yet pinned → lock.yaml, showing ever
 ctxloom deps check    # report the newest commit available within each constraint
 ctxloom deps upgrade   # show every pin that would move within its constraint, and
                          # what it brings in; --yes moves the LOCK (never the
-                         # manifest); whether changed content reaches the agent is
-                         # decided per item at exposure (ctxloom review)
+                         # manifest)
 ```
 
 Locking happens automatically as part of `pull` — there is no separate lock step.
@@ -160,9 +157,7 @@ and header values only as a fingerprint such as `<a1b2c3d4>`, never the value),
 and a diff of every changed script — and writes nothing until you re-run it with
 `--yes`. A constraint you change in a profile takes effect there too: `pull`
 reports it and keeps the pin. `upgrade --yes` writes only the lockfile — your
-profile YAML is never rewritten, so a version bump is a clean `lock.yaml` diff. Whether any changed content reaches the agent is decided per
-item at exposure and reviewed with `ctxloom review`; see
-[Review and trust](/concepts/review-and-trust/).
+profile YAML is never rewritten, so a version bump is a clean `lock.yaml` diff.
 
 ### Holds
 

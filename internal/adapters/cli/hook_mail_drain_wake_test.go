@@ -37,14 +37,14 @@ func promptCmd(t *testing.T, out *bytes.Buffer, prompt string) *cobra.Command {
 
 func armOwnerWake(t *testing.T) string {
 	t.Helper()
-	nonce, err := spool.ArmWake(spool.NewHomeMapper(), mailDrainOwner)
+	nonce, err := spool.ArmWake(afero.NewOsFs(), spool.NewHomeMapper(), mailDrainOwner)
 	require.NoError(t, err)
 	return nonce
 }
 
 func outstanding(t *testing.T) []string {
 	t.Helper()
-	out, err := spool.OutstandingWake(spool.NewHomeMapper(), mailDrainOwner)
+	out, err := spool.OutstandingWake(afero.NewOsFs(), spool.NewHomeMapper(), mailDrainOwner)
 	require.NoError(t, err)
 	return out
 }

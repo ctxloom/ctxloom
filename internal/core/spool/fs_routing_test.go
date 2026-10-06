@@ -164,3 +164,29 @@ func TestClaimAndPending_ReachTheSpoolThroughFs(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, pending, "everything in the in-memory in/ was claimed or discarded")
 }
+
+func TestWakes_ArmListConsumeAndClearThroughFs(t *testing.T) {
+	fs, m := memSpool(t)
+	nonce, err := ArmWake(fs, m, testHarp)
+	require.NoError(t, err)
+	dir, err := wakeDir(m, testHarp)
+	require.NoError(t, err)
+	ok, err := afero.Exists(fs, filepath.Join(dir, nonce))
+	require.NoError(t, err)
+	require.True(t, ok, "the nonce is armed in the injected fs")
+	_, statErr := os.Stat(dir)
+	require.True(t, os.IsNotExist(statErr), "no wake is armed on disk")
+
+	out, err := OutstandingWake(fs, m, testHarp)
+	require.NoError(t, err)
+	require.Equal(t, []string{nonce}, out)
+	gone, err := ConsumeWake(fs, m, testHarp, nonce)
+	require.NoError(t, err)
+	require.True(t, gone, "the in-memory nonce is redeemed")
+
+	_, err = ArmWake(fs, m, testHarp)
+	require.NoError(t, err)
+	cleared, err := ClearWakes(fs, m, testHarp)
+	require.NoError(t, err)
+	require.Equal(t, 1, cleared)
+}

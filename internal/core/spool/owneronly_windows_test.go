@@ -29,7 +29,7 @@ func TestSpool_TheRootAndWhatIsBeneathItAreOwnerOnly_ADACL(t *testing.T) {
 	require.NoError(t, err)
 	ref, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: testHarp, Body: "x\n"})
 	require.NoError(t, err)
-	nonce, err := ArmWake(m, testHarp)
+	nonce, err := ArmWake(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 
 	delivered, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: testHarp, Body: "y\n"})

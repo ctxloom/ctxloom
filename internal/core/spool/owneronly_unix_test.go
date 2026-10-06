@@ -19,7 +19,7 @@ import (
 func TestSpool_TheRootIsTightenedToOwnerOnly(t *testing.T) {
 	for name, reach := range map[string]func(m PathMapper) error{
 		"EnsureDirs": func(m PathMapper) error { return EnsureDirs(m, testHarp) },
-		"ArmWake":    func(m PathMapper) error { _, err := ArmWake(m, testHarp); return err },
+		"ArmWake":    func(m PathMapper) error { _, err := ArmWake(afero.NewOsFs(), m, testHarp); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
 			hostHome(t)
@@ -45,7 +45,7 @@ func TestSpool_AFreshLayoutAndItsFilesAreOwnerOnly(t *testing.T) {
 	require.NoError(t, err)
 	ref, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: testHarp, Body: "x\n"})
 	require.NoError(t, err)
-	nonce, err := ArmWake(m, testHarp)
+	nonce, err := ArmWake(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 
 	root, err := Root(m, testHarp)

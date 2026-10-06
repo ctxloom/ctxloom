@@ -102,7 +102,7 @@ func drainMail(fs afero.Fs, cmd *cobra.Command, harp string) error {
 	// wake, so never blocked.
 	var payload claude.UserPromptSubmitPayload
 	_ = json.Unmarshal(raw, &payload)
-	isWake, problems := redeemWakeNonce(mapper, harp, payload.Prompt)
+	isWake, problems := redeemWakeNonce(fs, mapper, harp, payload.Prompt)
 	res, err := spool.Claim(fs, mapper, harp)
 	if err != nil {
 		return fmt.Errorf("no mail delivered: %w", err)
@@ -133,7 +133,7 @@ func drainMail(fs afero.Fs, cmd *cobra.Command, harp string) error {
 	problems = append(problems, ackDelivered(fs, mapper, harp, res.Entries)...)
 	// This turn delivered what every armed wake announced: answer them all,
 	// or a wake held or lost upstream refuses every later one.
-	if _, err := spool.ClearWakes(mapper, harp); err != nil {
+	if _, err := spool.ClearWakes(fs, mapper, harp); err != nil {
 		problems = append(problems, fmt.Sprintf("the wakes this delivery answered could not be cleared, and may refuse the next wake: %v", err))
 	}
 	return joinProblems(problems)
@@ -141,12 +141,12 @@ func drainMail(fs afero.Fs, cmd *cobra.Command, harp string) error {
 
 // redeemWakeNonce consumes the wake nonce a prompt carries, reporting whether
 // the prompt was a wake and, when the nonce could not be redeemed, why.
-func redeemWakeNonce(mapper spool.PathMapper, harp, prompt string) (bool, []string) {
+func redeemWakeNonce(fs afero.Fs, mapper spool.PathMapper, harp, prompt string) (bool, []string) {
 	nonce, isWake := engine.WakeNonce(prompt)
 	if !isWake {
 		return false, nil
 	}
-	if _, err := spool.ConsumeWake(mapper, harp, nonce); err != nil {
+	if _, err := spool.ConsumeWake(fs, mapper, harp, nonce); err != nil {
 		return true, []string{fmt.Sprintf("wake %s was not redeemed: %v", nonce, err)}
 	}
 	return true, nil

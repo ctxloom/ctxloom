@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aymanbagabas/go-pty"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -81,7 +82,7 @@ func validateWake(t *testing.T, ctxloomBin, claudeBin string) {
 	// The spool the hook reads is the throwaway HOME's.
 	t.Setenv("HOME", home)
 	mapper := spool.NewHomeMapper()
-	nonce, err := spool.ArmWake(mapper, liveHarp)
+	nonce, err := spool.ArmWake(afero.NewOsFs(), mapper, liveHarp)
 	require.NoError(t, err)
 
 	url, sig := endpoint(t)
@@ -138,7 +139,7 @@ func validateWake(t *testing.T, ctxloomBin, claudeBin string) {
 	t.Logf("fact 2+3: a turn started; UserPromptSubmit's prompt is exactly %q", prompt)
 	deadline := time.Now().Add(liveBound)
 	for {
-		out, err := spool.OutstandingWake(mapper, liveHarp)
+		out, err := spool.OutstandingWake(afero.NewOsFs(), mapper, liveHarp)
 		require.NoError(t, err)
 		if len(out) == 0 {
 			break

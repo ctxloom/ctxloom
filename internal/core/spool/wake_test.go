@@ -18,23 +18,23 @@ func TestArmWake_WritesTheNonceBeforeAnythingFiresAndConsumeRedeemsItOnce(t *tes
 	hostHome(t)
 	m := NewHomeMapper()
 
-	nonce, err := ArmWake(m, testHarp)
+	nonce, err := ArmWake(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	require.NotEmpty(t, nonce)
 
-	out, err := OutstandingWake(m, testHarp)
+	out, err := OutstandingWake(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Equal(t, []string{nonce}, out, "an armed wake is outstanding until the hook redeems it")
 
-	ok, err := ConsumeWake(m, testHarp, nonce)
+	ok, err := ConsumeWake(afero.NewOsFs(), m, testHarp, nonce)
 	require.NoError(t, err)
 	assert.True(t, ok, "the first redemption is the wake's acknowledgement")
 
-	ok, err = ConsumeWake(m, testHarp, nonce)
+	ok, err = ConsumeWake(afero.NewOsFs(), m, testHarp, nonce)
 	require.NoError(t, err)
 	assert.False(t, ok, "a nonce redeems once: a second redemption is a stale wake")
 
-	out, err = OutstandingWake(m, testHarp)
+	out, err = OutstandingWake(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Empty(t, out)
 }
@@ -42,12 +42,12 @@ func TestArmWake_WritesTheNonceBeforeAnythingFiresAndConsumeRedeemsItOnce(t *tes
 func TestArmWake_MintsADistinctNonceEachTime(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	a, err := ArmWake(m, testHarp)
+	a, err := ArmWake(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
-	b, err := ArmWake(m, testHarp)
+	b, err := ArmWake(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.NotEqual(t, a, b)
-	out, err := OutstandingWake(m, testHarp)
+	out, err := OutstandingWake(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{a, b}, out)
 }
@@ -58,7 +58,7 @@ func TestArmWake_MintsADistinctNonceEachTime(t *testing.T) {
 func TestArmWake_IsNotMail(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	_, err := ArmWake(m, testHarp)
+	_, err := ArmWake(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 
 	pending, err := Pending(afero.NewOsFs(), m, testHarp)
@@ -80,7 +80,7 @@ func TestConsumeWake_RefusesANonceThatIsNotOneWeMint(t *testing.T) {
 	require.NoError(t, os.WriteFile(victim, []byte("x"), 0o600))
 
 	for _, bad := range []string{"", "../../../../victim", "UPPERCASEHEX0000", "abc"} {
-		ok, err := ConsumeWake(m, testHarp, bad)
+		ok, err := ConsumeWake(afero.NewOsFs(), m, testHarp, bad)
 		assert.Error(t, err, "nonce %q", bad)
 		assert.False(t, ok)
 	}
@@ -91,12 +91,12 @@ func TestConsumeWake_RefusesANonceThatIsNotOneWeMint(t *testing.T) {
 func TestConsumeWake_OnASpoolNeverCreatedIsNotAnError(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	nonce, err := ArmWake(m, "other-harp-never-used")
+	nonce, err := ArmWake(afero.NewOsFs(), m, "other-harp-never-used")
 	require.NoError(t, err)
-	ok, err := ConsumeWake(m, testHarp, nonce)
+	ok, err := ConsumeWake(afero.NewOsFs(), m, testHarp, nonce)
 	require.NoError(t, err)
 	assert.False(t, ok, "a nonce armed for another harp is not this harp's")
-	out, err := OutstandingWake(m, testHarp)
+	out, err := OutstandingWake(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Empty(t, out)
 }
@@ -107,27 +107,27 @@ func TestConsumeWake_OnASpoolNeverCreatedIsNotAnError(t *testing.T) {
 func TestClearWakes_RemovesEveryOutstandingNonce(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	a, err := ArmWake(m, testHarp)
+	a, err := ArmWake(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
-	b, err := ArmWake(m, testHarp)
+	b, err := ArmWake(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
-	other, err := ArmWake(m, "someone-else")
+	other, err := ArmWake(afero.NewOsFs(), m, "someone-else")
 	require.NoError(t, err)
 
-	n, err := ClearWakes(m, testHarp)
+	n, err := ClearWakes(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Equal(t, 2, n)
-	out, err := OutstandingWake(m, testHarp)
+	out, err := OutstandingWake(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Empty(t, out, "both %s and %s are cleared", a, b)
-	out, err = OutstandingWake(m, "someone-else")
+	out, err = OutstandingWake(afero.NewOsFs(), m, "someone-else")
 	require.NoError(t, err)
 	assert.Equal(t, []string{other}, out, "another harp's wakes are its own")
 }
 
 func TestClearWakes_ASpoolNeverCreatedHasNoneToClear(t *testing.T) {
 	hostHome(t)
-	n, err := ClearWakes(NewHomeMapper(), testHarp)
+	n, err := ClearWakes(afero.NewOsFs(), NewHomeMapper(), testHarp)
 	require.NoError(t, err)
 	assert.Zero(t, n)
 }

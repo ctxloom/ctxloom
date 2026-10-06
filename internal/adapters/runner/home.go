@@ -984,13 +984,13 @@ func (h *Home) fireWake(w engine.Wake) {
 	if !h.wakeWanted(m, harp) {
 		return
 	}
-	nonce, err := spool.ArmWake(m, harp)
+	nonce, err := spool.ArmWake(h.fs, m, harp)
 	if err != nil {
 		h.rep.Warnf("runner: cannot arm a wake for the session owner: %v", err)
 		return
 	}
 	if err := w.Fire(h.ctx, nonce); err != nil {
-		if _, derr := spool.ConsumeWake(m, harp, nonce); derr != nil {
+		if _, derr := spool.ConsumeWake(h.fs, m, harp, nonce); derr != nil {
 			h.rep.Warnf("runner: a wake that did not fire could not be disarmed, and blocks later wakes: %v", derr)
 		}
 		h.rep.Warnf("runner: the session owner was not woken; its mail waits for the next prompt: %v", err)
@@ -1013,7 +1013,7 @@ func (h *Home) expireWake(m spool.PathMapper, harp, nonce string) {
 	if h.ctx.Err() != nil {
 		return
 	}
-	disarmed, err := spool.ConsumeWake(m, harp, nonce)
+	disarmed, err := spool.ConsumeWake(h.fs, m, harp, nonce)
 	if err != nil {
 		h.rep.Warnf("runner: wake %s went unanswered and could not be disarmed, and blocks later wakes: %v", nonce, err)
 		return
@@ -1034,7 +1034,7 @@ func (h *Home) wakeWanted(m spool.PathMapper, harp string) bool {
 		}
 		return false
 	}
-	if out, err := spool.OutstandingWake(m, harp); err != nil || len(out) > 0 {
+	if out, err := spool.OutstandingWake(h.fs, m, harp); err != nil || len(out) > 0 {
 		if err != nil {
 			h.rep.Warnf("runner: cannot list the session owner's outstanding wakes, so it is not woken: %v", err)
 		}

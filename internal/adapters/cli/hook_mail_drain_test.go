@@ -227,3 +227,25 @@ func TestHookMailDrain_IsATurnStartCallbackUnderHook(t *testing.T) {
 	assert.Equal(t, "mail-drain", sub.Name())
 	assert.True(t, sub.Hidden, "a machine callback is not for direct use")
 }
+
+// TestDrainMail_ReachesTheSpoolOnlyThroughItsFs pins the hook's plumbing:
+// mail that exists only in the fs drainMail is handed is claimed, delivered
+// as turn context and recorded as delivered in that fs, with nothing on disk.
+func TestDrainMail_ReachesTheSpoolOnlyThroughItsFs(t *testing.T) {
+	testsupport.Isolate(t)
+	fs := afero.NewMemMapFs()
+	mapper := spool.NewHomeMapper()
+	w, err := spool.NewWriter(fs, mapper, mailDrainOwner, spool.DirIn, "coord")
+	require.NoError(t, err)
+	ref, err := w.Write(&spool.Message{Kind: "message", FromHarp: "child-mem", To: mailDrainOwner, Body: "only in memory\n"})
+	require.NoError(t, err)
+
+	var out bytes.Buffer
+	require.NoError(t, drainMail(fs, mailDrainCmd(&out), mailDrainOwner))
+
+	assert.Contains(t, drainedEnvelope(t, &out).HookSpecificOutput.AdditionalContext, "only in memory")
+	ids, err := spool.DeliveredIdentities(fs, mapper, mailDrainOwner)
+	require.NoError(t, err)
+	assert.Contains(t, ids, stem(ref.Name), "the delivery is recorded in the hook's fs")
+	assert.Empty(t, deliveredIDs(t), "nothing is recorded on disk")
+}

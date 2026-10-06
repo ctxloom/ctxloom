@@ -542,6 +542,21 @@ func (c Catalog) Scoped(classes ...ProvenanceClass) Catalog {
 	return out
 }
 
+// CompanionRefs are the companion loadout refs (ctxloom:companion@<bin>) this
+// set read, in resolution order. It asks what was READ rather than
+// re-probing: the reads already carry which source each bundle came from, so
+// "everything the companion reader contributed" is a fact on the record, not
+// a second discovery pass that could answer differently or exec anything
+// again.
+func (c Catalog) CompanionRefs() []string {
+	reads := c.Scoped(ProvenanceCompanion).reads
+	out := make([]string, 0, len(reads))
+	for _, read := range reads {
+		out = append(out, read.DisplayName())
+	}
+	return out
+}
+
 // Infos projects the set to listing metadata, in resolution order.
 //
 // It lives on Catalog rather than on Loader so a SCOPED listing is one call

@@ -2,7 +2,7 @@
 // semantics of LoadSkillExports: a profile with a non-empty skills: list
 // exports EXACTLY those (force-enabled), suppressing the uncurated
 // bundle-wide auto-export; an uncurated profile falls back to every
-// profile-referenced bundle's skills (config.ResolveBundleSkills), each still
+// profile-referenced bundle's skills, each still
 // gated by its own per-engine enablement flag. Mirrors
 // command_curation_test.go, but a skill has no inline content the way a
 // command does (BundleSkill carries no `content:` — see skill.go), so these
@@ -89,7 +89,7 @@ func TestLoadSkillExports_CuratedSetExportsExactlyThoseAndSuppressesUncurated(t 
 // TestLoadSkillExports_UncuratedProfileExportsAllBundleSkills proves an
 // uncurated profile (no skills: list) falls back to every skill its
 // referenced bundles ship — both "shown" and "hidden" — the bundle-wide
-// auto-export config.ResolveBundleSkills implements.
+// auto-export composite.Assemble applies to an uncurated selection.
 func TestLoadSkillExports_UncuratedProfileExportsAllBundleSkills(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")

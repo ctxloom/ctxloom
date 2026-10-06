@@ -273,7 +273,7 @@ func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[
 	// declares a name a companion already claimed is refused loudly rather
 	// than allowed to override (see mcpNameClaims).
 	cat := bundleLoader.Catalog()
-	for _, ref := range companionRefs(cat) {
+	for _, ref := range cat.CompanionRefs() {
 		addServers(ref, loadMCPFromBundleRef(c.rep, ref, cat, c.ExecutableTrustGate()))
 	}
 
@@ -289,51 +289,36 @@ func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[
 	return result
 }
 
-// bundleSCM is the marker a resolved MCP server carries to name the bundle
-// that shipped it (wire.MCPServer.SCM). extractMCPFromBundle stamps it and
-// LinkGrant reads it back, so "granted from THIS bundle" is one spelling.
-func bundleSCM(src trust.BundleRef) string { return bundles.BundleSCM(src) }
-
 // LinkGrant answers the link-group question for a run over profileNames from
 // the run's OWN granted set — ResolveBundleMCPServers over the same profiles
-// the engine is launched with — so a fragment or skill linked to an MCP server
-// is delivered exactly when that server is. It is keyed by server name AND
-// owning bundle: the name arbiter can withhold one bundle's server while a
-// same-named server from another survives, and the survivor must not stand in
-// for the one the linked item actually depends on.
-//
-// The granted set is resolved ONCE, on the FIRST question, and never at
-// construction. Both halves matter. The resolve reports a fail-loudly finding
-// per unresolvable ref and per name contest; a grant asked many times in one
-// assembly must not repeat them, so it is memoised. And a grant is BUILT by
-// every pipeline the run constructs -- context assembly, skills, commands,
-// curated exports -- most of which never meet a linked item: resolving eagerly
-// re-records the run's own findings once per pipeline, and `ctxloom doctor`,
-// which counts ClassRef findings around one AssembleContext call to report how
-// many refs were skipped, then reports double. Deferring to the first question
-// makes a run with no linked items resolve zero extra times.
+// the engine is launched with — through bundles.ServerGrant, so a fragment,
+// skill or hook linked to an MCP server is delivered exactly when that
+// server, as shipped by its own bundle, is.
 func (c *Config) LinkGrant(profileNames []string) bundles.LinkGrant {
-	var (
-		once    sync.Once
-		granted map[string]wire.MCPServer
-	)
-	return bundles.LinkGrantFunc(func(read bundles.BundleRead, server string) bool {
-		once.Do(func() { granted = c.ResolveBundleMCPServers(profileNames) })
-		srv, ok := granted[server]
-		return ok && srv.SCM == bundleSCM(read.SourceRef())
-	})
+	return lazyGrant(func() map[string]wire.MCPServer { return c.ResolveBundleMCPServers(profileNames) })
 }
 
 // LinkGrantFor is LinkGrant over an already resolved profile set.
 func (c *Config) LinkGrantFor(set []profiles.ResolvedProfile) bundles.LinkGrant {
+	return lazyGrant(func() map[string]wire.MCPServer { return c.ResolveBundleMCPServersFor(set) })
+}
+
+// lazyGrant is bundles.ServerGrant over the set resolve returns, resolved
+// ONCE, on the FIRST question, and never at construction. Both halves matter.
+// The resolve reports a fail-loudly finding per unresolvable ref and per name
+// contest; a grant asked many times in one assembly must not repeat them, so
+// it is memoised. And a grant built by a surface that never meets a linked
+// item must not record the run's findings again: `ctxloom doctor` counts
+// ClassRef findings around one assembly to report how many refs were skipped,
+// and an eager resolve makes it report double.
+func lazyGrant(resolve func() map[string]wire.MCPServer) bundles.LinkGrant {
 	var (
-		once    sync.Once
-		granted map[string]wire.MCPServer
+		once  sync.Once
+		grant bundles.LinkGrant
 	)
 	return bundles.LinkGrantFunc(func(read bundles.BundleRead, server string) bool {
-		once.Do(func() { granted = c.ResolveBundleMCPServersFor(set) })
-		srv, ok := granted[server]
-		return ok && srv.SCM == bundleSCM(read.SourceRef())
+		once.Do(func() { grant = bundles.ServerGrant(resolve()) })
+		return grant.Granted(read, server)
 	})
 }
 
@@ -444,7 +429,7 @@ func (c *Config) ResolveBundleHooksFor(set []profiles.ResolvedProfile) wire.Unif
 	// path a profile-referenced bundle uses, keyed and signed by the
 	// companion's OWN bundle. Sorted for a deterministic result across runs.
 	cat := bundleLoader.Catalog()
-	for _, ref := range companionRefs(cat) {
+	for _, ref := range cat.CompanionRefs() {
 		result.Append(loadHooksFromBundleRef(c.rep, ref, cat, c.ExecutableTrustGate(), links))
 	}
 
@@ -466,32 +451,9 @@ func eachBundleRef(set []profiles.ResolvedProfile, fn func(bundleRef string)) {
 	}
 }
 
-// companionRefs returns the loader's companion loadout refs
-// (ctxloom:companion@<bin>) in deterministic sorted order.
-//
-// It asks the RESOLVED SET what was read rather than re-probing: the reads
-// already carry which source each bundle came from, so "everything the
-// companion reader contributed" is a fact on the record instead of a second
-// discovery pass that could answer differently — and it does not exec anything
-// a second time.
-func companionRefs(cat bundles.Catalog) []string {
-	reads := companionReads(cat)
-	out := make([]string, 0, len(reads))
-	for _, read := range reads {
-		out = append(out, read.DisplayName())
-	}
-	return out
-}
-
-// companionReads returns the companion loadout reads in deterministic order,
-// for the callers that need the bundles themselves.
-func companionReads(cat bundles.Catalog) []bundles.BundleRead {
-	return cat.Scoped(bundles.ProvenanceCompanion).Reads()
-}
-
 // resolveProfileScope returns the profile set a bundle-resolution call should
 // use: the caller's explicit selection (e.g. `run -p`) when non-empty, else the
-// configured defaults. This is the seam that makes mcp/commands/hooks follow the
+// configured defaults. This is the seam that makes mcp/hooks follow the
 // SELECTED profile (the same set AssembleContext scopes context to) instead of
 // always the defaults, while preserving the default-scoped behavior for the
 // `manage`/apply-hooks path that passes nothing.
@@ -500,119 +462,6 @@ func (c *Config) resolveProfileScope(profileNames []string) []string {
 		return profileNames
 	}
 	return c.DefaultAgentProfiles()
-}
-
-// ResolveBundleCommands aggregates the prompts (slash-command exports) shipped
-// by every bundle referenced in the caller's selected profiles (or the
-// configured defaults when none are passed), PLUS the commands shipped by
-// every discovered COMPANION's loadout (S8 — unconditional whenever the
-// companion binary is on PATH, e.g. ltk's task-runner command, but NEVER
-// exempt: routed through bundleLoader.CommandsFromBundleRef,
-// the identical extraction+gate path a profile-referenced bundle's commands
-// use — see ResolveCompanionCommands). Deduped by prompt name; profile-sourced
-// commands are resolved FIRST so an explicit profile curation of the same
-// name wins over the companion's (ADDING companion commands to the set, never
-// replacing curation). Mirrors ResolveBundleMCPServers / ResolveBundleHooks —
-// the profile-scoped replacement for the global ListAllCommands sweep, so a
-// session only carries the commands its profile pulls in (plus its
-// companions'). Built-in embedded commands are added by the caller
-// (LoadCommandExports), not here, since they are not bundle-shipped.
-//
-// Gating and form selection are this stage's calls, not the reader's: the
-// executable trust gate comes off cfg (nil on management paths = no gating) and
-// the configured form from ShouldUseDistilled, and both are handed to the
-// process stage here rather than baked into how the reader was built. A
-// withheld command is therefore not exported.
-func (c *Config) ResolveBundleCommands(profileNames []string) []*bundles.LoadedContent {
-	loader := c.BundleLoader()
-	pipe := bundles.NewPipeline(loader, c.ExecutableTrustGate(), c.LinkGrant(profileNames), c.ShouldUseDistilled())
-
-	seen := make(map[string]bool)
-	var out []*bundles.LoadedContent
-	add := func(prompt *bundles.LoadedContent) {
-		if seen[prompt.Item] {
-			return
-		}
-		seen[prompt.Item] = true
-		out = append(out, prompt)
-	}
-
-	eachBundleRef(c.ResolveProfileSet(profileNames), func(bundleRef string) {
-		for _, prompt := range pipe.CommandsFromBundleRef(bundleRef) {
-			add(prompt)
-		}
-	})
-
-	for _, command := range resolveCompanionCommandsWith(pipe, loader.Catalog()) {
-		add(command)
-	}
-	return out
-}
-
-// ResolveBundleSkills aggregates the Agent Skill packages shipped by every
-// bundle referenced in the caller's selected profiles (or the configured
-// defaults when none are passed) — the skills analog of ResolveBundleCommands.
-// Mirrors ONLY its UNCURATED path: every profile-referenced bundle's skills
-// export by default (each still gated by its own per-engine enablement flag
-// downstream, mirroring the mcp/hooks/commands resolvers). A profile's
-// `skills:` CURATED list (opt-in, mirroring `commands:`) and companion-shipped
-// skills are both Part B6 (skill-command-split.plan.md §3.2 notes companion
-// skill emission explicitly out of the first slices) — not implemented here.
-// Deduped by skill item name (first occurrence wins), matching
-// ResolveBundleCommands' dedup key.
-func (c *Config) ResolveBundleSkills(profileNames []string) []*bundles.LoadedSkill {
-	pipe := bundles.NewPipeline(c.BundleLoader(), c.ExecutableTrustGate(), c.LinkGrant(profileNames), c.ShouldUseDistilled())
-
-	seen := make(map[string]bool)
-	var out []*bundles.LoadedSkill
-	add := func(skill *bundles.LoadedSkill) {
-		if seen[skill.Item] {
-			return
-		}
-		seen[skill.Item] = true
-		out = append(out, skill)
-	}
-
-	eachBundleRef(c.ResolveProfileSet(profileNames), func(bundleRef string) {
-		for _, skill := range pipe.SkillsFromBundleRef(bundleRef) {
-			add(skill)
-		}
-	})
-	return out
-}
-
-// ResolveCompanionCommands returns the commands shipped by every discovered
-// companion's loadout (S8 — companionBundleSeed / sortedCompanionRefs),
-// unconditionally whenever the companion binary is on PATH, in deterministic
-// (companion-ref-sorted, then name-sorted within a loadout) order. Routed
-// through bundleLoader.CommandsFromBundleRef — the SAME extraction+gate path a
-// profile-referenced bundle's commands use, keyed and signed by the
-// companion's OWN bundle; it decides
-// with the cfg-carried executable trust gate exactly like ResolveBundleCommands,
-// so an unsigned/withheld companion loadout's commands do not export.
-//
-// This is the piece LoadCommandExports adds on BOTH its curated and uncurated
-// paths (ResolveBundleCommands only covers the uncurated one, since a
-// profile's commands: curation bypasses it entirely) — see prompts.go.
-// profileNames scopes only the LINK grant: a companion's commands are
-// unconditional, but one linked to a server the selected profiles veto is
-// withheld with it.
-func (c *Config) ResolveCompanionCommands(profileNames []string) []*bundles.LoadedContent {
-	loader := c.BundleLoader()
-	return resolveCompanionCommandsWith(
-		bundles.NewPipeline(loader, c.ExecutableTrustGate(), c.LinkGrant(profileNames), c.ShouldUseDistilled()), loader.Catalog())
-}
-
-// resolveCompanionCommandsWith is the shared companion-command extraction
-// loop, taking an already-built pipeline so ResolveBundleCommands (which needs
-// one for the profile-scoped pass too) doesn't construct a second one. Gate and
-// form travel with it, so both callers necessarily agree on both.
-func resolveCompanionCommandsWith(pipe *bundles.Pipeline, cat bundles.Catalog) []*bundles.LoadedContent {
-	var out []*bundles.LoadedContent
-	for _, ref := range companionRefs(cat) {
-		out = append(out, pipe.CommandsFromBundleRef(ref)...)
-	}
-	return out
 }
 
 // loadHooksFromBundleRef loads hooks from a bundle reference. Like
@@ -784,7 +633,7 @@ func extractMCPFromBundle(rep report.Reporter, read bundles.BundleRead, src trus
 		srv := mcp.AsWire()
 		srv.Notes = mcp.Notes
 		srv.Installation = mcp.Installation
-		srv.SCM = bundleSCM(src)
+		srv.SCM = bundles.BundleSCM(src)
 		result[name] = srv
 	}
 

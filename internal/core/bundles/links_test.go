@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
@@ -206,6 +207,22 @@ func TestPipeline_LinkGrantIsAskedForTheOwningBundle(t *testing.T) {
 	_, err := NewPipeline(NewLoader(seedLocal(seed)), admitAllForTest(), grant, false).GetFragment("b#fragments/guide")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"b/think"}, asked)
+}
+
+// ServerGrant answers from a run's granted set keyed by server name AND
+// owning bundle: a same-named server another bundle shipped is not the one a
+// linked item depends on, and a server absent from the set grants nothing.
+func TestServerGrant_GrantsOnlyTheOwningBundlesServer(t *testing.T) {
+	cat := NewLoader(seedLocal(map[string]*Bundle{"b": linkedBundle(), "other": linkedBundle()})).Catalog()
+	b, err := cat.Read("b")
+	require.NoError(t, err)
+	other, err := cat.Read("other")
+	require.NoError(t, err)
+
+	grant := ServerGrant(map[string]wire.MCPServer{"think": {Command: "think-server", SCM: BundleSCM(b.SourceRef())}})
+	assert.True(t, grant.Granted(b, "think"))
+	assert.False(t, grant.Granted(other, "think"), "a same-named server from another bundle does not stand in")
+	assert.False(t, grant.Granted(b, "absent"), "a server outside the granted set is not granted")
 }
 
 // A nil grant is an omission, not a statement, and it fails CLOSED for every

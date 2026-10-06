@@ -161,7 +161,7 @@ flowchart TD
 | `LooksLikeCommit(s) bool` | `internal/adapters/remote/version_constraint.go` | Shape test for an already-concrete SHA (skip the network). |
 | `Registry.Get/List/Has/Add/Remove/Update` | `internal/adapters/remote/registry.go` | Remote CRUD under `mu`; `Get` returns a defensive copy; mutators roll back the in-memory state when `save()` fails. |
 | `Registry.LookupURL(url) (*Remote, bool)` | `internal/adapters/remote/registry.go` | The registered remote for a repository, by `SameRepository`; never registers one. Nothing registers a remote but `Add` (`ctxloom remote create`). |
-| `NotRegisteredError(url) error` | `internal/adapters/remote/registry.go` | The `ErrRemoteNotRegistered` refusal naming `ctxloom remote create <name> <url>`; returned by the fetch (`Puller.resolveRemoteTarget`) and by the read of installed content (`operations.RemoteBundleReaders`, `operations.BundleVersionResolver`). |
+| `NotRegisteredError(url) error` | `internal/adapters/remote/registry.go` | The `ErrRemoteNotRegistered` refusal naming `ctxloom remote create <name> <url>`; returned by the fetch (`Puller.resolveRemoteTarget`), the lock walk before it resolves anything (`operations.FlattenDependencies`, upgrade's re-resolve), and the read of installed content (`operations.RemoteBundleReaders`, `operations.BundleVersionResolver`). |
 | `Registry.SetForge / Forges / GetDefault / SetDefault / ResolveForgeForURL` | `internal/adapters/remote/registry.go` | Forge binding and default-remote accessors. |
 
 ### Fetch

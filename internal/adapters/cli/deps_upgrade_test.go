@@ -21,7 +21,7 @@ import (
 // READ-ONLY startup paths (`deps check`, `search`), which hands back a
 // minimal EMPTY config on any load error. An empty config has no profile
 // definitions, so the closure came out empty and the wholesale write erased
-// every pin, hold and retraction while printing "Everything is up to date."
+// every pin and hold while printing "Everything is up to date."
 //
 // A destructive command must not run on a config it could not read.
 func TestRemoteUpgrade_RefusesToRunOnAnUnloadableConfig(t *testing.T) {
@@ -116,25 +116,15 @@ func TestRenderUpgrade_PreviewOfARemovalNamesYes(t *testing.T) {
 	assert.Contains(t, out, "Re-run with --yes to apply.")
 }
 
-// A refusal is worded by its cause. A tamper report is the most alarming thing
-// this CLI says, so a refusal that is NOT a signature failure — a tree that
-// could not be read as a bundle — must not borrow its words: crying wolf
-// trains people to ignore the real one.
-func TestRemoteUpgrade_WordsARefusalByItsCause(t *testing.T) {
-	refused := func(cause operations.RefusalCause) operations.RefusedAdvance {
-		return operations.RefusedAdvance{Identity: "ctxloom+git://github.com/o/r//bundles/a",
-			KeptSHA: "1111111111111111", ProposedSHA: "2222222222222222", Detail: "the verifier's words", Cause: cause}
-	}
-
-	tamper := captureStdout(t, func() {
-		reportRefusedAdvances(os.Stdout, []operations.RefusedAdvance{refused(operations.RefusalSignature)})
+// A refusal names the bundle, the reader's reason, the kept pin, and the
+// publisher's remedy.
+func TestRemoteUpgrade_ReportsARefusal(t *testing.T) {
+	out := captureStdout(t, func() {
+		reportRefusedAdvances(os.Stdout, []operations.RefusedAdvance{{Identity: "ctxloom+git://github.com/o/r//bundles/a",
+			KeptSHA: "1111111111111111", ProposedSHA: "2222222222222222", Detail: "the reader's words", Cause: operations.RefusalUnreadable}})
 	})
-	assert.Contains(t, tamper, msgRefusedTamper)
-	assert.NotContains(t, tamper, msgRefusedUnreadable)
-
-	unreadable := captureStdout(t, func() {
-		reportRefusedAdvances(os.Stdout, []operations.RefusedAdvance{refused(operations.RefusalUnreadable)})
-	})
-	assert.Contains(t, unreadable, msgRefusedUnreadable)
-	assert.NotContains(t, unreadable, msgRefusedTamper, "a structural read failure is not a tamper signal")
+	assert.Contains(t, out, "REFUSED to advance ctxloom+git://github.com/o/r//bundles/a")
+	assert.Contains(t, out, "the reader's words")
+	assert.Contains(t, out, "Keeping the pin 1111111")
+	assert.Contains(t, out, msgRefusedUnreadable)
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/afero"
 	"go.uber.org/zap"
@@ -45,10 +44,6 @@ type SyncDependenciesRequest struct {
 	// ApplyHooks applies hooks after sync.
 	ApplyHooks bool `json:"apply_hooks"`
 
-	// AllowDowngrade names the refs whose signed version floor the operator
-	// waives for this run (`deps pull --allow-downgrade <ref>`). Never blanket.
-	AllowDowngrade []string `json:"allow_downgrade,omitempty"`
-
 	// Testing injection points
 	FS       afero.Fs         `json:"-"`
 	Registry *remote.Registry `json:"-"`
@@ -63,7 +58,7 @@ type SyncDependenciesRequest struct {
 type SyncItem struct {
 	Reference string `json:"reference"`
 	Type      string `json:"type"`
-	Status    string `json:"status"` // "installed", "reinstalled", "skipped", "retracted", "failed"
+	Status    string `json:"status"` // "installed", "reinstalled", "skipped", "failed"
 	Error     string `json:"error,omitempty"`
 	LocalPath string `json:"local_path,omitempty"`
 	// cause is the failure Error was rendered from, kept typed so Remedy can
@@ -92,49 +87,11 @@ func (i SyncItem) Remedy() string {
 	return remedySyncFailed
 }
 
-// RetractionChecker is the OPTIONAL seam a Puller may satisfy to let sync
-// re-evaluate retraction for a ref that is ALREADY installed. This is the
-// fix for the gap where syncItem's install-skip meant the retraction check
-// wired into Puller.Pull (confirmRetraction) never ran again once a bundle
-// was pinned — retraction had no effect on anything already distributed. A
-// Puller that doesn't implement this (e.g. a minimal test double) simply
-// skips the re-check, never a regression: a fresh (unskipped) Pull still
-// reports its own retraction verdict via PullResult.Retracted.
-//
-// *remote.Puller (the production implementation) satisfies this; sync type-
-// asserts for it rather than widening the base Puller interface (lockfile.go),
-// which other callers (InstallDependencies, tests) implement minimally.
-type RetractionChecker interface {
-	// CheckRetraction reports whether refStr is CURRENTLY retracted in its
-	// remote's manifest — a live network probe, but far cheaper than a full
-	// Pull (no content re-fetch, no lockfile SHA rewrite). When the remote
-	// cannot be reached, this falls back to the last verdict this project
-	// itself recorded for refStr (fail-stale — see
-	// internal/adapters/remote/retract.go's RetractionVerdict and
-	// Puller.resolveRetraction) rather than reporting "not retracted"; err is
-	// non-nil only for a genuinely undeterminable manifest (e.g. unparseable),
-	// which the caller must not paper over. checkedAt is when the returned
-	// verdict was actually established (now for a fresh check, the persisted
-	// entry's own timestamp for a fallback) — pass it straight through to
-	// RecordRetraction so a fallback never fabricates a fresher timestamp than
-	// it earned.
-	CheckRetraction(ctx context.Context, refStr string, itemType remote.ItemType) (retracted bool, reason string, checkedAt time.Time, err error)
-	// RecordRetraction persists retracted/reason/checkedAt onto refStr's
-	// EXISTING lockfile entry (a no-op if there is none yet). A zero checkedAt
-	// leaves the persisted timestamp untouched.
-	RecordRetraction(itemType remote.ItemType, refStr string, retracted bool, reason string, checkedAt time.Time) error
-}
-
 // SyncDependenciesResult contains the result of syncing dependencies.
 type SyncDependenciesResult struct {
-	Status  string     `json:"status"`
-	Synced  []SyncItem `json:"synced,omitempty"`
-	Skipped []SyncItem `json:"skipped,omitempty"`
-	// Retracted lists refs whose remote manifest currently retracts them —
-	// surfaced separately from Skipped/Failed so a caller (the `deps pull`
-	// CLI) can tell the user their content was retracted, whether that was
-	// learned from a fresh pull or re-checked on an already-installed ref.
-	Retracted []SyncItem `json:"retracted,omitempty"`
+	Status    string     `json:"status"`
+	Synced    []SyncItem `json:"synced,omitempty"`
+	Skipped   []SyncItem `json:"skipped,omitempty"`
 	Failed    []SyncItem `json:"failed,omitempty"`
 	Total     int        `json:"total"`
 	Installed int        `json:"installed"`
@@ -201,10 +158,6 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 	if err != nil {
 		return nil, err
 	}
-	downgrades, err := newDowngradeSet(req.AllowDowngrade)
-	if err != nil {
-		return nil, err
-	}
 
 	// Installed-probe source (reference-only model: lockfile entry + content
 	// retrievable from the clone cache, never a disk check).
@@ -243,11 +196,11 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 			}
 			refreshRepoCaches(ctx, NewRepoCache(cfg), syncRefURLs(refs), registered)
 		}
-		if err := syncRefs(ctx, puller, refs, remote.ItemTypeBundle, baseDir, req.Force, bundleReader, downgrades, result); err != nil {
+		if err := syncRefs(ctx, puller, refs, remote.ItemTypeBundle, baseDir, req.Force, bundleReader, result); err != nil {
 			return err
 		}
 		// A pull lands new pinned content: the next generation is the one that
-		// holds it AND the lockfile's retraction records. Post-sync steps read
+		// holds it. Post-sync steps read
 		// bundles immediately (lockfile, hook materialization), and a later
 		// pass may resolve a profile that only became loadable because of this
 		// pull, so every later read in this sync is against the reloaded
@@ -341,8 +294,8 @@ func summarizeSync(result *SyncDependenciesResult) {
 	if result.Errors > 0 {
 		result.Status = "completed_with_errors"
 	}
-	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d reinstalled, %d skipped, %d retracted, %d failed",
-		result.Total, result.Installed, result.Reinstalled, len(result.Skipped), len(result.Retracted), result.Errors)
+	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d reinstalled, %d skipped, %d failed",
+		result.Total, result.Installed, result.Reinstalled, len(result.Skipped), result.Errors)
 }
 
 // RefCollector reports every remote ref currently visible.
@@ -439,12 +392,9 @@ func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir st
 			// content layer owns the tree format that decides its modes.
 			remote.WithTreeInstaller(remotetree.WorktreeInstaller(NewRepoCache(cfg))),
 			// Verify before pin: the tree is held to its publisher's signature
-			// and the entry's version floor before anything is checked out or
-			// recorded, with the same verifier every reader uses.
+			// before anything is checked out or recorded, with the same
+			// verifier every reader uses.
 			remote.WithTreeVerifier(bundles.TreeVerifier(cfg.TrustRoot())),
-			// Retractions are read only from the default branch's signed tip
-			// manifest, verified by the same trust root.
-			remote.WithManifestVerifier(bundles.ManifestVerifier(cfg.TrustRoot())),
 		)
 	}
 	return puller, nil
@@ -452,12 +402,12 @@ func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir st
 
 // syncRefs syncs each ref of one item type into result, checking for context
 // cancellation between items (returns ctx.Err() to abort the whole sync).
-func syncRefs(ctx context.Context, puller Puller, refs []string, itemType remote.ItemType, baseDir string, force bool, bundles remote.BundleByteSource, downgrades downgradeSet, result *SyncDependenciesResult) error {
+func syncRefs(ctx context.Context, puller Puller, refs []string, itemType remote.ItemType, baseDir string, force bool, bundles remote.BundleByteSource, result *SyncDependenciesResult) error {
 	for _, ref := range refs {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		item := syncItem(ctx, puller, ref, itemType, baseDir, force, bundles, downgrades)
+		item := syncItem(ctx, puller, ref, itemType, baseDir, force, bundles)
 		result.Total++
 		addSyncItem(result, item)
 	}
@@ -683,7 +633,7 @@ func isRemoteReference(ref string) bool {
 }
 
 // syncItem syncs a single item and returns the result.
-func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.ItemType, baseDir string, force bool, bundles remote.BundleByteSource, downgrades downgradeSet) SyncItem {
+func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.ItemType, baseDir string, force bool, bundles remote.BundleByteSource) SyncItem {
 	item := SyncItem{
 		Reference: ref,
 		Type:      string(itemType),
@@ -700,37 +650,12 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	// Skip already-installed items (unless force): lockfile entry + content
 	// retrievable from the clone cache, same probe CheckMissingDependencies
 	// uses. Nothing lives on disk in the reference-only model.
-	//
-	// Retraction must still be RE-EVALUATED here even though the item is
-	// skipped: this was the gap (task: retraction had no effect on anything
-	// already distributed) — confirmRetraction only ever ran inside a fresh
-	// Pull, and an already-installed ref never pulls again on an ordinary
-	// sync. checkInstalledRetraction runs the lightweight (no content
-	// re-fetch) check and persists its verdict onto the existing lockfile
-	// entry.
 	if !force && isInstalled(ctx, ref, baseDir, bundles) {
-		if retracted, reason := checkInstalledRetraction(ctx, puller, ref, itemType); retracted {
-			item.Status = "retracted"
-			item.Error = reason
-			return item
-		}
 		item.Status = "skipped"
 		return item
 	}
 
-	// Pull the item. Force so the non-interactive sync never blocks on a
-	// retraction prompt (there is no other confirmation gate). Stdout is
-	// pinned to stderr because sync runs inside the MCP server, whose process
-	// stdout carries the JSON-RPC stream; pull's informational output (lockfile
-	// warnings) must never land there.
-	opts := remote.PullOptions{
-		Force:          true,
-		ItemType:       itemType,
-		Stdout:         os.Stderr,
-		AllowDowngrade: downgrades.allowsRef(ref),
-	}
-
-	result, err := puller.Pull(ctx, ref, opts)
+	result, err := puller.Pull(ctx, ref, remote.PullOptions{ItemType: itemType})
 	if err != nil {
 		item.Status = "failed"
 		item.Error = err.Error()
@@ -739,16 +664,6 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	}
 
 	item.LocalPath = result.LocalPath
-	if result.Retracted {
-		// The pull SUCCEEDED (Force always bypasses the cancel-on-decline
-		// path here) but the publisher has retracted it — surface that to the
-		// user distinctly from a plain install/update; Pull already persisted
-		// Retracted onto the lockfile entry it just wrote (see
-		// Puller.updateLockfile).
-		item.Status = "retracted"
-		item.Error = result.RetractedReason
-		return item
-	}
 	if result.Reinstalled {
 		item.Status = "reinstalled"
 	} else {
@@ -756,53 +671,6 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	}
 
 	return item
-}
-
-// checkInstalledRetraction re-evaluates retraction for a ref that syncItem is
-// about to skip as already-installed. It is best-effort and fault-tolerant by
-// construction, matching the rest of this file's CLAUDE.md discipline: a
-// puller that doesn't implement RetractionChecker (a minimal test double)
-// still silently reports "not retracted" rather than blocking or failing the
-// sync — retraction is a security IMPROVEMENT layered on top of sync, never a
-// new way for sync itself to fail.
-//
-// An UNREACHABLE remote is no longer in that "silently not retracted" bucket:
-// CheckRetraction itself now falls back to the last verdict this project
-// recorded for ref (fail-stale), so retracted here reflects that fallback,
-// not a false "clean". Only a genuinely
-// undeterminable manifest (parse failure) still resolves to "not retracted"
-// here — CheckRetracted already turns that into a hard error, and this
-// function's contract stays "never a new way for sync to fail", so it swallows
-// that error rather than propagating it.
-//
-// When the manifest reports NOT retracted, it still calls RecordRetraction to
-// clear any stale retracted flag from a previous sync (RecordRetraction itself
-// no-ops when nothing would change) — so a publisher un-retracting content is
-// honored too, not just the one-way trip to withheld.
-func checkInstalledRetraction(ctx context.Context, puller Puller, ref string, itemType remote.ItemType) (retracted bool, reason string) {
-	rc, ok := puller.(RetractionChecker)
-	if !ok {
-		return false, ""
-	}
-	// CheckRetraction itself now falls back to the last recorded verdict when
-	// the remote is unreachable (fail-stale), so err here is reserved for a
-	// genuinely undeterminable manifest (e.g. unparseable) — that case still
-	// silently reports "not retracted" rather than blocking sync, matching
-	// this function's fault-tolerant contract; it does NOT re-record (nothing
-	// new was established, so nothing overwrites whatever was already there).
-	retracted, reason, checkedAt, err := rc.CheckRetraction(ctx, ref, itemType)
-	if err != nil {
-		return false, ""
-	}
-	// A failure to PERSIST the verdict (distinct from a failure to check it)
-	// is not the "tolerate an unreachable remote" case this function's
-	// contract carves out — it silently drops a security improvement (or,
-	// worse, a genuine retraction) on the floor with no diagnostic at all.
-	// Still best-effort (never blocks or fails sync), just no longer silent.
-	if rerr := rc.RecordRetraction(itemType, ref, retracted, reason, checkedAt); rerr != nil {
-		clidiag.Warn("ctxloom", "record retraction verdict for %s: %v", ref, rerr)
-	}
-	return retracted, reason
 }
 
 // addSyncItem adds an item to the appropriate result list.
@@ -816,8 +684,6 @@ func addSyncItem(result *SyncDependenciesResult, item SyncItem) {
 		result.Reinstalled++
 	case "skipped":
 		result.Skipped = append(result.Skipped, item)
-	case "retracted":
-		result.Retracted = append(result.Retracted, item)
 	case "failed":
 		result.Failed = append(result.Failed, item)
 		result.Errors++

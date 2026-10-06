@@ -1,9 +1,7 @@
 package remote
 
 import (
-	"bytes"
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -58,8 +56,7 @@ func TestInstallPulledItem(t *testing.T) {
 				"bundle.yaml": {Data: []byte("version: \"1.0.0\"\n")},
 			},
 		}
-		var out bytes.Buffer
-		opts := PullOptions{ItemType: ItemTypeBundle, LocalDir: "/test", Stdout: &out, Stdin: strings.NewReader("")}
+		opts := PullOptions{ItemType: ItemTypeBundle, LocalDir: "/test"}
 
 		res, err := puller.installPulledItem(context.Background(), ref, opts, item)
 		require.NoError(t, err)
@@ -78,10 +75,8 @@ func TestInstallPulledItem(t *testing.T) {
 	// cache is derived from the pin, not the other way around. A failed
 	// lockfile write used to be demoted to a printed "Warning:" while the
 	// pull still reported success, so a caller was told a SHA and LocalPath
-	// for a pin that does not exist anywhere — and on a retracted item, the
-	// freshly-computed Retracted verdict was lost right along with it,
-	// leaving EffectiveTrust nothing to withhold against. The lockfile write
-	// failing must fail the pull.
+	// for a pin that does not exist anywhere. The lockfile write failing must
+	// fail the pull.
 	t.Run("lockfile write failure fails the install, not just a warning", func(t *testing.T) {
 		fs, registry := installItemEnv(t)
 		// A read-only lockfile fs: installTree also writes through
@@ -101,8 +96,7 @@ func TestInstallPulledItem(t *testing.T) {
 				"bundle.yaml": {Data: []byte("version: \"1.0.0\"\n")},
 			},
 		}
-		var out bytes.Buffer
-		opts := PullOptions{ItemType: ItemTypeBundle, LocalDir: "/test", Stdout: &out, Stdin: strings.NewReader("")}
+		opts := PullOptions{ItemType: ItemTypeBundle, LocalDir: "/test"}
 
 		res, err := puller.installPulledItem(context.Background(), ref, opts, item)
 		require.Error(t, err, "a pull whose only persistent record failed to write must not report success")

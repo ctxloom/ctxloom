@@ -32,21 +32,15 @@ This is the only command that moves an existing pin. 'deps pull', 'init' and
 startup create first pins and keep every existing one, even when you change a
 constraint; that change takes effect here.
 
-A pin is NOT advanced onto content whose publisher signature does not verify
-over its bytes: that content is withheld as tampered and cannot be reviewed, so
-advancing past the last commit that did verify would leave you with neither
-copy. The old pin is kept and the refusal is reported.
+A pin is NOT advanced onto content that cannot be read as a bundle: advancing
+onto it would leave you with nothing. The old pin is kept and the refusal is
+reported.
 
 A refusal EXITS 2, not 0 and not 1: the command ran fine and deliberately did
 not do part of what it was asked, so an unattended sync can tell "I refused
 something" apart from both "nothing to do" (0) and a failure (1). An applied
 refusal also survives the run — 'ctxloom doctor' reports it until an upgrade
 advances that pin.
-
-A pin is also NOT moved below the version its publisher signed at the last pin
-— a rollback to an older signed release — nor from signed to unsigned content.
-Name a ref with --allow-downgrade to accept that for it; the lower version then
-becomes its floor.
 
 ```
 ctxloom deps upgrade [flags]
@@ -57,14 +51,12 @@ ctxloom deps upgrade [flags]
 ```
   ctxloom deps upgrade                   # Show what would move, and what it brings in
   ctxloom deps upgrade --yes             # Apply it
-  ctxloom deps upgrade --yes --allow-downgrade <ref>   # Accept a lower signed version for <ref>
 ```
 
 ### Options
 
 ```
-      --allow-downgrade stringArray   Accept a lower signed version (or unsigned content) for this ref, and record it as the new floor; repeat per ref
-  -y, --yes                           Apply the upgrade this invocation would report (default: report only)
+  -y, --yes   Apply the upgrade this invocation would report (default: report only)
 ```
 
 ### Options inherited from parent commands
@@ -72,7 +64,7 @@ ctxloom deps upgrade [flags]
 ```
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
-      --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted without review (rejections and retractions still hold; nothing ctxloom starts inherits it; signing is unaffected)
+      --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted (nothing ctxloom starts inherits it; signing is unaffected)
       --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context

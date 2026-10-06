@@ -1,10 +1,8 @@
 package remote
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -65,8 +63,6 @@ func TestPuller_Pull_UnregisteredAddressIsRefused(t *testing.T) {
 	_, err = puller.Pull(context.Background(), addr+"@bundles/security", PullOptions{
 		LocalDir: "/test",
 		ItemType: ItemTypeBundle,
-		Stdout:   &bytes.Buffer{},
-		Stdin:    strings.NewReader(""),
 	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrRemoteNotRegistered)

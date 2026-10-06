@@ -34,22 +34,13 @@ func TestPromptSection_ExtractsAfterMarker(t *testing.T) {
 }
 
 // TestEnsureProjectWithEngine_WritesBuildJ000200ConfigVerbatim pins that
-// ensureProjectWithEngine, once flagged by review as "a single pass-through
-// expression" but explicitly kept — it names the common case and is used at
-// 9 call sites across steps_j000200_setup.go, steps_j000300.go, steps_j001500.go,
-// steps_j001700.go, and steps_trust_surface.go. This confirms the pass-through
-// actually composes its two named callees (buildJ000200Config,
+// ensureProjectWithEngine, a pass-through kept because it names the common
+// case, composes its two named callees (buildJ000200Config,
 // scaffoldProjectWithConfig) correctly — the written .ctxloom/config.yaml is
 // exactly buildJ000200Config's rendered output, byte for byte — and that
 // scaffoldProjectWithConfig's own idempotency contract ("a second call on an
 // already-initialized World is a no-op") survives the wrapper: calling it
 // twice does not re-render or truncate the config.
-//
-// Confirmed test-only-vs-live-caller via `go vet -tags acceptance`: renaming
-// ensureProjectWithEngine to a bogus name produced RED at all 9 call sites
-// (e.g. "undefined: ensureProjectWithEngine" in steps_j000200_setup.go,
-// steps_j000300.go, steps_j001500.go, steps_j001700.go, steps_trust_surface.go); restored,
-// vet is green.
 func TestEnsureProjectWithEngine_WritesBuildJ000200ConfigVerbatim(t *testing.T) {
 	env, err := testenv.NewTestEnvironment()
 	if err != nil {

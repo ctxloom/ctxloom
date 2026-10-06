@@ -184,44 +184,6 @@ type LockEntry struct {
 	// all call it. The retired spelling `pinned` is REFUSED at load rather
 	// than ignored — see retiredHoldField.
 	Held bool `yaml:"held,omitempty" json:"held,omitempty"`
-
-	// Retracted records that the publisher withdrew this bundle (or the exact
-	// version pinned here) — learned from the remote manifest at the last
-	// sync/pull that had the network in hand (internal/adapters/remote/retract.go
-	// CheckRetracted), never derived locally. A lock rebuild (operations.
-	// LockDependencies) carries it forward from the previous lockfile the same
-	// way it carries Pinned forward — a full relock must not silently
-	// un-retract something no fresh check has actually cleared.
-	Retracted bool `yaml:"retracted,omitempty" json:"retracted,omitempty"`
-
-	// RetractedReason is the publisher's stated reason for the retraction
-	// (display-only — never a decision input). Empty when Retracted is false.
-	RetractedReason string `yaml:"retracted_reason,omitempty" json:"retracted_reason,omitempty"`
-
-	// RetractionCheckedAt is when Retracted/RetractedReason were last
-	// established by a check that actually ran: an answered manifest read
-	// (Puller.resolveRetraction's "Fresh" branch), or a read that found the
-	// remote publishes no manifest — never bumped by a fallback that reused a
-	// previously recorded verdict. This is what lets a later fallback (see
-	// RetractionStaleAfter) know how old the verdict it is honoring actually
-	// is. Zero when no check that ran has established the verdict — an entry
-	// written before this field existed, or one whose first check could not
-	// run — which reads as UNKNOWN AGE and is warned about whenever
-	// resolveRetraction falls back to it; zero is deliberately not treated as
-	// "just checked" (that would silently read as fresher than it is) nor as
-	// "definitely stale".
-	RetractionCheckedAt time.Time `yaml:"retraction_checked_at,omitempty" json:"retraction_checked_at,omitempty"`
-
-	// SignedVersion is the release version a trusted publisher signed for the
-	// content at SHA, and it is this entry's VERSION FLOOR: no writer of SHA
-	// may move it to content signed at a lower version, or to unattested
-	// content, without the operator naming this ref (release.CheckAdvance).
-	// Empty when the pinned content is unattested.
-	SignedVersion string `yaml:"signed_version,omitempty" json:"signed_version,omitempty"`
-
-	// Publisher is the trust-root principal whose signature SignedVersion
-	// came from. Display only; empty when unattested.
-	Publisher string `yaml:"publisher,omitempty" json:"publisher,omitempty"`
 }
 
 // Lockfile represents the .ctxloom/lock.yaml file for pinning dependencies.
@@ -248,8 +210,7 @@ type ManifestEntry struct {
 }
 
 // Manifest represents the optional ctxloom/manifest.yaml index file. It is a
-// SEARCH INDEX and nothing more: it is unsigned, so no security decision reads
-// it. Retractions are carried by the signed bundle manifest (CheckRetracted).
+// SEARCH INDEX and nothing more: no decision reads it.
 type Manifest struct {
 	Version     int             `yaml:"version" json:"version"`
 	GeneratedAt time.Time       `yaml:"generated_at" json:"generated_at"`

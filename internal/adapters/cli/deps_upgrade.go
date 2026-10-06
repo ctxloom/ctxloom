@@ -52,24 +52,17 @@ This is the only command that moves an existing pin. 'deps pull', 'init' and
 startup create first pins and keep every existing one, even when you change a
 constraint; that change takes effect here.
 
-A pin is NOT advanced onto content whose publisher signature does not verify
-over its bytes: that content is withheld as tampered and cannot be reviewed, so
-advancing past the last commit that did verify would leave you with neither
-copy. The old pin is kept and the refusal is reported.
+A pin is NOT advanced onto content that cannot be read as a bundle: advancing
+onto it would leave you with nothing. The old pin is kept and the refusal is
+reported.
 
 A refusal EXITS 2, not 0 and not 1: the command ran fine and deliberately did
 not do part of what it was asked, so an unattended sync can tell "I refused
 something" apart from both "nothing to do" (0) and a failure (1). An applied
 refusal also survives the run — 'ctxloom doctor' reports it until an upgrade
-advances that pin.
-
-A pin is also NOT moved below the version its publisher signed at the last pin
-— a rollback to an older signed release — nor from signed to unsigned content.
-Name a ref with --allow-downgrade to accept that for it; the lower version then
-becomes its floor.`,
+advances that pin.`,
 	Example: `  ctxloom deps upgrade                   # Show what would move, and what it brings in
-  ctxloom deps upgrade --yes             # Apply it
-  ctxloom deps upgrade --yes --allow-downgrade <ref>   # Accept a lower signed version for <ref>`,
+  ctxloom deps upgrade --yes             # Apply it`,
 	RunE: runDepsUpgradeCmd,
 }
 
@@ -86,7 +79,7 @@ func runDepsUpgradeCmd(cmd *cobra.Command, args []string) error {
 // Upgrade is destructive: it rewrites the lockfile wholesale from whatever
 // closure the config yields, and an empty config yields an empty closure — no
 // profile definitions to enumerate, nothing proposed, so the write erased every
-// pin, hold and retraction and printed "Everything is up to date." A command
+// pin and hold and printed "Everything is up to date." A command
 // that rewrites state must fail on a config it could not read, not guess.
 func runDepsUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, error)) error {
 	cfg, err := loadConfig()
@@ -96,7 +89,7 @@ func runDepsUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, error
 
 	fmt.Fprintln(cmd.ErrOrStderr(), "Resolving latest commits for pinned dependencies...")
 
-	res, err := upgradeDependencies(cmd.Context(), cfg, operations.UpgradeRequest{Apply: depsUpgradeYes, AllowDowngrade: depsUpgradeAllowDowngrade})
+	res, err := upgradeDependencies(cmd.Context(), cfg, operations.UpgradeRequest{Apply: depsUpgradeYes})
 	if err != nil {
 		return err
 	}
@@ -122,10 +115,9 @@ func runDepsUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, error
 // each pin that moves with what it brings in, and what to do next.
 func renderUpgrade(out io.Writer, res operations.UpgradeResult) {
 	// The refusals print FIRST and unconditionally. A pin that did not move
-	// because its new content failed publisher verification reads exactly
-	// like a pin that had nothing to move to, and the difference is the whole
-	// point: one means "you are current", the other means "somebody published
-	// bytes their signature does not cover".
+	// because its new content could not be read reads exactly like a pin that
+	// had nothing to move to, and the difference is the whole point: one means
+	// "you are current", the other means "upstream published something broken".
 	reportRefusedAdvances(out, res.Refused)
 	// Removals print on every branch: the lock is rewritten wholesale, so an
 	// entry dropped without a line here is indistinguishable from one that was
@@ -178,42 +170,20 @@ func refusedExit() error {
 	return &ExitError{Code: exitCodeRefused}
 }
 
-// The line reportRefusedAdvances closes each refusal with, by its cause.
-const (
-	msgRefusedTamper = "  There is nothing to accept: a signature that does not cover its bytes is a tamper signal, not unsigned content, so it is never offered for review. " +
-		"Ask the publisher to re-sign and publish again, then re-run 'ctxloom deps upgrade'."
-	msgRefusedUnreadable = "  This is not a signature failure: the content could not be read as a bundle, so nothing about its signature was established. " +
-		"If the reason above is a fault in the bundle, the publisher must fix it and publish again; then re-run 'ctxloom deps upgrade'."
-)
+// msgRefusedUnreadable closes each refusal reportRefusedAdvances prints.
+const msgRefusedUnreadable = "  If the reason above is a fault in the bundle, the publisher must fix it and publish again; then re-run 'ctxloom deps upgrade'."
 
 // reportRefusedAdvances says, for each pin upgrade declined to move, the three
 // things a human needs and cannot infer: WHICH bundle, WHY its new content was
-// refused (operations.RefusalCause — only a signature failure is worded as a
-// tamper signal), and WHICH pin is being kept instead.
+// refused, and WHICH pin is being kept instead.
 //
 // It names no command that cannot help.
 func reportRefusedAdvances(out io.Writer, refused []operations.RefusedAdvance) {
 	for _, r := range refused {
-		if r.Cause == operations.RefusalBelowFloor {
-			fmt.Fprintf(out, "REFUSED to advance %s: the content at %s is not signed at or above the version this project last pinned (%s).\n",
-				r.Identity, shortSHA(r.ProposedSHA), r.Detail)
-			fmt.Fprintf(out, "  Keeping the pin %s. Whoever controls the repository can re-serve an older signed release; if going back is what you intend, re-run with --allow-downgrade %s.\n",
-				shortSHA(r.KeptSHA), r.Identity)
-			continue
-		}
-		if r.Cause == operations.RefusalSignature {
-			fmt.Fprintf(out, "REFUSED to advance %s: the publisher signature on the content at %s does not verify over those bytes (%s).\n",
-				r.Identity, shortSHA(r.ProposedSHA), r.Detail)
-		} else {
-			fmt.Fprintf(out, "REFUSED to advance %s: the content at %s could not be read as a bundle (%s).\n",
-				r.Identity, shortSHA(r.ProposedSHA), r.Detail)
-		}
-		fmt.Fprintf(out, "  Keeping the last verified pin %s — your assistant goes on receiving the content at that pin.\n", shortSHA(r.KeptSHA))
-		if r.Cause == operations.RefusalSignature {
-			fmt.Fprintln(out, msgRefusedTamper)
-		} else {
-			fmt.Fprintln(out, msgRefusedUnreadable)
-		}
+		fmt.Fprintf(out, "REFUSED to advance %s: the content at %s could not be read as a bundle (%s).\n",
+			r.Identity, shortSHA(r.ProposedSHA), r.Detail)
+		fmt.Fprintf(out, "  Keeping the pin %s — your assistant goes on receiving the content at that pin.\n", shortSHA(r.KeptSHA))
+		fmt.Fprintln(out, msgRefusedUnreadable)
 	}
 }
 
@@ -230,15 +200,10 @@ func reportRemovedPins(out io.Writer, removed []string, applied bool) {
 	}
 }
 
-var (
-	depsUpgradeAllowDowngrade []string
-	depsUpgradeYes            bool
-)
+var depsUpgradeYes bool
 
 func init() {
 	depsCmd.AddCommand(depsUpgradeCmd)
 	depsUpgradeCmd.Flags().BoolVarP(&depsUpgradeYes, yesFlagName, "y", false,
 		"Apply the upgrade this invocation would report (default: report only)")
-	depsUpgradeCmd.Flags().StringArrayVar(&depsUpgradeAllowDowngrade, "allow-downgrade", nil,
-		"Accept a lower signed version (or unsigned content) for this ref, and record it as the new floor; repeat per ref")
 }

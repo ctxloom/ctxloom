@@ -14,9 +14,8 @@ import (
 )
 
 var (
-	depsPullForce          bool
-	depsPullLock           bool
-	depsPullAllowDowngrade []string
+	depsPullForce bool
+	depsPullLock  bool
 )
 
 var depsPullCmd = &cobra.Command{
@@ -59,10 +58,9 @@ func runDepsPull(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintln(cmd.ErrOrStderr(), "Pulling dependencies...")
 
 	result, err := syncDependencies(cmd.Context(), App(), operations.SyncDependenciesRequest{
-		Force:          depsPullForce,
-		Lock:           depsPullLock,
-		ApplyHooks:     true,
-		AllowDowngrade: depsPullAllowDowngrade,
+		Force:      depsPullForce,
+		Lock:       depsPullLock,
+		ApplyHooks: true,
 	})
 	if err != nil {
 		return err
@@ -103,7 +101,6 @@ type pullView struct {
 	Errors      int                   `json:"errors"`
 	Synced      []operations.SyncItem `json:"synced"`
 	Skipped     []operations.SyncItem `json:"skipped"`
-	Retracted   []operations.SyncItem `json:"retracted"`
 	Failed      []pullFailureView     `json:"failed"`
 	Removed     []string              `json:"removed"`
 	Incomplete  bool                  `json:"incomplete"`
@@ -150,7 +147,6 @@ func newPullView(result *operations.SyncDependenciesResult, plan *operations.Rec
 		Errors:      result.Errors,
 		Synced:      result.Synced,
 		Skipped:     result.Skipped,
-		Retracted:   result.Retracted,
 		Removed:     result.Removed,
 		Incomplete:  result.Incomplete,
 		Unreachable: result.Unreachable,
@@ -177,12 +173,8 @@ func newPullView(result *operations.SyncDependenciesResult, plan *operations.Rec
 // pullResultErr decides the exit code from what the pull actually did.
 //
 // Skipped items are NOT a failure (pull never moves an existing pin, by design
-// — see renderPullSummary's doc comment). Retracted is NOT a failure either: it
-// is the retraction mechanism working as designed — a bad dependency detected
-// and withheld automatically while the rest of the sync proceeds (see
-// j001500/j001700/trust_surface's acceptance journeys, whose entire narrative
-// is "the sync still succeeds; the retracted content just never reaches the
-// user"). Only Errors — a real fetch or apply failure — makes the pull fail.
+// — see renderPullSummary's doc comment). Only Errors — a real fetch or apply
+// failure — makes the pull fail.
 //
 // The failures are in the payload (and in renderPullSummary's text), so a
 // caller scripting on the EXIT CODE rather than reading the output has to be
@@ -237,12 +229,6 @@ func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 		fmt.Fprintln(w, "    Pull never moves an existing pin and does not ask upstream whether one could move.")
 		fmt.Fprintln(w, "    Run 'ctxloom deps check' to find out.")
 	}
-	if len(result.Retracted) > 0 {
-		fmt.Fprintf(w, "  Retracted: %d\n", len(result.Retracted))
-		for _, item := range result.Retracted {
-			fmt.Fprintf(w, "    - %s: retracted (%s)\n", inertField(item.Reference), inertBody(item.Error, 0, false).Text)
-		}
-	}
 	for _, identity := range result.Removed {
 		fmt.Fprintf(w, "  Removed %s from the lockfile: nothing this project composes depends on it any more.\n", inertField(identity))
 	}
@@ -288,6 +274,4 @@ func init() {
 		"Reinstall every reference at its pin instead of skipping what is already installed")
 	depsPullCmd.Flags().BoolVar(&depsPullLock, "lock", true,
 		"Update lockfile after pull")
-	depsPullCmd.Flags().StringArrayVar(&depsPullAllowDowngrade, "allow-downgrade", nil,
-		"Accept a lower signed version (or unsigned content) for this ref, and record it as the new floor; repeat per ref")
 }

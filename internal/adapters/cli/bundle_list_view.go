@@ -28,13 +28,11 @@ type bundleListRow struct {
 	CommandCount  int      `json:"command_count"`
 	MCPCount      int      `json:"mcp_count"`
 	ProfileCount  int      `json:"profile_count"`
-	// Held/Retracted mirror the like-named bundles.BundleInfo flags; see
-	// those for what each state means and why the listing carries it.
-	Held            bool   `json:"held"`
-	Retracted       bool   `json:"retracted"`
-	RetractedReason string `json:"retracted_reason,omitempty"`
-	Signed          bool   `json:"signed"`
-	Signer          string `json:"signer,omitempty"`
+	// Held mirrors bundles.BundleInfo.Held; see it for what the state means
+	// and why the listing carries it.
+	Held   bool   `json:"held"`
+	Signed bool   `json:"signed"`
+	Signer string `json:"signer,omitempty"`
 	// SelfSigned: ctxloom's own loadout, whose signature verified but is
 	// circular — Signed without a Signer, and deliberately not "unsigned".
 	SelfSigned bool `json:"self_signed,omitempty"`
@@ -42,22 +40,20 @@ type bundleListRow struct {
 
 func newBundleListRow(info *bundles.BundleInfo) bundleListRow {
 	return bundleListRow{
-		Name:            info.Name,
-		Ref:             string(info.Ref),
-		Path:            info.Path,
-		Version:         info.Version,
-		Description:     info.Description,
-		Tags:            info.Tags,
-		FragmentCount:   info.FragmentCount,
-		CommandCount:    info.CommandCount,
-		MCPCount:        info.MCPCount,
-		ProfileCount:    info.ProfileCount,
-		Held:            info.Held,
-		Retracted:       info.Retracted,
-		RetractedReason: info.RetractedReason,
-		Signed:          info.Signer != "" || info.SelfSigned,
-		Signer:          info.Signer,
-		SelfSigned:      info.SelfSigned,
+		Name:          info.Name,
+		Ref:           string(info.Ref),
+		Path:          info.Path,
+		Version:       info.Version,
+		Description:   info.Description,
+		Tags:          info.Tags,
+		FragmentCount: info.FragmentCount,
+		CommandCount:  info.CommandCount,
+		MCPCount:      info.MCPCount,
+		ProfileCount:  info.ProfileCount,
+		Held:          info.Held,
+		Signed:        info.Signer != "" || info.SelfSigned,
+		Signer:        info.Signer,
+		SelfSigned:    info.SelfSigned,
 	}
 }
 

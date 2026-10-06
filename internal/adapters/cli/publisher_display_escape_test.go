@@ -56,7 +56,6 @@ func TestPublisherDisplayPaths_ControlBytesAreEscaped(t *testing.T) {
 			var buf bytes.Buffer
 			require.NoError(t, renderBundleList(&buf, []*bundles.BundleInfo{{
 				Name: h, Version: h, Description: h, Tags: []string{h},
-				Retracted: true, RetractedReason: h,
 			}}, addContentListingHint))
 			return buf.String()
 		}},
@@ -135,8 +134,7 @@ func TestPublisherDisplayPaths_ControlBytesAreEscaped(t *testing.T) {
 			var buf bytes.Buffer
 			renderPullSummary(&buf, &operations.SyncDependenciesResult{
 				Total: 2, Errors: 1,
-				Retracted: []operations.SyncItem{{Reference: h, Error: h}},
-				Failed:    []operations.SyncItem{{Reference: h, Error: h}},
+				Failed: []operations.SyncItem{{Reference: h, Error: h}},
 			})
 			return buf.String()
 		}},

@@ -328,15 +328,14 @@ func repoVersion(fs afero.Fs, cfg *config.Config) (version, file string, err err
 }
 
 // ErrUnsignableVersion refuses to sign a bundle whose bundle.yaml version is
-// not strict semver. The signed version is what every consumer's rollback
-// floor is measured in, so a version two consumers could read differently —
-// "v1.2", "1.2" — is not one a signature may carry.
+// not strict semver: a version two consumers could read differently — "v1.2",
+// "1.2" — is not one a signature may carry.
 var ErrUnsignableVersion = errors.New("sign: bundle.yaml version must be strict semver (MAJOR.MINOR.PATCH)")
 
 // ErrVersionAlreadySigned refuses to sign a version whose last signature
-// covered different content. One version names one content: a consumer
-// holding the version floor accepts the same version again, so re-signing it
-// over new bytes would change what they run while nothing they check moves.
+// covered different content. One version names one content: re-signing it
+// over new bytes would change what a consumer of that version runs while the
+// version they see stays the same.
 var ErrVersionAlreadySigned = errors.New("sign: this version was already signed over different content")
 
 // refuseResignedVersion compares the release about to be signed with the one
@@ -370,22 +369,13 @@ func refuseResignedVersion(ctx context.Context, tree content.Bundle, rel release
 }
 
 // bundleRelease is the release a signature over the bundle named name asserts,
-// read from its authored bundle.yaml: the version, and the retractions and
-// withdrawal the author wrote there.
+// read from its authored bundle.yaml: its version.
 func bundleRelease(name string, b *bundles.Bundle) (release.Release, error) {
 	v, err := semver.StrictNewVersion(b.Version)
 	if err != nil {
 		return release.Release{}, fmt.Errorf("%w: %s has version %q", ErrUnsignableVersion, name, b.Version)
 	}
-	rel := release.Release{Name: name, Version: v, Withdrawn: b.Withdrawn}
-	for _, r := range b.Retracts {
-		rv, err := semver.StrictNewVersion(r.Version)
-		if err != nil {
-			return release.Release{}, fmt.Errorf("%w: %s retracts version %q", ErrUnsignableVersion, name, r.Version)
-		}
-		rel.Retracts = append(rel.Retracts, release.Retraction{Version: rv, Reason: r.Reason})
-	}
-	return rel, nil
+	return release.Release{Name: name, Version: v}, nil
 }
 
 // ListLocalBundleNames returns every bundle name found in the project's

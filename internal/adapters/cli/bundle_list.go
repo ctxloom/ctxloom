@@ -117,23 +117,14 @@ func renderBundleListEntry(w *errwriter.Writer, info *bundles.BundleInfo, label 
 	if info.Version != "" {
 		w.Printf(" (v%s)", inertField(info.Version))
 	}
-	// State markers ride the name line so a scan of the listing surfaces them
-	// without reading each entry's body. Both are silent-loss modes: a held
-	// bundle looks exactly like a failing sync, and a retracted one is still
-	// installed and still being served while its publisher has said not to use
-	// it. Rendering neither is what made `bundle list` unable to tell a
-	// deliberate freeze from a broken pull (J001900's B3 hop).
+	// The hold marker rides the name line so a scan of the listing surfaces it
+	// without reading each entry's body: a held bundle looks exactly like a
+	// failing sync, and not rendering it is what made `bundle list` unable to
+	// tell a deliberate freeze from a broken pull (J001900's B3 hop).
 	if info.Held {
 		w.Print(" [held]")
 	}
-	if info.Retracted {
-		w.Print(" [retracted]")
-	}
 	w.Println()
-
-	if info.Retracted && info.RetractedReason != "" {
-		w.Printf("    retracted by its publisher: %s\n", inertField(info.RetractedReason))
-	}
 
 	if info.Description != "" {
 		w.Printf("    %s\n", inertField(info.Description))

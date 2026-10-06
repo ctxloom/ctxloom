@@ -95,30 +95,17 @@ func TestUpgrade_EmptyClosureDoesNotEraseTheLockfile(t *testing.T) {
 	assert.NotEmpty(t, entry.SHA)
 }
 
-// The security-relevant payload: a wipe silently un-holds every hold and, far
-// worse, UN-RETRACTS content the publisher withdrew (retraction
-// state is cleared by `deps upgrade`).
-func TestUpgrade_EmptyClosurePreservesHoldsAndRetractions(t *testing.T) {
+// The payload: a wipe silently un-holds every hold.
+func TestUpgrade_EmptyClosurePreservesHolds(t *testing.T) {
 	baseDir, ref, cfg := setupSeededLockProject(t)
 	ctx := context.Background()
 
 	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 
-	// Hold the bundle, and record a publisher retraction against it.
 	held, err := SetItemPin(cfg, ref, true)
 	require.NoError(t, err)
 	require.True(t, held)
-
-	mgr := remote.NewLockfileManager(baseDir)
-	lf, err := mgr.Load()
-	require.NoError(t, err)
-	entry, ok := lf.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
-	require.True(t, ok)
-	entry.Retracted = true
-	entry.RetractedReason = "withdrawn by the publisher"
-	lf.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, ref), entry)
-	require.NoError(t, mgr.Save(lf))
 
 	_, err = UpgradeDependencies(ctx, fallbackShapedConfig(baseDir), UpgradeRequest{Apply: true})
 	require.Error(t, err)
@@ -126,54 +113,6 @@ func TestUpgrade_EmptyClosurePreservesHoldsAndRetractions(t *testing.T) {
 	after, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
 	require.True(t, ok)
 	assert.True(t, after.Held, "the user's hold survives")
-	assert.True(t, after.Retracted, "the publisher's retraction survives — a wipe would silently un-retract it")
-	assert.Equal(t, "withdrawn by the publisher", after.RetractedReason)
-}
-
-// TestUpgrade_RetractionSurvivesNonEmptyReresolve pins that a full
-// re-resolve that DOES produce results (unlike the empty-closure case above)
-// must not silently un-retract an item the publisher withdrew. Only a fresh
-// CheckRetracted (sync's installed-ref re-check, or the next Pull) is
-// entitled to lift a retraction — a wholesale relock is not a fresh check,
-// yet the entry UpgradeDependencies builds for every non-held, re-proposed
-// item started from a zero value and dropped Retracted/RetractedReason on
-// the floor.
-func TestUpgrade_RetractionSurvivesNonEmptyReresolve(t *testing.T) {
-	baseDir, ref, identity, c1 := setupUpgrade(t)
-	cfg := testConfigWithSCMPath(baseDir)
-	ctx := context.Background()
-
-	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
-	require.NoError(t, err)
-
-	// Record a publisher retraction against the entry, WITHOUT holding it —
-	// holding takes a different (already-correct) code path in
-	// UpgradeDependencies that copies `cur` wholesale.
-	mgr := remote.NewLockfileManager(baseDir)
-	lf, err := mgr.Load()
-	require.NoError(t, err)
-	entry, ok := lf.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, identity))
-	require.True(t, ok)
-	entry.Retracted = true
-	entry.RetractedReason = "withdrawn by the publisher"
-	lf.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, identity), entry)
-	require.NoError(t, mgr.Save(lf))
-
-	// Advance upstream so the re-resolve is non-empty and genuinely proposes a
-	// move — this is the case the empty-closure guard (Save's
-	// ErrLockfileWouldErase) does not cover at all.
-	c2 := addFileToLocalRepo(t, srcDirOf(ref), repoV2("demo2")+"/bundle.yaml", "name: demo2\n")
-	require.NotEqual(t, c1, c2)
-
-	res, err := UpgradeDependencies(ctx, cfg, UpgradeRequest{Apply: true})
-	require.NoError(t, err)
-	assert.Len(t, res.Changes, 1)
-
-	after, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, identity))
-	require.True(t, ok)
-	assert.Equal(t, c2, after.SHA, "the SHA still advances")
-	assert.True(t, after.Retracted, "a wholesale re-resolve must not silently un-retract content the publisher withdrew")
-	assert.Equal(t, "withdrawn by the publisher", after.RetractedReason)
 }
 
 // The legitimate empty case: a project with genuinely nothing pinned upgrades

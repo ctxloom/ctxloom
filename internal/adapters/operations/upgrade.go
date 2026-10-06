@@ -2,18 +2,14 @@ package operations
 
 import (
 	"context"
-	"errors"
 	"sort"
 
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/core/release"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -22,10 +18,6 @@ type UpgradeRequest struct {
 	// Apply writes what the round computed (`--yes`). Without it the round is
 	// a preview: it computes and reports the same result and changes nothing.
 	Apply bool `json:"apply"`
-	// AllowDowngrade names the refs whose signed version floor the operator
-	// waives for this run (`--allow-downgrade <ref>`); every other pin is held
-	// to the signed version it recorded (see verifyAdvance).
-	AllowDowngrade []string `json:"allow_downgrade,omitempty"`
 }
 
 // UpgradeResult is what one `deps upgrade` round would do (a preview) or did
@@ -53,7 +45,7 @@ type UpgradeResult struct {
 	// here nothing was resolved because nothing was asked for.
 	NothingDeclared bool `json:"nothing_declared"`
 	// Refused lists the pins that do NOT move because the content at the
-	// proposed commit failed publisher verification. Non-empty means the human
+	// proposed commit could not be read as a bundle. Non-empty means the human
 	// must be told: the lockfile deliberately does not change for them.
 	Refused []RefusedAdvance `json:"refused"`
 	// Removed names, sorted, the lockfile entries this round drops because the
@@ -81,12 +73,11 @@ type UpgradeResult struct {
 //
 // There is no review gate here: the lockfile is pure dependency pinning.
 //
-// ONE ADVANCE IS REFUSED OUTRIGHT: content whose publisher signature does not
-// verify over its own bytes. A reader refuses that content as TAMPERED, so
-// moving the pin past the last commit that DID verify leaves the consumer with
-// nothing. Such an entry keeps its existing
-// lockfile values verbatim and is reported in UpgradeResult.Refused, which the
-// caller must tell the human about. See verifyAdvance for the exact rule.
+// ONE ADVANCE IS REFUSED OUTRIGHT: content the reader refuses at the proposed
+// commit, because moving the pin onto it leaves the consumer with nothing.
+// Such an entry keeps its existing lockfile values verbatim and is reported in
+// UpgradeResult.Refused, which the caller must tell the human about. See
+// verifyAdvance for the exact rule.
 //
 // UpgradeResult.NothingDeclared is true when the closure resolved to nothing
 // and no lock state existed either. Such a round writes NO lockfile: a file
@@ -97,7 +88,7 @@ type UpgradeResult struct {
 // not be reached this round: the caller must not report "everything is up to
 // date" on that basis alone.
 func UpgradeDependencies(ctx context.Context, cfg *config.Config, req UpgradeRequest) (UpgradeResult, error) {
-	plan, err := planUpgrade(ctx, cfg, req.AllowDowngrade)
+	plan, err := planUpgrade(ctx, cfg)
 	if err != nil {
 		return UpgradeResult{}, err
 	}
@@ -160,11 +151,7 @@ type upgradePlan struct {
 
 // planUpgrade is the compute phase: it resolves the new lock in memory and
 // writes nothing.
-func planUpgrade(ctx context.Context, cfg *config.Config, allowDowngrade []string) (*upgradePlan, error) {
-	downgrades, err := newDowngradeSet(allowDowngrade)
-	if err != nil {
-		return nil, err
-	}
+func planUpgrade(ctx context.Context, cfg *config.Config) (*upgradePlan, error) {
 	loader := cfg.GetProfileLoader()
 	// The closure roots must match FlattenDependencies' canonical set (inline
 	// config.yaml definitions, directory profiles, and config-default remote
@@ -191,7 +178,7 @@ func planUpgrade(ctx context.Context, cfg *config.Config, allowDowngrade []strin
 	unexpanded = append(unexpanded, rootsUnexpanded...)
 
 	round := upgradeRound{
-		ctx: ctx, cfg: cfg, factory: factory, auth: auth, downgrades: downgrades,
+		ctx: ctx, cfg: cfg, factory: factory, auth: auth,
 		plan: &upgradePlan{
 			active: active,
 			next:   &remote.Lockfile{Version: remote.LockfileVersion, Bundles: map[trust.BundleKey]remote.LockEntry{}},
@@ -247,12 +234,11 @@ func reResolveClosure(ctx context.Context, cfg *config.Config, loader *profiles.
 // upgradeRound is one planUpgrade pass: the plan it builds, and what it
 // needs to verify each proposed advance.
 type upgradeRound struct {
-	ctx        context.Context
-	cfg        *config.Config
-	factory    remote.FetcherFactory
-	auth       remote.AuthConfig
-	downgrades downgradeSet
-	plan       *upgradePlan
+	ctx     context.Context
+	cfg     *config.Config
+	factory remote.FetcherFactory
+	auth    remote.AuthConfig
+	plan    *upgradePlan
 }
 
 // decide places one proposed pin in the plan: a held entry carries forward
@@ -267,22 +253,16 @@ func (u *upgradeRound) decide(p PinnedRef) {
 	}
 	moved := !has || cur.SHA != p.Hash
 	// A REAL advance — an entry that already exists and would move to a
-	// different commit — must land on content whose publisher signature
-	// verifies, at or above the version its last pin was signed at. A FIRST
-	// pin is read too, to record its floor, but never refused: it has no
-	// last-verified value to keep, so there is nothing to refuse back to,
-	// and holding one back would simply install nothing while the exposure
-	// gate would have withheld it anyway with a reason.
-	var verified remote.Verified
-	if moved {
-		v, refusal := verifyAdvance(u.ctx, u.cfg, u.factory, u.auth, p, cur, u.downgrades.allows(p.Identity))
-		verified = v
-		if refusal != nil && has {
+	// different commit — must land on content the reader accepts. A FIRST pin
+	// is never refused: it has no current pin to keep, so there is nothing to
+	// refuse back to.
+	if moved && has {
+		if refusal := verifyAdvance(u.ctx, u.cfg, u.factory, u.auth, p); refusal != nil {
 			u.refuse(p, cur, refusal)
 			return
 		}
 	}
-	u.plan.next.AddEntry(p.Type, p.Identity, upgradedEntry(p, cur, has, moved, verified))
+	u.plan.next.AddEntry(p.Type, p.Identity, upgradedEntry(p, cur, moved))
 	if moved {
 		u.plan.moved = append(u.plan.moved, p)
 	}
@@ -296,46 +276,16 @@ func (u *upgradeRound) refuse(p PinnedRef, cur remote.LockEntry, refusal error) 
 		KeptSHA:     cur.SHA,
 		ProposedSHA: p.Hash,
 		Detail:      refusal.Error(),
-		Cause:       refusalCauseOf(refusal),
+		Cause:       RefusalUnreadable,
 	})
 }
 
-// refusalCauseOf classifies a verifyAdvance refusal. Only a withheld tree is a
-// signature failure, and not even that when what withheld it is a manifest in
-// the retired format: that is a format the publisher must re-sign in, not a
-// signature lying about its bytes. Everything else verifyAdvance refuses on
-// is a read that established nothing about the signature at all.
-func refusalCauseOf(refusal error) RefusalCause {
-	switch {
-	case errors.Is(refusal, release.ErrRollback) || errors.Is(refusal, release.ErrSignatureDowngrade):
-		return RefusalBelowFloor
-	case errors.Is(refusal, bundles.ErrTreeBundleWithheld) && !errors.Is(refusal, content.ErrManifestSuperseded):
-		return RefusalSignature
-	default:
-		return RefusalUnreadable
-	}
-}
-
-// upgradedEntry is the lock entry p lands as.
-func upgradedEntry(p PinnedRef, cur remote.LockEntry, has, moved bool, verified remote.Verified) remote.LockEntry {
+// upgradedEntry is the lock entry p lands as: an unmoved pin keeps the fetch
+// time it was recorded with.
+func upgradedEntry(p PinnedRef, cur remote.LockEntry, moved bool) remote.LockEntry {
 	entry := pinnedEntry(p)
-	// The floor moves only with the content it was read from: an unmoved pin
-	// keeps what its last verified pin recorded, a moved one records what
-	// verifyAdvance just established.
-	if moved {
-		entry.SignedVersion, entry.Publisher = verified.LockFields()
-	} else {
-		entry.SignedVersion, entry.Publisher = cur.SignedVersion, cur.Publisher
+	if !moved {
 		keepFetchedAt(&entry, cur)
-	}
-	// A full re-resolve is NOT a fresh retraction check — only
-	// sync's installed-ref re-check (checkInstalledRetraction) or the next
-	// Pull actually reads the publisher's manifest and is entitled to lift
-	// a retraction; the same invariant LockDependencies' prevRetracted
-	// protects on the sibling full-rebuild path.
-	if has && cur.Retracted {
-		entry.Retracted = true
-		entry.RetractedReason = cur.RetractedReason
 	}
 	return entry
 }

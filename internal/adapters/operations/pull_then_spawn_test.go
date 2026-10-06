@@ -20,7 +20,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
-	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -81,50 +80,14 @@ func pulledApp(t *testing.T, appDir string) *App {
 	return NewApp(src, Switches{NoCompanions: true}, nil, strictness.Mode{Prog: "ctxloom"}, Handed{Open: config.Open, Reporter: strictness.Sink("ctxloom"), Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
 }
 
-// retractingPuller is the PRODUCTION puller with one thing replaced: the
-// network verdict. A publisher's retraction reaches a pull only as a signed
-// tip manifest, which is not what this test is about; what it is about is
-// everything downstream of the verdict — the key the real puller records it
-// under and the key the generation's gate reads it back with. So
-// CheckRetraction answers "retracted" and RecordRetraction is the real
-// puller's own write.
-type retractingPuller struct {
-	Puller
-	real RetractionChecker
-}
-
-func (p retractingPuller) CheckRetraction(context.Context, string, remote.ItemType) (bool, string, time.Time, error) {
-	return true, "compromised release", time.Now().UTC(), nil
-}
-
-func (p retractingPuller) RecordRetraction(itemType remote.ItemType, refStr string, retracted bool, reason string, checkedAt time.Time) error {
-	return p.real.RecordRetraction(itemType, refStr, retracted, reason, checkedAt)
-}
-
 // pull runs `deps pull` for real: the production puller fetches the tree from
-// the repository, installs it, and writes the lockfile entry. With retracted,
-// a second pass re-checks the now-installed ref and records the publisher's
-// retraction through the real puller's lockfile write.
-func pull(t *testing.T, app *App, retracted bool) {
+// the repository, installs it, and writes the lockfile entry.
+func pull(t *testing.T, app *App) {
 	t.Helper()
-	ctx := context.Background()
-	res, err := SyncDependencies(ctx, app, SyncDependenciesRequest{})
+	res, err := SyncDependencies(context.Background(), app, SyncDependenciesRequest{})
 	require.NoError(t, err)
 	require.Empty(t, res.Failed, "the real pull installs the bundle")
 	require.Equal(t, 1, res.Installed, "the real pull installs the bundle")
-	if !retracted {
-		return
-	}
-	cfg, err := app.Config(ctx)
-	require.NoError(t, err)
-	baseDir := ProjectAppDir(cfg)
-	real, err := resolveSyncDeps(cfg, SyncDependenciesRequest{}, baseDir, getFS(nil))
-	require.NoError(t, err)
-	rc, ok := real.(RetractionChecker)
-	require.True(t, ok, "the production puller re-checks retraction")
-	res, err = SyncDependencies(ctx, app, SyncDependenciesRequest{Puller: retractingPuller{Puller: real, real: rc}})
-	require.NoError(t, err)
-	require.Len(t, res.Retracted, 1, "the re-check reports the retraction")
 }
 
 // canonicalRef renders raw, a hand-joined ctxloom+ reference, in the form
@@ -170,7 +133,7 @@ func TestPullThenSpawn_NextGenerationHoldsThePulledBundle(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, catalogHas(t, before.Catalog(), repoURL), "precondition: nothing is installed before the pull")
 
-	pull(t, app, false)
+	pull(t, app)
 
 	// The spawn: exactly one Reload, then the plan reads from the generation.
 	after, err := app.Reload(context.Background())

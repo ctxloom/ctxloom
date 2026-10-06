@@ -40,18 +40,10 @@ func trustPublisher(t *testing.T, baseDir string, signer ssh.Signer) {
 // root, so a caller can commit the tree into a repository file by file.
 func demoTreeFiles(t *testing.T, signer ssh.Signer, fragBody string) map[string]string {
 	t.Helper()
-	return demoTreeFilesAt(t, signer, fragBody, "1.0.0")
+	return demoTreeFilesEnvelope(t, signer, fragBody, "version: 1.0.0\n")
 }
 
-// demoTreeFilesAt is demoTreeFiles at a chosen bundle.yaml version, signed
-// under that version. A nil signer leaves the tree unsigned: no manifest, no
-// signature.
-func demoTreeFilesAt(t *testing.T, signer ssh.Signer, fragBody, version string) map[string]string {
-	t.Helper()
-	return demoTreeFilesEnvelope(t, signer, fragBody, "version: "+version+"\n")
-}
-
-// demoTreeFilesEnvelope is demoTreeFilesAt with the bundle.yaml bytes given
+// demoTreeFilesEnvelope is demoTreeFiles with the bundle.yaml bytes given
 // whole, so a fixture can sign an envelope the reader then refuses on
 // structure rather than on signature.
 func demoTreeFilesEnvelope(t *testing.T, signer ssh.Signer, fragBody, envelope string) map[string]string {
@@ -177,7 +169,7 @@ func TestUpgrade_RefusesAdvanceOntoUnverifiableSignature(t *testing.T) {
 	assert.Equal(t, verified, res.Refused[0].KeptSHA)
 	assert.Equal(t, edited, res.Refused[0].ProposedSHA)
 	assert.Contains(t, res.Refused[0].Detail, bundles.ErrTreeBundleWithheld.Error())
-	assert.Equal(t, RefusalSignature, res.Refused[0].Cause, "a signature that does not cover its bytes is the tamper case")
+	assert.Equal(t, RefusalUnreadable, res.Refused[0].Cause, "the reader refuses a tree its signature does not cover")
 
 	// The payload assertion: the lockfile still holds the last verified pin,
 	// whole. Nothing half-wrote.
@@ -212,9 +204,8 @@ func TestUpgrade_AdvancesOntoReSignedContent(t *testing.T) {
 }
 
 // Unsigned content is NOT what this guard is about, and folding it in would be
-// a different decision than the one taken. Unsigned content takes the review
-// path — a human can act on it — so its advance still happens; only a signature
-// that lies about its own bytes is refused.
+// a different decision than the one taken. Unsigned content is readable, so its
+// advance still happens; only content the reader refuses is.
 func TestUpgrade_UnsignedContentStillAdvances(t *testing.T) {
 	tmp := t.TempDir()
 	baseDir := filepath.Join(tmp, ".ctxloom")

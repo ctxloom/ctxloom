@@ -18,7 +18,7 @@ import (
 // result of Load (which never returns a nil lockfile with a nil error) or a
 // struct literal -- so this is a latent fault, not a live one. It is still
 // worth closing on this type: the lockfile is the sole on-disk record of every
-// dependency pin, every user hold and every publisher retraction, and a panic
+// dependency pin and every user hold, and a panic
 // mid-write is the one failure mode that leaves a caller no chance to report
 // what it was doing. An error naming the nil is answerable; a stack trace from
 // inside a write is not.

@@ -196,7 +196,7 @@ func (f *GitCloneFetcher) ValidateRepo(ctx context.Context, owner, repo string) 
 // When local HEAD, origin/HEAD and the conventional origin/main and
 // origin/master have all been tried and none resolved, this returns an error.
 // There is nothing further to consult, and the callers — the publish target
-// branch and the retraction-manifest read — act on the answer, so a guess
+// branch — acts on the answer, so a guess
 // dressed as an answer is worse than a refusal.
 func (f *GitCloneFetcher) GetDefaultBranch(ctx context.Context, owner, repo string) (string, error) {
 	// Try HEAD directly — for non-bare clones (including shallow), HEAD

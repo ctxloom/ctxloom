@@ -543,7 +543,7 @@ func init() {
 	// Signature verification waived for THIS invocation only (see
 	// sigCheckFlag). Env fallback: CTXLOOM_DISABLE_SIG_CHECK=1.
 	rootCmd.PersistentFlags().BoolVar(&sigCheckFlag, bundles.SigCheckFlag, false,
-		"disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted without review (rejections and retractions still hold; nothing ctxloom starts inherits it; signing is unaffected)")
+		"disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted (nothing ctxloom starts inherits it; signing is unaffected)")
 
 	// --config-set is the ONLY source of CLI-layer config overrides (see
 	// confload.ConfigSetFlagName's doc): a dedicated, repeatable, PERSISTENT flag

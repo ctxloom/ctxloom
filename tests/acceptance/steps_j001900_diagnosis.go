@@ -35,8 +35,8 @@
 // SEAM WITH J001600/J001500. J001600 owns the PRODUCTION of signatures and J001500 owns the
 // ADVERSARY. This journey owns neither: it re-uses signing only as a way to
 // PLANT a cause, and every assertion is about what an INSPECTOR reports.
-// Nothing here re-proves that a tampered bundle is detected, that a retraction
-// propagates, or that `bundle sign` writes bytes.
+// Nothing here re-proves that a tampered bundle is detected or that
+// `bundle sign` writes bytes.
 //
 // ISOLATION follows steps_j001600_signing.go exactly: everything runs through
 // testenv.TestEnvironment's isolated HOME/XDG, and the single environment
@@ -55,6 +55,7 @@ import (
 	"github.com/cucumber/godog"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -680,14 +681,15 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		if len(kept) > 16 {
 			kept = kept[:16] // the pin is rendered abbreviated for humans
 		}
-		return j001900NamesAll(out, "Monday's sync", j001900Bundle, "does not verify", kept)
+		return j001900NamesAll(out, "Monday's sync", j001900Bundle, bundles.ErrTreeBundleWithheld.Error(), kept)
 	})
 
-	// The remedy has to be one she can act on: getting the runbook re-signed.
-	ctx.Step(`^the remedy it named is getting the runbook re-signed$`, func(c context.Context) error {
+	// The remedy has to be one that can fix it: the publisher repairing the
+	// runbook and publishing it again.
+	ctx.Step(`^the remedy it named is the publisher republishing the runbook$`, func(c context.Context) error {
 		out := j001900Of(worldFrom(c)).syncOutput
-		if !strings.Contains(out, "re-sign") {
-			return fmt.Errorf("the sync named no action she can actually take: nothing in it points at getting the content re-signed. "+
+		if !strings.Contains(out, "publish again") {
+			return fmt.Errorf("the sync named no action that can fix it: nothing in it points at the publisher publishing again. "+
 				"It said:\n%s", out)
 		}
 		return nil
@@ -743,7 +745,7 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		if len(kept) > 16 {
 			kept = kept[:16] // the pin is rendered abbreviated for humans
 		}
-		return j001900ProbesAnswered(w, j001900Bundle, "does not verify", kept)
+		return j001900ProbesAnswered(w, j001900Bundle, bundles.ErrTreeBundleWithheld.Error(), kept)
 	})
 
 	ctx.Step(`^Alice asks ctxloom why the runbook stopped arriving$`, func(c context.Context) error {

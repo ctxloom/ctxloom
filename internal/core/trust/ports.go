@@ -29,10 +29,9 @@ type SignerDecision struct {
 	Reason string
 }
 
-// The ports a signature and a retraction record are read through. They are
-// declared here, at the leaf, so nothing in core imports an adapter to read
-// the answer: the allowed_signers adapter implements TrustRoot, and the
-// lockfile implements RetractionRecords.
+// TrustRoot is the port a signature is read through. It is declared here, at
+// the leaf, so nothing in core imports an adapter to read the answer: the
+// allowed_signers adapter implements it.
 type (
 	// TrustRoot says which keys may publish in which namespace, right now. It
 	// is the only policy question signature verification asks, and taking the
@@ -41,13 +40,6 @@ type (
 	// can forget.
 	TrustRoot interface {
 		TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time) SignerDecision
-	}
-	// RetractionRecords is the LOCAL record of publisher retractions, written
-	// at pull time. It is asked with the parsed BundleRef because a pull records the
-	// retraction under the bundle's identity, and any other rendering of the
-	// ref is a second spelling that can miss it.
-	RetractionRecords interface {
-		Retracted(ref BundleRef) (retracted bool, reason string)
 	}
 )
 
@@ -64,11 +56,4 @@ const NoSignersReason = "no trust root: the configuration was not loaded, so no 
 // TrustedForNamespace implements TrustRoot: never trusted.
 func (NoSigners) TrustedForNamespace(ssh.PublicKey, string, time.Time) SignerDecision {
 	return SignerDecision{Reason: NoSignersReason}
-}
-
-// Faulted is the OPTIONAL capability a records port exposes when its backing
-// store could not be read, checked by type assertion rather than as a port
-// method.
-type Faulted interface {
-	Fault() error
 }

@@ -212,11 +212,6 @@ re-signed. Until then, content whose signature does not verify is not pinned:
 `ctxloom doctor` repeats the warning. Nothing is offered for review, because a
 signature that does not cover its bytes is a tamper signal.
 
-**Pins no longer move backwards.** `deps pull` and `deps upgrade` refuse
-content signed at a lower version than the one this project last pinned. If
-going back is what you want, name the bundle:
-`ctxloom deps upgrade --allow-downgrade <ref>`.
-
 ## 10. Companion binaries run only once you allow them
 
 ctxloom executes a companion binary it finds on PATH (`ltk`, `taskloom`,

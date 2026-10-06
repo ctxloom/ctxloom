@@ -27,8 +27,8 @@ func mustTreePath(t *testing.T, r *Reference, baseDir string) string {
 
 // The worktree a bundle is read from must be INJECTIVE in the bundle's
 // identity. Two lock keys sharing one directory read one tree — whichever was
-// pulled last — so a retracted repository's bytes would be served under
-// another repository's unretracted key. The directory is compared
+// pulled last — so one repository's bytes would be served under another
+// repository's key. The directory is compared
 // case-insensitively because a case-folding filesystem (macOS, Windows)
 // collapses names that differ only in case, while path case IS identity.
 func TestLocalWorktreePath_DistinctIdentitiesNeverShareADirectory(t *testing.T) {

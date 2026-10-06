@@ -258,9 +258,9 @@ func TestParseReference_CanonicalURIRejectsTraversal(t *testing.T) {
 // renders, as literals, for one bundle of each class it can be.
 //
 // They are asserted together because the lockfile key IS the identity, with
-// the version dropped: a pull keys its entry on it and the trust gate looks a
-// publisher's retraction up by it, so a lock key spelled any other way is an
-// entry no retraction lookup reaches.
+// the version dropped: a pull keys its entry on it and every reader looks the
+// pin up by it, so a lock key spelled any other way is an entry no lookup
+// reaches.
 //
 // There is no builtin row: a builtin bundle has no source to fetch from, so no
 // Reference can be builtin (see TestParseReference_BuiltinURIIsRefusedNotDowngraded).

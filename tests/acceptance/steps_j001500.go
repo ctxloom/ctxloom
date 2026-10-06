@@ -130,8 +130,8 @@ func j001500ReadMaterialized(w *World) (string, error) {
 	}
 	// Surface the assembled context to the @doc capture sidecar (set-and-consume;
 	// no-op when capture is off): the delivered CLAUDE.md is the marker-bearing
-	// proof — present for a positive scenario, absent for a withheld/retracted/
-	// revoked one — that no CLI stdout carries.
+	// proof — present for a positive scenario, absent for a withheld/revoked
+	// one — that no CLI stdout carries.
 	w.docStepMaterialized = body
 	return body, nil
 }
@@ -332,14 +332,6 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the hook appears in her assistant's configuration$`, func(c context.Context) error {
 		return j001500AssertHookPresence(worldFrom(c), true)
 	})
-
-	// --- Scenario 5: RETRACTION — @wip, see the feature file's comment --------
-	// (internal/adapters/remote/retract.go's CheckRetracted is only ever consulted by
-	// Puller.confirmRetraction, and operations.syncItem — the only caller —
-	// either skips already-installed refs before Pull ever runs, or hardcodes
-	// Force:true when it does. EffectiveTrust never consults retraction at
-	// all. Retraction currently has NO effect on already-distributed content
-	// through any CLI path — see this journey's final report.)
 
 	// --- Scenario 6: KEY REVOCATION --------------------------------------------
 

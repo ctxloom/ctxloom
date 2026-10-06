@@ -7,88 +7,66 @@ bundles:
         kind: branch
         fetched_at: 2026-10-05T15:23:21.48488544Z
         retraction_checked_at: 2026-10-05T15:23:40.900888166Z
-        signed_version: 2.0.0
-        publisher: ben@abbitt.me
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/config-versioning:
         sha: fb911e36e36b42ca3f3d5da0b11f38a00040024e
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 2026-10-05T15:23:21.783849642Z
         retraction_checked_at: 2026-10-05T15:23:38.583489668Z
-        signed_version: 1.0.0
-        publisher: ben@abbitt.me
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/core-practices:
         sha: fb911e36e36b42ca3f3d5da0b11f38a00040024e
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 2026-10-05T15:23:21.883466961Z
         retraction_checked_at: 2026-10-05T15:23:38.863916215Z
-        signed_version: 1.1.0
-        publisher: ben@abbitt.me
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/developer-mindset:
         sha: fb911e36e36b42ca3f3d5da0b11f38a00040024e
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 2026-10-05T15:23:22.02262652Z
         retraction_checked_at: 2026-10-05T15:23:35.780815876Z
-        signed_version: 1.1.0
-        publisher: ben@abbitt.me
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/go-development:
         sha: fb911e36e36b42ca3f3d5da0b11f38a00040024e
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 2026-10-05T15:23:22.307612792Z
         retraction_checked_at: 2026-10-05T15:23:37.462285808Z
-        signed_version: 1.0.0
-        publisher: ben@abbitt.me
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/just:
         sha: fb911e36e36b42ca3f3d5da0b11f38a00040024e
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 2026-10-05T15:23:22.575490024Z
         retraction_checked_at: 2026-10-05T15:23:37.66513887Z
-        signed_version: 1.0.0
-        publisher: ben@abbitt.me
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/prototyping:
         sha: fb911e36e36b42ca3f3d5da0b11f38a00040024e
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 2026-10-05T15:23:22.807829874Z
         retraction_checked_at: 2026-10-05T15:23:39.459439349Z
-        signed_version: 1.0.0
-        publisher: ben@abbitt.me
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/source-organization:
         sha: fb911e36e36b42ca3f3d5da0b11f38a00040024e
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 2026-10-05T15:23:23.071713547Z
         retraction_checked_at: 2026-10-05T15:23:38.197392607Z
-        signed_version: 1.0.0
-        publisher: ben@abbitt.me
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/unattended:
         sha: fb911e36e36b42ca3f3d5da0b11f38a00040024e
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
         fetched_at: 2026-10-05T15:23:23.306268202Z
         retraction_checked_at: 2026-10-05T15:23:41.963587049Z
-        signed_version: 1.3.0
-        publisher: ben@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/agent-roles:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 2026-10-05T15:23:23.429711923Z
         retraction_checked_at: 2026-10-05T15:23:41.151951149Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ai-coding-general:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 2026-10-05T15:23:23.631434977Z
         retraction_checked_at: 2026-10-05T15:23:40.175514087Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ai-developer:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
@@ -96,109 +74,81 @@ bundles:
         kind: branch
         fetched_at: 2026-10-05T15:23:23.711203582Z
         retraction_checked_at: 2026-10-05T15:23:39.691151188Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ast-grep:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 2026-10-05T15:23:23.844140719Z
         retraction_checked_at: 2026-10-05T15:23:41.356335345Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-quality:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 2026-10-05T15:23:23.949541463Z
         retraction_checked_at: 2026-10-05T15:23:35.644048097Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-structural:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 2026-10-05T15:23:24.088010902Z
         retraction_checked_at: 2026-10-05T15:23:42.10866759Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/conduct:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 2026-10-05T15:23:24.230905708Z
         retraction_checked_at: 2026-10-05T15:23:35.434927544Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/git:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 2026-10-05T15:23:24.31650783Z
         retraction_checked_at: 2026-10-05T15:23:40.737098185Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/go-ai-practices:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 2026-10-05T15:23:24.409639954Z
         retraction_checked_at: 2026-10-05T15:23:37.029307504Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/lefthook:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 2026-10-05T15:23:24.520461208Z
         retraction_checked_at: 2026-10-05T15:23:37.837839265Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ltk:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 2026-10-05T15:23:24.610810412Z
         retraction_checked_at: 2026-10-05T15:23:36.375606645Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/rtk:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 2026-10-05T15:23:24.667897202Z
         retraction_checked_at: 2026-10-05T15:23:41.568730383Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/sequential-thinking:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 2026-10-05T15:23:24.771508255Z
         retraction_checked_at: 2026-10-05T15:23:35.891823154Z
-        signed_version: 1.1.0
-        publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/taskloom:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 2026-10-05T15:23:24.893559538Z
         retraction_checked_at: 2026-10-05T15:23:36.096225908Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/testing:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 2026-10-05T15:23:24.979782584Z
         retraction_checked_at: 2026-10-05T15:23:40.484673543Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/versionator:
         sha: 81e76f312d15fdae7048f4217185f1955c70b478
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 2026-10-05T15:23:25.047614583Z
         retraction_checked_at: 2026-10-05T15:23:36.725574819Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me

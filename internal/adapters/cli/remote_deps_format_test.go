@@ -205,7 +205,7 @@ func TestDepsPull_PipedEmitsTheApprovedShapeThenFails(t *testing.T) {
 	require.Error(t, err, "a failed item still fails the pull — after the payload")
 
 	got := decodeObject(t, stdout)
-	assertKeys(t, got, "status", "total", "installed", "reinstalled", "errors", "synced", "skipped", "retracted",
+	assertKeys(t, got, "status", "total", "installed", "reinstalled", "errors", "synced", "skipped",
 		"failed", "removed", "incomplete", "unreachable", "constraint_changes", "changes", "message", "reconcile")
 	assert.Equal(t, "completed_with_errors", got["status"])
 	assert.Equal(t, []any{}, got["skipped"])
@@ -310,7 +310,7 @@ func TestDepsCheckRef_PipedEmitsTheApprovedShape(t *testing.T) {
 func TestDepsUpgrade_PipedEmitsTheApprovedShapeThenExitsRefused(t *testing.T) {
 	stub(t, &upgradeDependencies, func(context.Context, *config.Config, operations.UpgradeRequest) (operations.UpgradeResult, error) {
 		return operations.UpgradeResult{Changes: []operations.PinChange{{Identity: "corp/b"}}, Refused: []operations.RefusedAdvance{{Identity: "corp/a",
-			KeptSHA: "1111", ProposedSHA: "2222", Detail: "bad sig", Cause: operations.RefusalSignature}}}, nil
+			KeptSHA: "1111", ProposedSHA: "2222", Detail: "unreadable", Cause: operations.RefusalUnreadable}}}, nil
 	})
 	cmd, stdout, stderr := pipedCmd(t)
 
@@ -324,7 +324,7 @@ func TestDepsUpgrade_PipedEmitsTheApprovedShapeThenExitsRefused(t *testing.T) {
 	assertKeys(t, got["changes"].([]any)[0], "identity", "url", "from_sha", "to_sha", "from_version", "to_version", "items", "files")
 	assert.Equal(t, []any{}, got["removed"])
 	assertKeys(t, got["refused"].([]any)[0], "identity", "kept_sha", "proposed_sha", "detail", "cause")
-	assert.Equal(t, "signature", got["refused"].([]any)[0].(map[string]any)["cause"])
+	assert.Equal(t, "unreadable", got["refused"].([]any)[0].(map[string]any)["cause"])
 	assert.NotContains(t, stdout.String(), "REFUSED", "refusal prose is the text rendering only")
 	assert.Contains(t, stderr.String(), "Resolving latest commits", "progress belongs on stderr")
 }

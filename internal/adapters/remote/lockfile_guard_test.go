@@ -12,8 +12,7 @@ import (
 )
 
 // The anti-erasure guard on Save. The lockfile is the sole on-disk record of
-// every dependency pin, every user hold (Pinned) and every publisher
-// retraction (Retracted); a caller that arrives at Save with an empty set has,
+// every dependency pin and every user hold (Held); a caller that arrives at Save with an empty set has,
 // by construction, nothing to say about the entries already recorded there.
 // Writing that empty set is indistinguishable from "erase everything" and is
 // exactly how `ctxloom deps upgrade` wiped a whole lockfile while reporting
@@ -23,8 +22,7 @@ import (
 // reads back what is on disk before writing, and MemMapFs diverges from OsFs on
 // exactly that kind of read/stat behaviour.
 
-// populatedLockfile is a two-entry lock carrying both security-relevant flags:
-// a user hold and a publisher retraction.
+// populatedLockfile is a two-entry lock: one held pin, one plain pin.
 func populatedLockfile() *Lockfile {
 	return &Lockfile{
 		Version: 1,
@@ -34,11 +32,9 @@ func populatedLockfile() *Lockfile {
 				URL:  "https://github.com/alice/repo",
 				Held: true,
 			},
-			"ctxloom+git://github.com/bob/repo//bundles/withdrawn": {
-				SHA:             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-				URL:             "https://github.com/bob/repo",
-				Retracted:       true,
-				RetractedReason: "published by mistake",
+			"ctxloom+git://github.com/bob/repo//bundles/plain": {
+				SHA: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				URL: "https://github.com/bob/repo",
 			},
 		},
 	}
@@ -68,9 +64,9 @@ func TestSave_RefusesEmptyOverPopulated(t *testing.T) {
 	assert.Equal(t, string(before), string(after), "the on-disk lockfile is byte-identical after the refusal")
 }
 
-// The security-relevant payload specifically: holds and retractions survive.
-// A wipe silently un-retracts content the publisher withdrew.
-func TestSave_RefusedEmptyWritePreservesPinnedAndRetracted(t *testing.T) {
+// The pins and the hold survive a refused empty write: a wipe silently
+// un-holds and forgets every pin.
+func TestSave_RefusedEmptyWritePreservesPinsAndHolds(t *testing.T) {
 	m := newGuardManager(t)
 	require.NoError(t, m.Save(populatedLockfile()))
 
@@ -83,10 +79,9 @@ func TestSave_RefusedEmptyWritePreservesPinnedAndRetracted(t *testing.T) {
 	require.True(t, ok, "the held entry survives")
 	assert.True(t, held.Held, "the user's hold survives the refused write")
 
-	withdrawn, ok := reloaded.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/bob/repo//bundles/withdrawn")
-	require.True(t, ok, "the retracted entry survives")
-	assert.True(t, withdrawn.Retracted, "the publisher's retraction survives the refused write")
-	assert.Equal(t, "published by mistake", withdrawn.RetractedReason)
+	plain, ok := reloaded.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/bob/repo//bundles/plain")
+	require.True(t, ok, "the plain pin survives")
+	assert.Equal(t, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", plain.SHA)
 }
 
 // A nil Bundles map is empty too — the guard must not be dodged by shape.
@@ -138,8 +133,8 @@ func TestSave_AllowsPopulatedWrites(t *testing.T) {
 	assert.Equal(t, 3, loaded.Count())
 }
 
-// A corrupt lock.yaml must not be silently replaced. Its holds and
-// retractions cannot be read, so nothing can carry them forward — any write
+// A corrupt lock.yaml must not be silently replaced. Its pins and
+// holds cannot be read, so nothing can carry them forward — any write
 // over it destroys state nobody can account for.
 func TestSave_RefusesOverwritingCorruptLockfile(t *testing.T) {
 	m := newGuardManager(t)

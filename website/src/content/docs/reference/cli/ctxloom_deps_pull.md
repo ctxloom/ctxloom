@@ -51,9 +51,8 @@ ctxloom deps pull [flags]
 ### Options
 
 ```
-      --allow-downgrade stringArray   Accept a lower signed version (or unsigned content) for this ref, and record it as the new floor; repeat per ref
-  -f, --force                         Reinstall every reference at its pin instead of skipping what is already installed
-      --lock                          Update lockfile after pull (default true)
+  -f, --force   Reinstall every reference at its pin instead of skipping what is already installed
+      --lock    Update lockfile after pull (default true)
 ```
 
 ### Options inherited from parent commands
@@ -61,7 +60,7 @@ ctxloom deps pull [flags]
 ```
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
-      --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted without review (rejections and retractions still hold; nothing ctxloom starts inherits it; signing is unaffected)
+      --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted (nothing ctxloom starts inherits it; signing is unaffected)
       --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context

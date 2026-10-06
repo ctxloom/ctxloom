@@ -8,9 +8,9 @@ import (
 )
 
 // TestGetProfileLoader_ReturnsAFreshLoader pins the property that lets the
-// profiles port get away with declaring no concurrency contract: a *Loader
-// accumulates its schema-upgrade ledger unsynchronised as it reads, which is
-// safe only while no two callers ever hold the same one. Memoising this
+// profiles port get away with declaring no concurrency contract: a *Loader's
+// Save adds the written profile to its seed unsynchronised, which is safe
+// only while no two callers ever hold the same one. Memoising this
 // accessor — an obvious-looking optimisation, since it rebuilds the seed each
 // call — would silently turn that into shared mutable state across every
 // goroutine that resolves a profile.

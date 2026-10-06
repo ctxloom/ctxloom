@@ -119,6 +119,13 @@ func runMCPServerSet(cmd *cobra.Command, args []string) error {
 // it, so the stored field is kept. Each flag is tested by its literal name in an
 // `if`, the one shape the acceptance flag-coverage census can credit.
 func (f *mcpServerSetFlags) input(fs *pflag.FlagSet) (operations.BundleMCPInput, error) {
+	in := f.scalars(fs)
+	f.lists(fs, &in)
+	return in, f.pairs(fs, &in)
+}
+
+// scalars is the patch's single-valued fields: the target and the metadata.
+func (f *mcpServerSetFlags) scalars(fs *pflag.FlagSet) operations.BundleMCPInput {
 	var in operations.BundleMCPInput
 	if fs.Changed("command") {
 		in.Command = &f.command
@@ -135,27 +142,31 @@ func (f *mcpServerSetFlags) input(fs *pflag.FlagSet) (operations.BundleMCPInput,
 	if fs.Changed("installation") {
 		in.Installation = &f.installation
 	}
+	return in
+}
+
+// lists sets the patch's repeatable list fields.
+func (f *mcpServerSetFlags) lists(fs *pflag.FlagSet, in *operations.BundleMCPInput) {
 	if fs.Changed("arg") {
 		in.Args = nonEmptyList(f.args)
 	}
 	if fs.Changed("tag") {
 		in.Tags = nonEmptyList(f.tags)
 	}
+}
+
+// pairs sets the patch's NAME=value map fields.
+func (f *mcpServerSetFlags) pairs(fs *pflag.FlagSet, in *operations.BundleMCPInput) error {
+	var err error
 	if fs.Changed("env") {
-		env, err := namedPairs("env", f.env)
-		if err != nil {
-			return in, err
+		if in.Env, err = namedPairs("env", f.env); err != nil {
+			return err
 		}
-		in.Env = env
 	}
 	if fs.Changed("header") {
-		headers, err := namedPairs("header", f.headers)
-		if err != nil {
-			return in, err
-		}
-		in.Headers = headers
+		in.Headers, err = namedPairs("header", f.headers)
 	}
-	return in, nil
+	return err
 }
 
 // nonEmptyList is a typed repeatable flag's values with empty entries dropped,

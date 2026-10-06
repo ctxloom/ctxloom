@@ -519,19 +519,20 @@ func splitPathSegments(p string) []string {
 // Name renders the NAMING concern: the name a remote is auto-registered under
 // when it is first fetched by URL.
 //
-// http(s), file:// and scp addresses are named by their final path segment,
-// read from the path as written so "owner/.git" is distinguishable from
-// "owner.git". Every other form — shorthand, a host-qualified path, a bare
-// host, other schemes, the sentinels — is named by its whole spelling with
-// the URL separators flattened to "/": shorthand and host-qualified
-// addresses keep their "owner/repo" name, because the last segment alone
-// would collide across owners.
+// Scheme URLs (https, ssh://, git://, file:// …) and scp addresses are named
+// by their final path segment, read from the path as written so "owner/.git"
+// is distinguishable from "owner.git". Every other form — shorthand, a
+// host-qualified path, a bare host, a scheme URL that does not parse, the
+// sentinels — is named by its whole spelling with the URL separators
+// flattened to "/": shorthand and host-qualified addresses keep their
+// "owner/repo" name, because the last segment alone would collide across
+// owners.
 //
 // One trailing ".git" is dropped in every form — it is the bare-repository
 // convention, not part of the name — unless dropping it would leave nothing.
 func (r RepoURL) Name() string {
 	var name string
-	if r.form == formSCP || r.isHTTP() || r.isFile() {
+	if r.form == formSCP || r.form == formURL {
 		p := strings.Trim(r.pathVerbatim, "/")
 		name = p[strings.LastIndex(p, "/")+1:]
 	} else {
@@ -541,11 +542,6 @@ func (r RepoURL) Name() string {
 		return trimmed
 	}
 	return name
-}
-
-// isFile reports whether this is a file:// URL.
-func (r RepoURL) isFile() bool {
-	return r.form == formURL && r.u != nil && r.u.Scheme == "file"
 }
 
 // isHTTP reports whether this is an http(s) URL, the only transport whose

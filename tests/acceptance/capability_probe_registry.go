@@ -580,12 +580,12 @@ var probeRegistry = []probeSpec{
 		Feature:      "probes/capability_turn_posture.feature",
 		Paid:         true,
 		Cells: []probeCell{
-			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p18PlanResumed), Status: probeWired,
-				Reason: "conformance cell P1."},
-			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p18PlanApproved), Status: probeWired,
-				Reason: "conformance cell D2."},
-			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p18SetModeHeld), Status: probeWired,
-				Reason: "conformance cell P2."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p18PlanResumed), Status: probeLiveVerified,
+				Reason: "conformance cell P1, measured 2026-10-06 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 9s. Turn 1, settings defaultMode acceptEdits, reported permissionMode acceptEdits and wrote first.txt (the control). Turn 2, --resume on the same session with settings defaultMode plan, reported permissionMode plan and its ordered write of second.txt did not land; no ask was raised in either turn. So defaultMode plan from an inline --settings starts a resumed -p turn in plan, overriding the mode the session last ran in. Judge MUTATION-CONFIRMED hermetically (TestP18_Verdict)."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p18PlanApproved), Status: probeLiveVerified,
+				Reason: "conformance cell D2, measured 2026-10-06 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 19s. Turn 1, settings defaultMode plan, reported permissionMode plan, left one native plan under the config home's plans/ and did not create first.txt. Turn 2, --resume on the same session with settings defaultMode acceptEdits and only the prompt \"Your plan was approved. Carry it out now.\", reported permissionMode acceptEdits and created first.txt with its content; no ask was raised. The approval is the between-turns route the runner takes (planApprovalIn), not the deleted mid-turn ExitPlanMode one."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p18SetModeHeld), Status: probeLiveVerified,
+				Reason: "conformance cell P2, measured 2026-10-06 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 8s. Turn 1, settings defaultMode default, reported permissionMode default; the Write raised exactly one PermissionRequest, which production's DecodeAsk read as offering setMode acceptEdits, and the hook's answer, production's EncodeAnswer allow + session setMode acceptEdits, let first.txt land. Turn 2, --resume on the same session with settings defaultMode acceptEdits (the held mode, as turnSettings carries it), reported permissionMode acceptEdits and wrote second.txt with no ask."},
 		},
 	},
 	{

@@ -71,6 +71,10 @@ type engineHome interface {
 	// setTurning tells the owner-loss clock a turn started or reached its
 	// boundary (Home.setTurning): progress pauses it.
 	setTurning(on bool)
+	// engineExited announces that the engine's process exited
+	// (Home.engineExited): called once per process, before the next one can
+	// start.
+	engineExited()
 	// SetApprovalRoute binds the run's approval route for the session's
 	// endpoint to serve (Home.SetApprovalRoute).
 	SetApprovalRoute(ar ApprovalRoute)
@@ -633,6 +637,7 @@ func (eh *EngineHost) driveInteractive(home engineHome, term Terminal, t Turn) e
 	}}})
 	eh.goTracked(func() {
 		code, err := term.Run(ctx, t)
+		home.engineExited()
 		releaseWake()
 		result := &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_SUCCEEDED}
 		if err == nil && ctx.Err() == nil {
@@ -786,6 +791,10 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	if secretErr == nil {
 		res, err = driver.Turn(turnCtx, ex, engine.Turn{Prompt: text, Resume: key, Posture: posture}, out)
 	}
+	// The turn's process is gone, and with it every client it held on the
+	// session's endpoint; announced before the boundary, so before the next
+	// turn's process can exist.
+	home.engineExited()
 	interrupted := turnCtx.Err() != nil && ctx.Err() == nil
 	close(out)
 	<-adapted

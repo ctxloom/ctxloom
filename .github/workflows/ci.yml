@@ -415,19 +415,21 @@ jobs:
   # The living-docs step needs a real `ctxloom` binary (the godog suite execs
   # it), which needs generated protobuf code only the devcontainer carries.
   #
-  # PUBLISHING ONLY, from the ACTIVE release line, pinned deliberately rather
-  # than matched by this workflow's `release/*` trigger. origin carries every
-  # historical release line; running CI on one of those is harmless, but
-  # publishing the site from one is not — a push to an old branch would
-  # overwrite the live docs with its content. Cutting a new release line means
-  # changing the `if:` below, which is meant to be a deliberate edit.
+  # Built on pushes to main and to the ACTIVE release line, pinned
+  # deliberately rather than matched by this workflow's `release/*` trigger:
+  # gen-living-docs runs the whole acceptance suite again with capture on, so
+  # building it on every historical line or PR would double the acceptance
+  # job's cost to check what it already checks. Cutting a new release line
+  # means changing the release ref in the `if:` below.
   #
-  # Gated to that branch rather than built everywhere because gen-living-docs
-  # runs the whole acceptance suite again with capture on — on a PR that
-  # would double the acceptance job's cost to check what it already checks.
+  # The site PUBLISHES only from main (see `docs-deploy`): the github-pages
+  # environment's deployment branch policy admits only main, so a release-line
+  # push builds the site, proving it still renders, but does not deploy it.
   docs:
     name: Build Documentation
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/release/0.7'
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release/0.7')
     runs-on: ubuntu-latest
     needs: [build-container]
     permissions:
@@ -494,6 +496,7 @@ jobs:
   docs-deploy:
     name: Deploy Documentation
     needs: [docs]
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       pages: write

@@ -8,12 +8,28 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/cucumber/godog"
 	"github.com/gofrs/flock"
 
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
+
+// suiteDeadline is the test binary's deadline, as TestAcceptance captures it
+// before the suite runs: every scenario runs inside that one test, and the
+// TestingT godog hands a step carries no Deadline of its own.
+var suiteDeadline struct {
+	at time.Time
+	ok bool
+}
+
+// eventBudget bounds a wait on a pty write or a process exit by the suite's
+// deadline (testenv.BudgetUntil) rather than a fixed cap, which a loaded
+// machine outruns without a defect.
+func eventBudget() time.Duration {
+	return testenv.BudgetUntil(suiteDeadline.at, suiteDeadline.ok)
+}
 
 // World is the per-scenario state binding all three evaluation axes. It is
 // constructed fresh in a Before hook and torn down in After, so scenarios share

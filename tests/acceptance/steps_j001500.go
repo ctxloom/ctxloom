@@ -20,7 +20,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/cucumber/godog"
 	"golang.org/x/crypto/ssh"
@@ -663,9 +662,9 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("start 'ctxloom review --project' pty: %w", err)
 		}
 		defer sess.Close()
-		exited, waitErr := sess.Wait(10 * time.Second)
+		exited, waitErr := sess.Wait(eventBudget())
 		if !exited {
-			return fmt.Errorf("'ctxloom review --project' did not exit within timeout; captured output:\n%s", sess.Output())
+			return fmt.Errorf("'ctxloom review --project' never exited; captured output:\n%s", sess.Output())
 		}
 		_ = waitErr // the exit code (checked below) is the authoritative signal
 		j001500 := j001500Of(w)

@@ -62,10 +62,9 @@ func readTreeOrEnvelope(ctx context.Context, tree content.Bundle) (*Bundle, erro
 // A manifest that does not honestly cover the tree — a mutated or smuggled
 // item file, a signature over other bytes — is INVALID, not absent, because a
 // manifest that exists and does not describe the tree is a different fact
-// from no manifest at all. Local content is trusted by LOCALITY, so an
-// invalid signature never withholds a local tree (composite.Trust admits it
-// as unsigned, with the stale-signature reason); it is the diagnostic that
-// tells the author their bytes and their manifest have parted company.
+// from no manifest at all. An invalid signature never withholds a local tree;
+// it is the diagnostic that tells the author their bytes and their manifest
+// have parted company.
 func (r *localFSReader) treeSignatureFacts(ctx context.Context, tree content.Bundle) SignatureFacts {
 	if _, err := tree.ReadFile(ctx, content.ManifestPath); err != nil {
 		return SignatureFacts{Signature: SignatureNone, Signer: SignerNone}

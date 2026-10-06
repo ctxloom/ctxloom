@@ -139,8 +139,7 @@ type SkillFile struct {
 	Bytes []byte
 }
 
-func (Skill) Kind() trust.ItemKind      { return trust.KindSkill }
-func (Skill) TrustKind() trust.ItemKind { return trust.KindSkill }
+func (Skill) Kind() trust.ItemKind { return trust.KindSkill }
 
 // skillMeta is the sidecar shape.
 type skillMeta struct {

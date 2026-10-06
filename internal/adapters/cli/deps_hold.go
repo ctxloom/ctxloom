@@ -10,8 +10,7 @@ import (
 
 // The hold helpers behind `ctxloom deps hold` / `deps unhold` (declared in
 // deps.go). A hold freezes a bundle at its currently-locked SHA so
-// `deps upgrade` will not advance it; unhold releases that freeze. Per-item
-// content review is a different question and lives in `ctxloom review`.
+// `deps upgrade` will not advance it; unhold releases that freeze.
 
 // holdItem sets the hold flag on name's active lockfile entry and reports the
 // outcome to out (or, when there was nothing to flip, to errOut via

@@ -168,7 +168,7 @@ const CommandSelector = "#commands/"
 // bundle part ("X@<commit>#commands/n") or trails the command name
 // ("X#commands/n@<commit>", the name-addressed CLI/resource form). The returned
 // canonical is the version-AGNOSTIC identity ("<CanonicalBundleRef(X)>#commands/n"),
-// so the trust gate and dedup stay version-agnostic; the version is meant to be
+// so identity and dedup stay version-agnostic; the version is meant to be
 // honored only at the read/resolution path (GetPromptAtVersion). A ref without a
 // command selector (a bare name) is returned unchanged with no version — a bare
 // name has no bundle to pin a historical version against.

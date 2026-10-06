@@ -18,9 +18,7 @@ import (
 )
 
 // LockfileManager handles reading and writing the active lockfile (lock.yaml —
-// what BundleReader reads against). It is pure dependency pinning; there is no
-// pending-review split (trust-simplify slice 3) — exposure of pulled content is
-// gated per item by the content-hash trust gate.
+// what BundleReader reads against). It is pure dependency pinning.
 type LockfileManager struct {
 	baseDir string
 	fs      afero.Fs

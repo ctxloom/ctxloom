@@ -6,7 +6,7 @@
 // the value and the lifecycle and reads nothing itself.
 //
 // Everything that reaches beyond files — the remote readers behind the
-// lockfile, companion probing, the executable trust gate — is a CONSTRUCTOR
+// lockfile, companion probing — is a CONSTRUCTOR
 // INPUT supplied by the composition root, so this package imports no sibling
 // adapter to build a generation.
 package configload

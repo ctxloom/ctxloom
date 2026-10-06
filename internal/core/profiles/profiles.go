@@ -223,10 +223,9 @@ type Profile struct {
 	BundleItems []string `yaml:"bundle_items,omitempty"`
 
 	// Hooks are lifecycle hooks declared by this directory profile, the mirror of
-	// config.Profile.Hooks. Unlike a trusted-local config.yaml inline profile, a
-	// directory profile may be remote-sourced (a seeded remote profile), so its
-	// directly-declared executable hooks pass the per-item executable trust gate
-	// (the SAME gate bundle hooks pass) before reaching backend settings.
+	// config.Profile.Hooks. A directory profile may be remote-sourced (a seeded
+	// remote profile), so its directly-declared hooks are addressed under the
+	// profile's own source before reaching backend settings.
 	Hooks wire.HooksConfig `yaml:"hooks,omitempty"`
 
 	Variables map[string]string `yaml:"variables,omitempty"`
@@ -899,17 +898,16 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	}
 	// SourceRef is THIS profile's own provenance — never inherited
 	// from (or overwritten by) a parent's Merge below: a profile's
-	// directly-declared hooks/mcp must key the executable
-	// trust gate by ITS OWN origin, not a parent's. profile.Name is already
+	// directly-declared hooks/mcp must be addressed by ITS OWN origin, not a
+	// parent's. profile.Name is already
 	// the canonical identity here — the "<bundle>#profiles/<name>" seed key
 	// (config.loadBundleProfileSeed) — so deriving from it needs no
 	// re-canonicalization.
 	if bundle, _, ok := remote.SplitBundleProfileRef(profile.Name); ok {
 		// Fails the whole resolution rather than degrading. SourceRef is what
-		// this profile's directly-declared hooks and MCP servers key the
-		// EXECUTABLE trust gate by; a source that cannot be canonicalized has
-		// no key, and the local fallback would hand it the first-party
-		// auto-allow under a name the ref never named.
+		// this profile's directly-declared hooks and MCP servers are addressed
+		// by; a source that cannot be canonicalized has no key, and the local
+		// fallback would address it under a name the ref never named.
 		sourceRef, err := remote.CanonicalBundleRef(bundle)
 		if err != nil {
 			return nil, fmt.Errorf("profile %q: %w", name, err)
@@ -1048,9 +1046,8 @@ type ResolvedProfile struct {
 	Variables   map[string]string
 	LLM         string // Preferred config label/backend (empty = inherit primary)
 
-	// SourceRef is this profile's OWN canonical origin ref, for keying the
-	// executable trust gate on its directly-declared hooks
-	// (managedhooks.gateProfileHooks) by
+	// SourceRef is this profile's OWN canonical origin ref, for addressing its
+	// directly-declared hooks (managedhooks.addressableProfileHooks) by
 	// SOURCE rather than display name. It is
 	// the canonical ref of the bundle the profile is an item of (WITHOUT the
 	// "#profiles/<name>" selector — carrying that selector into the gate

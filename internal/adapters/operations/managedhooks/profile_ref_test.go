@@ -59,12 +59,13 @@ func TestAddressableProfileHooks_EveryUnifiedEventSurvives(t *testing.T) {
 }
 
 // A hook whose source cannot be addressed is a load error: it is withheld,
-// never shipped under an identity nothing could parse. A source that already
-// carries a selector composes a second '#', which does not parse.
+// never shipped under an identity nothing could parse. A source carrying a
+// scheme marker that does not parse was meant as a qualified reference, so it
+// is refused rather than read as a bare local name.
 func TestAddressableProfileHooks_UnaddressableSourceIsWithheld(t *testing.T) {
 	in := wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "x", Type: "command"}}}}
 
-	out := addressableProfileHooks(remote.LocalBundleRef("kit")+refuri.ProfileSelector+"dev", in)
+	out := addressableProfileHooks("ctxloom+git://", in)
 
 	assert.Empty(t, out.Unified.PreTool)
 }

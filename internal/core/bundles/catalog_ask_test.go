@@ -176,7 +176,7 @@ func TestCatalog_Lookup_RetiredSpellingRefusedNotDowngraded(t *testing.T) {
 	assert.ErrorIs(t, err, errs.ErrRetiredRefSpelling)
 	assert.NotErrorIs(t, err, errs.ErrBundleNotFound,
 		"a retired spelling must not be downgraded to a name search that resolves to something else")
-	assert.Contains(t, err.Error(), "ctxloom bundle trust --help",
+	assert.Contains(t, err.Error(), "ctxloom bundle --help",
 		"a refusal a user cannot act on is a dead end; the refusal must say where the current grammar is")
 }
 

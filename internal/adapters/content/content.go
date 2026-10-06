@@ -60,8 +60,7 @@ import (
 )
 
 // BundleID identifies one bundle within a Store. For the tree implementation
-// it is the bundle directory's name, which is also trust.Ref.Bundle — the
-// bundle component of every ref keyed in the countersignature stores.
+// it is the bundle directory's name, which is also trust.Ref.Bundle.
 type BundleID string
 
 // Store is the access surface, independent of where the bytes live. The tree

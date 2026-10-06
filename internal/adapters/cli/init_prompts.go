@@ -119,8 +119,7 @@ func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 		return nil, nil
 	}
 
-	fmt.Println("Repos you add here are addresses only — their content takes the review path")
-	fmt.Println("('ctxloom review') until you sign your bundles and trust your own signing key.")
+	fmt.Println("Adding a repo is the trust decision: its content reaches your assistant.")
 	fmt.Println("Enter GitHub repos (e.g., 'myuser/ctxloom-profiles'), one per line. Blank line when done.")
 	var repos []string
 	for {

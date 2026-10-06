@@ -37,9 +37,8 @@ Discovery:
 What this project has INSTALLED from those remotes is the other noun:
 'ctxloom deps --help'.
 
-A remote carries no trust: its content takes the review path whatever address
-it came from. To auto-trust a publisher's content, trust their signing key
-('ctxloom signer trust') — a key is verified over the bytes, a URL is not.`,
+Adding a remote is the trust decision: content resolves only through a
+registered remote, and what it serves reaches your assistant.`,
 	Example: `  ctxloom remote create alice alice/ctxloom
   ctxloom remote show ctxloom-default`,
 }, "list")

@@ -215,9 +215,8 @@ type Profile struct {
 	// settings.json permissions.deny (the one engine with a native per-tool
 	// deny surface); other backends silently ignore it. Accumulates through
 	// profile inheritance exactly like ExcludeMCP — a child cannot un-deny
-	// what a parent denied, and it is safety-only (never gated by the
-	// executable trust gate: a deny entry can only make a run MORE
-	// restrictive, never execute anything).
+	// what a parent denied, and it is safety-only (a deny entry can only make
+	// a run MORE restrictive, never execute anything).
 	DenyTools []string `mapstructure:"deny_tools" yaml:"deny_tools,omitempty"`
 }
 

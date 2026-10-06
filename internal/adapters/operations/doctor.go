@@ -381,26 +381,18 @@ func doctorMissingEngineClients(reg engine.Registry, cfg *config.Config) []strin
 
 // doctorCheckSignKey is a machine-capability probe like DOCTOR-CHECK-DEPS-a1
 // (included in --deps scope): it asks whether a signing IDENTITY would
-// resolve right now, using the EXACT SAME resolver `ctxloom review`'s
-// approve path AND `ctxloom sign`/`--sign` both use (internal/adapters/signing/
-// agentkey.Discoverer.Discover, behind ResolveLocalSigner — see
-// cli.resolveReviewSigner and `ctxloom sign`) rather than re-deriving
+// resolve right now, using the EXACT SAME resolver `ctxloom sign`/`--sign`
+// use (internal/adapters/signing/agentkey.Discoverer.Discover) rather than
+// re-deriving
 // discovery here. Read-only:
 // Discover only lists ssh-agent identities (agent.Agent.Signers/List over
 // SSH_AUTH_SOCK), it never signs or reads private key bytes.
 //
-// This is NOT publishing-only: approving reviewed content (`ctxloom review`)
-// countersigns the approval record with this same identity, and review is a
-// normal part of setup (pulling/approving a seeded remote's content), not
-// something only publishers do. Absence is still never a hard failure —
-// review degrades to an explicit unsigned-approval confirmation rather than
-// blocking (spec §9.5) — but it is a WARN, not silent, because a project that
-// only ever consumes ALREADY-trusted/embedded content (the common case: the
-// seeded ctxloom-default remote is pre-trusted, nothing to approve) genuinely
-// has no need for one; this is advisory, same posture as the ssh-keygen/
-// container-runtime warns beside it. Surfacing it here (and in init PRIME's
-// cli.checkSystemDeps) beats a user hitting agentkey.NoKeyError or
-// the unsigned-approval prompt cold at their first real `ctxloom review`/
+// Absence is never a hard failure — a project that only ever consumes
+// content genuinely has no need for a key — but it is a WARN, not silent;
+// this is advisory, same posture as the ssh-keygen/container-runtime warns
+// beside it. Surfacing it here (and in init PRIME's cli.checkSystemDeps)
+// beats a user hitting agentkey.NoKeyError cold at their first real
 // `ctxloom sign`.
 func doctorCheckSignKey(ctx context.Context, cfg *config.Config, discoverer *agentkey.Discoverer) DoctorCheck {
 	const marker = "DOCTOR-CHECK-SIGNKEY-k1"
@@ -449,7 +441,7 @@ func SignKeyResolutionDetail(ctx context.Context, discoverer *agentkey.Discovere
 		return true, fmt.Sprintf("signing key resolves via %s (%s)", discovered.Source, discovered.Fingerprint)
 	}
 
-	const why = "needed to approve reviewed content (`ctxloom review`) and to publish or sign your own content (`ctxloom bundle sign`) — merely consuming already-trusted/embedded content does not require a signing key"
+	const why = "needed to publish or sign your own content (`ctxloom bundle sign`) — merely consuming content does not require a signing key"
 
 	var ambig *agentkey.AmbiguousKeyError
 	if errors.As(err, &ambig) {
@@ -896,8 +888,7 @@ func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) DoctorCheck {
 // (remote.LockfileManager — the SAME reader `ctxloom sync`/`lock` use) parses
 // without error, and a real context assembly (AssembleContext —
 // the SAME entry point `ctxloom run`'s configured-default path uses) succeeds
-// end to end. AssembleContext exercises the trust gate, companion-loadout
-// seeding, and fragment/profile resolution for real; none of that is
+// end to end. AssembleContext exercises companion-loadout seeding, and fragment/profile resolution for real; none of that is
 // reimplemented here.
 func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cfgErr error) DoctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-DEPS-h8"

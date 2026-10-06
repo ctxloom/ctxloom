@@ -39,10 +39,7 @@ import (
 //     manifest entry that travels is the one `bundle sign` writes. The
 //     one-command path survives without signing becoming a property of the
 //     push.
-//   - --no-sign: skip the signing sugar. Unsigned publishing is not an
-//     oversight — third-party unsigned remotes default to pending, which is
-//     what gives the trust gate a pending state and `ctxloom review` a
-//     purpose.
+//   - --no-sign: skip the signing sugar.
 //
 // Key discovery, and any failure to find a key, happens BEFORE any network
 // call — a signing failure must never degrade to a silent unsigned publish

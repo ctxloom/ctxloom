@@ -42,7 +42,7 @@ type LoadedSkill struct {
 	Curated bool
 	Tags    []string // combined (bundle + skill) tags
 
-	// TrustRef is the ref the trust gate keys this package by, minted through
+	// TrustRef is the ref this package is addressed by, minted through
 	// the canonical bundle-reference grammar (ItemRefFor,
 	// "ctxloom+<class>:...#skills/<name>") — the same honest typed-source
 	// keying LoadedContent uses. A read FACT, never a decision.
@@ -57,8 +57,8 @@ type LoadedSkill struct {
 	Signer string
 
 	// Read is the owning bundle's read — the trust FACTS its reader established.
-	// Authorizer.Admit decides on it (bundles.Exposure); see ItemRead.Read for why
-	// exporting a value whose axes are unexported is safe.
+	// See ItemRead.Read for why exporting a value whose axes are unexported is
+	// safe.
 	Read BundleRead
 }
 

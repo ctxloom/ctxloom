@@ -88,8 +88,7 @@ func stemOf(p string) string {
 // filename, so the common single-form item stays a single plainly-named file.
 //
 // This is the axis that reaches FILENAMES, which is why it is the plain
-// raw/distilled vocabulary and not the composite one a countersignature binds:
-// the suffix is ".distilled.md" and could never be ".fragment/distilled.md".
+// raw/distilled vocabulary: the suffix is ".distilled.md" and could never be ".fragment/distilled.md".
 var formSuffixForms = []signing.Form{signing.FormDistilled}
 
 // formOf reports which form a component belongs to, given the forms the item

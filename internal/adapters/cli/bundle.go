@@ -15,7 +15,24 @@ var bundleCmd = groupNodeDefault(&cobra.Command{
 	Long: `Manage ctxloom bundles - versioned collections of fragments, commands, and MCP servers.
 
 Bundles are the primary content unit in ctxloom. They group related context fragments,
-commands, and optional MCP server configurations with a single version.`,
+commands, and optional MCP server configurations with a single version.
+
+REFERENCE FORMAT
+
+An item reference is <bundle>#<kind>/<name>. The kinds are fragments, commands
+(prompts is accepted as an alias), mcp, hooks, and skills; a hook's name is
+<event>/<index>.
+
+The bundle half is either a CANONICAL URI or a plain bundle NAME:
+
+  ctxloom+local:<name>                        a bundle in this project's tree
+  ctxloom+companion:<binary>                  a companion binary's loadout
+  ctxloom+git://<host>/<repo>//bundles/<name> a bundle in a remote repository
+  ctxloom+file://<abs-repo>//bundles/<name>   the same, in a repo on this disk
+
+A plain name is looked up, and is refused when it names more than one bundle —
+the URI in that refusal says which is which. Every form needs shell quoting,
+because '#' starts a comment in most shells.`,
 	Example: `  ctxloom bundle list                  # List all installed bundles
   ctxloom bundle show go-tools         # Show bundle contents
   ctxloom bundle create my-bundle      # Create a new bundle
@@ -46,7 +63,6 @@ func init() {
 	// deleted the `bundle mcp` group node too.
 
 	// Bundle hold/unhold — dependency management over the active lockfile.
-	// (Per-item content review lives in the top-level `ctxloom review`.)
 
 	// Real home of the deprecated top-level `ctxloom sign` (flags registered
 	// in sign.go alongside its shared RunE).

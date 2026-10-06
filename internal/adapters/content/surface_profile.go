@@ -14,10 +14,8 @@ import (
 
 // Profile is a bundle-shipped profile.
 //
-// It does NOT implement TrustGated, and that absence is the whole point: profiles
-// are not governed by the trust gate, and expressing that structurally means
-// nobody has to remember a nil check. It is also why KindProfile is defined in
-// this package rather than promoted to a trust.ItemKind constant.
+// A profile is not a deliverable item kind, which is why KindProfile is
+// defined in this package rather than promoted to a trust.ItemKind constant.
 type Profile struct {
 	// Name is the profile's identity, taken from its filename.
 	Name string

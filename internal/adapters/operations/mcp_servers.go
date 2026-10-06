@@ -15,9 +15,8 @@ import (
 // MCPServerEntry represents an MCP server in operation results.
 //
 // Source names the bundle that ships it (wire.MCPServer.SCM's
-// "bundle:<identity>"), which is also its trust identity: every MCP server a
-// session registers comes from a bundle, so `ctxloom bundle trust|reject
-// <bundle>#mcp/<name>` addresses any entry listed here.
+// "bundle:<identity>"), which is also its identity: every MCP server a
+// session registers comes from a bundle, addressed <bundle>#mcp/<name>.
 type MCPServerEntry struct {
 	Name         string            `json:"name"`
 	Command      string            `json:"command,omitempty"`

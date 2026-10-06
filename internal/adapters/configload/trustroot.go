@@ -122,11 +122,9 @@ func (c *signerFiles) embeddedSignersTrusted() *allowedsigners.Store {
 // Principals list contains a suppressed principal removed. This is the actual
 // SUBTRACTION primitive needed here: allowedsigners.Store's decision is
 // purely additive with no negative-entry concept, and allowedsigners.Union
-// only ever concatenates — so this is new machinery, not
-// a reuse of the existing content-item REJECTION mechanism (that beats a
-// trusted publisher at the per-item decision, EffectiveTrust step 1; this
-// instead removes a KEY from the trust root itself, upstream of every
-// decision that would otherwise consult it).
+// only ever concatenates — so this is new machinery: it removes a KEY from the
+// trust root itself, upstream of every verification that would otherwise
+// consult it.
 func filterSuppressedPrincipals(store *allowedsigners.Store, suppressed map[string]bool) *allowedsigners.Store {
 	if store == nil || len(suppressed) == 0 {
 		return store
@@ -290,9 +288,8 @@ func (c *signerFiles) parseAllowedSigners(fs afero.Fs, path string) *allowedsign
 		}
 		// A real error here (EACCES, a directory in its place) is NOT the
 		// same fact as "absent" — it silently disarmed the on-disk trust
-		// root with no finding beyond the stderr line. Escalate it, matching
-		// EffectiveTrust's fail-closed posture for a corrupt trust store, in
-		// addition to the warning.
+		// root with no finding beyond the stderr line. Escalate it, failing
+		// closed for a corrupt trust store, in addition to the warning.
 		c.rep.Warnf("allowed_signers %s exists but cannot be read, its keys are NOT trusted this session: %v", path, err)
 		c.rep.Failf(report.KindTrust, "make the allowed_signers file readable, or remove it",
 			"allowed_signers %s exists but cannot be read: %v", path, err)

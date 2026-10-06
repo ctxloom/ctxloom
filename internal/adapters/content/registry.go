@@ -16,19 +16,9 @@ import (
 // per-kind union: a Fragment has a body and distillation fields, an MCP has a
 // command and an environment, and neither pretends to be the other.
 type Surface interface {
-	// Kind identifies the surface. For the five trust-gated kinds this is the
-	// matching trust.ItemKind constant; for a profile it is KindProfile, a
-	// value this package defines and the trust gate never sees.
+	// Kind identifies the surface: the matching trust.ItemKind constant, or
+	// for a profile KindProfile, a value this package defines.
 	Kind() trust.ItemKind
-}
-
-// TrustGated is an OPTIONAL interface: a kind the trust gate governs
-// implements it, and a kind it does not govern simply does not. Profiles do
-// not implement it. Making participation structural rather than a nullable
-// field means "profiles are not trust-gated" cannot be forgotten by whoever
-// writes the next nil check.
-type TrustGated interface {
-	TrustKind() trust.ItemKind
 }
 
 // Source is the ONE access abstraction Detect and Decode take. It is
@@ -83,10 +73,9 @@ type SurfaceType interface {
 
 // KindProfile is the item kind for a bundle-shipped profile.
 //
-// It is defined HERE, not in the trust package, on purpose. Profiles are not
-// trust-gated — Profile does not implement TrustGated — so this value never
-// reaches the trust decision function, and promoting it to a trust.ItemKind
-// constant would put a non-gated kind into the gate's vocabulary. The string is
+// It is defined HERE, not in the trust package, on purpose: a profile is not
+// a deliverable item kind (trust.ParseSelector refuses it), so promoting it to
+// a trust.ItemKind constant would put it into that vocabulary. The string is
 // "profiles" rather than "profile" so that ItemKind.Dir()'s default branch,
 // which returns the kind verbatim, yields the right directory with no change to
 // the trust package. It is paths.ProfilesDir, the one name for the directory a

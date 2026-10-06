@@ -57,7 +57,6 @@ func TestBundleSubcommandFlags(t *testing.T) {
 			{"distilled", "d", "false", "Show distilled version if available"},
 		}},
 		{bundleShowCmd, []flagSpec{
-			{"interactive", "i", "false", "Review per-item effective trust and trust/blacklist individual hooks (interactive terminal only)"},
 		}},
 		{bundleEditCmd, []flagSpec{
 			{"description", "d", "", "New description"},

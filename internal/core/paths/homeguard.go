@@ -57,9 +57,8 @@ func SetHomeRecordsDirForTesting(dir string) func() { return homeRecordsOverride
 func SetHomeLocksDirForTesting(dir string) func() { return homeLocksOverride.set(dir) }
 
 // The home-rooted-store guard lives HERE, in the package that resolves every
-// home-rooted path, rather than beside any one store. It began beside the
-// approvals store, which needed it first; the §9.7 application-record store
-// then repeated the mistake it exists to prevent, and 1046 records written by
+// home-rooted path, rather than beside any one store: the §9.7
+// application-record store once repeated the mistake it exists to prevent, and 1046 records written by
 // test binaries were found in a developer's real ~/.ctxloom/records. A guard
 // that protects only the store whose author remembered it is the same shape as
 // the per-test helper its own doc rejects.

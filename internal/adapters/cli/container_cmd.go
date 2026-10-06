@@ -200,8 +200,7 @@ pull/sync — the edit is the LLM's, gated by the user.`
 // tooling declaration (bundles.InitLoadout.Tooling): the LLM runs this, reads
 // the declarations, and folds them — with
 // the user's explicit approval — into the agent image's base.
-// Read-only: collection goes through the trust gate and nothing is written
-// here.
+// Read-only: nothing is written here.
 func runToolingListCmd(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {

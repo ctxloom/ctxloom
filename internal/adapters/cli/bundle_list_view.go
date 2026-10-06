@@ -76,7 +76,7 @@ func newBundleListRows(infos []*bundles.BundleInfo) []bundleListRow {
 // `bundle view`'s to hand back — so items carry a first-line preview, never
 // their content, distilled rendering or content hash. Profiles and hooks are
 // listed by identity only: a profile's definition is `profile show`'s, and a
-// hook's "<event>/<index>" id is the handle `ctxloom review` takes back.
+// hook is named by its "<event>/<index>" id.
 type bundleShowView struct {
 	Name         string                        `json:"name"`
 	Path         string                        `json:"path,omitempty"`

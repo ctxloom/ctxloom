@@ -992,8 +992,7 @@ func (r RootKind) String() string {
 // missing one is a genuine loss), which is why they were never split apart
 // until a RootHome entry needed to say something different: a home-rooted
 // store is shared across every project on the machine and created lazily by
-// a specific feature (a session run anywhere, a countersignature given, a
-// signer trusted, ...), so a fresh install — or a long-lived one that simply
+// a specific feature (a session run anywhere, a signer trusted, ...), so a fresh install — or a long-lived one that simply
 // never exercised that feature — legitimately has none of it yet, and that
 // is not a loss doctor should report.
 type Presence uint8

@@ -758,24 +758,6 @@ func TestProfile_PriorityOrderingRoundTrips(t *testing.T) {
 	}
 }
 
-// TestProfile_IsNotTrustGated makes the structural fact a test: participation in
-// the trust gate is an optional interface, and a profile does not implement it.
-func TestProfile_IsNotTrustGated(t *testing.T) {
-	if _, gated := any(Profile{}).(TrustGated); gated {
-		t.Error("Profile implements TrustGated; profiles are not trust-gated")
-	}
-	for _, s := range []Surface{Fragment{}, Command{}, MCP{}, Hook{}, Skill{}} {
-		tg, gated := s.(TrustGated)
-		if !gated {
-			t.Errorf("%T does not implement TrustGated", s)
-			continue
-		}
-		if tg.TrustKind() != s.Kind() {
-			t.Errorf("%T: TrustKind %q != Kind %q", s, tg.TrustKind(), s.Kind())
-		}
-	}
-}
-
 func TestAs_WrongTypeIsRefused(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)

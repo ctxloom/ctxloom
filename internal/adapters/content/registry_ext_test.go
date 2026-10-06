@@ -36,10 +36,6 @@ type Widget struct {
 
 func (Widget) Kind() trust.ItemKind { return widgetKind }
 
-// TrustKind opts the kind INTO the trust gate. A third-party kind that should not
-// be gated simply omits this method.
-func (Widget) TrustKind() trust.ItemKind { return widgetKind }
-
 type widgetType struct{}
 
 func (widgetType) Name() string { return "widgets" }

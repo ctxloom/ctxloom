@@ -431,8 +431,8 @@ const (
 )
 
 // hookEventOrder is the canonical event order for hook identity + enumeration.
-// Entries() and the trust gate both walk it so a baselined hook's ref matches
-// the one the gate evaluates. A new event goes LAST.
+// Entries() and hook extraction both walk it so a baselined hook's ref matches
+// the one extraction addresses. A new event goes LAST.
 var hookEventOrder = []string{
 	HookEventPreTool, HookEventPostTool, HookEventSessionStart,
 	HookEventSessionEnd, HookEventPreShell, HookEventPostFileEdit,
@@ -465,7 +465,7 @@ func (h BundleHooks) eventHooks(event string) []BundleHook {
 // HookEntry is one bundle hook paired with its stable trust identity: the event
 // it fires on and its index within that event's list. Bundle hooks are an
 // ordered list with no author-given name, so (event, index) is the addressable
-// identity the per-item trust gate keys on (trust rework, TR5).
+// identity a hook is addressed by.
 type HookEntry struct {
 	Event string
 	Index int
@@ -480,7 +480,7 @@ func (e HookEntry) ID() string {
 }
 
 // Entries returns every bundle hook with its identity, in canonical event order
-// then authored index. The trust gate (config.extractHooksFromBundle) and the
+// then authored index. Hook extraction (config.extractHooksFromBundle) and the
 // migration baseline both enumerate hooks through this scheme so the refs agree.
 func (h BundleHooks) Entries() []HookEntry {
 	var out []HookEntry
@@ -742,10 +742,7 @@ func hashContent(b []byte) string {
 // a payload produced by a ContentPayload builder, and it is the ONLY way any
 // caller outside this package may turn item bytes into a content hash.
 //
-// The hash is an INDEX, never an authority. It answers "which recorded decision
-// might be about these bytes"; it never answers "may these bytes be exposed" —
-// that is the decision function's job, and once approvals are countersignatures
-// it will be a signature verification. A hash match is a candidate, not a
+// The hash is an INDEX, never an authority: a hash match is a candidate, not a
 // verdict (spec §9.3, trap #2).
 func HashPayload(payload []byte) string {
 	return hashContent(payload)
@@ -765,9 +762,9 @@ func resolveEffective(preferDistilled bool, content, distilled string, noDistill
 
 // ItemSurface is one resolution of a distillable item for a form preference:
 // the bytes the process stage SERVES, the layout form they were selected in,
-// and the bytes the trust gate DECIDES on. All three come from a single call
-// on the item, which is what keeps "served" and "gated" from drifting: the
-// gate cannot be handed bytes the agent will not see, and the agent cannot be
+// and the item's preimage in that form. All three come from a single call on
+// the item, which is what keeps "served" and "described" from drifting: the
+// preimage cannot cover bytes the agent will not see, and the agent cannot be
 // handed bytes the gate did not cover.
 //
 // Body and Preimage are never the same bytes: the preimage is the framed
@@ -779,7 +776,7 @@ func resolveEffective(preferDistilled bool, content, distilled string, noDistill
 type ItemSurface struct {
 	Body     []byte      // the bytes served to the agent
 	Form     ContentForm // the layout form Body was selected in
-	Preimage []byte      // the bytes the trust gate decides on: this kind's ContentPayload
+	Preimage []byte      // this kind's ContentPayload in Form
 }
 
 // Resolve is the process-stage resolution of this fragment: it only ever
@@ -817,8 +814,7 @@ func staleDistill(noDistill bool, distilled, recordedHash, content string) bool 
 }
 
 // ComputeContentHash computes the SHA256 hash of the raw authored content. This
-// feeds the recorded content_hash that drives re-distillation (NeedsDistill); the
-// trust gate uses EffectiveContentHash instead.
+// feeds the recorded content_hash that drives re-distillation (NeedsDistill).
 func (f *BundleFragment) ComputeContentHash() string {
 	return hashContent([]byte(f.Content))
 }
@@ -867,11 +863,10 @@ func (s FragmentSurface) Body() string { return s.body }
 // Form reports which materialization Body is.
 func (s FragmentSurface) Form() ContentForm { return s.form }
 
-// Preimage is the bytes a countersignature over this surface covers:
-// signing.FragmentPreimage over exactly the two presented values, opened by
-// signing.FragmentPreimageContract. Nothing else in the codebase — including
-// a future countersignature (signature envelope spec §3.2) — is permitted to
-// define "the bytes of this fragment" any other way. Two definitions is the
+// Preimage is the bytes of this surface: signing.FragmentPreimage over exactly
+// the two presented values, opened by signing.FragmentPreimageContract.
+// Nothing else in the codebase is permitted to define "the bytes of this
+// fragment" any other way. Two definitions is the
 // bug.
 func (s FragmentSurface) Preimage() []byte {
 	return signing.FragmentPreimage(s.premise, []byte(s.body))
@@ -898,8 +893,7 @@ func (f *BundleFragment) ContentPayload(preferDistilled bool) ([]byte, ContentFo
 
 // EffectiveContentHash hashes EXACTLY ContentPayload(preferDistilled) — the
 // framed surface whose body is what EffectiveContent returns — and reports its
-// form. This is the hash the per-item trust gate binds to: it covers what is
-// actually presented to the agent, body and premise, never a raw fallback once
+// form. It covers what is actually presented to the agent, body and premise, never a raw fallback once
 // distilled is served, and never the author-supplied ContentHash field. The form
 // is provenance so a raw-form grant cannot validate a distilled exposure.
 func (f *BundleFragment) EffectiveContentHash(preferDistilled bool) (string, ContentForm) {
@@ -908,8 +902,7 @@ func (f *BundleFragment) EffectiveContentHash(preferDistilled bool) (string, Con
 }
 
 // ComputeContentHash computes the SHA256 hash of the raw authored content. This
-// feeds the recorded content_hash that drives re-distillation (NeedsDistill); the
-// trust gate uses EffectiveContentHash instead.
+// feeds the recorded content_hash that drives re-distillation (NeedsDistill).
 func (p *BundleCommand) ComputeContentHash() string {
 	return hashContent([]byte(p.Content))
 }
@@ -969,9 +962,8 @@ func (s CommandSurface) Form() ContentForm { return s.form }
 //
 // This is the ONE place this package looks inside a block, and it does so
 // under the FROZEN preimage contract: signing.CommandPreimageContract fixed
-// these bytes as a canonicalisation of the claude-code block's fields, and
-// every signed bundle's countersignatures cover them. Widening the preimage
-// to every block re-signs the world; that is a contract bump, not a slice.
+// these bytes as a canonicalisation of the claude-code block's fields.
+// Widening the preimage to every block is a contract bump, not a slice.
 func (s CommandSurface) ExportsPayload() []byte {
 	cc := preimageBlock(s.exports)
 	tools := cc.AllowedTools
@@ -1037,8 +1029,8 @@ type claudeCodeExportPayload struct {
 	Model        string   `json:"model"`
 }
 
-// Preimage is the bytes a countersignature over this surface covers:
-// signing.CommandPreimage over exactly the presented values, opened by
+// Preimage is the bytes of this surface: signing.CommandPreimage over exactly
+// the presented values, opened by
 // signing.CommandPreimageContract. Nothing else in the codebase is permitted
 // to define "the bytes of this command" any other way.
 func (s CommandSurface) Preimage() []byte {
@@ -1064,8 +1056,7 @@ func (p *BundleCommand) ContentPayload(preferDistilled bool) ([]byte, ContentFor
 
 // EffectiveContentHash hashes EXACTLY ContentPayload(preferDistilled) — the
 // framed surface whose body is what EffectiveContent returns — and reports
-// its form. See BundleFragment.EffectiveContentHash — same contract for the
-// per-item trust gate.
+// its form. See BundleFragment.EffectiveContentHash — same contract.
 func (p *BundleCommand) EffectiveContentHash(preferDistilled bool) (string, ContentForm) {
 	payload, form := p.ContentPayload(preferDistilled)
 	return hashContent(payload), form
@@ -1223,8 +1214,7 @@ type mcpContentPayload struct {
 // reordering Args (a slice) does not.
 //
 // This is the SINGLE preimage builder for an MCP server: its trust hash is
-// HashPayload over exactly this function's output, and a countersignature
-// (signature envelope spec §3.2/§3.3) covers exactly it too. The hash is never
+// HashPayload over exactly this function's output. The hash is never
 // stored on the entry — it is derived, and every reader recomputes it. Unlike the
 // fragment/command preimage, this one IS a canonicalization — an existing,
 // already-shipped one (spec §3.3.2) — because an MCP server has no "raw bytes";
@@ -1270,8 +1260,7 @@ type hookContentPayload struct {
 // order).
 //
 // This is the SINGLE preimage builder for a hook: its trust hash is HashPayload
-// over exactly this function's output, and a countersignature covers exactly
-// it too. Mirrors BundleMCP.ContentPayload — same "already-shipped
+// over exactly this function's output. Mirrors BundleMCP.ContentPayload — same "already-shipped
 // canonicalization, not a new one" contract, and the same versioned first field
 // (signing.ExecPreimageContract, spec §3.3.2).
 func (h *BundleHook) ContentPayload() ([]byte, error) {
@@ -1390,8 +1379,7 @@ func ParseBundle(raw []byte) (*Bundle, error) {
 	// An MCP entry that names neither a command nor a url — or both — is not
 	// something a later stage can resolve by guesswork. Refused here, at the
 	// one place every bundle passes through, for the same reason checkLinks is:
-	// a malformed entry that loads cleanly reaches the trust gate and an engine
-	// writer as a server that cannot be launched or dialed, and the failure
+	// a malformed entry that loads cleanly reaches an engine writer as a server that cannot be launched or dialed, and the failure
 	// surfaces far from the typo that caused it.
 	if err := bundle.checkMCPTargets(); err != nil {
 		return nil, err

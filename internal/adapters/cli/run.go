@@ -866,10 +866,6 @@ func endOnSignal(parent context.Context, sigs <-chan os.Signal) (ctx context.Con
 // skipped under --dry-run, which must be side-effect free and non-interactive
 // (no network, no installs, no confirm prompt) so it previews assembly against
 // the library as it exists on disk.
-//
-// Items awaiting review are surfaced per-item by the content trust gate during
-// assembly (the "N item(s) awaiting review — run 'ctxloom review'" advisory),
-// not by a bundle-level lockfile diff here.
 func (st *runState) runStartupTasks() {
 	// Auto-sync remote dependencies on startup if enabled (graceful failure),
 	// so the run doesn't hard-fail on missing parent profiles or bundles that

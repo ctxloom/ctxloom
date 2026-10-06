@@ -261,8 +261,8 @@ func TestDoctorCheckSignKey_WrongState_NothingResolvable(t *testing.T) {
 	check := doctorCheckSignKey(context.Background(), &config.Config{}, disc)
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "no signing key resolves")
-	assert.Contains(t, check.Detail, "ctxloom review", "must lead with approve — a missing key blocks ordinary review, not just publishing")
-	assert.Contains(t, check.Detail, "ctxloom bundle sign", "must also name the publishing feature this gap affects")
+	assert.NotContains(t, check.Detail, "ctxloom review", "names no command that does not exist")
+	assert.Contains(t, check.Detail, "ctxloom bundle sign", "must name the publishing feature this gap affects")
 	assert.Contains(t, check.Detail, "ssh-add", "must give an actionable fix")
 	assert.Equal(t, doctorSignKeyRemedy, check.Remedy)
 }

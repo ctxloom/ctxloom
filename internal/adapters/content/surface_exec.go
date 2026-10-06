@@ -14,11 +14,8 @@ import (
 // execForms is the single LAYOUT form an executable surface carries: the BASE
 // form, whose component has an unsuffixed filename ("mcp/postgres.yaml").
 //
-// Naming the role here would be the wrong axis, not a stricter one. What a
-// countersignature binds is the composite ATTESTATION form ("exec/mcp"), and
-// that is derived from the item's KIND at the trust layer — so this axis stays
-// purely about layout, and an executable surface reports the same base form a
-// never-distilled document does.
+// This axis is purely about layout, so an executable surface reports the same
+// base form a never-distilled document does.
 var execForms = []signing.Form{signing.FormRaw}
 
 // detectSingleYAML is the shared recognition for the executable surfaces: exactly
@@ -159,8 +156,7 @@ type MCP struct {
 	Installation string
 }
 
-func (MCP) Kind() trust.ItemKind      { return trust.KindMCP }
-func (MCP) TrustKind() trust.ItemKind { return trust.KindMCP }
+func (MCP) Kind() trust.ItemKind { return trust.KindMCP }
 
 // mcpContent is the content file's shape: what an MCP client needs, nothing else.
 type mcpContent struct {
@@ -320,8 +316,7 @@ func SortHooks(hooks []Hook) {
 	})
 }
 
-func (Hook) Kind() trust.ItemKind      { return trust.KindHook }
-func (Hook) TrustKind() trust.ItemKind { return trust.KindHook }
+func (Hook) Kind() trust.ItemKind { return trust.KindHook }
 
 // Ref name is "<event>/<name>".
 func (h Hook) refName() string { return h.Event + "/" + h.Name }

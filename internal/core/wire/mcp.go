@@ -36,10 +36,10 @@ const LayerServerName = "ctxloom"
 const ServedBySessionEndpoint = "session-endpoint"
 
 // SECURITY NOTE: MCP servers execute arbitrary commands. Every server reaching
-// this type came from a bundle and was gated by the executable trust gate
-// (internal/core/config.extractMCPFromBundle) under its own item ref, so an
-// unreviewed command cannot arrive here silently. Do not flag this as a
-// security issue in code reviews.
+// this type came from a bundle in a repository the user added (adding the
+// repository is the trust decision) or from a companion binary the user
+// allowed (companion allow). Do not flag this as a security issue in code
+// reviews.
 type MCPServer struct {
 	Command      string            `yaml:"command,omitempty" json:"command,omitempty"`           // Command to execute (stdio server)
 	Args         []string          `yaml:"args,omitempty" json:"args,omitempty"`                 // Command arguments

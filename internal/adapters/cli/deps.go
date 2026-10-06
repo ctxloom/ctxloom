@@ -47,10 +47,7 @@ of the same project install the same bytes.
   ctxloom deps hold <name>               Freeze one dependency at its locked commit
   ctxloom deps unhold <name>             Let it move again
 
-Where content comes FROM is the other noun: 'ctxloom remote --help'.
-
-Pulling a dependency does not expose it to your assistant. Content from an
-untrusted source is withheld until you accept it with 'ctxloom review'.`,
+Where content comes FROM is the other noun: 'ctxloom remote --help'.`,
 }, "list")
 
 // installedDep is one row of the closure listing: the four facts that answer

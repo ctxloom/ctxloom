@@ -189,8 +189,8 @@ type ImportBundleResult struct {
 	MCP       int    `json:"mcp"`
 	// SigDest is the imported tree's .sigs/ store, or "" when the source
 	// carried none. Import PLACES the signature but never verifies it:
-	// verification belongs to the reader (attest.VerifyBundle) and the trust
-	// gate at exposure (composite.Trust), not to the copy step.
+	// verification belongs to the reader (attest.VerifyBundle), not to the
+	// copy step.
 	SigDest string `json:"sig_dest,omitempty"`
 }
 

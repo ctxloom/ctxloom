@@ -116,7 +116,7 @@ type GetFragmentRequest struct {
 	Name string `json:"name"`
 
 	// Pipeline is an optional pre-configured process stage (for testing). It
-	// carries both policies this surface applies — the trust gate and the form
+	// carries the policies this surface applies — the link grant and the form
 	// — so an injected one decides exactly what the production one would.
 	Pipeline *bundles.Pipeline `json:"-"`
 }

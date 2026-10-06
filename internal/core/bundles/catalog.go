@@ -434,7 +434,7 @@ func ambiguousAsk(ask string, matches []BundleRead) error {
 // retiredSpelling refuses an ask written in a reference grammar this version
 // no longer accepts, and says where the current one is written down.
 func retiredSpelling(ask string) error {
-	return fmt.Errorf("%w: %q — re-run `ctxloom init` to migrate a project",
+	return fmt.Errorf("%w: %q — see `ctxloom bundle --help`; re-run `ctxloom init` to migrate a project",
 		errs.ErrRetiredRefSpelling, ask)
 }
 
@@ -510,7 +510,7 @@ func (c Catalog) ResolveAsk(ask string) (trust.BundleRef, error) {
 //
 // It replaces hand-rolled copies of the same filter that differed only in what
 // they projected out of the read. Filtering a resolved set by provenance needs
-// nothing but the reads themselves — no trust gate, no wire types — which is
+// nothing but the reads themselves — no wire types — which is
 // why it belongs here and the surface merging that CONSUMES it does not.
 //
 // The result shares this Catalog's reads; nothing here mutates them.
@@ -636,10 +636,8 @@ func ListingNames(infos []*BundleInfo) []string {
 // unset and unset means withhold, or a struct literal would read as "local,
 // unsigned, no signer".
 //
-// It stays HERE rather than moving to the Authorizer with the rest, and the
-// asymmetry is deliberate. Every other rule decides about CONTENT and belongs to
-// the process stage, where one verdict can serve the gate and the report alike.
-// This one decides about a structurally invalid VALUE: there is no honest
+// It stays HERE, in the read stage, because it decides about a structurally
+// invalid VALUE: there is no honest
 // verdict to render for it, no user action it implies, and no reader that emits
 // one. Keeping it at resolve time means such a value can never become
 // addressable at ALL — a strictly stronger guarantee than withholding it at
@@ -710,9 +708,8 @@ func (c Catalog) read(ask string) (BundleRead, error) {
 // Read resolves an ask to the READ that answers for it — the content plus the
 // trust facts its reader established.
 //
-// It exists because the decision function keys on those facts (Authorizer's
-// Exposure carries a BundleRead), and the executable surfaces resolve a bundle
-// by ref without ever going through a Pipeline. Load remains for callers that
+// It exists because the executable surfaces resolve a bundle by ref without
+// ever going through a Pipeline. Load remains for callers that
 // genuinely only want the bundle.
 func (c Catalog) Read(ask string) (BundleRead, error) { return c.read(ask) }
 

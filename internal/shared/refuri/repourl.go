@@ -136,10 +136,8 @@ type RepoURL struct {
 	// would move that repository's trust-namespace key, and unlike the
 	// scheme-less spellings this change deliberately re-keys, a file://,
 	// ssh:// or git:// URL names a repository that REALLY EXISTS — so a
-	// REJECTION recorded under the old spelling could exist, and a moved key
-	// is a store miss, which drops the rejection and lets EffectiveTrust
-	// step 5 ALLOW the item on its publisher signature. Approvals breaking is
-	// cheap (the item returns to pending); rejections breaking is not.
+	// record keyed under the old spelling could exist, and a moved key is a
+	// store miss.
 	//
 	// CanonicalRepoURL already declines to fold anything on these
 	// transports for the neighbouring reason ("their path is verbatim, where
@@ -179,8 +177,7 @@ func shorthandFirstSegment(token string) bool {
 // The user is ANY user, not "git". gitolite and gerrit conventionally use
 // their own ("forge@gitlab.example.com:group/repo.git"), and a host-prefix
 // test for "git@" classifies those as an opaque local path instead of a
-// remote — which is fail-open at the trust gate, since a local path is the
-// auto-trusted classification.
+// remote.
 //
 // The discriminator is POSITIONAL: scp form puts the "@" before the ":".
 // Strings like "ctxloom:local@bundles/x" put the ":" first and must stay
@@ -208,11 +205,10 @@ func IsSCPForm(raw string) bool {
 // lockfiles.
 func ParseRepoURL(raw string) (RepoURL, error) {
 	// Ingest boundary: a repo URL reaching here came from argv, remotes.yaml
-	// or a lockfile. Its normalised form becomes the trust key and the left
-	// half of the countersign ref, so it is held to the same
-	// no-control-characters rule as any other reference — and doing it HERE
-	// rather than in one renderer is why the clone argument now gets the same
-	// guarantee the trust key always had.
+	// or a lockfile. Its normalised form becomes the repository key, so it is
+	// held to the same no-control-characters rule as any other reference —
+	// and doing it HERE rather than in one renderer is why the clone argument
+	// gets the same guarantee the key has.
 	raw = NormalizeRef(strings.TrimSpace(raw))
 	if raw == "" {
 		return RepoURL{}, fmt.Errorf("empty repository URL")

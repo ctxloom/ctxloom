@@ -14,8 +14,7 @@ import (
 // The default loader materializes ONE version of a bundle — the lockfile-pinned
 // SHA (via the seeded-bundle map) or the on-disk copy. These methods add the
 // ability to present MULTIPLE commit-versions of the same ref in one assembly,
-// each materialized by its own commit and gated INDEPENDENTLY by its own
-// effective-content hash through the existing trust gate.
+// each materialized by its own commit.
 //
 // Addressing follows the plan: a logical ref "<bundle>#fragments/<name>" plus an
 // opaque "@<commit>" revision. The version-less ref is the trust identity — a
@@ -36,8 +35,8 @@ import (
 // non-empty commit materializes that exact historical version through the wired
 // version resolver, caching the parsed result per (canonical-ref, commit) for the
 // loader's lifetime. The returned bundle's Name is the VERSION-LESS canonical ref
-// so the content gate keys on the same identity regardless of which commit served
-// it (multiple grants per ref, one per content_hash).
+// so every version is addressed by the same identity regardless of which commit
+// served it.
 func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	// A bundleRef may itself carry the version ("<bundle>@<commit>"); an explicit
 	// commit argument wins, else fall back to the ref's own pinned version.
@@ -82,7 +81,7 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	// keyed {repo, ref, content_hash} match regardless of the serving commit.
 	//
 	// sourceRef carries it, because sourceRef is what contentSourceRef reads
-	// and therefore what the content gate keys on. Stamping it HERE — rather
+	// and therefore what items are addressed by. Stamping it HERE — rather
 	// than letting newRead fall back to versionRead's `canonical@commit` ref —
 	// is what keeps a historical version under the same key as its unpinned
 	// twin. `canonical` is location-derived: splitBundleVersion produced it

@@ -19,9 +19,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
-// The command lives under `session`, not as `approvals list`: "approvals"
-// names the recorded countersignatures of content trust, a different trust
-// domain that already claims that noun.
+// The command lives under `session`: these are the approvals a session's
+// engine is waiting on.
 var sessionApprovalsCmd = &cobra.Command{
 	Use:   "approvals",
 	Short: "List approvals waiting for the human, from any terminal (read-only)",

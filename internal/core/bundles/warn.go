@@ -35,9 +35,8 @@ import (
 // directory-form bundle's file is always "bundle.yaml", and telling the user to
 // run `ctxloom bundle sign bundle` would be a remedy that fails.
 //
-// It is a STRING and not an emission on purpose. It rides Verdict.Detail, and
-// the caller that received the verdict emits it — see Authorizer, "warnings ride the
-// verdict".
+// It is a STRING and not an emission on purpose: the caller that refuses
+// (ErrStaleSignature) decides how to say it.
 func StaleSignatureAdvice(read BundleRead) string {
 	if read.Bundle == nil {
 		return ""

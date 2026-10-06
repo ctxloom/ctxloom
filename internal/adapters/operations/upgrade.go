@@ -80,13 +80,11 @@ type UpgradeResult struct {
 // written.
 //
 // There is no review gate here: the lockfile is pure dependency pinning.
-// Whether any newly-pinned content ever reaches the agent is decided per item
-// at exposure by the content-hash trust gate (EffectiveTrust).
 //
 // ONE ADVANCE IS REFUSED OUTRIGHT: content whose publisher signature does not
-// verify over its own bytes. That content is withheld as TAMPERED and is
-// deliberately not reviewable, so moving the pin past the last commit that DID
-// verify leaves the consumer with nothing. Such an entry keeps its existing
+// verify over its own bytes. A reader refuses that content as TAMPERED, so
+// moving the pin past the last commit that DID verify leaves the consumer with
+// nothing. Such an entry keeps its existing
 // lockfile values verbatim and is reported in UpgradeResult.Refused, which the
 // caller must tell the human about. See verifyAdvance for the exact rule.
 //

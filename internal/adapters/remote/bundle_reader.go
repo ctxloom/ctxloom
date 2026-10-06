@@ -166,8 +166,8 @@ func (r *BundleReader) readableEntry(bundleName trust.BundleKey) (LockEntry, err
 	if !ok {
 		return LockEntry{}, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, bundleName)
 	}
-	// The pin IS the security control — EffectiveTrust's content
-	// gate keys on bytes read at THIS exact commit. An empty SHA is not "no
+	// The pin IS the security control: content is read at THIS exact
+	// commit. An empty SHA is not "no
 	// preference"; every Fetcher implementation resolves "" to the default
 	// branch TIP, so a blank pin (a hand-edited, truncated, or future-written
 	// lockfile) would silently convert a pinned read into a latest read with

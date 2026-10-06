@@ -79,7 +79,7 @@ type FragmentAsk struct {
 type ItemAsk struct{ Ref string }
 
 // ProfileHooks are one profile's directly-declared hooks and the source ref
-// the executable gate keys them by ("" for a project-authored profile).
+// they are addressed under ("" for a project-authored profile).
 type ProfileHooks struct {
 	Profile   string
 	SourceRef string

@@ -414,8 +414,6 @@ func syncToFixedPoint(ctx context.Context, initial []string, collect RefCollecto
 // each pin straight to the active lockfile; surfacing an upstream change to an
 // already-locked item is `deps upgrade`'s job (operations.UpgradeDependencies),
 // and the post-sync lock rebuilds the active lockfile from the pinned closure.
-// Whether pulled content ever reaches the agent is decided per item at exposure
-// by the content-hash trust gate, so sync itself needs no review ceremony.
 func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir string, fs afero.Fs) (Puller, error) {
 	registry := req.Registry
 	if registry == nil {
@@ -709,8 +707,7 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	// Pull, and an already-installed ref never pulls again on an ordinary
 	// sync. checkInstalledRetraction runs the lightweight (no content
 	// re-fetch) check and persists its verdict onto the existing lockfile
-	// entry, so EffectiveTrust sees it on the very next exposure without any
-	// network call of its own.
+	// entry.
 	if !force && isInstalled(ctx, ref, baseDir, bundles) {
 		if retracted, reason := checkInstalledRetraction(ctx, puller, ref, itemType); retracted {
 			item.Status = "retracted"
@@ -722,8 +719,7 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	}
 
 	// Pull the item. Force so the non-interactive sync never blocks on a
-	// retraction prompt (there is no other confirmation gate — exposure of the
-	// pulled content is decided per item by the content trust gate). Stdout is
+	// retraction prompt (there is no other confirmation gate). Stdout is
 	// pinned to stderr because sync runs inside the MCP server, whose process
 	// stdout carries the JSON-RPC stream; pull's informational output (lockfile
 	// warnings) must never land there.
@@ -748,7 +744,7 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 		// path here) but the publisher has retracted it — surface that to the
 		// user distinctly from a plain install/update; Pull already persisted
 		// Retracted onto the lockfile entry it just wrote (see
-		// Puller.updateLockfile), so EffectiveTrust withholds it from here on.
+		// Puller.updateLockfile).
 		item.Status = "retracted"
 		item.Error = result.RetractedReason
 		return item

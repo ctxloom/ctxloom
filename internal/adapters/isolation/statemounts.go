@@ -234,7 +234,7 @@ func (c Container) taskStoreMounts() ([]mount, error) {
 
 // lockMounts gives the container its OWN ~/.ctxloom/locks — a per-run dir
 // under scratchRoot, removed with it — never the host's. The host's locks dir
-// guards host-only state (the countersign trust index, every session's files),
+// guards host-only state (every session's files),
 // and a child holding it RW could stall those writers by holding a lock,
 // break their exclusion by deleting or replacing a lock file, or plant a
 // symlink for the host to open.

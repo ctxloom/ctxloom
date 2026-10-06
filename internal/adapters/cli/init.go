@@ -420,7 +420,7 @@ func addPersonalRemotes(cmd *cobra.Command, appDir string, repos []string, forge
 			if res.Warning != "" {
 				clidiag.Warn("ctxloom", "%s", res.Warning)
 			}
-			fmt.Printf("Added remote %q: %s (content takes the review path — 'ctxloom review')\n", req.Name, req.URL)
+			fmt.Printf("Added remote %q: %s\n", req.Name, req.URL)
 		}
 	}
 }

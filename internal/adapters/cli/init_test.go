@@ -67,9 +67,7 @@ func TestGenerateConfig_TheHumansSessionRunsOnTheToken(t *testing.T) {
 // TestPersonalRemoteRequests covers the pure request builder behind
 // `ctxloom init`'s personal-repo registration: the first repo is named
 // "personal" and the rest "personal-N", and the --forge label (when set) binds
-// every personal remote to that forge. A remote no longer carries trust on add
-// (spec §11) — its content takes the review path until its publisher key is
-// added — so there is no trust flag to assert.
+// every personal remote to that forge.
 func TestPersonalRemoteRequests(t *testing.T) {
 	t.Run("names and empty forge", func(t *testing.T) {
 		reqs := personalRemoteRequests([]string{"me/a", "me/b", "me/c"}, "")

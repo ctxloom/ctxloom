@@ -4,9 +4,6 @@ package content
 // set of kinds is enumerated: there is no content.Kind enum and no data table
 // mirroring these entries, so a seventh kind is added by calling Register and
 // nothing here changes.
-//
-// Five of them implement TrustGated. Profile does not — see Profile's doc
-// comment.
 func init() {
 	Register(fragmentType{})
 	Register(commandType{})
@@ -16,8 +13,7 @@ func init() {
 	Register(profileType{})
 }
 
-// Compile-time proof that each type satisfies the registry contract, and that
-// exactly the intended five surfaces participate in trust.
+// Compile-time proof that each type satisfies the registry contract.
 var (
 	_ SurfaceType = fragmentType{}
 	_ SurfaceType = commandType{}
@@ -25,10 +21,4 @@ var (
 	_ SurfaceType = hookType{}
 	_ SurfaceType = skillType{}
 	_ SurfaceType = profileType{}
-
-	_ TrustGated = Fragment{}
-	_ TrustGated = Command{}
-	_ TrustGated = MCP{}
-	_ TrustGated = Hook{}
-	_ TrustGated = Skill{}
 )

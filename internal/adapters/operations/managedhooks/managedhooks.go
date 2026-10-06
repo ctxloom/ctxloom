@@ -43,8 +43,6 @@ type Origin string
 const (
 	// OriginProfileDirectory: a profile's own `hooks:` block (a profile item
 	// of the project bundle, or of any other bundle the loader resolves).
-	// These pass the executable trust gate; a hook with this origin was
-	// ALLOWED by it.
 	OriginProfileDirectory Origin = "profile-directory"
 	// OriginCompanion: a companion binary's loadout bundle, discovered on
 	// PATH. Ref is the canonical "ctxloom+companion:<bin>". Also

@@ -327,3 +327,41 @@ func TestGitPublisher_ContainsNoSSHOrHostKeyCode(t *testing.T) {
 				"not to ctxloom — see the GitPublisher doc", forbidden)
 	}
 }
+
+// Two publishes racing for one remote: the loser's push is a non-fast-forward
+// and must FAIL, leaving the winner's commit in place. The publisher's clone is
+// shallow (igit.Git.Clone), so this pins that a shallow tip still refuses to
+// overwrite a remote that moved, and that the publisher neither forces nor
+// retries on top of the new tip — either would report a publish the caller
+// never reviewed against what the remote now holds.
+func TestGitPublisher_RemoteMovedUnderThePublishFailsWithoutRetry(t *testing.T) {
+	gitEnv(t)
+	url, bare := bareRemote(t, "main")
+	ctx := context.Background()
+
+	p, err := NewGitPublisher(url)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = p.Close() })
+
+	// The existing-file probe takes the clone, as a real publish does.
+	_, err = p.GetFileSHA(ctx, "", "", mybundleEnvelope, "main")
+	require.NoError(t, err)
+
+	// Another publisher wins the race.
+	other := filepath.Join(t.TempDir(), "other")
+	taskstest.Git(t, filepath.Dir(other), nil, "clone", bare, other)
+	require.NoError(t, os.WriteFile(filepath.Join(other, "winner.md"), []byte("winner\n"), 0o644))
+	taskstest.Git(t, other, nil, "add", "-A")
+	taskstest.Git(t, other, nil, "commit", "-m", "winner")
+	taskstest.Git(t, other, nil, "push", "origin", "main")
+	winner := taskstest.Git(t, bare, nil, "rev-parse", "main")
+
+	_, err = p.CreateOrUpdateFiles(ctx, "", "", "main", "publish",
+		map[string][]byte{mybundleEnvelope: []byte("description: loser\n")})
+	require.Error(t, err, "a push onto a remote that moved must fail, never report success")
+	assert.Contains(t, err.Error(), "push")
+
+	assert.Equal(t, winner, taskstest.Git(t, bare, nil, "rev-parse", "main"),
+		"the winner's commit must survive: no force, no retry on top of it")
+	gitFails(t, bare, "show", "main:"+mybundleEnvelope)
+}

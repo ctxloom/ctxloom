@@ -100,7 +100,7 @@ Feature: bundle — the container authored content lives in, and everything that
         | flags         | bundle count            | the version   | the fragment count    | the command count | the version after edit | the fragment count after edit |
         |               | 1                        | 1.0.0         | 1                      | 1                  | 2.0.0                   | 2                              |
         | --format json | 1                        | 1.0.0         | 1                      | 1                  | 2.0.0                   | 2                              |
-        | --format text | Installed bundles (1):  | demo (v1.0.0) | Contains: 1 fragments | 1 commands         | demo (v2.0.0)           | Contains: 2 fragments          |
+        | --format text | Installed bundles (1):  | demo (v1.0.0) | Contains: 1 fragment  | 1 command          | demo (v2.0.0)           | Contains: 2 fragments          |
 
     # The bare noun answers the question somebody typing it has, through the
     # same seam `ctxloom remote` and `ctxloom deps` use.

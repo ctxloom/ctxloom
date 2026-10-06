@@ -39,6 +39,7 @@ func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 		dockergate.SkipCapability(t, "git not on PATH, and the host-base out-of-repo-worktree test needs a real repo")
 	}
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the host-base out-of-repo-worktree integration test")
+	primary := daemonFixtures(t, "docker")
 	// Rootless gate: this test writes the managed-config overlay scratch and reads worktree admin files
 	// the container may touch; only rootless docker maps container-root to the
 	// launching user so cleanup can remove anything the container wrote.
@@ -96,11 +97,11 @@ func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 	// standalone container proof, independent of the plugin transport): the
 	// worktree as cwd plus the workspace's own mount set.
 	policyMounts := append([]mount{{Host: wtDir, Container: wtDir}}, cw.extraMounts...)
-	statusOut, err := dockerRun(ctx, worktreeIntegrationImage, wtDir, policyMounts,
+	statusOut, err := dockerRun(ctx, primary, worktreeIntegrationImage, wtDir, policyMounts,
 		"git", "-c", "safe.directory=*", "status", "--porcelain")
 	require.NoError(t, err, "git status must resolve inside the container via the mounted common-dir:\n%s", statusOut)
 
-	gitDirOut, err := dockerRun(ctx, worktreeIntegrationImage, wtDir, policyMounts,
+	gitDirOut, err := dockerRun(ctx, primary, worktreeIntegrationImage, wtDir, policyMounts,
 		"git", "-c", "safe.directory=*", "rev-parse", "--git-dir")
 	require.NoError(t, err, "git rev-parse --git-dir must resolve inside the container:\n%s", gitDirOut)
 	t.Logf("in-container --git-dir (host-base out-of-repo worktree): %s", strings.TrimSpace(gitDirOut))
@@ -118,7 +119,7 @@ git pack-refs --all
 git branch doomed && git pack-refs --all && git branch -D doomed
 git worktree prune
 git worktree list --porcelain`
-	writeOut, err := dockerRun(ctx, worktreeIntegrationImage, wtDir, policyMounts, "sh", "-c", script)
+	writeOut, err := dockerRun(ctx, primary, worktreeIntegrationImage, wtDir, policyMounts, "sh", "-c", script)
 	require.NoError(t, err, "git writes must succeed in-container through the policy's mounts:\n%s", writeOut)
 	assert.NotContains(t, writeOut, otherDir, "the other checkout's registration is not visible in-container")
 	assert.Equal(t, "in-container", gitRun(t, wtDir, "log", "-1", "--format=%s"), "the commit landed on the host")
@@ -133,7 +134,7 @@ git worktree list --porcelain`
 
 	// Contrast: under the whole common dir, the same prune deletes the other
 	// checkout's registration on the host — the hazard the mask closes.
-	_, err = dockerRun(ctx, worktreeIntegrationImage, wtDir,
+	_, err = dockerRun(ctx, primary, worktreeIntegrationImage, wtDir,
 		[]mount{{Host: wtDir, Container: wtDir}, {Host: common, Container: common}},
 		"git", "-c", "safe.directory=*", "worktree", "prune")
 	require.NoError(t, err)
@@ -142,7 +143,7 @@ git worktree list --porcelain`
 
 	// Contrast: mounting ONLY the worktree (no common-dir mirror) FAILS — the
 	// mirror is load-bearing, not incidental.
-	noMirror, err := dockerRun(ctx, worktreeIntegrationImage, wtDir,
+	noMirror, err := dockerRun(ctx, primary, worktreeIntegrationImage, wtDir,
 		[]mount{{Host: wtDir, Container: wtDir}},
 		"git", "-c", "safe.directory=*", "rev-parse", "HEAD")
 	require.Error(t, err, "without the common-dir mirror, git must NOT resolve inside the container")

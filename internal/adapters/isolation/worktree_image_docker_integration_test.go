@@ -23,15 +23,21 @@ import (
 
 const worktreeIntegrationImage = "ctxloom-iso-wt-itest:latest"
 
-// dockerRun runs `docker run --rm` for the given image with the given identical-path
-// mounts and workdir, returning the combined output and error. (Rootless docker
-// maps container-root to the host user, so files it creates in the mounted
-// worktree are host-user-owned and the teardown can remove them.)
-func dockerRun(ctx context.Context, image, workDir string, mounts []mount, args ...string) (string, error) {
+// dockerRun runs `docker run --rm` for the given image with the given mounts
+// and workdir, returning the combined output and error. Each mount's source is
+// named through primary (childLayer), as the policy's render does, so the
+// daemon is handed the host's name for it. (Rootless docker maps
+// container-root to the host user, so files it creates in the mounted worktree
+// are host-user-owned and the teardown can remove them.)
+func dockerRun(ctx context.Context, primary Layer, image, workDir string, mounts []mount, args ...string) (string, error) {
+	child, err := childLayer(primary, mounts)
+	if err != nil {
+		return "", err
+	}
 	full := []string{"run", "--rm"}
-	for _, m := range mounts {
+	for _, m := range child.mounts {
 		// Mirror the policy's render (renderRunSpec): --mount type=bind, not -v.
-		opt := "type=bind,source=" + m.Host + ",target=" + m.Container
+		opt := "type=bind,source=" + m.Host + ",target=" + m.View
 		if m.ReadOnly {
 			opt += ",readonly"
 		}

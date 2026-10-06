@@ -137,29 +137,22 @@ func crossingController(t *testing.T) {
 }
 
 // daemonVisibleDir creates a directory this process can write and the daemon
-// can name, returning both names: under the test's temp dir when this
-// process's layer covers it (on the daemon's host, or a container sharing
-// /tmp), else under the runner's temp ($RUNNER_TEMP) a CI job container
-// mounts from the host. Created world-writable: under a rootful daemon the
-// controller and its child run as root.
+// can name under primary's fixture root (FixtureRoot), returning both names.
+// Created world-writable: under a rootful daemon the controller and its child
+// run as root.
 func daemonVisibleDir(t *testing.T, primary Layer, prefix string) (host, ctl string) {
 	t.Helper()
-	var parents []string
-	parents = append(parents, t.TempDir())
-	if rt := os.Getenv("RUNNER_TEMP"); rt != "" {
-		parents = append(parents, rt)
+	root, err := FixtureRoot(primary)
+	if err != nil {
+		dockergate.SkipCapability(t, "no directory this process writes is one the daemon can name: "+err.Error())
 	}
-	for _, parent := range parents {
-		dir, err := os.MkdirTemp(parent, prefix)
-		require.NoError(t, err)
-		t.Cleanup(func() { _ = os.RemoveAll(dir) })
-		require.NoError(t, os.Chmod(dir, 0o777))
-		if h, err := primary.Reverse(dir); err == nil {
-			return h, dir
-		}
-	}
-	dockergate.SkipCapability(t, "no directory this process writes is one the daemon can name (no shared temp, no $RUNNER_TEMP)")
-	return "", ""
+	dir, err := os.MkdirTemp(root, prefix)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	require.NoError(t, os.Chmod(dir, 0o777))
+	host, err = primary.Reverse(dir)
+	require.NoError(t, err)
+	return host, dir
 }
 
 // daemonSocket is the daemon's socket as the HOST names it.

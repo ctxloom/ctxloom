@@ -71,6 +71,7 @@ func Assemble(ctx context.Context, cat bundles.Catalog, sel Selection, tr Trust,
 		Links:        linkGroups(opts.MCP),
 		DenyTools:    slices.Clone(opts.DenyTools),
 		Statusline:   opts.Statusline,
+		ShellTimeout: opts.ShellTimeout,
 		CarryForward: slices.Clone(opts.CarryForward),
 		Selection:    sel,
 		Loaded:       a.loaded,
@@ -465,7 +466,7 @@ func (in *ingest) join() string {
 // how composite hands content to an engine without an engine package ever
 // importing composite.
 func (p Package) EngineItems(name engine.Name) engine.Items {
-	items := engine.Items{Settings: len(p.DenyTools) > 0 || p.Statusline}
+	items := engine.Items{Settings: len(p.DenyTools) > 0 || p.Statusline || p.ShellTimeout != (engine.ShellTimeout{})}
 	for _, f := range p.Fragments {
 		items.Fragments = append(items.Fragments, engine.FragmentItem{Ref: f.Ref, Name: f.Value.Name, Body: []byte(f.Value.Body), Premise: f.Value.Premise})
 	}

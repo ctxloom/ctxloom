@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -237,7 +238,7 @@ func TestDeliverSettings_ClaimsTheStatuslineAndEachDeny(t *testing.T) {
 		{Pointer: "/statusLine", Value: map[string]any{"type": "command", "command": ctxloomStatusLineCommand()}},
 		{Pointer: "/permissions/deny/-", Value: "Task"},
 		{Pointer: "/permissions/deny/-", Value: "WebFetch"},
-	}, settingsClaimsIn(t, d, project))
+	}, claimsUnder(settingsClaimsIn(t, d, project), "/statusLine", "/permissions"))
 }
 
 // TestDeliverSettings_LeavesAStatuslineThatIsNotCtxloomsCanonicalOne: a
@@ -252,7 +253,7 @@ func TestDeliverSettings_LeavesAStatuslineThatIsNotCtxloomsCanonicalOne(t *testi
 		require.NoError(t, os.WriteFile(path, []byte(`{"statusLine": {"type": "command", "command": "`+cmd+`"}}`), 0o644))
 		d, err := def.Settings.DeliverSettings(start, present.RootProjectRoot, engine.SettingsInputs{Statusline: true}, nil)
 		require.NoError(t, err)
-		require.Empty(t, settingsClaimsIn(t, d, project), cmd)
+		require.Empty(t, claimsUnder(settingsClaimsIn(t, d, project), "/statusLine"), cmd)
 	}
 }
 
@@ -266,7 +267,69 @@ func TestDeliverSettings_ClaimsItsOwnCanonicalStatuslineAgain(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(`{"statusLine": {"type": "command", "command": "`+ctxloomStatusLineCommand()+`"}}`), 0o644))
 	d, err := def.Settings.DeliverSettings(start, present.RootProjectRoot, engine.SettingsInputs{Statusline: true}, nil)
 	require.NoError(t, err)
-	require.Len(t, settingsClaimsIn(t, d, project), 1)
+	require.Len(t, claimsUnder(settingsClaimsIn(t, d, project), "/statusLine"), 1)
+}
+
+// claimsUnder is the claims whose pointer is, or lies beneath, one of the
+// prefixes — so a test about one key of settings.json is not coupled to the
+// others the same delivery claims.
+func claimsUnder(claims []present.Claim, prefixes ...string) []present.Claim {
+	var out []present.Claim
+	for _, c := range claims {
+		for _, p := range prefixes {
+			if c.Pointer == p || strings.HasPrefix(c.Pointer, p+"/") {
+				out = append(out, c)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// shellTimeout is a configured engine-neutral shell timeout the claude tests
+// deliver: ten minutes in the foreground, an hour at most.
+var shellTimeout = engine.ShellTimeout{Default: 10 * time.Minute, Max: time.Hour}
+
+// TestDeliverSettings_ClaimsTheBashTimeouts: the engine-neutral shell timeout
+// is claude's Bash timeouts in settings.json's env, in milliseconds, so a
+// command that outlives claude's own default — a git commit behind its
+// pre-commit hooks — runs to completion in the foreground instead of being
+// moved to the background.
+func TestDeliverSettings_ClaimsTheBashTimeouts(t *testing.T) {
+	def := claudeDef(t)
+	start, project, _ := hostStart(t)
+	d, err := def.Settings.DeliverSettings(start, present.RootProjectRoot, engine.SettingsInputs{ShellTimeout: shellTimeout}, nil)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []present.Claim{
+		{Pointer: "/env/BASH_DEFAULT_TIMEOUT_MS", Value: "600000"},
+		{Pointer: "/env/BASH_MAX_TIMEOUT_MS", Value: "3600000"},
+	}, claimsUnder(settingsClaimsIn(t, d, project), "/env"))
+}
+
+// TestDeliverSettings_NoShellTimeoutClaimsNoEnv: a delivery that carries no
+// shell timeout says nothing about claude's, leaving claude's own defaults.
+func TestDeliverSettings_NoShellTimeoutClaimsNoEnv(t *testing.T) {
+	def := claudeDef(t)
+	start, project, _ := hostStart(t)
+	d, err := def.Settings.DeliverSettings(start, present.RootProjectRoot, engine.SettingsInputs{}, nil)
+	require.NoError(t, err)
+	require.Empty(t, claimsUnder(settingsClaimsIn(t, d, project), "/env"))
+}
+
+// TestDeliverSettings_LeavesABashTimeoutTheUserSet: a timeout the user set
+// in env is theirs, and is not claimed; the one they did not set still is,
+// and so is one already holding ctxloom's own value.
+func TestDeliverSettings_LeavesABashTimeoutTheUserSet(t *testing.T) {
+	def := claudeDef(t)
+	start, project, _ := hostStart(t)
+	path := filepath.Join(project, ConfigDirName, SettingsFileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(`{"env": {"BASH_DEFAULT_TIMEOUT_MS": "1800000", "BASH_MAX_TIMEOUT_MS": "3600000", "OTHER": "x"}}`), 0o644))
+	d, err := def.Settings.DeliverSettings(start, present.RootProjectRoot, engine.SettingsInputs{ShellTimeout: shellTimeout}, nil)
+	require.NoError(t, err)
+	require.Equal(t, []present.Claim{
+		{Pointer: "/env/BASH_MAX_TIMEOUT_MS", Value: "3600000"},
+	}, claimsUnder(settingsClaimsIn(t, d, project), "/env"))
 }
 
 func TestDeliverCommandsAndSkills_LandUnderTheProjectRoot(t *testing.T) {
@@ -412,4 +475,20 @@ func TestDeliverMCP_AClaimNamesTheBundleItCameThrough(t *testing.T) {
 		via[c.Pointer] = c.Via
 	}
 	require.Equal(t, map[string]string{"/mcpServers/tasks": "bundle:ctxloom+companion:taskloom", "/mcpServers/own": ""}, via)
+}
+
+// TestDeliverSettings_RefusesAnEnvItCannotRead: an env that is not an object
+// is the user's file in a state ctxloom cannot read, and is refused like
+// every other unreadable block of it — not read as "no timeouts set".
+func TestDeliverSettings_RefusesAnEnvItCannotRead(t *testing.T) {
+	def := claudeDef(t)
+	start, project, _ := hostStart(t)
+	path := filepath.Join(project, ConfigDirName, SettingsFileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(`{"env": "not-an-object"}`), 0o644))
+	_, err := def.Settings.DeliverSettings(start, present.RootProjectRoot, engine.SettingsInputs{ShellTimeout: shellTimeout}, nil)
+	require.Error(t, err)
+	backups, globErr := filepath.Glob(path + ".corrupt-*")
+	require.NoError(t, globErr)
+	require.Len(t, backups, 1, "refused the way every unreadable block is: the original backed up beside it")
 }

@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"time"
+
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -89,9 +91,19 @@ type MCPInputs struct{ Servers map[string]wire.MCPServer }
 
 // SettingsInputs is what the settings surface carries.
 type SettingsInputs struct {
-	DenyTools  []string
-	Statusline bool
-	Exports    Exports
+	DenyTools    []string
+	Statusline   bool
+	ShellTimeout ShellTimeout
+	Exports      Exports
+}
+
+// ShellTimeout is how long the engine's shell tool runs a command in the
+// foreground when the model names no timeout (Default), and the longest the
+// model may name (Max). Each engine maps it onto its own mechanism; the zero
+// value says nothing, and an engine leaves its own defaults alone.
+type ShellTimeout struct {
+	Default time.Duration
+	Max     time.Duration
 }
 
 // HooksInputs is the hook set by unified event, the unified→native event

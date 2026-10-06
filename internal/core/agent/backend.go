@@ -370,6 +370,10 @@ type ManagedConfig struct {
 	// ignore it. Never trust-gated: a deny entry only narrows a launch, it
 	// never executes anything.
 	DenyTools []string
+	// ShellTimeout is the engine-neutral shell-tool timeout
+	// (config.ShellTimeoutConfig), mapped by each engine's settings surface
+	// onto its own mechanism.
+	ShellTimeout engine.ShellTimeout
 }
 
 // Items is the engine-facing projection of the managed payload: what the
@@ -384,7 +388,7 @@ func (m *ManagedConfig) Items() engine.Items {
 		Commands: make([]engine.CommandItem, len(m.Commands)),
 		Skills:   make([]engine.SkillItem, len(m.Skills)),
 		MCP:      make([]wire.MCPServer, 0, len(m.BundleMCP)),
-		Settings: m.ManageStatusline || len(m.DenyTools) > 0,
+		Settings: m.ManageStatusline || len(m.DenyTools) > 0 || m.ShellTimeout != (engine.ShellTimeout{}),
 	}
 	for _, srv := range m.BundleMCP {
 		items.MCP = append(items.MCP, srv)

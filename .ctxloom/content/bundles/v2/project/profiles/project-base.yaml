@@ -3,6 +3,7 @@ bundles:
     - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/core-practices
     - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/prototyping
     - ctxloom-project#fragments/conditional-guidance
+    - ctxloom-project#fragments/commit-timeouts
     - ctxloom-project#fragments/config-hierarchy
     - ctxloom-project#fragments/fail-loud-launch
     - ctxloom-project#fragments/green-is-not-passing

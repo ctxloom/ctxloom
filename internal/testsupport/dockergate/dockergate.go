@@ -80,6 +80,31 @@ func RuntimeDecision(available bool, what string) (Decision, string) {
 		what, EnvRequireDocker)
 }
 
+// DaemonPathDecision is RequireDaemonPath's policy without a testing.TB. err
+// is why the daemon cannot name a path the test must hand it (a fixture root,
+// the socket a controller cell mounts); nil proceeds. It is promoted like
+// reachability, not treated as a capability: a lane that demands the docker
+// suite and then cannot hand the daemon a single source it can bind has run
+// nothing, and a skip there reports that as green.
+func DaemonPathDecision(err error, what string) (Decision, string) {
+	if err == nil {
+		return Proceed, ""
+	}
+	if required {
+		return Fail, fmt.Sprintf("the daemon cannot name %s, but %s=1 demands the docker suite: %v. "+
+			"A skip here would report green for a test that ran nothing; give this process a directory the daemon shares, "+
+			"or unset %s to go back to skipping.", what, EnvRequireDocker, err, EnvRequireDocker)
+	}
+	return Skip, fmt.Sprintf("the daemon cannot name %s: %v (set %s=1 to make this a failure instead)", what, err, EnvRequireDocker)
+}
+
+// RequireDaemonPath applies DaemonPathDecision to a testing.TB.
+func RequireDaemonPath(t testing.TB, err error, what string) {
+	t.Helper()
+	d, msg := DaemonPathDecision(err, what)
+	Apply(t, d, msg)
+}
+
 // RequireRuntime gates a test on container-runtime REACHABILITY. available is
 // the caller's probe (isolation.Docker{}.Available()); what names the test in
 // the resulting message, e.g. "the container-progress integration test".

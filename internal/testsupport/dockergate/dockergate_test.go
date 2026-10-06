@@ -1,6 +1,7 @@
 package dockergate
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -247,5 +248,30 @@ func TestRuntimeDecision_MatchesRequireRuntime(t *testing.T) {
 		if gotApplied != tc.want {
 			t.Fatalf("required=%v available=%v: RequireRuntime applied %v, want %v", tc.required, tc.available, gotApplied, tc.want)
 		}
+	}
+}
+
+// TestDaemonPathDecision_PromotedWhereDockerIsRequired: a path the daemon
+// cannot name (a fixture root, its own socket) means the test hands it
+// nothing it can bind. Where CTXLOOM_REQUIRE_DOCKER=1 demands the docker
+// suite, that is a FAILURE — a skip would report green for a lane that ran
+// nothing — and elsewhere a skip, as a capability this host lacks.
+func TestDaemonPathDecision_PromotedWhereDockerIsRequired(t *testing.T) {
+	old := required
+	t.Cleanup(func() { required = old })
+	unnamed := errors.New("path is not under any mount of this layer: /run/docker.sock")
+
+	required = true
+	d, msg := DaemonPathDecision(unnamed, "the daemon socket")
+	if d != Fail || !strings.Contains(msg, "the daemon socket") || !strings.Contains(msg, "/run/docker.sock") {
+		t.Fatalf("required: got %v %q, want a failure naming the path and why", d, msg)
+	}
+	required = false
+	if d, _ := DaemonPathDecision(unnamed, "the daemon socket"); d != Skip {
+		t.Fatalf("not required: got %v, want Skip", d)
+	}
+	required = true
+	if d, _ := DaemonPathDecision(nil, "the daemon socket"); d != Proceed {
+		t.Fatalf("a nameable path: got %v, want Proceed", d)
 	}
 }

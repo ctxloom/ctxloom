@@ -143,9 +143,7 @@ func crossingController(t *testing.T) {
 func daemonVisibleDir(t *testing.T, primary Layer, prefix string) (host, ctl string) {
 	t.Helper()
 	root, err := FixtureRoot(primary, dockergate.FixtureCandidates()...)
-	if err != nil {
-		dockergate.SkipCapability(t, "no directory this process writes is one the daemon can name: "+err.Error())
-	}
+	dockergate.RequireDaemonPath(t, err, "a directory this process writes")
 	dir, err := os.MkdirTemp(root, prefix)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
@@ -163,9 +161,7 @@ func daemonSocket(t *testing.T, primary Layer) string {
 		sock = h
 	}
 	host, err := primary.Reverse(sock)
-	if err != nil {
-		dockergate.SkipCapability(t, "the daemon socket is not a mount the daemon can name: "+err.Error())
-	}
+	dockergate.RequireDaemonPath(t, err, "its own socket, which the controller cell mounts")
 	return host
 }
 

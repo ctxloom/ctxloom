@@ -22,9 +22,7 @@ func daemonFixtures(t *testing.T, runtime string) Layer {
 	l, err := DaemonLayer(runtime)
 	require.NoError(t, err, "this process's layer on the %s daemon", runtime)
 	root, err := FixtureRoot(l, dockergate.FixtureCandidates()...)
-	if err != nil {
-		dockergate.SkipCapability(t, "no directory this process writes is one the "+runtime+" daemon can name: "+err.Error())
-	}
+	dockergate.RequireDaemonPath(t, err, "a directory this process writes ("+runtime+")")
 	if root != os.TempDir() {
 		t.Setenv("TMPDIR", root)
 	}

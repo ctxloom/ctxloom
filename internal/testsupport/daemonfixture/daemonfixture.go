@@ -33,9 +33,8 @@ func Require(t testing.TB, what string) isolation.Layer {
 // (isolation.FixtureRoot over dockergate.FixtureCandidates), so t.TempDir,
 // os.MkdirTemp and every helper over them create sources the daemon can name,
 // and returns the layer a test reverses a source through when it hands the
-// daemon one itself. A process
-// the daemon cannot place fails; a layer with no fixture root skips, as an
-// environment capability.
+// daemon one itself. A process the daemon cannot place fails; a layer with no
+// fixture root is dockergate.RequireDaemonPath's to decide.
 func Root(t testing.TB, runtime string) isolation.Layer {
 	t.Helper()
 	l, err := isolation.DaemonLayer(runtime)
@@ -43,9 +42,7 @@ func Root(t testing.TB, runtime string) isolation.Layer {
 		t.Fatalf("this process's layer on the %s daemon: %v", runtime, err)
 	}
 	root, err := isolation.FixtureRoot(l, dockergate.FixtureCandidates()...)
-	if err != nil {
-		dockergate.SkipCapability(t, "no directory this process writes is one the "+runtime+" daemon can name: "+err.Error())
-	}
+	dockergate.RequireDaemonPath(t, err, "a directory this process writes ("+runtime+")")
 	if root != os.TempDir() {
 		t.Setenv("TMPDIR", root)
 	}

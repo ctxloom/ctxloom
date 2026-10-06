@@ -191,7 +191,7 @@ func TestNewMem_Private(t *testing.T) {
 	require.NoError(t, root.Private.Ensure("/a/b"))
 	require.NoError(t, root.Private.Check("/a/b"))
 
-	require.NoError(t, root.Fs.Chmod("/a/b", 0o755))
+	require.NoError(t, root.Fs.Chmod(filepath.FromSlash("/a/b"), 0o755))
 	var exposed *ExposedError
 	require.ErrorAs(t, root.Private.Check("/a/b"), &exposed)
 	assert.Equal(t, filepath.FromSlash("/a/b"), filepath.FromSlash(exposed.Path))
@@ -205,6 +205,16 @@ func TestNewMem_Private(t *testing.T) {
 	assert.NotErrorAs(t, err, &exposed)
 }
 
+// Ensure restricts the entry the filesystem made, whatever spelling of the
+// path it was handed: a MemMapFs files an entry under its cleaned path but
+// looks Chmod's name up as given, so an uncleaned name (any "/a/b" on
+// Windows, where Clean makes it `\a\b`) restricts nothing and fails.
+func TestNewMem_PrivateRestrictsAnUncleanPath(t *testing.T) {
+	root := NewMem(afero.NewMemMapFs())
+	require.NoError(t, root.Private.Ensure("/a//b/"))
+	require.NoError(t, root.Private.Check("/a/b"))
+}
+
 // Ensure restricts a dir it creates (empty, so nothing is walked), and an
 // existing dir only when it is exposed: restricting propagates to every child
 // on Windows, so doing it on every start would walk the whole tree each time.
@@ -213,7 +223,7 @@ func TestPrivate_EnsureRestrictsOnlyWhenExposed(t *testing.T) {
 	restricts := 0
 	p := privateOn{fs: mfs, violation: modeViolation, restrict: func(dir string) error {
 		restricts++
-		return mfs.Chmod(dir, PrivateDirMode)
+		return mfs.Chmod(filepath.Clean(dir), PrivateDirMode)
 	}}
 	require.NoError(t, p.Ensure("/a"))
 	assert.Equal(t, 1, restricts, "a dir Ensure creates is restricted as it is made")
@@ -221,7 +231,7 @@ func TestPrivate_EnsureRestrictsOnlyWhenExposed(t *testing.T) {
 	require.NoError(t, p.Ensure("/a"))
 	assert.Zero(t, restricts, "an owner-only dir is left alone")
 
-	require.NoError(t, mfs.Chmod("/a", 0o750))
+	require.NoError(t, mfs.Chmod(filepath.FromSlash("/a"), 0o750))
 	require.NoError(t, p.Ensure("/a"))
 	assert.Equal(t, 1, restricts, "an exposed dir is restricted")
 	require.NoError(t, p.Check("/a"))

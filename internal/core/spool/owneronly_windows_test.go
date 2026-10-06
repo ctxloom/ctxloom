@@ -3,7 +3,6 @@
 package spool
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,19 +10,22 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
-// On Windows owner-only is a DACL, not a mode. A spool root that already
-// exists carrying the ACL it inherited from its parent is made owner-only by
-// the first writer, and what is created beneath it — the layout, a published
-// message, an armed wake — inherits that protection.
-func TestSpool_TheRootAndWhatIsBeneathItAreOwnerOnly_ADACL(t *testing.T) {
+// On Windows owner-only is a DACL, not a mode, and it is the established
+// sessions root's (paths.EnsureHomeRoots, at process start): the spool's
+// writers only create beneath it, so the root, the layout, a published
+// message, a delivered record and an armed wake all inherit the root's
+// owner-only ACE.
+func TestSpool_WhatIsBeneathTheEstablishedRootIsOwnerOnly_ADACL(t *testing.T) {
 	hostHome(t)
+	require.NoError(t, paths.EnsureHomeRoots(safefs.New().Private))
 	m := NewHomeMapper()
 	root, err := Root(m, testHarp)
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(root, 0o755))
 
 	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)

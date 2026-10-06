@@ -282,11 +282,16 @@ func TestDegradedMode_DoesNotStopRecording(t *testing.T) {
 
 	mark := Checkpoint()
 	degraded := Mode{Degraded: true}
-	atFlip := len(All())
+	// Whether any recorder runs again after the flip is the scheduler's
+	// business, so the recorders are stopped first — the interleaving where
+	// none did — and the property is proven by a finding recorded strictly
+	// after the flip.
 	close(stop)
 	wg.Wait()
+	atFlip := len(All())
+	Record(report.KindSync, "", "recorded after the flip")
 
-	assert.Greater(t, len(All()), atFlip,
+	assert.Equal(t, atFlip+1, len(All()),
 		"recording must continue across the flip: degraded suppresses fatality, not the audit trail")
 	assert.NoError(t, degraded.FindingsError(mark),
 		"the gate is the mode's only observer — it stays silent while collection continues")

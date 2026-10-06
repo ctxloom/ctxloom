@@ -31,8 +31,16 @@ func livenessTestHome(t *testing.T) {
 // recording, so the fixture written next is the WHOLE evidence the monitor
 // reads. The runner keeps writing to its now-orphaned inode; the analyser
 // reads the path, which is the fixture's.
-func onlyFixtureTranscript(t *testing.T, harp string) {
+//
+// That holds only once the runner's recorder HAS an inode: it opens lazily,
+// on its first write, so a runner that has not yet recorded anything opens
+// the fixture's file afterwards and appends its own turn to it. entered is
+// the child's scripted engine's Entered: the engine host records a turn's
+// user text (EngineHost.startTurn) before handing the engine that turn, so a
+// receive on it follows the runner's first write.
+func onlyFixtureTranscript(t *testing.T, harp string, entered <-chan struct{}) {
 	t.Helper()
+	<-entered
 	path, err := paths.HarpCanonicalTranscriptPath(harp)
 	require.NoError(t, err)
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -44,9 +52,9 @@ func onlyFixtureTranscript(t *testing.T, harp string) {
 // relaunch per delivery (a fresh transcript.Recorder, hence seq restarting at
 // 0 against the same O_APPEND file), the same composed context every time, no
 // turn ever.
-func stuckChildTranscript(t *testing.T, harp string, deliveries int) {
+func stuckChildTranscript(t *testing.T, harp string, entered <-chan struct{}, deliveries int) {
 	t.Helper()
-	onlyFixtureTranscript(t, harp)
+	onlyFixtureTranscript(t, harp, entered)
 	for i := 0; i < deliveries; i++ {
 		rec, err := transcript.NewRecorder(afero.NewOsFs(), harp, "claude")
 		require.NoError(t, err)
@@ -55,9 +63,9 @@ func stuckChildTranscript(t *testing.T, harp string, deliveries int) {
 	}
 }
 
-func healthyChildTranscript(t *testing.T, harp string) {
+func healthyChildTranscript(t *testing.T, harp string, entered <-chan struct{}) {
 	t.Helper()
-	onlyFixtureTranscript(t, harp)
+	onlyFixtureTranscript(t, harp, entered)
 	rec, err := transcript.NewRecorder(afero.NewOsFs(), harp, "claude")
 	require.NoError(t, err)
 	defer func() { require.NoError(t, rec.Close()) }()
@@ -91,13 +99,22 @@ func spawnOneChild(t *testing.T, c *Coordinator) string {
 
 func TestLivenessSnapshot_FiresOnStuckChildAndNotOnHealthyOne(t *testing.T) {
 	livenessTestHome(t)
-	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
+	stuckEntered, healthyEntered := make(chan struct{}, 8), make(chan struct{}, 8)
+	chats := []chan struct{}{stuckEntered, healthyEntered}
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}}, func() *scriptedChat {
+		if len(chats) == 0 {
+			return &scriptedChat{} // a relaunch: its fixture is already written
+		}
+		entered := chats[0]
+		chats = chats[1:]
+		return &scriptedChat{Entered: entered}
+	})
 	c := newTestCoordinator(t, sp, nil)
 
 	stuckHarp := spawnOneChild(t, c)
 	healthyHarp := spawnOneChild(t, c)
-	stuckChildTranscript(t, stuckHarp, 6)
-	healthyChildTranscript(t, healthyHarp)
+	stuckChildTranscript(t, stuckHarp, stuckEntered, 6)
+	healthyChildTranscript(t, healthyHarp, healthyEntered)
 
 	reps := c.livenessSnapshot(context.Background())
 	require.NotEmpty(t, reps, "the snapshot must cover the children the coordinator holds")
@@ -127,12 +144,13 @@ func TestLivenessSnapshot_FiresOnStuckChildAndNotOnHealthyOne(t *testing.T) {
 func TestLivenessSnapshot_PendingApprovalSuppressesTheVerdict(t *testing.T) {
 	livenessTestHome(t)
 	gate := make(chan struct{})
+	entered := make(chan struct{}, 8)
 	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{Gate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate, Entered: entered} })
 	c := newTestCoordinator(t, sp, nil)
 
 	harp := spawnOneChild(t, c)
-	stuckChildTranscript(t, harp, 6)
+	stuckChildTranscript(t, harp, entered, 6)
 
 	// With nothing pending, this child fires.
 	before := reportFor(c.livenessSnapshot(context.Background()), harp)

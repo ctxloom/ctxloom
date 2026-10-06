@@ -142,7 +142,7 @@ func crossingController(t *testing.T) {
 // run as root.
 func daemonVisibleDir(t *testing.T, primary Layer, prefix string) (host, ctl string) {
 	t.Helper()
-	root, err := FixtureRoot(primary)
+	root, err := FixtureRoot(primary, dockergate.FixtureCandidates()...)
 	if err != nil {
 		dockergate.SkipCapability(t, "no directory this process writes is one the daemon can name: "+err.Error())
 	}

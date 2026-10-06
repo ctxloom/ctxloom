@@ -156,3 +156,13 @@ func DockerIsRootless() bool {
 	}
 	return strings.Contains(string(out), "rootless")
 }
+
+// FixtureCandidates are the directories, in order, a docker-gated test may
+// root the fixtures it binds into a container under (isolation.FixtureRoot
+// keeps the first the daemon can name): the process temp dir — the daemon's
+// own on its host, or in a container sharing it — then $RUNNER_TEMP, the
+// runner directory a CI job container is given from the host at a path of its
+// own. Both are outside the checkout, which `just test`'s leak check scans.
+func FixtureCandidates() []string {
+	return []string{os.TempDir(), os.Getenv("RUNNER_TEMP")}
+}

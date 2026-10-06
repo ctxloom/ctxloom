@@ -37,6 +37,7 @@ func setupUpgrade(t *testing.T) (cfgBase string, ref, identity, c1 string) {
 	identity = ref
 
 	writeLocalProfile(t, baseDir, "default", "bundles:\n  - "+ref+"\n")
+	registerTestRemote(t, baseDir, "file://"+src)
 	return baseDir, ref, identity, c1
 }
 

@@ -26,6 +26,7 @@ func TestVersionPinnedRemoteRead_VerifiesAgainstTheGenerationsOnDiskSigners(t *t
 	repoDir, rev1, _, pub := remoteTreeContentRepo(t)
 	appDir := filepath.Join(t.TempDir(), "consumer", ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	registerTestRemote(t, appDir, "file://"+filepath.ToSlash(repoDir))
 	testsupport.WriteFileString(t, afero.NewOsFs(), paths.AllowedSignersPath(appDir),
 		"publisher@example.com namespaces=\""+signing.NamespacePublish+"\" "+string(ssh.MarshalAuthorizedKey(pub)), 0o644)
 

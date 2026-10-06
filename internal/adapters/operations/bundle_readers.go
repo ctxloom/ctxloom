@@ -310,6 +310,8 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 	if lock.IsEmpty() {
 		return nil
 	}
+	withheld := map[trust.BundleKey]error{}
+	lock = registeredEntries(lock, registry, withheld)
 	// Auth config and the git clone cache are inherently OS-backed (the cache
 	// shells out to git), so they intentionally do not honor cfg.FS().
 	auth := remote.LoadAuth(baseDir)
@@ -321,6 +323,7 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 
 	ctx := context.Background()
 	_, failures := remote.LoadAllBytes(ctx, reader)
+	maps.Copy(failures, withheld)
 
 	// The trust root (embedded + user + project allowed_signers) is resolved once
 	// for the whole set and handed to every reader, so no two pinned bundles are
@@ -336,6 +339,25 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 	// a published fragment stop reaching the consumer's assistant while every
 	// other surface kind still arrived.
 	return pinnedTreeReaders(cfg, lock, root, failures)
+}
+
+// registeredEntries returns the part of lock whose repositories are
+// registered remotes, recording every other entry in failures as
+// remote.NotRegisteredError. It is the read side of the registration rule
+// whose fetch side is remote.Puller's: content installed from a repository
+// that is no longer registered stops resolving, though its tree is still on
+// disk. lock itself is not modified.
+func registeredEntries(lock *remote.Lockfile, registry *remote.Registry, failures map[trust.BundleKey]error) *remote.Lockfile {
+	kept := *lock
+	kept.Bundles = make(map[trust.BundleKey]remote.LockEntry, len(lock.Bundles))
+	for key, entry := range lock.Bundles {
+		if _, ok := registry.LookupURL(entry.URL); !ok {
+			failures[key] = remote.NotRegisteredError(entry.URL)
+			continue
+		}
+		kept.Bundles[key] = entry
+	}
+	return &kept
 }
 
 // pinnedTreeReaders builds the lockfile's tree readers, reports every pinned
@@ -396,8 +418,10 @@ func BundleVersionResolver(cfg *config.Config) bundles.BundleVersionResolver {
 	// local-only pin never touches the remote cache, so neither pays for it.
 	var (
 		once    sync.Once
-		factory remote.FetcherFactory
-		auth    remote.AuthConfig
+		factory  remote.FetcherFactory
+		auth     remote.AuthConfig
+		registry *remote.Registry
+		regErr   error
 	)
 	return func(canonicalRef, commit string, root trust.TrustRoot) (*bundles.Bundle, error) {
 		ref, err := remote.ParseReference(canonicalRef)
@@ -412,13 +436,22 @@ func BundleVersionResolver(cfg *config.Config) bundles.BundleVersionResolver {
 			return readLocalTreeAt(context.Background(), paths.LocalPath(baseDir), ref, commit)
 		}
 
-		// Remote/canonical refs: FetchItem over the local clone cache (auth +
-		// cache built once, lazily, on the first remote pin).
+		// Remote/canonical refs: FetchItem over the local clone cache (auth,
+		// cache and registry built once, lazily, on the first remote pin). A
+		// repository no remote is registered for is refused before the cache
+		// is read (registeredEntries is the unversioned twin).
 		once.Do(func() {
 			auth = remote.LoadAuth(baseDir)
 			cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
 			factory = remote.NewCachedFetcherFactory(cache)
+			registry, regErr = remote.NewRegistry(paths.RemotesPath(baseDir), remote.WithRegistryFS(cfg.FS()))
 		})
+		if regErr != nil {
+			return nil, fmt.Errorf("read %s@%s: open the remotes registry: %w", canonicalRef, commit, regErr)
+		}
+		if _, ok := registry.LookupURL(ref.URL); !ok {
+			return nil, remote.NotRegisteredError(ref.URL)
+		}
 		// The WHOLE tree, not its manifest: a tree bundle's fragments, commands
 		// and skills are FILES beside its bundle.yaml, so reading the manifest
 		// alone resolved every @<commit>-pinned tree bundle to a bundle with

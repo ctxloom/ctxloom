@@ -61,6 +61,7 @@ func newShippedProfileProject(t *testing.T) *shippedProfileProject {
 
 	p.appDir = filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, p.appDir), 0o755))
+	registerTestRemote(t, p.appDir, repoURL)
 	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, p.appDir), "dev.yaml"),
 		[]byte("bundles:\n  - "+p.kitRef+"\n"), 0o644))
 	require.NoError(t, os.WriteFile(paths.ConfigPath(p.appDir),

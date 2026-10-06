@@ -26,6 +26,41 @@ func stemSessions(t *testing.T) {
 	t.Cleanup(restore)
 }
 
+// mintHarp opens the isolated home's store and mints one claude-code harp.
+func mintHarp(t *testing.T) (*Manager, string) {
+	t.Helper()
+	mgr, err := Open(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, err := mgr.AssignHarp("/proj", "claude-code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mgr, entry.HarpName
+}
+
+// mustBind binds harp, failing the test on error.
+func mustBind(t *testing.T, mgr *Manager, harp, sessionID, transcript string) {
+	t.Helper()
+	if err := mgr.BindSession(harp, sessionID, transcript); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// requireBinding asserts the session id (and, when non-empty, the transcript)
+// that Find reports for harp.
+func requireBinding(t *testing.T, mgr *Manager, harp, wantID, wantPath string) {
+	t.Helper()
+	got, err := mgr.Find(harp)
+	if err != nil || got == nil {
+		t.Fatalf("find %s: %v (entry=%v)", harp, err, got)
+	}
+	if got.SessionID != wantID || (wantPath != "" && got.TranscriptPath != wantPath) {
+		t.Fatalf("Find: session %q at %q, want %q at %q", got.SessionID, got.TranscriptPath, wantID, wantPath)
+	}
+}
+
 // TestFind_LocatedTranscriptNamesTheSession: a containerized child's record
 // carries at most the wire-learned native key (no transcript path — nothing
 // in the child can write the controller's record). Its transcript is found BY
@@ -35,60 +70,29 @@ func stemSessions(t *testing.T) {
 func TestFind_LocatedTranscriptNamesTheSession(t *testing.T) {
 	home := testsupport.Isolate(t)
 	stemSessions(t)
-
-	mgr, err := Open(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	entry, err := mgr.AssignHarp("/proj", "claude-code")
-	if err != nil {
-		t.Fatal(err)
-	}
+	mgr, harp := mintHarp(t)
 	// The coordinator's wire bind: a key and no transcript path.
-	if err := mgr.BindSession(entry.HarpName, "first", ""); err != nil {
-		t.Fatal(err)
-	}
+	mustBind(t, mgr, harp, "first", "")
 	base := time.Now().Add(-time.Hour)
-	first := writeStoreFile(t, home, entry.HarpName, "-proj-enc/first.jsonl", base)
-
-	got, err := mgr.Find(entry.HarpName)
-	if err != nil || got == nil {
-		t.Fatalf("find: %v (entry=%v)", err, got)
-	}
-	if got.SessionID != "first" || got.TranscriptPath != first {
-		t.Fatalf("before rotation: session %q at %q, want %q at %q", got.SessionID, got.TranscriptPath, "first", first)
-	}
+	first := writeStoreFile(t, home, harp, "-proj-enc/first.jsonl", base)
+	requireBinding(t, mgr, harp, "first", first)
 
 	// /clear: the live process starts a new transcript.
-	rotated := writeStoreFile(t, home, entry.HarpName, "-proj-enc/rotated.jsonl", base.Add(time.Minute))
-
-	got, err = mgr.Find(entry.HarpName)
-	if err != nil || got == nil {
-		t.Fatalf("find after rotation: %v", err)
-	}
-	if got.SessionID != "rotated" || got.TranscriptPath != rotated {
-		t.Fatalf("after rotation: session %q at %q, want %q at %q", got.SessionID, got.TranscriptPath, "rotated", rotated)
-	}
+	rotated := writeStoreFile(t, home, harp, "-proj-enc/rotated.jsonl", base.Add(time.Minute))
+	requireBinding(t, mgr, harp, "rotated", rotated)
 
 	listed, err := mgr.ListForProject("/proj")
-	if err != nil || len(listed) != 1 {
-		t.Fatalf("list: %v (n=%d)", err, len(listed))
-	}
-	if listed[0].SessionID != "rotated" {
-		t.Fatalf("ListForProject SessionID = %q, want the located %q", listed[0].SessionID, "rotated")
+	if err != nil || len(listed) != 1 || listed[0].SessionID != "rotated" {
+		t.Fatalf("ListForProject = %+v, %v; want one entry bound to %q", listed, err, "rotated")
 	}
 
 	// Derived on read, never persisted: the sidecar keeps the wire key.
-	sidecar, err := paths.HarpSidecarPath(entry.HarpName)
+	sidecar, err := paths.HarpSidecarPath(harp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(sidecar)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(raw), "rotated") {
-		t.Fatalf("the located session id leaked into the persisted sidecar:\n%s", raw)
+	if raw, err := os.ReadFile(sidecar); err != nil || strings.Contains(string(raw), "rotated") {
+		t.Fatalf("sidecar must keep only the recorded key (err=%v):\n%s", err, raw)
 	}
 }
 
@@ -98,22 +102,12 @@ func TestFindBySessionID_FindsALocatedSession(t *testing.T) {
 	home := testsupport.Isolate(t)
 	stemSessions(t)
 
-	mgr, err := Open(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	entry, err := mgr.AssignHarp("/proj", "claude-code")
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeStoreFile(t, home, entry.HarpName, "-proj-enc/located.jsonl", time.Now().Add(-time.Minute))
+	mgr, harp := mintHarp(t)
+	writeStoreFile(t, home, harp, "-proj-enc/located.jsonl", time.Now().Add(-time.Minute))
 
 	got, err := mgr.FindBySessionID("located")
-	if err != nil || got == nil {
-		t.Fatalf("FindBySessionID(located) = %v, %v; want harp %s", got, err, entry.HarpName)
-	}
-	if got.HarpName != entry.HarpName {
-		t.Fatalf("FindBySessionID resolved %q, want %q", got.HarpName, entry.HarpName)
+	if err != nil || got == nil || got.HarpName != harp {
+		t.Fatalf("FindBySessionID(located) = %v, %v; want harp %s", got, err, harp)
 	}
 }
 
@@ -123,30 +117,14 @@ func TestFind_BoundTranscriptKeepsItsSession(t *testing.T) {
 	home := testsupport.Isolate(t)
 	stemSessions(t)
 
-	mgr, err := Open(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	entry, err := mgr.AssignHarp("/proj", "claude-code")
-	if err != nil {
-		t.Fatal(err)
-	}
+	mgr, harp := mintHarp(t)
 	bound := filepath.Join(t.TempDir(), "bound.jsonl")
 	if err := os.WriteFile(bound, []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := mgr.BindSession(entry.HarpName, "hook-bound", bound); err != nil {
-		t.Fatal(err)
-	}
-	writeStoreFile(t, home, entry.HarpName, "-proj-enc/elsewhere.jsonl", time.Now())
-
-	got, err := mgr.Find(entry.HarpName)
-	if err != nil || got == nil {
-		t.Fatalf("find: %v", err)
-	}
-	if got.SessionID != "hook-bound" {
-		t.Fatalf("SessionID = %q, want the hook's binding %q", got.SessionID, "hook-bound")
-	}
+	mustBind(t, mgr, harp, "hook-bound", bound)
+	writeStoreFile(t, home, harp, "-proj-enc/elsewhere.jsonl", time.Now())
+	requireBinding(t, mgr, harp, "hook-bound", bound)
 }
 
 // TestFind_UnnamedLocatedTranscriptKeepsTheRecord: an engine that cannot name
@@ -158,24 +136,8 @@ func TestFind_UnnamedLocatedTranscriptKeepsTheRecord(t *testing.T) {
 		return "", errors.New("cannot name it")
 	}))
 
-	mgr, err := Open(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	entry, err := mgr.AssignHarp("/proj", "claude-code")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := mgr.BindSession(entry.HarpName, "wire-key", ""); err != nil {
-		t.Fatal(err)
-	}
-	writeStoreFile(t, home, entry.HarpName, "-proj-enc/x.jsonl", time.Now())
-
-	got, err := mgr.Find(entry.HarpName)
-	if err != nil || got == nil {
-		t.Fatalf("find: %v", err)
-	}
-	if got.SessionID != "wire-key" {
-		t.Fatalf("SessionID = %q, want the recorded %q", got.SessionID, "wire-key")
-	}
+	mgr, harp := mintHarp(t)
+	mustBind(t, mgr, harp, "wire-key", "")
+	writeStoreFile(t, home, harp, "-proj-enc/x.jsonl", time.Now())
+	requireBinding(t, mgr, harp, "wire-key", "")
 }

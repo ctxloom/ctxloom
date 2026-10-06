@@ -197,6 +197,6 @@ returns English prose, `Inject`/steer return the typed `Delivery*` constants.
 | --- | --- |
 | `RootStateDir` / `ensureRootStateDir` | `~/.ctxloom/coord/<key>/<root-harp>` (created at 0700 by the latter); the root harp is validated as a harp |
 | `ListRoots` | every root of a project with its `ProbeOwner` status, claiming none; a root is a directory carrying an owner lock file |
-| `RemoveRoot` | the one path that deletes a root: claims its lock (`ErrStateOwned` when held), deletes under it, releases; a claim racing it retries on `errRootRemoved` (`acquireStateDir`) |
+| `RemoveRoot` | the one path that deletes a root: claims its lock (`ErrStateOwned` when held), empties the dir under it, unlinks the lock file last, releases, then removes the dir (`removeClaimedRoot`); a claim racing it retries on `errRootRemoved` (`acquireStateDir`), and a claimant that re-made the lock file after the unlink keeps the root |
 | `sanitizeKey` | replaces `/ \ : ..`; a key that reduces to dots only falls back to `default`, never the coord root itself |
 | `claimOwner` | flock on the owner lock; the holder's stamp beside it is display and orphan evidence only, never liveness |

@@ -203,14 +203,11 @@ var whileRemovingRoot = func(dir string) {}
 
 // RemoveRoot deletes a coordinator root — the ONE path that does. It CLAIMS
 // the root first: a root a live process holds is refused (ErrStateOwned) and
-// left whole. The dir is deleted while the lock is held, so a claimant of
-// the same root either waits it out and then finds the root gone (and makes
-// it afresh — errRootRemoved), or wins first and is refused nothing. Windows
-// refuses to delete a file with an open handle — the held lock file — so
-// there the delete is finished after the release; a claimant that opened the
-// lock file in between holds a handle that refuses the delete in turn, so the
-// retry can never unlink a lock someone holds. A root that does not exist is
-// already removed.
+// left whole. The root is deleted under the lock (removeClaimedRoot), so a
+// claimant of the same root either waits it out and then finds the root gone
+// (and makes it afresh — errRootRemoved), or makes it afresh in the dir the
+// removal was emptying and keeps it, or wins first and is refused nothing. A
+// root that does not exist is already removed.
 func RemoveRoot(root safefs.Root, projectID, projectDir, rootHarp string) error {
 	dir, err := RootStateDir(projectID, projectDir, rootHarp)
 	if err != nil {
@@ -230,10 +227,54 @@ func RemoveRoot(root safefs.Root, projectID, projectDir, rootHarp string) error 
 		return err
 	}
 	whileRemovingRoot(dir)
-	rmErr := root.Fs.RemoveAll(dir)
+	return removeClaimedRoot(root.Fs, dir, lk)
+}
+
+// removeClaimedRoot deletes the root dir whose owner lock lk holds, and
+// releases lk. The lock file is unlinked LAST: a waiting claimant re-opens
+// the lock path with O_CREATE on every poll, so from that unlink on it can
+// make a fresh lock file in the dir, win it and find it current — nothing
+// deleted after the unlink is deleted under the lock. The only step after it
+// is the rmdir, which refuses a dir that is not empty; refused with a lock
+// file back at the path, it met a claimant that made the root afresh, and
+// that root is left to it. Windows refuses to unlink a file with an open
+// handle — the held lock file — so there the unlink is finished after the
+// release; a claimant that opened the lock file in between holds a handle
+// that refuses the unlink in turn, so the retry can never unlink a lock
+// someone holds.
+func removeClaimedRoot(fsys afero.Fs, dir string, lk safefs.Lock) error {
+	lockPath := filepath.Join(dir, OwnerLockFileName)
+	if err := removeAllBut(fsys, dir, OwnerLockFileName); err != nil {
+		_ = lk.Unlock()
+		return err
+	}
+	unlinkErr := fsys.Remove(lockPath)
 	_ = lk.Unlock()
-	if rmErr != nil {
-		if err := root.Fs.RemoveAll(dir); err != nil {
+	if unlinkErr != nil {
+		if err := fsys.Remove(lockPath); err != nil {
+			return fmt.Errorf("coord: remove root %s: %w", dir, err)
+		}
+	}
+	if err := fsys.Remove(dir); err != nil {
+		if _, serr := fsys.Stat(lockPath); serr == nil {
+			return nil
+		}
+		return fmt.Errorf("coord: remove root %s: %w", dir, err)
+	}
+	return nil
+}
+
+// removeAllBut deletes every entry of dir except the one named keep.
+func removeAllBut(fsys afero.Fs, dir, keep string) error {
+	entries, err := afero.ReadDir(fsys, dir)
+	if err != nil {
+		return fmt.Errorf("coord: remove root %s: %w", dir, err)
+	}
+	for _, e := range entries {
+		if e.Name() == keep {
+			continue
+		}
+		if err := fsys.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
 			return fmt.Errorf("coord: remove root %s: %w", dir, err)
 		}
 	}

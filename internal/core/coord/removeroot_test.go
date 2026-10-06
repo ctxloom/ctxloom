@@ -134,3 +134,72 @@ func TestLockOwner_ALockOnAnUnlinkedFileIsNoClaim(t *testing.T) {
 	assert.Nil(t, fl)
 	require.ErrorIs(t, err, errRootRemoved)
 }
+
+// TestRemoveRoot_AClaimLandingAfterTheLockFileIsUnlinkedIsLeftStanding: a
+// waiting claimant re-opens the lock path with O_CREATE on every poll, so it
+// can make a FRESH lock file in the root's dir after the removal unlinked
+// the old one, win it, and find it current. Whatever the removal deletes
+// after that unlink is deleted without the lock, so the removal must not
+// delete that claim out from under the claimant: the claim stands, on a lock
+// file still at the path, and the old root's contents are gone.
+func TestRemoveRoot_AClaimLandingAfterTheLockFileIsUnlinkedIsLeftStanding(t *testing.T) {
+	rootsHome(t)
+	dir, err := ensureRootStateDir(afero.NewOsFs(), rootsProjectID, "", "reclaimed-harp")
+	require.NoError(t, err)
+	stampPath := filepath.Join(dir, ownerStampFileName)
+	require.NoError(t, os.WriteFile(stampPath, []byte("{}"), 0o600))
+	lockPath := filepath.Join(dir, OwnerLockFileName)
+
+	var claimed safefs.Lock
+	root := safefs.New()
+	root.Fs = &lockUnlinkFs{Fs: root.Fs, lockPath: lockPath, onUnlink: func() {
+		lk, cerr := lockOwner(safefs.New().Locks, lockPath)
+		require.NoError(t, cerr, "a claim on the fresh lock file wins and is current")
+		claimed = lk
+	}}
+
+	require.NoError(t, RemoveRoot(root, rootsProjectID, "", "reclaimed-harp"))
+
+	require.NotNil(t, claimed, "the forced claim ran after the unlink")
+	t.Cleanup(func() { _ = claimed.Unlock() })
+	assert.True(t, claimed.Current(), "the claimant's lock file is still the one at the path")
+	st, err := ProbeOwner(safefs.New(), dir)
+	require.NoError(t, err)
+	assert.True(t, st.Held, "the claimant holds a lock on the live root's file")
+	assert.NoFileExists(t, stampPath, "the removed root's contents are gone")
+}
+
+// lockUnlinkFs runs onUnlink once, synchronously, the moment lockPath is
+// unlinked — whether by a Remove of it or by a RemoveAll of its dir, whose
+// unlink of lockPath it makes first so the hook lands between that unlink and
+// the rest of the RemoveAll.
+type lockUnlinkFs struct {
+	afero.Fs
+	lockPath string
+	onUnlink func()
+	fired    bool
+}
+
+func (f *lockUnlinkFs) Remove(name string) error {
+	err := f.Fs.Remove(name)
+	if err == nil && name == f.lockPath {
+		f.fire()
+	}
+	return err
+}
+
+func (f *lockUnlinkFs) RemoveAll(name string) error {
+	if name == f.lockPath || name == filepath.Dir(f.lockPath) {
+		if err := f.Fs.Remove(f.lockPath); err == nil {
+			f.fire()
+		}
+	}
+	return f.Fs.RemoveAll(name)
+}
+
+func (f *lockUnlinkFs) fire() {
+	if !f.fired {
+		f.fired = true
+		f.onUnlink()
+	}
+}

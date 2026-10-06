@@ -261,7 +261,7 @@ func TestMaterializeProfile_ReportsNoHookLossWhenNoHooksDeclared(t *testing.T) {
 // CLAUDE.md/.mcp.json/settings/commands (TestMaterializeProfile_WritesClaudeMd)
 // now also reports and writes the skills surface. This exercises
 // backends.SkillExportsFor + backends.LoadSkillExports end to end through a
-// REAL bundle-shipped skill (config.ResolveBundleSkills), unlike the claude
+// REAL bundle-shipped skill, unlike the claude
 // package's unit tests, which drive Surfaces.Skills directly against a
 // synthetic agent.SkillExport fixture — together they cover both the live
 // (claude package) and persistent (here) delivery paths the plan calls for.

@@ -112,9 +112,8 @@ func TestLoadCommandExports_CuratedSetExportsExactlyThose(t *testing.T) {
 
 // TestLoadCommandExports_UncuratedProfileWithoutBundlesExportsNoBundleCommands
 // proves an uncurated profile that references no bundles exports NONE of the
-// seeded bundle's commands — the fallback is profile-scoped (ResolveBundleCommands),
-// not the old global ListAllCommands sweep, so a bundle the profile never pulled
-// can't leak in. Only builtins remain.
+// seeded bundle's commands — the fallback is profile-scoped, not a global
+// sweep, so a bundle the profile never pulled can't leak in. Only builtins remain.
 func TestLoadCommandExports_UncuratedProfileWithoutBundlesExportsNoBundleCommands(t *testing.T) {
 	cfg := curationCfg(t, []string{"p"}, map[string]config.Profile{
 		"p": {}, // no prompts: list, no bundles

@@ -46,7 +46,7 @@ func Assemble(ctx context.Context, cat bundles.Catalog, sel Selection, tr Trust,
 		if opts.Versions != nil {
 			loader.WithVersionResolver(opts.Versions, tr.Root())
 		}
-		pipe = bundles.NewPipeline(loader, tr.Authorizer(), linkGrant(opts.MCP), opts.PreferDistilled)
+		pipe = bundles.NewPipeline(loader, tr.Authorizer(), bundles.ServerGrant(opts.MCP), opts.PreferDistilled)
 	}
 	a := &assembly{sel: sel, opts: opts, pipe: pipe, ingest: newIngest()}
 
@@ -235,11 +235,11 @@ func (a *assembly) commands() {
 		}
 		// A companion's commands are unconditional whenever the companion
 		// is present; a curation names bundle commands, never theirs.
-		cc.fromBundles(companionRefs(a.pipe.Loader().Catalog()))
+		cc.fromBundles(a.pipe.Loader().Catalog().CompanionRefs())
 		return
 	}
 	cc.fromBundles(a.sel.Bundles)
-	cc.fromBundles(companionRefs(a.pipe.Loader().Catalog()))
+	cc.fromBundles(a.pipe.Loader().Catalog().CompanionRefs())
 }
 
 // curatedCommand loads one curated command ask, at its pinned version when
@@ -387,28 +387,6 @@ func blocks(e bundles.EngineBlocks) map[string][]byte {
 		out[engine] = slices.Clone(raw)
 	}
 	return out
-}
-
-// companionRefs are the catalog's companion loadout refs, in name order:
-// what was READ, not a second discovery pass.
-func companionRefs(cat bundles.Catalog) []string {
-	reads := cat.Scoped(bundles.ProvenanceCompanion).Reads()
-	out := make([]string, 0, len(reads))
-	for _, read := range reads {
-		out = append(out, read.DisplayName())
-	}
-	return out
-}
-
-// linkGrant answers the link-group question from the run's OWN granted
-// set — the servers the caller resolved for the same profiles the engine
-// is launched with — keyed by server name AND owning bundle, so a same-named
-// server from another bundle cannot stand in for the one an item depends on.
-func linkGrant(mcp map[string]wire.MCPServer) bundles.LinkGrant {
-	return bundles.LinkGrantFunc(func(read bundles.BundleRead, server string) bool {
-		srv, ok := mcp[server]
-		return ok && srv.SCM == bundles.BundleSCM(read.SourceRef())
-	})
 }
 
 // linkGroups names the servers the package grants, in name order.

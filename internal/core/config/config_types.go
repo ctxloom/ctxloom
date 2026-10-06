@@ -193,8 +193,8 @@ type Profile struct {
 	// Skills curates the Agent Skill exports for this profile (skill/command
 	// split plan §3.2), mirroring Commands: when a resolved active profile
 	// declares a NON-EMPTY list, ONLY these skills are exported per-engine
-	// (force-enabled), suppressing the global bundle-wide auto-export
-	// (config.ResolveBundleSkills) for that profile; an empty list keeps
+	// (force-enabled), suppressing the bundle-wide auto-export for that
+	// profile; an empty list keeps
 	// today's global auto-export (every profile-referenced bundle's skills,
 	// each still gated by its own per-engine enablement). Each entry is a
 	// skill ref ("<bundle>#skills/<name>") — no version pin (a skill carries

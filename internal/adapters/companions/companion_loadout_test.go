@@ -504,42 +504,6 @@ func TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated(t *testin
 	})
 }
 
-// TestResolveBundleCommands_IncludesCompanionLoadoutCommands_Gated proves
-// commands get the SAME unconditional-when-present, gated treatment
-// ResolveBundleHooks / ResolveBundleMCPServers already have (S8): with no
-// profile at all (profileNames nil, no default agent profiles configured), a
-// companion's command still resolves through a trusted gate, and a denying
-// gate withholds it — proving it is NOT the builtin nil-gate exemption.
-func TestResolveBundleCommands_IncludesCompanionLoadoutCommands_Gated(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
-	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
-	defer restoreLook()
-	restoreProbe := SetCompanionLoadoutOutputForTesting(fakeCompanionEnvelope(t, companionLoadoutWithEverything))
-	defer restoreProbe()
-
-	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	require.NoError(t, os.MkdirAll(appDir, 0o755))
-
-	t.Run("trusted gate: companion command is included with no profile selected", func(t *testing.T) {
-		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}})
-		result := cfg.ResolveBundleCommands(nil)
-		require.Len(t, result, 1)
-		assert.Equal(t, "task-runner", result[0].Item)
-		assert.Equal(t, remote.CompanionSource+"@ltk", result[0].Bundle)
-
-		companionOnly := cfg.ResolveCompanionCommands(nil)
-		require.Len(t, companionOnly, 1)
-		assert.Equal(t, "task-runner", companionOnly[0].Item)
-	})
-
-	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
-		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}}, compositetest.RejectAll())
-		result := cfg.ResolveBundleCommands(nil)
-		assert.Empty(t, result, "a companion command must be withheld by a denying gate — a true builtin would NOT be")
-		assert.Empty(t, cfg.ResolveCompanionCommands(nil))
-	})
-}
-
 // TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers is the
 // regression guard for a bug where a profile's exclude_mcp could not exclude a
 // COMPANION-shipped (or builtin-shipped) MCP server: the `excluded` set was

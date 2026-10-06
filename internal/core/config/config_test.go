@@ -526,11 +526,11 @@ func TestConfig_ResolveBundleMCPServers_NoAppPaths(t *testing.T) {
 }
 
 // An unresolvable profile (`ctxloom run -p <typo>`) delivers zero MCP
-// servers, zero hooks, zero commands and zero skills. That empty result is not
-// a legitimate "nothing configured" — it is "we could not work out what to
-// deliver" — so every one of the four bundle resolvers must say so rather than
-// `continue` past it. Previously this test asserted only the empty map, which
-// is what the silent no-op produces.
+// servers and zero hooks. That empty result is not a legitimate "nothing
+// configured" — it is "we could not work out what to deliver" — so each bundle
+// resolver here must say so rather than `continue` past it. (The assembled
+// package's commands and skills have their own proof on the live path:
+// operations' TestAssemblePackage_UnresolvableProfileIsReported.)
 func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 	resetConfigStrictness(t)
 	fs := afero.NewMemMapFs()
@@ -555,7 +555,7 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 	assert.Equal(t, report.KindRef, found[0].Kind)
 	assert.Contains(t, found[0].Text, "nonexistent")
 
-	// The other three resolvers share the defect and must share the fix.
+	// The hooks resolver shares the defect and must share the fix.
 	// FailOnce dedups per formatted message, so each is checked in its own
 	// window against a fresh Config (the loaders memoize per Config).
 	for _, tc := range []struct {
@@ -563,8 +563,6 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 		call func(*Config)
 	}{
 		{"hooks", func(c *Config) { c.ResolveBundleHooks(nil) }},
-		{"commands", func(c *Config) { c.ResolveBundleCommands(nil) }},
-		{"skills", func(c *Config) { c.ResolveBundleSkills(nil) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resetConfigStrictness(t)
@@ -738,10 +736,9 @@ func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 }
 
 // TestConfig_ResolveBundle_ScopesToSelectedProfile pins the per-agent config
-// retarget: passing an explicit profile set scopes bundle MCP AND prompts/commands
-// to THAT profile's bundles, distinct from the configured defaults. This is the
-// fix for `run -p X` leaking the default profile's MCP and every pulled bundle's
-// commands into X's session.
+// retarget: passing an explicit profile set scopes bundle MCP to THAT profile's
+// bundles, distinct from the configured defaults, so `run -p X` does not leak
+// the default profile's MCP into X's session.
 func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
@@ -753,8 +750,8 @@ func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 		[]byte("bundles:\n  - dev-bundle\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "finder.yaml"),
 		[]byte("bundles:\n  - finder-bundle\n"), 0644))
-	bundletree.WriteOS(t, bundlesDir, "dev-bundle", "version: \"1.0\"\nmcp:\n  dev-mcp:\n    command: npx\n    args: [\"-y\", \"dev\"]\ncommands:\n  dev-skill:\n    description: d\n    content: c\n")
-	bundletree.WriteOS(t, bundlesDir, "finder-bundle", "version: \"1.0\"\nmcp:\n  finder-mcp:\n    command: npx\n    args: [\"-y\", \"finder\"]\ncommands:\n  finder-skill:\n    description: f\n    content: c\n")
+	bundletree.WriteOS(t, bundlesDir, "dev-bundle", "version: \"1.0\"\nmcp:\n  dev-mcp:\n    command: npx\n    args: [\"-y\", \"dev\"]\n")
+	bundletree.WriteOS(t, bundlesDir, "finder-bundle", "version: \"1.0\"\nmcp:\n  finder-mcp:\n    command: npx\n    args: [\"-y\", \"finder\"]\n")
 
 	cfg := &Config{
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"developer"}}},
@@ -772,14 +769,6 @@ func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 	defMCP := cfg.ResolveBundleMCPServers(nil)
 	assert.Contains(t, defMCP, "dev-mcp")
 	assert.NotContains(t, defMCP, "finder-mcp")
-
-	// Same scoping for prompts/commands — the formerly-global surface.
-	var selCommands []string
-	for _, lc := range cfg.ResolveBundleCommands([]string{"finder"}) {
-		selCommands = append(selCommands, lc.Item)
-	}
-	assert.Contains(t, selCommands, "finder-skill")
-	assert.NotContains(t, selCommands, "dev-skill", "selecting finder must not pull every bundle's commands")
 }
 
 // hookBundleYAML is a bundle that ships one hook per several event types, used

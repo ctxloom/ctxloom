@@ -742,9 +742,8 @@ image another is between building and running.
   other same-uid process for that process's entire lifetime, unsetting it
   after read does not scrub the kernel's snapshot, and where
   `ptrace_scope` permits same-uid ptrace a determined process can lift the
-  same bytes out of memory even past that. `internal/shared/procsec` raises
-  the cost of the file-read path but says so itself: "THIS IS BAR-RAISING,
-  NOT A BOUNDARY … The isolation boundary is a container" (`procsec.go:12-17`).
+  same bytes out of memory even past that. The isolation boundary is a
+  container.
 - **`gitDirMounts` mounts the git common dir read-write** (only the `worktrees/` registry is masked). A member can therefore rewrite main's refs/objects/index, hooks and config.
 - **`TraceProbe`'s doc claims the loosened seccomp profile is structurally unreachable from a normal run**, but the gate is a plain `os.Getenv` (`traceProbeFromEnv`) — any parent exporting `CTXLOOM_ISOLATION_PROBE_TRACE_DIR` makes every container run in that process ptrace-permitted and strace-wrapped.
 - **`worktreeWorkspace.Env()` advertises `HomeVar` target directories that nothing creates** if `prepareHomeVarDirs` failed; isolation then depends on each engine choosing to `mkdir -p` rather than falling back to its global home.

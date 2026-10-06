@@ -24,7 +24,6 @@ package at all do so for a seam it exports (`cli.SchemaTargets`,
 ```mermaid
 flowchart TD
     M["main()"]
-    M --> PS["procsec.HardenAtStartup — process hardening, coordinator credential key"]
     M --> MN["mountns.RunChildIfRequested — the mount-namespace re-exec, if this process is one"]
     M --> CO["compose(sink) → cli.Composition<br/>Reporter · OpenConfig · Loadout · NewCoordinator"]
     M --> LOG["zap logger — development if CTXLOOM_VERBOSE, else warn-level production"]

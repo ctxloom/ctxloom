@@ -7,32 +7,15 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/logboot"
 	"github.com/ctxloom/ctxloom/internal/shared/mountns"
-	"github.com/ctxloom/ctxloom/internal/shared/procsec"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 func main() {
-	// Deny same-uid inspection of THIS process's /proc entry, first and for
-	// every ctxloom process without exception. The exec-time environment is
-	// already snapshotted in /proc/<pid>/environ by the time main runs and
-	// os.Unsetenv cannot scrub it, so the window in which a credential stamped
-	// there by the spawning seam is readable by a same-uid peer lasts until
-	// this call lands — hence before any other startup work, and hence no
-	// per-command allowlist: any ctxloom process can be the one holding the
-	// coordinator credential.
-	//
-	// Reports through clidiag (inside HardenAtStartup) rather than zap because
-	// this runs BEFORE logboot.Install below; a warning handed to the
-	// not-yet-installed global logger would be dropped, and a bypass nobody
-	// hears is indistinguishable from hardening that silently failed.
-	procsec.HardenAtStartup("ctxloom", sessions.EnvCoordCred)
-
 	// Become the mount shim, if that is what this process was spawned to be.
 	// A re-exec of ourselves is the only way to run code between clone(2) and
 	// execve(2) (see internal/shared/mountns), so a namespace-mounted run

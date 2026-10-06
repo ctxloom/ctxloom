@@ -92,7 +92,7 @@ func (sl *selector) mergeSettings(p profiles.ResolvedProfile) {
 // mergeHooks records p's hooks, when it declares any.
 func (sl *selector) mergeHooks(p profiles.ResolvedProfile) {
 	if p.Hooks.HasAny() {
-		sl.sel.Hooks = append(sl.sel.Hooks, ProfileHooks{Profile: p.Name, SourceRef: p.SourceRef, Signer: p.Signer, Hooks: p.Hooks})
+		sl.sel.Hooks = append(sl.sel.Hooks, ProfileHooks{Profile: p.Name, SourceRef: p.SourceRef, Hooks: p.Hooks})
 	}
 }
 

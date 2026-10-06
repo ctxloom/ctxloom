@@ -31,7 +31,7 @@ import (
 )
 
 func TestProfileGateRefFor_BundleShippedUsesSourceRef(t *testing.T) {
-	resolved := &profiles.ResolvedProfile{SourceRef: "https://github.com/acme/tools@bundles/kit", Signer: "vendor@example.com"}
+	resolved := &profiles.ResolvedProfile{SourceRef: "https://github.com/acme/tools@bundles/kit"}
 	ref := profileGateRefFor(nil, resolved, "https://github.com/acme/tools@bundles/kit#profiles/dev")
 	assert.Equal(t, "https://github.com/acme/tools@bundles/kit", ref.Base)
 	// No cfg, so no loader to resolve the ORIGIN bundle's read: the posture is

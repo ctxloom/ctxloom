@@ -112,18 +112,25 @@ func TestEngineHost_CloseWaitsForADriveInFlight(t *testing.T) {
 		driveErr <- testRunner{eh: eh, inst: sc}.Execute(context.Background(), testStartRun("run-1").GetLaunch())
 	}()
 	<-home.reached // Drive is past its closed check
+	eh.mu.Lock()
+	driving := eh.driving
+	eh.mu.Unlock()
+	require.NotNil(t, driving, "Drive reached BindIdentity without committing to the run")
 
 	// The seam releases Drive only once Close is waiting for it, so a Close
-	// that does not wait returns with Drive still held.
+	// that does not wait returns with Drive still held. Drive's return is
+	// observed through driving (closed as Drive returns), not driveErr: the
+	// goroutine sends driveErr only after Execute unwinds, which can trail a
+	// Close that correctly waited.
 	eh.closeAwaitsDrive = release
 	eh.Close()
 
 	select {
-	case err := <-driveErr:
-		assert.NotErrorIs(t, err, errEngineHostClosed, "Close sealed while Drive was in flight, so Drive's dispatches were refused")
+	case <-driving:
 	default:
 		t.Fatal("Close returned while a Drive was still in flight")
 	}
+	assert.NotErrorIs(t, <-driveErr, errEngineHostClosed, "Close sealed while Drive was in flight, so Drive's dispatches were refused")
 	eh.mu.Lock()
 	rec := eh.rec
 	eh.mu.Unlock()

@@ -38,9 +38,44 @@ Feature: remote — registering the sources content comes from, and browsing the
         """
       Then the command succeeds
       And the file ".ctxloom/remotes.yaml" contains "origin"
+      And the file ".ctxloom/remotes.yaml" contains "forge: git"
       When I run "ctxloom remote list"
       Then the command succeeds
       And the output contains "origin"
+
+    # One repository, one remote. A second name for an address already
+    # registered would split the bundles drawn from it across two remotes
+    # that nothing ties together.
+    Scenario: Registering an address that is already a remote is refused
+      Given an initialized ctxloom project
+      And I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
+      When Alice registers the same repository under another name:
+        """
+        ctxloom remote create mirror file:///tmp/acceptance-remote.git --forge git
+        """
+      Then the command fails
+      And the output contains "origin"
+      And the file ".ctxloom/remotes.yaml" does not contain "mirror"
+
+    # A forge label names an adapter; a typo must surface when it is bound,
+    # not later as a silent fall back to resolving by URL host.
+    Scenario: Registering a remote bound to an unknown forge is refused
+      Given an initialized ctxloom project
+      When Alice registers a remote bound to a forge nobody configured:
+        """
+        ctxloom remote create origin file:///tmp/acceptance-remote.git --forge no-such-forge
+        """
+      Then the command fails
+      And the output contains "no-such-forge"
+      And the file ".ctxloom/remotes.yaml" does not contain "no-such-forge"
+
+    Scenario: Remotes are listed in name order
+      Given an initialized ctxloom project
+      And I run "ctxloom remote create zeta file:///tmp/acceptance-zeta.git --forge git"
+      And I run "ctxloom remote create alpha file:///tmp/acceptance-alpha.git --forge git"
+      When I run "ctxloom remote list --format text"
+      Then the command succeeds
+      And the output matches "(?s)alpha.*zeta"
 
     # The bare noun answers the question somebody typing it has, rather than
     # teaching them what they could have typed instead.
@@ -114,6 +149,41 @@ Feature: remote — registering the sources content comes from, and browsing the
       And the file ".ctxloom/remotes.yaml" contains "acceptance-moved.git"
       And the file ".ctxloom/remotes.yaml" does not contain "acceptance-remote.git"
 
+    # Restating a remote's own address, or its own name, is not a collision
+    # with itself.
+    Scenario: An edit restating a remote's own name and address is accepted
+      Given an initialized ctxloom project
+      And I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
+      When Alice restates the remote as it already stands:
+        """
+        ctxloom remote edit origin --name origin --url file:///tmp/acceptance-remote.git
+        """
+      Then the command succeeds
+      And the file ".ctxloom/remotes.yaml" contains "origin"
+
+    Scenario: Moving a remote onto another remote's address is refused
+      Given an initialized ctxloom project
+      And I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
+      And I run "ctxloom remote create mirror file:///tmp/acceptance-mirror.git --forge git"
+      When Alice points the mirror at the address origin already holds:
+        """
+        ctxloom remote edit mirror --url file:///tmp/acceptance-remote.git
+        """
+      Then the command fails
+      And the output contains "origin"
+      And the file ".ctxloom/remotes.yaml" contains "acceptance-mirror.git"
+
+    Scenario: Rebinding a remote to an unknown forge is refused
+      Given an initialized ctxloom project
+      And I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
+      When Alice rebinds the remote to a forge nobody configured:
+        """
+        ctxloom remote edit origin --forge no-such-forge
+        """
+      Then the command fails
+      And the file ".ctxloom/remotes.yaml" contains "forge: git"
+      And the file ".ctxloom/remotes.yaml" does not contain "no-such-forge"
+
     # --forge rebinds the adapter a remote resolves through, independent of
     # its URL. Created bound to "git", then rebound to "github" — the new
     # label read back out of the registry is the only honest proof the
@@ -172,3 +242,68 @@ Feature: remote — registering the sources content comes from, and browsing the
       Then the command succeeds
       And the output contains "//bundles/demo"
 
+
+  Rule: A registry written by hand is read as written, and rewritten without loss
+
+    `.ctxloom/remotes.yaml` is a file people edit and commit. Configured forge
+    instances live only there (`forges:`), and a key ctxloom does not manage
+    is the author's, not ctxloom's to drop: every `remote` command rewrites
+    the whole file, so whatever survives one rewrite is what the file keeps.
+
+    Scenario: A hand-configured forge can be bound, and survives the rewrite
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/remotes.yaml":
+        """
+        schema_version: 1
+        forges:
+          corp:
+            type: git
+        remotes:
+          origin:
+            url: file:///tmp/acceptance-remote.git
+        note: written by hand
+        """
+      When Alice registers a remote bound to the forge her team configured:
+        """
+        ctxloom remote create mirror file:///tmp/acceptance-mirror.git --forge corp
+        """
+      Then the command succeeds
+      And the file ".ctxloom/remotes.yaml" matches "(?m)^forges:\n\s+corp:"
+      And the file ".ctxloom/remotes.yaml" contains "note: written by hand"
+      When I run "ctxloom remote list"
+      Then the output contains "origin"
+      And the output contains "mirror"
+
+    # A registry from before the file declared its schema generation is the
+    # first generation, and still reads.
+    Scenario: A registry that declares no schema generation is still read
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/remotes.yaml":
+        """
+        remotes:
+          origin:
+            url: file:///tmp/acceptance-remote.git
+        """
+      When I run "ctxloom remote list"
+      Then the command succeeds
+      And the output contains "origin"
+
+  Rule: A command finds the registry from wherever it runs
+
+    Scenario: A remote registered at the root is listed from a subdirectory
+      Given an initialized ctxloom project
+      And I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
+      When I run "ctxloom remote list" from the project subdirectory "docs"
+      Then the command succeeds
+      And the output contains "origin"
+
+    # Outside any project a remote is registered in the home layer, and on a
+    # machine ctxloom has never run on, that registration creates the home
+    # .ctxloom directory — which its owner must then be able to use.
+    Scenario: Registering a first remote outside any project creates a usable home registry
+      Given an empty project directory
+      And the home has no ".ctxloom" directory yet
+      When I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
+      Then the command succeeds
+      And the home directory ".ctxloom" is readable, writable and searchable by its owner
+      And the home file ".ctxloom/remotes.yaml" contains "origin"

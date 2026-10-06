@@ -41,6 +41,34 @@ func registerFileSteps(ctx *godog.ScenarioContext) {
 		return worldFrom(c).env.WriteHomeFile(rel, body.Content)
 	})
 
+	// Owner access, not an exact mode: the umask decides the group and other
+	// bits, but a directory ctxloom creates that its own user cannot list or
+	// enter is broken whatever the umask.
+	ctx.Step(`^the (project|home) directory "([^"]*)" is readable, writable and searchable by its owner$`, func(c context.Context, layer, rel string) error {
+		w := worldFrom(c)
+		root := w.env.ProjectDir
+		if layer == "home" {
+			root = w.env.HomeDir
+		}
+		info, err := os.Stat(filepath.Join(root, rel))
+		if err != nil {
+			return fmt.Errorf("stat %s directory %q: %w", layer, rel, err)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s path %q is not a directory", layer, rel)
+		}
+		if perm := info.Mode().Perm(); perm&0o700 != 0o700 {
+			return fmt.Errorf("%s directory %q has mode %#o; its owner lacks rwx", layer, rel, perm)
+		}
+		return nil
+	})
+
+	// A machine ctxloom has never run on: the harness provisions the home
+	// layer up front, so a scenario about ctxloom creating it removes it.
+	ctx.Step(`^the home has no "([^"]*)" directory yet$`, func(c context.Context, rel string) error {
+		return os.RemoveAll(filepath.Join(worldFrom(c).env.HomeDir, rel))
+	})
+
 	ctx.Step(`^the file "([^"]*)" exists$`, func(c context.Context, rel string) error {
 		w := worldFrom(c)
 		if !w.env.FileExists(rel) {

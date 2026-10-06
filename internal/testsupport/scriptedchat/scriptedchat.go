@@ -120,12 +120,8 @@ func (s *Chat) Resume(string) error { return nil }
 // Turn implements engine.StructuredDriver.
 func (s *Chat) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out chan<- engine.Event) (engine.TurnResult, error) {
 	plan := s.take(ex, in)
-	if plan.entered != nil {
-		select {
-		case plan.entered <- struct{}{}:
-		case <-ctx.Done():
-			return engine.TurnResult{}, ctx.Err()
-		}
+	if err := signalEntered(ctx, plan.entered); err != nil {
+		return engine.TurnResult{}, err
 	}
 	send := func(ev agent.ChatEvent) bool {
 		payload, err := json.Marshal(ev)
@@ -198,6 +194,20 @@ func (s *Chat) take(ex engine.Exec, in engine.Turn) turnPlan {
 	plan.fail = s.FailAfterTurns > 0 && s.turns > s.FailAfterTurns
 	plan.end = s.EndAfterTurns > 0 && s.turns >= s.EndAfterTurns
 	return plan
+}
+
+// signalEntered tells entered the turn was taken (a nil entered is not
+// told), or gives up when ctx ends.
+func signalEntered(ctx context.Context, entered chan<- struct{}) error {
+	if entered == nil {
+		return nil
+	}
+	select {
+	case entered <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // awaitGate holds the turn until gate opens (a nil gate is open), or ctx

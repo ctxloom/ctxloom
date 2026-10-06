@@ -2179,7 +2179,7 @@
 }
 == engine=mock-noskills profile=golden-auto consumer=materialized
 {
-  "context": "blob:b303fc99bedf4bffb447ce264f5b3482beb054119a39b779cd8ccc3c6f7bb155",
+  "context": "blob:5bc0725b8ed9792621bd1b7b9c8d71dc19b9a098ca364cc0f5cff5e3a5f47263",
   "fragments_loaded": [
     "ctxloom+local:ctxloom-project#fragments/turn-gates",
     "ctxloom+local:code-quality#fragments/tricky",
@@ -2398,7 +2398,7 @@
 }
 == engine=mock-noskills profile=golden-curated consumer=materialized
 {
-  "context": "blob:da3cf7f35e6c0679579279d36df1f9c32d23ba7c0f694d28ee78fc0442237b6d",
+  "context": "blob:c85bbaac232e231fc17bf38f20af6c2d937c403995b35815e161495b185f0481",
   "fragments_loaded": [
     "ctxloom+local:ctxloom-project#fragments/turn-gates",
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
@@ -2717,11 +2717,7 @@ entry.
 
 == blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9
 You have just written or changed a test; you are reading a gate result and deciding what it proves; or you are about to describe something as verified, working, or done. For anyone about to treat a green result as evidence, however that moment arises. More than one fragment may apply here; this one is about whether the evidence is real.
-== blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e
-You are adding or changing a flag, an environment variable, or a config key; working out which layer won when a setting resolved unexpectedly; or reading configuration to decide how something is declared. For anyone touching how this family of binaries is configured, however the moment is worded.
-== blob:a27754173e5860b7ab5b9204c294ecdbbcec9ba5cf885cc84d69e5a811ccd159
-You are about to run git commit, git merge or git push through the shell tool — directly, inside a script, or as the last step of a change. For anyone whose next command fires this repository's git hooks, however the moment is worded.
-== blob:b303fc99bedf4bffb447ce264f5b3482beb054119a39b779cd8ccc3c6f7bb155
+== blob:5bc0725b8ed9792621bd1b7b9c8d71dc19b9a098ca364cc0f5cff5e3a5f47263
 # Which gate is real in this repo, and how to read one
 
 Companion to green-is-not-passing, which says a test is not passing until a
@@ -2816,9 +2812,8 @@ Do not edit a signed bundle in place.
 This repository's git hooks run real gates, and on a busy machine they take
 longer than a shell tool's default timeout.
 
-Pass an explicit timeout equal to the configured ceiling, `shell_timeout.max`
-(one hour, 3600000 ms, unless the config sets it), on every shell call that
-runs `git commit`, `git merge` or `git push`.
+Pass an explicit timeout equal to the configured `shell_timeout.max` on every
+shell call that runs `git commit`, `git merge` or `git push`.
 
 A command that outlives its timeout is moved to the background, not finished.
 Before you report a commit, confirm it landed with `git log -1`. If it is not
@@ -3300,6 +3295,10 @@ credentials/state to a global path regardless.
 A bad or missing agent name silently degrades to `host`+`none` with only
 a stderr warning, discarding the runtime and permissions you asked for —
 confirm the name resolves before trusting the isolation you requested.
+== blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e
+You are adding or changing a flag, an environment variable, or a config key; working out which layer won when a setting resolved unexpectedly; or reading configuration to decide how something is declared. For anyone touching how this family of binaries is configured, however the moment is worded.
+== blob:a27754173e5860b7ab5b9204c294ecdbbcec9ba5cf885cc84d69e5a811ccd159
+You are about to run git commit, git merge or git push through the shell tool — directly, inside a script, or as the last step of a change. For anyone whose next command fires this repository's git hooks, however the moment is worded.
 == blob:b3e98baa2b78c6b1a39ca6db24bc5e6e5f7a8c103fb46ed0cc49901172721584
 
 Welcome to ctxloom! You are running the ctxloom **setup interview** — the same
@@ -3721,9 +3720,7 @@ Then tell the user, plainly:
 
 == blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34
 You are about to give an agent docker access, ask for docker-in-docker for a cell, or work out why an ordinary build, test or lint recipe fails inside an agent container. For anyone reaching for a container runtime from inside a cell, however the moment is worded. This is about whether the cell needs docker AT ALL; turn-gates is about which gate proves a change.
-== blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68
-You are writing a check that can find something wrong; writing code that accepts a configuration value, a file, or any input from outside the program; deciding what an unknown, malformed, or missing value should resolve to; or choosing between refusing and carrying on with less. For anyone deciding how loudly a failure should surface, and where the set of acceptable values is declared. This one also governs ordinary resolution code, not only launch-time findings.
-== blob:da3cf7f35e6c0679579279d36df1f9c32d23ba7c0f694d28ee78fc0442237b6d
+== blob:c85bbaac232e231fc17bf38f20af6c2d937c403995b35815e161495b185f0481
 # Which gate is real in this repo, and how to read one
 
 Companion to green-is-not-passing, which says a test is not passing until a
@@ -4252,9 +4249,8 @@ Do not edit a signed bundle in place.
 This repository's git hooks run real gates, and on a busy machine they take
 longer than a shell tool's default timeout.
 
-Pass an explicit timeout equal to the configured ceiling, `shell_timeout.max`
-(one hour, 3600000 ms, unless the config sets it), on every shell call that
-runs `git commit`, `git merge` or `git push`.
+Pass an explicit timeout equal to the configured `shell_timeout.max` on every
+shell call that runs `git commit`, `git merge` or `git push`.
 
 A command that outlives its timeout is moved to the background, not finished.
 Before you report a commit, confirm it landed with `git log -1`. If it is not
@@ -4302,6 +4298,8 @@ credentials/state to a global path regardless.
 A bad or missing agent name silently degrades to `host`+`none` with only
 a stderr warning, discarding the runtime and permissions you asked for —
 confirm the name resolves before trusting the isolation you requested.
+== blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68
+You are writing a check that can find something wrong; writing code that accepts a configuration value, a file, or any input from outside the program; deciding what an unknown, malformed, or missing value should resolve to; or choosing between refusing and carrying on with less. For anyone deciding how loudly a failure should surface, and where the set of acceptable values is declared. This one also governs ordinary resolution code, not only launch-time findings.
 == blob:efd27bfadc40bbef8f7fc975bfe9871e344354c1e07894682da2b2a1e6f550d7
 Body with a horizontal rule below.
 

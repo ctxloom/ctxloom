@@ -10,9 +10,8 @@ tags:
 This repository's git hooks run real gates, and on a busy machine they take
 longer than a shell tool's default timeout.
 
-Pass an explicit timeout equal to the configured ceiling, `shell_timeout.max`
-(one hour, 3600000 ms, unless the config sets it), on every shell call that
-runs `git commit`, `git merge` or `git push`.
+Pass an explicit timeout equal to the configured `shell_timeout.max` on every
+shell call that runs `git commit`, `git merge` or `git push`.
 
 A command that outlives its timeout is moved to the background, not finished.
 Before you report a commit, confirm it landed with `git log -1`. If it is not

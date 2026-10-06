@@ -363,6 +363,40 @@ jobs:
             ctxloom
           retention-days: 7
 
+  # Docker-outside-of-docker with NOTHING shared at the same path: the job
+  # container's own /tmp stays private, and the workspace is the runner's
+  # /home/runner/work seen at /__w. Every other DooD lane shares /tmp:/tmp,
+  # so it never exercises path translation; this one runs only the tests
+  # that name their bind sources through ctxloom's own layers
+  # (isolation.Crossing) — the rest mount /tmp fixtures directly and need
+  # the share.
+  crossing-integration:
+    name: Path Crossing (no shared /tmp)
+    runs-on: ubuntu-latest
+    needs: [build-container, test]
+    container:
+      image: ghcr.io/${{ github.repository }}-devcontainer:${{ github.sha }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      JUST_JUSTFILE: justfile.container
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Mark workspace as safe
+        run: just ci-git-safe-directory
+
+      - name: Build
+        run: just build
+
+      - name: Run the path-crossing container tests
+        env:
+          CTXLOOM_REQUIRE_DOCKER: "1"
+        run: go test -trimpath -v -count=1 -tags docker_integration -run '^(TestCrossing_ThreePaths|TestSelfRoute_TakenInsideADaemonContainer)$' ./internal/adapters/isolation
+
   acceptance:
     name: Acceptance Tests (hermetic)
     runs-on: ubuntu-latest

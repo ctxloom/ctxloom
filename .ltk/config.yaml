@@ -28,14 +28,10 @@ rules:
   # the ones needed to undo the edit. The hook runs the companion-pinned ltk,
   # so the binary must be re-pinned (reinstall AND relaunch) before a rule
   # uses a shape only the newer binary parses.
-  #
-  # The carve-out above is absent while the rule language changes: it needs a
-  # field the pinned binary has and the next one removes, and no shape both
-  # parse can express it. Until the re-pin, a third-party `go install mod@ver`
-  # is refused too — over-denying is the safe side of that gap.
   - id: install-via-just
     match:
       command: [go, install]
+      unless: ['.+@.+']
     message: "Install through the task runner, not `go install` directly."
     suggest: "just install"
   # Migrated from .claude/hooks/no-direct-go.sh, which predated ltk and
@@ -54,19 +50,15 @@ rules:
   # depended on it happened at 21:36 — 1h44m of dead time on work already passing.
   #
   # Scope, stated because it is PARTIAL: this matches the command head, so it
-  # catches `nohup`/`setsid`/`disown` and not a bare trailing `&`, which is what
-  # actually backgrounds a job. It guards the spelling an agent reaches for
-  # first, not the whole class.
+  # catches `nohup`/`setsid` and not a bare trailing `&` or `disown`, which
+  # also detach a job. It guards the spelling an agent reaches for first, not
+  # the whole class (match.backgrounded is the whole class).
   #
   # `nohup` remains right for fire-and-forget work nothing waits on; the test is
   # not "is this long" but "does the next step depend on knowing it finished".
   - id: background-via-harness
-    match: { command: [nohup] }
+    match: { command: ['nohup|setsid'] }
     message: "A detached job sends no completion notification, so a turn that waits on it never wakes. Use the Bash tool's run_in_background instead, which registers the task and delivers the result."
-    suggest: "run the same command with run_in_background: true"
-  - id: background-via-harness-setsid
-    match: { command: [setsid] }
-    message: "A detached job sends no completion notification, so a turn that waits on it never wakes. Use the Bash tool's run_in_background instead."
     suggest: "run the same command with run_in_background: true"
   - id: complexity-via-just
     match: { command: [lizard] }
@@ -111,28 +103,55 @@ rules:
   - id: no-pattern-kill-pkill
     match:
       command: [pkill]
-      args_any: [go, just, test, build, "go test", "go build", "just test", "just build"]
+      args_any: ['.*\b(go|just|test|build)\b.*']
     message: "pkill matches processes by pattern across the WHOLE box — a parallel multi-agent campaign is running right now, so `pkill -f 'go test'`/`pkill just` kills every other agent's run, not just yours."
     suggest: "Find the exact PID first (e.g. `ps aux | grep <your-marker>`), then `kill <PID>` — never a name/pattern match."
   - id: no-pattern-kill-killall
     match:
       command: [killall]
-      args_any: [go, just, test, build, "go test", "go build", "just test", "just build"]
+      args_any: ['.*\b(go|just|test|build)\b.*']
     message: "killall matches processes by NAME across the WHOLE box — a parallel multi-agent campaign is running right now, so `killall go`/`killall just` kills every other agent's run, not just yours."
     suggest: "Find the exact PID first (e.g. `ps aux | grep <your-marker>`), then `kill <PID>` — never a name/pattern match."
-  - id: no-pattern-kill-signal
+  # `kill $(pgrep -f x)` is a pattern-matched kill in disguise. ltk lowers a
+  # command substitution's body into a command of its own, so guarding the
+  # pattern lookup catches it wherever it is nested, and catches a bare
+  # `pgrep -f` too. A short-flag cluster carrying f (-fa, -af) is the same flag.
+  - id: no-pattern-kill-pgrep
     match:
-      command: [kill]
-      args_any: ["-9", "-SIGKILL"]
-      args_all: ["-f"]
-    message: "`kill` paired with `-f`/a name-pattern lookup is a pattern-matched kill in disguise — on this box it can hit another agent's `go test`/`go build`/`just` process, not just yours."
-    suggest: "Find the exact PID first (e.g. `ps aux | grep <your-marker>`), then `kill -9 <PID>` — never a name/pattern match."
+      command: [pgrep]
+      args_any: ['-[[:alpha:]]*f[[:alpha:]]*', '--full']
+    message: "`pgrep -f` matches the pattern against every process's FULL command line across the WHOLE box — feeding it to `kill` (e.g. `kill $(pgrep -f go)`) is a pattern-matched kill that can hit another agent's `go test`/`go build`/`just` process, not just yours."
+    suggest: "Find the exact PID first (e.g. `ps aux | grep <your-marker>`), then `kill <PID>` — never a name/pattern match."
+
+  # git's LOCAL config (.git/config) outranks HOME/XDG isolation entirely —
+  # it's resolved from the discovered .git dir, not from $HOME — and for a
+  # linked worktree that file is the repo's SHARED common config, so setting
+  # it here changes every other agent's worktree too and misattributes their
+  # commits. Cooperative agents on this box must scope identity per-command.
+  #
+  # Reading the key is fine: a write differs from the read only by the value
+  # after the key, which the trailing '.*' operand requires (empty included).
+  # Unsetting writes with no value, so it is keyed on the unset spelling in a
+  # rule of its own. Keys are case-insensitive, hence (?i).
+  - id: no-git-config-local-identity
+    match:
+      command: [git, config, '(?i)user\.(name|email)', '.*']
+      unless: ['--global|--system|--get(-all|-regexp)?|--list|-l|--show-origin']
+    message: "Local `git config user.*` (bare or --local) outranks HOME/XDG isolation and leaks across linked worktrees sharing this repo's common .git/config — it can misattribute another agent's commits."
+    suggest: "git -c user.name='...' -c user.email='...' <command>   # scoped to this one command, never persisted"
+  - id: no-git-config-local-identity-unset
+    match:
+      command: [git, config]
+      args_all: ['(?i)user\.(name|email)', '--unset(-all)?|unset']
+      unless: ['--global|--system']
+    message: "Local `git config user.*` (bare or --local) outranks HOME/XDG isolation and leaks across linked worktrees sharing this repo's common .git/config — it can misattribute another agent's commits."
+    suggest: "git -c user.name='...' -c user.email='...' <command>   # scoped to this one command, never persisted"
 
   # `go env -w` persists into the shared Go env config file, not just this
   # shell — it rewires GOTMPDIR/GOFLAGS/GOTOOLCHAIN/etc. for every process on
   # the box, including every other agent's `go` invocations.
   - id: no-go-env-write
-    match: { command: [go, env], args_all: ["-w"] }
+    match: { command: [go, env], args_all: ['-w'] }
     message: "`go env -w` persistently rewires GOTMPDIR/GOFLAGS/GOTOOLCHAIN (and anything else you set) for every process on this box, not just this shell — every other agent's `go` inherits it too."
     suggest: "Set the var for this command/shell only (e.g. `GOFLAGS=... go build`, `export GOFLAGS=...` in your own shell) instead of persisting it with `go env -w`."
 
@@ -140,7 +159,7 @@ rules:
   # `go clean -cache` has already exhausted it out from under everyone else's
   # in-flight build.
   - id: no-go-clean-cache
-    match: { command: [go, clean], args_any: ["-cache"] }
+    match: { command: [go, clean], args_any: ['-cache'] }
     message: "`go clean -cache` nukes the shared Go build cache every other agent on this box depends on for their own builds."
     suggest: "just clean-caches   # reclaims regenerable caches deliberately, without nuking a build another agent is mid-flight on"
 
@@ -150,23 +169,28 @@ rules:
   - id: no-docker-system-prune
     match:
       command: [docker, system, prune]
-      unless: ["--filter"]
+      unless: ['--filter(=.*)?']
     message: "`docker system prune` destroys images/containers/cache every agent's containerized run on this box may depend on, not just yours."
     suggest: "Scope it: `docker system prune --filter until=1h` / `--filter label=...` — never a blanket prune on a shared box."
   - id: no-docker-builder-prune
     match:
-      command: [docker, builder, prune]
-      unless: ["--filter"]
+      command: [docker, 'builder|buildx', prune]
+      unless: ['--filter(=.*)?']
     message: "`docker builder prune` destroys the shared buildkit cache every agent's containerized build on this box depends on, not just yours."
     suggest: "Scope it: `docker builder prune --filter until=1h` — never a blanket prune on a shared box."
 
   # The stash stack lives in the repo's common dir, so it is SHARED across
   # every linked worktree of this checkout — `git stash`/`pop`/`drop` run from
   # one agent's worktree can capture or destroy another agent's uncommitted WIP.
+  # The read-only forms are cleared by an allow anchored at the subcommand's
+  # operand, not by an `unless` exception: `unless` is position-blind, so
+  # `git stash push -m list` would carry the exception in its message.
+  - id: allow-git-stash-read
+    match: { command: [git, stash, 'list|show'] }
+    action: allow
   - id: no-git-stash
     match:
       command: [git, stash]
-      unless: [list, show]
     message: "The stash stack is shared across all linked worktrees (it lives in the repo's common .git dir) — `git stash`/`pop`/`drop` here can capture or destroy another agent's WIP."
     suggest: "Commit your WIP instead (even a throwaway commit you amend/reword later) rather than reaching for the shared stash."
 
@@ -183,7 +207,7 @@ rules:
   # legitimate and this rule names the in-repo case it is wrong for.
   - id: search-via-git-grep
     match:
-      command: [grep]
-      args_any: ["-r", "-R", "--recursive", "-rn", "-rl", "-ri", "-rL", "-rw", "-rI", "-rin", "-rni", "-rnI", "-rh", "-rhn"]
+      command: ['grep|egrep|fgrep']
+      args_any: ['-[A-Za-z0-9]*[rR][A-Za-z0-9]*', '--(dereference-)?recursive', '--directories=recurse']
     message: "A recursive grep also searches trees git excludes — including agent worktrees under .claude/worktrees/, which are hidden from `git status` but not from grep, so every file another agent is editing shows up twice."
     suggest: "git grep -n <pattern> -- '<pathspec>'   # respects .gitignore and .git/info/exclude; use grep -r only for paths outside this repo"

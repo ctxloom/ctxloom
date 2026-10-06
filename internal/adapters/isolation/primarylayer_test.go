@@ -84,6 +84,45 @@ func TestPrimaryLayer_ResolvesSymlinksFirst(t *testing.T) {
 	assert.Equal(t, "/daemon/side/sub", got)
 }
 
+// TestPrimaryLayer_ResolvesSymlinkedDestinations: the daemon reports a mount
+// destination as it was requested, and that path may run through a link in
+// this container (the image's /var/run -> /run). Reverse resolves the path it
+// is asked about, so the destinations must be resolved too, or the socket
+// mounted at /var/run/docker.sock has no name. A path not created yet under
+// such a mount is still named, and a child's mount through it is sourced from
+// the host (ToChild reverses through the primary; the child's view is never
+// resolved).
+func TestPrimaryLayer_ResolvesSymlinkedDestinations(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	run := filepath.Join(root, "run")
+	require.NoError(t, os.MkdirAll(filepath.Join(run, "work"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(run, "docker.sock"), nil, 0o600))
+	varRun := filepath.Join(root, "var-run")
+	require.NoError(t, os.Symlink(run, varRun))
+
+	primary := primaryLayer(&selfContainer{mounts: []selfMount{
+		{source: "/host/docker.sock", destination: filepath.Join(varRun, "docker.sock")},
+		{source: "/host/work", destination: filepath.Join(varRun, "work")},
+	}})
+	for _, p := range []string{filepath.Join(varRun, "docker.sock"), filepath.Join(run, "docker.sock")} {
+		got, err := primary.Reverse(p)
+		require.NoError(t, err, "%s names the mounted socket", p)
+		assert.Equal(t, "/host/docker.sock", got)
+	}
+	got, err := primary.Reverse(filepath.Join(varRun, "work", "new", "out.txt"))
+	require.NoError(t, err, "a path not created yet is named through its existing parent")
+	assert.Equal(t, "/host/work/new/out.txt", got)
+
+	c, err := crossingOver(layerRuntime{layer: primary}, mount{Host: filepath.Join(varRun, "work"), Container: "/agent/work"})
+	require.NoError(t, err)
+	assert.Equal(t, LayerMount{Host: "/host/work", View: "/agent/work"}, c.Child.mounts[0], "the child's bind source is the host path")
+	child, host, err := c.ToChild(filepath.Join(run, "work", "f"))
+	require.NoError(t, err)
+	assert.Equal(t, "/agent/work/f", child)
+	assert.Equal(t, "/host/work/f", host)
+}
+
 func TestPrimary_SelfDecidesTheLayer(t *testing.T) {
 	assert.Equal(t, HostLayer(), ociRuntime{}.primary(), "not a container of the daemon: it shares our mount namespace")
 	s := selfContainer{id: selfID, mounts: ciMounts}

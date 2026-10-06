@@ -30,6 +30,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/daemonfixture"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
@@ -291,6 +292,7 @@ func TestRunnerExitPaths(t *testing.T) {
 	} {
 		t.Run(rtc.name, func(t *testing.T) {
 			dockergate.RequireNamedRuntime(t, rtc.name, rtc.available(), "the runner exit-path tests")
+			daemonfixture.Root(t, rtc.name)
 			withPodmanSelected(t, rtc.name)
 			// Rootless podman keeps its images under the invoking HOME, and
 			// every subtest below isolates a HOME of its own, so the image

@@ -40,7 +40,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
+	"github.com/ctxloom/ctxloom/internal/testsupport/daemonfixture"
 )
 
 // directAgentName is the one agent directBusSpawner resolves.
@@ -177,7 +177,7 @@ func (s *directBusSpawner) containerNames() []string {
 //     (docker inspect), and holds NO TCP LISTEN socket (/proc/net/tcp*) — the
 //     direct mauve-state negative: no in-container plugin listener exists.
 func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
-	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the docker-direct delegated-spawn integration test")
+	daemonfixture.Require(t, "the docker-direct delegated-spawn integration test")
 	coord.ResetStrictness(t)
 	// NO credential is set on purpose: this run's engine is mock, which
 	// declares no Auth because it authenticates against no vendor. Needing a

@@ -49,6 +49,7 @@ func digest(value string) string {
 
 func TestSecretRefresh_ARealContainersNextTurnReadsTheRewrittenSecret(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the secret-refresh integration test")
+	daemonFixtures(t, "docker")
 	realEnv := os.Environ()
 	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
 	testsupport.Isolate(t)

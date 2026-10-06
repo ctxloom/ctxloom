@@ -68,7 +68,7 @@ func TestUserFlag_TracksTheOwnershipMapping(t *testing.T) {
 // result afterwards.
 func TestRun_RefusesAWorkDirOutsideTheMounts(t *testing.T) {
 	r := Runtime{Name: DockerRootless, Command: "docker", Available: true, RootMapsToInvoker: true}
-	_, err := r.Run(t.Context(), Spec{Mounts: []string{"/tmp/mounted"}, WorkDir: "/elsewhere", Args: []string{"version"}})
+	_, err := r.Run(t.Context(), Spec{Mounts: []Mount{{Source: "/tmp/mounted", Path: "/tmp/mounted"}}, WorkDir: "/elsewhere", Args: []string{"version"}})
 	if err == nil {
 		t.Fatal("expected a refusal for a WorkDir outside every mount")
 	}
@@ -77,9 +77,29 @@ func TestRun_RefusesAWorkDirOutsideTheMounts(t *testing.T) {
 	}
 }
 
+// TestRunArgv_BindsTheDaemonsSourceAtThePath: the container sees a mount at
+// the path the test uses, while the daemon is handed that directory's own name
+// for it — from a process that shares nothing with the daemon at the same path
+// the two differ, and a bind of the test's path would be a blank directory.
+func TestRunArgv_BindsTheDaemonsSourceAtThePath(t *testing.T) {
+	r := Runtime{Name: DockerRootless, Command: "docker", Available: true, RootMapsToInvoker: true}
+	argv := r.runArgv(Spec{
+		Mounts:  []Mount{{Source: "/home/runner/work/_temp/cell", Path: "/__w/_temp/cell"}},
+		WorkDir: "/__w/_temp/cell/project",
+		Args:    []string{"version"},
+	})
+	joined := strings.Join(argv, " ")
+	if !strings.Contains(joined, "-v /home/runner/work/_temp/cell:/__w/_temp/cell ") {
+		t.Fatalf("the daemon is not handed its own name for the mount: %s", joined)
+	}
+	if !strings.Contains(joined, "-w /__w/_temp/cell/project ") {
+		t.Fatalf("the container does not work at the test's path: %s", joined)
+	}
+}
+
 func TestRun_RefusesAnEmptyWorkDir(t *testing.T) {
 	r := Runtime{Name: DockerRootless, Command: "docker", Available: true, RootMapsToInvoker: true}
-	if _, err := r.Run(t.Context(), Spec{Mounts: []string{"/tmp/mounted"}, Args: []string{"version"}}); err == nil {
+	if _, err := r.Run(t.Context(), Spec{Mounts: []Mount{{Source: "/tmp/mounted", Path: "/tmp/mounted"}}, Args: []string{"version"}}); err == nil {
 		t.Fatal("expected a refusal for an empty WorkDir")
 	}
 }
@@ -89,7 +109,7 @@ func TestRun_RefusesAnEmptyWorkDir(t *testing.T) {
 // like a run.
 func TestRun_RefusesAnUnavailableRuntime(t *testing.T) {
 	r := Runtime{Name: Podman, Command: "podman", Available: false, Detail: "no `podman` on PATH"}
-	_, err := r.Run(t.Context(), Spec{Mounts: []string{"/tmp"}, WorkDir: "/tmp", Args: []string{"version"}})
+	_, err := r.Run(t.Context(), Spec{Mounts: []Mount{{Source: "/tmp", Path: "/tmp"}}, WorkDir: "/tmp", Args: []string{"version"}})
 	if err == nil || !strings.Contains(err.Error(), "not available") {
 		t.Fatalf("expected an unavailable-runtime refusal, got %v", err)
 	}

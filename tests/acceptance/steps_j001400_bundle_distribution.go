@@ -1261,8 +1261,9 @@ func j001400DeliverInContainer(c context.Context, w *World, root string) error {
 		// holds Alice's home (the pulled bundle cache), her project, and the
 		// detached worktree checkout the "worktree" rows deliver into. Mounting
 		// less would make the run fail for a reason that has nothing to do with
-		// the claim.
-		Mounts:  []string{w.env.Root},
+		// the claim. The source is the root itself: the acceptance suite runs
+		// where the daemon shares its temp root at the same path.
+		Mounts:  []containercell.Mount{{Source: w.env.Root, Path: w.env.Root}},
 		WorkDir: w.env.ProjectDir,
 		// The cell image is FROM scratch and inherits no environment, so the
 		// isolation testenv.isolatedEnv() applies on the host is re-stated here

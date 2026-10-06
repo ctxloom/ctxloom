@@ -44,6 +44,7 @@ const payloadBytes = 96 * 1024
 // part of it is necessarily still inside the relay when End runs.
 func TestEnd_TheContainersLastBytesSurviveTheRelay(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the container attach End drain test")
+	daemonFixtures(t, "docker")
 	rt := ProbeRuntime("docker")
 
 	// The image is made present before the measured run: under a TTY the CLI's

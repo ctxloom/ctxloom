@@ -85,7 +85,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/liveness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
+	"github.com/ctxloom/ctxloom/internal/testsupport/daemonfixture"
 )
 
 // progressAgentName is the one agent progressSpawner resolves. The healthy and
@@ -363,7 +363,7 @@ func awaitTranscriptStall(harp string, timeout time.Duration, thr liveness.Thres
 // age-gated rule from it) and the live spawner.
 func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.Duration, prompt string) (string, time.Time, *progressSpawner) {
 	t.Helper()
-	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the container-progress integration test")
+	daemonfixture.Require(t, "the container-progress integration test")
 	coord.ResetStrictness(t)
 	// NO credential is set on purpose: this run's engine is mock, which
 	// declares no Auth because it authenticates against no vendor. Needing a

@@ -28,8 +28,10 @@ type Layer struct {
 	// shared: this layer IS the host namespace, so both directions are
 	// identity.
 	shared bool
-	// ownFS: the views are this process's own paths, so Reverse resolves a
-	// symlink before translating — the daemon must bind what the link names.
+	// ownFS: the views are this process's own paths, so the views and every
+	// path Reverse is asked about are resolved (resolved) — the daemon must
+	// bind what a link names, and reports a destination as it was requested,
+	// links and all.
 	ownFS bool
 }
 
@@ -43,18 +45,38 @@ var ErrUnmapped = errors.New("isolation: path is not under any mount of this lay
 func HostLayer() Layer { return Layer{shared: true} }
 
 // primaryLayer is this process's layer: the host layer when it is not one of
-// the daemon's containers, else self's daemon-reported mounts. A tmpfs or the
-// container's own rootfs is absent from them (decodeSelf), so a path there is
-// ErrUnmapped.
+// the daemon's containers, else self's daemon-reported mounts, each
+// destination resolved once here. A tmpfs or the container's own rootfs is
+// absent from them (decodeSelf), so a path there is ErrUnmapped.
 func primaryLayer(self *selfContainer) Layer {
 	if self == nil {
 		return HostLayer()
 	}
 	l := Layer{ownFS: true}
 	for _, m := range self.mounts {
-		l.mounts = append(l.mounts, LayerMount{Host: m.source, View: m.destination})
+		l.mounts = append(l.mounts, LayerMount{Host: m.source, View: resolved(m.destination)})
 	}
 	return l
+}
+
+// resolved is p with every symlink in its longest existing prefix resolved:
+// the path this process's kernel opens for p, also for a p not created yet.
+// Only a PRIMARY layer's paths are resolved; a child's views are not this
+// process's to resolve.
+func resolved(p string) string {
+	p = filepath.Clean(p)
+	dir, rest := p, ""
+	for {
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.ToSlash(filepath.Join(real, rest))
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return filepath.ToSlash(p)
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
+		dir = parent
+	}
 }
 
 // Reverse names view in host path space: the Host of the longest mount View
@@ -65,9 +87,7 @@ func (l Layer) Reverse(view string) (string, error) {
 	}
 	view = path.Clean(view)
 	if l.ownFS {
-		if real, err := filepath.EvalSymlinks(view); err == nil {
-			view = filepath.ToSlash(real)
-		}
+		view = resolved(view)
 	}
 	m, ok := longest(l.mounts, view, func(m LayerMount) string { return m.View })
 	if !ok {

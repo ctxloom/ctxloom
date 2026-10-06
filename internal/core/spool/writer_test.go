@@ -106,7 +106,7 @@ func TestWriter_ReseedsSequenceAcrossRestart(t *testing.T) {
 		require.NoError(t, err)
 	}
 	// Withdraw one so the seed has to look past the live directory.
-	_, err = Withdraw(m, last)
+	_, err = Withdraw(afero.NewOsFs(), m, last)
 	require.NoError(t, err)
 
 	restarted, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")

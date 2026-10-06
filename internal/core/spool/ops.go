@@ -65,12 +65,12 @@ func Read(fs afero.Fs, m PathMapper, ref Ref) (*Message, error) {
 // the child's write, which the rename would otherwise carry over — and every
 // Consume prunes the copies routed before that window, so out/consumed/ is
 // bounded without a separate sweeper.
-func Consume(m PathMapper, ref Ref, now time.Time) (Ref, error) {
+func Consume(fs afero.Fs, m PathMapper, ref Ref, now time.Time) (Ref, error) {
 	target, err := ref.Dir.Consumed()
 	if err != nil {
 		return Ref{}, err
 	}
-	moved, err := moveTo(m, ref, target)
+	moved, err := moveTo(fs, m, ref, target)
 	if err != nil {
 		return Ref{}, err
 	}
@@ -78,10 +78,10 @@ func Consume(m PathMapper, ref Ref, now time.Time) (Ref, error) {
 	if err != nil {
 		return Ref{}, err
 	}
-	if err := os.Chtimes(path, now, now); err != nil {
+	if err := fs.Chtimes(path, now, now); err != nil {
 		return Ref{}, fmt.Errorf("spool: stamping the route time on %s: %w", moved, err)
 	}
-	if err := pruneExpired(filepath.Dir(path), now); err != nil {
+	if err := pruneExpired(fs, filepath.Dir(path), now); err != nil {
 		return Ref{}, err
 	}
 	return moved, nil
@@ -91,8 +91,8 @@ func Consume(m PathMapper, ref Ref, now time.Time) (Ref, error) {
 // record entries — whose time is before now-DeliveredRetention. Only names
 // ValidateName accepts are pruned: a staging name or a sub-directory is not an
 // entry. A missing dir has nothing to prune.
-func pruneExpired(dir string, now time.Time) error {
-	entries, err := os.ReadDir(dir)
+func pruneExpired(fs afero.Fs, dir string, now time.Time) error {
+	entries, err := afero.ReadDir(fs, dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -101,7 +101,7 @@ func pruneExpired(dir string, now time.Time) error {
 	}
 	cutoff := now.Add(-DeliveredRetention)
 	for _, e := range entries {
-		if err := pruneIfExpired(dir, e, cutoff); err != nil {
+		if err := pruneIfExpired(fs, dir, e, cutoff); err != nil {
 			return err
 		}
 	}
@@ -110,21 +110,14 @@ func pruneExpired(dir string, now time.Time) error {
 
 // pruneIfExpired removes e from dir when it is an entry whose time is before
 // cutoff; a sub-directory, a staging name, or an entry already gone is left.
-func pruneIfExpired(dir string, e os.DirEntry, cutoff time.Time) error {
+func pruneIfExpired(fs afero.Fs, dir string, e os.FileInfo, cutoff time.Time) error {
 	if e.IsDir() || ValidateName(e.Name()) != nil {
 		return nil
 	}
-	info, err := e.Info()
-	if errors.Is(err, os.ErrNotExist) {
-		return nil // pruned concurrently
-	}
-	if err != nil {
-		return fmt.Errorf("spool: reading %s: %w", dir, err)
-	}
-	if !info.ModTime().Before(cutoff) {
+	if !e.ModTime().Before(cutoff) {
 		return nil
 	}
-	if err := os.Remove(filepath.Join(dir, e.Name())); err != nil && !os.IsNotExist(err) {
+	if err := fs.Remove(filepath.Join(dir, e.Name())); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("spool: pruning %s past retention: %w", filepath.Join(dir, e.Name()), err)
 	}
 	return nil
@@ -136,12 +129,12 @@ func pruneIfExpired(dir string, e os.DirEntry, cutoff time.Time) error {
 // The race with the reader is resolved by the filesystem: rename-won means
 // retracted, ErrAlreadyGone means the reader consumed it first (the caller's
 // "pulled" answer). No lock, no tombstone, no ambiguity.
-func Withdraw(m PathMapper, ref Ref) (Ref, error) {
+func Withdraw(fs afero.Fs, m PathMapper, ref Ref) (Ref, error) {
 	target, err := ref.Dir.Withdrawn()
 	if err != nil {
 		return Ref{}, err
 	}
-	return moveTo(m, ref, target)
+	return moveTo(fs, m, ref, target)
 }
 
 // FailedDirName is the terminal directory for an in/ entry this process's
@@ -207,7 +200,7 @@ func failedDirFor(d Dir) (Dir, error) {
 // this: it returns no Ref for a caller to announce, and neither failed/
 // directory may ever reach SpoolDirToWire (which refuses them — see
 // FailedOutDirName and FailedDirName).
-func Fail(m PathMapper, ref Ref) error {
+func Fail(fs afero.Fs, m PathMapper, ref Ref) error {
 	target, err := failedDirFor(ref.Dir)
 	if err != nil {
 		return err
@@ -225,7 +218,7 @@ func Fail(m PathMapper, ref Ref) error {
 	if err != nil {
 		return err
 	}
-	if err := renameInto(filepath.Join(fromDir, ref.Name), filepath.Join(toDir, ref.Name)); err != nil {
+	if err := renameInto(fs, filepath.Join(fromDir, ref.Name), filepath.Join(toDir, ref.Name)); err != nil {
 		return fmt.Errorf("spool: moving %s to %s: %w", ref, target, err)
 	}
 	return nil
@@ -240,8 +233,7 @@ func Fail(m PathMapper, ref Ref) error {
 //
 // It reports a missing source as ErrAlreadyGone: another sweep winning the
 // race is ordinary, not a fault.
-func renameInto(from, to string) error {
-	fs := afero.NewOsFs()
+func renameInto(fs afero.Fs, from, to string) error {
 	if err := fs.MkdirAll(filepath.Dir(to), owneronly.DirMode); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(to), err)
 	}
@@ -255,7 +247,7 @@ func renameInto(from, to string) error {
 }
 
 // moveTo renames ref into dir, returning the new ref.
-func moveTo(m PathMapper, ref Ref, dir Dir) (Ref, error) {
+func moveTo(fs afero.Fs, m PathMapper, ref Ref, dir Dir) (Ref, error) {
 	from, err := m.Resolve(ref)
 	if err != nil {
 		return Ref{}, err
@@ -265,7 +257,7 @@ func moveTo(m PathMapper, ref Ref, dir Dir) (Ref, error) {
 	if err != nil {
 		return Ref{}, err
 	}
-	if err := renameInto(from, to); err != nil {
+	if err := renameInto(fs, from, to); err != nil {
 		return Ref{}, fmt.Errorf("spool: moving %s to %s: %w", ref, dir, err)
 	}
 	return dst, nil

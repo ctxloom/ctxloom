@@ -117,7 +117,7 @@ func moveUnclaimed(m PathMapper, harp, inPath, claimedPath string, entries []Ent
 			continue
 		}
 		inFlight[id] = true
-		if err := renameInto(from, filepath.Join(claimedPath, e.Ref.Name)); err != nil && !errors.Is(err, ErrAlreadyGone) {
+		if err := renameInto(afero.NewOsFs(), from, filepath.Join(claimedPath, e.Ref.Name)); err != nil && !errors.Is(err, ErrAlreadyGone) {
 			return fmt.Errorf("spool: claiming %s: %w", e.Ref, err)
 		}
 	}

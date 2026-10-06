@@ -161,7 +161,7 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 
 	// And the host can consume what the container wrote: the reverse
 	// direction's rename works over the same mount.
-	outConsumed, err := Consume(m, res.Entries[0].Ref, time.Now())
+	outConsumed, err := Consume(afero.NewOsFs(), m, res.Entries[0].Ref, time.Now())
 	require.NoError(t, err)
 	after, err := os.ReadFile(mustResolve(t, m, outConsumed))
 	require.NoError(t, err)

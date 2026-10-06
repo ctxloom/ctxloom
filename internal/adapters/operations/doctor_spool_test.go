@@ -361,7 +361,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedEntry(t *testing.T) {
 	require.NoError(t, spool.EnsureDirs(mapper, harp))
 
 	failedRef := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano(), 1, "coord", time.Now())
-	require.NoError(t, spool.Fail(mapper, failedRef))
+	require.NoError(t, spool.Fail(afero.NewOsFs(), mapper, failedRef))
 
 	live := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano(), 2, "coord", time.Now())
 
@@ -390,7 +390,7 @@ func TestDoctorCheckSpoolBacklog_CapsFailedListWithCount(t *testing.T) {
 
 	for i := range 8 {
 		ref := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano()+int64(i), uint64(i+1), "coord", time.Now())
-		require.NoError(t, spool.Fail(mapper, ref))
+		require.NoError(t, spool.Fail(afero.NewOsFs(), mapper, ref))
 	}
 
 	check := doctorCheckSpoolBacklog(afero.NewOsFs())
@@ -418,7 +418,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedOutboundEntry(t *testi
 	require.NoError(t, err)
 	ref, err := w.Write(&spool.Message{Kind: "result", FromHarp: harp, To: "parent", Body: "my findings"})
 	require.NoError(t, err)
-	require.NoError(t, spool.Fail(mapper, ref))
+	require.NoError(t, spool.Fail(afero.NewOsFs(), mapper, ref))
 
 	check := doctorCheckSpoolBacklog(afero.NewOsFs())
 	assert.Equal(t, DoctorWarn, check.Status,

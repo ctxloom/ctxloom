@@ -154,7 +154,7 @@ func (h *Home) deliverSpoolEntry(e spool.Entry) {
 // which is the three-way distinction a bare warning-and-retry cannot make.
 func (h *Home) failSpoolEntry(e spool.Entry, why string, cause error) {
 	h.spoolDeliveryCount.Failed.Add(1)
-	coord.FailSpool(h.rep, h.cfg.Mapper, "runner", e.Ref, why, cause)
+	coord.FailSpool(h.rep, h.fs, h.cfg.Mapper, "runner", e.Ref, why, cause)
 }
 
 // rememberSpoolRef records which file a delivered id came from, so the

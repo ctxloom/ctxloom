@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/spf13/afero"
 )
 
 // THE MAIL PLANE: coordinator<->child mail is DELIVERED FROM FILES.
@@ -681,7 +682,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 // the process while later entries delivered around it, which is the
 // silent-skip this project treats as its characteristic defect.
 func (c *Coordinator) failSpoolOut(role string, ref spool.Ref, cause error) {
-	FailSpool(c.rep, c.mapper, "coordinator", ref, fmt.Sprintf("could not route %s's message", role), cause)
+	FailSpool(c.rep, c.fs, c.mapper, "coordinator", ref, fmt.Sprintf("could not route %s's message", role), cause)
 }
 
 // FailSpool moves ref out of its live directory into the failed/ sibling
@@ -689,8 +690,8 @@ func (c *Coordinator) failSpoolOut(role string, ref spool.Ref, cause error) {
 // terminal-state move for a file a reader parsed but could not deliver or
 // route, on both sides and in both directions. A lost race (ErrAlreadyGone)
 // is the other path having won: nothing to strand, nothing to warn about.
-func FailSpool(rep report.Reporter, mapper spool.PathMapper, side string, ref spool.Ref, why string, cause error) {
-	if err := spool.Fail(mapper, ref); err != nil {
+func FailSpool(rep report.Reporter, fs afero.Fs, mapper spool.PathMapper, side string, ref spool.Ref, why string, cause error) {
+	if err := spool.Fail(fs, mapper, ref); err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			return
 		}
@@ -798,7 +799,7 @@ func (c *Coordinator) spoolSenderIdentity(role string) (Identity, bool) {
 // race (ErrAlreadyGone) is the expected outcome of the other path having won
 // and is never reported as a failure.
 func (c *Coordinator) consumeSpool(role string, ref spool.Ref) {
-	if _, err := spool.Consume(c.mapper, ref, c.now()); err != nil {
+	if _, err := spool.Consume(c.fs, c.mapper, ref, c.now()); err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			return
 		}

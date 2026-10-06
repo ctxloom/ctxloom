@@ -333,7 +333,7 @@ func TestSpoolAsk_UnreadAskOfAnEndedChildIsNotNoticed(t *testing.T) {
 	c.noticeUnansweredAsks(out.Harp)
 	assert.True(t, askOpen(c, askID), "an unread ask may still be answered and must not be reported unanswered")
 
-	_, err := spool.Withdraw(spool.NewHomeMapper(), ref)
+	_, err := spool.Withdraw(afero.NewOsFs(), spool.NewHomeMapper(), ref)
 	require.NoError(t, err)
 	c.noticeUnansweredAsks(out.Harp)
 	assert.False(t, askOpen(c, askID))

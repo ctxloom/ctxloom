@@ -611,7 +611,7 @@ func TestSpoolDelivery_ConsumeThatLostItsRaceIsNotAFailure(t *testing.T) {
 	require.NoError(t, err)
 	outRef, err := outW.Write(&spool.Message{Kind: KindResult, FromHarp: out.Harp, To: ParentAddress, Body: "raced back"})
 	require.NoError(t, err)
-	_, err = spool.Consume(mapper, outRef, time.Now())
+	_, err = spool.Consume(afero.NewOsFs(), mapper, outRef, time.Now())
 	require.NoError(t, err)
 
 	coordFailedBefore := c.SpoolDeliveryStats().Failed

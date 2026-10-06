@@ -185,5 +185,5 @@ func pruneDelivered(m PathMapper, harp string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	return pruneExpired(dir, now)
+	return pruneExpired(afero.NewOsFs(), dir, now)
 }

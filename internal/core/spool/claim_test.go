@@ -217,7 +217,7 @@ func TestFail_MovesAClaimedEntryIntoFailed(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, res.Entries, 1)
 
-	require.NoError(t, Fail(m, res.Entries[0].Ref))
+	require.NoError(t, Fail(afero.NewOsFs(), m, res.Entries[0].Ref))
 
 	assert.Empty(t, filesIn(t, m, ClaimedDirName))
 	assert.Equal(t, []string{ref.Name}, filesIn(t, m, FailedDirName))

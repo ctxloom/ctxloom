@@ -8,14 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -110,7 +108,7 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 	if req.InstanceHome == "" {
 		return InstanceHomeReport{}, fmt.Errorf("instance home for %s: no instance home to prepare (internal error)", req.Engine)
 	}
-	unlock, err := lockInstanceHome(req.InstanceHome)
+	unlock, err := lockInstanceHome(req.root().Locks, req.InstanceHome)
 	if err != nil {
 		return InstanceHomeReport{}, fmt.Errorf("instance home for %s: %w", req.Engine, err)
 	}
@@ -149,7 +147,7 @@ func writeInstanceConfig(req InstanceHomeRequest, writer engine.InstanceConfigWr
 		WorkDir:      req.WorkDir,
 		Trust:        req.Trust,
 		Auth:         req.Auth,
-	}, nil)
+	}, req.root())
 	rep.Generated = engineRep.Wrote
 	rep.Warnings = engineRep.Warnings
 	for _, w := range rep.Warnings {
@@ -269,15 +267,6 @@ func renamedSessionLink(link, nativeHome, rel string) bool {
 	return errors.Is(err, fs.ErrNotExist)
 }
 
-// lockFileMode and lockDirMode are the modes this instance-home lock's
-// sidecar and its parent directory are created with, before umask — not
-// group- or world-WRITABLE, matching every other lock site in this project
-// (see internal/core/agent/rmw_lock.go's identically-reasoned pair).
-const (
-	lockFileMode = 0o644
-	lockDirMode  = 0o755
-)
-
 // errInstanceHomeUnkeyed refuses an instance home the home lock store cannot
 // key (paths.HomePathFor failed), so it cannot be serialized.
 var errInstanceHomeUnkeyed = errors.New("instance home: cannot key the instance lock")
@@ -294,20 +283,14 @@ var errInstanceHomeUnlocked = errors.New("instance home: cannot take the instanc
 // keyed to a lock location is refused (errInstanceHomeUnkeyed), and so is
 // one whose lock directory cannot be created or whose lock cannot be taken
 // (errInstanceHomeUnlocked): no path proceeds without holding the lock.
-func lockInstanceHome(instanceHome string) (func(), error) {
+func lockInstanceHome(locks safefs.Locks, instanceHome string) (func(), error) {
 	lockPath, err := paths.HomePathFor(instanceHome)
 	if err != nil {
 		return nil, fmt.Errorf("%w %s: %w", errInstanceHomeUnkeyed, instanceHome, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
-		return nil, fmt.Errorf("%w %s: prepare the lock directory: %w", errInstanceHomeUnlocked, lockPath, err)
-	}
-	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
-	stop := lockwait.Watch(lockPath)
-	err = fl.Lock()
-	stop()
+	l, err := locks.Lock(lockPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w %s: %w", errInstanceHomeUnlocked, lockPath, err)
 	}
-	return func() { _ = fl.Unlock() }, nil
+	return func() { _ = l.Unlock() }, nil
 }

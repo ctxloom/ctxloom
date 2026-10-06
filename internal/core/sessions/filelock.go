@@ -3,10 +3,8 @@ package sessions
 import (
 	"fmt"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // WithFileLock runs fn as ONE serialized read-modify-write transaction
@@ -16,22 +14,19 @@ import (
 // files bind-mounted) all read-modify-write these files concurrently; two
 // racing RMWs is a lost update on a file ctxloom does not own.
 //
-// fs is the caller's own filesystem seam (nil meaning the OS filesystem);
-// a non-OS-backed fs takes no lock (see filelock.WithLock) and so resolves
-// none: deriving it anyway fails a test double's transaction on a home it
-// would never touch. The lock lives
-// under the ctxloom home at paths.HomePathFor(target), never beside the
-// file: a sidecar for a file this project does NOT own left untracked lock
-// litter in every project and a ctxloom-owned file inside the user's real
-// engine home, a directory ctxloom otherwise never writes to. See
-// paths.HomePathFor's doc for the full reasoning.
-func WithFileLock(fs afero.Fs, target string, fn func() error) error {
-	if !filelock.IsOSBackedFs(fs) {
-		return fn()
-	}
+// locks are the caller's Root's (safefs.Root.Locks), paired with the fs fn
+// reads and writes target through, so the lock is taken on the filesystem
+// the transaction runs on; it is never skipped, and a failure to take it
+// fails the call without running fn. The lock lives under the ctxloom home
+// at paths.HomePathFor(target), never beside the file: a sidecar for a file
+// this project does NOT own left untracked lock litter in every project and
+// a ctxloom-owned file inside the user's real engine home, a directory
+// ctxloom otherwise never writes to. See paths.HomePathFor's doc for the
+// full reasoning.
+func WithFileLock(locks safefs.Locks, target string, fn func() error) error {
 	lockPath, err := paths.HomePathFor(target)
 	if err != nil {
 		return fmt.Errorf("sessions: deriving home lock path for %s: %w", target, err)
 	}
-	return filelock.WithLock(fs, lockPath, fn)
+	return safefs.WithLock(locks, lockPath, fn)
 }

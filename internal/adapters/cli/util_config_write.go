@@ -121,7 +121,7 @@ only the TARGET file's format varies; the shape you send never does.
 }
 
 func runConfigWriteCmd(cmd *cobra.Command, args []string) error {
-	result, err := runConfigWrite(afero.NewOsFs(), cmd, configWriteFile, configWriteFiletype)
+	result, err := runConfigWrite(safefs.New(), cmd, configWriteFile, configWriteFiletype)
 	if err != nil {
 		return err
 	}
@@ -170,7 +170,8 @@ type configWriteResult struct {
 // it stays outside the critical section — this is one process, one
 // invocation, start to finish, so there is no cross-process-boundary gap for
 // the lock to need to span.
-func runConfigWrite(fs afero.Fs, cmd *cobra.Command, file, filetype string) (configWriteResult, error) {
+func runConfigWrite(root safefs.Root, cmd *cobra.Command, file, filetype string) (configWriteResult, error) {
+	fs := root.Fs
 	var result configWriteResult
 
 	if err := validateRealFilePath(file); err != nil {
@@ -192,7 +193,7 @@ func runConfigWrite(fs afero.Fs, cmd *cobra.Command, file, filetype string) (con
 		return result, err
 	}
 
-	lockErr := sessions.WithFileLock(fs, file, func() error {
+	lockErr := sessions.WithFileLock(root.Locks, file, func() error {
 		base, rawBefore, existed, err := readExisting(fs, file, ft)
 		result.Created = !existed
 		if err != nil {

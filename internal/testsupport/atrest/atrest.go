@@ -18,26 +18,28 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Project is one project root and the record store its deliveries claim in.
 type Project struct {
 	FS      afero.Fs
+	root    safefs.Root
 	Dir     string
 	Kind    engine.Engine
 	Records delivery.Ownership
 }
 
-// New is dir on fs for kind. Its record store is the one every Project for
+// New is dir on root's filesystem for kind. Its record store is the one every Project for
 // that dir on that fs shares — as the home-rooted store is shared in
 // production, so a re-install sees what the last one claimed — kept beside
 // dir (<dir>.records) so a test's temp root removes it, and outside dir so a
 // walk of the project never finds it.
-func New(t testing.TB, fs afero.Fs, kind engine.Engine, dir string) *Project {
+func New(t testing.TB, root safefs.Root, kind engine.Engine, dir string) *Project {
 	t.Helper()
-	rec, err := fsstatic.NewRecords(fs, filepath.Clean(dir)+".records")
+	rec, err := fsstatic.NewRecords(root.Fs, filepath.Clean(dir)+".records")
 	require.NoError(t, err)
-	return &Project{FS: fs, Dir: dir, Kind: kind, Records: rec}
+	return &Project{FS: root.Fs, root: root, Dir: dir, Kind: kind, Records: rec}
 }
 
 // Install delivers pkg into the project as the project writer.
@@ -53,14 +55,14 @@ func (p *Project) Install(pkg composite.Package) error {
 		return err
 	}
 	lo := delivery.Loadout{Plan: plan, Package: pkg, Exports: exports, WorkDir: p.Dir}
-	_, err = fsstatic.New(p.FS).Deliver(context.Background(), lo, root, delivery.ProjectTarget(p.Dir, p.Records))
+	_, err = fsstatic.New(p.root).Deliver(context.Background(), lo, root, delivery.ProjectTarget(p.Dir, p.Records))
 	return err
 }
 
 // Uninstall delivers the empty plan: the record's account of what the
 // project writer put there, and only that, is removed.
 func (p *Project) Uninstall() error {
-	_, err := fsstatic.New(p.FS).Deliver(context.Background(), delivery.Loadout{WorkDir: p.Dir}, p.Kind.Root(), delivery.ProjectTarget(p.Dir, p.Records))
+	_, err := fsstatic.New(p.root).Deliver(context.Background(), delivery.Loadout{WorkDir: p.Dir}, p.Kind.Root(), delivery.ProjectTarget(p.Dir, p.Records))
 	return err
 }
 

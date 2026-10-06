@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
@@ -24,7 +25,7 @@ func TestRead_RetiredProfilesDirIsAHardError(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	testsupport.WriteFileString(t, fs, filepath.Join(paths.ProfilesPath(appDir), "dev.yaml"), "bundles: [x]\n", 0o644)
 
-	_, err := Load(WithFS(fs), WithAppDir(appDir))
+	_, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	require.ErrorIs(t, err, errRetiredProfilesDir)
 	assert.Contains(t, err.Error(), "git mv "+paths.ProfilesPath(appDir)+"/*.yaml "+bundletree.ProjectProfilesPath(appDir)+"/",
 		"the fix line names the exact move")
@@ -43,6 +44,6 @@ func TestRead_ProjectBundleProfilesLoad(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	bundletree.WriteDirProfiles(t, fs, appDir, map[string]any{"dev": map[string]any{"bundles": []string{"x"}}})
 
-	_, err := Load(WithFS(fs), WithAppDir(appDir))
+	_, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	require.NoError(t, err)
 }

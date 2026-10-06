@@ -25,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -86,7 +87,7 @@ func stageInstalledTree(t *testing.T) (*config.Config, *content.TreeStore, conte
 	require.NoError(t, err)
 
 	c := gatedFixture(config.Fixture{AppPaths: []string{treeBase}})
-	c.SetFS(fsys)
+	c.SetRoot(safefs.NewMem(fsys))
 	return c, store, tree, fsys
 }
 
@@ -321,7 +322,7 @@ func TestLoadTreeBundle_OtherWithheldCausesKeepTheTamperRemedy(t *testing.T) {
 func TestLoadTreeBundle_MissingTreeNamesThePathAndTheFix(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	c := gatedFixture(config.Fixture{AppPaths: []string{treeBase}})
-	c.SetFS(fsys)
+	c.SetRoot(safefs.NewMem(fsys))
 
 	_, pub := treeTestSigner(t)
 	_, _, err := readTreeBundle(t, c, context.Background(), treeCanonical, treeEntry(), treeTrustRoot("t@x", pub))
@@ -415,7 +416,7 @@ func stageLoaderFormTree(t *testing.T) (*config.Config, afero.Fs, string) {
 		[]byte("---\nname: good-night\ndescription: d\n---\n\nGOOD-NIGHT-BODY\n"), 0o644)
 
 	c := gatedFixture(config.Fixture{AppPaths: []string{treeBase}})
-	c.SetFS(fsys)
+	c.SetRoot(safefs.NewMem(fsys))
 	return c, fsys, dir
 }
 

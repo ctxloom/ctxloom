@@ -17,14 +17,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // RemoveHooksRequest contains parameters for stripping ctxloom's harness from
 // backend config files.
 type RemoveHooksRequest struct {
-	Backend string   `json:"backend"` // an engine name, or all
-	FS      afero.Fs `json:"-"`       // Optional filesystem for testing
-	WorkDir string   `json:"-"`       // Optional work directory (defaults to git root)
+	Backend string      `json:"backend"` // an engine name, or all
+	Root    safefs.Root `json:"-"`       // Optional Root for testing (zero = safefs.New())
+	WorkDir string      `json:"-"`       // Optional work directory (defaults to git root)
 }
 
 // RemoveHooksResult reports which backends were cleaned and any per-backend
@@ -39,7 +40,7 @@ type RemoveHooksResult struct {
 // generated command files from the requested backends. Fault tolerant: a
 // single backend's failure is recorded and the rest still run.
 func RemoveHooks(ctx context.Context, reg engine.Registry, _ *config.Config, req RemoveHooksRequest) (*RemoveHooksResult, error) {
-	fs := getFS(req.FS)
+	root := rootOf(req.Root)
 	workDir := manageWorkDir(req.WorkDir)
 
 	names, err := manageBackendNames(reg, req.Backend)
@@ -52,7 +53,7 @@ func RemoveHooks(ctx context.Context, reg engine.Registry, _ *config.Config, req
 		if ctx.Err() != nil {
 			return &RemoveHooksResult{Status: "partial", Backends: removed, Errors: errs}, ctx.Err()
 		}
-		if err := removeBackendHarness(ctx, reg, name, workDir, fs); err != nil {
+		if err := removeBackendHarness(ctx, reg, name, workDir, root); err != nil {
 			clidiag.Warn("ctxloom", "%s", err)
 			errs = append(errs, err.Error())
 			continue
@@ -70,12 +71,12 @@ func RemoveHooks(ctx context.Context, reg engine.Registry, _ *config.Config, req
 // removeBackendHarness delivers the EMPTY plan against the project target:
 // the project writer's record says what ctxloom put there and only that is
 // removed — the user's own hooks, servers, commands and context stay.
-func removeBackendHarness(ctx context.Context, reg engine.Registry, name, workDir string, fs afero.Fs) error {
+func removeBackendHarness(ctx context.Context, reg engine.Registry, name, workDir string, root safefs.Root) error {
 	kind, ok := reg.Lookup(engine.Name(name))
 	if !ok {
 		return fmt.Errorf("failed to remove %s: no engine kind is composed for it", name)
 	}
-	if err := RemoveProject(ctx, fs, kind, workDir); err != nil {
+	if err := RemoveProject(ctx, root, kind, workDir); err != nil {
 		return fmt.Errorf("failed to remove %s: %w", name, err)
 	}
 	return nil

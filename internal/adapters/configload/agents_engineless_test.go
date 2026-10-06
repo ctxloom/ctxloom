@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -82,7 +83,7 @@ func TestLoad_HomeEnginelessAgentIsRefusedNamingHomePath(t *testing.T) {
 		"schema_version: 7\nagents:\n  help: {}\n",
 		"schema_version: 7\nagents:\n  dev:\n    profiles: [default]\n",
 	)
-	cfg, err := Load(WithFS(fs), WithAppDir(projectAppDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(projectAppDir))
 	require.NoError(t, err)
 
 	_, present := cfg.GetConfiguredAgents()["help"]
@@ -108,7 +109,7 @@ func TestManagerUpdate_ProjectWriteDoesNotFoldHomeAgentIntoProjectFile(t *testin
 	homeAppDir := filepath.Join(home, config.AppDirName)
 	projectAppDir := seedLayers(t, fs, home, "schema_version: 7\nagents:\n  help: {}\n", "schema_version: 7\n")
 
-	mgr := newUpdater(t, WithFS(fs), WithAppDir(projectAppDir))
+	mgr := newUpdater(t, WithRoot(safefs.NewMem(fs)), WithAppDir(projectAppDir))
 	require.NoError(t, mgr.Update(func(d *config.Draft) error {
 		if d.Agents == nil {
 			d.Agents = map[string]agents.Agent{}

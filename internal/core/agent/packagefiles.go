@@ -10,7 +10,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -399,7 +400,7 @@ func liveFileMatches(fs afero.Fs, src, dst string) bool {
 // file removed), it is pruned bottom-up on a best-effort basis so a disabled
 // skill leaves no debris.
 //
-// THE WHOLE CYCLE RUNS UNDER A LOCK KEYED ON dir (sessions.WithFileLock), from
+// THE WHOLE CYCLE RUNS UNDER A LOCK KEYED ON dir (paths.HomePathFor(dir)), from
 // the read of this surface's previous set to the ledger write that replaces
 // it. Without it, a second writer of the same dir (another session, the MCP
 // server, a hook) can complete a delivery between this call's read and its
@@ -418,9 +419,21 @@ func WriteManagedPackageFiles[T any](
 	render func(T) ([]PackageFile, error),
 	opts ...ManagedWriteOption,
 ) error {
-	return sessions.WithFileLock(fs, dir, func() error {
+	write := func() error {
 		return writeManagedPackageFilesLocked(fs, dir, surface, items, enabled, itemName, render, opts...)
-	})
+	}
+	// This chain is handed only an afero.Fs, not a safefs.Root, so the fs
+	// decides whether it locks: a non-OS fs takes no lock and resolves none
+	// (marshy-capture: threading a Root through the engine approaches that
+	// reach this is escalated).
+	if !filelock.IsOSBackedFs(fs) {
+		return write()
+	}
+	lockPath, err := paths.HomePathFor(dir)
+	if err != nil {
+		return fmt.Errorf("agent: deriving home lock path for %s: %w", dir, err)
+	}
+	return filelock.WithLock(fs, lockPath, write)
 }
 
 // revertManagedSurface reverts one surface to empty: removes exactly the

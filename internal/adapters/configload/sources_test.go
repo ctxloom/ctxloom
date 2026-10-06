@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 const appDir = "/proj/.ctxloom"
@@ -31,7 +32,7 @@ func hermetic(t *testing.T) afero.Fs {
 
 func TestSources_Read_AbsentLayers_YieldShippedDefaultWithoutError(t *testing.T) {
 	fs := hermetic(t)
-	src, err := configload.New(nil, nil, configload.WithFS(fs), configload.WithAppDir(appDir))
+	src, err := configload.New(nil, nil, configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 
 	cfg, warnings, err := src.Read(context.Background())
@@ -46,7 +47,7 @@ func TestSources_Read_PresentUnparsableLayer_RefusesNamingTheFile(t *testing.T) 
 	fs := hermetic(t)
 	path := appDir + "/config.yaml"
 	testsupport.WriteFile(t, fs, path, []byte("default_agent: [unclosed\n  : nonsense\n"), 0o644)
-	src, err := configload.New(nil, nil, configload.WithFS(fs), configload.WithAppDir(appDir))
+	src, err := configload.New(nil, nil, configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 
 	cfg, _, err := src.Read(context.Background())
@@ -77,7 +78,7 @@ llm:
 workspace: worktree
 `), 0o644)
 
-	src, err := configload.New(nil, nil, configload.WithFS(fs), configload.WithAppDir(appDir))
+	src, err := configload.New(nil, nil, configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	got, warnings, err := src.Read(context.Background())
 	require.NoError(t, err)
@@ -105,7 +106,7 @@ func TestSources_Read_OverridesFromFlagsAndEnv_ReachTheValue(t *testing.T) {
 	require.NoError(t, flags.Parse([]string{"--" + confload.ConfigSetFlagName, "default_agent=fromflag"}))
 	environ := []string{"CTXLOOM_CONFIG_SESSION_REAP_AGE=7d", "CTXLOOM_CONFIG_WORKSPACE=worktree"}
 
-	src, err := configload.New(flags, environ, configload.WithFS(fs), configload.WithAppDir(appDir))
+	src, err := configload.New(flags, environ, configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	got, warnings, err := src.Read(context.Background())
 	require.NoError(t, err)
@@ -126,7 +127,7 @@ func TestSources_New_NilEnviron_IgnoresProcessEnvironment(t *testing.T) {
 	fs := hermetic(t)
 	t.Setenv("CTXLOOM_CONFIG_SESSION_REAP_AGE", "99d")
 
-	src, err := configload.New(nil, nil, configload.WithFS(fs), configload.WithAppDir(appDir))
+	src, err := configload.New(nil, nil, configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	got, _, err := src.Read(context.Background())
 	require.NoError(t, err)

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
@@ -179,7 +180,7 @@ func withProfileDefs(t *testing.T, cfg *config.Config, defs map[string]config.Pr
 	}
 	bundletree.WriteDirProfiles(t, fs, appDir, seed)
 	out := gatedFixture(f)
-	out.SetFS(fs)
+	out.SetRoot(safefs.NewMem(fs))
 	return out
 }
 

@@ -6,15 +6,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/config/layerscope"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/schema"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/config/layerscope"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/schema"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // TestLoad_RetiredAgentTurnCapKeyRefusedNotIgnored pins the load-bearing half
@@ -39,7 +41,7 @@ func TestLoad_RetiredAgentTurnCapKeyRefusedNotIgnored(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	testsupport.WriteFile(t, fs, "/proj/.ctxloom/config.yaml", []byte("schema_version: 7\nagent_turn_cap: 3\n"), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir("/proj/.ctxloom"))
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 
@@ -72,7 +74,7 @@ func TestLoad_RetiredLLMEnvKeyRefusedNotIgnored(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		testsupport.WriteFileString(t, fs, "/proj/.ctxloom/config.yaml", doc, 0644)
 
-		cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
+		cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir("/proj/.ctxloom"))
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 
@@ -126,7 +128,7 @@ agents:
 `
 	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(configContent), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"test"}, cfg.DefaultAgentProfiles())
@@ -159,7 +161,7 @@ llm:
 `
 	testsupport.WriteFileString(t, fs, paths.ConfigPath(appDir), configContent, 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	require.NoError(t, err)
 
 	control, ok := cfg.ToFixture().LM.Configs["m"].Body["mock_control"].(map[string]any)
@@ -178,7 +180,7 @@ func TestLoad_CurrentConfigReadsItsVersion(t *testing.T) {
 	cfgPath := paths.ConfigPath(appDir)
 	testsupport.WriteFile(t, fs, cfgPath, []byte(current), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	require.NoError(t, err)
 	assert.Equal(t, config.CurrentConfigVersion, cfg.ToFixture().SchemaVersion)
 }
@@ -189,7 +191,7 @@ func TestLoad_NoConfigFile(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
 	// No config.yaml file - should still work
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	require.NoError(t, err)
 
 	assert.NotNil(t, cfg.ToFixture().LM.Configs)
@@ -201,7 +203,7 @@ func TestLoadConfigLayer_AbsentAndUnparsable(t *testing.T) {
 
 	t.Run("absent file is nil values and no error", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		b := config.NewBuilder(fs, true, "/", config.SourceProject)
+		b := config.NewBuilder(safefs.NewMem(fs), "/", config.SourceProject)
 		values, err := src.loadConfigLayer(b, layerscope.LayerProject, "/", "", "/nonexistent/config.yaml", fs)
 		assert.NoError(t, err)
 		assert.Nil(t, values)
@@ -210,7 +212,7 @@ func TestLoadConfigLayer_AbsentAndUnparsable(t *testing.T) {
 	t.Run("present unparsable file is refused by name", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		testsupport.WriteFile(t, fs, "/config.yaml", []byte("invalid: ["), 0644)
-		b := config.NewBuilder(fs, true, "/", config.SourceProject)
+		b := config.NewBuilder(safefs.NewMem(fs), "/", config.SourceProject)
 		values, err := src.loadConfigLayer(b, layerscope.LayerProject, "/", "", "/config.yaml", fs)
 		require.ErrorIs(t, err, ErrUnparsableLayer)
 		assert.Contains(t, err.Error(), "/config.yaml")
@@ -231,7 +233,7 @@ llm:
 	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(configContent), 0644)
 
 	// Now returns config with warnings instead of error for resilient startup
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
 	// Should have collected warnings about parse/validation issues
@@ -257,7 +259,7 @@ func TestLoad_SchemaCompileFailureProducesWarning(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("llm:\n  default_agent: claude\n"), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	assert.NoError(t, err, "a compile failure must degrade to a warning, not abort Load")
 	require.NotNil(t, cfg)
 
@@ -286,7 +288,7 @@ llm:
 `
 	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(malformedYAML), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 
 	require.ErrorIs(t, err, ErrUnparsableLayer)
 	assert.Contains(t, err.Error(), paths.ConfigPath(appDir))
@@ -302,7 +304,7 @@ func TestResilientStartup_CompletelyInvalidYAML(t *testing.T) {
 	// judgement — a file that is not YAML has nothing to validate.
 	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("{{{{invalid"), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 
 	require.ErrorIs(t, err, ErrUnparsableLayer)
 	assert.Contains(t, err.Error(), paths.ConfigPath(appDir))
@@ -328,7 +330,7 @@ agents:
 `, config.CurrentConfigVersion)
 	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(configYAML), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 
 	// Loading should succeed. The legacy defaults.profiles upgrades through the
 	// v1→…→v6 chain into the synthesized default agent's profiles.
@@ -349,7 +351,7 @@ func TestResilientStartup_EmptyConfig(t *testing.T) {
 	// Empty config file - schema validation will warn but not fail
 	testsupport.WriteFile(t, fs, filepath.Join(appDir, "config.yaml"), []byte(""), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
@@ -379,7 +381,7 @@ llm:
 	testsupport.WriteFile(t, fs, filepath.Join(bundletree.ProjectProfilesDirFS(t, fs, appDir), "valid-profile.yaml"),
 		[]byte("description: \"This is valid\"\n"), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
@@ -402,7 +404,7 @@ llm:
 `
 	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(configYAML), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 
 	// Should not error, should have warnings
 	assert.NoError(t, err)

@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // =============================================================================
@@ -82,8 +83,8 @@ func memConfig(t *testing.T) (*config.Config, *operations.App) {
 	require.NoError(t, fs.MkdirAll(appDir, 0o755))
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 5\nllm:\n  defaults:\n    primary: mock\n"), 0o644))
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-	cfg.SetFS(fs)
-	app := testApp(t, configload.WithFS(fs), configload.WithAppDir(appDir))
+	cfg.SetRoot(safefs.NewMem(fs))
+	app := testApp(t, configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	return cfg, app
 }
 

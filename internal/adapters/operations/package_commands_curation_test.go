@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -20,8 +22,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
-	"github.com/spf13/afero"
 )
 
 // curationCfg builds a config whose default profiles are the given definitions,
@@ -46,7 +48,7 @@ func curationCfg(t *testing.T, defaults []string, defs map[string]config.Profile
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: defaults}},
 	})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	return cfg
 }
 

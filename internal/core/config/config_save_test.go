@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 func ptrBool(b bool) *bool { return &b }
@@ -100,7 +101,7 @@ func TestConfig_Save_PrunesEmptiedEditor(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(seed), 0o644))
 
 	cfg := &Config{appPaths: []string{appDir}} // Editor left zero/empty
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	require.NoError(t, cfg.saveLocked(fs, paths.ConfigPath(appDir)))
 
 	data, err := afero.ReadFile(fs, paths.ConfigPath(appDir))
@@ -202,7 +203,7 @@ func TestConfig_Save_CorruptConfig_RefusesToTruncate(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, path, []byte(corrupt), 0o644))
 
 	cfg := &Config{appPaths: []string{appDir}}
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 
 	err := cfg.saveLocked(fs, path)
 	require.Error(t, err, "a config this process cannot parse must not be overwritten")
@@ -222,7 +223,7 @@ func TestConfig_Save_ParseableConfig_StillSaves(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, path, []byte("version: 3\ncustom_unknown: keepme\n"), 0o644))
 
 	cfg := &Config{appPaths: []string{appDir}}
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	require.NoError(t, cfg.saveLocked(fs, path))
 
 	after, rerr := afero.ReadFile(fs, path)
@@ -237,7 +238,7 @@ func TestConfig_Save_AbsentConfig_StillSaves(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(appDir, 0o755))
 
 	cfg := &Config{appPaths: []string{appDir}}
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	require.NoError(t, cfg.saveLocked(fs, paths.ConfigPath(appDir)))
 
 	exists, eerr := afero.Exists(fs, paths.ConfigPath(appDir))

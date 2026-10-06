@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/keymatch"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
@@ -239,18 +240,9 @@ type Config struct {
 	source   ConfigSource `config:"runtime"` // Where the configuration was loaded from
 	warnings []Warning    `config:"runtime"` // Kind-tagged warnings collected during load
 
-	fs afero.Fs `config:"runtime"` // Filesystem for file operations (nil = OS filesystem)
-
-	// injectedFS records whether fs was EXPLICITLY provided (the reader's
-	// injected filesystem, or a later SetFS call) as opposed to defaulted.
-	// It exists SOLELY so Owner.Update can tell "a caller pointed this at a
-	// test filesystem, skip the cross-process advisory lock — no other
-	// process reads an in-memory fs" apart from "this is the OS filesystem,
-	// take the lock" — a distinction c.fs itself cannot make, because the
-	// Builder always populates it with a concrete value (afero.NewOsFs by
-	// default), so a "c.fs == nil" check would skip the lock for every real
-	// on-disk config.
-	injectedFS bool `config:"runtime"`
+	// root is the filesystem file operations go through and the locks
+	// Owner.Update takes on it (zero = the controller's own, safefs.New).
+	root safefs.Root `config:"runtime"`
 
 	// rep receives what composing a generation reports about one item
 	// without failing the whole load — a bundle withheld, a profile that
@@ -1049,8 +1041,8 @@ func (c *Config) ProfileLoaderOptions() []profiles.LoaderOption {
 
 func (c *Config) profileLoaderOptions(localBundleExists func(string) bool) []profiles.LoaderOption {
 	opts := []profiles.LoaderOption{profiles.WithReporter(c.rep.Sink)}
-	if c.fs != nil {
-		opts = append(opts, profiles.WithFS(c.fs))
+	if c.root.Fs != nil {
+		opts = append(opts, profiles.WithFS(c.root.Fs))
 	}
 	if resolveURL := c.ProfileRemoteURLResolver(); resolveURL != nil {
 		opts = append(opts, profiles.WithRemoteURLResolver(resolveURL), profiles.WithLocalBundleResolver(localBundleExists))
@@ -1251,7 +1243,17 @@ func bundleProfileSourceURL(src trust.BundleRef) string {
 // filesystem the config's own loaders use, so a virtualized fs in tests — and
 // the OS fs in production — stay consistent across every store read/write.
 func (c *Config) FS() afero.Fs {
-	return c.fs
+	return c.root.Fs
+}
+
+// Root is the Root this config reads and writes through — its filesystem and
+// the locks taken on it — or the controller's own (safefs.New) when none was
+// set.
+func (c *Config) Root() safefs.Root {
+	if c.root.Fs == nil {
+		return safefs.New()
+	}
+	return c.root
 }
 
 // ProfileRemoteURLResolver maps a remote alias to its canonical repo URL,
@@ -1398,21 +1400,11 @@ func (c *Config) GetConfigFilePath() (string, error) {
 }
 
 // getFS returns the filesystem to use for file operations.
-func (c *Config) getFS() afero.Fs {
-	if c.fs != nil {
-		return c.fs
-	}
-	return afero.NewOsFs()
-}
+func (c *Config) getFS() afero.Fs { return c.Root().Fs }
 
-// SetFS sets the filesystem for file operations (useful for testing). Also
-// marks the filesystem as injected (see injectedFS's doc), so Owner.Update
-// skips the cross-process advisory lock for it exactly as it would for a
-// reader's injected filesystem.
-func (c *Config) SetFS(fs afero.Fs) {
-	c.fs = fs
-	c.injectedFS = true
-}
+// SetRoot sets the Root file operations and Owner.Update's lock go through
+// (a test's safefs.NewMem).
+func (c *Config) SetRoot(root safefs.Root) { c.root = root }
 
 // SetReporter names the Sink this Config reports per-item findings to while
 // it composes a generation; nil discards them. The Owner calls it for every

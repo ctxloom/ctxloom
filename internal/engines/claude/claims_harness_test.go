@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/atrest"
 )
 
@@ -18,7 +19,7 @@ func atRest(t *testing.T, fs afero.Fs, dir string) *atrest.Project {
 	t.Helper()
 	kind, err := Build()
 	require.NoError(t, err)
-	return atrest.New(t, fs, kind, dir)
+	return atrest.New(t, safefs.NewMem(fs), kind, dir)
 }
 
 // install delivers hooks and servers into p with the statusline managed, as

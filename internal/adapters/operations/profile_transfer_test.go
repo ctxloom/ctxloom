@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -23,7 +24,7 @@ func memProfileFS(t *testing.T) (afero.Fs, *config.Config) {
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(pdir, "dev.yaml"),
 		[]byte("description: dev\nbundles:\n  - x\n"), 0644))
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	return fs, cfg
 }
 

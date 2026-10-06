@@ -9,12 +9,12 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 
-	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -57,8 +57,8 @@ func writeRMWDoc(t *testing.T, path string, d rmwDoc) {
 // prove itself broken by letting B run unexcluded), not a mechanism this
 // test relies on for correctness.
 //
-// MUTATION KILL: comment out (or no-op) the fl.Lock call inside
-// WithFileLock, leaving it just `return fn()`, and this test goes red —
+// MUTATION KILL: drop the lock from WithFileLock, leaving it just
+// `return fn()`, and this test goes red —
 // writer B's goroutine completes its read-modify-write immediately (nothing
 // blocks it), tripping the "B completed while A still held the lock"
 // assertion below, deterministically within the grace window.
@@ -67,10 +67,10 @@ func TestWithFileLock_SerializesRMW_BothWritersEntriesSurvive(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "settings.json")
 	require.NoError(t, os.WriteFile(target, []byte(`{"managed":[]}`), 0o644))
-	osfs := afero.NewOsFs()
+	root := safefs.New()
 
 	appendAndWrite := func(name string) error {
-		return sessions.WithFileLock(osfs, target, func() error {
+		return sessions.WithFileLock(root.Locks, target, func() error {
 			d := readRMWDoc(t, target)
 			d.Managed = append(d.Managed, name)
 			writeRMWDoc(t, target, d)
@@ -82,9 +82,8 @@ func TestWithFileLock_SerializesRMW_BothWritersEntriesSurvive(t *testing.T) {
 	// WithFileLock already being mid-critical-section.
 	lockPath, err := paths.HomePathFor(target)
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(filepath.Dir(lockPath), 0o755))
-	aLock := flock.New(lockPath)
-	require.NoError(t, aLock.Lock())
+	aLock, err := root.Locks.Lock(lockPath)
+	require.NoError(t, err)
 
 	bDone := make(chan error, 1)
 	go func() { bDone <- appendAndWrite("writer-b") }()
@@ -116,7 +115,7 @@ func TestWithFileLock_SerializesRMW_BothWritersEntriesSurvive(t *testing.T) {
 // TestWithFileLock_FailsClosedOnLockAcquisitionError pins the fail-closed
 // stance WithFileLock shares with config.Owner.Update: a lock
 // ACQUISITION failure (as opposed to ordinary blocking on contention, which
-// flock.Flock.Lock already waits out) must propagate as an error, and fn must
+// Locks.Lock already waits out) must propagate as an error, and fn must
 // NEVER run — degrading to an unlocked read-modify-write on that failure
 // would silently discard the one guarantee this function exists to provide,
 // on exactly the environmental-fault path where writing unlocked is least
@@ -138,7 +137,7 @@ func TestWithFileLock_FailsClosedOnLockAcquisitionError(t *testing.T) {
 	require.NoError(t, os.MkdirAll(lockPath, 0o755))
 
 	called := false
-	err = sessions.WithFileLock(afero.NewOsFs(), target, func() error {
+	err = sessions.WithFileLock(safefs.New().Locks, target, func() error {
 		called = true
 		return nil
 	})
@@ -151,78 +150,70 @@ func TestWithFileLock_FailsClosedOnLockAcquisitionError(t *testing.T) {
 	assert.Equal(t, original, after, "the protected file must be byte-identical after a failed lock acquisition")
 }
 
-// TestWithFileLock_SkipsLockingForNonOSBackedFs pins the guard that keeps
-// every afero-backed writer unit test green: a
-// test double (afero.MemMapFs and friends) has no cross-process reader to
-// exclude, and composing a lock path from one of its often-bogus absolute
-// addresses and asking the REAL OS to create and flock it would touch
-// actual disk the test never intended — exactly the crosstalk
-// config.Owner.Update's injectedFS guard, and internal/shared/admission's
-// useLock (C5), both exist to avoid. Mirrors that idiom via filelock.IsOSBackedFs.
-func TestWithFileLock_SkipsLockingForNonOSBackedFs(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	bogusPath := "/proj/.claude/settings.json"
+// TestWithFileLock_TakesTheHomeLockAroundFn pins what WithFileLock locks and
+// when, deterministically: the lock at paths.HomePathFor(target) is taken
+// before fn runs and released after it — whatever Locks it is handed. There
+// is no skip: a test's in-memory Locks are locked exactly as the
+// controller's own are.
+//
+// MUTATION KILL: drop the lock (`return fn()`) and the order is just "fn";
+// lock any other path and the recorded path differs.
+func TestWithFileLock_TakesTheHomeLockAroundFn(t *testing.T) {
+	testsupport.Isolate(t)
+	target := "/probe/project/.mcp.json"
+	want, err := paths.HomePathFor(target)
+	require.NoError(t, err)
 
-	called := false
-	err := sessions.WithFileLock(fs, bogusPath, func() error {
-		called = true
+	rec := &recordingLocks{Locks: safefs.NewMem(afero.NewMemMapFs()).Locks}
+	err = sessions.WithFileLock(rec, target, func() error {
+		rec.events = append(rec.events, "fn")
 		return nil
 	})
 	require.NoError(t, err)
-	assert.True(t, called, "fn must still run for a non-OS-backed fs — only the locking is skipped")
-
-	_, statErr := os.Stat(bogusPath + ".lock")
-	assert.True(t, os.IsNotExist(statErr), "a non-OS-backed fs must never cause a REAL lock file to be created on disk")
+	assert.Equal(t, []string{"lock " + want, "fn", "unlock " + want}, rec.events)
 }
 
-// TestFlockUnlock_SafeWithoutASuccessfulLock and
-// TestFlockUnlock_SafeCalledTwice carry forward the deleted
-// internal/shared/filelock package's unlock_contract_test.go /
-// trylock_test.go contracts: releasing a lock is always safe, whether or
-// not anything was actually acquired, and safe to call more than once.
-//
-// filelock's own version of this contract existed because IT invented a
-// custom `unlock func()` closure that could, if the package's internal
-// bookkeeping had a bug, come back nil — a nil release panics the standard
-// `unlock, err := Lock(p); defer unlock()` caller shape immediately on the
-// error path. Every call site in this codebase now uses a *flock.Flock
-// value directly (WithFileLock, config.Owner.Update, eventLog.lock, ...),
-// and flock.Flock.Unlock() is a method on a struct that flock.New always
-// returns non-nil — there is no separate closure value that could be nil,
-// so that half of the old contract is now impossible BY CONSTRUCTION rather
-// than merely tested for. What remains genuinely worth pinning is the part
-// that depends on gofrs/flock's own implementation choice, not Go's type
-// system: that Unlock() itself tolerates being called on a Flock that was
-// never locked, and tolerates being called twice.
-func TestFlockUnlock_SafeWithoutASuccessfulLock(t *testing.T) {
-	fl := flock.New(filepath.Join(t.TempDir(), "never-locked.lock"))
-	assert.NotPanics(t, func() {
-		require.NoError(t, fl.Unlock())
-	})
+// TestWithFileLock_AnInMemoryRootLocksOnItsOwnFs: a test's in-memory Locks
+// keep the lock file on their own filesystem, so the transaction never
+// reaches the real disk.
+func TestWithFileLock_AnInMemoryRootLocksOnItsOwnFs(t *testing.T) {
+	testsupport.Isolate(t)
+	target := "/probe/project/.mcp.json"
+	lockPath, err := paths.HomePathFor(target)
+	require.NoError(t, err)
+	mem := afero.NewMemMapFs()
+
+	require.NoError(t, sessions.WithFileLock(safefs.NewMem(mem).Locks, target, func() error { return nil }))
+
+	ok, err := afero.Exists(mem, lockPath)
+	require.NoError(t, err)
+	assert.True(t, ok, "the lock file is on the in-memory filesystem")
+	_, statErr := os.Stat(lockPath)
+	assert.True(t, os.IsNotExist(statErr), "an in-memory Root must never create a REAL lock file")
 }
 
-func TestFlockUnlock_SafeCalledTwice(t *testing.T) {
-	fl := flock.New(filepath.Join(t.TempDir(), "double-unlock.lock"))
-	require.NoError(t, fl.Lock())
-	require.NoError(t, fl.Unlock())
-	assert.NotPanics(t, func() {
-		require.NoError(t, fl.Unlock())
-	})
+// recordingLocks records each Lock and each Unlock it hands out.
+type recordingLocks struct {
+	safefs.Locks
+	events []string
 }
 
-// TestWithFileLock_ATestDoubleNeverResolvesTheHomeLock: a non-OS filesystem
-// takes no lock, so it must not resolve one either. Deriving it anyway made a
-// MemMapFs transaction fail on a home it would never touch — an unresolvable
-// HOME here, the home-lock guard under a test binary that did not sandbox.
-func TestWithFileLock_ATestDoubleNeverResolvesTheHomeLock(t *testing.T) {
-	t.Setenv("HOME", "")
-	t.Setenv("USERPROFILE", "")
+func (r *recordingLocks) Lock(path string) (safefs.Lock, error) {
+	r.events = append(r.events, "lock "+path)
+	l, err := r.Locks.Lock(path)
+	if err != nil {
+		return nil, err
+	}
+	return recordingLock{Lock: l, r: r, path: path}, nil
+}
 
-	ran := false
-	err := sessions.WithFileLock(afero.NewMemMapFs(), "/probe/project/.mcp.json", func() error {
-		ran = true
-		return nil
-	})
-	require.NoError(t, err, "a test double's transaction must not depend on resolving the home lock directory")
-	assert.True(t, ran)
+type recordingLock struct {
+	safefs.Lock
+	r    *recordingLocks
+	path string
+}
+
+func (l recordingLock) Unlock() error {
+	l.r.events = append(l.r.events, "unlock "+l.path)
+	return l.Lock.Unlock()
 }

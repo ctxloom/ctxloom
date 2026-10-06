@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
@@ -75,7 +76,7 @@ func TestWriteInstanceConfig_CopiesOnlyTheOnboardingAllowList(t *testing.T) {
 
 	rep, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: instance, WorkDir: workDir,
-	}, nil)
+	}, safefs.New())
 	require.NoError(t, err)
 	require.Len(t, rep.Wrote, 1)
 	assert.Empty(t, rep.Warnings, "a complete host file is not schema drift")
@@ -114,7 +115,7 @@ func TestWriteInstanceConfig_HardensBypassAndAutoUpdate(t *testing.T) {
 
 	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: instance, WorkDir: t.TempDir(),
-	}, nil)
+	}, safefs.New())
 	require.NoError(t, err)
 
 	cfg := readInstanceConfig(t, instance)
@@ -137,7 +138,7 @@ func TestWriteInstanceConfig_TrustIsGeneratedForTheWorkDir(t *testing.T) {
 
 	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: instance, WorkDir: workDir, Trust: engine.TrustTrusted,
-	}, nil)
+	}, safefs.New())
 	require.NoError(t, err)
 
 	cfg := readInstanceConfig(t, instance)
@@ -167,7 +168,7 @@ func TestWriteInstanceConfig_WarnsWhenTheHostDropsAnExpectedKey(t *testing.T) {
 
 	rep, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: instance, WorkDir: t.TempDir(),
-	}, nil)
+	}, safefs.New())
 	require.NoError(t, err)
 	require.Len(t, rep.Warnings, 1, "exactly the one absent expected key warns, got %v", rep.Warnings)
 	assert.Contains(t, rep.Warnings[0], "hasCompletedOnboarding")
@@ -187,7 +188,7 @@ func TestWriteInstanceConfig_AbsentHostFileStillProducesAUsableInstance(t *testi
 
 	rep, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: t.TempDir(), InstanceHome: instance, WorkDir: workDir,
-	}, nil)
+	}, safefs.New())
 	require.NoError(t, err)
 	assert.NotEmpty(t, rep.Warnings)
 
@@ -210,7 +211,7 @@ func TestWriteInstanceConfig_NeverWritesTheHostHome(t *testing.T) {
 
 	_, err = claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: t.TempDir(), WorkDir: t.TempDir(),
-	}, nil)
+	}, safefs.New())
 	require.NoError(t, err)
 
 	after, err := os.ReadFile(hostFile)
@@ -240,7 +241,7 @@ func TestWriteInstanceConfig_PropagatesTheLockedClosuresError(t *testing.T) {
 
 	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: t.TempDir(), InstanceHome: instance, WorkDir: t.TempDir(),
-	}, nil)
+	}, safefs.New())
 	require.Error(t, err, "an unparseable pre-existing instance file must fail loud, not be silently replaced")
 	assert.Contains(t, err.Error(), "cannot read")
 }
@@ -252,7 +253,7 @@ func TestWriteInstanceConfig_OwnerOnly(t *testing.T) {
 	instance := t.TempDir()
 	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: writeHostConfig(t, realisticHostClaudeJSON), InstanceHome: instance, WorkDir: t.TempDir(),
-	}, nil)
+	}, safefs.New())
 	require.NoError(t, err)
 
 	info, err := os.Stat(filepath.Join(instance, InstanceConfigFileName))
@@ -272,7 +273,7 @@ func TestWriteInstanceConfig_SecondRunPreservesWhatClaudeWrote(t *testing.T) {
 	w := claudeInstanceConfig{}
 	req := engine.InstanceConfigRequest{HostHome: host, InstanceHome: instance, WorkDir: workDir, Trust: engine.TrustTrusted}
 
-	_, err := w.WriteInstanceConfig(req, nil)
+	_, err := w.WriteInstanceConfig(req, safefs.New())
 	require.NoError(t, err)
 
 	// Stand in for whatever claude accumulated during the first run.
@@ -284,7 +285,7 @@ func TestWriteInstanceConfig_SecondRunPreservesWhatClaudeWrote(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path, data, 0o600))
 
-	_, err = w.WriteInstanceConfig(req, nil)
+	_, err = w.WriteInstanceConfig(req, safefs.New())
 	require.NoError(t, err)
 
 	after := readInstanceConfig(t, instance)
@@ -305,7 +306,7 @@ func TestWriteInstanceConfig_ReportsAPrecedenceFileShadowingIt(t *testing.T) {
 
 	rep, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: writeHostConfig(t, realisticHostClaudeJSON), InstanceHome: instance, WorkDir: t.TempDir(),
-	}, nil)
+	}, safefs.New())
 	require.NoError(t, err)
 	require.NotEmpty(t, rep.Warnings)
 	assert.True(t, strings.Contains(strings.Join(rep.Warnings, "\n"), precedenceConfigFileName),
@@ -348,7 +349,7 @@ func TestWriteInstanceConfig_TheHumansLoginCarriesThePrimaryKey(t *testing.T) {
 	instance := t.TempDir()
 	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: instance, WorkDir: t.TempDir(), Auth: engine.AuthLogin,
-	}, nil)
+	}, safefs.New())
 	require.NoError(t, err)
 
 	got := readInstanceConfig(t, instance)
@@ -367,7 +368,7 @@ func TestWriteInstanceConfig_ATokenRunNeverCarriesThePrimaryKey(t *testing.T) {
 	instance := t.TempDir()
 	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: instance, WorkDir: t.TempDir(), Auth: engine.AuthToken,
-	}, nil)
+	}, safefs.New())
 	require.NoError(t, err)
 
 	got := readInstanceConfig(t, instance)
@@ -384,7 +385,7 @@ func TestWriteInstanceConfig_ATokenRunStripsALeftoverPrimaryKey(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(instance, InstanceConfigFileName), []byte(`{"primaryApiKey":"sk-ant-left","numStartups":3}`), 0o600))
 	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: instance, WorkDir: t.TempDir(), Auth: engine.AuthToken,
-	}, nil)
+	}, safefs.New())
 	require.NoError(t, err)
 
 	got := readInstanceConfig(t, instance)
@@ -400,7 +401,7 @@ func TestWriteInstanceConfig_AbsentAccountFieldsAreOmittedSilently(t *testing.T)
 	instance := t.TempDir()
 	rep, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: instance, WorkDir: t.TempDir(),
-	}, nil)
+	}, safefs.New())
 	require.NoError(t, err)
 	assert.Empty(t, rep.Warnings)
 	got := readInstanceConfig(t, instance)

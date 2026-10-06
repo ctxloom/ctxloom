@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -20,20 +19,18 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
-// holdOwnerLock takes dir's owner lock through a descriptor of the test's own,
-// standing in for another process: flock conflicts between two open file
-// descriptions even within one process. The returned func releases it.
+// holdOwnerLock takes dir's owner lock through a taking of the test's own,
+// standing in for another process: a kernel lock conflicts between two
+// takings even within one process. The returned func releases it.
 func holdOwnerLock(t *testing.T, dir string) func() {
 	t.Helper()
-	fl := flock.New(filepath.Join(dir, OwnerLockFileName), flock.SetPermissions(0o600))
-	got, err := fl.TryLock()
+	l, err := safefs.New().Locks.Lock(filepath.Join(dir, OwnerLockFileName))
 	require.NoError(t, err)
-	require.True(t, got)
 	var once bool
 	release := func() {
 		if !once {
 			once = true
-			_ = fl.Close()
+			_ = l.Unlock()
 		}
 	}
 	t.Cleanup(release)

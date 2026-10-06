@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // isolateTempDir points os.TempDir() at a per-test directory so rendezvous
@@ -48,13 +49,9 @@ func releaseHeldRendezvousLocks() {
 // across separate handles even within one process.
 func assertLockHeld(t *testing.T, path, msg string) {
 	t.Helper()
-	probe := flock.New(path)
-	locked, err := probe.TryLock()
+	held, err := safefs.New().Locks.Held(path)
 	require.NoError(t, err)
-	if locked {
-		_ = probe.Unlock()
-	}
-	assert.False(t, locked, msg)
+	assert.True(t, held, msg)
 }
 
 func TestSanitizeSessionID(t *testing.T) {
@@ -136,10 +133,8 @@ func TestWaitPredecessorExit(t *testing.T) {
 
 	t.Run("blocks_until_predecessor_releases", func(t *testing.T) {
 		dir := t.TempDir()
-		held := flock.New(lockPath(dir, 1))
-		locked, err := held.TryLock()
-		require.NoError(t, err)
-		require.True(t, locked, "test must hold the predecessor lock first")
+		held, err := safefs.New().Locks.Lock(lockPath(dir, 1))
+		require.NoError(t, err, "test must hold the predecessor lock first")
 
 		go func() {
 			time.Sleep(40 * time.Millisecond)

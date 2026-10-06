@@ -9,11 +9,13 @@ import (
 	_ "github.com/benjaminabbitt/hew/go/ext/toml"
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/shared/collections"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	yamlv3 "gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // foreign is a .mcp.json as a USER would author it: a top-level key ctxloom
@@ -65,13 +67,13 @@ func recordNothing() Build {
 func newStore(t *testing.T) (*Store, afero.Fs) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	s, err := NewStore(fs, "/home/u/.ctxloom/records", "ctxloom")
+	s, err := NewStore(safefs.NewMem(fs), "/home/u/.ctxloom/records", "ctxloom")
 	require.NoError(t, err)
 	return s, fs
 }
 
 func TestNewStoreRefusesAnEmptyOwner(t *testing.T) {
-	_, err := NewStore(afero.NewMemMapFs(), "/home/u/.ctxloom/records", " ")
+	_, err := NewStore(safefs.NewMem(afero.NewMemMapFs()), "/home/u/.ctxloom/records", " ")
 	require.Error(t, err, "a store with no owner cannot prove any recordless entry is its own")
 }
 
@@ -788,7 +790,7 @@ func TestAUserEditToAManagedNonCtxloomEntryStillRefuses(t *testing.T) {
 // path it sits at.
 func TestAdoptionIsProvedAgainstTheStoresOwner(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	s, err := NewStore(fs, "/home/u/.ctxloom/records/taskloom", "taskloom")
+	s, err := NewStore(safefs.NewMem(fs), "/home/u/.ctxloom/records/taskloom", "taskloom")
 	require.NoError(t, err)
 	const target = "/proj/mcp.json"
 	testsupport.WriteFileString(t, fs, target, strings.Replace(indentedWithCtxloom,

@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -33,7 +34,7 @@ func TestProfileLoader_LocalBundleWinsOverSameSpelledRemoteAlias(t *testing.T) {
 		"ctl": Profile{Bundles: []string{"team/absent"}},
 	})
 
-	b := NewBuilder(fs, true, appDir, SourceProject)
+	b := NewBuilder(safefs.NewMem(fs), appDir, SourceProject)
 	b.BindProfileResolvers(func(alias string) string {
 		if alias == "team" {
 			return teamURL
@@ -91,7 +92,7 @@ func aliasProfileProject(t *testing.T, refs int) (*Config, *openCounter, afero.F
 	}
 	bundletree.WriteDirProfiles(t, mem, appDir, map[string]any{"dev": Profile{Bundles: bundleRefs}})
 	counter := &openCounter{Fs: mem, path: envelope}
-	b := NewBuilder(counter, true, appDir, SourceProject)
+	b := NewBuilder(safefs.NewMem(counter), appDir, SourceProject)
 	b.BindProfileResolvers(func(alias string) string {
 		if alias == "team" {
 			return "https://github.com/acme/team"

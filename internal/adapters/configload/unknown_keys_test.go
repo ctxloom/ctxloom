@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,7 @@ func loadYAML(t *testing.T, cfgYAML string) *config.Config {
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	testsupport.WriteFileString(t, fs, "/proj/.ctxloom/config.yaml", cfgYAML, 0644)
-	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir("/proj/.ctxloom"))
 	require.NoError(t, err)
 	return cfg
 }
@@ -203,7 +204,7 @@ func TestLoad_UnknownKeyInHomeLayer_StillWarns(t *testing.T) {
 	testsupport.WriteFile(t, fs, "/proj/.ctxloom/config.yaml",
 		[]byte("schema_version: 7\ndefault_agent: dev\n"), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir("/proj/.ctxloom"))
 	require.NoError(t, err)
 
 	warns := unknownKeyWarnings(cfg)
@@ -224,7 +225,7 @@ func TestLoad_UnknownKeyInProjectLayer_NotMaskedByValidHome(t *testing.T) {
 	testsupport.WriteFile(t, fs, "/proj/.ctxloom/config.yaml",
 		[]byte("schema_version: 7\nagentz:\n  definitions: {}\n"), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir("/proj/.ctxloom"))
 	require.NoError(t, err)
 
 	warns := unknownKeyWarnings(cfg)

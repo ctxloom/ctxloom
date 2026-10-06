@@ -5,6 +5,8 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // TestGetProfileLoader_ReturnsAFreshLoader pins the property that lets the
@@ -16,7 +18,7 @@ import (
 // goroutine that resolves a profile.
 func TestGetProfileLoader_ReturnsAFreshLoader(t *testing.T) {
 	cfg := NewFixture(Fixture{AppPaths: []string{"/app"}})
-	cfg.SetFS(afero.NewMemMapFs())
+	cfg.SetRoot(safefs.NewMem(afero.NewMemMapFs()))
 
 	first := cfg.GetProfileLoader()
 	second := cfg.GetProfileLoader()

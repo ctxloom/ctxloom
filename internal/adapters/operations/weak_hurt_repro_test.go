@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // weak-hurt is the release-blocker claim that the unreadable-approvals-store
@@ -49,7 +50,7 @@ func TestWeakHurt_TrustStamper_UnreadableStore_ListingPath(t *testing.T) {
 	wrapped := denyOpenFs{Fs: fs, deny: map[string]error{approvalsDir: errors.New("permission denied")}}
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{projectDir}})
-	cfg.SetFS(wrapped)
+	cfg.SetRoot(safefs.NewMem(wrapped))
 	realGated(cfg)
 	loader := seedLoader(t, map[string]*bundles.Bundle{
 		"demo": {Fragments: map[string]bundles.BundleFragment{"localfrag": {

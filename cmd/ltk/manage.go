@@ -26,10 +26,10 @@ func newManageCmd() *cobra.Command {
 	return m
 }
 
-// manageFlags are shared by install and uninstall. fs is the filesystem both
-// commands read and write through.
+// manageFlags are shared by install and uninstall. root is the filesystem both
+// commands read and write through, with the locks they take on it.
 type manageFlags struct {
-	fs             afero.Fs
+	root           safefs.Root
 	engineName     string
 	settingsPath   string
 	bin            string
@@ -114,7 +114,7 @@ func (f *manageFlags) hookRulesPath() string {
 }
 
 func newInstallCmd() *cobra.Command {
-	f := &manageFlags{fs: afero.NewOsFs()}
+	f := &manageFlags{root: safefs.New()}
 	c := &cobra.Command{
 		Use:   "install",
 		Short: "Add the pre-tool hook to the most relevant LLM config",
@@ -152,12 +152,12 @@ func (f *manageFlags) runInstall(cmd *cobra.Command, _ []string) error {
 	// --print is a dry run: show the merged settings without touching
 	// the filesystem, so no rules-file scaffold either.
 	if f.configPath != "" && !f.printOnly {
-		if err := scaffoldConfig(f.fs, f.configPath, !f.noDefaultRules, f.force); err != nil {
+		if err := scaffoldConfig(f.root.Fs, f.configPath, !f.noDefaultRules, f.force); err != nil {
 			return err
 		}
 	}
-	return sessions.WithFileLock(f.fs, path, func() error {
-		existing, err := readIfExists(f.fs, path)
+	return sessions.WithFileLock(f.root.Locks, path, func() error {
+		existing, err := readIfExists(f.root.Fs, path)
 		if err != nil {
 			return err
 		}
@@ -172,7 +172,7 @@ func (f *manageFlags) runInstall(cmd *cobra.Command, _ []string) error {
 			_, err := cmd.OutOrStdout().Write(merged)
 			return err
 		}
-		if err := writeFile(f.fs, path, merged); err != nil {
+		if err := writeFile(f.root.Fs, path, merged); err != nil {
 			return err
 		}
 		fmt.Fprintf(cmd.ErrOrStderr(), progName+": installed hook for %s\n  settings: %s\n  command:  %s\n", eng.Name(), path, command)
@@ -181,7 +181,7 @@ func (f *manageFlags) runInstall(cmd *cobra.Command, _ []string) error {
 }
 
 func newUninstallCmd() *cobra.Command {
-	f := &manageFlags{fs: afero.NewOsFs()}
+	f := &manageFlags{root: safefs.New()}
 	c := &cobra.Command{
 		Use:   "uninstall",
 		Short: "Remove the pre-tool hook from the LLM config",
@@ -200,8 +200,8 @@ func (f *manageFlags) runUninstall(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	command := eng.HookCommand(f.bin, f.hookRulesPath())
-	return sessions.WithFileLock(f.fs, path, func() error {
-		existing, err := readIfExists(f.fs, path)
+	return sessions.WithFileLock(f.root.Locks, path, func() error {
+		existing, err := readIfExists(f.root.Fs, path)
 		if err != nil {
 			return err
 		}
@@ -226,7 +226,7 @@ func (f *manageFlags) runUninstall(cmd *cobra.Command, _ []string) error {
 			fmt.Fprintf(cmd.ErrOrStderr(), progName+": no matching hook found in %s (nothing removed)\n", path)
 			return nil
 		}
-		if err := writeFile(f.fs, path, updated); err != nil {
+		if err := writeFile(f.root.Fs, path, updated); err != nil {
 			return err
 		}
 		fmt.Fprintf(cmd.ErrOrStderr(), progName+": removed hook for %s from %s\n", eng.Name(), path)

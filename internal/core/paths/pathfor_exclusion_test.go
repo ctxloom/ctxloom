@@ -8,8 +8,9 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // The derivation is only worth anything if the file it names is the file that
@@ -24,8 +25,8 @@ func TestPathFor_LockOnAResourceExcludesThatResourceAndNoOther(t *testing.T) {
 	protected := filepath.Join(dir, "index.json")
 	other := filepath.Join(dir, "other.json")
 
-	held := flock.New(PathFor(protected))
-	require.NoError(t, held.Lock())
+	held, err := safefs.New().Locks.Lock(PathFor(protected))
+	require.NoError(t, err)
 
 	require.False(t, lockFree(t, PathFor(protected)),
 		"two writers of the same resource did not exclude each other")

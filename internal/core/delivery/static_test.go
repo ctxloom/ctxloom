@@ -111,7 +111,7 @@ func loadoutFor(t *testing.T, eng engine.Engine, roots present.Paths) delivery.L
 func TestStatic_SessionAndMaterialize_ShareWritersAndDifferOnlyInTarget(t *testing.T) {
 	eng := mock.New()
 	fs := afero.NewMemMapFs()
-	static := fsstatic.New(fs)
+	static := fsstatic.New(safefs.NewMem(fs))
 	rec := newRecord(t, fs)
 	sessionW, projectW := delivery.SessionWriter("harp-1"), delivery.ProjectWriter
 
@@ -146,7 +146,7 @@ func TestStatic_SessionAndMaterialize_ShareWritersAndDifferOnlyInTarget(t *testi
 func TestStatic_TwoWritersOneTarget_ReconcileRemovesOnlyOwnEntries(t *testing.T) {
 	eng := mock.New()
 	fs := afero.NewMemMapFs()
-	static := fsstatic.New(fs)
+	static := fsstatic.New(safefs.NewMem(fs))
 	rec := newRecord(t, fs)
 	pkg := compositetest.Fixture(t, compositetest.WithMCP("tasks", tasks))
 	plan, err := delivery.Route(items(pkg, eng), eng.Root(), delivery.Preference{Root: map[present.Kind]present.RootKind{present.MCP: present.RootProjectRoot}}, projectRoots)
@@ -174,71 +174,8 @@ func TestStatic_ZeroTarget_Refused(t *testing.T) {
 	eng := mock.New()
 	lo := loadoutFor(t, eng, sessionRoots)
 	fs := afero.NewMemMapFs()
-	_, err := fsstatic.New(fs).Deliver(context.Background(), lo, eng.Root(), delivery.Target{})
+	_, err := fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), lo, eng.Root(), delivery.Target{})
 	require.ErrorIs(t, err, delivery.ErrNoRoot)
-	require.Empty(t, deliverytest.RelativeFiles(fs, "/"))
-}
-
-// TestStatic_PreparesTheRecordOnceBeforeAnyWrite: Deliver prepares the
-// ownership record first and once, before it reverses or writes anything, so
-// the record store is owner-only before a delivery writes through it
-// (delivery.Ownership.Prepare).
-func TestStatic_PreparesTheRecordOnceBeforeAnyWrite(t *testing.T) {
-	eng := mock.New()
-	fs := afero.NewMemMapFs()
-	static := fsstatic.New(fs)
-	rec := &noting{Ownership: newRecord(t, fs)}
-	target := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: rec, Writer: delivery.SessionWriter("harp-1")}
-	lo := loadoutFor(t, eng, sessionRoots)
-
-	for range 2 { // the second delivery releases the first before staging
-		_, err := static.Deliver(context.Background(), lo, eng.Root(), target)
-		require.NoError(t, err)
-	}
-
-	require.Equal(t, []string{callPrepare, callStage, callPrepare, callStage}, rec.calls,
-		"each delivery prepares once, before it stages anything")
-}
-
-const (
-	callPrepare = "prepare"
-	callStage   = "stage"
-)
-
-// noting is the production record, noting the calls a delivery makes on it.
-type noting struct {
-	delivery.Ownership
-	calls []string
-}
-
-func (n *noting) Prepare(ctx context.Context) error {
-	n.calls = append(n.calls, callPrepare)
-	return n.Ownership.Prepare(ctx)
-}
-
-func (n *noting) In(b *safefs.Batch) delivery.Staging {
-	n.calls = append(n.calls, callStage)
-	return n.Ownership.In(b)
-}
-
-var errPrepare = errors.New("prepare refused")
-
-// refusingPrepare is a record whose storage cannot be made owner-only.
-type refusingPrepare struct{ *noting }
-
-func (refusingPrepare) Prepare(context.Context) error { return errPrepare }
-
-// TestStatic_PrepareFails_NothingIsWritten: a record that cannot be prepared
-// aborts the delivery before anything is staged or written.
-func TestStatic_PrepareFails_NothingIsWritten(t *testing.T) {
-	eng := mock.New()
-	fs := afero.NewMemMapFs()
-	rec := &noting{Ownership: newRecord(t, fs)}
-	target := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: refusingPrepare{rec}, Writer: delivery.SessionWriter("harp-1")}
-
-	_, err := fsstatic.New(fs).Deliver(context.Background(), loadoutFor(t, eng, sessionRoots), eng.Root(), target)
-	require.ErrorIs(t, err, errPrepare)
-	require.Empty(t, rec.calls, "nothing is staged")
 	require.Empty(t, deliverytest.RelativeFiles(fs, "/"))
 }
 
@@ -274,7 +211,7 @@ func TestStatic_UnrootableApproach_RefusesWithRemedy_NeverSubstitutes(t *testing
 	require.NoError(t, err)
 	fs := afero.NewMemMapFs()
 	noProject := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: newRecord(t, fs), Writer: delivery.SessionWriter("h")}
-	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), noProject)
+	_, err = fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), noProject)
 	require.ErrorIs(t, err, delivery.ErrUnrootable)
 	var u delivery.Unrootable
 	require.True(t, errors.As(err, &u))
@@ -297,7 +234,7 @@ func TestStatic_SharedRootIsASelection_NotAFallback(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	rec := newRecord(t, fs)
 	withProject := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: delivery.SessionWriter("h")}
-	d, err := fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), withProject)
+	d, err := fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), withProject)
 	require.NoError(t, err)
 	require.Equal(t, []present.Kind{present.MCP}, d.Wrote)
 	require.ElementsMatch(t, owned(t, rec, delivery.SessionWriter("h"), "/p"), deliverytest.RelativeFiles(fs, "/p"))

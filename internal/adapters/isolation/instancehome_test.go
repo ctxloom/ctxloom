@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -40,7 +38,7 @@ type recordingInstanceConfig struct {
 	err         error
 }
 
-func (r *recordingInstanceConfig) WriteInstanceConfig(req engine.InstanceConfigRequest, _ afero.Fs) (engine.InstanceConfigReport, error) {
+func (r *recordingInstanceConfig) WriteInstanceConfig(req engine.InstanceConfigRequest, _ safefs.Root) (engine.InstanceConfigReport, error) {
 	n := r.inFlight.Add(1)
 	for {
 		max := r.maxInFlight.Load()

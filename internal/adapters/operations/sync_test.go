@@ -1522,7 +1522,7 @@ remotes:
 	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
 		"chain": {Bundles: []string{refs[0]}},
 	}, config.Fixture{})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 
 	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)

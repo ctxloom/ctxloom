@@ -15,6 +15,7 @@ import (
 	"context"
 	"path/filepath"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/spf13/afero"
@@ -36,9 +37,9 @@ import (
 // Option configures the Sources New builds.
 type Option func(*Sources)
 
-// WithFS reads through fs instead of the OS filesystem. Save and Update treat
-// an injected filesystem as having no other process reading it.
-func WithFS(fs afero.Fs) Option { return func(s *Sources) { s.fs = fs } }
+// WithRoot reads, writes and locks through root instead of the controller's
+// own filesystem (safefs.New).
+func WithRoot(root safefs.Root) Option { return func(s *Sources) { s.root = root } }
 
 // WithAppDir pins the .ctxloom directory instead of discovering it per Read:
 // an explicit --app-dir, a worktree's .ctxloom, a test's fixture.
@@ -82,7 +83,7 @@ func WithExtraReaders(readers ...bundles.Reader) Option {
 // root. Its flags and environment are captured at New; every Read applies
 // the same overrides to whatever the files say now.
 type Sources struct {
-	fs     afero.Fs
+	root   safefs.Root
 	appDir string
 
 	overrides     confload.Overrides
@@ -170,13 +171,13 @@ func (s *Sources) product() confload.Product {
 // configured no LLMs. An ABSENT layer is the shipped default; a PRESENT
 // layer that cannot be parsed is refused, naming the file.
 func (s *Sources) Read(ctx context.Context) (*config.Config, []config.Warning, error) {
-	fs := s.fs
-	injectedFS := fs != nil
-	if fs == nil {
-		fs = afero.NewOsFs()
+	root := s.root
+	if root.Fs == nil {
+		root = safefs.New()
 	}
+	fs := root.Fs
 	appDir, source := s.target(fs)
-	b := config.NewBuilder(fs, injectedFS, appDir, source)
+	b := config.NewBuilder(root, appDir, source)
 	b.BindProfileResolvers(profileURLResolver(fs, appDir))
 	if s.validatorErr != nil {
 		// A schema-compile failure means every config in this process loads

@@ -7,6 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
@@ -108,7 +109,7 @@ func TestInitializeProject_DirtyTreeHandlerLandsAndNoAckIsRecorded(t *testing.T)
 			require.NoError(t, err)
 			assert.Equal(t, handler, cfg.GetDirtyTreeHandler())
 
-			assert.False(t, config.DirtyTreeCommitAcknowledged(report.Reporter{}, fs, appDir),
+			assert.False(t, config.DirtyTreeCommitAcknowledged(report.Reporter{}, safefs.NewMem(fs), appDir),
 				"init must never record the commit acknowledgement")
 		})
 	}

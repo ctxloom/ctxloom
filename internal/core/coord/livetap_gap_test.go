@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -24,6 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -138,11 +138,9 @@ func startGapFakeCoordinator(t *testing.T, home, projectKey string, f *gapFakeCo
 	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":"test-cred"}`, port)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte(body), 0o600))
 	// A live coordinator holds its root's owner lock; discovery lists only those.
-	lock := flock.New(filepath.Join(dir, coord.OwnerLockFileName), flock.SetPermissions(0o600))
-	held, err := lock.TryLock()
+	lock, err := safefs.New().Locks.Lock(filepath.Join(dir, coord.OwnerLockFileName))
 	require.NoError(t, err)
-	require.True(t, held)
-	t.Cleanup(func() { _ = lock.Close() })
+	t.Cleanup(func() { _ = lock.Unlock() })
 }
 
 // seedGapHarp mints a bare index entry (no transcript association — this

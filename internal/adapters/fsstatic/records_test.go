@@ -377,7 +377,7 @@ func TestClaimsDeleteTheOldOwnershipRecord(t *testing.T) {
 // claude's retired settings/MCP writer kept — and returns the record's path.
 func claudeConfpatchRecord(t *testing.T, fs afero.Fs, target string) string {
 	t.Helper()
-	store, err := confpatch.NewStore(fs, claimsDir, "ctxloom")
+	store, err := confpatch.NewStore(safefs.NewMem(fs), claimsDir, "ctxloom")
 	require.NoError(t, err)
 	res, err := store.Apply(fs, target, func(doc *hew.Doc, _ hew.Document) (int, error) {
 		p, perr := hew.ParsePathIn(doc.Format(), "/mcpServers/ctxloom")

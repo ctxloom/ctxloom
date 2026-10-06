@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Exposure-withholding characterization.
@@ -417,7 +418,7 @@ func TestExposureWithheld_Characterization_RealPath_StoreErrorWithholds(t *testi
 	// Rebuild cfg over an fs that refuses to open the approvals directory, so
 	// the gate the exposure path constructs for itself hits the fault.
 	broken, err := configload.Load(
-		configload.WithFS(denyOpenFs{Fs: fs, deny: map[string]error{approvalsDir: errors.New("permission denied")}}),
+		configload.WithRoot(safefs.NewMem(denyOpenFs{Fs: fs, deny: map[string]error{approvalsDir: errors.New("permission denied")}})),
 		configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	_ = cfg
@@ -452,7 +453,7 @@ fragments:
       BLOCKED-MARKER
 `
 	bundletree.Write(t, fs, bundlesDir, "dev", bundleYAML)
-	cfg, err := configload.Load(configload.WithFS(fs), configload.WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	return cfg, appDir
 }

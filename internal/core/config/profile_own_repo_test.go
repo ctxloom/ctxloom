@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -29,7 +30,7 @@ func remoteProfileConfig(t *testing.T, repoURL string, dev profiles.Profile) (*C
 	ref := repoURL + "@bundles/kit"
 	reader := bundles.NewRepoFSReader(tree, ref, bundles.WithRepoURL(repoURL))
 
-	cfg := NewBuilder(afero.NewMemMapFs(), true, "/proj/.ctxloom", SourceProject).Build()
+	cfg := NewBuilder(safefs.NewMem(afero.NewMemMapFs()), "/proj/.ctxloom", SourceProject).Build()
 	cfg.bindCatalog(func() bundles.Catalog { return bundles.Resolve(context.Background(), nil, reader) })
 
 	seed := cfg.loadBundleProfileSeed()
@@ -74,7 +75,7 @@ func TestBundleProfileSeed_LocalProfileCarriesNoSource(t *testing.T) {
 	bundletree.WriteDirProfiles(t, fs, "/proj/.ctxloom", map[string]any{
 		"mix": Profile{Bundles: []string{"https://example.test/a/one@bundles/x", "https://example.test/b/two@bundles/y"}},
 	})
-	cfg := NewBuilder(fs, true, "/proj/.ctxloom", SourceProject).Build()
+	cfg := NewBuilder(safefs.NewMem(fs), "/proj/.ctxloom", SourceProject).Build()
 
 	p, err := cfg.GetProfileLoader().Load("mix")
 	require.NoError(t, err)

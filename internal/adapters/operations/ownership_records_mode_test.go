@@ -39,7 +39,7 @@ func TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir(t *testing.T) {
 	pkg := compositetest.Fixture(t, compositetest.WithMCP("tasks", wire.MCPServer{Command: "tasks"}))
 	dir := t.TempDir()
 
-	_, _, err = DeliverProject(context.Background(), afero.NewOsFs(), kind, pkg, dir)
+	_, _, err = DeliverProject(context.Background(), safefs.New(), kind, pkg, dir)
 	require.NoError(t, err)
 
 	require.NotEmpty(t, claimsRecordsIn(t, recordsDir), "the delivery must have written its claims record into the directory under test")
@@ -74,7 +74,7 @@ func TestDeliver_CreatesAMissingRecordDirOwnerOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	lo := delivery.Loadout{Plan: plan, Package: pkg, Exports: exports, WorkDir: dir}
-	_, err = fsstatic.New(fs).Deliver(context.Background(), lo, root, delivery.ProjectTarget(dir, records))
+	_, err = fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), lo, root, delivery.ProjectTarget(dir, records))
 	require.NoError(t, err)
 
 	require.NotEmpty(t, claimsRecordsIn(t, recordsDir), "the delivery must have written its claims record into the directory under test")

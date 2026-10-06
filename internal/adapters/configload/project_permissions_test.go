@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config/layerscope"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -75,7 +76,7 @@ func TestProjectPermissions_EnvCannotGrantIt(t *testing.T) {
 	appDir := "/proj/.ctxloom"
 	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("schema_version: 7\n"), 0644)
 
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir),
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir),
 		WithOverrides(confload.Overrides{Env: map[string]any{"PERMISSIONS": "bypass"}}))
 	require.NoError(t, err)
 

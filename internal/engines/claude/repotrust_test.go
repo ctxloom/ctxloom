@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // launchPath is one way claude is started: the interactive session, the
@@ -246,7 +247,7 @@ func TestWriteInstanceConfig_UntrustedSeedsNoTrustAnswer(t *testing.T) {
 	workDir := t.TempDir()
 	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: instance, WorkDir: workDir, Trust: engine.TrustUntrusted,
-	}, nil)
+	}, safefs.New())
 	require.NoError(t, err)
 	cfg := readInstanceConfig(t, instance)
 	projects, _ := cfg["projects"].(map[string]any)
@@ -265,7 +266,7 @@ func TestWriteInstanceConfig_TrustedCopiesTheAnswer(t *testing.T) {
 	workDir := t.TempDir()
 	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: instance, WorkDir: workDir, Trust: engine.TrustTrusted,
-	}, nil)
+	}, safefs.New())
 	require.NoError(t, err)
 	projects, _ := readInstanceConfig(t, instance)["projects"].(map[string]any)
 	entry, _ := projects[workDir].(map[string]any)

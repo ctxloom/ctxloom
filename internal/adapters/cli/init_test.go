@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -81,7 +82,7 @@ func TestCtxloomDefaultTrusted(t *testing.T) {
 
 	t.Run("an unmodified trust root trusts ctxloom's embedded publishing key", func(t *testing.T) {
 		dir := t.TempDir()
-		cfg, err := configload.Load(configload.WithFS(afero.NewMemMapFs()), configload.WithAppDir(dir))
+		cfg, err := configload.Load(configload.WithRoot(safefs.NewMem(afero.NewMemMapFs())), configload.WithAppDir(dir))
 		require.NoError(t, err)
 
 		assert.True(t, ctxloomDefaultTrusted(cfg),
@@ -97,7 +98,7 @@ func TestCtxloomDefaultTrusted(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, afero.WriteFile(fs, paths.DistrustedSignersPath(dir), []byte(principal+"\n"), 0o644))
 
-		cfg, err := configload.Load(configload.WithFS(fs), configload.WithAppDir(dir))
+		cfg, err := configload.Load(configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(dir))
 		require.NoError(t, err)
 
 		assert.False(t, ctxloomDefaultTrusted(cfg),

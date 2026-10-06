@@ -4,10 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // TestRemoveHooks_UnknownBackendIsRejected pins that `ctxloom manage hooks
@@ -22,7 +24,7 @@ import (
 func TestRemoveHooks_UnknownBackendIsRejected(t *testing.T) {
 	res, err := RemoveHooks(context.Background(), engines.Registry(), nil, RemoveHooksRequest{
 		Backend: "claude-cod", // one keystroke short of claude-code
-		FS:      afero.NewMemMapFs(),
+		Root:    safefs.NewMem(afero.NewMemMapFs()),
 		WorkDir: "/proj",
 	})
 	require.Error(t, err, "an unknown --backend must fail, not report a removal that did not happen")
@@ -36,7 +38,7 @@ func TestRemoveHooks_KnownBackendStillRuns(t *testing.T) {
 	for _, backend := range []string{"", "claude-code"} {
 		res, err := RemoveHooks(context.Background(), engines.Registry(), nil, RemoveHooksRequest{
 			Backend: backend,
-			FS:      afero.NewMemMapFs(),
+			Root:    safefs.NewMem(afero.NewMemMapFs()),
 			WorkDir: "/proj",
 		})
 		require.NoError(t, err, "backend filter %q", backend)

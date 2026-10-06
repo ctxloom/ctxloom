@@ -3,11 +3,11 @@ package config
 import (
 	"path/filepath"
 
-	"github.com/spf13/afero"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Builder is the reading half's hand-off into the value: adapters/configload
@@ -20,22 +20,19 @@ type Builder struct {
 	cfg *Config
 }
 
-// NewBuilder starts a Config for the layer set rooted at appDir. injectedFS
-// records whether fs was supplied by the caller (Save and Update skip the
-// cross-process file lock for an injected filesystem, which has no other
-// process reading it).
-func NewBuilder(fs afero.Fs, injectedFS bool, appDir string, source ConfigSource) *Builder {
-	if fs == nil {
-		fs = afero.NewOsFs()
+// NewBuilder starts a Config for the layer set rooted at appDir, reading and
+// writing through root (zero = the controller's own, safefs.New).
+func NewBuilder(root safefs.Root, appDir string, source ConfigSource) *Builder {
+	if root.Fs == nil {
+		root = safefs.New()
 	}
 	cfg := &Config{
-		lm:         LMConfig{Configs: make(map[string]LLMConfig)},
-		fs:         fs,
-		injectedFS: injectedFS,
-		appPaths:   []string{appDir},
-		appDir:     appDir,
-		appRoot:    filepath.Dir(appDir),
-		source:     source,
+		lm:       LMConfig{Configs: make(map[string]LLMConfig)},
+		root:     root,
+		appPaths: []string{appDir},
+		appDir:   appDir,
+		appRoot:  filepath.Dir(appDir),
+		source:   source,
 	}
 	return &Builder{cfg: cfg}
 }

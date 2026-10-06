@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // =============================================================================
@@ -188,7 +189,7 @@ func TestOneShot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 		out := config.NewFixture(f)
 		// NewFixture does not carry the injected filesystem, and the profile
 		// this config selects is a FILE on it now.
-		out.SetFS(base.FS())
+		out.SetRoot(safefs.NewMem(base.FS()))
 		return out
 	}
 

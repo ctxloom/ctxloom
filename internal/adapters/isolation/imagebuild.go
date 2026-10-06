@@ -401,7 +401,7 @@ func overlayContainerfile(baseImage, validate string) []byte {
 }
 
 // baseContractLayer best-effort installs the coding-agent tool layer
-// (git, ripgrep, curl, ca-certificates, unzip, jq) that composeAgentContainerfile's
+// (the packages its apt-get line names) that composeAgentContainerfile's
 // engine fragments and the entrypoint's runtime assume — the SAME contract
 // container/base/Containerfile bakes for the embedded default base. On the
 // default base this is a harmless no-op (already installed); it is

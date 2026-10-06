@@ -102,18 +102,9 @@ resources/schema/gen/
 # them fresh before `npm run build`; see the `docs` job in .github/workflows/ci.yml.
 website/src/content/docs/journeys/
 
-# Serena's per-project state. Only the LOCAL and rebuildable parts are ignored;
-# .serena/project.yml and .serena/memories/ are VERSIONED deliberately.
-#
-# Serena ships its own .serena/.gitignore excluding exactly the machine-local
-# parts (/cache, /project.local.yml), which is the tool telling us the rest is
-# meant to be committed. Versioning it is also what makes settings and memories
-# available across git worktrees, where each worktree activates itself.
-#
-# Ignoring the whole directory cost us once already: project.yml drifted against
-# a schema key rename, serena died at startup with a KeyError, and its symbol
-# tools were silently absent from sessions rather than failing loudly. An
-# unversioned config cannot drift visibly.
+# Serena's machine-local state: the parts serena's own .serena/.gitignore marks
+# as never to be committed. Whether serena is linked at all is ruled in task
+# lethargic-fame (`taskloom show lethargic-fame`).
 .serena/cache/
 .serena/project.local.yml
 

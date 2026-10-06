@@ -316,7 +316,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the remote "origin" advances its bundle
       When Alice asks what could be advanced:
         """
-        ctxloom deps check
+        ctxloom deps check --format text
         """
       Then the command succeeds
       And the output contains "ctxloom deps upgrade"

@@ -255,6 +255,10 @@ var (
 		Shape: "VERSION-REPORT failure",
 		Where: "the installed engine binary's own version output (no nonce: nothing is planted, so nothing can be echoed)",
 	}
+	channelTurnPosture = probeChannel{
+		Shape: "TURN-POSTURE failure",
+		Where: "each turn's init frame permissionMode, and the files and permission asks that turn's tool calls left behind",
+	}
 	channelForeignLedger = probeChannel{
 		Shape: shapeLeak,
 		Where: "no channel at all — this probe asserts the ABSENCE of every other cell's minted harp",
@@ -281,6 +285,7 @@ const (
 	probeP15 = "p15-hook-interrupt"
 	probeP16 = "p16-strict-mcp-connectors"
 	probeP17 = "p17-inline-settings"
+	probeP18 = "p18-turn-posture"
 	// The two rungs deliberately NOT built. Present as deferred rows so rows
 	// 9 and 10 of the inventory are visibly un-probed rather than invisibly so.
 	probePCmd   = "p10-command-invocation"
@@ -561,6 +566,26 @@ var probeRegistry = []probeSpec{
 		Cells: []probeCell{
 			hostCell("claude-code", probeLiveVerified,
 				"conformance cell S1, measured 2026-10-05 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. Under --setting-sources user with an inline-JSON --settings carrying defaultMode and one allow rule, the config home's settings.json still applied in full: its SessionStart and PreToolUse hooks both wrote their markers, and the echo only its own allow rule permits ran beside the echo only the inline rule permits. The two sources merge; the inline document replaces neither the home's hooks nor its rules."),
+		},
+	},
+	// P18 measures the vendor half of a child's posture moving between turns:
+	// a resumed turn starts in the mode its inline --settings names, after a
+	// plan approval and after an allowed mode change (conformance P1, D2 and
+	// P2; probe_p18_turn_posture.go).
+	{
+		Name:         probeP18,
+		Title:        "turn posture: a claude -p --resume turn starts in, and behaves as, the defaultMode its inline --settings names — plan after acceptEdits, an approved plan's posture, an allowed setMode held",
+		Capabilities: []int{11, 12, 14},
+		Channel:      channelTurnPosture,
+		Feature:      "probes/capability_turn_posture.feature",
+		Paid:         true,
+		Cells: []probeCell{
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p18PlanResumed), Status: probeWired,
+				Reason: "conformance cell P1."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p18PlanApproved), Status: probeWired,
+				Reason: "conformance cell D2."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p18SetModeHeld), Status: probeWired,
+				Reason: "conformance cell P2."},
 		},
 	},
 	{

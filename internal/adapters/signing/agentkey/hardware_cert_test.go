@@ -68,9 +68,7 @@ func (k certTypedKey) Type() string { return k.typ }
 // The defect this pins: the switch matched only the bare sk-* algorithms, but
 // an identity loaded into ssh-agent as a certificate presents
 // "sk-ssh-ed25519-cert-v01@openssh.com". A genuine FIDO token therefore read
-// as a software key, and `ctxloom review` printed the "your approval key is a
-// software key held in ssh-agent" warning to someone holding hardware — a
-// posture indicator stating the opposite of the truth.
+// as a software key — a posture indicator stating the opposite of the truth.
 func TestIsHardwareBacked_Certificate(t *testing.T) {
 	hw := newSKEd25519PublicKey(t)
 	soft, _ := newTestIdentity(t, "software")

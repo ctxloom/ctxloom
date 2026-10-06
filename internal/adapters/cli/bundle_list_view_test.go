@@ -235,8 +235,8 @@ func TestBundleShowView_JSONShape(t *testing.T) {
 
 	// Profiles are listed by name, sorted: the definition is `profile show`'s.
 	assert.Equal(t, []any{"ci", "dev"}, got["profiles"])
-	// Hooks are listed by their trust identity "<event>/<index>", in canonical
-	// event order — the id a consumer hands back to `ctxloom review`.
+	// Hooks are listed by their identity "<event>/<index>", in canonical
+	// event order.
 	assert.Equal(t, []any{"pre_tool/0", "pre_tool/1", "session_start/0"}, got["hooks"])
 }
 

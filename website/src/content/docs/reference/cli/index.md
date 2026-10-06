@@ -58,7 +58,7 @@ ctxloom deps pull
 
 [`remote`](/reference/cli/ctxloom_remote/) is **where content comes from** — a registry of repository URLs in `.ctxloom/remotes.yaml`. Registering, defaulting and removing one is local bookkeeping: no fetch, no credential, nothing installed.
 
-[`deps`](/reference/cli/ctxloom_deps/) is **what this project has** — the lockfile, and every verb that moves it. Its verbs mirror apt: [`pull`](/reference/cli/ctxloom_deps_pull/) makes the installation match upstream (installing what is missing, removing what a remote has stopped publishing, and never advancing an existing pin), [`check`](/reference/cli/ctxloom_deps_check/) reports which pins could move, [`upgrade`](/reference/cli/ctxloom_deps_upgrade/) moves them, and [`list`](/reference/cli/ctxloom_deps_list/) reads the closure offline. Content from an untrusted remote is withheld per item until accepted with `ctxloom review`, whatever the lockfile says.
+[`deps`](/reference/cli/ctxloom_deps/) is **what this project has** — the lockfile, and every verb that moves it. Its verbs mirror apt: [`pull`](/reference/cli/ctxloom_deps_pull/) makes the installation match upstream (installing what is missing, removing what a remote has stopped publishing, and never advancing an existing pin), [`check`](/reference/cli/ctxloom_deps_check/) reports which pins could move, [`upgrade`](/reference/cli/ctxloom_deps_upgrade/) moves them, and [`list`](/reference/cli/ctxloom_deps_list/) reads the closure offline.
 
 A remote that could not be READ never counts as having deleted anything: `pull` proves it can read a repository before treating any absence there as authority, so an expired credential or an outage leaves the installation exactly as it is and says which remotes went unchecked.
 

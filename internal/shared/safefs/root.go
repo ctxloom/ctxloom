@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"path/filepath"
 
 	"github.com/spf13/afero"
 )
@@ -119,9 +120,13 @@ func New() Root {
 // the locks are in-process ones that really serialize. Every Root NewMem
 // builds over the same fsys shares its locks, as processes on one disk do.
 func NewMem(fsys afero.Fs) Root {
+	// restrict cleans dir because a MemMapFs files every entry under its
+	// cleaned path but looks Chmod's name up exactly as given: an uncleaned
+	// name — any slash path on Windows — names no entry.
+	restrict := func(dir string) error { return fsys.Chmod(filepath.Clean(dir), PrivateDirMode) }
 	return Root{
 		Fs:      fsys,
-		Private: privateOn{fs: fsys, violation: modeViolation, restrict: func(dir string) error { return fsys.Chmod(dir, PrivateDirMode) }},
+		Private: privateOn{fs: fsys, violation: modeViolation, restrict: restrict},
 		Locks:   memLocks{fs: fsys},
 	}
 }

@@ -148,3 +148,33 @@ func TestForgeUndetectableURL_SurvivesRefNormalisation(t *testing.T) {
 	require.NoError(t, err, "it must still parse as a reference, or the lockfile entry is skipped for the wrong reason")
 	assert.Equal(t, forgeUndetectableURL, parsed.URL)
 }
+
+// A lockfile entry of a repository no remote is registered for is reported,
+// carrying remote.ErrRemoteNotRegistered, and never fetched — though the
+// repository is real and reachable, so a fetch would have cloned it.
+func TestDepsCheck_UnregisteredRepositoryIsReportedNotFetched(t *testing.T) {
+	dirty := cwdAlreadyDirty()
+	tmp := t.TempDir()
+	appDir := filepath.Join(tmp, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	src := filepath.Join(tmp, "src")
+	sha := initLocalRepoWithFile(t, src, repoV2("demo")+"/bundle.yaml", "version: \"1.0.0\"\n")
+	cfg := config.NewFixture(config.Fixture{AppDir: appDir})
+	srcURL := "file://" + src
+	lockfile := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
+		lockKeyOf(t, srcURL+"@bundles/demo"): {SHA: sha, URL: srcURL},
+	}}
+
+	failures := refreshRemoteRepos(context.Background(), cfg, lockfile)
+	require.Len(t, failures, 1)
+	assert.ErrorIs(t, failures[0].Err, remote.ErrRemoteNotRegistered)
+	_, unchecked, _ := detectUpdates(context.Background(), cfg, remote.AuthConfig{}, lockfile, failures)
+	require.Len(t, unchecked, 1)
+	assert.ErrorIs(t, unchecked[0].Err, remote.ErrRemoteNotRegistered, "the entry is reported with the refusal")
+
+	single := refreshRemoteClone(context.Background(), cfg, srcURL)
+	require.Len(t, single, 1)
+	assert.ErrorIs(t, single[0].Err, remote.ErrRemoteNotRegistered, "the single-reference check refuses it too")
+
+	requireNoClones(t, appDir, "an unregistered repository must never be fetched", dirty)
+}

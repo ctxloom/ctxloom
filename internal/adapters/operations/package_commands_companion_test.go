@@ -3,8 +3,8 @@
 // gave fragments/hooks/MCP: a companion on PATH (ltk's task-runner command)
 // exports as a slash command with no profile wiring required, gated through
 // the identical trust decision every other companion surface goes through —
-// never the builtin nil-gate exemption. See internal/core/config/companion_loadout_test.go
-// for the sibling hooks/MCP/fragments proofs this mirrors.
+// never the builtin nil-gate exemption. The companions package's
+// companion_loadout_test.go holds the sibling hooks/MCP/fragments proofs.
 package operations
 
 import (

@@ -491,7 +491,7 @@ func companionReads(cat bundles.Catalog) []bundles.BundleRead {
 
 // resolveProfileScope returns the profile set a bundle-resolution call should
 // use: the caller's explicit selection (e.g. `run -p`) when non-empty, else the
-// configured defaults. This is the seam that makes mcp/commands/hooks follow the
+// configured defaults. This is the seam that makes mcp/hooks follow the
 // SELECTED profile (the same set AssembleContext scopes context to) instead of
 // always the defaults, while preserving the default-scoped behavior for the
 // `manage`/apply-hooks path that passes nothing.
@@ -500,119 +500,6 @@ func (c *Config) resolveProfileScope(profileNames []string) []string {
 		return profileNames
 	}
 	return c.DefaultAgentProfiles()
-}
-
-// ResolveBundleCommands aggregates the prompts (slash-command exports) shipped
-// by every bundle referenced in the caller's selected profiles (or the
-// configured defaults when none are passed), PLUS the commands shipped by
-// every discovered COMPANION's loadout (S8 — unconditional whenever the
-// companion binary is on PATH, e.g. ltk's task-runner command, but NEVER
-// exempt: routed through bundleLoader.CommandsFromBundleRef,
-// the identical extraction+gate path a profile-referenced bundle's commands
-// use — see ResolveCompanionCommands). Deduped by prompt name; profile-sourced
-// commands are resolved FIRST so an explicit profile curation of the same
-// name wins over the companion's (ADDING companion commands to the set, never
-// replacing curation). Mirrors ResolveBundleMCPServers / ResolveBundleHooks —
-// the profile-scoped replacement for the global ListAllCommands sweep, so a
-// session only carries the commands its profile pulls in (plus its
-// companions'). Built-in embedded commands are added by the caller
-// (LoadCommandExports), not here, since they are not bundle-shipped.
-//
-// Gating and form selection are this stage's calls, not the reader's: the
-// executable trust gate comes off cfg (nil on management paths = no gating) and
-// the configured form from ShouldUseDistilled, and both are handed to the
-// process stage here rather than baked into how the reader was built. A
-// withheld command is therefore not exported.
-func (c *Config) ResolveBundleCommands(profileNames []string) []*bundles.LoadedContent {
-	loader := c.BundleLoader()
-	pipe := bundles.NewPipeline(loader, c.ExecutableTrustGate(), c.LinkGrant(profileNames), c.ShouldUseDistilled())
-
-	seen := make(map[string]bool)
-	var out []*bundles.LoadedContent
-	add := func(prompt *bundles.LoadedContent) {
-		if seen[prompt.Item] {
-			return
-		}
-		seen[prompt.Item] = true
-		out = append(out, prompt)
-	}
-
-	eachBundleRef(c.ResolveProfileSet(profileNames), func(bundleRef string) {
-		for _, prompt := range pipe.CommandsFromBundleRef(bundleRef) {
-			add(prompt)
-		}
-	})
-
-	for _, command := range resolveCompanionCommandsWith(pipe, loader.Catalog()) {
-		add(command)
-	}
-	return out
-}
-
-// ResolveBundleSkills aggregates the Agent Skill packages shipped by every
-// bundle referenced in the caller's selected profiles (or the configured
-// defaults when none are passed) — the skills analog of ResolveBundleCommands.
-// Mirrors ONLY its UNCURATED path: every profile-referenced bundle's skills
-// export by default (each still gated by its own per-engine enablement flag
-// downstream, mirroring the mcp/hooks/commands resolvers). A profile's
-// `skills:` CURATED list (opt-in, mirroring `commands:`) and companion-shipped
-// skills are both Part B6 (skill-command-split.plan.md §3.2 notes companion
-// skill emission explicitly out of the first slices) — not implemented here.
-// Deduped by skill item name (first occurrence wins), matching
-// ResolveBundleCommands' dedup key.
-func (c *Config) ResolveBundleSkills(profileNames []string) []*bundles.LoadedSkill {
-	pipe := bundles.NewPipeline(c.BundleLoader(), c.ExecutableTrustGate(), c.LinkGrant(profileNames), c.ShouldUseDistilled())
-
-	seen := make(map[string]bool)
-	var out []*bundles.LoadedSkill
-	add := func(skill *bundles.LoadedSkill) {
-		if seen[skill.Item] {
-			return
-		}
-		seen[skill.Item] = true
-		out = append(out, skill)
-	}
-
-	eachBundleRef(c.ResolveProfileSet(profileNames), func(bundleRef string) {
-		for _, skill := range pipe.SkillsFromBundleRef(bundleRef) {
-			add(skill)
-		}
-	})
-	return out
-}
-
-// ResolveCompanionCommands returns the commands shipped by every discovered
-// companion's loadout (S8 — companionBundleSeed / sortedCompanionRefs),
-// unconditionally whenever the companion binary is on PATH, in deterministic
-// (companion-ref-sorted, then name-sorted within a loadout) order. Routed
-// through bundleLoader.CommandsFromBundleRef — the SAME extraction+gate path a
-// profile-referenced bundle's commands use, keyed and signed by the
-// companion's OWN bundle; it decides
-// with the cfg-carried executable trust gate exactly like ResolveBundleCommands,
-// so an unsigned/withheld companion loadout's commands do not export.
-//
-// This is the piece LoadCommandExports adds on BOTH its curated and uncurated
-// paths (ResolveBundleCommands only covers the uncurated one, since a
-// profile's commands: curation bypasses it entirely) — see prompts.go.
-// profileNames scopes only the LINK grant: a companion's commands are
-// unconditional, but one linked to a server the selected profiles veto is
-// withheld with it.
-func (c *Config) ResolveCompanionCommands(profileNames []string) []*bundles.LoadedContent {
-	loader := c.BundleLoader()
-	return resolveCompanionCommandsWith(
-		bundles.NewPipeline(loader, c.ExecutableTrustGate(), c.LinkGrant(profileNames), c.ShouldUseDistilled()), loader.Catalog())
-}
-
-// resolveCompanionCommandsWith is the shared companion-command extraction
-// loop, taking an already-built pipeline so ResolveBundleCommands (which needs
-// one for the profile-scoped pass too) doesn't construct a second one. Gate and
-// form travel with it, so both callers necessarily agree on both.
-func resolveCompanionCommandsWith(pipe *bundles.Pipeline, cat bundles.Catalog) []*bundles.LoadedContent {
-	var out []*bundles.LoadedContent
-	for _, ref := range companionRefs(cat) {
-		out = append(out, pipe.CommandsFromBundleRef(ref)...)
-	}
-	return out
 }
 
 // loadHooksFromBundleRef loads hooks from a bundle reference. Like

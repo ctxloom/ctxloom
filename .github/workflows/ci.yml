@@ -305,11 +305,11 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
       # The job reaches the RUNNER's docker daemon through its mounted socket
       # (docker-outside-of-docker), and that daemon resolves a bind-mount
-      # source against the runner's filesystem, not this container's. Tests
-      # mount t.TempDir() and dockergate.BindFixtureRoot, both under /tmp;
-      # sharing it at the SAME path is what makes those sources exist for the
-      # daemon. An unshared source is created EMPTY on the runner, so the
-      # container sees a blank directory, not an error.
+      # source against the runner's filesystem, not this container's. Sharing
+      # /tmp at the SAME path makes the temp dir the fixture root
+      # (internal/testsupport/daemonfixture) and every source an identity
+      # mapping; crossing-integration runs the same suite with nothing shared,
+      # so sources there go through the layer.
       volumes:
         - /tmp:/tmp
     env:

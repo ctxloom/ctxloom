@@ -115,7 +115,9 @@ var execFields = []struct {
 	{"args", func(s *ExecSpec) string { return specField(s, func(s *ExecSpec) string { return quoteAll(s.Args) }) }},
 	{"env", func(s *ExecSpec) string { return specField(s, func(s *ExecSpec) string { return pairs(s.Env, "=") }) }},
 	{"url", func(s *ExecSpec) string { return specField(s, func(s *ExecSpec) string { return s.URL }) }},
-	{"headers", func(s *ExecSpec) string { return specField(s, func(s *ExecSpec) string { return pairs(s.Headers, ": ") }) }},
+	{"headers", func(s *ExecSpec) string {
+		return specField(s, func(s *ExecSpec) string { return pairs(s.Headers, ": ") })
+	}},
 }
 
 func specField(s *ExecSpec, get func(*ExecSpec) string) string {

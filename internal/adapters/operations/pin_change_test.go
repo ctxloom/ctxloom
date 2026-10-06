@@ -250,7 +250,7 @@ func TestWritePinChanges_RendersHeaderItemsExecAndScriptDiffs(t *testing.T) {
 		Files: []FileChange{{Path: "scripts/run.sh", Change: ChangeModified, Diff: "--- a/scripts/run.sh\n+++ b/scripts/run.sh\n-echo one\n+echo two\n"}},
 	}, {
 		Identity: "corp/new", ToSHA: "3333333333", ToVersion: "",
-		Items:    []ItemChange{{Kind: "hook", Name: "session_start/0", Change: ChangeAdded, Exec: &ExecDelta{After: &ExecSpec{Command: "./hello.sh"}}}},
+		Items: []ItemChange{{Kind: "hook", Name: "session_start/0", Change: ChangeAdded, Exec: &ExecDelta{After: &ExecSpec{Command: "./hello.sh"}}}},
 	}})
 
 	assert.Equal(t, `corp/kit  v1.0.0 -> v1.1.0  (1111111 -> 2222222)

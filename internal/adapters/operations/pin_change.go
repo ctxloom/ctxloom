@@ -146,42 +146,62 @@ func diffBundleItems(from, to *bundles.Bundle) []ItemChange {
 // diffItems lists, by sorted name, the items of one kind that differ. exec,
 // when non-nil, gives an item's ExecSpec.
 func diffItems[V any](kind string, from, to map[string]V, exec func(V) *ExecSpec) []ItemChange {
-	names := collections.SortedKeys(from)
-	for _, n := range collections.SortedKeys(to) {
-		if _, ok := from[n]; !ok {
-			names = append(names, n)
-		}
-	}
 	var out []ItemChange
-	for _, name := range names {
+	for _, name := range unionKeys(from, to) {
 		f, inFrom := from[name]
 		t, inTo := to[name]
-		ic := ItemChange{Kind: kind, Name: name}
-		var before, after *ExecSpec
-		switch {
-		case !inFrom:
-			ic.Change = ChangeAdded
-		case !inTo:
-			ic.Change = ChangeRemoved
-		case reflect.DeepEqual(f, t):
+		change, differs := changeOf(inFrom, inTo, reflect.DeepEqual(f, t))
+		if !differs {
 			continue
-		default:
-			ic.Change = ChangeModified
 		}
-		if exec != nil {
-			if inFrom {
-				before = exec(f)
-			}
-			if inTo {
-				after = exec(t)
-			}
-			if before != nil || after != nil {
-				ic.Exec = &ExecDelta{Before: before, After: after}
-			}
-		}
-		out = append(out, ic)
+		out = append(out, ItemChange{Kind: kind, Name: name, Change: change, Exec: execDelta(exec, f, inFrom, t, inTo)})
 	}
 	return out
+}
+
+// unionKeys is a's keys sorted, then b's keys a lacks, sorted.
+func unionKeys[V any](a, b map[string]V) []string {
+	keys := collections.SortedKeys(a)
+	for _, k := range collections.SortedKeys(b) {
+		if _, ok := a[k]; !ok {
+			keys = append(keys, k)
+		}
+	}
+	return keys
+}
+
+// changeOf classifies a key present inFrom and/or inTo; differs is false when
+// it is in both and the same.
+func changeOf(inFrom, inTo, same bool) (change ChangeKind, differs bool) {
+	switch {
+	case !inFrom:
+		return ChangeAdded, true
+	case !inTo:
+		return ChangeRemoved, true
+	case same:
+		return "", false
+	default:
+		return ChangeModified, true
+	}
+}
+
+// execDelta is an item's ExecSpec on each side it exists on; nil when exec is
+// nil or neither side runs anything.
+func execDelta[V any](exec func(V) *ExecSpec, f V, inFrom bool, t V, inTo bool) *ExecDelta {
+	if exec == nil {
+		return nil
+	}
+	var d ExecDelta
+	if inFrom {
+		d.Before = exec(f)
+	}
+	if inTo {
+		d.After = exec(t)
+	}
+	if d.Before == nil && d.After == nil {
+		return nil
+	}
+	return &d
 }
 
 // hookMap keys a bundle's hooks by HookEntry.ID.
@@ -208,27 +228,16 @@ func mcpExec(m bundles.BundleMCP) *ExecSpec {
 // diffTreeFiles lists, by sorted path, the files that differ between two
 // trees; a nil from is an empty tree.
 func diffTreeFiles(from, to map[string]remote.TreeFile) []FileChange {
-	paths := collections.SortedKeys(from)
-	for _, p := range collections.SortedKeys(to) {
-		if _, ok := from[p]; !ok {
-			paths = append(paths, p)
-		}
-	}
 	var out []FileChange
-	for _, p := range paths {
+	for _, p := range unionKeys(from, to) {
 		f, inFrom := from[p]
 		t, inTo := to[p]
-		fc := FileChange{Path: p}
-		switch {
-		case !inFrom:
-			fc.Change = ChangeAdded
-		case !inTo:
-			fc.Change = ChangeRemoved
-		case string(f.Data) == string(t.Data) && isExecutable(f) == isExecutable(t):
+		same := string(f.Data) == string(t.Data) && isExecutable(f) == isExecutable(t)
+		change, differs := changeOf(inFrom, inTo, same)
+		if !differs {
 			continue
-		default:
-			fc.Change = ChangeModified
 		}
+		fc := FileChange{Path: p, Change: change}
 		if (inFrom && isScript(p, f)) || (inTo && isScript(p, t)) {
 			fc.Diff = unifiedDiff(p, string(f.Data), string(t.Data))
 		}

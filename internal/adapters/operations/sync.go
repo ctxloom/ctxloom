@@ -214,14 +214,10 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 	result := &SyncDependenciesResult{
 		Status: "completed",
 	}
-	// The disclosure reads each new pin from the clone cache, which an
-	// injected Puller (a test double with no real clone) never populates.
 	lockManager := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
-	var before *remote.Lockfile
-	if req.Puller == nil {
-		if before, err = lockManager.Load(); err != nil {
-			return nil, err
-		}
+	before, err := lockBeforeSync(req, lockManager)
+	if err != nil {
+		return nil, err
 	}
 
 	// The loop's two dependencies, named as arguments rather than reached for
@@ -274,14 +270,33 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 
 	runSyncPostSteps(ctx, reg, cfg, req, result, fs)
 	result.ConstraintChanges = constraintChangesIn(cfg, req.Profiles, baseDir, fs)
-	if before != nil {
-		if after, lerr := lockManager.Load(); lerr == nil {
-			result.Changes = pinChanges(ctx, cfg, before, after)
-		}
-	}
+	result.Changes = newPinChanges(ctx, cfg, before, lockManager)
 
 	summarizeSync(result)
 	return result, nil
+}
+
+// lockBeforeSync is the lock a sync starts from, for disclosing the pins it
+// creates; nil when a Puller is injected, since the disclosure reads each new
+// pin from the clone cache and a test double populates none.
+func lockBeforeSync(req SyncDependenciesRequest, m *remote.LockfileManager) (*remote.Lockfile, error) {
+	if req.Puller != nil {
+		return nil, nil
+	}
+	return m.Load()
+}
+
+// newPinChanges discloses each pin the sync created since before; nothing
+// when before is nil or the lock can no longer be read.
+func newPinChanges(ctx context.Context, cfg *config.Config, before *remote.Lockfile, m *remote.LockfileManager) []PinChange {
+	if before == nil {
+		return nil
+	}
+	after, err := m.Load()
+	if err != nil {
+		return nil
+	}
+	return pinChanges(ctx, cfg, before, after)
 }
 
 // constraintChangesIn is constraintChanges against the active lock in baseDir.

@@ -17,9 +17,9 @@ export default defineConfig({
 			title: 'ctxloom',
 			description: 'Context Loom - Weave context for AI coding agents',
 			favicon: '/favicon.ico',
-			social: {
-				github: 'https://github.com/ctxloom/ctxloom',
-			},
+			social: [
+				{ icon: 'github', label: 'GitHub', href: 'https://github.com/ctxloom/ctxloom' },
+			],
 			editLink: {
 				baseUrl: 'https://github.com/ctxloom/ctxloom/edit/main/website/',
 			},
@@ -46,7 +46,7 @@ export default defineConfig({
 					// this MUST autogenerate rather than enumerate pages, or a fresh
 					// clone with no pages generated yet fails the build on a dead link.
 					label: 'Journeys',
-					autogenerate: { directory: 'journeys' },
+					items: [{ autogenerate: { directory: 'journeys' } }],
 				},
 				{
 					label: 'Concepts',
@@ -92,7 +92,7 @@ export default defineConfig({
 				{
 					label: 'Reference',
 					items: [
-						{ label: 'CLI', autogenerate: { directory: 'reference/cli' } },
+						{ label: 'CLI', items: [{ autogenerate: { directory: 'reference/cli' } }] },
 						{ label: 'MCP Tools', link: '/reference/mcp-tools/' },
 						{ label: 'Configuration', link: '/reference/config/' },
 						{ label: 'Environment', link: '/reference/environment/' },
@@ -103,7 +103,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Overview', link: '/taskloom/' },
 						{ label: 'Tags', link: '/taskloom/tags/' },
-						{ label: 'CLI', autogenerate: { directory: 'taskloom/reference/cli' } },
+						{ label: 'CLI', items: [{ autogenerate: { directory: 'taskloom/reference/cli' } }] },
 						{ label: 'MCP Tools', link: '/taskloom/reference/mcp-tools/' },
 					],
 				},
@@ -112,7 +112,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Overview', link: '/ltk/' },
 						{ label: 'Writing Rules', link: '/ltk/rules/' },
-						{ label: 'CLI', autogenerate: { directory: 'ltk/reference/cli' } },
+						{ label: 'CLI', items: [{ autogenerate: { directory: 'ltk/reference/cli' } }] },
 					],
 				},
 				{ label: 'Troubleshooting', link: '/troubleshooting/' },

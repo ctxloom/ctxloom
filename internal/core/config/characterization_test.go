@@ -188,6 +188,9 @@ runtime: container
 schema_version: 7
 session_purge_age: 180d
 session_reap_age: 45d
+shell_timeout:
+    default: 3m
+    max: 90m
 sync:
     auto_sync: true
 ui:
@@ -236,6 +239,9 @@ runtime: container
 schema_version: 7
 session_purge_age: 180d
 session_reap_age: 45d
+shell_timeout:
+    default: 3m
+    max: 90m
 sync:
     auto_sync: true
 ui:
@@ -267,6 +273,9 @@ permissions:
     approver: none
     network: false
 schema_version: 7
+shell_timeout:
+    default: 3m
+    max: 90m
 sync:
     auto_sync: true
 ui:
@@ -315,6 +324,9 @@ runtime: container
 schema_version: 7
 session_purge_age: 180d
 session_reap_age: 45d
+shell_timeout:
+    default: 3m
+    max: 90m
 sync:
     auto_sync: true
 ui:

@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/realpath"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // CompanionAdmissionReason names WHY a companion was or was not admitted to
@@ -75,25 +76,25 @@ func allowKey(k CompanionKey) string { return k.Path + "\x00" + k.SHA256 }
 func allowScope(k CompanionKey) string { return k.Path }
 
 // NewAllowStore opens the per-user allow store (paths.HomeCompanionAllowPath).
-func NewAllowStore(fs afero.Fs) (*AllowStore, error) {
+func NewAllowStore(root safefs.Root) (*AllowStore, error) {
 	p, err := paths.HomeCompanionAllowPath()
 	if err != nil {
 		return nil, err
 	}
-	return NewAllowStoreAt(fs, p), nil
+	return NewAllowStoreAt(root, p), nil
 }
 
 // NewAllowStoreAt opens an allow store at an explicit path — for a store that
 // is not this user's, such as the one an agent image is built with.
-func NewAllowStoreAt(fs afero.Fs, path string) *AllowStore {
-	return admission.NewStore(fs, path, allowKey, allowReasons, admission.WithScope(allowScope))
+func NewAllowStoreAt(root safefs.Root, path string) *AllowStore {
+	return admission.NewStore(root, path, allowKey, allowReasons, admission.WithScope(allowScope))
 }
 
 // LoadAllowed reads the per-user allow store for a batch of admissions. A
 // store that cannot be read admits nothing — it may be the only record of
 // what was allowed, and guessing is how the wrong binary runs — and says so.
 func LoadAllowed() *admission.Snapshot[CompanionKey] {
-	store, err := NewAllowStore(afero.NewOsFs())
+	store, err := NewAllowStore(safefs.New())
 	if err != nil {
 		clidiag.WarnOnce("ctxloom", "companion allow store unavailable, no companion will run: %v", err)
 		return nil
@@ -341,7 +342,7 @@ func pinnedAllowed(key CompanionKey, allowed *admission.Snapshot[CompanionKey], 
 func AllowFileFor(installed map[string]string) ([]byte, error) {
 	const at = "/" + paths.CompanionAllowFileName + ".yaml"
 	mem := afero.NewMemMapFs()
-	store := NewAllowStoreAt(mem, at)
+	store := NewAllowStoreAt(safefs.NewMem(mem), at)
 	for target, src := range installed {
 		payload, err := os.ReadFile(src) //nolint:gosec // a staged companion
 		if err != nil {

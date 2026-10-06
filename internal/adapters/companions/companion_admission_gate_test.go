@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Companion EXEC admission. Every assertion here is about OBSERVABLE
@@ -36,7 +36,7 @@ type consentFixture struct {
 // called on is refused as not allowed, which several tests below rely on.
 func (f *consentFixture) allow(t *testing.T, path string) CompanionKey {
 	t.Helper()
-	store, err := NewAllowStore(afero.NewOsFs())
+	store, err := NewAllowStore(safefs.New())
 	require.NoError(t, err)
 	key, err := ResolveCompanion(path)
 	require.NoError(t, err)
@@ -48,7 +48,7 @@ func (f *consentFixture) allow(t *testing.T, path string) CompanionKey {
 // snapshot loads the allow store as it is on disk now.
 func (f *consentFixture) snapshot(t *testing.T) *admission.Snapshot[CompanionKey] {
 	t.Helper()
-	store, err := NewAllowStore(afero.NewOsFs())
+	store, err := NewAllowStore(safefs.New())
 	require.NoError(t, err)
 	snap, err := store.Load()
 	require.NoError(t, err)

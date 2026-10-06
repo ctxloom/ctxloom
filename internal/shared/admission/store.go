@@ -9,8 +9,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
-
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
@@ -192,6 +190,7 @@ type LockPathFor func(protected string) (string, error)
 // YAML file under the user's home.
 type Store[K comparable, R comparable] struct {
 	fs      afero.Fs
+	locks   safefs.Locks
 	path    string
 	key     func(K) string
 	scope   func(K) string
@@ -202,15 +201,6 @@ type Store[K comparable, R comparable] struct {
 	// right shape for a home-rooted store like this package's own doc
 	// describes (property 6).
 	lockPathFor LockPathFor
-	// useLock is false only for a store built over a non-OS-backed
-	// filesystem (a test double: afero.MemMapFs, a ReadOnlyFs wrapping one,
-	// ...). Locking exists to exclude OTHER PROCESSES, which a fake
-	// filesystem has none of — and composing a lock path from one of its
-	// (often nonexistent, often unwritable-by-this-user) paths and asking
-	// the REAL OS to create and flock it would touch actual disk at an
-	// address the test never intended, exactly the crosstalk
-	// config.Owner.Update's injectedFS guard exists to avoid. See filelock.IsOSBackedFs.
-	useLock bool
 	// misconfigured is the construction fault, held rather than panicked so
 	// construction stays total. Every method surfaces it; nothing reads or
 	// writes through a store that carries one.
@@ -250,7 +240,8 @@ func WithLockPathFor[K comparable](lp LockPathFor) Option[K] {
 	return func(o *options[K]) { o.lockPathFor = lp }
 }
 
-// NewStore builds a store over path, backed by fs, keyed by key.
+// NewStore builds a store over path, read and written through root.Fs and
+// serialized under root.Locks, keyed by key.
 //
 // path need not exist — an absent file is the ordinary "nobody has decided
 // anything yet" state, not a fault. An EMPTY path is NOT that state: it is a
@@ -260,7 +251,7 @@ func WithLockPathFor[K comparable](lp LockPathFor) Option[K] {
 // repo root would authorise something. An unconfigured store therefore answers
 // nothing and refuses every write.
 func NewStore[K comparable, R comparable](
-	fs afero.Fs, path string, key func(K) string, reasons Reasons[R], opts ...Option[K],
+	root safefs.Root, path string, key func(K) string, reasons Reasons[R], opts ...Option[K],
 ) *Store[K, R] {
 	o := options[K]{now: func() time.Time { return time.Now().UTC() }}
 	for _, opt := range opts {
@@ -268,16 +259,13 @@ func NewStore[K comparable, R comparable](
 			opt(&o)
 		}
 	}
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
 	lockPathFor := o.lockPathFor
 	if lockPathFor == nil {
 		lockPathFor = func(protected string) (string, error) { return paths.PathFor(protected), nil }
 	}
 	s := &Store[K, R]{
-		fs: fs, path: path, key: key, scope: o.scope, now: o.now, reasons: reasons,
-		lockPathFor: lockPathFor, useLock: filelock.IsOSBackedFs(fs),
+		fs: root.Fs, locks: root.Locks, path: path, key: key, scope: o.scope, now: o.now, reasons: reasons,
+		lockPathFor: lockPathFor,
 	}
 	if s.scope == nil {
 		s.scope = key
@@ -496,12 +484,10 @@ func (s *Store[K, R]) Forget(k K) (int, error) {
 	return removed, nil
 }
 
-// lockedRMW acquires this store's write lock and runs fn while holding it,
-// unless the store is backed by a non-OS test filesystem (see useLock), in
-// which case fn runs directly — there is no other process to exclude. The
-// lock sidecar's modes are the toolbox's (filelock), deliberately NOT the
-// stricter 0o600/0o700 this store's own DATA file uses (write, below) — the
-// sidecar is not the trust-sensitive payload.
+// lockedRMW acquires this store's write lock and runs fn while holding it.
+// The lock sidecar's modes are the lock's own (safefs.Locks), deliberately
+// NOT the stricter 0o600/0o700 this store's own DATA file uses (write,
+// below) — the sidecar is not the trust-sensitive payload.
 //
 // BOTH a lock-path derivation failure and a lock ACQUISITION failure fail
 // closed: fn never runs unlocked as a fallback. Degrading to unlocked on
@@ -509,14 +495,17 @@ func (s *Store[K, R]) Forget(k K) (int, error) {
 // silently, on every subsequent call — exactly the stance config.Owner.Update
 // takes for the identical failure shape (see its doc).
 func (s *Store[K, R]) lockedRMW(fn func() error) error {
-	if !s.useLock {
-		return fn()
-	}
 	lockPath, err := s.lockPathFor(s.path)
 	if err != nil {
 		return fmt.Errorf("admission: locating write lock for %s: %w", s.path, err)
 	}
-	return filelock.WithLock(s.fs, lockPath, fn)
+	// The records dir is made owner-only BEFORE the lock is taken: the
+	// default lock sits beside the records file, and a lock creates a
+	// missing directory with its own, looser mode.
+	if err := s.fs.MkdirAll(filepath.Dir(s.path), safefs.PrivateDirMode); err != nil {
+		return fmt.Errorf("admission: creating %s: %w", filepath.Dir(s.path), err)
+	}
+	return safefs.WithLock(s.locks, lockPath, fn)
 }
 
 // write serializes recs, 0600 in a 0700 directory, atomically (unique temp

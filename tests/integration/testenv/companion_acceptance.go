@@ -10,7 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/spf13/afero"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // InstallFakeCompanion writes an executable shell script named bin (e.g.
@@ -92,7 +92,7 @@ func (e *TestEnvironment) AllowCompanion(path string) error {
 	if err != nil {
 		return fmt.Errorf("allow companion %q: %w", path, err)
 	}
-	store := companions.NewAllowStoreAt(afero.NewOsFs(),
+	store := companions.NewAllowStoreAt(safefs.New(),
 		filepath.Join(e.HomeDir, paths.AppDirName, paths.CompanionAllowFileName+".yaml"))
 	if _, err := store.Set(key, true); err != nil {
 		return fmt.Errorf("allow companion %q: %w", path, err)

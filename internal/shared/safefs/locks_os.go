@@ -18,8 +18,8 @@ import (
 // deliberately not group- or world-WRITABLE: acquiring a lock opens the file,
 // so its write bits are exactly the list of accounts that can take it, and
 // through that, block every other account's writes to the resource it
-// protects. It stays world-READABLE because a lock file bind-mounted into a
-// container is taken there by an account the host may map differently.
+// protects. Widening this is a decision about who may block whom, not a
+// formatting one.
 const lockFileMode = 0o644
 
 // lockDirMode is the mode Lock creates a lock file's parent directory with,

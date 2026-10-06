@@ -54,11 +54,14 @@ pre-commit:
       # file's own rule forbids. bin/archlint is built by `just build-archlint`
       # (and by `just lint-arch`, which is the same gate for interactive use).
       #
-      # A MISSING OR STALE BINARY FAILS LOUDLY. Skipping the check because the
-      # artifact is absent would be a gate that reports success having run
+      # A MISSING OR STALE BINARY IS REBUILT, NEVER SKIPPED, and generated
+      # code is generated first: archlint type-checks the whole module, and
+      # neither the binary nor the generated code is committed, so a fresh
+      # worktree's first commit must produce both. Skipping the check because
+      # an artifact is absent would be a gate that reports success having run
       # nothing, which is the exact failure the rules themselves exist to
-      # catch. The staleness test is a file comparison, not a rebuild, so it
-      # costs nothing on the common path.
+      # catch. The staleness test is a file comparison, so the rebuild is paid
+      # once, not per commit.
       #
       # The passes are scripts/lint-arch-passes.sh — the same script
       # `just lint-arch` runs, so this hook and CI cannot drift apart.

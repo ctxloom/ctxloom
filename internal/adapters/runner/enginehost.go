@@ -264,9 +264,16 @@ type EngineHost struct {
 	// bounded, BEFORE sealing: that Drive's dispatches are then tracked and
 	// joined, and the recorder it opens exists by the time Close closes it.
 	driving chan struct{}
+	// recClosed is set when Close has closed the run's recorder (guarded by
+	// mu); installRecorder then closes a late Drive's recorder instead.
+	recClosed bool
 	// closeAwaitsDrive is a test seam: Close calls it, when set, just before
 	// it waits for a Drive already past its closed check.
 	closeAwaitsDrive func()
+	// closeDriveExpired is a test seam: when set, Close's wait for a Drive
+	// in flight gives up when it fires instead of after
+	// engineHostCloseJoinBudget.
+	closeDriveExpired <-chan time.Time
 }
 
 // errEngineHostClosed refuses a run that reaches the engine host after Close
@@ -336,10 +343,29 @@ func (eh *EngineHost) awaitDrive(driving chan struct{}) {
 	if hook := eh.closeAwaitsDrive; hook != nil {
 		hook()
 	}
+	expired := eh.closeDriveExpired
+	if expired == nil {
+		expired = time.After(engineHostCloseJoinBudget)
+	}
 	select {
 	case <-driving:
-	case <-time.After(engineHostCloseJoinBudget):
-		eh.rep.Warnf("engine host close: a Drive in flight did not return within %s; proceeding (its dispatches are refused, but it may still open the run's transcript recorder)", engineHostCloseJoinBudget)
+	case <-expired:
+		eh.rep.Warnf("engine host close: a Drive in flight did not return within %s; proceeding (its dispatches are refused, and the transcript recorder it opens is closed, not installed)", engineHostCloseJoinBudget)
+	}
+}
+
+// installRecorder makes rec the run's recorder, unless Close has already
+// closed the recorder (recClosed): then rec is closed here instead, since
+// nothing would close it once installed.
+func (eh *EngineHost) installRecorder(rec transcript.Recorder) {
+	eh.mu.Lock()
+	late := eh.recClosed
+	if !late {
+		eh.rec = rec
+	}
+	eh.mu.Unlock()
+	if late && rec != nil {
+		_ = rec.Close()
 	}
 }
 
@@ -349,6 +375,7 @@ func (eh *EngineHost) closeRecorder() {
 	eh.mu.Lock()
 	rec := eh.rec
 	eh.rec = nil
+	eh.recClosed = true
 	eh.mu.Unlock()
 	if rec != nil {
 		_ = rec.Close()
@@ -564,10 +591,7 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	// many engine processes as it takes turns. It also records the user
 	// turns this host hands the engine — the briefing and any later
 	// coordinator-delivered mail (SetTurnSink).
-	rec := eh.openRunRecorder(t.Launch.Identity.Harp)
-	eh.mu.Lock()
-	eh.rec = rec
-	eh.mu.Unlock()
+	eh.installRecorder(eh.openRunRecorder(t.Launch.Identity.Harp))
 
 	return eh.handOff(ctx, home, prompt)
 }

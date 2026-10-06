@@ -52,21 +52,6 @@ type formatCoverageEntry struct {
 	skip      string
 	extraArgs func(format string) []string
 
-	// wantExitCode is the ExitError code this command is EXPECTED to return
-	// in the coverage fixture, for the gate-shaped commands whose whole
-	// contract is a non-zero exit. Zero (the default, and what every
-	// pre-existing entry means) requires a nil error, exactly as before.
-	//
-	// It exists because a gate reports its verdict THROUGH its exit code, so
-	// "renders in five encodings" and "exits 0" are independent claims for
-	// it. `deps verify-corpus` in this harness's empty project has no remotes
-	// to read, which is honestly undetermined (exit 2) — asserting NoError
-	// there could only be satisfied by making the gate report success over a
-	// corpus it never looked at, which is the precise failure the gate was
-	// built to prevent. So the expected code is declared and asserted, and
-	// the five encodings are still validated against the output.
-	wantExitCode int
-
 	// formatDebt marks a skip entry as format debt: this command registers
 	// (inherits) the persistent --format flag but its RunE never routes
 	// through emit()/cliemit.Emit, so --format is silently accepted and
@@ -294,14 +279,9 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"deps pull":    {skip: "network: clones/fetches a real git remote"},
 	"deps check":   {skip: "network: resolves each pinned bundle against a real remote"},
 	"deps upgrade": {skip: "network: re-resolves pinned bundle content from a real remote"},
-	// Exercised, not skipped: the corpus gate is a pure function over an
-	// injected fetcher, so it needs no network here. This project has no
-	// remotes, so it honestly reports "nothing was checked" and exits 2 —
-	// which is the behaviour under test as much as the rendering is.
-	"deps verify-corpus": {extraArgs: noExtraArgs, wantExitCode: 2},
-	"deps hold":          {skip: "needs an existing lockfile entry fixture; not exercised here", formatDebt: true},
-	"deps unhold":        {skip: "needs an existing held entry fixture; not exercised here", formatDebt: true},
-	"bundle push":        {skip: "network: publishes to a real remote repository (covered by push_sign_test.go)"},
+	"deps hold":    {skip: "needs an existing lockfile entry fixture; not exercised here", formatDebt: true},
+	"deps unhold":  {skip: "needs an existing held entry fixture; not exercised here", formatDebt: true},
+	"bundle push":  {skip: "network: publishes to a real remote repository (covered by push_sign_test.go)"},
 
 	// --- skip: docker / container runtime required ---
 	// `container check` DOES honor format (containerCheckCmd calls
@@ -471,7 +451,7 @@ func TestFormatCoverage_AllRootCmdDescendants(t *testing.T) {
 			for _, format := range []string{"text", "json", "yaml", "toml", "markdown"} {
 				t.Run(format, func(t *testing.T) {
 					args := append(strings.Fields(path), entry.extraArgs(format)...)
-					runFormatCoverageCase(t, path, args, format, entry.wantExitCode)
+					runFormatCoverageCase(t, path, args, format)
 				})
 			}
 		})
@@ -481,11 +461,10 @@ func TestFormatCoverage_AllRootCmdDescendants(t *testing.T) {
 // runFormatCoverageCase drives the real cobra command tree exactly as a
 // user's shell invocation would (rootCmd.SetArgs + Execute), so the
 // persistent --format flag resolves through cobra's own inherited-flag
-// machinery rather than a hand-rolled shortcut. It asserts the expected exit
-// (nil error, or an ExitError carrying wantExitCode for the gate-shaped
-// commands) and that non-text formats produced syntactically valid output in
+// machinery rather than a hand-rolled shortcut. It asserts the command
+// succeeded and that non-text formats produced syntactically valid output in
 // their encoding.
-func runFormatCoverageCase(t *testing.T, path string, args []string, format string, wantExitCode int) {
+func runFormatCoverageCase(t *testing.T, path string, args []string, format string) {
 	t.Helper()
 	full := append(append([]string{}, args...), "--format", format)
 	var out, errOut bytes.Buffer
@@ -499,19 +478,7 @@ func runFormatCoverageCase(t *testing.T, path string, args []string, format stri
 	})
 
 	err := rootCmd.Execute()
-	if wantExitCode == 0 {
-		require.NoError(t, err, "ctxloom %s (stderr: %s)", strings.Join(full, " "), errOut.String())
-	} else {
-		// A declared non-zero exit must arrive as that exact ExitError. Any
-		// other error is a real failure, and a nil error is a gate that
-		// stopped gating — both must fail here rather than be waved through
-		// as "well, it exited non-zero somehow".
-		var exitErr *ExitError
-		require.ErrorAsf(t, err, &exitErr,
-			"ctxloom %s must exit %d via ExitError (stderr: %s)", strings.Join(full, " "), wantExitCode, errOut.String())
-		require.Equalf(t, wantExitCode, exitErr.Code,
-			"ctxloom %s exit code (stderr: %s)", strings.Join(full, " "), errOut.String())
-	}
+	require.NoError(t, err, "ctxloom %s (stderr: %s)", strings.Join(full, " "), errOut.String())
 
 	switch clifmt.Format(format) {
 	case clifmt.FormatJSON:

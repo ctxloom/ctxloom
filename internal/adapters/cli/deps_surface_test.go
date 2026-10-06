@@ -70,16 +70,6 @@ func TestRemote_CarriesOnlyTheRegisteredSource(t *testing.T) {
 	}
 }
 
-// TestBundle_NoLongerHoldsAPin. A hold freezes a LOCKFILE entry, which is the
-// closure's state, not the bundle's — `bundle hold` put a dependency-management
-// verb on the content noun, where nothing else it sits beside touches the lock.
-func TestBundle_NoLongerHoldsAPin(t *testing.T) {
-	got := leafNames(t, "bundle")
-
-	assert.NotContains(t, got, "hold", "holding a pin is `ctxloom deps hold`")
-	assert.NotContains(t, got, "unhold", "releasing a hold is `ctxloom deps unhold`")
-}
-
 // TestDepsHold_CarriesNoPinAlias. "pin" is already taken: a manifest pin is an
 // exact version constraint the author WROTE, and a hold is a local policy that
 // overrides what the constraint allows. One word for both makes the two

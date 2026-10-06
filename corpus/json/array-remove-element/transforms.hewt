@@ -1,9 +1,0 @@
-hew-transforms: 1
-target: target.json
-format: json
-transforms:
-  - op: test
-    path: /tags/=beta
-    value: beta
-  - op: remove
-    path: /tags/=beta

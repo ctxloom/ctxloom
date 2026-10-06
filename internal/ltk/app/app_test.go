@@ -180,13 +180,6 @@ func TestVariableResolutionEndToEnd(t *testing.T) {
 	}
 }
 
-func TestOnOpaqueIsGone(t *testing.T) {
-	// The opacity knob was removed; configuring it is now an unknown-field error.
-	if _, err := rules.Parse([]byte("version: 1\ndefaults: { on_opaque: deny }\nrules: []\n")); err == nil {
-		t.Error("defaults.on_opaque should now be rejected as an unknown field")
-	}
-}
-
 // runFailFrontend stands in for a frontend whose external parser could not be
 // EXECUTED at all — the shape the pwsh frontend takes when the exec itself
 // fails (oversized environment, missing binary, resource limit). It honours

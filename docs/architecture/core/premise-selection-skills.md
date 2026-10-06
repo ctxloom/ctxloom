@@ -158,7 +158,7 @@ fire on nothing-applies rows, and exact-set count. The runs it scored were produ
 separate model judging each premise ALONE against every situation — the per-premise protocol,
 the best-scoring configuration the prior trial found.
 
-The corpus here, `internal/adapters/operations/testdata/premise_corpus_skills_v0.yaml`, carries both
+The corpus here, `internal/adapters/operations/testdata/premise_corpus_skills_v0.yaml` (removed from the tree; recover with `git log --diff-filter=D -- internal/adapters/operations/testdata`), carries both
 `fragments` (v3's shape: ref, content, premise, tags — plus the skill's existing
 `description`, which is what measurement #1 compares against) and `situations` (the
 situations-file shape) so the recovered scorer reads it unchanged.
@@ -325,7 +325,7 @@ Split the Sonnet per-premise run by how many skills a situation wants:
 **On single-skill moments the premises are at the fragment trial's ceiling.** The entire gap
 is the fifteen two-skill moments, and those pairs are always CONSEQUENT, never simultaneous:
 admit→unattended, closeout→prompt-human, closeout→recover, prompt-human→unattended,
-check-triggers→prompt-human. Five conditions were run against them (`premise_runs_skills/`):
+check-triggers→prompt-human. Five conditions were run against them (`premise_runs_skills/`, likewise removed from the tree):
 
 | condition | both-found |
 |---|---|
@@ -393,5 +393,5 @@ also read whole — and so a premise cannot grow into a second body. The number 
 engine's (`MAX_LISTING_DESC_CHARS = 250`, shared with the description); pinning it by symbol
 rather than restating it is the checked binding.
 
-_(Run details, prompts and answers: `premise_runs_skills/run-20260918-haiku/`.)_
+_(Run details, prompts and answers: `premise_runs_skills/run-20260918-haiku/`, in history only — see `git log --diff-filter=D -- internal/adapters/operations/testdata`.)_
 

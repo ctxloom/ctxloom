@@ -1,7 +1,0 @@
-hew: 1
-
---- target.json format=json
-
-@@ /mcpServers @@
-  { "name": "ctxloom" }
-+ { "name": "taskloom", "command": "taskloom" }

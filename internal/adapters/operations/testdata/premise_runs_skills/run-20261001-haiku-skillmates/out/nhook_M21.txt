@@ -1,1 +1,0 @@
-`next: report that there are no prior decisions to surface, and ask what work to start`

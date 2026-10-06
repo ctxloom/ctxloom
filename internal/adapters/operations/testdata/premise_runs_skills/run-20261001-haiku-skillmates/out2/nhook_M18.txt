@@ -1,1 +1,0 @@
-`next: explore the working directory to identify what work is tracked, what questions are pending, and which decisions need raising with the human`

@@ -1,1 +1,0 @@
-`next: request the four findings from the adversarial review so I can apply prompt-human protocol to each one`

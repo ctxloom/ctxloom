@@ -1,1 +1,0 @@
-`next: read memory index and sweep current directory for pending decisions`

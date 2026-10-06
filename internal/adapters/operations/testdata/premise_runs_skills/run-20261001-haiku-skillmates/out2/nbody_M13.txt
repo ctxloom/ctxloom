@@ -1,1 +1,0 @@
-`next: raise pre-flight blocker - working directory is not a git repository; cannot establish baseline or proceed with unattended mode`

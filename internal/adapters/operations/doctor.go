@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -175,9 +174,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckSupersededImages(ctx, runtimes, func(ctx context.Context, rt isolation.Runtime) (isolation.ImagePrunePlan, error) {
 				return isolation.PlanImagePrune(ctx, rt, imagePruneOptions(reg, cfg, rt, DefaultImagePruneMinAge, time.Now()))
 			}),
-			doctorCheckLegacyIndex(),
 			doctorCheckHarpDurability(),
-			doctorCheckLegacyLayout(),
 			doctorCheckSecretsStorage(os.Getenv),
 			doctorCheckSpoolBacklog(configFS(cfg)),
 			doctorCheckSpoolCounters(ctx),
@@ -1522,58 +1519,6 @@ func doctorCheckHarpDurability() DoctorCheck {
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: fmt.Sprintf(
 		"%d authored file(s) sit in a session directory's unclassified top level, which holds machine state only: %s — move each to its session's output dir (output_dir in the session's %s), where a human reads it and a containerized run keeps it",
 		len(flagged), list, paths.SessionSidecarFileName)}
-}
-
-// legacyLayoutDirs are the session-dir members an earlier layout wrote and
-// the current one never reads; legacyLayoutLinkPrefix names that layout's
-// per-vendor-log links at the session dir's top. Spelled here, and only here,
-// because they name what no longer exists — the paths table cannot carry
-// them.
-var legacyLayoutDirs = []string{"persist", "ephemeral", "segments"}
-
-const legacyLayoutLinkPrefix = "engine-transcript-"
-
-// doctorCheckLegacyLayout names what an earlier session layout left in
-// session dirs. It is inert — no reader or writer touches it, and a session is
-// not migrated — so it is reported, never a warning, for a human to delete.
-func doctorCheckLegacyLayout() DoctorCheck {
-	const marker = "DOCTOR-CHECK-LEGACY-LAYOUT-g2"
-	root, err := paths.HomeSessionsDir()
-	if err != nil {
-		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "cannot resolve sessions dir: " + err.Error()}
-	}
-	harps, err := os.ReadDir(root)
-	if err != nil && !os.IsNotExist(err) {
-		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "cannot read sessions dir: " + err.Error()}
-	}
-	var found []string
-	for _, h := range harps {
-		if h.IsDir() {
-			found = append(found, legacyLayoutEntries(filepath.Join(root, h.Name()), h.Name())...)
-		}
-	}
-	if len(found) == 0 {
-		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "no session dir holds anything an earlier session layout left"}
-	}
-	return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: fmt.Sprintf(
-		"%d entr(ies) an earlier session layout left are inert — nothing reads or writes them, and sessions are not migrated; delete them when you no longer want them: %s",
-		len(found), doctorNamedList(found, doctorHarpDurabilityMaxNamed))}
-}
-
-// legacyLayoutEntries is harp's old-layout entries, as harp/<name>.
-func legacyLayoutEntries(dir, harp string) []string {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, e := range entries {
-		name := e.Name()
-		if (e.IsDir() && slices.Contains(legacyLayoutDirs, name)) || strings.HasPrefix(name, legacyLayoutLinkPrefix) {
-			out = append(out, harp+"/"+name)
-		}
-	}
-	return out
 }
 
 // doctorCheckSecretsStorage reports where a run's secrets are written: the

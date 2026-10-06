@@ -99,11 +99,3 @@ func TestSessionEdit_NameRefusesPastTheLengthLimit(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, got, "a refused rename must leave the session under its old name")
 }
-
-// TestSessionEdit_RenameLeafIsGone pins the deletion: `session rename` is not
-// a hidden alias, it is not there at all.
-func TestSessionEdit_RenameLeafIsGone(t *testing.T) {
-	for _, c := range sessionCmd.Commands() {
-		assert.NotEqual(t, "rename", c.Name(), "`session rename` is replaced by `session edit --name`")
-	}
-}

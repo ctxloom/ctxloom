@@ -44,11 +44,9 @@ flowchart TD
         DP["deps pull --lock"] --> RCI["reconcileInstalled"] --> ORI[["operations.ReconcileInstalled(ctx, cfg) → ReconcileResult"]]
         ORI --> RRC2["renderReconcile"]
         RUP["deps upgrade"] --> UD[["operations.UpgradeDependencies"]]
-        DVC["deps verify-corpus"]
     end
 
     LCF["loadConfigOrFallback (startup_helpers.go)"] --> RDC
-    LCF --> DVC
 ```
 
 ## Update mechanics

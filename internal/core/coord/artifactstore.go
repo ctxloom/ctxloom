@@ -6,10 +6,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/spf13/afero"
 	"io"
-	"os"
 	"path/filepath"
+
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
@@ -36,18 +36,21 @@ import (
 // safe to share across processes; content-addressed blobs are.
 const artifactStoreDirName = "artifacts"
 
-// artifactStore is the coordinator-side content-addressed blob store.
+// artifactStore is the coordinator-side content-addressed blob store. Every
+// read and write goes through fs.
 type artifactStore struct {
+	fs  afero.Fs
 	dir string
 }
 
-// newArtifactStore opens (creating if needed) the blob store under stateDir.
-func newArtifactStore(stateDir string) (*artifactStore, error) {
+// newArtifactStore opens (creating if needed) the blob store under stateDir
+// on fs.
+func newArtifactStore(fs afero.Fs, stateDir string) (*artifactStore, error) {
 	dir := filepath.Join(stateDir, artifactStoreDirName)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := fs.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("coord: artifact store: %w", err)
 	}
-	return &artifactStore{dir: dir}, nil
+	return &artifactStore{fs: fs, dir: dir}, nil
 }
 
 // path returns the content-addressed path for a hex sha256.
@@ -66,17 +69,6 @@ var errArtifactSHAMismatch = errors.New("coord: artifact content does not match 
 // declared hash would otherwise sail through as a "success" that silently
 // contradicts the caller's own declared size.
 var errArtifactSizeMismatch = errors.New("coord: artifact content does not match its declared size")
-
-// syncArtifactDir fsyncs the store directory after a blob is published.
-//
-// Indirected because on a real filesystem this fails only on conditions a test cannot provoke, while the
-// consequence of skipping it — a durable manifest naming a blob whose rename
-// never landed — is precisely what must not happen.
-//
-// Points at safefs.SyncDir, the shared "open dir, fsync, close" primitive.
-// Swappable here for artifactstore_dirsync_test.go, which needs to observe
-// the seam and inject failures at this site.
-var syncArtifactDir = func(dir string) error { return safefs.SyncDir(afero.NewOsFs(), dir) }
 
 // errArtifactBadName is returned when a name handed to the store is not a
 // content hash. The store's whole contract is "the file name IS
@@ -109,92 +101,68 @@ func validShaHex(name string) bool {
 // writeAtomic drains r, hashing as it goes, and stores the bytes under the
 // hash it actually computed — content addressing by construction, so the
 // stored name is never a caller-supplied value. If declaredSHA is non-empty
-// it is checked against the computed hash BEFORE the file is published
-// (temp file removed, errArtifactSHAMismatch returned) — this is the
-// upload-side half of E1e's mandatory integrity rule; the coordinator's own
-// hash is authoritative, never the uploader's declared one. Likewise, if
-// declaredSize is non-zero it is checked against the actual byte count
-// BEFORE publish (errArtifactSizeMismatch) — both checks exist so a
-// mismatched upload never earns a name in the store, matching or not.
+// it is checked against the computed hash BEFORE anything is named
+// (errArtifactSHAMismatch); likewise a non-zero declaredSize against the
+// byte count (errArtifactSizeMismatch, which exists because sha256 is
+// optional on the wire, so a short delivery with no declared hash would
+// otherwise be stored under its own honest hash). Either way a mismatched
+// upload never earns a name in the store, and its temp file is removed.
+// The coordinator's own hash is authoritative (E1e), never the uploader's.
+//
+// The blob is committed Durable(): the manifest that will reference it is
+// fsynced by the journal before its own response returns, so without the
+// directory sync the durable reference could outlive its referent across a
+// crash — a manifest naming a blob whose rename never landed.
+//
+// It is committed AllowEmpty() too, and that is safe here in a way it is not
+// for a mutable file: the name IS the hash of the content, so the only file
+// an empty blob can ever replace is another empty blob. Without it, an empty
+// upload racing an identical one past the existence check below would be
+// refused by the empty-write guard.
 //
 // Idempotent: if content already exists under its hash, the temp file is
-// discarded and the existing one wins — safe under a concurrent upload of
-// the SAME content (both writers produce byte-identical files; whichever
-// rename lands last is indistinguishable from the other).
+// discarded and the existing one wins, with no rename and no directory sync.
+// A concurrent upload of the SAME content can still slip between that check
+// and the rename; both writers produce byte-identical files, so whichever
+// rename lands last is indistinguishable from the other.
 func (s *artifactStore) writeAtomic(r io.Reader, declaredSHA []byte, declaredSize uint64) (shaHex string, size int64, err error) {
-	tmp, err := os.CreateTemp(s.dir, ".upload-*")
+	af, err := safefs.NewAtomicFileIn(s.fs, s.dir, 0o600, safefs.Durable(), safefs.AllowEmpty())
 	if err != nil {
-		return "", 0, fmt.Errorf("coord: artifact store: temp file: %w", err)
+		return "", 0, fmt.Errorf("coord: artifact store: %w", err)
 	}
-	tmpPath := tmp.Name()
-	defer func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath) // no-op once renamed away
-	}()
-
 	h := sha256.New()
-	n, err := io.Copy(tmp, io.TeeReader(r, h))
+	n, err := io.Copy(af, io.TeeReader(r, h))
 	if err != nil {
+		_ = af.Abort()
 		return "", 0, fmt.Errorf("coord: artifact store: write: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		return "", 0, fmt.Errorf("coord: artifact store: fsync: %w", err)
 	}
 	sum := h.Sum(nil)
 	if len(declaredSHA) > 0 && !bytes.Equal(sum, declaredSHA) {
+		_ = af.Abort()
 		return "", 0, errArtifactSHAMismatch
 	}
-	// The size cross-check lives HERE, before publish, for the
-	// same reason the sha check does — a declared size that does not match
-	// what was actually received must never earn a name in the
-	// content-addressed store, or a truncated/short delivery would be
-	// published (under its own, honest hash) and still leave an orphan
-	// blob behind even though the caller's receipt was refused.
 	if declaredSize != 0 && uint64(n) != declaredSize {
+		_ = af.Abort()
 		return "", 0, errArtifactSizeMismatch
 	}
 	shaHex = hex.EncodeToString(sum)
-	if err := tmp.Close(); err != nil {
-		return "", 0, fmt.Errorf("coord: artifact store: close: %w", err)
+	final := s.path(shaHex)
+	if _, statErr := s.fs.Stat(final); statErr == nil {
+		_ = af.Abort()
+		return shaHex, n, nil
 	}
-	if err := s.publish(tmpPath, shaHex); err != nil {
-		return "", 0, err
+	if err := af.CommitAs(final); err != nil {
+		return "", 0, fmt.Errorf("coord: artifact store: publish: %w", err)
 	}
 	return shaHex, n, nil
-}
-
-// publish moves a fully drained, verified temp file into place under its
-// content hash and makes that name durable.
-//
-// The blob's CONTENT is already durable (writeAtomic's tmp.Sync) but its
-// NAME is not until the directory entry is fsynced — and the manifest that
-// will reference this blob IS fsynced, by the journal, before its own
-// response returns (journal.go's Store.execLocked). Without the directory
-// sync the durable reference can outlive its referent across a crash: a
-// manifest naming a blob whose rename never landed, answering NOT_FOUND for
-// the rest of its life.
-func (s *artifactStore) publish(tmpPath, shaHex string) error {
-	final := s.path(shaHex)
-	if _, statErr := os.Stat(final); statErr == nil {
-		// Free dedupe: identical content already stored under this hash, and
-		// no new directory entry to make durable.
-		return nil
-	}
-	if err := os.Rename(tmpPath, final); err != nil {
-		return fmt.Errorf("coord: artifact store: publish: %w", err)
-	}
-	if err := syncArtifactDir(s.dir); err != nil {
-		return fmt.Errorf("coord: artifact store: fsync dir: %w", err)
-	}
-	return nil
 }
 
 // open opens a stored blob for reading by its hex sha256 (os.ErrNotExist on
 // a miss, errArtifactBadName when the name is not a content hash at all —
 // the store never joins an unvalidated name onto its directory).
-func (s *artifactStore) open(shaHex string) (*os.File, error) {
+func (s *artifactStore) open(shaHex string) (afero.File, error) {
 	if !validShaHex(shaHex) {
 		return nil, fmt.Errorf("%w: %q", errArtifactBadName, shaHex)
 	}
-	return os.Open(s.path(shaHex))
+	return s.fs.Open(s.path(shaHex))
 }

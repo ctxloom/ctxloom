@@ -715,21 +715,31 @@ func newTestCoordinatorDepthCap(t *testing.T, sp Spawner, clock func() time.Time
 	return newTestCoordinatorOpts(t, sp, clock, 0, depthCap)
 }
 
-// newTestCoordinatorOpts is the shared constructor both cap-specific helpers
-// above wrap.
+// newTestCoordinatorOpts is the constructor both cap-specific helpers above
+// wrap.
 func newTestCoordinatorOpts(t *testing.T, sp Spawner, clock func() time.Time, concurrencyCap, depthCap int) *Coordinator {
 	t.Helper()
-	teeHome(t)
-	c, err := New(Options{
-		ProjectDir:     t.TempDir(),
-		StateDir:       t.TempDir(),
-		Spawner:        sp,
-		Clock:          clock,
-		ConcurrencyCap: concurrencyCap,
-		Depth:          depthCap,
-		OwnerHarp:      ownerIdentity().Harp,
-		Reporter:       termSink(),
+	return newTestCoordinatorWith(t, sp, func(o *Options) {
+		o.Clock = clock
+		o.ConcurrencyCap = concurrencyCap
+		o.Depth = depthCap
 	})
+}
+
+// newTestCoordinatorWith is the shared served test coordinator, with set
+// adjusting its Options before New.
+func newTestCoordinatorWith(t *testing.T, sp Spawner, set func(*Options)) *Coordinator {
+	t.Helper()
+	teeHome(t)
+	opts := Options{
+		ProjectDir: t.TempDir(),
+		StateDir:   t.TempDir(),
+		Spawner:    sp,
+		OwnerHarp:  ownerIdentity().Harp,
+		Reporter:   termSink(),
+	}
+	set(&opts)
+	c, err := New(opts)
 	if err != nil {
 		t.Fatalf("new coordinator: %v", err)
 	}

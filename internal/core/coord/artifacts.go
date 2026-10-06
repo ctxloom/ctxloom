@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"time"
+
+	"github.com/spf13/afero"
 )
 
 // Artifact transfer, the coordinator's half: the upload is a declared header
@@ -118,8 +119,9 @@ func (c *Coordinator) authorizeArtifactDownload(caller Identity, ownerHarp strin
 // manifest (latest revision) and the blob, positioned at offset. Refusals:
 // ErrInvalidRequest (a missing id, an offset past the end), ErrForbidden (the
 // caller may not read ownerHarp's artifacts), ErrNotFound (no such manifest,
-// or its content is gone). The caller closes the blob.
-func (c *Coordinator) OpenArtifact(caller Identity, ownerHarp, artifactID string, offset uint64) (ArtifactRecord, *os.File, error) {
+// or its content is gone). The caller closes the blob; its size is
+// rec.SizeBytes.
+func (c *Coordinator) OpenArtifact(caller Identity, ownerHarp, artifactID string, offset uint64) (ArtifactRecord, io.ReadCloser, error) {
 	if err := requireArtifactAddress(ownerHarp, artifactID); err != nil {
 		return ArtifactRecord{}, nil, err
 	}
@@ -157,7 +159,7 @@ func requireArtifactAddress(ownerHarp, artifactID string) error {
 
 // openArtifactAt opens rec's stored content positioned at offset. A bad
 // stored name is a corrupt manifest; absent content is not found.
-func (c *Coordinator) openArtifactAt(rec ArtifactRecord, artifactID string, offset uint64) (*os.File, error) {
+func (c *Coordinator) openArtifactAt(rec ArtifactRecord, artifactID string, offset uint64) (afero.File, error) {
 	f, err := c.artifacts.open(rec.SHA256)
 	if err != nil {
 		if errors.Is(err, errArtifactBadName) {

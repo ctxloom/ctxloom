@@ -228,10 +228,12 @@ func TestPull_LockRebuildNamesDroppedEntries(t *testing.T) {
 	assert.Equal(t, []string{p.kitKey}, p.lockedKeys(t))
 }
 
-// `deps pull --force` is the one pull that re-resolves an existing pin.
-func TestPull_ForceReresolvesExistingPin(t *testing.T) {
+// `deps pull --force` reinstalls at the pin: only `deps upgrade` moves one.
+func TestPull_ForceReinstallsAtLockedSHA(t *testing.T) {
 	p := newShippedProfileProject(t)
 	p.pull(t)
+	before, ok := p.lock(t).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, p.kitRef))
+	require.True(t, ok)
 
 	moved := addFileToLocalRepo(t, p.repoDir, "README.md", "moved on\n")
 	res, err := SyncDependencies(context.Background(), p.app, SyncDependenciesRequest{Lock: true, Force: true})
@@ -240,5 +242,55 @@ func TestPull_ForceReresolvesExistingPin(t *testing.T) {
 
 	after, ok := p.lock(t).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, p.kitRef))
 	require.True(t, ok)
-	assert.Equal(t, moved, after.SHA)
+	assert.NotEqual(t, moved, after.SHA)
+	assert.Equal(t, before.SHA, after.SHA, "a forced pull reinstalls at the locked commit")
+}
+
+// withKitConstraint rewrites the project's profile to ask for kit at expr.
+func (p *shippedProfileProject) withKitConstraint(t *testing.T, expr string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, p.appDir), "dev.yaml"),
+		[]byte("bundles:\n  - "+p.kitRef+"@"+expr+"\n"), 0o644))
+	p.cfg(t)
+}
+
+// A changed constraint does not move the pin on a pull — not even when the
+// pull reinstalls the item — and the pull says `deps upgrade` applies it.
+func TestPull_ChangedConstraintKeepsThePinAndNamesUpgrade(t *testing.T) {
+	p := newShippedProfileProject(t)
+	p.pull(t)
+	before, ok := p.lock(t).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, p.kitRef))
+	require.True(t, ok)
+
+	moved := addFileToLocalRepo(t, p.repoDir, "README.md", "moved on\n")
+	p.withKitConstraint(t, moved)
+	p.removeTree(t, p.kitRef) // forces a real Pull of kit, not a skip
+
+	res := p.pull(t)
+
+	after, ok := p.lock(t).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, p.kitRef))
+	require.True(t, ok)
+	assert.Equal(t, before.SHA, after.SHA, "pull never moves an existing pin")
+	assert.Equal(t, before.RequestedVersion, after.RequestedVersion, "the pin still records the constraint it was resolved from")
+	require.Len(t, res.ConstraintChanges, 1)
+	assert.Equal(t, ConstraintChange{Identity: p.kitKey, Pinned: before.RequestedVersion, Declared: moved, SHA: before.SHA}, res.ConstraintChanges[0])
+}
+
+// Startup sync is the same rule: a changed constraint is reported, never applied.
+func TestSyncOnStartup_ChangedConstraintIsReportedNotApplied(t *testing.T) {
+	p := newShippedProfileProject(t)
+	p.pull(t)
+	before, ok := p.lock(t).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, p.kitRef))
+	require.True(t, ok)
+
+	moved := addFileToLocalRepo(t, p.repoDir, "README.md", "moved on\n")
+	p.withKitConstraint(t, moved)
+
+	res, err := SyncOnStartup(context.Background(), p.app)
+	require.NoError(t, err)
+
+	after, _ := p.lock(t).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, p.kitRef))
+	assert.Equal(t, before.SHA, after.SHA, "startup never moves an existing pin")
+	require.Len(t, res.ConstraintChanges, 1)
+	assert.Equal(t, moved, res.ConstraintChanges[0].Declared)
 }

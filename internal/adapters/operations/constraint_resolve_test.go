@@ -97,14 +97,29 @@ func TestConstraintResolver_FreshBranchResolution(t *testing.T) {
 	assert.Equal(t, 1, *calls, "a branch constraint with no lock resolves against the repo")
 }
 
+// Only `deps upgrade` moves a pin. In lock mode (pull, init, startup) an
+// existing pin is carried whatever the manifest now asks for: a changed
+// constraint takes effect only when the user upgrades.
+func TestConstraintResolver_LockModeNeverMovesAnExistingPin(t *testing.T) {
+	factory, calls := countingFactory(remote.NewMockFetcher())
+	active := activeLock(remote.LockEntry{SHA: "lockedsha", RequestedVersion: "^1.0", Version: "v1.4.0"})
+	resolve := newConstraintResolver(context.Background(), active, factory, remote.AuthConfig{}, false)
+
+	sha, version, _, ok := resolve(mustRef(t, "^2.0"))
+	require.True(t, ok)
+	assert.Equal(t, "lockedsha", sha, "a changed constraint does not move the pin outside upgrade")
+	assert.Equal(t, "v1.4.0", version)
+	assert.Zero(t, *calls, "the repo is never consulted for an existing pin")
+}
+
 func TestConstraintResolver_FallsBackToLockOnFailure(t *testing.T) {
 	mock := remote.NewMockFetcher()
 	mock.ResolveRefErr = errors.New("offline")
 	factory, _ := countingFactory(mock)
 	active := activeLock(remote.LockEntry{SHA: "oldsha", RequestedVersion: "release"})
-	resolve := newConstraintResolver(context.Background(), active, factory, remote.AuthConfig{}, false)
+	resolve := newConstraintResolver(context.Background(), active, factory, remote.AuthConfig{}, true)
 
-	// Changed constraint forces a fresh resolve, which fails → fall back to lock.
+	// Upgrade re-resolves, the resolve fails → fall back to lock.
 	sha, _, _, ok := resolve(mustRef(t, "feature-x"))
 	require.True(t, ok)
 	assert.Equal(t, "oldsha", sha, "a resolution failure keeps the last known SHA, never empty")

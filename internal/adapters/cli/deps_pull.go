@@ -38,18 +38,17 @@ An unreachable host and a revoked credential both look like "nothing came back",
 so absence counts as authority only from a repository this run separately proved
 it could read; anything else is reported as unchecked and left exactly as it is.
 
-Pull installs exactly what is PINNED. It never advances an existing pin — an
-item whose upstream has moved on is kept at its locked commit and reported as
-such. 'ctxloom deps upgrade' is what advances a pin; 'ctxloom deps check' is
-what tells you one could be advanced.
-
-A held entry ('ctxloom deps hold') stays at its commit even under --force,
-which otherwise re-resolves every reference.
+Pull installs exactly what is PINNED. It creates first pins and never moves an
+existing one — not when upstream has moved on, not when you changed the
+constraint in a profile, and not under --force, which only reinstalls each
+reference at its pin. A changed constraint is reported and left for
+'ctxloom deps upgrade', which is the one command that moves a pin; 'ctxloom deps
+check' is what tells you one could be moved.
 
 Pulling does not expose content to your assistant. Content from an untrusted
 source is withheld per item until you accept it with 'ctxloom review'.`,
 	Example: `  ctxloom deps pull                      # Install the closure and reconcile it
-  ctxloom deps pull --force              # Re-resolve every reference
+  ctxloom deps pull --force              # Reinstall every reference at its pin
   ctxloom deps pull --lock=false         # Leave the lockfile alone`,
 	RunE: runDepsPull,
 }
@@ -112,7 +111,10 @@ type pullView struct {
 	Removed     []string              `json:"removed"`
 	Incomplete  bool                  `json:"incomplete"`
 	Unreachable []string              `json:"unreachable"`
-	Message     string                `json:"message"`
+	// ConstraintChanges are pins whose manifest constraint changed; pull kept
+	// them where they are (only `deps upgrade` moves a pin).
+	ConstraintChanges []operations.ConstraintChange `json:"constraint_changes"`
+	Message           string                        `json:"message"`
 	// Reconcile is nil when no reconcile ran: --lock=false, or a lockfile it
 	// could not read. An empty plan would claim a check that never happened.
 	Reconcile *reconcileView `json:"reconcile,omitempty"`
@@ -154,6 +156,8 @@ func newPullView(result *operations.SyncDependenciesResult, plan *operations.Rec
 		Incomplete:  result.Incomplete,
 		Unreachable: result.Unreachable,
 		Message:     result.Message,
+
+		ConstraintChanges: result.ConstraintChanges,
 	}
 	for _, item := range result.Failed {
 		view.Failed = append(view.Failed, pullFailureView{
@@ -250,6 +254,7 @@ func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 		}
 	}
 	renderIncompleteLock(w, result)
+	operations.WriteConstraintChanges(w, result.ConstraintChanges)
 }
 
 // renderIncompleteLock names the items the post-pull lock rebuild could not
@@ -279,7 +284,7 @@ func init() {
 	depsCmd.AddCommand(depsPullCmd)
 
 	depsPullCmd.Flags().BoolVarP(&depsPullForce, "force", "f", false,
-		"Re-resolve every reference instead of honoring what is already installed")
+		"Reinstall every reference at its pin instead of skipping what is already installed")
 	depsPullCmd.Flags().BoolVar(&depsPullLock, "lock", true,
 		"Update lockfile after pull")
 	depsPullCmd.Flags().StringArrayVar(&depsPullAllowDowngrade, "allow-downgrade", nil,

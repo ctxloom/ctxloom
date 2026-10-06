@@ -201,3 +201,18 @@ func TestSweepOrphanedWorktrees_SilentWhenNothingToReap(t *testing.T) {
 
 	assert.Empty(t, buf.String(), "an all-clear sweep reports nothing")
 }
+
+// Startup never moves an existing pin, so an up-to-date startup that found a
+// changed constraint must still say so — the quiet steady state is not quiet
+// about an edit it did not apply.
+func TestWriteAndRecordSyncSummary_UpToDateStillNamesAConstraintChange(t *testing.T) {
+	var buf bytes.Buffer
+	WriteAndRecordSyncSummary(&buf, &SyncDependenciesResult{
+		Status: "up_to_date",
+		ConstraintChanges: []ConstraintChange{{
+			Identity: "corp/a", Pinned: "^1.0", Declared: "^2.0", SHA: "2222222222222222222222222222222222222222",
+		}},
+	})
+	assert.Contains(t, buf.String(), "corp/a: the manifest now asks for ^2.0; the pin stays at 2222222 (resolved from ^1.0).")
+	assert.Contains(t, buf.String(), "ctxloom deps upgrade --yes")
+}

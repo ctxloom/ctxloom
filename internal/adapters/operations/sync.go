@@ -149,6 +149,21 @@ type SyncDependenciesResult struct {
 	// these items' previous lock entries were kept rather than rebuilt.
 	Incomplete  bool     `json:"incomplete,omitempty"`
 	Unreachable []string `json:"unreachable,omitempty"`
+	// ConstraintChanges names each pin whose manifest constraint no longer
+	// matches the one it was resolved from. Only `deps upgrade` moves a pin, so
+	// these stay where they are until the user upgrades.
+	ConstraintChanges []ConstraintChange `json:"constraint_changes,omitempty"`
+}
+
+// ConstraintChange is a pin kept at its commit although the manifest now asks
+// for something else.
+type ConstraintChange struct {
+	Identity string `json:"identity"`
+	// Pinned is the constraint the pin's SHA was resolved from.
+	Pinned string `json:"pinned"`
+	// Declared is what the manifest asks for now.
+	Declared string `json:"declared"`
+	SHA      string `json:"sha"`
 }
 
 // SyncDependencies syncs remote bundles and profiles referenced in config.
@@ -246,9 +261,45 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 	}
 
 	runSyncPostSteps(ctx, reg, cfg, req, result, fs)
+	result.ConstraintChanges = constraintChangesIn(cfg, req.Profiles, baseDir, fs)
 
 	summarizeSync(result)
 	return result, nil
+}
+
+// constraintChangesIn is constraintChanges against the active lock in baseDir.
+// An unreadable lock reports nothing: the pull itself has already said why.
+func constraintChangesIn(cfg *config.Config, profileNames []string, baseDir string, fs afero.Fs) []ConstraintChange {
+	lock, err := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs)).Load()
+	if err != nil {
+		return nil
+	}
+	return constraintChanges(cfg, profileNames, lock)
+}
+
+// constraintChanges names each unheld pin in lock whose manifest constraint is
+// no longer the one it was resolved from. Pull, init and startup never move an
+// existing pin, so without this a constraint edit would be silently ignored
+// until the next `deps upgrade`. A declared bare commit equal to the pin is
+// already satisfied and is not a change.
+func constraintChanges(cfg *config.Config, profileNames []string, lock *remote.Lockfile) []ConstraintChange {
+	var out []ConstraintChange
+	for _, r := range closureBundleRefs(cfg, profileNames) {
+		ref, err := remote.ParseReference(r.ref)
+		if err != nil {
+			continue
+		}
+		key, err := ref.LockKey()
+		if err != nil {
+			continue
+		}
+		e, ok := lock.GetEntry(remote.ItemTypeBundle, key)
+		if !ok || e.Held || e.RequestedVersion == ref.ContentVersion || ref.ContentVersion == e.SHA {
+			continue
+		}
+		out = append(out, ConstraintChange{Identity: string(key), Pinned: e.RequestedVersion, Declared: ref.ContentVersion, SHA: e.SHA})
+	}
+	return out
 }
 
 // summarizeSync settles the result's status and one-line tally.
@@ -644,7 +695,6 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	// warnings) must never land there.
 	opts := remote.PullOptions{
 		Force:          true,
-		Reresolve:      force,
 		ItemType:       itemType,
 		Stdout:         os.Stderr,
 		AllowDowngrade: downgrades.allowsRef(ref),
@@ -909,8 +959,9 @@ func SyncOnStartup(ctx context.Context, app *App) (*SyncDependenciesResult, erro
 	// If nothing is missing, return early
 	if checkResult.Count == 0 {
 		return &SyncDependenciesResult{
-			Status:  "up_to_date",
-			Message: "All dependencies are already installed",
+			Status:            "up_to_date",
+			Message:           "All dependencies are already installed",
+			ConstraintChanges: constraintChangesIn(cfg, nil, ProjectAppDir(cfg), getFS(nil)),
 		}, nil
 	}
 

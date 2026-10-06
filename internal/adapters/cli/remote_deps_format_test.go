@@ -206,7 +206,7 @@ func TestDepsPull_PipedEmitsTheApprovedShapeThenFails(t *testing.T) {
 
 	got := decodeObject(t, stdout)
 	assertKeys(t, got, "status", "total", "installed", "updated", "errors", "synced", "skipped", "retracted",
-		"failed", "removed", "incomplete", "unreachable", "message", "reconcile")
+		"failed", "removed", "incomplete", "unreachable", "constraint_changes", "message", "reconcile")
 	assert.Equal(t, "completed_with_errors", got["status"])
 	assert.Equal(t, []any{}, got["skipped"])
 	assertKeys(t, got["synced"].([]any)[0], "reference", "type", "status", "local_path")

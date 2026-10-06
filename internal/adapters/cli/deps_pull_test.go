@@ -150,3 +150,19 @@ func TestRenderPullSummary_NamesRemovedEntries(t *testing.T) {
 	assert.Contains(t, out.String(),
 		"  Removed ctxloom+git://github.com/o/r//bundles/gone from the lockfile: nothing this project composes depends on it any more.\n")
 }
+
+// A pull keeps a pin whose constraint the user changed, and says so: the edit
+// is not applied until `deps upgrade`, and a silent pull would read as applied.
+func TestRenderPullSummary_NamesAConstraintChangeItDidNotApply(t *testing.T) {
+	var out bytes.Buffer
+	renderPullSummary(&out, &operations.SyncDependenciesResult{
+		Total:   1,
+		Skipped: []operations.SyncItem{{Reference: "corp/a"}},
+		ConstraintChanges: []operations.ConstraintChange{{
+			Identity: "corp/a", Pinned: "", Declared: "v2.0.0", SHA: "1111111111111111111111111111111111111111",
+		}},
+	})
+	text := out.String()
+	assert.Contains(t, text, "corp/a: the manifest now asks for v2.0.0; the pin stays at 1111111 (resolved from the default branch).")
+	assert.Contains(t, text, "'ctxloom deps upgrade --yes' to apply it")
+}

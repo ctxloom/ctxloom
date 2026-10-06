@@ -24,12 +24,6 @@ type PullOptions struct {
 	// Force skips the retracted-version confirmation prompt.
 	Force bool
 
-	// Reresolve resolves the ref's constraint afresh even when the lockfile
-	// already pins it. Without it an existing pin is what gets installed: a
-	// pull never advances a pin, and reinstalling a missing tree must not
-	// either. A held pin stays put regardless.
-	Reresolve bool
-
 	// LocalDir overrides the default .ctxloom directory path.
 	LocalDir string
 
@@ -610,15 +604,15 @@ func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string,
 	return res.SHA, requestedVersion, res.Version, res.Kind, nil
 }
 
-// pinFor is the commit a pull installs: the existing pin when there is one for
-// the same constraint, else the constraint resolved now. It is the carry-forward
-// rule the lock rebuild applies (operations.newConstraintResolver), so pull and
-// lock agree on which commit a pinned ref names. opts.Reresolve waives it.
+// pinFor is the commit a pull installs: the existing pin when there is one,
+// whatever the ref's constraint now says, else the constraint resolved now. A
+// pull creates first pins and never moves one — that is `deps upgrade`'s alone.
+// It is the carry-forward rule the lock rebuild applies
+// (operations.newConstraintResolver), so pull and lock agree on which commit a
+// pinned ref names.
 func (p *Puller) pinFor(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, localName trust.BundleKey, opts PullOptions) (sha, requestedVersion, resolvedVersion string, kind SelectorKind, err error) {
-	if !opts.Reresolve {
-		if entry, ok := p.recordedEntry(opts.ItemType, localName); ok && entry.SHA != "" && entry.RequestedVersion == ref.ContentVersion {
-			return entry.SHA, entry.RequestedVersion, entry.Version, entry.Kind, nil
-		}
+	if entry, ok := p.recordedEntry(opts.ItemType, localName); ok && entry.SHA != "" {
+		return entry.SHA, entry.RequestedVersion, entry.Version, entry.Kind, nil
 	}
 	return resolveContentSHA(ctx, fetcher, owner, repo, ref)
 }

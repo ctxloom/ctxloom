@@ -97,6 +97,7 @@ func WriteAndRecordSyncSummary(w io.Writer, result *SyncDependenciesResult) {
 	if result.Status != "up_to_date" && result.Installed+result.Updated > 0 {
 		ew.Printf("ctxloom: %s\n", result.Message)
 	}
+	WriteConstraintChanges(ew, result.ConstraintChanges)
 	if result.Errors > 0 {
 		clidiag.Fwarn(ew, "ctxloom", "sync completed with %d errors", result.Errors)
 		for _, item := range result.Failed {

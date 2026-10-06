@@ -756,24 +756,35 @@ func sanitizePath(s string) string {
 	return s
 }
 
-// ExtractRepoName extracts the repository name from a URL.
+// ExtractRepoName extracts the repository name from a URL. One trailing
+// ".git" is dropped in every form: it is the bare-repository convention, not
+// part of the name, so an address and its ".git" spelling derive the same name.
 //
 // Examples:
 //
 //	https://github.com/owner/repo -> repo
+//	https://github.com/owner/repo.git -> repo
 //	https://github.com/owner/my-ctxloom-content -> my-ctxloom-content
-//	git@github.com:owner/repo -> repo
-//	file:///path/to/repo -> repo
+//	git@github.com:owner/repo.git -> repo
+//	file:///path/to/repo.git -> repo
 func ExtractRepoName(repoURL string) string {
+	var name string
 	switch {
 	case strings.HasPrefix(repoURL, "https://"), strings.HasPrefix(repoURL, "http://"):
-		return lastURLPathComponent(repoURL)
+		name = lastURLPathComponent(repoURL)
 	case strings.HasPrefix(repoURL, "file://"):
-		return lastURLPathComponent(repoURL)
+		name = lastURLPathComponent(repoURL)
 	case refuri.IsSCPForm(repoURL):
-		return sshRepoName(repoURL)
+		name = sshRepoName(repoURL)
+	default:
+		name = sanitizePath(repoURL)
 	}
-	return sanitizePath(repoURL)
+	// A name that is nothing but ".git" is kept: trimming it would leave an
+	// empty remote name.
+	if trimmed := strings.TrimSuffix(name, ".git"); trimmed != "" {
+		return trimmed
+	}
+	return name
 }
 
 // lastURLPathComponent returns the final path component of an http(s)/file URL

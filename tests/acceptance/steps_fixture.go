@@ -432,8 +432,9 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 
 	// A reference spelled as the repository's full address instead of through a
 	// registered remote. Pulling it registers the repository as a remote under
-	// the repository's own name: the last path component of its address, and
-	// SeedRemote's bare repository is remote.git.
+	// the repository's own name: the last path component of its address less
+	// a trailing ".git", so SeedRemote's bare repository remote.git registers
+	// as "remote".
 	ctx.Step(`^the profile "([^"]*)" draws on a bundle straight from an unregistered git repository$`, func(c context.Context, profile string) error {
 		w := worldFrom(c)
 		url, err := w.env.SeedRemote(fixtureDemoTreeFiles("1.0.0", "Demo bundle", "demo-frag", "Demo fragment content.", true))

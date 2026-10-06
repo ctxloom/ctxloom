@@ -7,3 +7,11 @@ func WithServeGate(e Endpoint, gate func()) Endpoint {
 	e.serveGate = gate
 	return e
 }
+
+// WithReapHook returns e with hook run each time a reap of its sessions has
+// closed every one of them, so a test can wait for the closes instead of
+// polling for their effect.
+func WithReapHook(e Endpoint, hook func()) Endpoint {
+	e.reaped = hook
+	return e
+}

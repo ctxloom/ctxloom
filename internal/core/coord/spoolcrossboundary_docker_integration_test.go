@@ -32,8 +32,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
+	"github.com/ctxloom/ctxloom/internal/testsupport/daemonfixture"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
@@ -80,12 +80,12 @@ const (
 //   - It says nothing about the sweep, which does not exist yet. That is the
 //     point: the only delivery mechanism under test is the doorbell.
 func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) {
-	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the spool cross-boundary integration test")
+	daemon := daemonfixture.Require(t, "the spool cross-boundary integration test")
 	coord.ResetStrictness(t)
 
-	// Outside the checkout, where the daemon can see it —
-	// dockergate.BindFixtureRoot names both constraints.
-	fixture, err := os.MkdirTemp(dockergate.BindFixtureRoot(), "ctxloom-spool-xb-")
+	// Outside the checkout (leak check), under the fixture root the daemon
+	// can name (daemonfixture.Require).
+	fixture, err := os.MkdirTemp("", "ctxloom-spool-xb-")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		// Loud on purpose: leftover fixture dirs are machine debris a later
@@ -159,7 +159,7 @@ func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) 
 	// The container is handed ONLY the doorbell-derived path. No readdir, no
 	// sweep, no glob: a ref or layout skew is an ENOENT and a red test, never
 	// a slower delivery.
-	got := containerRead(t, fixture, containerPath)
+	got := containerRead(t, daemonfixture.Source(t, daemon, fixture), containerPath)
 	require.Equal(t, string(hostBytes), got,
 		"the container must read exactly the bytes the coordinator wrote, byte for byte")
 
@@ -174,7 +174,7 @@ func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) 
 // one absolute container-view path. Stock alpine, one `docker run`, no image
 // build and no probe binary: everything under test already happened on the
 // host, and all the container supplies is the second filesystem view.
-func containerRead(t *testing.T, fixture, containerPath string) string {
+func containerRead(t *testing.T, source, containerPath string) string {
 	t.Helper()
 	args := []string{"run", "--rm"}
 	if !dockergate.DockerIsRootless() {
@@ -184,7 +184,7 @@ func containerRead(t *testing.T, fixture, containerPath string) string {
 		args = append(args, "--user", strconv.Itoa(os.Getuid())+":"+strconv.Itoa(os.Getgid()))
 	}
 	args = append(args,
-		"-v", fixture+":"+crossBoundaryContainerHome,
+		"-v", source+":"+crossBoundaryContainerHome,
 		"-e", "HOME="+crossBoundaryContainerHome,
 		crossBoundaryImage,
 		"cat", containerPath,

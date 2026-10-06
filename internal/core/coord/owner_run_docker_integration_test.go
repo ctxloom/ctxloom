@@ -43,7 +43,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
+	"github.com/ctxloom/ctxloom/internal/testsupport/daemonfixture"
 )
 
 // containerOwnerLaunch is the owner's launch as a container run resolves it:
@@ -135,7 +135,7 @@ func (s *dockerOwnerRunStarter) containerNames() []string {
 //  4. the host-side canonical transcript.jsonl survives the container and
 //     carries the turn payload (the session-state-mount / silent-no-op guard).
 func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
-	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the owner-owned top-level container integration test")
+	daemonfixture.Require(t, "the owner-owned top-level container integration test")
 	coord.ResetStrictness(t)
 	// NO credential is set on purpose: this run's engine is mock, which
 	// declares no Auth because it authenticates against no vendor. Needing a
@@ -245,7 +245,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 // the FINAL text at the turn boundary); the coordinator/runner mechanism is
 // identical, so this asserts the payload + the negatives.
 func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
-	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the owner-owned oneshot container integration test")
+	daemonfixture.Require(t, "the owner-owned oneshot container integration test")
 	coord.ResetStrictness(t)
 	// NO credential is set on purpose: this run's engine is mock, which
 	// declares no Auth because it authenticates against no vendor. Needing a

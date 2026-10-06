@@ -38,7 +38,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
+	"github.com/ctxloom/ctxloom/internal/testsupport/daemonfixture"
 )
 
 // dockerInteractiveStarter is an OwnedRunStarter that attaches a REAL
@@ -117,7 +117,7 @@ func (s *dockerInteractiveStarter) start(ctx context.Context, spawnEnv map[strin
 //  3. NO exec-into: the process table holds no `docker exec` for it;
 //  4. NO handoff: nothing under the session dir carries a run-start.
 func TestCoordOwnerRun_InteractiveContainerIsTheForegroundRunner(t *testing.T) {
-	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the container interactive turn integration test")
+	daemonfixture.Require(t, "the container interactive turn integration test")
 	coord.ResetStrictness(t)
 
 	image := buildBusIntegrationImage(t)

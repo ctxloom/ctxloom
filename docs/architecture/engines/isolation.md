@@ -739,12 +739,6 @@ image another is between building and running.
 - **`SelectRuntime` silently substitutes on an unrecognized preference**: an explicit `podman` preference that is unknown or unavailable falls through to auto-detection with only a comment (`selectRuntimeWhere`), and the function never errors, so no caller can detect it. (This is orthogonal to the fatal ownership-mismatch path above — an *unrecognized runtime name* degrades quietly, a *recognized runtime with the wrong ownership* does not.)
 - **`IsContainerPolicyName` matches duplicated string literals** rather than the constants the policies return, so a rename silently downgrades `prepareChain`'s fatal finding to a warn.
 
-**Dead structure worth knowing before reading the package**
-
-- `Resolve` and the `Chroot` runtime, previously noted here as test-only/unreachable dead code, have both been **removed outright** — there is nothing left to find under either name.
-- The `Approvals` axis on `Policy` (four implementations with zero production consumers) has likewise been **removed outright**; only a comment in `runner.go` still names it, in passing, as "the policy-level Approvals axis that used to name the other boundary."
-- `pidalive_unix.go` / `pidalive_windows.go` are no longer duplicated inside this package — they were extracted to `internal/shared/pidalive`, which now has multiple call sites across `cli`, `isolation`, `agentcoord/coord`, and `mcp`.
-
 ## See also
 
 - [Capability matrix](capability-matrix.md) — the per-engine isolation summary table

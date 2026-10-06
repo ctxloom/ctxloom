@@ -69,7 +69,7 @@ func TestRefusals_UpgradeRecordsTheRefusalWhereAnInspectorCanReadIt(t *testing.T
 	assert.Equal(t, r.kept, doc.Refusals[0].KeptSHA, "the record must name the pin being kept")
 	assert.Contains(t, doc.Refusals[0].Detail, bundles.ErrTreeBundleWithheld.Error())
 	assert.False(t, doc.Refusals[0].RefusedAt.IsZero(), "an as-of advisory with no as-of is not one")
-	assert.Equal(t, RefusalSignature, doc.Refusals[0].Cause, "the record must say WHY, so doctor can word it truthfully")
+	assert.Equal(t, RefusalUnreadable, doc.Refusals[0].Cause, "the record must say WHY")
 
 	live, err := LiveRefusedAdvances(r.cfg)
 	require.NoError(t, err)

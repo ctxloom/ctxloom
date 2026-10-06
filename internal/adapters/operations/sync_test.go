@@ -43,7 +43,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -84,51 +83,6 @@ func (m *syncMockPuller) Pull(ctx context.Context, refStr string, opts remote.Pu
 		SHA:         "abc1234",
 		Reinstalled: false,
 	}, nil
-}
-
-// recordedRetraction captures one RecordRetraction call for assertion.
-type recordedRetraction struct {
-	itemType  remote.ItemType
-	ref       string
-	retracted bool
-	reason    string
-	checkedAt time.Time
-}
-
-// syncMockRetractionPuller extends syncMockPuller with the RetractionChecker
-// seam (operations.RetractionChecker) so tests can drive syncItem's
-// ALREADY-INSTALLED retraction re-check without a real *remote.Puller/
-// lockfile — the fix for the gap where an installed ref's retraction was
-// never re-evaluated (this puller stands in for *remote.Puller, which
-// implements the same two methods over a real fetcher + lockfile).
-type syncMockRetractionPuller struct {
-	syncMockPuller
-
-	retracted bool
-	reason    string
-	checkedAt time.Time // echoed back by CheckRetraction; defaults to time.Now() below when zero
-	checkErr  error
-	recordErr error // returned by RecordRetraction, e.g. to drive a save-failure test
-
-	checkCalls []string
-	recorded   []recordedRetraction
-}
-
-func (m *syncMockRetractionPuller) CheckRetraction(_ context.Context, refStr string, _ remote.ItemType) (bool, string, time.Time, error) {
-	m.checkCalls = append(m.checkCalls, refStr)
-	if m.checkErr != nil {
-		return false, "", time.Time{}, m.checkErr
-	}
-	checkedAt := m.checkedAt
-	if checkedAt.IsZero() {
-		checkedAt = time.Now().UTC()
-	}
-	return m.retracted, m.reason, checkedAt, nil
-}
-
-func (m *syncMockRetractionPuller) RecordRetraction(itemType remote.ItemType, refStr string, retracted bool, reason string, checkedAt time.Time) error {
-	m.recorded = append(m.recorded, recordedRetraction{itemType: itemType, ref: refStr, retracted: retracted, reason: reason, checkedAt: checkedAt})
-	return m.recordErr
 }
 
 // ==========================================================================
@@ -377,48 +331,6 @@ remotes:
 	}
 }
 
-// TestSyncDependencies_PullOutputAvoidsStdout pins the MCP stdio invariant:
-// sync runs inside the MCP server, whose stdout carries JSON-RPC, so every
-// pull's informational output (lockfile warnings) must be routed to stderr. An
-// unset PullOptions.Stdout defaults to os.Stdout inside Pull, which would
-// corrupt the protocol stream.
-func TestSyncDependencies_PullOutputAvoidsStdout(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
-		"test": {
-			Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
-		},
-	}, config.Fixture{})
-
-	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
-	_ = fs.MkdirAll(authoredV1(testBaseDir), 0755)
-	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
-remotes:
-  github:
-    url: https://github.com/test/ctxloom
-    version: v1
-`), 0644)
-
-	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
-	puller := &syncMockPuller{}
-
-	_, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
-		FS:       fs,
-		Registry: registry,
-		Puller:   puller,
-	})
-	if err != nil {
-		t.Fatalf("SyncDependencies failed: %v", err)
-	}
-
-	if len(puller.pullCalls) != 1 {
-		t.Fatalf("expected 1 pull call, got %d", len(puller.pullCalls))
-	}
-	assert.Same(t, os.Stderr, puller.pullCalls[0].opts.Stdout,
-		"sync pulls must route informational output to stderr, never process stdout")
-}
-
 // markInstalled materializes a bundle's cache tree ON REAL DISK at appDir, so
 // isInstalled's materialization check (os.Stat, hard-coded to the OS
 // filesystem rather than an injectable afero.Fs — see sync.go) can see it.
@@ -490,205 +402,6 @@ remotes:
 	if len(puller.pullCalls) != 0 {
 		t.Errorf("expected 0 pull calls, got %d", len(puller.pullCalls))
 	}
-}
-
-// TestSyncDependencies_RetractedInstalledRef pins the fix for the gap this
-// task closes: an ALREADY-INSTALLED ref must have its retraction status
-// re-evaluated on every sync, not just on a fresh pull. Before the fix,
-// syncItem's install-skip meant a retracted-after-the-fact bundle was
-// reported "skipped" forever with no warning and no lockfile record — see
-// tests/acceptance/features/j001500_corporate_signed.feature's retraction
-// scenario, which exercises the same gap end to end through the real CLI.
-func TestSyncDependencies_RetractedInstalledRef(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	appDir := t.TempDir()
-
-	cfg := cfgWithDirProfiles(t, fs, appDir, map[string]config.Profile{
-		"test": {
-			Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
-		},
-	}, config.Fixture{})
-
-	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755)
-	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
-remotes:
-  github:
-    url: https://github.com/test/ctxloom
-    version: v1
-`), 0644)
-
-	registry, _ := remote.NewRegistry(paths.RemotesPath(appDir), remote.WithRegistryFS(fs))
-	markInstalled(t, appDir, "https://github.com/test/ctxloom@bundles/go-tools")
-
-	puller := &syncMockRetractionPuller{retracted: true, reason: "compromised release"}
-	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
-
-	result, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
-		FS:           fs,
-		Registry:     registry,
-		Puller:       puller,
-		BundleReader: reader,
-		Force:        false,
-	})
-	require.NoError(t, err)
-
-	require.Len(t, result.Retracted, 1, "a retracted already-installed ref must be reported, not silently skipped")
-	assert.Equal(t, "https://github.com/test/ctxloom@bundles/go-tools", result.Retracted[0].Reference)
-	assert.Equal(t, "compromised release", result.Retracted[0].Error)
-	assert.Empty(t, result.Skipped, "retracted takes the place of skipped, not alongside it")
-
-	require.Len(t, puller.checkCalls, 1, "the lightweight retraction check must run for the installed ref")
-	require.Len(t, puller.recorded, 1, "the verdict must be persisted so EffectiveTrust can read it back later")
-	assert.True(t, puller.recorded[0].retracted)
-	assert.Equal(t, "compromised release", puller.recorded[0].reason)
-	assert.Empty(t, puller.pullCalls, "an already-installed ref's retraction re-check must not trigger a full Pull")
-}
-
-// TestSyncDependencies_NotRetractedInstalledRef proves the happy path of the
-// same re-check is a no-op: an installed ref that is NOT retracted is still
-// reported skipped, and RecordRetraction is still called (to clear any STALE
-// retraction from a previous sync — RecordRetraction itself is a no-op when
-// nothing would change, see Puller.RecordRetraction).
-func TestSyncDependencies_NotRetractedInstalledRef(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	appDir := t.TempDir()
-
-	cfg := cfgWithDirProfiles(t, fs, appDir, map[string]config.Profile{
-		"test": {
-			Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
-		},
-	}, config.Fixture{})
-
-	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755)
-	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
-remotes:
-  github:
-    url: https://github.com/test/ctxloom
-    version: v1
-`), 0644)
-
-	registry, _ := remote.NewRegistry(paths.RemotesPath(appDir), remote.WithRegistryFS(fs))
-	markInstalled(t, appDir, "https://github.com/test/ctxloom@bundles/go-tools")
-
-	puller := &syncMockRetractionPuller{retracted: false}
-	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
-
-	result, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
-		FS:           fs,
-		Registry:     registry,
-		Puller:       puller,
-		BundleReader: reader,
-		Force:        false,
-	})
-	require.NoError(t, err)
-
-	assert.Empty(t, result.Retracted)
-	assert.Len(t, result.Skipped, 1)
-	assert.Len(t, puller.checkCalls, 1)
-}
-
-// TestSyncDependencies_UnreachableRemoteHonorsFallbackVerdict is the
-// sync-layer half of the fail-stale fix: when the puller
-// cannot reach the remote, Puller.CheckRetraction (the real implementation)
-// falls back to the last recorded verdict instead of erroring — reflected
-// here as the mock reporting a RETRACTED verdict stamped with a PAST
-// checkedAt rather than "now" (exactly what a fallback, as opposed to a fresh
-// check, produces). checkInstalledRetraction must plumb that verdict through
-// to the sync result AND pass the SAME (past) checkedAt to RecordRetraction —
-// bumping it to "now" would fabricate freshness the check never earned and
-// silently defeat the 14-day staleness warning on every subsequent sync.
-func TestSyncDependencies_UnreachableRemoteHonorsFallbackVerdict(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	appDir := t.TempDir()
-
-	cfg := cfgWithDirProfiles(t, fs, appDir, map[string]config.Profile{
-		"test": {
-			Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
-		},
-	}, config.Fixture{})
-
-	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755)
-	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
-remotes:
-  github:
-    url: https://github.com/test/ctxloom
-    version: v1
-`), 0644)
-
-	registry, _ := remote.NewRegistry(paths.RemotesPath(appDir), remote.WithRegistryFS(fs))
-	markInstalled(t, appDir, "https://github.com/test/ctxloom@bundles/go-tools")
-
-	fallbackCheckedAt := time.Now().UTC().Add(-20 * 24 * time.Hour) // stale, but still the truth
-	puller := &syncMockRetractionPuller{
-		retracted: true,
-		reason:    "shipped an incorrect deploy step",
-		checkedAt: fallbackCheckedAt,
-	}
-	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
-
-	result, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
-		FS:           fs,
-		Registry:     registry,
-		Puller:       puller,
-		BundleReader: reader,
-		Force:        false,
-	})
-	require.NoError(t, err)
-
-	require.Len(t, result.Retracted, 1, "an unreachable-remote fallback verdict of RETRACTED must still be reported, exactly like a fresh one")
-	assert.Equal(t, "shipped an incorrect deploy step", result.Retracted[0].Error)
-
-	require.Len(t, puller.recorded, 1)
-	assert.True(t, puller.recorded[0].retracted)
-	assert.True(t, puller.recorded[0].checkedAt.Equal(fallbackCheckedAt),
-		"the fallback's own (past) checkedAt must be persisted verbatim, never bumped to now")
-}
-
-// checkInstalledRetraction used to discard RecordRetraction's own
-// error (`_ = rc.RecordRetraction(...)`) — a failure to PERSIST a genuine
-// retraction verdict is a different failure than "couldn't reach the remote
-// to check" (which this function is deliberately fault-tolerant about); it
-// silently drops a security improvement (or a live retraction) with zero
-// diagnostic. The sync itself must still succeed (best-effort, never blocks),
-// but the failure must be visible.
-func TestSyncDependencies_RecordRetractionSaveFailureIsWarnedNotSwallowed(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	appDir := t.TempDir()
-
-	cfg := cfgWithDirProfiles(t, fs, appDir, map[string]config.Profile{
-		"test": {Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"}},
-	}, config.Fixture{})
-
-	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755)
-	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
-remotes:
-  github:
-    url: https://github.com/test/ctxloom
-    version: v1
-`), 0644)
-
-	registry, _ := remote.NewRegistry(paths.RemotesPath(appDir), remote.WithRegistryFS(fs))
-	markInstalled(t, appDir, "https://github.com/test/ctxloom@bundles/go-tools")
-
-	puller := &syncMockRetractionPuller{retracted: false, recordErr: fmt.Errorf("lockfile save: disk full")}
-	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
-
-	var warnings bytes.Buffer
-	restore := clidiag.SetSink(&warnings)
-	defer restore()
-
-	_, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
-		FS:           fs,
-		Registry:     registry,
-		Puller:       puller,
-		BundleReader: reader,
-		Force:        false,
-	})
-	require.NoError(t, err, "a lockfile-save failure for the retraction re-check must never fail the sync itself")
-
-	require.Len(t, puller.recorded, 1, "RecordRetraction must still be called")
-	assert.Contains(t, warnings.String(), "disk full",
-		"a failure to PERSIST the retraction verdict must be surfaced, not silently swallowed")
 }
 
 // TestSyncDependencies_SkipCanonicalizesRef pins ref canonicalization in the
@@ -1248,7 +961,7 @@ func TestAddSyncItem_UnknownStatusIsNotSilentlyDropped(t *testing.T) {
 
 	addSyncItem(result, item)
 
-	total := len(result.Synced) + len(result.Skipped) + len(result.Retracted) + len(result.Failed)
+	total := len(result.Synced) + len(result.Skipped) + len(result.Failed)
 	assert.Equal(t, 1, total, "an item with an unrecognized status must land in exactly one bucket, not vanish from all of them")
 	assert.Equal(t, 1, result.Errors)
 }

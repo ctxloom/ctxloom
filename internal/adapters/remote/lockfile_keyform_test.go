@@ -20,9 +20,9 @@ func lockWithBody(t *testing.T, body string) *LockfileManager {
 }
 
 // A lockfile written before keys became bundle identities is REFUSED, not
-// read: its keys spell a repository the way the user typed it, the trust gate
-// now looks retractions up by identity, and an entry that no lookup reaches is
-// a retraction silently not enforced. The refusal names the fix and lists the
+// read: its keys spell a repository the way the user typed it, every pin and
+// hold is now looked up by identity, and an entry that no lookup reaches is a
+// pin nothing reads. The refusal names the fix and lists the
 // held entries, because a hold is a decision re-pulling does not remember.
 func TestLoad_RefusesARetiredKeyForm(t *testing.T) {
 	lm := lockWithBody(t, `version: 1
@@ -86,7 +86,7 @@ bundles:
 // A reference that parses but names no repository — here an https URL with no
 // repository path — has no bundle identity, and CanonicalKey says so rather
 // than reporting the raw address as a key: a key minted for a string no
-// lookup can reach is a retraction silently not enforced.
+// lookup can reach is a pin nothing reads.
 func TestCanonicalKey_NoIdentityIsNotAKey(t *testing.T) {
 	const ref = "https://example.test/@bundles/kit"
 	parsed, err := ParseReference(ref)

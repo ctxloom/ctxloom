@@ -26,13 +26,6 @@ import (
 // on disk.
 func upstreamRefusalProject(t *testing.T, ref, kept, proposed string) *config.Config {
 	t.Helper()
-	return upstreamRefusalProjectFor(t, ref, kept, proposed, RefusalSignature)
-}
-
-// upstreamRefusalProjectFor is upstreamRefusalProject with the recorded cause
-// chosen.
-func upstreamRefusalProjectFor(t *testing.T, ref, kept, proposed string, cause RefusalCause) *config.Config {
-	t.Helper()
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
@@ -43,7 +36,7 @@ func upstreamRefusalProjectFor(t *testing.T, ref, kept, proposed string, cause R
 	recPath := paths.RefusedAdvancesPath(appDir)
 	require.NoError(t, os.MkdirAll(filepath.Dir(recPath), 0o755))
 	body := fmt.Sprintf("version: 1\nrefusals:\n  - identity: %q\n    kept_sha: %q\n    proposed_sha: %q\n"+
-		"    detail: \"the verifier's words\"\n    cause: %s\n    refused_at: 2026-08-05T10:32:00Z\n", lockKeyOf(t, ref), kept, proposed, cause)
+		"    detail: \"the verifier's words\"\n    cause: %s\n    refused_at: 2026-08-05T10:32:00Z\n", lockKeyOf(t, ref), kept, proposed, RefusalUnreadable)
 	require.NoError(t, os.WriteFile(recPath, []byte(body), 0o644))
 
 	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
@@ -74,13 +67,13 @@ func TestDoctorCheckUpstreamSignatures_NamesTheBundleTheRefusedRevisionAndTheKep
 // CANNOT fix locally, and a message that reads as a local misconfiguration
 // sends them editing a trust store to fix a problem that is not on their
 // machine. It must place the fault on the publisher, say the machine is fine,
-// and name re-signing — not any local remedy.
+// and name the publisher's repair — not any local remedy.
 func TestDoctorCheckUpstreamSignatures_BlamesThePublisherNotTheUsersMachine(t *testing.T) {
 	cfg := upstreamRefusalProject(t, upstreamRef, upstreamKept, upstreamProposed)
 	c := doctorCheckUpstreamSignatures(cfg, nil)
 
 	assert.Contains(t, c.Detail, "publisher", "the fault is upstream and the message must say whose it is")
-	assert.Contains(t, c.Detail, "re-sign", "the only real remedy")
+	assert.Contains(t, c.Detail, "repair the bundle", "the only real remedy")
 	assert.Contains(t, c.Detail, "Nothing is wrong on this machine",
 		"an advisory that reads as a local fault is worse than none: it sends people to fix what is not broken")
 	// The local remedies of the check NEXT DOOR (n4, unsigned content) are
@@ -139,23 +132,11 @@ func TestDoctorCheckUpstreamSignatures_WrongState_UnreadableRecordWarns(t *testi
 	assert.NotContains(t, c.Detail, "no upstream revision has been refused")
 }
 
-// The advisory words each refusal by its RECORDED cause. A bundle refused
-// because it could not be read, or because it fell below the pinned floor, is
-// not a signature that fails to cover its bytes, and reporting it as one
-// sends the reader after a tamper that did not happen.
-func TestDoctorCheckUpstreamSignatures_WordsEachRefusalByItsCause(t *testing.T) {
-	for cause, phrase := range map[RefusalCause]string{
-		RefusalSignature:  doctorRefusedSignature,
-		RefusalUnreadable: doctorRefusedUnreadable,
-		RefusalBelowFloor: doctorRefusedBelowFloor,
-	} {
-		t.Run(string(cause), func(t *testing.T) {
-			c := doctorCheckUpstreamSignatures(upstreamRefusalProjectFor(t, upstreamRef, upstreamKept, upstreamProposed, cause), nil)
-			assert.Equal(t, DoctorWarn, c.Status)
-			assert.Contains(t, c.Detail, phrase)
-			if cause != RefusalSignature {
-				assert.NotContains(t, c.Detail, doctorRefusedSignature, "only a signature refusal is worded as one")
-			}
-		})
-	}
+// The advisory carries the reader's own words for why each revision was
+// refused, so the reader is told what is wrong upstream, not just that
+// something is.
+func TestDoctorCheckUpstreamSignatures_CarriesTheRecordedReason(t *testing.T) {
+	c := doctorCheckUpstreamSignatures(upstreamRefusalProject(t, upstreamRef, upstreamKept, upstreamProposed), nil)
+	assert.Equal(t, DoctorWarn, c.Status)
+	assert.Contains(t, c.Detail, "could not be read as a bundle (the verifier's words)")
 }

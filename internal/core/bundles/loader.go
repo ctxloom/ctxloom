@@ -207,7 +207,7 @@ type BundleInfo struct {
 	MCPCount      int
 	ProfileCount  int
 
-	// Held marks a lockfile entry frozen at its recorded SHA (LockEntry.Pinned,
+	// Held marks a lockfile entry frozen at its recorded SHA (LockEntry.Held,
 	// toggled by `ctxloom deps hold`/`unhold`): `deps upgrade` leaves it put
 	// even when its constraint would allow a newer commit.
 	//
@@ -217,17 +217,6 @@ type BundleInfo struct {
 	// render as identical output, and the only way to tell them apart is diffing
 	// lockfiles by hand.
 	Held bool
-
-	// Retracted marks a bundle the publisher WITHDREW (LockEntry.Retracted),
-	// learned from the remote manifest at the last pull that had the network.
-	// RetractedReason is the publisher's stated reason — display only, never a
-	// decision input.
-	//
-	// Silence about this is worse than silence about a hold: the content is
-	// still installed and still being served while its publisher has said not to
-	// use it.
-	Retracted       bool
-	RetractedReason string
 
 	// Signer is the VERIFIED publisher identity of this bundle's bytes, or ""
 	// when the bundle is unsigned — no signature, or one by a key this machine

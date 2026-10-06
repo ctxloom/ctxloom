@@ -219,10 +219,9 @@ func TestGitCloneFetcher_GetDefaultBranch(t *testing.T) {
 
 // TestGitCloneFetcher_GetDefaultBranch_UnresolvableIsAnError pins that the
 // last arm used to return the literal "main" with a nil error, so a guess
-// arrived at the caller wearing the same clothes as an answer — and the callers
-// are `ctxloom publish` (which branch to commit to) and the retraction reader
-// (which branch to read the manifest from), where being wrong is silent and
-// consequential.
+// arrived at the caller wearing the same clothes as an answer — and the caller
+// is `ctxloom publish` (which branch to commit to), where being wrong is silent
+// and consequential.
 //
 // The exhausted case is real: a detached HEAD with no remote-tracking refs, the
 // shape a bare fixture or a checkout-by-SHA leaves behind. There is nothing

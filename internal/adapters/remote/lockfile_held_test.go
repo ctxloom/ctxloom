@@ -91,7 +91,7 @@ func TestLockfile_RefusesTheRetiredPinnedKey(t *testing.T) {
 
 // The refusal fires on the KEY, not on the characters — the same distinction
 // the retired-schema-field check draws, and for the same reason: a repository
-// URL, a bundle path or a retraction reason may contain the word without any
+// URL, a bundle path or a requested version may contain the word without any
 // such key existing.
 func TestLockfile_LoadsWhenPinnedIsMerelyMentioned(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -102,7 +102,7 @@ func TestLockfile_LoadsWhenPinnedIsMerelyMentioned(t *testing.T) {
 		"  ctxloom+git://github.com/alice/ctxloom//bundles/pinned-tools:\n" +
 		"    sha: abc1234\n" +
 		"    url: https://github.com/alice/pinned\n" +
-		"    retracted_reason: the author pinned the wrong commit\n"
+		"    requested_version: pinned-release\n"
 	testsupport.WriteFileString(t, fs, manager.Path(), mention, 0o644)
 
 	loaded, err := manager.Load()

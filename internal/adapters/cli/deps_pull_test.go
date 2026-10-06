@@ -46,13 +46,7 @@ func TestRenderPullSummary_NothingToPull(t *testing.T) {
 // failures are printed to stdout by renderPullSummary, so without this a caller
 // scripting on the exit code (rather than scraping stdout) could not tell a
 // broken sync from a clean one. pullResultErr is the extracted decision
-// runDepsPull defers to. Retracted is deliberately
-// NOT a failure here (see the "retracted item does not fail the pull"
-// subtest below): it is the retraction mechanism working as designed, and
-// the acceptance journeys for it (j001500/j001700/trust_surface) require `deps pull`
-// to keep exiting 0 when a dependency is withheld this way — an earlier
-// version of this fix treated Retracted as a failure too and broke exactly
-// those three scenarios.
+// runDepsPull defers to.
 func TestPullResultErr(t *testing.T) {
 	t.Run("clean pull is nil", func(t *testing.T) {
 		assert.NoError(t, pullResultErr(&operations.SyncDependenciesResult{
@@ -73,14 +67,6 @@ func TestPullResultErr(t *testing.T) {
 		})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "b")
-	})
-
-	t.Run("a retracted item does not fail the pull", func(t *testing.T) {
-		err := pullResultErr(&operations.SyncDependenciesResult{
-			Total: 2, Installed: 1,
-			Retracted: []operations.SyncItem{{Reference: "c", Error: "retracted upstream"}},
-		})
-		assert.NoError(t, err, "retraction is the protective mechanism working, not a pull failure")
 	})
 }
 

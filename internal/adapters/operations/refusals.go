@@ -21,17 +21,17 @@ import (
 
 // THE RECORD OF WHAT UPGRADE WOULD NOT DO.
 //
-// `deps upgrade` refuses to advance a pin onto content whose publisher
-// signature does not verify (see verifyAdvance), keeps the last verified pin,
-// and says so. Because it refuses, nothing is withheld afterwards — the kept
-// pin's content verifies fine — so every after-the-fact inspector truthfully
+// `deps upgrade` refuses to advance a pin onto content the reader refuses (see
+// verifyAdvance), keeps the current pin, and says so. Because it refuses,
+// nothing is withheld afterwards — the kept pin's content reads fine — so
+// every after-the-fact inspector truthfully
 // reports a healthy project and the refusal lives only in the transient stdout
 // of the sync that produced it. Close the terminal and the fact is gone; a
 // teammate who did not run the sync never learns a revision exists at all.
 //
 // This file is the durable half. UpgradeDependencies writes the round's
 // refusals here; `ctxloom doctor` reads them back and reports them as an
-// advisory about the SIGNATURES UPSTREAM.
+// advisory about the content UPSTREAM.
 //
 // WHEN A RECORD CLEARS — two independent mechanisms, because one of them is
 // not enough:
@@ -55,7 +55,7 @@ import (
 // this whole advisory could otherwise become: doctor reporting a problem that
 // no longer exists is the same disease one level over, and worse than silence,
 // because it teaches people to ignore doctor. What neither mechanism can do is
-// notice a re-sign nobody has upgraded onto yet — so the advisory is worded as
+// notice an upstream repair nobody has upgraded onto yet — so the advisory is worded as
 // an AS-OF statement carrying RefusedAt, and names re-running the upgrade as
 // the way to re-check.
 //
@@ -82,22 +82,20 @@ var ErrRefusalKeyFormRetired = errors.New("refusal record uses a retired key for
 // RefusalRecord is one persisted RefusedAdvance: what upgrade declined to move
 // to, what it kept instead, and when.
 //
-// It is a REPORT and never an input to a decision. Nothing gates on it, no
-// trust verdict consults it, and RefusedAt in particular is display metadata —
+// It is a REPORT and never an input to a decision. Nothing gates on it, and
+// RefusedAt in particular is display metadata —
 // the same standing every timestamp in this codebase has.
 type RefusalRecord struct {
 	// Identity is the canonical ref of the item whose pin was not moved.
 	Identity string `yaml:"identity"`
-	// KeptSHA is the commit the pin stayed at — the last one that verified.
-	// It is also the record's own validity check: see LiveRefusedAdvances.
+	// KeptSHA is the commit the pin stayed at. It is also the record's own validity check: see LiveRefusedAdvances.
 	KeptSHA string `yaml:"kept_sha"`
 	// ProposedSHA is the commit the constraint resolved to and that was
 	// refused — the revision a user is asking "why is it not here?" about.
 	ProposedSHA string `yaml:"proposed_sha"`
-	// Detail is the verification failure in the verifier's own words.
+	// Detail is the read failure in the reader's own words.
 	Detail string `yaml:"detail"`
-	// Cause is why the advance was refused; it decides how the advisory
-	// words the record.
+	// Cause is why the advance was refused.
 	Cause RefusalCause `yaml:"cause"`
 	// RefusedAt is when the round that refused it ran, so the advisory can be
 	// read as an as-of statement rather than a claim about right now.
@@ -202,7 +200,7 @@ func LiveRefusedAdvances(cfg *config.Config) ([]RefusalRecord, error) {
 	}
 	// REFUSED, not filtered. A record keyed the retired way matches no lock
 	// key, so the staleness filter below would drop it as "the pin moved" —
-	// a fact about an upstream signature gone without a word. The lockfile
+	// a fact about upstream content gone without a word. The lockfile
 	// refuses its own retired keys (remote.ErrLockKeyFormRetired) for the
 	// same reason; there is no rekeying here either, because the next upgrade
 	// round re-derives every refusal and replaces this file wholesale.

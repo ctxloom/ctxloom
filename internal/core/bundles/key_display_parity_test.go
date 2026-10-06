@@ -96,9 +96,9 @@ func assertKeyMatchesGrammar(t *testing.T, read BundleRead) {
 }
 
 // assertLockKeyMatchesKey holds the lockfile key a pull of read's display name
-// writes to read's own Key, and then holds the retraction lookup to it: a
-// retraction recorded under that lockfile key must be found by the gate for
-// an item of read, exactly as bundles.Decide asks.
+// writes to read's own Key, and then holds the pin lookup to it: an entry
+// recorded under that lockfile key must be found from the identity of an item
+// of read.
 func assertLockKeyMatchesKey(t *testing.T, read BundleRead) {
 	t.Helper()
 	parsed, err := remote.ParseReference(read.DisplayName())
@@ -113,13 +113,16 @@ func assertLockKeyMatchesKey(t *testing.T, read BundleRead) {
 	lm := remote.NewLockfileManager("/lk", remote.WithLockfileFS(afero.NewMemMapFs()))
 	lock, err := lm.Load()
 	require.NoError(t, err)
-	lock.AddEntry(remote.ItemTypeBundle, lockKey, remote.LockEntry{SHA: "abc123", Retracted: true, RetractedReason: "withdrawn"})
+	lock.AddEntry(remote.ItemTypeBundle, lockKey, remote.LockEntry{SHA: "abc123"})
 	require.NoError(t, lm.Save(lock))
+	lock, err = lm.Load()
+	require.NoError(t, err)
 
 	itemRef, err := ItemRefFor(read.SourceRef(), trust.KindMCP, "server")
 	require.NoError(t, err)
 	br, err := trust.ParseBundleRef(itemRef)
 	require.NoError(t, err)
-	retracted, _ := remote.NewLockfileRetraction(lm).Retracted(br)
-	assert.True(t, retracted, "a retraction recorded under %q is enforced for %q", lockKey, itemRef)
+	entry, ok := lock.GetEntry(remote.ItemTypeBundle, br.BundleIdentity())
+	require.True(t, ok, "a pin recorded under %q is found for %q", lockKey, itemRef)
+	assert.Equal(t, "abc123", entry.SHA)
 }

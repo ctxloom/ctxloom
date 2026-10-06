@@ -47,7 +47,7 @@ flowchart TD
     end
 
     subgraph pin["PIN · lock.yaml"]
-        LOCK["LockEntry {SHA, URL, RequestedVersion,<br/>Version, Kind, Pinned, Retracted}"]
+        LOCK["LockEntry {SHA, URL, RequestedVersion,<br/>Version, Kind, Held}"]
         WRITE["LockfileManager.write<br/>lockfile.go:111 (atomic)"]
         RESOLVE --> LOCK --> WRITE
     end
@@ -73,7 +73,6 @@ flowchart TD
         LOADER --> PAY --> ET
         RECS --> ET
         ROOT --> ET
-        LOCK -->|"Retracted flag = step 2"| ET
     end
 
     ET -->|deny| HELD["withheld ledger<br/>warnWithheld trust_gate.go:301"]
@@ -103,11 +102,10 @@ These hold across every page; each is restated with its citations on the page th
    `ctxloom deps pull` cannot rebuild.
 
 2. **`lock.yaml` is authoritative for the pin, never for the content.** It records
-   `{SHA, URL, RequestedVersion, Version, Kind, FetchedAt, Pinned, Retracted, RetractedReason}`
+   `{SHA, URL, RequestedVersion, Version, Kind, FetchedAt, Held}`
    per bundle (`internal/adapters/remote/types.go:148`) and only for bundles
    (`internal/adapters/remote/types.go:202`). Bytes are re-fetched from the clone cache at `entry.SHA`
-   on every read. `Retracted` is the one *trust-relevant* field it carries — step 2 of the
-   cascade reads it and never dials the network.
+   on every read.
 
 3. **Sole writers.**
 

@@ -1,1 +1,0 @@
-`next: call task_list MCP tool with statuses: ["Deferred"] to list Deferred tasks`

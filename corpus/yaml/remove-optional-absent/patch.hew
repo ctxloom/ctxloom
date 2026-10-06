@@ -1,8 +1,0 @@
-hew: 1
-
---- target.yaml format=yaml
-
-@@ /server @@
-# legacy key, already gone on fresh installs since 0.6
-! optional
-- deprecated_flag: true

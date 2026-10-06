@@ -48,7 +48,7 @@ func pullRefusal(t *testing.T, mutate func(t *testing.T, fsys afero.Fs)) error {
 // raised — its fix line is what the user is told to do.
 func syncFailureFinding(t *testing.T, err error) report.Finding {
 	t.Helper()
-	item := syncItem(context.Background(), &syncMockPuller{err: err}, treeCanonical, remote.ItemTypeBundle, treeBase, true, nil, nil)
+	item := syncItem(context.Background(), &syncMockPuller{err: err}, treeCanonical, remote.ItemTypeBundle, treeBase, true, nil)
 	require.Equal(t, "failed", item.Status)
 
 	resetStrictness(t)

@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -175,9 +174,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckSupersededImages(ctx, runtimes, func(ctx context.Context, rt isolation.Runtime) (isolation.ImagePrunePlan, error) {
 				return isolation.PlanImagePrune(ctx, rt, imagePruneOptions(reg, cfg, rt, DefaultImagePruneMinAge, time.Now()))
 			}),
-			doctorCheckLegacyIndex(),
 			doctorCheckHarpDurability(),
-			doctorCheckLegacyLayout(),
 			doctorCheckSecretsStorage(os.Getenv),
 			doctorCheckSpoolBacklog(configFS(cfg)),
 			doctorCheckSpoolCounters(ctx),
@@ -1246,13 +1243,13 @@ func editedSignedTreesOf(cfg *config.Config, cfgErr error) []string {
 }
 
 // doctorCheckUpstreamSignatures names every revision `deps upgrade` REFUSED
-// to advance onto because the publisher signature at that commit does not
-// verify over its bytes — and the pin it kept instead.
+// to advance onto because the content at that commit could not be read as a
+// bundle — and the pin it kept instead.
 //
 // IT EXISTS BECAUSE THE REFUSAL FIXES THE PROBLEM AND THEREBY HIDES IT.
 // DOCTOR-CHECK-CONTENT-TRUST-n4 above asks "is any installed content withheld
 // from your assistant?", and after a refusal the honest answer is NO: the pin
-// stayed on content that verifies, so it reports [ok] and is right to. The
+// stayed on content that reads, so it reports [ok] and is right to. The
 // thing that went wrong is not in the project at all — it is a REVISION that
 // exists upstream and was not taken. Nothing on this machine is in a bad
 // state, which is precisely why no other inspector has anything to say, and
@@ -1262,28 +1259,19 @@ func editedSignedTreesOf(cfg *config.Config, cfgErr error) []string {
 // THE FRAMING IS THE POINT, and it is the opposite of n4's. n4 names something
 // the user can act on locally (trust a key, or ask for a signature). This one
 // must not: there is nothing to configure, no key to add, no flag to pass. The
-// publisher has to re-sign and republish. A message that reads as a local
+// publisher has to repair and republish. A message that reads as a local
 // misconfiguration would send someone editing their trust store to fix a
 // problem that is not on their machine.
 //
 // WARN RATHER THAN INFO, deliberately. DoctorInfo means "nothing to fix", and
 // something does need fixing — just not by the person reading it. It is never
 // fatal: doctor fails no process, and this check in particular reports a
-// project that is working correctly off its last verified pin.
+// project that is working correctly off its kept pin.
 //
-// It makes no trust decision, parses no signature and re-verifies nothing: it
-// reads what the upgrade round recorded, filtered by
+// It re-reads nothing: it reads what the upgrade round recorded, filtered by
 // LiveRefusedAdvances to those still describing the pin the lockfile
 // actually holds, so a record left over from a world that has moved on is
 // dropped rather than reported.
-// The per-record phrase doctorCheckUpstreamSignatures words a refusal with,
-// by its recorded RefusalCause.
-const (
-	doctorRefusedSignature  = "carries a publisher signature that does not verify over its bytes"
-	doctorRefusedUnreadable = "could not be read as a bundle"
-	doctorRefusedBelowFloor = "is signed below the version this project last pinned, or is no longer signed"
-)
-
 func doctorCheckUpstreamSignatures(cfg *config.Config, cfgErr error) DoctorCheck {
 	const marker = "DOCTOR-CHECK-UPSTREAM-SIGNATURES-o5"
 	if cfgErr != nil {
@@ -1299,32 +1287,20 @@ func doctorCheckUpstreamSignatures(cfg *config.Config, cfgErr error) DoctorCheck
 	}
 	if len(refused) == 0 {
 		return DoctorCheck{Marker: marker, Status: DoctorOK,
-			Detail: "no upstream revision has been refused: every pin your last upgrade could advance landed on content whose publisher signature verifies"}
+			Detail: "no upstream revision has been refused: every pin your last upgrade could advance landed on content that reads as a bundle"}
 	}
 	sort.Slice(refused, func(i, j int) bool { return refused[i].Identity < refused[j].Identity })
 	var parts []string
 	for _, r := range refused {
-		parts = append(parts, fmt.Sprintf("%s at revision %s %s, so the pin is being kept at %s (refused %s)",
-			r.Identity, gitutil.AbbrevSHA(r.ProposedSHA, 16), doctorRefusedPhrase(r.Cause), gitutil.AbbrevSHA(r.KeptSHA, 16), r.RefusedAt.Format("2006-01-02")))
+		parts = append(parts, fmt.Sprintf("%s at revision %s could not be read as a bundle (%s), so the pin is being kept at %s (refused %s)",
+			r.Identity, gitutil.AbbrevSHA(r.ProposedSHA, 16), r.Detail, gitutil.AbbrevSHA(r.KeptSHA, 16), r.RefusedAt.Format("2006-01-02")))
 	}
 	return DoctorCheck{Marker: marker, Status: DoctorWarn,
 		Detail: fmt.Sprintf("%d upstream revision(s) were REFUSED: %s. "+
 			"Nothing is wrong on this machine and nothing is withheld from your assistant — it is served the content at the kept pin. "+
-			"There is nothing to configure here: the publisher must re-sign or repair the bundle and republish, and `ctxloom deps upgrade` picks it up "+
+			"There is nothing to configure here: the publisher must repair the bundle and republish, and `ctxloom deps upgrade` picks it up "+
 			"and clears this the next time it runs",
 			len(refused), strings.Join(parts, "; "))}
-}
-
-// doctorRefusedPhrase words one recorded refusal by its cause.
-func doctorRefusedPhrase(cause RefusalCause) string {
-	switch cause {
-	case RefusalSignature:
-		return doctorRefusedSignature
-	case RefusalBelowFloor:
-		return doctorRefusedBelowFloor
-	default:
-		return doctorRefusedUnreadable
-	}
 }
 
 // ===== J001300 close-out: doctor's share of the journey's checks ====
@@ -1543,58 +1519,6 @@ func doctorCheckHarpDurability() DoctorCheck {
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: fmt.Sprintf(
 		"%d authored file(s) sit in a session directory's unclassified top level, which holds machine state only: %s — move each to its session's output dir (output_dir in the session's %s), where a human reads it and a containerized run keeps it",
 		len(flagged), list, paths.SessionSidecarFileName)}
-}
-
-// legacyLayoutDirs are the session-dir members an earlier layout wrote and
-// the current one never reads; legacyLayoutLinkPrefix names that layout's
-// per-vendor-log links at the session dir's top. Spelled here, and only here,
-// because they name what no longer exists — the paths table cannot carry
-// them.
-var legacyLayoutDirs = []string{"persist", "ephemeral", "segments"}
-
-const legacyLayoutLinkPrefix = "engine-transcript-"
-
-// doctorCheckLegacyLayout names what an earlier session layout left in
-// session dirs. It is inert — no reader or writer touches it, and a session is
-// not migrated — so it is reported, never a warning, for a human to delete.
-func doctorCheckLegacyLayout() DoctorCheck {
-	const marker = "DOCTOR-CHECK-LEGACY-LAYOUT-g2"
-	root, err := paths.HomeSessionsDir()
-	if err != nil {
-		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "cannot resolve sessions dir: " + err.Error()}
-	}
-	harps, err := os.ReadDir(root)
-	if err != nil && !os.IsNotExist(err) {
-		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "cannot read sessions dir: " + err.Error()}
-	}
-	var found []string
-	for _, h := range harps {
-		if h.IsDir() {
-			found = append(found, legacyLayoutEntries(filepath.Join(root, h.Name()), h.Name())...)
-		}
-	}
-	if len(found) == 0 {
-		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "no session dir holds anything an earlier session layout left"}
-	}
-	return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: fmt.Sprintf(
-		"%d entr(ies) an earlier session layout left are inert — nothing reads or writes them, and sessions are not migrated; delete them when you no longer want them: %s",
-		len(found), doctorNamedList(found, doctorHarpDurabilityMaxNamed))}
-}
-
-// legacyLayoutEntries is harp's old-layout entries, as harp/<name>.
-func legacyLayoutEntries(dir, harp string) []string {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, e := range entries {
-		name := e.Name()
-		if (e.IsDir() && slices.Contains(legacyLayoutDirs, name)) || strings.HasPrefix(name, legacyLayoutLinkPrefix) {
-			out = append(out, harp+"/"+name)
-		}
-	}
-	return out
 }
 
 // doctorCheckSecretsStorage reports where a run's secrets are written: the

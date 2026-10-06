@@ -20,13 +20,13 @@ const trustImportPath = "github.com/ctxloom/ctxloom/internal/core/trust"
 
 // A LOCK KEY IS MINTED, NEVER CAST.
 //
-// trust.BundleKey is the key a lockfile entry is stored under and the key a
-// publisher's retraction is looked up by. The two are equal only because both
-// come from BundleRef.BundleIdentity (remote.Reference.LockKey is that, over a
-// parsed reference). A conversion from an arbitrary string produces a value of
-// the right TYPE in whatever spelling the string happened to have, and a
-// retraction keyed on the canonical spelling then misses it — a retracted
-// release admitted. That is the class stony-overtime closed; this gate keeps a
+// trust.BundleKey is the key a lockfile entry is stored under and the key every
+// reader looks a pin up by. The two are equal only because both come from
+// BundleRef.BundleIdentity (remote.Reference.LockKey is that, over a parsed
+// reference). A conversion from an arbitrary string produces a value of the
+// right TYPE in whatever spelling the string happened to have, and a lookup
+// keyed on the canonical spelling then misses it. That is the class
+// stony-overtime closed; this gate keeps a
 // new cast from reopening it. The trust package itself defines the type and is
 // exempt; _test.go files are exempt because a test pins a literal key.
 func TestArch_BundleKeyOnlyMintedInTrust(t *testing.T) {

@@ -1,1 +1,0 @@
-`next: begin pre-flight: establish the queue via taskloom, then check current directory state and git status`

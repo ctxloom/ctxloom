@@ -26,14 +26,3 @@ func TestRunOneShot_NamesTheModeNotTheOutput(t *testing.T) {
 	assert.True(t, runOneShot,
 		"--one-shot must write through to runOneShot; a flag bound to nothing reads as its zero value forever")
 }
-
-// TestRunPrint_IsRetiredNotAliased holds the no-shims line. An alias would
-// leave two spellings for one mode in help, in scripts, and in every future
-// reader's head; breaking the old one and documenting re-spelling is this
-// project's stated upgrade path.
-func TestRunPrint_IsRetiredNotAliased(t *testing.T) {
-	assert.Nil(t, runCmd.Flags().Lookup("print"),
-		"--print is retired, not kept as an alias")
-	assert.Empty(t, runCmd.Flags().Lookup("one-shot").Deprecated,
-		"--one-shot is the flag, not a deprecation wrapper around one")
-}

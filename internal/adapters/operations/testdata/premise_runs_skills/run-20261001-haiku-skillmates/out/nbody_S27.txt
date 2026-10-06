@@ -1,1 +1,0 @@
-`next: Run taskloom list to establish the queue and read it against stop conditions before baseline verification`

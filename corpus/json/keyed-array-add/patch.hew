@@ -1,7 +1,0 @@
-hew: 1
-
---- target.json format=json
-
-@@ /servers @@
-  { "name": "github" }
-+ { "name": "ctxloom", "command": "ctxloom" }

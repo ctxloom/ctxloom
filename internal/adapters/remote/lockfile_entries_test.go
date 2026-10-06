@@ -17,14 +17,14 @@ import (
 //
 // Five call sites across internal/adapters/cli and internal/adapters/operations range over this
 // result and read .Type, .Ref and .Entry -- including the rebuild in
-// operations/lockfile.go that carries Pinned and Retracted forward, where
-// losing a field would silently un-hold or un-retract content.
+// operations/lockfile.go that carries Held forward, where losing a field
+// would silently un-hold content.
 func TestLockfile_AllEntries_CarriesKeyTypeAndEntry(t *testing.T) {
 	lockfile := &Lockfile{
 		Version: 1,
 		Bundles: map[trust.BundleKey]LockEntry{
 			"alice/go-tools": {SHA: "sha-a", URL: "https://github.com/alice/ctxloom", Held: true},
-			"bob/py-tools":   {SHA: "sha-b", URL: "https://github.com/bob/ctxloom", Retracted: true, RetractedReason: "withdrawn"},
+			"bob/py-tools":   {SHA: "sha-b", URL: "https://github.com/bob/ctxloom", RequestedVersion: "^1.0"},
 		},
 	}
 
@@ -44,8 +44,7 @@ func TestLockfile_AllEntries_CarriesKeyTypeAndEntry(t *testing.T) {
 
 	assert.True(t, byRef["alice/go-tools"].Held, "a user hold must survive the round trip")
 	assert.Equal(t, "sha-a", byRef["alice/go-tools"].SHA)
-	assert.True(t, byRef["bob/py-tools"].Retracted, "a publisher retraction must survive the round trip")
-	assert.Equal(t, "withdrawn", byRef["bob/py-tools"].RetractedReason)
+	assert.Equal(t, "^1.0", byRef["bob/py-tools"].RequestedVersion)
 }
 
 func TestLockfile_AllEntries_EmptyIsEmpty(t *testing.T) {

@@ -132,9 +132,8 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 // upgradeLockfile brings data to lockfileKind.Current() in memory, or refuses
 // it: present but empty, a retired hold spelling, a newer version, or a
 // retired key form. A lockfile keyed the retired way spells each bundle as it
-// was typed, while a retraction is looked up by the bundle's identity, so an
-// entry keyed any other way is one no lookup reaches — a publisher's
-// retraction silently not enforced. A version below lockfileKind.Oldest (or
+// was typed, while every pin and hold is looked up by the bundle's identity, so
+// an entry keyed any other way is one no lookup reaches. A version below lockfileKind.Oldest (or
 // none at all) is that retired form. There is no rekeying on read: a hold is a
 // decision this read cannot carry across a key it does not trust, so the user
 // rebuilds the lock and re-applies the holds the refusal names.
@@ -248,7 +247,7 @@ func retiredKeyFormError(path string, held []string) error {
 
 // findRetiredHoldField returns the first bundle entry carrying the retired hold
 // key as a FIELD, and whether one was found. Parsing is what separates a key
-// from a URL, a bundle path or a retraction reason that merely contains the
+// from a URL, a bundle path or a requested version that merely contains the
 // word. Unparseable input reports false and leaves the loader's own yaml.Unmarshal to
 // produce the error.
 func findRetiredHoldField(data []byte) (string, bool) {
@@ -279,8 +278,8 @@ func findRetiredHoldField(data []byte) (string, bool) {
 var ErrLockfileWouldErase = errors.New("refusing to erase lockfile entries")
 
 // ErrLockfileUnreadable reports a refused write over a lockfile whose current
-// contents cannot be parsed. There is deliberately no override: the holds and
-// retractions in an unparseable file cannot be read, so nothing can carry them
+// contents cannot be parsed. There is deliberately no override: the pins and
+// holds in an unparseable file cannot be read, so nothing can carry them
 // forward and every write over it destroys state nobody can account for. Fix
 // or delete the file instead.
 var ErrLockfileUnreadable = errors.New("refusing to overwrite an unreadable lockfile")
@@ -302,9 +301,8 @@ func AllowEmpty() SaveOption {
 // Save writes the lockfile to disk, stamping LockedAt with the current time.
 //
 // Save refuses two destructive writes, because the lockfile is the sole
-// on-disk record of every dependency pin, every user hold (Pinned) and every
-// publisher retraction (Retracted) — losing it silently un-holds and, worse,
-// UN-RETRACTS content the publisher withdrew:
+// on-disk record of every dependency pin and every user hold (Held) — losing
+// it silently un-holds and re-resolves every pin:
 //
 //   - An EMPTY lockfile over a populated one. A caller that arrives here with
 //     no entries has, by construction, nothing to say about the entries
@@ -315,7 +313,7 @@ func AllowEmpty() SaveOption {
 //     is up to date." Callers that genuinely mean to empty the lock pass
 //     AllowEmpty.
 //   - ANY write over an UNREADABLE lockfile. Every rebuild carries
-//     Pinned and Retracted forward by reading the previous file; when that
+//     Held forward by reading the previous file; when that
 //     read fails the rebuild silently drops them. Refusing the write keeps the
 //     evidence on disk and puts the fix in the user's hands.
 //
@@ -325,7 +323,7 @@ func (m *LockfileManager) Save(lockfile *Lockfile, opts ...SaveOption) error {
 	if lockfile == nil {
 		// Before the guard, before the disk read, before the LockedAt stamp:
 		// each of those dereferences the argument, and a panic partway through
-		// a write to the sole on-disk pin/hold/retraction record leaves the
+		// a write to the sole on-disk pin/hold record leaves the
 		// caller nothing to report. An empty lockfile is a legitimate value
 		// with its own rules below; a nil one is a caller that has nothing to
 		// say at all.
@@ -365,7 +363,7 @@ func (m *LockfileManager) guardDestructiveWrite(incoming *Lockfile, o saveOption
 		return nil
 	}
 	if err != nil {
-		// Present but unreadable: it may hold holds and retractions we cannot
+		// Present but unreadable: it may hold pins and holds we cannot
 		// see, so it is not ours to replace.
 		return fmt.Errorf("%w: %s: %v (fix its permissions, or delete it to start a fresh lock)",
 			ErrLockfileUnreadable, path, err)
@@ -379,7 +377,7 @@ func (m *LockfileManager) guardDestructiveWrite(incoming *Lockfile, o saveOption
 
 	var current Lockfile
 	if uerr := yaml.Unmarshal(data, &current); uerr != nil {
-		return fmt.Errorf("%w: %s: %v (fix the file, or delete it to start a fresh lock — every hold and retraction it records will be lost)",
+		return fmt.Errorf("%w: %s: %v (fix the file, or delete it to start a fresh lock — every pin and hold it records will be lost)",
 			ErrLockfileUnreadable, path, uerr)
 	}
 
@@ -441,7 +439,7 @@ func (l *Lockfile) RemoveEntry(itemType ItemType, ref trust.BundleKey) {
 // LockedEntry is one lockfile record together with the identity it is stored
 // under: the item Type, the Ref that keys it, and the LockEntry itself. It
 // exists so AllEntries' element has a name -- callers rebuild the lockfile
-// from these (carrying Pinned and Retracted forward), and a result that can
+// from these (carrying Held forward), and a result that can
 // only be described by re-spelling its own shape cannot be stored in a
 // variable, passed to a helper or ranged over by anything but its producer.
 type LockedEntry struct {

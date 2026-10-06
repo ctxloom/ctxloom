@@ -11,9 +11,9 @@
 // WHAT P1 ADDS TO P0, AND WHY IT IS NOT THE SAME CELL TWICE. P0 proves that a
 // nonce planted in an agent's composed context comes back out of a real engine.
 // It cannot say WHICH delivery mechanism carried it: `run` takes the engine's
-// own default, so P0's claude cells measure the system-prompt scratch file and
-// its codex cells measure the SessionStart hook, and nothing in the suite ever
-// exercised the other arms of either engine's ApproachTable. Rows 4 and 5 of the
+// own default, so P0's claude cells measure the system-prompt scratch file, and
+// nothing in the suite ever exercised the other arms of the engine's
+// ApproachTable. Rows 4 and 5 of the
 // capability inventory (agent.ApproachSystemPrompt, agent.ApproachHook) were
 // claimed-but-unproven for exactly that reason. P1 holds the task, the prompt,
 // the bundle and the nonce channel constant and varies ONE line of config — the
@@ -45,15 +45,6 @@
 // removed at teardown by BaseContextProvider.Clear, so it is gone before an
 // assertion could read it. That gap is recorded as this slice's deferred work
 // rather than papered over with a weaker check.
-//
-// It is worth being precise about how much that costs, because it is less than
-// it sounds: for codex the mechanisms are genuinely separable by OUTCOME. Its
-// hook route is the one the codex hook finding indicts (profile fragments
-// dropped from the cache file the hook actually reads, recorded on
-// the live registry), and its native-file route is not. If that defect is still
-// live, the hook cell reds with a CONTEXT-DELIVERY failure while the unsafe-file
-// cell goes green — and that differential IS the measurement the registry row
-// for this cell asks for.
 package acceptance
 
 import (

@@ -465,8 +465,8 @@ func TestProbeRegistry_ReportsItsOwnCost(t *testing.T) {
 // TestProbeRegistry_SetCellRefusesToAnnotateACellThatIsNotThere guards the one
 // place in this file where a measured finding can vanish without trace.
 //
-// setCell attaches the evidenced exceptions — opencode's flakiness, the
-// container red-map — onto generated rows. If it ever
+// setCell attaches the evidenced exceptions — the per-cell measured reasons,
+// the container red-map — onto generated rows. If it ever
 // stops matching (an engine renamed, an axis spelled differently), a silent
 // miss would leave the generated table looking complete while the finding it
 // was supposed to carry simply is not there: exactly the "work that never ran

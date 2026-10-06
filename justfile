@@ -1835,44 +1835,6 @@ init:
 dry-run PROMPT:
     ./ctxloom run -f test-fragment -f additional-context -n "{{PROMPT}}"
 
-# Run with Claude plugin (default)
-claude *ARGS:
-    ./ctxloom -P claude-code {{ARGS}}
-
-# Code review with reviewer profile
-review *ARGS:
-    ./ctxloom -p reviewer -r code-review {{ARGS}}
-
-# ===== Terraform targets =====
-
-# Initialize Terraform
-tf-init:
-    cd terraform && terraform init
-
-# Plan Terraform deployment
-tf-plan:
-    cd terraform && terraform plan
-
-# Apply Terraform deployment
-tf-apply:
-    cd terraform && terraform apply
-
-# Destroy Terraform deployment
-tf-destroy:
-    cd terraform && terraform destroy
-
-# Show Terraform outputs
-tf-output:
-    cd terraform && terraform output
-
-# Format Terraform files
-tf-fmt:
-    cd terraform && terraform fmt
-
-# Validate Terraform configuration
-tf-validate:
-    cd terraform && terraform validate
-
 # ===== Container targets =====
 
 # Container registry prefix for locally-built utility images (the acceptance
@@ -2127,13 +2089,9 @@ _run +ARGS:
             just --justfile /workspace/justfile {{ARGS}}
     fi
 
-# Build with all CGO features (static, inside devcontainer)
+# Build ctxloom (inside devcontainer)
 dev-build: dev-image
     "{{just_executable()}}" --justfile "{{justfile()}}" _run build
-
-# Build with ONNX support (static, inside devcontainer)
-dev-build-onnx: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-onnx
 
 # Run any target inside devcontainer
 dev +ARGS: dev-image

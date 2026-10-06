@@ -1,9 +1,0 @@
-hew: 1
-
---- target.md format=markdown
-
-@@ /# ctxloom @@
-  ## Install
-+ ## Configure
-+ Run `ctxloom init`.
-  ## Usage

@@ -37,7 +37,7 @@ ctxloom deps [flags]
 ```
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
-      --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted without review (rejections and retractions still hold; nothing ctxloom starts inherits it; signing is unaffected)
+      --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted (nothing ctxloom starts inherits it; signing is unaffected)
       --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
@@ -53,5 +53,4 @@ ctxloom deps [flags]
 * [ctxloom deps pull](/reference/cli/ctxloom_deps_pull/)	 - Make this project's installed closure match upstream
 * [ctxloom deps unhold](/reference/cli/ctxloom_deps_unhold/)	 - Release a hold so `upgrade` can advance the dependency again
 * [ctxloom deps upgrade](/reference/cli/ctxloom_deps_upgrade/)	 - Show, then apply, the newest pins your constraints allow
-* [ctxloom deps verify-corpus](/reference/cli/ctxloom_deps_verify-corpus/)	 - Parse every bundle published by the configured remotes under the current schema
 

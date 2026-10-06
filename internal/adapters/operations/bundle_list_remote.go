@@ -3,8 +3,9 @@ package operations
 import (
 	"context"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"sort"
+
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/spf13/afero"
 
@@ -55,14 +56,13 @@ func listBundleInfos(ctx context.Context, cfg *config.Config) ([]*bundles.Bundle
 	return infos, nil
 }
 
-// stampLockState copies the per-entry lockfile state a LISTING must show — held
-// and retracted — onto the infos the loader produced.
+// stampLockState copies the per-entry lockfile state a LISTING must show — the
+// hold — onto the infos the loader produced.
 //
-// The loader reads bundle CONTENT and knows nothing about pins; both of these
-// are properties of the lockfile entry, not of the bundle document, so they can
-// only be joined here. Without the join, `bundle list` renders a frozen bundle
-// and a failing sync identically, and renders a publisher's retraction not at
-// all while continuing to serve the content.
+// The loader reads bundle CONTENT and knows nothing about pins; a hold is a
+// property of the lockfile entry, not of the bundle document, so it can only be
+// joined here. Without the join, `bundle list` renders a frozen bundle and a
+// failing sync identically.
 //
 // A lockfile that cannot be read degrades the listing rather than failing it —
 // listing what IS present must survive a bad lockfile — but it says so, because
@@ -72,7 +72,7 @@ func stampLockState(cfg *config.Config, infos []*bundles.BundleInfo) {
 	lock, err := remote.NewLockfileManager(ProjectAppDir(cfg), remote.WithLockfileFS(afero.NewOsFs())).Load()
 	if err != nil {
 		clidiag.Warn("ctxloom",
-			"cannot read the lockfile: %v — held and retracted bundles will not be flagged in this listing", err)
+			"cannot read the lockfile: %v — held bundles will not be flagged in this listing", err)
 		return
 	}
 	for _, info := range infos {
@@ -87,7 +87,5 @@ func stampLockState(cfg *config.Config, infos []*bundles.BundleInfo) {
 			continue
 		}
 		info.Held = entry.Held
-		info.Retracted = entry.Retracted
-		info.RetractedReason = entry.RetractedReason
 	}
 }

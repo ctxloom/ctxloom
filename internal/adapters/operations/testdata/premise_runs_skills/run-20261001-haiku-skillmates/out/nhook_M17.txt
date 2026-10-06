@@ -1,1 +1,0 @@
-`next: report that no pending questions or blockers were found — no task context, deferrals, or decisions in progress to surface`

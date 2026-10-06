@@ -643,28 +643,9 @@ func TestRenderBundleList_HeldBundleNamesTheHold(t *testing.T) {
 		"a frozen bundle must say so, or a deliberate hold looks like a failing sync")
 }
 
-// A RETRACTED bundle is the publisher saying "do not use this". Silence here is
-// worse than silence about a hold: the content is still installed and still
-// being served.
-func TestRenderBundleList_RetractedBundleNamesTheRetraction(t *testing.T) {
-	infos := []*bundles.BundleInfo{{
-		Name:            "team/deploy-runbook",
-		Version:         "1.0.0",
-		Retracted:       true,
-		RetractedReason: "superseded by v2",
-	}}
-
-	var buf bytes.Buffer
-	assert.NoError(t, renderBundleList(&buf, infos, addContentListingHint))
-	out := buf.String()
-
-	assert.Contains(t, out, "retracted")
-	assert.Contains(t, out, "superseded by v2", "the publisher's stated reason is the actionable part")
-}
-
-// An ordinary bundle must not grow noise. The state markers appear only when
-// there is state to report.
-func TestRenderBundleList_OrdinaryBundleSaysNeitherHeldNorRetracted(t *testing.T) {
+// An ordinary bundle must not grow noise. The hold marker appears only when
+// there is a hold to report.
+func TestRenderBundleList_OrdinaryBundleSaysNotHeld(t *testing.T) {
 	infos := []*bundles.BundleInfo{{Name: "team/deploy-runbook", Version: "1.0.0"}}
 
 	var buf bytes.Buffer
@@ -672,5 +653,4 @@ func TestRenderBundleList_OrdinaryBundleSaysNeitherHeldNorRetracted(t *testing.T
 	out := buf.String()
 
 	assert.NotContains(t, out, "held")
-	assert.NotContains(t, out, "retracted")
 }

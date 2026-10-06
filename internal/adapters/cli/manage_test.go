@@ -34,18 +34,8 @@ func TestManageNamespace_HasExpectedSubcommands(t *testing.T) {
 	manage := findSub(rootCmd, "manage")
 	require.NotNil(t, manage, "manage must be a top-level command")
 
-	// "init" is deliberately absent: the duplicate `manage init` entry point
-	// was DELETED outright (not deprecated) — root `ctxloom init` is the sole
-	// bootstrap. "mcp" and "config" are gone too: the verb-spine reorg (§6)
-	// deleted the whole deprecated `manage mcp *` / `manage config *` alias
-	// namespace, whose real homes are the top-level `ctxloom mcp` and
-	// `ctxloom config`.
 	for _, name := range []string{"install", "uninstall", "check", "hooks", "statusline", "gitignore"} {
 		assert.NotNil(t, findSub(manage, name), "manage %s should exist", name)
-	}
-	assert.Nil(t, findSub(manage, "init"), "manage init was deleted; root `ctxloom init` is the sole bootstrap")
-	for _, name := range []string{"mcp", "config"} {
-		assert.Nil(t, findSub(manage, name), "manage %s was a deprecated alias namespace and is deleted", name)
 	}
 }
 
@@ -76,27 +66,8 @@ func TestManageHooks_HasInstallUninstallCheckList(t *testing.T) {
 	assert.ElementsMatch(t, []string{"install", "uninstall", "check", "list"}, subNames(hooks))
 }
 
-func TestOldTopLevelPaths_AreRemoved(t *testing.T) {
-	// config is at the top level; the `manage config` alias group is deleted
-	// (TestManageNamespace_HasExpectedSubcommands).
-	assert.NotNil(t, findSub(rootCmd, "config"), "config lives at the top level")
-
-	hook := findSub(rootCmd, "hook")
-	require.NotNil(t, hook, "hook namespace stays (hidden callback home)")
-	assert.Nil(t, findSub(hook, "apply"), "hook apply moved to manage hooks install")
-
-	// The mcp noun stays top-level as the server listing; it has no runtime
-	// leaf (the session's endpoint serves ctxloom) and sheds its CRUD verbs.
-	mcp := findSub(rootCmd, "mcp")
-	require.NotNil(t, mcp)
-	assert.Nil(t, findSub(mcp, "serve"), "no ctxloom command speaks the MCP protocol")
-	assert.Nil(t, findSub(mcp, "auto-register"), "auto-register moved to manage mcp install/uninstall")
-	assert.Nil(t, findSub(mcp, "add"), "mcp add moved to manage mcp servers add")
-}
-
 func TestInitAliasStaysTopLevel(t *testing.T) {
-	// `manage init` was deleted; root `ctxloom init` is the sole,
-	// canonical bootstrap entry point, not an alias for anything.
+	// Root `ctxloom init` is the sole, canonical bootstrap entry point.
 	assert.NotNil(t, findSub(rootCmd, "init"), "ctxloom init is the sole bootstrap entry point")
 }
 

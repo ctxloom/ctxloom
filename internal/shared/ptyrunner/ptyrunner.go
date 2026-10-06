@@ -219,10 +219,21 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdinCl
 	// closes *os.File handles that track their own closed state. Once makes
 	// that this code's invariant rather than a borrowed one, and leaves a
 	// single result to inspect instead of two to discard.
+	//
+	// The copiers move bytes through master, a view of the pty master the
+	// runtime poller owns (pollableMaster), and the close shuts that view
+	// first: closing a pollable file wakes a Read parked on it, which is what
+	// lets the forced close end the output copier while some other process
+	// still holds the slave.
+	master, err := pollableMaster(ptty)
+	if err != nil {
+		_ = closePTY(ptty)
+		return 0, fmt.Errorf("failed to open the pty master for polling: %w", err)
+	}
 	var masterClosed atomic.Bool
 	closeOnce := sync.OnceValue(func() error {
 		masterClosed.Store(true)
-		return closePTY(ptty)
+		return errors.Join(master.Close(), closePTY(ptty))
 	})
 	defer func() { _ = closeOnce() }()
 
@@ -259,9 +270,9 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdinCl
 		releaseStdin = sync.OnceFunc(stdinCleanup)
 	}
 	defer releaseStdin()
-	startStdinCopier(ptty, stdin, releaseStdin, done)
+	startStdinCopier(master, stdin, releaseStdin, done)
 
-	tw, copyDone := startOutputCopier(ptty, out)
+	tw, copyDone := startOutputCopier(master, out)
 
 	// Wait for command to finish first
 	waitErr := c.Wait()
@@ -386,7 +397,7 @@ func startResizeApplier(ptty pty.Pty, resize <-chan agent.WindowSize, masterClos
 // stdin — an io.Pipe fed by the server's stream pump, possibly behind a
 // wrapper — and releaseStdin is the owner's cleanup for it (see
 // RunInteractive), already reduced to run exactly once.
-func startStdinCopier(ptty pty.Pty, stdin io.Reader, releaseStdin func(), done <-chan struct{}) {
+func startStdinCopier(master io.Writer, stdin io.Reader, releaseStdin func(), done <-chan struct{}) {
 	if stdin == nil {
 		return
 	}
@@ -406,7 +417,7 @@ func startStdinCopier(ptty pty.Pty, stdin io.Reader, releaseStdin func(), done <
 					return
 				default:
 				}
-				if _, werr := ptty.Write(buf[:n]); werr != nil {
+				if _, werr := master.Write(buf[:n]); werr != nil {
 					return
 				}
 			}
@@ -426,11 +437,11 @@ func startStdinCopier(ptty pty.Pty, stdin io.Reader, releaseStdin func(), done <
 // destination (a gRPC stream, which CAN fail mid-run on a broken pipe or
 // connection reset) left RunInteractive reporting the child's exit code as
 // success having delivered nothing after the failure. trackWriter isolates the
-// WRITE side specifically: a read error from ptty is EXPECTED once the caller
+// WRITE side specifically: a read error from the master is EXPECTED once the caller
 // intentionally closes it (drainPTY + close), so io.Copy's own combined return
 // cannot distinguish "we hung up on ourselves on purpose" from "the
 // destination failed" — only the write side can.
-func startOutputCopier(ptty pty.Pty, out io.Writer) (*trackWriter, <-chan struct{}) {
+func startOutputCopier(master io.Reader, out io.Writer) (*trackWriter, <-chan struct{}) {
 	dst := io.Discard
 	if out != nil {
 		dst = out
@@ -439,7 +450,7 @@ func startOutputCopier(ptty pty.Pty, out io.Writer) (*trackWriter, <-chan struct
 	copyDone := make(chan struct{})
 	go func() {
 		defer close(copyDone)
-		_, _ = io.Copy(tw, ptty)
+		_, _ = io.Copy(tw, master)
 	}()
 	return tw, copyDone
 }

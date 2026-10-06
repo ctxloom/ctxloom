@@ -4,6 +4,7 @@ package ptyrunner
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os/exec"
 	"path/filepath"
@@ -59,3 +60,16 @@ func adjustPtyCommand(c *pty.Cmd, original *exec.Cmd) {
 func pendingPTYBytes(_ pty.Pty) (int, bool) {
 	return 0, false
 }
+
+// pollableMaster is the ConPTY itself on Windows: its reads end when the
+// pseudo console is closed, which closePTY does, so the view's own Close has
+// nothing to release.
+func pollableMaster(ptty pty.Pty) (io.ReadWriteCloser, error) {
+	return conPTYView{ptty}, nil
+}
+
+// conPTYView is a ConPTY seen through pollableMaster: reads and writes go to
+// the pseudo console; Close is closePTY's.
+type conPTYView struct{ pty.Pty }
+
+func (conPTYView) Close() error { return nil }

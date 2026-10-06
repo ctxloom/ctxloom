@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -73,4 +75,57 @@ func assertNothingDriven(t *testing.T, home *fakeEngineHome) {
 	require.NoError(t, err)
 	_, statErr := os.Stat(path)
 	assert.True(t, os.IsNotExist(statErr), "a closed host opened the run's transcript under HOME (stat: %v)", statErr)
+}
+
+// heldHome holds Drive inside BindIdentity — the first thing it does past its
+// closed check — until release closes.
+type heldHome struct {
+	*fakeEngineHome
+	reached chan struct{}
+	release chan struct{}
+}
+
+func (h *heldHome) BindIdentity(id coord.Identity) {
+	close(h.reached)
+	<-h.release
+	h.fakeEngineHome.BindIdentity(id)
+}
+
+// TestEngineHost_CloseWaitsForADriveInFlight forces the residual window: Drive
+// passes its closed check, THEN Close begins. Close must not seal and return
+// while that Drive is still running — its later dispatches would be refused
+// (or, before refusal, run unjoined) and it would open the run's transcript
+// recorder after Close had closed it. Close waits for it, bounded.
+func TestEngineHost_CloseWaitsForADriveInFlight(t *testing.T) {
+	testsupport.Isolate(t)
+	home := &heldHome{fakeEngineHome: &fakeEngineHome{}, reached: make(chan struct{}), release: make(chan struct{})}
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(home.release) }) }
+	t.Cleanup(release)
+
+	sc := &eventScript{running: make(chan struct{})}
+	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh.BindHome(home)
+
+	driveErr := make(chan error, 1)
+	go func() {
+		driveErr <- testRunner{eh: eh, inst: sc}.Execute(context.Background(), testStartRun("run-1").GetLaunch())
+	}()
+	<-home.reached // Drive is past its closed check
+
+	// The seam releases Drive only once Close is waiting for it, so a Close
+	// that does not wait returns with Drive still held.
+	eh.closeAwaitsDrive = release
+	eh.Close()
+
+	select {
+	case err := <-driveErr:
+		assert.NotErrorIs(t, err, errEngineHostClosed, "Close sealed while Drive was in flight, so Drive's dispatches were refused")
+	default:
+		t.Fatal("Close returned while a Drive was still in flight")
+	}
+	eh.mu.Lock()
+	rec := eh.rec
+	eh.mu.Unlock()
+	assert.Nil(t, rec, "Drive's transcript recorder is open after Close returned")
 }

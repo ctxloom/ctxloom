@@ -256,10 +256,17 @@ type EngineHost struct {
 	tracked   coord.TrackedGroup
 	closeOnce sync.Once
 	// closed is set when Close begins (guarded by mu): from then on no run
-	// starts — startRun and Drive refuse with errEngineHostClosed — so nothing
-	// can dispatch onto the sealed group or open a recorder Close will not
-	// close.
+	// starts — startRun and Drive refuse with errEngineHostClosed. A Drive
+	// already past that check is what driving covers.
 	closed bool
+	// driving is closed when the Drive that committed to this host's run
+	// returns (guarded by mu; nil until one commits). Close waits on it,
+	// bounded, BEFORE sealing: that Drive's dispatches are then tracked and
+	// joined, and the recorder it opens exists by the time Close closes it.
+	driving chan struct{}
+	// closeAwaitsDrive is a test seam: Close calls it, when set, just before
+	// it waits for a Drive already past its closed check.
+	closeAwaitsDrive func()
 }
 
 // errEngineHostClosed refuses a run that reaches the engine host after Close
@@ -298,19 +305,42 @@ func (eh *EngineHost) waitTracked() {
 // every tracked goroutine before returning — the runner-side teardown
 // counterpart to Coordinator.Close/Home.Close. Idempotent
 // (closeOnce-guarded) and safe to call even when no run was ever started.
+//
+// A Drive already past its closed check is waited for (awaitDrive) before
+// the seal. The run is cancelled first, because every wait on Drive's path
+// is bounded by the run's context; and again after, because an interactive
+// Drive publishes its cancel only once it is past the check.
 func (eh *EngineHost) Close() {
 	eh.closeOnce.Do(func() {
 		eh.mu.Lock()
 		eh.closed = true
-		cancel := eh.cancel
+		driving := eh.driving
 		eh.mu.Unlock()
+		eh.closeRun()
+		eh.awaitDrive(driving)
+		eh.closeRun()
 		eh.tracked.Seal()
-		if cancel != nil {
-			cancel()
-		}
 		eh.waitTracked()
 		eh.closeRecorder()
 	})
+}
+
+// awaitDrive waits for the Drive in flight (driving; nil when none committed)
+// to return, within engineHostCloseJoinBudget — the bound Close's join
+// already uses, for the same reason: a wedged Drive must not hang teardown.
+// Past the budget Close proceeds and says what the late Drive may still do.
+func (eh *EngineHost) awaitDrive(driving chan struct{}) {
+	if driving == nil {
+		return
+	}
+	if hook := eh.closeAwaitsDrive; hook != nil {
+		hook()
+	}
+	select {
+	case <-driving:
+	case <-time.After(engineHostCloseJoinBudget):
+		eh.rep.Warnf("engine host close: a Drive in flight did not return within %s; proceeding (its dispatches are refused, but it may still open the run's transcript recorder)", engineHostCloseJoinBudget)
+	}
 }
 
 // closeRecorder closes the run's transcript recorder once, at the run's end
@@ -484,6 +514,9 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 			return ErrNoTerminal
 		}
 		eh.started = true
+		driving := make(chan struct{})
+		eh.driving = driving
+		defer close(driving)
 		home := eh.home
 		eh.result = eh.startRunResult()
 		eh.mu.Unlock()
@@ -495,6 +528,9 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	}
 	prompt := t.Prompt
 	eh.started = true
+	driving := make(chan struct{})
+	eh.driving = driving
+	defer close(driving)
 	eh.driver = t.Instance.Drivers()[0]
 	eh.exec = t.Exec
 	eh.secretFiles = t.Launch.Cell.SecretFiles

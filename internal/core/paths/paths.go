@@ -137,8 +137,8 @@ const (
 	// classify the directory without either side inventing the name twice.
 	ContextCacheDir = "context"
 
-	// CompanionPinCacheDir is the CacheDir subdirectory holding the admitted
-	// companions' verified bytes and signatures, one directory per admitted
+	// CompanionPinCacheDir is the CacheDir subdirectory holding copies of the
+	// admitted companions' bytes, one directory per admitted
 	// set's digest (companions.PinAdmittedCompanions) — what a host launch puts
 	// first on the engine's PATH.
 	CompanionPinCacheDir = "companions"
@@ -166,6 +166,11 @@ const (
 	// content at the proposed commit carried a publisher signature that does
 	// not verify over its bytes — see RefusedAdvancesPath.
 	RefusedAdvancesFileName = "refused_advances"
+
+	// CompanionAllowFileName is the name (without extension) of the per-user
+	// record of companion binaries ctxloom may execute — see
+	// HomeCompanionAllowPath.
+	CompanionAllowFileName = "companion_allow"
 
 	// DirtyTreeCommitAckFileName is the name (without extension) of the
 	// per-checkout record that a human authorized ctxloom to auto-commit a
@@ -422,6 +427,7 @@ const (
 	whatDistrustedSigners = "the user distrust record"
 	whatHomeRecords       = "the home records directory"
 	whatCompanionPin      = "the admitted-companion pin"
+	whatCompanionAllow    = "the companion allow store"
 )
 
 // homeUnder resolves ~/<AppDirName>/<segments...>, naming what failed in the
@@ -443,6 +449,25 @@ func homeUnder(what string, segments ...string) (string, error) {
 // companions.PinAdmittedCompanions writes admitted companions into.
 func HomeCompanionPinDir() (string, error) {
 	return homeUnder(whatCompanionPin, CacheDir, CompanionPinCacheDir)
+}
+
+// HomeCompanionAllowPath returns ~/.ctxloom/companion_allow.yaml — the
+// per-user record of which companion binaries (path and SHA-256) ctxloom may
+// execute. Personal by construction: a record admits an executable on one
+// machine, so no project file can carry one.
+//
+// Guarded against a real home under a test binary: a stray record there would
+// admit a binary on the developer's machine.
+func HomeCompanionAllowPath() (string, error) {
+	p, err := homeUnder(whatCompanionAllow, CompanionAllowFileName+".yaml")
+	if err != nil {
+		return "", err
+	}
+	if err := UnsandboxedHomeError(whatCompanionAllow, p,
+		"testsupport.SandboxedMain / testsupport.Isolate, so HOME points at a temp root"); err != nil {
+		return "", err
+	}
+	return p, nil
 }
 
 func HomeSessionsDir() (string, error) {
@@ -1210,6 +1235,10 @@ func Layout() []Entry {
 		{
 			Rel: filepath.Join(AppDirName, HomeRecordsDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
 			Lost: "the audit trail of what `util config-write` changed in foreign JSON config files (hew §9.7 application records) — the files themselves are unaffected; only the record of having changed them is gone",
+		},
+		{
+			Rel: filepath.Join(AppDirName, CompanionAllowFileName+".yaml"), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
+			Lost: "every companion binary you allowed (ctxloom companion allow); each is refused until it is allowed again",
 		},
 	}
 }

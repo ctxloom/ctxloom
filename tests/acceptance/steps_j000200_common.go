@@ -21,7 +21,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -293,11 +292,6 @@ func runFreshMockSession(w *World) (string, error) {
 	return string(data), nil
 }
 
-// ptyWaitTimeout bounds every PTY-driven wait in this file: the discovery
-// session spawns a real runner subprocess (`ctxloom runner mock`), which can
-// take over a second under CI load.
-const ptyWaitTimeout = 20 * time.Second
-
 // driveDiscoverySessionViaMock drives a REAL `ctxloom init` (on an
 // ALREADY-initialized .ctxloom dir, so init.go's alreadyExists branch runs —
 // no network clone) over a real pty: the project's LLM default must already
@@ -324,9 +318,9 @@ func driveDiscoverySessionViaMock(w *World, recordFile string, initArgs ...strin
 	}
 	defer sess.Close()
 
-	exited, waitErr := sess.Wait(ptyWaitTimeout)
+	exited, waitErr := sess.Wait(eventBudget())
 	if !exited {
-		return "", fmt.Errorf("ctxloom init did not exit within %s; captured output:\n%s", ptyWaitTimeout, sess.Output())
+		return "", fmt.Errorf("ctxloom init never exited; captured output:\n%s", sess.Output())
 	}
 	if waitErr != nil {
 		return "", fmt.Errorf("ctxloom init exited with an error: %w; captured output:\n%s", waitErr, sess.Output())
@@ -419,7 +413,7 @@ func driveFreshInitInterview(w *World) (string, error) {
 	for _, qa := range []struct{ prompt, answer string }{
 		{"Do you have any personal ctxloom repositories? (y/N): ", "n"},
 	} {
-		if !sess.WaitForOutput(ptyWaitTimeout, func(out string) bool { return strings.Contains(out, qa.prompt) }) {
+		if !sess.WaitForOutput(eventBudget(), func(out string) bool { return strings.Contains(out, qa.prompt) }) {
 			return sess.Output(), fmt.Errorf("init never asked %q; captured output:\n%s", qa.prompt, sess.Output())
 		}
 		if _, err := sess.Write([]byte(qa.answer + "\r")); err != nil {
@@ -427,9 +421,9 @@ func driveFreshInitInterview(w *World) (string, error) {
 		}
 	}
 
-	exited, waitErr := sess.Wait(ptyWaitTimeout)
+	exited, waitErr := sess.Wait(eventBudget())
 	if !exited {
-		return sess.Output(), fmt.Errorf("ctxloom init did not exit within %s; captured output:\n%s", ptyWaitTimeout, sess.Output())
+		return sess.Output(), fmt.Errorf("ctxloom init never exited; captured output:\n%s", sess.Output())
 	}
 	if waitErr != nil {
 		return sess.Output(), fmt.Errorf("ctxloom init exited with an error: %w; captured output:\n%s", waitErr, sess.Output())

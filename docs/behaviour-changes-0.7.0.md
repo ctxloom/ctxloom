@@ -217,16 +217,18 @@ content signed at a lower version than the one this project last pinned. If
 going back is what you want, name the bundle:
 `ctxloom deps upgrade --allow-downgrade <ref>`.
 
-## 10. Companion binaries need a signed release statement
+## 10. Companion binaries run only once you allow them
 
-A companion binary is admitted only with a `<binary>.release` statement beside
-it (the binary's name, version and SHA-256) and a `<binary>.sig` signing that
-statement. Admission checks the name against the file it found and the hash
-against its bytes, so a signed binary renamed or edited after signing is
-refused. A companion with no statement is skipped with the reason "no signed
-release statement beside it". The release archives and `install.sh` /
-`install.ps1` ship both files for `taskloom` and `ltk`; a companion you build
-yourself must ship them too.
+ctxloom executes a companion binary it finds on PATH (`ltk`, `taskloom`,
+`reprise`, `ctxloom-companion-*`) only when your own
+`~/.ctxloom/companion_allow.yaml` records its resolved path and the SHA-256 of
+its bytes. Allow one with `ctxloom companion allow <path|name> --yes`; without
+`--yes` the command shows the path and hash it would record and writes
+nothing. A companion with no record is skipped as `not-allowed`, and one whose
+bytes changed since it was allowed — a rebuild or an upgrade — is skipped as
+`hash-changed`, naming the old and the new hash. Re-run `companion allow` after
+installing a new build; `just install` does this for the companions it
+installs. `ctxloom companion forget <path|name> --yes` withdraws an allow.
 
 ## 11. A lockfile keyed by the reference as typed is refused
 

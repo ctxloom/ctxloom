@@ -6,19 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
-
-// treesPollTimeout bounds the wait for the first session's mock engine to
-// echo the readiness sentinel back through the pty. Generous for CI: the
-// plugin spawn is a real self-exec + go-plugin handshake, and the
-// coordinator standup precedes it.
-const treesPollTimeout = 20 * time.Second
 
 // treesSentinel is the line typed into the first session's pty whose echo
 // proves that session is fully up: `ctxloom run` hosts its coordinator BEFORE
@@ -74,9 +67,10 @@ func TestSecondRun_FoundsItsOwnTree_AndTheFirstKeepsItsState(t *testing.T) {
 
 	_, err = first.Write([]byte(treesSentinel + "\n"))
 	require.NoError(t, err)
-	require.True(t, first.WaitForOutput(treesPollTimeout, func(out string) bool {
+	echoed, standing := first.AwaitOutput(t, func(out string) bool {
 		return strings.Contains(out, "mock echo: "+treesSentinel)
-	}), "the first session never echoed %q — it is not standing; output:\n%s", treesSentinel, first.Output())
+	})
+	require.True(t, standing, "the first session never echoed %q — it is not standing; output:\n%s", treesSentinel, echoed)
 
 	locks := ownerLocks(t, env.HomeDir)
 	require.Len(t, locks, 1, "the first session must hold exactly one root; found %v", locks)
@@ -121,7 +115,7 @@ func TestSecondRun_FoundsItsOwnTree_AndTheFirstKeepsItsState(t *testing.T) {
 	// The first session ends; its lock is released with it.
 	_, err = first.Write([]byte("quit\n"))
 	require.NoError(t, err)
-	exited, _ := first.Wait(treesPollTimeout)
+	exited, _ := first.AwaitExit(t)
 	require.True(t, exited, "the first session did not exit after quit; output:\n%s", first.Output())
 	released, err := coord.ProbeOwner(filepath.Dir(lock))
 	require.NoError(t, err)

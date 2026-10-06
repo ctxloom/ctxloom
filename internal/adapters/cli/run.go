@@ -860,7 +860,7 @@ func (st *runState) runStartupTasks() {
 	// Log which companion binaries (taskloom, ltk) this session is wired
 	// with, version-probed via `<bin> version --format json`.
 	if !runDryRun {
-		operations.ReportCompanions(os.Stderr, App().Prober(), st.cfg.Trust().Root())
+		operations.ReportCompanions(os.Stderr, App().Prober())
 	}
 
 	// Startup reaper: sweep any per-agent worktree checkout left behind by a

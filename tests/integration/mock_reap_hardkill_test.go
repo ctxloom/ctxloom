@@ -6,21 +6,13 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/procpin"
 	"github.com/ctxloom/ctxloom/internal/testsupport/procalive"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
-
-// hardKillPollTimeout bounds how long the test waits for the runner's mock
-// engine to echo the sentinel line back through the pty, and separately how
-// long it waits for the process table to reflect the reap. Generous for CI:
-// the runner spawn is a real self-exec, observed to take over a second under
-// load.
-const hardKillPollTimeout = 20 * time.Second
-const hardKillPollInterval = 25 * time.Millisecond
 
 // hardKillSentinel is the line typed into the pty whose echo proves the
 // runner child is parked in the mock's echo loop. Any non-empty line works;
@@ -82,7 +74,7 @@ func TestRunnerReapedOnHardKilledParent(t *testing.T) {
 	// Close is the harness's own safety net (SIGTERM, escalate to SIGKILL,
 	// sweep any still-living runner child) for a failing run of THIS test —
 	// registered via t.Cleanup so it always runs, but strictly AFTER the
-	// require.Eventually below has already independently observed whether the
+	// exit wait below has already independently observed whether the
 	// mechanism under test (PR_SET_PDEATHSIG) worked on its own.
 	//
 	// THE INVARIANT this registration keeps, and the one every cleanup in
@@ -114,13 +106,19 @@ func TestRunnerReapedOnHardKilledParent(t *testing.T) {
 	_, err = sess.Write([]byte(hardKillSentinel + "\n"))
 	require.NoError(t, err, "type sentinel into pty")
 	echoed := "mock echo: " + hardKillSentinel
-	require.True(t, sess.WaitForOutput(hardKillPollTimeout, func(out string) bool {
+	out, ready := sess.AwaitOutput(t, func(out string) bool {
 		return strings.Contains(out, echoed)
-	}), "mock never echoed %q back through the pty — the runner child is not parked in the echo loop, so nothing holds it alive for the kill; output:\n%s", hardKillSentinel, sess.Output())
+	})
+	require.True(t, ready, "mock never echoed %q back through the pty — the runner child is not parked in the echo loop, so nothing holds it alive for the kill; output:\n%s", hardKillSentinel, out)
 
 	childPIDs := testenv.RunnerChildrenOf(parentPID)
 	require.NotEmpty(t, childPIDs, "mock echoed the sentinel but no runner subprocess is a child of pid %d", parentPID)
 	childPID := childPIDs[0]
+	// Pinned while it is alive: the pin's exit is the event the reap is waited
+	// on, and it names this process even if the pid is reused after it.
+	child, pinned := procpin.Pin(childPID)
+	require.True(t, pinned, "sanity: captured runner pid %d could not be pinned", childPID)
+	t.Cleanup(child.Close)
 	require.True(t, processAlive(childPID), "sanity: captured runner pid %d isn't actually alive", childPID)
 
 	// THE adversarial action: kill the parent hard. SIGKILL is uncatchable —
@@ -130,8 +128,8 @@ func TestRunnerReapedOnHardKilledParent(t *testing.T) {
 	// worktree, or an agent harness tearing the process down — the parent
 	// gets no chance to reap anything itself.
 	require.NoError(t, syscall.Kill(parentPID, syscall.SIGKILL))
-	exited, _ := sess.Wait(hardKillPollTimeout) // reap the zombie; the (SIGKILL) exit error is expected and irrelevant
-	require.True(t, exited, "parent process %d was not reaped within %s of SIGKILL", parentPID, hardKillPollTimeout)
+	exited, _ := sess.AwaitExit(t) // reap the zombie; the (SIGKILL) exit error is expected and irrelevant
+	require.True(t, exited, "parent process %d was never reaped after SIGKILL; output:\n%s", parentPID, sess.Output())
 
 	// NOTHING IS DONE HERE ON PURPOSE. No KillPids, no signal, no sweep —
 	// the harness deliberately abandons the runner child exactly as a dying
@@ -144,10 +142,9 @@ func TestRunnerReapedOnHardKilledParent(t *testing.T) {
 	// while the process keeps running is precisely the defect this is the
 	// regression test for, and this project's characteristic bug is exit 0
 	// with nothing actually done.
-	require.Eventually(t, func() bool {
-		return !processAlive(childPID)
-	}, hardKillPollTimeout, hardKillPollInterval,
-		"runner subprocess pid %d outlived its hard-killed parent %d with nothing left to reap it — an orphaned runner", childPID, parentPID)
+	require.True(t, child.WaitExit(testenv.TestBudget(t)),
+		"runner subprocess pid %d outlived its hard-killed parent %d with nothing left to reap it — an orphaned runner; output:\n%s", childPID, parentPID, sess.Output())
+	require.False(t, processAlive(childPID), "runner subprocess pid %d exited but still reads as alive", childPID)
 }
 
 // processAlive reports whether pid names a live, non-zombie process. A bare

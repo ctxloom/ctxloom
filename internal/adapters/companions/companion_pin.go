@@ -9,26 +9,24 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/admission"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/spf13/afero"
 )
 
-// PinAdmittedCompanions admits every discovered companion and writes each
-// admitted one — the exact bytes admitCompanion verified, the release statement
-// that names and hashes them, and the signature over that statement — into a
-// directory under storeRoot, returning that directory ("" when nothing was
-// admitted).
+// PinAdmittedCompanions admits every discovered companion against allowed and
+// writes each admitted one — the exact bytes admission read — into a directory
+// under storeRoot, returning that directory ("" when nothing was admitted).
 //
-// WHY IT EXISTS. Admission verifies ONE file, the one ctxloom's PATH resolved.
-// But the hooks and MCP servers a companion's loadout contributes name it by
-// its BARE name (agent.CtxloomCommand's invariant: an absolute path in a
-// tracked settings file is one machine's fact every other clone inherits), and
-// the engine resolves that name through ITS OWN PATH at every call. An
-// unsigned binary of the same name earlier on that PATH — direnv,
-// node_modules/.bin — would run as the pre-tool hook with no signature check.
-// Putting this directory first on the engine's PATH makes the bare name reach
-// the admitted bytes.
+// WHY IT EXISTS. Admission identifies ONE file, the one ctxloom's PATH
+// resolved. But the hooks and MCP servers a companion's loadout contributes
+// name it by its BARE name (agent.CtxloomCommand's invariant: an absolute path
+// in a tracked settings file is one machine's fact every other clone
+// inherits), and the engine resolves that name through ITS OWN PATH at every
+// call. An unallowed binary of the same name earlier on that PATH — direnv,
+// node_modules/.bin — would run as the pre-tool hook. Putting this directory
+// first on the engine's PATH makes the bare name reach the admitted bytes.
 //
 // COPIES, NOT LINKS: a link resolves at every call, so swapping the original
 // after admission would swap what the hook runs. The cost of copying is
@@ -36,14 +34,14 @@ import (
 // digest, so every session with the same companions shares one copy, and a
 // changed companion gets a new directory.
 //
-// The statement and signature are copied too because a ctxloom started FROM
-// this PATH — a hook the engine fires — discovers the pinned copy first and
-// must admit it. Admission checks the statement's name against the file it
-// resolves, so the copy is written under the name the ORIGINAL was admitted as
-// (verifiedCompanion.name: the bare name on a normal install, "<name>.exe" on
-// Windows), and the statement's hash covers these bytes exactly, so it admits.
-func PinAdmittedCompanions(storeRoot string, root trust.TrustRoot) (string, error) {
-	names, admitted := admittedCompanions(root)
+// A ctxloom started FROM this PATH — a hook the engine fires — discovers the
+// pinned copy first and must admit it. The copy is written under the name the
+// original was admitted as (verifiedCompanion.name: the bare name on a normal
+// install, "<name>.exe" on Windows), which is what admission's pin rule
+// matches together with the hash (pinnedAllowed) when storeRoot is
+// paths.HomeCompanionPinDir.
+func PinAdmittedCompanions(storeRoot string, allowed *admission.Snapshot[CompanionKey]) (string, error) {
+	names, admitted := admittedCompanions(allowed)
 	if len(names) == 0 {
 		return "", nil
 	}
@@ -103,13 +101,14 @@ func fillPinDir(tmp string, names []string, admitted map[string]verifiedCompanio
 
 // admittedCompanions is every discovered companion that admits, sorted (so
 // the digest is stable), with its verified bytes.
-func admittedCompanions(root trust.TrustRoot) ([]string, map[string]verifiedCompanion) {
+func admittedCompanions(allowed *admission.Snapshot[CompanionKey]) ([]string, map[string]verifiedCompanion) {
+	pinRoot, _ := paths.HomeCompanionPinDir() // "" disables only the pin rule
 	var names []string
 	admitted := map[string]verifiedCompanion{}
 	for _, bin := range DiscoverCompanions() { // sorted: the digest is stable
-		a, v := admitCompanionVerified(bin, root)
+		a, v := admitCompanionAllowed(bin, allowed, pinRoot)
 		if !a.Allow {
-			continue // admitCompanionVerified has already reported why
+			continue // admitCompanionAllowed has already reported why
 		}
 		names = append(names, bin)
 		admitted[bin] = v
@@ -117,29 +116,22 @@ func admittedCompanions(root trust.TrustRoot) ([]string, map[string]verifiedComp
 	return names, admitted
 }
 
-// pinSetDigest names the admitted set: every companion's name and the
-// digests of its payload, statement and signature.
+// pinSetDigest names the admitted set: every companion's name and the digest
+// of its payload.
 func pinSetDigest(names []string, admitted map[string]verifiedCompanion) string {
 	h := sha256.New()
 	for _, bin := range names {
 		v := admitted[bin]
-		p, r, s := sha256.Sum256(v.payload), sha256.Sum256(v.statement), sha256.Sum256(v.sig)
-		fmt.Fprintf(h, "%s\x00%s\x00%x\x00%x\x00%x\n", bin, v.name, p, r, s)
+		fmt.Fprintf(h, "%s\x00%s\x00%x\n", bin, v.name, sha256.Sum256(v.payload))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// writePinCopy writes one companion's admitted payload, release statement and
-// signature into dir under the name it was admitted as.
+// writePinCopy writes one companion's admitted payload into dir under the name
+// it was admitted as.
 func writePinCopy(dir, bin string, v verifiedCompanion) error {
 	if err := safefs.WriteFile(afero.NewOsFs(), filepath.Join(dir, v.name), v.payload, 0o755); err != nil { //nolint:gosec // a companion must be executable
 		return fmt.Errorf("pin companion %s: %w", bin, err)
-	}
-	if err := safefs.WriteFile(afero.NewOsFs(), filepath.Join(dir, v.name+companionReleaseSuffix), v.statement, 0o644); err != nil { //nolint:gosec // a public statement
-		return fmt.Errorf("pin companion %s release statement: %w", bin, err)
-	}
-	if err := safefs.WriteFile(afero.NewOsFs(), filepath.Join(dir, v.name+companionSigSuffix), v.sig, 0o644); err != nil { //nolint:gosec // a public signature
-		return fmt.Errorf("pin companion %s signature: %w", bin, err)
 	}
 	return nil
 }
@@ -149,15 +141,9 @@ func writePinCopy(dir, bin string, v verifiedCompanion) error {
 // disk, so a reused one is checked rather than believed.
 func pinHolds(dir string, admitted map[string]verifiedCompanion) bool {
 	for _, v := range admitted {
-		for file, want := range map[string][]byte{
-			v.name:                          v.payload,
-			v.name + companionReleaseSuffix: v.statement,
-			v.name + companionSigSuffix:     v.sig,
-		} {
-			got, err := os.ReadFile(filepath.Join(dir, file)) //nolint:gosec // a path this package named
-			if err != nil || !bytes.Equal(got, want) {
-				return false
-			}
+		got, err := os.ReadFile(filepath.Join(dir, v.name)) //nolint:gosec // a path this package named
+		if err != nil || !bytes.Equal(got, v.payload) {
+			return false
 		}
 	}
 	return true

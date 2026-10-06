@@ -332,15 +332,15 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	// operations.CollectTooling reads — carrying a caller-chosen marker so a
 	// scenario can tell "the gate withheld this declaration" apart from
 	// "collection returned nothing at all". Installed under the
-	// ctxloom-companion-<name> discovery convention, signed by the scenario's
-	// fixture key, so ctxloom executes it.
+	// ctxloom-companion-<name> discovery convention, allowed in the scenario's
+	// HOME, so ctxloom executes it.
 	ctx.Step(`^a companion "([^"]*)" declaring container tooling "([^"]*)"$`, func(c context.Context, name, marker string) error {
 		return installToolingCompanion(worldFrom(c), name, marker)
 	})
 
-	// The same companion, but its binary is signed by a key this project does
-	// not trust — refused at exec, so its declaration never enters the process.
-	ctx.Step(`^a companion "([^"]*)" declaring container tooling "([^"]*)", signed by a key this project does not trust$`, func(c context.Context, name, marker string) error {
+	// The same companion, but not allowed to run here — refused at exec, so
+	// its declaration never enters the process.
+	ctx.Step(`^a companion "([^"]*)" declaring container tooling "([^"]*)", not allowed to run here$`, func(c context.Context, name, marker string) error {
 		w := worldFrom(c)
 		if err := installToolingCompanion(w, name, marker); err != nil {
 			return err
@@ -349,7 +349,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("the fake companion %q is not on PATH after install: %w", name, err)
 		}
-		return signCompanionWithUntrustedKey(w, path)
+		return forgetCompanionAllow(w, path)
 	})
 
 	// A profile requires at least one bundle or parent. The fixture creates a

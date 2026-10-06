@@ -3,108 +3,76 @@ package companions
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/base64"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
-	"golang.org/x/crypto/ssh"
-
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
-
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/admission"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// Companion EXEC consent. Every assertion here is about OBSERVABLE BEHAVIOR —
-// which binaries were admitted, what got written to the record, what the human
-// was told — never about a nil error. The failure mode this gate closes is
-// precisely the one an exit-code assertion cannot see.
+// Companion EXEC admission. Every assertion here is about OBSERVABLE
+// BEHAVIOR — which binaries were admitted, what the human was told — never
+// about a nil error. The failure mode this gate closes is precisely the one an
+// exit-code assertion cannot see.
 
-// consentFixture wires a hermetic admission world: a temp dir for binaries on
-// PATH, a temp record path for the refusal store, and a trust root holding one
-// generated key that vouches for whatever this fixture signs.
-//
-// It carries no prompt and no install directory any more. Both belonged to the
-// mechanisms admission replaced — trust-on-first-use asked a human, and the
-// location pin exempted binaries sitting beside the running ctxloom. A
-// signature answers the question they were approximating, so the fixture's job
-// is now to sign, or deliberately not to.
+// consentFixture wires a hermetic admission world: HOME under a temp root (so
+// the allow store and the pin directory are the test's own), a temp dir for
+// binaries on PATH, and a captured warning sink.
 type consentFixture struct {
 	elsewhere string
 	warnLog   *bytes.Buffer
-	signer    ssh.Signer
-	root      trust.TrustRoot
 }
 
-// sign vouches for the bytes at path with this fixture's key, which its trust
-// root authorizes for the companion namespace. A binary this is NOT called on
-// is refused as unsigned — which several tests below rely on.
-func (f *consentFixture) sign(t *testing.T, path string) {
+// allow records the binary at path, as its bytes are now, in the allow store
+// — what `ctxloom companion allow <path> --yes` does. A binary this is NOT
+// called on is refused as not allowed, which several tests below rely on.
+func (f *consentFixture) allow(t *testing.T, path string) CompanionKey {
 	t.Helper()
-	f.signAs(t, path, filepath.Base(path))
-}
-
-// signAs writes the release statement naming the binary at path as name, and
-// signs the statement — which is what a companion publisher ships beside it.
-func (f *consentFixture) signAs(t *testing.T, path, name string) {
-	t.Helper()
-	binary, err := os.ReadFile(path)
+	store, err := NewAllowStore(afero.NewOsFs())
 	require.NoError(t, err)
-	statement := testsupport.CompanionReleaseStatement(name, "1.0.0", binary)
-	require.NoError(t, os.WriteFile(path+".release", statement, 0o600))
-	f.signStatement(t, path, statement)
-}
-
-// signStatement writes statement as path's release statement and signs it
-// verbatim, so a test can sign a statement admission must refuse.
-func (f *consentFixture) signStatement(t *testing.T, path string, statement []byte) {
-	t.Helper()
-	require.NoError(t, os.WriteFile(path+".release", statement, 0o600))
-	sig, err := signing.Sign(statement, f.signer, signing.NamespaceCompanion)
+	key, err := ResolveCompanion(path)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(path+".sig", sig, 0o600))
+	_, err = store.Set(key, true)
+	require.NoError(t, err)
+	return key
 }
 
-// admit runs the real gate against this fixture's trust root.
-func (f *consentFixture) admit(bins []string) []CompanionAdmission {
-	return AdmitCompanions(bins, f.root)
+// snapshot loads the allow store as it is on disk now.
+func (f *consentFixture) snapshot(t *testing.T) *admission.Snapshot[CompanionKey] {
+	t.Helper()
+	store, err := NewAllowStore(afero.NewOsFs())
+	require.NoError(t, err)
+	snap, err := store.Load()
+	require.NoError(t, err)
+	return snap
+}
+
+// admit runs the real gate against the allow store as it is on disk now.
+func (f *consentFixture) admit(t *testing.T, bins []string) []CompanionAdmission {
+	t.Helper()
+	return AdmitCompanions(bins, f.snapshot(t))
 }
 
 func newConsentFixture(t *testing.T) *consentFixture {
 	t.Helper()
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	signer, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-
-	f := &consentFixture{
-		elsewhere: t.TempDir(),
-		warnLog:   &bytes.Buffer{},
-		signer:    signer,
-		root:      fixtureTrustRoot(t, signer),
-	}
+	t.Setenv("HOME", t.TempDir())
+	f := &consentFixture{elsewhere: t.TempDir(), warnLog: &bytes.Buffer{}}
 
 	restoreSink := clidiag.SetSink(f.warnLog)
 	t.Cleanup(restoreSink)
 
-	// lookPath resolves whatever the test wrote into either directory.
 	prevLook := SetLookPathForTesting(func(bin string) (string, error) {
-		for _, dir := range []string{f.elsewhere} {
-			p := filepath.Join(dir, bin)
-			if _, err := os.Stat(p); err == nil {
-				return p, nil
-			}
+		p := filepath.Join(f.elsewhere, bin)
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
 		}
 		return "", os.ErrNotExist
 	})
@@ -131,6 +99,143 @@ func admissionFor(t *testing.T, admissions []CompanionAdmission, bin string) Com
 	return CompanionAdmission{}
 }
 
+// --- The decision ----------------------------------------------------------
+
+// TestAdmitCompanions_AnAllowedPathAndHashIsAdmitted: a record for exactly
+// this path and these bytes admits, and carries the hash it was decided over.
+func TestAdmitCompanions_AnAllowedPathAndHashIsAdmitted(t *testing.T) {
+	f := newConsentFixture(t)
+	key := f.allow(t, f.writeBin(t, f.elsewhere, "ltk", "#!/bin/sh\n"))
+
+	got := admissionFor(t, f.admit(t, []string{"ltk"}), "ltk")
+	assert.True(t, got.Allow)
+	assert.Equal(t, CompanionAllowed, got.Reason)
+	assert.Equal(t, key.SHA256, got.SHA256)
+	assert.Empty(t, f.warnLog.String(), "an allowed companion is not news")
+}
+
+// TestAdmitCompanions_AnUnrecordedBinaryIsNotAllowed: with no record, the
+// binary is refused and the warning names the command that allows it.
+func TestAdmitCompanions_AnUnrecordedBinaryIsNotAllowed(t *testing.T) {
+	f := newConsentFixture(t)
+	path := f.writeBin(t, f.elsewhere, "ltk", "#!/bin/sh\n")
+
+	got := admissionFor(t, f.admit(t, []string{"ltk"}), "ltk")
+	assert.False(t, got.Allow)
+	assert.Equal(t, CompanionNotAllowed, got.Reason)
+	assert.Equal(t, path, got.Path, "the refusal names the file it refused")
+	assert.NotEmpty(t, got.SHA256, "the refusal carries the hash an allow would record")
+	assert.Contains(t, f.warnLog.String(), "ctxloom companion allow "+path)
+}
+
+// TestAdmitCompanions_ARebuiltBinaryIsHashChanged: the path is allowed but the
+// bytes are not the ones allowed. That is its own reason, and the disclosure
+// names both hashes, old -> new, so a human can tell a rebuild from a swap.
+func TestAdmitCompanions_ARebuiltBinaryIsHashChanged(t *testing.T) {
+	f := newConsentFixture(t)
+	path := f.writeBin(t, f.elsewhere, "ltk", "#!/bin/sh\necho one\n")
+	old := f.allow(t, path)
+	f.writeBin(t, f.elsewhere, "ltk", "#!/bin/sh\necho two\n")
+
+	got := admissionFor(t, f.admit(t, []string{"ltk"}), "ltk")
+	assert.False(t, got.Allow)
+	assert.Equal(t, CompanionHashChanged, got.Reason)
+	require.NotEqual(t, old.SHA256, got.SHA256)
+	assert.Contains(t, got.Detail, old.SHA256+" -> "+got.SHA256)
+	assert.Contains(t, f.warnLog.String(), old.SHA256+" -> "+got.SHA256)
+	assert.Contains(t, f.warnLog.String(), "ctxloom companion allow "+path)
+}
+
+// TestAdmitCompanions_AnAllowForAnotherPathDoesNotAdmit: identical bytes at a
+// path nobody allowed are refused. The path is half of what a human approved.
+func TestAdmitCompanions_AnAllowForAnotherPathDoesNotAdmit(t *testing.T) {
+	f := newConsentFixture(t)
+	other := t.TempDir()
+	f.allow(t, f.writeBin(t, other, "ltk", "#!/bin/sh\n"))
+	f.writeBin(t, f.elsewhere, "ltk", "#!/bin/sh\n")
+
+	got := admissionFor(t, f.admit(t, []string{"ltk"}), "ltk")
+	assert.False(t, got.Allow)
+	assert.Equal(t, CompanionNotAllowed, got.Reason)
+}
+
+// TestAdmitCompanions_AnUnreadableStoreAdmitsNothing: a nil snapshot (the
+// store could not be read) refuses every present binary.
+func TestAdmitCompanions_AnUnreadableStoreAdmitsNothing(t *testing.T) {
+	f := newConsentFixture(t)
+	f.allow(t, f.writeBin(t, f.elsewhere, "ltk", "#!/bin/sh\n"))
+
+	got := admissionFor(t, AdmitCompanions([]string{"ltk"}, nil), "ltk")
+	assert.False(t, got.Allow)
+	assert.Equal(t, CompanionNotAllowed, got.Reason)
+}
+
+// TestSelfAdmission_IsAllowedAsSelf: the running binary is admitted by
+// identity, under its own reason, with no record consulted.
+func TestSelfAdmission_IsAllowedAsSelf(t *testing.T) {
+	got := selfAdmission("/opt/build/ctxloom")
+	assert.True(t, got.Allow)
+	assert.Equal(t, CompanionSelf, got.Reason)
+	assert.Equal(t, SelfCompanion, got.Bin)
+}
+
+// --- The pin directory -----------------------------------------------------
+
+// pinnedCopy writes body under the home pin directory as name — what
+// PinAdmittedCompanions leaves there — and points lookPath at it.
+func (f *consentFixture) pinnedCopy(t *testing.T, name, body string) string {
+	t.Helper()
+	pinRoot, err := paths.HomeCompanionPinDir()
+	require.NoError(t, err)
+	dir := filepath.Join(pinRoot, "digest")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	p := f.writeBin(t, dir, name, body)
+	t.Cleanup(SetLookPathForTesting(func(bin string) (string, error) {
+		q := filepath.Join(dir, bin)
+		if _, err := os.Stat(q); err != nil {
+			return "", err
+		}
+		return q, nil
+	}))
+	return p
+}
+
+// TestAdmitCompanions_APinnedCopyOfAllowedBytesIsAdmitted: a ctxloom started
+// from the engine's PATH finds the pinned copy, at a path nobody allowed. It
+// is admitted because its bytes are the ones allowed under the same name.
+func TestAdmitCompanions_APinnedCopyOfAllowedBytesIsAdmitted(t *testing.T) {
+	f := newConsentFixture(t)
+	f.allow(t, f.writeBin(t, f.elsewhere, "ltk", "#!/bin/sh\necho ltk\n"))
+	f.pinnedCopy(t, "ltk", "#!/bin/sh\necho ltk\n")
+
+	got := admissionFor(t, f.admit(t, []string{"ltk"}), "ltk")
+	assert.True(t, got.Allow, "%s: %s", got.Reason, got.Detail)
+	assert.Equal(t, CompanionAllowed, got.Reason)
+}
+
+// TestAdmitCompanions_APinnedCopyOfOtherBytesIsRefused: a file under the pin
+// directory is not admitted by location. Bytes no record holds are refused.
+func TestAdmitCompanions_APinnedCopyOfOtherBytesIsRefused(t *testing.T) {
+	f := newConsentFixture(t)
+	f.allow(t, f.writeBin(t, f.elsewhere, "ltk", "#!/bin/sh\necho ltk\n"))
+	f.pinnedCopy(t, "ltk", "#!/bin/sh\necho planted\n")
+
+	got := admissionFor(t, f.admit(t, []string{"ltk"}), "ltk")
+	assert.False(t, got.Allow)
+}
+
+// TestAdmitCompanions_APinnedCopyUnderAnotherNameIsRefused: allowed bytes
+// pinned under a different companion's name are refused, so one allowed
+// program cannot run as another.
+func TestAdmitCompanions_APinnedCopyUnderAnotherNameIsRefused(t *testing.T) {
+	f := newConsentFixture(t)
+	f.allow(t, f.writeBin(t, f.elsewhere, "taskloom", "#!/bin/sh\necho taskloom\n"))
+	f.pinnedCopy(t, "ltk", "#!/bin/sh\necho taskloom\n")
+
+	got := admissionFor(t, f.admit(t, []string{"ltk"}), "ltk")
+	assert.False(t, got.Allow)
+}
+
 // --- The store's own fault path --------------------------------------------
 
 // --- Identity resolution ---------------------------------------------------
@@ -140,9 +245,9 @@ func admissionFor(t *testing.T, admissions []CompanionAdmission, bin string) Com
 func TestAdmitCompanions_MissingBinaryIsSilentlyNotInstalled(t *testing.T) {
 	f := newConsentFixture(t)
 
-	got := admissionFor(t, f.admit([]string{"reprise"}), "reprise")
+	got := admissionFor(t, f.admit(t, []string{"reprise"}), "reprise")
 	assert.False(t, got.Allow)
-	assert.Equal(t, CompanionAdmissionNotInstalled, got.Reason)
+	assert.Equal(t, CompanionNotInstalled, got.Reason)
 	assert.Empty(t, got.Path)
 	assert.Empty(t, f.warnLog.String(), "a companion that simply is not installed is ordinary, not a warning")
 }
@@ -167,16 +272,16 @@ func TestProbeCompanionLoadouts_NeverExecsAnUnadmittedCompanion(t *testing.T) {
 	})
 	defer restoreProbe()
 
-	got, err := Prober{}.ProbeCompanionLoadouts(context.Background(), f.root)
+	got, err := Prober{}.ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, got.Loadouts)
-	assert.Empty(t, execed, "an unsigned companion must never be exec'd, not merely have its output discarded")
+	assert.Empty(t, execed, "an unallowed companion must never be exec'd, not merely have its output discarded")
 
-	// Now VOUCH for it and prove the SAME fixture does run — otherwise the
+	// Now ALLOW it and prove the SAME fixture does run — otherwise the
 	// assertion above would also pass against a probe that is simply broken.
-	f.sign(t, acmePath)
-	_, _ = Prober{}.ProbeCompanionLoadouts(context.Background(), f.root)
-	assert.Len(t, execed, 1, "once signed by a trusted key the very same companion is exec'd")
+	f.allow(t, acmePath)
+	_, _ = Prober{}.ProbeCompanionLoadouts(context.Background())
+	assert.Len(t, execed, 1, "once allowed the very same companion is exec'd")
 }
 
 // TestProbeCompanions_ReportsRefusalRatherThanAbsence: a refused companion is
@@ -196,16 +301,16 @@ func TestProbeCompanions_ReportsRefusalRatherThanAbsence(t *testing.T) {
 	defer restoreVersion()
 
 	var acme CompanionStatus
-	for _, st := range (Prober{}).ProbeCompanions(f.root) {
+	for _, st := range (Prober{}).ProbeCompanions() {
 		if st.Bin == "ctxloom-companion-acme" {
 			acme = st
 		}
 	}
 	require.Equal(t, "ctxloom-companion-acme", acme.Bin, "the refused companion must still be REPORTED")
 	assert.Equal(t, path, acme.Path, "the report must name the file it refused, not pretend nothing is there")
-	assert.Equal(t, CompanionAdmissionUnsigned, acme.Admission)
+	assert.Equal(t, CompanionNotAllowed, acme.Admission)
 	assert.False(t, acme.Executed())
-	assert.Empty(t, execed, "the version probe is an exec too, and must not run without a valid signature")
+	assert.Empty(t, execed, "the version probe is an exec too, and must not run without an allow record")
 }
 
 // TestProbes_NeverExecuteAnUnadmittedCompanion_RealBinary witnesses the same
@@ -239,8 +344,8 @@ func TestProbes_NeverExecuteAnUnadmittedCompanion_RealBinary(t *testing.T) {
 	// Nothing has vouched for it — the fail-closed shape of every agent and CI
 	// run. Deliberately NO seam overrides: the probes below reach the real
 	// exec.
-	statuses := Prober{}.ProbeCompanions(f.root)
-	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background(), f.root)
+	statuses := Prober{}.ProbeCompanions()
+	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, probe.Loadouts)
 
@@ -254,17 +359,17 @@ func TestProbes_NeverExecuteAnUnadmittedCompanion_RealBinary(t *testing.T) {
 		}
 	}
 	require.NotEmpty(t, acme.Path, "the refused companion must still be discovered on PATH")
-	require.Equal(t, CompanionAdmissionUnsigned, acme.Admission)
+	require.Equal(t, CompanionNotAllowed, acme.Admission)
 
 	assert.NoFileExists(t, sentinel,
 		"an unadmitted companion must never RUN, whatever the report says about it")
 
-	// POSITIVE CONTROL. Vouch for it and prove the very same binary, fixture
+	// POSITIVE CONTROL. Allow it and prove the very same binary, fixture
 	// and sentinel do fire — otherwise the assertion above would prove only
 	// that this test is incapable of executing anything.
-	f.sign(t, filepath.Join(f.elsewhere, "ctxloom-companion-acme"))
-	Prober{}.ProbeCompanions(f.root)
-	_, err = Prober{}.ProbeCompanionLoadouts(context.Background(), f.root)
+	f.allow(t, filepath.Join(f.elsewhere, "ctxloom-companion-acme"))
+	Prober{}.ProbeCompanions()
+	_, err = Prober{}.ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
 
 	ran, rerr := os.ReadFile(sentinel)
@@ -292,7 +397,7 @@ func TestProbeCompanionLoadouts_RefusedCompanionBecomesAnUnconsentedCandidate(t 
 	restorePath := setPathDirsForTesting(t, []string{f.elsewhere, f.elsewhere})
 	defer restorePath()
 
-	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background(), f.root)
+	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
 	require.Empty(t, probe.Loadouts, "an unapproved companion contributes no content")
 
@@ -316,24 +421,4 @@ func TestProbeCompanionLoadouts_RefusedCompanionBecomesAnUnconsentedCandidate(t 
 	require.True(t, ok, "guard: a name with no binary must still be reported")
 	assert.Equal(t, bundles.CandidateAbsent, reprise.Reason)
 	assert.Empty(t, reprise.Path)
-}
-
-// fixtureTrustRoot is a trust root holding exactly one principal: the fixture's
-// own key, authorized for the companion namespace and nothing else. Scoped that
-// tightly on purpose — a root that trusted the namespace broadly would admit
-// binaries a test never vouched for, and the refusals below would stop meaning
-// anything.
-func fixtureTrustRoot(t *testing.T, signer ssh.Signer) trust.TrustRoot {
-	t.Helper()
-	line := fmt.Sprintf("fixture@testenv.invalid namespaces=%q %s %s\n",
-		signing.NamespaceCompanion,
-		signer.PublicKey().Type(),
-		base64.StdEncoding.EncodeToString(signer.PublicKey().Marshal()))
-	path := filepath.Join(t.TempDir(), "allowed_signers")
-	require.NoError(t, os.WriteFile(path, []byte(line), 0o600))
-
-	store, parseErrs, err := allowedsigners.ParseFile(path)
-	require.NoError(t, err)
-	require.Empty(t, parseErrs, "the fixture trust root must parse cleanly, or every admission below is decided by an accident")
-	return store
 }

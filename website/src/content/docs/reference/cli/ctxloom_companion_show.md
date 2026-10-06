@@ -13,32 +13,23 @@ Show whether ctxloom would execute one companion binary, and why
 
 ### Synopsis
 
-Inspect which companion binaries ctxloom may execute.
+Inspect and decide which companion binaries ctxloom may execute.
 
 ctxloom discovers companions on your PATH (the shipped ltk / taskloom / reprise,
 plus anything named ctxloom-companion-*) and EXECUTES each one to read the
 context it contributes. Because any program on your PATH can claim one of those
 names — including a transitive dependency in ./node_modules/.bin — a companion
-runs only when its bytes carry a SIGNATURE from a publisher you trust.
+runs only when you have ALLOWED it.
 
-That is the whole gate. Beside each companion sit '<binary>.release' — its
-publisher's statement of the binary's name, version and sha256 — and
-'<binary>.sig', a signature over that statement. A companion is executed when
-the signature verifies, in the companion namespace, against a key in your
-allowed_signers, the statement names the file under the name it is installed
-as, and its hash matches the bytes. Anything else is skipped with a warning: no
-signed statement, a signature or hash that does not cover those bytes, a binary
-installed under a name its publisher did not give it, or a signer you have not
-authorized to say "this may run here".
+An allow is a record of the binary's resolved path and the SHA-256 of its
+bytes, kept in your own ~/.ctxloom/companion_allow.yaml. A companion whose path
+has no record is skipped as not-allowed; one whose bytes changed since it was
+allowed (a rebuild, an upgrade, a swap) is skipped as hash-changed, and the
+warning names the old and new hash so you can tell which.
 
-There is no command to approve or refuse one, and none is needed. To stop
-ctxloom running a companion, take away what admits it: delete its '.sig', or
-rename the binary so discovery no longer finds it. Both are ordinary file
-operations, they need no record to be kept in step with them, and they are
-visible in the place the decision actually lives.
-
-Sign a companion where it is BUILT — 'just sign-binary <path>' in its own
-repository — so the signature covers the bytes that were produced there.
+  ctxloom companion allow <path|name>          show what would be allowed
+  ctxloom companion allow <path|name> --yes    allow it
+  ctxloom companion forget <path|name> --yes   withdraw it
 
 ```
 ctxloom companion show <path-or-name> [flags]
@@ -64,5 +55,5 @@ ctxloom companion show <path-or-name> [flags]
 
 ### SEE ALSO
 
-* [ctxloom companion](/reference/cli/ctxloom_companion/)	 - Inspect which companion binaries ctxloom may execute
+* [ctxloom companion](/reference/cli/ctxloom_companion/)	 - Inspect and decide which companion binaries ctxloom may execute
 

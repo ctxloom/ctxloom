@@ -116,8 +116,8 @@ func TestManageInstallUninstall_FormatJSON(t *testing.T) {
 // install`/`uninstall`'s top-level orchestrators, but the same emit() shape).
 //
 // The companion gate is pinned shut: this test is about the emitted shape, and
-// a companion on the developer's PATH that this fixture's trust root cannot
-// verify would otherwise make the apply refuse (ErrUnverifiedCompanion).
+// a companion on the developer's PATH that this fixture's HOME has not allowed
+// would otherwise make the apply refuse (ErrCompanionNotAllowed).
 func TestManageHooksInstallUninstall_FormatJSON(t *testing.T) {
 	testsupport.ProjectDir(t)
 	t.Cleanup(companions.AdmitNoCompanionForTesting())

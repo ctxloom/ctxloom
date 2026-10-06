@@ -10,17 +10,29 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// companionPin produces the directory holding the ADMITTED companions — the
-// bytes companions.admitCompanion verified and their signatures
-// (companions.PinAdmittedCompanions) — or "" when none is admitted. Injected
-// by the CLI at startup (SetCompanionPin), as SetBinaryVersion is: admission
-// needs the configuration's trust root, which this package does not hold.
-// Unset means no companion is admitted.
+// companionPin produces the directory holding the ADMITTED companions — copies
+// of the bytes admission read (companions.PinAdmittedCompanions) — or "" when
+// none is admitted. Injected by the CLI at startup (SetCompanionPin), as
+// SetBinaryVersion is: admission lives in the companions package, which this
+// one does not import. Unset means no companion is admitted.
 var companionPin func() (string, error)
 
 // SetCompanionPin injects the admitted-companion directory provider. Called
 // once by the CLI at startup; nil clears it.
 func SetCompanionPin(fn func() (string, error)) { companionPin = fn }
+
+// companionAllowFile renders the allow store an agent image is built with,
+// admitting each staged companion at its in-image path
+// (companions.AllowFileFor): installed maps that path to the staged file.
+// Injected by the CLI at startup, beside companionPin. Unset means an image
+// carries no allow, and its ctxloom runs none of the companions baked in.
+var companionAllowFile func(installed map[string]string) ([]byte, error)
+
+// SetCompanionAllowFile injects the image allow-file renderer. Called once by
+// the CLI at startup; nil clears it.
+func SetCompanionAllowFile(fn func(installed map[string]string) ([]byte, error)) {
+	companionAllowFile = fn
+}
 
 // errCompanionNotAdmitted: no admitted copy of the named companion exists.
 var errCompanionNotAdmitted = errors.New("companion not admitted")
@@ -61,9 +73,9 @@ func pinnedCompanionLookPath(name string) (string, error) {
 // WHY: a companion's loadout hooks and MCP servers name it by its bare name
 // (agent.CtxloomCommand's invariant keeps absolute paths out of settings
 // files), so the engine resolves that name through the PATH it inherits from
-// the host runner — and companions.admitCompanion verified only the file
-// ctxloom's own PATH resolved. An unsigned binary of the same name earlier on
-// the inherited PATH would otherwise run as the hook. Leading with the pinned
+// the host runner — and admission identified only the file ctxloom's own PATH
+// resolved. An unallowed binary of the same name earlier on the inherited PATH
+// would otherwise run as the hook. Leading with the pinned
 // directory makes the bare name reach the admitted bytes.
 //
 // HOST ONLY. A container runner's PATH is the image's, where the staged

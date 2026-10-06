@@ -8,10 +8,10 @@ import (
 
 // ===== Companion identity ====================================================
 //
-// What a discovered companion IS: the name it was found under and the file that
-// name resolves to. Admission — whether ctxloom may execute it — is decided
-// entirely from a signature over that file (see companion_admission.go), so
-// nothing here records or consults a decision.
+// What a discovered companion IS: the name it was found under, the file that
+// name resolves to, and the hash of its bytes. Admission — whether ctxloom may
+// execute it — is decided against the allow store's record for that path and
+// hash (see companion_admission.go); nothing here records or consults one.
 //
 // Discovery (DiscoverCompanions) answers "what binaries CLAIM to be
 // companions". This file answers the separate, sharper question: "may ctxloom
@@ -28,9 +28,9 @@ import (
 // auto-exec convention in a directory that is already on it. Every OTHER
 // consumer of node_modules/.bin requires a human to TYPE the command.
 //
-// THE HOLE IT CLOSES is still the one above, answered differently: a
-// name-squatted binary is refused because nobody you trust signed it, rather
-// than because you were asked about it once and said no.
+// A name-squatted binary is refused because nobody allowed that path and
+// those bytes (`ctxloom companion allow`), and running it is never inferred
+// from where it sits or what it is called.
 
 // CompanionKey identifies one companion binary in an admission decision. Bin
 // rides along as display metadata and is never decided on, because a name is
@@ -38,11 +38,11 @@ import (
 type CompanionKey struct {
 	// Bin is the companion name as discovered (filepath.Base of Path). Display
 	// and grouping only.
-	Bin string `yaml:"bin"`
+	Bin string `json:"bin" yaml:"bin"`
 	// Path is the resolved, symlink-followed absolute path of the binary.
-	Path string `yaml:"path"`
+	Path string `json:"path" yaml:"path"`
 	// SHA256 is the lowercase hex SHA-256 of the binary's bytes.
-	SHA256 string `yaml:"sha256"`
+	SHA256 string `json:"sha256" yaml:"sha256"`
 }
 
 // resolveCompanionPath canonicalizes a companion binary's location: absolute,

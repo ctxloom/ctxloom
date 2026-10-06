@@ -66,7 +66,7 @@ func probeLtk(t *testing.T, out []byte, err error) (bundles.CompanionProbe, stri
 	var warnings bytes.Buffer
 	restore := clidiag.SetSink(&warnings)
 	defer restore()
-	probe, perr := Prober{}.ProbeCompanionLoadouts(context.Background(), nil)
+	probe, perr := Prober{}.ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, perr)
 	return probe, warnings.String()
 }

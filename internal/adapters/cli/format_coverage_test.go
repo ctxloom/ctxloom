@@ -252,6 +252,10 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"companion list": {extraArgs: noExtraArgs},
 	"auth status":    {extraArgs: noExtraArgs},
 	"companion show": {skip: "needs a real companion binary on PATH to resolve+hash; covered by companion_test.go"},
+	// Both call emit() on the preview and the --yes branch; their subject is
+	// a real binary to resolve and hash, which this harness does not plant.
+	"companion allow":  {skip: "needs a real companion binary to resolve+hash; covered by companion_test.go"},
+	"companion forget": {skip: "needs a recorded allow for a real binary; covered by companion_test.go"},
 
 	// --- skip: destructive / interactive confirmation, no fixture built here ---
 	// Three of these ARE format debt too (bundle_hold_cli.go's hold/unhold

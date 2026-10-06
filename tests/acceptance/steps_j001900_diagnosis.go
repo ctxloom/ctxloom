@@ -35,8 +35,8 @@
 // SEAM WITH J001600/J001500. J001600 owns the PRODUCTION of signatures and J001500 owns the
 // ADVERSARY. This journey owns neither: it re-uses signing only as a way to
 // PLANT a cause, and every assertion is about what an INSPECTOR reports.
-// Nothing here re-proves that a tampered bundle is detected, that a retraction
-// propagates, or that `bundle sign` writes bytes.
+// Nothing here re-proves that a tampered bundle is detected or that
+// `bundle sign` writes bytes.
 //
 // ISOLATION follows steps_j001600_signing.go exactly: everything runs through
 // testenv.TestEnvironment's isolated HOME/XDG, and the single environment

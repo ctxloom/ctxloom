@@ -247,11 +247,14 @@ func registerJ001800Steps(ctx *godog.ScenarioContext) {
 		return j001800InstallFakeCompanion(w, "reprise", j001800RepriseCoPrincipal, repriseYAML, `{"name":"reprise","version":"v0.0.0-j001800-fake"}`)
 	})
 
-	// "Alice's project exists" (ensureProjectWithEngine "claude-code") is
-	// already registered by steps_j001700.go; "Alice starts a session" (materialize
-	// "default" into "out") is already registered by steps_j000200_setup.go — both
-	// reused verbatim below, no new registration (godog rejects an ambiguous
-	// second match for the same step text).
+	ctx.Step(`^Alice's project exists$`, func(c context.Context) error {
+		return ensureProjectWithEngine(worldFrom(c), "claude-code", "claude-code")
+	})
+
+	// "Alice starts a session" (materialize "default" into "out") is already
+	// registered by steps_j000200_setup.go and reused verbatim below, with no
+	// new registration (godog rejects an ambiguous second match for the same
+	// step text).
 
 	ctx.Step(`^her assistant receives ltk's task-runner guidance$`, func(c context.Context) error {
 		w := worldFrom(c)

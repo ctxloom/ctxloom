@@ -25,8 +25,8 @@ Feature: The day the assistant goes blind
   impossible capability. It is still the one this whole journey ends on,
   because it is the question every real diagnosis session ends on too.
 
-  # NOTE ON SCOPE. J001600 owns the PRODUCTION of signatures; J001500 and J001700 own the
-  # ADVERSARY (tamper, retraction, revocation). This journey owns neither.
+  # NOTE ON SCOPE. J001600 owns the PRODUCTION of signatures; J001500 owns the
+  # ADVERSARY (tamper, revocation). This journey owns neither.
   # Signing appears here only as a way to PLANT a cause, and every assertion is
   # about what an INSPECTOR reports. Nothing below re-proves that a tampered
   # bundle is detected or that `bundle sign` writes bytes.
@@ -190,13 +190,10 @@ Feature: The day the assistant goes blind
   # the same two lines of output, and the only way to tell them apart was
   # diffing lockfiles by hand.
   #
-  # FIXED 2026-08-04: BundleInfo carries Held/Retracted, stamped from the
-  # lockfile entry by operations.stampLockState (the loader reads bundle CONTENT
-  # and knows nothing about pins, so the join can only happen there), and the
-  # listing renders "[held]" / "[retracted]" on the name line. Retraction was
-  # equally invisible and is a worse silence — the content is still installed and
-  # still being served while its publisher has said not to use it — so it is
-  # rendered here too, with the publisher's stated reason.
+  # BundleInfo carries Held, stamped from the lockfile entry by
+  # operations.stampLockState (the loader reads bundle CONTENT and knows nothing
+  # about pins, so the join can only happen there), and the listing renders
+  # "[held]" on the name line.
   #
   # The payload half is asserted separately, so a listing that says "held" while
   # actually delivering the new bytes could never pass.

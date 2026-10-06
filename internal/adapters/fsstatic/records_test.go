@@ -983,6 +983,17 @@ func TestClaimsAnElementCreatesItsArrayAndPrunesIt(t *testing.T) {
 	assert.Equal(t, "{\n  \"model\": \"opus\"\n}\n", read(t, fs, settingsTarget))
 }
 
+// An element delivered into an array the user left empty across lines lands
+// in a file that still parses, holding exactly that element.
+func TestClaimsAnElementIntoAnEmptyMultiLineArrayStaysValidJSON(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, settingsTarget, "{\n  \"hooks\": {\n    \"PreToolUse\": [\n    ]\n  }\n}\n", 0o644)
+	c := newRecords(t, fs)
+	mustCommit(t, c, fs, stage(settingsTarget, project, element("/hooks/PreToolUse", hookGroup)))
+	hooks := settingsDoc(t, fs)["hooks"].(map[string]any)
+	assert.Equal(t, []any{hookGroup}, hooks["PreToolUse"])
+}
+
 // A hook group an install from before the record left, every hook in it
 // running ctxloom, is ctxloom's own: taken over, and taken out on release.
 func TestClaimsAHookGroupThatRunsCtxloomIsTakenOver(t *testing.T) {

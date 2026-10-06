@@ -118,7 +118,7 @@ func TestSpoolOwner_ClaimHoldsUntilAck(t *testing.T) {
 	_, claimed := spoolEntryWithBody(t, owner, spool.ClaimedDirName, "FINAL: once")
 	require.True(t, claimed, "claimed but unacked: the file must be in in/claimed/ — the reservation is on disk")
 
-	require.NoError(t, spool.Deliver(c.mapper, entry.Ref, entry.Identity(), time.Now()))
+	require.NoError(t, spool.Deliver(afero.NewOsFs(), c.mapper, entry.Ref, entry.Identity(), time.Now()))
 	_, recorded := spoolDelivered(t, owner)[entry.Identity()]
 	assert.True(t, recorded, "the ack records the identity as delivered")
 	_, claimed = spoolEntryWithBody(t, owner, spool.ClaimedDirName, "FINAL: once")

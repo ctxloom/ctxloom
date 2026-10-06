@@ -96,7 +96,7 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	require.NoError(t, err)
 	inRef, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: harp, OriginID: marker + "-in", Body: marker + "-in\n"})
 	require.NoError(t, err)
-	require.NoError(t, Deliver(m, inRef, marker+"-in", time.Now()))
+	require.NoError(t, Deliver(afero.NewOsFs(), m, inRef, marker+"-in", time.Now()))
 	hostRoot, err := Root(m, harp)
 	require.NoError(t, err)
 	hostDeliveredPath := filepath.Join(hostRoot, filepath.FromSlash(deliveredDirName), marker+"-in")

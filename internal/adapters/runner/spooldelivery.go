@@ -104,14 +104,14 @@ func (h *Home) sweepSpoolIn() {
 // deliverSpoolEntry projects one swept in/ entry onto the delivery seam and
 // delivers it, or moves it to in/failed/ naming why it could not be.
 func (h *Home) deliverSpoolEntry(e spool.Entry) {
-	delivered, err := spool.Delivered(h.cfg.Mapper, h.Harp(), e.Identity())
+	delivered, err := spool.Delivered(h.fs, h.cfg.Mapper, h.Harp(), e.Identity())
 	if err != nil {
 		h.rep.Warnf("runner: cannot tell whether %s was already delivered, delivering it: %v", e.Ref, err)
 	}
 	if delivered {
 		// Recorded but not deleted: a delivery interrupted between its
 		// record and its delete. Finish it; never deliver it twice.
-		if err := spool.Deliver(h.cfg.Mapper, e.Ref, e.Identity(), time.Now()); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
+		if err := spool.Deliver(h.fs, h.cfg.Mapper, e.Ref, e.Identity(), time.Now()); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
 			h.rep.Warnf("runner: could not finish the delivery of %s: %v", e.Ref, err)
 			h.spoolDeliveryCount.Failed.Add(1)
 		}
@@ -202,7 +202,7 @@ func (h *Home) ackMailConsumed(ids []string) {
 			h.spoolDeliveryCount.Failed.Add(1)
 			continue
 		}
-		if err := spool.Deliver(h.cfg.Mapper, ref, id, time.Now()); err != nil {
+		if err := spool.Deliver(h.fs, h.cfg.Mapper, ref, id, time.Now()); err != nil {
 			if errors.Is(err, spool.ErrAlreadyGone) {
 				continue
 			}

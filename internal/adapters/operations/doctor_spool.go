@@ -220,7 +220,7 @@ func (s *spoolBacklogScan) sweepDir(harp string, dir spool.Dir) {
 // the reader's next sweep finishes. It is not mail anybody is still owed. A
 // record that cannot be read is a sweep error, and the entry is still named.
 func (s *spoolBacklogScan) alreadyDelivered(harp string, entry spool.Entry) bool {
-	delivered, err := spool.Delivered(s.mapper, harp, entry.Identity())
+	delivered, err := spool.Delivered(s.fs, s.mapper, harp, entry.Identity())
 	if err != nil {
 		s.sweepErrs = append(s.sweepErrs, fmt.Sprintf("%s: reading the delivered record for %s: %v", harp, entry.Ref, err))
 		return false

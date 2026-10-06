@@ -111,3 +111,25 @@ func TestWithdrawAndFail_MoveThroughFs(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok, "Fail must move the file within the injected fs")
 }
+
+func TestDeliver_RecordsAndDeletesThroughFs(t *testing.T) {
+	fs, m := memSpool(t)
+	ref := seedMem(t, fs, m, DirIn, "deliver me\n")
+	id := ref.Name[:len(ref.Name)-len(".md")]
+
+	require.NoError(t, Deliver(fs, m, ref, id, time.Now()))
+	path, err := m.Resolve(ref)
+	require.NoError(t, err)
+	there, err := afero.Exists(fs, path)
+	require.NoError(t, err)
+	require.False(t, there, "Deliver must delete the delivered file from the injected fs")
+
+	delivered, err := Delivered(fs, m, testHarp, id)
+	require.NoError(t, err)
+	require.True(t, delivered, "the record must be read back through fs")
+	ids, err := DeliveredIdentities(fs, m, testHarp)
+	require.NoError(t, err)
+	require.Contains(t, ids, id)
+	_, statErr := os.Stat(deliveredPath(t, m, id))
+	require.True(t, os.IsNotExist(statErr), "the record must not be written to disk")
+}

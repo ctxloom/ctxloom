@@ -186,13 +186,13 @@ func TestWithdraw_RacesConsumeThroughTheFilesystem(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, before, after, "a withdrawn message must be preserved, not deleted")
 
-		err = Deliver(m, ref, "m-retracted", time.Now())
+		err = Deliver(afero.NewOsFs(), m, ref, "m-retracted", time.Now())
 		require.ErrorIs(t, err, ErrAlreadyGone, "the reader must learn the message was retracted")
 	})
 
 	t.Run("reader wins", func(t *testing.T) {
 		ref, _ := seedIn(t, m, "too late\n")
-		require.NoError(t, Deliver(m, ref, "m-too-late", time.Now()))
+		require.NoError(t, Deliver(afero.NewOsFs(), m, ref, "m-too-late", time.Now()))
 
 		_, err := Withdraw(afero.NewOsFs(), m, ref)
 		require.ErrorIs(t, err, ErrAlreadyGone, "a withdrawal that lost the race must report pulled, not fail loudly")

@@ -519,7 +519,7 @@ func (c *Coordinator) spoolPendingCount(role string) int {
 		// A file whose identity is already in the delivered record is a
 		// delivery whose delete was interrupted: the reader's next sweep
 		// finishes it, and it is nothing the child still has to see.
-		delivered, err := spool.Delivered(c.mapper, role, e.Identity())
+		delivered, err := spool.Delivered(c.fs, c.mapper, role, e.Identity())
 		if err != nil {
 			c.rep.Warnf("coordinator: %s: cannot tell whether %s was delivered, counting it as pending: %v", role, e.Ref, err)
 		}
@@ -816,7 +816,7 @@ func (c *Coordinator) seedSpoolCredit() {
 		if c.ownerSpool(role) {
 			continue // the owner's deliveries are never credited
 		}
-		ids, err := spool.DeliveredIdentities(c.mapper, role)
+		ids, err := spool.DeliveredIdentities(c.fs, c.mapper, role)
 		if err != nil {
 			c.rep.Warnf("coordinator: reading %s's delivered record at start: %v (its first sweep may credit history as progress)", role, err)
 			continue
@@ -833,7 +833,7 @@ func (c *Coordinator) seedSpoolCredit() {
 // this coordinator started is history and is never credited, so a restart
 // credits nothing, and an entry already credited is not credited again.
 func (c *Coordinator) sweepChildDelivered(role string) {
-	ids, err := spool.DeliveredIdentities(c.mapper, role)
+	ids, err := spool.DeliveredIdentities(c.fs, c.mapper, role)
 	if err != nil {
 		c.rep.Warnf("coordinator: reading %s's delivered record: %v", role, err)
 		c.spoolDeliveryCount.Failed.Add(1)

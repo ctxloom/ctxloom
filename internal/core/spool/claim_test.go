@@ -66,7 +66,7 @@ func TestClaim_TakesEveryUnclaimedMessageIntoClaimedAndReturnsItInOrder(t *testi
 
 	assert.Empty(t, filesIn(t, m, DirIn), "a claimed message has LEFT in/")
 	assert.ElementsMatch(t, []string{first.Name, second.Name}, filesIn(t, m, ClaimedDirName), "…and sits in in/claimed/ until acknowledged")
-	delivered, err := DeliveredIdentities(m, testHarp)
+	delivered, err := DeliveredIdentities(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Empty(t, delivered, "claiming is not delivering")
 }
@@ -118,7 +118,7 @@ func TestDeliver_AClaimedMessageIsNeverClaimedAgain(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, res.Entries, 1)
 
-	require.NoError(t, Deliver(m, res.Entries[0].Ref, res.Entries[0].Identity(), time.Now()))
+	require.NoError(t, Deliver(afero.NewOsFs(), m, res.Entries[0].Ref, res.Entries[0].Identity(), time.Now()))
 
 	assert.Empty(t, filesIn(t, m, ClaimedDirName), "a delivered message has left in/claimed/")
 	again, err := Claim(m, testHarp)
@@ -129,7 +129,7 @@ func TestDeliver_AClaimedMessageIsNeverClaimedAgain(t *testing.T) {
 func TestDeliver_RefusesANameOutsideTheBareFilenameGrammar(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	err := Deliver(m, Ref{Harp: testHarp, Dir: ClaimedDirName, Name: "../escape"}, "m-1", time.Now())
+	err := Deliver(afero.NewOsFs(), m, Ref{Harp: testHarp, Dir: ClaimedDirName, Name: "../escape"}, "m-1", time.Now())
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrAlreadyGone, "a traversal attempt is a refusal, not a lost race")
 	_, statErr := os.Stat(deliveredPath(t, m, "m-1"))

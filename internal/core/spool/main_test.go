@@ -163,7 +163,7 @@ func runProbe(phase string) int {
 		return 1
 	}
 	identity := marker + "-in"
-	delivered, err := Delivered(m, harp, identity)
+	delivered, err := Delivered(afero.NewOsFs(), m, harp, identity)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "probe: reading the delivered record: %v\n", err)
 		return 1

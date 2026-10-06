@@ -91,7 +91,7 @@ func WriteMail(t *testing.T, harp, from, spoolKind, body, writerID string) {
 // delivered and deleted, still inside the record's retention.
 func Delivered(t *testing.T, harp string) map[string]time.Time {
 	t.Helper()
-	ids, err := spool.DeliveredIdentities(spool.NewHomeMapper(), harp)
+	ids, err := spool.DeliveredIdentities(afero.NewOsFs(), spool.NewHomeMapper(), harp)
 	require.NoError(t, err)
 	return ids
 }

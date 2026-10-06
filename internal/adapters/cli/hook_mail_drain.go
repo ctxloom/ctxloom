@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
@@ -70,7 +71,7 @@ func runHookMailDrain(cmd *cobra.Command, args []string) error {
 	if sessionOwnerEnv() {
 		harp = os.Getenv(agent.SessionHarpEnv)
 	}
-	if err := drainMail(cmd, harp); err != nil {
+	if err := drainMail(afero.NewOsFs(), cmd, harp); err != nil {
 		clidiag.Warn(mailDrainProg, "%v", err)
 	}
 	return nil
@@ -86,7 +87,7 @@ func runHookMailDrain(cmd *cobra.Command, args []string) error {
 // property of hook carriage, not of this code: the day carriage is fixed,
 // the same binary reads the same spool through the same home-relative mapper
 // (spool.HomeMapper's mount contract), and nothing here changes.
-func drainMail(cmd *cobra.Command, harp string) error {
+func drainMail(fs afero.Fs, cmd *cobra.Command, harp string) error {
 	// Read to EOF before anything can return: closing stdin early would be
 	// reported by some engines as a failed hook.
 	raw, _ := io.ReadAll(cmd.InOrStdin())
@@ -129,7 +130,7 @@ func drainMail(cmd *cobra.Command, harp string) error {
 		// where the next turn's Claim hands it out again.
 		return fmt.Errorf("%d message(s) left claimed, not delivered: %w", len(res.Entries), err)
 	}
-	problems = append(problems, ackDelivered(mapper, harp, res.Entries)...)
+	problems = append(problems, ackDelivered(fs, mapper, harp, res.Entries)...)
 	// This turn delivered what every armed wake announced: answer them all,
 	// or a wake held or lost upstream refuses every later one.
 	if _, err := spool.ClearWakes(mapper, harp); err != nil {
@@ -165,10 +166,10 @@ func blockStaleWake(cmd *cobra.Command) []string {
 
 // ackDelivered acknowledges each delivered entry, reporting the ones that
 // could not be (and so will be delivered again); one already gone is fine.
-func ackDelivered(mapper spool.PathMapper, harp string, entries []spool.Entry) []string {
+func ackDelivered(fs afero.Fs, mapper spool.PathMapper, harp string, entries []spool.Entry) []string {
 	var problems []string
 	for _, e := range entries {
-		if err := spool.Deliver(mapper, e.Ref, e.Identity(), time.Now()); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
+		if err := spool.Deliver(fs, mapper, e.Ref, e.Identity(), time.Now()); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
 			problems = append(problems, fmt.Sprintf("%s was delivered but could not be acknowledged and will be delivered again: %v", e.Ref, err))
 		}
 	}

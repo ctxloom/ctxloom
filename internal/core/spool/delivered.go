@@ -1,15 +1,14 @@
 package spool
 
 import (
-	"errors"
 	"fmt"
-	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // A DELIVERED MESSAGE IS DELETED; ITS IDENTITY IS WHAT SURVIVES IT.
@@ -83,7 +82,7 @@ func deliveredEntry(m PathMapper, harp, identity string) (string, error) {
 // A file that is already gone is ErrAlreadyGone, returned AFTER the record is
 // written: whoever removed it, the identity is delivered. Each call also prunes
 // record entries older than DeliveredRetention as of now.
-func Deliver(m PathMapper, ref Ref, identity string, now time.Time) error {
+func Deliver(fs afero.Fs, m PathMapper, ref Ref, identity string, now time.Time) error {
 	if ref.Dir != DirIn && ref.Dir != ClaimedDirName {
 		return fmt.Errorf("spool: %s is not an inbox entry; only %q and %q are delivered from", ref, DirIn, ClaimedDirName)
 	}
@@ -98,46 +97,46 @@ func Deliver(m PathMapper, ref Ref, identity string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	if err := recordDelivered(entry, identity); err != nil {
+	if err := recordDelivered(fs, entry, identity); err != nil {
 		return err
 	}
-	if err := os.Remove(filepath.Join(src, ref.Name)); err != nil {
+	if err := fs.Remove(filepath.Join(src, ref.Name)); err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("spool: deleting delivered %s: %w", ref, ErrAlreadyGone)
 		}
 		return fmt.Errorf("spool: deleting delivered %s: %w", ref, err)
 	}
-	if err := syncDir(afero.NewOsFs(), src); err != nil {
+	if err := syncDir(fs, src); err != nil {
 		return fmt.Errorf("spool: deleting delivered %s: %w", ref, err)
 	}
-	return pruneDelivered(m, ref.Harp, now)
+	return pruneDelivered(fs, m, ref.Harp, now)
 }
 
 // recordDelivered writes identity's record entry, durably, unless it is
 // already there: an existing entry already says what a new one would, and
 // safefs.WriteFile refuses to write zero bytes over an existing file.
-func recordDelivered(entry, identity string) error {
-	if _, err := os.Stat(entry); err == nil {
+func recordDelivered(fs afero.Fs, entry, identity string) error {
+	if _, err := fs.Stat(entry); err == nil {
 		return nil
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("spool: reading the delivered record for %s: %w", identity, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(entry), owneronly.DirMode); err != nil {
+	if err := fs.MkdirAll(filepath.Dir(entry), owneronly.DirMode); err != nil {
 		return fmt.Errorf("spool: create %s: %w", filepath.Dir(entry), err)
 	}
-	if err := safefs.WriteFile(afero.NewOsFs(), entry, nil, owneronly.FileMode, safefs.Durable()); err != nil {
+	if err := safefs.WriteFile(fs, entry, nil, owneronly.FileMode, safefs.Durable()); err != nil {
 		return fmt.Errorf("spool: recording %s as delivered: %w", identity, err)
 	}
 	return nil
 }
 
 // Delivered reports whether identity is in harp's delivered record.
-func Delivered(m PathMapper, harp, identity string) (bool, error) {
+func Delivered(fs afero.Fs, m PathMapper, harp, identity string) (bool, error) {
 	entry, err := deliveredEntry(m, harp, identity)
 	if err != nil {
 		return false, err
 	}
-	if _, err := os.Stat(entry); err != nil {
+	if _, err := fs.Stat(entry); err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
@@ -148,12 +147,12 @@ func Delivered(m PathMapper, harp, identity string) (bool, error) {
 
 // DeliveredIdentities lists harp's delivered record: each identity with the
 // time it was recorded. A spool that never delivered anything has an empty one.
-func DeliveredIdentities(m PathMapper, harp string) (map[string]time.Time, error) {
+func DeliveredIdentities(fs afero.Fs, m PathMapper, harp string) (map[string]time.Time, error) {
 	dir, err := deliveredDir(m, harp)
 	if err != nil {
 		return nil, err
 	}
-	entries, err := os.ReadDir(dir)
+	entries, err := afero.ReadDir(fs, dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return map[string]time.Time{}, nil
@@ -167,23 +166,16 @@ func DeliveredIdentities(m PathMapper, harp string) (map[string]time.Time, error
 		if e.IsDir() || ValidateName(e.Name()) != nil {
 			continue
 		}
-		info, err := e.Info()
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue // pruned between the readdir and the stat
-			}
-			return nil, fmt.Errorf("spool: reading the delivered record %s: %w", dir, err)
-		}
-		out[e.Name()] = info.ModTime()
+		out[e.Name()] = e.ModTime()
 	}
 	return out, nil
 }
 
 // pruneDelivered removes record entries recorded before now-DeliveredRetention.
-func pruneDelivered(m PathMapper, harp string, now time.Time) error {
+func pruneDelivered(fs afero.Fs, m PathMapper, harp string, now time.Time) error {
 	dir, err := deliveredDir(m, harp)
 	if err != nil {
 		return err
 	}
-	return pruneExpired(afero.NewOsFs(), dir, now)
+	return pruneExpired(fs, dir, now)
 }

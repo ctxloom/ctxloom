@@ -130,7 +130,7 @@ func moveUnclaimed(m PathMapper, harp, inPath, claimedPath string, entries []Ent
 func undelivered(m PathMapper, harp, claimedPath string, entries []Entry) ([]Entry, error) {
 	out := entries[:0]
 	for _, e := range entries {
-		delivered, err := Delivered(m, harp, e.Identity())
+		delivered, err := Delivered(afero.NewOsFs(), m, harp, e.Identity())
 		if err != nil {
 			return nil, fmt.Errorf("spool: reading %s: %w", e.Ref, err)
 		}

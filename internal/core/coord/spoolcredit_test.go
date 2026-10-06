@@ -87,7 +87,7 @@ func TestSpoolCredit_ACoordinatorRestartCreditsNothingNew(t *testing.T) {
 	ref, err := w.Write(&spool.Message{Kind: KindMessage, FromHarp: ownerIdentity().Harp, To: out.Harp,
 		OriginID: "m-after-restart", Body: "after"})
 	require.NoError(t, err)
-	require.NoError(t, spool.Deliver(spool.NewHomeMapper(), ref, "m-after-restart", time.Now()))
+	require.NoError(t, spool.Deliver(afero.NewOsFs(), spool.NewHomeMapper(), ref, "m-after-restart", time.Now()))
 	second.sweepChildDelivered(out.Harp)
 	second.sweepChildDelivered(out.Harp)
 	assert.EqualValues(t, 1, second.SpoolDeliveryStats().Consumed, "credited exactly once")

@@ -53,14 +53,14 @@ func TestDeliver_RecordsTheIdentityThenDeletesTheFile(t *testing.T) {
 	ref, _ := seedIn(t, m, "hello\n")
 	id := entryFor(t, m, ref).Identity()
 
-	require.NoError(t, Deliver(m, ref, id, time.Now()))
+	require.NoError(t, Deliver(afero.NewOsFs(), m, ref, id, time.Now()))
 
 	assert.Empty(t, filesIn(t, m, DirIn), "a delivered message is deleted from in/")
 	assert.FileExists(t, deliveredPath(t, m, id), "its identity is what survives it")
-	got, err := Delivered(m, testHarp, id)
+	got, err := Delivered(afero.NewOsFs(), m, testHarp, id)
 	require.NoError(t, err)
 	assert.True(t, got)
-	other, err := Delivered(m, testHarp, "m-never")
+	other, err := Delivered(afero.NewOsFs(), m, testHarp, "m-never")
 	require.NoError(t, err)
 	assert.False(t, other, "an identity nobody delivered is not in the record")
 }
@@ -73,7 +73,7 @@ func TestDeliver_AClaimedEntryIsDeletedFromClaimed(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, res.Entries, 1)
 
-	require.NoError(t, Deliver(m, res.Entries[0].Ref, res.Entries[0].Identity(), time.Now()))
+	require.NoError(t, Deliver(afero.NewOsFs(), m, res.Entries[0].Ref, res.Entries[0].Identity(), time.Now()))
 	assert.Empty(t, filesIn(t, m, ClaimedDirName))
 	assert.FileExists(t, deliveredPath(t, m, "m-claimed"))
 }
@@ -85,7 +85,7 @@ func TestDeliver_ARecordThatCannotBeWrittenLeavesTheFile(t *testing.T) {
 	m := NewHomeMapper()
 	ref, _ := seedIn(t, m, "keep me\n")
 
-	err := Deliver(m, ref, "../escape", time.Now())
+	err := Deliver(afero.NewOsFs(), m, ref, "../escape", time.Now())
 	require.Error(t, err)
 	assert.Equal(t, []string{ref.Name}, filesIn(t, m, DirIn), "an identity that cannot be recorded deletes nothing")
 
@@ -94,7 +94,7 @@ func TestDeliver_ARecordThatCannotBeWrittenLeavesTheFile(t *testing.T) {
 	// the message: record first, delete second.
 	block := filepath.Dir(deliveredPath(t, m, "x"))
 	require.NoError(t, os.WriteFile(block, []byte("in the way"), 0o600))
-	err = Deliver(m, ref, entryFor(t, m, ref).Identity(), time.Now())
+	err = Deliver(afero.NewOsFs(), m, ref, entryFor(t, m, ref).Identity(), time.Now())
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrAlreadyGone)
 	assert.Contains(t, filesIn(t, m, DirIn), ref.Name, "nothing recorded, so nothing deleted")
@@ -105,9 +105,9 @@ func TestDeliver_AMissingFileIsAlreadyGoneButStillRecorded(t *testing.T) {
 	m := NewHomeMapper()
 	ref, _ := seedIn(t, m, "x\n")
 	id := entryFor(t, m, ref).Identity()
-	require.NoError(t, Deliver(m, ref, id, time.Now()))
+	require.NoError(t, Deliver(afero.NewOsFs(), m, ref, id, time.Now()))
 
-	err := Deliver(m, ref, id, time.Now())
+	err := Deliver(afero.NewOsFs(), m, ref, id, time.Now())
 	assert.ErrorIs(t, err, ErrAlreadyGone)
 	assert.FileExists(t, deliveredPath(t, m, id))
 }
@@ -116,10 +116,10 @@ func TestDeliver_RefusesADirectoryThatIsNotAnInbox(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 	for _, d := range []Dir{DirOut, DirOutConsumed, DirInWithdrawn, FailedDirName} {
-		err := Deliver(m, Ref{Harp: testHarp, Dir: d, Name: "1.1.coord.md"}, "m-1", time.Now())
+		err := Deliver(afero.NewOsFs(), m, Ref{Harp: testHarp, Dir: d, Name: "1.1.coord.md"}, "m-1", time.Now())
 		assert.Error(t, err, "%s is not delivered from", d)
 	}
-	recorded, err := Delivered(m, testHarp, "m-1")
+	recorded, err := Delivered(afero.NewOsFs(), m, testHarp, "m-1")
 	require.NoError(t, err)
 	assert.False(t, recorded, "a refused delivery records nothing")
 }
@@ -133,7 +133,7 @@ func TestClaim_AnIdentityDeliveredWithinTheWindowIsRejected(t *testing.T) {
 	res, err := Claim(m, testHarp)
 	require.NoError(t, err)
 	require.Len(t, res.Entries, 1)
-	require.NoError(t, Deliver(m, res.Entries[0].Ref, res.Entries[0].Identity(), time.Now()))
+	require.NoError(t, Deliver(afero.NewOsFs(), m, res.Entries[0].Ref, res.Entries[0].Identity(), time.Now()))
 
 	seedOrigin(t, m, "mail-1", "second copy\n")
 	res, err = Claim(m, testHarp)
@@ -200,9 +200,9 @@ func TestDeliver_PrunesRecordEntriesOlderThanTheRetentionWindow(t *testing.T) {
 
 	ref, _ := seedIn(t, m, "x\n")
 	id := entryFor(t, m, ref).Identity()
-	require.NoError(t, Deliver(m, ref, id, now))
+	require.NoError(t, Deliver(afero.NewOsFs(), m, ref, id, now))
 
-	got, err := DeliveredIdentities(m, testHarp)
+	got, err := DeliveredIdentities(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.NotContains(t, got, "m-old", "older than the window: dropped")
 	assert.Contains(t, got, "m-young", "inside the window: kept")
@@ -216,12 +216,12 @@ func TestDeliveredIdentities_ListsNamesWithTheirTimesAndSkipsStaging(t *testing.
 	recordOnly(t, m, "m-a", at)
 	recordOnly(t, m, ".m-b.123.tmp", at) // a WriteFileAtomic staging file
 
-	got, err := DeliveredIdentities(m, testHarp)
+	got, err := DeliveredIdentities(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.True(t, got["m-a"].Equal(at))
 
-	none, err := DeliveredIdentities(m, "never-made-one")
+	none, err := DeliveredIdentities(afero.NewOsFs(), m, "never-made-one")
 	require.NoError(t, err)
 	assert.Empty(t, none, "a spool with no record has delivered nothing")
 }
@@ -229,6 +229,6 @@ func TestDeliveredIdentities_ListsNamesWithTheirTimesAndSkipsStaging(t *testing.
 func TestDelivered_RefusesAnIdentityThatIsNotAFileName(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	_, err := Delivered(m, testHarp, "../escape")
+	_, err := Delivered(afero.NewOsFs(), m, testHarp, "../escape")
 	assert.Error(t, err)
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -59,7 +60,7 @@ func TestStarterSeam_MockChildRidesTheSpool(t *testing.T) {
 		return false
 	}, 10*time.Second, 10*time.Millisecond, "the child's engine never received the owner's send as a turn")
 	require.Eventually(t, func() bool {
-		ids, err := spool.DeliveredIdentities(spool.NewHomeMapper(), out.Harp)
+		ids, err := spool.DeliveredIdentities(afero.NewOsFs(), spool.NewHomeMapper(), out.Harp)
 		return err == nil && len(ids) == 1 && len(spooltest.Entries(t, out.Harp, spool.DirIn)) == 0
 	}, 10*time.Second, 10*time.Millisecond, "the delivered file must be deleted and its identity recorded in the child's own spool")
 

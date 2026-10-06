@@ -151,7 +151,7 @@ func (l *contractLane) turnReport(t *testing.T, childHarp string) coord.Message 
 		for _, e := range res.Entries {
 			m, err := coord.MailFromSpool(e, e.Message.FromHarp)
 			require.NoError(t, err)
-			if err := spool.Deliver(mapper, e.Ref, e.Identity(), time.Now()); err != nil {
+			if err := spool.Deliver(afero.NewOsFs(), mapper, e.Ref, e.Identity(), time.Now()); err != nil {
 				require.ErrorIs(t, err, spool.ErrAlreadyGone)
 			}
 			if m.From == childHarp && coord.IsAutoReport(m.Structured) {

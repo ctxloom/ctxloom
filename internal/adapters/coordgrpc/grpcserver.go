@@ -160,22 +160,19 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 
 	// Single writer pump: coordinator-initiated requests (StartRun foremost)
 	// funnel through the session's queue — the same discipline the run
-	// channel uses, reversed. goTracked: the pump only terminates once the
-	// underlying gRPC transport is actually cut (the server's
-	// GracefulStop/Stop), not on c.baseCtx cancellation alone.
-	c.Track(func() {
+	// channel uses, reversed. The pump only terminates once the underlying
+	// gRPC transport is actually cut (the server's GracefulStop/Stop), not on
+	// c.baseCtx cancellation alone.
+	pump := func() {
 		rs.Pump(streamCtx, func(req coord.RunnerRequest) error {
 			return stream.Send(&agentcoordpb.RuntimeFrame{Kind: &agentcoordpb.RuntimeFrame_Request{Request: RunnerRequestToWire(req, encodeStartRunLaunch)}})
 		})
-	})
-
-	recvErr := make(chan error, 1)
-	c.Track(func() {
+	}
+	recv := func() error {
 		for {
 			frame, rerr := stream.Recv()
 			if rerr != nil {
-				recvErr <- rerr
-				return
+				return rerr
 			}
 			switch kind := frame.GetKind().(type) {
 			case *agentcoordpb.RunnerFrame_Heartbeat:
@@ -190,12 +187,6 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 				c.RunnerHeartbeat(rs)
 			}
 		}
-	})
-
-	select {
-	case err := <-recvErr:
-		return err
-	case <-streamCtx.Done():
-		return status.Error(codes.Canceled, "runner session closed")
 	}
+	return serveTracked(c, streamCtx, "runner session closed", pump, recv)
 }

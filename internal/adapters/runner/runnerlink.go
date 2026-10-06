@@ -245,8 +245,9 @@ func DialRunner(ctx context.Context, rep report.Sink, coordURL, token, runID, ha
 	}
 
 	l := &RunnerLink{rep: report.To(rep), runID: runID, conn: conn, stream: stream, cancel: cancel, done: make(chan struct{}), handler: handler}
-	l.goTracked(func() { l.heartbeatLoop(linkCtx) })
-	l.goTracked(l.receiveLoop)
+	// Never refused: l is not returned yet, so nothing can have sealed it.
+	_ = l.goTracked(func() { l.heartbeatLoop(linkCtx) })
+	_ = l.goTracked(l.receiveLoop)
 	return l, nil
 }
 
@@ -273,11 +274,12 @@ func helloSendErr(err error, recv func() error) error {
 // unblocks around the same point.
 const runnerLinkCloseJoinBudget = 3 * time.Second
 
-// goTracked runs fn on a new goroutine Shutdown joins before closing the conn —
-// see trackedGroup. receiveLoop can dispatch a serveRequest that arrives just as
-// Shutdown begins; Abort seals only once receiveLoop has ended, so that serve
-// is joined too.
-func (l *RunnerLink) goTracked(fn func()) { l.tracked.Dispatch(fn) }
+// goTracked runs fn on a new goroutine Shutdown joins before closing the conn,
+// or refuses with coord.ErrGroupSealed once Abort has sealed — see
+// coord.TrackedGroup. receiveLoop can dispatch a serveRequest that arrives just
+// as Shutdown begins; Abort seals only once receiveLoop has ended, so that
+// serve is joined too.
+func (l *RunnerLink) goTracked(fn func()) error { return l.tracked.Dispatch(fn) }
 
 // waitTracked joins every l.goTracked goroutine, with a bounded escape.
 func (l *RunnerLink) waitTracked() {
@@ -320,7 +322,11 @@ func (l *RunnerLink) receiveLoop() {
 		}
 		switch kind := frame.GetKind().(type) {
 		case *agentcoordpb.RuntimeFrame_Request:
-			l.goTracked(func() { l.serveRequest(kind.Request) })
+			if err := l.goTracked(func() { l.serveRequest(kind.Request) }); err != nil {
+				// The link is shutting down: answered, not served, so the
+				// coordinator's waiter is not left to its own timeout.
+				l.answer(kind.Request, &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Unavailable, "runner link: "+err.Error())})
+			}
 		case *agentcoordpb.RuntimeFrame_HelloAck:
 			// Duplicate ack on a live stream; ignore.
 		}
@@ -339,6 +345,11 @@ func (l *RunnerLink) serveRequest(req *agentcoordpb.RunnerRequest) {
 	if resp == nil {
 		resp = &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Unimplemented, "runner has no handler for this request")}
 	}
+	l.answer(req, resp)
+}
+
+// answer sends resp as req's reply.
+func (l *RunnerLink) answer(req *agentcoordpb.RunnerRequest, resp *agentcoordpb.RunnerResponse) {
 	resp.RequestId = req.GetRequestId()
 	if err := l.send(&agentcoordpb.RunnerFrame{Kind: &agentcoordpb.RunnerFrame_Response{Response: resp}}); err != nil {
 		l.rep.Warnf("runner: reply to %s: %v", req.GetRequestId(), err)
@@ -379,11 +390,9 @@ func (l *RunnerLink) Shutdown(exitCode int, harnessSessionID string) {
 // the process: a ClientConn left open keeps its goroutines and buffers for
 // the life of the process, which is a leak per reconnect and per run.
 //
-// The receive loop ends BEFORE the group is sealed, and that order is the
-// join's whole guarantee: the receive loop is what dispatches serveRequest,
-// and a sealed group still runs what it is handed, only untracked. Sealed
-// first, a request that landed as the teardown began was served after Abort
-// returned — a StartRun driven for a runner already torn down.
+// The receive loop ends BEFORE the group is sealed, so every request it took
+// in was dispatched onto an open group and is joined: none is served after
+// Abort returns. Past the seal a dispatch is refused, never run.
 func (l *RunnerLink) Abort() {
 	l.cancel()
 	<-l.done

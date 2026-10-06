@@ -20,7 +20,7 @@ import (
 // them would be a behaviour change, not a refactor.
 func TestTrackedOwners_Coordinator(t *testing.T) {
 	c := &Coordinator{}
-	trackedtest.RunOwnerTests(t, map[string]trackedtest.Owner{
+	trackedtest.RunOwnerTests(t, ErrGroupSealed, map[string]trackedtest.Owner{
 		"Coordinator": {Dispatch: c.goTracked, Wait: c.waitTracked, Seal: c.tracked.Seal},
 	})
 	assert.Equal(t, 5*time.Second, closeJoinBudget)
@@ -37,7 +37,7 @@ func TestTrackedGroup_BoundedJoinGivesUpAndSaysSo(t *testing.T) {
 	g := TrackedGroup{rep: termRep()}
 	block := make(chan struct{})
 	defer close(block)
-	g.Dispatch(func() { <-block })
+	require.NoError(t, g.Dispatch(func() { <-block }))
 
 	start := time.Now()
 	g.Wait(50*time.Millisecond, "test teardown", "a leaked goroutine may still touch test state")
@@ -56,7 +56,7 @@ func TestTrackedGroup_BoundedJoinOmitsAnEmptyRiskClause(t *testing.T) {
 	g := TrackedGroup{rep: termRep()}
 	block := make(chan struct{})
 	defer close(block)
-	g.Dispatch(func() { <-block })
+	require.NoError(t, g.Dispatch(func() { <-block }))
 	g.Wait(50*time.Millisecond, "test teardown", "")
 
 	assert.Contains(t, buf.String(), "test teardown")
@@ -100,5 +100,22 @@ func TestTrackedGroup_EnterBeforeSealIsJoined(t *testing.T) {
 	case <-joined:
 	case <-time.After(time.Second):
 		t.Fatal("the join did not return once the slot was released")
+	}
+}
+
+// TestTrackedGroup_DispatchAfterSealIsRefused: past the seal a dispatch must
+// not run at all. Run untracked, it outlives the join that was supposed to
+// prove the owner quiet — a StartRun served after its runner was torn down.
+func TestTrackedGroup_DispatchAfterSealIsRefused(t *testing.T) {
+	g := TrackedGroup{rep: termRep()}
+	g.Seal()
+	ran := make(chan struct{})
+	err := g.Dispatch(func() { close(ran) })
+	require.ErrorIs(t, err, ErrGroupSealed)
+	g.Wait(time.Second, "test teardown", "")
+	select {
+	case <-ran:
+		t.Fatal("a dispatch past the seal ran")
+	case <-time.After(100 * time.Millisecond):
 	}
 }

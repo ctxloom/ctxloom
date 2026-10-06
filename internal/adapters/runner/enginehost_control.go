@@ -152,11 +152,29 @@ func (eh *EngineHost) startTurn(tag turnTag, text string) error {
 	rec := eh.rec
 	key := eh.nativeKey
 	eh.mu.Unlock()
-	transcript.RecordUserText(rec, text)
-	eh.goTracked(func() {
+	// Recorded on the turn's own goroutine, ahead of the turn, so a turn that
+	// is refused leaves no user turn in the transcript.
+	err := eh.goTracked(func() {
 		defer turnCancel()
+		transcript.RecordUserText(rec, text)
 		eh.runTurn(turnCtx, next, text, key)
 	})
+	if err != nil {
+		// Close has sealed: the turn never starts, so everything published for
+		// it above is taken back — a waiter on turnBusy is released, and the
+		// attribution FIFO loses the tag it would have popped.
+		turnCancel()
+		eh.mu.Lock()
+		if n := len(eh.pendingTags); n > 0 {
+			eh.pendingTags = eh.pendingTags[:n-1]
+		}
+		if eh.turnBusy == next {
+			eh.turnBusy = nil
+		}
+		eh.mu.Unlock()
+		close(next)
+		return errEngineHostClosed
+	}
 	return nil
 }
 

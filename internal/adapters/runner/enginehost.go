@@ -250,16 +250,23 @@ type EngineHost struct {
 	// terminal drive). Close joins it before returning, so a runner-side
 	// teardown leaves no goroutine still touching eh/home state — the same
 	// discipline as Coordinator's and Home's groups, mirrored here for the
-	// runner-hosted engine half. A sealed group still RUNS what it is handed,
-	// untracked, so the seal alone does not stop a run starting after Close:
-	// closed does.
+	// runner-hosted engine half. Past the seal a dispatch is refused
+	// (coord.ErrGroupSealed); closed refuses a whole run before it dispatches
+	// anything.
 	tracked   coord.TrackedGroup
 	closeOnce sync.Once
 	// closed is set when Close begins (guarded by mu): from then on no run
-	// starts — startRun and Drive refuse with errEngineHostClosed — so nothing
-	// can dispatch onto the sealed group or open a recorder Close will not
-	// close.
+	// starts — startRun and Drive refuse with errEngineHostClosed. A Drive
+	// already past that check is what driving covers.
 	closed bool
+	// driving is closed when the Drive that committed to this host's run
+	// returns (guarded by mu; nil until one commits). Close waits on it,
+	// bounded, BEFORE sealing: that Drive's dispatches are then tracked and
+	// joined, and the recorder it opens exists by the time Close closes it.
+	driving chan struct{}
+	// closeAwaitsDrive is a test seam: Close calls it, when set, just before
+	// it waits for a Drive already past its closed check.
+	closeAwaitsDrive func()
 }
 
 // errEngineHostClosed refuses a run that reaches the engine host after Close
@@ -284,9 +291,10 @@ func NewEngineHost(ctx context.Context, rep report.Sink, harness, runID string) 
 // keys off the run's own ctx, cancelled by Close before waitTracked runs).
 const engineHostCloseJoinBudget = 3 * time.Second
 
-// goTracked runs fn on a new goroutine Close joins before returning — see
-// trackedGroup.
-func (eh *EngineHost) goTracked(fn func()) { eh.tracked.Dispatch(fn) }
+// goTracked runs fn on a new goroutine Close joins before returning, or
+// refuses with coord.ErrGroupSealed once Close has sealed — see
+// coord.TrackedGroup.
+func (eh *EngineHost) goTracked(fn func()) error { return eh.tracked.Dispatch(fn) }
 
 // waitTracked joins every eh.goTracked goroutine, with a bounded escape.
 func (eh *EngineHost) waitTracked() {
@@ -297,19 +305,42 @@ func (eh *EngineHost) waitTracked() {
 // every tracked goroutine before returning — the runner-side teardown
 // counterpart to Coordinator.Close/Home.Close. Idempotent
 // (closeOnce-guarded) and safe to call even when no run was ever started.
+//
+// A Drive already past its closed check is waited for (awaitDrive) before
+// the seal. The run is cancelled first, because every wait on Drive's path
+// is bounded by the run's context; and again after, because an interactive
+// Drive publishes its cancel only once it is past the check.
 func (eh *EngineHost) Close() {
 	eh.closeOnce.Do(func() {
 		eh.mu.Lock()
 		eh.closed = true
-		cancel := eh.cancel
+		driving := eh.driving
 		eh.mu.Unlock()
+		eh.closeRun()
+		eh.awaitDrive(driving)
+		eh.closeRun()
 		eh.tracked.Seal()
-		if cancel != nil {
-			cancel()
-		}
 		eh.waitTracked()
 		eh.closeRecorder()
 	})
+}
+
+// awaitDrive waits for the Drive in flight (driving; nil when none committed)
+// to return, within engineHostCloseJoinBudget — the bound Close's join
+// already uses, for the same reason: a wedged Drive must not hang teardown.
+// Past the budget Close proceeds and says what the late Drive may still do.
+func (eh *EngineHost) awaitDrive(driving chan struct{}) {
+	if driving == nil {
+		return
+	}
+	if hook := eh.closeAwaitsDrive; hook != nil {
+		hook()
+	}
+	select {
+	case <-driving:
+	case <-time.After(engineHostCloseJoinBudget):
+		eh.rep.Warnf("engine host close: a Drive in flight did not return within %s; proceeding (its dispatches are refused, but it may still open the run's transcript recorder)", engineHostCloseJoinBudget)
+	}
 }
 
 // closeRecorder closes the run's transcript recorder once, at the run's end
@@ -483,6 +514,9 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 			return ErrNoTerminal
 		}
 		eh.started = true
+		driving := make(chan struct{})
+		eh.driving = driving
+		defer close(driving)
 		home := eh.home
 		eh.result = eh.startRunResult()
 		eh.mu.Unlock()
@@ -494,6 +528,9 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	}
 	prompt := t.Prompt
 	eh.started = true
+	driving := make(chan struct{})
+	eh.driving = driving
+	defer close(driving)
 	eh.driver = t.Instance.Drivers()[0]
 	eh.exec = t.Exec
 	eh.secretFiles = t.Launch.Cell.SecretFiles
@@ -532,22 +569,32 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	eh.rec = rec
 	eh.mu.Unlock()
 
-	// A run started paused answers its StartRun now and hands its first turn
-	// off once the gate lifts; otherwise the hand-off is synchronous, and a
-	// briefing that cannot start fails the launch.
+	return eh.handOff(ctx, home, prompt)
+}
+
+// handOff hands the run's first turn to the engine and arms the run's
+// terminal for a parked run. A run started paused answers its StartRun now
+// and hands its first turn off once the gate lifts; otherwise the hand-off is
+// synchronous, and a briefing that cannot start fails the launch.
+//
+// A refused dispatch means Close has sealed: the run is being torn down, and
+// the hand-off says so rather than leave half of it running.
+func (eh *EngineHost) handOff(ctx context.Context, home engineHome, prompt string) error {
 	if eh.pauseGate() != nil {
-		eh.goTracked(func() {
+		if err := eh.goTracked(func() {
 			if err := eh.deliverFirstTurn(home, prompt); err != nil {
 				eh.rep.Warnf("engine host: the run started paused never handed off its first turn: %v", err)
 			}
-		})
+		}); err != nil {
+			return errEngineHostClosed
+		}
 	} else if err := eh.deliverFirstTurn(home, prompt); err != nil {
 		return err
 	}
 	// The run's cancellation ends a PARKED run too: with no turn in flight
 	// nothing else would report the terminal. A turn in flight ends with
 	// the cancellation itself and reports it (runTurn → finish).
-	eh.goTracked(func() {
+	if err := eh.goTracked(func() {
 		<-ctx.Done()
 		eh.mu.Lock()
 		busy := eh.turnBusy
@@ -556,7 +603,9 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 			<-busy
 		}
 		eh.finish(home, nil, ctx.Err())
-	})
+	}); err != nil {
+		return errEngineHostClosed
+	}
 	return nil
 }
 
@@ -657,7 +706,7 @@ func (eh *EngineHost) driveInteractive(home engineHome, term Terminal, t Turn) e
 		Input:  runStartedInput(t.Prompt),
 		Config: runStartedConfig(eh.rep, t),
 	}}})
-	eh.goTracked(func() {
+	err := eh.goTracked(func() {
 		code, err := term.Run(ctx, t)
 		home.engineExited()
 		releaseWake()
@@ -686,6 +735,11 @@ func (eh *EngineHost) driveInteractive(home engineHome, term Terminal, t Turn) e
 		home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{Result: result}}})
 		home.ReportRunExited(code, "")
 	})
+	if err != nil {
+		// Close has sealed: the engine is never started on the terminal.
+		releaseWake()
+		return errEngineHostClosed
+	}
 	return nil
 }
 

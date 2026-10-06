@@ -189,7 +189,8 @@ func (c *Coordinator) readopt(runID string) {
 
 	c.audit("run_readopted", rec.Harp, map[string]string{"run_id": runID})
 	if held {
-		c.goTracked(func() { c.readoptHold(runID, rec.Harp, rec.CredHash) })
+		// Refused, Close has begun; the journaled hold outlives this process.
+		_ = c.goTracked(func() { c.readoptHold(runID, rec.Harp, rec.CredHash) })
 	}
 }
 

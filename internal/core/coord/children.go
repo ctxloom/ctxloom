@@ -327,10 +327,16 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	queued := rt.slot != slotHeld
 	c.mu.Unlock()
 
+	// A refusal means Close has begun. The run stays enqueued exactly as a
+	// coordinator dying between enqueue and launch leaves it — the state the
+	// next coordinator's adoption already answers — and the caller is told it
+	// did not launch. The version probe is telemetry: refused, it is dropped.
 	backend := plan.Backend
-	c.goTracked(func() { c.spawner.RecordEngineVersion(c.baseCtx, harp, backend) })
+	_ = c.goTracked(func() { c.spawner.RecordEngineVersion(c.baseCtx, harp, backend) })
 
-	c.goTracked(func() { c.runChild(rt, prompt, token, url) })
+	if err := c.goTracked(func() { c.runChild(rt, prompt, token, url) }); err != nil {
+		return nil, fmt.Errorf("agent_run %s: %w", harp, err)
+	}
 	if hook := c.spawnDispatchedHook; hook != nil {
 		hook(harp)
 	}
@@ -609,6 +615,19 @@ func (c *Coordinator) armLaunch(harp string) chan struct{} {
 	c.launchArmed[harp] = append(c.launchArmed[harp], ch)
 	c.mu.Unlock()
 	return ch
+}
+
+// dispatchResume arms a launch attempt for harp and dispatches resumeChild for
+// it. Refused (Close has begun), the attempt never runs, so its arm is settled
+// here — nothing waits on an attempt that does not exist — and the refusal is
+// returned: the mail it was for stays queued for the harp's next run.
+func (c *Coordinator) dispatchResume(harp, forRun string, delay time.Duration) error {
+	attached := c.armLaunch(harp)
+	if err := c.goTracked(func() { c.resumeChild(harp, forRun, attached, delay) }); err != nil {
+		close(attached)
+		return err
+	}
+	return nil
 }
 
 // markAttached closes rt's attached signal exactly once (idempotent: a
@@ -1951,9 +1970,9 @@ func (c *Coordinator) claimResumedSlot(rt *childRt) bool {
 }
 
 // deliveryEndedDraining is driveQueued's observation for an ENDED recipient
-// while the coordinator is draining: the §6a resume is refused (a resume is a
-// fresh run, and a draining coordinator mints none), so the message stays
-// queued. Not a fold state — the run is still StateEnded — but a distinct
+// while the coordinator is draining or closing: the §6a resume is refused (a
+// resume is a fresh run, and a draining or closing coordinator mints none), so
+// the message stays queued. Not a fold state — the run is still StateEnded — but a distinct
 // delivery outcome deliveryDisposition names instead of promising a resume
 // that will not happen.
 const deliveryEndedDraining = "ended-draining"
@@ -2009,8 +2028,9 @@ func (c *Coordinator) driveObserved(harp, state, runID string) string {
 		// (terminateRun's leftover-mail tail) is bounded; if this reset
 		// leaked into that path the bound would not be a bound.
 		c.clearLaunchGate(harp)
-		attached := c.armLaunch(harp)
-		c.goTracked(func() { c.resumeChild(harp, runID, attached, 0) })
+		if c.dispatchResume(harp, runID, 0) != nil {
+			return deliveryEndedDraining
+		}
 	case StateIdle:
 		// The doorbell that rang at the write wakes the runner; ITS driver
 		// starts the new turn (§6a decided runner-side).

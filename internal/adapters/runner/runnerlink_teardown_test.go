@@ -56,8 +56,8 @@ const abortWatchWindow = 250 * time.Millisecond
 // request the receive loop dispatches is one Abort joins.
 //
 // The defect it forces: Abort sealed its tracked group BEFORE ending the
-// receive loop, and a sealed group still RUNS what is dispatched to it, only
-// untracked. A request that landed in that gap was served after Abort — and
+// receive loop, while a sealed group still ran what was dispatched to it,
+// untracked (TrackedGroup now refuses it instead). A request that landed in that gap was served after Abort — and
 // so Home.Crash and Home.Close — had returned: an engine host handling a
 // StartRun for a runner already torn down, writing under a HOME its owner was
 // removing (a coord test's TempDir cleanup failing on "directory not empty",
@@ -84,7 +84,7 @@ func TestRunnerLink_AbortJoinsARequestReceivedAsTeardownBegins(t *testing.T) {
 			return &agentcoordpb.RunnerResponse{}
 		},
 	}
-	l.goTracked(l.receiveLoop)
+	require.NoError(t, l.goTracked(l.receiveLoop))
 
 	abortDone := make(chan struct{})
 	go func() { defer close(abortDone); l.Abort() }()

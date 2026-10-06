@@ -331,8 +331,9 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	if cfg.Harp != "" {
 		h.BindIdentity(coord.Identity{Harp: cfg.Harp})
 	}
-	h.goTracked(h.runnerChannelLoop)
-	h.goTracked(h.runChannelLoop)
+	// Never refused: h is not returned yet, so nothing can have sealed it.
+	_ = h.goTracked(h.runnerChannelLoop)
+	_ = h.goTracked(h.runChannelLoop)
 	return h, nil
 }
 
@@ -402,8 +403,9 @@ func (h *Home) EmittedSeq() uint64 {
 	return h.seq
 }
 
-// goTracked runs fn on a new goroutine Close/crash join — see trackedGroup.
-func (h *Home) goTracked(fn func()) { h.tracked.Dispatch(fn) }
+// goTracked runs fn on a new goroutine Close/crash join, or refuses with
+// coord.ErrGroupSealed once either has sealed — see coord.TrackedGroup.
+func (h *Home) goTracked(fn func()) error { return h.tracked.Dispatch(fn) }
 
 // homeCloseJoinBudget bounds Close/crash's wait for Home's tracked
 // goroutines — see Coordinator's closeJoinBudget for the identical reasoning
@@ -1108,7 +1110,9 @@ func (h *Home) SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool) {
 	h.buffer = nil
 	h.turnQ = q
 	h.mu.Unlock()
-	h.goTracked(func() { h.turnPump(q, sink) })
+	// Refused, the home is torn down and its engine takes no turn: what was
+	// buffered stays in the spool, where the run's next runner finds it.
+	_ = h.goTracked(func() { h.turnPump(q, sink) })
 }
 
 // turnPump serializes turn deliveries (one at a time, arrival order) and

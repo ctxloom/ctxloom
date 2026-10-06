@@ -375,7 +375,9 @@ func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
 		c.rep.Warnf("coordinator: could not journal %s's turn failure into its hold: %v", t.own.harp, err)
 	case d.opened:
 		c.raiseHoldFinding(t, d.until, true)
-		c.goTracked(func() { c.parkSiblings(t.key, f.Kind, local, d.siblings) })
+		// Refused, Close has begun: the hold is journaled, and the siblings it
+		// covers are the next coordinator's to park when it adopts the hold.
+		_ = c.goTracked(func() { c.parkSiblings(t.key, f.Kind, local, d.siblings) })
 	case d.upgraded:
 		c.raiseHoldFinding(t, time.Time{}, true)
 	case d.parkedNothing:
@@ -887,8 +889,8 @@ func (c *Coordinator) relaunchReleased(harp string) {
 		c.pendingCount(harp) == 0 || c.Draining() || c.harpHeld(harp) {
 		return
 	}
-	attached := c.armLaunch(harp)
-	c.goTracked(func() { c.resumeChild(harp, rec.RunID, attached, 0) })
+	// Refused only once Close has begun; the mail waits for the harp's next run.
+	_ = c.dispatchResume(harp, rec.RunID, 0)
 }
 
 // relaunchEndedMembers is an adoption release's half for members whose run

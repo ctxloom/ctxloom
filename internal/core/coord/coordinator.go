@@ -636,15 +636,18 @@ func New(opts Options) (*Coordinator, error) {
 	// before any channel exists to ring it. It starts after adopt() because
 	// adopt is what makes the run records readable, and the sweep enumerates
 	// runs.
+	//
+	// None of these starts can be refused: c is not returned yet, so nothing
+	// can have begun its Close and sealed the group.
 	c.startSpoolReactor()
-	c.goTracked(c.runnerWatchdog)
-	c.goTracked(c.idleReaper)
+	_ = c.goTracked(c.runnerWatchdog)
+	_ = c.goTracked(c.idleReaper)
 	// The PROGRESS watchdog (liveness.go), alongside the runner-liveness one
 	// above. They answer different questions and neither subsumes the other:
 	// runnerWatchdog catches a runtime that DIED (heartbeat silence) and acts
 	// on it; this one catches a runtime that is very much alive and making no
 	// progress, and only ever warns.
-	c.goTracked(c.livenessWatchdog)
+	_ = c.goTracked(c.livenessWatchdog)
 	return c, nil
 }
 
@@ -824,7 +827,9 @@ func (c *Coordinator) openJournals() error {
 // tearing the journals and state dir down. EVERY bare `go` in this package whose
 // goroutine can outlive its spawning call must ride its owner's equivalent — see
 // trackedGroup.
-func (c *Coordinator) goTracked(fn func()) { c.tracked.Dispatch(fn) }
+//
+// Once Close has sealed, fn does not run and goTracked returns ErrGroupSealed.
+func (c *Coordinator) goTracked(fn func()) error { return c.tracked.Dispatch(fn) }
 
 // every runs sweep on a ticker until the coordinator's base context ends —
 // the one loop shape under the runner watchdog and the idle reaper.
@@ -896,7 +901,9 @@ func (c *Coordinator) adopt() {
 		c.mu.Lock()
 		c.graceExpire[runID] = fire
 		c.mu.Unlock()
-		c.goTracked(func() {
+		// Refused, the window never fires: Close has begun, and the run's
+		// fate is the next coordinator's adoption, not this one's grace.
+		_ = c.goTracked(func() {
 			select {
 			case <-time.After(runnerLossTimeout):
 				fire()
@@ -984,9 +991,9 @@ func (c *Coordinator) Draining() bool {
 // Every finished agent's engine homes and per-run scratch are removed too
 // (removeDisposableMembers); its native history, spool and records stay.
 //
-// Order: seal the tracked group and the stream group (goTracked stops
-// Add()ing and a late stream handler is refused at enter, so nothing can
-// race the joins below) → cancel baseCtx (every ctx-aware
+// Order: seal the tracked group and the stream group (goTracked refuses
+// with ErrGroupSealed and a late stream handler is refused at enter, so
+// nothing can race the joins below) → cancel baseCtx (every ctx-aware
 // tracked goroutine starts unwinding) → kill live attachments (best-effort;
 // a goroutine still mid-launch may not have published rt.close yet — that is
 // exactly what the wg join below catches) → srv.close (Stop the gRPC server

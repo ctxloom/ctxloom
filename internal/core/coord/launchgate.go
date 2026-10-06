@@ -425,8 +425,8 @@ func (c *Coordinator) relaunchForLeftoverMail(rec RunRecord, cause, detail strin
 		}
 		return
 	}
-	attached := c.armLaunch(rec.Harp)
-	c.goTracked(func() { c.resumeChild(rec.Harp, rec.RunID, attached, delay) })
+	// Refused only once Close has begun; the mail waits for the harp's next run.
+	_ = c.dispatchResume(rec.Harp, rec.RunID, delay)
 }
 
 // claimLeftover reports whether the caller is the first to act on runID's

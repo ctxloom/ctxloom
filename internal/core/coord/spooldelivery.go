@@ -562,7 +562,7 @@ func (c *Coordinator) startSpoolReactor() {
 	// visibly replacing this one, and a nil handler stays a real fault rather
 	// than becoming a second, silent delivery path.
 	c.SetSpoolDoorbellHandler(func(role string, _ spool.Ref) { c.spoolReactor.Mark(role) })
-	c.goTracked(func() { c.spoolReactor.Run(c.baseCtx) })
+	_ = c.goTracked(func() { c.spoolReactor.Run(c.baseCtx) }) // only from New: never refused
 }
 
 // spoolRoles is the reconciliation set: every harp this coordinator has a run

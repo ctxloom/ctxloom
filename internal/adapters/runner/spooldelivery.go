@@ -39,7 +39,7 @@ func (h *Home) startSpoolReactor() {
 	// the doorbell joins the other triggers at the single funnel that call
 	// already documents.
 	h.SetSpoolDoorbellHandler(func(string, spool.Ref) { h.SweepSpoolIn() })
-	h.goTracked(func() { h.spoolIn.Run(h.ctx) })
+	_ = h.goTracked(func() { h.spoolIn.Run(h.ctx) }) // only from NewHome: never refused
 }
 
 // SweepSpoolIn asks for a reconciliation sweep of this run's in/ spool. It is

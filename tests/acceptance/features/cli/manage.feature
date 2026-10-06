@@ -623,6 +623,10 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a fragment "testing" in bundle "demo" exists
+      # A run delivers a kind only when it has items (engine.Base.Delegate), and
+      # the record step requires every surface to be named; the skill is what
+      # puts the skills surface on the record.
+      And I run "ctxloom skill create demo reviewer -d SKILL-MARKER-reviewer"
       And a profile "dev" with bundle "demo"
       And the mock LLM responds "MOCK-REPLY"
       When Alice wires the mock in, takes it back out, and runs:

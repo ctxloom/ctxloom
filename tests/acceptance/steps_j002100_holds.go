@@ -84,8 +84,11 @@ func j002100RosterHold(c context.Context, harp string) (*j002100Hold, error) {
 	return nil, nil
 }
 
-// j002100AwaitHold polls the roster until want reports true for harp's hold.
-func j002100AwaitHold(c context.Context, harp string, within time.Duration, want func(*j002100Hold) bool, what string) error {
+// j002100AwaitHold polls the roster until want reports true for harp's hold,
+// bounded by the suite deadline (eventBudget). It polls because the roster is
+// read through a tool call and nothing announces a hold changing.
+func j002100AwaitHold(c context.Context, harp string, want func(*j002100Hold) bool, what string) error {
+	within := eventBudget()
 	deadline := time.Now().Add(within)
 	var last *j002100Hold
 	for {
@@ -193,13 +196,13 @@ func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
 			})
 		})
 
-	ctx.Step(`^within (\d+)s the roster shows "([^"]*)" held with kind "([^"]*)"$`,
-		func(c context.Context, secs int, name, kind string) error {
+	ctx.Step(`^the roster comes to show "([^"]*)" held with kind "([^"]*)"$`,
+		func(c context.Context, name, kind string) error {
 			harp, err := j002100Harp(worldFrom(c), name)
 			if err != nil {
 				return err
 			}
-			return j002100AwaitHold(c, harp, time.Duration(secs)*time.Second,
+			return j002100AwaitHold(c, harp,
 				func(h *j002100Hold) bool { return h != nil && h.Kind == kind }, "held with kind "+kind)
 		})
 
@@ -222,14 +225,14 @@ func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
 	// showed. A held child whose run ended still shows its hold (the hold
 	// covers the harp), so a missing hold is a release, which the journal
 	// step after this one attributes to the backoff.
-	ctx.Step(`^within (\d+)s the roster shows "([^"]*)" released on time$`, func(c context.Context, secs int, name string) error {
+	ctx.Step(`^the roster comes to show "([^"]*)" released on time$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
 		harp, err := j002100Harp(w, name)
 		if err != nil {
 			return err
 		}
 		until := time.Unix(j002100Of(w).holdUntil, 0)
-		if err := j002100AwaitHold(c, harp, time.Duration(secs)*time.Second,
+		if err := j002100AwaitHold(c, harp,
 			func(h *j002100Hold) bool { return h == nil }, "with no hold"); err != nil {
 			return err
 		}

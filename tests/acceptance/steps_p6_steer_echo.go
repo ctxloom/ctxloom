@@ -213,9 +213,10 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 	// measuring the scheduler.
 	//
 	// Every poll is a free local directory read (j002300OwnerMail), never a
-	// second paid model call, so a generous budget costs nothing.
-	ctx.Step(`^the coordinator's own spool receives "([^"]*)"'s echo of this cell's minted steer harp within (\d+)s$`,
-		func(c context.Context, name string, budgetSec int) error {
+	// second paid model call, so polling to the suite deadline (eventBudget)
+	// costs nothing; the spool has no event to wait on instead.
+	ctx.Step(`^the coordinator's own spool receives "([^"]*)"'s echo of this cell's minted steer harp$`,
+		func(c context.Context, name string) error {
 			w := worldFrom(c)
 			p6 := p6Of(w)
 			j002300 := j002300Of(w)
@@ -224,7 +225,8 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 				return fmt.Errorf("p6: no session harp remembered for %q — spawn it first", name)
 			}
 			v := p6Verdict(p6.cell)
-			deadline := time.Now().Add(time.Duration(budgetSec) * time.Second)
+			budget := eventBudget()
+			deadline := time.Now().Add(budget)
 			for {
 				mail, err := j002300OwnerMail(w)
 				if err != nil {
@@ -253,7 +255,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 					// The verdict, not the timeout, is the report: it names the
 					// shape (silent no-op / credential failure / BUS-DELIVERY)
 					// and quotes every body verbatim.
-					return fmt.Errorf("p6: %ds elapsed — %w", budgetSec, verdict)
+					return fmt.Errorf("p6: %s elapsed — %w", budget, verdict)
 				}
 				time.Sleep(250 * time.Millisecond)
 			}

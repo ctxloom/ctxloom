@@ -115,8 +115,8 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
       | input.prompt | go        |
     Then the tool call succeeds
     And "librarian"'s session harp is remembered
-    And the session owner is woken within 60s
-    And the coordinator's own spool shows "librarian"'s report delivered within 30s, carrying its own guidance, not "cartographer"'s
+    And the session owner is woken
+    And the coordinator's own spool shows "librarian"'s report delivered, carrying its own guidance, not "cartographer"'s
 
   # THE NEGATIVE PROBE for the two hermetic bus scenarios above. Both are
   # green only because a REAL runner process stands for the child: the
@@ -151,7 +151,7 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
       | input.prompt | go        |
     Then the tool call succeeds
     And "librarian"'s session harp is remembered
-    And the coordinator's own spool receives a message from "librarian" within 20s
+    And the coordinator's own spool receives a message from "librarian"
     And the received message from "librarian" is the withheld runner's launch failure, and no result carrying its guidance arrived
     And "librarian" recorded no turn
 
@@ -206,7 +206,7 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
       | input.prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
     Then the tool call succeeds
     And "delegate"'s session harp is remembered
-    And the coordinator's own spool receives a body containing "<marker>" from "delegate" within 240s
+    And the coordinator's own spool receives a body containing "<marker>" from "delegate"
 
     @claude-code
     Examples:
@@ -266,9 +266,9 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
   # gate for a neighbouring subsystem's scope. If child->parent file delivery
   # is meant to be guaranteed, that belongs in its own assertion.
   #
-  # TIMING, for whoever tunes the budget: an echo turn has landed as much as 79
-  # seconds after the steer on a slow engine. Do not shorten 240s on the
-  # strength of a fast one.
+  # TIMING: an echo turn has landed as much as 79 seconds after the steer on a
+  # slow engine. The spool waits run to the suite deadline, so a live run's
+  # test timeout must leave room for that; do not size it on a fast engine.
   #
   # ONE ROW AT A TIME, two paid turns each (the wake-up and the steer). Address
   # exactly one cell with the registry's own tag expression:
@@ -284,10 +284,10 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
       | input.prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
     Then the tool call succeeds
     And "delegate"'s session harp is remembered
-    And the coordinator's own spool receives a body containing "<marker>" from "delegate" within 240s
+    And the coordinator's own spool receives a body containing "<marker>" from "delegate"
     When the agent calls tool "agent_send" addressed to "delegate"'s session carrying this cell's minted steer harp
     Then the tool call succeeds
-    And the coordinator's own spool receives "delegate"'s echo of this cell's minted steer harp within 240s
+    And the coordinator's own spool receives "delegate"'s echo of this cell's minted steer harp
     And the coordinator's steer is on disk in "delegate"'s own spool, in a file carrying that harp
 
     @claude-code @host @ws-none

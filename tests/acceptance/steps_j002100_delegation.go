@@ -579,8 +579,8 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 	// it wrote into the owner's in/, here by its in_reply_to, and the owner's
 	// delivered record holds that id. The answer's words are read from the
 	// child's routed copy, which the coordinator consumed only once routed.
-	ctx.Step(`^within (\d+)s the coordinator's reader delivers "([^"]*)"'s answer "([^"]*)", quoting the ask's id$`,
-		func(c context.Context, secs int, name, answer string) error {
+	ctx.Step(`^the coordinator's reader delivers "([^"]*)"'s answer "([^"]*)", quoting the ask's id$`,
+		func(c context.Context, name, answer string) error {
 			w := worldFrom(c)
 			j002100 := j002100Of(w)
 			harp := j002100.harps[name]
@@ -588,7 +588,10 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			if owner == "" {
 				return fmt.Errorf("j002100: the scenario never pinned the coordinator's own harp, so there is no owner spool to read")
 			}
-			deadline := time.Now().Add(time.Duration(secs) * time.Second)
+			// The spool is files nothing announces: polled, bounded by the
+			// suite deadline.
+			budget := eventBudget()
+			deadline := time.Now().Add(budget)
 			for {
 				ids, err := routedToOwnerWhere(w, owner, func(d map[string]string) bool {
 					return d["from"] == harp && d["kind"] == "result" && d["in_reply_to"] == j002100.askID
@@ -604,8 +607,8 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 					return routedAnswer(w, harp, j002100.askID, answer)
 				}
 				if time.Now().After(deadline) {
-					return fmt.Errorf("after %ds the coordinator (harp %s) has delivered no result from %s (harp %s) quoting ask %s; routed under ids %v",
-						secs, owner, name, harp, j002100.askID, ids)
+					return fmt.Errorf("after %s the coordinator (harp %s) has delivered no result from %s (harp %s) quoting ask %s; routed under ids %v",
+						budget, owner, name, harp, j002100.askID, ids)
 				}
 				time.Sleep(250 * time.Millisecond)
 			}

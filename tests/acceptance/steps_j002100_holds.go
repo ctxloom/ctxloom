@@ -379,16 +379,22 @@ func tail(s string, n int) string {
 }
 
 // overlayPause opens the overlay in sess, selects harp's row and pauses it,
-// waiting on the overlay's own confirmation, then closes the overlay. The
-// renderer redraws only what changed, so the row is found by its position in
-// the first render (the selection starts on the first row) and the selection
-// is confirmed by the feed title's redraw naming the harp.
+// waiting on the overlay's own confirmation, then closes the overlay. Every
+// wait reads the screen (testenv.ScreenText) and never the bytes: the renderer
+// redraws only the cells that changed, so a confirmation drawn over the
+// pending hint ("pausing <harp>…") reuses the cells the two share and never
+// appears whole in the stream. The screen is replayed from Ctrl-], so every
+// cell the renderer skips was drawn inside the replay. The row is found by
+// its position in the first render (the selection starts on the first row).
 func overlayPause(sess *testenv.PTYSession, harp string) error {
-	mark := len(sess.Output())
-	since := func(out string) string { return out[min(mark, len(out)):] }
+	origin := len(sess.Output())
+	since := func(out string) string { return out[min(origin, len(out)):] }
 	waitFor := func(what string) error {
-		if !sess.WaitForOutput(15*time.Second, func(out string) bool { return strings.Contains(since(out), what) }) {
-			return fmt.Errorf("the overlay never showed %q; output since Ctrl-]:\n%q", what, since(sess.Output()))
+		if !sess.WaitForOutput(15*time.Second, func(out string) bool {
+			return strings.Contains(testenv.ScreenText(since(out)), what)
+		}) {
+			out := since(sess.Output())
+			return fmt.Errorf("the overlay never showed %q; screen since Ctrl-]:\n%s\noutput since Ctrl-]:\n%q", what, testenv.ScreenText(out), out)
 		}
 		return nil
 	}
@@ -401,13 +407,12 @@ func overlayPause(sess *testenv.PTYSession, harp string) error {
 	if err := waitFor(harp + "·"); err != nil {
 		return err
 	}
-	first, _, _ := strings.Cut(since(sess.Output()), "j/k move")
+	first := testenv.ScreenText(since(sess.Output()))
 	row := overlayRow(first, harp)
 	if row < 0 {
-		return fmt.Errorf("could not find %s's row in the overlay's roster:\n%q", harp, first)
+		return fmt.Errorf("could not find %s's row in the overlay's roster:\n%s", harp, first)
 	}
 	if row > 0 {
-		mark = len(sess.Output())
 		if _, err := sess.Write([]byte(strings.Repeat("j", row))); err != nil {
 			return err
 		}
@@ -425,12 +430,12 @@ func overlayPause(sess *testenv.PTYSession, harp string) error {
 	return err
 }
 
-// overlayRow is harp's row index in the overlay's roster pane as first
-// rendered: its rows are the lines whose pane (left of "│") names a harp and
+// overlayRow is harp's row index in the overlay's roster pane on screen
+// (testenv.ScreenText): its rows are the lines whose pane (left of "│") names a harp and
 // its role ("harp·role"); -1 when harp is not among them.
-func overlayRow(render, harp string) int {
+func overlayRow(screen, harp string) int {
 	n := 0
-	for _, line := range strings.Split(render, "\r\n") {
+	for _, line := range strings.Split(screen, "\n") {
 		pane, _, isRow := strings.Cut(line, "│")
 		if !isRow || !strings.Contains(pane, "·") {
 			continue

@@ -300,7 +300,7 @@ func j001400SeedTreeRemote(w *World, st *j001400State) error {
 	bare := filepath.Join(root, "remote.git")
 	work := filepath.Join(root, "work")
 
-	if err := j001400GitAll("", [][]string{{"init", "--bare", "-b", "main", bare}, {"init", "-b", "main", work}}); err != nil {
+	if err := j001400GitAll(root, [][]string{{"init", "--bare", "-b", "main", bare}, {"init", "-b", "main", work}}); err != nil {
 		return err
 	}
 	if err := j001400GitAll(work, [][]string{

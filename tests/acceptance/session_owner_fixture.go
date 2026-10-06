@@ -30,7 +30,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/cucumber/godog"
 
@@ -60,10 +59,6 @@ const (
 	// and delivers the launch BEFORE the engine reads stdin, so a mock parked
 	// in its echo loop implies the endpoint is served.
 	sessionOwnerSentinel = "session-owner-standing"
-
-	// sessionOwnerReadyTimeout bounds the wait for that echo. Generous for
-	// CI: the runner spawn is a real self-exec + dial-home + StartRun.
-	sessionOwnerReadyTimeout = 30 * time.Second
 
 	// mockMCPFileName is the mock engine's MCP config inside its config dir
 	// (mock.ConfigDirName): where the launch delivers the session's endpoint.
@@ -120,10 +115,10 @@ func (w *World) standSessionOwnerSelecting(bin string, selection []string, extra
 	if _, err := sess.Write([]byte(sessionOwnerSentinel + "\n")); err != nil {
 		return fmt.Errorf("session owner: type the readiness sentinel: %w", err)
 	}
-	if !sess.WaitForOutput(sessionOwnerReadyTimeout, func(out string) bool {
+	if !sess.WaitForOutput(eventBudget(), func(out string) bool {
 		return strings.Contains(out, "mock echo: "+sessionOwnerSentinel)
 	}) {
-		return fmt.Errorf("session owner: never echoed %q within %s — the owner is not standing; output:\n%s", sessionOwnerSentinel, sessionOwnerReadyTimeout, sess.Output())
+		return fmt.Errorf("session owner: never echoed %q — the owner is not standing; output:\n%s", sessionOwnerSentinel, sess.Output())
 	}
 
 	owner.harp, err = mintedHarp(w.env.HomeDir, before, sess)

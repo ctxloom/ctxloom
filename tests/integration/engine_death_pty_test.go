@@ -16,20 +16,31 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/testsupport/procalive"
+	"github.com/ctxloom/ctxloom/internal/shared/procpin"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
-
-// engineDeathExitBound is how long the runner and `ctxloom run` may each take
-// to finish once the engine is gone: the runner's own pty drain, its report
-// and teardown, then the run's drain, outcome read and coordinator teardown.
-// Every one of those is bounded in seconds; the defect this guards held both
-// processes for as long as nobody intervened.
-const engineDeathExitBound = 20 * time.Second
 
 // engineDeathDumpWait bounds the wait for a SIGQUIT goroutine dump to reach
 // the pty capture before the next process is dumped.
 const engineDeathDumpWait = 5 * time.Second
+
+// engineDeathBound is when the waits for the runner and `ctxloom run` to
+// finish give up: the test binary's deadline, less the room dumpGoroutines
+// then needs. The defect these guard held both processes for as long as
+// nobody intervened, so no shorter bound tells a defect from a loaded box.
+func engineDeathBound(t *testing.T) time.Time {
+	return time.Now().Add(testenv.TestBudget(t) - 2*engineDeathDumpWait)
+}
+
+// pinRunner pins the run's runner while it is alive, so its exit is an event
+// the test waits on and a signal sent through it cannot reach a reused pid.
+func pinRunner(t *testing.T, pid int) procpin.Handle {
+	t.Helper()
+	h, ok := procpin.Pin(pid)
+	require.True(t, ok, "the runner (pid %d) could not be pinned", pid)
+	t.Cleanup(h.Close)
+	return h
+}
 
 // fakeLongLivedClaudeBody is a fake `claude` that announces its own pid (so
 // the test kills exactly the engine, not a process it found by shape), then
@@ -107,7 +118,7 @@ func TestRunPTY_EngineKilledMidSessionEndsTheRunnerAndTheRun(t *testing.T) {
 
 			runners := testenv.RunnerChildrenOf(sess.PID())
 			require.Len(t, runners, 1, "exactly one runner serves the session")
-			runner := runners[0]
+			runner := pinRunner(t, runners[0])
 			locks := ownerLocks(t, env.HomeDir)
 			require.Len(t, locks, 1, "the session owns exactly one root")
 			owner, err := coord.ProbeOwner(filepath.Dir(locks[0]))
@@ -117,13 +128,14 @@ func TestRunPTY_EngineKilledMidSessionEndsTheRunnerAndTheRun(t *testing.T) {
 
 			require.NoError(t, syscall.Kill(engine, syscall.SIGKILL), "kill the engine")
 
-			runnerGone := waitGone(runner, engineDeathExitBound)
-			exited, _ := sess.Wait(engineDeathExitBound)
+			bound := engineDeathBound(t)
+			runnerGone := runner.WaitExit(time.Until(bound))
+			exited, _ := sess.Wait(time.Until(bound))
 			if !runnerGone || !exited {
 				dumpGoroutines(t, sess, runner, runnerGone, exited)
 			}
-			require.True(t, runnerGone, "the runner (pid %d) outlived its engine by %s", runner, engineDeathExitBound)
-			require.True(t, exited, "ctxloom run (pid %d) outlived its engine by %s", sess.PID(), engineDeathExitBound)
+			require.True(t, runnerGone, "the runner (pid %d) outlived its engine; captured: %q", runners[0], sess.Output())
+			require.True(t, exited, "ctxloom run (pid %d) outlived its engine; captured: %q", sess.PID(), sess.Output())
 			assert.Equal(t, 128+int(syscall.SIGKILL), sess.ExitCode(),
 				"the run exits with the killed engine's status; captured: %q", sess.Output())
 			released, err := coord.ProbeOwner(filepath.Dir(locks[0]))
@@ -133,32 +145,16 @@ func TestRunPTY_EngineKilledMidSessionEndsTheRunnerAndTheRun(t *testing.T) {
 	}
 }
 
-// waitGone waits up to bound for pid to leave the process table (a zombie
-// counts as gone: its parent's reap is the parent's business).
-func waitGone(pid int, bound time.Duration) bool {
-	deadline := time.Now().Add(bound)
-	for procalive.Alive(pid) {
-		if time.Now().After(deadline) {
-			return false
-		}
-		time.Sleep(pollTick)
-	}
-	return true
-}
-
-// pollTick paces waitGone's process-table poll.
-const pollTick = 10 * time.Millisecond
-
 // dumpGoroutines SIGQUITs whichever of the runner and the run is still alive,
 // the runner first: while the run still drives the session its pty relay
 // carries the runner's dump to the capture, and a run already past its drive
 // writes its own dump straight to the capture. Each dump is waited for up to
 // engineDeathDumpWait, then the whole capture is logged.
-func dumpGoroutines(t *testing.T, sess *testenv.PTYSession, runner int, runnerGone, runExited bool) {
+func dumpGoroutines(t *testing.T, sess *testenv.PTYSession, runner procpin.Handle, runnerGone, runExited bool) {
 	t.Helper()
 	if !runnerGone {
-		_ = syscall.Kill(runner, syscall.SIGQUIT)
-		_ = waitGone(runner, engineDeathDumpWait)
+		_ = runner.Signal(syscall.SIGQUIT)
+		_ = runner.WaitExit(engineDeathDumpWait)
 	}
 	if !runExited {
 		_ = syscall.Kill(sess.PID(), syscall.SIGQUIT)
@@ -193,6 +189,7 @@ func TestRunPTY_RunnerDeadWithoutAnOutcomeEndsTheRun(t *testing.T) {
 			engine := announcedPID(t, sess, enginePIDLine)
 			runners := testenv.RunnerChildrenOf(sess.PID())
 			require.Len(t, runners, 1, "exactly one runner serves the session")
+			runner := pinRunner(t, runners[0])
 			locks := ownerLocks(t, env.HomeDir)
 			require.Len(t, locks, 1, "the session owns exactly one root")
 
@@ -201,11 +198,11 @@ func TestRunPTY_RunnerDeadWithoutAnOutcomeEndsTheRun(t *testing.T) {
 			}
 			require.NoError(t, syscall.Kill(runners[0], syscall.SIGQUIT), "end the runner with no teardown")
 
-			exited, _ := sess.Wait(engineDeathExitBound)
+			exited, _ := sess.Wait(time.Until(engineDeathBound(t)))
 			if !exited {
-				dumpGoroutines(t, sess, runners[0], true, exited)
+				dumpGoroutines(t, sess, runner, true, exited)
 			}
-			require.True(t, exited, "ctxloom run (pid %d) outlived its runner by %s", sess.PID(), engineDeathExitBound)
+			require.True(t, exited, "ctxloom run (pid %d) outlived its runner; captured: %q", sess.PID(), sess.Output())
 			assert.NotEqual(t, 0, sess.ExitCode(), "a run whose runner died unreported is not a success; captured: %q", sess.Output())
 			if tc.saysOutcome {
 				assert.Contains(t, sess.Output(), "never reported its outcome", "the run says why it ended")

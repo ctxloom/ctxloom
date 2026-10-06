@@ -14,11 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
-// ownerDeathExitBound is how long a session whose terminal or runner is gone
-// may take to exit: the drive's own bounds (the drain grace, End then Kill)
-// plus the coordinator's teardown.
-const ownerDeathExitBound = 20 * time.Second
-
 const ownerDeathSentinel = "owner-death-sentinel"
 
 // startParkedSession starts an interactive run whose mock engine parks in its
@@ -44,9 +39,10 @@ func startParkedSession(t *testing.T) *testenv.PTYSession {
 	})
 	_, err = s.Write([]byte(ownerDeathSentinel + "\n"))
 	require.NoError(t, err)
-	require.True(t, s.WaitForOutput(treesPollTimeout, func(out string) bool {
+	out, up := s.AwaitOutput(t, func(out string) bool {
 		return strings.Contains(out, "mock echo: "+ownerDeathSentinel)
-	}), "the session never came up; output:\n%s", s.Output())
+	})
+	require.True(t, up, "the session never came up; output:\n%s", out)
 	return s
 }
 
@@ -56,8 +52,8 @@ func startParkedSession(t *testing.T) *testenv.PTYSession {
 func TestInteractiveRun_ExitsWhenItsTerminalHangsUp(t *testing.T) {
 	s := startParkedSession(t)
 	require.NoError(t, s.Hangup())
-	exited, _ := s.Wait(ownerDeathExitBound)
-	require.True(t, exited, "the run outlived its terminal by %s", ownerDeathExitBound)
+	exited, _ := s.AwaitExit(t)
+	require.True(t, exited, "the run outlived its terminal; output:\n%s", s.Output())
 }
 
 // A run whose terminal died and whose runner then exits must exit too — the
@@ -72,8 +68,8 @@ func TestInteractiveRun_ExitsWhenItsRunnerDiesAfterHangup(t *testing.T) {
 	for _, pid := range runners {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
 	}
-	exited, _ := s.Wait(ownerDeathExitBound)
-	require.True(t, exited, "the run outlived its runner by %s", ownerDeathExitBound)
+	exited, _ := s.AwaitExit(t)
+	require.True(t, exited, "the run outlived its runner; output:\n%s", s.Output())
 }
 
 // Control: a runner that dies under a run whose terminal is intact ends the
@@ -85,6 +81,6 @@ func TestInteractiveRun_ExitsWhenItsRunnerDies(t *testing.T) {
 	for _, pid := range runners {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
 	}
-	exited, _ := s.Wait(ownerDeathExitBound)
-	require.True(t, exited, "the run outlived its runner by %s", ownerDeathExitBound)
+	exited, _ := s.AwaitExit(t)
+	require.True(t, exited, "the run outlived its runner; output:\n%s", s.Output())
 }

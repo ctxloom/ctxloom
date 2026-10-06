@@ -132,10 +132,10 @@ func (w *World) resumeSessionOwner(harp string) error {
 	if _, err := sess.Write([]byte(sessionOwnerSentinel + "\n")); err != nil {
 		return fmt.Errorf("resumed session owner: type the readiness sentinel: %w", err)
 	}
-	if !sess.WaitForOutput(sessionOwnerReadyTimeout, func(out string) bool {
+	if !sess.WaitForOutput(eventBudget(), func(out string) bool {
 		return strings.Contains(out, "mock echo: "+sessionOwnerSentinel)
 	}) {
-		return fmt.Errorf("resumed session owner never echoed %q within %s; output:\n%s", sessionOwnerSentinel, sessionOwnerReadyTimeout, sess.Output())
+		return fmt.Errorf("resumed session owner never echoed %q; output:\n%s", sessionOwnerSentinel, sess.Output())
 	}
 	after, err := deliveredConfigs(w.env.HomeDir)
 	if err != nil {
@@ -305,8 +305,8 @@ func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("kill the session owner: %w", err)
 		}
-		if exited, _ := w.owner.sess.Wait(15 * time.Second); !exited {
-			return errors.New("the killed session owner never exited")
+		if exited, _ := w.owner.sess.Wait(eventBudget()); !exited {
+			return fmt.Errorf("the killed session owner never exited; output:\n%s", w.owner.sess.Output())
 		}
 		if w.mcp != nil {
 			_ = w.mcp.Close() // its endpoint died with the owner
@@ -390,7 +390,7 @@ func overlayPause(sess *testenv.PTYSession, harp string) error {
 	origin := len(sess.Output())
 	since := func(out string) string { return out[min(origin, len(out)):] }
 	waitFor := func(what string) error {
-		if !sess.WaitForOutput(15*time.Second, func(out string) bool {
+		if !sess.WaitForOutput(eventBudget(), func(out string) bool {
 			return strings.Contains(testenv.ScreenText(since(out)), what)
 		}) {
 			out := since(sess.Output())

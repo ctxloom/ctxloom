@@ -136,6 +136,7 @@ func TestAcceptance(t *testing.T) {
 	if p := os.Getenv("ACCEPTANCE_PATHS"); p != "" {
 		paths = strings.Split(p, ",")
 	}
+	suiteDeadline.at, suiteDeadline.ok = t.Deadline()
 	skips := &skipLedger{}
 	suite := godog.TestSuite{
 		Name: "ctxloom-acceptance",

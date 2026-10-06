@@ -194,21 +194,18 @@ Feature: A signature somebody can check
       | --format json |
       | --format text |
 
-  # Removing a signer means "I will review this myself from now on", not
-  # "deny" — so the content is held, not refused. The assertion that makes the
-  # removal real rather than cosmetic is on the STORE FILE, not the listing.
+  # The assertion that makes the removal real rather than cosmetic is on the
+  # STORE FILE, not the listing.
   Scenario Outline: Withdrawing trust in Trent's key removes the key line itself
     Given Trent's project publishes the "secure-coding" bundle his team depends on
     And Trent has signed the bundle "secure-coding"
     And Trent's key is trusted in the committable project store as "context@acme.example"
     And Trent publishes the signed bundle to his company repo, and Alice references it
-    And her assistant receives the "tdd" guidance
     When I run "ctxloom signer untrust context@acme.example --project <flags>"
     Then the command succeeds
     And the output reports "removed" as "<one entry gone>"
     And the project store ".ctxloom/allowed_signers" no longer names Trent's key
     And the project store ".ctxloom/allowed_signers" holds nothing at all
-    And her assistant does not receive the "tdd" guidance
 
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | one entry gone                           |

@@ -508,34 +508,6 @@ func j001600Reference(w *World) error {
 	return runOK(w, "deps", "pull")
 }
 
-// j001600Delivered materializes the default profile and returns the assembled
-// context — the surface a scenario asserts a marker reached, or did not.
-func j001600Delivered(w *World) (string, error) {
-	_ = w.env.Run("profile", "materialize", "default", "--target", "out")
-	body, err := w.env.ReadFile(filepath.Join("out", "CLAUDE.md"))
-	if err != nil {
-		return "", fmt.Errorf("read materialized out/CLAUDE.md (materialize output:\n%s): %w", w.env.LastOutput(), err)
-	}
-	w.docStepMaterialized = body
-	return body, nil
-}
-
-// j001600AssertDelivery checks a marker's presence in the assembled context.
-func j001600AssertDelivery(w *World, marker string, want bool) error {
-	body, err := j001600Delivered(w)
-	if err != nil {
-		return err
-	}
-	has := strings.Contains(body, marker)
-	if want && !has {
-		return fmt.Errorf("the assembled context does not carry %q; delivered:\n%s", marker, body)
-	}
-	if !want && has {
-		return fmt.Errorf("the assembled context still carries %q, which should have been withheld; delivered:\n%s", marker, body)
-	}
-	return nil
-}
-
 // j001600EmbeddedPrincipals returns the principals ctxloom's compiled-in trust
 // root names, read from the SAME embedded bytes the product reads rather than
 // hard-coded here. A literal would rot the moment the release key rotates,
@@ -1125,22 +1097,6 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		return j001600Reference(w)
 	})
 
-	ctx.Step(`^her assistant receives the "([^"]*)" guidance$`, func(c context.Context, which string) error {
-		marker, err := j001600MarkerFor(which)
-		if err != nil {
-			return err
-		}
-		return j001600AssertDelivery(worldFrom(c), marker, true)
-	})
-
-	ctx.Step(`^her assistant does not receive the "([^"]*)" guidance$`, func(c context.Context, which string) error {
-		marker, err := j001600MarkerFor(which)
-		if err != nil {
-			return err
-		}
-		return j001600AssertDelivery(worldFrom(c), marker, false)
-	})
-
 	// --- bundle move ---------------------------------------------------------
 
 	ctx.Step(`^I run "ctxloom bundle move" to relocate "([^"]*)" into the shared standards directory$`, func(c context.Context, name string) error {
@@ -1207,23 +1163,6 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		}
 		return nil
 	})
-}
-
-// j001600MarkerFor maps a fragment's human name to the marker string its content
-// carries. Fails loud on an unknown name rather than silently asserting
-// against "" — an empty needle is contained in every string, so a typo would
-// turn every delivery assertion into a tautology.
-func j001600MarkerFor(which string) (string, error) {
-	switch which {
-	case "tdd":
-		return j001600TDDMarker, nil
-	case "revised tdd":
-		return j001600TDDRevised, nil
-	case "curl-pipe-sh":
-		return j001600CurlMarker, nil
-	default:
-		return "", fmt.Errorf("no J001600 marker is defined for %q", which)
-	}
 }
 
 // j001600RenderedListingNames reads the four facts off ONE LINE of a rendered

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -17,14 +18,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // ownerTestDir isolates the environment and returns a fresh, real (OS
-// filesystem) .ctxloom directory for an Owner to operate on. A real
-// filesystem is required, not afero.NewMemMapFs: Update's advisory lock is
-// skipped entirely for an injected test fs (no cross-process readers to
-// protect), so the lock-holding tests below need real files.
+// filesystem) .ctxloom directory for an Owner to operate on: the
+// lock-holding tests below contend with the kernel locks other processes
+// take.
 func ownerTestDir(t *testing.T) string {
 	t.Helper()
 	home := testsupport.Isolate(t)
@@ -205,4 +206,42 @@ func TestOwnerCurrent_AccessorsCopy(t *testing.T) {
 	agentsCopy := cfg.GetConfiguredAgents()
 	agentsCopy["injected"] = agents.Agent{LLM: "should-not-appear"}
 	assert.NotContains(t, cfg.GetConfiguredAgents(), "injected")
+}
+
+// TestOwnerUpdate_AnInMemoryRootLocksTheTransaction: an Owner over a test's
+// in-memory Root takes the update lock through that Root's Locks — nothing
+// skips it — for the whole read-modify-write, and keeps the lock file on the
+// in-memory filesystem. Inside fn the lock is observed held (a TryLock that
+// gives up at once is refused), which is the transaction holding it, not a
+// timing guess.
+//
+// MUTATION KILL: skip the lock for this Root (run fn unlocked) and the
+// in-fn TryLock succeeds; lock through the controller's own Locks instead
+// and the lock file lands on disk, not on the Root's filesystem.
+func TestOwnerUpdate_AnInMemoryRootLocksTheTransaction(t *testing.T) {
+	home := testsupport.Isolate(t)
+	appDir := filepath.Join(home, "project", config.AppDirName)
+	mem := afero.NewMemMapFs()
+	require.NoError(t, mem.MkdirAll(appDir, 0o755))
+	root := safefs.NewMem(mem)
+	src, err := configload.New(nil, nil, configload.WithAppDir(appDir), configload.WithRoot(root))
+	require.NoError(t, err)
+	owner, err := config.Open(context.Background(), src)
+	require.NoError(t, err)
+	lockPath, err := paths.ProjectPathFor(configPathOf(t, owner))
+	require.NoError(t, err)
+
+	gaveUp, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.NoError(t, update(owner, func(d *config.Draft) error {
+		_, err := root.Locks.TryLock(gaveUp, lockPath)
+		assert.ErrorIs(t, err, safefs.ErrLockHeld, "the update lock is held across the whole transaction")
+		d.DefaultAgent = "locked-write"
+		return nil
+	}))
+
+	ok, err := afero.Exists(mem, lockPath)
+	require.NoError(t, err)
+	assert.True(t, ok, "the lock file is on the Root's filesystem")
+	assert.NoFileExists(t, lockPath, "an in-memory Root never locks on the real disk")
 }

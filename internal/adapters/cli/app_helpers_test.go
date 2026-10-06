@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
@@ -80,7 +81,7 @@ func (s probeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.
 // holds (its signer files, read now), over compositetest's review and
 // retraction records.
 func (s probeSources) TrustPorts(_ context.Context, cfg *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
-	read, err := configload.Load(configload.WithFS(cfg.FS()), configload.WithAppDir(cfg.GetAppPaths()[0]))
+	read, err := configload.Load(configload.WithRoot(safefs.NewMem(cfg.FS())), configload.WithAppDir(cfg.GetAppPaths()[0]))
 	if err != nil {
 		return nil, nil, nil, err
 	}

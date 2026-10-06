@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -294,7 +295,7 @@ func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 			t.Run(tc.kind+"/rejects/"+name, func(t *testing.T) {
 				fs := afero.NewMemMapFs()
 				cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
-				cfg.SetFS(fs)
+				cfg.SetRoot(safefs.NewMem(fs))
 				require.NoError(t, fs.MkdirAll("/incoming", 0755))
 				require.NoError(t, afero.WriteFile(fs, "/incoming/"+name, []byte(tc.body), 0644))
 
@@ -307,7 +308,7 @@ func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 			t.Run(tc.kind+"/accepts/"+name, func(t *testing.T) {
 				fs := afero.NewMemMapFs()
 				cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
-				cfg.SetFS(fs)
+				cfg.SetRoot(safefs.NewMem(fs))
 				require.NoError(t, fs.MkdirAll("/incoming", 0755))
 				require.NoError(t, afero.WriteFile(fs, "/incoming/"+name, []byte(tc.body), 0644))
 

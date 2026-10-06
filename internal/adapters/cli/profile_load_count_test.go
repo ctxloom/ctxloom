@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -86,7 +87,7 @@ func TestManageHooksInstall_LoadsTheDefaultProfileOnce(t *testing.T) {
 	require.NoError(t, err, "scaffold the project the hooks install applies to")
 
 	counter := newProfileReadCounter(operations.SeedProfileName)
-	testApp(t, configload.WithFS(counter))
+	testApp(t, configload.WithRoot(safefs.NewMem(counter)))
 
 	require.NoError(t, runManageHooksInstall(directCmd(t, manageHooksInstallCmd), nil))
 	assert.Equal(t, int64(1), counter.opens.Load(), "one command, one load of the default profile")
@@ -101,7 +102,7 @@ func TestManageInstall_LoadsTheDefaultProfileAtMostOnce(t *testing.T) {
 	t.Cleanup(companions.AdmitNoCompanionForTesting())
 
 	counter := newProfileReadCounter(operations.SeedProfileName)
-	testApp(t, configload.WithFS(counter))
+	testApp(t, configload.WithRoot(safefs.NewMem(counter)))
 
 	prevPrint := manageInstallPrint
 	manageInstallPrint = false

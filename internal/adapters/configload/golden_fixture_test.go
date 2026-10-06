@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -74,7 +75,7 @@ func TestGoldenFixture_CurrentEffectiveConfig_D3Characterization(t *testing.T) {
 	// ---- PRE-layering baseline: project alone, home absent from disk ----
 	fsProjectOnly := afero.NewMemMapFs()
 	testsupport.WriteFile(t, fsProjectOnly, paths.ConfigPath(projectAppDir), initConfig, 0644)
-	projectOnly, err := Load(WithFS(fsProjectOnly), WithAppDir(projectAppDir))
+	projectOnly, err := Load(WithRoot(safefs.NewMem(fsProjectOnly)), WithAppDir(projectAppDir))
 	require.NoError(t, err)
 
 	// Pin today's known-good shape of the shipped init template alone, so a
@@ -95,7 +96,7 @@ func TestGoldenFixture_CurrentEffectiveConfig_D3Characterization(t *testing.T) {
 	testsupport.WriteFile(t, fsLayered, paths.ConfigPath(projectAppDir), initConfig, 0644)
 	homeAppDir := filepath.Join(home, config.AppDirName)
 	testsupport.WriteFile(t, fsLayered, paths.ConfigPath(homeAppDir), []byte(goldenHomeConfigYAML), 0644)
-	layered, err := Load(WithFS(fsLayered), WithAppDir(projectAppDir))
+	layered, err := Load(WithRoot(safefs.NewMem(fsLayered)), WithAppDir(projectAppDir))
 	require.NoError(t, err)
 
 	// Every value the PROJECT template itself sets survives unchanged —
@@ -143,14 +144,14 @@ func TestGoldenFixture_D3Drift_IsAdditiveOnly(t *testing.T) {
 
 	fsProjectOnly := afero.NewMemMapFs()
 	testsupport.WriteFile(t, fsProjectOnly, paths.ConfigPath(projectAppDir), initConfig, 0644)
-	projectOnly, err := Load(WithFS(fsProjectOnly), WithAppDir(projectAppDir))
+	projectOnly, err := Load(WithRoot(safefs.NewMem(fsProjectOnly)), WithAppDir(projectAppDir))
 	require.NoError(t, err)
 
 	fsLayered := afero.NewMemMapFs()
 	testsupport.WriteFile(t, fsLayered, paths.ConfigPath(projectAppDir), initConfig, 0644)
 	homeAppDir := filepath.Join(home, config.AppDirName)
 	testsupport.WriteFile(t, fsLayered, paths.ConfigPath(homeAppDir), []byte(goldenHomeConfigYAML), 0644)
-	layered, err := Load(WithFS(fsLayered), WithAppDir(projectAppDir))
+	layered, err := Load(WithRoot(safefs.NewMem(fsLayered)), WithAppDir(projectAppDir))
 	require.NoError(t, err)
 
 	// init-config.yaml sets exactly: schema_version and config.use_distilled (see the

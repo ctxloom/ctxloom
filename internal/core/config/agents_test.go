@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schema"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -197,7 +198,7 @@ func TestLoadAgents_RetiredDirectoryIsAFatalFinding(t *testing.T) {
 		AppPaths: []string{appPath},
 		Agents:   map[string]agents.Agent{"dev": {LLM: "claude-code", Profiles: []string{"go-developer"}}},
 	})
-	cfg.SetFS(mem)
+	cfg.SetRoot(safefs.NewMem(mem))
 	cfg.SetReporter(strictness.Sink("ctxloom"))
 
 	mark := strictness.Checkpoint()
@@ -233,7 +234,7 @@ func TestLoadAgents_AbsentOrEmptyDirectoryIsSilent(t *testing.T) {
 		AppPaths: []string{appPath},
 		Agents:   map[string]agents.Agent{"dev": {Profiles: []string{"p"}}},
 	})
-	cfg.SetFS(mem)
+	cfg.SetRoot(safefs.NewMem(mem))
 	cfg.SetReporter(strictness.Sink("ctxloom"))
 
 	mark := strictness.Checkpoint()
@@ -300,7 +301,7 @@ func TestLoadAgents_RetiredDirectoryFindingIsRecordedOncePerWindow(t *testing.T)
 		AppPaths: []string{appPath},
 		Agents:   map[string]agents.Agent{"dev": {Profiles: []string{"from-config"}}},
 	})
-	cfg.SetFS(mem)
+	cfg.SetRoot(safefs.NewMem(mem))
 	cfg.SetReporter(strictness.Sink("ctxloom"))
 
 	mark := strictness.Checkpoint()

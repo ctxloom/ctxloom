@@ -1,10 +1,12 @@
 package configload
 
 import (
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 
@@ -32,12 +34,12 @@ func TestLoad_EscalationPath1_EnvCannotGrantDirtyTreeCommitAck(t *testing.T) {
 	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644)
 
 	overrides := confload.Overrides{Env: map[string]any{"DIRTY_TREE_COMMIT_ACK": true}}
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
 	// MUTATION TARGET: if dirty_tree_commit_ack were still a live schema/
 	// struct field, this would be true.
-	assert.False(t, config.DirtyTreeCommitAcknowledged(report.Reporter{}, fs, appDir),
+	assert.False(t, config.DirtyTreeCommitAcknowledged(report.Reporter{}, safefs.NewMem(fs), appDir),
 		"an env override must never grant the dirty-tree-commit acknowledgement — it is not even a config key any longer")
 	// And the merged config must never have decoded a stray value onto
 	// anything an accessor could reach; config.GetDirtyTreeHandler is untouched,
@@ -52,10 +54,10 @@ func TestLoad_EscalationPath1_ConfigSetCannotGrantDirtyTreeCommitAck(t *testing.
 	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644)
 
 	overrides := confload.Overrides{Flags: map[string]any{"dirty_tree_commit_ack": true}}
-	_, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
+	_, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
-	assert.False(t, config.DirtyTreeCommitAcknowledged(report.Reporter{}, fs, appDir),
+	assert.False(t, config.DirtyTreeCommitAcknowledged(report.Reporter{}, safefs.NewMem(fs), appDir),
 		"--config-set must never grant the dirty-tree-commit acknowledgement either")
 }
 
@@ -71,7 +73,7 @@ func TestLoad_EscalationPath2_EnvCannotMintPrivilegedAgent(t *testing.T) {
 	overrides := confload.Overrides{Env: map[string]any{
 		"AGENTS_EVIL_PERMISSIONS": "bypass",
 	}}
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
 	// MUTATION TARGET: with ScopeAllows/agentBindingMergeFunc removed, this
@@ -104,7 +106,7 @@ func TestLoad_ConfigSetCanStillMintAPrivilegedAgent_ByDesign(t *testing.T) {
 	overrides := confload.Overrides{Flags: map[string]any{
 		"agents.evil.permissions.claude-code.mode": "bypass",
 	}}
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
 	evil, exists := cfg.GetConfiguredAgents()["evil"]
@@ -271,7 +273,7 @@ agents:
 `), 0644)
 
 	overrides := confload.Overrides{Flags: map[string]any{"agents.reviewer.permissions.claude-code.mode": "bypass"}}
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
 	reviewer, ok := cfg.GetConfiguredAgents()["reviewer"]
@@ -303,7 +305,7 @@ func TestManagerUpdate_DoesNotPersistHomeInheritedMachineValueIntoProjectFile(t 
 	appDir := "/proj/.ctxloom"
 	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644)
 
-	mgr := newUpdater(t, WithFS(fs), WithAppDir(appDir))
+	mgr := newUpdater(t, WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	require.NoError(t, mgr.Update(func(d *config.Draft) error {
 		d.DefaultAgent = "reviewer" // any write unrelated to the editor
 		return nil

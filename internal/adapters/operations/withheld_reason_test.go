@@ -7,6 +7,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -145,7 +146,7 @@ fragments:
 `
 	bundletree.Write(t, fs, bundlesDir, "dev", bundleYAML)
 
-	cfg, err := configload.Load(configload.WithFS(fs), configload.WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 
 	if _, err := SetBlacklist(cfg, SetBlacklistRequest{Ref: "dev#fragments/blocked", FS: fs}); err != nil {

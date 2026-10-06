@@ -215,7 +215,7 @@ func (o *Owner) Update(ctx context.Context, fn func(*Draft) error) (*Snapshot, e
 	fs := cur.Config.getFS()
 
 	var next *Snapshot
-	err = withUpdateLock(cur.Config.injectedFS, configPath, func() error {
+	err = withUpdateLock(cur.Config.Root().Locks, configPath, func() error {
 		fresh, _, err := o.src.Read(ctx)
 		if err != nil {
 			return fmt.Errorf("reload config for update: %w", err)
@@ -239,15 +239,12 @@ func (o *Owner) Update(ctx context.Context, fn func(*Draft) error) (*Snapshot, e
 
 // withUpdateLock serializes a config update against every other process
 // rewriting the same file. The lock lives beside the project's own state
-// (paths.ProjectPathFor), never beside the file; an injected filesystem has
-// no other process to exclude and takes none.
-func withUpdateLock(injectedFS bool, configPath string, fn func() error) error {
-	if injectedFS {
-		return fn()
-	}
+// (paths.ProjectPathFor), never beside the file, and is taken through the
+// config's Root's locks.
+func withUpdateLock(locks safefs.Locks, configPath string, fn func() error) error {
 	lockPath, err := paths.ProjectPathFor(configPath)
 	if err != nil {
 		return fmt.Errorf("config: locating update lock for %s: %w", configPath, err)
 	}
-	return safefs.WithLock(safefs.New().Locks, lockPath, fn)
+	return safefs.WithLock(locks, lockPath, fn)
 }

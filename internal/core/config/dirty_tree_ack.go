@@ -1,11 +1,8 @@
 package config
 
 import (
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
@@ -64,12 +61,9 @@ func dirtyTreeAckReasons() admission.Reasons[dirtyTreeAckReason] {
 	}
 }
 
-// dirtyTreeAckStore opens appPath's dirty-tree-commit acknowledgement record.
-// fs defaults to the OS filesystem when nil, matching every other store
-// constructor in this package. The store locks through a safefs.Root, and
-// this package is handed only an afero.Fs (cfg.FS()), so the Root is chosen
-// from it: the controller's own for the OS filesystem, an in-memory one for a
-// test double — the same split config.Owner.Update's injectedFS makes.
+// dirtyTreeAckStore opens appPath's dirty-tree-commit acknowledgement record
+// on root (the config's, cfg.Root()), which it reads, writes and locks
+// through.
 //
 // WithLockPathFor(paths.ProjectPathFor): this record lives inside a
 // PROJECT .ctxloom tree (paths.DirtyTreeCommitAckPath, under
@@ -79,11 +73,7 @@ func dirtyTreeAckReasons() admission.Reasons[dirtyTreeAckReason] {
 // wrong here: a beside-the-file lock would land inside .ctxloom/state/ itself
 // as an untracked sibling, one more surface for a stray file to turn up on
 // where the home-rooted convention has none of that problem to begin with.
-func dirtyTreeAckStore(fs afero.Fs, appPath string) *admission.Store[dirtyTreeAckKey, dirtyTreeAckReason] {
-	root := safefs.New()
-	if fs != nil && !filelock.IsOSBackedFs(fs) {
-		root = safefs.NewMem(fs)
-	}
+func dirtyTreeAckStore(root safefs.Root, appPath string) *admission.Store[dirtyTreeAckKey, dirtyTreeAckReason] {
 	return admission.NewStore(root, paths.DirtyTreeCommitAckPath(appPath), dirtyTreeAckKeyFunc, dirtyTreeAckReasons(),
 		admission.WithLockPathFor[dirtyTreeAckKey](paths.ProjectPathFor))
 }
@@ -103,8 +93,8 @@ func dirtyTreeAckStore(fs afero.Fs, appPath string) *admission.Store[dirtyTreeAc
 // of this project's admission kinds that neither warned nor escalated
 // (violating the "a refusal is loud" rule). It now warns, naming the file,
 // the underlying error, and how to re-record the decision.
-func DirtyTreeCommitAcknowledged(rep report.Reporter, fs afero.Fs, appPath string) bool {
-	rec, found, err := dirtyTreeAckStore(fs, appPath).Lookup(dirtyTreeAckKey{})
+func DirtyTreeCommitAcknowledged(rep report.Reporter, root safefs.Root, appPath string) bool {
+	rec, found, err := dirtyTreeAckStore(root, appPath).Lookup(dirtyTreeAckKey{})
 	if err != nil {
 		rep.Warnf(
 			"could not read the dirty-tree-commit acknowledgement at %s: %v — refusing to auto-commit on your behalf until it is re-recorded (`ctxloom manage commit trust`)",
@@ -123,7 +113,7 @@ func DirtyTreeCommitAcknowledged(rep report.Reporter, fs afero.Fs, appPath strin
 // (operations.InitializeProject) and `ctxloom manage commit` use,
 // since the record is no longer hand-editable in the config.yaml file people
 // already open.
-func SetDirtyTreeCommitAck(fs afero.Fs, appPath string, ack bool) error {
-	_, err := dirtyTreeAckStore(fs, appPath).Set(dirtyTreeAckKey{}, ack)
+func SetDirtyTreeCommitAck(root safefs.Root, appPath string, ack bool) error {
+	_, err := dirtyTreeAckStore(root, appPath).Set(dirtyTreeAckKey{}, ack)
 	return err
 }

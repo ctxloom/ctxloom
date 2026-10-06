@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Content already installed from a repository that is no longer registered
@@ -52,7 +53,7 @@ func TestRegisteredEntries_WithholdsAnUnregisteredRepository(t *testing.T) {
 func TestBundleVersionResolver_RefusesAnUnregisteredRepository(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	c := gatedFixture(config.Fixture{AppPaths: []string{treeBase}})
-	c.SetFS(fsys)
+	c.SetRoot(safefs.NewMem(fsys))
 
 	resolve := BundleVersionResolver(c)
 	require.NotNil(t, resolve)

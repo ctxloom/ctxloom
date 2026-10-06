@@ -938,7 +938,7 @@ func runManageDirtyTreeAck(cmd *cobra.Command, ack bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	if err := config.SetDirtyTreeCommitAck(cfg.FS(), cfg.GetAppDir(), ack); err != nil {
+	if err := config.SetDirtyTreeCommitAck(cfg.Root(), cfg.GetAppDir(), ack); err != nil {
 		return fmt.Errorf("failed to record dirty-tree-commit acknowledgement: %w", err)
 	}
 	state := "granted"

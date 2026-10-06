@@ -52,7 +52,7 @@ func (p localBundleProject) build(b *testing.B, resolve bool) *Config {
 		}
 		require.NoError(b, safefs.WriteFile(fs, filepath.Join(dir, fmt.Sprintf("p%d.yaml", i)), []byte(doc.String()), 0o644))
 	}
-	builder := NewBuilder(fs, true, appDir, SourceProject)
+	builder := NewBuilder(safefs.NewMem(fs), appDir, SourceProject)
 	if resolve {
 		builder.BindProfileResolvers(func(alias string) string {
 			if alias == "team" {

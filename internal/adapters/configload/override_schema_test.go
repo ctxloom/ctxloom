@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -45,7 +46,7 @@ agents:
 `), 0644)
 
 	overrides := confload.Overrides{Flags: map[string]any{"agents.reviewer.permissions.sandbox": "wide"}}
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
 	reviewer, ok := cfg.GetConfiguredAgents()["reviewer"]
@@ -77,7 +78,7 @@ llm:
 `), 0644)
 
 	overrides := confload.Overrides{Flags: map[string]any{"llm.configs.big.model": []any{"opus", "sonnet"}}}
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
 	entry, ok := cfg.GetLLMEntry("big")
@@ -107,7 +108,7 @@ agents:
 		"agents.reviewer.permissions.claude-code.mode": "plan",
 		"llm.configs.big.model":                        "opus",
 	}}
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
+	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
 	reviewer, ok := cfg.GetConfiguredAgents()["reviewer"]

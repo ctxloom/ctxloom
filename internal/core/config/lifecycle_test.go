@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -190,7 +191,7 @@ func TestOwner_Update_WritesThroughAndReturnsNextGeneration(t *testing.T) {
 		f := parsed.ToFixture()
 		f.AppDir, f.AppPaths, f.AppRoot, f.Source = appDir, []string{appDir}, "/proj", config.SourceProject
 		cfg := config.NewFixture(f)
-		cfg.SetFS(memfs)
+		cfg.SetRoot(safefs.NewMem(memfs))
 		return cfg, nil, nil
 	}}
 	owner, err := config.Open(context.Background(), src)
@@ -218,7 +219,7 @@ func TestOwner_Update_FnError_AbandonsWriteAndKeepsGeneration(t *testing.T) {
 	const appDir = "/proj/.ctxloom"
 	testsupport.WriteFile(t, memfs, appDir+"/config.yaml", []byte("default_agent: first\n"), 0o644)
 	cfg := config.NewFixture(config.Fixture{DefaultAgent: "first", AppDir: appDir, AppPaths: []string{appDir}})
-	cfg.SetFS(memfs)
+	cfg.SetRoot(safefs.NewMem(memfs))
 	src := sequenceSources(cfg)
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)

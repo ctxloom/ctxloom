@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // acmeToolingSeed seeds one REMOTE bundle (acme tooling) with fragments and
@@ -248,7 +249,7 @@ fragments:
 `
 	bundletree.Write(t, fs, bundlesDir, "dev", bundleYAML)
 
-	cfg, err := configload.Load(configload.WithFS(fs), configload.WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 
 	// Reject one local fragment (rejection beats the local exemption).

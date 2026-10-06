@@ -6,6 +6,12 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+
+	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
@@ -17,10 +23,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/admitall"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
-	"github.com/spf13/afero"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 )
 
 // withDefaultProfiles points cfg's default profile set at names by binding a
@@ -392,25 +394,25 @@ func TestConfig_Save(t *testing.T) {
 // =============================================================================
 
 // =============================================================================
-// SetFS Tests
+// SetRoot Tests
 // =============================================================================
 
-func TestConfig_SetFS(t *testing.T) {
+func TestConfig_getFS_UsesSetRoot(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cfg := &Config{}
 
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 
-	assert.Equal(t, fs, cfg.fs)
+	assert.Equal(t, fs, cfg.getFS())
+	assert.Equal(t, fs, cfg.Root().Fs)
 }
 
-func TestConfig_getFS_UsesSetFS(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	cfg := &Config{fs: fs}
+// A Config given no Root is the controller's own filesystem.
+func TestConfig_RootDefaultsToTheControllersOwn(t *testing.T) {
+	cfg := &Config{}
 
-	result := cfg.getFS()
-
-	assert.Equal(t, fs, result)
+	assert.IsType(t, afero.NewOsFs(), cfg.getFS())
+	assert.Nil(t, cfg.FS(), "FS still reports that none was set")
 }
 
 // =============================================================================
@@ -541,7 +543,7 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 		cfg := &Config{
 			defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"nonexistent"}}},
 			appPaths: []string{appDir},
-			fs:       fs,
+			root:     safefs.NewMem(fs),
 			rep:      ledgerReporter(),
 		}
 		cfg.BindTrustForTesting(compositetest.Trust())

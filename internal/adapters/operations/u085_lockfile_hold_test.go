@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,7 @@ func holdFSFixture(t *testing.T) (*config.Config, *remote.LockfileManager) {
 	fs := afero.NewMemMapFs()
 	baseDir := "/injected/.ctxloom"
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{baseDir}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 
 	mgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
 	require.NoError(t, mgr.Save(&remote.Lockfile{

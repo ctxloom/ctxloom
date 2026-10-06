@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // TestConfig_Save_PreservesCommentsAndKeyOrder pins U049-F16: the persist path
@@ -52,7 +53,7 @@ func TestConfig_Save_PreservesCommentsAndKeyOrder(t *testing.T) {
 		editor:       EditorConfig{Command: "vim"},
 		defaultAgent: "reviewer",
 	}
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	require.NoError(t, cfg.saveLocked(fs, path))
 
 	data, err := afero.ReadFile(fs, path)

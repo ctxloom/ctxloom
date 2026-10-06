@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -64,7 +65,7 @@ func loaderWith(t *testing.T, names ...string) *profiles.Loader {
 	}
 	bundletree.WriteDirProfiles(t, fs, appDir, defs)
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
-	cfg.SetFS(fs)
+	cfg.SetRoot(safefs.NewMem(fs))
 	return cfg.GetProfileLoader()
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
@@ -116,7 +117,7 @@ func withResolver(cfg *config.Config, r bundles.BundleVersionResolver) *config.C
 	f.VersionResolver = r
 	out := gatedFixture(f)
 	if fs := cfg.FS(); fs != nil {
-		out.SetFS(fs)
+		out.SetRoot(safefs.NewMem(fs))
 	}
 	out.BindTrustForTesting(cfg.Trust())
 	return out

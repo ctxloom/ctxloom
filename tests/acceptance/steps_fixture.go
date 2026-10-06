@@ -38,22 +38,14 @@ import (
 // tripping the schema-validation fatal finding `ctxloom run`'s strict startup
 // gate enforces on a not-yet-upgraded file. Scenarios that need a default agent
 // set one explicitly via `ctxloom agent default <name>`.
-//
-// editor.command used to live HERE, pinned to a no-op so `edit` commands run
-// non-interactively. It moved to minimalHomeEditorConfig (written via
-// writeMinimalConfig): editor.command/args are ScopeMachine
-// (internal/core/config/layerscope) — a binary on THIS box — so a committed
-// project-file value no longer survives a real Load.
 var minimalConfig = fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion)
 
-// minimalHomeEditorConfig is minimalConfig's HOME half: the no-op editor
-// pin. See minimalConfig's doc and writeMinimalConfig.
+// minimalHomeEditorConfig is minimalConfig's HOME half: the editor pinned to a
+// no-op so `edit` commands run non-interactively.
 var minimalHomeEditorConfig = fmt.Sprintf("schema_version: %d\neditor:\n  command: \"true\"\n", config.CurrentConfigVersion)
 
 // writeMinimalConfig writes minimalConfig to the project layer and
-// minimalHomeEditorConfig to home — every scenario that used to write
-// minimalConfig alone as the whole project config.yaml should call this
-// instead, so both halves land where they now belong.
+// minimalHomeEditorConfig to home.
 func writeMinimalConfig(env *testenv.TestEnvironment) error {
 	if err := env.WriteFile(".ctxloom/config.yaml", minimalConfig); err != nil {
 		return err
@@ -68,10 +60,8 @@ func writeMinimalConfig(env *testenv.TestEnvironment) error {
 // content (it would corrupt profile YAML, so those edits use other paths). See
 // minimalConfig for why there is no legacy `profiles: defaults: []` key.
 //
-// Lives entirely in the HOME layer (see registerFixtureSteps' "marker
-// editor" step, which writes minimalConfig to project and THIS to home) —
-// editor.command/args are ScopeMachine, so a committed project value would
-// not survive a real Load.
+// Lives in the HOME layer (see registerFixtureSteps' "marker editor" step,
+// which writes minimalConfig to project and THIS to home).
 var markerEditorConfig = fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion) + `editor:
   command: sh
   args:
@@ -239,8 +229,8 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 
 	// A project whose editor appends a fixed marker, so an `edit` round-trip is
 	// observable (the change lands in the bundle file and across MCP).
-	// markerEditorConfig lives in HOME (editor.command/args are ScopeMachine);
-	// the project still needs a valid, versioned config.yaml of its own.
+	// markerEditorConfig lives in HOME; the project still needs a valid,
+	// versioned config.yaml of its own.
 	ctx.Step(`^a ctxloom project with a marker editor$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := w.env.InitGitRepo(); err != nil {

@@ -23,6 +23,10 @@ func (s fixtureSources) Read(context.Context) (*config.Config, []config.Warning,
 	return s.cfg, nil, nil
 }
 
+func (s fixtureSources) ReadTarget(context.Context) (*config.Config, error) {
+	return s.cfg, nil
+}
+
 func (s fixtureSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
 	root := cfg.TrustRoot()
 	return []bundles.Reader{

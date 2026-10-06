@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/config/layerscope"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schema"
@@ -204,7 +203,7 @@ func TestLoadConfigLayer_AbsentAndUnparsable(t *testing.T) {
 	t.Run("absent file is nil values and no error", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		b := config.NewBuilder(safefs.NewMem(fs), "/", config.SourceProject)
-		values, err := src.loadConfigLayer(b, layerscope.LayerProject, "/", "", "/nonexistent/config.yaml", fs)
+		values, err := src.loadConfigLayer(b, "/nonexistent/config.yaml", fs)
 		assert.NoError(t, err)
 		assert.Nil(t, values)
 	})
@@ -213,7 +212,7 @@ func TestLoadConfigLayer_AbsentAndUnparsable(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		testsupport.WriteFile(t, fs, "/config.yaml", []byte("invalid: ["), 0644)
 		b := config.NewBuilder(safefs.NewMem(fs), "/", config.SourceProject)
-		values, err := src.loadConfigLayer(b, layerscope.LayerProject, "/", "", "/config.yaml", fs)
+		values, err := src.loadConfigLayer(b, "/config.yaml", fs)
 		require.ErrorIs(t, err, ErrUnparsableLayer)
 		assert.Contains(t, err.Error(), "/config.yaml")
 		assert.Nil(t, values)

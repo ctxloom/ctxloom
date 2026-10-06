@@ -23,25 +23,19 @@ type characterizationOutput struct {
 // characterizationOutputs are the byte-producing paths over one Config:
 // yaml.Marshal(cfg) through MarshalYAML (`config show`, the effective
 // document), yaml.Marshal(cfg.Authored()) (`config show --raw` and init's
-// scaffold write), and saveLocked's first write (Owner.Update) under each layer
-// source, since SourceProject applies the layer-scope filter and SourceHome
-// does not.
+// scaffold write), and saveLocked's first write (Owner.Update).
 func characterizationOutputs() []characterizationOutput {
-	save := func(src ConfigSource) func(*Config) ([]byte, error) {
-		return func(c *Config) ([]byte, error) {
-			c.source = src
-			fs := afero.NewMemMapFs()
-			if err := c.saveLocked(fs, "/config.yaml"); err != nil {
-				return nil, err
-			}
-			return afero.ReadFile(fs, "/config.yaml")
+	save := func(c *Config) ([]byte, error) {
+		fs := afero.NewMemMapFs()
+		if err := c.saveLocked(fs, "/config.yaml"); err != nil {
+			return nil, err
 		}
+		return afero.ReadFile(fs, "/config.yaml")
 	}
 	return []characterizationOutput{
 		{"MarshalYAML", func(c *Config) ([]byte, error) { return yaml.Marshal(c) }},
 		{"authored", func(c *Config) ([]byte, error) { return yaml.Marshal(c.Authored()) }},
-		{"saveLocked-project", save(SourceProject)},
-		{"saveLocked-home", save(SourceHome)},
+		{"saveLocked", save},
 	}
 }
 
@@ -111,17 +105,17 @@ func TestConfigSerializers_Characterization(t *testing.T) {
 }
 
 // TestConfigSerializers_FirstSaveMatchesRender states the convergence the
-// goldens only imply: a first save to a home-layer file (no layer-scope filter
-// applies) writes exactly the bytes init writes and `config show --raw` prints.
+// goldens only imply: a first save writes exactly the
+// bytes init writes and `config show --raw` prints.
 func TestConfigSerializers_FirstSaveMatchesRender(t *testing.T) {
 	outs := characterizationOutputs()
-	var render, home func(*Config) ([]byte, error)
+	var render, save func(*Config) ([]byte, error)
 	for _, o := range outs {
 		switch o.name {
 		case "authored":
 			render = o.render
-		case "saveLocked-home":
-			home = o.render
+		case "saveLocked":
+			save = o.render
 		}
 	}
 	for _, tc := range characterizationCases() {
@@ -130,7 +124,7 @@ func TestConfigSerializers_FirstSaveMatchesRender(t *testing.T) {
 			if !assert.NoError(t, err) {
 				return
 			}
-			got, err := home(tc.cfg())
+			got, err := save(tc.cfg())
 			if assert.NoError(t, err) {
 				assert.Equal(t, string(want), string(got))
 			}
@@ -143,9 +137,7 @@ var characterizationGolden = map[string]string{
 `,
 	"empty/authored": `schema_version: 7
 `,
-	"empty/saveLocked-project": `schema_version: 7
-`,
-	"empty/saveLocked-home": `schema_version: 7
+	"empty/saveLocked": `schema_version: 7
 `,
 	"full/MarshalYAML": `agents:
     worker:
@@ -249,41 +241,7 @@ ui:
     surround: true
 workspace: worktree
 `,
-	"full/saveLocked-project": `agents:
-    worker:
-        llm: fast
-auth: login
-config:
-    essence_max_chars: 4096
-default_agent: worker
-dirty_tree_handler: commit
-isolation_base: devcontainer
-llm:
-    configs:
-        fast:
-            model: m1
-            permissions:
-                mode: plan
-            role: fast
-            type: claude-code
-    defaults:
-        fast: fast
-        primary: fast
-permissions:
-    approver: none
-    network: false
-schema_version: 7
-shell_timeout:
-    default: 3m
-    max: 90m
-sync:
-    auto_sync: true
-ui:
-    prefix_key: ctrl-]
-    surround: true
-workspace: worktree
-`,
-	"full/saveLocked-home": `agents:
+	"full/saveLocked": `agents:
     worker:
         llm: fast
 auth: login
@@ -346,13 +304,7 @@ sync:
 ui:
     surround: false
 `,
-	"explicit_false_and_stale_version/saveLocked-project": `schema_version: 7
-sync:
-    auto_sync: false
-ui:
-    surround: false
-`,
-	"explicit_false_and_stale_version/saveLocked-home": `schema_version: 7
+	"explicit_false_and_stale_version/saveLocked": `schema_version: 7
 sync:
     auto_sync: false
 ui:
@@ -375,13 +327,7 @@ schema_version: 7
             type: codex
 schema_version: 7
 `,
-	"default_overlay/saveLocked-project": `llm:
-    configs:
-        mine:
-            type: codex
-schema_version: 7
-`,
-	"default_overlay/saveLocked-home": `llm:
+	"default_overlay/saveLocked": `llm:
     configs:
         mine:
             type: codex

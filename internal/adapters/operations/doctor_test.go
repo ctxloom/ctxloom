@@ -1251,6 +1251,10 @@ func (s probeSources) Read(context.Context) (*config.Config, []config.Warning, e
 	return s.cfg, nil, nil
 }
 
+func (s probeSources) ReadTarget(context.Context) (*config.Config, error) {
+	return s.cfg, nil
+}
+
 func (s probeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
 	root := cfg.TrustRoot()
 	return []bundles.Reader{

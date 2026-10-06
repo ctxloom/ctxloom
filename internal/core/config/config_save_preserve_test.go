@@ -44,11 +44,7 @@ func TestConfig_Save_PreservesCommentsAndKeyOrder(t *testing.T) {
 	// A Config that carries the same editor + mcp (so they are not pruned) and
 	// makes ONE unrelated change: set default_agent.
 	cfg := &Config{
-		appPaths: []string{appDir},
-		// SourceHome so the layer-scope save filter is skipped: editor.command is
-		// Machine-scoped and would legitimately be dropped from a *project* file,
-		// which is a separate concern from the comment/order preservation under
-		// test here.
+		appPaths:     []string{appDir},
 		source:       SourceHome,
 		editor:       EditorConfig{Command: "vim"},
 		defaultAgent: "reviewer",

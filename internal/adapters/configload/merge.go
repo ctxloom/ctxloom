@@ -7,57 +7,15 @@ import (
 	kmaps "github.com/knadh/koanf/maps"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/config/layerscope"
-	"github.com/ctxloom/ctxloom/internal/shared/confload"
 )
-
-// scopePolicy is ctxloom's layer-scope policy, resolved once: an immutable
-// table every override-scope question in this package consults.
-var scopePolicy = layerscope.DefaultPolicy()
-
-// scopeAllows is ctxloom's confload.Product.ScopeAllows hook: it translates a
-// confload.OverrideSource into the layerscope.Layer it corresponds to (env ->
-// LayerEnv, flag -> LayerFlag) and asks the SAME policy table the file layers
-// are checked against. This is what confload's own doc means by "internal/
-// config supplies the concrete scopeAllows" — confload stays free of
-// ctxloom's schema; only this function (and layerscope) knows what "agents.*.
-// coordinator" means.
-func scopeAllows(source confload.OverrideSource, path []string) (bool, string) {
-	var layer layerscope.Layer
-	switch source {
-	case confload.SourceEnv:
-		layer = layerscope.LayerEnv
-	case confload.SourceFlag:
-		layer = layerscope.LayerFlag
-	default:
-		return true, ""
-	}
-	rule, ok := scopePolicy.Lookup(path)
-	if !ok {
-		// No policy opinion on this path -- unknown-key handling is separate
-		// machinery (see WarnKindUnknownKey) and this hook only answers scope
-		// questions about keys the policy actually names.
-		return true, ""
-	}
-	if rule.Scope.Allows(layer) {
-		return true, ""
-	}
-	why := rule.Scope.Why()
-	if rule.Note != "" {
-		why += " (" + rule.Note + ")"
-	}
-	return false, why
-}
 
 // agentBindingMergeFunc is ctxloom's koanf.WithMergeFunc seam (wired in via
 // confload.Product.MergeFunc / confload.Product.MergeLayers): every config
 // key deep-merges across layers exactly as confload.Merge documents, EXCEPT
 // "agents" — a build of this tree let a home config silently contribute
 // permissions/coordinator/runtime fields into a project's same-named agent,
-// producing a binding neither file describes. Per-leaf scope alone cannot fix this: `permissions` and
-// `profiles` legitimately have DIFFERENT scopes (Shared vs. Shared, but
-// `runtime` is Machine), so a leaf-by-leaf deep merge fuses fields from
-// different layers into one binding neither author wrote.
+// producing a binding neither file describes: a leaf-by-leaf deep merge
+// fuses fields from different layers into one binding neither author wrote.
 //
 // Instead, whichever layer NAMES an agent defines that binding ENTIRELY: src
 // (the layer being merged in, i.e. the HIGHER-precedence side of this call)
@@ -114,10 +72,7 @@ func agentBindingMergeFunc(src, dest map[string]any) error {
 // finding could only name the project's path for a declaration that lives in
 // home, and the shell would already be in the view Owner.Update saves back
 // into the project file — which is how a home-only `help: {}` came to be
-// re-serialised into a committed config. The layer-scope check cannot catch
-// it: every per-agent FIELD is ScopeShared, so a home agent declaring any
-// field is dropped there (koanf prunes the emptied parent too), but a
-// verbatim `{}` has no field for that check to see.
+// re-serialised into a committed config.
 //
 // An llm alone is a complete binding (the context is the project default's)
 // and profiles alone are too (they carry the llm, falling back to the project

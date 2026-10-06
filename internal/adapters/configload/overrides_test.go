@@ -38,8 +38,7 @@ llm:
 
 	// An unrelated env override elsewhere in the tree must not perturb the
 	// case-sensitive map — the override resolution path runs alongside the
-	// file layers, not instead of them. editor.command is ScopePreference
-	// (settable from every layer, unlike default_agent).
+	// file layers, not instead of them.
 	cfg, err := Load(WithAppDir(appDir), WithOverrides(confload.Overrides{
 		Env: map[string]any{"EDITOR_COMMAND": "alpha"},
 	}))

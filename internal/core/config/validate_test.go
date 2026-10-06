@@ -124,6 +124,10 @@ func (s stubSources) Read(context.Context) (*config.Config, []config.Warning, er
 	cfg, err := config.ParseConfig([]byte(s.yaml))
 	return cfg, nil, err
 }
+func (s stubSources) ReadTarget(ctx context.Context) (*config.Config, error) {
+	cfg, _, err := s.Read(ctx)
+	return cfg, err
+}
 func (stubSources) Readers(context.Context, *config.Config) ([]bundles.Reader, error) {
 	return nil, nil
 }

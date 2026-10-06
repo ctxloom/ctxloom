@@ -160,10 +160,7 @@ func TestLoad_NonUnknownKeySchemaError_StaysValidateKind(t *testing.T) {
 }
 
 // A valid current config must stay silent — a strictness gate that cries wolf on
-// good configs is worse than no gate. config.sign.key is deliberately absent from
-// this fixture: it is ScopeMachine (a fingerprint/path to this user's own key
-// material), so a value at the PROJECT layer — this fixture's own layer — is
-// now a genuine layerscope violation, not something "valid" any longer.
+// good configs is worse than no gate.
 func TestLoad_ValidConfig_NoWarnings(t *testing.T) {
 	cfg := loadYAML(t, `schema_version: 7
 llm:

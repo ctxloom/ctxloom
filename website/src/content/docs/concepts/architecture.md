@@ -318,9 +318,8 @@ It then layers config values, lowest precedence first:
 The two files are deep-merged key by key. Lists replace rather than
 concatenate, and a value the project sets explicitly, including a zero value,
 beats one inherited from home. Each file is upgraded and schema-checked on its
-own, so a bad key is reported against the file that holds it. Some keys may
-only be set in particular layers; which agent a bare `ctxloom run` binds
-(`default_agent`), for example, is project policy.
+own, so a bad key is reported against the file that holds it. Every layer may
+set every key.
 
 When no layer configures any LLM, the shipped default LLM registry fills in so
 an empty config still resolves a primary and a fast model.

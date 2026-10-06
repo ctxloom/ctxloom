@@ -84,6 +84,10 @@ func (s seededSources) Read(context.Context) (*config.Config, []config.Warning, 
 	return s.cfg, nil, nil
 }
 
+func (s seededSources) ReadTarget(context.Context) (*config.Config, error) {
+	return s.cfg, nil
+}
+
 func (s seededSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
 	root := cfg.TrustRoot()
 	readers := []bundles.Reader{

@@ -49,11 +49,8 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 	_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "dev", Runtime: ptr("container-rootless")})
 	require.NoError(t, err)
 
-	// Read back via readAgentFromDisk (ParseConfig, no layering) rather than a
-	// full the config read: Runtime is ScopeMachine (internal/core/config/layerscope),
-	// so a committed PROJECT file no longer has it take effect on a real
-	// Load — this test's concern is Save's field-preservation contract, which
-	// ParseConfig verifies independent of that load-time policy.
+	// Read back via readAgentFromDisk (ParseConfig, no layering): this test's
+	// concern is Save's field-preservation contract.
 	got, ok := readAgentFromDisk(t, appDir, "dev")
 	require.True(t, ok)
 	assert.Equal(t, "container-rootless", got.Runtime, "the named field must change")

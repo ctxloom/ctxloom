@@ -46,7 +46,7 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/testsupport/daemonfixture"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
@@ -59,7 +59,7 @@ const (
 )
 
 func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
-	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the spool cross-mount integration test")
+	daemon := daemonfixture.Require(t, "the spool cross-mount integration test")
 
 	const harp = "ugly-icy-squid"
 	marker := fmt.Sprintf("xmount-%d", time.Now().UnixNano())
@@ -73,9 +73,9 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	probeDir := t.TempDir()
 	buildProbe(t, filepath.Join(probeDir, containerProbeName))
 
-	// The fixture home lives outside the checkout, where the daemon can see
-	// it — dockergate.BindFixtureRoot names both constraints.
-	fixture, err := os.MkdirTemp(dockergate.BindFixtureRoot(), "ctxloom-spool-xmount-")
+	// The fixture home lives outside the checkout (leak check), under the
+	// fixture root the daemon can name (daemonfixture.Require).
+	fixture, err := os.MkdirTemp("", "ctxloom-spool-xmount-")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		// Loud on purpose: leftover fixture dirs are machine debris that a
@@ -109,8 +109,8 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 		args = append(args, "--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()))
 	}
 	args = append(args,
-		"-v", fixture+":"+containerHome,
-		"-v", probeDir+":"+containerProbeDir+":ro",
+		"-v", daemonfixture.Source(t, daemon, fixture)+":"+containerHome,
+		"-v", daemonfixture.Source(t, daemon, probeDir)+":"+containerProbeDir+":ro",
 		"-e", "HOME="+containerHome,
 		"-e", envProbe+"=roundtrip",
 		"-e", envProbeHarp+"="+harp,

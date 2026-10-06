@@ -48,7 +48,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
+	"github.com/ctxloom/ctxloom/internal/testsupport/daemonfixture"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
@@ -115,7 +115,7 @@ func (engineHomeAssembler) LabelEnv(*config.Snapshot, string) map[string]string 
 
 // TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath is the gate.
 func TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath(t *testing.T) {
-	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the container engine-home delivery integration test")
+	daemonfixture.Require(t, "the container engine-home delivery integration test")
 	coord.ResetStrictness(t)
 	image := buildClaudeShimImage(t)
 	projectDir := testsupport.ProjectDir(t)

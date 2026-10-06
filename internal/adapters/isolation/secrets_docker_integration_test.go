@@ -36,6 +36,7 @@ const fakeEngine = `tok="$(sed -n "s/^${SECRET_VAR}=\"\(.*\)\"\$/\1/p" "$SECRET_
 
 func TestSecretMount_ARealContainerAuthenticatesFromTheMountedSecret(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the secret-mount integration test")
+	daemonFixtures(t, "docker")
 	// The runtime CLIs run under the REAL environment: rootless podman keeps
 	// its image store under $HOME, which Isolate replaces. The secret lives
 	// on the real user tmpfs when there is one, as in production.

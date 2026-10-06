@@ -37,14 +37,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	mockrt "github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/atrest"
-	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
+	"github.com/ctxloom/ctxloom/internal/testsupport/daemonfixture"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
@@ -55,13 +54,6 @@ const mockEngineImage = "ctxloom-mockengine-itest:latest"
 func hashHex(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
-}
-
-// dockergateRequire routes container-runtime reachability through the single
-// gate (a bare t.Skip is banned in docker-gated files by _check-docker-skip-gate).
-func dockergateRequire(t *testing.T, what string) {
-	t.Helper()
-	dockergate.RequireRuntime(t, isolation.Docker{}.Available(), what)
 }
 
 // buildMockEngineImage builds the static linux mockengine into a minimal alpine
@@ -119,7 +111,7 @@ func materializeClaudeContext(t *testing.T, workspace, context string) string {
 
 // TestMockEngineContainer_DiscoversDeliveredSurfaces is the deliverable.
 func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
-	dockergateRequire(t, "the mock-engine container context-delivery test")
+	daemon := daemonfixture.Require(t, "the mock-engine container context-delivery test")
 	// Delivery takes the session home lock, which must never land in the
 	// developer's real home (paths' home guard refuses it).
 	testsupport.Isolate(t)
@@ -140,7 +132,7 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 	// a declaration that moves out from under this hand-written line fails
 	// there rather than passing here for the wrong reason.
 	args := append([]string{"run", "--rm", "-i",
-		"-v", workspace + ":/work", "-w", "/work",
+		"-v", daemonfixture.Source(t, daemon, workspace) + ":/work", "-w", "/work",
 		"-e", "CTXLOOM_MOCK_REPORT_FILE=/work/report.json",
 		img, "/usr/local/bin/mockengine", "--" + claude.EngineName,
 	}, claudeContainerVendorArgv()...)

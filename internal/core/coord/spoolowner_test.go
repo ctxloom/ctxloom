@@ -100,7 +100,7 @@ func TestSpoolOwner_ClaimHoldsUntilAck(t *testing.T) {
 	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: once")))
 	var entry spool.Entry
 	require.Eventually(t, func() bool {
-		res, err := spool.Claim(c.mapper, owner)
+		res, err := spool.Claim(afero.NewOsFs(), c.mapper, owner)
 		if err != nil {
 			return false
 		}
@@ -150,7 +150,7 @@ func TestSpoolOwner_UnackedMailSurvivesRelaunch(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, runnerHooks.Serve(first))
-	claimed, err := spool.Claim(first.mapper, owner)
+	claimed, err := spool.Claim(afero.NewOsFs(), first.mapper, owner)
 	require.NoError(t, err)
 	require.Len(t, claimed.Entries, 1, "what is already in the owner's in/ must be claimable under a cold coordinator")
 	assert.Equal(t, "m-durable", claimed.Entries[0].Message.OriginID)

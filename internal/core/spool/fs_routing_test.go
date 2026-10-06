@@ -133,3 +133,34 @@ func TestDeliver_RecordsAndDeletesThroughFs(t *testing.T) {
 	_, statErr := os.Stat(deliveredPath(t, m, id))
 	require.True(t, os.IsNotExist(statErr), "the record must not be written to disk")
 }
+
+func TestClaimAndPending_ReachTheSpoolThroughFs(t *testing.T) {
+	fs, m := memSpool(t)
+	w, err := NewWriter(fs, m, testHarp, DirIn, "coord")
+	require.NoError(t, err)
+	for _, body := range []string{"a\n", "b\n"} {
+		_, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: testHarp, OriginID: "mail-mem", Body: body})
+		require.NoError(t, err)
+	}
+
+	pending, err := Pending(fs, m, testHarp)
+	require.NoError(t, err)
+	require.True(t, pending, "Pending must see the in-memory in/")
+
+	res, err := Claim(fs, m, testHarp)
+	require.NoError(t, err)
+	require.NoError(t, res.ProblemErr())
+	require.Len(t, res.Entries, 1, "the in-flight twin is discarded, through fs")
+	require.Equal(t, ClaimedDirName, res.Entries[0].Ref.Dir)
+	claimedDir, err := DirPath(m, testHarp, ClaimedDirName)
+	require.NoError(t, err)
+	ok, err := afero.Exists(fs, filepath.Join(claimedDir, res.Entries[0].Ref.Name))
+	require.NoError(t, err)
+	require.True(t, ok, "the claim is a rename inside the injected fs")
+	_, statErr := os.Stat(claimedDir)
+	require.True(t, os.IsNotExist(statErr), "nothing is claimed on disk")
+
+	pending, err = Pending(fs, m, testHarp)
+	require.NoError(t, err)
+	require.False(t, pending, "everything in the in-memory in/ was claimed or discarded")
+}

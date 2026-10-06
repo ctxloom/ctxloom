@@ -864,7 +864,7 @@ func spoolMail(t *testing.T, c *Coordinator, harp string, wait time.Duration) ([
 	t.Helper()
 	deadline := time.Now().Add(wait)
 	for {
-		res, err := spool.Claim(c.mapper, harp)
+		res, err := spool.Claim(afero.NewOsFs(), c.mapper, harp)
 		if err != nil {
 			return nil, err
 		}

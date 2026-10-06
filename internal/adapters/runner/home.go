@@ -1028,7 +1028,7 @@ func (h *Home) expireWake(m spool.PathMapper, harp, nonce string) {
 // earlier wake is still unanswered. A state it cannot read is warned about
 // and answered no.
 func (h *Home) wakeWanted(m spool.PathMapper, harp string) bool {
-	if pending, err := spool.Pending(m, harp); err != nil || !pending {
+	if pending, err := spool.Pending(h.fs, m, harp); err != nil || !pending {
 		if err != nil {
 			h.rep.Warnf("runner: cannot tell whether the session owner has mail, so it is not woken: %v", err)
 		}

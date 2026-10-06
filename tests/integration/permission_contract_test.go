@@ -146,7 +146,7 @@ func (l *contractLane) turnReport(t *testing.T, childHarp string) coord.Message 
 	mapper := spool.NewHomeMapper()
 	deadline := time.Now().Add(laneWait)
 	for time.Now().Before(deadline) {
-		res, err := spool.Claim(mapper, l.owner.Harp)
+		res, err := spool.Claim(afero.NewOsFs(), mapper, l.owner.Harp)
 		require.NoError(t, err)
 		for _, e := range res.Entries {
 			m, err := coord.MailFromSpool(e, e.Message.FromHarp)

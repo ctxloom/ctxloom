@@ -54,7 +54,7 @@ func TestClaim_TakesEveryUnclaimedMessageIntoClaimedAndReturnsItInOrder(t *testi
 	first, _ := seedIn(t, m, "first\n")
 	second, _ := seedIn(t, m, "second\n")
 
-	res, err := Claim(m, testHarp)
+	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	require.Empty(t, res.Problems)
 	assert.Equal(t, []string{"first\n", "second\n"}, bodiesOf(res.Entries), "chronological order is the filename order")
@@ -82,12 +82,12 @@ func TestClaim_RedeliversWhatWasClaimedButNeverAcknowledged(t *testing.T) {
 	m := NewHomeMapper()
 	ref, _ := seedIn(t, m, "taken then lost\n")
 
-	res, err := Claim(m, testHarp)
+	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	require.Equal(t, []string{"taken then lost\n"}, bodiesOf(res.Entries))
 	// No Ack: the reader crashed here.
 
-	again, err := Claim(m, testHarp)
+	again, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"taken then lost\n"}, bodiesOf(again.Entries), "a claimed-but-unacknowledged message is delivered again")
 	assert.Equal(t, []string{ref.Name}, filesIn(t, m, ClaimedDirName), "…from in/claimed/, where it still sits")
@@ -101,11 +101,11 @@ func TestClaim_InterleavesLeftoversWithNewerMailChronologically(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 	seedIn(t, m, "older\n")
-	_, err := Claim(m, testHarp)
+	_, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	seedIn(t, m, "newer\n")
 
-	res, err := Claim(m, testHarp)
+	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"older\n", "newer\n"}, bodiesOf(res.Entries))
 }
@@ -114,14 +114,14 @@ func TestDeliver_AClaimedMessageIsNeverClaimedAgain(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 	seedIn(t, m, "delivered for good\n")
-	res, err := Claim(m, testHarp)
+	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	require.Len(t, res.Entries, 1)
 
 	require.NoError(t, Deliver(afero.NewOsFs(), m, res.Entries[0].Ref, res.Entries[0].Identity(), time.Now()))
 
 	assert.Empty(t, filesIn(t, m, ClaimedDirName), "a delivered message has left in/claimed/")
-	again, err := Claim(m, testHarp)
+	again, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Empty(t, again.Entries, "a delivered message is never delivered again")
 }
@@ -141,23 +141,23 @@ func TestPending_IsTrueOnlyWhileInHoldsAnUnclaimedFile(t *testing.T) {
 	m := NewHomeMapper()
 	require.NoError(t, EnsureDirs(m, testHarp))
 
-	pending, err := Pending(m, testHarp)
+	pending, err := Pending(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.False(t, pending, "an empty in/ has nothing pending")
 
 	seedIn(t, m, "waiting\n")
-	pending, err = Pending(m, testHarp)
+	pending, err = Pending(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.True(t, pending, "a file in in/ is pending")
 
-	_, err = Claim(m, testHarp)
+	_, err = Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
-	pending, err = Pending(m, testHarp)
+	pending, err = Pending(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.False(t, pending, "a CLAIMED message is spoken for: in/claimed/ is not in/ — the peek asks only whether unclaimed mail waits")
 
 	seedIn(t, m, "more\n")
-	pending, err = Pending(m, testHarp)
+	pending, err = Pending(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.True(t, pending)
 }
@@ -168,7 +168,7 @@ func TestPending_IsTrueOnlyWhileInHoldsAnUnclaimedFile(t *testing.T) {
 // coordinator's own sweep gives a missing directory.
 func TestPending_ASpoolThatWasNeverCreatedIsNotPending(t *testing.T) {
 	hostHome(t)
-	pending, err := Pending(NewHomeMapper(), testHarp)
+	pending, err := Pending(afero.NewOsFs(), NewHomeMapper(), testHarp)
 	require.NoError(t, err)
 	assert.False(t, pending)
 }
@@ -178,7 +178,7 @@ func TestPending_ASpoolThatWasNeverCreatedIsNotPending(t *testing.T) {
 // the turn over a directory that does not exist.
 func TestClaim_ASpoolThatWasNeverCreatedClaimsNothing(t *testing.T) {
 	hostHome(t)
-	res, err := Claim(NewHomeMapper(), testHarp)
+	res, err := Claim(afero.NewOsFs(), NewHomeMapper(), testHarp)
 	require.NoError(t, err)
 	assert.Empty(t, res.Entries)
 	assert.Empty(t, res.Problems)
@@ -197,7 +197,7 @@ func TestClaim_ReportsAnUnreadableFileAsAProblemAndLeavesItInPlace(t *testing.T)
 	junk := filepath.Join(inDir, "00000000000000000000000.00000001.coord.md")
 	require.NoError(t, os.WriteFile(junk, []byte("no frontmatter at all\n"), owneronly.FileMode))
 
-	res, err := Claim(m, testHarp)
+	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"fine\n"}, bodiesOf(res.Entries))
 	require.Len(t, res.Problems, 1, "the unparseable file must be REPORTED")
@@ -213,7 +213,7 @@ func TestFail_MovesAClaimedEntryIntoFailed(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 	ref, _ := seedIn(t, m, "unknown kind\n")
-	res, err := Claim(m, testHarp)
+	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	require.Len(t, res.Entries, 1)
 
@@ -256,12 +256,12 @@ func TestClaim_DuplicatesInFlightAreDeliveredOnce(t *testing.T) {
 	m := NewHomeMapper()
 	seedOrigin(t, m, "mail-2", "a\n")
 	seedOrigin(t, m, "mail-2", "b\n")
-	res, err := Claim(m, testHarp)
+	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a\n"}, bodiesOf(res.Entries), "the earlier copy wins")
 
 	seedOrigin(t, m, "mail-2", "c\n")
-	res, err = Claim(m, testHarp)
+	res, err = Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a\n"}, bodiesOf(res.Entries), "a copy of a claimed-but-unacknowledged message is not a second delivery")
 	assert.Empty(t, filesIn(t, m, DirIn), "the copies are dropped, not left to be re-read")
@@ -275,7 +275,7 @@ func TestClaim_MessagesWithoutAnOriginAreDistinct(t *testing.T) {
 	m := NewHomeMapper()
 	seedIn(t, m, "x\n")
 	seedIn(t, m, "x\n")
-	res, err := Claim(m, testHarp)
+	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Len(t, res.Entries, 2)
 }

@@ -75,7 +75,7 @@ func TestStarterSeam_MockChildRidesTheSpool(t *testing.T) {
 	require.EqualValues(t, 0, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
 	var got []spool.Entry
 	require.Eventually(t, func() bool {
-		res, cerr := spool.Claim(spool.NewHomeMapper(), owner.Harp)
+		res, cerr := spool.Claim(afero.NewOsFs(), spool.NewHomeMapper(), owner.Harp)
 		if cerr != nil {
 			return false
 		}

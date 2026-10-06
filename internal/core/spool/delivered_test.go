@@ -1,12 +1,12 @@
 package spool
 
 import (
-	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -69,7 +69,7 @@ func TestDeliver_AClaimedEntryIsDeletedFromClaimed(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 	seedOrigin(t, m, "m-claimed", "x\n")
-	res, err := Claim(m, testHarp)
+	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	require.Len(t, res.Entries, 1)
 
@@ -130,13 +130,13 @@ func TestClaim_AnIdentityDeliveredWithinTheWindowIsRejected(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 	seedOrigin(t, m, "mail-1", "first copy\n")
-	res, err := Claim(m, testHarp)
+	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	require.Len(t, res.Entries, 1)
 	require.NoError(t, Deliver(afero.NewOsFs(), m, res.Entries[0].Ref, res.Entries[0].Identity(), time.Now()))
 
 	seedOrigin(t, m, "mail-1", "second copy\n")
-	res, err = Claim(m, testHarp)
+	res, err = Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Empty(t, res.Entries, "a message whose identity was delivered is not delivered again")
 	assert.Empty(t, filesIn(t, m, DirIn))
@@ -150,12 +150,12 @@ func TestClaim_ARecordedClaimedEntryIsFinishedNotRedelivered(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 	seedOrigin(t, m, "m-crash", "x\n")
-	res, err := Claim(m, testHarp)
+	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	require.Len(t, res.Entries, 1)
 	recordOnly(t, m, "m-crash", time.Now())
 
-	res, err = Claim(m, testHarp)
+	res, err = Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Empty(t, res.Entries, "a delivered message is not delivered twice")
 	assert.Empty(t, filesIn(t, m, ClaimedDirName), "the interrupted delete is finished")
@@ -168,7 +168,7 @@ func TestClaim_ARecordedInboxEntryIsFinishedNotRedelivered(t *testing.T) {
 	seedOrigin(t, m, "m-crash-in", "x\n")
 	recordOnly(t, m, "m-crash-in", time.Now())
 
-	res, err := Claim(m, testHarp)
+	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Empty(t, res.Entries)
 	assert.Empty(t, filesIn(t, m, DirIn))
@@ -181,10 +181,10 @@ func TestClaim_AnUnrecordedClaimIsHandedOutAgain(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 	seedOrigin(t, m, "m-unacked", "again\n")
-	_, err := Claim(m, testHarp)
+	_, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 
-	res, err := Claim(m, testHarp)
+	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"again\n"}, bodiesOf(res.Entries))
 }

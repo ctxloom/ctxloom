@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -60,11 +61,11 @@ func TestArmWake_IsNotMail(t *testing.T) {
 	_, err := ArmWake(m, testHarp)
 	require.NoError(t, err)
 
-	pending, err := Pending(m, testHarp)
+	pending, err := Pending(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.False(t, pending, "an armed wake is not pending mail")
 
-	res, err := Claim(m, testHarp)
+	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 	assert.Empty(t, res.Entries)
 	assert.Empty(t, res.Problems, "an armed wake is not a malformed message either")

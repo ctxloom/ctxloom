@@ -142,7 +142,7 @@ func TestDoctorCheckSpoolBacklog_NamesAClaimNoHookFinished(t *testing.T) {
 	harp := "amber-quiet-heron"
 	old := time.Now().Add(-10 * time.Minute)
 	ref := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, old.UnixNano(), 1, "coord", old)
-	res, err := spool.Claim(mapper, harp)
+	res, err := spool.Claim(afero.NewOsFs(), mapper, harp)
 	require.NoError(t, err)
 	require.Len(t, res.Entries, 1, "the entry must now be in flight in in/claimed/")
 
@@ -163,7 +163,7 @@ func TestDoctorCheckSpoolBacklog_ARecordedDeliveryIsNotStuck(t *testing.T) {
 	old := time.Now().Add(-10 * time.Minute)
 	inRef := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, old.UnixNano(), 1, "coord", old)
 	claimedRef := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, old.UnixNano(), 2, "coord", old)
-	res, err := spool.Claim(mapper, harp)
+	res, err := spool.Claim(afero.NewOsFs(), mapper, harp)
 	require.NoError(t, err)
 	require.Len(t, res.Entries, 2)
 	// Put one back in in/: the runner's shape. The other stays claimed: the

@@ -103,7 +103,7 @@ func drainMail(fs afero.Fs, cmd *cobra.Command, harp string) error {
 	var payload claude.UserPromptSubmitPayload
 	_ = json.Unmarshal(raw, &payload)
 	isWake, problems := redeemWakeNonce(mapper, harp, payload.Prompt)
-	res, err := spool.Claim(mapper, harp)
+	res, err := spool.Claim(fs, mapper, harp)
 	if err != nil {
 		return fmt.Errorf("no mail delivered: %w", err)
 	}

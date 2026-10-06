@@ -30,14 +30,6 @@ type PullOptions struct {
 	// ItemType specifies what type of item to pull.
 	ItemType ItemType
 
-	// RequestedVersion, when non-nil, overrides the version constraint recorded in
-	// the lockfile entry (RequestedVersion) instead of deriving it from the pulled
-	// ref. `update --apply` uses it to pull a constraint-bounded SHA pin
-	// ("<ref>@<sha>") for the CONTENT while preserving the manifest's original
-	// constraint in the lock — otherwise pinning the pull would freeze "^1.2" into a
-	// concrete SHA. A non-nil pointer to "" preserves a constraint-less entry.
-	RequestedVersion *string
-
 	// AllowDowngrade accepts, for THIS pull's ref only, content signed at a
 	// version below the lockfile's recorded floor (or no longer signed at all).
 	// Callers set it only for refs the operator named: it is never blanket.
@@ -631,15 +623,9 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// checkout lands in the CACHE (gitignored, regenerable): the pin in the
 	// lockfile stays the authority, and the worktree is checked out from it.
 	// The commit that is CHECKED OUT and the commit that is RECORDED must be
-	// one commit. Resolving the hold here rather than only at the lockfile write
-	// is what stops a forced pull from advancing the bytes past a pin the hold
-	// is successfully defending.
+	// one commit, so the hold is resolved here and not only at the lockfile
+	// write: a held pin installs its own commit with the floor it recorded.
 	requestedVersion := item.requestedVersion
-	if opts.RequestedVersion != nil {
-		// Caller pins the content SHA but wants the manifest constraint preserved
-		// (see PullOptions.RequestedVersion).
-		requestedVersion = *opts.RequestedVersion
-	}
 	installSHA := item.sha
 	var signed Verified
 	pinned := LockEntry{}

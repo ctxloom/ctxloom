@@ -44,7 +44,11 @@ type Chat struct {
 	// until released: the announce then reaches the coordinator exactly when
 	// the test chooses, not the moment the process is up.
 	SessionGate chan struct{}
-	Answer      func(text string) string
+	// Entered, when non-nil, is signalled once per turn as the turn is
+	// taken, before anything of it is relayed or gated: a receive is the
+	// test's proof that the engine has been handed that turn.
+	Entered chan<- struct{}
+	Answer  func(text string) string
 	// FailAfterTurns, when > 0, fails the turn after that many completed —
 	// an engine process that dies mid-turn. The runner then ends the run.
 	FailAfterTurns int
@@ -116,6 +120,13 @@ func (s *Chat) Resume(string) error { return nil }
 // Turn implements engine.StructuredDriver.
 func (s *Chat) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out chan<- engine.Event) (engine.TurnResult, error) {
 	plan := s.take(ex, in)
+	if plan.entered != nil {
+		select {
+		case plan.entered <- struct{}{}:
+		case <-ctx.Done():
+			return engine.TurnResult{}, ctx.Err()
+		}
+	}
 	send := func(ev agent.ChatEvent) bool {
 		payload, err := json.Marshal(ev)
 		if err != nil {
@@ -162,6 +173,7 @@ func (s *Chat) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out cha
 type turnPlan struct {
 	gate    <-chan struct{}
 	session <-chan struct{}
+	entered chan<- struct{}
 	answer  func(string) string
 	first   bool
 	fail    bool
@@ -178,7 +190,7 @@ func (s *Chat) take(ex engine.Exec, in engine.Turn) turnPlan {
 	s.Execs = append(s.Execs, ex)
 	s.Texts = append(s.Texts, in.Prompt)
 	s.Keys = append(s.Keys, in.Resume)
-	plan := turnPlan{gate: s.Gate, session: s.SessionGate, answer: s.Answer, first: s.turns == 0, denials: s.Denials}
+	plan := turnPlan{gate: s.Gate, session: s.SessionGate, entered: s.Entered, answer: s.Answer, first: s.turns == 0, denials: s.Denials}
 	if s.Failed != nil {
 		plan.failure = s.Failed(ex, in.Prompt)
 	}

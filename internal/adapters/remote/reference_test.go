@@ -483,6 +483,64 @@ func TestExtractRepoName(t *testing.T) {
 			repoURL: "unknown://weird:format",
 			want:    "unknown/weird/format",
 		},
+		// A trailing ".git" is the bare-repository convention, not part of
+		// the repository's name: every address form derives the same name
+		// with or without it.
+		{
+			name:    "HTTPS URL drops a trailing .git",
+			repoURL: "https://github.com/owner/repo.git",
+			want:    "repo",
+		},
+		{
+			name:    "HTTPS URL drops .git before a trailing slash",
+			repoURL: "https://github.com/owner/repo.git/",
+			want:    "repo",
+		},
+		{
+			name:    "HTTP URL drops a trailing .git",
+			repoURL: "http://example.com/owner/my-repo.git",
+			want:    "my-repo",
+		},
+		{
+			name:    "SSH scp-like URL drops a trailing .git",
+			repoURL: "git@github.com:owner/repo.git",
+			want:    "repo",
+		},
+		{
+			name:    "SSH URL with subgroups drops a trailing .git",
+			repoURL: "git@gitlab.com:group/subgroup/repo.git",
+			want:    "repo",
+		},
+		{
+			name:    "file URL of a local bare repository drops a trailing .git",
+			repoURL: "file:///tmp/acceptance-elsewhere/remote.git",
+			want:    "remote",
+		},
+		{
+			name:    "file URL with single component drops a trailing .git",
+			repoURL: "file:///repo.git",
+			want:    "repo",
+		},
+		{
+			name:    "fallback form drops a trailing .git",
+			repoURL: "owner/repo.git",
+			want:    "owner/repo",
+		},
+		{
+			name:    "only one trailing .git is dropped",
+			repoURL: "https://github.com/owner/repo.git.git",
+			want:    "repo.git",
+		},
+		{
+			name:    ".git inside the name is kept",
+			repoURL: "https://github.com/owner/repo.github.io",
+			want:    "repo.github.io",
+		},
+		{
+			name:    "a name that is only .git is kept rather than emptied",
+			repoURL: "https://example.com/owner/.git",
+			want:    ".git",
+		},
 	}
 
 	for _, tt := range tests {

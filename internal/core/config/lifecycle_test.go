@@ -39,6 +39,13 @@ func (f *fakeSources) Read(ctx context.Context) (*config.Config, []config.Warnin
 	return f.read(ctx)
 }
 
+// ReadTarget is Read: the fake has one layer, so the target file alone and
+// the layered read are the same document.
+func (f *fakeSources) ReadTarget(ctx context.Context) (*config.Config, error) {
+	cfg, _, err := f.Read(ctx)
+	return cfg, err
+}
+
 func (f *fakeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
 	if f.readers == nil {
 		return nil, nil

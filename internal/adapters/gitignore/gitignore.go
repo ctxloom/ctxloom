@@ -24,8 +24,7 @@ import (
 // local and so must never ride a distributable tree: the resolved-artifact
 // cache, the project-id marker (ADR 0025 — private identity), and the third
 // .ctxloom tier (paths.StateDir) — local-only checkout state nothing rebuilds
-// (e.g. the dirty-tree-commit acknowledgement, paths.DirtyTreeCommitAckPath,
-// and the lock sidecars under state/locks): a clone must never arrive
+// (e.g. the lock sidecars under state/locks): a clone must never arrive
 // pre-carrying somebody else's answer. Session state lives under the ctxloom
 // home (paths.HarpMembers), never in the project; the `.ctxloom/sessions/`
 // and `.ctxloom/state/` rules also keep what an earlier ctxloom wrote there

@@ -317,8 +317,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"manage statusline install":   {skip: "installer: writes real statusline config"},
 	"manage statusline uninstall": {skip: "installer: removes real statusline config"},
 	"manage gitignore install":    {skip: "installer: writes .gitignore entries"},
-	"manage commit trust":         {skip: "installer: writes the dirty-tree-commit admission-store file"},
-	"manage commit untrust":       {skip: "installer: removes the dirty-tree-commit admission-store record"},
 	"config edit":                 {skip: "not wired to emit() yet; also opens an editor", formatDebt: true},
 	"config create":               {skip: "not wired to emit() yet; also an installer", formatDebt: true},
 

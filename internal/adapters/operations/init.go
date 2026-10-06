@@ -25,10 +25,7 @@ type InitializeProjectRequest struct {
 	Engine string `json:"engine"`
 
 	// DirtyTreeHandler is written into config.yaml (BuildInitialConfig);
-	// empty writes no key and the built-in "commit" default applies. Init
-	// never records the commit acknowledgement: that consent is only ever a
-	// human act (`ctxloom manage commit trust`, config.SetDirtyTreeCommitAck),
-	// so the commit handler refuses a delegated spawn until it is given.
+	// empty writes no key and the built-in "commit" default applies.
 	DirtyTreeHandler string `json:"dirty_tree_handler"`
 
 	// HeadlessPermissions is the init interview's answer for the posture the
@@ -211,9 +208,7 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 //
 // dirtyTreeHandler goes straight into the scaffolded config
 // (config.Fixture.DirtyTreeHandler) — empty writes no key and the built-in
-// "commit" default applies. The commit acknowledgement is never
-// part of this scaffold at all — see InitializeProject, which writes it to
-// paths.DirtyTreeCommitAckPath instead.
+// "commit" default applies.
 func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([]byte, error) {
 	scaffoldData, err := readResource(resources.GetInitConfig, "init scaffold")
 	if err != nil {

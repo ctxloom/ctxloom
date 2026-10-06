@@ -160,10 +160,7 @@ func TestLoad_NonUnknownKeySchemaError_StaysValidateKind(t *testing.T) {
 }
 
 // A valid current config must stay silent — a strictness gate that cries wolf on
-// good configs is worse than no gate. config.sign.key is deliberately absent from
-// this fixture: it is ScopeMachine (a fingerprint/path to this user's own key
-// material), so a value at the PROJECT layer — this fixture's own layer — is
-// now a genuine layerscope violation, not something "valid" any longer.
+// good configs is worse than no gate.
 func TestLoad_ValidConfig_NoWarnings(t *testing.T) {
 	cfg := loadYAML(t, `schema_version: 7
 llm:
@@ -289,19 +286,16 @@ func TestLoad_NonUnknownKeyFaultInsideAnyOfBranch_StillReported(t *testing.T) {
 	assert.Equal(t, config.WarnKindValidate, cfg.GetWarnings()[0].Kind)
 }
 
-// `dirty_tree_commit_ack` left the config chain for a state record that only a
-// human surface writes, and nothing carries an old config value across: the
-// consent is gone after upgrade. That fails closed, which is right, but it must
-// not fail SILENTLY — the user has to be told the key is retired and how to
-// re-grant, or a refused spawn reads as a regression with no cause.
-func TestLoad_RetiredDirtyTreeCommitAck_NamesRegrantCommand(t *testing.T) {
+// `dirty_tree_commit_ack` is retired: the user is told the key is gone and
+// which key decides the auto-commit now.
+func TestLoad_RetiredDirtyTreeCommitAck_NamesTheDecidingKey(t *testing.T) {
 	cfg := loadYAML(t, "schema_version: 7\ndirty_tree_commit_ack: true\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1)
 	assert.Contains(t, warns[0].Text, "dirty_tree_commit_ack", "the message must name the retired key")
 	assert.Contains(t, warns[0].Text, "RETIRED", "the user must be told the key is gone, not misspelled")
-	assert.Contains(t, warns[0].Text, "ctxloom manage commit trust", "and how to re-grant the consent")
+	assert.Contains(t, warns[0].Text, "dirty_tree_handler: commit", "and which key decides it now")
 }
 
 // Both keys isolation_base replaced must fail validation naming the

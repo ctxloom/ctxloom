@@ -54,10 +54,8 @@ func TestP6Fixture_ContainerCellIsNotAHostCellWearingALabel(t *testing.T) {
 	// run of this cell failed with the child never launching — agent_run refused
 	// the spawn because ctxloom's own managed files (.ctxloom-managed,
 	// .ctxloom/project-id, .claude/settings.json, .claude/commands/*) are written
-	// during session startup, AFTER the fixture commits. The default "commit"
-	// handler cannot be used by any automated cell: it requires
-	// dirty_tree_commit_ack, which is a human act and cannot be set from config,
-	// an env var, or a per-call parameter.
+	// during session startup, AFTER the fixture commits. "copy" leaves the
+	// fixture's own branch untouched, where "commit" would add a commit to it.
 	assert.Contains(t, ctr, "dirty_tree_handler: copy",
 		"the worktree cell must reproduce uncommitted state into the child's checkout, or the child never launches")
 	assert.NotContains(t, host, "dirty_tree_handler",

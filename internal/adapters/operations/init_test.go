@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
@@ -76,11 +74,9 @@ func TestInitializeProject_UnknownEngineRefusesAndWritesNothing(t *testing.T) {
 
 // TestInitializeProject_DirtyTreeHandlerLandsAndNoAckIsRecorded proves the
 // handler actually LANDS ON DISK — not just that InitializeProject returns
-// success — and that no handler, commit included, records the commit
-// acknowledgement: that consent is a human act outside init. The handler is
-// read back as raw bytes and through config.ParseConfig; the ack through
-// config.DirtyTreeCommitAcknowledged, the accessor the delegate gate consults.
-func TestInitializeProject_DirtyTreeHandlerLandsAndNoAckIsRecorded(t *testing.T) {
+// success. The handler is read back as raw bytes and through
+// config.ParseConfig.
+func TestInitializeProject_DirtyTreeHandlerLands(t *testing.T) {
 	for _, handler := range []string{"commit", "copy", "stale", "fail", ""} {
 		t.Run("handler="+handler, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
@@ -103,14 +99,11 @@ func TestInitializeProject_DirtyTreeHandlerLandsAndNoAckIsRecorded(t *testing.T)
 			} else {
 				assert.NotContains(t, body, "dirty_tree_handler:")
 			}
-			assert.NotContains(t, body, "dirty_tree_commit_ack")
 
 			cfg, err := config.ParseConfig(cfgData)
 			require.NoError(t, err)
 			assert.Equal(t, handler, cfg.GetDirtyTreeHandler())
 
-			assert.False(t, config.DirtyTreeCommitAcknowledged(report.Reporter{}, safefs.NewMem(fs), appDir),
-				"init must never record the commit acknowledgement")
 		})
 	}
 }

@@ -105,7 +105,6 @@ Fixed residents at the root of `state/`:
 
 | Path | What it is | Losing it costs |
 |---|---|---|
-| `state/dirty_tree_commit_ack.yaml` | the record that a human authorized ctxloom to auto-commit a dirty tree here (`paths.DirtyTreeCommitAckPath`) | you are asked again |
 | `state/locks/` | advisory lock sidecars guarding project files (`paths.LocksPath`, named by `paths.ProjectPathFor`) | nothing |
 
 Two more local-only paths live at the `.ctxloom` root rather than under

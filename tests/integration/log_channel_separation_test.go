@@ -33,11 +33,11 @@ import (
 // TestHookApproach_MissingCacheFileInjectsNothingAndSaysSo pins. It is a
 // two-sided invariant, so both sides are asserted here.
 //
-// The provocation is a home config carrying `agents` keys. Those are
-// ScopeShared, so dropLayerScopeViolations discards them at load and emits a
-// warn-level `config_layer_scope_warning` — one warn-level log per load, on a
-// path every command takes, which is exactly the traffic that made structured
-// output on stderr intolerable in the first place.
+// The provocation is a home config carrying an agent bound to no engine,
+// which the load drops with a warn-level `config_engineless_agent_warning` —
+// one warn-level log per load, on a path every command takes, which is exactly
+// the traffic that made structured output on stderr intolerable in the first
+// place.
 func TestLogChannels_StructuredGoesToTheFileAndNeverToAHooksStderr(t *testing.T) {
 	env, err := testenv.NewTestEnvironment()
 	require.NoError(t, err)
@@ -46,8 +46,8 @@ func TestLogChannels_StructuredGoesToTheFileAndNeverToAHooksStderr(t *testing.T)
 	home := t.TempDir()
 	projectDir := t.TempDir()
 
-	// A home config whose keys are not allowed at the home layer: dropped on
-	// load, with a warn-level structured log each time.
+	// A home config whose agent names no engine: dropped on load, with a
+	// warn-level structured log each time.
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".ctxloom"), 0o755))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(home, ".ctxloom", "config.yaml"),
@@ -105,4 +105,4 @@ func TestLogChannels_StructuredGoesToTheFileAndNeverToAHooksStderr(t *testing.T)
 // structuredWarnKey is the zap message the fixture provokes. Naming the record
 // rather than grepping for "warn" keeps the assertions specific to the record
 // this test actually caused.
-const structuredWarnKey = "config_layer_scope_warning"
+const structuredWarnKey = "config_engineless_agent_warning"

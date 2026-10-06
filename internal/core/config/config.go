@@ -123,14 +123,6 @@ type Config struct {
 	// mirroring workspace's own project-default/per-call split. See
 	// operations.handleDirtyParentTree for what each value does.
 	dirtyTreeHandler string
-	// The dirty-tree-commit human acknowledgement used to live here as a
-	// config-only bool field. It moved to paths.DirtyTreeCommitAckPath (an
-	// internal/shared/admission.Store file under .ctxloom/state/) — see
-	// config.DirtyTreeCommitAcknowledged/SetDirtyTreeCommitAck. Consent leaves
-	// the chain because a config key is reachable from THREE channels an agent can write (a home file,
-	// an environment variable, an argv), and prior human consent needs a
-	// home with none. ScopeNever in internal/core/config/layerscope names the
-	// scope this key would have needed and why no layer may carry it.
 	// runtime is the project-wide DEFAULT for the AGENT-level runtime axis
 	// (host | container): where an agent's engine process executes. Empty
 	// means "host". An agent binding's own `runtime:` overrides it; the
@@ -149,14 +141,6 @@ type Config struct {
 	// field by field, and ABOVE the engine fallback. Resolution lives in the
 	// launch resolver (launch.resolvePolicy) and, for `agent show`,
 	// operations.ResolveAgent.
-	//
-	// LAYER-SCOPED TO THE PROJECT FILE. layerscope assigns it ScopeShared, so a
-	// ~/.ctxloom/config.yaml carrying it is DROPPED with a warning rather than
-	// gap-filling a project that declared nothing, and CTXLOOM_CONFIG_PERMISSIONS
-	// cannot carry it either. That restriction is the feature, not an
-	// implementation detail: a home-wide permissive default would silently
-	// re-grant every project on the machine the posture a human granted exactly
-	// one of them.
 	permissions agents.NeutralPermissions
 	// delegation groups the two agent-delegation limits — see
 	// DelegationConfig's doc for why they are grouped (both are limits ON
@@ -215,15 +199,11 @@ type Config struct {
 	// sessionReapAge is how old a session must be before `ctxloom clean`
 	// reclaims its disposable store (~/.ctxloom/sessions/<harp>/ephemeral),
 	// in the age grammar `clean --older-than` takes ("30d", "12w", "720h").
-	// Empty means the built-in default (DefaultSessionReapAge). A fact about
-	// this machine's disk, not project policy: the sessions root is
-	// home-global, so this is honoured from the home file and never from
-	// the committed project file (layerscope: ScopeMachine).
+	// Empty means the built-in default (DefaultSessionReapAge).
 	sessionReapAge string
 	// sessionPurgeAge is how old an ended session must be before `ctxloom
 	// session sweep` purges it, in the same age grammar. It has NO default:
-	// empty means the sweep reports its purge rows and acts on none. Machine
-	// scope, like sessionReapAge.
+	// empty means the sweep reports its purge rows and acts on none.
 	sessionPurgeAge string
 	// auth is the top-level `auth:` as written ("" undeclared): how the
 	// HUMAN's own session authenticates (SessionAuth). Validated at decode.
@@ -1325,8 +1305,8 @@ func deepCopyValue(v any) any {
 // this file records one, and the strict-startup gate keys exclusively on this
 // slice, so having one spelling of "record and continue" is what keeps a new
 // degradation from being written as a zap-only line nothing can see.
-func (c *Config) warn(k WarningKind, remedy, format string, args ...any) {
-	c.warnings = append(c.warnings, Warning{Kind: k, Text: fmt.Sprintf(format, args...), Remedy: remedy})
+func (c *Config) warn(k WarningKind, format string, args ...any) {
+	c.warnings = append(c.warnings, Warning{Kind: k, Text: fmt.Sprintf(format, args...)})
 }
 
 // GetBundleDirs returns the project's AUTHORED bundle directories — the

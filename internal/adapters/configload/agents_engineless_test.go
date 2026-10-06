@@ -67,15 +67,9 @@ func TestLoad_AgentWithLLMButNoProfilesIsAccepted(t *testing.T) {
 	assert.Empty(t, warningsOfKind(cfg, config.WarnKindEnginelessAgent))
 }
 
-// TestLoad_HomeEnginelessAgentIsRefusedNamingHomePath is the row's observed
-// input. Every per-agent FIELD is ScopeShared, so a home agent that declares
-// any field has it dropped by the layer-scope check — and koanf's Delete
-// prunes the emptied parent, so such an agent never reaches the merge at
-// all. A verbatim `help: {}` carries no field for that check to see: it
-// survived into the merged view and was re-serialised into the project file
-// by the next project-layer save. The refusal runs per layer so the finding
-// names HOME's path — where the declaration actually lives — and drops the
-// shell before the merge.
+// TestLoad_HomeEnginelessAgentIsRefusedNamingHomePath: the refusal runs per
+// layer so the finding names HOME's path — where the declaration actually
+// lives — and drops the shell before the merge.
 func TestLoad_HomeEnginelessAgentIsRefusedNamingHomePath(t *testing.T) {
 	home := testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()

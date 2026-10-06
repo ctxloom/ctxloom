@@ -144,9 +144,6 @@ var LayeringRules = []LayeringRule{
 			"internal/core/bundles -> internal/adapters/signing":            "slice 5: one verifier, behind the trust ports",
 			"internal/core/bundles -> internal/shared/upgrade":              "the envelope's schema-upgrade steps (upgrade.Upgrader), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (slice 5); slice 5 landed without the move, which is still open",
 
-			// core/config
-			"internal/core/config -> internal/shared/admission": "the dirty-tree acknowledgement store is an admission.Store (dirtyTreeAckStore)",
-
 			// shared/agent → its contract half becomes core/engine. Its
 			// lockwait and safefs edges reach the toolbox, which is excepted, so they
 			// are not violations.

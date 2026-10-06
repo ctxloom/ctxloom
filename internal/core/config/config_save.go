@@ -11,10 +11,8 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
-	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/core/config/layerscope"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
@@ -50,26 +48,6 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 		delete(merged, key)
 	}
 	maps.Copy(merged, desired)
-
-	// c is the FULLY MERGED view Owner.Update's fresh Read produced (home <
-	// project < env < flag), so persistedDoc carries every section regardless
-	// of which layer contributed it — a Machine-scoped value set ONLY in home
-	// (editor.command, llm.configs.*.binary_path, ...) included. Writing that
-	// into configPath is exactly the leak internal/core/config/layerscope
-	// closes: the file being written IS the project layer whenever a separate
-	// home layer also exists (c.source == SourceProject), and
-	// Scope.Allows(LayerProject) forbids a Machine-scoped value there. The
-	// filter runs over the WHOLE merged file, not just the modeled sections,
-	// because the policy also covers keys configDoc does not model
-	// (mcp.servers.*.env). Drop each via the SAME dropLayerScopeViolations
-	// load-time uses (never a bespoke filter), zap-logged because there is no
-	// live *Config.warnings slice to append to here. When c.source is
-	// SourceHome (this file IS home acting alone), nothing to filter.
-	if c.source == SourceProject {
-		for _, v := range DropLayerScopeViolations(layerscope.LayerProject, merged) {
-			zap.L().Warn("config_layer_scope_save_warning", zap.Strings("key", v.Path))
-		}
-	}
 
 	// Persist by PATCHING the on-disk document's yaml.Node tree so comments and
 	// key order survive — only a section whose canonical content actually changed

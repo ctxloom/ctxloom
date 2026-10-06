@@ -162,10 +162,7 @@ const j002300PerEngineAgent = "delegate"
 //
 // The first live run of the container cell failed exactly there: the child
 // never launched, and the refusal listed ctxloom's own files, not the
-// fixture's. The default "commit" handler cannot rescue it either — that path
-// requires dirty_tree_commit_ack, "a human act only; it cannot be set from
-// config.yaml, an environment variable, or any per-call parameter", so no
-// automated cell can ever satisfy it. "copy" reproduces the changes as
+// fixture's. "copy" reproduces the changes as
 // uncommitted WIP inside the child's worktree, which is what a fixture wants:
 // the child sees the bundle and profile that carry its marker.
 //

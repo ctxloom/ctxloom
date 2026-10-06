@@ -146,11 +146,6 @@ func (c *Config) GetRuntime() string { return c.runtime }
 // as written; a zero block means the project declared none. It is the rung
 // below every explicit declaration (--permissions flag > agent binding >
 // engine label > THIS > engine built-in), field by field.
-//
-// The value can only ever have come from THIS project's .ctxloom/config.yaml
-// (or an explicit one-invocation --config-set): layerscope scopes the key
-// Shared, so a home config or an environment variable carrying it is dropped
-// with a warning before the merge. See Config.permissions' own doc.
 func (c *Config) GetPermissions() agents.NeutralPermissions { return c.permissions.Clone() }
 
 // GetDelegationConcurrency returns delegation.concurrency: the project-wide

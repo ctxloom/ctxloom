@@ -114,19 +114,6 @@ func TestGoldenFixture_CurrentEffectiveConfig_D3Characterization(t *testing.T) {
 	assert.Equal(t, "claude-code", layered.ToFixture().LM.Defaults.Primary,
 		"DRIFT (intended): llm.defaults.primary is now inherited from home")
 	assert.Equal(t, "claude-fast", layered.ToFixture().LM.Defaults.Fast)
-
-	// NOT DRIFT (layerscope closed this): default_agent and agents.* are
-	// ScopeShared — which agent a bare `ctxloom run` resolves is project
-	// policy, so home may not gap-fill it even via a legacy profiles.defaults
-	// migrating forward in memory. Before layerscope, this WAS additional
-	// drift (home's migrated default_agent leaking into a project that never
-	// set one); it is exactly escalation path #2's home-gap-fill half (see
-	// TestLoad_EscalationPath3_HomeCannotEscalateProjectAgent), so this
-	// golden fixture now pins its ABSENCE instead.
-	assert.Empty(t, layered.ToFixture().DefaultAgent,
-		"home's legacy profiles.defaults must NOT supply a default_agent the project template itself never set")
-	assert.NotContains(t, layered.ToFixture().Agents, "default",
-		"home's migrated agents.default binding must not leak into a project that names no such agent")
 }
 
 // TestGoldenFixture_D3Drift_IsAdditiveOnly is the general-purpose companion to

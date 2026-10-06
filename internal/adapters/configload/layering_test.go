@@ -51,20 +51,16 @@ func seedLayers(t *testing.T, fs afero.Fs, home, homeBody, projectBody string) s
 // TestLoad_ProjectInheritsHomeKeys is the new-behavior pin D3 exists for: a
 // project config.yaml that never mentions a key must inherit it from home,
 // where the pre-layering project-XOR-home resolution silently dropped it
-// (home was never even read once a project config.yaml existed). Both keys
-// here are ScopeMachine (internal/core/config/layerscope), which home is allowed
-// to carry — unlike `workspace` (ScopeShared), which this test used to
-// exercise before layerscope closed home's ability to gap-fill a
-// project-policy key (see TestLoad_EscalationPath3_HomeCannotEscalateProjectAgent
-// for that closure's own dedicated test).
+// (home was never even read once a project config.yaml existed).
 func TestLoad_ProjectInheritsHomeKeys(t *testing.T) {
 	cfg := writeLayers(t,
-		"schema_version: 7\ndelegation:\n  concurrency: 3\nruntime: container\n",
+		"schema_version: 7\ndelegation:\n  concurrency: 3\nruntime: container\nworkspace: none\n",
 		"schema_version: 7\ndefault_agent: dev\nagents:\n  dev:\n    profiles: [go-developer]\n",
 	)
 
 	assert.Equal(t, 3, cfg.ToFixture().Delegation.Concurrency, "a home-only key must be inherited by a project that never sets it")
 	assert.Equal(t, "container", cfg.ToFixture().Runtime, "same for a second home-only key")
+	assert.Equal(t, "none", cfg.ToFixture().Workspace, "same for a project-policy key")
 	assert.Equal(t, "dev", cfg.ToFixture().DefaultAgent, "the project's own key is unaffected by layering")
 }
 
@@ -132,18 +128,9 @@ func TestResolveConfigLayerPaths_DedupsWhenHomeEqualsProject(t *testing.T) {
 	assert.Empty(t, homeConfigPath, "project dir == home dir must collapse to a single-file read, not a doubled one")
 }
 
-// TestLoad_ExplicitAppDirEqualToHome_ResolvesSourceHome is what makes a
-// Manager targeting home directly able to persist a ScopeMachine value
-// (llm.configs.*.binary_path) at all: saveLocked's layerscope filter
-// strips ScopeMachine values whenever cfg.ToFixture().Source == config.SourceProject, on the
-// theory that the project file is committed and visible to every clone. An
-// explicit WithAppDir used to ALWAYS set config.SourceProject — even when the
-// directory named was genuinely ~/.ctxloom — which silently stripped
-// exactly the values a credential-writing caller needs to land, the same
-// silent-no-op shape this codebase keeps closing elsewhere. This directory
-// IS home acting alone (see resolveConfigLayerPaths' identical dedup logic
-// for the read side, which already treats this case specially); the write
-// side must agree.
+// TestLoad_ExplicitAppDirEqualToHome_ResolvesSourceHome: an explicit appDir
+// that IS ~/.ctxloom is home acting alone, matching resolveConfigLayerPaths'
+// dedup on the read side.
 func TestLoad_ExplicitAppDirEqualToHome_ResolvesSourceHome(t *testing.T) {
 	home := testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
@@ -155,10 +142,9 @@ func TestLoad_ExplicitAppDirEqualToHome_ResolvesSourceHome(t *testing.T) {
 	assert.Equal(t, config.SourceHome, cfg.ToFixture().Source, "an explicit appDir that IS the home directory must resolve as config.SourceHome")
 }
 
-// TestLoad_ExplicitAppDirDifferentFromHome_StaysSourceProject is the fix's
-// negative case: an ordinary project directory (not home) must still
-// resolve config.SourceProject — the fix narrows to the exact-match case only, so
-// every genuine project write keeps enforcing the layerscope filter.
+// TestLoad_ExplicitAppDirDifferentFromHome_StaysSourceProject is the
+// negative case: an ordinary project directory (not home) resolves
+// config.SourceProject.
 func TestLoad_ExplicitAppDirDifferentFromHome_StaysSourceProject(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
@@ -170,14 +156,10 @@ func TestLoad_ExplicitAppDirDifferentFromHome_StaysSourceProject(t *testing.T) {
 	assert.Equal(t, config.SourceProject, cfg.ToFixture().Source)
 }
 
-// TestManagerUpdate_TargetingHomeDirectly_PersistsScopeMachineValues is the
-// practical consequence proven end to end: a Manager pointed straight at
-// ~/.ctxloom can actually WRITE a ScopeMachine value (llm.configs.*.binary_path
-// here) and have it survive a reload. Before the config.SourceHome fix above,
-// saveLocked's layerscope filter treated this write as landing in "the
-// project layer" and silently stripped it — a value written, reported as
-// saved, and gone.
-func TestManagerUpdate_TargetingHomeDirectly_PersistsScopeMachineValues(t *testing.T) {
+// TestManagerUpdate_TargetingHomeDirectly_PersistsMachineValues: a Manager
+// pointed straight at ~/.ctxloom writes a machine path
+// (llm.configs.*.binary_path) and it survives a reload.
+func TestManagerUpdate_TargetingHomeDirectly_PersistsMachineValues(t *testing.T) {
 	home := testsupport.Isolate(t)
 	homeAppDir := filepath.Join(home, config.AppDirName)
 	require.NoError(t, os.MkdirAll(homeAppDir, 0o755))
@@ -201,5 +183,5 @@ func TestManagerUpdate_TargetingHomeDirectly_PersistsScopeMachineValues(t *testi
 	got, ok := reloaded.GetLLMEntry("big")
 	require.True(t, ok)
 	assert.Equal(t, "/opt/engines/mock", got.Body["binary_path"],
-		"a ScopeMachine value written straight to home must survive the save, not be silently stripped")
+		"a machine path written straight to home must survive the save")
 }

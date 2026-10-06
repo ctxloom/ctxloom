@@ -240,9 +240,6 @@ func j000700SetupTeamProject(w *World) error {
 	if err := j000700SetupProject(w, minimalConfig); err != nil {
 		return err
 	}
-	// minimalHomeEditorConfig lives in HOME: editor.command is ScopeMachine
-	// (internal/core/config/layerscope), so it no longer survives a real Load
-	// from the committed project file minimalConfig alone now carries.
 	return w.env.WriteHomeFile(".ctxloom/config.yaml", minimalHomeEditorConfig)
 }
 

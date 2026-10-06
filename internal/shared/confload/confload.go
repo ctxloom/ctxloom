@@ -172,18 +172,6 @@ const delim = "\x1f"
 //     treated as "no schema knowledge available": every override that
 //     doesn't match an existing base key is conservatively treated as
 //     unrecognized (always warned about).
-//   - ScopeAllows, if set, reports whether an override from source may set
-//     the RESOLVED path resolvePath/resolveBySchema produced (case-insensitive
-//     segments, already lower-cased) and, when it may not, why. Nil means "no
-//     scope knowledge available": every override is allowed, matching
-//     today's behavior exactly. This hangs off resolvePath's OUTPUT
-//     deliberately, not off the env provider's TransformFunc (see
-//     ReadOverrides): the TransformFunc sees only the raw, unresolved env var
-//     name, before this package has any idea which config path it maps to,
-//     so it cannot make a per-key scope decision this late a caller's own
-//     per-key policy needs. A false verdict makes ApplyOverrides DROP that
-//     override and join why into the returned error — partial, never fatal,
-//     exactly like an ambiguous override (case 2).
 //   - MergeFunc, if set, replaces koanf's default merge behavior for every
 //     merge this Product performs (both file layers, via MergeLayers, and
 //     override resolution, via ApplyOverrides) — see MergeWith. Nil
@@ -211,7 +199,6 @@ type Product struct {
 	// ApplyOverrides' error) and the value is still applied; see that type's
 	// doc for why a drop would be the more dangerous answer.
 	ValidateValue func(path []string, value any) error
-	ScopeAllows   func(source OverrideSource, path []string) (ok bool, why string)
 	MergeFunc     MergeFunc
 	// UpgradeFile, when set, is handed each PRESENT file layer's path and raw
 	// bytes before they are decoded, and what it returns is decoded instead:

@@ -65,9 +65,6 @@ var EnvKeys = []string{
 	"CTXLOOM_COORD_URL",
 	"CTXLOOM_COORD_CRED",
 	"CTXLOOM_RUN_ID",
-	// internal/adapters/isolation/traceprobe.go's probeTraceEnv const, read via
-	// os.Getenv(probeTraceEnv) — same shape, same discovery.
-	"CTXLOOM_ISOLATION_PROBE_TRACE_DIR",
 	// The container launch-retry budget's operator overrides: read via the
 	// coord.EnvLaunch* constants (os.LookupEnv(EnvLaunchMaxAttempts), not a
 	// literal "CTXLOOM_..." string), same reason as the trio above — listed

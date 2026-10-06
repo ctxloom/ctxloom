@@ -58,8 +58,6 @@
 ./internal/adapters/coordgrpc/mcpschema/arch_test.go|rosterStateConstants file string|1|13|rosterStateConstants|317-349
 ./internal/adapters/coordgrpc/mcpschema/arch_test.go|snake s string|1|13|snake|263-282
 ./internal/adapters/isolation/isolation.go|AwaitContainerRunning rt Runtime , h * RunnerHandle|1|11|AwaitContainerRunning|289-315
-./internal/adapters/isolation/traceprobe_test.go|TestParseStraceReads t * testing . T|1|11|TestParseStraceReads|27-61
-./internal/adapters/isolation/traceprobe_test.go|TestRenderRunSpec_TraceProbe t * testing . T|1|11|TestRenderRunSpec_TraceProbe|81-122
 ./internal/adapters/mcp/mcp_doccomment_test.go|TestDocComments_NameOnlyConstructorsThatExist t * testing . T|1|11|TestDocComments_NameOnlyConstructorsThatExist|38-80
 ./internal/adapters/mcp/mcp_tools_memory.go|(s*ctxServer)handleGetPreviousSession ctx context . Context , _ * mcp . CallToolRequest , in getPreviousSessionInput|1|14|handleGetPreviousSession|566-635
 ./internal/adapters/mcp/mcp_tools_memory.go|(s*ctxServer)loadOrCompactSession ctx context . Context , sessionID , backendName , model string , policy sessionLoadPolicy|1|28|loadOrCompactSession|818-962

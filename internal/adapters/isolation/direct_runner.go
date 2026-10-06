@@ -137,12 +137,6 @@ func (c Container) buildRunnerSpec(backendName, name string, cw *containerWorksp
 		Mounts:  mounts,
 		Network: cw.reach.network,
 		Harp:    c.state.Harp,
-		// nil on every production run — set only when the isolation probe's
-		// dedicated env var is present (traceProbeFromEnv). This is the sole
-		// env→field bridge that turns a run into a read-observing probe run;
-		// the SYS_PTRACE grant it enables is gated on this field in
-		// renderRunSpec, unreachable otherwise. See TraceProbe.
-		Trace: traceProbeFromEnv(),
 	}
 }
 

@@ -111,25 +111,6 @@ func TestTreeVerifier_RefusesASignedTreeServedUnderAnotherBundlesPath(t *testing
 	assert.Contains(t, err.Error(), `signed as "kit"`)
 }
 
-// manifestAndSigs is what the retraction check fetches from a tip: the
-// SHA256SUMS and the .sigs/ entries filed against it, by file name.
-func manifestAndSigs(t *testing.T, b content.Bundle) ([]byte, map[string][]byte) {
-	t.Helper()
-	raw, err := b.ReadFile(context.Background(), content.ManifestPath)
-	require.NoError(t, err)
-	sigs := map[string][]byte{}
-	files, err := b.Files(context.Background())
-	require.NoError(t, err)
-	for _, f := range files {
-		if name, ok := strings.CutPrefix(f, content.SigDirName+"/"); ok {
-			data, err := b.ReadFile(context.Background(), f)
-			require.NoError(t, err)
-			sigs[name] = data
-		}
-	}
-	return raw, sigs
-}
-
 // withMarker returns raw with its first line replaced by marker, leaving every
 // signature filed against the original bytes exactly as it was.
 func withMarker(t *testing.T, raw []byte, marker string) []byte {

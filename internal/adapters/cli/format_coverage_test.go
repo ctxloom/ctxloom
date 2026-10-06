@@ -279,9 +279,9 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"deps pull":    {skip: "network: clones/fetches a real git remote"},
 	"deps check":   {skip: "network: resolves each pinned bundle against a real remote"},
 	"deps upgrade": {skip: "network: re-resolves pinned bundle content from a real remote"},
-	"deps hold":          {skip: "needs an existing lockfile entry fixture; not exercised here", formatDebt: true},
-	"deps unhold":        {skip: "needs an existing held entry fixture; not exercised here", formatDebt: true},
-	"bundle push":        {skip: "network: publishes to a real remote repository (covered by push_sign_test.go)"},
+	"deps hold":    {skip: "needs an existing lockfile entry fixture; not exercised here", formatDebt: true},
+	"deps unhold":  {skip: "needs an existing held entry fixture; not exercised here", formatDebt: true},
+	"bundle push":  {skip: "network: publishes to a real remote repository (covered by push_sign_test.go)"},
 
 	// --- skip: docker / container runtime required ---
 	// `container check` DOES honor format (containerCheckCmd calls

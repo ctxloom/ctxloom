@@ -48,19 +48,15 @@ var _ delivery.Static = (*Static)(nil)
 func New(fs afero.Fs) *Static { return &Static{fs: fs} }
 
 // Deliver validates the target, refuses a plan whose items cannot root under
-// it, prepares the ownership record (delivery.Ownership.Prepare: a security
-// invariant, not an optimisation), then releases the writer's previous
-// delivery and stages each static item into one batch, and commits it.
-func (s *Static) Deliver(ctx context.Context, lo delivery.Loadout, root engine.Base, target delivery.Target) (delivery.Delivered, error) {
+// it, then releases the writer's previous delivery and stages each static
+// item into one batch, and commits it.
+func (s *Static) Deliver(_ context.Context, lo delivery.Loadout, root engine.Base, target delivery.Target) (delivery.Delivered, error) {
 	if err := target.Validate(); err != nil {
 		return delivery.Delivered{}, err
 	}
 	surfaces := root.Surfaces()
 	if err := planRootable(lo.Plan.Static, surfaces, target.Root.Paths()); err != nil {
 		return delivery.Delivered{}, err
-	}
-	if err := target.Ownership.Prepare(ctx); err != nil {
-		return delivery.Delivered{}, fmt.Errorf("fsstatic: prepare the ownership record for %s: %w", target.Writer, err)
 	}
 	paths := target.Root.Paths()
 	within := func(path string) bool { return underARoot(paths, path) }

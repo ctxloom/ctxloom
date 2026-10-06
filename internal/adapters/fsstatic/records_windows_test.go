@@ -3,7 +3,6 @@
 package fsstatic
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,7 +19,7 @@ import (
 
 // On Windows owner-only is a DACL, not a mode. A records directory that
 // already exists carrying the ACL it inherited from its parent is made
-// owner-only by opening the store and by Prepare, and a claims record
+// owner-only by opening the store, and a claims record
 // saved into it inherits the protection.
 func TestRecords_AnExistingDirAndItsRecordsAreOwnerOnly_ADACL(t *testing.T) {
 	fs := afero.NewOsFs()
@@ -29,8 +28,6 @@ func TestRecords_AnExistingDirAndItsRecordsAreOwnerOnly_ADACL(t *testing.T) {
 
 	rec, err := NewRecords(fs, dir)
 	require.NoError(t, err)
-	fileperm.OwnerOnly(t, dir)
-	require.NoError(t, rec.Prepare(context.Background()))
 	fileperm.OwnerOnly(t, dir)
 
 	target := filepath.Join(t.TempDir(), "settings.json")

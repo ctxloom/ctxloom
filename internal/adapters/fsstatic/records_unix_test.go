@@ -3,7 +3,6 @@
 package fsstatic
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,16 +11,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRecords_PrepareCreatesNothing: opening the store and preparing it
-// create no directory — `manage check` opens it too. A delivery's writes
-// create what they need owner-only.
-func TestRecords_PrepareCreatesNothing(t *testing.T) {
+// TestRecords_OpeningCreatesNothing: opening the store creates no
+// directory — `manage check` opens it too. A delivery's writes create what
+// they need owner-only.
+func TestRecords_OpeningCreatesNothing(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "records")
-	r, err := NewRecords(afero.NewOsFs(), dir)
+	_, err := NewRecords(afero.NewOsFs(), dir)
 	require.NoError(t, err)
 
-	require.NoError(t, r.Prepare(context.Background()))
-	require.NoDirExists(t, dir, "preparing must not create the directory")
+	require.NoDirExists(t, dir, "opening must not create the directory")
 }
 
 // TestWriteThrough_CreatesAMissingDirectoryOwnerOnly: what an approach writes

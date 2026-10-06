@@ -27,7 +27,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 var (
@@ -176,69 +175,6 @@ func TestStatic_ZeroTarget_Refused(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	_, err := fsstatic.New(fs).Deliver(context.Background(), lo, eng.Root(), delivery.Target{})
 	require.ErrorIs(t, err, delivery.ErrNoRoot)
-	require.Empty(t, deliverytest.RelativeFiles(fs, "/"))
-}
-
-// TestStatic_PreparesTheRecordOnceBeforeAnyWrite: Deliver prepares the
-// ownership record first and once, before it reverses or writes anything, so
-// the record store is owner-only before a delivery writes through it
-// (delivery.Ownership.Prepare).
-func TestStatic_PreparesTheRecordOnceBeforeAnyWrite(t *testing.T) {
-	eng := mock.New()
-	fs := afero.NewMemMapFs()
-	static := fsstatic.New(fs)
-	rec := &noting{Ownership: newRecord(t, fs)}
-	target := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: rec, Writer: delivery.SessionWriter("harp-1")}
-	lo := loadoutFor(t, eng, sessionRoots)
-
-	for range 2 { // the second delivery releases the first before staging
-		_, err := static.Deliver(context.Background(), lo, eng.Root(), target)
-		require.NoError(t, err)
-	}
-
-	require.Equal(t, []string{callPrepare, callStage, callPrepare, callStage}, rec.calls,
-		"each delivery prepares once, before it stages anything")
-}
-
-const (
-	callPrepare = "prepare"
-	callStage   = "stage"
-)
-
-// noting is the production record, noting the calls a delivery makes on it.
-type noting struct {
-	delivery.Ownership
-	calls []string
-}
-
-func (n *noting) Prepare(ctx context.Context) error {
-	n.calls = append(n.calls, callPrepare)
-	return n.Ownership.Prepare(ctx)
-}
-
-func (n *noting) In(b *safefs.Batch) delivery.Staging {
-	n.calls = append(n.calls, callStage)
-	return n.Ownership.In(b)
-}
-
-var errPrepare = errors.New("prepare refused")
-
-// refusingPrepare is a record whose storage cannot be made owner-only.
-type refusingPrepare struct{ *noting }
-
-func (refusingPrepare) Prepare(context.Context) error { return errPrepare }
-
-// TestStatic_PrepareFails_NothingIsWritten: a record that cannot be prepared
-// aborts the delivery before anything is staged or written.
-func TestStatic_PrepareFails_NothingIsWritten(t *testing.T) {
-	eng := mock.New()
-	fs := afero.NewMemMapFs()
-	rec := &noting{Ownership: newRecord(t, fs)}
-	target := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: refusingPrepare{rec}, Writer: delivery.SessionWriter("harp-1")}
-
-	_, err := fsstatic.New(fs).Deliver(context.Background(), loadoutFor(t, eng, sessionRoots), eng.Root(), target)
-	require.ErrorIs(t, err, errPrepare)
-	require.Empty(t, rec.calls, "nothing is staged")
 	require.Empty(t, deliverytest.RelativeFiles(fs, "/"))
 }
 

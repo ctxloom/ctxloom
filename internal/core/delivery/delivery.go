@@ -354,15 +354,6 @@ type Delivered struct {
 // which is what delivering the EMPTY plan walks. fsstatic.Records implements
 // it.
 type Ownership interface {
-	// Prepare readies the record's own storage for a delivery about to write
-	// through it. Static.Deliver calls it once, FIRST, before it stages
-	// anything, and an error aborts the delivery.
-	//
-	// SECURITY: the record store must be owner-only before any delivery
-	// writes through it: its records hold the values ctxloom put into the
-	// files they describe. A skipped Prepare leaves the records readable and
-	// tamperable by other users. Prepare creates nothing a read would not.
-	Prepare(ctx context.Context) error
 	// In is a staging bound to b: what it stages lands in b's Commit, each
 	// file written once.
 	In(b *safefs.Batch) Staging

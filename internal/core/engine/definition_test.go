@@ -76,7 +76,7 @@ func (stub) Transcripts() []engine.TranscriptReader { return nil }
 func (s stub) TranscriptSession(string) (string, error) {
 	return "", engine.ErrUnsupported{Engine: s.Name, Capability: "transcript session"}
 }
-func (stub) Hooks() engine.HookCodec                { return nil }
+func (stub) Hooks() engine.HookCodec { return nil }
 func (stub) Wake() engine.Declared[engine.WakeSpec] {
 	return engine.Absent[engine.WakeSpec]("a test double wakes nothing")
 }

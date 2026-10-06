@@ -381,7 +381,7 @@ func (fixtureEngine) Transcripts() []engine.TranscriptReader { return nil }
 func (e fixtureEngine) TranscriptSession(string) (string, error) {
 	return "", engine.ErrUnsupported{Engine: e.Name, Capability: "transcript session"}
 }
-func (fixtureEngine) Hooks() engine.HookCodec                { return nil }
+func (fixtureEngine) Hooks() engine.HookCodec { return nil }
 func (fixtureEngine) Wake() engine.Declared[engine.WakeSpec] {
 	return engine.Absent[engine.WakeSpec]("a test double wakes nothing")
 }

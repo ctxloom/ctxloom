@@ -31,7 +31,7 @@ func (stubKind) Transcripts() []engine.TranscriptReader { return nil }
 func (s stubKind) TranscriptSession(string) (string, error) {
 	return "", engine.ErrUnsupported{Engine: s.Name, Capability: "transcript session"}
 }
-func (stubKind) Hooks() engine.HookCodec                { return nil }
+func (stubKind) Hooks() engine.HookCodec { return nil }
 func (stubKind) Wake() engine.Declared[engine.WakeSpec] {
 	return engine.Absent[engine.WakeSpec]("a test double wakes nothing")
 }

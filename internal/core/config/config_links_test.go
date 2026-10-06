@@ -16,8 +16,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport/admitall"
 )
 
@@ -104,45 +104,35 @@ func TestExtractHooksFromBundle_NilLinkGrantWithholdsLinkedHooksOnly(t *testing.
 	assert.Equal(t, []string{"think-warmup"}, hookCommands(unchecked.SessionStart))
 }
 
-// TestConfig_LinkGrant_ResolvesLazily: building a grant must not itself walk
-// the profiles. Construction happens inside every pipeline the run builds —
-// context assembly, skills, commands, curated exports — and the resolve it
-// wraps records a strictness finding for each unresolvable ref. Resolving at
-// construction therefore re-records the run's own findings once per pipeline,
-// and `ctxloom doctor`, which COUNTS ClassRef findings around one
-// AssembleContext call to report how many refs were skipped, then reports
-// double. The grant resolves on the first question asked of it, never before,
-// and exactly once.
-func TestConfig_LinkGrant_ResolvesLazily(t *testing.T) {
-	resetStrictness(t)
-	f := Fixture{AppPaths: []string{t.TempDir()}}
-	f.DefaultAgent = "default"
-	f.Agents = map[string]agents.Agent{
-		"default": {Profiles: []string{"link-lazy-missing-one", "link-lazy-missing-two"}},
-	}
-	cfg := NewFixture(f)
-	cfg.rep = ledgerReporter()
+// TestConfig_LinkGrantFor_ResolvesLazily: building a grant must not itself
+// resolve the run's MCP servers. Construction happens inside every pipeline the
+// run builds — context assembly, skills, commands, curated exports — and the
+// resolve it wraps reports a finding for each unloadable bundle ref.
+// The grant resolves on the first question asked of it, never before, and
+// exactly once.
+func TestConfig_LinkGrantFor_ResolvesLazily(t *testing.T) {
+	cfg := NewFixture(Fixture{AppPaths: []string{t.TempDir()}})
+	// Count every report raw, ahead of any sink-side dedup: a FailOnce
+	// finding repeated by a second resolve is folded by the strictness
+	// ledger, so only the raw stream shows whether the grant memoised.
+	reported := 0
+	cfg.rep = report.To(report.SinkFunc(func(f report.Finding) {
+		if f.Kind == report.KindBundle {
+			reported++
+		}
+	}))
+	set := []profiles.ResolvedProfile{{
+		Name:    "link-lazy",
+		Bundles: []string{"link-lazy-missing-one", "link-lazy-missing-two"},
+	}}
 
-	mark := strictness.Checkpoint()
-	grant := cfg.LinkGrant([]string{"link-lazy-missing-one", "link-lazy-missing-two"})
-	require.Empty(t, refFindings(strictness.Since(mark)),
-		"constructing a grant must record nothing: the resolve it wraps is deferred to the first question")
+	grant := cfg.LinkGrantFor(set)
+	require.Zero(t, reported,
+		"constructing a grant must report nothing: the resolve it wraps is deferred to the first question")
 
 	grant.Granted(bundles.BundleRead{}, "anything")
-	first := len(refFindings(strictness.Since(mark)))
-	require.Equal(t, 2, first, "the first question resolves once and records each unresolvable ref once")
+	require.Equal(t, 2, reported, "the first question resolves once and reports each unloadable bundle ref once")
 
 	grant.Granted(bundles.BundleRead{}, "anything-else")
-	assert.Equal(t, first, len(refFindings(strictness.Since(mark))),
-		"a second question re-uses the resolved set and records nothing more")
-}
-
-func refFindings(fs []report.Finding) []report.Finding {
-	var out []report.Finding
-	for _, f := range fs {
-		if f.Kind == report.KindRef {
-			out = append(out, f)
-		}
-	}
-	return out
+	assert.Equal(t, 2, reported, "a second question re-uses the resolved set and reports nothing more")
 }

@@ -134,7 +134,6 @@ flowchart TD
 | `(*Reference).BuildFilePath(kind) string` | `internal/adapters/remote/reference.go` | Repo-relative path under `paths.RepoContentPrefix` (`path.Join`). |
 | `(*Reference).LocalTreePath` / `LocalWorktreePath` | `internal/adapters/remote/reference.go` | Host-filesystem paths for a materialized tree and its sparse worktree. |
 | `(*Reference).LocalRemoteName() string` | `internal/adapters/remote/reference.go` | FS-safe name derived from the URL. |
-| `sanitizePath(s) string` | `internal/adapters/remote/reference.go` | Replaces `://`, `:` and `@` with `/`. Does not strip `..`. |
 | `CanonicalKey(ref) (string, bool)` | `internal/adapters/remote/normalize.go` | Version-less canonical form, ok-bool. |
 | `CanonicalBundleRef(name) (string, error)` | `internal/adapters/remote/normalize.go` | Canonical form of a bundle name. |
 | `SplitFragmentVersion` / `SplitPromptVersion` | `internal/adapters/remote/normalize.go` | Split a canonical bundle ref from its `@version`, per selector family. |

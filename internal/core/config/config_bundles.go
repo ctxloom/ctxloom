@@ -289,35 +289,26 @@ func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[
 	return result
 }
 
-// LinkGrant answers the link-group question for a run over profileNames from
-// the run's OWN granted set — ResolveBundleMCPServers over the same profiles
-// the engine is launched with — through bundles.ServerGrant, so a fragment,
-// skill or hook linked to an MCP server is delivered exactly when that
-// server, as shipped by its own bundle, is.
-func (c *Config) LinkGrant(profileNames []string) bundles.LinkGrant {
-	return lazyGrant(func() map[string]wire.MCPServer { return c.ResolveBundleMCPServers(profileNames) })
-}
-
-// LinkGrantFor is LinkGrant over an already resolved profile set.
+// LinkGrantFor answers the link-group question for a run over an already
+// resolved profile set from the run's OWN granted set —
+// ResolveBundleMCPServersFor over the same profiles the engine is launched
+// with — through bundles.ServerGrant, so a fragment, skill or hook linked to an
+// MCP server is delivered exactly when that server, as shipped by its own
+// bundle, is.
+//
+// The servers are resolved ONCE, on the FIRST question, and never at
+// construction. Both halves matter: the resolve reports a fail-loudly finding
+// per unloadable bundle ref and per name contest, so memoising keeps a grant
+// asked many times in one assembly from repeating them, and deferring keeps a
+// grant built by a surface that never meets a linked item from recording them
+// at all.
 func (c *Config) LinkGrantFor(set []profiles.ResolvedProfile) bundles.LinkGrant {
-	return lazyGrant(func() map[string]wire.MCPServer { return c.ResolveBundleMCPServersFor(set) })
-}
-
-// lazyGrant is bundles.ServerGrant over the set resolve returns, resolved
-// ONCE, on the FIRST question, and never at construction. Both halves matter.
-// The resolve reports a fail-loudly finding per unresolvable ref and per name
-// contest; a grant asked many times in one assembly must not repeat them, so
-// it is memoised. And a grant built by a surface that never meets a linked
-// item must not record the run's findings again: `ctxloom doctor` counts
-// ClassRef findings around one assembly to report how many refs were skipped,
-// and an eager resolve makes it report double.
-func lazyGrant(resolve func() map[string]wire.MCPServer) bundles.LinkGrant {
 	var (
 		once  sync.Once
 		grant bundles.LinkGrant
 	)
 	return bundles.LinkGrantFunc(func(read bundles.BundleRead, server string) bool {
-		once.Do(func() { grant = bundles.ServerGrant(resolve()) })
+		once.Do(func() { grant = bundles.ServerGrant(c.ResolveBundleMCPServersFor(set)) })
 		return grant.Granted(read, server)
 	})
 }

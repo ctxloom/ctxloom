@@ -195,23 +195,29 @@ func upward(ctx context.Context, dc, uc mcp.Connection, keepAlive time.Duration)
 			}
 			return fmt.Errorf("claude relay: reading claude's stdio: %w", err)
 		}
-		req, isReq := msg.(*jsonrpc.Request)
-		initializing := !initialized && isReq && req.Method == "initialize"
-		initialized = initialized || initializing
-		switch {
-		case !initialized:
-			answerUninitialized(ctx, dc, req, isReq)
-		case initializing:
-			go func() {
-				relayUp(ctx, dc, uc, req)
-				keepUp(ctx, uc, keepAlive)
-			}()
-		case isReq && req.IsCall():
-			go relayUp(ctx, dc, uc, req)
-		default:
-			relayUp(ctx, dc, uc, msg)
-		}
+		initialized = dispatchUp(ctx, dc, uc, msg, initialized, keepAlive)
 	}
+}
+
+// dispatchUp routes one of claude's messages (upward) and reports whether
+// claude has now sent initialize.
+func dispatchUp(ctx context.Context, dc, uc mcp.Connection, msg jsonrpc.Message, initialized bool, keepAlive time.Duration) bool {
+	req, isReq := msg.(*jsonrpc.Request)
+	initializing := !initialized && isReq && req.Method == "initialize"
+	switch {
+	case initializing:
+		go func() {
+			relayUp(ctx, dc, uc, req)
+			keepUp(ctx, uc, keepAlive)
+		}()
+	case !initialized:
+		answerUninitialized(ctx, dc, req, isReq)
+	case isReq && req.IsCall():
+		go relayUp(ctx, dc, uc, req)
+	default:
+		relayUp(ctx, dc, uc, msg)
+	}
+	return initialized || initializing
 }
 
 // answerUninitialized answers a call that arrived before initialize; there is

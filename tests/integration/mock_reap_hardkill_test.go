@@ -17,8 +17,8 @@ import (
 // hardKillPollTimeout bounds how long the test waits for the runner's mock
 // engine to echo the sentinel line back through the pty, and separately how
 // long it waits for the process table to reflect the reap. Generous for CI:
-// the runner spawn is a real self-exec, "observed to take over a second under
-// load" per viewer_pty_test.go's ptyRunTimeout comment.
+// the runner spawn is a real self-exec, observed to take over a second under
+// load.
 const hardKillPollTimeout = 20 * time.Second
 const hardKillPollInterval = 25 * time.Millisecond
 

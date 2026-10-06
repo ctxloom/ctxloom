@@ -113,19 +113,19 @@ func startInteractiveFakeClaude(t *testing.T, body string) (*testenv.TestEnviron
 func TestRunPTY_InteractiveEngineRunsOnAPlainPtyWithoutTmux(t *testing.T) {
 	_, sess := startInteractiveFakeClaude(t, fakeInteractiveClaudeBody)
 
-	ready := sess.WaitForOutput(ptyRunTimeout, func(out string) bool { return strings.Contains(out, "FAKE-ENGINE-READY") })
-	require.True(t, ready, "the engine never started; captured so far: %q", sess.Output())
+	out, ready := sess.AwaitOutput(t, func(out string) bool { return strings.Contains(out, "FAKE-ENGINE-READY") })
+	require.True(t, ready, "the engine never started; captured: %q", out)
 	assert.Contains(t, sess.Output(), "FAKE-ENGINE-ON-A-TTY", "the engine's stdin and stdout are a terminal")
 
 	_, err := sess.Write([]byte("typed-through-the-pty\r"))
 	require.NoError(t, err)
-	echoed := sess.WaitForOutput(ptyRunTimeout, func(out string) bool {
+	out, echoed := sess.AwaitOutput(t, func(out string) bool {
 		return strings.Contains(out, "FAKE-ENGINE-GOT:typed-through-the-pty")
 	})
-	require.True(t, echoed, "a typed line never reached the engine; captured so far: %q", sess.Output())
+	require.True(t, echoed, "a typed line never reached the engine; captured: %q", out)
 
-	exited, _ := sess.Wait(ptyRunTimeout)
-	require.True(t, exited, "ctxloom run did not exit within %s; captured so far: %q", ptyRunTimeout, sess.Output())
+	exited, _ := sess.AwaitExit(t)
+	require.True(t, exited, "ctxloom run never exited; captured: %q", sess.Output())
 	assert.Equal(t, 0, sess.ExitCode(), "the run ends with the engine's clean exit; captured: %q", sess.Output())
 }
 
@@ -144,8 +144,8 @@ func TestRunPTY_InteractiveRunPassesTheEngineExitStatusThrough(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			body := "#!/bin/sh\ncase \"$1\" in --version) echo \"%s (Claude Code)\"; exit 0;; esac\necho FAKE-ENGINE-READY\n" + tc.end + "\n"
 			_, sess := startInteractiveFakeClaude(t, body)
-			exited, _ := sess.Wait(ptyRunTimeout)
-			require.True(t, exited, "ctxloom run did not exit within %s; captured so far: %q", ptyRunTimeout, sess.Output())
+			exited, _ := sess.AwaitExit(t)
+			require.True(t, exited, "ctxloom run never exited; captured: %q", sess.Output())
 			require.Contains(t, sess.Output(), "FAKE-ENGINE-READY", "the engine ran")
 			assert.Equal(t, tc.want, sess.ExitCode(), "captured: %q", sess.Output())
 		})

@@ -294,8 +294,8 @@ func runFreshMockSession(w *World) (string, error) {
 }
 
 // ptyWaitTimeout bounds every PTY-driven wait in this file: the discovery
-// session spawns a real runner subprocess (`ctxloom runner mock`), which — mirroring tests/integration/viewer_pty_test.go's
-// ptyRunTimeout — can take over a second under CI load.
+// session spawns a real runner subprocess (`ctxloom runner mock`), which can
+// take over a second under CI load.
 const ptyWaitTimeout = 20 * time.Second
 
 // driveDiscoverySessionViaMock drives a REAL `ctxloom init` (on an

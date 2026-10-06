@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"testing"
 	"time"
 
 	pty "github.com/aymanbagabas/go-pty"
@@ -19,10 +20,23 @@ import (
 // its own.
 const ptyGracefulShutdown = 2 * time.Second
 
-// pollInterval is PTYSession.WaitForOutput's deadline-poll tick — short enough
-// that an assertion lands promptly once the condition is true, long enough not
-// to spin a CPU while waiting.
-const pollInterval = time.Millisecond
+// deadlineMargin is how far ahead of the test binary's deadline TestExpiry
+// fires: room for the failing assertion to print what the wait saw before go
+// test's own timeout panics over it.
+const deadlineMargin = 10 * time.Second
+
+// TestExpiry bounds a wait on a pty event by the test binary's own deadline,
+// less deadlineMargin. A wait for bytes crossing a real pty from a real
+// subprocess carries no deadline of its own: a loaded machine delays those by
+// any amount, and a deadline short enough to matter fails on an event that was
+// merely late. Without a test deadline it never fires.
+func TestExpiry(t *testing.T) <-chan time.Time {
+	d, ok := t.Deadline()
+	if !ok {
+		return nil
+	}
+	return time.After(time.Until(d) - deadlineMargin)
+}
 
 // ptyCapture is a goroutine-safe accumulator for everything read off a pty's
 // master side: the pty's own io.Copy-draining goroutine writes into it while
@@ -31,15 +45,49 @@ const pollInterval = time.Millisecond
 // syncBuffer — re-derived here (rather than exported and reused) because this
 // one backs a real subprocess's pty, not an in-process pty pair, and those
 // types are unexported to a different package besides.
+//
+// Every write is an event a wait wakes on.
 type ptyCapture struct {
-	mu sync.Mutex
-	b  strings.Builder
+	mu      sync.Mutex
+	b       strings.Builder
+	written chan struct{} // closed by the next write
 }
 
 func (c *ptyCapture) Write(p []byte) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.written != nil {
+		close(c.written)
+		c.written = nil
+	}
 	return c.b.Write(p)
+}
+
+// next returns what has been captured and a channel the next write closes.
+func (c *ptyCapture) next() (string, <-chan struct{}) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.written == nil {
+		c.written = make(chan struct{})
+	}
+	return c.b.String(), c.written
+}
+
+// await re-checks cond on every write until it holds, and reports false only
+// once expired fires (never, for a nil expired). It returns what was captured
+// when it decided.
+func (c *ptyCapture) await(expired <-chan time.Time, cond func(string) bool) (string, bool) {
+	for {
+		cur, written := c.next()
+		if cond(cur) {
+			return cur, true
+		}
+		select {
+		case <-written:
+		case <-expired:
+			return c.String(), false
+		}
+	}
 }
 
 func (c *ptyCapture) String() string {
@@ -51,7 +99,7 @@ func (c *ptyCapture) String() string {
 // PTYSession is a live ctxloom subprocess attached to a real pty. Unlike Run/
 // RunWithStdin (which run a command to completion and capture the result), a
 // PTYSession stays around so the caller can write keystrokes into it —
-// including the Ctrl-] viewer prefix (0x1d) — and deadline-poll the
+// including the Ctrl-] viewer prefix (0x1d) — and wait on the
 // accumulated output for escape-sequence signatures while (or after) the
 // process runs.
 type PTYSession struct {
@@ -145,29 +193,36 @@ func (s *PTYSession) PID() int {
 	return s.cmd.Process.Pid
 }
 
-// WaitForOutput deadline-polls (a bounded, short-interval poll — never a bare
-// sleep as the synchronization primitive itself) until cond reports true
-// against the accumulated output, or timeout elapses without it.
-func (s *PTYSession) WaitForOutput(timeout time.Duration, cond func(output string) bool) bool {
-	deadline := time.Now().Add(timeout)
-	for {
-		if cond(s.out.String()) {
-			return true
-		}
-		if time.Now().After(deadline) {
-			return false
-		}
-		time.Sleep(pollInterval)
-	}
+// AwaitOutput re-checks cond against the accumulated output on every byte the
+// pty delivers, until it holds or TestExpiry(t) fires. It returns the output
+// it decided on, so a failure can show the screen it waited for.
+func (s *PTYSession) AwaitOutput(t *testing.T, cond func(output string) bool) (string, bool) {
+	return s.out.await(TestExpiry(t), cond)
 }
 
-// Wait blocks for the process to exit, up to timeout. exited reports whether
-// it did before the deadline; err is its Wait error (nil for a clean exit).
+// WaitForOutput is AwaitOutput bounded by timeout instead of the test's
+// deadline.
+func (s *PTYSession) WaitForOutput(timeout time.Duration, cond func(output string) bool) bool {
+	_, ok := s.out.await(time.After(timeout), cond)
+	return ok
+}
+
+// AwaitExit blocks for the process to exit, or until TestExpiry(t) fires.
+// exited reports whether it did; err is its Wait error (nil for a clean exit).
+func (s *PTYSession) AwaitExit(t *testing.T) (exited bool, err error) {
+	return s.waitExit(TestExpiry(t))
+}
+
+// Wait is AwaitExit bounded by timeout instead of the test's deadline.
 func (s *PTYSession) Wait(timeout time.Duration) (exited bool, err error) {
+	return s.waitExit(time.After(timeout))
+}
+
+func (s *PTYSession) waitExit(expired <-chan time.Time) (bool, error) {
 	select {
 	case <-s.exited:
 		return true, s.exitErr
-	case <-time.After(timeout):
+	case <-expired:
 		return false, nil
 	}
 }

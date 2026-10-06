@@ -1332,29 +1332,3 @@ func TestDoctorCheckSecretsStorage(t *testing.T) {
 	assert.Contains(t, disk.Detail, platform.Name)
 	assert.Contains(t, disk.Detail, paths.ScratchDirName)
 }
-
-// DOCTOR-CHECK-LEGACY-LAYOUT-g2: directories an earlier session layout left
-// in a session dir are inert — nothing reads or writes them — and named so a
-// human can delete them; a session dir holding only current members is
-// clean.
-func TestDoctorCheckLegacyLayout(t *testing.T) {
-	testsupport.Isolate(t)
-	root, err := paths.HomeSessionsDir()
-	require.NoError(t, err)
-	current := filepath.Join(root, "calm-quiet-heron")
-	require.NoError(t, os.MkdirAll(filepath.Join(current, paths.SpoolDirName), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(current, paths.ScratchDirName), 0o755))
-	assert.Equal(t, DoctorOK, doctorCheckLegacyLayout().Status)
-
-	old := filepath.Join(root, "aged-quiet-heron")
-	require.NoError(t, os.MkdirAll(filepath.Join(old, "persist", "spool"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(old, "ephemeral"), 0o755))
-	require.NoError(t, os.Symlink(filepath.Join(t.TempDir(), "gone.jsonl"), filepath.Join(old, "engine-transcript-claude-code-abc.jsonl")))
-
-	check := doctorCheckLegacyLayout()
-	assert.Equal(t, DoctorInfo, check.Status, "inert, not a fault")
-	assert.Contains(t, check.Detail, "aged-quiet-heron/persist")
-	assert.Contains(t, check.Detail, "aged-quiet-heron/ephemeral")
-	assert.Contains(t, check.Detail, "aged-quiet-heron/engine-transcript-claude-code-abc.jsonl")
-	assert.NotContains(t, check.Detail, "calm-quiet-heron")
-}

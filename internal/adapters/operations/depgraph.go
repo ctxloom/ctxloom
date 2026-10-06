@@ -54,7 +54,11 @@ type DependencyConflict struct {
 // a caller about to rewrite the lockfile wholesale must preserve existing
 // entries instead of dropping the unexpanded subtrees (a transient fetch
 // failure must never erase healthy lock entries).
-func FlattenDependencies(ctx context.Context, cfg *config.Config, profileNames []string) ([]PinnedRef, []DependencyConflict, []string) {
+//
+// The error is the registration rule: a closure naming a repository no remote
+// is registered for is refused (remote.NotRegisteredError), and that
+// repository is never fetched.
+func FlattenDependencies(ctx context.Context, cfg *config.Config, profileNames []string) ([]PinnedRef, []DependencyConflict, []string, error) {
 	loader := cfg.GetProfileLoader()
 	var roots []*profiles.Profile
 	var rootsUnexpanded []string
@@ -63,13 +67,13 @@ func FlattenDependencies(ctx context.Context, cfg *config.Config, profileNames [
 	} else {
 		roots, rootsUnexpanded = namedRoots(cfg, loader, profileNames)
 	}
-	pins, conflicts, unexpanded := flattenProfileRoots(ctx, cfg, loader, roots)
+	pins, conflicts, unexpanded, err := flattenProfileRoots(ctx, cfg, loader, roots)
 	// Merge root-build failures (a profile/directory-listing that
 	// couldn't be loaded, discovered BEFORE the walker even exists) into the
 	// same unexpanded-set contract the walker's own failures use, so every
 	// caller of FlattenDependencies gets ONE complete signal instead of two
 	// independent, easy-to-miss ones.
-	return pins, conflicts, append(unexpanded, rootsUnexpanded...)
+	return pins, conflicts, append(unexpanded, rootsUnexpanded...), err
 }
 
 // namedRoots resolves profile names to in-memory root profiles; a name that
@@ -180,7 +184,11 @@ func configDefaultsRoot(cfg *config.Config) *profiles.Profile {
 // FlattenDependencies — upgrade.go's re-resolve path calls flattenRootsWith
 // directly instead, since it needs reResolve=true rather than this
 // lock-mode resolver.
-func flattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profiles.Loader, roots []*profiles.Profile) ([]PinnedRef, []DependencyConflict, []string) {
+func flattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profiles.Loader, roots []*profiles.Profile) ([]PinnedRef, []DependencyConflict, []string, error) {
+	registered, err := registeredRepos(cfg)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	factory := remote.FetcherFactory(NewCachedFetcherFactory(cfg))
 	auth := remote.LoadAuth(ProjectAppDir(cfg))
 	// The active lock anchors resolution: a held or unchanged-constraint entry is
@@ -192,23 +200,37 @@ func flattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profil
 	// only caller) builds its profile loader first, and that seeds remote
 	// bundles from this same lockfile — config.loadRemoteBundleSeed reports an
 	// unreadable one fatal-class, naming the file and the fix, before this load
-	// is ever reached. Repeating it here would say the same thing twice, and
-	// this function cannot do anything better with it: FlattenDependencies
-	// returns no error, and an anchorless rebuild is barred from being
-	// PERSISTED downstream by Save's unreadable-file refusal rather
-	// than by anything decidable here. A nil lockfile resolves as no anchor,
+	// is ever reached. Returning it here would say the same thing twice, and
+	// an anchorless rebuild is already barred from being PERSISTED downstream
+	// by Save's unreadable-file refusal. A nil lockfile resolves as no anchor,
 	// which is exactly the empty-lock behaviour of a first-ever lock.
 	active, _ := remote.NewLockfileManager(ProjectAppDir(cfg)).Load()
 	resolve := newConstraintResolver(ctx, active, factory, auth, false)
-	return flattenRootsWith(ctx, loader, factory, auth, cfg.Trust().Root(), roots, resolve)
+	return flattenRootsWith(ctx, loader, factory, auth, cfg.Trust().Root(), roots, resolve, registered)
+}
+
+// registeredRepos is the registration rule's predicate over cfg's remotes
+// registry: whether a repository URL belongs to a registered remote.
+func registeredRepos(cfg *config.Config) (func(repoURL string) bool, error) {
+	registry, err := getRegistry(cfg, remote.WithRegistryFS(cfg.FS()))
+	if err != nil {
+		return nil, err
+	}
+	return func(repoURL string) bool {
+		_, ok := registry.LookupURL(repoURL)
+		return ok
+	}, nil
 }
 
 // flattenRootsWith walks the closure of roots using a caller-supplied hash
 // resolver, so the lock path (carry-forward) and the upgrade path (re-resolve)
 // share one traversal and differ only in how each ref's constraint resolves.
-// The third return is the unexpanded-parent set (see FlattenDependencies).
-func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remote.FetcherFactory, auth remote.AuthConfig, trustRoot trust.TrustRoot, roots []*profiles.Profile, resolve func(*remote.Reference) (string, string, remote.SelectorKind, bool)) ([]PinnedRef, []DependencyConflict, []string) {
+// The third return is the unexpanded-parent set (see FlattenDependencies);
+// the error joins every repository refused as unregistered.
+func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remote.FetcherFactory, auth remote.AuthConfig, trustRoot trust.TrustRoot, roots []*profiles.Profile, resolve func(*remote.Reference) (string, string, remote.SelectorKind, bool), registered func(repoURL string) bool) ([]PinnedRef, []DependencyConflict, []string, error) {
 	w := &depWalker{
+		registered:  registered,
+		refused:     map[string]error{},
 		ctx:         ctx,
 		loader:      loader,
 		factory:     factory,
@@ -225,10 +247,17 @@ func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remo
 		// A local root resolves its short sibling refs to ctxloom:local.
 		w.walkProfile(p, remote.LocalSource, "")
 	}
-	return w.result()
+	pins, conflicts, unexpanded := w.result()
+	return pins, conflicts, unexpanded, w.refusal()
 }
 
 type depWalker struct {
+	// registered is the registration rule: record refuses a repository it
+	// answers false for before anything resolves or fetches it, collecting
+	// the refusal in refused (keyed by repository URL).
+	registered func(repoURL string) bool
+	refused    map[string]error
+
 	ctx     context.Context
 	loader  *profiles.Loader
 	factory remote.FetcherFactory
@@ -313,6 +342,12 @@ func (w *depWalker) record(refStr string, kind remote.ItemType) *remote.Referenc
 		return nil // unparseable or ctxloom:local — not a remote pin
 	}
 	if !ref.IsCanonical() {
+		return nil
+	}
+	if !w.registered(ref.URL) {
+		if _, seen := w.refused[ref.URL]; !seen {
+			w.refused[ref.URL] = remote.NotRegisteredError(ref.URL)
+		}
 		return nil
 	}
 	hash, version, selKind, ok := w.resolvedHash(ref)
@@ -446,6 +481,15 @@ func (w *depWalker) recurseBundleProfile(bundleRef, profName string) {
 	child.Name = string(recKey) + refuri.ProfileSelector + profName
 	child.SourceURL = rec.URL
 	w.walkProfile(&child, rec.URL, hash)
+}
+
+// refusal joins the walk's registration refusals, in repository order.
+func (w *depWalker) refusal() error {
+	errs := make([]error, 0, len(w.refused))
+	for _, url := range collections.SortedKeys(w.refused) {
+		errs = append(errs, w.refused[url])
+	}
+	return errors.Join(errs...)
 }
 
 func (w *depWalker) result() ([]PinnedRef, []DependencyConflict, []string) {

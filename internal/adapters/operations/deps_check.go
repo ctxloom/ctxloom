@@ -319,8 +319,8 @@ func closureLock(ctx context.Context, cfg *config.Config, cfgErr error, lockfile
 	if cfgErr != nil {
 		return lockfile
 	}
-	pins, _, unexpanded := FlattenDependencies(ctx, cfg, nil)
-	if len(unexpanded) > 0 {
+	pins, _, unexpanded, err := FlattenDependencies(ctx, cfg, nil)
+	if err != nil || len(unexpanded) > 0 {
 		return lockfile
 	}
 	narrowed := &remote.Lockfile{Version: lockfile.Version, Bundles: map[trust.BundleKey]remote.LockEntry{}}

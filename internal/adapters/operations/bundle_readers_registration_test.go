@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -61,10 +62,24 @@ func TestBundleVersionResolver_RefusesAnUnregisteredRepository(t *testing.T) {
 
 // registerTestRemote registers repoURL as a remote of the project at appDir,
 // on the OS filesystem — the `ctxloom remote create` a fixture pulling from
-// that repository needs, since nothing registers a remote implicitly.
+// that repository needs, since nothing registers a remote implicitly. A
+// repository already registered is left as it is.
 func registerTestRemote(t *testing.T, appDir, repoURL string) {
 	t.Helper()
 	reg, err := remote.NewRegistry(paths.RemotesPath(appDir))
 	require.NoError(t, err)
-	require.NoError(t, reg.Add("source", repoURL))
+	if _, ok := reg.LookupURL(repoURL); ok {
+		return
+	}
+	require.NoError(t, reg.Add(fmt.Sprintf("source-%d", len(reg.List())), repoURL))
+}
+
+// registerRefRemotes registers the repository each canonical ref names.
+func registerRefRemotes(t *testing.T, appDir string, refs ...string) {
+	t.Helper()
+	for _, r := range refs {
+		ref, err := remote.ParseReference(r)
+		require.NoError(t, err)
+		registerTestRemote(t, appDir, ref.URL)
+	}
 }

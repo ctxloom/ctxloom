@@ -29,8 +29,10 @@ import (
 // nil-means-identity mode; this is the resolver that used to be implicit).
 func newTestWalker(fetcher remote.Fetcher) *depWalker {
 	return &depWalker{
-		ctx:     context.Background(),
-		factory: func(string, remote.AuthConfig) (remote.Fetcher, error) { return fetcher, nil },
+		ctx:        context.Background(),
+		registered: func(string) bool { return true },
+		refused:    map[string]error{},
+		factory:    func(string, remote.AuthConfig) (remote.Fetcher, error) { return fetcher, nil },
 		resolveHash: func(ref *remote.Reference) (string, string, remote.SelectorKind, bool) {
 			return ref.ContentVersion, "", "", true
 		},
@@ -218,7 +220,7 @@ func TestFlattenDependencies_RootLoadFailureSurfacesInUnexpanded(t *testing.T) {
 	cfg := gatedFixture(config.Fixture{})
 	testsupport.Isolate(t)
 
-	_, _, unexpanded := FlattenDependencies(context.Background(), cfg, []string{"missing-profile"})
+	_, _, unexpanded, _ := FlattenDependencies(context.Background(), cfg, []string{"missing-profile"})
 	require.Len(t, unexpanded, 1)
 	assert.Equal(t, "missing-profile", unexpanded[0])
 }
@@ -246,16 +248,15 @@ func TestConflictError(t *testing.T) {
 // degraded mode the anchorless rebuild is still barred from being PERSISTED by
 // Save's unreadable-file refusal.
 //
-// The comparison to the sibling upgrade path is also not actionable here:
-// FlattenDependencies returns no error at all, and its signature is a public
-// contract this row is not entitled to change. So this pins the property that
-// makes the discard a decision rather than an oversight: the failure IS
-// reported, exactly once, before resolution runs anchorless.
+// So this pins the property that makes the discard a decision rather than an
+// oversight: the failure IS reported, exactly once, before resolution runs
+// anchorless.
 func TestFlattenDependencies_UnreadableLockfileIsReported(t *testing.T) {
 	resetStrictness(t)
 	tmp := t.TempDir()
 	writeLocalProfile(t, tmp, "default",
 		"bundles:\n  - https://github.com/test/repo@bundles/demo@abc123def456\n")
+	registerTestRemote(t, tmp, "https://github.com/test/repo")
 	cfg := testConfigWithSCMPath(tmp)
 
 	lockPath := remote.NewLockfileManager(tmp).Path()
@@ -263,7 +264,8 @@ func TestFlattenDependencies_UnreadableLockfileIsReported(t *testing.T) {
 	require.NoError(t, os.WriteFile(lockPath, []byte("   \n"), 0o644))
 
 	warnings := captureWarnings(t)
-	FlattenDependencies(context.Background(), published(t, cfg), nil)
+	_, _, _, err := FlattenDependencies(context.Background(), published(t, cfg), nil)
+	require.NoError(t, err)
 
 	out := warnings.String()
 	assert.Contains(t, out, lockPath, "the failure names the file that could not be read")
@@ -280,9 +282,11 @@ func TestFlattenDependencies_MissingLockfileIsSilent(t *testing.T) {
 	tmp := t.TempDir()
 	writeLocalProfile(t, tmp, "default",
 		"bundles:\n  - https://github.com/test/repo@bundles/demo@abc123def456\n")
+	registerTestRemote(t, tmp, "https://github.com/test/repo")
 	cfg := testConfigWithSCMPath(tmp)
 
 	warnings := captureWarnings(t)
-	FlattenDependencies(context.Background(), published(t, cfg), nil)
+	_, _, _, err := FlattenDependencies(context.Background(), published(t, cfg), nil)
+	require.NoError(t, err)
 	assert.NotContains(t, warnings.String(), "lockfile")
 }

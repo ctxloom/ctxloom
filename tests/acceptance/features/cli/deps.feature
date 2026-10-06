@@ -302,11 +302,12 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
+      And I run "ctxloom remote create gone file:///nonexistent/nonexistent-ctxloom-remote --forge git"
       And I run "ctxloom profile create dev --include origin/demo"
       And the project already has the file ".ctxloom/content/bundles/v2/project/profiles/orphan.yaml":
         """
         parents:
-          - file:///nonexistent-ctxloom-remote@bundles/kit#profiles/parent
+          - file:///nonexistent/nonexistent-ctxloom-remote@bundles/kit#profiles/parent
         """
       When Alice pulls with part of the closure unreachable:
         """

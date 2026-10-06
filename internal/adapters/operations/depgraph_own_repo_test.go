@@ -31,6 +31,8 @@ func TestLockDependencies_RemoteParentReachingIntoAnotherRepoIsNotExpanded(t *te
 	signTreeAndCommit(t, src, "kit", signer)
 	trustPublisher(t, baseDir, signer)
 	writeLocalProfile(t, baseDir, "default", "parents:\n  - "+parentBundleID+"#profiles/parent\n")
+	// Both registered, so what refuses the reach is the own-repository rule.
+	registerRefRemotes(t, baseDir, parentBundleID, foreignID)
 	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 
 	stderr := captureStderr(t, func() {

@@ -63,9 +63,9 @@ func exposurePipeline(cfg *config.Config) *bundles.Pipeline {
 // caller that reports why items were withheld (warnWithheld) can read each
 // withheld ref's full verdict instead of just a bare ref list.
 //
-// links is the run's link grant (cfg.LinkGrant over the profiles being
-// assembled) for a surface that assembles a run, or bundles.LinksUnchecked
-// for one that does not — stated by the caller, because only it knows which.
+// links is the run's link grant (bundles.ServerGrant over its granted MCP
+// set) for a surface that assembles a run, or bundles.LinksUnchecked for one
+// that does not — stated by the caller, because only it knows which.
 func exposurePipelineGated(cfg *config.Config, links bundles.LinkGrant) (*bundles.Pipeline, bundles.Authorizer) {
 	gate := cfg.ExecutableTrustGate()
 	return bundles.NewPipeline(cfg.BundleLoader(), gate, links, cfgPreferDistilled(cfg)), gate

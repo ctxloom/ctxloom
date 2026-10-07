@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -18,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Run asserts the port's properties for one engine. The DECLARATIVE half:
@@ -122,9 +122,9 @@ func checkContainerArgv(t *testing.T, def engine.Base) {
 		ProjectRoot: present.Root{Host: filepath.Join(dir, "project")},
 		SessionHome: present.Root{Host: filepath.Join(dir, "home")},
 	}
-	fs := afero.NewOsFs()
+	files := safefs.New()
 	for _, r := range []present.Root{host.ProjectRoot, host.SessionHome} {
-		require.NoError(t, fs.MkdirAll(r.Host, 0o700))
+		require.NoError(t, files.Fs.MkdirAll(r.Host, 0o700))
 	}
 	mapped := present.Advised(present.Paths{
 		ProjectRoot: present.Root{Host: host.ProjectRoot.Host, Engine: "/conformance-engine/project"},
@@ -134,7 +134,7 @@ func checkContainerArgv(t *testing.T, def engine.Base) {
 	engineSide := 0
 	for _, k := range def.Static() {
 		a := def.Surfaces()[k]
-		d, err := deliverMinimal(def, k, start, a.Traits().Roots[0], fs)
+		d, err := deliverMinimal(def, k, start, a.Traits().Roots[0], files)
 		require.NoError(t, err, "deliver %v through %s", k, a.Name())
 		for _, arg := range d.Presented.Args {
 			for _, r := range []present.Root{host.ProjectRoot, host.SessionHome} {
@@ -265,17 +265,17 @@ func DefaultPolicy(t *testing.T, eng engine.Engine) engine.PermissionPolicy {
 func PresentAll(t *testing.T, eng engine.Engine, s engine.Session) []present.Presentation {
 	t.Helper()
 	def := eng.Root()
-	fs := afero.NewOsFs()
+	files := safefs.New()
 	for _, r := range []present.Root{s.Roots.ProjectRoot, s.Roots.SessionHome} {
 		if r.Host != "" {
-			require.NoError(t, fs.MkdirAll(r.Host, 0o700))
+			require.NoError(t, files.Fs.MkdirAll(r.Host, 0o700))
 		}
 	}
 	start := present.New(present.OnHost(s.Roots))
 	var out []present.Presentation
 	for _, k := range def.Static() {
 		a := def.Surfaces()[k]
-		d, err := deliverMinimal(def, k, start, a.Traits().Roots[0], fs)
+		d, err := deliverMinimal(def, k, start, a.Traits().Roots[0], files)
 		require.NoError(t, err, "deliver %v through %s", k, a.Name())
 		out = append(out, d.Presented)
 	}
@@ -285,7 +285,8 @@ func PresentAll(t *testing.T, eng engine.Engine, s engine.Session) []present.Pre
 // deliverMinimal delivers kind through the engine's typed approach with
 // minimal inputs: a fixed context, and the dynamic approach's endpoint entry
 // when the engine has one.
-func deliverMinimal(def engine.Base, k present.Kind, start present.Start, root present.RootKind, fs afero.Fs) (present.Delivered, error) {
+func deliverMinimal(def engine.Base, k present.Kind, start present.Start, root present.RootKind, files safefs.Root) (present.Delivered, error) {
+	fs := files.Fs
 	switch k {
 	case present.Context:
 		return def.Context.DeliverContext(start, root, engine.ContextInputs{Text: []byte("conformance context"), Hash: "conformance"}, fs)
@@ -300,9 +301,9 @@ func deliverMinimal(def engine.Base, k present.Kind, start present.Start, root p
 	case present.Hooks:
 		return def.Hooks.DeliverHooks(start, root, engine.HooksInputs{}, fs)
 	case present.Commands:
-		return def.Commands.DeliverCommands(start, root, engine.CommandsInputs{}, fs)
+		return def.Commands.DeliverCommands(start, root, engine.CommandsInputs{}, files)
 	case present.Skills:
-		return def.Skills.DeliverSkills(start, root, engine.SkillsInputs{}, fs)
+		return def.Skills.DeliverSkills(start, root, engine.SkillsInputs{}, files)
 	}
 	return present.Delivered{}, nil
 }

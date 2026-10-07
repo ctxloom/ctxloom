@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // The engine base reports to the Reporter each call is handed — two
@@ -41,7 +42,7 @@ func TestChunkContext_OversizedLineReportsToTheReporter(t *testing.T) {
 func TestWriteManagedPackageFiles_SkipsReportThroughWithReporter(t *testing.T) {
 	var found report.Collector
 	fs := afero.NewMemMapFs()
-	err := WriteManagedSkillPackages(fs, "/work/skills", []SkillExport{{Name: "../escape", Enabled: true}}, WithWriteReporter(&found))
+	err := WriteManagedSkillPackages(safefs.NewMem(fs), "/work/skills", []SkillExport{{Name: "../escape", Enabled: true}}, WithWriteReporter(&found))
 	require.NoError(t, err)
 	require.Len(t, found.All(), 1)
 	assert.Contains(t, found.All()[0].Text, `skipping package "../escape"`)

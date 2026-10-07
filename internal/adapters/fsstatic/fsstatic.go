@@ -132,7 +132,9 @@ func planRootable(items []delivery.StaticItem, surfaces engine.Surfaces, paths p
 // every root is its own state, written through as it wrote it.
 func (s *Static) deliverItem(it delivery.StaticItem, approach present.Approach, target delivery.Target, inputs delivery.Inputs, st delivery.Staging, modes map[string]os.FileMode) (present.Delivered, error) {
 	layer := &writeLayer{Fs: afero.NewMemMapFs(), names: map[string]struct{}{}}
-	d, err := deliverKind(approach, it.Kind, target.Root, it.Root, inputs, newOverlay(s.fs, layer))
+	// The approach writes through the overlay but locks through the real
+	// Locks: its own read-modify-writes exclude every other writer.
+	d, err := deliverKind(approach, it.Kind, target.Root, it.Root, inputs, safefs.Root{Fs: newOverlay(s.fs, layer), Locks: s.locks})
 	if err != nil {
 		return present.Delivered{}, fmt.Errorf("fsstatic: deliver %v through %s: %w", it.Kind, it.Approach, err)
 	}
@@ -226,7 +228,8 @@ func (s *Static) reverse(ownership delivery.Ownership, within func(string) bool,
 // approach table is keyed by kind and each approach satisfies its kind's
 // interface (the Definition's typed fields made any other pairing a compile
 // error), so a miss here is a programming error in the engine, reported.
-func deliverKind(a present.Approach, kind present.Kind, start present.Start, root present.RootKind, in delivery.Inputs, fs afero.Fs) (present.Delivered, error) {
+func deliverKind(a present.Approach, kind present.Kind, start present.Start, root present.RootKind, in delivery.Inputs, files safefs.Root) (present.Delivered, error) {
+	fs := files.Fs
 	var (
 		d   present.Delivered
 		ok  bool
@@ -249,11 +252,11 @@ func deliverKind(a present.Approach, kind present.Kind, start present.Start, roo
 		})
 	case present.Commands:
 		d, ok, err = deliverAs(a, func(c engine.CommandsApproach) (present.Delivered, error) {
-			return c.DeliverCommands(start, root, in.Commands, fs)
+			return c.DeliverCommands(start, root, in.Commands, files)
 		})
 	case present.Skills:
 		d, ok, err = deliverAs(a, func(c engine.SkillsApproach) (present.Delivered, error) {
-			return c.DeliverSkills(start, root, in.Skills, fs)
+			return c.DeliverSkills(start, root, in.Skills, files)
 		})
 	}
 	if !ok {

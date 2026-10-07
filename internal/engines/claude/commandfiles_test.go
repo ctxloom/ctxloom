@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 func TestTransformMustacheToPositional(t *testing.T) {
@@ -272,7 +273,7 @@ func TestWriteCommandFiles_WritesTheCommandPayload(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, WriteCommandFiles("/project", []agent.CommandExport{
 		{Name: "save", Content: "body", Enabled: true},
-	}, agent.WithCommandFS(fs)))
+	}, agent.WithCommandRoot(safefs.NewMem(fs))))
 
 	data, err := afero.ReadFile(fs, filepath.Join("/project", ".claude", "commands", "save.md"))
 	require.NoError(t, err)

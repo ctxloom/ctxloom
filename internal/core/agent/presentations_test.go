@@ -5,9 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -76,7 +75,7 @@ func (fakeApproach) Deliver(present.Start) (Delivered, error)       { return nil
 var constructed int
 
 func fakeConstruct(presenter func(present.Start) present.Presentation) Construct {
-	return func(SurfaceInputs, afero.Fs) Approach {
+	return func(SurfaceInputs, safefs.Root) Approach {
 		constructed++
 		return fakeApproach{present: presenter}
 	}
@@ -87,7 +86,7 @@ func fakeConstruct(presenter func(present.Start) present.Presentation) Construct
 // construction takes content and presentation takes roots.
 func resolve(t *testing.T, d Presentations, name string, start present.Start) present.Presentation {
 	t.Helper()
-	a, ok := d.Construct(name, SurfaceInputs{}, nil)
+	a, ok := d.Construct(name, SurfaceInputs{}, safefs.New())
 	if !ok {
 		t.Fatalf("Construct(%q) reported the name undeclared", name)
 	}
@@ -219,7 +218,7 @@ func TestPresentations_UnknownName_IsNotConstructible(t *testing.T) {
 	d := fakeContextPresentations()
 	before := constructed
 
-	a, ok := d.Construct("no-such-delivery", SurfaceInputs{}, nil)
+	a, ok := d.Construct("no-such-delivery", SurfaceInputs{}, safefs.New())
 
 	if ok {
 		t.Fatal("Construct reported an undeclared name as constructible")

@@ -156,7 +156,7 @@ func (a *hooksFile) DeliverHooks(start present.Start, root present.RootKind, in 
 // dir, the body verbatim.
 type commandsDir struct{ surface }
 
-func (a *commandsDir) DeliverCommands(start present.Start, root present.RootKind, in engine.CommandsInputs, fs afero.Fs) (present.Delivered, error) {
+func (a *commandsDir) DeliverCommands(start present.Start, root present.RootKind, in engine.CommandsInputs, files safefs.Root) (present.Delivered, error) {
 	r, err := a.rooted(start, root, commandsRel)
 	if err != nil {
 		return present.Delivered{}, err
@@ -168,7 +168,7 @@ func (a *commandsDir) DeliverCommands(start present.Start, root present.RootKind
 			continue
 		}
 		p := dir.Beneath(c.Name + ".md")
-		d, err := writeFile(fs, p, c.Body, 0o644)
+		d, err := writeFile(files.Fs, p, c.Body, 0o644)
 		if err != nil {
 			return present.Delivered{}, err
 		}
@@ -182,7 +182,7 @@ func (a *commandsDir) DeliverCommands(start present.Start, root present.RootKind
 // file with its recorded mode so an exec bit survives.
 type skillsDir struct{ surface }
 
-func (a *skillsDir) DeliverSkills(start present.Start, root present.RootKind, in engine.SkillsInputs, fs afero.Fs) (present.Delivered, error) {
+func (a *skillsDir) DeliverSkills(start present.Start, root present.RootKind, in engine.SkillsInputs, files safefs.Root) (present.Delivered, error) {
 	r, err := a.rooted(start, root, skillsRel)
 	if err != nil {
 		return present.Delivered{}, err
@@ -199,7 +199,7 @@ func (a *skillsDir) DeliverSkills(start present.Start, root present.RootKind, in
 			if mode == 0 {
 				mode = 0o644
 			}
-			d, err := writeFile(fs, p, f.Bytes, mode)
+			d, err := writeFile(files.Fs, p, f.Bytes, mode)
 			if err != nil {
 				return present.Delivered{}, err
 			}

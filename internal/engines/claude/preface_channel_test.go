@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
@@ -15,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // TestDelivery_PrefaceItemsRideTheEndpoint_EveryOtherItemIsAFile is the
@@ -60,7 +60,8 @@ func TestDelivery_PrefaceItemsRideTheEndpoint_EveryOtherItemIsAFile(t *testing.T
 	require.Equal(t, []string{"b#fragment/when-go"}, plan.Dynamic, "the preface item, and only it, rides the endpoint")
 
 	ep := sessions.Endpoint{URL: "http://127.0.0.1:43111/mcp", Credential: "bearer-probe"}
-	fs := afero.NewOsFs()
+	fsRoot := safefs.New()
+	fs := fsRoot.Fs
 	start := present.New(present.OnHost(roots))
 	// A claim is what a file will hold once the static writer lands it, so
 	// each counts toward the file it names.
@@ -85,11 +86,11 @@ func TestDelivery_PrefaceItemsRideTheEndpoint_EveryOtherItemIsAFile(t *testing.T
 		case present.Hooks:
 			d, err = root.Hooks.DeliverHooks(start, item.Root, engine.HooksInputs{Hooks: wire.UnifiedHooks{SessionStart: items.Hooks}}, fs)
 		case present.Commands:
-			d, err = root.Commands.DeliverCommands(start, item.Root, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "go", Body: []byte(commandBody), Enabled: true}}}, fs)
+			d, err = root.Commands.DeliverCommands(start, item.Root, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "go", Body: []byte(commandBody), Enabled: true}}}, fsRoot)
 		case present.Settings:
 			d, err = root.Settings.DeliverSettings(start, item.Root, engine.SettingsInputs{}, fs)
 		case present.Skills:
-			d, err = root.Skills.DeliverSkills(start, item.Root, engine.SkillsInputs{}, fs)
+			d, err = root.Skills.DeliverSkills(start, item.Root, engine.SkillsInputs{}, fsRoot)
 		}
 		require.NoError(t, err, "deliver %v", item.Kind)
 		addClaimed(claimed, d)

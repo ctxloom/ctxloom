@@ -40,16 +40,18 @@ func lockIsFree(t *testing.T, target string) bool {
 // runs after it, and nothing is lost.
 func TestLedger_Write_ExcludesACoLocatedWriterFromItsWindow(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	fs := afero.NewOsFs()
+	// Production shape: the marker is written over fsstatic's copy-on-write
+	// overlay of the controller's filesystem, paired with its real locks.
+	root := safefs.Root{Fs: afero.NewCopyOnWriteFs(afero.NewOsFs(), afero.NewMemMapFs()), Locks: safefs.New().Locks}
 	dir := t.TempDir()
 	marker := filepath.Join(dir, Name)
 
 	// A owns "old", so its next Write is a retraction and warns mid-window.
-	require.NoError(t, Ledger{FS: fs, Dir: dir}.Write(SurfaceCommands, []string{"old"}))
+	require.NoError(t, Ledger{Root: root, Dir: dir}.Write(SurfaceCommands, []string{"old"}))
 
-	writeB := func() error { return Ledger{FS: fs, Dir: dir}.Write(SurfaceSkills, []string{"b"}) }
+	writeB := func() error { return Ledger{Root: root, Dir: dir}.Write(SurfaceSkills, []string{"b"}) }
 	bInWindow := false
-	a := Ledger{FS: fs, Dir: dir, Warn: func(string, ...any) {
+	a := Ledger{Root: root, Dir: dir, Warn: func(string, ...any) {
 		if !lockIsFree(t, marker) {
 			return
 		}
@@ -62,7 +64,7 @@ func TestLedger_Write_ExcludesACoLocatedWriterFromItsWindow(t *testing.T) {
 		require.NoError(t, writeB())
 	}
 
-	read := Ledger{FS: fs, Dir: dir}
+	read := Ledger{Root: root, Dir: dir}
 	skills, err := read.Read(SurfaceSkills)
 	require.NoError(t, err)
 	commands, err := read.Read(SurfaceCommands)

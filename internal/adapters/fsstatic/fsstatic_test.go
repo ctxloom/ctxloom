@@ -276,3 +276,53 @@ func TestDeliver_WritesThroughAnApproachsOwnStateOutsideTheTarget(t *testing.T) 
 	require.NoError(t, err)
 	require.NotContains(t, targets, own)
 }
+
+// commandsBy is a commands approach whose delivery is the given func.
+type commandsBy struct {
+	engine.CommandsApproach
+	deliver func(files safefs.Root) (present.Delivered, error)
+}
+
+func (a commandsBy) DeliverCommands(_ present.Start, _ present.RootKind, _ engine.CommandsInputs, files safefs.Root) (present.Delivered, error) {
+	return a.deliver(files)
+}
+
+// TestDeliver_AnApproachLocksThroughTheWritersOwnLocks: an approach writes
+// through the copy-on-write overlay, but the Root it is handed carries the
+// writer's own Locks, so a lock it takes contends with every other taker of
+// that path. The test holds a lock through the writer's Root; the approach,
+// probing the same path through the Root it was handed, must find it held.
+func TestDeliver_AnApproachLocksThroughTheWritersOwnLocks(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	files := safefs.NewMem(fs)
+	rec, err := fsstatic.NewRecords(fs, "/records")
+	require.NoError(t, err)
+	project := "/project"
+	require.NoError(t, fs.MkdirAll(project, 0o755))
+	lockPath := "/locks/managed-dir.lock"
+	held, err := files.Locks.Lock(lockPath)
+	require.NoError(t, err)
+	defer func() { _ = held.Unlock() }()
+
+	var probe error
+	root := mock.New().Root()
+	root.Commands = commandsBy{CommandsApproach: root.Commands, deliver: func(got safefs.Root) (present.Delivered, error) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		lk, err := got.Locks.TryLock(ctx, lockPath)
+		if err == nil {
+			_ = lk.Unlock()
+		}
+		probe = err
+		return present.Delivered{}, nil
+	}}
+	pkg := compositetest.Fixture(t, compositetest.WithCommand("go", "body"))
+	pref := delivery.Preference{Root: map[present.Kind]present.RootKind{present.Commands: present.RootProjectRoot}}
+	plan, err := delivery.Route(pkg.EngineItems(root.Name), root, pref, present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}})
+	require.NoError(t, err)
+	require.NotEmpty(t, plan.Static, "the plan must route the command to the approach")
+	_, err = fsstatic.New(files).Deliver(context.Background(), delivery.Loadout{Package: pkg, Plan: plan}, root,
+		delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter})
+	require.NoError(t, err)
+	require.ErrorIs(t, probe, safefs.ErrLockHeld, "the approach's Locks must be the writer's own, not the overlay's")
+}

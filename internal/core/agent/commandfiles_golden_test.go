@@ -6,10 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // oldWriteManagedCommandFiles is a VERBATIM copy of WriteManagedCommandFiles as
@@ -158,7 +160,7 @@ func TestWriteManagedCommandFiles_GoldenByteIdentical(t *testing.T) {
 	newDir := "/proj/.claude/commands"
 
 	require.NoError(t, oldWriteManagedCommandFiles(oldFS, oldDir, ".ctxloom-manifest", fixtureCommands, goldenRender, WithDedupHomeDir(home)))
-	require.NoError(t, WriteManagedCommandFiles(newFS, newDir, fixtureCommands, goldenRender, WithDedupHomeDir(home)))
+	require.NoError(t, WriteManagedCommandFiles(safefs.NewMem(newFS), newDir, fixtureCommands, goldenRender, WithDedupHomeDir(home)))
 
 	// The MARKER is deliberately different now — the pre-refactor writer wrote
 	// a per-engine ".ctxloom-manifest" of bare names, the current one writes the

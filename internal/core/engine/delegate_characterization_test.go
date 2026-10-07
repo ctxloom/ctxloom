@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // anyApproach satisfies every kind's approach interface and the dynamic
@@ -31,10 +32,10 @@ func (anyApproach) DeliverSettings(present.Start, present.RootKind, engine.Setti
 func (anyApproach) DeliverHooks(present.Start, present.RootKind, engine.HooksInputs, afero.Fs) (present.Delivered, error) {
 	return present.Delivered{}, nil
 }
-func (anyApproach) DeliverCommands(present.Start, present.RootKind, engine.CommandsInputs, afero.Fs) (present.Delivered, error) {
+func (anyApproach) DeliverCommands(present.Start, present.RootKind, engine.CommandsInputs, safefs.Root) (present.Delivered, error) {
 	return present.Delivered{}, nil
 }
-func (anyApproach) DeliverSkills(present.Start, present.RootKind, engine.SkillsInputs, afero.Fs) (present.Delivered, error) {
+func (anyApproach) DeliverSkills(present.Start, present.RootKind, engine.SkillsInputs, safefs.Root) (present.Delivered, error) {
 	return present.Delivered{}, nil
 }
 

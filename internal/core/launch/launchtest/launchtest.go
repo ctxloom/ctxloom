@@ -17,6 +17,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
@@ -458,10 +459,10 @@ func (*approach) DeliverSettings(present.Start, present.RootKind, engine.Setting
 func (*approach) DeliverHooks(present.Start, present.RootKind, engine.HooksInputs, afero.Fs) (present.Delivered, error) {
 	return present.Delivered{}, nil
 }
-func (*approach) DeliverCommands(present.Start, present.RootKind, engine.CommandsInputs, afero.Fs) (present.Delivered, error) {
+func (*approach) DeliverCommands(present.Start, present.RootKind, engine.CommandsInputs, safefs.Root) (present.Delivered, error) {
 	return present.Delivered{}, nil
 }
-func (*approach) DeliverSkills(present.Start, present.RootKind, engine.SkillsInputs, afero.Fs) (present.Delivered, error) {
+func (*approach) DeliverSkills(present.Start, present.RootKind, engine.SkillsInputs, safefs.Root) (present.Delivered, error) {
 	return present.Delivered{}, nil
 }
 

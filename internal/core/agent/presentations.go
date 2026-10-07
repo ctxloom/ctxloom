@@ -3,7 +3,7 @@ package agent
 import (
 	"sort"
 
-	"github.com/spf13/afero"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file is the CONFIG-AUTHORED construction path for engine surface
@@ -131,10 +131,10 @@ func (d Presentations) Engine() string { return d.engine }
 
 // Construct builds the named approach from a run's content. false means the
 // name is not declared; the caller names the failure (see the file doc).
-func (d Presentations) Construct(name string, in SurfaceInputs, fs afero.Fs) (Approach, bool) {
+func (d Presentations) Construct(name string, in SurfaceInputs, files safefs.Root) (Approach, bool) {
 	c, ok := d.byName[name]
 	if !ok {
 		return nil, false
 	}
-	return c(in, fs), true
+	return c(in, files), true
 }

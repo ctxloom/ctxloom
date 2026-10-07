@@ -5,9 +5,8 @@ import (
 	"encoding/hex"
 	"path/filepath"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file holds the GENERIC approaches: implemented once, registered by any
@@ -23,7 +22,7 @@ import (
 // It is a Construct factory rather than a Construct because where the file
 // lives is a STATIC fact about the engine, bound at registration.
 func NativeContextFile(rel string) Construct {
-	return func(SurfaceInputs, afero.Fs) Approach {
+	return func(SurfaceInputs, safefs.Root) Approach {
 		return &nativeContextFile{rel: rel}
 	}
 }
@@ -51,7 +50,7 @@ func (c *nativeContextFile) Present(start present.Start) present.Presentation {
 // fragments the same way WriteContextFile names it — the leaf is
 // content-derived, which is exactly why this is knowable only on a
 // CONSTRUCTED approach.
-func HookCarriedContext(in SurfaceInputs, _ afero.Fs) Approach {
+func HookCarriedContext(in SurfaceInputs, _ safefs.Root) Approach {
 	return hookCarriedContext{fragments: in.Fragments}
 }
 

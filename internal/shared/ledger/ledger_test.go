@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Sample surfaces for exercising the format. Surface is open, so these need
@@ -22,8 +24,8 @@ func newLedger(t *testing.T) (Ledger, afero.Fs, *[]string) {
 	require.NoError(t, fs.MkdirAll("/dir", 0o755))
 	var warnings []string
 	l := Ledger{
-		FS:  fs,
-		Dir: "/dir",
+		Root: safefs.NewMem(fs),
+		Dir:  "/dir",
 		Warn: func(format string, args ...any) {
 			warnings = append(warnings, format)
 		},
@@ -127,7 +129,7 @@ func TestRead_UntypedLine_IsSkippedAndWarned(t *testing.T) {
 func TestRead_UnreadableFile_ReturnsTheError(t *testing.T) {
 	l, fs, _ := newLedger(t)
 	require.NoError(t, afero.WriteFile(fs, l.Path(), []byte("x\tmcp\n"), 0o644))
-	l.FS = &failingFs{Fs: fs}
+	l.Root.Fs = &failingFs{Fs: fs}
 
 	_, err := l.Read(mcpSurface)
 

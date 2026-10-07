@@ -33,11 +33,6 @@ import (
 // approach it provides. Which item goes where is engine.Base.Delegate's
 // decision, not this package's.
 //
-// Each typed approach still carries its runtime FORMS (agent.Forms): the
-// named constructors today's launch path builds writers from by selection.
-// They hang off the typed approach so claude keeps one table; the delivery
-// seam that constructs by name retires them.
-//
 // Hooks IS a delivered surface here, not a fold into settings: claude's
 // native form for a hook registration is a section of .claude/settings.json,
 // so the hooks approach writes through the same settings writer — the
@@ -124,11 +119,18 @@ func Build(opts ...Option) (engine.Engine, error) {
 
 var _ engine.Engine = Claude{}
 
-// Declaration is agent.Hosted's: the named-form table, DERIVED from the
-// Definition — each typed approach's Forms under its kind — so the engine
-// keeps ONE table.
-func (c Claude) Declaration() agent.Declaration {
-	return agent.DeclarationOf(c.Root().Surfaces())
+// Declaration is agent.Hosted's: the approach names a binding may select per
+// surface kind (`agent edit --surface`), each kind's default first. A static
+// table: delivery is the typed approaches' (Build), driven by the static
+// writer, and nothing is constructed from a name.
+func (Claude) Declaration() agent.Declaration {
+	return agent.Declaration{
+		agent.SurfaceContext:  agent.Presents(agent.ApproachUnsafeFile, ApproachSystemPrompt),
+		agent.SurfaceMCP:      agent.Presents(ApproachMCPConfig, agent.ApproachUnsafeFile),
+		agent.SurfaceSettings: agent.Presents(agent.ApproachUnsafeFile),
+		agent.SurfaceCommands: agent.Presents(agent.ApproachUnsafeFile),
+		agent.SurfaceSkills:   agent.Presents(agent.ApproachUnsafeFile),
+	}
 }
 
 // Backend is agent.Hosted's: a fresh backend over the injected launcher.
@@ -188,13 +190,6 @@ func errRoot(name string, root present.RootKind) error {
 type contextApproach struct{ traits }
 
 func (*contextApproach) Name() string { return ApproachSystemPrompt }
-func (*contextApproach) Forms() agent.Presentations {
-	return agent.Presents(EngineName, agent.SurfaceContext, agent.ApproachUnsafeFile,
-		agent.NativeContextFile(ContextFileName)).
-		Or(ApproachSystemPrompt, func(in agent.SurfaceInputs, files safefs.Root) agent.Approach {
-			return &systemPromptContext{content: in.Context, fs: agent.GetFS(files.Fs)}
-		})
-}
 func (a *contextApproach) DeliverContext(start present.Start, root present.RootKind, in engine.ContextInputs, fs afero.Fs) (present.Delivered, error) {
 	switch root {
 	case present.RootProjectRoot:
@@ -227,13 +222,6 @@ func appendContextFile(p present.Presentation, text []byte) present.Delivered {
 type mcpApproach struct{ traits }
 
 func (*mcpApproach) Name() string { return ApproachMCPConfig }
-func (*mcpApproach) Forms() agent.Presentations {
-	return agent.Presents(EngineName, agent.SurfaceMCP, ApproachMCPConfig, func(agent.SurfaceInputs, safefs.Root) agent.Approach {
-		return &mcpConfig{}
-	}).Or(agent.ApproachUnsafeFile, func(agent.SurfaceInputs, safefs.Root) agent.Approach {
-		return &mcpUnsafeFile{}
-	})
-}
 
 // DeliverMCP claims each server's entry in the .mcp.json under the root: the
 // private session-home file announced on --mcp-config, or the project's own
@@ -458,11 +446,6 @@ func hookValue(h wire.Hook) (map[string]any, error) {
 type settingsApproach struct{ traits }
 
 func (*settingsApproach) Name() string { return "settings" }
-func (*settingsApproach) Forms() agent.Presentations {
-	return agent.Presents(EngineName, agent.SurfaceSettings, agent.ApproachUnsafeFile, func(agent.SurfaceInputs, safefs.Root) agent.Approach {
-		return &settingsSurface{}
-	})
-}
 func (a *settingsApproach) DeliverSettings(start present.Start, root present.RootKind, in engine.SettingsInputs, fs afero.Fs) (present.Delivered, error) {
 	return deliverSettingsFile(a.Name(), start, root, func(path string) ([]present.Claim, error) {
 		return settingsClaims(agent.GetFS(fs), path, in)
@@ -494,11 +477,6 @@ func (a *hooksApproach) DeliverHooks(start present.Start, root present.RootKind,
 type commandsApproach struct{ traits }
 
 func (*commandsApproach) Name() string { return "commands-dir" }
-func (*commandsApproach) Forms() agent.Presentations {
-	return agent.Presents(EngineName, agent.SurfaceCommands, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, files safefs.Root) agent.Approach {
-		return &commandsSurface{commands: in.Commands, files: files, reporter: in.Reporter, selfContainedCommands: in.SelfContainedCommands}
-	})
-}
 func (a *commandsApproach) DeliverCommands(start present.Start, root present.RootKind, in engine.CommandsInputs, files safefs.Root) (present.Delivered, error) {
 	cmds := make([]agent.CommandExport, 0, len(in.Commands))
 	for _, c := range in.Commands {
@@ -547,11 +525,6 @@ func managedDir(name string, start present.Start, root present.RootKind, rel, pr
 type skillsApproach struct{ traits }
 
 func (*skillsApproach) Name() string { return "skills-dir" }
-func (*skillsApproach) Forms() agent.Presentations {
-	return agent.Presents(EngineName, agent.SurfaceSkills, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, files safefs.Root) agent.Approach {
-		return newSkillsSurface(in, files)
-	})
-}
 func (a *skillsApproach) DeliverSkills(start present.Start, root present.RootKind, in engine.SkillsInputs, files safefs.Root) (present.Delivered, error) {
 	skills := make([]agent.SkillExport, 0, len(in.Skills))
 	for _, s := range in.Skills {
@@ -602,8 +575,7 @@ func (*sessionEndpoint) Endpoint(ep sessions.Endpoint) wire.MCPServer {
 	}
 }
 
-// Compile-time contracts: each typed approach fills its kind's field and,
-// where today's launch path constructs by name, carries its runtime forms.
+// Compile-time contracts: each typed approach fills its kind's field.
 var (
 	_ engine.ContextApproach  = (*contextApproach)(nil)
 	_ engine.MCPApproach      = (*mcpApproach)(nil)
@@ -612,9 +584,4 @@ var (
 	_ engine.CommandsApproach = (*commandsApproach)(nil)
 	_ engine.SkillsApproach   = (*skillsApproach)(nil)
 	_ engine.DynamicApproach  = (*sessionEndpoint)(nil)
-	_ agent.Forms             = (*contextApproach)(nil)
-	_ agent.Forms             = (*mcpApproach)(nil)
-	_ agent.Forms             = (*settingsApproach)(nil)
-	_ agent.Forms             = (*commandsApproach)(nil)
-	_ agent.Forms             = (*skillsApproach)(nil)
 )

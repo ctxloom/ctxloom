@@ -22,7 +22,7 @@
 # message, not silently in this file.
 ./cmd/ltk/manage_test.go|TestWriteFileAtomicReplace t * testing . T|1|11|TestWriteFileAtomicReplace|212-249
 ./cmd/probe-mcp-server/main.go|(s*server)handle req map [ string ] any|1|13|handle|96-155
-./cmd/taskloom/commands_test.go| t * testing . T|1|11||96-120
+./cmd/taskloom/commands_test.go| t * testing . T|1|11||97-121
 ./cmd/taskloom/mcp_docgen_test.go|TestNewMCPServerRegistersTaskTools t * testing . T|1|17|TestNewMCPServerRegistersTaskTools|15-74
 ./internal/adapters/cli/bundle_view.go|renderBundleViewItem out io . Writer , bundle * bundles . Bundle , itemPath string , useDistilled bool|1|12|renderBundleViewItem|138-188
 ./internal/adapters/cli/hook_hud.go|formatHud session agentSessionJSON , info ctxloomHudInfo|1|11|formatHud|227-288
@@ -53,11 +53,11 @@
 ./internal/adapters/coordgrpc/mcpschema/arch_test.go|readsInScope specs [ ] string|1|12|readsInScope|193-229
 ./internal/adapters/coordgrpc/mcpschema/arch_test.go|rosterStateConstants file string|1|13|rosterStateConstants|317-349
 ./internal/adapters/coordgrpc/mcpschema/arch_test.go|snake s string|1|13|snake|263-282
-./internal/adapters/isolation/isolation.go|AwaitContainerRunning rt Runtime , h * RunnerHandle|1|11|AwaitContainerRunning|289-315
+./internal/adapters/isolation/isolation.go|AwaitContainerRunning rt Runtime , h * RunnerHandle|1|11|AwaitContainerRunning|288-314
 ./internal/adapters/mcp/mcp_doccomment_test.go|TestDocComments_NameOnlyConstructorsThatExist t * testing . T|1|11|TestDocComments_NameOnlyConstructorsThatExist|38-80
-./internal/adapters/mcp/mcp_tools_memory.go|(s*ctxServer)handleGetPreviousSession ctx context . Context , _ * mcp . CallToolRequest , in getPreviousSessionInput|1|14|handleGetPreviousSession|566-635
-./internal/adapters/mcp/mcp_tools_memory.go|(s*ctxServer)loadOrCompactSession ctx context . Context , sessionID , backendName , model string , policy sessionLoadPolicy|1|28|loadOrCompactSession|818-962
-./internal/adapters/memory/stamp_test.go|TestStampPlanFile_PreservesFileMode t * testing . T|1|12|TestStampPlanFile_PreservesFileMode|237-281
+./internal/adapters/mcp/mcp_tools_memory.go|(s*ctxServer)handleGetPreviousSession ctx context . Context , _ * mcp . CallToolRequest , in getPreviousSessionInput|1|14|handleGetPreviousSession|567-636
+./internal/adapters/mcp/mcp_tools_memory.go|(s*ctxServer)loadOrCompactSession ctx context . Context , sessionID , backendName , model string , policy sessionLoadPolicy|1|28|loadOrCompactSession|819-963
+./internal/adapters/memory/stamp_test.go|TestStampPlanFile_PreservesFileMode t * testing . T|1|12|TestStampPlanFile_PreservesFileMode|193-237
 ./internal/adapters/operations/bundle_distill.go|DistillBundleFile ctx context . Context , req DistillBundleFileRequest|1|14|DistillBundleFile|63-124
 ./internal/adapters/operations/constraint_resolve.go| ref * remote . Reference|1|11||98-147
 ./internal/adapters/operations/items.go|DistillItem ctx context . Context , cfg * config . Config , req DistillItemRequest|1|13|DistillItem|389-442
@@ -77,24 +77,23 @@
 ./internal/adapters/operations/task_triggers_query.go|queryGrep repoDir string , q triggers . Query , budget grepBudget|1|17|queryGrep|190-324
 ./internal/adapters/projectroot/projectroot_test.go|TestPackageDocNamesEveryExportedSurface t * testing . T|1|18|TestPackageDocNamesEveryExportedSurface|235-288
 ./internal/adapters/projectroot/worktree.go|DetectWorktree fs afero . Fs , dir string|1|12|DetectWorktree|74-133
-./internal/adapters/remote/registry.go|(r*Registry)Update name string , edit RemoteEdit|1|16|Update|284-350
-./internal/adapters/remote/registry.go|(r*Registry)save|1|11|save|122-188
+./internal/adapters/remote/registry.go|(r*Registry)Update name string , edit RemoteEdit|1|16|Update|283-349
+./internal/adapters/remote/registry.go|(r*Registry)save|1|11|save|121-187
 ./internal/adapters/remote/repo_cache.go|(c*RepoCache)safeRepoPath parts ... string|1|11|safeRepoPath|381-402
 ./internal/adapters/termui/prefixkey.go|ParsePrefixKey s string|1|18|ParsePrefixKey|15-56
 ./internal/adapters/termui/surround.go|(s*surround)SetSize rows , cols int|1|13|SetSize|160-219
 ./internal/adapters/termui/tear_test.go|TestSurround_StressScriptedChildNoTearNoBleed t * testing . T|1|12|TestSurround_StressScriptedChildNoTearNoBleed|287-329
 ./internal/adapters/termui/vtguard.go|(g*vtGuard)finishCSI|1|31|finishCSI|280-361
 ./internal/adapters/termui/vtguard.go|(g*vtGuard)stepEsc b byte|1|17|stepEsc|129-192
-./internal/adapters/transcript/recorder.go|(r*fileRecorder)record ev agent . ChatEvent|1|11|record|341-400
-./internal/adapters/transcript/vendorreader/claude/claude_test.go|TestConvert_RealFieldsSurvive t * testing . T|1|19|TestConvert_RealFieldsSurvive|196-261
+./internal/adapters/transcript/recorder.go|(r*fileRecorder)record ev agent . ChatEvent|1|11|record|325-384
+./internal/adapters/transcript/vendorreader/claude/claude_test.go|TestConvert_RealFieldsSurvive t * testing . T|1|19|TestConvert_RealFieldsSurvive|197-262
 ./internal/adapters/transcript/vendorreader/claude/locate.go|(l Locator)Discover workDir string|1|17|Discover|43-116
 ./internal/adapters/turnchange/turnchange.go|isAssignment tok string|1|11|isAssignment|267-280
 ./internal/adapters/turnchange/turnchange.go|matchHarmlessRedirection s string|1|20|matchHarmlessRedirection|347-380
-./internal/core/agent/commandfiles_golden_test.go|oldWriteManagedCommandFiles fs afero . Fs , dir , manifestName string , cmds [ ] CommandExport , render func CommandExport relPath string , content [ ] byte , err error , opts ... ManagedWriteOption|1|23|oldWriteManagedCommandFiles|23-94
+./internal/core/agent/commandfiles_golden_test.go|oldWriteManagedCommandFiles fs afero . Fs , dir , manifestName string , cmds [ ] CommandExport , render func CommandExport relPath string , content [ ] byte , err error|1|17|oldWriteManagedCommandFiles|24-84
 ./internal/core/agent/enginecli.go|(c EngineCLI)ParseArgv argv [ ] string|1|14|ParseArgv|477-525
 ./internal/core/agent/enginecli.go|(c EngineCLI)Validate|1|17|Validate|294-341
-./internal/core/agent/packagefiles.go| T|1|36||56-281
-./internal/core/bundles/bundles.go|detectLegacySkillsKey data [ ] byte|1|13|detectLegacySkillsKey|956-1003
+./internal/core/agent/packagefiles.go| T|1|20||47-151
 ./internal/core/bundles/loader_version.go|(l*Loader)bundleAtVersion bundleRef , commit string|1|12|bundleAtVersion|40-122
 ./internal/core/bundles/skill_archive.go|DetectArchiveFormat data [ ] byte|1|13|DetectArchiveFormat|63-75
 ./internal/core/bundles/skill_archive.go|symlinkEscapesRoot fsys afero . Fs , root , target string|1|12|symlinkEscapesRoot|594-627
@@ -102,8 +101,8 @@
 ./internal/core/coord/folds.go| f * queueFold|1|11||327-347
 ./internal/core/coord/replay_test.go| t * testing . T|1|11||99-170
 ./internal/core/coord/reports.go|(f*reportsFold)apply fact Fact|1|12|apply|118-176
-./internal/core/profiles/profiles.go|(p*Profile)HasContent|1|13|HasContent|665-679
-./internal/core/profiles/profiles.go|(l*Loader)resolveProfileRecursive name string , visited map [ string ] bool , depth int , memo map [ string ] * ResolvedProfile|1|15|resolveProfileRecursive|866-1024
+./internal/core/profiles/profiles.go|(p*Profile)HasContent|1|13|HasContent|657-671
+./internal/core/profiles/profiles.go|(l*Loader)resolveProfileRecursive name string , visited map [ string ] bool , depth int , memo map [ string ] * ResolvedProfile|1|14|resolveProfileRecursive|858-1004
 ./internal/core/sessions/memstore.go|(m*MemStore)BindSession harpName , sessionID , transcriptPath string|1|12|BindSession|155-193
 ./internal/core/sessions/store_test.go| t * testing . T|1|23||39-119
 ./internal/core/sessions/store_test.go| t * testing . T|2|17||211-250
@@ -185,7 +184,7 @@
 ./scripts/audit_sha_credits.py|find_negation_window( rid , commit_body )|1|11|find_negation_window|178-206
 ./scripts/gendocs/main_test.go|TestCtxloomProduct t * testing . T|1|12|TestCtxloomProduct|20-60
 ./scripts/gendocs/main_test.go|TestEveryHiddenTopLevelCommandIsDecided t * testing . T|1|14|TestEveryHiddenTopLevelCommandIsDecided|154-191
-./tests/acceptance/capability_hook_probe.go| path string , d os . DirEntry , err error|1|15||542-578
+./tests/acceptance/capability_hook_probe.go| path string , d os . DirEntry , err error|1|15||541-577
 ./tests/acceptance/capability_probe_gate_live.go|probeContainerRuntimeForAxis ctx context . Context , axis , what string|1|11|probeContainerRuntimeForAxis|128-184
 ./tests/acceptance/capability_probe_registry_test.go| t * testing . T|1|11||276-324
 ./tests/acceptance/capability_probe_registry_test.go|TestProbeRegistry_CellsAreWellFormedAndEvidenced t * testing . T|1|24|TestProbeRegistry_CellsAreWellFormedAndEvidenced|143-226

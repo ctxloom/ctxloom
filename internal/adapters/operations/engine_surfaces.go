@@ -13,8 +13,9 @@ import (
 // the hook events the engine declares it cannot carry
 // (engine.Definition.HookLosses).
 
-// uncarriedSurfaces is the delivery's inverse over the SAME inputs: the parts of
-// a run's assembled loadout the named engine has NO structural place for. A
+// uncarriedSurfaces is the delivery's inverse over the SAME hook set: the parts
+// of a run's assembled hooks the named engine has NO structural place for, read
+// off the registry's declaration of that engine (its HookLosses). A
 // delivery report can only list what it wrote — every line of it true — so the
 // loss is invisible in it by construction; this is where a caller gets the other
 // half.
@@ -26,12 +27,12 @@ import (
 // surface KIND an engine declares no approach for is not one: every such
 // absence is a FOLD, and reporting a folded surface as lost would be a false
 // alarm — the fastest way to get the real line ignored.
-func uncarriedSurfaces(reg engine.Registry, name string, in agent.SurfaceInputs) []agent.SurfaceLoss {
+func uncarriedSurfaces(reg engine.Registry, name string, hooks *wire.HooksConfig) []agent.SurfaceLoss {
 	e, ok := reg.Lookup(engine.Name(name))
-	if !ok || in.Hooks == nil {
+	if !ok || hooks == nil {
 		return nil
 	}
-	return unsupportedHookKindLosses(e.Root().HookLosses, *in.Hooks)
+	return unsupportedHookKindLosses(e.Root().HookLosses, *hooks)
 }
 
 // unsupportedHookKindLosses reports, for an engine that carries hooks

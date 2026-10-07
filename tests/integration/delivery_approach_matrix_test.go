@@ -3,9 +3,9 @@
 package integration
 
 import (
+	"context"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -14,33 +14,39 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
-// This file covers ctxloom's declared CONTEXT DELIVERY MATRIX — every
-// (backend, agent.SurfaceKind, agent.Approach) triple a backend's
-// agent.Declaration declares — by PAYLOAD, never by exit code or by a
-// "delivered" report.
+// This file covers ctxloom's CONTEXT DELIVERY MATRIX in its two halves:
 //
-// The matrix is DERIVED from the registered backends
-// (operations.EngineNames + agent.Declaration.Names), so a sixth backend or
-// a newly declared approach is picked up automatically and fails the
-// exhaustiveness assertion in TestDeliveryApproach_DeclaredPairsAreExhaustive
-// until it is given an expected destination here.
+//   - the NAMES a binding may select: every (engine, kind, approach name) an
+//     engine's agent.Declaration declares, held equal to a stated table so a
+//     name cannot appear or vanish unreviewed;
+//   - the DELIVERY: every (engine, kind, root) an engine's typed approach
+//     offers, delivered by the ONE static writer (fsstatic) and asserted by
+//     PAYLOAD — a sentinel in the file the approach promises, and nowhere
+//     else — never by exit code or by a "delivered" report.
 //
-// Why payload and not exit code: this codebase's characteristic bug is exit 0 +
-// a success line + zero bytes. Every assertion below names a SENTINEL string and
-// the FILE it must reach.
+// Both are DERIVED from the registered engines (operations.EngineNames), so a
+// new engine, name or root is picked up automatically and fails the
+// exhaustiveness assertions until its expectation is stated here.
+//
+// Why payload and not exit code: this codebase's characteristic bug is exit 0
+// + a success line + zero bytes.
 
-// matrixKinds is every surface kind a backend can be asked about (agent's
-// surfaceOrder), in delivery order.
+// matrixKinds is every surface kind a binding can name.
 var matrixKinds = []agent.SurfaceKind{
 	agent.SurfaceContext,
 	agent.SurfaceMCP,
@@ -49,74 +55,435 @@ var matrixKinds = []agent.SurfaceKind{
 	agent.SurfaceSkills,
 }
 
-// matrixApproaches is every approach name ANY registered engine declares —
-// derived, so an engine's new name joins the cross product on its own. Used
-// for the NEGATIVE direction: the cross product minus the declared pairs must
-// be refused loudly.
-func matrixApproaches() []string {
-	var decls []agent.Declaration
+// matrixBackends returns the registered engines that declare at least one
+// selectable name — derived, never hard-coded.
+func matrixBackends(t *testing.T) []string {
+	t.Helper()
+	var out []string
 	for _, name := range operations.EngineNames(engines.Registry()) {
-		decls = append(decls, hostedDeclaration(name))
+		decl := hostedDeclaration(name)
+		for _, k := range matrixKinds {
+			if len(decl.Names(k)) > 0 {
+				out = append(out, name)
+				break
+			}
+		}
 	}
-	return agent.ApproachNames(decls...)
+	sort.Strings(out)
+	require.NotEmpty(t, out, "no registered backend declares any surface — the matrix would be vacuous")
+	return out
 }
 
-// sentinel slots. Each names one SurfaceInputs field, so an assertion can say
-// WHICH input reached WHICH file rather than "the tree is non-empty".
+// pairKey is a matrix coordinate: engine/kind/(approach name or root).
+func pairKey(backend string, k agent.SurfaceKind, a string) string {
+	return backend + "/" + k.String() + "/" + a
+}
+
+// ---------------------------------------------------------------------------
+// THE NAMES
+// ---------------------------------------------------------------------------
+
+// declaredNames is every (engine, kind, name) a binding may select.
+// TestDeliveryApproach_DeclaredNamesAreExhaustive holds it equal to the
+// registered engines' declarations.
+var declaredNames = []string{
+	"claude-code/commands/unsafe-file",
+	"claude-code/context/system-prompt",
+	"claude-code/context/unsafe-file",
+	"claude-code/mcp/mcp-config",
+	"claude-code/mcp/unsafe-file",
+	"claude-code/settings/unsafe-file",
+	"claude-code/skills/unsafe-file",
+	// mock-launch delivers only context at materialize time; its other
+	// surfaces arrive per session, so it names nothing else.
+	"mock-launch/context/session-file",
+	"mock-launch/context/unsafe-file",
+	"mock-lossy/commands/session-file",
+	"mock-lossy/commands/unsafe-file",
+	"mock-lossy/context/session-file",
+	"mock-lossy/context/unsafe-file",
+	"mock-lossy/mcp/session-file",
+	"mock-lossy/mcp/unsafe-file",
+	"mock-lossy/settings/session-file",
+	"mock-lossy/settings/unsafe-file",
+	"mock-lossy/skills/session-file",
+	"mock-lossy/skills/unsafe-file",
+	"mock-noskills/commands/session-file",
+	"mock-noskills/commands/unsafe-file",
+	"mock-noskills/context/session-file",
+	"mock-noskills/context/unsafe-file",
+	"mock-noskills/mcp/session-file",
+	"mock-noskills/mcp/unsafe-file",
+	"mock-noskills/settings/session-file",
+	"mock-noskills/settings/unsafe-file",
+	"mock-noskills/skills/session-file",
+	"mock-noskills/skills/unsafe-file",
+	"mock/commands/session-file",
+	"mock/commands/unsafe-file",
+	"mock/context/session-file",
+	"mock/context/unsafe-file",
+	"mock/mcp/session-file",
+	"mock/mcp/unsafe-file",
+	"mock/settings/session-file",
+	"mock/settings/unsafe-file",
+	"mock/skills/session-file",
+	"mock/skills/unsafe-file",
+}
+
+// TestDeliveryApproach_DeclaredNamesAreExhaustive holds the DERIVED name
+// table equal to declaredNames: an engine that declares a new name for a
+// kind — or drops one — fails here until the change is stated.
+func TestDeliveryApproach_DeclaredNamesAreExhaustive(t *testing.T) {
+	var derived []string
+	for _, name := range matrixBackends(t) {
+		decl := hostedDeclaration(name)
+		for _, k := range matrixKinds {
+			for _, a := range decl.Names(k) {
+				derived = append(derived, pairKey(name, k, a))
+			}
+		}
+	}
+	sort.Strings(derived)
+	want := append([]string(nil), declaredNames...)
+	sort.Strings(want)
+	assert.Equal(t, want, derived, "the declared (engine, surface, name) table and the stated one disagree")
+}
+
+// TestDeliveryApproach_DefaultIsDeclared: an engine's default for a kind is
+// one of the names it declares for it — a NAMED default, not a position.
+func TestDeliveryApproach_DefaultIsDeclared(t *testing.T) {
+	for _, name := range matrixBackends(t) {
+		decl := hostedDeclaration(name)
+		for _, k := range matrixKinds {
+			supported := decl.Names(k)
+			def, ok := decl.Default(k)
+			if len(supported) == 0 {
+				assert.False(t, ok, "%s/%s declares no approach, so it must report no default", name, k)
+				continue
+			}
+			require.True(t, ok, "%s/%s declares approaches but reports no default", name, k)
+			assert.Contains(t, supported, def, "%s/%s: default must be one of the declared approaches", name, k)
+		}
+	}
+}
+
+// hostedDeclaration is the named engine's name table off the engine value
+// (agent.Hosted); empty for an engine that is not Hosted.
+func hostedDeclaration(name string) agent.Declaration {
+	h, ok := engines.Hosted(name)
+	if !ok {
+		return agent.Declaration{}
+	}
+	return h.Declaration()
+}
+
+// ---------------------------------------------------------------------------
+// THE DELIVERY
+// ---------------------------------------------------------------------------
+
+// Sentinels: each names one package input, so an assertion can say WHICH
+// input reached WHICH file rather than "the tree is non-empty".
 const (
-	slotContext  = "CTXSENTINEL-context"
-	slotFragment = "CTXSENTINEL-fragment"
-	slotMCP      = "CTXSENTINEL-mcpserver"
-	slotMCPCmd   = "CTXSENTINEL-mcpcmd"
-	slotHook     = "CTXSENTINEL-hookcmd"
-	// slotHookPreTool is a SECOND hook sentinel, on a kind no backend declares
-	// unsupported. Without it a partially-lossy backend was untestable: the
-	// inputs carried only session_start, which mock-lossy declares it cannot
-	// carry, so "strips the declared loss" and "carries nothing at all" produced
-	// the identical empty result and no assertion could tell them apart.
+	slotContext = "CTXSENTINEL-context"
+	slotMCPCmd  = "CTXSENTINEL-mcpcmd"
+	slotDeny    = "CTXSENTINEL-deny"
+	// slotHook rides session_start, the event mock-lossy declares it cannot
+	// carry; slotHookPreTool rides pre_tool, which every engine carries. A
+	// partially lossy engine must drop exactly the first and deliver the
+	// second, and each half is asserted on its own sentinel.
+	slotHook        = "CTXSENTINEL-hookcmd"
 	slotHookPreTool = "CTXSENTINEL-pretoolcmd"
 	slotCommand     = "CTXSENTINEL-command"
-	slotSkill       = "CTXSENTINEL-skill"
+	// slotSkill is the skill's name, carried in its SKILL.md frontmatter.
+	slotSkill = "ctxsentinelskill"
 )
 
-// matrixSentinelInputs is a fully populated agent.SurfaceInputs in which every
-// field carries its own distinctive sentinel, so a delivery that writes the
-// WRONG input into the right file is caught as surely as one that writes
-// nothing.
-func matrixSentinelInputs() agent.SurfaceInputs {
-	return agent.SurfaceInputs{
-		Context:   slotContext,
-		Fragments: []*agent.Fragment{{Name: "sentinel-frag", Content: slotFragment}},
-		BundleMCP: map[string]wire.MCPServer{
-			slotMCP: {Command: slotMCPCmd},
-		},
-		// TWO hook kinds, on purpose. session_start is the one mock-lossy
-		// declares unsupported; pre_tool is one every backend carries. A
-		// partially-lossy engine must therefore drop exactly one and deliver the
-		// other, and each half is asserted on its OWN sentinel.
-		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
-			SessionStart: []wire.Hook{{Command: slotHook, Type: "command"}},
-			PreTool:      []wire.Hook{{Command: slotHookPreTool, Type: "command"}},
-		}},
-		Commands: []agent.CommandExport{
-			{Name: "ctxsentinelcmd", Description: "sentinel command", Content: slotCommand, Enabled: true},
-		},
-		Skills: []agent.SkillExport{
-			{Name: "ctxsentinelskill", Description: "sentinel skill", Enabled: true,
-				Files: []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte(slotSkill)}}},
-		},
+// matrixPackage carries every sentinel.
+func matrixPackage(t *testing.T) composite.Package {
+	t.Helper()
+	pkg := compositetest.Fixture(t,
+		compositetest.WithFragment("sentinel-frag", slotContext),
+		compositetest.WithMCP("ctxsentinelmcp", wire.MCPServer{Command: slotMCPCmd}),
+		compositetest.WithCommand("ctxsentinelcmd", slotCommand))
+	// A vendor-valid skill: claude refuses a SKILL.md without a name and a
+	// description in its frontmatter (skillconstraints.go).
+	skillMD := []byte("---\nname: " + slotSkill + "\ndescription: the sentinel skill\n---\n\nBody\n")
+	pkg.Skills = append(pkg.Skills, composite.Item[composite.Skill]{Ref: "fixture#skill/" + slotSkill, Value: composite.Skill{
+		Name: slotSkill, Description: "the sentinel skill",
+		Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: skillMD, Size: int64(len(skillMD)), Mode: 0o644}},
+	}})
+	pkg.Hooks.Unified.SessionStart = []wire.Hook{{Command: slotHook, Type: "command"}}
+	pkg.Hooks.Unified.PreTool = []wire.Hook{{Command: slotHookPreTool, Type: "command"}}
+	pkg.DenyTools = []string{slotDeny}
+	return pkg
+}
+
+// deliverySpec is the promised DESTINATION and PAYLOAD for one (engine, kind,
+// root): stated once, so the assertion is against the promise rather than
+// against whatever the code happens to do.
+type deliverySpec struct {
+	// wantFile is the relpath beneath the selected root the payload must land
+	// in. It may be "<dir>/*" to match one file in that directory (a leaf
+	// named from a hash of its bytes).
+	wantFile string
+	wantSlot string
+	// noOp, when set, says WHY this cell legitimately writes nothing; the
+	// matrix then asserts both roots stay empty. A noOp with a wantFile is a
+	// test bug.
+	noOp string
+}
+
+// mockFamily is the delivery rows of a mock-family double: every kind it
+// carries lands in the same file beneath either root.
+func mockFamily(name string, kinds ...present.Kind) map[string]deliverySpec {
+	files := map[present.Kind]deliverySpec{
+		present.Context:  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
+		present.MCP:      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd},
+		present.Settings: {wantFile: ".mock/settings.json", wantSlot: slotDeny},
+		present.Hooks:    {wantFile: ".mock/hooks.json", wantSlot: slotHookPreTool},
+		present.Commands: {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
+		present.Skills:   {wantFile: ".mock/skills/" + slotSkill + "/SKILL.md", wantSlot: slotSkill},
 	}
+	out := map[string]deliverySpec{}
+	for _, k := range kinds {
+		for _, r := range []present.RootKind{present.RootSessionHome, present.RootProjectRoot} {
+			out[pairKey(name, k, r.String())] = files[k]
+		}
+	}
+	return out
+}
+
+// allKinds is every kind a complete engine delivers.
+var allKinds = []present.Kind{present.Context, present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills}
+
+// deliverySpecs is the promised destination for every (engine, kind, root)
+// the registered engines' typed approaches offer.
+var deliverySpecs = func() map[string]deliverySpec {
+	out := map[string]deliverySpec{
+		// The session home is claude's CLAUDE_CONFIG_DIR: the framed system
+		// prompt (its leaf a hash of the framed bytes), the private .mcp.json
+		// announced on --mcp-config, and the user-level settings, commands and
+		// skills claude loads from its config dir.
+		"claude-code/context/session-home":  {wantFile: "./*", wantSlot: slotContext},
+		"claude-code/mcp/session-home":      {wantFile: ".mcp.json", wantSlot: slotMCPCmd},
+		"claude-code/settings/session-home": {wantFile: "settings.json", wantSlot: slotDeny},
+		"claude-code/hooks/session-home":    {wantFile: "settings.json", wantSlot: slotHookPreTool},
+		"claude-code/commands/session-home": {wantFile: "commands/ctxsentinelcmd.md", wantSlot: slotCommand},
+		"claude-code/skills/session-home":   {wantFile: "skills/" + slotSkill + "/SKILL.md", wantSlot: slotSkill},
+		// The project root is the well-known project files.
+		"claude-code/context/project-root":  {wantFile: "CLAUDE.md", wantSlot: slotContext},
+		"claude-code/mcp/project-root":      {wantFile: ".mcp.json", wantSlot: slotMCPCmd},
+		"claude-code/settings/project-root": {wantFile: ".claude/settings.json", wantSlot: slotDeny},
+		"claude-code/hooks/project-root":    {wantFile: ".claude/settings.json", wantSlot: slotHookPreTool},
+		"claude-code/commands/project-root": {wantFile: ".claude/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
+		"claude-code/skills/project-root":   {wantFile: ".claude/skills/" + slotSkill + "/SKILL.md", wantSlot: slotSkill},
+	}
+	// "No skills" is the absence of a skills EXPORT, not of the surface: the
+	// double carries a skills approach and exports nothing to it, so a
+	// package's skill reaches no file. That absence is the double's subject
+	// (operations.TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext).
+	noSkills := "mock-noskills exports no skill, so its skills approach is handed none"
+	for _, m := range []map[string]deliverySpec{
+		mockFamily("mock", allKinds...),
+		// Byte-for-byte mock's surfaces; it differs only in the hook events it
+		// declares it cannot carry (TestDeliveryApproach_HookLossesAreHonoured).
+		mockFamily("mock-lossy", allKinds...),
+		// Delivers only context statically; the rest arrive per session.
+		mockFamily("mock-launch", present.Context),
+		mockFamily("mock-noskills", allKinds...),
+	} {
+		for k, v := range m {
+			out[k] = v
+		}
+	}
+	for _, r := range []present.RootKind{present.RootSessionHome, present.RootProjectRoot} {
+		out[pairKey("mock-noskills", present.Skills, r.String())] = deliverySpec{noOp: noSkills}
+	}
+	return out
+}()
+
+// matrixCell is one delivery's two roots on the host.
+type matrixCell struct {
+	project, home string
+	paths         present.Paths
+}
+
+func newMatrixCell(t *testing.T) matrixCell {
+	t.Helper()
+	project, home := t.TempDir(), t.TempDir()
+	return matrixCell{project: project, home: home, paths: present.Paths{
+		ProjectRoot: present.Root{Host: project, Engine: project},
+		SessionHome: present.Root{Host: home, Engine: home},
+	}}
+}
+
+// deliverOne routes the matrix package for eng with kind selected at root,
+// and delivers ONLY that kind's items through the static writer into cell.
+func deliverOne(t *testing.T, eng engine.Engine, kind present.Kind, root present.RootKind, cell present.Paths) error {
+	t.Helper()
+	def := eng.Root()
+	pkg := matrixPackage(t)
+	items := pkg.EngineItems(def.Name)
+	exports, err := eng.Exports(items)
+	require.NoError(t, err)
+	// Select root for kind; a kind the engine does not carry is a declared
+	// loss the binding accepts, as a launch's would.
+	pref := delivery.Preference{Root: map[present.Kind]present.RootKind{kind: root}, AcceptLoss: map[present.Kind]bool{}}
+	for _, k := range allKinds {
+		if !def.Carries(k) {
+			pref.AcceptLoss[k] = true
+		}
+	}
+	plan, err := delivery.Route(items, def, pref, cell)
+	if err != nil {
+		return err
+	}
+	var only []delivery.StaticItem
+	for _, it := range plan.Static {
+		if it.Kind == kind {
+			only = append(only, it)
+		}
+	}
+	require.NotEmpty(t, only, "%s routes no %v item — the matrix package carries nothing for it", def.Name, kind)
+	plan.Static = only
+	rec, err := fsstatic.NewRecords(afero.NewOsFs(), filepath.Join(t.TempDir(), "records"))
+	require.NoError(t, err)
+	lo := delivery.Loadout{Plan: plan, Package: pkg, Exports: exports, MCP: sessions.Endpoint{URL: "http://127.0.0.1:1/mcp", Credential: "matrix-bearer"}}
+	_, err = fsstatic.New(safefs.New()).Deliver(context.Background(), lo, def, delivery.Target{
+		Root: present.New(present.OnHost(cell)), Ownership: rec, Writer: delivery.SessionWriter("matrix"),
+	})
+	return err
+}
+
+// TestDeliveryApproach_EveryOfferedRootDeliversItsPayload is the core matrix:
+// for every registered engine, every kind it delivers, and every root that
+// kind's approach offers, the static writer delivers the matrix package with
+// that root selected, and the kind's SENTINEL lands in the promised file
+// beneath that root — and the OTHER root stays empty.
+func TestDeliveryApproach_EveryOfferedRootDeliversItsPayload(t *testing.T) {
+	isolatedRecords(t)
+	isolatedLocks(t)
+	t.Setenv("HOME", t.TempDir())
+	var offered []string
+	for _, name := range operations.EngineNames(engines.Registry()) {
+		eng, ok := engines.Registry().Lookup(engine.Name(name))
+		require.True(t, ok)
+		def := eng.Root()
+		for _, kind := range def.Static() {
+			for _, root := range def.Surfaces()[kind].Traits().Roots {
+				key := pairKey(name, kind, root.String())
+				offered = append(offered, key)
+				t.Run(key, func(t *testing.T) {
+					spec, ok := deliverySpecs[key]
+					require.True(t, ok, "%s is offered but has no promised destination", key)
+					cell := newMatrixCell(t)
+					require.NoError(t, deliverOne(t, eng, kind, root, cell.paths), "%s: delivery failed", key)
+
+					at, other := cell.project, cell.home
+					if root == present.RootSessionHome {
+						at, other = cell.home, cell.project
+					}
+					if spec.noOp != "" {
+						require.Empty(t, spec.wantFile, "%s: a noOp row names no file", key)
+						assert.Empty(t, matrixTree(t, at), "%s is a no-op (%s) but wrote files", key, spec.noOp)
+						assert.Empty(t, matrixTree(t, other), "%s is a no-op (%s) but wrote files", key, spec.noOp)
+						return
+					}
+					tree := matrixTree(t, at)
+					require.NotEmpty(t, tree, "%s: delivery reported success and wrote ZERO files", key)
+					assert.Empty(t, matrixTree(t, other), "%s delivers beneath one root but wrote into the other", key)
+					assertSentinelAt(t, key, tree, spec.wantFile, spec.wantSlot)
+				})
+			}
+		}
+	}
+	sort.Strings(offered)
+	stated := collections.SortedKeys(deliverySpecs)
+	assert.Equal(t, stated, offered, "the offered (engine, kind, root) matrix and the promised destinations disagree")
+}
+
+// TestDeliveryApproach_HookLossesAgreeWithTheExports: every engine that
+// delivers hooks delivers the hook on an event it carries, and its exports
+// map exactly the unified events it does NOT declare lost
+// (Definition.HookLosses) — so the loss report (operations.CapabilityLoss,
+// which reads HookLosses) and what the engine says it carries agree. A lossy
+// engine that also mapped a lost event would make the loss report a lie; one
+// that mapped nothing would pass an "the lost event is unmapped" check alone.
+func TestDeliveryApproach_HookLossesAgreeWithTheExports(t *testing.T) {
+	isolatedRecords(t)
+	isolatedLocks(t)
+	t.Setenv("HOME", t.TempDir())
+	sawALoss := false
+	for _, name := range operations.EngineNames(engines.Registry()) {
+		eng, _ := engines.Registry().Lookup(engine.Name(name))
+		def := eng.Root()
+		if !def.Carries(present.Hooks) {
+			continue
+		}
+		sawALoss = sawALoss || len(def.HookLosses) > 0
+		t.Run(name, func(t *testing.T) {
+			cell := newMatrixCell(t)
+			require.NoError(t, deliverOne(t, eng, present.Hooks, present.RootProjectRoot, cell.paths))
+			assert.NotEmpty(t, findSentinel(matrixTree(t, cell.project), slotHookPreTool), "%s carries pre_tool, so its hook must land", name)
+
+			exports, err := eng.Exports(matrixPackage(t).EngineItems(def.Name))
+			require.NoError(t, err)
+			for event := range def.HookLosses {
+				assert.NotContains(t, exports.HookEvent, event, "%s declares %s lost, yet exports a native event for it", name, event)
+			}
+			assert.Contains(t, exports.HookEvent, "pre_tool", "%s carries pre_tool, so it exports a native event for it", name)
+		})
+	}
+	require.True(t, sawALoss, "no registered engine declares a hook loss — the lossy arm is untested")
+}
+
+// TestDeliveryApproach_ClaudeSystemPromptIsTheFramedHashedFile pins the two
+// facts the matrix's glob cannot express for claude's context at the session
+// home: the leaf is <hash><SCMFramedContextSuffix>, and the payload is the
+// FRAMED envelope rather than the bare context.
+func TestDeliveryApproach_ClaudeSystemPromptIsTheFramedHashedFile(t *testing.T) {
+	isolatedRecords(t)
+	isolatedLocks(t)
+	t.Setenv("HOME", t.TempDir())
+	eng, ok := engines.Registry().Lookup("claude-code")
+	require.True(t, ok)
+	cell := newMatrixCell(t)
+	require.NoError(t, deliverOne(t, eng, present.Context, present.RootSessionHome, cell.paths))
+
+	assert.Empty(t, matrixTree(t, cell.project), "the system prompt must not touch the project root")
+	tree := matrixTree(t, cell.home)
+	hits := findSentinel(tree, slotContext)
+	require.Len(t, hits, 1, "the framed file carries the context (home tree: %v)", collections.SortedKeys(tree))
+	assert.True(t, strings.HasSuffix(hits[0], agent.SCMFramedContextSuffix), "the framed file is named <hash>%s, got %s", agent.SCMFramedContextSuffix, hits[0])
+	assert.Contains(t, tree[hits[0]], agent.FrameProjectContext(slotContext), "the file carries the FRAMED envelope, not the bare context")
+}
+
+// TestDeliveryApproach_SessionHomeRefusesAnUnrootedRun: with no session home
+// advised there is nowhere private to write, and a delivery selecting it is
+// REFUSED rather than falling back to the project's well-known file — the
+// fallback is what once turned an isolated launch's system prompt into
+// project memory.
+func TestDeliveryApproach_SessionHomeRefusesAnUnrootedRun(t *testing.T) {
+	isolatedRecords(t)
+	isolatedLocks(t)
+	t.Setenv("HOME", t.TempDir())
+	eng, ok := engines.Registry().Lookup("claude-code")
+	require.True(t, ok)
+	project := t.TempDir()
+	err := deliverOne(t, eng, present.Context, present.RootSessionHome, present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}})
+	require.Error(t, err, "an unrooted run must be refused, never served the project file")
+	assert.Empty(t, matrixTree(t, project), "a refused delivery writes zero files")
 }
 
 // matrixTree snapshots every file under root as slash-relpath -> contents.
-func matrixTree(t *testing.T, fs afero.Fs, root string) map[string]string {
+func matrixTree(t *testing.T, root string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
-	err := afero.Walk(fs, root, func(path string, info os.FileInfo, walkErr error) error {
+	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil || info == nil || info.IsDir() {
 			return nil //nolint:nilerr // a missing root means "nothing delivered", which the caller asserts on
 		}
-		b, readErr := afero.ReadFile(fs, path)
+		b, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return readErr
 		}
@@ -143,488 +510,19 @@ func findSentinel(tree map[string]string, sentinel string) []string {
 	return hits
 }
 
-// matrixBackends returns the registered backends that declare at least one
-// surface kind — derived, never hard-coded, so a newly registered backend joins
-// the matrix on its own.
-func matrixBackends(t *testing.T) []string {
-	t.Helper()
-	var out []string
-	for _, name := range operations.EngineNames(engines.Registry()) {
-		decl := hostedDeclaration(name)
-		for _, k := range matrixKinds {
-			if len(decl.Names(k)) > 0 {
-				out = append(out, name)
-				break
-			}
-		}
-	}
-	sort.Strings(out)
-	require.NotEmpty(t, out, "no registered backend declares any surface — the matrix would be vacuous")
-	return out
-}
-
-// pairKey is the matrix coordinate: backend/kind/approach.
-func pairKey(backend string, k agent.SurfaceKind, a string) string {
-	return backend + "/" + k.String() + "/" + a
-}
-
-// derivedPairs enumerates every (backend, kind, approach) triple the registered
-// backends DECLARE — the test matrix and the oracle.
-func derivedPairs(t *testing.T) []string {
-	t.Helper()
-	var out []string
-	for _, name := range matrixBackends(t) {
-		decl := hostedDeclaration(name)
-		for _, k := range matrixKinds {
-			for _, a := range decl.Names(k) {
-				out = append(out, pairKey(name, k, a))
-			}
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// deliverySpec is the expected DESTINATION and PAYLOAD for one declared pair:
-// what the approach promises, stated once, so the assertion is against the
-// declaration rather than against whatever the code happens to do.
-type deliverySpec struct {
-	// wantFile is the relpath under the delivery root the approach's payload
-	// must land in. Empty means the pair delivers NO file at this seam, which is
-	// only ever accepted when noOp explains why.
-	wantFile string
-	// wantSlot is the sentinel that must appear inside wantFile.
-	wantSlot string
-	// underEngineHome roots wantFile beneath the ENGINE HOME rather than the
-	// project root: the approach writes the engine's private home and refuses
-	// a Start that advises none (agent.SessionHomeRooted). The loop advises
-	// both roots for such a pair and asserts the project root stays EMPTY —
-	// a private-home delivery that also touched the project tree would be
-	// the shared-cwd exposure the approach exists to avoid.
-	underEngineHome bool
-	// underScratch roots wantFile beneath the run's SCRATCH — the session's
-	// own directory — rather than the project root: the approach is an
-	// engine's session form, the default a binding that selects no root
-	// gets, and it refuses a Start that advises no Scratch rather than
-	// writing a bare relative path. The loop advises both roots for such a
-	// pair and asserts the project root stays EMPTY.
-	underScratch bool
-	// alsoFile / alsoSlot pin a SECOND route the same pair delivers (a
-	// hook approach writes both the cache file the hook reads and the native
-	// AGENTS.md). alsoFile may end in "/*" to match one file in that directory.
-	alsoFile, alsoSlot string
-	// noOp records WHY a pair legitimately writes nothing at this seam, and
-	// names the test that covers the real delivery instead. A pair with an empty
-	// wantFile and an empty noOp is a test bug, asserted below.
-	noOp string
-	// disagreement records a DECLARED-vs-ACTUAL mismatch: the declaration
-	// promises one destination and the code delivers another. The case is
-	// SKIPPED (never quietly reconciled) so the disagreement stays visible.
-	disagreement string
-}
-
-// matrixSpecs is the expected destination for every DECLARED pair.
-// TestDeliveryApproach_DeclaredPairsAreExhaustive holds these keys equal to the
-// derived matrix, so a new pair cannot be added to a backend's Declaration
-// without landing here first.
-var matrixSpecs = map[string]deliverySpec{
-	// ---- claude-code -------------------------------------------------------
-	"claude-code/context/unsafe-file": {wantFile: "CLAUDE.md", wantSlot: slotContext},
-	// ONE form, on every cell: Deliver writes the framed <hash>.sysprompt.md
-	// beneath the private root, and an unrooted run REFUSES rather than
-	// writing CLAUDE.md instead. The leaf is a sha256 prefix over the framed
-	// bytes, so it is matched by glob rather than named;
-	// TestDeliveryApproach_ClaudeSystemPromptScratchPlacement pins the
-	// framing and the leaf shape this glob cannot express.
-	"claude-code/context/system-prompt": {wantFile: "./*", wantSlot: slotContext, underEngineHome: true},
-	"claude-code/mcp/unsafe-file":       {wantFile: ".mcp.json", wantSlot: slotMCPCmd},
-	// The DEFAULT MCP approach, and it is private: the merged .mcp.json lands
-	// beneath the run's private root for --mcp-config, never the user's project
-	// file. An unresolved private root refuses (ErrUnrootedSessionHome) rather
-	// than falling back to the project file — the fallback IS the defect.
-	"claude-code/mcp/mcp-config":       {wantFile: ".mcp.json", wantSlot: slotMCPCmd, underEngineHome: true},
-	"claude-code/settings/unsafe-file": {wantFile: ".claude/settings.json", wantSlot: slotHook},
-	"claude-code/commands/unsafe-file": {wantFile: ".claude/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
-	"claude-code/skills/unsafe-file":   {wantFile: ".claude/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
-
-	// ---- mock ----------------------------------------------------------
-	// mock is a COMPLETE engine minus a model: it declares all five surfaces
-	// (mock_surfaces.go's mockPresentations). Context is a managed-marker
-	// MOCK_CONTEXT.md at the target root — the same DeliverManagedContext shape
-	// claude's CLAUDE.md uses — and the rest live under its own .mock/ config
-	// dir, the shape every real engine has rather than a top-level scatter.
-	// Completeness is the point: mock exists to prove the surface seam is
-	// POLYMORPHIC, and a partial double makes its gaps load-bearing somewhere
-	// nothing states them.
-	"mock/context/unsafe-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
-	"mock/skills/unsafe-file":   {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
-	"mock/mcp/unsafe-file":      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd},
-	"mock/settings/unsafe-file": {wantFile: ".mock/settings.json", wantSlot: slotHook},
-	"mock/commands/unsafe-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
-	// The session form of each surface (mock.MockSessionFile, the
-	// DEFAULT): the same well-known file beneath the run's Scratch, so a
-	// binding that selects no root leaves the project tree alone.
-	"mock/context/session-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext, underScratch: true},
-	"mock/skills/session-file":   {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill, underScratch: true},
-	"mock/mcp/session-file":      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd, underScratch: true},
-	"mock/settings/session-file": {wantFile: ".mock/settings.json", wantSlot: slotHook, underScratch: true},
-	"mock/commands/session-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand, underScratch: true},
-
-	// ---- mock-lossy ----------------------------------------------------
-	// Byte-for-byte mock's surfaces: it shares NewMockSurfaces and differs ONLY
-	// in the hook KINDS its descriptor declares unsupported. Its rows are
-	// therefore identical, and that identity is the evidence — a lossy double
-	// whose deliveries diverged from the complete one would be testing two
-	// things at once, and its loss reporting could no longer be attributed to
-	// the declaration rather than to a different surface set.
-	"mock-lossy/context/unsafe-file": {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
-	"mock-lossy/skills/unsafe-file":  {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
-	"mock-lossy/mcp/unsafe-file":     {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd},
-	// The ONE row where mock-lossy diverges from mock, and the divergence is
-	// the entire reason this double exists. The sentinel inputs configure a
-	// single session_start hook — precisely the kind mock-lossy declares it has
-	// no native event for — so its settings surface strips it and reports
-	// delivering nothing. The file is still created (an empty unified block),
-	// which is why this is a noOp rather than a missing file.
-	//
-	// If a payload ever lands here again, the declaration and the delivery have
-	// come apart, and it is the LOSS REPORT that becomes false: it would tell a
-	// user their guardrail did not land while the hook sits in the file.
-	// TestDeliveryApproach_HookCarriageMatchesDeclaration is the other side of
-	// this same coin.
-	// The pair carries the pre_tool sentinel and NOT the session_start one, and
-	// that asymmetry is the assertion: mock-lossy delivers what it can while
-	// stripping exactly what it declared it cannot. Pinning slotHookPreTool here
-	// and slotHook's ABSENCE in
-	// TestDeliveryApproach_HookCarriageMatchesDeclaration is what separates
-	// "honoured the declaration" from "carried nothing at all".
-	"mock-lossy/settings/unsafe-file":  {wantFile: ".mock/settings.json", wantSlot: slotHookPreTool},
-	"mock-lossy/commands/unsafe-file":  {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
-	"mock-lossy/context/session-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext, underScratch: true},
-	"mock-lossy/skills/session-file":   {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill, underScratch: true},
-	"mock-lossy/mcp/session-file":      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd, underScratch: true},
-	"mock-lossy/settings/session-file": {wantFile: ".mock/settings.json", wantSlot: slotHookPreTool, underScratch: true},
-	"mock-lossy/commands/session-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand, underScratch: true},
-
-	// ---- mock-launch ---------------------------------------------------
-	// ONE row, and the absence of the other four is the assertion. This double
-	// delivers only context at materialize time; its settings, MCP, commands
-	// and skills arrive per session at launch, so they are declared through
-	// launchOnlySettingsReason and reported by backends.LaunchOnlySurfaces
-	// rather than written anywhere a static caller could find them. If rows for
-	// them ever appear here, the double has stopped being launch-delivered.
-	"mock-launch/context/unsafe-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
-	"mock-launch/context/session-file": {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext, underScratch: true},
-
-	// ---- mock-noskills -------------------------------------------------
-	// Byte-for-byte mock's surfaces, because it shares NewMockSurfaces and
-	// differs ONLY in declaring no skillExports mapper on its descriptor.
-	//
-	// THE SKILLS ROW IS IDENTICAL TO MOCK'S, and that is not an oversight — it
-	// is where this double's semantics become precise.
-	//
-	// "No skills" here means NO EXPORT MAPPER on the descriptor, not a missing
-	// surface. The skills SURFACE exists (every mock-family double gets the
-	// complete set), and this test builds SurfaceInputs directly, so the surface
-	// is handed a sentinel skill and correctly writes it. The mapper only
-	// governs the MATERIALIZE path, where bundle-loaded skills are turned into
-	// exports — which is exactly what backends.SupportsSkills reads and what
-	// callers branch on.
-	//
-	// So the arm this double exists for is not visible at THIS seam at all.
-	// It is pinned by backends.TestSupportsSkills_HasATrueArmAndAFalseArm and by
-	// operations.TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext.
-	// A reader who expects a missing surface here will look for one and not find
-	// it.
-	"mock-noskills/context/unsafe-file":   {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
-	"mock-noskills/mcp/unsafe-file":       {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd},
-	"mock-noskills/settings/unsafe-file":  {wantFile: ".mock/settings.json", wantSlot: slotHook},
-	"mock-noskills/commands/unsafe-file":  {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
-	"mock-noskills/skills/unsafe-file":    {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
-	"mock-noskills/context/session-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext, underScratch: true},
-	"mock-noskills/mcp/session-file":      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd, underScratch: true},
-	"mock-noskills/settings/session-file": {wantFile: ".mock/settings.json", wantSlot: slotHook, underScratch: true},
-	"mock-noskills/commands/session-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand, underScratch: true},
-	"mock-noskills/skills/session-file":   {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill, underScratch: true},
-}
-
-// TestDeliveryApproach_DeclaredPairsAreExhaustive holds the DERIVED matrix equal
-// to the specs above. It is the guard that makes every other test in this file
-// a matrix test rather than a sample: a backend that declares a new
-// (kind, approach) pair — or drops one — fails here until its expected
-// destination is stated.
-func TestDeliveryApproach_DeclaredPairsAreExhaustive(t *testing.T) {
-	derived := derivedPairs(t)
-
-	spec := make([]string, 0, len(matrixSpecs))
-	for k := range matrixSpecs {
-		spec = append(spec, k)
-	}
-	sort.Strings(spec)
-
-	assert.Equal(t, spec, derived,
-		"the declared (backend, surface, approach) matrix and the expected-destination table disagree; "+
-			"a pair present in one and not the other is either an untested delivery approach or a stale expectation")
-
-	for key, s := range matrixSpecs {
-		if s.wantFile == "" {
-			assert.True(t, s.noOp != "" || s.disagreement != "",
-				"%s expects NO delivered file via this loop's mechanism but records no noOp, "+
-					"or a disagreement reason — an unexplained zero-byte expectation is "+
-					"exactly the silent-no-op shape these tests exist to catch", key)
-		}
-	}
-}
-
-// TestDeliveryApproach_DefaultIsDeclared pins the other half of the
-// declaration: an engine's default for a kind is one of the names it declares
-// for it — a NAMED default, not a position — and WithEverything (the
-// materialize/launch selection) picks it. A backend whose default named
-// something it cannot construct would silently materialize nothing.
-func TestDeliveryApproach_DefaultIsDeclared(t *testing.T) {
-	for _, name := range matrixBackends(t) {
-		decl := hostedDeclaration(name)
-		for _, k := range matrixKinds {
-			supported := decl.Names(k)
-			def, ok := decl.Default(k)
-			if len(supported) == 0 {
-				assert.False(t, ok, "%s/%s declares no approach, so it must report no default", name, k)
-				continue
-			}
-			require.True(t, ok, "%s/%s declares approaches but reports no default", name, k)
-			assert.Contains(t, supported, def, "%s/%s: default must be one of the declared approaches", name, k)
-		}
-	}
-}
-
-// deliverer is a form that writes its own bytes, as opposed to one that only
-// presents (its write being the typed approach's claims).
-type deliverer interface {
-	Deliver(present.Start) (agent.Delivered, error)
-}
-
-// TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload is the core matrix
-// test: for every declared (backend, kind, approach) it resolves the concrete
-// agent.Approach via the Declaration, delivers it into a fresh root, and
-// asserts the pair's SENTINEL landed in the file that approach promises.
-//
-// It deliberately does NOT assert on a returned error alone: a form's Deliver
-// returns a nil error for a delivery that wrote nothing (that is the shared
-// "nothing to write" convention), so an error-only assertion cannot tell
-// delivered from silently-skipped.
-func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
-	isolatedRecords(t)
-	// The managed command and skill writers lock under the home lock
-	// directory, whatever filesystem their Root is.
-	isolatedLocks(t)
-	for _, name := range matrixBackends(t) {
-		decl := hostedDeclaration(name)
-		for _, k := range matrixKinds {
-			for _, a := range decl.Names(k) {
-				key := pairKey(name, k, a)
-				t.Run(key, func(t *testing.T) {
-					spec, ok := matrixSpecs[key]
-					require.True(t, ok, "%s is declared but has no expected destination", key)
-					if spec.disagreement != "" {
-						t.Skipf("DECLARATION vs BEHAVIOUR disagreement (not reconciled here, reported instead): %s", spec.disagreement)
-					}
-
-					fs := afero.NewMemMapFs()
-					root := "/cell"
-					require.NoError(t, fs.MkdirAll(root, 0o755))
-
-					form, ok := decl[k].Construct(a, matrixSentinelInputs(), safefs.NewMem(fs))
-					require.True(t, ok, "%s: declared but Construct refused it", key)
-					d, delivers := form.(deliverer)
-					if !delivers {
-						t.Skipf("%s only presents: its bytes are the typed approach's claims through the static writer (delivery_approach_bearer_test, fsstatic)", key)
-					}
-
-					if spec.noOp != "" {
-						if d != nil {
-							_, derr := d.Deliver(present.ProjectOnHost(root))
-							require.NoError(t, derr)
-						}
-						assert.Empty(t, matrixTree(t, fs, root),
-							"%s is recorded as a no-op at this seam (%s) but WROTE files — "+
-								"the recorded reason is stale", key, spec.noOp)
-						return
-					}
-
-					require.NotNil(t, d, "%s: declared pair resolved to a nil Delivery", key)
-					start, deliveryRoot := present.ProjectOnHost(root), root
-					if spec.underEngineHome {
-						const home = "/engine-home"
-						start = present.New(present.OnHost(present.Paths{
-							ProjectRoot: present.Root{Host: root},
-							SessionHome: present.Root{Host: home},
-						}))
-						deliveryRoot = home
-					}
-					if spec.underScratch {
-						const scratch = "/session-scratch"
-						start = present.New(present.OnHost(present.Paths{
-							ProjectRoot: present.Root{Host: root},
-							SessionHome: present.Root{Host: scratch},
-						}))
-						deliveryRoot = scratch
-					}
-					_, derr := d.Deliver(start)
-					require.NoError(t, derr, "%s: delivery failed", key)
-
-					tree := matrixTree(t, fs, deliveryRoot)
-					require.NotEmpty(t, tree, "%s: delivery reported success and wrote ZERO files", key)
-					if spec.underEngineHome || spec.underScratch {
-						assert.Empty(t, matrixTree(t, fs, root),
-							"%s promises a delivery outside the project but wrote into the PROJECT root", key)
-					}
-
-					assertSentinelAt(t, key, tree, spec.wantFile, spec.wantSlot)
-					if spec.alsoFile != "" {
-						assertSentinelAt(t, key, tree, spec.alsoFile, spec.alsoSlot)
-					}
-				})
-			}
-		}
-	}
-}
-
-// assertSentinelAt asserts sentinel is present in want (a relpath, or a
-// "<dir>/*" glob matching exactly one file in that directory).
+// assertSentinelAt asserts sentinel is in want (a relpath, or "<dir>/*"
+// matching exactly one file in that directory) and in no other file.
 func assertSentinelAt(t *testing.T, key string, tree map[string]string, want, sentinel string) {
 	t.Helper()
+	hits := findSentinel(tree, sentinel)
 	if strings.HasSuffix(want, "/*") {
 		dir := strings.TrimSuffix(want, "/*")
-		var matched []string
-		for p, c := range tree {
-			if filepath.ToSlash(filepath.Dir(p)) == dir && strings.Contains(c, sentinel) {
-				matched = append(matched, p)
-			}
-		}
-		assert.NotEmpty(t, matched,
-			"%s: no file under %s/ carries %s (tree: %v)", key, dir, sentinel, collections.SortedKeys(tree))
+		require.Len(t, hits, 1, "%s: %s must reach exactly one file (tree: %v)", key, sentinel, collections.SortedKeys(tree))
+		assert.Equal(t, dir, filepath.ToSlash(filepath.Dir(hits[0])), "%s: %s landed outside %s/", key, sentinel, dir)
 		return
 	}
 	content, ok := tree[want]
-	require.True(t, ok, "%s: the approach promises %s but it was not written (tree: %v)",
-		key, want, collections.SortedKeys(tree))
-	assert.Contains(t, content, sentinel,
-		"%s: %s exists but does not carry %s — the file was created without the payload", key, want, sentinel)
-	assert.Equal(t, []string{want}, findSentinel(tree, sentinel),
-		"%s: %s must reach exactly the promised destination and no other file", key, sentinel)
-}
-
-// TestDeliveryApproach_UndeclaredPairsAreRefusedLoudly covers the NEGATIVE
-// direction across the whole cross product: every (backend, kind, approach)
-// triple a backend does NOT declare must be REFUSED with an error naming the
-// backend, the surface, and the approach — never accepted and silently skipped.
-//
-// The one deliberate exception is a kind a backend FOLDS or omits entirely
-// (a backend whose MCP rides its config surface): SurfaceFor
-// still refuses it loudly, but the agent.Declaration treats selecting it as a
-// permitted no-op. That asymmetry is documented, so it is pinned here
-// rather than left to chance.
-func TestDeliveryApproach_UndeclaredPairsAreRefusedLoudly(t *testing.T) {
-	for _, name := range matrixBackends(t) {
-		decl := hostedDeclaration(name)
-		for _, k := range matrixKinds {
-			supported := decl.Names(k)
-			if len(supported) == 0 {
-				// A kind the engine does not declare is a FOLD: selecting it is
-				// a permitted no-op, never a refusal (see cells.go's Build).
-				continue
-			}
-			for _, a := range matrixApproaches() {
-				if slices.Contains(supported, a) {
-					continue
-				}
-				t.Run("refuse/"+pairKey(name, k, a), func(t *testing.T) {
-					d, ok := decl[k].Construct(a, matrixSentinelInputs(), safefs.NewMem(afero.NewMemMapFs()))
-					assert.False(t, ok, "%s: undeclared pair constructed a surface instead of being refused", pairKey(name, k, a))
-					assert.Nil(t, d, "a refused pair must not also hand back an Approach")
-				})
-			}
-		}
-	}
-}
-
-// TestDeliveryApproach_ClaudeSystemPromptScratchPlacement pins the two facts
-// the matrix loop's glob cannot express for claude-code/context/system-prompt:
-// that the framed <hash>.sysprompt.md leaf is named from a hash over the FRAMED
-// bytes, and that the payload carries the framed envelope rather than the bare
-// context.
-//
-// The approach has exactly ONE form now. It previously had two, named backwards
-// from the cell that ran them — the plain Deliver was the CLAUDE.md write, so an
-// ISOLATED launch that selected system-prompt was silently handed project memory
-// instead. This test therefore asserts the ordinary Deliver, not a separate
-// out-of-cwd form: there is no longer one to call, and its absence is the fix.
-func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	root := "/cell"
-	private := "/engine-home"
-	require.NoError(t, fs.MkdirAll(root, 0o755))
-	require.NoError(t, fs.MkdirAll(private, 0o755))
-
-	a, ok := claudeDeclaration(t)[agent.SurfaceContext].Construct(claude.ApproachSystemPrompt, matrixSentinelInputs(), safefs.NewMem(fs))
-	require.True(t, ok)
-
-	handle, err := a.(deliverer).Deliver(present.New(present.OnHost(present.Paths{
-		ProjectRoot: present.Root{Host: root},
-		SessionHome: present.Root{Host: private},
-	})))
-	require.NoError(t, err)
-	require.NotNil(t, handle)
-
-	// The project tree — the shared cwd this approach's private file exists to
-	// spare — stays completely empty.
-	assert.Empty(t, matrixTree(t, fs, root), "system-prompt must not touch the project root")
-
-	privateTree := matrixTree(t, fs, private)
-	hits := findSentinel(privateTree, slotContext)
-	require.Len(t, hits, 1,
-		"the system-prompt file must carry the context sentinel (private tree: %v)",
-		collections.SortedKeys(privateTree))
-	assert.True(t, strings.HasSuffix(hits[0], agent.SCMFramedContextSuffix),
-		"the framed file must be named <hash>%s, got %s", agent.SCMFramedContextSuffix, hits[0])
-	assert.Contains(t, privateTree[hits[0]], agent.FrameProjectContext(slotContext),
-		"the file must carry the FRAMED envelope, not the bare context")
-}
-
-// TestDeliveryApproach_SystemPromptRefusesAnUnrootedRun is the other half of the
-// one-form fix: with no engine home advised there is nowhere private to write,
-// and the approach REFUSES instead of falling back to the well-known CLAUDE.md.
-// The fallback is what silently converted an isolated launch's system prompt
-// into project memory, so its absence is asserted, not just described.
-func TestDeliveryApproach_SystemPromptRefusesAnUnrootedRun(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	root := "/cell"
-	require.NoError(t, fs.MkdirAll(root, 0o755))
-
-	a, ok := claudeDeclaration(t)[agent.SurfaceContext].Construct(claude.ApproachSystemPrompt, matrixSentinelInputs(), safefs.NewMem(fs))
-	require.True(t, ok)
-
-	_, err := a.(deliverer).Deliver(present.ProjectOnHost(root))
-	require.Error(t, err, "an unrooted run must be refused, never served the project file")
-	assert.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
-	assert.Empty(t, matrixTree(t, fs, root), "a refused delivery must write zero files")
-}
-
-// claudeDeclaration is claude's named-form table off the engine value
-// (agent.Hosted), the seam the matrix constructs its forms from.
-func claudeDeclaration(t *testing.T) agent.Declaration {
-	t.Helper()
-	e, err := claude.Build()
-	require.NoError(t, err)
-	return e.(agent.Hosted).Declaration()
-}
-
-// hostedDeclaration is the named engine's named-form table off the engine
-// value (agent.Hosted); empty for an engine that is not Hosted.
-func hostedDeclaration(name string) agent.Declaration {
-	h, ok := engines.Hosted(name)
-	if !ok {
-		return agent.Declaration{}
-	}
-	return h.Declaration()
+	require.True(t, ok, "%s: the approach promises %s but it was not written (tree: %v)", key, want, collections.SortedKeys(tree))
+	assert.Contains(t, content, sentinel, "%s: %s exists but does not carry %s", key, want, sentinel)
+	assert.Equal(t, []string{want}, hits, "%s: %s must reach exactly the promised destination and no other file", key, sentinel)
 }

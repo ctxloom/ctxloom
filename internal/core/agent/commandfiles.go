@@ -30,61 +30,6 @@ type CommandExport struct {
 	Model        string   // Override model
 }
 
-// CommandFileOption configures command file writing.
-type CommandFileOption func(*commandFileOptions)
-
-type commandFileOptions struct {
-	files           safefs.Root
-	homeCommandsDir string
-	reporter        report.Sink
-}
-
-// WithReporter names where the engine's writer reports the packages it
-// skips; ResolveReporter reads it back for forwarding (WithWriteReporter).
-func WithReporter(sink report.Sink) CommandFileOption {
-	return func(o *commandFileOptions) { o.reporter = sink }
-}
-
-// ResolveReporter returns the sink WithReporter set, or nil (silence).
-func ResolveReporter(opts ...CommandFileOption) report.Sink {
-	var options commandFileOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
-	return options.reporter
-}
-
-// WithCommandRoot sets the filesystem command files are written through,
-// paired with the locks their writers take.
-func WithCommandRoot(files safefs.Root) CommandFileOption {
-	return func(o *commandFileOptions) {
-		o.files = files
-	}
-}
-
-// WithHomeCommandsDir names the user-global command directory the target agent
-// also loads alongside the project scope (Claude Code: ~/.claude/commands). The
-// per-agent writer forwards it to WriteManagedCommandFiles as WithDedupHomeDir so
-// a project copy byte-identical to a global one is skipped rather than shipped as
-// a duplicate slash-command. Empty (the default) disables the dedup.
-func WithHomeCommandsDir(dir string) CommandFileOption {
-	return func(o *commandFileOptions) {
-		o.homeCommandsDir = dir
-	}
-}
-
-// ResolveHomeCommandsDir applies the options and returns the configured global
-// command directory to dedup against, or "" when none was set. The per-agent
-// writers call this to bridge a WithHomeCommandsDir CommandFileOption into a
-// WithDedupHomeDir ManagedWriteOption.
-func ResolveHomeCommandsDir(opts ...CommandFileOption) string {
-	options := &commandFileOptions{}
-	for _, opt := range opts {
-		opt(options)
-	}
-	return options.homeCommandsDir
-}
-
 // SafeCommandRelPath validates name as a relative path confined to dir and
 // returns the cleaned joined path. Command/skill names and the paths rendered
 // from them can originate in bundle content (potentially remote), so the
@@ -113,40 +58,17 @@ func SafeCommandRelPath(dir, name string) (string, bool) {
 	return joined, true
 }
 
-// ResolveCommandRoot applies the options and returns the Root to write
-// through, defaulting to the controller's own (safefs.New). Per-agent command
-// writers (in the claude package) call this so they can honor
-// WithCommandRoot without reaching the unexported option struct.
-func ResolveCommandRoot(opts ...CommandFileOption) safefs.Root {
-	options := &commandFileOptions{files: safefs.New()}
-	for _, opt := range opts {
-		opt(options)
-	}
-	return options.files
-}
-
 // ManagedWriteOption configures WriteManagedCommandFiles.
 type ManagedWriteOption func(*managedWriteOptions)
 
 type managedWriteOptions struct {
-	dedupHomeDir string
-	rep          report.Reporter
+	rep report.Reporter
 }
 
 // WithWriteReporter names where the managed writer reports skipped items and
 // failed chmods. Nil discards.
 func WithWriteReporter(sink report.Sink) ManagedWriteOption {
 	return func(o *managedWriteOptions) { o.rep = report.To(sink) }
-}
-
-// WithDedupHomeDir names a user-global command directory the agent also loads
-// alongside dir. When set and distinct from dir, a file byte-identical to the
-// same-named one already in this dir is skipped (not written, so not
-// delivered), so a "home/global wins" copy isn't duplicated into the project
-// scope. Only byte-identical files are skipped — a divergent file is still
-// written so version skew is never silently hidden. Empty disables the dedup.
-func WithDedupHomeDir(dir string) ManagedWriteOption {
-	return func(o *managedWriteOptions) { o.dedupHomeDir = dir }
 }
 
 // WriteManagedCommandFiles is the slash-command file writer shared by the

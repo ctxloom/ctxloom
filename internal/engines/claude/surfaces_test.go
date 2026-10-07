@@ -6,20 +6,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
-
-// fakePlacement (contextdelivery_test.go) and mcpServersOf (surfacedelivery_test.go)
-// are reused here — same package.
 
 // runRoots advises a run rooted at project with its session home at
 // sessionHome, on the host — the roots claude's well-known and private-root
@@ -32,83 +25,14 @@ func runRoots(project, sessionHome string) present.Start {
 	}))
 }
 
-// sampleInputs is a representative, fully-populated SurfaceInputs.
-func sampleInputs() agent.SurfaceInputs {
-	return agent.SurfaceInputs{
-		Reporter: strictness.Sink("ctxloom"),
-		Context:  "# Rules\nthe secret color is vermilion",
-		BundleMCP: map[string]wire.MCPServer{
-			agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
-			"config-server":     {Command: "config-cmd", Args: []string{"--flag"}},
-			"bundle-server":     {Command: "bundle-cmd", SCM: "ctxloom-bundle:test"},
-		},
-		Hooks: &wire.HooksConfig{
-			Unified: wire.UnifiedHooks{
-				SessionStart: []wire.Hook{{Command: "ctxloom hook session-start"}},
-			},
-		},
-		ManageStatusline: true,
-		Commands: []agent.CommandExport{
-			{Name: "review", Content: "Review {{file}}", Enabled: true, Description: "Code review"},
-		},
-		Skills: []agent.SkillExport{
-			{
-				Name:        "humanize",
-				Description: "Removes AI writing tells",
-				Enabled:     true,
-				Files: []agent.PackageFile{
-					{RelPath: "SKILL.md", Content: []byte("---\nname: humanize\ndescription: Removes AI writing tells\n---\n\nBody.\n"), Mode: 0644},
-					{RelPath: "scripts/run.sh", Content: []byte("#!/bin/sh\necho hi\n"), Mode: 0755},
-				},
-			},
-			{Name: "disabled-skill", Enabled: false, Files: []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("nope")}}},
-		},
-	}
-}
+// sampleContext is a representative assembled context.
+const sampleContext = "# Rules\nthe secret color is vermilion"
 
-// ---- constructing claude's approaches for a test -----------------------------
-
-// builtSurfaces holds one constructed instance of each claude approach, so a
-// test can drive a surface directly (the field) or through the builder
-// (Surfaces, the Declaration). Native is the unsafe-file context approach;
-// Context is the system-prompt one (the framed <hash>.sysprompt.md beneath
-// the session home).
-type builtSurfaces struct {
-	Native    agent.Approach
-	Context   *systemPromptContext
-	MCP       *mcpConfig
-	MCPUnsafe *mcpUnsafeFile
-	Settings  *settingsSurface
-	Commands  *commandsSurface
-	Skills    agent.Approach
-}
-
-// newSurfaces constructs every claude approach from in through the
-// Declaration — the same path Build takes — and type-asserts the concrete
-// ones, so a test that reaches a field is reaching what a launch would.
-// deliverer is a form that writes its own bytes, as opposed to one that only
-// presents (its write being the typed approach's claims).
-type deliverer interface {
-	Deliver(present.Start) (agent.Delivered, error)
-}
-
-func newSurfaces(in agent.SurfaceInputs, files safefs.Root) builtSurfaces {
-	must := func(kind agent.SurfaceKind, name string) agent.Approach {
-		a, ok := testDeclaration()[kind].Construct(name, in, files)
-		if !ok {
-			panic("claude does not declare " + kind.String() + "=" + name)
-		}
-		return a
-	}
-	return builtSurfaces{
-		Native:    must(agent.SurfaceContext, agent.ApproachUnsafeFile),
-		Context:   must(agent.SurfaceContext, ApproachSystemPrompt).(*systemPromptContext),
-		MCP:       must(agent.SurfaceMCP, ApproachMCPConfig).(*mcpConfig),
-		MCPUnsafe: must(agent.SurfaceMCP, agent.ApproachUnsafeFile).(*mcpUnsafeFile),
-		Settings:  must(agent.SurfaceSettings, agent.ApproachUnsafeFile).(*settingsSurface),
-		Commands:  must(agent.SurfaceCommands, agent.ApproachUnsafeFile).(*commandsSurface),
-		Skills:    must(agent.SurfaceSkills, agent.ApproachUnsafeFile),
-	}
+// newSystemPromptContext is claude's system-prompt writer over the real
+// filesystem — the one contextApproach.DeliverContext drives at the session
+// home.
+func newSystemPromptContext() *systemPromptContext {
+	return &systemPromptContext{content: sampleContext, fs: afero.NewOsFs()}
 }
 
 // ---- context surface -------------------------------------------------------
@@ -119,12 +43,12 @@ func newSurfaces(in agent.SurfaceInputs, files safefs.Root) builtSurfaces {
 // there is no second one for a cell to pick instead.
 func TestContextSurface_DeliverWritesSyspromptAndExposesPath(t *testing.T) {
 	cwd, home := t.TempDir(), t.TempDir()
-	s := newSurfaces(sampleInputs(), safefs.New())
+	s := newSystemPromptContext()
 
-	handle, err := s.Context.Deliver(runRoots(cwd, home))
+	handle, err := s.Deliver(runRoots(cwd, home))
 	require.NoError(t, err)
 
-	path := s.Context.Path()
+	path := s.Path()
 	require.NotEmpty(t, path, "Path() exposes the framed file for --append-system-prompt-file")
 	assert.Equal(t, home, filepath.Dir(path), "the framed file lands beneath the relocated engine home")
 	assert.True(t, strings.HasSuffix(path, agent.SCMFramedContextSuffix))
@@ -132,7 +56,7 @@ func TestContextSurface_DeliverWritesSyspromptAndExposesPath(t *testing.T) {
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
-	assert.Equal(t, agent.FrameProjectContext(sampleInputs().Context), string(data))
+	assert.Equal(t, agent.FrameProjectContext(sampleContext), string(data))
 
 	// The cwd receives nothing, and the home holds no CLAUDE.md.
 	assert.NoFileExists(t, filepath.Join(cwd, "CLAUDE.md"))
@@ -141,61 +65,6 @@ func TestContextSurface_DeliverWritesSyspromptAndExposesPath(t *testing.T) {
 	require.NoError(t, handle.Cleanup())
 	assert.NoFileExists(t, path)
 }
-
-// ---- MCP surface -----------------------------------------------------------
-
-// ---- settings surface ------------------------------------------------------
-
-// ---- commands surface -------------------------------------------------------
-
-// commands Delivery writes .claude/commands/ into the target dir, and the
-// commands persist after the run: removal is the static writer's release.
-func TestCommandsSurface_DeliverWritesCommands(t *testing.T) {
-	dir := t.TempDir()
-	s := newSurfaces(sampleInputs(), safefs.New())
-
-	handle, err := s.Commands.Deliver(present.ProjectOnHost(dir))
-	require.NoError(t, err)
-
-	assert.FileExists(t, filepath.Join(dir, ".claude", "commands", "review.md"))
-
-	require.NoError(t, handle.Cleanup())
-	assert.FileExists(t, filepath.Join(dir, ".claude", "commands", "review.md"), "a delivered command persists after the run (SurfacePersistsAfterExit)")
-}
-
-// ---- skills surface ----------------------------------------------------------
-
-// skills Delivery writes .claude/skills/<name>/SKILL.md (+ sibling files) into
-// the target dir with the exec bit preserved; a disabled skill is not written;
-// the package persists after the run. This exercises the same NewSurfaces
-// construction the LIVE launch path drives (claudecode.go's buildSurfaces
-// forwards SurfaceInputs.Skills straight into this Surfaces value).
-func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
-	dir := t.TempDir()
-	s := newSurfaces(sampleInputs(), safefs.New())
-
-	handle, err := s.Skills.(deliverer).Deliver(present.ProjectOnHost(dir))
-	require.NoError(t, err)
-
-	skillMD := filepath.Join(dir, ".claude", "skills", "humanize", "SKILL.md")
-	require.FileExists(t, skillMD)
-	content, err := os.ReadFile(skillMD)
-	require.NoError(t, err)
-	assert.Contains(t, string(content), "Body.")
-
-	scriptPath := filepath.Join(dir, ".claude", "skills", "humanize", "scripts", "run.sh")
-	info, err := os.Stat(scriptPath)
-	require.NoError(t, err, "scripts/run.sh must be materialized")
-	fileperm.Equal(t, 0o755, info.Mode(), "the exec bit on scripts/run.sh survives claude's skills surface")
-
-	assert.NoFileExists(t, filepath.Join(dir, ".claude", "skills", "disabled-skill", "SKILL.md"),
-		"a skill with Enabled == false must not be written")
-
-	require.NoError(t, handle.Cleanup())
-	assert.FileExists(t, skillMD, "a delivered skill package persists after the run (SurfacePersistsAfterExit)")
-}
-
-// ---- cells wiring (the vertical slice) -------------------------------------
 
 // ---- the declaration ---------------------------------------------------------
 
@@ -230,91 +99,6 @@ func TestSurfaces_DeclaresContextTwoWaysMCPTwoAndTheRestOnce(t *testing.T) {
 	}
 }
 
-// TestNewSurfaces_ThreadsEverySurfaceScopedInput is the pin a past review
-// asked for without asking for it. That review read fileTemplateDelivery's
-// surface-scoped fields (denyTools, selfContainedCommands) as a coupling
-// defect because the constructor cannot set them and a missed assignment is
-// compile-clean. The assignments are real and each is exactly-once, but
-// "compile-clean if missed" is a TEST gap, not a constructor problem — a
-// functional-options constructor is just as silently omittable.
-//
-// So this closes the gap: every such input is driven from SurfaceInputs through
-// NewSurfaces and asserted on the delivered PAYLOAD. denyTools was already
-// covered by the Setup deny-tools tests; selfContainedCommands had no
-// surface-level coverage at all, which is precisely the field whose omission
-// would silently drop commands from a portable materialize target.
-func TestNewSurfaces_ThreadsEverySurfaceScopedInput(t *testing.T) {
-	fakeHome := testsupport.Isolate(t)
-
-	dup := agent.CommandExport{Name: "recover", Content: "Recovering context", Enabled: true}
-	writeRenderedHomeCommand(t, fakeHome, dup)
-
-	in := sampleInputs()
-	in.Commands = []agent.CommandExport{dup}
-	in.SelfContainedCommands = true
-
-	dir := t.TempDir()
-	s := newSurfaces(in, safefs.New())
-
-	_, err := s.Commands.Deliver(present.ProjectOnHost(dir))
-	require.NoError(t, err)
-	assert.FileExists(t, filepath.Join(dir, ".claude", "commands", "recover.md"),
-		"SelfContainedCommands must reach the commands writer — otherwise a portable target silently loses "+
-			"every command that happens to exist in the delivering machine's home")
-}
-
-// Every approach's Present must name the path that approach actually writes.
-// Without this, the presentation of a surface with no out-of-cwd flag
-// (commands, skills) is read by nothing: the isolated --mcp-config and
-// --settings paths and flagArgs cover the other three, so a wrong rel path in
-// the commands or skills presentation would leave the suite green — a
-// declaration that documents nothing and gates nothing.
-//
-// It walks the DECLARATION rather than a list repeated here, so a surface
-// added to Surfaces is covered the moment it is declared.
-func TestSurfaces_PresentedPathIsWhereTheApproachWrites(t *testing.T) {
-	for kind := range testDeclaration() {
-		t.Run(kind.String(), func(t *testing.T) {
-			dir := t.TempDir()
-			def, ok := testDeclaration().Default(kind)
-			require.True(t, ok, "%s is declared, so it must have a default", kind)
-			a, ok := testDeclaration()[kind].Construct(def, sampleInputs(), safefs.New())
-			require.True(t, ok)
-			d, delivers := a.(deliverer)
-			if !delivers {
-				t.Skipf("%s's default form only presents; its write is the typed approach's claims", kind)
-			}
-
-			// Every root advised: a default approach may root under any of
-			// them, and one that roots privately REFUSES an unadvised root
-			// rather than falling back to the project file.
-			start := runRoots(dir, t.TempDir())
-			_, err := d.Deliver(start)
-			require.NoError(t, err)
-
-			declared := a.Present(start).HostPath
-			_, statErr := os.Stat(declared)
-			require.NoError(t, statErr,
-				"%s presents %q but delivered nothing there", kind, declared)
-		})
-	}
-}
-
-// The same declared approach, constructed once, lands in DIFFERENT places for
-// a host run and a worktree run: roots bind at Present/Deliver, never at
-// construction — which is what keeps a worktree-isolated agent out of the
-// coordinator's checkout. Enumerating the declaration needs neither root.
-func TestSurfaces_RootsBindPerLaunchNotAtConstruction(t *testing.T) {
-	a, ok := testDeclaration()[agent.SurfaceContext].Construct(agent.ApproachUnsafeFile, sampleInputs(), safefs.New())
-	require.True(t, ok)
-	host := a.Present(present.ProjectOnHost("/home/dev/project")).HostPath
-	worktree := a.Present(present.ProjectOnHost("/home/dev/worktrees/project--feat")).HostPath
-	assert.NotEqual(t, host, worktree)
-	assert.Equal(t, filepath.Join("/home/dev/project", ContextFileName), host)
-	assert.Equal(t, filepath.Join("/home/dev/worktrees/project--feat", ContextFileName), worktree)
-	assert.NotEmpty(t, testDeclaration().Names(agent.SurfaceContext), "enumeration needs no root and no construction")
-}
-
 // TestPrivateRootApproaches_RefuseWithoutAnEngineHome is feeble-sway's
 // no-fallback condition at the seam. An approach whose ONLY form lands beneath
 // the private root, handed a run that advises none, refuses with
@@ -326,7 +110,7 @@ func TestSurfaces_RootsBindPerLaunchNotAtConstruction(t *testing.T) {
 // pick one.
 func TestPrivateRootApproaches_RefuseWithoutAnEngineHome(t *testing.T) {
 	project := t.TempDir()
-	s := newSurfaces(sampleInputs(), safefs.New())
+	s := newSystemPromptContext()
 	noHome := runRoots(project, "")
 
 	for _, tc := range []struct {
@@ -334,7 +118,7 @@ func TestPrivateRootApproaches_RefuseWithoutAnEngineHome(t *testing.T) {
 		deliver func(present.Start) (agent.Delivered, error)
 		path    func() string
 	}{
-		{"context", s.Context.Deliver, s.Context.Path},
+		{"context", s.Deliver, s.Path},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			handle, err := tc.deliver(noHome)

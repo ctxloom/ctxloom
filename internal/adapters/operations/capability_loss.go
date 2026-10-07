@@ -20,12 +20,11 @@ import (
 // caller that names an engine binding without materializing anything at all:
 // `agent show`, `doctor`, `manage check` (trusting-ambiguity).
 //
-// Only hooks are checked because UncarriedSurfaces only ever reports hooks
-// today (see its doc). workDir/contextHash are irrelevant to which hooks are
-// LOST (only to the synthetic SessionStart context-injection hook this call
-// deliberately omits, passing contextHash "" exactly as
-// managedhooks.Assemble does), so this never needs a target
-// directory the way `profile materialize` does.
+// Only hooks are checked because hooks are the only surface an engine
+// declares a loss for (engine.Definition.HookLosses, read off the registry by
+// uncarriedSurfaces). Which hooks are LOST depends on the profiles' declared
+// hooks alone, so this never needs a target directory the way
+// `profile materialize` does.
 //
 // nil cfg or an empty backend name report no loss — there is nothing to
 // resolve a hooks configuration against.
@@ -37,7 +36,7 @@ func CapabilityLoss(reg engine.Registry, cfg *config.Config, backend string, pro
 		return nil
 	}
 	hooks := managedhooks.Assemble(cfg, profileNames).WireDeclared()
-	return uncarriedSurfaces(reg, backend, agent.SurfaceInputs{Hooks: hooks})
+	return uncarriedSurfaces(reg, backend, hooks)
 }
 
 // CapabilityLossByAgent is the roster-wide read of CapabilityLoss: for every

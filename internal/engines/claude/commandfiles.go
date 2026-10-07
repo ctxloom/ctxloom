@@ -2,45 +2,23 @@ package claude
 
 import (
 	"bytes"
-	"path/filepath"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
-// WriteCommandFiles generates Claude Code slash command files from exported
-// prompts. Files are written directly to .claude/commands/ (e.g., save.md ->
-// /save). Only exports with Enabled == true are written, and nothing is
-// removed: the .claude/commands/ directory is shared with the user's own
-// commands (see agent.WriteManagedCommandFiles for the shared mechanics).
-func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent.CommandFileOption) error {
-	files := agent.ResolveCommandRoot(opts...)
-	commandsDir := filepath.Join(workDir, ConfigDirName, CommandsDirName)
-
-	// Claude Code loads ~/.claude/commands alongside this project scope, so when
-	// the dispatch layer supplies that global dir, dedup project copies that are
-	// byte-identical to a global one (see agent.WriteManagedCommandFiles).
-	mwOpts := []agent.ManagedWriteOption{agent.WithWriteReporter(agent.ResolveReporter(opts...))}
-	if home := agent.ResolveHomeCommandsDir(opts...); home != "" {
-		mwOpts = append(mwOpts, agent.WithDedupHomeDir(home))
-	}
-
-	_, err := writeCommandDir(files, commandsDir, cmds, mwOpts...)
-	return err
-}
-
 // writeCommandDir writes cmds as claude slash-command files into dir — the
 // one transform both the project's .claude/commands and the session home's
 // commands directory go through — and returns the host path of every file it
 // placed.
-func writeCommandDir(files safefs.Root, dir string, cmds []agent.CommandExport, opts ...agent.ManagedWriteOption) ([]string, error) {
+func writeCommandDir(files safefs.Root, dir string, cmds []agent.CommandExport) ([]string, error) {
 	return agent.WriteManagedCommandFiles(files, dir, cmds,
 		func(c agent.CommandExport) (string, []byte, error) {
 			// Replace path separators with dashes for nested names.
 			filename := strings.ReplaceAll(c.Name, "/", "-") + ".md"
 			return filename, []byte(TransformToClaudeCommand(c)), nil
-		}, opts...)
+		})
 }
 
 // TransformToClaudeCommand converts a command export to Claude Code command

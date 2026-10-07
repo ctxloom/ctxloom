@@ -364,22 +364,81 @@ func TestDynamic_RendersTheSessionRelayAsAStdioEntry(t *testing.T) {
 	require.Equal(t, "claude-relay", RelayCommand, "the command name is what an already-written MCP file spawns")
 }
 
-// TestDeclaration_IsDerivedFromTheDefinition: the named-form table today's
-// launch path reads is a projection of the typed approaches' Forms, kind by
-// kind — one table.
-func TestDeclaration_IsDerivedFromTheDefinition(t *testing.T) {
+// TestDeclaration_NamesEveryKindTheDefinitionDelivers: the static name
+// table and the typed Definition state claude's surfaces twice, so they are
+// held to each other — every static kind the Definition carries has names a
+// binding can select (hooks excepted: they ride the settings file and are
+// not selectable on their own), and the table names no kind the Definition
+// does not carry.
+func TestDeclaration_NamesEveryKindTheDefinitionDelivers(t *testing.T) {
 	e, err := Build()
 	require.NoError(t, err)
 	decl := e.(Claude).Declaration()
-	for _, kind := range claudeDef(t).Static() {
+	def := claudeDef(t)
+	for _, kind := range def.Static() {
 		if kind == present.Hooks {
-			continue // hooks ride the settings forms; no named form of their own
+			continue
 		}
-		require.NotEmpty(t, decl.Names(kind), "kind %v has no runtime forms", kind)
+		require.NotEmpty(t, decl.Names(kind), "kind %v is delivered but has no selectable name", kind)
+	}
+	for kind := range decl {
+		require.True(t, def.Carries(kind), "the table names %v, which the Definition does not deliver", kind)
 	}
 	require.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachSystemPrompt}, decl.Names(agent.SurfaceContext))
-	def, _ := decl.Default(agent.SurfaceMCP)
-	require.Equal(t, ApproachMCPConfig, def)
+	mcpDef, _ := decl.Default(agent.SurfaceMCP)
+	require.Equal(t, ApproachMCPConfig, mcpDef)
+}
+
+// TestDelivered_PresentsWhereTheApproachWrites: for every static kind, at
+// every root its approach offers, the path the delivery PRESENTS (what a
+// launch flag names, or where the engine looks) is where it writes — a file
+// it declares, a file it claims into, or the directory its declared files
+// land in. A presentation that named anywhere else would announce a path
+// nothing was written to.
+func TestDelivered_PresentsWhereTheApproachWrites(t *testing.T) {
+	def := claudeDef(t)
+	for _, kind := range def.Static() {
+		for _, root := range def.Surfaces()[kind].Traits().Roots {
+			t.Run(fmt.Sprintf("%v/%v", kind, root), func(t *testing.T) {
+				start, _, _ := hostStart(t)
+				d, err := deliverSample(def, kind, start, root)
+				require.NoError(t, err)
+				at := d.Presented.HostPath
+				require.NotEmpty(t, at, "the delivery presents no path")
+				if _, claimed := d.Claims[at]; claimed {
+					return
+				}
+				require.NotEmpty(t, d.Files, "%s is presented, but the delivery neither declares nor claims anything", at)
+				for _, f := range d.Files {
+					require.True(t, f == at || strings.HasPrefix(f, at+string(filepath.Separator)),
+						"declared file %s is not at or under the presented %s", f, at)
+					require.FileExists(t, f)
+				}
+			})
+		}
+	}
+}
+
+// deliverSample delivers one kind through claude's typed approach with a
+// non-empty input, so every approach has something to write.
+func deliverSample(def engine.Base, k present.Kind, start present.Start, root present.RootKind) (present.Delivered, error) {
+	files := safefs.New()
+	switch k {
+	case present.Context:
+		return def.Context.DeliverContext(start, root, engine.ContextInputs{Text: []byte("ctx"), Hash: "h"}, files.Fs)
+	case present.MCP:
+		return def.MCP.DeliverMCP(start, root, engine.MCPInputs{Servers: map[string]wire.MCPServer{"s": {Command: "c"}}}, files.Fs)
+	case present.Settings:
+		return def.Settings.DeliverSettings(start, root, engine.SettingsInputs{DenyTools: []string{"Bash"}}, files.Fs)
+	case present.Hooks:
+		return def.Hooks.DeliverHooks(start, root, engine.HooksInputs{Hooks: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "c"}}}}, files.Fs)
+	case present.Commands:
+		return def.Commands.DeliverCommands(start, root, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "greet", Body: []byte("hi"), Enabled: true}}}, files)
+	case present.Skills:
+		return def.Skills.DeliverSkills(start, root, engine.SkillsInputs{Skills: []engine.SkillExport{{Name: "greet", Description: "greets", Enabled: true,
+			Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: []byte("---\nname: greet\ndescription: g\n---\nbody")}}}}}, files)
+	}
+	return present.Delivered{}, fmt.Errorf("no sample for %v", k)
 }
 
 // TestBuild_EverySurfaceDefaultsToTheSessionHome pins the ruling: no

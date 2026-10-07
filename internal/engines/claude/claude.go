@@ -66,19 +66,6 @@ func GlobalSettingsPath() (string, error) {
 	return filepath.Join(home, ConfigDirName, SettingsFileName), nil
 }
 
-// GlobalCommandsDir returns the user-global Claude Code slash-command directory
-// (~/.claude/commands). Claude Code loads this alongside the project-scoped
-// <workdir>/.claude/commands, so a project copy byte-identical to a global one
-// surfaces as a duplicate slash-command; the command writer dedups against this
-// dir (see agent.WriteManagedCommandFiles).
-func GlobalCommandsDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ConfigDirName, CommandsDirName), nil
-}
-
 // SettingsPath returns the path to Claude Code's settings.json file.
 func (w *ClaudeCodeHookWriter) SettingsPath(projectDir string) string {
 	return ProjectSettingsPath(projectDir)

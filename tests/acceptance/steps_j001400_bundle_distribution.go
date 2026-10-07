@@ -10,9 +10,9 @@
 //
 // THE DELIVERY HALF IS NOW HERMETIC TOO, on the host runtime. The vehicle is
 // `profile materialize --backend mock`, over the mock backend's own context and
-// skills surfaces (internal/engines/mock/forms.go) — the ownership record's
-// appended-section claim and the shared agent.WriteManagedSkillPackages writer
-// every real engine uses, differing only in the directory they target. Materialize
+// skills approaches (internal/engines/mock/surfaces.go), driven by the same
+// static writer every engine's are — the ownership record's appended-section
+// claim and a skills tree written at each file's declared mode. Materialize
 // rather than `ctxloom run` because a run's Cleanup strips what it delivered
 // before any step could stat it (grpc.RunTurn calls Cleanup immediately after
 // Execute and the shared LIFO reversal removes the managed section); the
@@ -146,9 +146,9 @@ func j001400BundleRel(rel string) string {
 // the engine an ordinary consumer runs — is what they had. But the DELIVERY
 // MATRIX has to observe delivered files on a machine with no engine installed,
 // and the only backend that both materializes real surfaces and needs nothing
-// on the host is "mock" (internal/engines/mock/forms.go: a context
-// surface at MOCK_CONTEXT.md and a skills tree at .mock/skills/, both through
-// the SAME shared writers claude/codex/opencode go through).
+// on the host is "mock" (internal/engines/mock/surfaces.go: a context
+// approach at MOCK_CONTEXT.md and a skills tree at .mock/skills/, both driven
+// by the SAME static writer every engine's approaches go through).
 // Hardcoding a single claude-code engine here is what previously kept every
 // matrix row away from that route.
 //

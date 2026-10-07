@@ -209,6 +209,15 @@
           "pre_tool_fallback": true,
           "prompt": "Load the project context.",
           "type": "prompt"
+        },
+        {
+          "args": [
+            "hook",
+            "session-start"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "type": "command"
         }
       ],
       "turn_end": [
@@ -484,6 +493,15 @@
           "pre_tool_fallback": true,
           "prompt": "Load the project context.",
           "type": "prompt"
+        },
+        {
+          "args": [
+            "hook",
+            "session-start"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "type": "command"
         }
       ],
       "turn_end": [
@@ -749,6 +767,15 @@
           "pre_tool_fallback": true,
           "prompt": "Load the project context.",
           "type": "prompt"
+        },
+        {
+          "args": [
+            "hook",
+            "session-start"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "type": "command"
         }
       ],
       "turn_end": [
@@ -1021,6 +1048,15 @@
           "pre_tool_fallback": true,
           "prompt": "Load the project context.",
           "type": "prompt"
+        },
+        {
+          "args": [
+            "hook",
+            "session-start"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "type": "command"
         }
       ],
       "turn_end": [
@@ -1286,6 +1322,15 @@
           "pre_tool_fallback": true,
           "prompt": "Load the project context.",
           "type": "prompt"
+        },
+        {
+          "args": [
+            "hook",
+            "session-start"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "type": "command"
         }
       ],
       "turn_end": [
@@ -1558,6 +1603,15 @@
           "pre_tool_fallback": true,
           "prompt": "Load the project context.",
           "type": "prompt"
+        },
+        {
+          "args": [
+            "hook",
+            "session-start"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "type": "command"
         }
       ],
       "turn_end": [
@@ -1823,6 +1877,15 @@
           "pre_tool_fallback": true,
           "prompt": "Load the project context.",
           "type": "prompt"
+        },
+        {
+          "args": [
+            "hook",
+            "session-start"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "type": "command"
         }
       ],
       "turn_end": [
@@ -2095,6 +2158,15 @@
           "pre_tool_fallback": true,
           "prompt": "Load the project context.",
           "type": "prompt"
+        },
+        {
+          "args": [
+            "hook",
+            "session-start"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "type": "command"
         }
       ],
       "turn_end": [
@@ -2337,6 +2409,15 @@
           "pre_tool_fallback": true,
           "prompt": "Load the project context.",
           "type": "prompt"
+        },
+        {
+          "args": [
+            "hook",
+            "session-start"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "type": "command"
         }
       ],
       "turn_end": [
@@ -2563,6 +2644,15 @@
           "pre_tool_fallback": true,
           "prompt": "Load the project context.",
           "type": "prompt"
+        },
+        {
+          "args": [
+            "hook",
+            "session-start"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "type": "command"
         }
       ],
       "turn_end": [

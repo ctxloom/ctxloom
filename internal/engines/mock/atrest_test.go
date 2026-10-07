@@ -1,6 +1,7 @@
 package mock
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -52,6 +53,6 @@ func TestMockUninstall_NeverCreatesAFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, atrest.New(t, safefs.NewMem(fs), New(), "/proj").Uninstall(), "removing from a project with no settings file is not an error")
 
-	_, err := fs.Stat(mockSettingsPath("/proj"))
+	_, err := fs.Stat(filepath.Join("/proj", settingsRel))
 	assert.Error(t, err, "uninstall must never create the file it was asked to clean")
 }

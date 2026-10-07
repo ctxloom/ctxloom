@@ -67,7 +67,7 @@ func TestMaterializeProfile_WritesClaudeMd(t *testing.T) {
 // self-contained tree, so a builtin command (e.g. "discover") that happens to
 // be byte-identical to a file already sitting in the MATERIALIZING machine's
 // own ~/.claude/commands must still land in --target. Pre-fix, claude's
-// DeliverCommands unconditionally deduped against GlobalCommandsDir(), silently
+// commands delivery unconditionally deduped against ~/.claude/commands, silently
 // dropping it — exactly the observed cr-correctness bug (3 built-ins missing
 // for claude-code only and present for every other engine, because this host
 // happened to already have them installed under ~/.claude/commands).

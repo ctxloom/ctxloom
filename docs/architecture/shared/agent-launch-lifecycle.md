@@ -1,42 +1,21 @@
-# agent — LaunchBackend setup/execute/cleanup
+# agent — LaunchBackend (the exec half)
 
-`LaunchBackend` is the shared core a local-CLI engine embeds. It owns two
-things that happen to live on one struct: the **generic Setup/Cleanup** that
-turns a host-assembled `ManagedConfig` into delivered surfaces and reversible
-cleanup handles, and the **exec half** that assembles the child environment
-and routes an interactive or oneshot launch. Capabilities — including the
-engine's `Declaration` of the approaches it delivers at launch — are injected
-once via `InitLaunch` and probed at use.
+`LaunchBackend` is the shared core a local-CLI engine embeds: the EXEC half
+of a launch — child environment assembly, the argv trace, and interactive
+vs oneshot routing. Delivery is not this type's: the runner delivers the
+launch's package through the static writer (`fsstatic`) before `Execute`
+runs, as described in [surface delivery](agent-surface-delivery.md).
 
-Authority: `internal/core/agent/launch_backend.go`; the selection and cell
-machinery it drives is described in [surface delivery](agent-surface-delivery.md).
+Authority: `internal/core/agent/launch_backend.go`.
 
 ```mermaid
 flowchart TD
-  SR["SetupRequest{Managed, Fragments, CellKind, Env}"] --> SETUP["LaunchBackend.Setup"]
-  SETUP -->|"surfaces == nil → error"| MISCONF["misconfigured backend: InitLaunch never ran"]
-  SETUP --> SVC["setupViaCells"]
-  SVC -->|"Managed == nil → return nil"| DEGRADED["config failed to load: touch nothing"]
-  SVC --> MM["lifecycle.MergeManaged"]
-  SVC --> MS["mergedState<br/>(GetHooks / GetBundleMCP; !ok → error)"]
-  MS --> INPUTS["SurfaceInputs{Context, BundleMCP, Hooks, ...}"]
-  SVC --> START["present.Start — roots advised ONCE<br/>ProjectRoot = WorkDir; SessionHome = &lt;session dir&gt;/home/&lt;leaf&gt; (launch.SessionHome)"]
-  INPUTS --> DS["deliverSet"]
-  START --> DS
-  DS --> SEL["Select(Declaration).WithEverything()"]
-  SEL -->|"CellKind shared, kind not named by caller"| PREF["preferOutOfCwd"]
-  SEL -->|"req.Managed.Surfaces"| WITH["With(kind, name) — caller's explicit preference"]
-  WITH --> BUILD["Build(inputs)"]
-  BUILD -->|"CellKind isolated"| CELL["NewIsolatedCell(start).Deliver"]
-  BUILD -->|"CellKind shared"| SHARED["deliverOneShared"]
-  SHARED -->|"any surface failed"| REFUSE["refuse the launch"]
-  CELL --> HANDLES[("b.delivered []Delivered")]
-  SHARED --> HANDLES
-  HANDLES --> CLEAN["Cleanup — LIFO"]
-
-  EXEC["ExecuteCLI"] --> ENV["ExecuteEnv"]
-  ENV --> CFP["ContextFilePath"]
+  EXEC["ExecuteCLI"] -->|"DryRun"| STOP["result, no exec"]
+  EXEC --> LIMIT["checkArgvLimit"]
   EXEC --> TRACE["TraceArgs"]
+  EXEC --> ENV["ExecuteEnv"]
+  ENV --> CFP["context-file path (HashedContext)"]
+  ENV --> EXTRA["extraEnv (SetExecuteEnv)"]
   EXEC --> RUN["RunInteractive / RunNonInteractive"]
 ```
 
@@ -44,76 +23,26 @@ flowchart TD
 
 | Symbol | Purpose |
 |---|---|
-| `LaunchBackend` | Embeds `BaseBackend`; holds the injected `lifecycle`, `context`, `history`, the engine's `surfaces Declaration`, the `resolved` selection of the current run, an optional `extraEnv` contributor, and the `delivered` handles. |
-| `ManagedLifecycle` | The lifecycle capability `LaunchBackend` is wired with — declares `MergeManaged`. `BaseLifecycle` implements it. |
+| `LaunchBackend` | Embeds `BaseBackend`; holds the injected `context` provider, an optional `extraEnv` contributor, and the `engineHomeVar` naming the env var that relocates the engine's config home. |
 | `HashedContext` | `ContextProvider` plus the on-disk path of the context it last provided, handed to the child via the context-file env var. |
 
 ## Functions
 
 | Symbol | Purpose |
 |---|---|
-| `LaunchBackend.InitLaunch` | Wires lifecycle, context provider and the engine's `Declaration` in one call. No validation performed. |
-| `LaunchBackend.Resolved` | The selection `Setup` built and delivered for the current run, or nil before `Setup`. An engine reads it to learn what its own approaches recorded (claude's out-of-cwd file paths for argv) — never to deliver again. |
+| `LaunchBackend.InitLaunch` | Wires the context provider. Called once from the concrete constructor. |
 | `LaunchBackend.SetExecuteEnv` | Registers an extra per-backend child-env contributor on top of the shared `ExecuteEnv`. |
-| `LaunchBackend.ManagedChatMCPServers` | Capability-probes the lifecycle for `ChatMCPServers()`. |
-| `LaunchBackend.ExecuteCLI` | Dry-run stop, argv trace, env assembly, then interactive vs oneshot routing; propagates the runner error with its exit code. |
+| `LaunchBackend.SetEngineHomeVar` | Names the env var that relocates the engine's config home (claude's `CLAUDE_CONFIG_DIR`); empty for an engine that declares none. |
+| `LaunchBackend.ExecuteCLI` | Dry-run stop, argv-limit refusal, argv trace, env assembly, then interactive vs oneshot routing; propagates the runner error with its exit code. |
 | `LaunchBackend.TraceArgs` | Verbosity-gated argv trace. |
-| `LaunchBackend.ExecuteEnv` | Three-layer env merge with documented precedence. |
-| `LaunchBackend.ContextFilePath` | Nil-guarded `GetContextFilePath`; sets the context-file env var. |
-| `LaunchBackend.Setup` | Sets the work dir, refuses a nil `Declaration`, routes to `setupViaCells`. |
-| `LaunchBackend.setupViaCells` | `MergeManaged` → read the merged state → assemble the surface context → advise the run's roots ONCE → `deliverSet`. |
-| `LaunchBackend.deliverSet` | Selects from the `Declaration`, applies the shared-launch preference and the caller's explicit per-kind names, builds, delivers through the cell named by `req.CellKind`, installs the injection hook for a `Rider` context approach, and records every non-nil handle. |
-| `SurfaceSelection.preferOutOfCwd` | The shared-cell default derivation: with no explicit preference for a kind, prefer the declared approach that implements `OutOfCwd`; if several do and none is the default, error — the declaration must say which it prefers. Decided from the CAPABILITY, never from a name. |
-| `LaunchBackend.mergedState` | Capability-probes the lifecycle for the merged hooks + bundle MCP, returning `(hooks, mcp, ok)`. |
-| `LaunchBackend.Cleanup` | LIFO teardown of every recorded handle. |
+| `LaunchBackend.ExecuteEnv` | The request env, the SCM context-file path when context was provided, then the per-backend contributor; later entries win on a key clash. |
+| `LaunchBackend.Cleanup` | A no-op: the runner owns what it delivered (its static writer's ownership record). |
 
 ## Invariants and contracts
 
-- **`InitLaunch` must run before `Setup`, and `Setup` checks the one thing it
-  can.** A nil `Declaration` is a misconfigured backend, never a legitimate
-  "nothing to do", so `Setup` errors rather than reporting success while
-  setting up nothing. A protocol-only engine that materializes no files passes
-  an EMPTY declaration, which is a different fact and flows through.
-- **`req.Managed == nil` means the config failed to load and the run degraded
-  through**: `setupViaCells` returns without touching any surface — deliver
-  nothing, retract nothing. An EMPTY payload deliberately does NOT stop there:
-  it flows on to the writers, which reconcile to it and retract what ctxloom
-  installed last round. This is why it is a nil check and not a `len()` check.
-- **`mergedState`'s `ok` is checked, and `!ok` is an error.** Falling through
-  would deliver a settings file containing none of the configured hooks or
-  servers with exit 0 — a misconfigured backend, not a legitimate "nothing
-  configured" (that is an EMPTY payload, which flows past and reconciles).
-- **Roots are resolved and advised ONCE per Setup**, before any surface runs,
-  as a `present.Start`: the project root is the working dir; the session home
-  is `<session dir>/home/<leaf>` (`launch.SessionHome`), the session-private
-  root a delivery uses when it must stay out of the project. `present.OnHost`, not a containerize advice: Setup runs where the
-  engine runs — inside the container, for a container cell — so writer and
-  engine share one filesystem namespace and the identity advice is truthful.
-- **The shared-launch preference is derived, scoped, and overridable.**
-  `preferOutOfCwd` runs only for `CellKindShared` (an isolated cell's
-  well-known write is already race-free, so there is nothing to prefer) and
-  only for kinds the caller did NOT name in `req.Managed.Surfaces`. An
-  explicit preference is HONOURED, not silently converted back to the scratch
-  form. The binding's preference is applied here rather than in the engine's
-  declaration because a launch has the argv sink a flag-announced approach
-  needs and an at-rest `DeliverUnder` does not.
-- **Context recovery is matched by KIND, not by index.** A backend with no
-  distinct context surface has some other kind first in the resolved
-  selection, and the fallback must not fire on that kind's failure.
-- **A nil `Delivered` holds no cleanup handle and is not recorded.**
-- **A failed delivery REFUSES; it never substitutes another mechanism.** A
-  shared-cell context failure used to install the injection hook and carry on
-  (`recoverContextViaHook`), which delivered the run its context through a
-  channel its isolation argument was never made against and still reported
-  success. `deliverSet` now returns the error, wrapping the cause.
-- **`Cleanup` is LIFO, attempts every handle, and joins every failure**
-  (`errors.Join`), so one bad handle does not hide the others.
-- **`LaunchBackend` is two types on one struct.** Exec half: `{BaseBackend,
-  extraEnv}` ← `ExecuteCLI`/`TraceArgs`/`ExecuteEnv`. Setup half:
-  `{lifecycle, surfaces, resolved, delivered}` ← `Setup`/`setupViaCells`/
-  `deliverSet`/`mergedState`/`Cleanup`. Only `context`
-  is shared, and the exec half uses it for a path string while the setup half
-  uses it to write the cache file; `history` belongs to neither.
+- **The argv limit is checked before exec**, so a failure names the payload
+  rather than arriving as os/exec's generic "argument list too long"
+  (`argvlimit.go`).
 - **`ApplyLocalCLIConfig`** (`localcli.go`) applies the local-CLI overrides
   every engine's typed config carries — binary path, args, env. Empty values
   leave the backend's defaults in place; env entries merge into, never

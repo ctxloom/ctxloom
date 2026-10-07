@@ -9,14 +9,34 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
-// TestWriteSkillFiles_EnabledSkillLandsAtPathWithModes proves an enabled
+// deliverProjectSkills delivers skills through claude's typed skills approach
+// at the project root — the seam the static writer drives — so a test of the
+// skill write is a test of what a delivery actually does.
+func deliverProjectSkills(t *testing.T, dir string, skills []agent.SkillExport) error {
+	t.Helper()
+	in := engine.SkillsInputs{}
+	for _, s := range skills {
+		e := engine.SkillExport{Name: s.Name, Description: s.Description, Enabled: s.Enabled}
+		for _, f := range s.Files {
+			e.Files = append(e.Files, engine.SkillFile{Path: f.RelPath, Bytes: f.Content, Mode: uint32(f.Mode)})
+		}
+		in.Skills = append(in.Skills, e)
+	}
+	_, err := claudeDef(t).Skills.DeliverSkills(present.ProjectOnHost(dir), present.RootProjectRoot, in, safefs.New())
+	return err
+}
+
+// TestDeliverSkills_EnabledSkillLandsAtPathWithModes proves an enabled
 // skill materializes at .claude/skills/<name>/SKILL.md plus its sibling
 // files, with each file's mode (the exec bit on scripts/ in particular)
 // preserved.
-func TestWriteSkillFiles_EnabledSkillLandsAtPathWithModes(t *testing.T) {
+func TestDeliverSkills_EnabledSkillLandsAtPathWithModes(t *testing.T) {
 	dir := t.TempDir()
 	skills := []agent.SkillExport{{
 		Name:        "humanize",
@@ -29,7 +49,7 @@ func TestWriteSkillFiles_EnabledSkillLandsAtPathWithModes(t *testing.T) {
 		},
 	}}
 
-	require.NoError(t, WriteSkillFiles(dir, skills))
+	require.NoError(t, deliverProjectSkills(t, dir, skills))
 
 	base := filepath.Join(dir, ".claude", "skills", "humanize")
 	content, err := os.ReadFile(filepath.Join(base, "SKILL.md"))
@@ -45,9 +65,9 @@ func TestWriteSkillFiles_EnabledSkillLandsAtPathWithModes(t *testing.T) {
 	fileperm.Equal(t, 0o644, info.Mode())
 }
 
-// TestWriteSkillFiles_DisabledSkillNotWritten proves a disabled skill is
+// TestDeliverSkills_DisabledSkillNotWritten proves a disabled skill is
 // never written to disk.
-func TestWriteSkillFiles_DisabledSkillNotWritten(t *testing.T) {
+func TestDeliverSkills_DisabledSkillNotWritten(t *testing.T) {
 	dir := t.TempDir()
 	skills := []agent.SkillExport{{
 		Name:        "off",
@@ -56,7 +76,7 @@ func TestWriteSkillFiles_DisabledSkillNotWritten(t *testing.T) {
 		Files:       []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("should not appear")}},
 	}}
 
-	require.NoError(t, WriteSkillFiles(dir, skills))
+	require.NoError(t, deliverProjectSkills(t, dir, skills))
 
 	assert.NoFileExists(t, filepath.Join(dir, ".claude", "skills", "off", "SKILL.md"))
 }

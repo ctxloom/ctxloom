@@ -6,14 +6,10 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
-
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // This file holds the cross-backend surface vocabulary (SurfaceKind and its
-// parser), the per-run inputs every approach is built from (SurfaceInputs),
-// and the refusal an approach gives when the root it writes beneath was never
+// parser) and the refusal an approach gives when the root it writes beneath was never
 // resolved for the run.
 
 // ErrUnrootedSessionHome is returned by an approach that writes beneath the
@@ -87,43 +83,4 @@ func SurfaceKindNames() []string {
 		names = append(names, k.String())
 	}
 	return names
-}
-
-// SurfaceInputs is the shared, per-run superset of everything a backend's
-// surfaces write: the assembled context (as a string, and as the raw fragments
-// for an approach that assembles its own), the merged MCP config
-// + profile/companion bundle servers, the merged hook set + statusline policy, and
-// the command exports. A caller fills it once and hands it to every
-// approach's Construct, which picks the fields IT
-// needs. It is the cross-backend contract that lets a caller build any
-// engine's approaches without importing the concrete engine.
-type SurfaceInputs struct {
-	// Reporter is where the approaches built from these inputs report; the
-	// engine forwards it into its writers. Nil discards.
-	Reporter         report.Sink
-	Context          string
-	Fragments        []*Fragment
-	BundleMCP        map[string]wire.MCPServer
-	Hooks            *wire.HooksConfig
-	ManageStatusline bool
-	Commands         []CommandExport
-	// SelfContainedCommands, when true, tells a backend's commands surface to
-	// materialize commands WITHOUT deduping against the delivering machine's own
-	// skill/command directories (e.g. claude's ~/.claude/commands) — for portable
-	// `profile materialize --target` artifacts whose launch environment is not
-	// this host. Live launch, `manage hooks install` apply, and container
-	// delivery all share their process/home with the launch environment, so they
-	// leave this false (the default) and keep self-resolving dedup ON.
-	SelfContainedCommands bool
-	// Skills carries the per-target-agent Agent Skill package exports — the
-	// skills surface's analog of Commands. Each SkillExport is a whole package
-	// (SKILL.md + optional sibling files), not a single file.
-	Skills []SkillExport
-	// SelfContainedSkills mirrors SelfContainedCommands for the skills surface:
-	// true for a portable `profile materialize --target` artifact, false (the
-	// default) for a live/apply/container delivery that shares this host.
-	SelfContainedSkills bool
-	// DenyTools carries ManagedConfig.DenyTools through to the backend's
-	// settings surface — see its doc for the deny-tools semantics.
-	DenyTools []string
 }

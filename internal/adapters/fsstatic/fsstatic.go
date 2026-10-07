@@ -10,7 +10,8 @@
 // it wrote over an overlay of the target filesystem staged as a claim on the
 // whole file — and the batch commits, so a file several items or writers put
 // values into is written once. A plan with no static items is UNINSTALL: the
-// release alone runs.
+// release alone runs. A delivery or a reversal holds every lock it takes
+// until it has committed, in one order (lockScope).
 package fsstatic
 
 import (
@@ -44,6 +45,10 @@ var ErrInPlaceWrite = errors.New("an approach may not change an existing file in
 type Static struct {
 	fs    afero.Fs
 	locks safefs.Locks
+	// beforeCommit runs between a delivery's approach run and its commit; a
+	// test parks a delivery there to interleave another with it. Nil in
+	// production.
+	beforeCommit func()
 }
 
 var _ delivery.Static = (*Static)(nil)
@@ -52,20 +57,31 @@ var _ delivery.Static = (*Static)(nil)
 func New(root safefs.Root) *Static { return &Static{fs: root.Fs, locks: root.Locks} }
 
 // Deliver validates the target, refuses a plan whose items cannot root under
-// it, then releases the writer's previous delivery and stages each static
-// item into one batch, and commits it.
-func (s *Static) Deliver(_ context.Context, lo delivery.Loadout, root engine.Base, target delivery.Target) (delivery.Delivered, error) {
+// it, then — holding the run's locks (lockScope) from before its first read
+// until after its commit — releases the writer's previous delivery, stages
+// each static item into one batch, and commits it.
+func (s *Static) Deliver(_ context.Context, lo delivery.Loadout, root engine.Base, target delivery.Target) (out delivery.Delivered, err error) {
 	if err := target.Validate(); err != nil {
 		return delivery.Delivered{}, err
 	}
-	surfaces := root.Surfaces()
-	if err := planRootable(lo.Plan.Static, surfaces, target.Root.Paths()); err != nil {
+	if err := planRootable(lo.Plan.Static, root.Surfaces(), target.Root.Paths()); err != nil {
 		return delivery.Delivered{}, err
 	}
+	sc, err := s.begin()
+	if err != nil {
+		return delivery.Delivered{}, err
+	}
+	defer func() { err = errors.Join(err, sc.release()) }()
+	return s.deliver(sc, lo, root, target)
+}
+
+// deliver is Deliver's run, under sc.
+func (s *Static) deliver(sc *lockScope, lo delivery.Loadout, root engine.Base, target delivery.Target) (delivery.Delivered, error) {
+	surfaces := root.Surfaces()
 	paths := target.Root.Paths()
 	within := func(path string) bool { return underARoot(paths, path) }
 	undo := func(context.Context) error { return s.reverse(target.Ownership, within, target.Writer) }
-	b := s.batch()
+	b := s.batch(sc)
 	st := target.Ownership.In(b)
 	if err := releaseWriters(st, target.Ownership, within, carried(lo.Package.CarryForward), target.Writer); err != nil {
 		return delivery.Delivered{}, err
@@ -79,13 +95,16 @@ func (s *Static) Deliver(_ context.Context, lo delivery.Loadout, root engine.Bas
 		}
 		modes = map[string]os.FileMode{}
 		for _, it := range lo.Plan.Static {
-			d, err := s.deliverItem(it, surfaces[it.Kind], target, inputs, st, modes)
+			d, err := s.deliverItem(sc, it, surfaces[it.Kind], target, inputs, st, modes)
 			if err != nil {
 				return delivery.Delivered{}, err
 			}
 			out.Presented = append(out.Presented, d.Presented)
 			out.Wrote = append(out.Wrote, it.Kind)
 		}
+	}
+	if s.beforeCommit != nil {
+		s.beforeCommit()
 	}
 	if _, err := b.Commit(); err != nil {
 		return delivery.Delivered{}, fmt.Errorf("fsstatic: deliver for %s: %w", target.Writer, err)
@@ -94,9 +113,9 @@ func (s *Static) Deliver(_ context.Context, lo delivery.Loadout, root engine.Bas
 }
 
 // batch is a batch over the static writer's filesystem, each target locked
-// by the lock every writer of that file takes.
-func (s *Static) batch() *safefs.Batch {
-	return safefs.NewBatch(s.fs, func(path string, fn func() error) error { return sessions.WithFileLock(s.locks, path, fn) })
+// by the lock every writer of that file takes, held in sc.
+func (s *Static) batch(sc *lockScope) *safefs.Batch {
+	return safefs.NewBatch(s.fs, func(path string, fn func() error) error { return sessions.WithFileLock(sc, path, fn) })
 }
 
 // restoreModes gives each file an approach wrote whole the mode it wrote it
@@ -130,11 +149,12 @@ func planRootable(items []delivery.StaticItem, surfaces engine.Surfaces, paths p
 // stages what it delivered: its claims as given, and each file it wrote
 // under a target root as a claim on the whole file. A file it wrote outside
 // every root is its own state, written through as it wrote it.
-func (s *Static) deliverItem(it delivery.StaticItem, approach present.Approach, target delivery.Target, inputs delivery.Inputs, st delivery.Staging, modes map[string]os.FileMode) (present.Delivered, error) {
+func (s *Static) deliverItem(sc *lockScope, it delivery.StaticItem, approach present.Approach, target delivery.Target, inputs delivery.Inputs, st delivery.Staging, modes map[string]os.FileMode) (present.Delivered, error) {
 	layer := &writeLayer{Fs: afero.NewMemMapFs(), names: map[string]struct{}{}}
-	// The approach writes through the overlay but locks through the real
-	// Locks: its own read-modify-writes exclude every other writer.
-	d, err := deliverKind(approach, it.Kind, target.Root, it.Root, inputs, safefs.Root{Fs: newOverlay(s.fs, layer), Locks: s.locks})
+	// The approach writes through the overlay but locks through the run's
+	// scope over the real Locks: its own read-modify-writes exclude every
+	// other writer, until the run has committed what it wrote.
+	d, err := deliverKind(approach, it.Kind, target.Root, it.Root, inputs, safefs.Root{Fs: newOverlay(s.fs, layer), Locks: sc})
 	if err != nil {
 		return present.Delivered{}, fmt.Errorf("fsstatic: deliver %v through %s: %w", it.Kind, it.Approach, err)
 	}
@@ -212,9 +232,15 @@ func (s *Static) Reverse(_ context.Context, ownership delivery.Ownership, writer
 	return s.reverse(ownership, func(string) bool { return true }, writers...)
 }
 
-// reverse releases writers from each file within admits, in one batch.
-func (s *Static) reverse(ownership delivery.Ownership, within func(string) bool, writers ...delivery.Writer) error {
-	b := s.batch()
+// reverse releases writers from each file within admits, in one batch,
+// holding the run's locks (lockScope) until it has committed.
+func (s *Static) reverse(ownership delivery.Ownership, within func(string) bool, writers ...delivery.Writer) (err error) {
+	sc, err := s.begin()
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, sc.release()) }()
+	b := s.batch(sc)
 	if err := releaseWriters(ownership.In(b), ownership, within, nil, writers...); err != nil {
 		return err
 	}

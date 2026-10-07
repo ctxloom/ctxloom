@@ -1,6 +1,7 @@
 package bundles
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -9,7 +10,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // A LINK GROUP IS ONE DELIVERY UNIT. Items in one bundle that share a
@@ -181,7 +184,11 @@ func TestPipeline_LinkedItemIsWithheldWhenItsMCPMemberIsNotGranted(t *testing.T)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, errs.ErrCommandWithheld), "got %v", err)
 
-	assert.Len(t, pipe.Withheld(), 2, "a link withhold is tallied like a trust withhold")
+	got := pipe.Withheld()
+	require.Len(t, got, 2, "each linked item is tallied")
+	for _, w := range got {
+		assert.Contains(t, w.Reason, `MCP server "think", which this run was not granted`, "the tally carries why: %s", w.Ref)
+	}
 }
 
 // An item in no link group is untouched by the grant: withholding is a
@@ -242,4 +249,28 @@ func TestPipeline_NilLinkGrantWithholdsLinkedItemsOnly(t *testing.T) {
 	got, err = unchecked.GetFragment("b#fragments/guide")
 	require.NoError(t, err)
 	assert.Equal(t, "GUIDE", got.Content)
+}
+
+// An item whose ref does not parse is withheld by the pipeline's address gate
+// and tallied WITH ITS REASON: the tally is what a launch carries into the
+// agent's startup findings (operations.StartupFindings), so the agent is told
+// what is missing and why. It is still never a ledgered finding — every
+// ledgered finding is fatal in strict mode, and a withhold must not abort a
+// launch.
+func TestPipeline_UnaddressableRefIsTalliedWithItsReasonAndNeverLedgered(t *testing.T) {
+	strictness.Reset()
+	t.Cleanup(strictness.Reset)
+	var stderr bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&stderr))
+	l := NewLoader(seedLocal(map[string]*Bundle{"b": linkedBundle()})).WithReporter(ledger())
+	l.Catalog()
+	pipe := NewPipeline(l, grantOnly(), false)
+
+	require.False(t, pipe.addressable("::not a ref::"))
+	got := pipe.Withheld()
+	require.Len(t, got, 1)
+	assert.Equal(t, "::not a ref::", got[0].Ref)
+	assert.Contains(t, got[0].Reason, "its ref could not be parsed")
+	assert.Contains(t, stderr.String(), "withheld ::not a ref::: its ref could not be parsed")
+	assert.Empty(t, strictness.All(), "a withhold is non-fatal: it must never reach the strictness ledger")
 }

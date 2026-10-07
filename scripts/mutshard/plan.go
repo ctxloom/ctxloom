@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -17,10 +18,13 @@ import (
 )
 
 // scope is what a mutation run covers: the whole tree, or the changeset
-// against a base.
+// against a base — all of it, or only the files under pkg.
 type scope struct {
 	base string
 	tree bool
+	// pkg narrows a diff to one directory (module-relative, slash-separated,
+	// its subdirectories included); empty is the whole changeset.
+	pkg string
 }
 
 const (
@@ -46,7 +50,44 @@ func (s scope) String() string {
 	if s.tree {
 		return scopeTree
 	}
+	if s.pkg != "" {
+		return scopeDiffPrefix + s.base + " under " + s.pkg + "/"
+	}
 	return scopeDiffPrefix + s.base
+}
+
+var (
+	errPkgNeedsDiff = errors.New("a package narrows a diff scope only; `gremlins unleash ./<pkg>` measures a package whole")
+	errPkgNotADir   = errors.New("the package is not a directory of the module")
+)
+
+// withPkg is s narrowed to the package directory pkg, named as `go test` and
+// gremlins take it ("./x", "x/", "x/..."), relative to the module at root.
+//
+// A package diff cannot be gremlins' own package target: `gremlins unleash
+// ./pkg --diff BASE` names the files it walks relative to the package while
+// its diff names them relative to the module root, so nothing matches and the
+// run measures nothing, green. Narrowing the PLAN instead keeps gremlins at the
+// module root, where both name a file alike.
+func (s scope) withPkg(root, pkg string) (scope, error) {
+	pkg = strings.TrimSuffix(filepath.ToSlash(pkg), "...")
+	pkg = path.Clean(strings.TrimPrefix(pkg, "./"))
+	if pkg == "." {
+		return s, nil
+	}
+	if s.tree {
+		return s, errPkgNeedsDiff
+	}
+	if fi, err := os.Stat(filepath.Join(root, filepath.FromSlash(pkg))); err != nil || !fi.IsDir() {
+		return s, fmt.Errorf("%w: %q", errPkgNotADir, pkg)
+	}
+	s.pkg = pkg
+	return s, nil
+}
+
+// covers reports whether the module-relative file f is in the scope's package.
+func (s scope) covers(f string) bool {
+	return s.pkg == "" || strings.HasPrefix(f, s.pkg+"/")
 }
 
 // skipReason is non-empty when the scope cannot name any work at all.
@@ -228,7 +269,22 @@ func treeCandidates(root string, cfg *gremlinsConfig) ([]candidate, error) {
 // no work at all.
 type plan struct {
 	shards [][]string
-	skip   string
+	// outside is every changed mutable file beyond the scope's package: every
+	// shard excludes it, since gremlins --diff mutates the whole changeset.
+	outside []string
+	skip    string
+}
+
+// excluded is what shard k must leave alone: every other shard's files and
+// every file outside the scope.
+func (p plan) excluded(k int) []string {
+	others := append([]string(nil), p.outside...)
+	for i, files := range p.shards {
+		if i != k {
+			others = append(others, files...)
+		}
+	}
+	return others
 }
 
 var errShardCount = errors.New("shard count must be at least 1")
@@ -251,6 +307,15 @@ func makePlan(root string, sc scope, n int, cfg *gremlinsConfig) (plan, error) {
 	if err != nil {
 		return plan{}, err
 	}
+	var inside []candidate
+	for _, c := range cands {
+		if sc.covers(c.path) {
+			inside = append(inside, c)
+		} else {
+			p.outside = append(p.outside, c.path)
+		}
+	}
+	cands = inside
 	if len(cands) == 0 {
 		p.skip = "no mutable Go files in " + sc.String() + " — skipping mutation testing"
 		return p, nil

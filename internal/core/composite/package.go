@@ -218,10 +218,10 @@ const (
 )
 
 // Attestation is the record of how a Package was decided: one row per
-// delivered item plus the withheld tally.
+// delivered item plus the withheld tally, each withheld item with why.
 type Attestation struct {
 	Items    []ItemAttestation
-	Withheld []string
+	Withheld []bundles.Withhold
 }
 
 // ItemAttestation is one delivered item's decision row.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -352,4 +353,139 @@ func regexpMust(t *testing.T, expr string) *regexp.Regexp {
 		t.Fatalf("compile %q: %v", expr, err)
 	}
 	return re
+}
+
+// A package narrows a DIFF to the changed files under it. It is refused on the
+// whole tree (`gremlins unleash ./pkg` already measures a package whole), and
+// refused when it names no directory: a typo would otherwise plan nothing and
+// skip green. Its spellings normalise to the module-relative directory the
+// plan matches, and it is part of the scope, so the stamp a package run's
+// reports carry is not a whole-diff run's.
+func TestScopeWithPkg(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "internal/x/x.go", "package x\n")
+	diff := scope{base: "main"}
+	for _, in := range []string{"internal/x", "./internal/x/", "internal/x/..."} {
+		got, err := diff.withPkg(root, in)
+		if err != nil || got.pkg != "internal/x" {
+			t.Errorf("withPkg(%q) = %+v, %v; want pkg internal/x", in, got, err)
+		}
+		if got.String() == diff.String() {
+			t.Errorf("withPkg(%q).String() = %q: a package run must not stamp as the whole diff", in, got.String())
+		}
+	}
+	for _, in := range []string{"", ".", "./"} {
+		if got, err := diff.withPkg(root, in); err != nil || got != diff {
+			t.Errorf("withPkg(%q) = %+v, %v; want the whole diff", in, got, err)
+		}
+	}
+	if _, err := (scope{tree: true}).withPkg(root, "internal/x"); !errors.Is(err, errPkgNeedsDiff) {
+		t.Errorf("tree + package: err = %v, want errPkgNeedsDiff", err)
+	}
+	if _, err := diff.withPkg(root, "internal/nope"); !errors.Is(err, errPkgNotADir) {
+		t.Errorf("missing package: err = %v, want errPkgNotADir", err)
+	}
+}
+
+// THE TRAP this guards: `gremlins unleash ./pkg --diff BASE` names the files it
+// walks relative to the package while the diff names them relative to the
+// module root, so they never match and the run measures nothing, green. A
+// package diff therefore runs from the module root over the whole changeset,
+// with every changed file OUTSIDE the package excluded — not merely left out
+// of the plan, which would leave gremlins free to mutate it. A sibling sharing
+// the package's name as a prefix is outside it.
+func TestMakePlan_PkgNarrowsTheDiffAndExcludesTheRest(t *testing.T) {
+	root, cfg := pkgDiffFixture(t)
+	sc, err := scope{base: "main"}.withPkg(root, "sub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := makePlan(root, sc, 2, cfg)
+	if err != nil || p.skip != "" {
+		t.Fatalf("plan = %+v, err %v", p, err)
+	}
+	var planned []string
+	for _, s := range p.shards {
+		planned = append(planned, s...)
+	}
+	sort.Strings(planned)
+	if want := []string{"sub/a.go", "sub/deep/b.go"}; !reflect.DeepEqual(planned, want) {
+		t.Errorf("planned = %q, want %q", planned, want)
+	}
+	for k := range p.shards {
+		assertExcludes(t, p, k, append(append([]string(nil), p.shards[1-k]...), "other/d.go", "subway/c.go"))
+	}
+
+	untouched, err := scope{base: "main"}.withPkg(root, "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	git(t, root, "checkout", "-q", "--", "other")
+	if p, err := makePlan(root, untouched, 1, cfg); err != nil || !strings.Contains(p.skip, "other") {
+		t.Errorf("a package the diff does not touch must skip naming it: plan=%+v err=%v", p, err)
+	}
+}
+
+// pkgDiffFixture is a repository whose working tree changes one mutable line
+// in each of sub/a.go, sub/deep/b.go, subway/c.go and other/d.go against main.
+func pkgDiffFixture(t *testing.T) (string, *gremlinsConfig) {
+	t.Helper()
+	root := t.TempDir()
+	git(t, root, "init", "-q", "-b", "main")
+	writeFile(t, root, ".gremlins.yaml", testGremlinsYAML)
+	files := []string{"sub/a.go", "sub/deep/b.go", "subway/c.go", "other/d.go"}
+	for _, f := range files {
+		writeFile(t, root, f, "package p\n")
+	}
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-q", "-m", "base")
+	for _, f := range files {
+		writeFile(t, root, f, "package p\n\nvar v = 1 + 2\n")
+	}
+	cfg, err := loadGremlinsConfig(filepath.Join(root, ".gremlins.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root, cfg
+}
+
+// assertExcludes checks shard k leaves exactly want alone.
+func assertExcludes(t *testing.T, p plan, k int, want []string) {
+	t.Helper()
+	got := p.excluded(k)
+	sort.Strings(got)
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("shard %d excludes %q, want %q (the other shard's files and every changed file outside the package)", k, got, want)
+	}
+}
+
+// Every command reads -scope and -pkg the same way, against the module in the
+// working directory, so a package run's shards and
+// its aggregate plan alike — and a bad pair is refused by both, never planned.
+func TestScopeFlags_ShardsAndAggregateAgree(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "p/p.go", "package p\n")
+	t.Chdir(root)
+	good := []string{"-scope", "diff:main", "-pkg", "./p/"}
+	sf, err := parseShardFlags(flag.NewFlagSet("run", flag.ContinueOnError), good, nil)
+	if err != nil || sf.scope != (scope{base: "main", pkg: "p"}) {
+		t.Fatalf("shard flags = %+v, %v", sf, err)
+	}
+	sc, _, err := parseAggregateFlags(good)
+	if err != nil || sc != sf.scope {
+		t.Fatalf("aggregate scope = %+v, %v; the shards planned %+v", sc, err, sf.scope)
+	}
+	for _, bad := range [][]string{
+		{"-scope", "diff:main", "-pkg", "no-such-dir"},
+		{"-scope", "tree", "-pkg", "p"},
+		{"-scope", "main"},
+	} {
+		if _, err := parseShardFlags(flag.NewFlagSet("run", flag.ContinueOnError), bad, nil); err == nil {
+			t.Errorf("shard flags %q: accepted", bad)
+		}
+		if _, _, err := parseAggregateFlags(bad); err == nil {
+			t.Errorf("aggregate flags %q: accepted", bad)
+		}
+	}
 }

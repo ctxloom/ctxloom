@@ -16,6 +16,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // =============================================================================
@@ -289,6 +291,32 @@ func TestSkillContent_ManifestResolutionFailureWarns(t *testing.T) {
 	out := sink.String()
 	assert.Contains(t, out, "ghost", "the withheld skill must be named")
 	assert.NotEmpty(t, out, "no withhold in skillContent may be silent")
+}
+
+// TestSkillContent_LoadFailureIsTalliedNotLedgered: a declared skill that
+// skillContent cannot load is withheld through one exit (every loadSkill
+// error takes it), and the pipeline tallies it with its reason — the tally is
+// what reaches an agent's startup findings. It is never a ledgered finding,
+// since every ledgered finding is fatal in strict mode.
+func TestSkillContent_LoadFailureIsTalliedNotLedgered(t *testing.T) {
+	strictness.Reset()
+	t.Cleanup(strictness.Reset)
+	var stderr bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&stderr))
+	fsys := afero.NewMemMapFs()
+	root := paths.BundlesLayoutRoot("/bundles", paths.LayoutV2)
+	testsupport.WriteFileString(t, fsys, filepath.Join(root, "skill-bundle", "skills", "ghost", "SKILL.md"), "no frontmatter here\n", 0o644)
+	writeTree(t, fsys, root, "skill-bundle", "version: \"1.0\"\n")
+
+	pipe := admitAllPipe(NewLoader(NewProjectReader(fsys, []string{"/bundles"})).WithReporter(ledger()), false)
+	require.Empty(t, pipe.SkillsFromBundleRef("skill-bundle"), "the skill must be withheld for this test to mean anything")
+
+	got := pipe.Withheld()
+	require.Len(t, got, 1, "the withhold is tallied")
+	assert.Contains(t, got[0].Ref, "#skills/ghost")
+	assert.Contains(t, got[0].Reason, "its package did not load")
+	assert.Contains(t, stderr.String(), `skill "ghost" withheld`, "the withhold is still voiced")
+	assert.Empty(t, strictness.All(), "a withhold is non-fatal: it must never reach the strictness ledger")
 }
 
 // TestLoadFile_ConcurrencyContract pins what LoadFile's corrected doc now

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -24,13 +25,14 @@ const startupFindingsFragmentName = "ctxloom-startup-findings"
 // source rides, so the SessionStart hook, the context cache file and each
 // engine's own delivery differences are already solved. Composed after the
 // launch resolved, because the isolation axis resolves there and a
-// degraded-to-host finding is the case this exists for. Nothing when there
-// is nothing to say, or when --no-startup-findings opted out.
-func (st *runState) startupFindings() []composite.Fragment {
+// degraded-to-host finding is the case this exists for. withheld is the
+// launch package's withheld tally. Nothing when there is nothing to say, or
+// when --no-startup-findings opted out.
+func (st *runState) startupFindings(withheld []bundles.Withhold) []composite.Fragment {
 	if runNoStartupFindings {
 		return nil
 	}
-	report := operations.StartupFindings(App(), st.cfg, doctorHome(), strictness.Since(strictness.Mark{}))
+	report := operations.StartupFindings(App(), st.cfg, doctorHome(), strictness.Since(strictness.Mark{}), withheld)
 	if len(report.Checks) == 0 {
 		return nil
 	}

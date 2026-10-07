@@ -410,9 +410,10 @@ func liveFileMatches(fs afero.Fs, src, dst string) bool {
 // this: it spans only the marker rewrite, not the read this cycle acts on.
 // The lock is taken through files.Locks whatever files.Fs is: under the
 // static writer files.Fs is a copy-on-write overlay of the controller's
-// filesystem and files.Locks are the controller's own. There the cycle's
-// writes reach disk only at the static writer's batch commit, after this lock
-// is released, under that commit's per-file locks.
+// filesystem, the cycle's writes reach disk only at the static writer's batch
+// commit, and files.Locks are a scope over the controller's own that keeps
+// this lock held until that commit has landed (fsstatic's lockScope, where
+// the order the locks are taken in is set down).
 // See TestWriteManagedPackageFiles_ExcludesAConcurrentWriterOfItsDir.
 func WriteManagedPackageFiles[T any](
 	files safefs.Root,

@@ -1,6 +1,7 @@
 description: 'Finder role: cheap, parallel lookup that reports path:line or URL straight back. Role and domain vocabulary only; no project-base, whose behavioural rules a lookup never uses.'
 parents:
     - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/agent-ensemble#profiles/finder
+    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/agent-roles#profiles/finder
 bundles:
     - ctxloom-project#fragments/tool-intent-and-finding
     - ctxloom-project#fragments/config-hierarchy

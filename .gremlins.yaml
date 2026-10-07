@@ -114,6 +114,13 @@ mutants:
   arithmetic-base:
     enabled: true
 
+  # BLIND SPOT, both conditional mutators below: gremlins cannot score a
+  # condition on a `case` line, or one right after a function literal. It
+  # judges a mutant only when the coverage profile puts a covered block over
+  # it, and Go's profile puts none there, so such a mutant shows NOT COVERED
+  # however well the tests exercise it. A test cannot change that verdict: kill
+  # these by hand (mutate the condition, watch a test fail, restore).
+  #
   # Change <, <=, >, >= boundary conditions
   conditionals-boundary:
     enabled: true

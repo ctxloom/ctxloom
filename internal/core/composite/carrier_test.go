@@ -36,7 +36,7 @@ func attestedPackage() Package {
 		Findings:   []Finding{{Kind: FindingDuplicate, Ref: "b/f", Message: "dup"}},
 		attestation: Attestation{
 			Items:    []ItemAttestation{{Ref: "b/f", Hash: "h"}},
-			Withheld: []string{"b/w"},
+			Withheld: []bundles.Withhold{{Ref: "b/w", Reason: "why"}},
 		},
 	}
 }

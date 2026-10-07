@@ -28,7 +28,7 @@ import (
 func TestDoctorCmd_ReportCarriesTheLegacyIndexCheck(t *testing.T) {
 	root, _ := setupProject(t, "claude-code")
 	home := t.TempDir()
-	isolateGitHostState(t, "", home)
+	isolateGitHostState(t, home)
 	sessionsRoot, err := paths.HomeSessionsDir()
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(sessionsRoot, 0o755))
@@ -70,7 +70,7 @@ func TestDoctorCmd_ShowsLiveCoordinatorSpoolCounters(t *testing.T) {
 	// hand so the fake coordinator's endpoint.json lands in the HOME the
 	// command will actually discover from.
 	home := t.TempDir()
-	isolateGitHostState(t, "", home)
+	isolateGitHostState(t, home)
 	f := newFakeConsumerServer()
 	f.stats = &agentcoordpb.SpoolStatsResult{Delivered: 42, Failed: 1}
 	startFakeCoordinator(t, home, f)
@@ -109,23 +109,4 @@ func TestDoctorCmd_TranscriptReaderCheckIsNotInDepsScope(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotContains(t, out, "DOCTOR-CHECK-TRANSCRIPT-READER-v2")
-}
-
-func TestDoctorCmd_RendersTheUpstreamSignaturesCheck(t *testing.T) {
-	root, _ := setupProject(t, "claude-code")
-	out, err := runDoctor(t, root)
-	require.NoError(t, err)
-	assert.Contains(t, out, "DOCTOR-CHECK-UPSTREAM-SIGNATURES-o5",
-		"`ctxloom doctor` must actually render the check; one operations.Doctor omits reports nothing to anyone")
-}
-
-// --deps is the pre-setup mode (init's PRIME, the setup skill's phase 1): only
-// machine-capability probes. This advisory is about a project's lockfile and a
-// publisher's signatures, neither of which exists yet in that mode, so it must
-// stay out of it.
-func TestDoctorCmd_UpstreamSignaturesCheckIsNotADepsProbe(t *testing.T) {
-	root, _ := setupProject(t, "claude-code")
-	out, err := runDoctor(t, root, "--deps")
-	require.NoError(t, err)
-	assert.NotContains(t, out, "DOCTOR-CHECK-UPSTREAM-SIGNATURES-o5")
 }

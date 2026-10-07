@@ -9,8 +9,6 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
-
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 )
 
 // Distinctive marker strings j000300_source_augmentation.feature's companions
@@ -27,16 +25,10 @@ const (
 	j000300CompanionCodeword  = "J000300-LIVE-COMPANION-CODEWORD"
 )
 
-// setupGuidanceLoadoutEnvelope is the unsigned v2 envelope a fake companion
-// emits for `loadout --format json` when all it contributes is setup
-// guidance: a loadout document whose typed init.setup_guidance carries text.
-func setupGuidanceLoadoutEnvelope(text string) (string, error) {
-	doc := fmt.Sprintf("init:\n  setup_guidance: %q\n", text)
-	envelope, err := signing.EncodeLoadoutEnvelope([]byte(doc), nil, "")
-	if err != nil {
-		return "", fmt.Errorf("encode fake companion loadout envelope: %w", err)
-	}
-	return string(envelope), nil
+// setupGuidanceLoadout is the loadout document a fake companion emits when all
+// it contributes is setup guidance: a typed init.setup_guidance carrying text.
+func setupGuidanceLoadout(text string) string {
+	return fmt.Sprintf("init:\n  setup_guidance: %q\n", text)
 }
 
 // installSetupGuidanceCompanion installs a fake companion named bin (a
@@ -44,12 +36,8 @@ func setupGuidanceLoadoutEnvelope(text string) (string, error) {
 // text as its setup guidance. InstallFakeCompanion records an allow for the
 // binary in the scenario's HOME — "allowed to run".
 func installSetupGuidanceCompanion(w *World, bin, text string) error {
-	envelope, err := setupGuidanceLoadoutEnvelope(text)
-	if err != nil {
-		return err
-	}
 	versionJSON := fmt.Sprintf(`{"name":%q,"version":"9.9.9-j000300-fake"}`, bin)
-	return w.env.InstallFakeCompanion(bin, versionJSON, envelope)
+	return w.env.InstallFakeCompanion(bin, versionJSON, setupGuidanceLoadout(text))
 }
 
 func registerJ000300Steps(ctx *godog.ScenarioContext) {

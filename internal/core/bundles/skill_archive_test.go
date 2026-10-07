@@ -6,8 +6,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"fmt"
 	"io"
 	"os"
@@ -18,7 +16,6 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -761,7 +758,7 @@ func TestSkillArchive_ExportImportRoundTrip_TreeByteIdenticalAndExecBitPreserved
 
 	imported, err := ParseSkillPackage(destFs, finalDir, 0)
 	require.NoError(t, err)
-	assert.Equal(t, srcPkg.Manifest.Hash(), imported.Manifest.Hash(), "manifest hash must match exactly across export -> import")
+	assert.Equal(t, srcPkg.Manifest.sorted(), imported.Manifest.sorted(), "manifest must match exactly across export -> import")
 	assert.Equal(t, srcPkg.Frontmatter, imported.Frontmatter)
 	assert.Equal(t, srcPkg.Body, imported.Body)
 
@@ -867,20 +864,6 @@ func TestDetectArchiveFormat_MagicByteBoundaries(t *testing.T) {
 			}
 		})
 	}
-}
-
-// =============================================================================
-// PublisherSkillSignatureVerifier tests (Part B2 — the REAL signature gate)
-// =============================================================================
-
-// testSkillSigner returns a fresh ed25519 ssh.Signer/PublicKey pair.
-func testSkillSigner(t *testing.T) (ssh.Signer, ssh.PublicKey) {
-	t.Helper()
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	signer, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-	return signer, signer.PublicKey()
 }
 
 // TestImportSkillArchive_FailedValidationLeavesDestinationIntact pins the fix

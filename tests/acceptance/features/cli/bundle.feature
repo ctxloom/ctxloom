@@ -10,7 +10,7 @@ Feature: bundle — the container authored content lives in, and everything that
   holds fragments, commands, MCP servers, skills and profiles together — its
   bundle.yaml envelope beside a file per item — and that tree is the unit
   everything else in ctxloom addresses: a profile names a
-  bundle, the lockfile pins a bundle, a publisher signs a bundle, and every
+  bundle, the lockfile pins a bundle, and every
   item ref in the system is spelled `<bundle>#<kind>/<name>`. Nothing here
   reaches the network — authoring a bundle is a local file edit, and that is
   what makes every verb below safe to run offline.
@@ -29,12 +29,11 @@ Feature: bundle — the container authored content lives in, and everything that
 
   | leaf                               | specified in                     |
   | bundle distill                     | cli/content_distill.feature      |
-  | bundle sign, bundle move           | journeys/j001600_signing.feature |
 
-  Each of those is a state machine or a ceremony that spans more than one noun
-  — a distillation that also governs `fragment distill` and `command distill`, a signature that also
-  governs `signer trust` — and splitting one across two files would leave
-  neither able to assert the transition that matters.
+  It is a state machine that spans more than one noun — a distillation that
+  also governs `fragment distill` and `command distill` — and splitting it
+  across two files would leave neither able to assert the transition that
+  matters.
 
   `bundle push` publishes to any git remote. A plain git remote is reached
   through the user's own git, so a file:// repository is a complete hermetic
@@ -438,28 +437,6 @@ Feature: bundle — the container authored content lives in, and everything that
       And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" does not contain "LOCAL-EDIT-MARKER"
       And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" contains "acceptance fixture bundle"
 
-  Rule: Publishing carries a signature rather than deciding one on the spot
-
-    A signature belongs to the bundle, not to the publish: `bundle sign` writes
-    the tree's SHA256SUMS manifest and its `.sigs/` entry, and `push` CARRIES
-    the tree with them, so the key that signs never has to be on the machine
-    that publishes. `--sign` is sugar for signing first; `--no-sign` skips
-    that sugar. Asking for both in one
-    invocation is not a preference the command can resolve, and guessing either
-    way would publish something the operator did not ask for.
-
-    # The refusal happens before the bundle is even loaded: no remote, no key,
-    # nothing published.
-    Scenario: Being told both to sign and not to sign is refused rather than resolved
-      Given an initialized ctxloom project
-      And a bundle "demo" exists
-      When Alice contradicts herself about signing:
-        """
-        ctxloom bundle push demo --sign --no-sign
-        """
-      Then the command fails
-      And the output contains "--sign and --no-sign are mutually exclusive"
-
   Rule: A push lands the bundle's whole tree in the remote's repository
 
     `bundle push` writes every file of the authored tree to the remote's
@@ -480,7 +457,7 @@ Feature: bundle — the container authored content lives in, and everything that
       And the environment variable "GIT_COMMITTER_EMAIL" is set to "alice@example.test"
       When Alice publishes her bundle to the team's repository:
         """
-        ctxloom bundle push authored team --no-sign
+        ctxloom bundle push authored team
         """
       Then the command succeeds
       And the remote "team" holds file "bundle.yaml" of bundle "authored" containing "acceptance fixture bundle"

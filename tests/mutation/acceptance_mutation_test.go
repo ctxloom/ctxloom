@@ -94,7 +94,7 @@ import (
 type mutationTarget struct {
 	// Name is the subtest name, so a failure names the target and so a
 	// single entry can be run alone:
-	//   go test -tags mutation -run 'TestAcceptanceMutation/^bundle_sign$' ./tests/mutation/...
+	//   go test -tags mutation -run 'TestAcceptanceMutation/^remote_registry$' ./tests/mutation/...
 	// Keep it a single token — no slashes, no spaces — or -run's own
 	// slash-separated grammar will not address it.
 	Name string
@@ -288,50 +288,6 @@ func (u unitJudge) label() string {
 //     reach it and every mutant would survive — a full run reporting a
 //     score of 0.0 about nothing.
 var mutationTargets = []mutationTarget{
-	{
-		// `ctxloom sign` / `ctxloom bundle sign`: ResolveSignTarget,
-		// SignBundleFile, signBundleTree, ListLocalBundleNames — reached
-		// from internal/adapters/cli/sign.go (resolveSignTargets ->
-		// ListLocalBundleNames for --all; operations.SignBundleFile per
-		// target) and internal/adapters/cli/bundle_push_cli.go.
-		//
-		// EVIDENCE: of the 12 `ctxloom sign`/`bundle sign` occurrences in
-		// the entire feature corpus, 11 are in j001600_signing.feature and the
-		// 12th is a COMMENT in j001900_diagnosis.feature. j001600 is not merely the
-		// best claimant, it is the only one. Its 16 scenarios (all of them
-		// live under the default tag filter — the file carries @doc and
-		// nothing else) name every branch of this file: sign by bare name,
-		// sign a fragment and get its containing bundle, --all, re-sign a
-		// directory bundle beside its manifest, refuse a key the repo does
-		// not authorise, and refuse --all with nothing to sign rather than
-		// report success over zero bytes.
-		Name:          "bundle_sign",
-		SourceRelPath: "internal/adapters/operations/sign.go",
-		Judge:         acceptanceJudge{Features: []string{"features/journeys/j001600_signing.feature"}},
-	},
-	{
-		// `ctxloom signer trust|show|list|delete`: AddSigner,
-		// ListSigners, ShowSigner, RemoveSigner, and the allowed_signers
-		// line editing beneath them (appendAllowedSignersLine,
-		// removeFromAllowedSignersFile, suppressEmbeddedPrincipal) —
-		// reached from internal/adapters/cli/signer.go.
-		//
-		// EVIDENCE: `trust signer` appears in exactly two feature files;
-		// all three occurrences in j001900_diagnosis.feature are COMMENTS, so
-		// j001600_signing.feature holds every real invocation. Its scenarios
-		// cover the create/show/delete round trip across BOTH stores
-		// (project and user), the fingerprint and namespace rendering, and
-		// the removal count.
-		//
-		// A SEPARATE entry from bundle_sign despite sharing a feature file:
-		// ooze mutates one file per release, and this is the file that
-		// decides WHICH KEYS ARE TRUSTED — a different security question
-		// from whether a signature was written. Sharing the feature scope
-		// means the two runs cost the same suite per mutant.
-		Name:          "signer_store",
-		SourceRelPath: "internal/adapters/operations/signer.go",
-		Judge:         acceptanceJudge{Features: []string{"features/journeys/j001600_signing.feature"}},
-	},
 	{
 		// Workspace/runtime AXIS RESOLUTION: Axes, WantsWorktree,
 		// WantsContainer, chainFor, Prepare, prepareChain, WorkspaceNames,
@@ -552,7 +508,7 @@ func (m mutationTarget) release(t *testing.T, extra ...ooze.Option) {
 // COST: every mutant is a full rebuild plus a scoped suite run, measured at
 // ~28s, so a single entry is tens of minutes and the whole table is a
 // multi-hour job. Run one entry with
-// -run 'TestAcceptanceMutation/^bundle_sign$'.
+// -run 'TestAcceptanceMutation/^remote_registry$'.
 func TestAcceptanceMutation(t *testing.T) {
 	for _, target := range mutationTargets {
 		t.Run(target.Name, func(t *testing.T) {

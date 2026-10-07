@@ -70,8 +70,6 @@ func TestUpgrade_PreviewWritesNothingAndMovesNoWorktree(t *testing.T) {
 	assert.Equal(t, next, res.Changes[0].ToSHA)
 	assert.Equal(t, lockBefore, p.lockBytes(t), "a preview never writes the lockfile")
 	assert.Equal(t, treeBefore, p.installedManifest(t), "a preview never moves the installed tree")
-	_, statErr := os.Stat(paths.RefusedAdvancesPath(p.appDir))
-	assert.True(t, os.IsNotExist(statErr), "a preview records nothing")
 }
 
 // --yes recomputes at apply time and reports exactly what it applied: a tip

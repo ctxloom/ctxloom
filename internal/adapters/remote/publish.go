@@ -13,10 +13,8 @@ import (
 type Publisher interface {
 	// CreateOrUpdateFiles creates or updates every file in files (keyed by
 	// repo-relative path) as ONE commit. It exists because a tree published
-	// file by file can fail part way, leaving a bundle whose SHA256SUMS
-	// covers files that never arrived — a consumer then rejects it as
-	// TAMPERED rather than incomplete, the most expensive possible way to
-	// report a partial upload. One commit makes a partial publish
+	// file by file can fail part way, leaving a bundle missing files that
+	// never arrived. One commit makes a partial publish
 	// impossible rather than merely unlikely. Returns the commit SHA.
 	CreateOrUpdateFiles(ctx context.Context, owner, repo, branch, message string, files map[string][]byte) (string, error)
 
@@ -270,10 +268,6 @@ func buildCommitMessage(title, body string) string {
 // "skills/greet/SKILL.md") — lands as ONE commit under opts.RemotePath, the
 // tree's root directory (computed by the caller with
 // PublishPath(itemType, name)).
-//
-// A tree's signature — its SHA256SUMS manifest and .sigs/ entries — is
-// something the caller already gathered off disk as more entries in files,
-// so it travels in the SAME commit as everything else.
 //
 // Package remote does not walk the bundle's directory itself: it has no
 // notion of what belongs to a bundle (that is package bundles' rule, and

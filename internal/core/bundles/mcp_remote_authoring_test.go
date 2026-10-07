@@ -14,14 +14,6 @@ import (
 // caller could populate them: a bundle YAML could not declare a remote server
 // at all, because BundleMCP had no such fields and ParseBundle's strict decode
 // therefore refused the keys.
-//
-// Closing that gap is not a plain field addition. The executable trust preimage
-// (mcpContentPayload) must cover the new fields, or a bundle could redirect an
-// approved server to another host — or rewrite its Authorization header — under
-// an approval that still verifies. Covering them changes the preimage bytes for
-// EVERY mcp item, which invalidates every recorded MCP approval in the field;
-// that is exactly the event signing.ExecPreimageContract exists to announce,
-// hence the bump to ctxloom-exec/2.
 // =============================================================================
 
 // A remote entry is AUTHORABLE: the two keys decode, and nothing about being

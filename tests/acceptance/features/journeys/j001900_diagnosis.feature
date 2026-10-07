@@ -9,8 +9,8 @@ Feature: The day the assistant goes blind
 
   This journey is a binary search over the delivery pipeline, and the product's
   bar is stated as a rule: EVERY stage boundary either names its inspector, or
-  it is a defect. Content travels authored -> packaged -> attested ->
-  distributed -> composed -> delivered -> ingested. One scenario per
+  it is a defect. Content travels authored -> packaged -> distributed ->
+  composed -> delivered -> ingested. One scenario per
   boundary. Each plants the cause at exactly that hop and then asks the
   inspector that owns it to say so out loud. A boundary whose inspector cannot
   name the cause is not a missing test — it is the reason a Monday like this one
@@ -25,24 +25,11 @@ Feature: The day the assistant goes blind
   impossible capability. It is still the one this whole journey ends on,
   because it is the question every real diagnosis session ends on too.
 
-  # NOTE ON SCOPE. J001600 owns the PRODUCTION of signatures; J001500 owns the
-  # ADVERSARY (tamper, revocation). This journey owns neither.
-  # Signing appears here only as a way to PLANT a cause, and every assertion is
-  # about what an INSPECTOR reports. Nothing below re-proves that a tampered
-  # bundle is detected or that `bundle sign` writes bytes.
-  #
   # NOTE ON ASSERTIONS. No INSPECTOR's exit code is asserted here. An inspector
   # that exits 0 while naming nothing is precisely the failure under test, so
   # "the command succeeds" would assert the bug. Every Then reads a payload:
   # the bytes of the assembled context, or the inspector's own words naming a
   # specific bundle, fragment, or file.
-  #
-  # THE ONE EXCEPTION, added 2026-08-05 and not a softening of that rule: B2's
-  # refusal row asserts that `deps upgrade` exits 2. That is not "the command
-  # succeeded", it is the OPPOSITE — the code is the only thing an unattended
-  # sync tells a script, and 0 there would make a refusal indistinguishable from
-  # a round with nothing to do. It sits beside four payload assertions that
-  # cover what the human is told; neither substitutes for the other.
   #
   # NOTE ON TAGS. A scenario still @wip carries its own untag condition. Every
   # scenario in this file STARTED @wip, including the ones believed to pass, because this file is a
@@ -72,112 +59,7 @@ Feature: The day the assistant goes blind
     Then the search results name no packaged item carrying the deploy process
     And her assistant does not receive the deploy guidance
 
-  # ---- B2: packaged -> attested -----------------------------------------
-  # THE REAL CAUSE of this journey's Monday. Carol edited the bundle Friday and
-  # never re-signed it, so the newest commit carries bytes the signature beside
-  # them does not cover. This first scenario owns the whole attestation
-  # boundary: what the sync does with that content, what it leaves in the
-  # lockfile, and what it tells Alice.
-  #
-  # WHAT THE PRODUCT DOES, and it is a DECIDED behaviour rather than an
-  # observed one (taskloom unearned-cornea, decided 2026-08-05 by the human):
-  # `deps upgrade` REFUSES to advance the pin. The lockfile keeps the last
-  # commit whose signature verified, Alice goes on being served that content,
-  # and she is told — by name, with the pin she is being kept at.
-  #
-  # THE PARAGRAPH THAT USED TO SIT HERE WAS FALSE, and is worth recording
-  # because the way it became false is the trap this journey is about. It said
-  # the consumer "silently keeps serving the SUPERSEDED copy", and it was
-  # written from a scenario that NEVER ADVANCED A PIN: "Alice syncs on Monday"
-  # ran only `deps check` (a dry check ending in "Run with --apply") and
-  # `deps pull` (which says in as many words "Pull never moves an existing
-  # pin"). The lockfile never left Friday's commit, so the attestation boundary
-  # was never reached and the green proved nothing — two checks confirmed it,
-  # making the fixture re-sign properly changed no outcome, and gutting
-  # signing.VerifyPublisher so an invalid signature verifies changed no outcome
-  # either.
-  #
-  # Once the step also ran `deps upgrade`, the pin really advanced, and the
-  # answer was the OPPOSITE of that paragraph: she was left with NOTHING. The
-  # revision was withheld as tampered and the superseded copy went out of reach
-  # with the pin that had named it — silent capability loss at exactly the
-  # moment a signature stops verifying. That is the behaviour the decision
-  # replaced. She keeps serving the old copy now because upgrade refuses to
-  # move, not because anything falls back.
-  #
-  # THE ROW BITES, verified 2026-08-05 by three mutations, one per claim:
-  #
-  #   - neutering the refusal branch in operations.UpgradeDependencies (so a
-  #     failed verifyAdvance writes the proposed entry anyway) turns the PIN
-  #     assertion red, naming both SHAs;
-  #   - deleting cli.runRemoteUpgrade's call to reportRefusedAdvances — the pin
-  #     still holds, and nobody is told — turns the MESSAGE assertion red;
-  #   - dropping the re-sign remedy from the refusal turns the LAST assertion
-  #     red.
-  #
-  # The first mutation reports only the pin: godog stops a scenario at its first
-  # failed step, so the three later Thens are skipped rather than separately
-  # red. That is why they are mutated separately.
-  #
-  # The five Thens are separate on purpose, because they are five different
-  # ways this can be wrong. The pin can move. The pin can hold while the
-  # content stops arriving anyway. Everything can be right and nobody told, a
-  # silence indistinguishable from "already up to date". The HUMAN can be told
-  # while the SCRIPT is not — an unattended sync that refuses and exits 0 is,
-  # to the cron job that ran it, the same as one with nothing to do, so exit 2
-  # is asserted on its own (cli.exitCodeRefused, docs/cli-ux-principles.md §7;
-  # decided in taskloom monstrous-speech). And the sync can name no action she
-  # can take: the last Then holds it to naming the publisher's republish.
-  Scenario: An edited, never-re-signed runbook is refused, and the verified pin is kept
-    Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance
-    When Carol edits the runbook on Friday and never re-signs it
-    And Alice syncs on Monday
-    Then her assistant never receives the revised deploy guidance
-    And the runbook's pin did not advance, and the lockfile still holds the commit whose signature verified
-    And her assistant is still served the content at that pin
-    And the sync told her the runbook cannot be verified, naming the pin it kept
-    And the sync exited with the code for "did some of this deliberately not happen"
-    And the remedy it named is the publisher republishing the runbook
-
-  # B2's DEFECT, and it is CLOSED. Boundary-table verdict was PARTIAL — nothing
-  # named the cause, and Alice found it by diffing lockfiles by hand. The step
-  # probes every inspector the boundary table nominates (doctor, bundle list,
-  # bundle show, signer list) and fails with every output quoted, so a red run
-  # is itself the evidence of what each surface says.
-  #
-  # UNTAGGED 2026-08-05. `ctxloom doctor` answers it:
-  # DOCTOR-CHECK-UPSTREAM-SIGNATURES-o5 names the bundle, the revision that was
-  # refused, and the pin being kept, days after the sync that refused it.
-  #
-  # THE ROW'S SUBJECT MOVED, and the assertion moved with it — recorded because
-  # it is a judgement, not a case fold. The step used to look for the word
-  # "unsigned", and that word was never true of the cause this fixture plants:
-  # Carol's bundle IS signed. She edited a file and carried the old manifest
-  # entry forward, which is a signature that does not cover what it sits
-  # beside — a different state from unsigned entirely (docs/trust-model.md,
-  # "Item states").
-  #
-  # And since upgrade REFUSES the advance, "withheld" is wrong too: nothing is
-  # withheld, the kept pin verifies, and the guidance keeps arriving. Only the
-  # REVISION is missing.
-  #
-  # The QUESTION is unchanged — "why is the newer copy not here, days after the
-  # sync?" — so the three facts an answer needs are asserted instead of the two
-  # tokens: the bundle, that its signature does not verify, and the pin being
-  # served in its place. That is strictly more than the row asked for before.
-  #
-  # IT BITES, verified 2026-08-05: dropping doctorCheckUpstreamSignatures from
-  # runDoctorCmd's check list turns it red with all five probe outputs quoted,
-  # and so does making operations.LiveRefusedAdvances return nothing (the check
-  # then reports its own [ok] line and names neither the bundle nor the pin).
-  Scenario: An inspector names the refused revision and the pin she is kept at
-    Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance
-    And Carol edits the runbook on Friday and never re-signs it
-    And Alice syncs on Monday
-    When Alice asks ctxloom why the runbook stopped arriving
-    Then some inspector names the runbook, the signature that does not verify, and the pin she is kept at
-
-  # ---- B3: attested -> distributed --------------------------------------
+  # ---- B3: packaged -> distributed --------------------------------------
   # Silent-loss mode: published, never pulled — or, as here, deliberately frozen
   # and then forgotten about. A hold is a decision someone made on purpose; a
   # hold nobody can see is indistinguishable from a broken pull. Inspector:
@@ -203,8 +85,8 @@ Feature: The day the assistant goes blind
   # checked unconditionally. The JSON row selects the runbook's own entry
   # ([name=<bundle>]) and reads its held field directly.
   Scenario Outline: The runbook is frozen at an older version, and the listing names the hold
-    Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance
-    And Carol publishes a newer signed runbook while Alice's copy is held
+    Given Carol published the runbook, and Alice's assistant receives its deploy guidance
+    And Carol publishes a newer runbook while Alice's copy is held
     And Alice syncs on Monday
     When I run "ctxloom <flags> bundle list"
     Then the installed-bundle listing names the runbook as held

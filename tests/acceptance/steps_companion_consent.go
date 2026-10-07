@@ -102,7 +102,7 @@ func registerCompanionConsentSteps(ctx *godog.ScenarioContext) {
 	// is present" was satisfied by the machine, not by the fixture, so it said
 	// nothing on a box without them and shifted hook ordinals on a box with
 	// them. The scenario now installs the companion whose hook it asserts on.
-	ctx.Step(`^a signed companion "([^"]*)" shipping a "([^"]*)" hook is on PATH$`, func(c context.Context, bin, event string) error {
+	ctx.Step(`^a companion "([^"]*)" shipping a "([^"]*)" hook is on PATH$`, func(c context.Context, bin, event string) error {
 		w := worldFrom(c)
 		bundle := fmt.Sprintf(`name: %s
 version: "1.0"
@@ -112,7 +112,7 @@ hooks:
       command: echo HOOK-FROM-COMPANION-%s
 `, bin, event, bin)
 		version := fmt.Sprintf(`{"name":%q,"version":"0.0.0-fixture"}`, bin)
-		return j001800InstallFakeCompanion(w, bin, "fixture-companion@testenv.invalid", string(testsupport.RunLoadout(bundle)), version)
+		return j001800InstallFakeCompanion(w, bin, string(testsupport.RunLoadout(bundle)), version)
 	})
 
 	ctx.Step(`^the companion "([^"]*)" was never executed$`, func(c context.Context, bin string) error {

@@ -33,16 +33,16 @@ import (
 // independently: the env var names are namespaced per bin (companionEnvVar),
 // not shared globals, so a second call cannot clobber the first fake's
 // payload out from under it — a real bug this fix replaces (a shared
-// COMPANION_VERSION_JSON/COMPANION_LOADOUT_JSON pair meant the
+// COMPANION_VERSION_JSON/COMPANION_LOADOUT pair meant the
 // most-recently-installed companion silently overwrote every previously
 // installed one's script into echoing ITS OWN content instead).
-func (e *TestEnvironment) InstallFakeCompanion(bin, versionJSON, loadoutJSON string) error {
+func (e *TestEnvironment) InstallFakeCompanion(bin, versionJSON, loadoutDoc string) error {
 	dir, err := os.MkdirTemp(e.Root, "fake-companion-*")
 	if err != nil {
 		return fmt.Errorf("create fake companion dir: %w", err)
 	}
 	versionVar := companionEnvVar("COMPANION_VERSION_JSON", bin)
-	loadoutVar := companionEnvVar("COMPANION_LOADOUT_JSON", bin)
+	loadoutVar := companionEnvVar("COMPANION_LOADOUT", bin)
 	script := fmt.Sprintf(`#!/bin/sh
 case "$1" in
   version) printf '%%s' "$%s" ;;
@@ -55,11 +55,11 @@ esac
 		return fmt.Errorf("write fake companion %q: %w", bin, err)
 	}
 
-	// The JSON payloads are handed to the script via env (rather than
-	// inlined into the script text) so a loadout envelope's base64 bundle
-	// payload — arbitrary bytes — never has to survive shell quoting.
+	// The payloads are handed to the script via env (rather than inlined
+	// into the script text) so a loadout document — arbitrary bytes — never
+	// has to survive shell quoting.
 	e.storeAndSetEnv(versionVar, versionJSON)
-	e.storeAndSetEnv(loadoutVar, loadoutJSON)
+	e.storeAndSetEnv(loadoutVar, loadoutDoc)
 
 	pathSep := string(os.PathListSeparator)
 	current := os.Getenv("PATH")

@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -713,12 +712,8 @@ func runFixture(c context.Context, args ...string) error {
 func installToolingCompanion(w *World, name, marker string) error {
 	bin := "ctxloom-companion-" + name
 	doc := fmt.Sprintf("init:\n  tooling: %q\n", marker+": install the tools this companion's content needs.")
-	envelope, err := signing.EncodeLoadoutEnvelope([]byte(doc), nil, "")
-	if err != nil {
-		return fmt.Errorf("encode %s loadout envelope: %w", bin, err)
-	}
 	versionJSON := fmt.Sprintf(`{"name":%q,"version":"0.0.0-fixture"}`, bin)
-	return w.env.InstallFakeCompanion(bin, versionJSON, string(envelope))
+	return w.env.InstallFakeCompanion(bin, versionJSON, doc)
 }
 
 // mockSurfacesInSession checks a mock record's surface lines: the record names

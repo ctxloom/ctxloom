@@ -84,10 +84,8 @@ func (l *Loader) WithVersionResolver(resolver BundleVersionResolver) *Loader {
 }
 
 // FS returns the filesystem this loader's local content was read from. A
-// skill's trust preimage is derived from its on-disk tree
-// (BundleSkill.ContentPayload), so a caller computing that preimage for an
-// item this loader resolved MUST use this same filesystem — a different fs
-// would hash the same skill differently and silently withhold it.
+// skill's files are read from its on-disk tree, so a caller reading a skill
+// this loader resolved MUST use this same filesystem.
 func (l *Loader) FS() afero.Fs { return l.cat.FS() }
 
 // Catalog is the resolved set, with this loader's warning sink attached.

@@ -49,10 +49,9 @@ type Catalog struct {
 	byKey map[trust.BundleKey]BundleRead
 
 	// fs is the filesystem the local content in this set was read from, and
-	// it is carried rather than re-derived because a skill's trust preimage
-	// is computed from its on-disk tree: computing that preimage against a
-	// DIFFERENT filesystem yields a different hash for the same skill and
-	// withholds it in silence. The set therefore reads skill trees through
+	// it is carried rather than re-derived because a skill's files are read
+	// from its on-disk tree: reading them from a DIFFERENT filesystem would
+	// deliver a different skill. The set therefore reads skill trees through
 	// the same filesystem it resolved from, by construction.
 	fs afero.Fs
 
@@ -258,8 +257,8 @@ func readerFailures(readers []Reader) map[string]error {
 
 // readersFS reports the filesystem a composed set of readers reads local
 // content from: the first reader that has one, and the OS filesystem when no
-// reader has one at all. A project skill's trust preimage is derived from
-// this tree, so it must be the tree the project's own reader resolved from.
+// reader has one at all. A project skill's files are read from this tree, so
+// it must be the tree the project's own reader resolved from.
 func readersFS(readers []Reader) afero.Fs {
 	for _, r := range readers {
 		if fsr, ok := r.(interface{ FS() afero.Fs }); ok {

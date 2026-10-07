@@ -46,8 +46,6 @@
 # and it belongs in the diff that earned it.
 #
 # TARGET                                   TOTAL  SURVIVED  PROVENANCE
-TestAcceptanceMutation/bundle_sign            31         6  recorded
-TestAcceptanceMutation/signer_store          138        83  stale
 TestAcceptanceMutation/isolation_axes         78        40  stale
 TestAcceptanceMutation/remote_registry        80        12  measured
 TestPackageMutation/isolation                761       110  measured

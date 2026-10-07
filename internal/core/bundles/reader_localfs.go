@@ -61,10 +61,8 @@ func NewProjectReader(fsys afero.Fs, dirs []string, opts ...ReaderOption) Reader
 	}
 }
 
-// FS exposes the filesystem this reader read from, so a caller computing a
-// skill's trust preimage from its on-disk tree uses the SAME filesystem the
-// bundle was read through. Computing that preimage against a different fs
-// produces a different hash for the same skill and silently withholds it.
+// FS exposes the filesystem this reader read from, so a caller reading a
+// skill's on-disk tree uses the SAME filesystem the bundle was read through.
 func (r *localFSReader) FS() afero.Fs { return r.fsys }
 
 // Read reports every bundle in every search directory.

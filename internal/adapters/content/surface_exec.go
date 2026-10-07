@@ -322,9 +322,8 @@ func (h Hook) refName() string { return h.Event + "/" + h.Name }
 
 // hookContent is the hook's behavioural configuration. It deliberately carries
 // NEITHER the name NOR the order: the filename is the identity, order is ctxloom
-// bookkeeping, and keeping both out of the content file keeps them out of any
-// payload a later layer builds from those bytes — which is what lets existing hook
-// approvals and content-rejections survive with no exec-preimage contract bump.
+// bookkeeping, and keeping both out of the content file keeps the vendor
+// config pure.
 type hookContent struct {
 	Matcher         string   `yaml:"matcher,omitempty"`
 	Type            string   `yaml:"type,omitempty"`

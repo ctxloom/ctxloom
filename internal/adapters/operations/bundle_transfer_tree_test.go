@@ -17,18 +17,15 @@ import (
 )
 
 // treeBundleFiles is the fixture a directory-form bundle is made of: the
-// envelope, item files one level down, a root file that is not an item, and
-// a .sigs/ entry. Every one of them must survive a copy byte for byte — the
-// .sigs/ store exists precisely to make a partial copy visible as tampering.
-// It carries no SHA256SUMS on purpose: a manifest that does not cover the
-// tree is a STALE signature, which every publishing boundary refuses, and
-// these tests are about the copy, not the refusal.
+// envelope, item files one level down, a root file that is not an item, and a
+// file in a dot-directory. Every one of them must survive a copy byte for byte:
+// a bundle is its whole tree.
 var treeBundleFiles = map[string]string{
 	"bundle.yaml":                             "version: 1.0.0\n",
 	"skills/reviewer/SKILL.md":                "# Reviewer\n\nreview the thing\n",
 	"skills/reviewer/references/checklist.md": "- one\n- two\n",
-	"NOTES": "a root file that is not an item\n",
-	".sigs/SHA256SUMS.publish.v1.ctxloom.dev.ab.sig": "-----BEGIN SSH SIGNATURE-----\nfixture\n-----END SSH SIGNATURE-----\n",
+	"NOTES":        "a root file that is not an item\n",
+	".hidden/note": "a file in a dot-directory\n",
 }
 
 // writeTree materialises files (rel path -> content) under root.
@@ -42,8 +39,8 @@ func writeTree(t *testing.T, fs afero.Fs, root string, files map[string]string) 
 }
 
 // readTree returns every FILE under root keyed by its slash-separated path
-// relative to root. Directories are not entries: what a bundle's SHA256SUMS
-// covers is files, and an empty directory carries no bytes to compare.
+// relative to root. Directories are not entries: an empty directory carries no
+// bytes to compare.
 func readTree(t *testing.T, fs afero.Fs, root string) map[string][]byte {
 	t.Helper()
 	out := map[string][]byte{}
@@ -187,7 +184,7 @@ func TestImportBundleTree_ExistingTreeRefusedThenReplacedWholesale(t *testing.T)
 	assert.Contains(t, err.Error(), "already exists")
 
 	// A file the incoming version does not carry must not survive the replace:
-	// left behind, it is content the incoming SHA256SUMS never covers.
+	// left behind, it is an item the imported bundle never had.
 	stale := filepath.Join(imported.Dest, "skills", "reviewer", "leftover.md")
 	require.NoError(t, safefs.WriteFile(fs, stale, []byte("dropped upstream\n"), 0644))
 

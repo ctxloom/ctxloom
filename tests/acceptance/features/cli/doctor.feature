@@ -79,8 +79,8 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
   Rule: --deps narrows to machine capability, for a project not yet set up
 
     `--deps` scopes the report to the probes that are true-or-false regardless
-    of whether anything has been configured: binaries on PATH, signing-key
-    readiness, git identity. init's PRIME and the setup
+    of whether anything has been configured: binaries on PATH and git
+    identity. init's PRIME and the setup
     skill's phase 1 run in this mode, because a full report on a brand-new
     project is a wall of expected-missing state that would alarm a user at the
     very start of the setup about to configure it.
@@ -111,18 +111,6 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
     content: `git add` reports nothing, and a content repository publishes an
     empty tree while every consumer's bundle refs fail to resolve. Nothing else
     in the system can see it, which is exactly the kind of thing doctor is for.
-
-    # --disable-sig-check is per invocation, so doctor reports the invocation
-    # it is part of: a waiver is a warning, never "ok", and the very next
-    # invocation without it is back to enforced.
-    Scenario: A waived signature check is reported as a warning, for the invocation that waived it
-      Given an initialized ctxloom project
-      When I run "ctxloom --disable-sig-check --format json doctor"
-      Then the command succeeds
-      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-SIG-CHECK-e2" and whose "status" is "warn"
-      When I run "ctxloom --format json doctor"
-      Then the command succeeds
-      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-SIG-CHECK-e2" and whose "status" is "ok"
 
     Scenario: A blanket ignore rule is reported as a warning, with exit 0
       Given an initialized ctxloom project

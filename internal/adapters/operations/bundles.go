@@ -967,11 +967,7 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 // wants for its per-file remote paths.
 //
 // Every file travels, with no filter — the same rule bundle_transfer.go's
-// copyBundleTree states for export: a bundle proves its own integrity with a
-// SHA256SUMS covering the whole tree (or, for the simpler manifest-only
-// sidecar this format still uses, the manifest bytes alone), so silently
-// dropping one file here would make a consumer see tampering rather than an
-// interrupted publish.
+// copyBundleTree states for export: a bundle is its whole tree.
 func gatherPublishTreeFiles(afs afero.Fs, dir string) (map[string][]byte, error) {
 	files := make(map[string][]byte)
 	err := afero.Walk(afs, dir, func(p string, info os.FileInfo, walkErr error) error {

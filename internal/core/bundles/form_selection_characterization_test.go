@@ -6,38 +6,12 @@ import (
 
 // Form-selection characterization.
 //
-// WHY THIS FILE EXISTS: EffectiveContentHash feeds the per-item TRUST GATE, and
-// a grant binds the PAIR (bytes, form) — blessing the raw form must never
-// validate a distilled exposure. So any refactor that moves WHERE raw-vs-
-// distilled is decided must not move WHICH BYTES get hashed for a given
-// exposure: if it did, every recorded user approval would silently stale and
-// every user would be re-prompted (or worse, an approval would match content
-// nobody blessed).
-//
-// The golden table below is therefore the contract, not an implementation
-// detail. The hashes are literal sha256 digests of literal fixture bodies,
-// computed independently of this package: if a change makes them disagree, the
-// change altered the trust preimage and the change is wrong — never the table.
-//
-// Every exposure path that reaches the gate is driven through the SAME table:
-// qualified and bare-name fragment/command resolution, the per-bundle command
-// sweep, the version-aware entry points, and the ContentPayload/
-// EffectiveContentHash primitives the gate's preimage is defined by.
+// WHY THIS FILE EXISTS: any refactor that moves WHERE raw-vs-distilled is
+// decided must not move WHICH BYTES are served, in WHICH FORM, for a given
+// exposure. Every exposure path is driven through the SAME table: qualified
+// and bare-name fragment/command resolution, the per-bundle command sweep, and
+// the version-aware entry points.
 
-// Fixture bodies. Kept as constants so the digests below can be verified by
-// hand without running Go. A FRAGMENT's preimage is signing.FragmentPreimage
-// over (premise, body) — these fixtures carry no premise, so:
-//
-//	printf 'ctxloom-fragment/1\npremise-len: 0\ncontent-len: %d\n\n\n%s' "${#body}" "$body" | sha256sum
-//
-// A COMMAND's preimage is signing.CommandPreimage over (description, exports,
-// body) — these fixtures carry no description and the zero export config, so
-// with exports='{"claude-code":{"enabled":true,"description":"","argument_hint":"","allowed_tools":[],"model":""}}':
-//
-//	printf 'ctxloom-command/1\ndescription-len: 0\nexports-len: %d\ncontent-len: %d\n\n\n%s\n%s' "${#exports}" "${#body}" "$exports" "$body" | sha256sum
-//
-// Each kind's digests moved ONCE, deliberately, when its presented values
-// entered the preimage under its own contract string.
 const (
 	charFragRaw       = "raw fragment body"
 	charFragDistilled = "distilled fragment body"
@@ -50,25 +24,11 @@ const (
 	charCmdNoDistill = "nodistill command body"
 )
 
-// Independently computed sha256 digests of the bodies above.
-const (
-	hashFragRaw       = "sha256:80db856affbc3ee7c0ed656cad590673ed2416867bd307a1a023d034a22042a9"
-	hashFragDistilled = "sha256:b697beba57b970d5e92f5dc08bf6581dcefb367f0f430bb1ff4e966b8f089606"
-	hashFragPlain     = "sha256:d495f54e8c396f53225661e480da5fe6c697262cd6cdced12a910526a0334029"
-	hashFragNoDistill = "sha256:a4bb261976ae0804d8fc8ac58982c084586df5b406b3ed576161394e6215914f"
-
-	hashCmdRaw       = "sha256:8652275f4c036c272dc969d99bfac47a20a095fb4076d439d6450babfafd1a44"
-	hashCmdDistilled = "sha256:70c8c3deecc610f3c62716fe16171dbbf87ce4fd7746e54e08be474fb0484e8d"
-	hashCmdPlain     = "sha256:89ddaa24be0b2c5efa5246244ce1873bbdf801e79b6e650d543c59b65917e7bc"
-	hashCmdNoDistill = "sha256:d114a21386da623b2bcc1de6425f86a80a6d89ca5c38c77214b3df5e27f12071"
-)
-
 // charExpectation is one pinned exposure: for a given item and form
-// preference, exactly these preimage bytes (by hash), served in exactly this
-// form, with exactly this body handed to the caller.
+// preference, served in exactly this form, with exactly this body handed to
+// the caller.
 type charExpectation struct {
 	form string // "raw" | "distilled"
-	hash string // sha256 of the item's preimage in that form
 	body string // the exact bytes exposed to the caller
 }
 
@@ -76,17 +36,17 @@ type charExpectation struct {
 // Index: [preferDistilled][fragment name].
 var charFragments = map[bool]map[string]charExpectation{
 	false: {
-		"distillable": {form: "raw", hash: hashFragRaw, body: charFragRaw},
-		"plain":       {form: "raw", hash: hashFragPlain, body: charFragPlain},
-		"nodistill":   {form: "raw", hash: hashFragNoDistill, body: charFragNoDistill},
+		"distillable": {form: "raw", body: charFragRaw},
+		"plain":       {form: "raw", body: charFragPlain},
+		"nodistill":   {form: "raw", body: charFragNoDistill},
 	},
 	true: {
 		// The ONLY cell that differs: a fragment that HAS a distilled form and
 		// does not forbid it. Everything else falls back to raw, and that
 		// fallback is itself part of the contract.
-		"distillable": {form: "distilled", hash: hashFragDistilled, body: charFragDistilled},
-		"plain":       {form: "raw", hash: hashFragPlain, body: charFragPlain},
-		"nodistill":   {form: "raw", hash: hashFragNoDistill, body: charFragNoDistill},
+		"distillable": {form: "distilled", body: charFragDistilled},
+		"plain":       {form: "raw", body: charFragPlain},
+		"nodistill":   {form: "raw", body: charFragNoDistill},
 	},
 }
 
@@ -95,14 +55,14 @@ var charFragments = map[bool]map[string]charExpectation{
 // re-keying it would invalidate every existing grant.
 var charCommands = map[bool]map[string]charExpectation{
 	false: {
-		"distillable": {form: "raw", hash: hashCmdRaw, body: charCmdRaw},
-		"plain":       {form: "raw", hash: hashCmdPlain, body: charCmdPlain},
-		"nodistill":   {form: "raw", hash: hashCmdNoDistill, body: charCmdNoDistill},
+		"distillable": {form: "raw", body: charCmdRaw},
+		"plain":       {form: "raw", body: charCmdPlain},
+		"nodistill":   {form: "raw", body: charCmdNoDistill},
 	},
 	true: {
-		"distillable": {form: "distilled", hash: hashCmdDistilled, body: charCmdDistilled},
-		"plain":       {form: "raw", hash: hashCmdPlain, body: charCmdPlain},
-		"nodistill":   {form: "raw", hash: hashCmdNoDistill, body: charCmdNoDistill},
+		"distillable": {form: "distilled", body: charCmdDistilled},
+		"plain":       {form: "raw", body: charCmdPlain},
+		"nodistill":   {form: "raw", body: charCmdNoDistill},
 	},
 }
 

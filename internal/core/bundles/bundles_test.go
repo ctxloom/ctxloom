@@ -353,30 +353,6 @@ func TestBundleCommand_EffectiveContent(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Effective-content hash (trust rework TR0)
-// =============================================================================
-// EffectiveContentHash hashes EXACTLY the bytes EffectiveContent returns and
-// reports their form. The trust gate binds to this — never the recorded
-// ContentHash field, never a raw fallback when distilled is served. A raw-form
-// grant must NOT validate a distilled exposure (different hash AND different form).
-
-// =============================================================================
-// BundleMCP content hash (trust rework TR0)
-// =============================================================================
-// The MCP hash binds an executable surface: Command + Args + Env + Installation.
-// Env keys are canonicalized (order-insensitive); Args order is significant;
-// Notes are excluded (human-only, never executed).
-
-// =============================================================================
-// ContentPayload — the single preimage builder invariant (signature envelope
-// spec §3.2: "there must be exactly one definition of 'the bytes of item X in
-// form F' in the codebase"). These tests prove ComputeContentHash/
-// EffectiveContentHash hash EXACTLY the bytes ContentPayload returns, so a
-// countersignature built over ContentPayload's output and a hash computed by
-// these methods can never drift apart.
-// =============================================================================
-
 // skillFileSpec is one file of a staged skill package.
 type skillFileSpec struct {
 	body string

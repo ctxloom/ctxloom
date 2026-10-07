@@ -100,33 +100,6 @@ pre-commit:
       # in .gitleaks.toml with the reason it is not a secret.
       run: just secrets-scan-staged
 
-    loadout-signatures:
-      # Companion loadouts are signed content: each cmd/<tool>/loadout.yaml has
-      # a detached loadout.yaml.sig covering its exact bytes, and a loadout
-      # whose signature does not cover it is WITHHELD as unverifiable rather
-      # than downgraded to "unsigned, please review". So a .yaml edited without
-      # regenerating its .sig does not ship degraded — it does not ship.
-      #
-      # THE INVARIANT: a loadout's .sig is regenerated (`just sign-loadouts`)
-      # and committed in the SAME change as the .yaml it covers.
-      #
-      # This is easy to violate and was: the two are separate files, the .sig
-      # comes from a separate command, and editing the .yaml alone looks
-      # complete and commits clean. The Go drift gate that catches it
-      # (TestLoadout_SignedLoadoutVerifiesAsTrustedPublisher) lives in the
-      # default suite, so drift can sit on the branch until someone runs the
-      # full suite — long after the human who could re-sign has moved on.
-      # Signing needs the publisher key, so failing at COMMIT time is the only
-      # moment the person holding that key is reliably present.
-      #
-      # ssh-keygen, never `go test`. Verification is a plain SSH signature
-      # check against the compiled-in trust root, so it needs no build at all —
-      # matching archlint's rule that a slow hook is one people learn to bypass.
-      #
-      # Verifies the STAGED bytes (`git show :file`), not the working tree:
-      # what is being committed is what must verify.
-      run: bash scripts/hook-loadout-signatures
-
 pre-push:
   commands:
     committed-build:

@@ -18,11 +18,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 
 	"github.com/cucumber/godog"
 	"gopkg.in/yaml.v3"

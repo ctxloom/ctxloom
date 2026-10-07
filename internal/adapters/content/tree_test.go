@@ -412,9 +412,8 @@ func TestHook_TwoHooksInOneEventHaveNameIdentity(t *testing.T) {
 		if hook.Command != tc.command {
 			t.Errorf("%s: Command = %q, want %q", tc.name, hook.Command, tc.command)
 		}
-		// Neither name nor order may appear in the hook's CONTENT file: keeping
-		// them out is what lets existing hook approvals and content-rejections
-		// survive the identity change with no preimage contract bump.
+		// Neither name nor order may appear in the hook's CONTENT file: it
+		// stays pure vendor config.
 		components, err := form.Components(ctx)
 		if err != nil {
 			t.Fatalf("Components(%s): %v", tc.name, err)

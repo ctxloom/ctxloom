@@ -39,10 +39,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 
 	"github.com/cucumber/godog"
 

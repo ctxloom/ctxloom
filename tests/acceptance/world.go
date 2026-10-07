@@ -72,7 +72,6 @@ type World struct {
 	initInterview          string                    // init.feature: everything a fresh `ctxloom init` wrote to its terminal (driveFreshInitInterview)
 
 	j000700s     *j000700State      // J000700: team-authoring journey state (see steps_j000700_team.go)
-	j001500      *j001500State      // J001500: the corporate-signed/trust journey's fixture state (steps_j001500.go)
 	j000800s     *j000800State      // J000800: the onboarding journey's fixture state (steps_j000800_onboarding.go)
 	j000400      *j000400State      // J000400: the multi-engine journey's fixture state (steps_j000400.go)
 	j002100      *j002100State      // J002100: the delegation/privilege journey's fixture state (steps_j002100_delegation.go)
@@ -88,7 +87,6 @@ type World struct {
 	j002600      *j002600State      // J002600: the worktree-task-store redirect journey's fixture state (steps_j002600_worktree_task_store.go)
 	j002300      *j002300State      // J002300: delegation — distinct context + real two-way bus (steps_j002300_cross_engine_delegation.go)
 	j001400      *j001400State      // J001400: publishing a whole bundle tree and receiving every surface kind (steps_j001400_bundle_distribution.go)
-	j001600      *j001600State      // J001600: the publisher-signing journey's fixture state (steps_j001600_signing.go)
 	j001900      *j001900State      // J001900: the diagnosis-walk journey's fixture state (steps_j001900_diagnosis.go)
 	j001300      *j001300State      // J001300: the close-out journey's fixture state (steps_j001300_closeout.go)
 	j001200      *j001200State      // J001200: the recall/archaeologist journey's fixture state (steps_j001200_recall.go)
@@ -108,7 +106,6 @@ type World struct {
 	p6           *p6State           // P6 capability probe: the steer-echo cell's minted harp and its cell id (steps_p6_steer_echo.go)
 	contract     *contractState     // coordination_contract.feature: the advertised runner-terminated tool surface (steps_coordination_contract.go)
 
-	skillSigners map[string]*testenv.TestSigner // skill.feature: cached per-name test signers (steps_skill.go), so "Trent"/"Mallory" resolve to the same key across a scenario's steps regardless of order
 	// --- @doc capture sidecar (prototype; see steps_doc_capture.go) ---------
 	docCapture           *docCapture // accumulated evidence for the current @doc scenario, nil otherwise
 	docFileName          string      // filename this scenario's capture flushes to
@@ -260,7 +257,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerFreshInitSteps(ctx)
 	registerJ000300Steps(ctx)
 	registerJ000700Steps(ctx)
-	registerJ001500Steps(ctx)
 	registerJ000800Steps(ctx)
 	registerJ000400Steps(ctx)
 	registerCLIManageShapeSteps(ctx)
@@ -302,7 +298,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ002300Steps(ctx)
 	registerMailDrainSteps(ctx)
 	registerP6SteerEchoSteps(ctx)
-	registerJ001600Steps(ctx)
 	registerJ001400Steps(ctx)
 	registerJ001900Steps(ctx)
 	registerJ001300Steps(ctx)
@@ -310,7 +305,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ002000Steps(ctx)
 	registerJ000900RecoverSteps(ctx)
 	registerCompanionConsentSteps(ctx)
-	registerSigCheckSteps(ctx)
 	registerSkillSteps(ctx)
 	registerRecoverSessionSteps(ctx)
 	registerContextStatusSteps(ctx)

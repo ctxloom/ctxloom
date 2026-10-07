@@ -18,27 +18,14 @@ before:
 #   CI build goes through. A release that omitted it would ship a binary that
 #   differs from the one everybody actually tests.
 #
-#   hooks.post signs the built binary through build/signing.justfile — the same
-#   recipes the host `install` path uses, so a released binary and a locally
-#   installed one are signed under one definition rather than two that can
-#   drift. ctxloom REFUSES to execute a companion whose detached `<binary>.sig`
-#   does not verify, so an unsigned artifact is an unusable one. The signature
-#   is staged under the BUILD ID rather than the binary name because several
-#   builds emit the same binary name for the same target, and each archive
-#   below picks up its own by that id.
-#
-#   The `-upx` builds compress in that same chain, BEFORE signing. goreleaser's
-#   own `upx:` pipe runs after all build hooks, so signing in a hook would cover
-#   the uncompressed bytes while the archive shipped the compressed ones — a
-#   signature that cannot verify against the binary the user runs.
+#   The `-upx` builds compress in a post hook (build/ci.justfile's
+#   release-compress-binary), so the checksums goreleaser writes cover the
+#   compressed bytes the archive ships.
 builds:
   # Standard build - no CGO required. Recommended for most users.
   - id: ctxloom
     flags:
       - -trimpath
-    hooks:
-      post:
-        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" ctxloom "{{ .Version }}"
     main: ./cmd/ctxloom
     binary: ctxloom
     env:
@@ -60,9 +47,6 @@ builds:
   - id: ctxloom-full
     flags:
       - -trimpath
-    hooks:
-      post:
-        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" ctxloom-full "{{ .Version }}"
     main: ./cmd/ctxloom
     binary: ctxloom
     tags:
@@ -102,8 +86,7 @@ builds:
       - '{{ if ne .Os "darwin" }}-extldflags "-static"{{ end }}'
 
   # UPX-compressed twin of `ctxloom`. Compression is a post hook rather than
-  # goreleaser's `upx:` pipe, which runs AFTER build hooks and so would sign
-  # the uncompressed bytes while the archive shipped the compressed ones.
+  # goreleaser's `upx:` pipe.
   # Linux/windows only — UPX doesn't support macOS binaries well (breaks code
   # signing), which is why darwin is absent from this build's goos.
   - id: ctxloom-upx
@@ -112,7 +95,6 @@ builds:
     hooks:
       post:
         - just release-compress-binary "{{ .Path }}"
-        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" ctxloom-upx "{{ .Version }}"
     main: ./cmd/ctxloom
     binary: ctxloom
     env:
@@ -127,9 +109,7 @@ builds:
       - -s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{.Version}}
 
   # UPX-compressed twin of `ctxloom-full`. Compression is a post hook rather
-  # than goreleaser's `upx:` pipe, which runs AFTER build hooks and so would
-  # sign the uncompressed bytes while the archive shipped the compressed
-  # ones. Linux/windows only — UPX doesn't support macOS binaries well
+  # than goreleaser's `upx:` pipe. Linux/windows only — UPX doesn't support macOS binaries well
   # (breaks code signing), which is why darwin is absent from this build's
   # goos.
   - id: ctxloom-full-upx
@@ -138,7 +118,6 @@ builds:
     hooks:
       post:
         - just release-compress-binary "{{ .Path }}"
-        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" ctxloom-full-upx "{{ .Version }}"
     main: ./cmd/ctxloom
     binary: ctxloom
     tags:
@@ -180,9 +159,6 @@ builds:
   # Pure-Go (CGO off) → statically linked on every target. Folded into this
   # repo, so it now ships from the one ctxloom release/tag.
   - id: ltk
-    hooks:
-      post:
-        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" ltk "{{ .Version }}"
     main: ./cmd/ltk
     binary: ltk
     env:
@@ -212,9 +188,6 @@ builds:
   # taskloom companion: per-project task store CLI + MCP server. Pure-Go,
   # statically linked. Folded into this repo; ships from the one ctxloom release.
   - id: taskloom
-    hooks:
-      post:
-        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" taskloom "{{ .Version }}"
     main: ./cmd/taskloom
     binary: taskloom
     env:
@@ -247,9 +220,6 @@ builds:
   # PATH by default; ships from the same ctxloom release/tag as an
   # independent archive.
   - id: harp
-    hooks:
-      post:
-        - just release-sign-binary "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" harp "{{ .Version }}"
     main: ./cmd/harp
     binary: harp
     env:
@@ -289,17 +259,6 @@ archives:
       {{- .Os }}_
       {{- .Arch }}
     files:
-      # The sig is named for the BINARY AS INSTALLED, not for the build id.
-      # ctxloom looks for `<resolved binary path>.sig` (config's
-      # resolveCompanionPath + companionSigSuffix), and on Windows that path
-      # carries .exe — so a flat `ctxloom.sig` there is a signature nothing ever
-      # opens, and the binary reads as unsigned and is refused. The install
-      # scripts cannot paper over this for someone who just unzips the archive
-      # by hand, which the release notes invite them to do.
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom.sig
-        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.sig
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom.release
-        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.release
       - LICENSE*
       - README.md
       - man/man1/*.1
@@ -318,10 +277,6 @@ archives:
       {{- .Os }}_
       {{- .Arch }}_full
     files:
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom-full.sig
-        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.sig
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom-full.release
-        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.release
       - LICENSE*
       - README.md
       - man/man1/*.1
@@ -341,10 +296,6 @@ archives:
       {{- .Os }}_
       {{- .Arch }}_upx
     files:
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom-upx.sig
-        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.sig
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom-upx.release
-        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.release
       - LICENSE*
       - README.md
       - man/man1/*.1
@@ -364,10 +315,6 @@ archives:
       {{- .Os }}_
       {{- .Arch }}_full_upx
     files:
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom-full-upx.sig
-        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.sig
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ctxloom-full-upx.release
-        dst: ctxloom{{ if eq .Os "windows" }}.exe{{ end }}.release
       - LICENSE*
       - README.md
       - man/man1/*.1
@@ -388,10 +335,6 @@ archives:
       {{- .Os }}_
       {{- .Arch }}
     files:
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ltk.sig
-        dst: ltk{{ if eq .Os "windows" }}.exe{{ end }}.sig
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/ltk.release
-        dst: ltk{{ if eq .Os "windows" }}.exe{{ end }}.release
       - LICENSE*
       - README.md
 
@@ -409,10 +352,6 @@ archives:
       {{- .Os }}_
       {{- .Arch }}
     files:
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/taskloom.sig
-        dst: taskloom{{ if eq .Os "windows" }}.exe{{ end }}.sig
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/taskloom.release
-        dst: taskloom{{ if eq .Os "windows" }}.exe{{ end }}.release
       - LICENSE*
       - README.md
 
@@ -433,10 +372,6 @@ archives:
       {{- .Os }}_
       {{- .Arch }}
     files:
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/harp.sig
-        dst: harp{{ if eq .Os "windows" }}.exe{{ end }}.sig
-      - src: dist/sigs/{{ .Os }}_{{ .Arch }}/harp.release
-        dst: harp{{ if eq .Os "windows" }}.exe{{ end }}.release
       - LICENSE*
       - src: cmd/harp/README.md
         dst: README.md
@@ -449,16 +384,7 @@ archives:
 # tap repo) — the per-repo GITHUB_TOKEN cannot push to another repository.
 #
 # The post-install hook strips the macOS quarantine attribute so the unsigned
-# binary launches without a Gatekeeper prompt. That is Apple code signing, and
-# it is unrelated to the companion signatures below.
-#
-# No cask handles `<binary>.sig` or `<binary>.release` explicitly, and none
-# needs to: a cask stages the WHOLE archive and links the binary into the
-# prefix, so the signature and release statement the archive already carries
-# stay siblings of the staged binary. Admission
-# resolves symlinks before appending the suffix (internal/core/config's
-# resolveCompanionPath and companionSigSuffix), so it looks beside the staged
-# copy rather than beside the link.
+# binary launches without a Gatekeeper prompt.
 homebrew_casks:
   # Standard build (recommended): no CGO deps.
   #   brew install ctxloom/tap/ctxloom

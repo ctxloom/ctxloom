@@ -223,7 +223,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"search":            {extraArgs: func(string) []string { return []string{"--local", "smoke"} }},
 
 	// --- exercised: canonical spine leaves ---
-	"signer list":            {extraArgs: noExtraArgs},
 	"mcp server list":        {extraArgs: noExtraArgs},
 	"container tooling list": {extraArgs: noExtraArgs},
 
@@ -237,9 +236,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"run":                      {skip: "streaming + spawns a real engine subprocess: not a single emit() result; run.go's RunE does call emit() on at least one branch (agent-mode payload), not independently re-verified for every branch here"},
 
 	// --- skip: needs a live ssh-agent/git signing identity (non-hermetic) ---
-	"bundle sign":    {skip: "requires a live ssh-agent/git identity to discover a signing key; unit-tested directly via runSign()'s DI seam in sign_test.go instead"},
-	"signer trust":   {skip: "requires a real public key argument and (without --yes/non-interactive) a confirmation prompt; covered by signer_test.go"},
-	"signer show":    {skip: "needs an existing trusted principal (signer trust's fixture cost); covered by signer_test.go"},
 	"signer untrust": {skip: "destructive; covered by signer_test.go"},
 
 	"bundle trust":  {skip: "needs a resolvable, signable ref and trust-store fixture; not exercised here"},

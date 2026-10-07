@@ -114,9 +114,7 @@ func copyBundleTree(fs afero.Fs, src, dest string) error {
 			return fmt.Errorf("read %s: %w", p, err)
 		}
 		// AllowEmpty: the source tree is the authority on what this bundle
-		// contains. A legitimately empty file in it is covered by SHA256SUMS
-		// like any other, so refusing to copy it would land a tree that reports
-		// content MISSING rather than one that failed to write.
+		// contains, so a legitimately empty file in it is copied like any other.
 		if err := safefs.WriteFile(fs, target, data, info.Mode().Perm(), safefs.AllowEmpty()); err != nil {
 			return err
 		}
@@ -195,10 +193,8 @@ func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, 
 	}
 	if exists {
 		// Replace the tree wholesale rather than copying over it. A file the
-		// incoming version DROPPED would otherwise survive as an extra that the
-		// incoming SHA256SUMS does not cover, and every reader of the result
-		// would report content added after signing — a tamper finding produced
-		// by the import itself.
+		// incoming version DROPPED would otherwise survive as an extra item the
+		// imported bundle never had.
 		if err := fs.RemoveAll(destPath); err != nil {
 			return nil, fmt.Errorf("failed to replace existing bundle %s: %w", destPath, err)
 		}

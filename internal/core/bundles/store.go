@@ -89,11 +89,7 @@ func (s *fsStore) Load(name string) (*Bundle, error) {
 // create), creating the tree when it does not exist yet.
 //
 // Every bundle mutation lands here — `bundle edit`, `fragment add`, `bundle
-// distill`, all of it. A tree's signature is its SHA256SUMS manifest and the
-// .sigs/ entry over it; writing new bytes under a signed manifest leaves the
-// manifest stale, which the reader reports as an INVALID signature and the
-// author is told to re-sign (StaleSignatureAdvice). Nothing here has a
-// second signature shape to keep in step.
+// distill`, all of it.
 func (s *fsStore) Save(b *Bundle) error {
 	if b.Path == "" {
 		return fmt.Errorf("bundle has no path set")

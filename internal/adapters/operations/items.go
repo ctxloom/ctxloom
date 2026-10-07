@@ -329,9 +329,7 @@ type SetFragmentPremiseResult struct {
 // SetFragmentPremise writes a fragment's premise and notes, the write half of
 // premise authoring. It re-applies the existing content through the same
 // field-preserving merge as every other edit, so the body, its distilled form
-// and the other fields are untouched and nothing is re-distilled. The premise
-// is inside the item's trust preimage, so a changed premise stales the item's
-// approvals; this never signs — ratification is the author's `bundle sign`.
+// and the other fields are untouched and nothing is re-distilled.
 func SetFragmentPremise(_ context.Context, cfg *config.Config, req SetFragmentPremiseRequest) (*SetFragmentPremiseResult, error) {
 	store := bundleStore(cfg, req.Store)
 	bundle, err := loadBundleForUpdate(store, cfg, req.Bundle)

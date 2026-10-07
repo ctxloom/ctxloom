@@ -17,15 +17,6 @@ import (
 // (single-file) and `<name>/bundle.yaml` (directory form, the only shape that
 // may carry skills — bundles.Loader refuses `skills:` in a single-file bundle).
 //
-// The question this file answers for the CARRY work is narrow: WHAT DOES THE
-// SIDECAR COVER for a directory-form bundle, and does carry handle it? Answer,
-// measured below: the sidecar is `<name>/bundle.yaml.sig` and covers the
-// MANIFEST BYTES ONLY — operations.bundleSignable's preimage is
-// afero.ReadFile(bundle.Path), and bundle.Path for this shape is the
-// bundle.yaml. So carry is exactly the single-file case with a longer path, and
-// needs no multi-artifact handling. (Signing a bundle's whole tree — per-file
-// .sig plus a signed manifest-of-hashes — is excusable-flatness's job.)
-//
 // Getting there measured a PRE-EXISTING DEFECT, since fixed: publishing a
 // directory-form bundle addressed it by the basename of its manifest, so every
 // one of them collided at `bundles/bundle.yaml`, AND (fixed later,

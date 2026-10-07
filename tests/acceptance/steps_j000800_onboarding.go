@@ -11,8 +11,8 @@
 // Reusing it here (rather than re-deriving a second copy of the same git
 // plumbing) is the point of the worktree brief's "reuse the existing harness"
 // instruction. World carries exactly one new field for this journey's OWN
-// bookkeeping (j000800s *j000800State — signers/URLs/markers that cross step
-// boundaries), mirroring J000700/J001500's one-field convention.
+// bookkeeping (j000800s *j000800State — URLs/markers that cross step
+// boundaries), mirroring J000700's one-field convention.
 package acceptance
 
 import (
@@ -24,7 +24,6 @@ import (
 	"github.com/cucumber/godog"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -39,25 +38,18 @@ const (
 	j000800CompanyMarker = "J000800-TRENT-COMPANY-CONTENT-MARKER"
 	j000800RepriseMarker = "J000800-REPRISE-DEPENDENT-GUIDANCE-MARKER"
 
-	j000800UpstreamPrincipal = "upstream@example.com"
-	j000800CompanyPrincipal  = "trent@example.com"
-	j000800ReprisePrincipal  = "reprise@example.com"
-
 	j000800UpstreamBundle = "upstream-bundle"
 	j000800CompanyBundle  = "secure-standards"
 )
 
-// j000800State is this journey's fixture state: the signers/URLs/bundle names its
+// j000800State is this journey's fixture state: the URLs/bundle names its
 // Given steps seed, needed later by a companion step in the SAME scenario
-// (e.g. re-signing an advanced remote, or installing the fake companion with
-// the envelope a prior step built).
+// (e.g. advancing a remote, or installing the fake companion with the loadout
+// a prior step built).
 type j000800State struct {
-	upstreamSigner *testenv.TestSigner
-	upstreamBare   string
+	upstreamBare string
 
-	companySigner *testenv.TestSigner
-
-	repriseEnvelope    string
+	repriseLoadout     string
 	repriseVersionJSON string
 
 	// pinnedSHA is the commit the team's lockfile froze when Carol held the
@@ -98,17 +90,16 @@ func j000800LockedSHA(raw string) (string, error) {
 	return "", fmt.Errorf("lockfile has no entry for the upstream bundle %q:\n%s", j000800UpstreamBundle, raw)
 }
 
-// j000800GuidanceEnvelope is the tree envelope every signed j000800 remote
+// j000800GuidanceEnvelope is the tree envelope every j000800 remote
 // bundle carries — no inline item keys (internal/core/bundles/tree_read.go's
 // readEnvelope refuses one that still declares items inline), the single
 // "guidance" fragment living in its own file instead (j000800GuidanceTreeItems).
 const j000800GuidanceEnvelope = "version: \"1.0.0\"\n"
 
 // j000800GuidanceTreeItems is j000700FragmentBundleYAML's tree-shaped
-// replacement for j000800's signed-remote fixtures: a single fragment named
+// replacement for j000800's remote fixtures: a single fragment named
 // "guidance" (matching j000700FragmentBundleYAML's own single-fragment shape),
-// as a tree item file, signed through SeedSignedTreeRemote (the product's own attest.SignBundle, not a
-// hand-rolled manifest).
+// as a tree item file.
 func j000800GuidanceTreeItems(content string) map[string]string {
 	// NO front-matter description: a fragment's `description` IS its PREMISE
 	// (content.ItemMeta.Description), which makes the loader select it
@@ -136,8 +127,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		// Team's own first-party fragment (LOCAL — authored straight into the
-		// project bundle, so it is allowed unconditionally, no signing/trust
-		// needed — see internal/adapters/operations/trust.go's EffectiveTrust step 3).
+		// project bundle).
 		if err := testenv.WriteBundleTree(w.env.ProjectDir, j000700Bundle, j000700FragmentBundleYAML(j000800TeamMarker)); err != nil {
 			return err
 		}
@@ -220,22 +210,12 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the project pins the versions of the context it draws from elsewhere$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j000800 := w.j000800()
-		signer, err := testenv.GenerateTestSigner()
-		if err != nil {
-			return fmt.Errorf("generate upstream signer: %w", err)
-		}
-		j000800.upstreamSigner = signer
 		root := treeBundlePath(j000800UpstreamBundle)
-		url, err := w.env.SeedSignedTreeRemote(root, j000800UpstreamBundle, j000800GuidanceEnvelope, j000800GuidanceTreeItems(j000800PinnedMarker), signer)
+		url, err := w.env.SeedTreeRemote(root, j000800GuidanceEnvelope, j000800GuidanceTreeItems(j000800PinnedMarker))
 		if err != nil {
-			return fmt.Errorf("seed signed upstream remote: %w", err)
+			return fmt.Errorf("seed upstream remote: %w", err)
 		}
 		j000800.upstreamBare = strings.TrimPrefix(url, "file://")
-		// Trust is PROJECT-scoped (committed .ctxloom/allowed_signers) so Bob
-		// inherits it by cloning — exactly like J000200/J001500's own signed sources.
-		if err := w.env.TrustSigner(signer, j000800UpstreamPrincipal, true); err != nil {
-			return fmt.Errorf("trust upstream signer: %w", err)
-		}
 		if err := runOK(w, "remote", "create", "upstream", url, "--forge", "git"); err != nil {
 			return err
 		}
@@ -275,7 +255,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		j000800 := w.j000800()
 		root := treeBundlePath(j000800UpstreamBundle)
-		return w.env.AdvanceSignedTreeRemote(j000800.upstreamBare, root, j000800UpstreamBundle, j000800GuidanceEnvelope, j000800GuidanceTreeItems(j000800NewerMarker), j000800.upstreamSigner)
+		return w.env.AdvanceTreeRemote(j000800.upstreamBare, root, j000800GuidanceEnvelope, j000800GuidanceTreeItems(j000800NewerMarker))
 	})
 
 	// THE PULL IS FORCED, and that is the entire point of this step existing
@@ -323,20 +303,14 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		return assertBobMaterializedDoesNotContain(worldFrom(c), j000800NewerMarker)
 	})
 
-	// --- Scenarios 3 & 4: the trust gate survives onboarding --------------
+	// --- Scenarios 3 & 4: referenced content survives onboarding ----------
 
 	ctx.Step(`^the project references a bundle published by Trent's company$`, func(c context.Context) error {
 		w := worldFrom(c)
-		j000800 := w.j000800()
-		signer, err := testenv.GenerateTestSigner()
-		if err != nil {
-			return fmt.Errorf("generate company signer: %w", err)
-		}
-		j000800.companySigner = signer
 		root := treeBundlePath(j000800CompanyBundle)
-		url, err := w.env.SeedSignedTreeRemote(root, j000800CompanyBundle, j000800GuidanceEnvelope, j000800GuidanceTreeItems(j000800CompanyMarker), signer)
+		url, err := w.env.SeedTreeRemote(root, j000800GuidanceEnvelope, j000800GuidanceTreeItems(j000800CompanyMarker))
 		if err != nil {
-			return fmt.Errorf("seed signed company remote: %w", err)
+			return fmt.Errorf("seed company remote: %w", err)
 		}
 		if err := runOK(w, "remote", "create", "trent-company", url, "--forge", "git"); err != nil {
 			return err
@@ -364,32 +338,9 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the team's context includes guidance for the "reprise" companion$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j000800 := w.j000800()
-		signer, err := testenv.GenerateTestSigner()
-		if err != nil {
-			return fmt.Errorf("generate reprise signer: %w", err)
-		}
-		loadoutYAML := testsupport.RunLoadout(j000700FragmentBundleYAML(j000800RepriseMarker))
-		sig, err := signing.Sign(loadoutYAML, signer.Signer, signing.NamespacePublish)
-		if err != nil {
-			return fmt.Errorf("sign reprise loadout: %w", err)
-		}
-		envelope, err := signing.EncodeLoadoutEnvelope(loadoutYAML, sig, j000800ReprisePrincipal)
-		if err != nil {
-			return fmt.Errorf("encode reprise loadout envelope: %w", err)
-		}
-		j000800.repriseEnvelope = string(envelope)
+		j000800.repriseLoadout = string(testsupport.RunLoadout(j000700FragmentBundleYAML(j000800RepriseMarker)))
 		j000800.repriseVersionJSON = `{"name":"reprise","version":"9.9.9-j000800-fake"}`
-		// The TEAM (not Bob individually) already trusts reprise's publisher
-		// key, project-scoped and committed — so whenever a teammate DOES have
-		// reprise installed, its self-advertised loadout content (probed by
-		// companions.ProbeCompanionLoadouts, delivered unconditionally by
-		// composite assembly from the catalog, independent of profile
-		// membership) reaches them without any per-teammate review, exactly
-		// as "the team's context includes guidance for reprise" describes.
-		if err := w.env.TrustSigner(signer, j000800ReprisePrincipal, true); err != nil {
-			return fmt.Errorf("trust reprise signer: %w", err)
-		}
-		return j000700CommitAndPush(w, "trust the reprise companion's publisher key")
+		return nil
 	})
 
 	ctx.Step(`^the "reprise" companion is (installed|not installed) on Bob's machine$`, func(c context.Context, presence string) error {
@@ -407,7 +358,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 			return nil
 		}
 		j000800 := w.j000800()
-		return w.env.InstallFakeCompanion("reprise", j000800.repriseVersionJSON, j000800.repriseEnvelope)
+		return w.env.InstallFakeCompanion("reprise", j000800.repriseVersionJSON, j000800.repriseLoadout)
 	})
 
 	ctx.Step(`^his assistant receives the team's context that does not depend on reprise$`, func(c context.Context) error {

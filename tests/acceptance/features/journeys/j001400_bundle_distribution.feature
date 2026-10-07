@@ -19,28 +19,15 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   silently is as easy to misread as one that never does.
 
   # ============================================================================
-  # WHY THIS IS A NEW JOURNEY (J001400) AND NOT AN EXTENSION OF J000700/J001500/J001600
+  # WHY THIS IS A NEW JOURNEY (J001400) AND NOT AN EXTENSION OF J000700
   #
-  # Three existing journeys touch neighbouring ground and none of them is the
-  # right home:
+  # J000700 touches neighbouring ground and is not the right home:
   #
   #   J000700 (team authoring) is FIRST-PARTY and in-project — Carol commits to the
   #   team's own repo and Bob pulls the project. There is no publisher, no
-  #   remote bundle reference and no signature anywhere in it; its whole point
+  #   remote bundle reference anywhere in it; its whole point
   #   is that none of that is needed when the team owns the code. Publication
   #   is the thing this journey is about, so it cannot live there.
-  #
-  #   J001500 (corporate signed) is about PROVENANCE AND INTEGRITY of content that
-  #   already flows: its Background fixes a "secure-coding" bundle and its
-  #   scenarios perturb the content's integrity.
-  #   Adding "and can this kind of content be published at all" there would
-  #   conflate a trust question with a capability question, and its scenarios
-  #   are LOCKED and green. A red capability row inside a locked trust journey
-  #   makes both harder to read.
-  #
-  #   J001600 (signing) is the AUTHOR-side key journey — ssh-agent, allowed_signers,
-  #   the project/user store split, sign/verify/move. It ends at "Alice pulls
-  #   the newly published version" because delivery is not what it is proving.
   #
   # This journey's subject is the one none of them own: does the PAYLOAD of
   # every surface kind survive the trip from an author's tree to a consumer's
@@ -62,17 +49,10 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   #
   # THE TREE READ PATH IS ALSO FIXED. It was the second blocker: the bytes
   # arrived but nothing read a bundle's ITEMS back out of a tree.
-  # config.loadRemoteBundleSeed reads a tree-shaped lockfile entry from its
-  # installed tree, verifying it through internal/adapters/content/attest — the manifest
-  # signature plus a two-directional contents check — instead of dead-ending at
-  # remote.ErrTreeBundleUnreadable.
-  #
-  # The open question that stopped the reader being written is CLOSED, and the
-  # answer was already in docs/design/bundle-as-tree.design.md: a tree
-  # signature covers the SHA256SUMS manifest over file bytes, checked at the
-  # content gate, most-specific-wins. Trent's fixture now signs the tree the way
-  # the Given always claimed it did, so five of the six kinds — fragment,
-  # command, mcp, hook and the whole skill package — reach Alice's assistant.
+  # A tree-shaped lockfile entry is read from its installed tree instead of
+  # dead-ending at remote.ErrTreeBundleUnreadable, so five of the six kinds —
+  # fragment, command, mcp, hook and the whole skill package — reach Alice's
+  # assistant.
   #
   # Two more things were red, and both are green now:
   #
@@ -98,18 +78,12 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # shared seam. Both blocks say so at the scenario.
   # ============================================================================
 
-  # NOTE ON STEP WORDING: J001500 already owns `Alice trusts the company key`, and
-  # that step reads J001500's OWN fixture state (j001500.signer, set by J001500's publish
-  # step) — reusing it here would dereference a signer this journey never
-  # created. godog matches on text alone and would have bound it silently, so
-  # the wording below is deliberately distinct rather than accidentally
-  # near-identical. Same reason for "Alice's pulled ..." on every assertion:
-  # skill.feature's `"<path>" is executable` and `"<path>" carries the marker`
+  # NOTE ON STEP WORDING: "Alice's pulled ..." on every assertion is
+  # deliberately distinct, because skill.feature's `"<path>" is executable` and `"<path>" carries the marker`
   # resolve relative to the PROJECT dir, which is the wrong root for a
   # consumer-side or worktree-side assertion.
   Background:
     Given Trent authors a directory-form bundle "atelier" carrying every surface kind
-    And Alice trusts Trent's publishing key
 
   # --------------------------------------------------------------------------
   # PUBLICATION: one artifact per surface kind, each a genuinely different case.
@@ -124,9 +98,9 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   #     freed "skills" for real Agent Skills and left the slash-command item
   #     addressed as "#prompts/<name>".
   #   - a bundle can also hold PROFILES (Bundle.Profiles), a sixth kind. It is
-  #     included below. Unlike the other five it is never trust-gated as an
-  #     item (there is no trust.ItemKind for a profile), but it is still a file
-  #     in the tree that must arrive intact, so it is still a delivery case.
+  #     included below. There is no trust.ItemKind for a profile, but it is
+  #     still a file in the tree that must arrive intact, so it is still a
+  #     delivery case.
   #
   # The kind->extension split the design settles is visible in the table: the
   # two CONTENT kinds are ".md" (and carry their metadata as front-matter),
@@ -135,7 +109,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # enumerating rather than sampling.
   # --------------------------------------------------------------------------
   Scenario Outline: Every surface kind survives publication and reaches the consumer's assistant
-    Given Trent publishes the "atelier" tree to his company repo, signed with the company key
+    Given Trent publishes the "atelier" tree to his company repo
     When Alice references the company's "atelier" bundle and pulls it
     Then Alice's pulled "atelier" tree carries "<artifact>" byte for byte as published
     And the "<kind>" reaches Alice's assistant carrying the marker "<marker>"
@@ -184,7 +158,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # delivered before any step could stat it.
   # --------------------------------------------------------------------------
   Scenario: A published profile arrives and becomes one of Alice's profiles
-    Given Trent publishes the "atelier" tree to his company repo, signed with the company key
+    Given Trent publishes the "atelier" tree to his company repo
     When Alice references the company's "atelier" bundle and pulls it
     Then Alice's pulled "atelier" tree carries "profiles/studio.yaml" byte for byte as published
     And materializing Alice's "company/atelier#profiles/studio" delivers the marker "ATELIER-PROFILE-6b41fc"
@@ -196,7 +170,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # copied content files and forgot sidecars would pass every byte-for-byte
   # assertion above and still lose every mcp and skill description.
   Scenario Outline: Each kind's metadata survives publication in the place that kind stores it
-    Given Trent publishes the "atelier" tree to his company repo, signed with the company key
+    Given Trent publishes the "atelier" tree to his company repo
     When Alice references the company's "atelier" bundle and pulls it
     Then Alice's pulled "atelier" tree stores the "<kind>" metadata "<probe>" as <placement>
 
@@ -213,7 +187,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # which is exactly the failure a YAML round-trip through an intermediate
   # representation produces. Assert the parsed structure.
   Scenario: A published MCP server's configuration structure survives, not merely its text
-    Given Trent publishes the "atelier" tree to his company repo, signed with the company key
+    Given Trent publishes the "atelier" tree to his company repo
     When Alice references the company's "atelier" bundle and pulls it
     Then Alice's pulled "atelier" MCP server "ledger" parses with its command, args and env intact
 
@@ -224,7 +198,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # cannot execute. internal/core/agent/packagefiles.go goes out of its way
   # to re-Chmod on every materialize precisely because this bit drifts.
   Scenario: A published skill package arrives whole, with its script still executable
-    Given Trent publishes the "atelier" tree to his company repo, signed with the company key
+    Given Trent publishes the "atelier" tree to his company repo
     When Alice references the company's "atelier" bundle and pulls it
     Then Alice's pulled skill "reviewer" contains exactly the files Trent published, byte for byte
     And Alice's pulled skill "reviewer" file "scripts/run.sh" is executable
@@ -278,7 +252,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # the bundle the product merges.
   # --------------------------------------------------------------------------
   Scenario: Hooks arrive in the right event buckets AND in their declared order within each
-    Given Trent publishes the "atelier" tree to his company repo, signed with the company key
+    Given Trent publishes the "atelier" tree to his company repo
     When Alice references the company's "atelier" bundle and pulls it
     Then Alice's pulled "atelier" hooks under "post_file_edit" are exactly "stamp, audit" in that order
     And Alice's pulled "atelier" hooks under "session_start" are exactly "greet" in that order
@@ -368,7 +342,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # not because 0600 is the publisher's bit.
   # --------------------------------------------------------------------------
   Scenario Outline: The published artifacts reach a host agent in every workspace
-    Given Trent publishes the "atelier" tree to his company repo, signed with the company key
+    Given Trent publishes the "atelier" tree to his company repo
     And Alice references the company's "atelier" bundle and pulls it
     When the pulled surfaces are delivered to a "<runtime>" agent in its "<workspace>" workspace
     Then the "<artifact>" reaches that agent's workspace carrying its published bytes
@@ -387,8 +361,8 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # A PULLED BUNDLE, DELIVERED FROM INSIDE A CONTAINER.
   #
   # The host Outline above already proves the published bytes and modes reach
-  # an agent in every workspace. What it cannot show is the same pulled,
-  # signed bundle being resolved and delivered by a ctxloom process running in
+  # an agent in every workspace. What it cannot show is the same pulled
+  # bundle being resolved and delivered by a ctxloom process running in
   # a container: a `FROM scratch` image (internal/testsupport/containercell)
   # with no git, no network and no /etc/passwd, whose only route to Alice's
   # home cache and project is a bind mount of the environment root at its own
@@ -415,7 +389,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # before the scenarios start, under its own bound, never inside a row.
   @container @image-cell
   Scenario Outline: A pulled bundle reaches an agent delivered from inside a container
-    Given Trent publishes the "atelier" tree to his company repo, signed with the company key
+    Given Trent publishes the "atelier" tree to his company repo
     And Alice references the company's "atelier" bundle and pulls it
     When the pulled surfaces are delivered to a "container" agent in its "none" workspace
     Then the "<artifact>" reaches that agent's workspace carrying its published bytes

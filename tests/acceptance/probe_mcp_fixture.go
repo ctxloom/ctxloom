@@ -236,10 +236,7 @@ func probeMCPWorkspaceRel(workspaceDir string, f probeMCPFixture) (relBinary, re
 // BUNDLE, which is the only surface that still exists.
 //
 // IT WAS A TOP-LEVEL `mcp.servers` KEY IN config.yaml, and this probe's design
-// chose that deliberately over a bundle — a bundle's MCP servers pass the
-// executable trust gate (bundles.Decide), and a withheld server would red as an
-// MCP-delivery failure that is really a trust decision, which is the exact
-// channel confusion this ladder refuses.
+// chose that deliberately over a bundle.
 //
 // THAT SURFACE WAS DELETED on 2026-08-19 by c5228d46 ("MCP servers come from
 // bundles only; ctxloom's own ships as a builtin"): there is no `mcp:` key in

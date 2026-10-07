@@ -16,8 +16,8 @@ import (
 // `ctxloom:link_id=<name>` tag deliver together or not at all: when any MCP
 // member of the group did not reach the run's granted set, every other member
 // is withheld, so a fragment is never handed over beside a tool it depends on
-// that is not there. The tag rides in the already-classified selection
-// surface (ItemBody.Tags), so it is not a preimage widening.
+// that is not there. The tag rides in the host-evaluated selection surface
+// (ItemBody.Tags).
 
 // The parser is the one place the tag's spelling is known.
 func TestParseLinkTag_RecognisesOnlyTheLinkNamespace(t *testing.T) {

@@ -105,8 +105,8 @@ type Bundle struct {
 	// judged choose its own trust key — a project bundle declaring
 	// `name: ctxloom:companion@ltk` would claim the companion's trust identity, and
 	// a bundle that renamed itself would move off its own recorded decisions.
-	// The declared name is CONTENT: covered by the signature and by review, and
-	// therefore never an input to the decision that establishes that trust.
+	// The declared name is CONTENT, and therefore never an input to the
+	// identity it is keyed under.
 	//
 	// It is a trust.BundleRef, not a string: the field used to carry BOTH a
 	// string rendering and this structured counterpart, set by the same call
@@ -240,9 +240,7 @@ type BundleHook struct {
 	// See wire.Hook.PreToolFallback.
 	PreToolFallback bool `yaml:"pre_tool_fallback,omitempty"`
 	// Tags are merged with the bundle's and evaluated by the host — a link
-	// group membership (links.go) rides here — so, like BundleMCP.Tags, they
-	// sit OUTSIDE the executable preimage: linking a hook to the server it
-	// drives changes nothing an approval was granted over.
+	// group membership (links.go) rides here.
 	Tags []string `yaml:"tags,omitempty"`
 
 	// Order sequences this hook against its siblings WITHIN its event, sparsely
@@ -253,10 +251,7 @@ type BundleHook struct {
 	//
 	// A POINTER, because "declared 0" and "declared nothing" resolve differently
 	// (wire.HookOrderLess sorts an undeclared hook LAST) and a plain int could
-	// not tell them apart. It is also why this field is invisible to
-	// ContentPayload: the executable preimage names its fields explicitly, so
-	// adding order here changes no hook's content hash and stales no approval —
-	// order is scheduling, not behaviour.
+	// not tell them apart. Order is scheduling, not behaviour.
 	Order *int `yaml:"order,omitempty"`
 }
 
@@ -403,14 +398,6 @@ func (h BundleHooks) EntryByID(id string) (HookEntry, bool) {
 // There is deliberately NO transport field, for the reason stated on
 // wire.MCPServer: the URL's scheme already names the protocol, and the engine
 // writers derive the discriminator from it at write time rather than storing it.
-//
-// Every field is either inside the EXECUTABLE PREIMAGE — the bytes an approval
-// binds to, built by ContentPayload — or carries a `surface:` tag classifying
-// why it is not. TestEveryMCPFieldIsClassified fails on a field that is
-// neither, so adding one forces that decision instead of defaulting to
-// unsigned. For this kind the stake is higher than for a text item: an
-// unclassified field here is an executable detail reaching the host outside
-// what the reviewer approved.
 type BundleMCP struct {
 	Command string            `yaml:"command,omitempty"`
 	Args    []string          `yaml:"args,omitempty"`
@@ -421,14 +408,11 @@ type BundleMCP struct {
 	// the running session's endpoint serves this entry, and the bundle
 	// contributes nothing executable — the host renders the endpoint through
 	// the engine's dynamic approach at delivery. It is host-evaluated
-	// ROUTING, outside the executable preimage on purpose: the entry's
-	// preimage is the empty target set, which no launchable entry can share
-	// (checkMCPTargets refuses an entry with no target at all), so an
-	// approval of the declaration approves exactly nothing that runs.
+	// ROUTING.
 	ServedBy     string   `yaml:"served_by,omitempty"`
 	Tags         []string `yaml:"tags,omitempty"`         // Additional tags (merged with bundle tags); host-evaluated routing, never executed
 	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions; presented to the user, and inside the preimage
+	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions; presented to the user
 }
 
 // AsWire converts to the wire shape for validation. It deliberately does NOT
@@ -462,14 +446,9 @@ func (m BundleMCP) AsWire() wire.MCPServer {
 // carries no Content and no distillation, so folding it in would mean a type
 // whose fields are meaningless for a third of its users.
 //
-// Every field is either PRESENTED to the agent — and therefore inside the
-// item's trust preimage via its surface model (FragmentSurface,
-// CommandSurface) — or carries a `surface:` tag classifying why it never
-// reaches the agent. The reflective classification tests
-// (TestEveryFieldIsClassified and its command and skill twins) fail on a
-// field that is neither, so adding a field forces that decision rather than
-// defaulting to unsigned. The tag is what makes "not sent to AI" a checked
-// fact instead of a comment.
+// What reaches the agent is decided by the surface model (FragmentSurface,
+// CommandSurface), not by this struct: a field the surface does not carry
+// never reaches the agent.
 type ItemBody struct {
 	Tags         []string `yaml:"tags,omitempty"`         // Additional tags (merged with bundle tags); host-evaluated routing, never shown
 	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
@@ -496,14 +475,9 @@ type BundleFragment struct {
 	// anywhere assembles exactly as it did before. A fragment is opted OUT of
 	// unconditional loading only by being given a premise, never by omission.
 	//
-	// It is PRESENTED — the premise index puts it in front of the agent — and
-	// so it is inside the trust preimage (FragmentSurface): the premise is the
-	// selection key that decides whether the body is ever seen, and a body
-	// signed under an unsigned premise can be suppressed without breaking its
-	// approval. Adding or editing a premise therefore invalidates the item's
-	// per-item approvals, exactly as editing the body does. It stays outside
-	// the RECORDED content hash (ComputeContentHash), which drives
-	// re-distillation of the body alone.
+	// It is PRESENTED — the premise index puts it in front of the agent
+	// (FragmentSurface). It stays outside the RECORDED content hash
+	// (ComputeContentHash), which drives re-distillation of the body alone.
 	Premise string `yaml:"premise,omitempty"`
 }
 
@@ -512,8 +486,7 @@ type BundleFragment struct {
 // Description and Exports are PRESENTED: the description is advertised to
 // the agent as the command's help text, and an engine writes its own export
 // block into the command file it reads — a block can carry a capability
-// grant. All of it is inside the trust preimage (CommandSurface), so none of
-// it can be rewritten under a verifying approval.
+// grant (CommandSurface).
 type BundleCommand struct {
 	ItemBody    `yaml:",inline"`
 	Description string       `yaml:"description,omitempty"`
@@ -535,11 +508,8 @@ type BundleCommand struct {
 // The package's files are not declared here: the skill directory IS the
 // package, and ParseSkillPackage reads its manifest from the tree.
 //
-// Exports is PRESENTED and inside the trust preimage (ContentPayload), beside
-// the package manifest: an engine's block decides whether the package is
-// offered to it at all. Every other field carries a `surface:`
-// classification; the reflective classification test walks this struct like
-// the text kinds.
+// Exports is PRESENTED: an engine's block decides whether the package is
+// offered to it at all.
 type BundleSkill struct {
 	Path    string       `yaml:"path,omitempty"`    // dir relative to bundle dir; default "skills/<name>" — where the host finds the tree, never shown
 	Tags    []string     `yaml:"tags,omitempty"`    // Additional tags (merged with bundle tags); host-evaluated routing, never shown
@@ -575,12 +545,9 @@ func hashContent(b []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// HashPayload is the exported name for the one content-hash primitive: it hashes
-// a payload produced by a ContentPayload builder, and it is the ONLY way any
-// caller outside this package may turn item bytes into a content hash.
-//
-// The hash is an INDEX, never an authority: a hash match is a candidate, not a
-// verdict (spec §9.3, trap #2).
+// HashPayload is the exported name for the one content-hash primitive, the
+// ONLY way any caller outside this package turns item bytes into a content
+// hash ("sha256:<hex>").
 func HashPayload(payload []byte) string {
 	return hashContent(payload)
 }
@@ -588,8 +555,7 @@ func HashPayload(payload []byte) string {
 // resolveEffective is the one shared compute primitive for the distillable item
 // shape. Fragments and prompts carry the same Content/Distilled/NoDistill fields,
 // so this picks the bytes to expose AND reports their form from the same
-// predicate — guaranteeing a preimage built over the result covers exactly the
-// served body, with no raw fallback once distilled is chosen.
+// predicate, with no raw fallback once distilled is chosen.
 func resolveEffective(preferDistilled bool, content, distilled string, noDistill bool) (string, ContentForm) {
 	if preferDistilled && distilled != "" && !noDistill {
 		return distilled, FormDistilled
@@ -598,22 +564,11 @@ func resolveEffective(preferDistilled bool, content, distilled string, noDistill
 }
 
 // ItemSurface is one resolution of a distillable item for a form preference:
-// the bytes the process stage SERVES, the layout form they were selected in,
-// and the item's preimage in that form. All three come from a single call on
-// the item, which is what keeps "served" and "described" from drifting: the
-// preimage cannot cover bytes the agent will not see, and the agent cannot be
-// handed bytes the gate did not cover.
-//
-// Body and Preimage are never the same bytes: the preimage is the framed
-// surface (FragmentSurface, CommandSurface — the body plus every other value
-// the agent is shown) while the body is what the agent is served. The other
-// values reach it separately — a premise via the index, a command's exports
-// as slash-command metadata — and are covered because they are inside the
-// frame.
+// the bytes the process stage SERVES and the layout form they were selected
+// in, from a single call on the item so the two cannot drift.
 type ItemSurface struct {
-	Body     []byte      // the bytes served to the agent
-	Form     ContentForm // the layout form Body was selected in
-	Preimage []byte      // this kind's ContentPayload in Form
+	Body []byte      // the bytes served to the agent
+	Form ContentForm // the layout form Body was selected in
 }
 
 // Resolve is the process-stage resolution of this fragment: it only ever
@@ -663,19 +618,12 @@ func (f *BundleFragment) NeedsDistill() bool {
 
 // FragmentSurface is the MODEL of what an agent is shown of a fragment: the
 // premise it selects on and the body it receives, in the form the body was
-// selected in. The trust preimage is computed FROM this model (Preimage), so
-// "presented" and "signed" are the same set by construction rather than by two
-// functions agreeing — a field reaches the agent only by being on the surface,
-// and being on the surface is what puts it in the signed bytes.
+// selected in. A field reaches the agent only by being on the surface.
 //
 // Its fields are unexported and read through getters so a delivery path
 // cannot reach a human-only field (Notes, Installation) through the agent-
 // surface API: the boundary "not sent to AI" is then a property of the type,
 // not a comment on the field.
-//
-// Membership is checked, not promised: TestEveryFieldIsClassified fails on any
-// BundleFragment field that neither moves Preimage nor carries a `surface:`
-// classification.
 type FragmentSurface struct {
 	premise string
 	body    string
@@ -720,16 +668,11 @@ func (p *BundleCommand) NeedsDistill() bool {
 // CommandSurface is the MODEL of what an agent is shown of a command: the
 // description it is advertised under, the per-engine export config the engine
 // writes into the command file (help text, argument hint, tool grant, model,
-// enablement), and the body it receives in the form it was selected in. The
-// trust preimage is computed FROM this model (Preimage), so "presented" and
-// "signed" are the same set by construction — the same property
-// FragmentSurface gives a fragment, for the same reason.
+// enablement), and the body it receives in the form it was selected in.
 //
 // Its fields are unexported and read through getters so a delivery path
 // cannot reach a human-only field (Notes, Installation) through the agent-
-// surface API. Membership is checked, not promised:
-// TestEveryCommandFieldIsClassified fails on any BundleCommand field that
-// neither moves Preimage nor carries a `surface:` classification.
+// surface API.
 type CommandSurface struct {
 	description string
 	exports     EngineBlocks
@@ -769,9 +712,7 @@ func (b *Bundle) SkillNames() []string {
 }
 
 // Line is the hook's command as the one shell line it runs (wire.Hook.Line):
-// Command itself in shell form, so a shell hook's preimage is byte-identical
-// to what it always was, and in exec form the quoted argv, so its arguments
-// are bound with no change to the payload's field set or contract version.
+// Command itself in shell form, and in exec form the quoted argv.
 func (h *BundleHook) Line() string {
 	return wire.Hook{Command: h.Command, Args: h.Args}.Line()
 }
@@ -825,9 +766,7 @@ func (b *Bundle) ProfileNames() []string {
 //
 // The envelope's format generation (schemaver.Key) is read off the RAW bytes
 // and an older one is migrated in memory (envelopeKind) before anything else
-// looks at the document; a newer one is refused. Callers that verify a
-// signature do so over the raw bytes BEFORE calling this, so the migration
-// never touches a signed preimage.
+// looks at the document; a newer one is refused.
 func ParseBundle(raw []byte) (*Bundle, error) {
 	upgraded, err := envelopeKind.Upgrade(raw)
 	if err != nil {

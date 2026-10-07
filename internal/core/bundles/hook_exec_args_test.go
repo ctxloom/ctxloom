@@ -20,8 +20,7 @@ func TestParseBundle_ReadsExecFormHookArgs(t *testing.T) {
 }
 
 // TestLoader_ATreeBundleCarriesExecHookArgs: a directory-form bundle's
-// exec-form hook reaches the loaded bundle with its argument list — the tree
-// reader drops nothing the preimage binds.
+// exec-form hook reaches the loaded bundle with its argument list.
 func TestLoader_ATreeBundleCarriesExecHookArgs(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeTree(t, afero.NewOsFs(), seedBundleRoot(t, tmpDir, paths.LayoutV2), "kit",

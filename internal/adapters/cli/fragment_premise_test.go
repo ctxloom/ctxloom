@@ -184,8 +184,7 @@ func TestDraftPremise_AcceptWritesPremiseKeepsNotesAndNeverSigns(t *testing.T) {
 	got := fragmentX(t, cfg)
 	assert.Equal(t, "You are about to delete a worktree.", got.Premise)
 	assert.Equal(t, "Existing origin.", got.Notes, "accepting never overwrites existing notes")
-	assert.Contains(t, out.String(), "approvals are now stale")
-	assert.Contains(t, out.String(), "ctxloom bundle sign demo")
+	assert.Contains(t, out.String(), "Wrote the premise for")
 }
 
 func TestDraftPremise_AcceptOffersDraftNotesWhereThereAreNone(t *testing.T) {
@@ -241,7 +240,7 @@ func TestDraftPremise_EditNONEMeansAlwaysLoad(t *testing.T) {
 	got := fragmentX(t, cfg)
 	assert.Empty(t, got.Premise, "NONE is always-load")
 	assert.Equal(t, "Edited origin.", got.Notes)
-	assert.Contains(t, out.String(), "approvals are now stale")
+	assert.Contains(t, out.String(), "Wrote the premise for")
 }
 
 func TestDraftPremise_EditedEmptyPremiseIsRefused(t *testing.T) {

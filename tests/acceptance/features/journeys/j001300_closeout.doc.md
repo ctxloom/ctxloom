@@ -136,7 +136,7 @@ the point of writing it as a feature file rather than a paragraph.
 A compactable, distributable lessons skill sounds like a small ergonomic
 feature and is not. It reads whole session transcripts — the most sensitive
 artifact ctxloom holds — and decides what gets written back into checked-in,
-signed, team-distributed fragments. A hostile one is simultaneously a
+team-distributed fragments. A hostile one is simultaneously a
 context-exfiltration primitive and a context-poisoning primitive, and it is a
 strictly higher-value target than any ordinary fragment.
 
@@ -160,12 +160,6 @@ decision quietly changes which prompt runs and the user is never told. That is
 tracked on its own; it is *not* on `session compact`'s path, which runs
 `runSessionCompact` -> `compactEntry` -> `memory.NewCompactor`.
 
-And the lessons output must be SIGNED in the same apply, which sounds like
-belt-and-braces until you connect it to J001900: an edited-unsigned bundle is
-silently withheld once a pin advances. A lessons flow ending unsigned would
-manufacture the exact defect it exists to close, quietly, in the one flow whose
-entire purpose is not losing knowledge.
-
 <!-- doc:outro -->
 The one command that ties the legs together is deliberately not a new
 top-level verb. `cleanup` as a command was raised during design and settled
@@ -180,8 +174,8 @@ on a model's reading of them.
 
 The property that makes this worth building rather than merely worth having is
 the dogfooding one. Because the lessons skill is bundle content, a team ships
-its house extraction style exactly the way it ships any other context — signed,
-reviewed, versioned, pinned. ctxloom's own behaviour flows through ctxloom's
+its house extraction style exactly the way it ships any other context —
+versioned, pinned. ctxloom's own behaviour flows through ctxloom's
 own supply chain. That is the strongest available argument that the supply
 chain is worth anything: the product uses it on itself, for the thing it cares
 about most.

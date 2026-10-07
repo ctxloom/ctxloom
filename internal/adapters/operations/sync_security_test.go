@@ -208,8 +208,7 @@ func TestUpgrade_UnreachableParentPreservesEntries(t *testing.T) {
 	tmp := filepath.Dir(baseDir)
 
 	// A second repo whose advance drives the wholesale rewrite. Tree form: its
-	// pin advances below, and verifyAdvance reads through the tree at the
-	// proposed SHA.
+	// pin advances below.
 	srcA := filepath.Join(tmp, "srcA")
 	a1 := initLocalRepoWithFile(t, srcA, repoV2("demoA")+"/bundle.yaml", "name: demoA\n")
 	refA := "file://" + srcA + "@bundles/demoA"

@@ -620,24 +620,6 @@ func (e *TestEnvironment) InitGitRepo() error {
 	return nil
 }
 
-// GitConfigLocal sets a repository-local git config value in the project
-// checkout, through this environment's own isolated environment (gitCmd —
-// HOME/XDG rooted at e.HomeDir and every testsupport.EnvKeys variable
-// scrubbed), so no caller has to hand-roll HOME redirection to make git read
-// the fake home instead of the developer's.
-//
-// It exists for `user.signingkey`: J001600 drives ctxloom's zero-config
-// key-discovery chain (internal/adapters/signing/agentkey step 2, `git config
-// user.signingkey`), which reads the REPOSITORY's own .git/config, so the
-// fixture must write there — repository-local, never global, never the host's.
-func (e *TestEnvironment) GitConfigLocal(key, value string) error {
-	cmd := e.gitCmd("config", "--local", key, value)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git config --local %s failed: %s: %w", key, output, err)
-	}
-	return nil
-}
-
 // AddGitWorktree creates a LINKED git worktree of e.ProjectDir on a fresh
 // branch named name, checked out under e.Root/worktrees/<name>, via a real
 // `git worktree add` (mirroring taskstest.RealGitWorktreeFixture's shape, but

@@ -11,7 +11,7 @@ scenario's EXACT name, and a closing block.
 
 <!-- doc:intro -->
 Every other journey in this suite is about delivery — getting the right
-context to the right assistant, signed, trusted, current. This one is about
+context to the right assistant, current. This one is about
 what happens after delivery succeeds, because delivery succeeding is not the
 same thing as the problem being solved.
 
@@ -55,9 +55,7 @@ onto every shell command and file edit, in the shape the real engine reads.
 This is also, quietly, the more interesting half of the story: ctxloom
 discovers these companions automatically. Nobody adds ltk or reprise to a
 profile, references them in a bundle, or opts into anything. They are found
-on PATH, their self-described loadout is verified against the same trust
-gate a remote bundle goes through, and — signed and trusted — their guidance
-simply arrives. That automatic reach is the whole value proposition of a
+on PATH, and their self-described loadout's guidance simply arrives. That automatic reach is the whole value proposition of a
 companion over a fragment that only asks a human to go install something.
 <!-- /doc:scenario -->
 

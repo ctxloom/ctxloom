@@ -524,3 +524,9 @@ engine-drift-alert ENGINE PINNED LATEST RUN_URL:
     )"
 
     gh issue create --title "$title" --label "engine-drift" --label "engine-drift:$engine" --body "$body"
+
+# UPX-compress a release binary in place, from .goreleaser.yml's per-build post
+# hooks (which run with the working directory set to the repo root). Same flags
+# as the local `_compress` in build/common.justfile.
+release-compress-binary FILE:
+    upx --best --lzma {{ FILE }}

@@ -21,9 +21,10 @@ package acceptance
 import (
 	"context"
 	"fmt"
-	pb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"strings"
 	"time"
+
+	pb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 
 	"github.com/cucumber/godog"
 

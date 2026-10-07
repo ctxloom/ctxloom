@@ -20,10 +20,6 @@ import "build/gates.justfile"
 # Imported by justfile.container too. See build/ci.justfile.
 import "build/ci.justfile"
 
-# Signing identity, namespace and sign/verify recipes, shared with
-# justfile.container so host installs and released artifacts sign alike.
-import "build/signing.justfile"
-
 # Default recipe
 default: build
 
@@ -142,7 +138,6 @@ release-snapshot: dev-image
 build: dev-image
     "{{just_executable()}}" --justfile "{{justfile()}}" _run build
     "{{just_executable()}}" --justfile "{{justfile()}}" _run build-archlint
-    "{{just_executable()}}" --justfile "{{justfile()}}" sign-binary ctxloom
 
 # Compress binary with UPX (delegates to devcontainer)
 compress: dev-image
@@ -157,23 +152,18 @@ build-compressed: dev-image
 # local install; UPX is release-only).
 build-all-bins: dev-image
     "{{just_executable()}}" --justfile "{{justfile()}}" _run build-all-bins
-    "{{just_executable()}}" --justfile "{{justfile()}}" sign-binary ctxloom
-    "{{just_executable()}}" --justfile "{{justfile()}}" sign-binary bin/ltk
-    "{{just_executable()}}" --justfile "{{justfile()}}" sign-binary bin/taskloom
 
 # Build the ltk companion binary in the devcontainer into bin/ltk, via the ltk
 # module. ltk ships from the unified ctxloom release; main.Version matches
 # `ltk version`.
 build-ltk: dev-image
     "{{just_executable()}}" --justfile "{{justfile()}}" _run ltk::build
-    "{{just_executable()}}" --justfile "{{justfile()}}" sign-binary bin/ltk
 
 # Build the taskloom companion binary in the devcontainer into bin/taskloom, via
 # the taskloom module. taskloom stamps the lowercase main.version
 # (`taskloom version`).
 build-taskloom: dev-image
     "{{just_executable()}}" --justfile "{{justfile()}}" _run taskloom::build
-    "{{just_executable()}}" --justfile "{{justfile()}}" sign-binary bin/taskloom
 
 # Build the standalone harp ID-generator binary in the devcontainer into
 # bin/harp, via the harp module. harp is independently distributable (plan
@@ -182,58 +172,6 @@ build-taskloom: dev-image
 # binaries `install` puts on the host PATH.
 build-harp: dev-image
     "{{just_executable()}}" --justfile "{{justfile()}}" _run harp::build
-
-# Regenerate the committed publish-signature siblings for every in-repo
-# companion loadout (cmd/*/loadout.yaml — ctxloom's own included: it is its
-# own companion and is signed uniformly) using the ctxloom release key, so
-# `<bin> loadout --format json` verifies as a trusted publisher
-# (internal/core/config/embedded_signers.allowed_signers) instead of landing
-# in ctxloom's review-pending path. Runs on the HOST (not
-# delegated to the devcontainer): it needs the private key from ~/.ssh, which
-# the devcontainer never mounts. Unlike `just build` — which only ever reads
-# the committed .sig bytes via go:embed — this needs the PRIVATE key; run it
-# once, commit the resulting .sig files, and `just build` never touches the
-# key again. A signature that no longer matches its loadout.yaml (edited
-# without a re-sign) is caught by `just test` (each cmd/<bin>/loadout_test.go
-# verifies the committed .sig against the committed .yaml through the real
-# embedded trust root), not by this recipe.
-#
-# Tries the on-disk private key directly first; if that key is passphrase-
-# protected and ssh-agent already holds the matching identity (`ssh-add
-# /path/to/key` in your own terminal, entered interactively — this recipe
-# never touches the passphrase), falls back to `-U` + the public key, which
-# routes the actual signing operation through the agent.
-sign-loadouts key="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    key="{{key}}"
-    if [ -z "$key" ]; then
-        key="$HOME/.ssh/ctxloom_ssh_key"
-    fi
-    if [ ! -f "$key" ]; then
-        echo "sign-loadouts: signing key not found: $key" >&2
-        echo "  pass one explicitly: just sign-loadouts /path/to/key" >&2
-        exit 1
-    fi
-    err="$(mktemp)"
-    trap 'rm -f "$err"' EXIT
-    for f in cmd/ctxloom/loadout.yaml cmd/ltk/loadout.yaml cmd/taskloom/loadout.yaml; do
-        rm -f "$f.sig"
-        if ! ssh-keygen -Y sign -f "$key" -n publish.v1.ctxloom.dev "$f" 2>"$err"; then
-            if [ -f "$key.pub" ]; then
-                echo "sign-loadouts: $key needs a passphrase this recipe doesn't have; trying ssh-agent via $key.pub" >&2
-                ssh-keygen -Y sign -U -f "$key.pub" -n publish.v1.ctxloom.dev "$f"
-            else
-                cat "$err" >&2
-                exit 1
-            fi
-        fi
-    done
-    echo "signed (namespace publish.v1.ctxloom.dev):"
-    echo "  cmd/ctxloom/loadout.yaml.sig"
-    echo "  cmd/ltk/loadout.yaml.sig"
-    echo "  cmd/taskloom/loadout.yaml.sig"
-    echo "commit each .sig file alongside the .yaml it covers."
 
 # Validate fragment YAML files (delegates to devcontainer)
 validate: dev-image
@@ -1230,27 +1168,6 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
 # ran past it. The recipes below are host-only and keep
 # using the shared `mutation_tmp`.
 
-# --- content bundle signing ------------------------------------------------
-#
-# This project AUTHORS two bundles (ctxloom-project and unattended); everything
-# else under .ctxloom/content/bundles/ is pulled from a remote and is not ours
-# to sign. `ctxloom sign --all` signs exactly the ones we author.
-#
-# Signing is required after ANY edit to bundle content: publishing an unsigned
-# edit is refused as tampered. The identity these sign under (SIGN_KEY), and the
-# companion-binary signing vocabulary, live in build/signing.justfile — one
-# definition shared with the release pipeline, which signs inside a container
-# that never sees this file.
-
-# Sign every local bundle this project authors.
-sign-bundles KEY=SIGN_KEY:
-    ctxloom bundle sign --all --key {{KEY}}
-
-# Sign one bundle, or an item ref (which resolves to its containing bundle).
-#   just sign-bundle unattended
-sign-bundle REF KEY=SIGN_KEY:
-    ctxloom bundle sign {{REF}} --key {{KEY}}
-
 # Run mutation tests on specific package
 # gremlins appends /... to the target itself; passing it here yields
 # ./pkg/.../... which matches nothing and fails with "no packages to test".
@@ -1424,7 +1341,7 @@ test-mutation-unit *ARGS: _mutation-prereqs
 # Per-entry is the recommended way to run this: the full table is ~111 minutes,
 # and a single entry gives a number you can act on today.
 #
-#   just test-mutation-entry signer_store
+#   just test-mutation-entry isolation_axes
 test-mutation-entry NAME *ARGS:
     @"{{just_executable()}}" --justfile "{{justfile()}}" test-mutation-acceptance -run 'TestAcceptanceMutation/^{{NAME}}$' {{ARGS}}
 
@@ -2090,33 +2007,11 @@ _run +ARGS:
         # per-build agent-image key, so recomputing here would mark every local
         # build dirty and rebuild every image, which is the churn this key exists
         # to remove.
-        # SIGNING REACHES IN, THE KEY DOES NOT. A release build signs each
-        # binary (see build/signing.justfile), and `ssh-keygen -Y sign` needs
-        # two things: the PUBLIC key file to name the identity, and an agent to
-        # do the signing. Only the public half is mounted; the private key never
-        # enters the container, which is the point of signing through an agent.
-        #
-        # Without this the container resolved SIGN_PUBKEY under its own
-        # HOME=/tmp, found no key, and every release recipe died in its first
-        # sign hook — a build that worked until signing was added to it.
-        #
-        # Absent on this machine (CI, or a checkout with no key), the mounts are
-        # simply omitted and the failure comes from the sign step naming what it
-        # could not find, rather than from a broken -v flag.
-        sign_mount=()
-        if [ -n "${SSH_AUTH_SOCK:-}" ] && [ -S "${SSH_AUTH_SOCK}" ]; then
-            sign_mount+=(-v "${SSH_AUTH_SOCK}:/tmp/ssh-agent.sock" -e SSH_AUTH_SOCK=/tmp/ssh-agent.sock)
-        fi
-        host_pubkey="$("{{just_executable()}}" --justfile "{{justfile()}}" --evaluate SIGN_PUBKEY 2>/dev/null || true)"
-        if [ -n "$host_pubkey" ] && [ -f "$host_pubkey" ]; then
-            sign_mount+=(-v "$host_pubkey:/tmp/sign_key.pub:ro" -e CTXLOOM_SIGN_PUBKEY=/tmp/sign_key.pub)
-        fi
         {{container_cmd}} run --rm \
             "${user_flag[@]}" \
             "${cache_mount[@]}" \
             "${gobuild_mount[@]}" \
             "${git_mount[@]}" \
-            "${sign_mount[@]}" \
             -e HOME=/tmp \
             -e GOMODCACHE=/tmp/gomodcache \
             -e GOCACHE=/tmp/.gocache \

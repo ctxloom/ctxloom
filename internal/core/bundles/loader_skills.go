@@ -120,14 +120,9 @@ func (c Catalog) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 }
 
 // skillContent resolves one bundle skill entry into a LoadedSkill: it parses
-// the package's tree (ParseSkillPackage — the same parse authoring uses),
-// derives the trust preimage from that parse's manifest, and reads every
-// file's bytes. One parse, one manifest, one preimage: the bytes the process
-// stage decides on are the bytes the preimage names.
-//
-// Deciding whether the package may be DELIVERED is the process stage's call,
-// over the preimage carried out on TrustPayload. A tree that cannot be
-// resolved or parsed reports nothing, loudly.
+// the package's tree (ParseSkillPackage — the same parse authoring uses) and
+// reads every file its manifest names. A tree that cannot be resolved or
+// parsed reports nothing, loudly.
 func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *LoadedSkill {
 	bundle := read.Bundle
 	// NOT filepath.Dir(bundle.Path): Path is overloaded, and for a companion-

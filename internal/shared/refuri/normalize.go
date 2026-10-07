@@ -22,12 +22,7 @@ import (
 // hazards above generalise past the two characters that happen to break the
 // frame, and no legal ref loses anything.
 //
-// The rule is enforced twice, deliberately and independently: stripped HERE, at
-// ingest, so no consumer has to re-check; and REFUSED in
-// signing.CountersignHeader.Validate, because the frame is the thing being
-// signed and must not depend on any caller having come through this door. The
-// second layer does not import this one — a defence in depth that shares an
-// implementation is one layer.
+// The rule is stripped HERE, at ingest, so no consumer has to re-check.
 //
 // Deleting is the INGEST answer and is confined to it. Nothing here is
 // exported for a display path to borrow: a string on its way to a terminal is

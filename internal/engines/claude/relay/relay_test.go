@@ -47,13 +47,6 @@ const (
 // premised fragment, and returns its URL and its wake signal.
 func endpoint(t *testing.T) (string, *interaction.WakeSignal) {
 	t.Helper()
-	return endpointTimingOut(t, 0)
-}
-
-// endpointTimingOut is endpoint with its idle-session timeout forced to
-// timeout (zero: the endpoint's own).
-func endpointTimingOut(t *testing.T, timeout time.Duration) (string, *interaction.WakeSignal) {
-	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	port := l.Addr().(*net.TCPAddr).Port
@@ -73,7 +66,7 @@ func endpointTimingOut(t *testing.T, timeout time.Duration) (string, *interactio
 		WorkDir:  "/work",
 	}
 	sig := interaction.NewWakeSignal(nil)
-	served, err := interaction.Endpoint{Home: home, Wake: sig, SessionTimeout: timeout}.Serve(context.Background(), lo, delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
+	served, err := interaction.Endpoint{Home: home, Wake: sig}.Serve(context.Background(), lo, delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = served.Close() })
 	return lo.MCP.URL, sig

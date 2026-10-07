@@ -55,6 +55,12 @@ type Config struct {
 // MCP client treats as terminal: the wake would be lost, and every later
 // tool call refused, until claude restarts the relay. Pinging well inside
 // the timeout keeps both sessions as alive as the relay is.
+//
+// A ping carries no deadline of its own (keepUp): the endpoint holds a
+// session's idle clock while any request on it is in flight, so a ping that
+// is slow to answer costs the session nothing, and only the endpoint ending
+// the session loses it. A keepalive that gave up on a slow ping would close
+// a live session itself — and with it the wake's subscription.
 const KeepAliveInterval = time.Hour
 
 // keepAlive is KeepAlive, or KeepAliveInterval when it is zero.
@@ -208,7 +214,9 @@ func dispatchUp(ctx context.Context, dc, uc mcp.Connection, msg jsonrpc.Message,
 	case initializing:
 		go func() {
 			relayUp(ctx, dc, uc, req)
-			keepUp(ctx, uc, keepAlive)
+			keepUp(ctx, keepAlive, func(ctx context.Context) error {
+				return uc.Write(ctx, &jsonrpc.Request{ID: keepAliveID, Method: "ping"})
+			})
 		}()
 	case !initialized:
 		answerUninitialized(ctx, dc, req, isReq)
@@ -256,11 +264,13 @@ func relayUp(ctx context.Context, dc, uc mcp.Connection, msg jsonrpc.Message) {
 // relay's, and never reach claude.
 var keepAliveID, _ = jsonrpc.MakeID("ctxloom-relay-keepalive")
 
-// keepUp pings the endpoint every interval until ctx ends, so claude's
-// session outlives the endpoint's idle timeout however long claude is idle.
-// A ping the endpoint did not take fails the connection, which downward
-// then reports: a lost session ends the relay loudly, never silently.
-func keepUp(ctx context.Context, uc mcp.Connection, interval time.Duration) {
+// keepUp pings one session every interval until ctx ends or a ping fails, so
+// the session outlives the endpoint's idle timeout however long it is idle.
+// Each ping waits for as long as the endpoint takes (KeepAliveInterval).
+// What a failed ping means is the caller's: on claude's session it fails the
+// connection, which downward then reports, so a lost session ends the relay
+// loudly; on the wake's it closes the session, which watchWake reports.
+func keepUp(ctx context.Context, interval time.Duration, ping func(context.Context) error) {
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
 	for {
@@ -269,7 +279,7 @@ func keepUp(ctx context.Context, uc mcp.Connection, interval time.Duration) {
 			return
 		case <-tick.C:
 		}
-		if err := uc.Write(ctx, &jsonrpc.Request{ID: keepAliveID, Method: "ping"}); err != nil {
+		if err := ping(ctx); err != nil {
 			return
 		}
 	}
@@ -319,7 +329,7 @@ func watchWake(ctx context.Context, cfg Config, url string, httpc *http.Client) 
 	}
 	for _, lost := range []string{wakeLost, wakeDown} {
 		cs, ok := subscribeWake(ctx, cfg, client, url, httpc)
-		if !ok || !awaitLoss(ctx, cs) {
+		if !ok || !awaitLoss(ctx, cs, cfg.keepAlive()) {
 			return
 		}
 		fmt.Fprintf(cfg.Stderr, "ctxloom %s: %s\n", claude.RelayCommand, lost)
@@ -336,7 +346,6 @@ func wakeClient(ctx context.Context, cfg Config) (*mcp.Client, bool) {
 		return nil, false
 	}
 	return mcp.NewClient(&mcp.Implementation{Name: "ctxloom-" + claude.RelayCommand, Version: version.Version}, &mcp.ClientOptions{
-		KeepAlive: cfg.keepAlive(),
 		ResourceUpdatedHandler: func(_ context.Context, req *mcp.ResourceUpdatedNotificationRequest) {
 			nonce, _ := req.Params.Meta["nonce"].(string)
 			if err := w.Fire(ctx, nonce); err != nil {
@@ -362,11 +371,23 @@ func subscribeWake(ctx context.Context, cfg Config, client *mcp.Client, url stri
 	return cs, true
 }
 
-// awaitLoss holds cs until ctx ends (false) or the session closes under it
-// (true), and closes it either way.
-func awaitLoss(ctx context.Context, cs *mcp.ClientSession) bool {
+// awaitLoss holds cs, pinging it every keepAlive, until ctx ends (false) or
+// the session closes under it (true), and closes it either way. A ping that
+// failed closes it: the endpoint answered that the session is gone.
+//
+// The session is kept up by keepUp, never by mcp.ClientOptions.KeepAlive:
+// go-sdk's keepalive abandons a ping after half the interval and closes the
+// session, so an endpoint merely slow to answer would cost the wake its
+// subscription.
+func awaitLoss(ctx context.Context, cs *mcp.ClientSession, keepAlive time.Duration) bool {
 	closed := make(chan struct{})
 	go func() { _ = cs.Wait(); close(closed) }()
+	pinging, stop := context.WithCancel(ctx)
+	defer stop()
+	go func() {
+		keepUp(pinging, keepAlive, func(ctx context.Context) error { return cs.Ping(ctx, nil) })
+		_ = cs.Close()
+	}()
 	defer cs.Close()
 	select {
 	case <-ctx.Done():

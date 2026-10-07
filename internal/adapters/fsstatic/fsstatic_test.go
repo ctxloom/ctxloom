@@ -337,11 +337,13 @@ func TestDeliver_AnApproachLocksThroughTheWritersOwnLocks(t *testing.T) {
 // claude's commands and skills — the writers built on the shared
 // ledger-backed tree writer (agent.WriteManagedPackageFiles), which the
 // mock's plain writers never exercise — through the writer repeatedly over
-// the production record. Every delivery must leave every file in place,
-// listed in its surface's ledger and claimed by the writer: a file the
-// approach finds already identical is still DELIVERED, because here a file
-// the approach does not write is a file the writer does not claim, and the
-// release of the previous delivery then removes it.
+// the production record, for both targets that deliver them: the project
+// (`manage hooks install`, `deps pull`, materialize) and a session's home
+// (session start). Every delivery must leave every file in place, listed in
+// its surface's ledger and claimed by the writer: a file the approach finds
+// already identical is still DELIVERED, because here a file the approach
+// does not write is a file the writer does not claim, and the release of
+// the previous delivery then removes it.
 //
 // An unchanged redelivery must also leave each live file as it stands — the
 // same file, not a replacement (os.SameFile) — because a replace is a window
@@ -349,10 +351,6 @@ func TestDeliver_AnApproachLocksThroughTheWritersOwnLocks(t *testing.T) {
 // batch, not the approach, is what writes here, and it lands no unchanged
 // file.
 func TestDeliver_RedeliveringAnUnchangedLedgeredTreeKeepsEveryFile(t *testing.T) {
-	fs := afero.NewOsFs()
-	project := t.TempDir()
-	rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
-	require.NoError(t, err)
 	eng, err := claude.Build()
 	require.NoError(t, err)
 	pkg := compositetest.Fixture(t, compositetest.WithCommand("go", "go now"))
@@ -366,42 +364,71 @@ func TestDeliver_RedeliveringAnUnchangedLedgeredTreeKeepsEveryFile(t *testing.T)
 	items := pkg.EngineItems(eng.Root().Name)
 	exports, err := eng.Exports(items)
 	require.NoError(t, err)
-	pref := delivery.Preference{Root: map[present.Kind]present.RootKind{present.Commands: present.RootProjectRoot, present.Skills: present.RootProjectRoot}}
-	plan, err := delivery.Route(items, eng.Root(), pref, present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}})
-	require.NoError(t, err)
-	target := delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter}
-	static := fsstatic.New(safefs.NewMem(fs))
 
-	commands := filepath.Join(project, ".claude", "commands")
-	skills := filepath.Join(project, ".claude", "skills")
-	want := map[ledger.Surface]struct {
-		dir   string
-		files []string
-	}{
-		ledger.SurfaceCommands: {commands, []string{"go.md"}},
-		ledger.SurfaceSkills:   {skills, []string{"greet/SKILL.md", "greet/scripts/run.sh"}},
+	type setup struct {
+		target   delivery.Target
+		plan     delivery.Plan
+		commands string
+		skills   string
 	}
-	live := map[string]os.FileInfo{}
-	for run := 1; run <= 3; run++ {
-		_, err := static.Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, eng.Root(), target)
-		require.NoError(t, err, "run %d", run)
-		claimed, err := rec.Targets(delivery.ProjectWriter)
-		require.NoError(t, err)
-		for surface, w := range want {
-			listed, err := ledger.Ledger{Root: safefs.NewMem(fs), Dir: w.dir}.Read(surface)
+	for name, build := range map[string]func(t *testing.T, rec delivery.Ownership) setup{
+		"project": func(t *testing.T, rec delivery.Ownership) setup {
+			project := t.TempDir()
+			pref := delivery.Preference{Root: map[present.Kind]present.RootKind{present.Commands: present.RootProjectRoot, present.Skills: present.RootProjectRoot}}
+			plan, err := delivery.Route(items, eng.Root(), pref, present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}})
 			require.NoError(t, err)
-			require.Equal(t, w.files, listed, "run %d: the %s ledger", run, surface)
-			for _, rel := range w.files {
-				path := filepath.Join(w.dir, rel)
-				info, err := os.Stat(path)
-				require.NoError(t, err, "run %d: %s is listed in the ledger but missing", run, rel)
-				require.Contains(t, claimed, path, "run %d: %s is delivered but unclaimed, so the next delivery's release removes it", run, rel)
-				if was, ok := live[path]; ok {
-					require.True(t, os.SameFile(was, info), "run %d: an unchanged redelivery replaced %s", run, rel)
-				}
-				live[path] = info
+			return setup{
+				target: delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter},
+				plan:   plan, commands: filepath.Join(project, ".claude", "commands"), skills: filepath.Join(project, ".claude", "skills"),
 			}
-		}
+		},
+		"session": func(t *testing.T, rec delivery.Ownership) setup {
+			project, home := t.TempDir(), t.TempDir()
+			cell := present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}, SessionHome: present.Root{Host: home, Engine: home}}
+			plan, err := delivery.Route(items, eng.Root(), delivery.Preference{}, cell)
+			require.NoError(t, err)
+			return setup{
+				target: delivery.Target{Root: present.New(present.OnHost(cell)), Ownership: rec, Writer: delivery.SessionWriter("h")},
+				plan:   plan, commands: filepath.Join(home, claude.CommandsDirName), skills: filepath.Join(home, claude.SkillsDirName),
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fs := afero.NewOsFs()
+			rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
+			require.NoError(t, err)
+			su := build(t, rec)
+			static := fsstatic.New(safefs.NewMem(fs))
+			want := map[ledger.Surface]struct {
+				dir   string
+				files []string
+			}{
+				ledger.SurfaceCommands: {su.commands, []string{"go.md"}},
+				ledger.SurfaceSkills:   {su.skills, []string{"greet/SKILL.md", "greet/scripts/run.sh"}},
+			}
+			live := map[string]os.FileInfo{}
+			for run := 1; run <= 3; run++ {
+				_, err := static.Deliver(context.Background(), delivery.Loadout{Plan: su.plan, Package: pkg, Exports: exports}, eng.Root(), su.target)
+				require.NoError(t, err, "run %d", run)
+				claimed, err := rec.Targets(su.target.Writer)
+				require.NoError(t, err)
+				for surface, w := range want {
+					listed, err := ledger.Ledger{Root: safefs.NewMem(fs), Dir: w.dir}.Read(surface)
+					require.NoError(t, err)
+					require.Equal(t, w.files, listed, "run %d: the %s ledger", run, surface)
+					for _, rel := range w.files {
+						path := filepath.Join(w.dir, rel)
+						info, err := os.Stat(path)
+						require.NoError(t, err, "run %d: %s is listed in the ledger but missing", run, rel)
+						require.Contains(t, claimed, path, "run %d: %s is delivered but unclaimed, so the next delivery's release removes it", run, rel)
+						if was, ok := live[path]; ok {
+							require.True(t, os.SameFile(was, info), "run %d: an unchanged redelivery replaced %s", run, rel)
+						}
+						live[path] = info
+					}
+				}
+			}
+		})
 	}
 }
 

@@ -4,12 +4,14 @@
 // runner: root = session home, writer = the harp) and a human materialize
 // (root = project root, writer = project); they differ only in the Target.
 //
-// A delivery is one batch (safefs.Batch): the writer's PREVIOUS claims under
-// the target's roots are released, each item is delivered through the
-// engine's approach for its kind — its claims staged as given, and every file
-// it wrote over an overlay of the target filesystem staged as a claim on the
-// whole file — and the batch commits, so a file several items or writers put
-// values into is written once. A plan with no static items is UNINSTALL: the
+// A delivery is one batch (safefs.Batch). Each item is delivered through the
+// engine's approach for its kind, over an overlay of the target filesystem,
+// and the approach DECLARES what it owns (present.Delivered's Files and
+// Claims); ownership is never inferred from what it happened to write. The
+// writer's previous claims under the target's roots are released, except on
+// a declared file the approach did not rewrite, and the declaration is
+// staged; the batch commits, so a file several items or writers put values
+// into is written once. A plan with no static items is UNINSTALL: the
 // release alone runs. A delivery or a reversal holds every lock it takes
 // until it has committed, in one order (lockScope).
 package fsstatic
@@ -99,32 +101,54 @@ func (s *Static) Deliver(_ context.Context, lo delivery.Loadout, root engine.Bas
 	return s.deliver(sc, lo, root, target)
 }
 
-// deliver is Deliver's run, under sc.
+// deliver is Deliver's run, under sc, in three phases. A: each approach
+// runs over its own overlay, and what it declared is checked against what it
+// wrote (ran.check) and against the record (retain). B: the writer's earlier
+// claims under the target's roots are released, except on the files it
+// retains. C: each declaration is staged. Every release is staged before any
+// stage because the record folds a file's operations in order: a release
+// staged after a claim on the same file would drop that claim.
 func (s *Static) deliver(sc *lockScope, lo delivery.Loadout, root engine.Base, target delivery.Target) (delivery.Delivered, error) {
 	surfaces := root.Surfaces()
 	paths := target.Root.Paths()
 	within := func(path string) bool { return underARoot(paths, path) }
 	undo := func(context.Context) error { return s.reverse(target.Ownership, within, target.Writer) }
-	b := s.batch(sc)
-	st := target.Ownership.In(b)
-	if err := releaseWriters(st, target.Ownership, within, carried(lo.Package.CarryForward), target.Writer); err != nil {
-		return delivery.Delivered{}, err
-	}
 	out := delivery.Delivered{Undo: undo}
-	var modes map[string]os.FileMode
+	var runs []ran
 	if len(lo.Plan.Static) > 0 {
 		inputs, err := delivery.InputsFor(lo, root.Dynamic)
 		if err != nil {
 			return delivery.Delivered{}, err
 		}
-		modes = map[string]os.FileMode{}
 		for _, it := range lo.Plan.Static {
-			d, err := s.deliverItem(sc, it, surfaces[it.Kind], target, inputs, st, modes)
+			r, err := s.run(sc, it, surfaces[it.Kind], target, inputs)
 			if err != nil {
 				return delivery.Delivered{}, err
 			}
-			out.Presented = append(out.Presented, d.Presented)
+			runs = append(runs, r)
+			out.Presented = append(out.Presented, r.d.Presented)
 			out.Wrote = append(out.Wrote, it.Kind)
+		}
+	}
+	retained, err := s.retain(runs, target)
+	if err != nil {
+		return delivery.Delivered{}, err
+	}
+	for _, r := range runs {
+		if err := s.writeOwnState(r); err != nil {
+			return delivery.Delivered{}, err
+		}
+	}
+	b := s.batch(sc)
+	st := target.Ownership.In(b)
+	released := func(path string) bool { return within(path) && !retained[path] }
+	if err := releaseWriters(st, target.Ownership, released, carried(lo.Package.CarryForward), target.Writer); err != nil {
+		return delivery.Delivered{}, err
+	}
+	modes := map[string]os.FileMode{}
+	for _, r := range runs {
+		if err := r.stage(st, target, modes); err != nil {
+			return delivery.Delivered{}, err
 		}
 	}
 	if s.beforeCommit != nil {
@@ -169,58 +193,168 @@ func planRootable(items []delivery.StaticItem, surfaces engine.Surfaces, paths p
 	return nil
 }
 
-// deliverItem runs the item's approach over a copy-on-write overlay and
-// stages what it delivered: its claims as given, and each file it wrote
-// under a target root as a claim on the whole file. A file it wrote outside
-// every root is its own state, written through as it wrote it.
-func (s *Static) deliverItem(sc *lockScope, it delivery.StaticItem, approach present.Approach, target delivery.Target, inputs delivery.Inputs, st delivery.Staging, modes map[string]os.FileMode) (present.Delivered, error) {
+// ran is one approach's run: its declaration, and the files it wrote over
+// its overlay, split into those under a target root (each must be declared,
+// and is claimed whole) and its own state outside every root.
+type ran struct {
+	approach string
+	kind     present.Kind
+	d        present.Delivered
+	layer    *writeLayer
+	written  []string // under a target root, sorted
+	own      []string // outside every target root, sorted
+}
+
+// run runs the item's approach over a copy-on-write overlay and checks its
+// declaration against what it wrote.
+func (s *Static) run(sc *lockScope, it delivery.StaticItem, approach present.Approach, target delivery.Target, inputs delivery.Inputs) (ran, error) {
 	layer := &writeLayer{Fs: afero.NewMemMapFs(), names: map[string]struct{}{}}
 	// The approach writes through the overlay but locks through the run's
 	// scope over the real Locks: its own read-modify-writes exclude every
 	// other writer, until the run has committed what it wrote.
 	d, err := deliverKind(approach, it.Kind, target.Root, it.Root, inputs, safefs.Root{Fs: newOverlay(s.fs, layer), Locks: sc})
 	if err != nil {
-		return present.Delivered{}, fmt.Errorf("fsstatic: deliver %v through %s: %w", it.Kind, it.Approach, err)
+		return ran{}, fmt.Errorf("fsstatic: deliver %v through %s: %w", it.Kind, it.Approach, err)
 	}
-	for _, path := range slices.Sorted(maps.Keys(d.Claims)) {
-		if err := st.Stage(path, target.Writer, d.Claims[path]); err != nil {
-			return present.Delivered{}, fmt.Errorf("fsstatic: stage %v's claims on %s: %w", it.Kind, path, err)
-		}
-	}
+	r := ran{approach: it.Approach, kind: it.Kind, d: d, layer: layer}
+	paths := target.Root.Paths()
 	for _, path := range layer.files() {
-		if _, claimed := d.Claims[path]; claimed {
-			return present.Delivered{}, fmt.Errorf("fsstatic: %s both claims values in %s and writes it whole; an approach does one or the other", it.Approach, path)
-		}
-		if err := s.stageWritten(layer, path, target, st, modes); err != nil {
-			return present.Delivered{}, err
+		if underARoot(paths, path) {
+			r.written = append(r.written, path)
+		} else {
+			r.own = append(r.own, path)
 		}
 	}
-	return d, nil
+	return r, r.check(paths)
 }
 
-// stageWritten stages one file an approach wrote as a claim on the whole
-// file, keeping the mode it wrote it with; a file outside every target root
-// is the approach's own state, written through as it wrote it.
-func (s *Static) stageWritten(layer afero.Fs, path string, target delivery.Target, st delivery.Staging, modes map[string]os.FileMode) error {
-	bytes, err := afero.ReadFile(layer, path)
+// refuse is a refusal of r's declaration at path.
+func (r ran) refuse(path string, why error) error {
+	return fmt.Errorf("fsstatic: %v through %s: %s: %w", r.kind, r.approach, path, why)
+}
+
+// check holds r's declaration to what it wrote: every declared file lies
+// under a root and is not also claimed into, and every file written under a
+// root is declared.
+func (r ran) check(paths present.Paths) error {
+	declared := make(map[string]bool, len(r.d.Files))
+	for _, path := range r.d.Files {
+		path = filepath.Clean(path)
+		if !underARoot(paths, path) {
+			return r.refuse(path, ErrDeclaredOutsideRoots)
+		}
+		if _, claimed := r.d.Claims[path]; claimed {
+			return r.refuse(path, ErrDeclaredAndClaimed)
+		}
+		declared[path] = true
+	}
+	for _, path := range r.written {
+		if !declared[path] {
+			return r.refuse(path, ErrUndeclaredWrite)
+		}
+	}
+	return nil
+}
+
+// retain is every file a run declares and no run wrote: each keeps the
+// writer's earlier whole-file claim, so the writer must hold one and the
+// file must stand. It is never claimed from its bytes on disk: a file the
+// user has since edited would then be judged against that new claim
+// (targetOps.wholeFileEdited) and taken as ctxloom's.
+func (s *Static) retain(runs []ran, target delivery.Target) (map[string]bool, error) {
+	written := map[string]bool{}
+	for _, r := range runs {
+		for _, path := range r.written {
+			written[path] = true
+		}
+	}
+	retained := map[string]bool{}
+	for _, r := range runs {
+		for _, path := range r.d.Files {
+			path = filepath.Clean(path)
+			if written[path] || retained[path] {
+				continue
+			}
+			if err := s.retainable(target, path); err != nil {
+				return nil, r.refuse(path, err)
+			}
+			retained[path] = true
+		}
+	}
+	return retained, nil
+}
+
+// retainable is nil when the record holds target's writer's claim on path
+// whole and the file stands.
+func (s *Static) retainable(target delivery.Target, path string) error {
+	states, err := target.Ownership.Paths(s.fs, path)
 	if err != nil {
 		return err
 	}
-	info, err := layer.Stat(path)
+	if !slices.ContainsFunc(states, func(st delivery.PathState) bool {
+		return st.Pointer == "" && slices.Contains(st.Writers, target.Writer)
+	}) {
+		return ErrDeclaredUnclaimed
+	}
+	exists, err := afero.Exists(s.fs, path)
 	if err != nil {
 		return err
 	}
-	if !underARoot(target.Root.Paths(), path) {
+	if !exists {
+		return ErrDeclaredMissing
+	}
+	return nil
+}
+
+// writeOwnState lands each file r wrote outside every target root on the
+// real filesystem as it wrote it: the approach's own state, never claimed.
+func (s *Static) writeOwnState(r ran) error {
+	for _, path := range r.own {
+		bytes, info, err := readWritten(r.layer, path)
+		if err != nil {
+			return err
+		}
 		if err := writeThrough(s.fs, path, bytes, info.Mode().Perm()); err != nil {
 			return fmt.Errorf("fsstatic: write %s: %w", path, err)
 		}
-		return nil
 	}
-	if err := st.Stage(path, target.Writer, []present.Claim{{Value: bytes}}); err != nil {
-		return fmt.Errorf("fsstatic: stage %s for %s: %w", path, target.Writer, err)
-	}
-	modes[path] = info.Mode().Perm()
 	return nil
+}
+
+// stage stages r's declaration under the target's writer: its claims as
+// given, and each file it wrote under a root as a claim on the whole file,
+// noting the mode it wrote it with. A retained file is staged nothing: the
+// release passed over it, so its earlier claim stands as it was.
+func (r ran) stage(st delivery.Staging, target delivery.Target, modes map[string]os.FileMode) error {
+	for _, path := range slices.Sorted(maps.Keys(r.d.Claims)) {
+		if err := st.Stage(path, target.Writer, r.d.Claims[path]); err != nil {
+			return fmt.Errorf("fsstatic: stage %v's claims on %s: %w", r.kind, path, err)
+		}
+	}
+	for _, path := range r.written {
+		bytes, info, err := readWritten(r.layer, path)
+		if err != nil {
+			return err
+		}
+		if err := st.Stage(path, target.Writer, []present.Claim{{Value: bytes}}); err != nil {
+			return fmt.Errorf("fsstatic: stage %s for %s: %w", path, target.Writer, err)
+		}
+		modes[path] = info.Mode().Perm()
+	}
+	return nil
+}
+
+// readWritten is the bytes and info of a file an approach wrote to layer.
+func readWritten(layer afero.Fs, path string) ([]byte, os.FileInfo, error) {
+	bytes, err := afero.ReadFile(layer, path)
+	if err != nil {
+		return nil, nil, err
+	}
+	info, err := layer.Stat(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	return bytes, info, nil
 }
 
 // carried keeps a claim made through one of the sources the package carries

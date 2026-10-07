@@ -170,6 +170,19 @@ func resolveDevcontainerBase(appRoot, service string) (*baseStage, error) {
 	return nil, fmt.Errorf("%s: no recognized base shape (need \"image\", \"build\", or \"dockerComposeFile\" + a service)", path)
 }
 
+// devcontainerFeaturesNotice is the warning warnDevcontainerFeatures prints:
+// the devcontainer.json path, then the comma-joined feature names. Every
+// config key it names must be one the config schema accepts
+// (TestDevcontainerAdvice_NamesOnlyAcceptedConfigKeys) — the decoder rejects
+// any other, so advice naming one makes ctxloom refuse to start.
+const devcontainerFeaturesNotice = "%s declares devcontainer features (%s) that ctxloom does NOT honor in the agent image (pre1 does not depend on the devcontainer CLI) — the resolved base misses whatever those features would install; install the missing tools in the base yourself (edit the devcontainer's own Dockerfile, or build your own Containerfile into an image and set isolation_base: <image ref>), or opt out of the devcontainer base with isolation_base: ctxloom"
+
+// devcontainerComposeServiceError is resolveComposeBase's refusal of a
+// dockerComposeFile with no service named; its one verb is the
+// devcontainer.json path. Held to the same accepted-keys rule as
+// devcontainerFeaturesNotice.
+const devcontainerComposeServiceError = "%s declares dockerComposeFile (a multi-service compose project does not map to one agent container); configure isolation_devcontainer_service to pick one, or opt out of the devcontainer base with isolation_base: ctxloom"
+
 // warnDevcontainerFeatures loudly names any declared devcontainer features
 // (ghcr.io/devcontainers/features/*) ctxloom does NOT honor — pre1 does not
 // shell out to the devcontainer CLI to materialize them (D1). Never fatal:
@@ -184,8 +197,7 @@ func warnDevcontainerFeatures(path string, features map[string]json.RawMessage) 
 		names = append(names, k)
 	}
 	sort.Strings(names)
-	clidiag.Warn("ctxloom", "%s declares devcontainer features (%s) that ctxloom does NOT honor in the agent image (pre1 does not depend on the devcontainer CLI) — the resolved base misses whatever those features would install; install the missing tools in the base yourself (a Containerfile via isolation_base_containerfile, or edit the devcontainer's own Dockerfile), or opt out of the devcontainer base with isolation_devcontainer_base: false",
-		path, strings.Join(names, ", "))
+	clidiag.Warn("ctxloom", devcontainerFeaturesNotice, path, strings.Join(names, ", "))
 }
 
 // resolveComposeBase resolves the ONE service dockerComposeFile names as the
@@ -199,7 +211,7 @@ func resolveComposeBase(devcontainerPath string, dc devcontainerFile, service st
 		service = dc.Service
 	}
 	if service == "" {
-		return nil, fmt.Errorf("%s declares dockerComposeFile (a multi-service compose project does not map to one agent container); configure isolation_devcontainer_service to pick one, or opt out with isolation_devcontainer_base: false", devcontainerPath)
+		return nil, fmt.Errorf(devcontainerComposeServiceError, devcontainerPath)
 	}
 	files, ferr := decodeComposeFileList(dc.DockerComposeFile)
 	if len(files) == 0 {

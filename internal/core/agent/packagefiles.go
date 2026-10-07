@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -49,7 +48,7 @@ type preparedItem struct {
 // writeManagedPackageFilesLocked is WriteManagedPackageFiles' body, run under
 // the dir lock its exported wrapper (below) takes.
 func writeManagedPackageFilesLocked[T any](
-	fs afero.Fs,
+	files safefs.Root,
 	dir string,
 	surface ledger.Surface,
 	items []T,
@@ -62,7 +61,8 @@ func writeManagedPackageFilesLocked[T any](
 	for _, opt := range opts {
 		opt(o)
 	}
-	led := ledger.Ledger{FS: fs, Dir: dir, Warn: o.rep.Warnf}
+	fs := files.Fs
+	led := ledger.Ledger{Root: files, Dir: dir, Warn: o.rep.Warnf}
 
 	// Read what this surface currently claims BEFORE anything else — read-only,
 	// nothing destructive yet. Ledger entries are data, not trusted paths: a
@@ -408,9 +408,14 @@ func liveFileMatches(fs afero.Fs, src, dst string) bool {
 // other writer's files stay on disk with no surface claiming them, beyond the
 // reach of every later cleanup. The ledger's own marker lock does not cover
 // this: it spans only the marker rewrite, not the read this cycle acts on.
+// The lock is taken through files.Locks whatever files.Fs is: under the
+// static writer files.Fs is a copy-on-write overlay of the controller's
+// filesystem and files.Locks are the controller's own. There the cycle's
+// writes reach disk only at the static writer's batch commit, after this lock
+// is released, under that commit's per-file locks.
 // See TestWriteManagedPackageFiles_ExcludesAConcurrentWriterOfItsDir.
 func WriteManagedPackageFiles[T any](
-	fs afero.Fs,
+	files safefs.Root,
 	dir string,
 	surface ledger.Surface,
 	items []T,
@@ -419,21 +424,13 @@ func WriteManagedPackageFiles[T any](
 	render func(T) ([]PackageFile, error),
 	opts ...ManagedWriteOption,
 ) error {
-	write := func() error {
-		return writeManagedPackageFilesLocked(fs, dir, surface, items, enabled, itemName, render, opts...)
-	}
-	// This chain is handed only an afero.Fs, not a safefs.Root, so the fs
-	// decides whether it locks: a non-OS fs takes no lock and resolves none
-	// (marshy-capture: threading a Root through the engine approaches that
-	// reach this is escalated).
-	if !filelock.IsOSBackedFs(fs) {
-		return write()
-	}
 	lockPath, err := paths.HomePathFor(dir)
 	if err != nil {
 		return fmt.Errorf("agent: deriving home lock path for %s: %w", dir, err)
 	}
-	return filelock.WithLock(fs, lockPath, write)
+	return safefs.WithLock(files.Locks, lockPath, func() error {
+		return writeManagedPackageFilesLocked(files, dir, surface, items, enabled, itemName, render, opts...)
+	})
 }
 
 // revertManagedSurface reverts one surface to empty: removes exactly the

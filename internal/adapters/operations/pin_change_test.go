@@ -17,8 +17,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
@@ -309,4 +312,85 @@ func TestDiffPin_MasksEnvAndHeaderValuesInEveryRendering(t *testing.T) {
 	assert.Contains(t, text.String(), "~ TOKEN: "+fp("SECRET-ENV-ONE")+" -> "+fp("SECRET-ENV-TWO"))
 	assert.Contains(t, text.String(), "Authorization: "+fp("Bearer SECRET-HDR"))
 	assert.Contains(t, text.String(), `args: "server.js" -> "server.js" "--v2"`, "args stay in clear")
+}
+
+// An unchanged item does not end the listing: every later item of the kind is
+// still compared.
+func TestDiffItems_UnchangedItemDoesNotHideLaterChanges(t *testing.T) {
+	same := bundles.BundleMCP{Command: "node"}
+	got := diffItems("mcp",
+		map[string]bundles.BundleMCP{"a": same, "b": {Command: "node"}},
+		map[string]bundles.BundleMCP{"a": same, "b": {Command: "deno"}},
+		mcpExec)
+	require.Len(t, got, 1)
+	assert.Equal(t, "b", got[0].Name)
+	assert.Equal(t, ChangeModified, got[0].Change)
+}
+
+// A REMOVED MCP server still discloses what it ran — with its env and header
+// values fingerprinted, in the item and in every rendering — and a key a
+// two-sided change drops is marked removed, by fingerprint too.
+func TestDiffItems_RemovedServerShowsWhatItRanMasked(t *testing.T) {
+	got := diffItems("mcp",
+		map[string]bundles.BundleMCP{
+			"gone": {Command: "node", Env: map[string]string{"TOKEN": "SECRET-GONE"}},
+			"kept": {URL: "https://mcp.example.test", Headers: map[string]string{"Authorization": "SECRET-DROPPED", "X-Keep": "SECRET-KEEP"}},
+		},
+		map[string]bundles.BundleMCP{
+			"kept": {URL: "https://mcp.example.test", Headers: map[string]string{"X-Keep": "SECRET-KEEP"}},
+		},
+		mcpExec)
+	require.Len(t, got, 2)
+	gone := got[0]
+	assert.Equal(t, "gone", gone.Name)
+	assert.Equal(t, ChangeRemoved, gone.Change)
+	require.NotNil(t, gone.Exec, "a removed server still says what it ran")
+	assert.Equal(t, &ExecSpec{Command: "node", Env: map[string]string{"TOKEN": fp("SECRET-GONE")}}, gone.Exec.Before)
+	assert.Nil(t, gone.Exec.After)
+
+	var text bytes.Buffer
+	WritePinChanges(&text, []PinChange{{Identity: "corp/kit", FromSHA: "1111111111", ToSHA: "2222222222", Items: got}})
+	js, err := json.Marshal(got)
+	require.NoError(t, err)
+	for _, raw := range []string{"SECRET-GONE", "SECRET-DROPPED", "SECRET-KEEP"} {
+		assert.NotContains(t, text.String(), raw, "text rendering leaks a raw value")
+		assert.NotContains(t, string(js), raw, "JSON rendering leaks a raw value")
+	}
+	assert.Contains(t, text.String(), "  - mcp gone\n      command: node\n      env:\n          TOKEN: "+fp("SECRET-GONE")+"\n")
+	assert.Contains(t, text.String(), "        - Authorization: "+fp("SECRET-DROPPED")+"\n")
+	assert.Contains(t, text.String(), "          X-Keep: "+fp("SECRET-KEEP")+"\n")
+}
+
+// pinChanges lists every new or moved pin in ref order, never a kept one, and
+// lists a pin whose content cannot be read by its header, warning the reason.
+func TestPinChanges_RefOrderedAndUnreadablePinsWarned(t *testing.T) {
+	testsupport.Isolate(t)
+	for _, ref := range []string{"corp/added", "corp/moved"} {
+		_, err := remote.ParseReference(ref)
+		require.Error(t, err, "%s must be unreadable, or this test reaches the network", ref)
+	}
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+	before := &remote.Lockfile{Bundles: map[ident.BundleKey]remote.LockEntry{
+		"corp/kept":  {SHA: "1111111111"},
+		"corp/moved": {SHA: "2222222222"},
+	}}
+	after := &remote.Lockfile{Bundles: map[ident.BundleKey]remote.LockEntry{
+		"corp/kept":  {SHA: "1111111111"},
+		"corp/moved": {SHA: "3333333333"},
+		"corp/added": {SHA: "4444444444"},
+	}}
+
+	got := pinChanges(context.Background(), testConfigWithSCMPath(t.TempDir()), before, after)
+
+	require.Len(t, got, 2)
+	assert.Equal(t, "corp/added", got[0].Identity)
+	assert.Equal(t, "", got[0].FromSHA)
+	assert.Equal(t, "corp/moved", got[1].Identity)
+	assert.Equal(t, "2222222222", got[1].FromSHA)
+	assert.Equal(t, "3333333333", got[1].ToSHA)
+	assert.Contains(t, buf.String(), "could not list what corp/added at 4444444 brings in")
+	assert.Contains(t, buf.String(), "could not list what corp/moved at 3333333 brings in")
+	assert.NotContains(t, buf.String(), "corp/kept")
 }

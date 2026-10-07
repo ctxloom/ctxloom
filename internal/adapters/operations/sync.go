@@ -271,10 +271,7 @@ func constraintChangesIn(cfg *config.Config, profileNames []string, baseDir stri
 func constraintChanges(cfg *config.Config, profileNames []string, lock *remote.Lockfile) []ConstraintChange {
 	var out []ConstraintChange
 	for _, r := range closureBundleRefs(cfg, profileNames) {
-		ref, err := remote.ParseReference(r.ref)
-		if err != nil {
-			continue
-		}
+		ref := r.parsed
 		key, err := ref.LockKey()
 		if err != nil {
 			continue
@@ -495,8 +492,9 @@ func collectRemoteReferences(cfg *config.Config, profileNames []string) []string
 // closureRef is one remote bundle the closure reaches, and the profile whose
 // edge reached it.
 type closureRef struct {
-	ref   string // bundle base: the ref with any item selector stripped
-	owner string // name of the profile that references it
+	ref    string            // bundle base: the ref with any item selector stripped
+	parsed *remote.Reference // ref, parsed: a ref that does not parse is never collected
+	owner  string            // name of the profile that references it
 }
 
 // closureBundleRefs walks the project closure from the root set every deps
@@ -586,7 +584,7 @@ func (c *refCollector) add(ref, owner string) {
 		return
 	}
 	c.seen.Add(identity)
-	c.refs = append(c.refs, closureRef{ref: base, owner: owner})
+	c.refs = append(c.refs, closureRef{ref: base, parsed: parsed, owner: owner})
 }
 
 // isRemoteReference reports whether a reference addresses something FETCHED

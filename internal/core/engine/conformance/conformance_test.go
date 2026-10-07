@@ -2,7 +2,9 @@ package conformance_test
 
 import (
 	"errors"
+	"os"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -251,4 +253,22 @@ func TestConformance_NoCorePackageNamesAnEngine(t *testing.T) {
 	}
 	require.Len(t, plans, 2)
 	require.Equal(t, plans[0], plans[1], "two engines with identical definitions must receive identical plans")
+}
+
+// TestPresentAll_MakesTheSessionRootsOwnerOnly: the throwaway filesystem
+// PresentAll delivers into is rooted at the session's own roots, created
+// owner-only before anything is delivered under them.
+func TestPresentAll_MakesTheSessionRootsOwnerOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("owner-only is a DACL on windows, not mode bits")
+	}
+	eng := mock.New()
+	s := conformance.SessionFor(t, eng, engine.Interactive)
+	conformance.PresentAll(t, eng, s)
+	for _, root := range []string{s.Roots.ProjectRoot.Host, s.Roots.SessionHome.Host} {
+		info, err := os.Stat(root)
+		require.NoError(t, err)
+		require.True(t, info.IsDir(), "%s", root)
+		require.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "%s", root)
+	}
 }

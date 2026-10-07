@@ -126,7 +126,6 @@ var LayeringRules = []LayeringRule{
 			"internal/shared/schema",
 			"internal/shared/liveness",
 			"internal/shared/report",
-			"internal/shared/filelock",
 			"internal/shared/exectoken",
 			"internal/shared/textblocks",
 			"internal/shared/schemaver",

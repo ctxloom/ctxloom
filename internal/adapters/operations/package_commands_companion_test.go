@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
@@ -96,7 +97,7 @@ func TestLoadCommandExports_IncludesCompanionCommandUnconditionally(t *testing.T
 	// Materialize to prove the actual slash-command filename: "/" becomes "-",
 	// so ltk's task-runner command becomes /ltk-task-runner.
 	fs := afero.NewMemMapFs()
-	require.NoError(t, claude.WriteCommandFiles("/project", ex, agent.WithCommandFS(fs)))
+	require.NoError(t, claude.WriteCommandFiles("/project", ex, agent.WithCommandRoot(safefs.NewMem(fs))))
 	exists, err := afero.Exists(fs, "/project/.claude/commands/ltk-task-runner.md")
 	require.NoError(t, err)
 	assert.True(t, exists, "ltk's task-runner command must materialize as /ltk-task-runner")

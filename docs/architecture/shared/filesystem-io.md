@@ -2,7 +2,7 @@
 
 Three leaf packages own how ctxloom touches the filesystem: `internal/shared/safefs` is the write library over `afero` — the empty-write guard and durability as `afero.Fs` decorators, and the atomic writer that composes them; `internal/shared/errwriter` latches write errors on a formatted output stream; `internal/shared/watch` turns fsnotify into a filtered, optionally-recursive change-signal channel.
 
-`safefs.Root` pairs the filesystem with what acts on the same files: `Private` (owner-only directories) and `Locks` (advisory locks). `safefs.New()` is the controller's own — real files, the platform's protection, kernel locks over `github.com/gofrs/flock` — built once by each process's composition root and threaded down; `safefs.NewMem(fs)` is a test's, with mode bits and in-process locks that really serialize. `safefs.WithLock(locks, lockPath, fn)` is the one read-modify-write transaction (lock path refusals, the lock-wait notice, fail-closed acquisition). Call sites that need what `Locks` does not offer — a shared lock, or `sessionlock`'s Windows byte-range lock — still use `github.com/gofrs/flock` directly; `git grep gofrs/flock` finds them. The protected-path→lock-name derivation (`PathFor`, `ProjectPathFor`, `HomePathFor`) is PATH POLICY, not locking, and lives in `internal/core/paths` (`lockpath.go`) beside the home/project tiering it depends on.
+`safefs.Root` pairs the filesystem with what acts on the same files: `Private` (owner-only directories) and `Locks` (advisory locks). `safefs.New()` is the controller's own — real files, the platform's protection, kernel locks over `github.com/gofrs/flock` — built once by each process's composition root and threaded down; `safefs.NewMem(fs)` is a test's, with mode bits and in-process locks that really serialize. `safefs.WithLock(locks, lockPath, fn)` is the one read-modify-write transaction (lock path refusals, the lock-wait notice, fail-closed acquisition). Every advisory lock goes through `Locks`; safefs is the only package that names the kernel lock underneath. The protected-path→lock-name derivation (`PathFor`, `ProjectPathFor`, `HomePathFor`) is PATH POLICY, not locking, and lives in `internal/core/paths` (`lockpath.go`) beside the home/project tiering it depends on.
 
 The contract they jointly own: **a mutable store is written atomically under an advisory lock named `<protected-path>.lock`, and observers learn it changed from a `watch.Watcher` that carries no data.**
 
@@ -19,11 +19,11 @@ flowchart TD
 
   subgraph rt["internal/shared/safefs (Root)"]
     WL["WithLock(locks, lockPath, fn) — the whole RMW cycle, fail-closed"]
-    LK["Locks: Lock / TryLock(ctx) / Held"]
+    LK["Locks: Lock / RLock / TryLock(ctx) / Held"]
     PV["Private: Ensure / Check"]
   end
   rt --> fl
-  subgraph fl["github.com/gofrs/flock"]
+  subgraph fl["github.com/gofrs/flock (safefs's kernel lock off Windows)"]
     FN["flock.New(path, SetPermissions(perm)) *Flock"]
     FL["(*Flock).Lock() error — blocking exclusive"]
     FT["(*Flock).TryLock() (bool, error) — non-blocking exclusive"]
@@ -37,7 +37,7 @@ flowchart TD
     PPF["ProjectPathFor(protected) (string, error)"]
     HPF["HomePathFor(protected) (string, error)"]
   end
-  pp -.->|"derives the path each call site locks"| fl
+  pp -.->|"derives the path each call site locks"| rt
 
   subgraph wt["internal/shared/watch"]
     NEW["New(root, recursive, filter)"]
@@ -76,11 +76,11 @@ The write-discipline gate (`archlint.WriteDisciplineAnalyzer`) refuses a raw `os
 
 `safefs.WithLock(locks, lockPath, fn)` is the blocking read-modify-write transaction over a Root's `Locks`. `Locks.Lock` creates the lock's directory, opens the lock file — following a symlink, so a lock file may be linked anywhere — and refuses whatever it resolves to unless that is a regular file (`ErrNotRegularFile`: a FIFO or device is no lock), checked before the acquire and again on the locked handle, and takes the lock under the `lockwait.Watch` "still waiting" notice; `WithLock` runs `fn` as the WHOLE cycle. An acquisition failure fails closed and `fn` never runs, and nothing skips the lock: an in-memory Root's locks serialize too. `Locks.TryLock(ctx, path)` makes one attempt, then waits until `ctx` ends (`ErrLockHeld`), and never creates the lock's directory — a directory removed under a claimant is `fs.ErrNotExist`. `Lock.Current` reports the locked file is still the one at its path, which is how a claimant detects a removal made under the lock. `Locks.Held` probes without creating anything.
 
-`sessions.WithFileLock(locks, target, fn)` is the wrapper for a FOREIGN file (an engine's own settings.json, a project's `.mcp.json`): it resolves the lock path with `paths.HomePathFor(target)` and takes it through the caller's Root's `Locks`, never skipping it. The managed-files writers (`agent.WriteManagedPackageFiles`, `ledger.Ledger.Write`) are handed only an `afero.Fs`, so they still choose their lock from it through `internal/shared/filelock` — the OS filesystem's locks, or none.
+`sessions.WithFileLock(locks, target, fn)` is the wrapper for a FOREIGN file (an engine's own settings.json, a project's `.mcp.json`): it resolves the lock path with `paths.HomePathFor(target)` and takes it through the caller's Root's `Locks`, never skipping it. The managed-files writers (`agent.WriteManagedPackageFiles`, `ledger.Ledger.Write`) are handed a Root too: under the static writer it is its copy-on-write overlay paired with the controller's own `Locks`.
 
 `PathFor(protected) string`, `ProjectPathFor(protected) (string, error)` and `HomePathFor(protected) (string, error)` (`internal/core/paths/lockpath.go`) are the protected-path→lock-name derivation — PATH POLICY, not locking, which is why they live in `internal/core/paths` rather than beside the lock calls. `PathFor` sits beside the protected file (home-rooted stores); `ProjectPathFor` maps into a project `.ctxloom/state/locks/`; `HomePathFor` maps into `~/.ctxloom/locks/` for a FOREIGN file more than one ctxloom-family binary may read-modify-write. See their doc comments for the full reasoning, including the deliberately-accepted flattening collisions.
 
-To find the call sites, search for `safefs.WithLock`, `.Locks.`, `filelock.`, `sessions.WithFileLock` and `flock.New`.
+To find the call sites, search for `safefs.WithLock`, `.Locks.` and `sessions.WithFileLock`.
 
 ## `internal/shared/watch`
 
@@ -123,13 +123,12 @@ Both debounce at 100ms and emit a content-free `{"event":"changed","kind":…}` 
 - `Err() == nil` means either "all writes succeeded" or "nothing was ever written" — the two are indistinguishable.
 - Not goroutine-safe. One instance per goroutine.
 
-**Locking (`safefs.Locks` + `gofrs/flock` + `internal/core/paths`)**
+**Locking (`safefs.Locks` + `internal/core/paths`)**
 
-- `flock(2)` on Unix (via `golang.org/x/sys/unix`), a comparable mandatory-lock API on Windows — `*flock.Flock` handles the platform split internally; ctxloom code is platform-agnostic.
-- **Non-reentrant.** A goroutine holding the lock must not call anything that re-acquires the same `*flock.Flock`.
-- `Lock`/`RLock` are **blocking with no timeout**; `TryLock` is the non-blocking variant, returning `(false, nil)` on contention rather than an error. `flock.Flock` also offers `TryLockContext`/`TryRLockContext` (poll-with-context) that no call site in this codebase currently uses.
-- `flock.Flock.Unlock()` is always safe to call — on an unlocked `*flock.Flock`, and safe to call twice — so the old "on error, unlock is nil" hazard (a custom closure that could be nil) is gone: every call site holds a concrete, always-non-nil `*flock.Flock` value, not a closure the package's own bookkeeping could get wrong.
-- `flock.New` does NOT create the lock file's parent directory: `Locks.Lock` creates it (`TryLock` deliberately does not), and a call site holding a `*flock.Flock` directly does its own `os.MkdirAll` first.
+- `safefs.New()`'s locks are kernel locks: `flock(2)` through `github.com/gofrs/flock` off Windows; on Windows `LockFileEx` over one byte far past any content, because Windows byte-range locks are mandatory and a lock over the content would make it unreadable (a session lock's pid) through every other handle. The Windows handle is opened with `FILE_SHARE_DELETE`, so a held lock file can still be removed.
+- **Non-reentrant.** A goroutine holding a path's lock must not take it again.
+- `Lock` (exclusive) and `RLock` (shared) **block with no timeout**; `TryLock(ctx)` attempts once, retries until `ctx` ends, then is `ErrLockHeld`; `Held` probes without creating anything. `Lock.Unlock` is safe to call twice.
+- `Lock`/`RLock` create the lock file and its parent directory; `TryLock` creates the file but never the directory, so a directory removed under a claimant is `fs.ErrNotExist`.
 - **The `<protected-path> + ".lock"` / flattened-name naming convention is `internal/core/paths`' invariant now** (`PathFor`/`ProjectPathFor`/`HomePathFor`, `internal/core/paths/lockpath.go`), not re-derived at each call site — see those functions' own docs for the collision stance and the home/project boundary.
 - Lock files are never removed; they accumulate one per protected store. Harmless — the OS releases the lock on fd close, including process death.
 

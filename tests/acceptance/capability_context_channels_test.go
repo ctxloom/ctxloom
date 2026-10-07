@@ -61,7 +61,7 @@ const channelProbeHarp = "probe-structural-harp"
 func TestClaudeHookApproach_DeliversNothing(t *testing.T) {
 	form, ok := hostedDeclaration("claude-code")[agent.SurfaceContext].Construct(agent.ApproachHook, agent.SurfaceInputs{
 		Context: "The nonce for this session is " + channelProbeHarp,
-	}, afero.NewMemMapFs())
+	}, safefs.NewMem(afero.NewMemMapFs()))
 	require.True(t, ok, "claude must declare its hook-carried context — the P1 cell that pins it depends on it")
 	_, writes := form.(interface {
 		Deliver(present.Start) (agent.Delivered, error)

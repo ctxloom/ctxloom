@@ -43,9 +43,7 @@ const (
 	LockFileName = "lock"
 
 	// ProfilesDir is the directory a bundle tree keeps its profile items in
-	// (<bundle>/profiles/<name>.yaml). Directly under an app directory it is
-	// the RETIRED standalone profiles location (ProfilesPath), which loading
-	// refuses rather than reads.
+	// (<bundle>/profiles/<name>.yaml).
 	ProfilesDir = "profiles"
 
 	// ProjectBundleName is the reserved name of the PROJECT BUNDLE: the local
@@ -290,11 +288,7 @@ const (
 	// ProjectPathFor/LocksPath).
 	//
 	// PathFor, ProjectPathFor and HomePathFor (lockpath.go) all live in this
-	// package and reference this constant directly — the former split
-	// across a package boundary (filelock carrying its own hand-synced
-	// copy to dodge this package's path-authority gate) is gone now that
-	// the lock-path derivation and the constant it depends on are both
-	// here.
+	// package and reference this constant directly.
 	HomeLocksDirName = "locks"
 
 	// HomeRecordsDirName is the home-rooted directory holding hew §9.7

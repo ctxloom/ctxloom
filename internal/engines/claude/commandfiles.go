@@ -5,9 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // WriteCommandFiles generates Claude Code slash command files from exported
@@ -18,7 +17,7 @@ import (
 // cleanup is manifest-scoped rather than a wipe (see
 // agent.WriteManagedCommandFiles for the shared mechanics).
 func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent.CommandFileOption) error {
-	fs := agent.ResolveCommandFS(opts...)
+	files := agent.ResolveCommandRoot(opts...)
 	commandsDir := filepath.Join(workDir, ConfigDirName, CommandsDirName)
 
 	// Claude Code loads ~/.claude/commands alongside this project scope, so when
@@ -29,14 +28,14 @@ func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent
 		mwOpts = append(mwOpts, agent.WithDedupHomeDir(home))
 	}
 
-	return writeCommandDir(fs, commandsDir, cmds, mwOpts...)
+	return writeCommandDir(files, commandsDir, cmds, mwOpts...)
 }
 
 // writeCommandDir writes cmds as claude slash-command files into dir — the
 // one transform both the project's .claude/commands and the session home's
 // commands directory go through.
-func writeCommandDir(fs afero.Fs, dir string, cmds []agent.CommandExport, opts ...agent.ManagedWriteOption) error {
-	return agent.WriteManagedCommandFiles(fs, dir, cmds,
+func writeCommandDir(files safefs.Root, dir string, cmds []agent.CommandExport, opts ...agent.ManagedWriteOption) error {
+	return agent.WriteManagedCommandFiles(files, dir, cmds,
 		func(c agent.CommandExport) (string, []byte, error) {
 			// Replace path separators with dashes for nested names.
 			filename := strings.ReplaceAll(c.Name, "/", "-") + ".md"

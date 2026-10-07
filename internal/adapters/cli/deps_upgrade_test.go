@@ -115,3 +115,19 @@ func TestRenderUpgrade_PreviewOfARemovalNamesYes(t *testing.T) {
 	assert.Contains(t, out, "Would remove corp/old from the lockfile")
 	assert.Contains(t, out, "Re-run with --yes to apply.")
 }
+
+// A round with no pin to move prints no tally: not "Applied 0", not "0 would
+// move", and an applied removal is done, so it never asks for --yes.
+func TestRenderUpgrade_NothingToMovePrintsNoTally(t *testing.T) {
+	for name, res := range map[string]operations.UpgradeResult{
+		"preview, up to date":   {},
+		"applied, up to date":   {Applied: true},
+		"applied, removal only": {Applied: true, Removed: []string{"corp/old"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := captureStdout(t, func() { renderUpgrade(os.Stdout, res) })
+			assert.NotContains(t, out, "pin(s)")
+			assert.NotContains(t, out, "--yes")
+		})
+	}
+}

@@ -8,8 +8,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -35,7 +37,7 @@ type CommandExport struct {
 type CommandFileOption func(*commandFileOptions)
 
 type commandFileOptions struct {
-	fs              afero.Fs
+	files           safefs.Root
 	homeCommandsDir string
 	reporter        report.Sink
 }
@@ -55,10 +57,11 @@ func ResolveReporter(opts ...CommandFileOption) report.Sink {
 	return options.reporter
 }
 
-// WithCommandFS sets the filesystem for command file operations.
-func WithCommandFS(fs afero.Fs) CommandFileOption {
+// WithCommandRoot sets the filesystem command files are written through,
+// paired with the locks their writers take.
+func WithCommandRoot(files safefs.Root) CommandFileOption {
 	return func(o *commandFileOptions) {
-		o.fs = fs
+		o.files = files
 	}
 }
 
@@ -114,16 +117,16 @@ func SafeCommandRelPath(dir, name string) (string, bool) {
 	return joined, true
 }
 
-// ResolveCommandFS applies the options and returns the filesystem to use,
-// defaulting to the OS filesystem. Per-agent command writers (in the claude
-// package) call this so they can honor WithCommandFS without reaching
-// the unexported option struct.
-func ResolveCommandFS(opts ...CommandFileOption) afero.Fs {
-	options := &commandFileOptions{fs: afero.NewOsFs()}
+// ResolveCommandRoot applies the options and returns the Root to write
+// through, defaulting to the controller's own (safefs.New). Per-agent command
+// writers (in the claude package) call this so they can honor
+// WithCommandRoot without reaching the unexported option struct.
+func ResolveCommandRoot(opts ...CommandFileOption) safefs.Root {
+	options := &commandFileOptions{files: safefs.New()}
 	for _, opt := range opts {
 		opt(options)
 	}
-	return options.fs
+	return options.files
 }
 
 // ManagedWriteOption configures WriteManagedCommandFiles.
@@ -179,8 +182,8 @@ func WithDedupHomeDir(dir string) ManagedWriteOption {
 // written at mode 0644 (PackageFile{}.Mode's zero-value default), matching
 // this function's historical hardcoded mode, so existing callers see
 // byte-identical output.
-func WriteManagedCommandFiles(fs afero.Fs, dir string, cmds []CommandExport, render func(CommandExport) (relPath string, content []byte, err error), opts ...ManagedWriteOption) error {
-	return WriteManagedPackageFiles(fs, dir, ledger.SurfaceCommands, cmds,
+func WriteManagedCommandFiles(files safefs.Root, dir string, cmds []CommandExport, render func(CommandExport) (relPath string, content []byte, err error), opts ...ManagedWriteOption) error {
+	return WriteManagedPackageFiles(files, dir, ledger.SurfaceCommands, cmds,
 		func(c CommandExport) bool { return c.Enabled },
 		func(c CommandExport) string { return c.Name },
 		func(c CommandExport) ([]PackageFile, error) {

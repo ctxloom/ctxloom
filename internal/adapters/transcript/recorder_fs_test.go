@@ -25,7 +25,7 @@ func TestNewRecorder_WritesThroughTheGivenFs(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	path, err := paths.HarpCanonicalTranscriptPath("fs-harp")
 	require.NoError(t, err)
-	rec, err := NewRecorder(fs, "fs-harp", "mock")
+	rec, err := NewRecorder(safefs.NewMem(fs), "fs-harp", "mock")
 	require.NoError(t, err)
 
 	for _, text := range []string{"first", "second"} {
@@ -43,8 +43,25 @@ func TestNewRecorder_WritesThroughTheGivenFs(t *testing.T) {
 }
 
 func TestNewRecorder_RequiresAnFs(t *testing.T) {
-	_, err := NewRecorder(nil, "fs-harp", "mock")
+	_, err := NewRecorder(safefs.Root{}, "fs-harp", "mock")
 	require.Error(t, err)
+}
+
+// Either half of a root alone is refused: the recorder appends through the Fs
+// and serializes through the Locks.
+func TestNewRecorder_RequiresBothHalvesOfTheRoot(t *testing.T) {
+	testsupport.Isolate(t)
+	whole := safefs.NewMem(afero.NewMemMapFs())
+	for name, root := range map[string]safefs.Root{
+		"no locks": {Fs: whole.Fs},
+		"no fs":    {Locks: whole.Locks},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec, err := NewRecorder(root, "fs-harp", "mock")
+			require.Error(t, err)
+			require.Nil(t, rec)
+		})
+	}
 }
 
 // closeCountingWriter is an io.Writer that also records Close calls, so a
@@ -68,7 +85,7 @@ func TestNewRecorder_WithWriter_FillsAnAtomicFileThroughItsFs(t *testing.T) {
 
 	af, err := safefs.NewAtomicFile(fs, target, 0o644)
 	require.NoError(t, err)
-	rec, err := NewRecorder(fs, "fs-harp", "mock", WithWriter(af))
+	rec, err := NewRecorder(safefs.NewMem(fs), "fs-harp", "mock", WithWriter(af))
 	require.NoError(t, err)
 	for _, text := range []string{"first", "second"} {
 		require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: text}}))
@@ -92,7 +109,7 @@ func TestNewRecorder_WithWriter_FillsAnAtomicFileThroughItsFs(t *testing.T) {
 func TestNewRecorder_WithWriter_LeavesTheWriterOpen(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	w := &closeCountingWriter{}
-	rec, err := NewRecorder(fs, "writer-harp", "mock", WithWriter(w))
+	rec, err := NewRecorder(safefs.NewMem(fs), "writer-harp", "mock", WithWriter(w))
 	require.NoError(t, err)
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: "hi"}}))
 	require.NoError(t, rec.Close())

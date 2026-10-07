@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file holds claude's runtime FORMS on the surface-delivery seam
@@ -248,7 +249,7 @@ func (*settingsSurface) Present(start present.Start) present.Presentation {
 // agent.ManagedCommandsDelivery.)
 type commandsSurface struct {
 	commands              []agent.CommandExport
-	fs                    afero.Fs
+	files                 safefs.Root
 	reporter              report.Sink // SurfaceInputs.Reporter, forwarded to the writer
 	selfContainedCommands bool        // mirrors SurfaceInputs.SelfContainedCommands; see DeliverCommands
 }
@@ -266,7 +267,7 @@ func (s *commandsSurface) Present(start present.Start) present.Presentation {
 // fileTemplateDelivery.DeliverCommands.
 // reprise:accept-drift — the same deliberate three-line shape as mcpWriter.deliver and settingsSurface.deliver, for the reason recorded there: the shape IS the body, and a helper taking both the knob and the delivery as parameters is longer than what it replaces. Commands has no out-of-cwd variant, so the recipe needs no dir-taking split.
 func (s *commandsSurface) Deliver(start present.Start) (agent.Delivered, error) {
-	d := newFileTemplateDelivery(dirPlacement{dir: start.Paths().ProjectRoot.Host}, s.fs)
+	d := newFileTemplateDelivery(dirPlacement{dir: start.Paths().ProjectRoot.Host}, s.files)
 	d.selfContainedCommands = s.selfContainedCommands
 	d.reporter = s.reporter
 	return d.DeliverCommands(s.commands)
@@ -277,10 +278,9 @@ func (s *commandsSurface) Deliver(start present.Start) (agent.Delivered, error) 
 // The shared delivery type is reusable here (unlike commands) because claude's
 // skill writer needs no home-dir dedup and no out-of-cwd form: no engine has
 // an out-of-cwd flag for a skill package.
-func newSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) *agent.ManagedSkillPackagesDelivery {
-	fs = agent.GetFS(fs)
+func newSkillsSurface(in agent.SurfaceInputs, files safefs.Root) *agent.ManagedSkillPackagesDelivery {
 	return agent.NewManagedSkillPackagesDelivery(relSkills, in.Skills, func(dir string, skills []agent.SkillExport) error {
-		return WriteSkillFiles(dir, skills, agent.WithCommandFS(fs), agent.WithReporter(in.Reporter))
+		return WriteSkillFiles(dir, skills, agent.WithCommandRoot(files), agent.WithReporter(in.Reporter))
 	})
 }
 

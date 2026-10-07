@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file covers ctxloom's declared CONTEXT DELIVERY MATRIX — every
@@ -419,6 +420,9 @@ type deliverer interface {
 // delivered from silently-skipped.
 func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 	isolatedRecords(t)
+	// The managed command and skill writers lock under the home lock
+	// directory, whatever filesystem their Root is.
+	isolatedLocks(t)
 	for _, name := range matrixBackends(t) {
 		decl := hostedDeclaration(name)
 		for _, k := range matrixKinds {
@@ -435,7 +439,7 @@ func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 					root := "/cell"
 					require.NoError(t, fs.MkdirAll(root, 0o755))
 
-					form, ok := decl[k].Construct(a, matrixSentinelInputs(), fs)
+					form, ok := decl[k].Construct(a, matrixSentinelInputs(), safefs.NewMem(fs))
 					require.True(t, ok, "%s: declared but Construct refused it", key)
 					d, delivers := form.(deliverer)
 					if !delivers {
@@ -541,7 +545,7 @@ func TestDeliveryApproach_UndeclaredPairsAreRefusedLoudly(t *testing.T) {
 					continue
 				}
 				t.Run("refuse/"+pairKey(name, k, a), func(t *testing.T) {
-					d, ok := decl[k].Construct(a, matrixSentinelInputs(), afero.NewMemMapFs())
+					d, ok := decl[k].Construct(a, matrixSentinelInputs(), safefs.NewMem(afero.NewMemMapFs()))
 					assert.False(t, ok, "%s: undeclared pair constructed a surface instead of being refused", pairKey(name, k, a))
 					assert.Nil(t, d, "a refused pair must not also hand back an Approach")
 				})
@@ -568,7 +572,7 @@ func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(root, 0o755))
 	require.NoError(t, fs.MkdirAll(private, 0o755))
 
-	a, ok := claudeDeclaration(t)[agent.SurfaceContext].Construct(claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
+	a, ok := claudeDeclaration(t)[agent.SurfaceContext].Construct(claude.ApproachSystemPrompt, matrixSentinelInputs(), safefs.NewMem(fs))
 	require.True(t, ok)
 
 	handle, err := a.(deliverer).Deliver(present.New(present.OnHost(present.Paths{
@@ -603,7 +607,7 @@ func TestDeliveryApproach_SystemPromptRefusesAnUnrootedRun(t *testing.T) {
 	root := "/cell"
 	require.NoError(t, fs.MkdirAll(root, 0o755))
 
-	a, ok := claudeDeclaration(t)[agent.SurfaceContext].Construct(claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
+	a, ok := claudeDeclaration(t)[agent.SurfaceContext].Construct(claude.ApproachSystemPrompt, matrixSentinelInputs(), safefs.NewMem(fs))
 	require.True(t, ok)
 
 	_, err := a.(deliverer).Deliver(present.ProjectOnHost(root))

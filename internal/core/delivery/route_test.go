@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // fileApproach offers the roots it is given, in order (the first is its
@@ -144,10 +145,10 @@ func (*ctxApproach) DeliverSettings(present.Start, present.RootKind, engine.Sett
 func (*ctxApproach) DeliverHooks(present.Start, present.RootKind, engine.HooksInputs, afero.Fs) (present.Delivered, error) {
 	return present.Delivered{}, nil
 }
-func (*ctxApproach) DeliverCommands(present.Start, present.RootKind, engine.CommandsInputs, afero.Fs) (present.Delivered, error) {
+func (*ctxApproach) DeliverCommands(present.Start, present.RootKind, engine.CommandsInputs, safefs.Root) (present.Delivered, error) {
 	return present.Delivered{}, nil
 }
-func (*ctxApproach) DeliverSkills(present.Start, present.RootKind, engine.SkillsInputs, afero.Fs) (present.Delivered, error) {
+func (*ctxApproach) DeliverSkills(present.Start, present.RootKind, engine.SkillsInputs, safefs.Root) (present.Delivered, error) {
 	return present.Delivered{}, nil
 }
 

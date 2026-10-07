@@ -21,6 +21,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
@@ -49,7 +50,7 @@ func runConvert(t *testing.T, fixture string) []transcript.Record {
 	t.Helper()
 	testsupport.Isolate(t)
 
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "mock")
+	rec, err := transcript.NewRecorder(safefs.New(), fixtureHarp, "mock")
 	require.NoError(t, err)
 
 	require.NoError(t, Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, fixturePath(t, fixture)))
@@ -111,7 +112,7 @@ func TestConvert_MapsRolesAndSkipsEverythingElse(t *testing.T) {
 func TestConvert_MissingFileIsAnError(t *testing.T) {
 	testsupport.Isolate(t)
 
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "mock")
+	rec, err := transcript.NewRecorder(safefs.New(), fixtureHarp, "mock")
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
@@ -126,7 +127,7 @@ func TestConvert_MissingFileIsAnError(t *testing.T) {
 func TestConvert_CancelledContextIsFatal(t *testing.T) {
 	testsupport.Isolate(t)
 
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "mock")
+	rec, err := transcript.NewRecorder(safefs.New(), fixtureHarp, "mock")
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
@@ -171,7 +172,7 @@ func TestVersionedAdapters_DeclaresACoveredValidatedVersion(t *testing.T) {
 func TestConvert_WrongFormatRefusesRatherThanEmptyingTheFile(t *testing.T) {
 	testsupport.Isolate(t)
 
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "mock")
+	rec, err := transcript.NewRecorder(safefs.New(), fixtureHarp, "mock")
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 

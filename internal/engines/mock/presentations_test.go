@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file pins the protocol mock_surfaces.go sits on: approaches
@@ -97,7 +98,7 @@ func mockPresent(t *testing.T, kind agent.SurfaceKind, start present.Start) pres
 
 func mockPresentNamed(t *testing.T, kind agent.SurfaceKind, name string, start present.Start) present.Presentation {
 	t.Helper()
-	a, ok := New().(Mock).Declaration()[kind].Construct(name, agent.SurfaceInputs{}, nil)
+	a, ok := New().(Mock).Declaration()[kind].Construct(name, agent.SurfaceInputs{}, safefs.New())
 	require.True(t, ok)
 	return a.Present(start)
 }
@@ -147,7 +148,7 @@ func TestMockSessionForm_KeepsTheSessionHomesEngineSide(t *testing.T) {
 func TestMockDeclaration_UnsupportedApproach_IsRefused(t *testing.T) {
 	decl := New().(Mock).Declaration()
 
-	_, ok := decl[agent.SurfaceContext].Construct(agent.ApproachHook, agent.SurfaceInputs{Context: "X"}, nil)
+	_, ok := decl[agent.SurfaceContext].Construct(agent.ApproachHook, agent.SurfaceInputs{Context: "X"}, safefs.New())
 	assert.False(t, ok, "an undeclared approach is refused")
 	assert.NotContains(t, decl.Names(agent.SurfaceContext), agent.ApproachHook)
 }
@@ -165,7 +166,7 @@ func TestMockDeclaration_UnsupportedKind_IsAbsent(t *testing.T) {
 	decl := New().(Mock).Declaration()
 
 	const notASurface = agent.SurfaceKind(9999)
-	a, ok := decl[notASurface].Construct(agent.ApproachUnsafeFile, agent.SurfaceInputs{}, nil)
+	a, ok := decl[notASurface].Construct(agent.ApproachUnsafeFile, agent.SurfaceInputs{}, safefs.New())
 	assert.False(t, ok)
 	assert.Nil(t, a)
 	assert.Nil(t, decl.Names(notASurface))

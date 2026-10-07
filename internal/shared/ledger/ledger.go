@@ -36,7 +36,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -91,8 +90,10 @@ func (s Surface) Valid() bool {
 // entry names inside a shared config file (MCP server names), or relative
 // paths inside a shared directory (command and skill files).
 type Ledger struct {
-	// FS is the writer's filesystem, already default-resolved.
-	FS afero.Fs
+	// Root is the writer's filesystem paired with the locks its writers
+	// take: Write locks the marker through Root.Locks, whatever kind of
+	// filesystem Root.Fs is.
+	Root safefs.Root
 	// Dir is the location whose contents this ledger describes. The marker is
 	// written inside it.
 	Dir string
@@ -159,19 +160,11 @@ func (l Ledger) Write(s Surface, names []string) error {
 			return fmt.Errorf("ledger: refusing to record %q for surface %q: it contains a field or line separator and could forge another surface's entry", n, s)
 		}
 	}
-	write := func() error { return l.writeLocked(s, names) }
-	// The managed-files chain is handed only an afero.Fs, not a safefs.Root,
-	// so the fs decides whether it locks: a non-OS fs takes no lock and
-	// resolves none (marshy-capture: threading a Root through the engine
-	// approaches that reach this is escalated).
-	if !filelock.IsOSBackedFs(l.FS) {
-		return write()
-	}
 	lockPath, err := paths.HomePathFor(l.Path())
 	if err != nil {
 		return fmt.Errorf("ledger: deriving home lock path for %s: %w", l.Path(), err)
 	}
-	return filelock.WithLock(l.FS, lockPath, write)
+	return safefs.WithLock(l.Root.Locks, lockPath, func() error { return l.writeLocked(s, names) })
 }
 
 // writeLocked is Write's read-modify-write, run under the marker's lock.
@@ -197,16 +190,16 @@ func (l Ledger) writeLocked(s Surface, names []string) error {
 		all[s] = dedupeSorted(names)
 	}
 	if len(all) == 0 {
-		exists, eerr := afero.Exists(l.FS, l.Path())
+		exists, eerr := afero.Exists(l.Root.Fs, l.Path())
 		if eerr != nil {
 			return eerr
 		}
 		if exists {
-			return l.FS.Remove(l.Path())
+			return l.Root.Fs.Remove(l.Path())
 		}
 		return nil
 	}
-	return safefs.WriteFile(l.FS, l.Path(), render(all), 0o644)
+	return safefs.WriteFile(l.Root.Fs, l.Path(), render(all), 0o644)
 }
 
 // readAll parses the marker into its per-surface sets. Surfaces with no
@@ -214,7 +207,7 @@ func (l Ledger) writeLocked(s Surface, names []string) error {
 // here" — the condition Write keys the marker's removal off.
 func (l Ledger) readAll() (map[Surface][]string, error) {
 	out := map[Surface][]string{}
-	data, err := afero.ReadFile(l.FS, l.Path())
+	data, err := afero.ReadFile(l.Root.Fs, l.Path())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) || errors.Is(err, fs.ErrNotExist) {
 			return out, nil

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -190,6 +193,51 @@ func TestDoctorCheckDeps_WrongState_SSHKeygenMissing_IsRecommendedNotRequired(t 
 	}
 	assert.Contains(t, check.Detail, "ssh-keygen", "a missing ssh-keygen must still be named")
 	assert.Contains(t, check.Detail, "recommended", "must be labeled recommended, not implied required")
+}
+
+// GitConfigGet against the real git binary, with the host's global and
+// system config shut out: a set key reads in the directory asked for, an unset
+// key is ("", false, nil), and a malformed key or an unrunnable git is an
+// error that carries what git said, if it said anything.
+func TestGitConfigGet_RealGit(t *testing.T) {
+	testsupport.Isolate(t)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "absent-gitconfig"))
+	// GitConfigGet runs git in the process environment, so a GIT_DIR a hook
+	// exported would point it at the real repository whatever dir says.
+	for _, k := range gitutil.RepoLocationEnvVars {
+		t.Setenv(k, "")
+		require.NoError(t, os.Unsetenv(k))
+	}
+	repo := t.TempDir()
+	taskstest.Git(t, repo, nil, "init", "-q")
+	f, err := os.OpenFile(filepath.Join(repo, ".git", "config"), os.O_APPEND|os.O_WRONLY, 0)
+	require.NoError(t, err)
+	_, err = f.WriteString("[ctxloomtest]\n\tkey = only-in-this-repo\n")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	ctx := context.Background()
+
+	v, ok, err := GitConfigGet(ctx, repo, "ctxloomtest.key")
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, "only-in-this-repo", v, "the key is read in dir, not the process working directory")
+
+	v, ok, err = GitConfigGet(ctx, repo, "ctxloomtest.unset")
+	require.NoError(t, err, "an unset key is not a failure")
+	assert.False(t, ok)
+	assert.Empty(t, v)
+
+	_, ok, err = GitConfigGet(ctx, repo, "nosection")
+	require.Error(t, err, "git exits 1 for a malformed key too, but says why")
+	assert.False(t, ok)
+	assert.Contains(t, err.Error(), "key does not contain a section")
+
+	_, ok, err = GitConfigGet(ctx, filepath.Join(repo, "absent"), "ctxloomtest.key")
+	require.Error(t, err, "a git that never ran is a failure, not an unset key")
+	assert.False(t, ok)
+	assert.ErrorIs(t, err, fs.ErrNotExist)
+	assert.Equal(t, "git config --get ctxloomtest.key: "+errors.Unwrap(err).Error(), err.Error(), "with nothing from git, the message stands on its own")
 }
 
 // --- DOCTOR-CHECK-GITIDENT-l2: reads git through GitConfigGet, the one

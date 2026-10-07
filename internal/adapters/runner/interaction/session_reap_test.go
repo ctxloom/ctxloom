@@ -2,7 +2,10 @@ package interaction_test
 
 import (
 	"context"
+	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strings"
 	"sync"
@@ -145,4 +148,34 @@ func TestServe_CloseClosesTheOpenSessions(t *testing.T) {
 	awaitReap(t, reaped)
 
 	assert.LessOrEqual(t, parkedReaders(), base, "no session the endpoint served outlives its Close")
+}
+
+// TestServe_ASpareConnectionDoesNotHoldClose: an HTTP client may hold a
+// connection it dialed and never sent a request on — Go's transport parks
+// one whenever another connection frees up before its dial completes, which
+// the SDK client's concurrent POST and standalone GET invite. Shutdown counts
+// such a connection as busy for its first seconds, longer than Close's
+// budget; Close must still end it and succeed.
+func TestServe_ASpareConnectionDoesNotHoldClose(t *testing.T) {
+	c := &exitingClient{}
+	lo := loadoutAt(freePort(t))
+	served, _ := reapServe(t, c, lo)
+	connect(t, lo.MCP.URL, bearer)
+
+	u, err := url.Parse(lo.MCP.URL)
+	require.NoError(t, err)
+	spare, err := net.Dial("tcp", u.Host)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = spare.Close() })
+	// The accept loop takes connections in order and tracks each before it
+	// accepts the next, so once a request on a connection dialed AFTER the
+	// spare is answered, the server holds the spare as a new connection.
+	fresh := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	res, err := fresh.Get(lo.MCP.URL)
+	require.NoError(t, err)
+	_ = res.Body.Close()
+
+	require.NoError(t, served.Close(), "a connection that never carried a request does not hold Close")
+	_, err = spare.Read(make([]byte, 1))
+	assert.ErrorIs(t, err, io.EOF, "Close ends the spare connection rather than leaving it open")
 }

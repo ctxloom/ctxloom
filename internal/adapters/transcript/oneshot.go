@@ -18,7 +18,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/spf13/afero"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // RecordOneshot appends a two-entry canonical transcript (user prompt +
@@ -38,7 +38,7 @@ import (
 // AFTER the oneshot run has already completed, so surfacing the error costs
 // nothing at the run's own exit code — it lets the caller (run.go,
 // oneshot.go) warn rather than silently losing capture.
-func RecordOneshot(fs afero.Fs, harp, engine, prompt, output string) error {
+func RecordOneshot(files safefs.Root, harp, engine, prompt, output string) error {
 	prompt = strings.TrimSpace(prompt)
 	output = strings.TrimSpace(output)
 	// Nothing said and nothing produced: legitimately nothing to capture.
@@ -52,7 +52,7 @@ func RecordOneshot(fs afero.Fs, harp, engine, prompt, output string) error {
 		return fmt.Errorf("transcript: oneshot capture: no harp for this run, so %d bytes of prompt and %d bytes of output cannot be recorded", len(prompt), len(output))
 	}
 
-	rec, err := NewRecorder(fs, harp, engine)
+	rec, err := NewRecorder(files, harp, engine)
 	if err != nil {
 		return fmt.Errorf("transcript: oneshot capture: %w", err)
 	}

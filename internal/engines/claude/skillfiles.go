@@ -20,7 +20,7 @@ import (
 // declared mode and the manifest-scoped reversal are the one shared body
 // every engine (and the mock engine) goes through.
 func WriteSkillFiles(workDir string, skills []agent.SkillExport, opts ...agent.CommandFileOption) error {
-	fs := agent.ResolveCommandFS(opts...)
+	files := agent.ResolveCommandRoot(opts...)
 	skillsDir := filepath.Join(workDir, ConfigDirName, SkillsDirName)
-	return agent.WriteManagedSkillPackages(fs, skillsDir, acceptedSkills(skills), agent.WithWriteReporter(agent.ResolveReporter(opts...)))
+	return agent.WriteManagedSkillPackages(files, skillsDir, acceptedSkills(skills), agent.WithWriteReporter(agent.ResolveReporter(opts...)))
 }

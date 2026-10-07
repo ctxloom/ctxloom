@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -17,7 +18,7 @@ import (
 // boundaries, in order.
 func completesFrom(t *testing.T, src string) []*transcript.CompletePayload {
 	t.Helper()
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude")
+	rec, err := transcript.NewRecorder(safefs.New(), fixtureHarp, "claude")
 	require.NoError(t, err)
 	require.NoError(t, Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, src))
 	require.NoError(t, rec.Close())

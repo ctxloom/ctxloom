@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // newWarnRecordingLedger records the FORMATTED warning, not the format string.
@@ -19,8 +21,8 @@ func newWarnRecordingLedger(t *testing.T) (Ledger, *[]string) {
 	require.NoError(t, fs.MkdirAll("/dir", 0o755))
 	var warnings []string
 	l := Ledger{
-		FS:  fs,
-		Dir: "/dir",
+		Root: safefs.NewMem(fs),
+		Dir:  "/dir",
 		Warn: func(format string, args ...any) {
 			warnings = append(warnings, fmt.Sprintf(format, args...))
 		},

@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/liveness"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // The coordinator-side half of the three-direction proof: the SAME reproduced
@@ -56,7 +56,7 @@ func stuckChildTranscript(t *testing.T, harp string, entered <-chan struct{}, de
 	t.Helper()
 	onlyFixtureTranscript(t, harp, entered)
 	for i := 0; i < deliveries; i++ {
-		rec, err := transcript.NewRecorder(afero.NewOsFs(), harp, "claude")
+		rec, err := transcript.NewRecorder(safefs.New(), harp, "claude")
 		require.NoError(t, err)
 		transcript.RecordUserText(rec, "# composed context\n\nyou are a delegated agent\n")
 		require.NoError(t, rec.Close())
@@ -66,7 +66,7 @@ func stuckChildTranscript(t *testing.T, harp string, entered <-chan struct{}, de
 func healthyChildTranscript(t *testing.T, harp string, entered <-chan struct{}) {
 	t.Helper()
 	onlyFixtureTranscript(t, harp, entered)
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), harp, "claude")
+	rec, err := transcript.NewRecorder(safefs.New(), harp, "claude")
 	require.NoError(t, err)
 	defer func() { require.NoError(t, rec.Close()) }()
 	transcript.RecordUserText(rec, "# composed context\n\nyou are a delegated agent\n")

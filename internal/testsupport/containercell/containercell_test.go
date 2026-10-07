@@ -1,8 +1,10 @@
 package containercell
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -94,6 +96,22 @@ func TestRunArgv_BindsTheDaemonsSourceAtThePath(t *testing.T) {
 	}
 	if !strings.Contains(joined, "-w /__w/_temp/cell/project ") {
 		t.Fatalf("the container does not work at the test's path: %s", joined)
+	}
+}
+
+// TestRunArgv_UserFlagOnlyWhenRootIsNotTheInvoker: a runtime whose container
+// root is not the invoker runs as the invoker's uid:gid; one whose root IS the
+// invoker passes no --user at all, never an empty one.
+func TestRunArgv_UserFlagOnlyWhenRootIsNotTheInvoker(t *testing.T) {
+	spec := Spec{Mounts: []Mount{{Source: "/tmp/cell", Path: "/tmp/cell"}}, WorkDir: "/tmp/cell", Args: []string{"version"}}
+	mapped := Runtime{Name: DockerRootless, Command: "docker", Available: true, RootMapsToInvoker: true}
+	if argv := mapped.runArgv(spec); slices.Contains(argv, "--user") {
+		t.Fatalf("root maps to the invoker, yet --user is passed: %v", argv)
+	}
+	unmapped := Runtime{Name: DockerRootless, Command: "docker", Available: true}
+	want := fmt.Sprintf("--user %d:%d ", os.Getuid(), os.Getgid())
+	if joined := strings.Join(unmapped.runArgv(spec), " "); !strings.Contains(joined, want) {
+		t.Fatalf("root is not the invoker, yet the run does not say %q: %s", want, joined)
 	}
 }
 

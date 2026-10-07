@@ -3,10 +3,9 @@ package agent
 import (
 	"path"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file is the skills-surface analog of managed_commands.go: the shared
@@ -77,8 +76,8 @@ func (s *ManagedSkillPackagesDelivery) Deliver(start present.Start) (Delivered, 
 // a mode bit is not portable, the package digest deliberately excludes it, and
 // the declaration is the whole of what a publisher said about executability
 // (see content.SkillFile.Mode and content.DeclaredExecutable).
-func WriteManagedSkillPackages(fs afero.Fs, skillsDir string, skills []SkillExport, opts ...ManagedWriteOption) error {
-	return WriteManagedPackageFiles(fs, skillsDir, ledger.SurfaceSkills, skills,
+func WriteManagedSkillPackages(files safefs.Root, skillsDir string, skills []SkillExport, opts ...ManagedWriteOption) error {
+	return WriteManagedPackageFiles(files, skillsDir, ledger.SurfaceSkills, skills,
 		func(s SkillExport) bool { return s.Enabled },
 		func(s SkillExport) string { return s.Name },
 		func(s SkillExport) ([]PackageFile, error) {

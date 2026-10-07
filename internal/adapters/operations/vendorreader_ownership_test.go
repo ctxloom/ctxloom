@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gofrs/flock"
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -15,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -49,7 +48,7 @@ func TestRefreshVendorTranscript_SkipsRebuildWhileALiveRecorderOwnsTheCanonicalT
 	// exactly what coord/enginehost's adapt does for a live session — and
 	// holds it open (Record, no Close yet) the way a
 	// still-running chat would.
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), harp, e.Backend)
+	rec, err := transcript.NewRecorder(safefs.New(), harp, e.Backend)
 	require.NoError(t, err)
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
 		Type:    agent.EntryTypeAssistant,
@@ -64,7 +63,7 @@ func TestRefreshVendorTranscript_SkipsRebuildWhileALiveRecorderOwnsTheCanonicalT
 	// The recover path's refresh races in while the recorder is still open
 	// — the exact collision this test guards against (operations.
 	// RefreshVendorTranscript vs. the live O_APPEND fd).
-	converted, err := RefreshVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err, "a skipped rebuild is not an error — the caller must proceed against the existing canonical")
 	assert.False(t, converted, "the rebuild must SKIP while a live recorder owns the canonical transcript")
 
@@ -105,19 +104,19 @@ func TestRefreshVendorTranscript_ProceedsOnceTheLiveRecorderCloses(t *testing.T)
 	harp := "easeful-dial-close-harp"
 	e := claudeEntry(harp, claudeFixturePath)
 
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), harp, e.Backend)
+	rec, err := transcript.NewRecorder(safefs.New(), harp, e.Backend)
 	require.NoError(t, err)
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
 		Type: agent.EntryTypeAssistant, Content: "live turn",
 	}}))
 
-	converted, err := RefreshVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.False(t, converted, "must still be skipped while the recorder is open")
 
 	require.NoError(t, rec.Close(), "Close must release the ownership lock")
 
-	converted, err = RefreshVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err = RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.True(t, converted, "once the recorder releases its lock, the rebuild must proceed")
 }
@@ -137,7 +136,7 @@ func TestRefreshVendorTranscript_ConcurrentRebuildsSerialize(t *testing.T) {
 	// Seed a canonical transcript so canonicalDestination(refresh=true) has
 	// a current-named file to resolve, matching the shape a real second
 	// rebuild would see.
-	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 
@@ -146,13 +145,11 @@ func TestRefreshVendorTranscript_ConcurrentRebuildsSerialize(t *testing.T) {
 
 	// Stand in for "a first rebuild is already in progress": hold the exact
 	// exclusive lock convertVendorTranscript's probe takes.
-	holder := flock.New(paths.PathFor(dest))
-	acquired, err := holder.TryLock()
+	holder, err := safefs.New().Locks.Lock(paths.PathFor(dest))
 	require.NoError(t, err)
-	require.True(t, acquired)
 	defer func() { _ = holder.Unlock() }()
 
-	converted, err = RefreshVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err = RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err, "losing the race to a concurrent rebuild is not an error")
 	assert.False(t, converted, "a second rebuild must skip while another one already holds the exclusive lock")
 }

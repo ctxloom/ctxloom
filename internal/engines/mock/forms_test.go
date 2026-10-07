@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file hermetically proves the mock engine's context and skills routes —
@@ -39,7 +40,7 @@ func TestMockDeclaration_DeclaresEveryKind(t *testing.T) {
 
 		def, ok := decl.Default(kind)
 		require.True(t, ok, "%s must have a default approach", kind)
-		a, ok := decl[kind].Construct(def, agent.SurfaceInputs{Context: "X"}, afero.NewMemMapFs())
+		a, ok := decl[kind].Construct(def, agent.SurfaceInputs{Context: "X"}, safefs.NewMem(afero.NewMemMapFs()))
 		require.True(t, ok, "%s must construct at its default", kind)
 		require.NotNil(t, a, "%s constructed a nil approach", kind)
 	}
@@ -88,7 +89,7 @@ func TestMockSkillsSurface_Deliver_WritesEveryFileWithItsBytes(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(*agent.ManagedSkillPackagesDelivery)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, safefs.NewMem(fs)).(*agent.ManagedSkillPackagesDelivery)
 	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	require.NotNil(t, handle)
@@ -117,7 +118,7 @@ func TestMockSkillsSurface_Deliver_MaterializesTheDeclaredMode(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(*agent.ManagedSkillPackagesDelivery)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, safefs.NewMem(fs)).(*agent.ManagedSkillPackagesDelivery)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -146,7 +147,7 @@ func TestMockSkillsSurface_Deliver_DeclaredModeBeatsAnExistingFilesMode(t *testi
 	require.NoError(t, fs.MkdirAll(filepath.Dir(scriptPath), 0o755))
 	require.NoError(t, afero.WriteFile(fs, scriptPath, []byte("stale\n"), 0o600))
 
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(*agent.ManagedSkillPackagesDelivery)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, safefs.NewMem(fs)).(*agent.ManagedSkillPackagesDelivery)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -167,7 +168,7 @@ func TestMockSkillsSurface_Deliver_DisabledSkillWritesNothing(t *testing.T) {
 
 	disabled := reviewerSkillExport()
 	disabled.Enabled = false
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{disabled}}, fs).(*agent.ManagedSkillPackagesDelivery)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{disabled}}, safefs.NewMem(fs)).(*agent.ManagedSkillPackagesDelivery)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -192,7 +193,7 @@ func TestMockSkillsSurface_Cleanup_LeavesWhatItWroteInPlace(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(*agent.ManagedSkillPackagesDelivery)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, safefs.NewMem(fs)).(*agent.ManagedSkillPackagesDelivery)
 	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	before, err := afero.Exists(fs, filepath.Join(mockSkillsPath(dir), "reviewer", "SKILL.md"))
@@ -222,7 +223,7 @@ func TestMockSkillsSurface_Cleanup_LeavesUserAuthoredFilesAlone(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(filepath.Dir(userFile), 0o755))
 	require.NoError(t, afero.WriteFile(fs, userFile, []byte("USER-AUTHORED-4f10"), 0o644))
 
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(*agent.ManagedSkillPackagesDelivery)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, safefs.NewMem(fs)).(*agent.ManagedSkillPackagesDelivery)
 	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	require.NoError(t, handle.Cleanup())

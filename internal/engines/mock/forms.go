@@ -1,10 +1,9 @@
 package mock
 
 import (
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file is the mock's NAMED FORMS on the agent.Declaration seam: per
@@ -55,9 +54,9 @@ func mockSkillsPath(dir string) string {
 // package land correctly — the per-skill directory prefix, the DECLARED mode
 // on each file, the manifest-scoped reversal — lives in that shared body, not
 // here; this function contributes a directory and a manifest name.
-func newMockSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+func newMockSkillsSurface(in agent.SurfaceInputs, files safefs.Root) agent.Approach {
 	return agent.NewManagedSkillPackagesDelivery(skillsRel, in.Skills, func(dir string, skills []agent.SkillExport) error {
-		return agent.WriteManagedSkillPackages(agent.GetFS(fs), mockSkillsPath(dir), skills, agent.WithWriteReporter(in.Reporter))
+		return agent.WriteManagedSkillPackages(files, mockSkillsPath(dir), skills, agent.WithWriteReporter(in.Reporter))
 	})
 }
 
@@ -87,7 +86,7 @@ func (s *mockSettingsSurface) Present(start present.Start) present.Presentation 
 
 // newMockCommandsSurface builds mock's commands form: the SHARED
 // agent.ManagedCommandsDelivery at the mock's commands directory.
-func newMockCommandsSurface(agent.SurfaceInputs, afero.Fs) agent.Approach {
+func newMockCommandsSurface(agent.SurfaceInputs, safefs.Root) agent.Approach {
 	return agent.NewManagedCommandsDelivery(commandsRel)
 }
 
@@ -105,8 +104,8 @@ const MockSessionFile = "session-file"
 // bare relative path — which is precisely what keeps selection from choosing
 // it (agent.rootedInThisRun reads that).
 func sessionRooted(ctor agent.Construct) agent.Construct {
-	return func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return &sessionForm{inner: ctor(in, fs)}
+	return func(in agent.SurfaceInputs, files safefs.Root) agent.Approach {
+		return &sessionForm{inner: ctor(in, files)}
 	}
 }
 
@@ -142,10 +141,10 @@ func (m Mock) Declaration() agent.Declaration {
 	all := agent.Declaration{
 		agent.SurfaceContext: both(agent.SurfaceContext, newMockContext),
 		agent.SurfaceSkills:  both(agent.SurfaceSkills, newMockSkillsSurface),
-		agent.SurfaceMCP: both(agent.SurfaceMCP, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+		agent.SurfaceMCP: both(agent.SurfaceMCP, func(agent.SurfaceInputs, safefs.Root) agent.Approach {
 			return &mockMCPSurface{}
 		}),
-		agent.SurfaceSettings: both(agent.SurfaceSettings, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+		agent.SurfaceSettings: both(agent.SurfaceSettings, func(agent.SurfaceInputs, safefs.Root) agent.Approach {
 			return &mockSettingsSurface{}
 		}),
 		agent.SurfaceCommands: both(agent.SurfaceCommands, newMockCommandsSurface),

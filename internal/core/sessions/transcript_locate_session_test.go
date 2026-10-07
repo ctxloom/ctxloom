@@ -111,6 +111,22 @@ func TestFindBySessionID_FindsALocatedSession(t *testing.T) {
 	}
 }
 
+// TestFindBySessionID_LocatedSessionAnswersOnlyForItsOwnID: locating a
+// transcript is not a match; the id it records must be the one asked for.
+func TestFindBySessionID_LocatedSessionAnswersOnlyForItsOwnID(t *testing.T) {
+	home := testsupport.Isolate(t)
+	stemSessions(t)
+
+	_, harp := mintHarp(t)
+	mgr, _ := mintHarp(t)
+	writeStoreFile(t, home, harp, "-proj-enc/located.jsonl", time.Now().Add(-time.Minute))
+
+	got, err := mgr.FindBySessionID("someone-else")
+	if err != nil || got != nil {
+		t.Fatalf("FindBySessionID(someone-else) = %v, %v; want no entry", got, err)
+	}
+}
+
 // TestFind_BoundTranscriptKeepsItsSession: a host session's SessionStart bind
 // recorded both halves; a store file beside it never re-derives the id.
 func TestFind_BoundTranscriptKeepsItsSession(t *testing.T) {

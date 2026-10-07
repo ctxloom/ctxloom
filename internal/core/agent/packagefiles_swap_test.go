@@ -63,7 +63,7 @@ func TestWriteManagedPackageFiles_RenderFailureLeavesOldSurfaceIntact(t *testing
 			{RelPath: "reviewer/scripts/run.sh", Content: []byte("#!/bin/sh\necho v1\n"), Mode: 0755},
 		},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, seed, fakeItemEnabled, fakeItemName, fakeItemRender))
+	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, seed, fakeItemEnabled, fakeItemName, fakeItemRender))
 
 	beforeScript, err := afero.ReadFile(fs, filepath.Join(dir, "reviewer", "scripts", "run.sh"))
 	require.NoError(t, err, "precondition: the seed materialize wrote the script")
@@ -75,7 +75,7 @@ func TestWriteManagedPackageFiles_RenderFailureLeavesOldSurfaceIntact(t *testing
 		enabled: true,
 		err:     errors.New("boom: template render failed"),
 	}}
-	writeErr := WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, failing, fakeItemEnabled, fakeItemName, fakeItemRender)
+	writeErr := WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, failing, fakeItemEnabled, fakeItemName, fakeItemRender)
 	require.Error(t, writeErr, "a render failure must propagate as a real error, never be swallowed into a quiet success")
 
 	afterScript, err := afero.ReadFile(fs, filepath.Join(dir, "reviewer", "scripts", "run.sh"))
@@ -100,7 +100,7 @@ func TestWriteManagedPackageFiles_EmptyRenderGuardRefusesToGutExistingSurface(t 
 		enabled: true,
 		files:   []PackageFile{{RelPath: "reviewer/SKILL.md", Content: []byte("v1"), Mode: 0644}},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, seed, fakeItemEnabled, fakeItemName, fakeItemRender))
+	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, seed, fakeItemEnabled, fakeItemName, fakeItemRender))
 
 	// Enabled (the caller still wants content), render succeeds with no error,
 	// but its ONLY file has an unsafe path — every file this call would
@@ -111,7 +111,7 @@ func TestWriteManagedPackageFiles_EmptyRenderGuardRefusesToGutExistingSurface(t 
 		enabled: true,
 		files:   []PackageFile{{RelPath: "../escape.md", Content: []byte("x"), Mode: 0644}},
 	}}
-	writeErr := WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, starved, fakeItemEnabled, fakeItemName, fakeItemRender)
+	writeErr := WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, starved, fakeItemEnabled, fakeItemName, fakeItemRender)
 	require.Error(t, writeErr, "zero rendered files against a non-empty ledger must refuse, not silently empty the surface")
 
 	exists, err := afero.Exists(fs, filepath.Join(dir, "reviewer", "SKILL.md"))
@@ -133,7 +133,8 @@ func TestWriteManagedPackageFiles_EmptyRenderGuardRefusesToGutExistingSurface(t 
 // OS filesystem (not MemMapFs) because the property under test is
 // os.Rename's atomicity, which a fake filesystem does not necessarily model.
 func TestWriteManagedPackageFiles_ConcurrentReaderNeverObservesMissingLedgeredFile(t *testing.T) {
-	fs := afero.NewOsFs()
+	files := safefs.New()
+	fs := files.Fs
 	dir := t.TempDir()
 
 	const iterations = 400
@@ -145,7 +146,7 @@ func TestWriteManagedPackageFiles_ConcurrentReaderNeverObservesMissingLedgeredFi
 			{RelPath: "reviewer/scripts/run.sh", Content: []byte("#!/bin/sh\necho reviewer\n"), Mode: 0755},
 		},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, item, fakeItemEnabled, fakeItemName, fakeItemRender),
+	require.NoError(t, WriteManagedPackageFiles(files, dir, ledger.SurfaceSkills, item, fakeItemEnabled, fakeItemName, fakeItemRender),
 		"seed materialize must succeed before the race begins")
 
 	skillPath := filepath.Join(dir, "reviewer", "SKILL.md")
@@ -164,7 +165,7 @@ func TestWriteManagedPackageFiles_ConcurrentReaderNeverObservesMissingLedgeredFi
 		defer wg.Done()
 		defer close(done)
 		for i := 0; i < iterations; i++ {
-			if writeErr := WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, item, fakeItemEnabled, fakeItemName, fakeItemRender); writeErr != nil {
+			if writeErr := WriteManagedPackageFiles(files, dir, ledger.SurfaceSkills, item, fakeItemEnabled, fakeItemName, fakeItemRender); writeErr != nil {
 				violated.Store(true)
 				detail.Store(fmt.Sprintf("iteration %d: re-materialize failed: %v", i, writeErr))
 				return
@@ -211,7 +212,8 @@ func TestWriteManagedPackageFiles_ConcurrentReaderNeverObservesMissingLedgeredFi
 // afero.TempDir call and this goes red with exactly the reported error shape
 // ("mkdir .../.skills.tmp-…: no such file or directory").
 func TestWriteManagedPackageFiles_FirstDeliveryIntoWhollyNonexistentTree(t *testing.T) {
-	fs := afero.NewOsFs()
+	files := safefs.New()
+	fs := files.Fs
 	root := t.TempDir()
 	// Nothing below root exists yet — not "project", not ".claude", not
 	// ".claude/skills" — mirroring a fresh checkout with no prior ctxloom
@@ -227,7 +229,7 @@ func TestWriteManagedPackageFiles_FirstDeliveryIntoWhollyNonexistentTree(t *test
 		},
 	}}
 
-	err := WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, fakeItemEnabled, fakeItemName, fakeItemRender)
+	err := WriteManagedPackageFiles(files, dir, ledger.SurfaceSkills, items, fakeItemEnabled, fakeItemName, fakeItemRender)
 	require.NoError(t, err, "a first-ever delivery into a wholly nonexistent parent chain must succeed, not fail on temp-tree creation")
 
 	skillMD, err := afero.ReadFile(fs, filepath.Join(dir, "reviewer", "SKILL.md"))
@@ -279,7 +281,7 @@ func TestWriteManagedPackageFiles_RedeliveryNeverReplacesAnUnchangedLiveFile(t *
 			{RelPath: "reviewer/scripts/run.sh", Content: []byte("#!/bin/sh\necho reviewer\n"), Mode: 0755},
 		},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, item, fakeItemEnabled, fakeItemName, fakeItemRender))
+	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, item, fakeItemEnabled, fakeItemName, fakeItemRender))
 
 	var missing []string
 	observe := func() {
@@ -289,7 +291,7 @@ func TestWriteManagedPackageFiles_RedeliveryNeverReplacesAnUnchangedLiveFile(t *
 			}
 		}
 	}
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, item, fakeItemEnabled, fakeItemName, fakeItemRender,
+	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, item, fakeItemEnabled, fakeItemName, fakeItemRender,
 		withRename(nonAtomicReplace(observe))))
 
 	assert.Empty(t, missing, "an unchanged re-delivery took a live file through a replace a concurrent reader observed as missing")
@@ -317,7 +319,7 @@ func TestWriteManagedPackageFiles_RedeliverySwapsChangedContentAndMode(t *testin
 			},
 		}}
 	}
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, render("v1", 0644), fakeItemEnabled, fakeItemName, fakeItemRender))
+	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, render("v1", 0644), fakeItemEnabled, fakeItemName, fakeItemRender))
 
 	var swapped []string
 	recording := func(fs afero.Fs, oldpath, newpath string) error {
@@ -326,7 +328,7 @@ func TestWriteManagedPackageFiles_RedeliverySwapsChangedContentAndMode(t *testin
 		swapped = append(swapped, filepath.ToSlash(rel))
 		return safefs.Rename(fs, oldpath, newpath)
 	}
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, render("v2", 0755), fakeItemEnabled, fakeItemName, fakeItemRender,
+	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, render("v2", 0755), fakeItemEnabled, fakeItemName, fakeItemRender,
 		withRename(recording)))
 
 	assert.ElementsMatch(t, []string{"reviewer/SKILL.md", "reviewer/scripts/run.sh"}, swapped)

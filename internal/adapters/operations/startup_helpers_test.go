@@ -49,6 +49,34 @@ func TestWriteAndRecordSyncSummary_InstalledOrUpdatedPrintsMessage(t *testing.T)
 		"a clean install/update is not a warning")
 }
 
+// The one-line summary prints exactly when the sync is not up to date AND it
+// installed or reinstalled something: either alone is not news.
+func TestWriteAndRecordSyncSummary_SummaryLineNeedsWorkDone(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		status                 string
+		installed, reinstalled int
+		want                   bool
+	}{
+		{"one installed, one reinstalled", "completed", 1, 1, true},
+		{"only a reinstall", "completed", 0, 1, true},
+		{"nothing installed", "completed", 0, 0, false},
+		{"up to date despite a count", "up_to_date", 1, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			WriteAndRecordSyncSummary(&buf, &SyncDependenciesResult{
+				Status: tc.status, Installed: tc.installed, Reinstalled: tc.reinstalled, Message: "the tally",
+			})
+			if tc.want {
+				assert.Contains(t, buf.String(), "ctxloom: the tally\n")
+			} else {
+				assert.NotContains(t, buf.String(), "the tally")
+			}
+		})
+	}
+}
+
 func TestWriteAndRecordSyncSummary_FailuresListEachFailedItem(t *testing.T) {
 	resetStrictness(t) // WriteAndRecordSyncSummary records a finding per failed item; keep them out of the shared collector
 	var buf bytes.Buffer

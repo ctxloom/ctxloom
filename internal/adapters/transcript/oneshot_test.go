@@ -4,12 +4,12 @@ import (
 	"os"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -20,7 +20,7 @@ func TestRecordOneshot_WritesTwoEntryTranscript(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "oneshot-roundtrip-harp"
 
-	err := RecordOneshot(afero.NewOsFs(), harp, "mock", "  what is 2+2?  ", "  4.  ")
+	err := RecordOneshot(safefs.New(), harp, "mock", "  what is 2+2?  ", "  4.  ")
 	require.NoError(t, err)
 
 	path, err := paths.HarpCanonicalTranscriptPath(harp)
@@ -42,7 +42,7 @@ func TestRecordOneshot_WritesTwoEntryTranscript(t *testing.T) {
 func TestRecordOneshot_NoHarpWritesNothing(t *testing.T) {
 	testsupport.Isolate(t)
 
-	err := RecordOneshot(afero.NewOsFs(), "", "claude-code", "prompt", "output")
+	err := RecordOneshot(safefs.New(), "", "claude-code", "prompt", "output")
 	require.Error(t, err)
 }
 
@@ -56,7 +56,7 @@ func TestRecordOneshot_EmptyPromptAndOutputWritesNothing(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "oneshot-empty-harp"
 
-	err := RecordOneshot(afero.NewOsFs(), harp, "claude-code", "   ", "\n\t  ")
+	err := RecordOneshot(safefs.New(), harp, "claude-code", "   ", "\n\t  ")
 	require.NoError(t, err)
 
 	path, err := paths.HarpCanonicalTranscriptPath(harp)
@@ -73,7 +73,7 @@ func TestRecordOneshot_PromptOnly_WritesOneEntry(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "oneshot-prompt-only-harp"
 
-	err := RecordOneshot(afero.NewOsFs(), harp, "mock", "do the thing", "")
+	err := RecordOneshot(safefs.New(), harp, "mock", "do the thing", "")
 	require.NoError(t, err)
 
 	path, err := paths.HarpCanonicalTranscriptPath(harp)

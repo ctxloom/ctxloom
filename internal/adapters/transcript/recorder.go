@@ -9,23 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
-)
-
-// lockFileMode and lockDirMode are the modes the canonical-transcript
-// ownership lock's sidecar and its parent directory are created with,
-// before umask — not group- or world-WRITABLE, matching every other lock
-// site in this project (see internal/core/agent/rmw_lock.go's
-// identically-reasoned pair).
-const (
-	lockFileMode = 0o644
-	lockDirMode  = 0o755
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Recorder appends one canonical JSONL line per agent.ChatEvent to a harp's
@@ -47,9 +36,10 @@ type Recorder interface {
 // fileRecorder is the on-disk Recorder: append-only, lazily-opened, one
 // harp/engine pair per instance.
 type fileRecorder struct {
-	// fs carries the transcripts dir and the held append handle; the ownership
-	// lock's sidecar is a kernel lock on the OS filesystem, outside it.
+	// fs carries the transcripts dir and the held append handle; locks are
+	// the same Root's, and hold the ownership lock's sidecar.
 	fs     afero.Fs
+	locks  safefs.Locks
 	harp   string
 	engine string
 	path   string
@@ -177,9 +167,9 @@ func WithContinuation(seq int, sessionID string) RecorderOption {
 // Seq starts at 0 (or where WithContinuation says) on the first Record call
 // and increases by 1, with no gaps,
 // for the lifetime of the Recorder.
-func NewRecorder(fs afero.Fs, harp, engine string, opts ...RecorderOption) (Recorder, error) {
-	if fs == nil {
-		return nil, fmt.Errorf("transcript: NewRecorder requires a filesystem")
+func NewRecorder(files safefs.Root, harp, engine string, opts ...RecorderOption) (Recorder, error) {
+	if files.Fs == nil || files.Locks == nil {
+		return nil, fmt.Errorf("transcript: NewRecorder requires a filesystem and its locks")
 	}
 	if harp == "" {
 		return nil, fmt.Errorf("transcript: NewRecorder requires a non-empty harp")
@@ -192,13 +182,14 @@ func NewRecorder(fs afero.Fs, harp, engine string, opts ...RecorderOption) (Reco
 		return nil, fmt.Errorf("transcript: resolve canonical transcript path for harp %q: %w", harp, err)
 	}
 	r := &fileRecorder{
-		fs:     fs,
+		fs:     files.Fs,
+		locks:  files.Locks,
 		harp:   harp,
 		engine: engine,
 		path:   p,
 		now:    func() time.Time { return time.Now().UTC() },
 		policy: DefaultRawPolicy,
-		open:   openAppendFile(fs),
+		open:   openAppendFile(files.Fs),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -289,18 +280,11 @@ func (r *fileRecorder) ensureFile() error {
 		r.file = callerOwnedWriter{r.writer}
 		return nil
 	}
-	lockPath := paths.PathFor(r.path)
-	if err := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
-		return fmt.Errorf("transcript: prepare canonical-transcript ownership lock directory for %s: %w", r.path, err)
-	}
-	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
-	stop := lockwait.Watch(lockPath)
-	err := fl.RLock()
-	stop()
+	lk, err := r.locks.RLock(paths.PathFor(r.path))
 	if err != nil {
 		return fmt.Errorf("transcript: acquire canonical-transcript ownership lock for %s: %w", r.path, err)
 	}
-	r.unlock = func() { _ = fl.Unlock() }
+	r.unlock = func() { _ = lk.Unlock() }
 	if err := r.fs.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
 		r.releaseLock()
 		return fmt.Errorf("transcript: create transcripts dir: %w", err)

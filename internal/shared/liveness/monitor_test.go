@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/liveness"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // composedContext stands in for the block the incident's launcher re-delivered
@@ -53,7 +53,7 @@ func (s stuckSpawner) loop(t *testing.T) {
 	t.Helper()
 	for i := 0; i < s.deliveries; i++ {
 		// A relaunch: a brand-new Recorder, hence seq restarting at 0.
-		rec, err := transcript.NewRecorder(afero.NewOsFs(), s.harp, s.engine)
+		rec, err := transcript.NewRecorder(safefs.New(), s.harp, s.engine)
 		require.NoError(t, err)
 		transcript.RecordUserText(rec, composedContext)
 		require.NoError(t, rec.Close())
@@ -67,7 +67,7 @@ func (s stuckSpawner) loop(t *testing.T) {
 // advancing, several distinct entry types, assistant output, a closed turn.
 func healthySession(t *testing.T, harp string) {
 	t.Helper()
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), harp, "claude")
+	rec, err := transcript.NewRecorder(safefs.New(), harp, "claude")
 	require.NoError(t, err)
 	defer func() { require.NoError(t, rec.Close()) }()
 	transcript.RecordUserText(rec, composedContext)
@@ -90,7 +90,7 @@ func healthySession(t *testing.T, harp string) {
 // on a human, which an approval rung may legitimately do for many minutes.
 func approvalParkedSession(t *testing.T, harp string) {
 	t.Helper()
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), harp, "claude")
+	rec, err := transcript.NewRecorder(safefs.New(), harp, "claude")
 	require.NoError(t, err)
 	defer func() { require.NoError(t, rec.Close()) }()
 	transcript.RecordUserText(rec, composedContext)
@@ -355,7 +355,7 @@ func TestMonitor_DiedVersusCleanEnd(t *testing.T) {
 	m := liveness.New(liveness.Options{Now: func() time.Time { return now }, Probes: []liveness.Probe{dead}})
 
 	const openHarp = "died-mid-turn"
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), openHarp, "claude-code")
+	rec, err := transcript.NewRecorder(safefs.New(), openHarp, "claude-code")
 	require.NoError(t, err)
 	transcript.RecordUserText(rec, "do the thing")
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{

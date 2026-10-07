@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"github.com/gofrs/flock"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -59,10 +59,10 @@ type World struct {
 	// exactly what "the reaper removed it" looks like).
 	orphanWorktree string
 
-	// heldSessionLocks are exclusive flocks THIS test process holds so a
+	// heldSessionLocks are exclusive locks THIS test process holds so a
 	// seeded harp reads as a LIVE session (see seedLiveSession). They are
 	// released before the scenario's temp root is removed.
-	heldSessionLocks []*flock.Flock
+	heldSessionLocks []safefs.Lock
 
 	j000200Sources         map[string]*j000200Source // J000200: named source fixtures (personal/company/third-party/…)
 	j000200Live            bool                      // J000200 @live: whether this scenario's real agent is available (else every step no-ops toward a clean skip)
@@ -231,10 +231,10 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 		// error as the always-reproducible mechanism behind an observed /tmp
 		// leak.
 		var firstErr error
-		// Release before env.Cleanup: an flock this process still holds on a
+		// Release before env.Cleanup: a lock this process still holds on a
 		// file inside the temp root would outlive the scenario that made it.
-		for _, fl := range w.heldSessionLocks {
-			firstErr = firstTeardownErr(firstErr, fl.Close(), "release seeded session lock")
+		for _, lk := range w.heldSessionLocks {
+			firstErr = firstTeardownErr(firstErr, lk.Unlock(), "release seeded session lock")
 		}
 		w.heldSessionLocks = nil
 		firstErr = firstTeardownErr(firstErr, w.mcp.Close(), "mcp client close")

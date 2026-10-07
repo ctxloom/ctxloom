@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // A skill package may carry one body per form, and the process stage selects
@@ -37,14 +38,14 @@ func TestWriteManagedSkillPackages_SubstitutedBodyReplacesTheDescriptorAndDropsT
 	}
 	tracked := func() []string {
 		t.Helper()
-		got, err := ledger.Ledger{FS: fs, Dir: dir}.Read(ledger.SurfaceSkills)
+		got, err := ledger.Ledger{Root: safefs.NewMem(fs), Dir: dir}.Read(ledger.SurfaceSkills)
 		require.NoError(t, err)
 		return got
 	}
 
 	// A package written with BOTH bodies as plain files — the shape a writer
 	// fed the unselected package produces.
-	require.NoError(t, WriteManagedSkillPackages(fs, dir, export(
+	require.NoError(t, WriteManagedSkillPackages(safefs.NewMem(fs), dir, export(
 		PackageFile{RelPath: "SKILL.md", Content: raw, Mode: 0644},
 		PackageFile{RelPath: "SKILL.distilled.md", Content: distilled, Mode: 0644},
 		PackageFile{RelPath: "scripts/run.sh", Content: script, Mode: 0755},
@@ -54,7 +55,7 @@ func TestWriteManagedSkillPackages_SubstitutedBodyReplacesTheDescriptorAndDropsT
 
 	// The distilled body selected: its bytes substituted at SKILL.md, and no
 	// file for either body under its own name.
-	require.NoError(t, WriteManagedSkillPackages(fs, dir, export(
+	require.NoError(t, WriteManagedSkillPackages(safefs.NewMem(fs), dir, export(
 		PackageFile{RelPath: "SKILL.md", Content: distilled, Mode: 0644},
 		PackageFile{RelPath: "scripts/run.sh", Content: script, Mode: 0755},
 	)))
@@ -70,7 +71,7 @@ func TestWriteManagedSkillPackages_SubstitutedBodyReplacesTheDescriptorAndDropsT
 		"the ledger names exactly the materialized set")
 
 	// And back to the raw body: the same path, different bytes.
-	require.NoError(t, WriteManagedSkillPackages(fs, dir, export(
+	require.NoError(t, WriteManagedSkillPackages(safefs.NewMem(fs), dir, export(
 		PackageFile{RelPath: "SKILL.md", Content: raw, Mode: 0644},
 		PackageFile{RelPath: "scripts/run.sh", Content: script, Mode: 0755},
 	)))

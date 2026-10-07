@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -26,7 +27,7 @@ func TestFileTemplateDelivery_DeliverCommands(t *testing.T) {
 	}
 
 	deliverDir := t.TempDir()
-	d := newFileTemplateDelivery(fakePlacement{dir: deliverDir}, nil)
+	d := newFileTemplateDelivery(fakePlacement{dir: deliverDir}, safefs.New())
 	handle, err := d.DeliverCommands(commands)
 	require.NoError(t, err)
 
@@ -81,7 +82,7 @@ func TestFileTemplateDelivery_DeliverCommands_DedupsIdenticalHomeCopy(t *testing
 	projectDir := t.TempDir()
 	keep := agent.CommandExport{Name: "keep", Content: "Project-only command", Enabled: true}
 
-	d := newFileTemplateDelivery(fakePlacement{dir: projectDir}, nil)
+	d := newFileTemplateDelivery(fakePlacement{dir: projectDir}, safefs.New())
 	_, err := d.DeliverCommands([]agent.CommandExport{dup, keep})
 	require.NoError(t, err)
 
@@ -107,7 +108,7 @@ func TestFileTemplateDelivery_DeliverCommands_DivergentHomeCopyWritesNormally(t 
 	projectDir := t.TempDir()
 	updated := agent.CommandExport{Name: "recover", Content: "NEW BODY", Enabled: true}
 
-	d := newFileTemplateDelivery(fakePlacement{dir: projectDir}, nil)
+	d := newFileTemplateDelivery(fakePlacement{dir: projectDir}, safefs.New())
 	_, err := d.DeliverCommands([]agent.CommandExport{updated})
 	require.NoError(t, err)
 
@@ -132,7 +133,7 @@ func TestFileTemplateDelivery_DeliverCommands_DedupConvergence(t *testing.T) {
 
 	projectDir := t.TempDir()
 	cmd := agent.CommandExport{Name: "recover", Content: "Recovering context", Enabled: true}
-	d := newFileTemplateDelivery(fakePlacement{dir: projectDir}, nil)
+	d := newFileTemplateDelivery(fakePlacement{dir: projectDir}, safefs.New())
 
 	// Run 1: delivered and manifest-tracked normally (no home copy to dedup against).
 	_, err := d.DeliverCommands([]agent.CommandExport{cmd})
@@ -168,7 +169,7 @@ func TestFileTemplateDelivery_DeliverCommands_HomeScopeDeliveryDisablesDedup(t *
 	// path DeliverCommands targets — this is the "identical to itself" case.
 	writeRenderedHomeCommand(t, fakeHome, cmd)
 
-	d := newFileTemplateDelivery(fakePlacement{dir: fakeHome}, nil)
+	d := newFileTemplateDelivery(fakePlacement{dir: fakeHome}, safefs.New())
 	_, err := d.DeliverCommands([]agent.CommandExport{cmd})
 	require.NoError(t, err)
 
@@ -195,7 +196,7 @@ func TestFileTemplateDelivery_DeliverCommands_SelfContainedSkipsHomeDedup(t *tes
 
 	// Default (false): unchanged — still dedups against home.
 	projectDir := t.TempDir()
-	d := newFileTemplateDelivery(fakePlacement{dir: projectDir}, nil)
+	d := newFileTemplateDelivery(fakePlacement{dir: projectDir}, safefs.New())
 	_, err := d.DeliverCommands([]agent.CommandExport{dup})
 	require.NoError(t, err)
 	assert.NoFileExists(t, filepath.Join(projectDir, ".claude", "commands", "recover.md"),
@@ -204,7 +205,7 @@ func TestFileTemplateDelivery_DeliverCommands_SelfContainedSkipsHomeDedup(t *tes
 	// selfContainedCommands = true: the portable target must keep the command even
 	// though it shadows a command in the delivering machine's home.
 	selfContainedDir := t.TempDir()
-	sc := newFileTemplateDelivery(fakePlacement{dir: selfContainedDir}, nil)
+	sc := newFileTemplateDelivery(fakePlacement{dir: selfContainedDir}, safefs.New())
 	sc.selfContainedCommands = true
 	_, err = sc.DeliverCommands([]agent.CommandExport{dup})
 	require.NoError(t, err)

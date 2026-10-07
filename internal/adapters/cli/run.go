@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
@@ -33,6 +32,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
@@ -1484,7 +1484,7 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 			"without emitting a single answer byte, so there is nothing to print or record")
 		return &ExitError{Code: 1}
 	}
-	if terr := transcript.RecordOneshot(afero.NewOsFs(), harp, backend, prompt, answer); terr != nil {
+	if terr := transcript.RecordOneshot(safefs.New(), harp, backend, prompt, answer); terr != nil {
 		clidiag.Warn("ctxloom", "oneshot transcript capture: %v", terr)
 	}
 	return nil
@@ -1519,7 +1519,7 @@ func convertVendorTranscriptOnExit(harp string) {
 	// path. Reusing it would make the heal abort immediately
 	// (vendorreader.VendorAdapter implementations check ctx.Err() up front) on
 	// exactly the sessions this hook most needs to capture.
-	src, err := operations.ResolveAndHeal(context.Background(), afero.NewOsFs(), App().Engines(), harp)
+	src, err := operations.ResolveAndHeal(context.Background(), safefs.New(), App().Engines(), harp)
 	if err != nil {
 		clidiag.Warn("ctxloom", "vendor transcript import: look up %s: %v", harp, err)
 		return

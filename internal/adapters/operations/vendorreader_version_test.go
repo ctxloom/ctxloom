@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
@@ -122,7 +123,7 @@ func TestConvertVendorTranscript_UnrecordedVersionRefusesAndWritesNothing(t *tes
 	harp := "convert-unversioned-harp"
 	e := sessions.Entry{HarpName: harp, Backend: "claude-code", TranscriptPath: claudeFixturePath}
 
-	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	assert.False(t, converted, "nothing may be attempted for a session whose format is unknown")
 	require.Error(t, err)
 
@@ -139,7 +140,7 @@ func TestConvertVendorTranscript_UnknownVersionRefuses(t *testing.T) {
 	harp := "convert-future-version-harp"
 	e := sessions.Entry{HarpName: harp, Backend: "claude-code", TranscriptPath: claudeFixturePath, EngineVersion: "9.9.9"}
 
-	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	assert.False(t, converted)
 	require.Error(t, err)
 
@@ -157,7 +158,7 @@ func TestConvertVendorTranscript_UnknownVersionRefuses(t *testing.T) {
 func TestConvertVendorTranscript_UnlocatableSessionStaysSilentDespiteNoVersion(t *testing.T) {
 	e := sessions.Entry{HarpName: "convert-unbound-harp", Backend: "claude-code"}
 
-	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	assert.False(t, converted)
 	assert.NoError(t, err,
 		"a session with nothing to convert must not shout about an unknown version — the refusal is for transcripts that actually exist")
@@ -187,7 +188,7 @@ func TestConvertVendorTranscript_MalformedLineInAKnownVersionDegradesToPartial(t
 		EngineVersion:  stubEngineVersion, // a version the adapter IS validated for
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err,
 		"a bad LINE inside a known format is not a structural failure — only an unreadable source, a cancelled context or a failing recorder is")
 	assert.True(t, converted)

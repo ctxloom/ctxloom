@@ -4,8 +4,8 @@
 // watchdog that a caller wraps around whatever blocking call it is about to
 // make.
 //
-// It exists because acquiring an advisory file lock (github.com/gofrs/flock's
-// Flock.Lock / Flock.RLock) is unconditionally blocking: a holder that never
+// It exists because acquiring an advisory file lock (safefs.Locks' Lock and
+// RLock) is unconditionally blocking: a holder that never
 // releases parks the caller forever — `taskloom status` reaches this on its
 // exclusive write path and simply never returns. Whether that wait should
 // instead FAIL is a per-call-site policy question this package does not

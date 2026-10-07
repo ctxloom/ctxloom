@@ -6,7 +6,7 @@
 // hosts a coordinator for a session in some project).
 //
 // Deliberately a LEAF package (it imports only internal/core/paths and the
-// toolbox's filelock), so both
+// toolbox), so both
 // halves of the endpoint.json contract compile against ONE declaration: the
 // file's LAYOUT lives here (DirName, FileName, State, MCPPath, LoopbackURL),
 // and the writer (internal/adapters/coordgrpc's Serve) and the readers

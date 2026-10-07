@@ -181,3 +181,24 @@ func TestRefDisplayRef_UnconvertibleRefuses(t *testing.T) {
 	assert.NotContains(t, err.Error(), "ctxloom+",
 		"the refusal must not spell anything that parses as a reference")
 }
+
+// TestRefAsBundleRef_HalfASelectorIsRefused pins that a Ref naming only one
+// half of an item selector is refused like a hand-built one, never quietly
+// converted to the bare bundle; with neither half it IS the bare bundle.
+func TestRefAsBundleRef_HalfASelectorIsRefused(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		ref  Ref
+	}{
+		{"kind without a name", Ref{IsLocal: true, Bundle: "lang/go", Kind: KindFragment}},
+		{"name without a kind", Ref{IsLocal: true, Bundle: "lang/go", Name: "solid"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.ref.AsBundleRef()
+			require.ErrorIs(t, err, ErrRefSyntax)
+		})
+	}
+	got, err := Ref{IsLocal: true, Bundle: "lang/go"}.AsBundleRef()
+	require.NoError(t, err)
+	assert.Equal(t, "ctxloom+local:lang/go", got.String())
+}

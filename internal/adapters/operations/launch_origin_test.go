@@ -1,6 +1,8 @@
 package operations
 
 import (
+	"bytes"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -58,4 +61,33 @@ func TestMintIdentity_InMemoryStoreTakesNoLivenessLock(t *testing.T) {
 	memLock, err := paths.HarpLockPath(id.Harp)
 	require.NoError(t, err)
 	require.NoFileExists(t, memLock, "an in-memory session must leave no liveness lock on disk")
+}
+
+// errStampRefused is the failure stampRefusingStore's StampMint returns.
+var errStampRefused = errors.New("stamp refused")
+
+// stampRefusingStore is a MemStore whose StampMint always fails.
+type stampRefusingStore struct{ *sessions.MemStore }
+
+func (stampRefusingStore) StampMint(string, sessions.MintStamp) error { return errStampRefused }
+
+// A stamp that cannot be recorded warns rather than refuses, and only a
+// failed one warns: an unstamped session reads as a human's, so the user must
+// hear that a sweep will never purge it.
+func TestMintIdentity_WarnsExactlyWhenTheStampFails(t *testing.T) {
+	testsupport.Isolate(t)
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	ok, err := MintIdentity(sessions.NewMemStore(), sessions.Seed{ProjectDir: "/proj"}, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { sessionlock.Release(ok.Harp) })
+	assert.NotContains(t, buf.String(), "cannot record its origin", "a recorded stamp is not worth a warning")
+
+	failed, err := MintIdentity(stampRefusingStore{sessions.NewMemStore()}, sessions.Seed{ProjectDir: "/proj"}, t.TempDir())
+	require.NoError(t, err, "a failed stamp must not refuse the run")
+	t.Cleanup(func() { sessionlock.Release(failed.Harp) })
+	assert.Contains(t, buf.String(), "session "+failed.Harp+": cannot record its origin")
+	assert.Contains(t, buf.String(), errStampRefused.Error())
 }

@@ -35,23 +35,20 @@
 ./internal/adapters/cli/util_config_write.go||1|11||196-269
 ./internal/adapters/cli/util_config_write.go|buildAndWriteApplicationRecord fs afero . Fs , target string , format hew . FormatID , tl hew . TransformList , patchBytes , before , after [ ] byte|1|11|buildAndWriteApplicationRecord|579-643
 ./internal/adapters/content/document.go|NewDocumentStore bundles map [ BundleID ] DocumentBundle , prov Provenance|1|12|NewDocumentStore|54-102
-./internal/adapters/content/document_test.go|TestDocumentStore_ReadsABundleWithNoFilesystem t * testing . T|1|18|TestDocumentStore_ReadsABundleWithNoFilesystem|30-94
-./internal/adapters/content/manifest.go|(m Manifest)VerifyContents ctx context . Context , b Bundle|1|13|VerifyContents|467-507
-./internal/adapters/content/registry_ext_test.go|TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI t * testing . T|1|18|TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI|151-230
-./internal/adapters/content/surface_skill.go|(t skillType)Encode s Surface|1|14|Encode|317-365
-./internal/adapters/content/surface_skill.go|detectSkill src Source|1|11|detectSkill|213-243
-./internal/adapters/content/tree.go|(b*treeBundle)Item ctx context . Context , ref ident . Ref|1|12|Item|280-320
-./internal/adapters/content/tree.go|(b*treeBundle)walk t SurfaceType , relDir string , depth int|1|15|walk|452-509
-./internal/adapters/content/tree_test.go|TestForm_RawAndDistilledAreIndependent t * testing . T|1|11|TestForm_RawAndDistilledAreIndependent|235-279
-./internal/adapters/content/tree_test.go|TestHook_SingleHookInAnEventResolvesIdentically t * testing . T|1|11|TestHook_SingleHookInAnEventResolvesIdentically|557-589
-./internal/adapters/content/tree_test.go|TestHook_TwoHooksInOneEventHaveNameIdentity t * testing . T|1|13|TestHook_TwoHooksInOneEventHaveNameIdentity|499-551
-./internal/adapters/content/tree_test.go|TestMCP_SidecarIsHashedAndContentFileStaysPure t * testing . T|1|11|TestMCP_SidecarIsHashedAndContentFileStaysPure|456-492
-./internal/adapters/content/tree_test.go|TestProfile_PriorityOrderingRoundTrips t * testing . T|1|16|TestProfile_PriorityOrderingRoundTrips|703-759
+./internal/adapters/content/document_test.go|TestDocumentStore_ReadsABundleWithNoFilesystem t * testing . T|1|18|TestDocumentStore_ReadsABundleWithNoFilesystem|28-92
+./internal/adapters/content/registry_ext_test.go|TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI t * testing . T|1|18|TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI|150-231
+./internal/adapters/content/surface_skill.go|(t skillType)Encode s Surface|1|14|Encode|316-364
+./internal/adapters/content/surface_skill.go|detectSkill src Source|1|11|detectSkill|212-242
+./internal/adapters/content/tree.go|(b*treeBundle)Item ctx context . Context , ref ident . Ref|1|12|Item|279-319
+./internal/adapters/content/tree.go|(b*treeBundle)walk t SurfaceType , relDir string , depth int|1|15|walk|427-484
+./internal/adapters/content/tree_test.go|TestHook_SingleHookInAnEventResolvesIdentically t * testing . T|1|11|TestHook_SingleHookInAnEventResolvesIdentically|440-472
+./internal/adapters/content/tree_test.go|TestHook_TwoHooksInOneEventHaveNameIdentity t * testing . T|1|13|TestHook_TwoHooksInOneEventHaveNameIdentity|383-434
+./internal/adapters/content/tree_test.go|TestProfile_PriorityOrderingRoundTrips t * testing . T|1|16|TestProfile_PriorityOrderingRoundTrips|586-642
 ./internal/adapters/content/tree_test.go|TestSkill_DotPrefixedSidecarIsAComponentAndDeclaresExecutability t * testing . T|1|14|TestSkill_DotPrefixedSidecarIsAComponentAndDeclaresExecutability|280-342
-./internal/adapters/content/tree_test.go|TestSurfaces_DecodeAuthoredFields t * testing . T|1|40|TestSurfaces_DecodeAuthoredFields|593-698
-./internal/adapters/content/writer.go|(s*TreeStore)Delete ctx context . Context , ref ident . Ref|1|14|Delete|139-193
+./internal/adapters/content/tree_test.go|TestSurfaces_DecodeAuthoredFields t * testing . T|1|40|TestSurfaces_DecodeAuthoredFields|476-581
+./internal/adapters/content/writer.go|(s*TreeStore)Delete ctx context . Context , ref ident . Ref|1|14|Delete|137-191
 ./internal/adapters/content/writer.go|(s*TreeStore)Put ctx context . Context , ref ident . Ref , f ident . ContentForm , surface Surface|1|20|Put|28-98
-./internal/adapters/content/writer_test.go|TestWriter_FragmentRoundTrip t * testing . T|1|18|TestWriter_FragmentRoundTrip|20-101
+./internal/adapters/content/writer_test.go|TestWriter_FragmentRoundTrip t * testing . T|1|18|TestWriter_FragmentRoundTrip|19-100
 ./internal/adapters/coordgrpc/mcpschema/arch_test.go| n ast . Node|1|12||232-255
 ./internal/adapters/coordgrpc/mcpschema/arch_test.go|readsInScope specs [ ] string|1|12|readsInScope|193-229
 ./internal/adapters/coordgrpc/mcpschema/arch_test.go|rosterStateConstants file string|1|13|rosterStateConstants|317-349
@@ -62,19 +59,17 @@
 ./internal/adapters/mcp/mcp_tools_memory.go|(s*ctxServer)loadOrCompactSession ctx context . Context , sessionID , backendName , model string , policy sessionLoadPolicy|1|28|loadOrCompactSession|818-962
 ./internal/adapters/memory/stamp_test.go|TestStampPlanFile_PreservesFileMode t * testing . T|1|12|TestStampPlanFile_PreservesFileMode|237-281
 ./internal/adapters/operations/bundle_distill.go|DistillBundleFile ctx context . Context , req DistillBundleFileRequest|1|14|DistillBundleFile|63-124
-./internal/adapters/operations/bundles.go|PushBundle ctx context . Context , cfg * config . Config , req PushBundleRequest|1|11|PushBundle|820-908
 ./internal/adapters/operations/constraint_resolve.go| ref * remote . Reference|1|11||98-147
-./internal/adapters/operations/items.go|DistillItem ctx context . Context , cfg * config . Config , req DistillItemRequest|1|13|DistillItem|391-444
+./internal/adapters/operations/items.go|DistillItem ctx context . Context , cfg * config . Config , req DistillItemRequest|1|13|DistillItem|389-442
 ./internal/adapters/operations/items.go|SetItemContent ctx context . Context , cfg * config . Config , req SetItemContentRequest|1|11|SetItemContent|235-304
 ./internal/adapters/operations/profiles.go|UpdateProfile ctx context . Context , cfg * config . Config , req UpdateProfileRequest|1|11|UpdateProfile|347-430
-./internal/adapters/operations/remotes.go|AddRemote ctx context . Context , cfg * config . Config , req AddRemoteRequest|1|15|AddRemote|189-276
+./internal/adapters/operations/remotes.go|AddRemote ctx context . Context , cfg * config . Config , req AddRemoteRequest|1|15|AddRemote|188-270
 ./internal/adapters/operations/resume.go|RenderResumedTranscript harp string , entries [ ] agent . SessionEntry|1|13|RenderResumedTranscript|61-120
 ./internal/adapters/operations/session_adopt.go|ScanAdoptCandidates fsys afero . Fs , harp string|1|20|ScanAdoptCandidates|115-242
 ./internal/adapters/operations/session_purge.go|PurgeSession harp string , req PurgeSessionRequest|1|26|PurgeSession|167-287
 ./internal/adapters/operations/sessionfeed.go||1|28||306-424
-./internal/adapters/operations/signer.go|removeFromAllowedSignersFile fs afero . Fs , path , principal string|1|14|removeFromAllowedSignersFile|522-594
-./internal/adapters/operations/skills.go|CreateSkill _ context . Context , cfg * config . Config , req CreateSkillRequest|1|11|CreateSkill|237-287
-./internal/adapters/operations/skills.go|ExportSkill _ context . Context , cfg * config . Config , req ExportSkillRequest|1|19|ExportSkill|387-474
+./internal/adapters/operations/skills.go|CreateSkill _ context . Context , cfg * config . Config , req CreateSkillRequest|1|11|CreateSkill|228-278
+./internal/adapters/operations/skills.go|ExportSkill _ context . Context , cfg * config . Config , req ExportSkillRequest|1|14|ExportSkill|366-422
 ./internal/adapters/operations/task_triggers.go|buildBatch ctx context . Context , deferred , other [ ] tasks . Task , since map [ string ] time . Time , req EvaluateTriggersRequest|1|11|buildBatch|443-495
 ./internal/adapters/operations/task_triggers.go|escalateNeedsInvestigation ctx context . Context , p escalationParams , verdicts [ ] triggers . Verdict|1|16|escalateNeedsInvestigation|735-827
 ./internal/adapters/operations/task_triggers_query.go| path string , d fs . DirEntry , err error|1|15||240-291
@@ -99,11 +94,11 @@
 ./internal/core/agent/enginecli.go|(c EngineCLI)ParseArgv argv [ ] string|1|14|ParseArgv|477-525
 ./internal/core/agent/enginecli.go|(c EngineCLI)Validate|1|17|Validate|294-341
 ./internal/core/agent/packagefiles.go| T|1|36||56-281
-./internal/core/bundles/bundles.go|detectLegacySkillsKey data [ ] byte|1|13|detectLegacySkillsKey|1512-1559
+./internal/core/bundles/bundles.go|detectLegacySkillsKey data [ ] byte|1|13|detectLegacySkillsKey|956-1003
 ./internal/core/bundles/loader_version.go|(l*Loader)bundleAtVersion bundleRef , commit string|1|12|bundleAtVersion|40-122
-./internal/core/bundles/skill_archive.go|DetectArchiveFormat data [ ] byte|1|13|DetectArchiveFormat|65-77
-./internal/core/bundles/skill_archive.go|symlinkEscapesRoot fsys afero . Fs , root , target string|1|12|symlinkEscapesRoot|596-629
-./internal/core/config/fixture_alias_test.go|containerAliases v reflect . Value , path string , out map [ uintptr ] string|1|17|containerAliases|35-73
+./internal/core/bundles/skill_archive.go|DetectArchiveFormat data [ ] byte|1|13|DetectArchiveFormat|63-75
+./internal/core/bundles/skill_archive.go|symlinkEscapesRoot fsys afero . Fs , root , target string|1|12|symlinkEscapesRoot|594-627
+./internal/core/config/fixture_alias_test.go|containerAliases v reflect . Value , path string , out map [ uintptr ] string|1|17|containerAliases|34-72
 ./internal/core/coord/folds.go| f * queueFold|1|11||327-347
 ./internal/core/coord/replay_test.go| t * testing . T|1|11||99-170
 ./internal/core/coord/reports.go|(f*reportsFold)apply fact Fact|1|12|apply|118-176
@@ -139,8 +134,7 @@
 ./internal/shared/archlint/vocabulary.go|discoverVocabularies files [ ] * ast . File|1|14|discoverVocabularies|224-265
 ./internal/shared/buildpins/ciworkflows_arch_test.go|TestArch_CIWorkflows_ContainerJobsSelectTheContainerJustfile t * testing . T|1|12|TestArch_CIWorkflows_ContainerJobsSelectTheContainerJustfile|128-183
 ./internal/shared/buildpins/ciworkflows_arch_test.go|TestArch_CIWorkflows_KeepInlineShellOutOfSteps t * testing . T|1|12|TestArch_CIWorkflows_KeepInlineShellOutOfSteps|192-250
-./internal/shared/buildpins/toolversions_test.go|TestDockerfileArgsAreDefaultlessAndMatchToolVersionsEnv t * testing . T|1|12|TestDockerfileArgsAreDefaultlessAndMatchToolVersionsEnv|179-227
-./internal/shared/compression/code_python.go|(c*CodeCompressor)extractPythonClassBody node * sitter . Node , source [ ] byte , out * strings . Builder|1|13|extractPythonClassBody|186-224
+./internal/shared/buildpins/toolversions_test.go|TestDockerfileArgsAreDefaultlessAndMatchToolVersionsEnv t * testing . T|1|12|TestDockerfileArgsAreDefaultlessAndMatchToolVersionsEnv|180-228
 ./internal/shared/docsgen/command.go| cmd * cobra . Command , _ [ ] string|1|14||33-69
 ./internal/shared/docsgen/config.go|expandableChild field map [ string ] any|1|12|expandableChild|253-284
 ./internal/shared/docsgen/config.go|typeOf n map [ string ] any|1|19|typeOf|155-211
@@ -209,10 +203,10 @@
 ./tests/acceptance/steps_cli.go|shellSplit cmdline string|1|17|shellSplit|809-862
 ./tests/acceptance/steps_doc_capture.go| c context . Context , st * godog . Step , status godog . StepResultStatus , err error|1|21||189-310
 ./tests/acceptance/steps_isolation_probe.go| c context . Context , engine , axisStr string|1|13||98-161
-./tests/acceptance/steps_j001800_guardrails.go| c context . Context|1|14||285-334
+./tests/acceptance/steps_j001800_guardrails.go| c context . Context|1|14||262-311
 ./tests/acceptance/steps_j002200_isolation.go| c context . Context|1|11||348-373
 ./tests/acceptance/steps_j002500_taskloom.go| c context . Context , untagged , tagged string|1|11||225-248
-./tests/acceptance/steps_p6_steer_echo.go| c context . Context , engine , runtime , workspace , marker string|1|12||87-175
+./tests/acceptance/steps_p6_steer_echo.go| c context . Context , engine , runtime , workspace , marker string|1|12||88-176
 ./tests/arch/arch_test.go| p string , d fs . DirEntry , err error|1|13||94-136
 ./tests/arch/config_schema_enum_test.go| node any , path [ ] string|1|11||68-96
 ./tests/arch/corpus_floors_test.go| p string , d fs . DirEntry , err error|1|13||107-147

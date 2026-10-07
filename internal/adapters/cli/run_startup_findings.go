@@ -1,11 +1,8 @@
 package cli
 
 import (
-	"strings"
-
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -16,29 +13,12 @@ import (
 // measured waste.
 var runNoStartupFindings bool
 
-// startupFindingsFragmentName is the fragment identity the delivered report
-// rides under (assembleDedupedContext keys on name AND content).
-const startupFindingsFragmentName = "ctxloom-startup-findings"
-
-// startupFindings is the launch's startup-findings lead: one more context
-// block after the assembled context — the same seam every other context
-// source rides, so the SessionStart hook, the context cache file and each
-// engine's own delivery differences are already solved. Composed after the
-// launch resolved, because the isolation axis resolves there and a
-// degraded-to-host finding is the case this exists for. withheld is the
-// launch package's withheld tally. Nothing when there is nothing to say, or
-// when --no-startup-findings opted out.
-func (st *runState) startupFindings(withheld []bundles.Withhold) []composite.Fragment {
+// withStartupFindings is the resolved launch led by its startup findings
+// (operations.WithStartupFindings), over everything this invocation recorded;
+// the launch as it is when --no-startup-findings opted out.
+func (st *runState) withStartupFindings(deps launch.Deps, l launch.Launch) (launch.Launch, error) {
 	if runNoStartupFindings {
-		return nil
+		return l, nil
 	}
-	report := operations.StartupFindings(App(), st.cfg, doctorHome(), strictness.Since(strictness.Mark{}), withheld)
-	if len(report.Checks) == 0 {
-		return nil
-	}
-	var b strings.Builder
-	// renderDoctorReport's only error source is the writer, and a
-	// strings.Builder never fails.
-	_ = renderDoctorReport(&b, report)
-	return []composite.Fragment{{Name: startupFindingsFragmentName, Body: b.String()}}
+	return operations.WithStartupFindings(st.ctx, App(), deps, l, strictness.Since(strictness.Mark{}))
 }

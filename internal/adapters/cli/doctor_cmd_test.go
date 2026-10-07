@@ -199,8 +199,8 @@ func execDoctor(t *testing.T, root string, args ...string) (string, error) {
 // the rendered lines: operations.DoctorCheck.Status is pinned as a field rather than as a
 // "[warn]" substring the renderer happened to place near a marker, and the
 // human rendering keeps its own coverage in
-// TestDoctorStatus_WireValuesAreUnchanged, which drives renderDoctorReport
-// directly.
+// TestDoctorStatus_WireValuesAreUnchanged, which drives
+// operations.WriteDoctorReport directly.
 func doctorChecksOf(t *testing.T, out string) []operations.DoctorCheck {
 	t.Helper()
 	var report operations.DoctorReport
@@ -520,7 +520,7 @@ func TestDoctorStatus_WireValuesAreUnchanged(t *testing.T) {
 		"a named string type must marshal exactly as the literal did")
 
 	var buf bytes.Buffer
-	require.NoError(t, renderDoctorReport(&buf, operations.DoctorReport{Checks: []operations.DoctorCheck{
+	require.NoError(t, operations.WriteDoctorReport(&buf, operations.DoctorReport{Checks: []operations.DoctorCheck{
 		{Marker: "DOCTOR-CHECK-X", Status: operations.DoctorInfo, Detail: "d"},
 	}}))
 	assert.Contains(t, buf.String(), "DOCTOR-CHECK-X [info] d",
@@ -532,7 +532,7 @@ func TestDoctorStatus_WireValuesAreUnchanged(t *testing.T) {
 func TestRenderDoctorReport_RemedyIsTheFixLine(t *testing.T) {
 	const fix = "ctxloom deps pull"
 	var buf bytes.Buffer
-	require.NoError(t, renderDoctorReport(&buf, operations.DoctorReport{Checks: []operations.DoctorCheck{
+	require.NoError(t, operations.WriteDoctorReport(&buf, operations.DoctorReport{Checks: []operations.DoctorCheck{
 		{Marker: "DOCTOR-CHECK-X", Status: operations.DoctorWarn, Detail: "d", Remedy: fix},
 		{Marker: "DOCTOR-CHECK-Y", Status: operations.DoctorWarn, Detail: "e"},
 	}}))

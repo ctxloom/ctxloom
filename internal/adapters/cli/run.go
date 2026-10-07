@@ -650,14 +650,9 @@ func (st *runState) resolveLaunch() error {
 	}
 	st.projectID = l.Identity.Project
 	// The startup findings are composed HERE, after the cell was prepared:
-	// a degraded-to-host finding is the case they exist for. They name what
-	// the package withheld, so the package is read first.
+	// a degraded-to-host finding is the case they exist for.
 	sessionDeps := deps.ForSession(l.Identity.Harp)
-	pkg, err := launch.Open(st.ctx, sessionDeps, l)
-	if err != nil {
-		return err
-	}
-	l, err = launch.WithLead(st.ctx, sessionDeps, l, st.startupFindings(pkg.Attestation().Withheld)...)
+	l, err = st.withStartupFindings(sessionDeps, l)
 	if err != nil {
 		return err
 	}

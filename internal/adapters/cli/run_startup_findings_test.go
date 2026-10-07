@@ -1,92 +1,29 @@
 package cli
 
 import (
-	"context"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// noCompanions pins the companion probe to "nothing discovered" so a test
-// about the OTHER rows is not perturbed by whatever companion binaries happen
-// to sit on the developer's PATH; it returns the generation so pinned.
-func noCompanions(t *testing.T, cfg *config.Config) *config.Config {
-	t.Helper()
-	return withCompanionProbe(t, cfg, func(context.Context) (bundles.CompanionProbe, error) {
-		return bundles.CompanionProbe{}, nil
-	})
-}
-
-// cleanProject is a project with nothing to report: marker present, config
-// valid, every local-only path scaffolded, no companions registered.
-func cleanProject(t *testing.T) *config.Config {
-	t.Helper()
-	root, cfg := setupProject(t, "claude-code")
-	scaffoldLocalTierState(t, root)
-	return noCompanions(t, cfg)
-}
-
-// TestStartupFindings_IsTheLaunchsLead asserts on the block the engine
-// receives — the lead the launch's package carries — never on stderr: a
-// finding the launch recorded rides into the started agent's context as one
-// named block after the assembled context.
-func TestStartupFindings_IsTheLaunchsLead(t *testing.T) {
-	strictness.Reset()
-	t.Cleanup(func() { strictness.Reset() })
-	st := &runState{cfg: cleanProject(t)}
-	strictness.Record(report.KindIsolation, "", "STARTUP-FINDING-REACHES-THE-AGENT: container degraded to host")
-
-	lead := st.startupFindings(nil)
-
-	require.Len(t, lead, 1, "one block, after the assembled context")
-	assert.Equal(t, startupFindingsFragmentName, lead[0].Name)
-	assert.Contains(t, lead[0].Body, "STARTUP-FINDING-REACHES-THE-AGENT: container degraded to host")
-	assert.Contains(t, lead[0].Body, operations.StartupFindingsMarker)
-	assert.True(t, strings.HasPrefix(lead[0].Body, "ctxloom doctor\n"),
-		"rendered by doctor's own renderer, so the agent reads the same surface a human would")
-}
-
-// TestStartupFindings_FlagOptsOut: --no-startup-findings composes no lead,
-// findings or not.
+// TestStartupFindings_FlagOptsOut: --no-startup-findings leads the launch
+// with nothing, findings or not — it returns before the package is even
+// opened, so a launch it could not open comes back untouched.
 func TestStartupFindings_FlagOptsOut(t *testing.T) {
 	strictness.Reset()
 	t.Cleanup(func() { strictness.Reset() })
-	st := &runState{cfg: cleanProject(t)}
 	strictness.Record(report.KindConfig, "", "a finding the flag must withhold")
 	runNoStartupFindings = true
 	t.Cleanup(func() { runNoStartupFindings = false })
+	l := launch.Launch{Engine: "mock"}
 
-	assert.Empty(t, st.startupFindings(nil))
-}
+	got, err := (&runState{}).withStartupFindings(launch.Deps{}, l)
 
-// TestStartupFindings_NothingToDeliverAddsNothing: a clean launch composes
-// no block at all — not an empty one, not a header with no rows.
-func TestStartupFindings_NothingToDeliverAddsNothing(t *testing.T) {
-	strictness.Reset()
-	t.Cleanup(strictness.Reset)
-	st := &runState{cfg: cleanProject(t)}
-	assert.Empty(t, st.startupFindings(nil))
-}
-
-// TestStartupFindings_WithheldItemsReachTheLead: what the launch's package
-// withheld rides in the same block as every other finding, with nothing
-// recorded — a withhold never aborts a strict launch.
-func TestStartupFindings_WithheldItemsReachTheLead(t *testing.T) {
-	strictness.Reset()
-	t.Cleanup(strictness.Reset)
-	st := &runState{cfg: cleanProject(t)}
-
-	lead := st.startupFindings([]bundles.Withhold{{Ref: "ctxloom+local:kit#skills/reason", Reason: "WITHHELD-REASON-REACHES-THE-AGENT"}})
-
-	require.Len(t, lead, 1, "one block, after the assembled context")
-	assert.Contains(t, lead[0].Body, "skill ctxloom+local:kit#skills/reason — WITHHELD-REASON-REACHES-THE-AGENT")
-	assert.Empty(t, strictness.All(), "composing the row records nothing")
+	require.NoError(t, err)
+	assert.Equal(t, l, got)
 }

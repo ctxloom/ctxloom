@@ -97,6 +97,20 @@ func (k Kind) Current() int { return k.current }
 // with ErrTooOld.
 func (k Kind) Oldest() int { return k.current - len(k.steps) }
 
+// StepsAbove is the chain that migrates a document at generation gen up to
+// Current, oldest first: every step at Oldest, none at Current. The slice
+// shares the kind's chain, so a caller replays it and never writes to it.
+//
+// It PANICS when gen is outside [Oldest, Current]: no chain reaches Current
+// from there, and a caller asking has skipped the generation gate (Upgrade
+// refuses those generations with ErrTooOld or ErrNewer before it asks).
+func (k Kind) StepsAbove(gen int) []Step {
+	if gen < k.Oldest() || gen > k.current {
+		panic(fmt.Sprintf("schemaver: kind %q has no steps above generation %d; it migrates from %d to %d", k.name, gen, k.Oldest(), k.current))
+	}
+	return k.steps[gen-k.Oldest():]
+}
+
 // Result is a document brought to the current generation in memory.
 type Result struct {
 	// Data is the document at To. When nothing changed it IS the input slice.
@@ -205,7 +219,7 @@ func (k Kind) migrate(data []byte) (Result, *yaml.Node, error) {
 		return Result{}, nil, err
 	}
 	var applied []string
-	for _, step := range k.steps[found-k.Oldest():] {
+	for _, step := range k.StepsAbove(found) {
 		step.Apply(root)
 		applied = append(applied, step.Name())
 	}

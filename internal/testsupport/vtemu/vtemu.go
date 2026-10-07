@@ -4,9 +4,9 @@
 // that renders as a staircase.
 //
 // It models the parts of xterm the terminal layer and its bubbletea guest
-// drive: cursor addressing and motion, erase and edit, scroll margins with
-// region-aware scrolling, autowrap with xterm's pending-wrap column, DECSC/
-// DECRC, and the alternate screen. Output processing is the RAW terminal's:
+// drive: cursor addressing and motion, erase and edit, insert mode (IRM),
+// scroll margins with region-aware scrolling, autowrap with xterm's
+// pending-wrap column, DECSC/DECRC, and the alternate screen. Output processing is the RAW terminal's:
 // LF moves down without returning the carriage, which is the whole point for
 // a caller that writes to a raw-mode tty.
 //
@@ -37,7 +37,8 @@ type Screen struct {
 	cur         cursor
 	wrapPending bool
 	autowrap    bool
-	top, bot    int // scroll margins, 0-indexed inclusive
+	insert      bool // IRM: a printable shifts the row right before landing
+	top, bot    int  // scroll margins, 0-indexed inclusive
 	scrollback  []string
 	last        rune // for REP
 	buf         []byte
@@ -173,6 +174,9 @@ func (s *Screen) put(r rune) {
 			s.cur.c = 0
 			s.lineFeed()
 		}
+	}
+	if s.insert {
+		s.shiftRow(1, true)
 	}
 	s.grid()[s.cur.r][s.cur.c] = r
 	s.last = r
@@ -443,11 +447,14 @@ func (s *Screen) setMargins(q csi) {
 	}
 }
 
-// ansiModes: insert (4) and newline (20) change what bytes do to the cells,
-// and are not modeled; the others have no cell effect.
+// ansiModes: insert (4, IRM) is modeled; newline (20) changes what bytes do
+// to the cells and is not; the others have no cell effect.
 func (s *Screen) ansiModes(q csi) {
 	for i := range q.params {
-		if v := q.n(i, 0); v == 4 || v == 20 {
+		switch v := q.n(i, 0); v {
+		case 4:
+			s.insert = q.final == 'h'
+		case 20:
 			s.unhandled[fmt.Sprintf("CSI %d%c", v, q.final)]++
 		}
 	}

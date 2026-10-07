@@ -96,6 +96,47 @@ func TestDefine_DroppingTheOldestStepRaisesOldestOnly(t *testing.T) {
 	assert.Equal(t, 1, requireVersionError(t, err, ErrTooOld).Found, "the retired generation is refused")
 }
 
+// StepsAbove(gen) is exactly the chain that takes a document at gen to
+// Current: all of it at Oldest, the tail above a middle generation, nothing
+// at Current.
+func TestStepsAbove_IsTheChainFromGenToCurrent(t *testing.T) {
+	assert.Equal(t, []Step{stepA, stepB}, withSteps.StepsAbove(1), "at Oldest: every step")
+	assert.Equal(t, []Step{stepB}, withSteps.StepsAbove(2), "a middle generation: only the steps above it")
+	assert.Empty(t, withSteps.StepsAbove(3), "at Current: nothing to run")
+	assert.Empty(t, zeroSteps.StepsAbove(2), "zero steps: Oldest IS Current")
+}
+
+// A generation outside [Oldest, Current] has no chain to Current; asking for
+// one is a caller that skipped the generation gate, so it PANICS like a broken
+// Define, naming the kind and the generation — never a bare slice-bounds
+// runtime error that says neither.
+func TestStepsAbove_PanicsOutsideOldestToCurrent(t *testing.T) {
+	cases := map[string]struct {
+		kind Kind
+		gen  int
+	}{
+		"below Oldest":      {withSteps, 0},
+		"above Current":     {withSteps, 4},
+		"zero steps, below": {zeroSteps, 1},
+		"zero steps, above": {zeroSteps, 3},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := recoverPanic(func() { c.kind.StepsAbove(c.gen) })
+			msg, ok := got.(string)
+			require.True(t, ok, "want StepsAbove's own panic, got %T: %v", got, got)
+			assert.Contains(t, msg, c.kind.Name())
+			assert.Contains(t, msg, itoa(c.gen))
+		})
+	}
+}
+
+func recoverPanic(f func()) (v any) {
+	defer func() { v = recover() }()
+	f()
+	return nil
+}
+
 func TestDefine_PanicsOnABrokenChain(t *testing.T) {
 	cases := map[string]func(){
 		"generation zero":         func() { Define("k", 0) },

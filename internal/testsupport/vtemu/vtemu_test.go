@@ -70,6 +70,23 @@ func TestScreen_RecordsWhatItDoesNotModel(t *testing.T) {
 	s := New(2, 10)
 	s.Feed([]byte("\x1b[1m\x1b[?2026$p\x1b[>4;2m\x1b[=1;1u\x1b[?25l"))
 	assert.Empty(t, s.Unhandled())
-	s.Feed([]byte("\x1b[4h\x1b[?69h"))
-	assert.Equal(t, map[string]int{"CSI 4h": 1, "CSI ?69h": 1}, s.Unhandled())
+	s.Feed([]byte("\x1b[20h\x1b[?69h"))
+	assert.Equal(t, map[string]int{"CSI 20h": 1, "CSI ?69h": 1}, s.Unhandled())
+}
+
+// Insert mode (IRM, CSI 4h/4l) is what bubbletea's renderer writes to grow a
+// line on a terminal without ICH: set IRM, print the new cells, reset IRM.
+// Whether a frame takes that path depends on which frames the renderer
+// diffed, so the screen model must understand it or a frame it paints is
+// refused at random. Printing in insert mode shifts the rest of the row right,
+// dropping what passes the right margin; reset, printing overwrites again.
+func TestScreen_InsertModeShiftsTheRowRight(t *testing.T) {
+	s := New(1, 8)
+	s.Feed([]byte("abcdefgh\x1b[3G\x1b[4hXY\x1b[4l"))
+	assert.Empty(t, s.Unhandled())
+	assert.Equal(t, "abXYcdef", s.Row(0), "inserted at the cursor; gh pushed off the margin")
+	r, c := s.Cursor()
+	assert.Equal(t, [2]int{0, 4}, [2]int{r, c}, "the cursor advances past what was inserted")
+	s.Feed([]byte("Z"))
+	assert.Equal(t, "abXYZdef", s.Row(0), "after reset, printing overwrites")
 }

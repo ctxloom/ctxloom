@@ -865,7 +865,7 @@ func stepsEdit(raw []byte, from int) bool {
 	if err != nil {
 		return true
 	}
-	for _, step := range envelopeSteps[from-envelopeKind.Oldest():] {
+	for _, step := range envelopeKind.StepsAbove(from) {
 		step.Apply(doc.Content[0])
 	}
 	after, err := upgrade.Encode(&doc)

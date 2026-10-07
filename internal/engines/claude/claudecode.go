@@ -58,10 +58,7 @@ func newClaudeCode(kind Claude) *ClaudeCode {
 	// seam. In a SharedCell context/MCP/settings ride out-of-cwd launch flags; in an isolated cell
 	// they land as well-known files in the private working dir. The Build closure
 	// stashes the concrete Surfaces so buildArgs can read the flag files' paths.
-	b.InitLaunch(
-		agent.NewBaseContextProvider(),
-		kind.Declaration(),
-	)
+	b.InitLaunch(agent.NewBaseContextProvider())
 	// The run's CLAUDE_CONFIG_DIR is the engine home the record-backed
 	// settings write (surfaces_hewrecord.go) lands beneath; a run without one
 	// advises no engine home and that write refuses.

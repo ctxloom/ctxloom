@@ -71,10 +71,7 @@ func (m Mock) NewConfig() agent.BackendConfig { return &Config{kind: m.Name} }
 func (m Mock) Backend(agent.Launcher) agent.Backend {
 	b := &Backend{kind: m}
 	b.BaseBackend = agent.NewBaseBackend(string(m.Name), "1.0.0")
-	b.InitLaunch(
-		agent.NewBaseContextProvider(),
-		m.Declaration(),
-	)
+	b.InitLaunch(agent.NewBaseContextProvider())
 	for _, v := range m.home.Vars {
 		b.homeEnvKeys = append(b.homeEnvKeys, v.Name)
 	}

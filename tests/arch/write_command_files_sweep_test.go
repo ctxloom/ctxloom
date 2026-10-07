@@ -41,8 +41,8 @@ func parsePackageDir(t *testing.T, rel string) map[string]*ast.File {
 	return files
 }
 
-// TestArch_WriteCommandFilesDoesNotSweep pins that claude.WriteCommandFiles
-// writes its commands without RemoveAll-ing the commands directory: a sweep
+// TestArch_WriteCommandFilesDoesNotSweep pins that claude's command writer
+// (writeCommandDir, which its commands approach delivers through) writes its commands without RemoveAll-ing the commands directory: a sweep
 // there would delete whatever else lives beside the files it writes.
 func TestArch_WriteCommandFilesDoesNotSweep(t *testing.T) {
 	files := parsePackageDir(t, "internal/engines/claude")
@@ -50,7 +50,7 @@ func TestArch_WriteCommandFilesDoesNotSweep(t *testing.T) {
 	for rel, f := range files {
 		for _, decl := range f.Decls {
 			fd, ok := decl.(*ast.FuncDecl)
-			if !ok || fd.Name.Name != "WriteCommandFiles" || fd.Recv != nil {
+			if !ok || fd.Name.Name != "writeCommandDir" || fd.Recv != nil {
 				continue
 			}
 			found = true
@@ -60,13 +60,13 @@ func TestArch_WriteCommandFilesDoesNotSweep(t *testing.T) {
 					return true
 				}
 				if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "RemoveAll" {
-					t.Errorf("%s: WriteCommandFiles still calls RemoveAll — it must not sweep the commands directory", rel)
+					t.Errorf("%s: writeCommandDir still calls RemoveAll — it must not sweep the commands directory", rel)
 				}
 				return true
 			})
 		}
 	}
 	if !found {
-		t.Fatal("claude.WriteCommandFiles not found — this gate pins a call inside it, so the function moving means the gate must move too")
+		t.Fatal("claude.writeCommandDir not found — this gate pins a call inside it, so the function moving means the gate must move too")
 	}
 }

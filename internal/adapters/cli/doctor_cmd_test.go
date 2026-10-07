@@ -261,9 +261,8 @@ func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 	applyHooksHermetically(t, cfg, root, "claude-code")
 
 	// A fully-wired project must show no warn lines at all, including the
-	// host-dependent checks — so it needs a hermetic ssh-agent with a
-	// resolvable sole identity and a real git identity — not the empty
-	// defaults runDoctor/runDoctorWithSSHAgentSock otherwise force.
+	// host-dependent checks — so it needs a real git identity, not the empty
+	// default runDoctor otherwise forces.
 	// DOCTOR-CHECK-DEPS-a1 needs the same treatment for its two probes that
 	// have no ambient presence in a bare container (unlike git/ssh/ssh-keygen,
 	// which the devcontainer image itself provides): a fake "claude" binary

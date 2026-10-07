@@ -14,8 +14,7 @@
 // emit() yet" rather than fixtured, and are listed in the integration
 // report's follow-up section. Commands that ARE wired but need state this
 // harness doesn't build (an existing agent/profile/mcp-server/session,
-// signed trust, a real remote, a real engine subprocess, a TTY, docker,
-// ssh-agent) are also skipped, each with its own reason.
+// a real remote, a real engine subprocess, a TTY, docker) are also skipped, each with its own reason.
 package cli
 
 import (
@@ -71,7 +70,7 @@ type formatCoverageEntry struct {
 	// (inherits) the persistent --format flag but its RunE never routes
 	// through emit()/cliemit.Emit, so --format is silently accepted and
 	// discarded. It is orthogonal to skip's REASON the harness can't
-	// exercise the command here (fixture cost, network, ssh-agent,
+	// exercise the command here (fixture cost, network,
 	// destructive, installer, deprecated-alias-noise) — many skip'd
 	// commands DO honor format via emit() and are simply untestable in
 	// this harness; formatDebt is false for those.

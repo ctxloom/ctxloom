@@ -27,7 +27,7 @@ import (
 // # The boundary, stated deliberately
 //
 // This type takes BYTES, never a command line. Probing companions — discovery,
-// exec, timeouts, the signed loadout envelope, the withhold-on-failure policy —
+// exec, timeouts, the withhold-on-failure policy —
 // lives in the companion layer and must stay there: it needs to exec processes and
 // to parse a bundle document, and pulling either into this package would make the
 // content layer depend on the things that are meant to depend on IT. The adapter

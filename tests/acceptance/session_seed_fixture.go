@@ -19,6 +19,7 @@ import (
 // here wants. Timestamps are RFC3339 strings, decoded by the store exactly as
 // its own writer's output is.
 type sessionSeed struct {
+	SchemaVersion  int                `yaml:"schema_version,omitempty"`
 	SessionID      string             `yaml:"session_id,omitempty"`
 	Backend        string             `yaml:"backend,omitempty"`
 	ProjectDir     string             `yaml:"project_dir"`
@@ -30,6 +31,10 @@ type sessionSeed struct {
 	Rotations      []sessionSeedEntry `yaml:"rotations,omitempty"`
 	OutputDir      string             `yaml:"output_dir,omitempty"`
 }
+
+// sessionSidecarSchemaVersion is the generation a planted sidecar is
+// stamped with: one the store loads.
+const sessionSidecarSchemaVersion = 1
 
 // sessionSeedEntry is one prior binding of a seeded session, in the sidecar's
 // own rotation shape.
@@ -53,6 +58,10 @@ func seedSessionSidecar(w *World, harp string, seed sessionSeed) error {
 	if seed.OutputDir == "" {
 		seed.OutputDir = defaultOutputDirIn(w, seed.ProjectDir, harp)
 	}
+	// The store refuses a sidecar with no schema_version, so a planted one
+	// carries the stamp its writer would; mergeSessionSidecar leaves it unset
+	// and keeps the record's own.
+	seed.SchemaVersion = sessionSidecarSchemaVersion
 	body, err := yaml.Marshal(seed)
 	if err != nil {
 		return fmt.Errorf("seed session %q: %w", harp, err)

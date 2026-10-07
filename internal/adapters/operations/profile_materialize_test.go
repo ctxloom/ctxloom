@@ -3,6 +3,8 @@ package operations
 import (
 	"context"
 	"encoding/json"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"os"
 	"path/filepath"
 	"strings"
@@ -189,7 +191,7 @@ func materializeHookFixture(t *testing.T) (cfg *config.Config, target string) {
 }
 
 // TestMaterializeProfile_ReportsHooksAnEngineCannotCarry is the
-// characterization: the lossy mock engine (config.BackendMockLossy) declares no
+// characterization: the lossy mock engine (string(mock.NameLossy)) declares no
 // hook mechanism, so a profile's session_start hook lands NOWHERE — and pre-fix the report said only "wrote
 // context / settings / commands / skills", every line true and the loss absent
 // from all of them. A reader could not tell "this engine has no hooks" from
@@ -201,7 +203,7 @@ func TestMaterializeProfile_ReportsHooksAnEngineCannotCarry(t *testing.T) {
 	cfg, target := materializeHookFixture(t)
 
 	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
-		Profiles: []string{"reviewer"}, Target: target, Backend: config.BackendMockLossy,
+		Profiles: []string{"reviewer"}, Target: target, Backend: string(mock.NameLossy),
 	})
 	require.NoError(t, err, "the loss is REPORTED, not fatal: the rest of the tree is still worth having")
 	require.Contains(t, res.Wrote, "context",
@@ -406,15 +408,32 @@ func TestResolveMaterializeTarget_AcceptsOnlyTheRegisteredName(t *testing.T) {
 		})
 	}
 
-	// The empty request still means the default, which must itself be a
-	// registered name — an unregistered default would make every unqualified
-	// materialize report a name no registry key matches.
+	// The empty request means the registry's default engine — the one engine
+	// shipped by default — read from the registry, never a name held here.
 	got, err = resolveMaterializeTarget(engines.Registry(), cfg, MaterializeProfileRequest{
 		Target: t.TempDir(), Profiles: []string{"p"},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, DefaultMaterializeBackend, got, "an unspecified backend means the default")
-	assert.True(t, EngineExists(engines.Registry(), DefaultMaterializeBackend), "the default backend constant must itself be a registered name")
+	assert.Equal(t, DefaultEngineName(engines.Registry()), got, "an unspecified backend means the registry's default")
+}
+
+// TestResolveMaterializeTarget_TheDefaultFollowsTheRegistry: with no backend
+// named, materialize writes for whichever engine the registry ships by
+// default — a registry whose default is another engine gets that engine.
+//
+// MUTATION -- resolve "" to a fixed engine name -- turns this red.
+func TestResolveMaterializeTarget_TheDefaultFollowsTheRegistry(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
+	reg, err := engine.NewRegistry(mock.NewNamed("solo", mock.WithDistribution(engine.DistributionDefault)))
+	require.NoError(t, err)
+	got, err := resolveMaterializeTarget(reg, cfg, MaterializeProfileRequest{Target: t.TempDir(), Profiles: []string{"p"}})
+	require.NoError(t, err)
+	assert.Equal(t, "solo", got)
+
+	none, err := engine.NewRegistry(mock.New())
+	require.NoError(t, err)
+	_, err = resolveMaterializeTarget(none, cfg, MaterializeProfileRequest{Target: t.TempDir(), Profiles: []string{"p"}})
+	require.Error(t, err, "a registry that ships no default names no engine to write for")
 }
 
 // A premise-withheld fragment must be REPORTED, not silently dropped.

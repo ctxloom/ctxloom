@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,6 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
@@ -81,7 +81,7 @@ func vendorTranscriptLines(engine, closing string) (string, error) {
 		assistant := `{"type":"assistant","isSidechain":false,"cwd":"/repo","sessionId":"s","version":"2.1.44","message":{"model":"m","id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":` + string(text) +
 			`}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}},"uuid":"a1","timestamp":"2026-08-22T10:00:02.000Z"}`
 		return user + "\n" + assistant + "\n", nil
-	case config.BackendMock:
+	case string(mock.Name):
 		return `{"role":"user","text":"go","ts":"2026-08-22T10:00:00Z"}` + "\n" +
 			`{"role":"assistant","text":` + string(text) + `,"ts":"2026-08-22T10:00:02Z"}` + "\n", nil
 	default:

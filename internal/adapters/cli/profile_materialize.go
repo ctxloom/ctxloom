@@ -121,9 +121,13 @@ type profileMaterializeDiffJSON struct {
 // scratch target to disk and reading it back: --diff is read-only by design,
 // so it never touches --target at all.
 func runProfileMaterializeDiff(fsys afero.Fs, cmd *cobra.Command, cfg *config.Config, args []string) error {
+	backend := materializeBackend
+	if backend == "" {
+		backend = operations.DefaultEngineName(App().Engines())
+	}
 	asm, err := operations.AssembleContext(cmd.Context(), cfg, operations.AssembleContextRequest{
 		Profiles: args,
-		Consumer: operations.MaterializedFor(App().Engines(), materializeBackend),
+		Consumer: operations.MaterializedFor(App().Engines(), backend),
 	})
 	if err != nil {
 		return fmt.Errorf("assemble context for %v: %w", args, err)
@@ -175,7 +179,7 @@ func renderMaterializeDiff(out io.Writer, label string, result profileMaterializ
 func init() {
 	profileCmd.AddCommand(profileMaterializeCmd)
 	profileMaterializeCmd.Flags().StringVar(&materializeTarget, "target", "", "Target directory to write the agent surface into (required)")
-	profileMaterializeCmd.Flags().StringVar(&materializeBackend, "backend", operations.DefaultMaterializeBackend, "Backend whose surface is written, or compared against with --diff (claude-code)")
+	profileMaterializeCmd.Flags().StringVar(&materializeBackend, "backend", "", "Backend whose surface is written, or compared against with --diff (empty = the default engine)")
 	profileMaterializeCmd.Flags().StringVar(&materializeDiff, "diff", "",
 		"Compare this profile's materialized context against an already-delivered context file instead of writing --target")
 	// --target is required UNLESS --diff is given (read-only comparison mode

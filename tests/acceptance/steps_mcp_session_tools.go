@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -28,7 +29,6 @@ import (
 	"github.com/cucumber/godog"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
@@ -159,9 +159,9 @@ func registerMCPSessionToolSteps(ctx *godog.ScenarioContext) {
 		harp := w.owner.harp
 		if err := mergeSessionSidecar(w, harp, sessionSeed{
 			SessionID:      "seeded-" + harp,
-			Backend:        config.BackendMock,
+			Backend:        string(mock.Name),
 			ProjectDir:     w.env.ProjectDir,
-			EngineVersion:  j001000SeededEngineVersion(config.BackendMock),
+			EngineVersion:  j001000SeededEngineVersion(string(mock.Name)),
 			TranscriptPath: j001200VendorTranscriptPath(w, harp),
 		}); err != nil {
 			return err

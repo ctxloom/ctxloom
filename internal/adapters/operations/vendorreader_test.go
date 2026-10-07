@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
@@ -236,7 +236,7 @@ func TestConvertVendorTranscript_EmptyHarp(t *testing.T) {
 func TestVendorReaderRegistry_IsAPortWithARealAndADegenerateMember(t *testing.T) {
 	got := VendorReaderEngineNames(engines.Registry())
 	assert.Contains(t, got, "claude-code")
-	assert.Contains(t, got, config.BackendMock)
+	assert.Contains(t, got, string(mock.Name))
 	assert.GreaterOrEqual(t, len(got), 2)
 }
 

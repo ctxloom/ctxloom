@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	mockreader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/mock"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
@@ -105,7 +105,7 @@ func j001000SeededEngineVersion(backend string) string {
 	switch backend {
 	case "claude-code":
 		return enginePinFromLock("CLAUDE_CODE_CLI_VERSION")
-	case config.BackendMock:
+	case string(mock.Name):
 		if len(mockreader.VersionedAdapters) == 0 {
 			return ""
 		}

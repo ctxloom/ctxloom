@@ -46,68 +46,6 @@ type LMConfig struct {
 	Defaults RoleDefaults         `mapstructure:"defaults" yaml:"defaults,omitempty"`
 }
 
-// BackendMock is the test/development double's registry name. It is a real
-// composed engine (its kind is agent.Hosted, with a Declaration), and
-// it is the SECOND implementation that keeps engine-facing ports honest —
-// see internal/adapters/transcript/vendorreader/mock. Named here so the identity is
-// one constant rather than a literal re-typed at each site; a hand-written
-// == "mock" is the drift this replaces.
-const BackendMock = "mock"
-
-// BackendMockLossy is the deliberately-LOSSY test double's registry name.
-//
-// It exists because mock is complete: mock delivers every surface, so it
-// declares no capability loss, and it was the last backend that did. That left
-// UncarriedSurfaces, doctor's capability-loss check and `manage check`'s loss
-// reporting as live production code no engine could exercise — a diagnostic
-// nobody can trigger is a diagnostic nobody notices breaking.
-//
-// So the two concerns get two doubles rather than one compromised double:
-// mock proves the seam is polymorphic, and this one proves the seam REPORTS
-// what an engine cannot carry. Both are test-only (backends.IsTestOnly) and
-// neither is ever offered to a user.
-const BackendMockLossy = "mock-lossy"
-
-// BackendMockLaunch is the LAUNCH-DELIVERED test double's registry name: an
-// engine whose settings, MCP, commands and skills exist only inside a
-// per-session engine home, so a static `profile materialize` has nowhere to
-// write them and reports them as arriving at launch instead.
-//
-// A THIRD double for the same reason there is a second: the three prove
-// different things and one double cannot prove all three. mock proves the
-// surface seam is POLYMORPHIC (it must be complete); mock-lossy proves the
-// seam REPORTS what an engine can NEVER carry (it must be lossy);
-// this one proves the seam distinguishes "never carried" from "carried
-// LATER" — a distinction with no subject at all once the home-keyed engines
-// were deleted, which left backends.LaunchOnlySurfaces unexercisable.
-//
-// Both halves of that are load-bearing and neither is optional: its surfaces
-// SKIP at materialize time, and its descriptor DECLARES why. Skipping without
-// declaring is a silent no-op; declaring without skipping reports a surface
-// as not-carried while its file sits in the tree.
-const BackendMockLaunch = "mock-launch"
-
-// BackendMockNoSkills is the NO-SKILLS-SURFACE test double's registry name: an
-// engine with no Agent Skills mechanism at all.
-//
-// It exists because EVERY other registered backend has one. claude-code does,
-// and so does every mock above — so any behaviour conditioned on a MISSING
-// skills surface has nothing in the registry to point at, and its failing arm
-// is asserted by nothing while its passing arm looks well covered.
-//
-// That is not hypothetical. backends.SupportsSkills reads the descriptor's
-// skillExports field, and callers branch on it to decide whether a premised
-// fragment is handed over as a skill package or dumped into the context
-// instead. The dump arm is correct by inspection and exercised by no test.
-//
-// A DOUBLE RATHER THAN AN INJECTED CAPABILITY, ruled by the human 2026-09-09:
-// SupportsSkills reads the descriptor table, and that IS the production
-// decision. A double lacking the field exercises the real predicate against
-// real registry data; injecting the capability would test the seam around the
-// predicate while leaving the predicate itself unexercised — the shape that
-// lets a gate pass while proving nothing.
-const BackendMockNoSkills = "mock-noskills"
-
 // hasAny reports whether the LM config carries anything worth persisting.
 func (c LMConfig) hasAny() bool {
 	return len(c.Configs) > 0 || c.Defaults.Primary != "" || c.Defaults.Fast != ""

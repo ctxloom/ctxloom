@@ -420,6 +420,9 @@ type deliverer interface {
 // delivered from silently-skipped.
 func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 	isolatedRecords(t)
+	// The managed command and skill writers lock under the home lock
+	// directory, whatever filesystem their Root is.
+	isolatedLocks(t)
 	for _, name := range matrixBackends(t) {
 		decl := hostedDeclaration(name)
 		for _, k := range matrixKinds {

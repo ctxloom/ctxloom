@@ -245,6 +245,22 @@ func gitOutput(ctx context.Context, dir, label string, args ...string) (string, 
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+// WorktreeCommit is the commit the bundle-cache worktree at worktreeDir has
+// checked out — the installed half of "is this tree at its pin?".
+//
+// It is git's own record (the worktree's HEAD), not a stamp written beside the
+// tree: EnsureSparseWorktree's detached checkout is the only writer, so HEAD
+// cannot disagree with the bytes. A directory that is not a linked worktree is
+// an error rather than a question passed up to git, because the bundle cache
+// lives inside the project's own repository and git would otherwise answer with
+// the PROJECT's HEAD.
+func WorktreeCommit(ctx context.Context, worktreeDir string) (string, error) {
+	if !isGitWorktree(worktreeDir) {
+		return "", fmt.Errorf("%s is not a bundle worktree", worktreeDir)
+	}
+	return gitOutput(ctx, worktreeDir, "rev-parse HEAD", "rev-parse", "--verify", "HEAD")
+}
+
 // isGitWorktree reports whether dir is a LINKED git worktree.
 //
 // The test is that .git is a FILE: a worktree's .git is a pointer file naming

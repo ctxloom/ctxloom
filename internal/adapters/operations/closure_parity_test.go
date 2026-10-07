@@ -3,8 +3,10 @@ package operations
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -206,6 +208,81 @@ func TestPull_MissingTreeReinstallsAtLockedSHA(t *testing.T) {
 	require.NoError(t, err)
 	_, statErr := os.Stat(dir)
 	assert.NoError(t, statErr, "the missing tree is reinstalled")
+}
+
+// moveKitPinUnderneath advances kit upstream with a file INSIDE its tree and
+// rewrites kit's lock entry to that commit — what a git fast-forward of a
+// committed lock.yaml does — leaving the installed tree at the old commit.
+// It returns the new pin and the path of the file only that pin carries.
+func (p *shippedProfileProject) moveKitPinUnderneath(t *testing.T) (newPin, onlyAtNewPin string) {
+	t.Helper()
+	lm := remote.NewLockfileManager(p.appDir)
+	lf := p.lock(t)
+	entry, ok := lf.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, p.kitRef))
+	require.True(t, ok)
+	newPin = addFileToLocalRepo(t, p.repoDir, repoV2("kit", "NOTES.md"), "only at the new pin\n")
+	require.NotEqual(t, entry.SHA, newPin)
+	entry.SHA = newPin
+	lf.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, p.kitRef), entry)
+	require.NoError(t, lm.Save(lf))
+	p.cfg(t)
+	return newPin, filepath.Join(p.kitTree(t), "NOTES.md")
+}
+
+func (p *shippedProfileProject) kitTree(t *testing.T) string {
+	t.Helper()
+	parsed, err := remote.ParseReference(p.kitRef)
+	require.NoError(t, err)
+	dir, err := parsed.LocalTreePath(p.appDir)
+	require.NoError(t, err)
+	return dir
+}
+
+// kitTreeCommit is the commit kit's installed worktree has checked out.
+func (p *shippedProfileProject) kitTreeCommit(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", p.kitTree(t), "rev-parse", "HEAD").Output()
+	require.NoError(t, err)
+	return strings.TrimSpace(string(out))
+}
+
+// A pin moved underneath an installed tree (the lock arrived through git) is
+// not installed: pull reinstalls the tree AT the pin and reports it as
+// reinstalled, rather than calling it skipped while the tree serves the old
+// commit.
+func TestPull_TreeAtAnotherCommitIsReinstalledAtThePin(t *testing.T) {
+	p := newShippedProfileProject(t)
+	p.pull(t)
+	newPin, onlyAtNewPin := p.moveKitPinUnderneath(t)
+
+	res := p.pull(t)
+
+	assert.Empty(t, res.Skipped, "a tree off its pin is not kept")
+	assert.Equal(t, 1, res.Reinstalled, "it is reinstalled at its pin")
+	assert.Equal(t, newPin, p.kitTreeCommit(t), "the installed tree is at the pin")
+	assert.FileExists(t, onlyAtNewPin)
+	after, ok := p.lock(t).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, p.kitRef))
+	require.True(t, ok)
+	assert.Equal(t, newPin, after.SHA, "the reinstall never moves the pin")
+
+	again := p.pull(t)
+	assert.Len(t, again.Skipped, 1, "a tree at its pin is skipped, not refetched")
+	assert.Zero(t, again.Reinstalled)
+}
+
+// Startup applies the same rule through the same probe: a tree off its pin is
+// missing, and the launch reinstalls it at the pin.
+func TestSyncOnStartup_TreeAtAnotherCommitIsReinstalledAtThePin(t *testing.T) {
+	p := newShippedProfileProject(t)
+	p.pull(t)
+	newPin, onlyAtNewPin := p.moveKitPinUnderneath(t)
+
+	res, err := SyncOnStartup(context.Background(), p.app)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, res.Reinstalled)
+	assert.Equal(t, newPin, p.kitTreeCommit(t))
+	assert.FileExists(t, onlyAtNewPin)
 }
 
 // The lock rebuild a pull runs after installing drops entries outside the

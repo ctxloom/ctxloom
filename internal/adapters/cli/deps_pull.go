@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -128,14 +128,14 @@ type pullFailureView struct {
 
 // reconcileView is operations.ReconcilePlan with snake_case keys.
 type reconcileView struct {
-	Gone        []trust.BundleKey          `json:"gone"`
+	Gone        []ident.BundleKey          `json:"gone"`
 	Unreachable []reconcileUnreachableView `json:"unreachable"`
 }
 
 type reconcileUnreachableView struct {
 	URL    string            `json:"url"`
 	Reason string            `json:"reason"`
-	Refs   []trust.BundleKey `json:"refs"`
+	Refs   []ident.BundleKey `json:"refs"`
 }
 
 func newPullView(result *operations.SyncDependenciesResult, plan *operations.ReconcilePlan) pullView {

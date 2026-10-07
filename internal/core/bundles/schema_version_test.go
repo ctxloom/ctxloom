@@ -15,8 +15,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
@@ -161,8 +161,8 @@ func localTreeFixture(t *testing.T, name string) (afero.Fs, string) {
 	st, err := content.NewTreeStore(mem, v2, content.Provenance{IsLocal: true})
 	require.NoError(t, err)
 	require.NoError(t, st.Put(context.Background(),
-		trust.Ref{Bundle: name, Kind: trust.KindFragment, Name: "keeper"},
-		trust.FormRaw,
+		ident.Ref{Bundle: name, Kind: ident.KindFragment, Name: "keeper"},
+		ident.FormRaw,
 		content.Fragment{Name: "keeper", ItemMeta: content.ItemMeta{Body: "KEEPER-PAYLOAD"}}))
 	require.NoError(t, st.PutRootFile(context.Background(), content.BundleID(name), DirectoryFormManifest,
 		[]byte("name: "+name+"\nversion: 2.0.0\n")))

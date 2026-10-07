@@ -86,10 +86,6 @@ func cloneLMConfig(l LMConfig) LMConfig {
 func cloneSettings(s SettingsConfig) SettingsConfig {
 	s.UseDistilled = cloneBoolPtr(s.UseDistilled)
 	s.Statusline = cloneBoolPtr(s.Statusline)
-	if s.Sign != nil {
-		sc := *s.Sign
-		s.Sign = &sc
-	}
 	return s
 }
 

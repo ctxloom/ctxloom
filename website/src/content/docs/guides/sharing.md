@@ -20,10 +20,8 @@ my-ctxloom-repo/
 │               │   │   └── testing.md
 │               │   ├── prompts/          # commands
 │               │   │   └── code-review.md
-│               │   ├── profiles/
-│               │   │   └── go-developer.yaml
-│               │   ├── SHA256SUMS        # written when the bundle is signed
-│               │   └── .sigs/
+│               │   └── profiles/
+│               │       └── go-developer.yaml
 │               └── another-bundle/
 └── README.md
 ```
@@ -34,12 +32,6 @@ under `.ctxloom/content/bundles/v2/`. When you add a repository as a remote,
 ctxloom checks for `.ctxloom/content/` and warns if it is missing. Remote
 repositories distribute bundles only; profiles ship inside a bundle's
 `profiles/` directory (see below).
-
-`SHA256SUMS` and `.sigs/` are the publisher signature ctxloom writes when a
-bundle is signed (see Sign Your Bundles below). A signature from a key your
-consumer trusts is the only thing that spares them ctxloom's review step.
-Everything else pulled from this repo is born pending and withheld from the
-agent until a human reviews it.
 
 ## Creating a Bundle
 
@@ -65,10 +57,8 @@ than your ctxloom is refused with both numbers named — upgrade ctxloom. `versi
 is YOUR release version, and no format migration ever touches it.
 
 ctxloom only rewrites `schema_version` on disk when you ask. `bundle create` and
-every edit write the current one; `bundle sign` persists it before hashing; and
-`--write-upgrades` rewrites an unsigned bundle (no `.bak` — git holds the old file). A
-signed bundle is never rewritten behind your back, because its signature covers
-those bytes: `--write-upgrades` skips it and says to re-sign.
+every edit write the current one, and `--write-upgrades` rewrites an older one
+(no `.bak` — git holds the old file).
 
 Each fragment is a Markdown file under `fragments/`. Its YAML front matter
 holds the item's fields and the body is its content.
@@ -197,40 +187,7 @@ fragments and commands reach the agent.
 - **testing-patterns** - Testing strategies and examples
 ```
 
-### 4. Sign Your Bundles
-
-ctxloom signs with SSH keys only. A signature is an SSH signature in the
-sshsig format that `ssh-keygen -Y sign` writes, and consumers verify it against
-an OpenSSH `allowed_signers` file. It is not GPG/PGP: a GPG key, a keyserver or
-a `git verify-commit`-style GPG flow plays no part.
-
-Signing is what spares your consumers that review step: content signed by a
-key they trust is exempt from it, so it reaches their agent as soon as they
-pull it. Everything else is born pending regardless of how it was published.
-Signing only authenticates the bundle as genuinely yours — it never vouches
-for whether it's safe — so trusting your key is a separate decision each
-consumer makes for themselves (`ctxloom signer trust`).
-
-The easiest way to sign is at publish time: `ctxloom bundle push my-bundle
-mybundles --sign` (see Validation below) signs the exact bytes it publishes
-and writes the signature for you. Use this if you aren't committing to this
-repository by hand.
-
-If you're pushing this repository with plain git instead (the next step),
-sign first, inside a real ctxloom project (see Validation), then commit both
-files yourself:
-
-```bash
-ctxloom bundle sign my-bundle
-```
-
-This writes a `SHA256SUMS` manifest and a detached signature under `.sigs/`
-inside the bundle's directory in your project. Copy the whole bundle directory
-into this repo's `.ctxloom/content/bundles/v2/` before the commit below;
-`ctxloom bundle export my-bundle <dest-dir>` copies it whole, `SHA256SUMS` and
-`.sigs/` included.
-
-### 5. Push to GitHub
+### 4. Push to GitHub
 
 ```bash
 git add .
@@ -275,10 +232,8 @@ Use semantic versioning for bundles:
 - **Minor** (1.0 → 1.1): New fragments/features
 - **Patch** (1.0.0 → 1.0.1): Bug fixes, typo corrections
 
-`bundle sign` requires `version:` to be strict semver (MAJOR.MINOR.PATCH) and
-signs it into the release; a consumer refuses a tree whose `bundle.yaml` names a
-different version from the one signed. What a consumer actually pins to is a git
-tag, SHA, or semver range in their reference, below.
+What a consumer actually pins to is a git tag, SHA, or semver range in their
+reference, below.
 
 ### Git Tags
 
@@ -366,8 +321,7 @@ project's configured bundles (`.ctxloom/content/bundles/`, plus pinned
 remotes). Author and validate inside a real ctxloom project (`ctxloom init`,
 if the directory you're publishing from doesn't already have one). Write the
 bundle at `.ctxloom/content/bundles/v2/my-bundle/`. That directory is
-committed, it is what `ctxloom bundle sign` signs, and it is the tree
-`ctxloom bundle push` reads from. Then:
+committed, and it is the tree `ctxloom bundle push` reads from. Then:
 
 ```bash
 # Check YAML syntax of the envelope
@@ -380,9 +334,8 @@ ctxloom fragment show my-bundle#fragments/testing
 ctxloom run --dry-run -f my-bundle#fragments/testing
 ```
 
-Publish with `ctxloom bundle push my-bundle mybundles` (add `--sign` to sign
-it as part of the same push, or `--pr` to open a pull request instead of
-pushing directly). That is the supported publish path, and it writes the
+Publish with `ctxloom bundle push my-bundle mybundles` (add `--pr` to open a
+pull request instead of pushing directly). That is the supported publish path, and it writes the
 bundle to `.ctxloom/content/bundles/v2/` in the target repo.
 
 ## Example Repositories

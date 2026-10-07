@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // Premise authoring is a PROPOSAL surface: the model drafts and critiques, and
@@ -110,7 +110,7 @@ func runFragmentDraftPremise(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	ref = bundleName + "#" + trust.FormatSelector(trust.KindFragment, itemName)
+	ref = bundleName + "#" + ident.FormatSelector(ident.KindFragment, itemName)
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)

@@ -87,21 +87,6 @@
         "statusline": {
           "type": "boolean",
           "description": "Whether ctxloom manages its HUD statusline (default: true); set false to keep your own"
-        },
-        "sign": {
-          "type": "object",
-          "description": "Publisher-signing defaults for `bundle push`.",
-          "properties": {
-            "default": {
-              "type": "boolean",
-              "description": "When true, publish commands sign unless --no-sign is given. Defaults to false \u2014 signing is opt-in, like `git commit -S` until gpg.commit.sign flips it."
-            },
-            "key": {
-              "type": "string",
-              "description": "Explicit --key-equivalent: a path to a public key or a SHA256:... fingerprint. Empty uses the zero-config discovery chain (git config user.signingkey, then the sole ssh-agent identity)."
-            }
-          },
-          "additionalProperties": false
         }
       },
       "additionalProperties": false

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -178,7 +178,7 @@ func srcDirOf(ref string) string {
 // the roots' direct repos.
 func TestUnionLockedRepoURLs(t *testing.T) {
 	lock := &remote.Lockfile{
-		Bundles: map[trust.BundleKey]remote.LockEntry{
+		Bundles: map[ident.BundleKey]remote.LockEntry{
 			"https://github.com/a/r@bundles/x":  {URL: "https://github.com/a/r"},
 			"https://github.com/b/r@bundles/y":  {URL: "https://github.com/b/r"},
 			"https://github.com/b/r@bundles/y2": {URL: "https://github.com/b/r"}, // same repo, dedup'd

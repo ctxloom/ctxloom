@@ -5,7 +5,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // activeLockfileManager builds the lockfile manager for cfg's active lockfile
@@ -58,7 +58,7 @@ func SetItemPin(cfg *config.Config, ref string, pinned bool) (bool, error) {
 // lockedBundle is a bundle ref resolved to its entry in a lockfile.
 type lockedBundle struct {
 	ref   *remote.Reference
-	key   trust.BundleKey
+	key   ident.BundleKey
 	entry remote.LockEntry
 }
 

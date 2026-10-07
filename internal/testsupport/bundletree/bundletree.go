@@ -25,8 +25,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
@@ -162,8 +162,8 @@ type treeWriter struct {
 }
 
 // put writes one item, raw.
-func (tw treeWriter) put(kind trust.ItemKind, item string, s content.Surface) error {
-	return tw.w.Put(tw.ctx, trust.Ref{Bundle: tw.id, Kind: kind, Name: item}, trust.FormRaw, s)
+func (tw treeWriter) put(kind ident.ItemKind, item string, s content.Surface) error {
+	return tw.w.Put(tw.ctx, ident.Ref{Bundle: tw.id, Kind: kind, Name: item}, ident.FormRaw, s)
 }
 
 // putProfiles writes b's profiles, in name order.
@@ -187,7 +187,7 @@ func (tw treeWriter) putHooks(b *bundles.Bundle) error {
 		}
 		h.Order = &order
 		hookName := fmt.Sprintf("hook-%d", e.Index+1)
-		if err := tw.put(trust.KindHook, e.Event+"/"+hookName, bundles.TreeHook(e.Event, hookName, h)); err != nil {
+		if err := tw.put(ident.KindHook, e.Event+"/"+hookName, bundles.TreeHook(e.Event, hookName, h)); err != nil {
 			return fmt.Errorf("hook %s[%d]: %w", e.Event, e.Index, err)
 		}
 	}
@@ -229,7 +229,7 @@ func (tw treeWriter) putSkill(s string, sk bundles.BundleSkill, o options) error
 	if err != nil {
 		return err
 	}
-	return tw.put(trust.KindSkill, s, content.Skill{Name: s, Tags: sk.Tags, Notes: sk.Notes, Exports: exports, Files: files})
+	return tw.put(ident.KindSkill, s, content.Skill{Name: s, Tags: sk.Tags, Notes: sk.Notes, Exports: exports, Files: files})
 }
 
 // skillFiles reads the package the fixture already wrote at dir.

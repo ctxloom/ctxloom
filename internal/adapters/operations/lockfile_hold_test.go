@@ -3,7 +3,7 @@ package operations
 import (
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,7 +35,7 @@ func TestActiveLockfileHold(t *testing.T) {
 	writeActive := func(t *testing.T, cfg *config.Config, entries map[string]string) {
 		t.Helper()
 		mgr := remote.NewLockfileManager(cfg.GetAppPaths()[0])
-		lock := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{}}
+		lock := &remote.Lockfile{Bundles: map[ident.BundleKey]remote.LockEntry{}}
 		for name, sha := range entries {
 			lock.Bundles[lockKeyOf(t, name)] = remote.LockEntry{SHA: sha, URL: "https://example.com/r"}
 		}

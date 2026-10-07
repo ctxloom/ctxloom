@@ -9,7 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // TreeFS is the pinned-tree seam a repofs reader reads through: LIST a
@@ -63,11 +63,11 @@ func (r *repoFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 
 // sourceRefTyped mints this reader's structured source ref from r.ref, its
 // lockfile identity, through sourceBundleRef.
-func (r *repoFSReader) sourceRefTyped() trust.BundleRef {
+func (r *repoFSReader) sourceRefTyped() ident.BundleRef {
 	br, err := sourceBundleRef(r.ref)
 	if err != nil {
 		warnUnmintableSource(r.cfg.rep, r.ref, err)
-		return trust.BundleRef{}
+		return ident.BundleRef{}
 	}
 	return br
 }
@@ -83,15 +83,15 @@ func (r *repoFSReader) sourceRefTyped() trust.BundleRef {
 // here is not a missing field, it is content silently vanishing. Callers must
 // report what could not be minted; warnUnmintableSource is the shared way to
 // do it.
-func sourceBundleRef(ref string) (trust.BundleRef, error) {
+func sourceBundleRef(ref string) (ident.BundleRef, error) {
 	parsed, err := remote.ParseReference(ref)
 	if err != nil {
-		return trust.BundleRef{}, fmt.Errorf("parse %q: %w", ref, err)
+		return ident.BundleRef{}, fmt.Errorf("parse %q: %w", ref, err)
 	}
 	parsed.ContentVersion = ""
 	br, err := parsed.BundleRef()
 	if err != nil {
-		return trust.BundleRef{}, fmt.Errorf("convert %q: %w", ref, err)
+		return ident.BundleRef{}, fmt.Errorf("convert %q: %w", ref, err)
 	}
 	return br, nil
 }

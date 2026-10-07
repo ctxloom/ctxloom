@@ -5,7 +5,7 @@
 //
 // "as", "matching" and "containing" all address a VALUE — a scalar to compare,
 // a pattern to match, an array to look inside. An empty result has none: a
-// listing with no entries renders as prose ("no trusted signers") and encodes
+// listing with no entries renders as prose ("no remotes configured") and encodes
 // as `null` or `[]`, so `as` reports "is a null, not a scalar" and `containing`
 // reports the array is empty. Both are correct refusals, and neither is the
 // claim the scenario makes.

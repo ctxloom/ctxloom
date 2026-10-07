@@ -18,10 +18,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // MaxRecvMsgSize is the frame ceiling both ends of the runner channel are
@@ -496,7 +496,7 @@ func encodeIndex(i composite.Index) *pb.Index {
 func decodeIndex(w *pb.Index) (composite.Index, error) {
 	var out composite.Index
 	for _, e := range w.GetEntries() {
-		kind, ok := trust.ParseItemKind(e.GetKind())
+		kind, ok := ident.ParseItemKind(e.GetKind())
 		if !ok {
 			return composite.Index{}, fmt.Errorf("coordgrpc: index entry %q names no item kind: %q", e.GetRef(), e.GetKind())
 		}

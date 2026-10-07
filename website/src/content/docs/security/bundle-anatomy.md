@@ -27,14 +27,6 @@ A bundle is one YAML document. These are all the keys it may carry:
 | `skills` | Agent Skill packages (a directory of files, not inline text) | **Tier 3, with real files on disk** — see below |
 | `profiles` | Composition units (which items load together) | Nothing on its own — see below |
 
-There is one more field, and it is the one that matters most: a bundle's **verified
-publisher identity**. You cannot write it. It is not a YAML key. Putting
-`signer: releases@ctxloom.dev` into a bundle file does exactly nothing — the field is
-unexported and explicitly excluded from deserialization, and the only thing that can set it
-is a load path that has already cryptographically verified a signature against your trust
-root. A bundle cannot name its own signer. Anyone can write a string into a file; nobody can
-forge a signature.
-
 ## `hooks` — the shell command line
 
 The tier-1 surface. Each hook may declare:
@@ -95,8 +87,8 @@ distilled form is bytes an LLM wrote that no human read.
 ### The `content_hash` field is not a security field
 
 Bundles carry a `content_hash`. It is author-supplied, it drives re-distillation staleness
-checks, and **nothing that decides delivery reads it**. An author-written hash is a claim; a
-signature over bytes is a proof. Do not mistake the former for the latter.
+checks, and **nothing that decides delivery reads it**. An author-written hash is a claim.
+What decides which bytes you receive is the commit your lockfile pins.
 
 ## `skills` — the package on disk
 
@@ -111,7 +103,7 @@ A skill is not inline text like a fragment or command — it is a directory: a r
 `SKILL.md` (frontmatter + instructions, the part a model reads first) plus arbitrary sibling
 files, commonly a `scripts/` folder. Those sibling files are not decorative attachments: the
 `files` manifest records each one's POSIX permission mode, and an executable bit that was set
-in the authored tree is preserved through signing, transfer, and materialization onto your
+in the authored tree is preserved through transfer and materialization onto your
 disk. A skill that ships `scripts/setup.sh` with the executable bit set puts a real,
 runnable shell script on your machine, at a path the agent can invoke by name — not a
 metaphor, an actual file with `0755` permissions.

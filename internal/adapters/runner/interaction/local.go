@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 )
 
@@ -203,13 +203,13 @@ func limitSearchResults(results []operations.SearchResult, limit int) []operatio
 }
 
 // indexKindName is the search_content type vocabulary for a catalog kind.
-func indexKindName(k trust.ItemKind) string {
+func indexKindName(k ident.ItemKind) string {
 	switch k {
-	case trust.KindFragment:
+	case ident.KindFragment:
 		return "fragment"
-	case trust.KindPrompt:
+	case ident.KindPrompt:
 		return "command"
-	case trust.KindSkill:
+	case ident.KindSkill:
 		return "skill"
 	default:
 		return string(k)
@@ -275,19 +275,19 @@ func (s loadoutSurface) registerResources(server *mcp.Server) {
 		Name:        "fragments",
 		Description: "The catalog's context fragments with their qualified refs. A fragment carrying a PREMISE applies conditionally: the premise names the situation it applies under, and the qualified ref is what an assemble_context call quotes back to load it.",
 		MIMEType:    "application/yaml",
-	}, s.catalog(trust.KindFragment, resourceFragmentsURI))
+	}, s.catalog(ident.KindFragment, resourceFragmentsURI))
 	server.AddResource(&mcp.Resource{
 		URI:         resourceCommandsURI,
 		Name:        "commands",
 		Description: "The catalog's commands with descriptions.",
 		MIMEType:    "application/yaml",
-	}, s.catalog(trust.KindPrompt, resourceCommandsURI))
+	}, s.catalog(ident.KindPrompt, resourceCommandsURI))
 	server.AddResource(&mcp.Resource{
 		URI:         resourceSkillsURI,
 		Name:        "skills",
 		Description: "The catalog's Agent Skill packages (model-invoked SKILL.md directories).",
 		MIMEType:    "application/yaml",
-	}, s.catalog(trust.KindSkill, resourceSkillsURI))
+	}, s.catalog(ident.KindSkill, resourceSkillsURI))
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
 		URITemplate: resourceFragmentsURI + "/{name}",
 		Name:        "fragment",
@@ -326,7 +326,7 @@ type catalogEntry struct {
 }
 
 // catalog renders the Index entries of one kind.
-func (s loadoutSurface) catalog(kind trust.ItemKind, uri string) mcp.ResourceHandler {
+func (s loadoutSurface) catalog(kind ident.ItemKind, uri string) mcp.ResourceHandler {
 	return func(_ context.Context, _ *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		var rows []catalogEntry
 		for _, e := range s.lo.Index.Entries {

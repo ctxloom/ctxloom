@@ -1,665 +1,72 @@
 # ctxloom Trust Model
 
-The canonical reference for how ctxloom decides what content reaches an agent.
-Everything here is derived from the enforcement code; where behavior and older
-doc-comments disagree, this document describes the behavior (open discrepancies
-are listed under Known gaps).
-
-> **Wire contracts and payload framing:**
-> [signature-envelope.spec.md](signature-envelope.spec.md) — what bytes are signed,
-> how the countersignature payload is framed, and the exact strings third parties
-> bind to. That document explains *why these bytes*; this one is the normative
-> account of what the system *does*. **Where the two disagree, this document wins.**
+The canonical reference for what ctxloom trusts, and why. Everything here is
+derived from the enforcement code; where behaviour and a doc-comment disagree,
+this document describes the behaviour.
 
 ## The invariant
 
-**A human sees third-party content — including every update to it — before the
-LLM does.** First-party content is exempt: material you authored in this project
-(`ctxloom:local`), companion loadouts (ctxloom's own included), and content from a
-**trusted publisher** — a bundle signed by a key you trust for the publish
-namespace (`allowed_signers`). Every other remote item is born **pending** and is
-withheld from the agent until a human reviews it.
-
-Trust is keyed to the signing **identity**, not to the location the bytes arrived
-from. A fork, a typosquatted host, a compromised forge, or a tampered clone
-object cannot produce content that verifies under the key you actually trusted.
-This replaces the old `trust_bundles` source-trust flag, which trusted a URL
-hash-blind — a location can be substituted; a signature over the bytes cannot.
-
-There is one trust layer, not two. The lockfile is pure dependency pinning —
-which commit of a bundle is installed — and grants no exposure (ADR 0033: it is
-not a security surface, and nothing here reads or writes it). Whether an
-individual item ever reaches the agent is decided per item, at the **exposure
-choke** — never at fetch or lock time. A pull of an unsigned, badly-signed, or
-rejected bundle succeeds; its content is withheld when it would be exposed.
-
-## Item states
-
-Every remote item — fragment, command, MCP server, hook — is in exactly one of
-three states:
-
-- **pending** — never reviewed, or its content changed since a human approved
-  it. Withheld from the agent. Pending is the implicit state of any item with
-  no countersignature covering its current bytes.
-- **approved** — a human **countersigned this exact content with their own SSH
-  key**. The signature IS the approval record — there is no separate ledger row
-  to forge. It binds to the item's raw and (when one exists) distilled bytes as
-  independent signatures, each over the exact materialization; a change to
-  either exposed form means that signature no longer verifies, and the item
-  returns to pending.
-- **rejected** — a human declined it, also by countersigning: a **ref-level**
-  signature (sticky — survives the content changing under the ref) and a
-  **content-reject** signature over the current bytes, deliberately signed with
-  the ref *omitted* so a renamed or moved identical copy stays rejected
-  wherever it appears. Rejection beats every allow, including the first-party
-  exemption.
-
-## The decision function
-
-One gate holder, `composite.Trust`, owns every exposure decision. It is built
-**per config generation** by `composite.NewTrust` over three ports the
-configuration's sources supply (`config.Sources.TrustPorts`). The ports are
-declared at the core leaf, `internal/core/trust` (`trust.TrustRoot`,
-`trust.ReviewRecords`, `trust.RetractionRecords`, answering with
-`trust.SignerDecision`; `composite` aliases them), so the gate and every
-reader of a signature name one interface: a `trust.TrustRoot` (which keys may
-publish — `allowedsigners.Store` implements it, and `config.Config.TrustRoot`
-hands out the port, never the store), the `trust.ReviewRecords` (what a human
-approved or rejected — the `countersign` stores) and the
-`trust.RetractionRecords` (what a publisher withdrew —
-`remote.LockfileRetraction`, the lockfile read once when the gate is built). The generation's `Snapshot.Trust` is the one gate every exposure
-and executable surface decides with (`config.Config.ExecutableTrustGate`);
-there is no admit-everything default and no way to install a second gate on
-a generation. No production-constructible `composite.Trust` admits
-everything: `composite.NewTrust` refuses a missing port, and a zero Trust's
-nil authorizer is withheld by `bundles.Decide` (`ReasonUngoverned`).
-
-**The gate withholds by default.** An executable item — a command, a skill,
-a hook, an MCP server — that nothing below positively justifies is WITHHELD
-until a review record approves it, and the withhold names what would admit
-it (`no review record approves this hook`). A surface that forgot its gate
-holds none (`bundles.Decide` withholds on a nil authorizer and names the
-defect, `bundles.ReasonUngoverned`); it never admits.
-
-The gate's authorizer is fed the exact **bytes** about to be exposed (never
-a precomputed hash — a hash can only be compared against a file anything can
-write; bytes can be *verified*), the item's `Ref`, its `Form`, and the
-**read** a reader adapter established (`bundles.BundleRead`: trust context,
-signature and signer axes, provenance). First match wins; it is fail-closed:
-
-1. **rejected** — a rejection covers this ref, or covers exactly these bytes
-   (the repo/ref-agnostic content denylist) → **DENY**.
-2. **retracted** — a publisher you trust withdrew this bundle, or the exact
-   version pinned, learned from the newest SIGNED release at the last sync and
-   recorded locally → **DENY**.
-   Retraction is a *peer* of rejection, not a kind of it: a rejection is a
-   human's decision about bytes, a retraction is the publisher's own
-   withdrawal, and it must beat every allow below — including the publisher's
-   own trusted signature, since a publisher has to be able to retract content
-   they signed. The check is a pure local lookup; the network probe already
-   ran at sync time, and exposure-time evaluation never dials out. The
-   record is read ONCE, when the generation's gate is built
-   (`remote.NewLockfileRetraction`), so a pull that rewrites the lockfile
-   produces the next generation's records and never changes this one's.
-   - **2a. retraction state unreadable** → **DENY**, for exactly the remote
-     refs the record could have spoken about. "I cannot read the retraction
-     record" is not "nothing is retracted", and collapsing the two re-exposes
-     content a publisher deliberately withdrew. An *absent* record is not this
-     case: a project with no pins legitimately has nothing retracted.
-   - **2b. only a signed release can retract, and the probe is FAIL-STALE.**
-     `internal/adapters/remote.CheckRetracted` reads ONE thing: the
-     `SHA256SUMS` at the tip of the default branch, with its signatures,
-     verified by `attest.VerifyManifest`. A retraction is part of a release's
-     signed header (`# retracts: <version> <reason>`, `# withdrawn: <reason>`),
-     authored in `bundle.yaml` and published by signing a new version. Any key
-     trusted to publish may retract, not only the one that signed the pin.
-     The verdict is `RetractionVerdict`, never a bool:
-     - a trusted tip for this bundle that withdraws it, or retracts the
-       pinned `signed_version` → *retracted*; otherwise *clean*;
-     - a trusted tip below the pinned `signed_version` → *rollback*: the
-       branch was rewound, and it clears nothing;
-     - no manifest at the tip at all → *unpublished*: the remote answered
-       and publishes no retraction channel. It clears nothing (deleting a
-       manifest is within reach of whoever controls the repository), keeps
-       the recorded verdict, and is stamped as a check that ran — never a
-       staleness warning. When the pin carries a `signed_version` the remote
-       once published a manifest, so every pull warns that it no longer does
-       and that any recorded retraction still applies;
-     - anything else — unreadable, unsigned, untrusted, tampered, or a
-       trusted manifest for another bundle served at this path → *unknown*.
-     No unsigned file decides anything: whoever controls a repository can
-     serve any unsigned bytes, so if an unsigned tip could clear a verdict,
-     stripping the signature would strip the retraction.
-     `Puller.resolveRetraction` turns *unknown* and *rollback* into a
-     decision: fall back to the last verdict this project itself recorded for
-     the ref (`LockEntry.Retracted` + `RetractionCheckedAt`), never to "assume
-     cleared" — so neither a network partition nor a rewound branch can
-     resurrect content a publisher already retracted. A *clean* tip never
-     lifts a retraction already recorded for the same pinned version either:
-     a retraction of an exact signed version is permanent, and a tip that no
-     longer lists it is an older release served again, not the publisher
-     changing their mind; only moving the pin resets it. The check runs on
-     every pull. One that could not run is reported: a fallback verdict
-     older than 14 days (`remote.RetractionStaleAfter`), or one with no
-     recorded check time at all (unknown age, not implicitly fresh), warns via
-     `clidiag` but is still honored, never discarded, and a first check that
-     could not run warns and records no check time: staleness degrades
-     toward *more* caution communicated to the operator, never toward more
-     exposure.
-   - **2c. the version floor.** A pull verifies the fetched tree before it
-     pins it, and every writer of a lock entry's `sha` holds it to the
-     `signed_version` the entry recorded: a lower signed version
-     (`release.ErrRollback`), or unsigned content where signed content was
-     pinned (`release.ErrSignatureDowngrade`), is refused.
-     `deps pull|upgrade --allow-downgrade <ref>` accepts it for that named
-     ref only, says so, and records the lower version as the new floor.
-3. **local** — the item was authored in this project (`ctxloom:local`), any kind
-   including MCP servers and hooks → **ALLOW**. **Locality is the trust
-   boundary; the signature is for what travels.** A project-local bundle whose
-   signature is INVALID — its SHA256SUMS manifest no longer covers its files,
-   because an author edited it in place — is admitted exactly as an unsigned
-   one, with the reason `bundles.ReasonStaleLocalSignature` so the surface
-   warns and names the fix (`bundles.StaleSignatureAdvice`: re-sign with
-   `ctxloom bundle sign <name>`). The reason: the bundle lives in the project
-   under source control, where the human already controls it, and it is the
-   local prototyping path — an author editing a bundle breaks its signature
-   on every keystroke, and refusing it would make local iteration impossible.
-   "Local" means the authored bundle tree under the one app directory the
-   process resolved (`paths.LocalBundlesPath`, `Config.GetBundleDirs`); the
-   same rule — not a second tier — applies to the home ctxloom directory in
-   the one case where it acts as the app directory because no project was
-   found. The same facts over content that TRAVELLED admit nothing (the
-   reader adapters refuse such a tree before it becomes a read at all,
-   `bundles.ErrTreeBundleWithheld`; the gate withholds one if it ever
-   arrives). Pinned by `TestNewTrust_LocalityRule_*` in `core/composite` and
-   by the local-tree reader tests in `core/bundles`.
-4. **companion** — the item came from an installed companion binary's own
-   loadout (`ctxloom:companion@<bin>`) → **ALLOW**. Local-equivalent, and the
-   reason is *order of operations*, not deference: ctxloom reads a loadout by
-   **executing** the companion (`<bin> loadout --format json`), so by the time
-   the content exists that binary has already run arbitrary code as you.
-   Reviewing the content afterwards buys ~nothing while costing a review prompt
-   for a tool you deliberately installed. The control point that *does* have
-   purchase is **exec**, and that is where the human decision lives — see
-   "Companion loadouts" below. This is a distinct step below rejection
-   specifically so step 1 can still reach it.
-
-   ctxloom is **its own companion**: everything it delivers into an engine on
-   its own behalf (its MCP server entry, its always-on guidance) is its own
-   loadout (`cmd/ctxloom/loadout.yaml`), probed from the running binary and
-   admitted here like every other companion's under
-   `ctxloom:companion@ctxloom`. Its loadout is signed uniformly with the
-   release key, but that signature is **circular** — the trust root that
-   vouches for the key ships in the same binary — so the reader verifies it
-   (a stale one is a release bug) and never stamps the principal as a
-   publisher; no surface presents it as trust.
-5. **trusted signer** — the item's bundle carries a non-empty verified publisher
-   `Signer`: a key trusted for the publish namespace signed exactly these file
-   bytes, and the signature verified at load, before any parse → **ALLOW**
-   (updates included). This replaces the deleted hash-blind `trust_bundles`
-   source bypass. ctxloom's own loadout carries no principal here even
-   though its signature verified — it is allowed *as a companion* (step 4),
-   never laundered into a "trusted publisher".
-6. **approved** — a valid approve countersignature covers exactly these bytes,
-   at this ref, in this form, from a key trusted for the approve namespace
-   → **ALLOW**. Any change to the exposed bytes drops the approval to pending.
-7. **otherwise** — pending: **DENY**, withheld until reviewed, counted toward the
-   startup notice. This is where unsigned content lands, where signed-but-
-   untrusted-key content lands, and where content whose bytes changed lands.
-
-Retraction is a second DENY **reason**, not a fourth item **state**: an item is
-pending, approved, or rejected, and a retracted item renders as rejected —
-withheld permanently, awaiting nothing.
-
-Before step 1 even runs, the gate asks the review-records port whether both
-physical approvals stores (the personal `~/.ctxloom/approvals` and the
-committable `.ctxloom/approvals`) can actually be read — the optional
-`composite.Faulted` capability, `countersign.Records.Fault`. A store directory that has never
-been created is **fine** — that is the ordinary "nothing reviewed yet" shape
-of a fresh project or a fresh user — but a store that *exists* and cannot be
-listed, contains a record file that cannot be opened (permission denied, a
-filesystem-level I/O error), or contains a `.sig` record whose bytes will not
-parse as a signature at all, is treated as a fault, not as empty: it might be
-hiding a **rejection**, and silently reading it as "nothing rejected" would
-reopen a gate a human closed. On that fault the resolver **denies every item**
-— even one that would otherwise be allowed by the local or companion exemption —
-and the port records a fatal `trust`-class finding in strict mode. The fix is
-the same shape either failure has always had: `fix or remove the corrupted
-approvals store, then re-review (ctxloom review)`.
-
-**A signature authenticates; it never authorizes.** A validly-signed malicious
-fragment is still malicious — signed does *not* mean safe. That is why review
-(steps 1 and 6) is a separate axis and why rejection outranks every signature,
-including ctxloom's own. There is no "signed" item state: `Signer` is an *input*
-to the decision, never a state. An item is pending, approved, or rejected; a
-signed item whose key you do not trust is not a fourth thing — it is pending.
-
-Rejection is checked first so it beats every exemption: a user can reject an
-item even from a trusted publisher or from ctxloom's **own loadout**, and step 1
-is evaluated even when the publisher signature is absent or failed to verify (a
-rejection is of *bytes*, not of provenance). This is enforced, not just
-documented — every companion loadout, ctxloom's own included, is routed through
-the SAME decision function as everything else (`trust.Ref{IsCompanion: true}`,
-keyed under the `ctxloom:companion` token so a companion item can never
-collide with a project-local bundle of the same name), and step 1's rejection
-check runs before step 4's companion exemption. A missing countersignature for the exact
-form being exposed does not satisfy step 6 — the exact materialization being
-exposed was never reviewed, so it stays pending. Finding a candidate
-countersignature FILE at the right index is never enough on its own: it must
-still cryptographically verify against the reconstructed payload and its
-signer must be trusted for the relevant namespace, or it resolves pending —
-never allow.
-
-**Degradation is only safe in one direction, and the two directions are not
-symmetric.** For the ALLOW steps (4-6) a malformed `allowed_signers` file, a
-corrupted approve countersignature, or a deleted countersignature store all
-degrade toward *fewer* trusted decisions — more content unsigned or
-unreviewed, more review — never toward more exposure. For the DENY steps (1-2)
-the identical degradation would run the other way: a rejection nobody can read
-is a rejection nobody enforces, so a corrupted *reject* record would silently
-un-reject the item, and for a bundle carrying a verified publisher signature
-that is not "back to pending" but straight to **allow** at step 5.
-
-That inversion is closed, not accepted. `Store.Verified` deliberately has no
-error channel — it answers `("", false)` for an empty store, a corrupt file, a
-malformed armor and an untrusted signer alike, and it must, because from
-inside a single query it cannot tell "no such record" from "the record is
-corrupt": it only ever sees the candidates whose index hash that one query
-reconstructed. The distinction is a whole-store question, so it is answered by
-the readability gate above, which runs before step 1 and **parses every record
-in both stores**. A `.sig` that will not unarmor is a fault there, and the
-resolver denies everything rather than guess which decision it just lost.
-A signature that parses but does not verify is *not* a fault — that is the
-ordinary "not proven" outcome, and treating it as one would deny every session
-carrying a single stale record.
-
-## First-party sources
-
-Three source classes are exempt from review by default (but not from
-rejection — see the decision function above):
-
-- **Local** — items authored in this project, keyed to the `ctxloom:local`
-  source. Locality is honest: a seeded or cloned bundle stamps its canonical
-  remote ref, so a *copy* of remote content keys as remote and is **not**
-  local-trusted. "You wrote it here, you trust it; a clone of it is not yours."
-- **Companion** — a loadout an installed companion binary advertised about
-  itself, keyed to the fixed `ctxloom:companion` token. Exempt because reading
-  it *required executing the binary first*; see "Companion loadouts" below for
-  the full argument and for what is gated instead.
-- **Trusted publisher** — a bundle whose file bytes were signed by a key you
-  trust for the publish namespace, verified at load. Updates included: change
-  the bytes and the publisher's signature no longer covers them, so the bundle
-  re-verifies (or falls to pending) on the next load.
-
-### Companion loadouts
-
-A companion (`ltk`, `taskloom`, `reprise`, or any `ctxloom-companion-*` binary
-on `$PATH`) tells ctxloom what it contributes by being **run**:
-`<bin> loadout --format json`.
-
-**The posture reversed here, deliberately.** This document and
-`docs/signing-design.md` previously recorded that a companion loadout is
-*"withheld, never crashes, never auto-allowed"* — gated "exactly like a remote
-bundle". Only **"never crashes"** survives. Companion content is
-**local-equivalent**: allowed at step 4b, never withheld for want of a
-signature or a review.
-
-The reason is order of operations. Gating the *content* of a loadout puts the
-review prompt strictly **after** the arbitrary code execution it would be
-protecting you from: the binary already ran, as you, before a single byte of
-content existed. A prompt in that position buys ~nothing, and it costs friction
-on content the user deliberately installed — which is how prompt fatigue trains
-people to approve without reading, blunting the prompts that *do* matter.
-
-So the decision moved to where it has purchase: **may ctxloom execute this
-binary at all**.
-
-**Admission is a signature, and nothing else.** Discovery is deliberately
-permissive — it lists every first-party name plus every `ctxloom-companion-*`
-found by scanning `$PATH`, filtering nothing, because it is a *candidate list*.
-The gate is at exec: a companion runs only when the release statement beside it
-(its name, version and SHA-256) carries a signature from a key the trust root
-authorizes for the `companion.v1.ctxloom.dev` namespace, the name matches the
-file resolved and the hash matches its bytes (`companions.AdmitCompanions`).
-Unsigned, untrusted-signer and tampered binaries are refused, never prompted;
-`ctxloom companion show <path>` says which and why.
-
-This closes a real hole. `./node_modules/.bin` is on `$PATH` in a large share of
-JavaScript projects, and an npm package — including a transitive dependency
-nobody chose — can ship a binary under any name. Shipping
-`ctxloom-companion-anything` previously earned an exec at the next session
-start with no user action at all. That attacker does not control `$PATH`; they
-name-squatted an auto-exec convention in a directory already on it. Every *other*
-consumer of `node_modules/.bin` requires a human to type the command.
-
-**A loadout's signature is a diagnostic, not a gate.** This is the second place
-the companion class parts company with remote content, and it follows from the
-same fact. A publisher signature exists to protect bytes from an
-**intermediary** — a forge, a network, a tampered clone object. A loadout has no
-intermediary: its bytes come straight off the stdout of a binary the user
-its publisher's signature admitted. So a companion loadout is admitted whatever its
-signature says, and the signature facts are **reported** instead:
-
-- **No signature** → admitted, silently. Ordinary.
-- **Signature present, does not verify over the bytes** → **admitted, with a
-  warning**, and the content is delivered unattributed. This is a *bug* signal,
-  not an attack signal: it almost always means the companion's release shipped a
-  stale or mismatched signature, and the fix belongs to the companion's authors.
-  Calling it tampering would be both wrong and useless. (A **remote** bundle
-  keeps the opposite posture — an invalid signature there is tamper and
-  withholds — because its bytes crossed exactly the intermediary a loadout's do
-  not.)
-- **Signature valid, signer not trusted for publish** → admitted, with a
-  warning, unattributed. The key's trust status is a fact about the key, not a
-  gate on local content.
-
-The control that actually catches a **swapped companion binary** is the signed
-release statement's hash above, which is the right place for it: it fires before
-the binary runs, rather than after it has already executed.
-
-**What does not change.** Rejection still reaches companion content (step 1,
-above the exemption). An unreadable approvals store still denies it along with
-everything else. Nothing is fatal and nothing stalls startup. An absent
-companion, or one that answers it has no loadout, contributes nothing, quietly.
-One that is admitted but never answers — wedged, timed out, or printing an
-unusable envelope — contributes something UNKNOWN; it contributes nothing this
-time, with a warning naming it and the command that must answer. A loadout whose
-bundle YAML will not parse is skipped with a warning. Nothing is dropped silently: reporting replaces
-filtering throughout.
-
-**Admitting a loadout is not the same as delivering it unconditionally.**
-Admission decides whether a companion's bytes are *admitted*; it says nothing about
-how much of the agent's context they then occupy. Those are separate controls and
-conflating them overstates what this section governs.
-
-A loadout fragment may declare a **premise** — an applicability condition — and
-ctxloom honours it exactly as it honours a premise on any other fragment: the
-fragment is withheld from unconditional context and offered on demand instead. A
-fragment that declares none stays unconditional, which is what makes the
-mechanism additive rather than a breaking change. The consequence worth knowing
-here is that a trusted, admitted companion can still be *absent* from a given
-session's context by design, and that is not a trust failure.
-
-See `docs/companion-loadout-standard.md` for the premise's authoring rules and the
-measured effect on the unconditional floor. It is the authority; this paragraph
-exists only so a reader of the trust model does not conclude that admission and
-delivery are the same decision.
-
-
-### Trusted publishers
-
-Trust is a property of a **signing key**, not of a remote. The trust root is a
-union of `allowed_signers` files (OpenSSH format, verbatim): ctxloom's embedded
-defaults, `~/.ctxloom/allowed_signers` (user), and `.ctxloom/allowed_signers`
-(committable project store). All are unioned; precedence lives in the decision
-function, never in the filesystem. **One signature per bundle.** A bundle's
-signature is its `SHA256SUMS` manifest, covering every file of the tree, and
-the `.sigs/SHA256SUMS.<namespace>.<key-tag>.sig` entry over it. Every reader
-verifies through the ONE verifier, `attest.VerifyBundle`, before any item is
-read.
-
-**A re-sign replaces.** The `.sigs/` store files an entry per (signing key,
-namespace): the tag in the filename is the signing key's
-(`content.sigFileName`), so `attest.SignBundle` by the same key REPLACES that
-key's earlier entry — a stale signature over a manifest the tree no longer
-has does not linger beside the live one — while a second key adds a second
-entry (two maintainers signing one bundle). The tag is a FILING name only:
-no reader resolves who signed from a filename; the signer is resolved from
-the bytes and the trust root (`signing.VerifyPublisher`), and an entry filed
-before entries were keyed this way is read exactly as a current one is
-(`content.parseSigFileName` treats the tag as opaque; the live entry verifies
-and a stale neighbour cannot veto it — `attest.resolvePublisher`).
-
-The `namespaces="…"` option in `allowed_signers` **is** the role system: a key
-trusted only to publish cannot approve content, and vice versa. A signature by a
-key that is not in your trust root, or that is scoped to the wrong namespace, is
-simply **unsigned content to you** — quiet, no error, it takes the review path.
-A signature that is present but does **not** verify over the bytes it sits beside
-(a trusted key over different bytes, or a corrupted blob) is **tamper**: every
-item in that bundle is withheld, never degraded to unsigned, and never offered
-for review — approving bytes an attacker got demoted from "signed" to "merely
-reviewable" is the whole point of corrupting a signature. A human's earlier
-approval of those exact bytes does not lift it either; an approval covers bytes,
-not a signature.
-
-The bundle itself is still **read**, and reported. A reader that dropped it would
-leave the user with content that is missing and no way to find out why; what
-withholds it is the trust filter, which can name the reason (`tampered`) on the
-same verdict the delivery path decided with. This paragraph is about **remote**
-content, whose bytes crossed an intermediary. Companion loadouts — which cross
-none — are the documented exception; see "Companion loadouts".
-
-Third-party unsigned remotes default to pending; their content is reviewed like
-anything else. Signer keys are managed with `ctxloom signer trust|list|show|remove`
-and signatures are produced with `ctxloom bundle sign`; a hand-edited `allowed_signers`
-file is still read verbatim, so editing it by hand remains equivalent.
-Signing/verification is CLI-only and is
-**never** exposed over MCP — handing the agent a `signer trust` capability would
-defeat the property this design exists to provide.
-
-> **A remote carries no trust.** Adding a remote (an address) and trusting a
-> publisher (a key) are separate acts. `init --remote` flips no trust flag — a
-> personal repo's content takes the review path until you sign it and trust your
-> own key.
->
-> Publishing is the mirror image and needs no record of its own: registering a
-> remote with `ctxloom remote create` is the deliberate act that names a
-> destination, and `ctxloom bundle push` publishes to a registered remote on the
-> strength of it.
-
-## The review ceremony
-
-`ctxloom review` is the single porcelain. It walks every pending item, grouped by
-bundle, and records a decision each by **countersigning the exact reviewed
-bytes** with the reviewer's own SSH key:
-
-- **New** items show their full content. **Updated** items (a ref you previously
-  approved whose content has since changed) show a unified diff against the
-  snapshot of the approved version — falling back to full content when no
-  snapshot exists.
-- MCP servers and hooks display as **what they run** — command, args, env,
-  matcher, install — the exact executable surface the approval countersignature
-  covers.
-- Per item: **[t]rust**, **[r]eject**, **[s]kip**; per bundle: **[T]** or
-  **[R]** applies that answer to the rest of it. The letters are the CLI's own
-  verbs, so the porcelain teaches the plumbing rather than a second vocabulary.
-  Each bulk form is its verb's uppercase and nothing else — they are the widest
-  actions offered, and that guard matters most for **[R]**, since a bulk trust
-  re-gates itself the moment any of those bytes change while every rejection is
-  sticky. A bulk answer is reset at the next bundle, so one keystroke can never
-  decide about content the reviewer was not shown.
-  Trusting countersigns the raw bytes always, and the distilled
-  bytes too when a distilled form exists, then snapshots the approved bytes;
-  rejecting countersigns the ref block plus a content-reject over the current
-  bytes. Viewing never mutates — only an explicit letter acts, and the retired
-  `a`/`A` spellings now skip rather than approve on muscle memory.
-- The countersigning key is resolved once per session, before the first item is
-  shown, via the same zero-config discovery chain `ctxloom bundle sign` uses
-  (`internal/adapters/signing/agentkey`): `git config user.signingkey` first, then the
-  sole identity held by `ssh-agent` (`SSH_AUTH_SOCK`) when there is exactly
-  one. (`--key` and the `sign.key` config default, which `ctxloom bundle sign` also
-  honors, are not yet exposed on `ctxloom review` itself.) If the key is a
-  plain software key
-  (not `sk-ssh-ed25519@openssh.com` / `sk-ecdsa-sha2-nistp256@openssh.com`), the
-  session warns **once**: any process holding `SSH_AUTH_SOCK` — including an
-  agent ctxloom just launched — can ask that agent to sign approvals as you,
-  unless the key is confirm-guarded (`ssh-add -c`) or hardware-backed. It is a
-  warning, never a block.
-- **No key available** degrades to an explicit, confirmed **UNSIGNED** path:
-  decisions are recorded as bare markers in the personal store only — exactly
-  as forgeable as the deleted `trust.yaml` design, and never written to the
-  committable project store.
-- `--project` writes to the committable project store instead of the personal
-  one, for a team lead or CI to countersign once and have every developer
-  inherit it (via the project's `allowed_signers`). It **requires** a signing
-  key — there is no unsigned fallback for a shared store.
-- Off a TTY, or with `--list`, it prints the pending table (bundle, ref, kind,
-  new|update) and exits, so scripts and agents can see what a human still owes a
-  look.
-- `init`'s interview ends with a review session when anything is pending.
-
-`ctxloom bundle trust <ref>`, `ctxloom bundle reject <ref>` and `ctxloom bundle
-forget <ref>` are the scriptable plumbing beneath the porcelain — they go
-through the same mutation path, so the porcelain and the plumbing produce
-identical on-disk results.
-
-**The store holds three states, so the CLI carries three verbs — one per
-state.** Approved, rejected and undecided each have a way in, and `forget` is
-the way back to undecided:
-
-| verb | writes | effect | today |
-|---|---|---|---|
-| `bundle trust <ref>` | an approval | the item is delivered | **exists** |
-| `bundle reject <ref>` | a rejection | withheld everywhere; **overrides a trusted publisher and overrides local content** | **exists** |
-| `bundle forget <ref>` | nothing — it CLEARS | removes an approval **and** a rejection, returning the item to pending | **exists** |
-
-The second verb is named for what it writes. It used to be spelled `untrust`,
-which reads as the inverse of `trust` and is not one: it writes a rejection,
-which is a stronger and stickier statement than withdrawing an approval, so
-someone who reached for it to undo a `trust` did something they did not mean.
-`forget` is the actual inverse of both — it clears whichever decision is
-recorded, **approval or rejection**, and leaves the item as if it had never
-been reviewed. A decision made in error is withdrawn, not overwritten with its
-opposite.
-
-Clearing a **rejection** is the case the verb exists for. An approval
-invalidates itself the moment the bytes move; a ref-level rejection is sticky
-by design and survives every content change, so nothing else on this surface
-can lift one.
-
-Three properties make `forget` honest about what it did:
-
-- It **writes nothing**, so it resolves no signing key and asks for no
-  namespace grant. Removing your own record asserts nothing anyone else must
-  honour — and requiring a key would make the **unsigned** decisions, recorded
-  by definition by the users who have none, the only ones that could never be
-  withdrawn.
-- It clears **both components** of a rejection: the sticky ref block and the
-  ref-omitted content block, in every attestation form the item's kind can be
-  signed under — exactly the set the gate searches. A half-cleared rejection
-  still rejects the same bytes under every other name.
-- It clears **one store**: the personal one, or the committable project store
-  under `--project`. A decision the other store holds still stands, so the
-  command names it rather than reporting an item back to pending while it stays
-  withheld.
-
-A record that cannot be removed is an **error**, never a shortfall in a count,
-for the same reason: the failure this verb is built against is a success
-message over an item that is still withheld.
-
-**The namespace check runs on the WRITE side too, and refuses.** Recording a
-decision resolves the countersigning key and then asks the *same* trust root
-the gate will ask whether that key is authorized for the *same* namespace the
-decision will be asserted in (`operations.resolveDecisionSigner` →
-`requireTrustedForAssertion`, deriving the namespace through
-`signing.NamespaceForAssertion` exactly as `VerifyCountersignature` does). A
-key with no approve grant cannot record an approval, and a key with no reject
-grant cannot record a rejection: the command fails, naming the key, the
-namespace it lacks, and the `ctxloom signer trust … --namespace
-approve,reject` that grants it, and **nothing is written**.
-
-This closes a silent no-op (taskloom `tiny-bankbook`). The gate honours a
-signed decision only when its signer is trusted for that namespace, so a
-decision recorded by an ordinary ssh-agent key nobody had granted anything
-produced a well-formed record, a success line naming the key, exit 0 — and an
-item that stayed withheld with nothing saying why. The two sides now derive the
-namespace from one function and read one root, so they cannot disagree about
-which grant a decision needs.
-
-Degradation here is fail-closed in every arm: no trust root, an unreadable or
-malformed `allowed_signers`, and an assertion outside the closed
-approve/reject vocabulary all **refuse**. Failing to establish that a key may
-decide is never a reason to record the decision. The **unsigned** degraded path
-(§9.5) is deliberately outside this gate — it has no key, so there is no
-namespace question to ask, and its markers are honoured by their own
-trust-root-free lookup in the personal store.
-
-## Countersignature gating
-
-An approval is a **countersignature over the exact bytes** the gate is about to
-expose — the raw form always, and the distilled form too when one exists, as
-two independent signatures. There is no author-supplied field to trust: the
-signed payload is built directly from the resolved content
-(`bundles.ContentPayload`), never from anything a bundle author wrote. At every
-exposure the gate reconstructs the exact same payload it is about to expose,
-under the current effective form (distilled vs raw, per `config.use_distilled`),
-and asks whether ANY countersignature verifies over exactly those bytes, from a
-key trusted for the approve namespace. Any edit to the exposed form produces
-different signed bytes, so no prior signature verifies and the item re-gates to
-pending. Profile-variable templating cannot smuggle content past the gate,
-because the signed payload is the pre-substitution bytes.
-
-A content hash still exists, but only as an **index** — the filename prefix
-under which a candidate countersignature file is found, so a lookup is a
-directory glob rather than a scan of every stored signature. Finding a
-candidate proves nothing on its own; only a successful cryptographic verify
-counts (spec §9.3). A hand-crafted file at the right index, or a corrupted
-signature body, resolves pending — never allow.
-
-## Storage
-
-| Location | Contents |
-|------|----------|
-| `~/.ctxloom/approvals/` | The **personal countersignature store**. One armored `.sig` file per approve/reject countersignature (filename `<index-hash>.<assertion>.<key-tag>.sig`, an INDEX only — never trusted as authority) plus a display-only `index.yaml` sidecar (untrusted, never a decision input). Never committed. The default write target of `ctxloom review`. |
-| `.ctxloom/approvals/` | The **project (committable) countersignature store**, same shape as the personal one. `ctxloom review --project` writes here; a team/CI inherits a lead's decisions via the project's `allowed_signers`. |
-| `.ctxloom/allowed_signers` (+ `~/.ctxloom/allowed_signers`, + embedded) | The **trust root**: publisher/approver keys in OpenSSH `allowed_signers` format, verbatim. Unioned across all three locations; the `namespaces="…"` option is the role system. Committable. |
-| `<bundle>/SHA256SUMS` + `<bundle>/.sigs/SHA256SUMS.<namespace>.<key-tag>.sig` | The bundle's ONE signature: the manifest over every file of the tree and the publisher's signature over the manifest, inside the tree, at the same pinned SHA — one entry per (signing key, namespace); a re-sign by the same key replaces its entry (`content.sigFileName`). Verified by `attest.VerifyBundle` before any item is read; travels with the tree on push, move and export. No manifest = unsigned. |
-| `.ctxloom/remotes.yaml` | remotes (address + custom forges only — **no** trust flag) |
-| `.ctxloom/lock.yaml` | dependency pins only: `map[canonicalRef]{sha, url, requested_version, kind, pinned, ...}` |
-| `state/trust/objects/` | content-addressed snapshots of approved bytes, keyed by a payload hash — the diff base for update review. Local state, not cache: nothing rebuilds these, and deleting them degrades every later update review to a full-content display. |
-
-The gate's approval/rejection steps (steps 1 and 6) read through the
-`composite.ReviewRecords` port, which takes the exposed **bytes**, not a hash
-— exactly the shape a signature verification needs. `countersign.Records`
-over the two stores is its only implementation.
-
-**Composition — reads are the UNION of both stores, with no precedence between
-them.** A signature is a signature no matter which store holds it; precedence
-lives entirely in the decision function's step order (rejection is step 1,
-approval is step 6), so a personal rejection in the user store beats an
-inherited approval sitting in the project store, and a personal approval
-likewise cannot override an inherited project-level rejection — rejection wins
-from EITHER store, always.
-
-## Enforcement points
-
-The decision is enforced at distinct chokes. A DENY is **fail-closed and silent
-to the agent**: the item is simply absent. The human gets one aggregate,
-content-free stderr advisory — `N item(s) awaiting review — run 'ctxloom
-review'` — and nothing about withheld content is ever injected into agent
-context.
-
-| Choke | Covers | On deny |
-|-------|--------|---------|
-| Content gate | fragments, commands (text) — including companion fragments, ctxloom's own | absent from assembled context |
-| Executable gate — MCP | bundle MCP servers — including companion servers, ctxloom's own | omitted from backend settings |
-| Executable gate — hooks | bundle hooks — including companion hooks | omitted from backend settings |
-| Executable gate — command export | command slash-commands | not exported |
-| Tooling collection (`CollectTooling`) | a companion loadout's typed `init.tooling` declaration | withheld from Containerfile proposals |
-| Setup prompt (`ResolveSetupPrompt`) | a companion loadout's typed `init.setup_guidance`, composed into the `ctxloom init` prompt | withheld from the init prompt; the built-in guidance still composes |
-| Listing stamp (`TrustStamper`) | JSON listings | stamped `trusted: false` + source |
-
-There is one choke *above* all of these, and it is not a content decision at
-all: **companion admission**. A companion no trusted publisher signed is never
-run, so its content never exists to gate. See "Companion loadouts".
-
-Companion content — ctxloom's own included — passes through every one of
-these chokes exactly like remote/local content; it is simply allowed by
-default at the decision function's companion step (see above) rather than
-needing review. The chokes that resolve companion items on a caller-supplied
-gate stay ungated on management/listing paths, matching the existing
-convention for every other item kind — that path never gates ANY item.
-
-**Ungated by design:**
-
-- **Profiles** — a profile definition is orchestration, never gated; its
-  constituent items still gate at their own chokes.
+**Adding a git repository is the trust act.** Registering a remote
+(`ctxloom remote create <name> <url>`) is the one deliberate step that admits a
+repository's content; from then on ctxloom delivers that repository's bundles at
+the commits the lockfile pins. ctxloom keeps no second, finer-grained trust
+decision on top of it: no signatures, no per-item review or approval, no
+rejection list, no retraction, no version floor. The decision and the reasons
+for it are recorded in
+[ADR 0037](adr/0037-adding-a-git-repo-is-the-trust-act.md).
+
+The threat model this serves is OTHER users, accounts and networks — not the
+local user, who already chose the repositories and runs the binary. Anything
+that would only defend the local user against their own choices is out of
+scope.
+
+## What enforces it
+
+- **No resolution by reference.** Content resolves only through a registered
+  remote. A pull, a lock walk, `deps check` and the read of already-installed
+  content all refuse an unregistered repository with the same error
+  (`remote.NotRegisteredError`, wrapping `remote.ErrRemoteNotRegistered`), which
+  names the `ctxloom remote create` that would register it. Nothing registers a
+  remote automatically; `Registry.LookupURL` only looks.
+- **A remote profile stays inside its own repository.** A profile shipped in a
+  remote repository may name only bundles from that same repository
+  (`profiles.Profile.CheckOwnRepo`, refusing with
+  `profiles.ErrCrossRepoReference`), so registering a repository never admits
+  whatever other repositories its profiles mention. Only a local profile
+  composes several registered repositories.
+- **Pins move only on `deps upgrade --yes`.** The lockfile pins every
+  dependency to a commit SHA, for reproducibility. `ctxloom deps upgrade` is the
+  only operation that moves an existing pin (`operations.UpgradeDependencies`):
+  without `--yes` it is a preview that writes nothing, and with `--yes` it
+  recomputes, applies and prints what it applied. `deps pull`, `ctxloom init`
+  and startup sync create first pins and never move an existing one.
+- **Every pin change is disclosed before it applies.** The disclosure
+  (`operations.PinChange`, rendered by `operations.WritePinChanges` and
+  `operations.WriteNewPins`) lists each item added, removed or modified; for
+  hooks and MCP servers the command, args, env, URL and headers before and
+  after; and a full unified diff of each changed script. A first pin lists
+  everything the bundle brings in, executables included. Env and header VALUES
+  appear only as fingerprints (`valueFingerprint`: the first 8 hex characters of
+  their SHA-256), in text and JSON alike, because this output reaches
+  terminals, CI logs and JSON consumers and those values carry tokens; a
+  changed value still shows as a changed fingerprint. Args and scripts stay in
+  clear: a secret hard-coded there is already published in the bundle's
+  repository.
+
+## Companions
+
+ctxloom discovers companions on `$PATH` — its shipped first-party set plus any
+binary named `ctxloom-companion-*` — and EXECUTES each one it may run, to read
+the context it contributes. Being on `$PATH` makes a binary a candidate only.
+Which candidates run is decided by companion admission; the
+[`ctxloom companion`](../website/src/content/docs/reference/cli/ctxloom_companion.md) reference states the
+current rule.
 
 ## Engine workspace-trust prompts
 
-Everything above is about *ctxloom's* trust decision: may this content reach the
-agent. This section is about a different question — does the human trust this
-**repository** to run its own code — and it is the normative statement the
+Everything above is about which repositories' content ctxloom delivers. This
+section is about a different question — does the human trust the **working
+repository** to run its own code — and it is the normative statement the
 engine packages point at: **ctxloom never answers that question for you. It
 reads the answer you gave the engine yourself, and every launch of the engine
 obeys it.**
@@ -744,191 +151,9 @@ environment by value, and only the human's own session under the top-level
 container refuses it. The engine auto-creates whatever else it
 needs on first launch.
 
-## Lifecycle
-
-- **Steady-state sync** installs exactly the pinned set. It stages nothing and
-  exposes nothing on its own — items land in whatever state their content hash
-  resolves to.
-- **`deps pull`** fetches exactly what the lock already pins; it never advances
-  a SHA and never rewrites the manifest.
-- **`deps upgrade`** re-resolves each dependency to the newest commit its
-  manifest constraint allows and writes the advance **straight to the active
-  lock** — no review gate at the lock layer, held (`pinned`) entries never
-  advance, a hash conflict aborts with nothing written. Any changed content then
-  re-hashes to pending and is withheld by the content gate until `ctxloom review`
-  accepts it.
-- **`deps hold` / `unhold`** freeze or release a dependency at its locked SHA
-  (aliases `pin` / `unpin`); a held entry never advances under `upgrade`. This is
-  dependency management, not trust.
-- **Review** is the only exposure gate: `ctxloom review` (or the `trust` /
-  `blacklist` plumbing). Recording a decision immediately re-applies the managed
-  artifacts, so a newly-accepted MCP/hook appears — and a rejected one is
-  scrubbed — without waiting for the next run.
-
-## Identity
-
-Items key as `{canonical repo URL} + {bundle}#{kind}/{name}` with no version;
-hashes carry the version dimension. Local items key under the fixed
-`ctxloom:local` token in place of a repo URL; companion items key under the
-fixed `ctxloom:companion` token with the binary's name as the bundle component
-— both are sentinels, so neither class can collide with a real remote repo
-URL, or with each other. Repo URLs are normalized on both sides of every comparison, but only over
-spellings that are the SAME URI — scheme case and `http`/`https`, host case,
-the `git@` transport form, trailing slashes, and the userinfo/query/fragment
-components, which address a request and never a repository. A merely
-non-preferred spelling — a `www.` host, a different repository-path case — is a
-DIFFERENT identity, deliberately: whether two addresses reach one repository is
-host-specific knowledge ctxloom does not have, and folding on a guess would
-merge two identities onto one trust key, letting a rejection of one silently
-govern the other. Cross-address coverage comes from the content-reject
-countersignature instead (below), not from folding. A moved or renamed item keeps neither its approved state (new ref →
-re-gates to pending, safe) nor its ref-level rejection — the content-reject
-countersignature compensates when the content form matches, because it is
-deliberately signed with the ref omitted. Hook identity is positional
-(`{event}/{index}`), so reordering a bundle's hooks shifts later hooks'
-identities (acceptances re-gate: safe, but see Known gaps).
-
-## Threat model
-
-Addressed:
-
-- **Malicious bundle update** — changed remote content no longer verifies
-  against any prior approval and re-gates to pending; review shows the diff
-  against what was approved before it is exposed.
-- **Prompt injection via shared text** — cloned fragments and commands gate exactly
-  like executables (a fragment is instructions to an LLM); the countersignature
-  covers the pre-substitution bytes.
-- **Arbitrary execution via MCP/hooks** — per-item gating at the exec chokes,
-  countersigned over the full executable surface (command, args, env, matcher,
-  type).
-- **URL-variant / typosquat escape of a rejection** — carried by the
-  **content-reject** countersignature, which is repo- and ref-agnostic (signed
-  with the ref omitted), so a rejection of those bytes holds at any address they
-  appear under. This is the load-bearing half, and it is what makes the threat
-  addressed.
-
-  A **ref-reject** blocks one ADDRESS, which is what it says. Normalization
-  collapses same-URI spellings onto that address (scheme case and
-  `http`/`https`, host case, the `git@` form, userinfo, query, fragment,
-  trailing slashes), so those cannot escape it. It does NOT collapse a
-  non-preferred spelling: a `www.` host or a differing repository-path case is a
-  separate address and a ref-reject on one does not bind the other. Refusing
-  such spellings instead was tried and withdrawn — `https://host/foo.git` IS the
-  path of a bare repository on a plain git server, so refusing it makes a real
-  repository unaddressable, and the refusal is not a diagnostic anyone sees: the
-  caller degrades to an inert address and the item is silently withheld.
-
-  A `.git` suffix is preserved on every class, so a forge's clone URL and the
-  URL in a browser bar are two addresses. That cost is accepted deliberately: a
-  duplicate approval prompt is recoverable, a merged trust key is not.
-  Transport is the one thing that IS folded — scp, `http` and shorthand all
-  render as `https` — because which transport reached a repository is a
-  statement about the caller's credentials, not about which repository it is,
-  so an approval stays portable between a lead who clones over ssh and a
-  developer who clones over https.
-- **Corrupted rejection records** — a `.sig` in either approvals store that will
-  not parse trips the readability gate ahead of step 1, and the resolver denies
-  everything. Without that, an unreadable rejection would be an unenforced one.
-- **curl-pipe-sh via tooling declarations** — tooling collection is trust-gated;
-  nothing is applied without per-item human countersignature.
-- **`$PATH` name-squatting into an auto-exec** — a binary named
-  `ctxloom-companion-*` (or one of the three first-party names) dropped into a
-  directory already on `$PATH`, `./node_modules/.bin` being the realistic case,
-  used to be executed at the next session start with no user action. It is now
-  trust-on-first-use, keyed on absolute path + SHA-256, and skipped outright in
-  any non-interactive session. The first-party name exemption is pinned to
-  ctxloom's own install directory so it cannot be claimed by a shadowing
-  binary. See "Companion loadouts".
-- **Content-form-flip escape** — closed by requiring an independent
-  countersignature over EACH exposed form; a raw approval never validates a
-  distilled exposure or vice versa.
-- **Publisher impersonation / supply-chain substitution** — content claiming to
-  come from a trusted publisher but not signed by its key is unsigned content
-  (review path); a fork, typosquat, MITM'd fetch, or tampered clone object cannot
-  produce bytes that verify under the trusted key. A trusted key's signature that
-  does not cover the bytes it sits beside is treated as **tamper** and the bundle
-  is withheld, so corrupting a signature cannot downgrade a signed bundle to an
-  unsigned one.
-- **Forged approvals via a writable `.ctxloom/`** — an agent (or anything else)
-  that can write files can no longer manufacture an approval by editing a
-  ledger row: a countersignature it cannot produce (no key, no `SSH_AUTH_SOCK`
-  in a containerized run) is not an approval, full stop. This holds under the
-  preconditions in the signature-envelope spec §9.4 — it does **not** hold
-  against a host-run agent with a bare `ssh-agent` (see below).
-
-Explicitly **not** addressed by signing: **signed ≠ safe** (a signature says
-*who*, never *whether it is good for you* — the release key can sign a malicious
-fragment, which is why review and rejection are separate axes); a **writable
-trust root** (an attacker who can append to `allowed_signers` can name their own
-key); and a **host agent holding `SSH_AUTH_SOCK`** (approvals are off-by-default
-against your own agent unless you use `ssh-add -c`, a hardware key, or a
-container — see the signature-envelope spec §9). The **unsigned degraded path**
-(no key available) is exactly as forgeable as the deleted `trust.yaml` — it is a
-labelled, confirmed opt-in for users who have no key, never the default, and
-never permitted in the committable project store.
-
 ## Known gaps and accepted risks
 
-1. **Content-form-specific content-reject.** A rejection content-rejects the
-   raw and distilled forms present at rejection time. If a moved copy is later
-   exposed in a *different* form than was signed against (and its ref differs,
-   so the sticky ref block does not apply), the copy can escape the content
-   component in that form. The ref-level rejection still catches the same ref.
-   Unchanged by countersigning — inherited unmodified from the deleted hash
-   denylist (spec §5.3).
-2. **Positional hook identity.** `{event}/{index}` keying means inserting or
-   reordering hooks shifts identities; a sticky ref block can land on a different
-   hook than the one rejected. The content-reject countersignature still catches
-   identical content. Content-derived hook IDs would be more robust.
-3. **Inherited trust is broad.** Trusting a publisher key exposes everything that
-   key ever signs — text *and* executables, all future updates — without per-item
-   review. This is narrower than the deleted `trust_bundles` (an identity cannot
-   be forked or typosquatted the way a URL could) but it is not *narrow*: a
-   careless or compromised key auto-exposes into your agent. Mitigations: scope
-   keys with `namespaces="…"`, keep reviewer keys hardware-backed, and remember
-   rejection is supreme (a developer can always reject unilaterally). The same
-   applies to an inherited approve key: trusting `lead@team.example` for approve
-   inherits every approval they ever countersign.
-4. **`$PAGER` during review** is user-controlled code execution at review time;
-   acknowledged in code as an accepted, OS-conventional risk.
-5. **Countersignature posture warning is per-session, not persisted.** Spec
-   §9.1.2 describes a persisted `approvals.posture` acknowledgment so the
-   software-key warning fires once ever; the current implementation fires once
-   per `ctxloom review` invocation instead (never blocking). Tracked as deferred
-   work.
-6. **`ctxloom review` does not expose `--key` / `sign.key` config.** The
-   discovery chain itself is unified: `ctxloom review` and `ctxloom bundle sign` both
-   resolve through the same `internal/adapters/signing/agentkey.Discoverer` (git
-   `user.signingkey` → sole `ssh-agent` identity). What `ctxloom review` does
-   not do is pass an explicit key into that chain, so — unlike `ctxloom bundle sign`
-   — an operator cannot override discovery with `--key` or the `sign.key`
-   config default on `review` itself; only git config and ssh-agent are
-   consulted. Narrowing this remaining gap means threading an explicit-key
-   override through `resolveReviewSigner`.
-7. **The organization drop-in / MDM flow of spec §4.4 and §7A.6 is
-   unproven.** Every reader — the project reader over the authored tree
-   (`localFSReader.directorySignatureFacts`), the installed reader over a
-   pulled tree and the pull walk itself — verifies a tree's manifest signature
-   through `attest.VerifyBundle`, so a signed tree dropped into a directory
-   ctxloom reads IS verified and its signer reported. What is not exercised is
-   the channel: nothing pulls a signed tree from anywhere but a git remote, so
-   an org shipping context another way has no supported path. This fails safe
-   (an unverified bundle is unsigned, and unsigned content is reviewed), so it
-   is a missing feature, not a hole.
-8. **ctxloom's own embedded key cannot be untrusted.** The compiled-in trust root
-   is unconditionally unioned into every lookup (`config.TrustRoot`), and
-   `operations.RemoveSigner` only rewrites the user/project *file*. There is no
-   negative-entry mechanism, so `ctxloom signer untrust ben+ctxloom@abbitt.me` does
-   not stop ctxloom-published bundles being auto-trusted. Spec §7 says the embedded
-   defaults are removable; they are not. A user who wants to review ctxloom's own
-   content by hand currently has no supported way to ask for that.
-9. **One key signs every surface.** Spec §6 calls for three keys with three
-   compromise radii (release binaries / bundle content / per-companion loadouts).
-   In fact a **single** embedded publish key signs both the ctxloom-default bundles
-   and both companion loadouts, and `.goreleaser.yml` carries no `signs:` block at
-   all — **release artifacts are unsigned**. The compromise radius of that one key
-   is therefore every signed surface at once.
-10. **An agent can write to the repository it works in — and `.git` is code, not
+1. **An agent can write to the repository it works in — and `.git` is code, not
     just data.** ctxloom runs an agent in its own git worktree, and the git
     *common* directory is exposed to that agent read-write: in a container it is
     bind-mounted through the runtime's placement policy (`gitDirMounts` in
@@ -945,9 +170,9 @@ never permitted in the committable project store.
     file is real, not a `.sample`. The accurate statement of the residual is
     therefore not "code and git state are corruptable": under accident it is a
     spoiled branch, and under malice it is **host code execution**. Which control
-    owns which question: the **review/trust pipeline at ingest** (fragment and
-    skill review, publisher signatures, countersignatures) is the control against
-    a malicious *instruction* reaching an agent; the **container at runtime**
+    owns which question: **choosing which repositories to add** (registering
+    a remote, and reading the pin disclosure before `deps upgrade --yes`) is the
+    control against a malicious *instruction* reaching an agent; the **container at runtime**
     isolates the process and the host filesystem; the **worktree and branch**
     bound the blast radius of *accident* and ordinary agent error, and are not a
     control against malice; the **read-write git mount** is not a control at all
@@ -956,58 +181,23 @@ never permitted in the committable project store.
     close. The mitigation is upstream (point agents at repositories you would be
     willing to restore from their remote; inspect `.git/hooks` and `.git/config`
     after a run you have reason to doubt), and the risk sits with the user. Ruled
-    and accepted 2026-07-31; ratifies the in-code "Over-mount blast radius,
-    ACCEPTED" decision.
-11. **The review gate covers what ctxloom delivers, not every ingress.** Review,
-    signing and countersigning cover content ctxloom itself resolves and hands to
-    an agent: fragments, skills, bundles, hooks, MCP declarations. They do not
-    cover a poisoned file already committed in the repository the agent works in,
-    web content the agent fetches, the contents of an upstream dependency, or an
-    injection carried in data the agent merely processes. None of those pass
-    through the gate, because ctxloom never resolved them. Stated explicitly
-    because gap 10 leans on review as the upstream control: it is strong on one
-    ingress, not on all of them.
-12. **Repo-local git config selects the signing identity.** Step 2 of the
-    zero-config chain (`internal/adapters/signing/agentkey`) resolves
-    `git config --get user.signingkey`, and `execGitConfig` runs with `cmd.Dir`
-    set to the working repository — so git answers from that repository's own
-    `.git/config`, a file that arrives with a clone. A cloned repository can
-    therefore influence **which of your controlled keys signs**. It cannot cause
-    an attestation from a key you do not hold: every signer is a live `ssh-agent`
-    identity, and the attacker's key is not in your agent. A ctxloom signature is
-    an attestation from a controlled key/identity, and so is a git signature —
-    `git commit -S` resolves `user.signingkey` from the same file and asserts the
-    same kind of property — so inheriting git's resolution boundary is principled
-    rather than an appeal to precedent. The residual is git's residual: the
-    attestation remains from an identity you control, but potentially a
-    *different* controlled identity than intended (a personal key where a work
-    key was meant). That is attribution, not a break of the attestation property.
-    Ruled and accepted 2026-07-31; pinned by
-    `TestGitSigningKey_RepoLocalConfigNamesTheFileRead`. Rejected alternatives,
-    recorded so they are not re-litigated: restricting the lookup to
-    global/system config (breaks per-repository identities, a legitimate setup,
-    and guts the documented zero-config chain), and requiring confirmation when
-    the value came from repo-local config (adds a consent surface to a flow that
-    most often runs unattended in CI). The related unbounded-read hazard — a
-    named path such as `/dev/zero` that never reaches EOF — is closed: reads are
-    capped at `maxPublicKeyBytes` (64 KiB). No content is exfiltrated by the
-    error path; `ssh.ParseAuthorizedKey`'s error names the path, never the bytes.
-13. **`runtime: host` is not a security boundary between agents.** Two agents
+    and accepted; the in-code "Over-mount blast radius, ACCEPTED" decision is
+    the same ruling.
+2. **`runtime: host` is not a security boundary between agents.** Two agents
     launched with the host runtime run as the same OS user. The coordinator
-    bearer credential (`CTXLOOM_COORD_CRED`) that `Coordinator.Identify`
-    (`internal/core/coord/coordinator.go`) accepts as sole proof of
-    caller identity is exec-time process environment: `/proc/<pid>/environ`
-    exposes it, for that process's entire lifetime, to any other process
-    running as the same user, and unsetting the variable after reading it does
-    not scrub the kernel's snapshot. Where `ptrace_scope` permits same-uid
-    ptrace, a determined process can lift the same bytes out of memory even
-    past that. A host-runtime agent that reads another host-runtime agent's
-    credential this way can then speak to the coordinator *as* that agent.
-    ctxloom does not try to hide it from same-user processes: the isolation
-    boundary is a container. This sits outside signing and review — it is a
-    property of the runtime axis, not of item trust, which is why it is
-    recorded here rather than in the threat model above.
-14. **An untrusted repository's committed skills and agents.** A repository can
+    bearer credential that `Coordinator.Identify`
+    (`internal/core/coord/coordinator.go`) accepts as sole proof of caller
+    identity is never in a process environment: every runner reads it from its
+    run's owner-only secrets file, named by `CTXLOOM_COORD_CRED_FILE`
+    (`sessions.EnvCoordCredFile`), which lives for the whole run because a
+    relaunch or a re-adopted run reads it again. Any process running as the
+    same user can read that file, just as it could ptrace the runner, so a
+    host-runtime agent can read another host-runtime agent's credential and
+    speak to the coordinator *as* that agent. ctxloom does not try to hide it
+    from same-user processes: the isolation boundary is a container, where a
+    process sees only its own run's secrets. It is a property of the runtime
+    axis.
+3. **An untrusted repository's committed skills and agents.** A repository can
     commit `.claude/skills/*/SKILL.md` and `.claude/agents/*.md` whose
     frontmatter declares `hooks` and `mcpServers`. The capability ladder's P13
     rung (`p13-untrusted-repo-hooks` in
@@ -1025,7 +215,7 @@ never permitted in the committable project store.
     untrusted repository exactly as ctxloom does and shows nothing it commits
     runs. A repository the human HAS trusted runs its surfaces under ctxloom as
     it would in their own claude — that is what trusting it means.
-15. **Claude's subprocesses inherit the run's hook token.** A run that serves
+4. **Claude's subprocesses inherit the run's hook token.** A run that serves
     the approval route puts the session endpoint's bearer into the engine's
     environment as `CTXLOOM_HOOK_TOKEN` (`sessions.EnvHookToken`, written by
     `sessions.EncodeHookReach` in the runner's `deliverAndDrive`), so every
@@ -1033,10 +223,10 @@ never permitted in the committable project store.
     inherits it. The token authorizes only that run's endpoint. On the host
     runtime a malicious MCP server can therefore act as the run's hooks, for
     example by answering the run's own approvals. Same-uid processes are not
-    isolated from each other on the host runtime (gap 13); the container
+    isolated from each other on the host runtime (gap 2); the container
     runtime is the boundary. Ruled and accepted: the token stays in the
     environment.
-16. **The `unsafe-file` MCP approach writes ctxloom's session entry into the
+5. **The `unsafe-file` MCP approach writes ctxloom's session entry into the
     project's `.mcp.json`.** Selecting the project root for the MCP surface
     (`mcpUnsafeFile`, `internal/engines/claude/surfaces.go`) writes ctxloom's
     session-endpoint entry into the project's own `.mcp.json`, a file teams
@@ -1045,7 +235,7 @@ never permitted in the committable project store.
     claude's process environment on the presentation's env channel, which
     claude expands into the relay it spawns. That puts the bearer in claude's
     environment, where every process claude spawns inherits it — the same
-    exposure as gap 15, accepted on the same terms. The entry itself (the
+    exposure as gap 4, accepted on the same terms. The entry itself (the
     relay command, the loopback URL, the reference) is reversed through the
     ownership record (`fsstatic.Records`, writer `delivery.SessionWriter`):
     at the runner's end (`runner.Host.Teardown`, called from `runner.Main`),
@@ -1059,13 +249,13 @@ never permitted in the committable project store.
     made while a run is live, or before the sweep, still captures the entry —
     without a secret. The default MCP approach (`mcpConfig`, the private
     `--mcp-config` file) writes nothing into the project.
-17. **Artifact uploads have a per-upload cap and nothing else.** Each upload is
+6. **Artifact uploads have a per-upload cap and nothing else.** Each upload is
     bounded by `coord.ArtifactUploadSizeCap`, but there is no count cap, no
     per-run total and no garbage collection, so a child can fill the
     coordinator's disk by uploading repeatedly. Accepted under the host-runtime
     trust model: a child that can upload is already a same-user process on
-    that host (gap 13).
-18. **The coordinator's listener can be reachable beyond this host.** It never
+    that host (gap 2).
+7. **The coordinator's listener can be reachable beyond this host.** It never
     binds `0.0.0.0`, and a plain host session binds loopback only
     (`TestServe_BindsLoopbackOnly`, `internal/adapters/coordgrpc`). When a
     container run's runtime has no private route home — no loopback
@@ -1084,21 +274,14 @@ never permitted in the committable project store.
     (`isolation.containerPlacement`, `isolation.materializeSecrets`). A host
     cell still carries its credential in the launch's env, over the
     loopback-only listener.
-19. **A container `login` agent holds the human's refresh token, and can fall
-    out of step with it.** CLOSED: no agent runs in `login` at all
-    (`launch.RunAuth`: every spawned run authenticates with the token), and
-    the human's own session in `auth: login` is refused in a container, so no
-    part of the human's `~/.claude` enters a container. No container is given
-    any credential store: `containerRelocator`'s `refuseStores` refuses one
-    with `engine.ErrHostOnlyStore`, and `Prepare` raises that before the chain
-    prepares anything (`TestCredentials_AContainerRefusesALogin`,
-    `TestPrepare_AContainerLoginIsRefusedBeforeAnythingIsPrepared`; live:
-    `TestLoginStore_ALiveContainerRunRefusesTheLogin`, build tag
-    `docker_integration`). The remedy is `auth: token`, the long-lived token
-    from `claude setup-token`: nothing refreshes it, so there is no second
-    holder to fall out of step with. Sharing the login was refused rather
-    than narrowed because no bind can share it safely: the agent could read
-    the refresh token; a single-file bind pins the file's inode, so a host
-    refresh leaves the container replaying a rotated token; and claude's
-    refresh locks are lock directories created beside the file, which no bind
-    shares.
+8. **Any same-user process can write into a session's spool.** Delegated
+    agents exchange mail through a per-session spool directory
+    (`internal/core/spool`). Its root lies under `paths.HomeSessionsDir`, which
+    every ctxloom process establishes owner-only at startup
+    (`paths.EnsureHomeRoots`), and `spool.EnsureDirs` creates every directory
+    beneath it owner-only. That bounds the spool to the user account and
+    nothing finer: an agent can delete its own unread `in/` mail, and any
+    process running as the same user can forge parent mail into a child's
+    `in/`. No per-message credential stands in the way. The same reasoning as
+    gap 2 applies: the boundary between agents is a container, not the host
+    runtime.

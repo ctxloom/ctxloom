@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
@@ -67,10 +67,10 @@ func TestBundle_LinkGroups_GroupsEveryKindByEffectiveTags(t *testing.T) {
 	groups := linkedBundle().LinkGroups()
 	require.Contains(t, groups, "think")
 	assert.Equal(t, []LinkMember{
-		{Kind: trust.KindFragment, Name: "guide"},
-		{Kind: trust.KindHook, Name: "session_start/0"},
-		{Kind: trust.KindMCP, Name: "think"},
-		{Kind: trust.KindPrompt, Name: "plan"},
+		{Kind: ident.KindFragment, Name: "guide"},
+		{Kind: ident.KindHook, Name: "session_start/0"},
+		{Kind: ident.KindMCP, Name: "think"},
+		{Kind: ident.KindPrompt, Name: "plan"},
 	}, groups["think"].Members, "a hook joins by its trust identity, <event>/<index>: hooks have no author-given name")
 	assert.Equal(t, []string{"think"}, groups["think"].MCPMembers())
 
@@ -81,8 +81,8 @@ func TestBundle_LinkGroups_GroupsEveryKindByEffectiveTags(t *testing.T) {
 	}
 	all := whole.LinkGroups()["all"]
 	assert.Equal(t, []LinkMember{
-		{Kind: trust.KindFragment, Name: "f"},
-		{Kind: trust.KindSkill, Name: "s"},
+		{Kind: ident.KindFragment, Name: "f"},
+		{Kind: ident.KindSkill, Name: "s"},
 	}, all.Members)
 	assert.Empty(t, all.MCPMembers())
 }

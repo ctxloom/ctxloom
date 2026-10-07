@@ -68,8 +68,7 @@ a dedicated bundle repo lays out the same tree, so a publishing repo and a
 consuming project are identical in shape.
 
 Alongside it, and committed for the same reason, sit the root files and
-directories: `config.yaml`, `remotes.yaml`, `lock.yaml`, `profiles/`,
-`allowed_signers` and `distrusted_signers`.
+directories: `config.yaml`, `remotes.yaml`, `lock.yaml` and `profiles/`.
 
 `lock.yaml` is the deliberate oddity: it is **derived** (`ctxloom remote lock`
 regenerates it) and **committed anyway**, because a lockfile whose job is to pin
@@ -121,9 +120,8 @@ Two more local-only paths live at the `.ctxloom` root rather than under
 
 Everything above lives under one project's `.ctxloom/`. A second, smaller set
 of stores lives under **your home directory** instead, because each is a fact
-about *you* or about *this machine*, not about any one project: which signing
-keys you trust, which companion binaries you let ctxloom execute, and the
-session/coordinator/trigger state that spans every project you use ctxloom in.
+about *you* or about *this machine*, not about any one project: which companion
+binaries you let ctxloom execute, and the session/coordinator/trigger state that spans every project you use ctxloom in.
 
 `paths.Layout()` carries a row for each of these (a home-rooted row, same
 mechanism as the project rows above), and `ctxloom doctor` reports what it
@@ -135,8 +133,6 @@ what actually exists is worth telling you about.
 | Path | What it is | Losing it costs |
 |---|---|---|
 | `~/.ctxloom/sessions/` | every ctxloom session on this machine, across every project (`paths.HomeSessionsDir`): one directory per session holding its machine state, whose members are the rows of `paths.HarpMembers` | the session's raw history; nothing rebuilds it (its `home/`, `work/` and `scratch/` members are rebuilt, triaged or regenerated) |
-| `~/.ctxloom/allowed_signers` | every signing key you personally trusted (`paths.HomeAllowedSignersPath`, `ctxloom signer trust`) | each key must be re-trusted by hand |
-| `~/.ctxloom/distrusted_signers` | every embedded signing key you personally distrusted (`paths.HomeDistrustedSignersPath`, `ctxloom signer untrust`) | each suppression must be re-recorded by hand |
 | `~/.ctxloom/cache/triggers/` | cached revive-trigger verdicts (`paths.TriggerCacheDir`) | nothing durable — the next trigger check recomputes them, just not for free |
 | `~/.ctxloom/coord/` | coordinator state, one subdirectory per project (`paths.HomeCoordDir`) | a LIVE coordinator loses its lock and journal outright; a recent-but-exited one's history becomes unrecoverable |
 | `~/.ctxloom/locks/` | cross-binary advisory lock sidecars for FOREIGN files (an engine's own settings.json/.mcp.json/config.toml) that more than one ctxloom-family binary — ctxloom, `ltk`, `taskloom` — may write (`paths.HomePathFor`) | harmless — a lock file carries no data and is recreated on next use; a write in flight when it disappears loses its mutual exclusion for that one operation |
@@ -263,9 +259,8 @@ redundant but harmless. `ctxloom manage gitignore install` **names** them so you
 can delete them deliberately; it will not edit a file it does not own.
 
 **Everything else under `.ctxloom/` is committed by omission** — `config.yaml`,
-`remotes.yaml`, `lock.yaml`, `content/`, `profiles/`,
-`allowed_signers`, `distrusted_signers`. That is intentional:
-each is content, configuration, or trust state your project depends on.
+`remotes.yaml`, `lock.yaml`, `content/`, `profiles/`. That is intentional:
+each is content or configuration your project depends on.
 
 Two notes on that list, because both look like mistakes and are not:
 
@@ -317,4 +312,3 @@ launch-only reason for exactly that purpose.
   them.
 - [architecture/engines/isolation.md](architecture/engines/isolation.md) — the
   isolation axes, `engine_home`, and the per-engine home variables.
-- [trust-model.md](trust-model.md) — what `allowed_signers` means.

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -167,9 +167,9 @@ func TestInstallTree_RefusesWhenTheFoundRootIsNotTheRootReadersResolve(t *testin
 // into a not-found prints a fix ("run deps pull") that cannot fix anything:
 // the pull already succeeded and the bytes are on disk.
 func TestReadableEntry_RefusesATreeBundleWithAnActionableSentinel(t *testing.T) {
-	var name trust.BundleKey = "https://github.com/trent/atelier@bundles/atelier"
+	var name ident.BundleKey = "https://github.com/trent/atelier@bundles/atelier"
 	r := NewBundleReader(nil, nil, AuthConfig{}, &Lockfile{
-		Bundles: map[trust.BundleKey]LockEntry{name: {SHA: treeTestSHA}},
+		Bundles: map[ident.BundleKey]LockEntry{name: {SHA: treeTestSHA}},
 	})
 
 	_, err := r.ReadBundleBytes(t.Context(), name)

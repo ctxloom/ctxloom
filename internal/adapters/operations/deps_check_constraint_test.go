@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,7 +66,7 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	lockfile := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
+	lockfile := &remote.Lockfile{Bundles: map[ident.BundleKey]remote.LockEntry{
 		"ctxloom+git://github.com/o/r//bundles/x": {SHA: "relsha1", RequestedVersion: "release"},
 	}}
 
@@ -82,7 +82,7 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 	})
 
 	t.Run("entry at the constraint tip is up to date", func(t *testing.T) {
-		lf := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
+		lf := &remote.Lockfile{Bundles: map[ident.BundleKey]remote.LockEntry{
 			"ctxloom+git://github.com/o/r//bundles/x": {SHA: "relsha2", RequestedVersion: "release"},
 		}}
 		ref, rerr := parseCheckRef("https://github.com/o/r@bundles/x")
@@ -123,7 +123,7 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 // caller can tell "verified current" apart from "could not be checked".
 func TestDetectUpdates_FailedChecksAreCounted(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{})
-	lockfile := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
+	lockfile := &remote.Lockfile{Bundles: map[ident.BundleKey]remote.LockEntry{
 		// Fails at remote.ParseReference — not a recognized scheme at all.
 		"::::not-a-valid-reference": {SHA: "somesha", RequestedVersion: "main"},
 	}}

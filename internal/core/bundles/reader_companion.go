@@ -7,7 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // CompanionLoadout is one companion application's advertised loadout, exactly
@@ -32,13 +32,13 @@ type CompanionLoadout struct {
 // has agreed ctxloom may execute.
 //
 // THE PROBER IS THE EXEC. Everything about companion discovery that decides
-// whether a foreign binary runs at all — the PATH scan, trust-on-first-use
-// admission keyed on absolute path plus binary hash, the first-party exemption,
+// whether a foreign binary runs at all — the PATH scan, admission keyed on
+// absolute path plus binary hash, the first-party exemption,
 // the per-probe timeout — lives behind this one function, and the companion
 // reader is the only thing in the read path that calls it. That is what makes
 // the companion reader the single implementation that can prompt a human, and
 // it is deliberate: the meaningful control point for companion content is
-// EXEC, not content review (docs/trust-model.md, "Companion loadouts").
+// EXEC (docs/trust-model.md, "Companions").
 //
 // It returns an error only for a fault that produced NO loadouts at all. An
 // individual companion that is absent, wedged, unapproved or does not implement
@@ -161,7 +161,7 @@ func (r *companionReader) Candidates() []Candidate {
 // warned about and dropped rather than entered under an empty key where every
 // unmintable name would stand in for every other.
 func companionCandidate(rep report.Reporter, bin, path string, reason CandidateReason) (Candidate, bool) {
-	typed, err := trust.CompanionRef(bin)
+	typed, err := ident.CompanionRef(bin)
 	if err != nil {
 		warnUnmintableSource(rep, companionRefPrefix+bin, err)
 		return Candidate{}, false
@@ -189,7 +189,7 @@ func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 	if b.Name == "" {
 		b.Name = ref
 	}
-	typed, err := trust.CompanionRef(lo.Bin)
+	typed, err := ident.CompanionRef(lo.Bin)
 	if err != nil {
 		warnUnmintableSource(r.cfg.rep, ref, err)
 	}

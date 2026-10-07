@@ -5,7 +5,7 @@ package acceptance
 import (
 	"fmt"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // canonicalBundleRef mints the canonical URI addressing a bundle published at
@@ -17,7 +17,7 @@ import (
 // just published has no scenario left to run, and a returned error here would
 // be reported as the step's own failure rather than as the fixture's.
 func canonicalBundleRef(repoURL, bundle string) string {
-	br, err := trust.Ref{RepoURL: repoURL, Bundle: bundle}.AsBundleRef()
+	br, err := ident.Ref{RepoURL: repoURL, Bundle: bundle}.AsBundleRef()
 	if err != nil {
 		panic(fmt.Sprintf("acceptance fixture: bundle %q at %q is not addressable: %v", bundle, repoURL, err))
 	}

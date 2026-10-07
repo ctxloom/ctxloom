@@ -18,7 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
@@ -189,12 +189,12 @@ func TestBuildSiblingContext_IsDeterministic(t *testing.T) {
 }
 
 // The "is this the item being distilled?" test and the sibling-listing guard
-// both key off an item's SELECTOR, and trust.FormatSelector is its one
+// both key off an item's SELECTOR, and ident.FormatSelector is its one
 // renderer. Pin the values and the exclusion behaviour for both kinds, so
 // routing the distill helpers through it cannot change what is excluded.
 func TestSiblingContext_ExcludesTheDistillingItemByRefPrefix(t *testing.T) {
-	assert.Equal(t, "fragments/x", trust.FormatSelector(itemKindOf(ItemTypeFragment), "x"))
-	assert.Equal(t, "commands/x", trust.FormatSelector(itemKindOf(ItemTypeCommand), "x"))
+	assert.Equal(t, "fragments/x", ident.FormatSelector(itemKindOf(ItemTypeFragment), "x"))
+	assert.Equal(t, "commands/x", ident.FormatSelector(itemKindOf(ItemTypeCommand), "x"))
 
 	b := &bundles.Bundle{
 		Description: "two of each",
@@ -216,12 +216,12 @@ func TestSiblingContext_ExcludesTheDistillingItemByRefPrefix(t *testing.T) {
 		},
 	}
 
-	frag := buildSiblingContext(b, trust.FormatSelector(trust.KindFragment, "drop-frag"))
+	frag := buildSiblingContext(b, ident.FormatSelector(ident.KindFragment, "drop-frag"))
 	assert.Contains(t, frag, "- keep-frag:")
 	assert.NotContains(t, frag, "- drop-frag:")
 	assert.Contains(t, frag, "- drop-cmd:", "a fragment exclusion must not hide a same-named command")
 
-	cmd := buildSiblingContext(b, trust.FormatSelector(trust.KindPrompt, "drop-cmd"))
+	cmd := buildSiblingContext(b, ident.FormatSelector(ident.KindPrompt, "drop-cmd"))
 	assert.Contains(t, cmd, "- keep-cmd:")
 	assert.NotContains(t, cmd, "- drop-cmd:")
 	assert.Contains(t, cmd, "- drop-frag:")

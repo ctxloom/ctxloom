@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // Loader is one resolved GENERATION of everything a session can see —
@@ -115,13 +115,13 @@ func (l *Loader) Read(name string) (BundleRead, error) { return l.Catalog().Read
 
 // ReadKey resolves a bundle by its EXACT resolution key (Catalog.LookupKey) —
 // the load-path counterpart to Read for a caller that already holds a
-// trust.BundleKey rather than an ask string. No search, no ambiguity.
-func (l *Loader) ReadKey(key trust.BundleKey) (BundleRead, bool) {
+// ident.BundleKey rather than an ask string. No search, no ambiguity.
+func (l *Loader) ReadKey(key ident.BundleKey) (BundleRead, bool) {
 	return l.Catalog().LookupKey(key)
 }
 
 // LoadKey reads a bundle by its EXACT resolution key. See ReadKey.
-func (l *Loader) LoadKey(key trust.BundleKey) (*Bundle, error) {
+func (l *Loader) LoadKey(key ident.BundleKey) (*Bundle, error) {
 	return l.Catalog().LoadKey(key)
 }
 
@@ -179,7 +179,7 @@ type BundleInfo struct {
 	// Ref is the canonical URI, the unambiguous handle. It is what a user
 	// copies when two rows share a Name, and the only spelling that resolves
 	// exactly.
-	Ref trust.BundleKey
+	Ref ident.BundleKey
 
 	Path          string
 	Version       string

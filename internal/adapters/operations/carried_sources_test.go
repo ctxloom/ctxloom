@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // TestCarriedSources_NameEveryCompanionWhoseProbeFailed: only a FAILED
@@ -14,8 +14,8 @@ import (
 // has none, one never consented to and one absent contribute nothing to
 // keep. Each is named by the stamp its servers carry (bundles.BundleSCM).
 func TestCarriedSources_NameEveryCompanionWhoseProbeFailed(t *testing.T) {
-	ref := func(bin string) trust.BundleRef {
-		r, err := trust.CompanionRef(bin)
+	ref := func(bin string) ident.BundleRef {
+		r, err := ident.CompanionRef(bin)
 		require.NoError(t, err)
 		return r
 	}

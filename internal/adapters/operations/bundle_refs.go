@@ -2,7 +2,7 @@ package operations
 
 import (
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 )
@@ -10,7 +10,7 @@ import (
 // RemovedItem identifies a local item to delete during cleanup.
 type RemovedItem struct {
 	Type remote.ItemType
-	Ref  trust.BundleKey
+	Ref  ident.BundleKey
 }
 
 // RemoveLocalItemsRequest is the input for RemoveLocalItems.

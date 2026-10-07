@@ -7,14 +7,14 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // Profile is a bundle-shipped profile.
 //
 // A profile is not a deliverable item kind, which is why KindProfile is
-// defined in this package rather than promoted to a trust.ItemKind constant.
+// defined in this package rather than promoted to an ident.ItemKind constant.
 type Profile struct {
 	// Name is the profile's identity, taken from its filename.
 	Name string
@@ -25,7 +25,7 @@ type Profile struct {
 	Def profiles.Profile
 }
 
-func (Profile) Kind() trust.ItemKind { return KindProfile }
+func (Profile) Kind() ident.ItemKind { return KindProfile }
 
 type profileType struct{}
 
@@ -43,19 +43,19 @@ func (t profileType) Detect(src Source) bool {
 // Forms reports FormRaw. A profile is an authored document with exactly one
 // materialization; FormNone would claim it binds no content at all, which is
 // false — its bytes are hashed and covered like every other component's.
-func (t profileType) Forms(src Source) ([]trust.ContentForm, error) {
+func (t profileType) Forms(src Source) ([]ident.ContentForm, error) {
 	if _, ok := detectSingleYAML(t.Dir(), src, 0); !ok {
 		return nil, fmt.Errorf("%w: not a profile", ErrUnrecognized)
 	}
-	return []trust.ContentForm{trust.FormRaw}, nil
+	return []ident.ContentForm{ident.FormRaw}, nil
 }
 
-func (t profileType) RefFor(bundle string, src Source) (trust.Ref, error) {
+func (t profileType) RefFor(bundle string, src Source) (ident.Ref, error) {
 	name, ok := detectSingleYAML(t.Dir(), src, 0)
 	if !ok {
-		return trust.Ref{}, fmt.Errorf("%w: not a profile", ErrUnrecognized)
+		return ident.Ref{}, fmt.Errorf("%w: not a profile", ErrUnrecognized)
 	}
-	return trust.Ref{Bundle: bundle, Kind: KindProfile, Name: name}, nil
+	return ident.Ref{Bundle: bundle, Kind: KindProfile, Name: name}, nil
 }
 
 // Decode reads the profile document through profiles.Decode, the one profile

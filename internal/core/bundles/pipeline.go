@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
@@ -89,7 +89,7 @@ func (p *Pipeline) Withheld() []string {
 // grammar. An item nothing can address is a load error: it is named, tallied,
 // and not delivered.
 func (p *Pipeline) addressable(ref string) bool {
-	if _, err := trust.ParseBundleRef(ref); err != nil {
+	if _, err := ident.ParseBundleRef(ref); err != nil {
 		p.loader.cat.rep.Warnf("withheld %s: its ref could not be parsed: %v", ref, err)
 		p.recordWithheld(ref)
 		return false
@@ -184,9 +184,9 @@ func (p *Pipeline) deliverSkill(ls *LoadedSkill) *LoadedSkill {
 	for i, f := range ls.Files {
 		paths[i] = f.RelPath
 	}
-	form := trust.FormRaw
-	if p.preferDistilled && slices.Contains(content.SkillForms(paths), trust.FormDistilled) {
-		form = trust.FormDistilled
+	form := ident.FormRaw
+	if p.preferDistilled && slices.Contains(content.SkillForms(paths), ident.FormDistilled) {
+		form = ident.FormDistilled
 	}
 	layout, err := content.SkillMaterialization(paths, form)
 	if err != nil {

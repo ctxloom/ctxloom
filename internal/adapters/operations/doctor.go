@@ -23,9 +23,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -883,8 +883,8 @@ func (d companionDecisions) detail() string {
 // companionBinOf recovers the binary name a companion identity was minted
 // from. A key that will not parse is shown verbatim: it is still the most
 // specific thing known about that entry, and hiding it would drop a row.
-func companionBinOf(key trust.BundleKey) string {
-	ref, err := trust.ParseBundleRef(string(key))
+func companionBinOf(key ident.BundleKey) string {
+	ref, err := ident.ParseBundleRef(string(key))
 	if err != nil || ref.Bundle == "" {
 		return string(key)
 	}

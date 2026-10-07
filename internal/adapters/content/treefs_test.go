@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 func TestAferoTreeFS_ListsAndReadsStoreRelativeSlashPaths(t *testing.T) {
@@ -246,7 +246,7 @@ func TestTreeStore_ReadOnlyBackingRefusesWritesLoudly(t *testing.T) {
 		t.Fatalf("newReadOnlyTreeStore: %v", err)
 	}
 	ctx := t.Context()
-	ref := trust.Ref{Bundle: "b", Kind: trust.KindMCP, Name: "redis"}
+	ref := ident.Ref{Bundle: "b", Kind: ident.KindMCP, Name: "redis"}
 	for name, call := range map[string]func() error{
 		"Put":    func() error { return store.Put(ctx, ref, "raw", nil) },
 		"Delete": func() error { return store.Delete(ctx, ref) },

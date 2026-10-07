@@ -1,4 +1,4 @@
-package trust
+package ident
 
 import (
 	"errors"
@@ -17,7 +17,7 @@ import (
 // is an identity a grant keys on.
 //
 // The class names are re-exported rather than re-declared so a caller reading
-// trust.ClassGit and a caller reading refuri.ClassGit cannot come to hold two
+// ident.ClassGit and a caller reading refuri.ClassGit cannot come to hold two
 // different values.
 type SourceClass = refuri.SourceClass
 

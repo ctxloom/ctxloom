@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -35,8 +35,8 @@ func newTestWalker(fetcher remote.Fetcher) *depWalker {
 		resolveHash: func(ref *remote.Reference) (string, string, remote.SelectorKind, bool) {
 			return ref.ContentVersion, "", "", true
 		},
-		pins:       map[trust.BundleKey]PinnedRef{},
-		hashes:     map[trust.BundleKey]map[string]struct{}{},
+		pins:       map[ident.BundleKey]PinnedRef{},
+		hashes:     map[ident.BundleKey]map[string]struct{}{},
 		visited:    map[string]struct{}{},
 		unexpanded: map[string]struct{}{},
 	}

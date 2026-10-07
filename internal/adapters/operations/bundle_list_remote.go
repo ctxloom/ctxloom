@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/spf13/afero"
 
@@ -78,7 +78,7 @@ func stampLockState(cfg *config.Config, infos []*bundles.BundleInfo) {
 	for _, info := range infos {
 		// Keyed through the parser, not a cast: a name that is not a bundle
 		// reference (a project bundle) has no lock entry to stamp.
-		br, perr := trust.ParseBundleRef(info.Name)
+		br, perr := ident.ParseBundleRef(info.Name)
 		if perr != nil {
 			continue
 		}

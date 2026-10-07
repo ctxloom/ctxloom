@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // companionLoadout is the shape a companion's probe would produce: one bundle's
@@ -67,11 +67,11 @@ func TestDocumentStore_ReadsABundleWithNoFilesystem(t *testing.T) {
 	}
 
 	// Decoding, the sidecar, and the digest all work identically to the tree.
-	item, err := bundle.Item(ctx, trust.Ref{Bundle: "ltk", Kind: trust.KindMCP, Name: "ltk"})
+	item, err := bundle.Item(ctx, ident.Ref{Bundle: "ltk", Kind: ident.KindMCP, Name: "ltk"})
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, trust.FormRaw)
+	form, err := item.Form(ctx, ident.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}

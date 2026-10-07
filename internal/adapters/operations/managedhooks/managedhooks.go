@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
@@ -397,7 +397,7 @@ const bundleHookMarkerPrefix = "bundle:"
 // "what do I change" — install or remove a binary, or edit a profile's bundle
 // list — so they are two origins rather than one.
 //
-// Classification is by PARSED CLASS (trust.ParseBundleRef), never a string
+// Classification is by PARSED CLASS (ident.ParseBundleRef), never a string
 // prefix test: the marker is a canonical bundle reference
 // ("ctxloom+companion:<bin>", "ctxloom+local:<name>", …), and a class
 // carried in the URI scheme cannot be spoofed by a bundle NAME that happens to
@@ -410,12 +410,12 @@ func bundleSource(h wire.Hook) Source {
 	if !ok {
 		return Source{Origin: OriginUnattributed}
 	}
-	br, err := trust.ParseBundleRef(ref)
+	br, err := ident.ParseBundleRef(ref)
 	if err != nil {
 		return Source{Origin: OriginUnattributed, Ref: ref}
 	}
 	switch br.Class {
-	case trust.ClassCompanion:
+	case ident.ClassCompanion:
 		return Source{Origin: OriginCompanion, Ref: ref}
 	default:
 		return Source{Origin: OriginBundle, Ref: ref}

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
@@ -15,7 +15,7 @@ import (
 //
 // This axis is purely about layout, so an executable surface reports the same
 // base form a never-distilled document does.
-var execForms = []trust.ContentForm{trust.FormRaw}
+var execForms = []ident.ContentForm{ident.FormRaw}
 
 // detectSingleYAML is the shared recognition for the executable surfaces: exactly
 // one non-sidecar component, a .yaml file, at the expected depth below the kind
@@ -155,7 +155,7 @@ type MCP struct {
 	Installation string
 }
 
-func (MCP) Kind() trust.ItemKind { return trust.KindMCP }
+func (MCP) Kind() ident.ItemKind { return ident.KindMCP }
 
 // mcpContent is the content file's shape: what an MCP client needs, nothing else.
 type mcpContent struct {
@@ -177,8 +177,8 @@ type mcpMeta struct {
 
 type mcpType struct{}
 
-func (mcpType) Name() string { return trust.KindMCP.Dir() }
-func (mcpType) Dir() string  { return trust.KindMCP.Dir() }
+func (mcpType) Name() string { return ident.KindMCP.Dir() }
+func (mcpType) Dir() string  { return ident.KindMCP.Dir() }
 
 // Meta: a sidecar, so mcp/<name>.yaml stays pure MCP-client config with none of
 // our keys in it.
@@ -189,19 +189,19 @@ func (t mcpType) Detect(src Source) bool {
 	return ok
 }
 
-func (t mcpType) Forms(src Source) ([]trust.ContentForm, error) {
+func (t mcpType) Forms(src Source) ([]ident.ContentForm, error) {
 	if _, ok := detectSingleYAML(t.Dir(), src, 0); !ok {
 		return nil, fmt.Errorf("%w: not an mcp item", ErrUnrecognized)
 	}
 	return execForms, nil
 }
 
-func (t mcpType) RefFor(bundle string, src Source) (trust.Ref, error) {
+func (t mcpType) RefFor(bundle string, src Source) (ident.Ref, error) {
 	name, ok := detectSingleYAML(t.Dir(), src, 0)
 	if !ok {
-		return trust.Ref{}, fmt.Errorf("%w: not an mcp item", ErrUnrecognized)
+		return ident.Ref{}, fmt.Errorf("%w: not an mcp item", ErrUnrecognized)
 	}
-	return trust.Ref{Bundle: bundle, Kind: trust.KindMCP, Name: name}, nil
+	return ident.Ref{Bundle: bundle, Kind: ident.KindMCP, Name: name}, nil
 }
 
 func (t mcpType) Decode(src Source) (Surface, error) {
@@ -315,7 +315,7 @@ func SortHooks(hooks []Hook) {
 	})
 }
 
-func (Hook) Kind() trust.ItemKind { return trust.KindHook }
+func (Hook) Kind() ident.ItemKind { return ident.KindHook }
 
 // Ref name is "<event>/<name>".
 func (h Hook) refName() string { return h.Event + "/" + h.Name }
@@ -350,8 +350,8 @@ type hookMeta struct {
 
 type hookType struct{}
 
-func (hookType) Name() string { return trust.KindHook.Dir() }
-func (hookType) Dir() string  { return trust.KindHook.Dir() }
+func (hookType) Name() string { return ident.KindHook.Dir() }
+func (hookType) Dir() string  { return ident.KindHook.Dir() }
 
 // Meta: a sidecar, so hooks/<event>/<name>.yaml stays pure hook configuration.
 // The sidecar is a COMPONENT and therefore hashed — changing a hook's order
@@ -364,19 +364,19 @@ func (t hookType) Detect(src Source) bool {
 	return ok
 }
 
-func (t hookType) Forms(src Source) ([]trust.ContentForm, error) {
+func (t hookType) Forms(src Source) ([]ident.ContentForm, error) {
 	if _, ok := detectSingleYAML(t.Dir(), src, 1); !ok {
 		return nil, fmt.Errorf("%w: not a hook item", ErrUnrecognized)
 	}
 	return execForms, nil
 }
 
-func (t hookType) RefFor(bundle string, src Source) (trust.Ref, error) {
+func (t hookType) RefFor(bundle string, src Source) (ident.Ref, error) {
 	name, ok := detectSingleYAML(t.Dir(), src, 1)
 	if !ok {
-		return trust.Ref{}, fmt.Errorf("%w: not a hook item", ErrUnrecognized)
+		return ident.Ref{}, fmt.Errorf("%w: not a hook item", ErrUnrecognized)
 	}
-	return trust.Ref{Bundle: bundle, Kind: trust.KindHook, Name: name}, nil
+	return ident.Ref{Bundle: bundle, Kind: ident.KindHook, Name: name}, nil
 }
 
 func (t hookType) Decode(src Source) (Surface, error) {

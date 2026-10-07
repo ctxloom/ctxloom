@@ -155,11 +155,10 @@ ctxloom deps pull
 ctxloom run -p my-dev "help with code"
 ```
 
-If your team signs its bundles and everyone trusts the team's SSH signing key
-(`ctxloom signer trust context@myorg.example --key team-publish.pub`; ctxloom
-signatures are SSH signatures verified against `allowed_signers`, never GPG), the review
-step is unnecessary: content from a trusted signer is exempt from the gate. Trust
-is anchored to the key, not to the remote's URL.
+Registering the team's repository as a remote is the whole trust decision: what
+it serves reaches every teammate's agent at the commit the lockfile pins, and a
+pin moves only when someone runs `ctxloom deps upgrade --yes` after reading what
+the move brings in.
 
 ## Project-Specific Workflow
 
@@ -334,8 +333,8 @@ Delegation](/concepts/agent-delegation/)).
 ### In CI Pipeline
 
 What CI can check on its own is that your context still *assembles*: that every
-profile resolves, every bundle it names is reachable, and the fragments are
-trusted enough to be exposed. `--dry-run` does exactly that and never launches an
+profile resolves, and every bundle it names is reachable through a registered
+remote. `--dry-run` does exactly that and never launches an
 engine, so the job needs no engine binary and no model credentials.
 
 ```yaml

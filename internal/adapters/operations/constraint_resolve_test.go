@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,7 +33,7 @@ func countingFactory(mock remote.Fetcher) (remote.FetcherFactory, *int) {
 
 func activeLock(entry remote.LockEntry) *remote.Lockfile {
 	lf := &remote.Lockfile{
-		Bundles: map[trust.BundleKey]remote.LockEntry{},
+		Bundles: map[ident.BundleKey]remote.LockEntry{},
 	}
 	lf.AddEntry(remote.ItemTypeBundle, crKey, entry)
 	return lf

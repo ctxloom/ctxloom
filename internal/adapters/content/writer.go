@@ -13,7 +13,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -25,7 +25,7 @@ import (
 // type's own Detect and RefFor before anything touches the disk: if the surface's
 // own name disagrees with the ref it is being written under, that is a caller bug
 // that would otherwise store one item's bytes at another item's address.
-func (s *TreeStore) Put(ctx context.Context, ref trust.Ref, f trust.ContentForm, surface Surface) error {
+func (s *TreeStore) Put(ctx context.Context, ref ident.Ref, f ident.ContentForm, surface Surface) error {
 	if err := s.beginWrite(ctx); err != nil {
 		return err
 	}
@@ -101,7 +101,7 @@ func (s *TreeStore) Put(ctx context.Context, ref trust.Ref, f trust.ContentForm,
 // encoding no longer carries one (every metadata field cleared). A Put
 // replaces the item, and a sidecar left behind would be read back as the
 // metadata the caller just cleared.
-func (s *TreeStore) removeDroppedSidecar(t SurfaceType, ref trust.Ref, f trust.ContentForm, forms []trust.ContentForm, components []Component) error {
+func (s *TreeStore) removeDroppedSidecar(t SurfaceType, ref ident.Ref, f ident.ContentForm, forms []ident.ContentForm, components []Component) error {
 	metaPath, ok := t.Meta().PathFor(t.Dir(), ref.Name)
 	if !ok || formOf(metaPath, forms) != f {
 		return nil
@@ -134,7 +134,7 @@ func fileMode(m ComponentMode) os.FileMode {
 // Stored signatures are deliberately left alone. They are keyed by content hash
 // precisely so that they outlive the file, and a rejection that a file deletion
 // could remove would mean you could un-blacklist content by deleting it.
-func (s *TreeStore) Delete(ctx context.Context, ref trust.Ref) error {
+func (s *TreeStore) Delete(ctx context.Context, ref ident.Ref) error {
 	if err := s.beginWrite(ctx); err != nil {
 		return err
 	}

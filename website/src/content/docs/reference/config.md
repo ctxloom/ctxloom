@@ -71,20 +71,10 @@ Behavioral settings
 | Field | Type | Description |
 |-------|------|-------------|
 | `essence_max_chars` | integer | Character budget for a compacted session essence (default: 12000) |
-| `sign` | object | Publisher-signing defaults for `bundle push`. |
 | `silence_unsupported` | boolean | Suppress capability-loss lines when a backend does not support a requested feature (default: false) |
 | `statusline` | boolean | Whether ctxloom manages its HUD statusline (default: true); set false to keep your own |
 | `tool_reflect_bytes` | integer | Tool-result size, in bytes, at or above which the PostToolUse reflect hook fires; negative disables the hook |
 | `use_distilled` | boolean | Whether to prefer distilled versions of fragments/prompts (default: true) |
-
-#### config.sign
-
-Publisher-signing defaults for `bundle push`.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `default` | boolean | When true, publish commands sign unless --no-sign is given. Defaults to false — signing is opt-in, like `git commit -S` until gpg.commit.sign flips it. |
-| `key` | string | Explicit --key-equivalent: a path to a public key or a SHA256:... fingerprint. Empty uses the zero-config discovery chain (git config user.signingkey, then the sole ssh-agent identity). |
 
 ### delegation
 

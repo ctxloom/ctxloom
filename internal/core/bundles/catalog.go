@@ -13,8 +13,8 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
@@ -46,7 +46,7 @@ type Catalog struct {
 	// still appears in reads, so a listing shows it and the unmintable-source
 	// report can name it; it is simply not resolvable, which is the same
 	// fail-closed verdict its item refs already get.
-	byKey map[trust.BundleKey]BundleRead
+	byKey map[ident.BundleKey]BundleRead
 
 	// fs is the filesystem the local content in this set was read from, and
 	// it is carried rather than re-derived because a skill's files are read
@@ -118,7 +118,7 @@ type Candidate struct {
 	// Ref is the canonical identity the content WOULD be resolvable under,
 	// were it ever obtained. It is the same key Catalog.LookupKey takes, so a
 	// caller can ask whether a candidate later became a read.
-	Ref trust.BundleKey
+	Ref ident.BundleKey
 	// Path is where on this machine the content would come from, or "" when
 	// nothing answers to the identity. It is what a remedy has to name — an
 	// approval keys on the file, not on the name anything may claim.
@@ -157,8 +157,8 @@ type CandidateReader interface {
 // second bundle left unreachable to announce.
 func Resolve(ctx context.Context, sink report.Sink, readers ...Reader) Catalog {
 	rep := report.To(sink)
-	byKey := make(map[trust.BundleKey]BundleRead)
-	var order []trust.BundleKey
+	byKey := make(map[ident.BundleKey]BundleRead)
+	var order []ident.BundleKey
 	var unaddressable []BundleRead
 	var candidates []Candidate
 
@@ -322,7 +322,7 @@ func (c Catalog) Candidates() []Candidate {
 //
 // The arms, in order:
 //
-//  1. ask parses as a canonical trust.BundleRef — resolved EXACTLY by
+//  1. ask parses as a canonical ident.BundleRef — resolved EXACTLY by
 //     LookupKey. No search, no ambiguity possible. A canonical ref this
 //     catalog does not hold is errs.ErrBundleNotFound.
 //  2. ask is a self-contained identity in the pipeline's own spelling (a
@@ -331,11 +331,11 @@ func (c Catalog) Candidates() []Candidate {
 //     This arm is a bridge for the identities the assembly pipeline and the
 //     lockfile still author; it never searches, so it cannot pick a winner.
 //  3. ask carries the one scheme marker nothing still mints
-//     (trust.IsRetiredBuiltinSpelling) — errs.ErrRetiredRefSpelling with the
+//     (ident.IsRetiredBuiltinSpelling) — errs.ErrRetiredRefSpelling with the
 //     migration hint. It is never downgraded to arm 4: "you typed a spelling
 //     the grammar no longer accepts" and "no such bundle" are different faults
 //     and deserve different messages. The WIDER ask-surface set
-//     (trust.IsRetiredAtEntry, used by ResolveAsk) must not be refused
+//     (ident.IsRetiredAtEntry, used by ResolveAsk) must not be refused
 //     here: arm 2's spellings are live identities on this path, and an
 //     identity that resolves to nothing is a missing bundle, not a retired
 //     spelling.
@@ -344,7 +344,7 @@ func (c Catalog) Candidates() []Candidate {
 //     Exactly one match resolves; zero is errs.ErrBundleNotFound; two or more
 //     is errs.ErrBundleAmbiguous naming every candidate's canonical URI.
 func (c Catalog) Lookup(ask string) (BundleRead, error) {
-	if br, err := trust.ParseBundleRef(ask); err == nil {
+	if br, err := ident.ParseBundleRef(ask); err == nil {
 		if read, ok := c.LookupKey(br.BundleIdentity()); ok {
 			return read, nil
 		}
@@ -355,7 +355,7 @@ func (c Catalog) Lookup(ask string) (BundleRead, error) {
 			return read, nil
 		}
 	}
-	if trust.IsRetiredBuiltinSpelling(ask) {
+	if ident.IsRetiredBuiltinSpelling(ask) {
 		return BundleRead{}, retiredSpelling(ask)
 	}
 	matches := c.matchingName(ask)
@@ -440,7 +440,7 @@ func retiredSpelling(ask string) error {
 // LookupKey is the ONLY exact resolution: given the version-less canonical
 // identity a read's SourceRef stamps, it either finds the one read that
 // identity names or it does not. No search, no ambiguity.
-func (c Catalog) LookupKey(key trust.BundleKey) (BundleRead, bool) {
+func (c Catalog) LookupKey(key ident.BundleKey) (BundleRead, bool) {
 	read, ok := c.byKey[key]
 	return read, ok
 }
@@ -449,7 +449,7 @@ func (c Catalog) LookupKey(key trust.BundleKey) (BundleRead, bool) {
 // an already-extracted key. br's own item selector (Kind/Item), if any, is
 // ignored: this resolves the BUNDLE the item lives in, matching
 // BundleIdentity's own contract.
-func (c Catalog) LookupRef(br trust.BundleRef) (BundleRead, bool) {
+func (c Catalog) LookupRef(br ident.BundleRef) (BundleRead, bool) {
 	return c.LookupKey(br.BundleIdentity())
 }
 
@@ -467,7 +467,7 @@ func (c Catalog) LookupRef(br trust.BundleRef) (BundleRead, bool) {
 //
 // The arms:
 //
-//  1. ask parses as a canonical trust.BundleRef — resolved EXACTLY against
+//  1. ask parses as a canonical ident.BundleRef — resolved EXACTLY against
 //     this catalog by LookupKey. A canonical ref that names no bundle HERE is
 //     errs.ErrBundleNotFound: a bundle-level ask ("bundle show", "bundle
 //     remove") is meaningless for a bundle the catalog cannot see.
@@ -482,15 +482,15 @@ func (c Catalog) LookupRef(br trust.BundleRef) (BundleRead, bool) {
 // ResolveAsk does not itself understand an item selector ("#<kind>/<item>");
 // it resolves the BUNDLE half of an ask. operations.ResolveItemAsk splits the
 // selector off before calling here.
-func (c Catalog) ResolveAsk(ask string) (trust.BundleRef, error) {
-	if br, err := trust.ParseBundleRef(ask); err == nil {
+func (c Catalog) ResolveAsk(ask string) (ident.BundleRef, error) {
+	if br, err := ident.ParseBundleRef(ask); err == nil {
 		if _, ok := c.LookupKey(br.BundleIdentity()); !ok {
-			return trust.BundleRef{}, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, ask)
+			return ident.BundleRef{}, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, ask)
 		}
 		return br, nil
 	}
-	if trust.IsRetiredAtEntry(ask) {
-		return trust.BundleRef{}, retiredSpelling(ask)
+	if ident.IsRetiredAtEntry(ask) {
+		return ident.BundleRef{}, retiredSpelling(ask)
 	}
 
 	matches := c.matchingName(ask)
@@ -498,9 +498,9 @@ func (c Catalog) ResolveAsk(ask string) (trust.BundleRef, error) {
 	case 1:
 		return matches[0].SourceRef(), nil
 	case 0:
-		return trust.BundleRef{}, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, ask)
+		return ident.BundleRef{}, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, ask)
 	default:
-		return trust.BundleRef{}, ambiguousAsk(ask, matches)
+		return ident.BundleRef{}, ambiguousAsk(ask, matches)
 	}
 }
 
@@ -525,7 +525,7 @@ func (c Catalog) Scoped(classes ...ProvenanceClass) Catalog {
 	}
 	out := c
 	out.reads, out.candidates = nil, nil
-	out.byKey = make(map[trust.BundleKey]BundleRead)
+	out.byKey = make(map[ident.BundleKey]BundleRead)
 	// A value copy shares the map; a view must own its failures snapshot.
 	// fs and warnOut stay shared on purpose: they are injected collaborators.
 	out.failures = maps.Clone(c.failures)
@@ -679,7 +679,7 @@ func (c Catalog) Load(ask string) (*Bundle, error) {
 }
 
 // LoadKey reads a bundle by its EXACT resolution key. See LookupKey.
-func (c Catalog) LoadKey(key trust.BundleKey) (*Bundle, error) {
+func (c Catalog) LoadKey(key ident.BundleKey) (*Bundle, error) {
 	read, ok := c.LookupKey(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, key)
@@ -739,7 +739,7 @@ func (c Catalog) failure(ask string) error {
 	if err := c.failures[ask]; err != nil {
 		return err
 	}
-	if br, err := trust.ParseBundleRef(ask); err == nil {
+	if br, err := ident.ParseBundleRef(ask); err == nil {
 		return c.failures[string(br.BundleIdentity())]
 	}
 	if parsed, err := remote.ParseReference(ask); err == nil {

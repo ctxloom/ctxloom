@@ -11,10 +11,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // FullLaunch is a Launch with EVERY field populated by a non-zero value, for
@@ -63,7 +63,7 @@ func FullLaunch(t *testing.T) launch.Launch {
 			Dynamic: []string{"b/premised"},
 			Losses:  []delivery.Loss{{Kind: present.Skills}},
 		},
-		Index:  composite.Index{Entries: []composite.IndexEntry{{Ref: "b/f", Kind: trust.KindFragment, Description: "desc", Premise: "when x"}}},
+		Index:  composite.Index{Entries: []composite.IndexEntry{{Ref: "b/f", Kind: ident.KindFragment, Description: "desc", Premise: "when x"}}},
 		MCP:    sessions.Endpoint{URL: "http://127.0.0.1:41234/mcp", Credential: "bearer"},
 		Prompt: "do the thing",
 		Resume: sessions.ResumeRef{Harp: "harp-1", NativeKey: "native-1"},

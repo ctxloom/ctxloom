@@ -12,8 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
@@ -210,9 +210,9 @@ func TestIndexOf_EnumeratesTheCatalog(t *testing.T) {
 	for _, e := range idx.Entries {
 		byRef[e.Ref] = e
 	}
-	assert.Equal(t, trust.KindFragment, byRef[alphaMaybe].Kind)
+	assert.Equal(t, ident.KindFragment, byRef[alphaMaybe].Kind)
 	assert.Equal(t, "the agent is about to touch a signed bundle", byRef[alphaMaybe].Premise)
-	assert.Equal(t, trust.KindPrompt, byRef[alphaReview].Kind)
+	assert.Equal(t, ident.KindPrompt, byRef[alphaReview].Kind)
 	assert.Equal(t, "Review the diff", byRef[alphaReview].Description)
 	assert.Contains(t, byRef, betaShip)
 	assert.Contains(t, byRef, betaTagged)

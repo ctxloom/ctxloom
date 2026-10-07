@@ -2,7 +2,7 @@
 package remote
 
 import (
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"time"
 )
 
@@ -186,7 +186,7 @@ type LockEntry struct {
 type Lockfile struct {
 	Version  int                           `yaml:"schema_version" json:"version"`
 	LockedAt time.Time                     `yaml:"locked_at" json:"locked_at"`
-	Bundles  map[trust.BundleKey]LockEntry `yaml:"bundles,omitempty" json:"bundles,omitempty"`
+	Bundles  map[ident.BundleKey]LockEntry `yaml:"bundles,omitempty" json:"bundles,omitempty"`
 }
 
 // LockfileVersion is the lockfile format this build writes and the only one it

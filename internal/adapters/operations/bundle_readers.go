@@ -17,8 +17,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -51,7 +51,7 @@ func lockfileFSOptions(cfg *config.Config) []remote.LockfileOption {
 //
 // A tree whose directory cannot even be opened REPLACES that entry's failure
 // with its own, so the user is told what actually went wrong.
-func treeBundleReaders(cfg *config.Config, lock *remote.Lockfile, failures map[trust.BundleKey]error) []bundles.Reader {
+func treeBundleReaders(cfg *config.Config, lock *remote.Lockfile, failures map[ident.BundleKey]error) []bundles.Reader {
 	trees := slices.Sorted(maps.Keys(lock.Bundles)) // deterministic reader order across runs
 
 	var out []bundles.Reader
@@ -83,7 +83,7 @@ func treeBundleReaders(cfg *config.Config, lock *remote.Lockfile, failures map[t
 // repository path is absorbed by the root rather than smuggled into the id.
 // That parent is inside the worktree, because a sparse checkout lays the bundle
 // out at its repository path — see Reference.LocalTreePath.
-func treeBundleReader(cfg *config.Config, canonical trust.BundleKey, entry remote.LockEntry) (bundles.Reader, error) {
+func treeBundleReader(cfg *config.Config, canonical ident.BundleKey, entry remote.LockEntry) (bundles.Reader, error) {
 	if len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
@@ -114,7 +114,7 @@ func treeBundleReader(cfg *config.Config, canonical trust.BundleKey, entry remot
 // into, from its canonical lockfile key. It goes through the same
 // Reference.LocalTreePath the installer used rather than re-assembling the path,
 // so a layout change cannot make the writer and the reader disagree.
-func treeBundleDir(baseDir string, canonical trust.BundleKey) (string, error) {
+func treeBundleDir(baseDir string, canonical ident.BundleKey) (string, error) {
 	ref, err := remote.ParseReference(string(canonical))
 	if err != nil {
 		return "", fmt.Errorf("invalid lockfile bundle key %q: %w", canonical, err)
@@ -152,7 +152,7 @@ func (e *bundleTreeError) Remedy() string { return e.remedy }
 // pin is keyed by identity (Reference.LocalWorktreePath), so its presence
 // separates "never pulled" from "pulled, and the pinned commit has no bundle
 // where readers look".
-func missingTreeError(fsys afero.Fs, baseDir string, canonical trust.BundleKey, entry remote.LockEntry, dir string) error {
+func missingTreeError(fsys afero.Fs, baseDir string, canonical ident.BundleKey, entry remote.LockEntry, dir string) error {
 	if !worktreeInstalled(fsys, baseDir, canonical) {
 		return &bundleTreeError{
 			cause: ErrTreeNotInstalled,
@@ -178,7 +178,7 @@ func missingTreeError(fsys afero.Fs, baseDir string, canonical trust.BundleKey, 
 
 // worktreeInstalled reports whether canonical's pinned checkout exists. An
 // unparseable key reports false: no checkout can exist for it.
-func worktreeInstalled(fsys afero.Fs, baseDir string, canonical trust.BundleKey) bool {
+func worktreeInstalled(fsys afero.Fs, baseDir string, canonical ident.BundleKey) bool {
 	ref, err := remote.ParseReference(string(canonical))
 	if err != nil {
 		return false
@@ -197,7 +197,7 @@ func worktreeInstalled(fsys afero.Fs, baseDir string, canonical trust.BundleKey)
 // Fatal-class in strict mode because the user PINNED these: content silently
 // missing from a session is exactly the failure fail-loudly exists to catch. It
 // warns and continues in degraded mode.
-func reportBundleLoadFailures(failures map[trust.BundleKey]error) {
+func reportBundleLoadFailures(failures map[ident.BundleKey]error) {
 	for name, err := range failures {
 		strictness.FailOnce(report.KindBundle, remedyOr(err, "ctxloom deps pull (or remove the bundle from its profiles)"),
 			"failed to load remote bundle %q from cache: %v", name, err)
@@ -268,7 +268,7 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 	if lock.IsEmpty() {
 		return nil
 	}
-	unregistered := map[trust.BundleKey]error{}
+	unregistered := map[ident.BundleKey]error{}
 	lock = registeredEntries(lock, registry, unregistered)
 	// Auth config and the git clone cache are inherently OS-backed (the cache
 	// shells out to git), so they intentionally do not honor cfg.FS().
@@ -299,9 +299,9 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 // whose fetch side is remote.Puller's: content installed from a repository
 // that is no longer registered stops resolving, though its tree is still on
 // disk. lock itself is not modified.
-func registeredEntries(lock *remote.Lockfile, registry *remote.Registry, failures map[trust.BundleKey]error) *remote.Lockfile {
+func registeredEntries(lock *remote.Lockfile, registry *remote.Registry, failures map[ident.BundleKey]error) *remote.Lockfile {
 	kept := *lock
-	kept.Bundles = make(map[trust.BundleKey]remote.LockEntry, len(lock.Bundles))
+	kept.Bundles = make(map[ident.BundleKey]remote.LockEntry, len(lock.Bundles))
 	for key, entry := range lock.Bundles {
 		if _, ok := registry.LookupURL(entry.URL); !ok {
 			failures[key] = remote.NotRegisteredError(entry.URL)
@@ -316,7 +316,7 @@ func registeredEntries(lock *remote.Lockfile, registry *remote.Registry, failure
 // bundle that could not be read, and hands those failures to the catalog
 // (unreadableTrees) so an ask for one is known to be already reported rather
 // than mistaken for a missing bundle and reported again.
-func pinnedTreeReaders(cfg *config.Config, lock *remote.Lockfile, failures map[trust.BundleKey]error) []bundles.Reader {
+func pinnedTreeReaders(cfg *config.Config, lock *remote.Lockfile, failures map[ident.BundleKey]error) []bundles.Reader {
 	out := treeBundleReaders(cfg, lock, failures)
 	reportBundleLoadFailures(failures)
 	if len(failures) == 0 {
@@ -328,7 +328,7 @@ func pinnedTreeReaders(cfg *config.Config, lock *remote.Lockfile, failures map[t
 // unreadableTrees is a bundles.ReadFailureReporter holding no bundles, only
 // the pinned bundles reportBundleLoadFailures has already reported, keyed by
 // canonical key — the key an identity ask resolves to (Catalog.Lookup).
-type unreadableTrees map[trust.BundleKey]error
+type unreadableTrees map[ident.BundleKey]error
 
 func (unreadableTrees) Read(context.Context) ([]bundles.BundleRead, error) { return nil, nil }
 

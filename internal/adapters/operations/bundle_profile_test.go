@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // writeBundleProfileFixture writes a local bundle that ships a fragment, an MCP
@@ -138,6 +138,6 @@ func TestBundleProfile_MCPResolves(t *testing.T) {
 // TestBundleProfile_NotAnItemKind: the item-ref grammar addresses
 // fragment/prompt/mcp/hook/skill but NEVER profiles.
 func TestBundleProfile_NotAnItemKind(t *testing.T) {
-	_, _, err := trust.ParseSelector("profiles/dev")
+	_, _, err := ident.ParseSelector("profiles/dev")
 	assert.Error(t, err, "a profile must not be addressable as a trust item kind")
 }

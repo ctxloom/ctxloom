@@ -11,8 +11,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
@@ -22,7 +22,7 @@ import (
 // PinnedRef is one resolved dependency in a flattened closure: a manifest
 // reference whose version constraint has been resolved to a concrete commit.
 type PinnedRef struct {
-	Identity   trust.BundleKey     // the lockfile key: the bundle identity, version-less
+	Identity   ident.BundleKey     // the lockfile key: the bundle identity, version-less
 	Hash       string              // the commit the constraint resolved to
 	URL        string              // repo URL
 	Type       remote.ItemType     // bundle or profile
@@ -237,8 +237,8 @@ func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remo
 		auth:        auth,
 		treeFetch:   remotetree.PullTreeFetcher,
 		resolveHash: resolve,
-		pins:        map[trust.BundleKey]PinnedRef{},
-		hashes:      map[trust.BundleKey]map[string]struct{}{},
+		pins:        map[ident.BundleKey]PinnedRef{},
+		hashes:      map[ident.BundleKey]map[string]struct{}{},
 		visited:     map[string]struct{}{},
 		unexpanded:  map[string]struct{}{},
 	}
@@ -276,8 +276,8 @@ type depWalker struct {
 	// nil-means-identity production fallback.
 	resolveHash func(ref *remote.Reference) (hash, version string, kind remote.SelectorKind, ok bool)
 
-	pins    map[trust.BundleKey]PinnedRef           // identity -> first-seen pin
-	hashes  map[trust.BundleKey]map[string]struct{} // identity -> set of hashes (for conflict detection)
+	pins    map[ident.BundleKey]PinnedRef           // identity -> first-seen pin
+	hashes  map[ident.BundleKey]map[string]struct{} // identity -> set of hashes (for conflict detection)
 	visited map[string]struct{}                     // identity@hash, recursion guard
 
 	// unexpanded records the identities of remote parent profiles whose content

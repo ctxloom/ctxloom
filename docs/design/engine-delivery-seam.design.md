@@ -49,7 +49,7 @@ type EngineDelivery interface {
     // Accepts reports whether this engine has anywhere to put this kind at all.
     // False means undelivered-BY-DESIGN, which a report must not render as
     // "missing".
-    Accepts(kind trust.ItemKind) bool
+    Accepts(kind ident.ItemKind) bool
 
     // Deliver places every form under targetDir and returns a reversible
     // handle. The engine decides which of ITS surfaces each lands in and in what
@@ -68,7 +68,7 @@ It is what attestation already keys on, so the thing that was signed and the
 thing that lands are the same object rather than two representations that can
 drift.
 
-It also carries no provenance. `trust.Ref` names the bundle, repo and locality —
+It also carries no provenance. `ident.Ref` names the bundle, repo and locality —
 and no placement decision may depend on any of those. An engine that can see
 which bundle something came from will eventually branch on it, so provenance is
 absent by construction rather than by discipline.

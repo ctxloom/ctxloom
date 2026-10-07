@@ -19,8 +19,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/runner/interaction"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // freePort reserves a loopback port the way the originator's minter does:
@@ -59,9 +59,9 @@ func loadoutAt(port int) delivery.Loadout {
 			Premised:  []composite.Item[composite.Fragment]{{Ref: "demo/gamma", Value: composite.Fragment{Name: "gamma", Body: "GAMMA-BODY", Premise: "when removing a worktree"}}},
 		},
 		Index: composite.Index{Entries: []composite.IndexEntry{
-			{Ref: "demo/loaded", Kind: trust.KindFragment},
-			{Ref: "demo/gamma", Kind: trust.KindFragment, Premise: "when removing a worktree"},
-			{Ref: "demo/deploy", Kind: trust.KindPrompt, Description: "deploy the thing"},
+			{Ref: "demo/loaded", Kind: ident.KindFragment},
+			{Ref: "demo/gamma", Kind: ident.KindFragment, Premise: "when removing a worktree"},
+			{Ref: "demo/deploy", Kind: ident.KindPrompt, Description: "deploy the thing"},
 		}},
 		MCP:      sessions.Endpoint{URL: "http://127.0.0.1:" + strconv.Itoa(port) + "/mcp", Credential: "bearer-token"},
 		Identity: sessions.Identity{Harp: "h", Depth: 1},

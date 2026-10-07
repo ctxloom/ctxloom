@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
@@ -74,7 +74,7 @@ type LoadedSkillFile struct {
 func (c Catalog) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 	if ask, err := ParseItemAsk(bundleRef); err == nil && ask.Scoped {
 		switch ask.Kind {
-		case trust.KindSkill:
+		case ident.KindSkill:
 			// An explicit "#skills/" cherry-pick NAMES a skill: resolve
 			// exactly that one via skillFromBundle (ReadSkill's own
 			// single-candidate path for "bundle#skills/name") instead of
@@ -87,7 +87,7 @@ func (c Catalog) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 				return nil
 			}
 			return reads
-		case trust.KindFragment, trust.KindMCP, trust.KindHook, trust.KindPrompt:
+		case ident.KindFragment, ident.KindMCP, ident.KindHook, ident.KindPrompt:
 			// A fragment/MCP/hook/command cherry-pick legitimately ships no
 			// SKILLS — considered, not overlooked; see ReadBundleCommands'
 			// mirror-image comment for where each of those actually resolves.
@@ -158,7 +158,7 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 		files = append(files, LoadedSkillFile{RelPath: m.Path, Content: data, Mode: uint32(mode)})
 	}
 
-	trustRef, err := ItemRefFor(read.SourceRef(), trust.KindSkill, name)
+	trustRef, err := ItemRefFor(read.SourceRef(), ident.KindSkill, name)
 	if err != nil {
 		c.rep.Warnf("skill %q withheld: %v", name, err)
 		return nil
@@ -246,8 +246,8 @@ func (c Catalog) ReadSkill(name string) ([]*LoadedSkill, error) {
 	if !ask.Scoped {
 		return c.searchSkill(name)
 	}
-	if ask.Kind != trust.KindSkill {
-		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, name, ask.Kind, trust.KindSkill)
+	if ask.Kind != ident.KindSkill {
+		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, name, ask.Kind, ident.KindSkill)
 	}
 	return c.skillFromBundle(ask.Bundle, ask.Item)
 }

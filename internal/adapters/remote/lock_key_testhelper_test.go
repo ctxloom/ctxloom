@@ -5,13 +5,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // lockKeyOf is the lockfile key a pull of ref writes: its bundle identity.
 // Fixtures key the lockfile through it so an entry can never sit under a
 // spelling no production lookup reaches.
-func lockKeyOf(t testing.TB, ref string) trust.BundleKey {
+func lockKeyOf(t testing.TB, ref string) ident.BundleKey {
 	t.Helper()
 	parsed, err := ParseReference(ref)
 	require.NoError(t, err, "ref %q", ref)

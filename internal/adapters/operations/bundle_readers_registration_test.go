@@ -11,8 +11,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -26,16 +26,16 @@ func TestRegisteredEntries_WithholdsAnUnregisteredRepository(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, reg.Add("acme", "https://github.com/acme/ctx"))
 
-	lock := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
+	lock := &remote.Lockfile{Bundles: map[ident.BundleKey]remote.LockEntry{
 		treeCanonical: treeEntry(),
 		orphan:        {SHA: "0123456789abcdef", URL: "https://github.com/gone/away"},
 	}}
-	failures := map[trust.BundleKey]error{}
+	failures := map[ident.BundleKey]error{}
 
 	kept := registeredEntries(lock, reg, failures)
-	assert.Contains(t, kept.Bundles, trust.BundleKey(treeCanonical))
-	assert.NotContains(t, kept.Bundles, trust.BundleKey(orphan))
-	assert.Contains(t, lock.Bundles, trust.BundleKey(orphan), "the lockfile itself is not edited")
+	assert.Contains(t, kept.Bundles, ident.BundleKey(treeCanonical))
+	assert.NotContains(t, kept.Bundles, ident.BundleKey(orphan))
+	assert.Contains(t, lock.Bundles, ident.BundleKey(orphan), "the lockfile itself is not edited")
 	require.ErrorIs(t, failures[orphan], remote.ErrRemoteNotRegistered)
 
 	readers := pinnedTreeReaders(c, kept, failures)

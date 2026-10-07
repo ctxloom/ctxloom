@@ -85,7 +85,7 @@ func (r staticReader) Read(context.Context) ([]BundleRead, error) { return r.rea
 func seedLocal(seeded map[string]*Bundle) Reader {
 	const (
 		prov = ProvenanceProject
-		tctx = TrustCtxLocal
+		tctx = LocalityLocal
 	)
 	var reads []BundleRead
 	for ref, b := range seeded {

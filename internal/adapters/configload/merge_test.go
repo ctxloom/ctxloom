@@ -42,7 +42,7 @@ agents:
 	reviewer, ok := cfg.GetConfiguredAgents()["reviewer"]
 	require.True(t, ok, "the project's own agent must still be present")
 
-	// MUTATION TARGET: with agentBindingMergeFunc removed (falling back to
+	// MUTATION TARGET: with layerMergeFunc removed (falling back to
 	// koanf's default deep merge), these two would leak in from home.
 	assert.True(t, reviewer.Permissions.IsZero(), "the project's binding replaces home's same-named one whole, so home's permissions do not fuse into it")
 	assert.Equal(t, "", reviewer.Runtime, "home's runtime must not leak in either -- the whole binding comes from the layer that named it")
@@ -66,7 +66,7 @@ func TestAgentBindingMergeFunc_AgentNamedOnlyByLowerLayerSurvives(t *testing.T) 
 			"other": map[string]any{"profiles": []any{"default"}},
 		},
 	}
-	require.NoError(t, agentBindingMergeFunc(src, dest))
+	require.NoError(t, layerMergeFunc(src, dest))
 
 	agents := dest["agents"].(map[string]any)
 	require.Contains(t, agents, "personal", "an agent the higher layer never names must survive the merge untouched")
@@ -87,7 +87,7 @@ func TestAgentBindingMergeFunc_ReplacesWholesale(t *testing.T) {
 			"reviewer": map[string]any{"profiles": []any{"default"}},
 		},
 	}
-	require.NoError(t, agentBindingMergeFunc(src, dest))
+	require.NoError(t, layerMergeFunc(src, dest))
 
 	agents := dest["agents"].(map[string]any)
 	reviewer := agents["reviewer"].(map[string]any)
@@ -97,7 +97,7 @@ func TestAgentBindingMergeFunc_ReplacesWholesale(t *testing.T) {
 func TestAgentBindingMergeFunc_NonAgentKeysStillDeepMerge(t *testing.T) {
 	dest := map[string]any{"editor": map[string]any{"command": "vim", "args": []any{"-p"}}}
 	src := map[string]any{"editor": map[string]any{"command": "nano"}}
-	require.NoError(t, agentBindingMergeFunc(src, dest))
+	require.NoError(t, layerMergeFunc(src, dest))
 
 	editor := dest["editor"].(map[string]any)
 	assert.Equal(t, "nano", editor["command"], "the higher layer's value must win")
@@ -109,9 +109,9 @@ func TestAgentBindingMergeFunc_NonAgentKeysStillDeepMerge(t *testing.T) {
 // while building this seam: --config-set targeting ONE field of an agent the
 // project already declares used to wipe out every OTHER field of that same
 // agent (profiles, engine, ...), because ApplyOverrides used to merge the
-// flag layer through the SAME atomic-replace-aware path (agentBindingMergeFunc)
+// flag layer through the SAME atomic-replace-aware path (layerMergeFunc)
 // Load's file-layer merge uses — the flag's one-field patch "named" the
-// agent, so agentBindingMergeFunc replaced the WHOLE binding with just that
+// agent, so layerMergeFunc replaced the WHOLE binding with just that
 // field. Fixed by confload.ApplyOverrides always resolving overrides through
 // the package's plain Merge, never a Product's own MergeFunc (see
 // internal/shared/confload's TestApplyOverrides_FlagOverride_
@@ -136,4 +136,44 @@ agents:
 	assert.Equal(t, "bypass", reviewer.Permissions.Engines["claude-code"]["mode"], "the override itself must still apply")
 	assert.Equal(t, []string{"default"}, reviewer.Profiles, "a sibling field the override never touched must survive")
 	assert.Equal(t, "claude-code", reviewer.LLM, "same for a second untouched sibling field")
+}
+
+// TestLayerMergeFunc_CompanionsUnionAcrossLayers: a project's `companions`
+// ADDS to home's, never replaces it — the lower layer's names first, in its
+// order, then each name only the higher layer adds, deduplicated.
+func TestLayerMergeFunc_CompanionsUnionAcrossLayers(t *testing.T) {
+	dest := map[string]any{"companions": []any{"ltk", "acme"}}
+	src := map[string]any{"companions": []any{"beta", "acme"}}
+	require.NoError(t, layerMergeFunc(src, dest))
+	assert.Equal(t, []any{"ltk", "acme", "beta"}, dest["companions"])
+}
+
+// TestLayerMergeFunc_ProjectCannotRemoveAHomeCompanion: an explicitly empty
+// project list is not a way to unregister what home registered.
+func TestLayerMergeFunc_ProjectCannotRemoveAHomeCompanion(t *testing.T) {
+	dest := map[string]any{"companions": []any{"ltk"}}
+	src := map[string]any{"companions": []any{}}
+	require.NoError(t, layerMergeFunc(src, dest))
+	assert.Equal(t, []any{"ltk"}, dest["companions"])
+}
+
+// TestLoad_ProjectCompanionsAddToHomes runs the whole layered Load: the
+// effective list is home's names plus the project's.
+func TestLoad_ProjectCompanionsAddToHomes(t *testing.T) {
+	home := testsupport.Isolate(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".ctxloom"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".ctxloom", "config.yaml"), []byte(`schema_version: 7
+companions: [ltk, acme]
+`), 0o644))
+
+	fs := afero.NewOsFs()
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`schema_version: 7
+companions: [beta]
+`), 0644)
+
+	cfg, err := Load(WithAppDir(appDir))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ltk", "acme", "beta"}, cfg.GetCompanions())
 }

@@ -178,7 +178,7 @@ const delim = "\x1f"
 //     reproduces Merge's documented default exactly. This is confload's
 //     koanf.WithMergeFunc seam: a product whose schema has a key that must
 //     NOT deep-merge across layers at all (ctxloom's agents.<name> binding —
-//     see internal/adapters/configload's agentBindingMergeFunc) supplies its own
+//     see internal/adapters/configload's layerMergeFunc) supplies its own
 //     schema-aware func here rather than confload hard-coding any product's
 //     key names, keeping this package free of ctxloom-specific (or
 //     taskloom-specific, or...) knowledge exactly as KnownPath already does.
@@ -374,7 +374,7 @@ func Merge(layers ...map[string]any) (map[string]any, error) {
 // across layers at all — ctxloom's agents.<name> binding, where the highest
 // layer NAMING an agent must define it entirely rather than being fused
 // field-by-field with a lower layer's same-named entry (see
-// internal/adapters/configload's agentBindingMergeFunc, wired in via Product.MergeFunc /
+// internal/adapters/configload's layerMergeFunc, wired in via Product.MergeFunc /
 // Product.MergeLayers) — while every OTHER documented merge rule continues to
 // hold, because fn is expected to preserve them for every path it does not
 // itself special-case (typically by delegating to koanf/maps.Merge, or by

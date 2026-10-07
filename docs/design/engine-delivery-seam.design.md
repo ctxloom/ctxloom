@@ -169,8 +169,8 @@ what is included — belongs to the process stage:
 at all.**
 
 `bundles.Loader` reports: an ask resolves to every candidate it holds, each an
-`ItemRead` carrying every form the store has (`ContentForms`) plus the trust
-facts the read established (`TrustRef`, `Signer`). It picks no form, withholds
+`ItemRead` carrying every form the store has (`ContentForms`) plus the facts
+the read established (`ItemRef`, `Read`). It picks no form, withholds
 nothing, and hands back no exposed body. `bundles.Pipeline` decides: it selects
 a form, gates those exact bytes, and only then produces a `LoadedContent`.
 

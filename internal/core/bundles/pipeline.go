@@ -135,11 +135,11 @@ func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 		return nil
 	}
 	s := r.Resolve(p.preferDistilled)
-	if !p.addressable(r.TrustRef) {
+	if !p.addressable(r.ItemRef) {
 		return nil
 	}
 	if id, server, withheld := p.linkWithholds(r.Read, r.Tags); withheld {
-		p.withholdLinked(r.TrustRef, id, server)
+		p.withholdLinked(r.ItemRef, id, server)
 		return nil
 	}
 	return &LoadedContent{
@@ -158,7 +158,7 @@ func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 		DistilledBy: r.DistilledBy,
 		Exports:     r.Exports,
 		Form:        s.Form,
-		TrustRef:    r.TrustRef,
+		ItemRef:     r.ItemRef,
 		Premise:     r.Premise,
 	}
 }
@@ -166,7 +166,7 @@ func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 // admitSkill reports whether a resolved skill package may be delivered: it
 // exists and its ref is addressable.
 func (p *Pipeline) admitSkill(ls *LoadedSkill) bool {
-	return ls != nil && p.addressable(ls.TrustRef)
+	return ls != nil && p.addressable(ls.ItemRef)
 }
 
 // deliverSkill is the process stage for a skill package: ADMIT the package,
@@ -185,7 +185,7 @@ func (p *Pipeline) deliverSkill(ls *LoadedSkill) *LoadedSkill {
 		return nil
 	}
 	if id, server, withheld := p.linkWithholds(ls.Read, ls.Tags); withheld {
-		p.withholdLinked(ls.TrustRef, id, server)
+		p.withholdLinked(ls.ItemRef, id, server)
 		return nil
 	}
 	paths := make([]string, len(ls.Files))
@@ -199,7 +199,7 @@ func (p *Pipeline) deliverSkill(ls *LoadedSkill) *LoadedSkill {
 	layout, err := content.SkillMaterialization(paths, form)
 	if err != nil {
 		p.loader.cat.rep.Warnf("skill %q withheld: %v", ls.Name, err)
-		p.recordWithheld(ls.TrustRef, fmt.Sprintf("its files could not be laid out: %v", err))
+		p.recordWithheld(ls.ItemRef, fmt.Sprintf("its files could not be laid out: %v", err))
 		return nil
 	}
 	files := make([]LoadedSkillFile, 0, len(layout))

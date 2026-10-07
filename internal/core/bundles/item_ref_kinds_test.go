@@ -35,7 +35,7 @@ import (
 // real bundle rather than comparing constants, so it covers the literals at the
 // call sites — the thing that can drift — not merely the constants they equal.
 //
-// It asserts on the READ's own TrustRef rather than on what an authorizer was handed.
+// It asserts on the READ's own ItemRef rather than on what an authorizer was handed.
 // Exposure carries a parsed ident.Ref, and parsing is exactly what would hide
 // the drift this test exists to catch: ident.ParseSelector maps BOTH "commands"
 // and "prompts" onto KindPrompt, so a loader that emitted the wrong segment
@@ -65,7 +65,7 @@ func TestItemRefKindDirs_MatchTheIdentAuthority(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, skillReads, 1)
 
-	seen := []string{fragReads[0].TrustRef, cmdReads[0].TrustRef, skillReads[0].TrustRef}
+	seen := []string{fragReads[0].ItemRef, cmdReads[0].ItemRef, skillReads[0].ItemRef}
 
 	// The prompt segment is deliberately "prompts", not "commands": the
 	// item-kind rename must not invalidate existing grants. That decision lives

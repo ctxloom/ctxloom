@@ -9,7 +9,7 @@ import (
 )
 
 // mustParseProducerRef parses ref — an item ref a producer emitted
-// (ItemRead.TrustRef, LoadedSkill.TrustRef, or a ref built by hand through
+// (ItemRead.ItemRef, LoadedSkill.ItemRef, or a ref built by hand through
 // ident.BundleRef.WithItem in a test) — into the ident.Ref shape a test asserts
 // IsLocal/RepoURL/Key() against. A producer emits the canonical
 // "ctxloom+<class>:...#<kind>/<item>" grammar, so a test asserting against a

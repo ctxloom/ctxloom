@@ -167,7 +167,7 @@ func (a *assembly) fragment(ask FragmentAsk) {
 		return
 	}
 	item.Value.Body = a.substitute(ask.Name, lc.Content)
-	a.deliver(item, lc.TrustRef)
+	a.deliver(item, lc.ItemRef)
 }
 
 // load resolves one ask through the process stage, honouring a pinned
@@ -285,7 +285,7 @@ func (cc *commandCollector) fromLoaded(lc *bundles.LoadedContent, curated bool) 
 		Body:        lc.Content,
 		Exports:     blocks(lc.Exports),
 		Curated:     curated,
-	}, lc.TrustRef, lc.Form)
+	}, lc.ItemRef, lc.Form)
 }
 
 // fromBundles adds every command of each bundle ref, uncurated.
@@ -355,9 +355,9 @@ func (a *assembly) skills() {
 				Exports:     blocks(ls.Exports),
 				Curated:     curated,
 			},
-			Ref: ls.TrustRef, Form: bundles.FormRaw,
+			Ref: ls.ItemRef, Form: bundles.FormRaw,
 		})
-		a.rows = append(a.rows, ItemAttestation{Ref: ls.TrustRef, Hash: hex.EncodeToString(h.Sum(nil))})
+		a.rows = append(a.rows, ItemAttestation{Ref: ls.ItemRef, Hash: hex.EncodeToString(h.Sum(nil))})
 	}
 	if len(a.sel.Skills) > 0 {
 		for _, ask := range a.sel.Skills {

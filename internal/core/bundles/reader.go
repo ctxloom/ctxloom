@@ -29,10 +29,9 @@ type Reader interface {
 	Read(ctx context.Context) ([]BundleRead, error)
 }
 
-// ProvenanceClass labels WHERE a bundle came from. It is a LABEL, for
-// diagnostics and for the reason a user is told, never the axis a gate keys on
-// — that is TrustCtx, and the two are kept separate precisely so that adding a
-// new source class cannot silently invent a new trust posture.
+// ProvenanceClass labels WHERE a bundle came from: a LABEL, for diagnostics
+// and for the reason a user is told. Whether the bytes crossed an
+// intermediary is the separate Locality fact.
 type ProvenanceClass int
 
 // The provenance classes. The zero value is UNSET and no reader ever emits it:
@@ -61,32 +60,32 @@ func (p ProvenanceClass) String() string {
 	}
 }
 
-// TrustCtx is whether these bytes crossed an intermediary on their way here,
+// Locality is whether these bytes crossed an intermediary on their way here,
 // or not.
 //
 // Two values, deliberately. Project, builtin and companion content are all
 // LOCAL — a builtin was compiled into this binary and a companion loadout came
 // straight off the stdout of a binary on the user's PATH. Remote content came
 // from a repository the user registered, and registering it was the trust act.
-type TrustCtx int
+type Locality int
 
-// The trust contexts. Zero is UNSET and no reader emits it; anything consuming
+// The localities. Zero is UNSET and no reader emits it; anything consuming
 // a BundleRead treats unset as withhold, because "no context" is not "local".
 const (
-	TrustCtxUnset TrustCtx = iota
-	// TrustCtxLocal is content that reached this machine without an
+	LocalityUnset Locality = iota
+	// LocalityLocal is content that reached this machine without an
 	// intermediary: a human with write access placed it.
-	TrustCtxLocal
-	// TrustCtxRemote is content that crossed a network and a forge, from a
+	LocalityLocal
+	// LocalityRemote is content that crossed a network and a forge, from a
 	// registered remote.
-	TrustCtxRemote
+	LocalityRemote
 )
 
-func (t TrustCtx) String() string {
+func (t Locality) String() string {
 	switch t {
-	case TrustCtxLocal:
+	case LocalityLocal:
 		return "local"
-	case TrustCtxRemote:
+	case LocalityRemote:
 		return "remote"
 	default:
 		return "unset"
@@ -94,10 +93,10 @@ func (t TrustCtx) String() string {
 }
 
 // BundleRead is one bundle as a reader found it: the content, the label saying
-// where it came from, and its trust context as a FACT.
+// where it came from, and its locality as a FACT.
 //
-// The trust context is UNEXPORTED and settable only through newRead, which only
-// this package's readers call: an exported trustCtx would let any caller
+// The locality is UNEXPORTED and settable only through newRead, which only
+// this package's readers call: an exported locality would let any caller
 // anywhere mint local-context content out of a struct literal.
 type BundleRead struct {
 	// Bundle is the parsed content. Never nil in a read a reader emitted.
@@ -138,7 +137,7 @@ type BundleRead struct {
 	// whose migration silently changed nothing.
 	alsoIn []paths.BundleLayout
 
-	trustCtx TrustCtx
+	locality Locality
 }
 
 // DisplayName reports the name a listing shows for this bundle and a user may
@@ -201,7 +200,7 @@ func warnUnmintableSource(rep report.Reporter, source string, err error) {
 }
 
 // ItemRefFor mints the canonical "<source>#<kind>/<item>" reference an item's
-// TrustRef is built from, and REFUSES a source it cannot address. The grammar
+// ItemRef is built from, and REFUSES a source it cannot address. The grammar
 // lives in ident.ItemRef, so every producer that mints an item ref from a
 // bundle's structured source — this package's own loaders, config's
 // executable-surface extractors, managedhooks' profile gate — cannot drift on
@@ -222,19 +221,19 @@ func ItemRefFor(src ident.BundleRef, kind ident.ItemKind, item string) (string, 
 	return ident.ItemRef(src, kind, item)
 }
 
-// TrustCtx reports the only axis a gate keys on.
-func (r BundleRead) TrustCtx() TrustCtx { return r.trustCtx }
+// Locality reports whether these bytes crossed an intermediary to get here.
+func (r BundleRead) Locality() Locality { return r.locality }
 
 // Claimed reports whether every axis of this read was actually populated by a
 // reader.
 //
 // An unpopulated BundleRead claims nothing, and a consumer must treat it as a
-// withhold rather than as "local, unsigned, no signer" — which is precisely the
-// claim a zero value would otherwise make. This is the check that turns "zero
+// withhold rather than as local content — which is precisely the claim a
+// zero value would otherwise make. This is the check that turns "zero
 // means unset" from a comment into behaviour.
 func (r BundleRead) Claimed() bool {
 	return r.Bundle != nil && r.ref != "" && r.Provenance != ProvenanceUnset &&
-		r.trustCtx != TrustCtxUnset
+		r.locality != LocalityUnset
 }
 
 // newRead builds a read with its axes set. It is unexported because it is the
@@ -242,7 +241,7 @@ func (r BundleRead) Claimed() bool {
 // from a reader, so every value on it was established over the bytes rather
 // than claimed by the caller.
 //
-// It also STAMPS the content trust key (Bundle.sourceRef) from ref when the
+// It also STAMPS the bundle's source ref (Bundle.sourceRef) from ref when the
 // caller left it empty, which makes that key location-derived for every read
 // without exception. ref is the bundle's RESOLUTION identity, and resolution
 // identity is decided by where the bundle was found — the path-relative name
@@ -267,7 +266,7 @@ func (r BundleRead) Claimed() bool {
 // stick — checking sourceRef itself would be unable to tell "unmintable" from
 // "untouched" and would silently paper over the failure as a local bundle of
 // that name.
-func newRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx) BundleRead {
+func newRead(ref string, b *Bundle, prov ProvenanceClass, tctx Locality) BundleRead {
 	if b != nil && !b.sourceRefSet {
 		// The mint failure is not reported here: every reader stamps its
 		// own ref (and reports an unmintable one at that site). A zero ref
@@ -281,12 +280,12 @@ func newRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx) BundleR
 		Bundle:     b,
 		ref:        ref,
 		Provenance: prov,
-		trustCtx:   tctx,
+		locality:   tctx,
 	}
 }
 
 // ReaderOption configures a reader with something that is NEITHER its
-// provenance NOR its trust context — those two are hard-coded by each
+// provenance NOR its locality — those two are hard-coded by each
 // constructor and are deliberately not expressible here.
 type ReaderOption func(*readerConfig)
 

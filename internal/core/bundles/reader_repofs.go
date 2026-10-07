@@ -20,7 +20,7 @@ import (
 type TreeFS = content.TreeFS
 
 // repoFSReader reads ONE bundle out of a tree pinned at a revision:
-// ProvenanceRemote, TrustCtxRemote.
+// ProvenanceRemote, LocalityRemote.
 type repoFSReader struct {
 	tree TreeFS
 	ref  string
@@ -158,7 +158,7 @@ func (r *repoFSReader) readTreeForm(ctx context.Context) (BundleRead, error) {
 	} else {
 		b.Path = r.syntheticPath()
 	}
-	return newRead(r.ref, b, ProvenanceRemote, TrustCtxRemote), nil
+	return newRead(r.ref, b, ProvenanceRemote, LocalityRemote), nil
 }
 
 // openTreeBundle opens the tree as a content.Bundle. The store is rooted at the

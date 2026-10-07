@@ -42,11 +42,11 @@ type LoadedSkill struct {
 	Curated bool
 	Tags    []string // combined (bundle + skill) tags
 
-	// TrustRef is the ref this package is addressed by, minted through
+	// ItemRef is the ref this package is addressed by, minted through
 	// the canonical bundle-reference grammar (ItemRefFor,
 	// "ctxloom+<class>:...#skills/<name>") — the same honest typed-source
 	// keying LoadedContent uses. A read FACT, never a decision.
-	TrustRef string
+	ItemRef string
 
 	// Read is the owning bundle's read — the trust FACTS its reader established.
 	// See ItemRead.Read for why exporting a value whose axes are unexported is
@@ -167,7 +167,7 @@ func (c Catalog) loadSkill(read BundleRead, name string, entry BundleSkill) (*Lo
 		files = append(files, LoadedSkillFile{RelPath: m.Path, Content: data, Mode: uint32(mode)})
 	}
 
-	trustRef, err := ItemRefFor(read.SourceRef(), ident.KindSkill, name)
+	itemRef, err := ItemRefFor(read.SourceRef(), ident.KindSkill, name)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +181,7 @@ func (c Catalog) loadSkill(read BundleRead, name string, entry BundleSkill) (*Lo
 		Files:       files,
 		Exports:     entry.Exports,
 		Tags:        itemTags(bundle.Tags, entry.Tags),
-		TrustRef:    trustRef,
+		ItemRef:     itemRef,
 		Read:        read,
 	}, nil
 }

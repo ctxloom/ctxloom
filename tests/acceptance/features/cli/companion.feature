@@ -15,6 +15,9 @@ Feature: companion — which programs ctxloom runs alongside your session
   dependency in `./node_modules/.bin` that ships a `ctxloom-companion-*`
   binary earns nothing by its name.
 
+  A project's config may list more names under the same `companions` key:
+  they are ADDED to the home registrations, and a project cannot remove one.
+
   A name maps to a binary: the shipped ltk, taskloom and reprise are their own
   binaries; any other name <n> is the binary `ctxloom-companion-<n>`.
 
@@ -62,6 +65,35 @@ Feature: companion — which programs ctxloom runs alongside your session
       Given the companion executions so far are forgotten
       When I run "ctxloom doctor"
       Then the companion "ctxloom-companion-acme" was never executed
+
+  Rule: a project may add companions, never remove home's
+
+    Scenario: A project's companions are added to the home registrations
+      Given an initialized ctxloom project
+      And a companion "ctxloom-companion-acme" is on PATH, not registered
+      When I run "ctxloom companion add acme"
+      Given the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 7
+        companions: [beta]
+        """
+      When I run "ctxloom companion list --format json"
+      Then the command succeeds
+      And the output reports "0.name" as "acme"
+      And the output reports "1.name" as "beta"
+
+    Scenario: An empty project list does not unregister a home companion
+      Given an initialized ctxloom project
+      And a companion "ctxloom-companion-acme" is on PATH, not registered
+      When I run "ctxloom companion add acme"
+      Given the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 7
+        companions: []
+        """
+      When I run "ctxloom companion list --format json"
+      Then the command succeeds
+      And the output reports "0.name" as "acme"
 
   Rule: add checks the companion before it records anything
 

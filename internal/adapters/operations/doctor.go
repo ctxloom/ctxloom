@@ -140,7 +140,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckCapabilityLoss(ctx, reg, cfg, cfgErr),
 			doctorCheckVersion(),
 			doctorCheckTranscriptReaders(ctx, reg, cfg, app.ProbeEngineVersion),
-			doctorCheckHooksTrust(ctx, reg, cfg, cfgErr),
+			doctorCheckHooksMCP(ctx, reg, cfg, cfgErr),
 			doctorCheckMCPInvocation(reg, doctorProjectDir(cfg)),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
 			doctorCheckSetupCompanions(cfg, cfgErr, app.NoCompanions),
@@ -547,7 +547,7 @@ func doctorCheckVersion() DoctorCheck {
 		Detail: fmt.Sprintf("running %s; doctor does not check whether a newer release exists", version.Version)}
 }
 
-// doctorCheckHooksTrust cross-references doctorConfiguredEngines (every
+// doctorCheckHooksMCP cross-references doctorConfiguredEngines (every
 // backend a configured agent resolves to) against HarnessStatus —
 // the SAME read `ctxloom manage check`/`ctxloom manage hooks check` already
 // expose — reporting the DELIVERY POSTURE per backend: a `ctxloom run`
@@ -555,7 +555,7 @@ func doctorCheckVersion() DoctorCheck {
 // project-side files are the explicit `manage hooks install` door's, so
 // their absence is the correct state of a project and is reported as such,
 // never as a fault (ruled 2026-09-21).
-func doctorCheckHooksTrust(ctx context.Context, reg engine.Registry, cfg *config.Config, cfgErr error) DoctorCheck {
+func doctorCheckHooksMCP(ctx context.Context, reg engine.Registry, cfg *config.Config, cfgErr error) DoctorCheck {
 	const marker = "DOCTOR-CHECK-HOOKS-TRUST-d4"
 	if cfgErr != nil {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "config did not load: " + cfgErr.Error()}
@@ -619,7 +619,7 @@ func doctorHooksWiringDetail(ctx context.Context, reg engine.Registry, cfg *conf
 // config.toml, ...) — see `ctxloom doctor --help` and init-as-skill.plan.md
 // §6/§8.2. The remaining two §8.2 items — agents non-empty/resolvable and
 // hooks/MCP registered per backend — are folded directly into
-// doctorCheckAgents and doctorCheckHooksTrust above rather than duplicated
+// doctorCheckAgents and doctorCheckHooksMCP above rather than duplicated
 // here: doctor's OWN pre-existing checks already covered that ground, they
 // just needed a stricter (WARN, not INFO) reading of the empty/missing case.
 

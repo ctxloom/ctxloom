@@ -106,7 +106,7 @@ flowchart TD
 - Presence, not truthiness, decides. A key present in a higher layer wins regardless of its value, including a zero value.
 - A key present only in a lower layer is inherited unchanged.
 - Two `map[string]any` values at the same key deep-merge. Any other type, slices included, is replaced wholesale by the higher layer. Lists never concatenate.
-- A `Product.MergeFunc` may special-case paths (ctxloom's `agentBindingMergeFunc` makes an `agents.<name>` binding atomic across file layers), but it applies only through `MergeLayers`. `ApplyOverrides` always uses plain `Merge`: an override is a one-field patch, and routing it through an atomic-replace merge would wipe the binding's other fields.
+- A `Product.MergeFunc` may special-case paths (ctxloom's `layerMergeFunc` makes an `agents.<name>` binding atomic across file layers), but it applies only through `MergeLayers`. `ApplyOverrides` always uses plain `Merge`: an override is a one-field patch, and routing it through an atomic-replace merge would wipe the binding's other fields.
 - Merging never mutates its inputs. Results are read back with `Unmarshal`, never koanf's `Raw()`, because `Raw()` can round-trip an int into another type.
 
 ### Hooks: where each runs and what a refusal does

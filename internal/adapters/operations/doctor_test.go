@@ -73,7 +73,7 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 // default, the hook would name the test binary itself, and
 // exectoken.IsManaged(command, "ctxloom") — keyed on that exact exec-token
 // identity — would report it as foreign, not ctxloom-managed. Both are
-// needed for doctorCheckHooksTrust to observe "ok" hermetically, on any
+// needed for doctorCheckHooksMCP to observe "ok" hermetically, on any
 // host, matching the SAME hooks a fully-wired project always carries
 // regardless of what's cached under its real $HOME.
 func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend string) {
@@ -412,37 +412,37 @@ func TestDoctorCheckSetupLockAndAssembly_WrongState_SkippedProfileRefs(t *testin
 
 // --- DOCTOR-CHECK-HOOKS-TRUST-d4: hooks AND MCP registration per backend ---
 
-func TestDoctorCheckHooksTrust_RightState(t *testing.T) {
+func TestDoctorCheckHooksMCP_RightState(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
 	applyHooksHermetically(t, cfg, root, "claude-code")
 	t.Chdir(root) // HarnessStatus's default WorkDir path resolves off cwd
 
-	check := doctorCheckHooksTrust(context.Background(), engines.Registry(), cfg, nil)
+	check := doctorCheckHooksMCP(context.Background(), engines.Registry(), cfg, nil)
 	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "also registered in the project (the explicit `manage hooks install` door) for: claude-code")
 }
 
-// TestDoctorCheckHooksTrust_SessionDelivery_IsTheHealthyDefault: absent
+// TestDoctorCheckHooksMCP_SessionDelivery_IsTheHealthyDefault: absent
 // project-side hooks are the correct state of every project — a session
 // carries its own — so the check reports that posture as ok, never as a
 // fault (ruled 2026-09-21).
-func TestDoctorCheckHooksTrust_SessionDelivery_IsTheHealthyDefault(t *testing.T) {
+func TestDoctorCheckHooksMCP_SessionDelivery_IsTheHealthyDefault(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
 	t.Chdir(root) // no ApplyHooks call: nothing project-side
 
-	check := doctorCheckHooksTrust(context.Background(), engines.Registry(), cfg, nil)
+	check := doctorCheckHooksMCP(context.Background(), engines.Registry(), cfg, nil)
 	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "delivered per session")
 	assert.Contains(t, check.Detail, "claude-code")
 	assert.NotContains(t, check.Detail, "NOT")
 }
 
-func TestDoctorCheckHooksTrust_NoEnginesConfigured(t *testing.T) {
+func TestDoctorCheckHooksMCP_NoEnginesConfigured(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 	f := cfg.ToFixture()
 	f.Agents = map[string]agents.Agent{}
 	cfg = config.NewFixture(f)
-	check := doctorCheckHooksTrust(context.Background(), engines.Registry(), cfg, nil)
+	check := doctorCheckHooksMCP(context.Background(), engines.Registry(), cfg, nil)
 	assert.Equal(t, DoctorOK, check.Status, "nothing configured to check hooks for is not itself a failure")
 	assert.Contains(t, check.Detail, "no engine is configured to check")
 }

@@ -28,7 +28,8 @@ The registration is the NAME only, kept in your home config
 (~/.ctxloom/config.yaml, key `companions`), never a path — so the same
 registration works wherever the binary is installed, inside an agent
 container included. A binary of a registered name placed EARLIER on PATH is
-the one that runs.
+the one that runs. A project's config may list more names under the same key:
+they are ADDED to home's, and a project cannot remove a home registration.
 
   ctxloom companion add <name>           check it answers, then register it
   ctxloom companion remove <name> --yes  unregister it

@@ -64,21 +64,13 @@ type ApplyHooksResult struct {
 
 // ApplyHooks applies ctxloom hooks to backend configuration files IN THE
 // PROJECT, from the generation req.Cfg carries. It never re-reads: a caller
-// that has just written config (a post-sync refresh, a trust change) did so
-// through the config Owner's Update, which published the generation it then
-// passes here. It is the explicit project-side writer (`manage hooks
-// install`, the MCP server's startup apply, the sync and trust refreshes);
-// `manage install` and `init` write no engine file and never call it — a
+// that has just written config did so through the config Owner's Update,
+// which published the generation it then passes here. It is the explicit
+// project-side writer; `manage install` and `init` write no engine file and never call it — a
 // `ctxloom run` session delivers the same surfaces into its own home.
 func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest) (*ApplyHooksResult, error) {
-	// Bracket the WHOLE call, config load included, so a TRUST-CLASS finding
-	// recorded anywhere under it becomes an error here rather than a warning
-	// nobody's exit code reflects. See trustStoreFindingsError: this is the
-	// third production site that turns findings into an error, and its absence
-	// is why the same corrupt trust store aborted `ctxloom run` loudly and let
-	// `ctxloom manage hooks install` report "applied" over zero bytes.
-	mark := strictness.Checkpoint()
-	defer strictness.Close(mark)
+	// Each apply records its findings in its own FailOnce window.
+	defer strictness.Close(strictness.Checkpoint())
 
 	backend := req.Backend
 
@@ -127,15 +119,6 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 
 	contextHash, regenFailed := maybeRegenerateContext(req, pkg, workDir, contextOpts)
 
-	// Trust-class findings, checked BEFORE a single backend is written. An
-	// unreadable trust root can leave regeneration with nothing and return
-	// ("", nil) — the exact shape an empty profile set produces. Writing on
-	// through would strip every native-file backend's managed context to match
-	// a result no readable store ever gave.
-	if terr := trustStoreFindingsError(mark); terr != nil {
-		return nil, terr
-	}
-
 	// The context regenerated (or did not): a file-route engine gets the
 	// package's context either way — the file and the cache are composed
 	// from one package — and a hook-route engine gets the injection hook
@@ -172,14 +155,6 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 	warnRetractions(retracted)
 
 	result := newApplyHooksResult(applied, retracted, applyErrors, contextHash)
-	// The same check again, for a trust fault first recorded AFTER
-	// regeneration, so a store that only fails while the executable surfaces
-	// resolve would not still report success. Since is documented safe to
-	// re-read against one mark.
-	if terr := trustStoreFindingsError(mark); terr != nil {
-		return nil, terr
-	}
-
 	// The result is returned alongside a total-failure error so a caller that
 	// wants the per-backend detail still has it; every current caller checks
 	// err first and warns or aborts.
@@ -308,38 +283,6 @@ func maybeRegenerateContext(req ApplyHooksRequest, pkg composite.Package, workDi
 	return contextHash, false
 }
 
-// trustStoreFindingsError renders the TRUST-CLASS findings recorded since mark
-// as one error, or nil when there are none.
-//
-// IT DOES NOT DEGRADE, and that is a deliberate exception worth reading before
-// relaxing it. Everywhere else --degraded means "deliver less"; here it meant
-// "deliver something FALSE". An unreadable trust store can leave every item
-// undeliverable, so ApplyHooks goes on to write a managed context surface with the whole set
-// stripped and then reports success — the caller, and the user, are told a set
-// of verdicts was applied when what actually happened is that no verdict could
-// be read at all. Writing that surface is the harm, and it is done BY
-// proceeding, so the audit's test ("does LAUNCHING cause the harm?") puts this
-// on the refusing side in both modes.
-//
-// This is expressed as an unconditional gate rather than by raising the
-// underlying findings non-degradably, because the raise sites are CORRECT as
-// they stand: a corrupt trust store failing closed is perfectly safe in
-// isolation. The damage appears only when this particular
-// caller turns that denial into written bytes. The refusal therefore belongs
-// here, at the writer, not at the detector.
-//
-// It is deliberately NARROWER than strictness.FindingsError, which renders
-// EVERY class: ApplyHooks reports a per-backend apply failure as partial
-// success on purpose (ClassApply), and widening this to all findings would
-// convert that documented partial into a hard error. ClassTrust is the one
-// class whose meaning is "the trust store could not be read" — a
-// whole-session posture, not one backend's bad day, and the
-// only class for which a written-and-stripped context surface is a lie about a
-// verdict rather than a report of one.
-func trustStoreFindingsError(mark strictness.Mark) error {
-	return strictness.Mode{}.ListingError("refusing to apply hooks or context:", ofKind(strictness.Since(mark), report.KindTrust))
-}
-
 // hookBackendNames resolves an APPLY's backend filter: a named backend is
 // exactly that one, and the empty default — the common case — is every engine
 // THE PROJECT CONFIGURES.
@@ -355,8 +298,7 @@ func trustStoreFindingsError(mark strictness.Mark) error {
 // nothing will clean up.
 //
 // The empty-default sweep is for EXPLICIT, whole-project operations only
-// (`manage hooks install` with no --engine, post-sync hook refresh, a trust
-// review's re-apply) — never for a call representing one engine's own
+// (`manage hooks install` with no --engine) — never for a call representing one engine's own
 // initialisation. engaging-nutmeg (2026-09-10, ruled: "config/materialization
 // should be on engine init") is about exactly that distinction: a project
 // that configures several engines and starts (or otherwise materializes) ONE

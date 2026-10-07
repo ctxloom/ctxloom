@@ -25,15 +25,15 @@ func TestDiagnosticSink_RendersWhatClidiagRenderedToday(t *testing.T) {
 
 	// Three representative sites, as they report now: a plain warning
 	// (sessions' transcript link), a dedup'd warning (profiles' unknown
-	// key), and a warn+fail pair (config's trust root).
+	// key), and a warn+fail pair (an unreadable bundle file).
 	var found report.Findings
 	rep := report.To(&found)
 	rep.Warnf("engine transcript link: %v", err)
 	rep.WarnOncef("%s", "profile x: unknown key y")
 	rep.WarnOncef("%s", "profile x: unknown key y")
-	rep.Warnf("allowed_signers %s exists but cannot be read, its keys are NOT trusted this session: %v", "/p", err)
-	rep.Failf(report.KindTrust, "make the allowed_signers file readable, or remove it",
-		"allowed_signers %s exists but cannot be read: %v", "/p", err)
+	rep.Warnf("bundle %s exists but cannot be read, its content is NOT delivered this session: %v", "/p", err)
+	rep.Failf(report.KindBundle, "make the bundle file readable, or remove it",
+		"bundle %s exists but cannot be read: %v", "/p", err)
 
 	// The legacy path, live, for the same sites.
 	var legacy bytes.Buffer
@@ -43,9 +43,9 @@ func TestDiagnosticSink_RendersWhatClidiagRenderedToday(t *testing.T) {
 	clidiag.Warn("ctxloom", "engine transcript link: %v", err)
 	clidiag.WarnOnce("ctxloom", "%s", "profile x: unknown key y")
 	clidiag.WarnOnce("ctxloom", "%s", "profile x: unknown key y")
-	clidiag.Warn("ctxloom", "allowed_signers %s exists but cannot be read, its keys are NOT trusted this session: %v", "/p", err)
-	strictness.Fail(report.KindTrust, "make the allowed_signers file readable, or remove it",
-		"allowed_signers %s exists but cannot be read: %v", "/p", err)
+	clidiag.Warn("ctxloom", "bundle %s exists but cannot be read, its content is NOT delivered this session: %v", "/p", err)
+	strictness.Fail(report.KindBundle, "make the bundle file readable, or remove it",
+		"bundle %s exists but cannot be read: %v", "/p", err)
 	legacyFindings := strictness.All()
 	restore()
 
@@ -67,15 +67,15 @@ func TestDiagnosticSink_RendersWhatClidiagRenderedToday(t *testing.T) {
 	// finding streams its remedy as the fix line; an advisory has none.
 	const today = "ctxloom: warning: engine transcript link: permission denied\n" +
 		"ctxloom: warning: profile x: unknown key y\n" +
-		"ctxloom: warning: allowed_signers /p exists but cannot be read, its keys are NOT trusted this session: permission denied\n" +
-		"ctxloom: warning: allowed_signers /p exists but cannot be read: permission denied\n" +
-		"  fix: make the allowed_signers file readable, or remove it\n"
+		"ctxloom: warning: bundle /p exists but cannot be read, its content is NOT delivered this session: permission denied\n" +
+		"ctxloom: warning: bundle /p exists but cannot be read: permission denied\n" +
+		"  fix: make the bundle file readable, or remove it\n"
 	assert.Equal(t, today, rendered.String())
 	require.Len(t, legacyFindings, 1)
 	assert.Equal(t, report.Finding{
-		Kind:   report.KindTrust,
-		Text:   "allowed_signers /p exists but cannot be read: permission denied",
-		Remedy: "make the allowed_signers file readable, or remove it",
+		Kind:   report.KindBundle,
+		Text:   "bundle /p exists but cannot be read: permission denied",
+		Remedy: "make the bundle file readable, or remove it",
 	}, legacyFindings[0])
 }
 

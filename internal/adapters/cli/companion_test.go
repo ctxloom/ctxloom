@@ -150,3 +150,79 @@ func TestCompanionList_ReportsWhetherEachResolves(t *testing.T) {
 	assert.Contains(t, out.String(), "NOT ON PATH")
 	assert.Contains(t, out.String(), "ctxloom companion remove acme --yes")
 }
+
+// writeProjectCompanions gives the project config at root its own
+// `companions:` list.
+func writeProjectCompanions(t *testing.T, root, list string) {
+	t.Helper()
+	p := filepath.Join(root, paths.AppDirName, "config.yaml")
+	b, err := os.ReadFile(p) //nolint:gosec // the test project's config
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(p, append(b, []byte("companions: "+list+"\n")...), 0o600))
+}
+
+func listNames(t *testing.T) []string {
+	t.Helper()
+	resetApp()
+	cmd, out := formatCmd("json")
+	require.NoError(t, runCompanionListCmd(cmd, nil))
+	var got []operations.CompanionListing
+	require.NoError(t, json.Unmarshal(out.Bytes(), &got))
+	names := make([]string, 0, len(got))
+	for _, l := range got {
+		names = append(names, l.Name)
+	}
+	return names
+}
+
+// TestCompanionList_InAProjectShowsHomeAndProjectNames: a project's
+// `companions:` adds to home's registrations; list shows both.
+func TestCompanionList_InAProjectShowsHomeAndProjectNames(t *testing.T) {
+	root, _ := setupProject(t, "claude-code")
+	testsupport.ChangeDir(t, root)
+	answeringCompanionOnPath(t, "acme")
+	runAdd(t, "acme")
+	writeProjectCompanions(t, root, "[beta]")
+
+	assert.Equal(t, []string{"acme", "beta"}, listNames(t))
+}
+
+// TestCompanionList_AProjectCannotRemoveAHomeRegistration: an empty project
+// list does not hide what home registered.
+func TestCompanionList_AProjectCannotRemoveAHomeRegistration(t *testing.T) {
+	root, _ := setupProject(t, "claude-code")
+	testsupport.ChangeDir(t, root)
+	answeringCompanionOnPath(t, "acme")
+	runAdd(t, "acme")
+	writeProjectCompanions(t, root, "[]")
+
+	assert.Equal(t, []string{"acme"}, listNames(t))
+}
+
+// TestCompanionRemove_FromAProjectEditsHomeOnly: remove still works on the
+// home registration from inside a project, leaves the project's own list
+// alone, and refuses a name only the project lists (home never had it).
+func TestCompanionRemove_FromAProjectEditsHomeOnly(t *testing.T) {
+	root, _ := setupProject(t, "claude-code")
+	testsupport.ChangeDir(t, root)
+	answeringCompanionOnPath(t, "acme")
+	runAdd(t, "acme")
+	writeProjectCompanions(t, root, "[beta]")
+
+	resetApp()
+	setFlagForTest(t, &companionRemoveYes, true)
+	cmd, _ := textCmd()
+	cmd.SetContext(context.Background())
+	require.NoError(t, runCompanionRemoveCmd(cmd, []string{"acme"}))
+	assert.NotContains(t, homeConfigText(t), "acme")
+
+	resetApp()
+	cmd, _ = textCmd()
+	cmd.SetContext(context.Background())
+	require.ErrorIs(t, runCompanionRemoveCmd(cmd, []string{"beta"}), operations.ErrCompanionNotRegistered)
+
+	project, err := os.ReadFile(filepath.Join(root, paths.AppDirName, "config.yaml")) //nolint:gosec // the test project's config
+	require.NoError(t, err)
+	assert.Contains(t, string(project), "companions: [beta]")
+	assert.Equal(t, []string{"beta"}, listNames(t))
+}

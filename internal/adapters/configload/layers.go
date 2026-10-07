@@ -51,7 +51,8 @@ func resolveConfigLayerPaths(appPath string, source config.ConfigSource) (projec
 
 // loadLayeredConfig reads every participating layer (home, then project —
 // ascending precedence), deep-merges their decoded values (home < project;
-// lists replace, an explicit zero beats inheritance), resolves overrides
+// lists replace except where layerMergeFunc says otherwise, an explicit zero
+// beats inheritance), resolves overrides
 // (env then flags) against the result, and decodes into the builder once.
 //
 // Each layer is version-gated, schema-validated and warned about

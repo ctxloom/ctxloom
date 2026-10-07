@@ -256,20 +256,15 @@ func (m *Message) Encode() ([]byte, error) {
 			return nil, err
 		}
 	}
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(head); err != nil {
-		return nil, fmt.Errorf("spool: encoding message frontmatter: %w", err)
-	}
-	if err := enc.Close(); err != nil {
+	encoded, err := yamlx.Marshal(head)
+	if err != nil {
 		return nil, fmt.Errorf("spool: encoding message frontmatter: %w", err)
 	}
 	var out bytes.Buffer
 	out.WriteString(frontMatterFence)
 	out.WriteByte('\n')
-	out.Write(buf.Bytes())
-	if buf.Len() > 0 && !bytes.HasSuffix(buf.Bytes(), []byte("\n")) {
+	out.Write(encoded)
+	if len(encoded) > 0 && !bytes.HasSuffix(encoded, []byte("\n")) {
 		out.WriteByte('\n')
 	}
 	out.WriteString(frontMatterFence)

@@ -5,9 +5,9 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 type characterizationCase struct {
@@ -21,8 +21,8 @@ type characterizationOutput struct {
 }
 
 // characterizationOutputs are the byte-producing paths over one Config:
-// yaml.Marshal(cfg) through MarshalYAML (`config show`, the effective
-// document), yaml.Marshal(cfg.Authored()) (`config show --raw` and init's
+// yamlx.Marshal(cfg) through MarshalYAML (`config show`, the effective
+// document), yamlx.Marshal(cfg.Authored()) (`config show --raw` and init's
 // scaffold write), and saveLocked's first write (Owner.Update).
 func characterizationOutputs() []characterizationOutput {
 	save := func(c *Config) ([]byte, error) {
@@ -33,8 +33,8 @@ func characterizationOutputs() []characterizationOutput {
 		return afero.ReadFile(fs, "/config.yaml")
 	}
 	return []characterizationOutput{
-		{"MarshalYAML", func(c *Config) ([]byte, error) { return yaml.Marshal(c) }},
-		{"authored", func(c *Config) ([]byte, error) { return yaml.Marshal(c.Authored()) }},
+		{"MarshalYAML", func(c *Config) ([]byte, error) { return yamlx.Marshal(c) }},
+		{"authored", func(c *Config) ([]byte, error) { return yamlx.Marshal(c.Authored()) }},
 		{"saveLocked", save},
 	}
 }
@@ -140,203 +140,203 @@ var characterizationGolden = map[string]string{
 	"empty/saveLocked": `schema_version: 7
 `,
 	"full/MarshalYAML": `agents:
-    worker:
-        llm: fast
+  worker:
+    llm: fast
 auth: login
 companions:
-    - acme
+  - acme
 config:
-    essence_max_chars: 4096
+  essence_max_chars: 4096
 default_agent: worker
 delegation:
-    concurrency: 7
-    depth: 2
-    idle_timeout: 10m
+  concurrency: 7
+  depth: 2
+  idle_timeout: 10m
 dirty_tree_handler: commit
 editor:
-    args:
-        - -n
-    command: vi
+  args:
+    - -n
+  command: vi
 isolation_base: devcontainer
 isolation_devcontainer_service: app
 isolation_engines:
-    - claude-code
+  - claude-code
 isolation_images:
-    claude-code: example.invalid/img:tag
+  claude-code: example.invalid/img:tag
 llm:
-    configs:
-        fast:
-            model: m1
-            permissions:
-                mode: plan
-            role: fast
-            type: claude-code
-    defaults:
-        fast: fast
-        primary: fast
+  configs:
+    fast:
+      model: m1
+      permissions:
+        mode: plan
+      role: fast
+      type: claude-code
+  defaults:
+    fast: fast
+    primary: fast
 output_dir: /data/ctxloom-outputs
 permissions:
-    approver: none
-    network: false
+  approver: none
+  network: false
 runtime: container
 schema_version: 7
 session_purge_age: 180d
 session_reap_age: 45d
 shell_timeout:
-    default: 3m
-    max: 90m
+  default: 3m
+  max: 90m
 sync:
-    auto_sync: true
+  auto_sync: true
 ui:
-    prefix_key: ctrl-]
-    surround: true
+  prefix_key: ctrl-]
+  surround: true
 workspace: worktree
 `,
 	"full/authored": `agents:
-    worker:
-        llm: fast
+  worker:
+    llm: fast
 auth: login
 companions:
-    - acme
+  - acme
 config:
-    essence_max_chars: 4096
+  essence_max_chars: 4096
 default_agent: worker
 delegation:
-    concurrency: 7
-    depth: 2
-    idle_timeout: 10m
+  concurrency: 7
+  depth: 2
+  idle_timeout: 10m
 dirty_tree_handler: commit
 editor:
-    args:
-        - -n
-    command: vi
+  args:
+    - -n
+  command: vi
 isolation_base: devcontainer
 isolation_devcontainer_service: app
 isolation_engines:
-    - claude-code
+  - claude-code
 isolation_images:
-    claude-code: example.invalid/img:tag
+  claude-code: example.invalid/img:tag
 llm:
-    configs:
-        fast:
-            model: m1
-            permissions:
-                mode: plan
-            role: fast
-            type: claude-code
-    defaults:
-        fast: fast
-        primary: fast
+  configs:
+    fast:
+      model: m1
+      permissions:
+        mode: plan
+      role: fast
+      type: claude-code
+  defaults:
+    fast: fast
+    primary: fast
 output_dir: /data/ctxloom-outputs
 permissions:
-    approver: none
-    network: false
+  approver: none
+  network: false
 runtime: container
 schema_version: 7
 session_purge_age: 180d
 session_reap_age: 45d
 shell_timeout:
-    default: 3m
-    max: 90m
+  default: 3m
+  max: 90m
 sync:
-    auto_sync: true
+  auto_sync: true
 ui:
-    prefix_key: ctrl-]
-    surround: true
+  prefix_key: ctrl-]
+  surround: true
 workspace: worktree
 `,
 	"full/saveLocked": `agents:
-    worker:
-        llm: fast
+  worker:
+    llm: fast
 auth: login
 companions:
-    - acme
+  - acme
 config:
-    essence_max_chars: 4096
+  essence_max_chars: 4096
 default_agent: worker
 delegation:
-    concurrency: 7
-    depth: 2
-    idle_timeout: 10m
+  concurrency: 7
+  depth: 2
+  idle_timeout: 10m
 dirty_tree_handler: commit
 editor:
-    args:
-        - -n
-    command: vi
+  args:
+    - -n
+  command: vi
 isolation_base: devcontainer
 isolation_devcontainer_service: app
 isolation_engines:
-    - claude-code
+  - claude-code
 isolation_images:
-    claude-code: example.invalid/img:tag
+  claude-code: example.invalid/img:tag
 llm:
-    configs:
-        fast:
-            model: m1
-            permissions:
-                mode: plan
-            role: fast
-            type: claude-code
-    defaults:
-        fast: fast
-        primary: fast
+  configs:
+    fast:
+      model: m1
+      permissions:
+        mode: plan
+      role: fast
+      type: claude-code
+  defaults:
+    fast: fast
+    primary: fast
 output_dir: /data/ctxloom-outputs
 permissions:
-    approver: none
-    network: false
+  approver: none
+  network: false
 runtime: container
 schema_version: 7
 session_purge_age: 180d
 session_reap_age: 45d
 shell_timeout:
-    default: 3m
-    max: 90m
+  default: 3m
+  max: 90m
 sync:
-    auto_sync: true
+  auto_sync: true
 ui:
-    prefix_key: ctrl-]
-    surround: true
+  prefix_key: ctrl-]
+  surround: true
 workspace: worktree
 `,
 	"explicit_false_and_stale_version/MarshalYAML": `schema_version: 7
 sync:
-    auto_sync: false
+  auto_sync: false
 ui:
-    surround: false
+  surround: false
 `,
 	"explicit_false_and_stale_version/authored": `schema_version: 7
 sync:
-    auto_sync: false
+  auto_sync: false
 ui:
-    surround: false
+  surround: false
 `,
 	"explicit_false_and_stale_version/saveLocked": `schema_version: 7
 sync:
-    auto_sync: false
+  auto_sync: false
 ui:
-    surround: false
+  surround: false
 `,
 	"default_overlay/MarshalYAML": `llm:
-    configs:
-        mine:
-            type: codex
-        shipped:
-            role: primary
-            type: claude-code
-    defaults:
-        primary: shipped
+  configs:
+    mine:
+      type: codex
+    shipped:
+      role: primary
+      type: claude-code
+  defaults:
+    primary: shipped
 schema_version: 7
 `,
 	"default_overlay/authored": `llm:
-    configs:
-        mine:
-            type: codex
+  configs:
+    mine:
+      type: codex
 schema_version: 7
 `,
 	"default_overlay/saveLocked": `llm:
-    configs:
-        mine:
-            type: codex
+  configs:
+    mine:
+      type: codex
 schema_version: 7
 `,
 }

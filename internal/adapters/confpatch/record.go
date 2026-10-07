@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 
 	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/benjaminabbitt/hew/go/hewfs"
@@ -217,7 +218,7 @@ func (s *Store) write(target string, format hew.FormatID, tl hew.TransformList, 
 		Reversal: string(reversal),
 	}
 
-	out, err := yamlv3.Marshal(rec)
+	out, err := yamlx.Marshal(rec)
 	if err != nil {
 		return "", fmt.Errorf("confpatch: marshal application record: %w", err)
 	}

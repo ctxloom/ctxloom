@@ -36,6 +36,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // lockDirMode is the mode the sessions root and a session directory are
@@ -305,7 +306,7 @@ func decodeSidecar(data []byte) (*Entry, error) {
 // sidecar is the only record of the session's rotation lineage, and a rename
 // that silently reverts after a crash loses that lineage with no signal.
 func (m *Manager) writeSidecar(harpName string, e *Entry) error {
-	data, err := yaml.Marshal(sidecarDoc{SchemaVersion: sidecarKind.Current(), Entry: *e})
+	data, err := yamlx.Marshal(sidecarDoc{SchemaVersion: sidecarKind.Current(), Entry: *e})
 	if err != nil {
 		return fmt.Errorf("marshal %s: %w", paths.SessionSidecarFileName, err)
 	}

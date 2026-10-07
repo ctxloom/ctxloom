@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
@@ -169,7 +170,7 @@ func (r *Registry) save() error {
 	}
 
 	// Marshal and write
-	out, err := yaml.Marshal(existingRaw)
+	out, err := yamlx.Marshal(existingRaw)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}

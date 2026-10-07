@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // The claimant index answers Targets and Writers without decoding a single
@@ -62,7 +63,7 @@ func (c *Records) mark(w, target string) error {
 	if ok, err := afero.Exists(c.fs, path); err != nil || ok {
 		return err
 	}
-	data, err := yaml.Marshal(claimant{Writer: w, Target: target})
+	data, err := yamlx.Marshal(claimant{Writer: w, Target: target})
 	if err != nil {
 		return err
 	}

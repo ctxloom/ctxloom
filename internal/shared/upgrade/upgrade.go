@@ -107,19 +107,13 @@ func DecodeSingle(data []byte) (doc yaml.Node, err error) {
 	return doc, nil
 }
 
-// Encode serializes a document node the way every upgrade writes one back:
-// two-space indentation.
+// Encode serializes a document node the way every upgrade writes one back,
+// which is yamlx.Marshal: the encoding every ordinary save writes too.
+// Its former twin, memory's encodeFrontmatter, was deleted: both are now
+// yamlx.Marshal, the one remaining site.
+// reprise:accept-drift
 func Encode(doc *yaml.Node) ([]byte, error) {
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(doc); err != nil {
-		return nil, err
-	}
-	if err := enc.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return yamlx.Marshal(doc)
 }
 
 // HasDuplicateKey reports whether any mapping in the subtree rooted at n names

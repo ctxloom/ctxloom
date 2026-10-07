@@ -27,12 +27,12 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
-	yamlv3 "gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Content formats configWriteCmd understands. These are the target FILE's
@@ -620,7 +620,7 @@ func buildAndWriteApplicationRecord(fs afero.Fs, target string, format hew.Forma
 		}},
 	}
 
-	out, err := yamlv3.Marshal(rec)
+	out, err := yamlx.Marshal(rec)
 	if err != nil {
 		return "", fmt.Errorf("marshal application record: %w", err)
 	}

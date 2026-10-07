@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/yamlform"
 )
 
@@ -25,7 +26,7 @@ func TestConfigSaveIsWriteBackForm(t *testing.T) {
 			require.NoError(t, fs.MkdirAll(appDir, 0o755))
 			path := paths.ConfigPath(appDir)
 			if seed != "" {
-				require.NoError(t, afero.WriteFile(fs, path, []byte(seed), 0o644))
+				testsupport.WriteFileString(t, fs, path, seed, 0o644)
 			}
 			cfg := &Config{
 				appPaths:     []string{appDir},

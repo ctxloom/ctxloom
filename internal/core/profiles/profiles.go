@@ -724,7 +724,7 @@ func (l *Loader) Save(profile *Profile) error {
 	toSave.Name = ""
 	toSave.Path = ""
 
-	data, err := yaml.Marshal(&toSave)
+	data, err := yamlx.Marshal(&toSave)
 	if err != nil {
 		return fmt.Errorf("failed to marshal profile: %w", err)
 	}

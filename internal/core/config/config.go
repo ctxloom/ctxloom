@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
@@ -265,7 +266,7 @@ type Config struct {
 // package-boundary check a same-package helper could route around.
 //
 // Config's MarshalYAML renders a configDoc (effectiveDoc) and UnmarshalYAML
-// decodes one, so yaml.Marshal(cfg)/yaml.Unmarshal(data, cfg) work on a Config
+// decodes one, so yamlx.Marshal(cfg)/yaml.Unmarshal(data, cfg) work on a Config
 // whose fields are unexported; yaml.v3 prefers a type's Marshaler/Unmarshaler
 // methods over reflecting its fields.
 //
@@ -307,10 +308,13 @@ func (d configDoc) MarshalYAML() (any, error) {
 }
 
 // yamlMap is d decoded into a generic map: the form both MarshalYAML and
-// saveLocked's merge consume.
+// saveLocked's merge consume. Its look-alikes by shape (fsstatic's canon,
+// sessions' decodeSidecar) encode no YAML, so the one-encoder change has no
+// counterpart there.
+// reprise:accept-drift
 func (d configDoc) yamlMap() (map[string]any, error) {
 	type fields configDoc // same fields and tags, no MarshalYAML to recurse into
-	raw, err := yaml.Marshal(fields(d))
+	raw, err := yamlx.Marshal(fields(d))
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +400,7 @@ func (c *Config) fromDoc(doc configDoc) {
 	}
 }
 
-// MarshalYAML implements yaml.Marshaler so yaml.Marshal(cfg) — `config show`,
+// MarshalYAML implements yaml.Marshaler so yamlx.Marshal(cfg) — `config show`,
 // whole or by section — renders effectiveDoc. Anything that WRITES a file renders
 // cfg.Authored() instead. It returns the configDoc itself rather than bytes so
 // `config show <section>` can reflect a section out of it by yaml tag.

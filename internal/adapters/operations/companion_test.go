@@ -54,7 +54,7 @@ func TestAddCompanion_RecordsOnlyTheName(t *testing.T) {
 	assert.Equal(t, CompanionAddResult{Name: "acme", Bin: "ctxloom-companion-acme", Path: filepath.Join(bin, "ctxloom-companion-acme"), Added: true}, res)
 
 	written := readHomeConfig(t, appDir)
-	assert.Contains(t, written, "companions:\n    - acme\n")
+	assert.Contains(t, written, "companions:\n  - acme\n")
 	assert.NotContains(t, written, bin, "the resolved path is reported, never recorded")
 	assert.NotContains(t, written, "ctxloom-companion-acme", "the name is recorded, not the binary")
 }
@@ -66,7 +66,7 @@ func TestAddCompanion_AlreadyRegisteredIsIdempotent(t *testing.T) {
 	res, err := AddCompanion(context.Background(), app, "acme")
 	require.NoError(t, err)
 	assert.False(t, res.Added)
-	assert.Contains(t, readHomeConfig(t, appDir), "companions:\n    - acme\n")
+	assert.Contains(t, readHomeConfig(t, appDir), "companions:\n  - acme\n")
 }
 
 func TestAddCompanion_RefusesWhatDoesNotAnswerAndRecordsNothing(t *testing.T) {

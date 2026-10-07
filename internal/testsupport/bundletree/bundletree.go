@@ -21,7 +21,6 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -29,6 +28,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Write lays out the bundle doc spells as the tree <root>/<name>/ on fsys and
@@ -317,7 +317,7 @@ func WriteDirProfiles(t *testing.T, fs afero.Fs, appDir string, profiles map[str
 	dir := ProjectProfilesDirFS(t, fs, appDir)
 	for name, p := range profiles {
 		require.NotContains(t, name, "/", "profile %q: a profile name is a single path segment", name)
-		body, err := yaml.Marshal(p)
+		body, err := yamlx.Marshal(p)
 		require.NoError(t, err, "marshal profile %q", name)
 		require.NoError(t, safefs.WriteFile(fs, filepath.Join(dir, name+".yaml"), body, 0o644))
 	}

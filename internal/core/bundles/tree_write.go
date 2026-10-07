@@ -8,11 +8,11 @@ import (
 	"reflect"
 
 	"github.com/spf13/afero"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // The WRITE direction of the tree mapping: a bundle item becomes the content
@@ -118,7 +118,7 @@ func TreeEnvelope(b *Bundle) ([]byte, error) {
 	env.Skills = nil
 	env.Profiles = nil
 	env.Hooks = BundleHooks{}
-	raw, err := yaml.Marshal(&env)
+	raw, err := yamlx.Marshal(&env)
 	if err != nil {
 		return nil, fmt.Errorf("bundles: rendering the %s envelope: %w", DirectoryFormManifest, err)
 	}

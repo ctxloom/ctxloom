@@ -8,6 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/spf13/afero"
 )
 
@@ -113,37 +114,18 @@ func updateFrontmatter(fsys afero.Fs, path, content, harpName string, mode os.Fi
 		return nil // already present, no change — a genuine no-op
 	}
 
-	rendered, err := encodeFrontmatter(&root)
+	rendered, err := yamlx.Marshal(&root)
 	if err != nil {
 		return fmt.Errorf("encode frontmatter: %w", err)
 	}
 
 	// Not trimmed: a keep-chomped (`|+`) last value owns trailing blank lines,
 	// and the encoder already ends the document with exactly what it owns.
-	newContent := "---\n" + rendered + "---\n"
+	newContent := "---\n" + string(rendered) + "---\n"
 	if body != "" {
 		newContent += "\n" + body
 	}
 	return safefs.WriteFile(fsys, path, []byte(newContent), mode)
-}
-
-// encodeFrontmatter renders a parsed frontmatter document back to YAML. Both
-// the document write and the stream close are checked: whatever the encoder
-// leaves in the buffer after either fails is a partial document, and the only
-// use of this string is to be written over the user's plan file. An error here
-// must abort that write, never shorten it.
-func encodeFrontmatter(root *yaml.Node) (string, error) {
-	var buf strings.Builder
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(root); err != nil {
-		_ = enc.Close()
-		return "", err
-	}
-	if err := enc.Close(); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
 }
 
 // addHarpToSessionsNode looks for a top-level `sessions:` key in the parsed

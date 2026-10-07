@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // configCmd is the top-level home of ctxloom configuration; the old `manage
@@ -106,7 +107,7 @@ func configDocument() (yaml.Marshaler, error) {
 // tags, and would otherwise render Go field names in json/toml while yaml kept
 // snake_case.
 func configPayload(v any) (any, error) {
-	data, err := yaml.Marshal(v)
+	data, err := yamlx.Marshal(v)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal config: %w", err)
 	}
@@ -121,7 +122,7 @@ func configPayload(v any) (any, error) {
 // from configShowCmd's RunE so the marshal + write composition is
 // testable without invoking cobra.
 func renderConfigYAML(doc yaml.Marshaler, out io.Writer) error {
-	data, err := yaml.Marshal(doc)
+	data, err := yamlx.Marshal(doc)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
@@ -135,7 +136,7 @@ func renderConfigYAML(doc yaml.Marshaler, out io.Writer) error {
 // The valid sections are not a second, hand-maintained list: they are read
 // off doc's own MarshalYAML document — the SAME configDoc value `config show`
 // marshals to render the whole configuration (renderConfigYAML calls
-// yaml.Marshal(doc), which yaml.v3 routes through this exact Marshaler). A
+// yamlx.Marshal(doc), which yaml.v3 routes through this exact Marshaler). A
 // field reflected out of that document by its yaml tag is returned as-is, so
 // adding a section to configDoc makes it showable both whole and by section
 // in one edit — there is no second list to fall behind.
@@ -163,12 +164,15 @@ func resolveConfigSection(doc yaml.Marshaler, name string) (any, error) {
 // renderConfigSection resolves the named section and writes it to out as
 // YAML, so the resolve + marshal + write composition is testable without
 // invoking cobra.
+// Its twin by shape, pkg/clifmt's renderYAML, is the one exclusion from the
+// one-encoder lint rule (.golangci.yml), so it keeps its own encoder.
+// reprise:accept-drift
 func renderConfigSection(doc yaml.Marshaler, name string, out io.Writer) error {
 	data, err := resolveConfigSection(doc, name)
 	if err != nil {
 		return err
 	}
-	output, err := yaml.Marshal(data)
+	output, err := yamlx.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal section: %w", err)
 	}

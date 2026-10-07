@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Fragment and prompt management under `bundle` was a partial duplicate of the
@@ -48,7 +49,7 @@ func runBundleMCPEdit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	mcpYAML, err := yaml.Marshal(&cur.MCP)
+	mcpYAML, err := yamlx.Marshal(&cur.MCP)
 	if err != nil {
 		return fmt.Errorf("failed to serialize MCP config: %w", err)
 	}

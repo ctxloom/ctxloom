@@ -75,7 +75,7 @@ func TestCompanionAdd_RecordsOnlyTheNameInTheHomeConfig(t *testing.T) {
 	assert.Equal(t, operations.CompanionAddResult{Name: "acme", Bin: "ctxloom-companion-acme", Path: filepath.Join(dir, "ctxloom-companion-acme"), Added: true}, res)
 
 	written := homeConfigText(t)
-	assert.Contains(t, written, "companions:\n    - acme\n")
+	assert.Contains(t, written, "companions:\n  - acme\n")
 	assert.NotContains(t, written, dir, "the path is reported, never recorded")
 	project, err := os.ReadFile(filepath.Join(root, paths.AppDirName, "config.yaml")) //nolint:gosec // the test project's config
 	require.NoError(t, err)

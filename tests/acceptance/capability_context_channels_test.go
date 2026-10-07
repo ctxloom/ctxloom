@@ -181,13 +181,3 @@ func keysOf(m map[string]string) []string {
 	}
 	return out
 }
-
-// hostedDeclaration is the named engine's named-form table off the engine
-// value (agent.Hosted); empty for an engine that is not Hosted.
-func hostedDeclaration(name string) agent.Declaration {
-	h, ok := engines.Hosted(name)
-	if !ok {
-		return agent.Declaration{}
-	}
-	return h.Declaration()
-}

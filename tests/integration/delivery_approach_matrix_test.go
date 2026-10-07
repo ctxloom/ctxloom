@@ -36,8 +36,8 @@ import (
 // until it is given an expected destination here.
 //
 // Why payload and not exit code: this codebase's characteristic bug is exit 0 +
-// a success line + zero bytes. Every assertion below names a SENTINEL string, the
-// FILE it must reach, and — for the hook approach — the emitted hook JSON.
+// a success line + zero bytes. Every assertion below names a SENTINEL string and
+// the FILE it must reach.
 
 // matrixKinds is every surface kind a backend can be asked about (agent's
 // surfaceOrder), in delivery order.
@@ -237,12 +237,6 @@ var matrixSpecs = map[string]deliverySpec{
 	// TestDeliveryApproach_ClaudeSystemPromptScratchPlacement pins the
 	// framing and the leaf shape this glob cannot express.
 	"claude-code/context/system-prompt": {wantFile: "./*", wantSlot: slotContext, underEngineHome: true},
-	"claude-code/context/hook": {
-		noOp: "claude's hook arm resolves to a documented no-op (a static CLAUDE.md " +
-			"alongside the hook would double the context); the payload rides the " +
-			"settings surface's SessionStart hook + the context cache file. Covered " +
-			"end to end by TestDeliveryApproach_HookPayloadReachesInjectedContext.",
-	},
 	"claude-code/mcp/unsafe-file": {wantFile: ".mcp.json", wantSlot: slotMCPCmd},
 	// The DEFAULT MCP approach, and it is private: the merged .mcp.json lands
 	// beneath the run's private root for --mcp-config, never the user's project

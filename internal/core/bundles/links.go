@@ -211,15 +211,19 @@ func LinkWithholds(grant LinkGrant, read BundleRead, tags []string) (linkID, ser
 	return "", "", false
 }
 
-// WarnLinkWithheld surfaces a link withhold. WarnOnce, because the same
-// assembly runs once per turn and an unchanged gap would otherwise re-warn
-// every time; the finding is content-free (refs and names only).
-func WarnLinkWithheld(rep report.Reporter, ref, linkID, server string) {
-	rep.WarnOncef("%s withheld: %s", ref, linkWithheldReason(linkID, server))
+// WarnLinkWithheld surfaces a link withhold and returns it for the caller's
+// withheld tally, so the warning and the tally state one reason. WarnOnce,
+// because the same assembly runs once per turn and an unchanged gap would
+// otherwise re-warn every time; the finding is content-free (refs and names
+// only).
+func WarnLinkWithheld(rep report.Reporter, ref, linkID, server string) Withhold {
+	w := Withhold{Ref: ref, Reason: linkWithheldReason(linkID, server)}
+	rep.WarnOncef("%s withheld: %s", w.Ref, w.Reason)
+	return w
 }
 
-// linkWithheldReason is why a linked item was withheld: the one wording the
-// warning and the pipeline's tally share.
+// linkWithheldReason is why a linked item was withheld, as WarnLinkWithheld
+// states it.
 func linkWithheldReason(linkID, server string) string {
 	if server == "" {
 		return fmt.Sprintf("it is linked (%s=%s) but this pipeline has no link grant", linkTagKey, linkID)

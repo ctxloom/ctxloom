@@ -28,6 +28,27 @@ func malformedSkillFixture(t *testing.T) *config.Config {
 	return defaultsTo(appDir, "dev")
 }
 
+// linkedHookFixture is one bundle whose session_start hook is linked to the
+// MCP server it drives, under a profile that vetoes that server.
+func linkedHookFixture(t *testing.T) *config.Config {
+	t.Helper()
+	appDir, bundlesDir := scopeFixture(t, nil)
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "without.yaml"),
+		[]byte("bundles:\n  - linked\nexclude_mcp:\n  - think\n"), 0o644))
+	bundletree.WriteOS(t, bundlesDir, "linked", `version: "1.0"
+mcp:
+  think:
+    command: think-server
+    tags: [ctxloom:link_id=think]
+hooks:
+  session_start:
+    - command: think-warmup
+      tags: [ctxloom:link_id=think]
+`)
+	return defaultsTo(appDir, "without")
+}
+
 // TestWithholds_ReachTheAgentsStartupFindings: a delivery withhold reaches
 // the agent. Each case runs a real assembly reporting through the production
 // sink and proves the withhold happened (its stderr warning); the package's
@@ -40,13 +61,16 @@ func TestWithholds_ReachTheAgentsStartupFindings(t *testing.T) {
 		fixture  func(*testing.T) *config.Config
 		profiles []string
 		item     string
+		listed   string
 		stderr   string
 		why      string
 	}{
 		{"a skill linked to an MCP server the run was not granted (exclude_mcp)", linkedSkillAndCommandFixture, []string{"without"},
-			"linked#skills/reason", "which this run was not granted", `to MCP server "think", which this run was not granted`},
+			"linked#skills/reason", "skill ctxloom+local:linked#skills/reason", "which this run was not granted", `to MCP server "think", which this run was not granted`},
 		{"a skill whose package does not parse", malformedSkillFixture, []string{"dev"},
-			"#skills/half", `skill "half" withheld`, "its package did not load"},
+			"#skills/half", "skill ctxloom+local:sb#skills/half", `skill "half" withheld`, "its package did not load"},
+		{"a hook linked to an MCP server the run was not granted (exclude_mcp)", linkedHookFixture, []string{"without"},
+			"linked#hooks/session_start/0", "hook ctxloom+local:linked#hooks/session_start/0", "#hooks/session_start/0 withheld", `to MCP server "think", which this run was not granted`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			strictness.Reset()
@@ -68,7 +92,7 @@ func TestWithholds_ReachTheAgentsStartupFindings(t *testing.T) {
 				assert.NotContains(t, f.Text, c.item, "a withhold is never ledgered: in strict mode that would abort the launch")
 			}
 			row := withheldRow(t, StartupFindings(&App{NoCompanions: true}, cfg, isolatedHome(t), recorded, pkg.Attestation().Withheld))
-			assert.Contains(t, row.Detail, c.item, "the agent is told WHAT was withheld")
+			assert.Contains(t, row.Detail, c.listed, "the agent is told WHAT was withheld: its kind and ref")
 			assert.Contains(t, row.Detail, c.why, "the agent is told WHY")
 		})
 	}

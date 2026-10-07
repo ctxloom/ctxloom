@@ -83,6 +83,24 @@ func TestConfig_ResolveBundleHooks_LinkedHookFollowsTheRunsGrantedMCPSet(t *test
 		"the unlinked hook is not collateral")
 }
 
+// A withheld hook is TALLIED, not only warned: hooks never pass through the
+// content pipeline, so the run's withheld list (the package attestation the
+// agent's startup findings name) learns of one only from this return. Each
+// entry names the hook by its canonical ref and says why, in the pipeline's
+// own wording; a run that grants the server withholds nothing.
+func TestConfig_ResolveBundleHooksFor_TalliesALinkedHookWithhold(t *testing.T) {
+	cfg := writeLinkedBundleFixture(t)
+
+	_, granted := cfg.ResolveBundleHooksFor(cfg.ResolveProfileSet([]string{"with"}))
+	assert.Empty(t, granted)
+
+	hooks, withheld := cfg.ResolveBundleHooksFor(cfg.ResolveProfileSet([]string{"without"}))
+	assert.Empty(t, hookCommands(hooks.SessionStart))
+	require.Len(t, withheld, 1)
+	assert.Equal(t, "ctxloom+local:linked#hooks/session_start/0", withheld[0].Ref)
+	assert.Equal(t, `it is linked (ctxloom:link_id=think) to MCP server "think", which this run was not granted`, withheld[0].Reason)
+}
+
 // The hook path follows the pipeline's rule for an omitted grant: nil fails
 // CLOSED for every linked hook and touches no unlinked one; not checking is
 // spelled bundles.LinksUnchecked, out loud.
@@ -93,11 +111,11 @@ func TestExtractHooksFromBundle_NilLinkGrantWithholdsLinkedHooksOnly(t *testing.
 		PreTool:      []bundles.BundleHook{{Command: "free-guard"}},
 	})
 
-	got := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), nil)
+	got, _ := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), nil)
 	assert.Empty(t, hookCommands(got.SessionStart))
 	assert.Equal(t, []string{"free-guard"}, hookCommands(got.PreTool))
 
-	unchecked := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), bundles.LinksUnchecked())
+	unchecked, _ := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), bundles.LinksUnchecked())
 	assert.Equal(t, []string{"think-warmup"}, hookCommands(unchecked.SessionStart))
 }
 

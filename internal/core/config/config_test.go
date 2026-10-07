@@ -955,7 +955,7 @@ hooks:
 	bundletree.WriteOS(t, v2Dir, "with-hooks", bundleContent)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadHooksFromBundleRef(report.Reporter{}, "with-hooks", loader.Catalog(), bundles.LinksUnchecked())
+	result, _ := loadHooksFromBundleRef(report.Reporter{}, "with-hooks", loader.Catalog(), bundles.LinksUnchecked())
 
 	require.Len(t, result.PostTool, 1)
 	assert.Equal(t, "TodoWrite", result.PostTool[0].Matcher)
@@ -981,7 +981,7 @@ mcp:
 	bundletree.WriteOS(t, bundlesDir, "no-hooks", bundleContent)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadHooksFromBundleRef(report.Reporter{}, "no-hooks", loader.Catalog(), bundles.LinksUnchecked())
+	result, _ := loadHooksFromBundleRef(report.Reporter{}, "no-hooks", loader.Catalog(), bundles.LinksUnchecked())
 
 	assert.Empty(t, result.PostTool)
 	assert.Empty(t, result.PreTool)

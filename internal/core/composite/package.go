@@ -289,6 +289,11 @@ type Options struct {
 	Pipeline *bundles.Pipeline
 	// DropWithheld accepts a withheld required item instead of refusing.
 	DropWithheld bool
+	// Withheld are the items the caller withheld while resolving a surface it
+	// carries in (a bundle hook linked to an MCP server the run was not
+	// granted): hooks never pass through the process stage, so its tally
+	// cannot see them. Assemble treats them as the stage's own withholds.
+	Withheld []bundles.Withhold
 	// Static writes premised fragments into the context instead of holding
 	// them for the catalog: the consumer has no ctxloom behind it to pull one.
 	Static bool

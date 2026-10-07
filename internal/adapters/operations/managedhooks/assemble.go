@@ -146,7 +146,9 @@ func appendManagedDynamicHooks(m *Hooks, cfg *config.Config, set []profiles.Reso
 	if m == nil || cfg == nil {
 		return
 	}
-	m.mergeUnified(cfg.ResolveBundleHooksFor(set), bundleSource)
+	shipped, withheld := cfg.ResolveBundleHooksFor(set)
+	m.mergeUnified(shipped, bundleSource)
+	m.withheld = append(m.withheld, withheld...)
 	// The PostToolUse reflect hook rides the same managed set as context
 	// injection, and for the same reason: it exists to keep the distilled
 	// essence honest, so it belongs to ctxloom rather than to any bundle.

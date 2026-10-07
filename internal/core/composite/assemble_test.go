@@ -300,3 +300,21 @@ func TestEngineItems_HooksCountOnlyThisEnginesNativeEvents(t *testing.T) {
 	assert.Equal(t, []wire.Hook{{Command: "./notify.sh"}}, p.EngineItems("claude-code").Hooks)
 	assert.Empty(t, p.EngineItems("mock").Hooks, "another engine's native hooks are not this engine's items")
 }
+
+// A withhold the caller made resolving a surface it carries in (a linked
+// bundle hook) is the package's withhold like any other: it is attested beside
+// the stage's own, sorted by ref, and refused unless DropWithheld accepts it.
+func TestAssemble_CallerWithheldItemsAreAttested(t *testing.T) {
+	cat := corpus(t)
+	hook := bundles.Withhold{Ref: "ctxloom+local:linked#hooks/session_start/0", Reason: "why"}
+
+	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat),
+		composite.Options{DropWithheld: true, Withheld: []bundles.Withhold{hook}})
+	require.NoError(t, err)
+	assert.Equal(t, []bundles.Withhold{hook}, pkg.Attestation().Withheld)
+
+	_, err = composite.Assemble(context.Background(), cat, selectAlpha(t, cat),
+		composite.Options{Withheld: []bundles.Withhold{hook}})
+	require.ErrorIs(t, err, composite.ErrItemWithheld)
+	assert.Contains(t, err.Error(), hook.Ref)
+}

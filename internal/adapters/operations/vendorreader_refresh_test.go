@@ -8,13 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -76,13 +76,13 @@ func TestRefreshVendorTranscript_ReplacesRatherThanAppends(t *testing.T) {
 	harp := "refresh-replaces-harp"
 	e := claudeEntry(harp, claudeFixturePath)
 
-	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	first := canonicalLines(t, harp)
 	require.NotEmpty(t, first)
 
-	converted, err = RefreshVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err = RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.True(t, converted, "a refresh re-converts rather than reporting nothing to do")
 
@@ -105,7 +105,7 @@ func TestRefreshVendorTranscript_PicksUpVendorGrowth(t *testing.T) {
 	vendorPath := vendorFileWithLines(t, 2)
 	e := claudeEntry(harp, vendorPath)
 
-	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	before := canonicalLines(t, harp)
@@ -116,7 +116,7 @@ func TestRefreshVendorTranscript_PicksUpVendorGrowth(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(vendorPath, grown, 0o644))
 
-	converted, err = RefreshVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err = RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 
@@ -142,7 +142,7 @@ func TestRefreshVendorTranscript_KeepsExistingTranscriptWhenNothingToConvert(t *
 	testsupport.Isolate(t)
 	harp := "refresh-nothing-harp"
 
-	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), claudeEntry(harp, claudeFixturePath))
+	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), claudeEntry(harp, claudeFixturePath))
 	require.NoError(t, err)
 	require.True(t, converted)
 	before := canonicalLines(t, harp)
@@ -150,7 +150,7 @@ func TestRefreshVendorTranscript_KeepsExistingTranscriptWhenNothingToConvert(t *
 
 	// Same harp, but the vendor transcript is gone from where the index says.
 	gone := filepath.Join(t.TempDir(), "vanished.jsonl")
-	converted, err = RefreshVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), claudeEntry(harp, gone))
+	converted, err = RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), claudeEntry(harp, gone))
 	require.NoError(t, err)
 	assert.False(t, converted, "nothing locatable to convert is 'nothing to do', not a failure")
 
@@ -173,7 +173,7 @@ func TestRefreshVendorTranscript_FailedRefreshKeepsTheTranscriptItHad(t *testing
 	harp := "refresh-failure-harp"
 	e := sessions.Entry{HarpName: harp, Backend: "claude-code", TranscriptPath: claudeFixturePath, EngineVersion: stubEngineVersion}
 
-	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	before := canonicalLines(t, harp)
@@ -183,7 +183,7 @@ func TestRefreshVendorTranscript_FailedRefreshKeepsTheTranscriptItHad(t *testing
 	// line the first conversion never reached.
 	e.Backend = registerReaderFixture(t, partialFailAdapter{n: 3})
 
-	_, err = RefreshVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	_, err = RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.Error(t, err, "a conversion that dies partway must surface, not be swallowed")
 
 	after := canonicalLines(t, harp)
@@ -201,7 +201,7 @@ func TestRefreshVendorTranscript_LeavesNoRebuildArtifact(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "refresh-artifact-harp"
 
-	_, err := RefreshVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), claudeEntry(harp, claudeFixturePath))
+	_, err := RefreshVendorTranscript(context.Background(), safefs.New(), engines.Registry(), claudeEntry(harp, claudeFixturePath))
 	require.NoError(t, err)
 
 	canonPath, err := paths.HarpCanonicalTranscriptPath(harp)

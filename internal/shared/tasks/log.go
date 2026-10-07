@@ -11,21 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gofrs/flock"
-
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
-)
-
-// lockFileMode and lockDirMode are the modes this log's advisory-lock
-// sidecar and its parent directory are created with, before umask — not
-// group- or world-WRITABLE, matching every other lock site in this project
-// (see internal/core/agent/rmw_lock.go's identically-reasoned pair).
-const (
-	lockFileMode = 0o644
-	lockDirMode  = 0o755
 )
 
 // logFileMode and logDirMode are the event log's own mode and its parent
@@ -72,6 +60,7 @@ const (
 type eventLog struct {
 	path    string
 	session string // origin/acting session harp stamped on events
+	locks   safefs.Locks
 	mu      sync.Mutex
 }
 
@@ -484,34 +473,15 @@ func admissible(ev Event) error {
 // another.
 func (l *eventLog) lockPath() string { return paths.PathFor(l.path) }
 
-// newFileLock creates the lock file's parent directory if needed and
-// returns a *flock.Flock ready to Lock/RLock at path. Every acquisition in
-// this file goes through it, so a directory-preparation failure and the
-// lock's permissions cannot drift between the exclusive and shared call
-// sites below.
-func newFileLock(path string) (*flock.Flock, error) {
-	if err := os.MkdirAll(filepath.Dir(path), lockDirMode); err != nil {
-		return nil, fmt.Errorf("prepare lock directory for %s: %w", path, err)
-	}
-	return flock.New(path, flock.SetPermissions(lockFileMode)), nil
-}
-
 func (l *eventLog) lock() (func(), error) {
 	l.mu.Lock()
-	fl, err := newFileLock(l.lockPath())
-	if err != nil {
-		l.mu.Unlock()
-		return nil, fmt.Errorf("lock: %w", err)
-	}
-	stop := lockwait.Watch(l.lockPath())
-	err = fl.Lock()
-	stop()
+	lk, err := l.locks.Lock(l.lockPath())
 	if err != nil {
 		l.mu.Unlock()
 		return nil, fmt.Errorf("lock: %w", err)
 	}
 	return func() {
-		_ = fl.Unlock()
+		_ = lk.Unlock()
 		l.mu.Unlock()
 	}, nil
 }
@@ -524,17 +494,11 @@ func (l *eventLog) lock() (func(), error) {
 // RLock call itself failing silently falls back to an unlocked read rather
 // than propagating an error.
 func (l *eventLog) lockShared() (unlock func()) {
-	fl, err := newFileLock(l.lockPath())
+	lk, err := l.locks.RLock(l.lockPath())
 	if err != nil {
 		return func() {}
 	}
-	stop := lockwait.Watch(l.lockPath())
-	err = fl.RLock()
-	stop()
-	if err != nil {
-		return func() {}
-	}
-	return func() { _ = fl.Unlock() }
+	return func() { _ = lk.Unlock() }
 }
 
 // readFolded is the fold every read takes: under a shared cross-process

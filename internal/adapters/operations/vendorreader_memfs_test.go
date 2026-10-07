@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -71,12 +72,12 @@ func TestConvertVendorTranscript_ReadsAndWritesThroughTheGivenFs(t *testing.T) {
 	harp := "memfs-convert-harp"
 	src := seedMem(t, mem, path.Join(memVendorRoot, "live.jsonl"), fixtureLines(t, 0))
 
-	converted, err := ConvertVendorTranscript(context.Background(), mem, engines.Registry(), claudeEntry(harp, src))
+	converted, err := ConvertVendorTranscript(context.Background(), safefs.NewMem(mem), engines.Registry(), claudeEntry(harp, src))
 	require.NoError(t, err)
 	require.True(t, converted)
 	assert.NotEmpty(t, memCanonical(t, mem, harp))
 
-	converted, err = ConvertVendorTranscript(context.Background(), mem, engines.Registry(), claudeEntry(harp, src))
+	converted, err = ConvertVendorTranscript(context.Background(), safefs.NewMem(mem), engines.Registry(), claudeEntry(harp, src))
 	require.NoError(t, err)
 	assert.False(t, converted, "the canonical transcript the fs holds is the idempotency guard")
 }
@@ -92,7 +93,7 @@ func TestConvertVendorTranscript_RotationSegmentLivesInTheGivenFs(t *testing.T) 
 	e := claudeEntry(harp, liveSrc)
 	e.Rotations = []sessions.Rotation{{SessionID: "pre-clear-id", TranscriptPath: rotSrc, RotatedAt: time.Now()}}
 
-	converted, err := ConvertVendorTranscript(context.Background(), mem, engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), safefs.NewMem(mem), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	assert.Contains(t, strings.Join(memCanonical(t, mem, harp), "\n"), rotationMarker)
@@ -112,7 +113,7 @@ func TestRefreshVendorTranscript_ResumesFromAWatermarkInTheGivenFs(t *testing.T)
 	src := seedMem(t, mem, path.Join(memVendorRoot, "live.jsonl"), fixtureLines(t, settledPrefix))
 	e := liveClaudeEntry(harp, src)
 
-	converted, err := ConvertVendorTranscript(context.Background(), mem, engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), safefs.NewMem(mem), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	wmPath := watermarkPath(t, harp)
@@ -129,14 +130,14 @@ func TestRefreshVendorTranscript_ResumesFromAWatermarkInTheGivenFs(t *testing.T)
 	grown := fixtureLines(t, 0)
 	junked := append(bytes.Repeat([]byte("#"), int(wm.Vendor.Start)), grown[wm.Vendor.Start:]...)
 	testsupport.WriteFile(t, mem, src, junked, 0o644)
-	converted, err = RefreshVendorTranscript(context.Background(), mem, engines.Registry(), e)
+	converted, err = RefreshVendorTranscript(context.Background(), safefs.NewMem(mem), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	resumed := withoutRecordTimes(memCanonical(t, mem, harp))
 
 	fresh := afero.NewMemMapFs()
 	testsupport.WriteFile(t, fresh, src, grown, 0o644)
-	converted, err = ConvertVendorTranscript(context.Background(), fresh, engines.Registry(), e)
+	converted, err = ConvertVendorTranscript(context.Background(), safefs.NewMem(fresh), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	assert.Equal(t, withoutRecordTimes(memCanonical(t, fresh, harp)), resumed)
@@ -178,4 +179,33 @@ func TestScanAdoptCandidates_ScansTheVendorDirInTheGivenFs(t *testing.T) {
 	}
 	require.NotNil(t, orphan, "the orphan the given fs holds is found")
 	assert.True(t, orphan.HasSpan, "its record span is read through the given fs")
+}
+
+// TestRefreshVendorTranscript_ProbesOwnershipThroughTheGivenRootsLocks: the
+// rebuild's exclusive ownership probe is taken through the Root it was
+// handed, so over an in-memory Root a live recorder's shared lock on that
+// Root makes the refresh skip, and its release lets the refresh proceed.
+func TestRefreshVendorTranscript_ProbesOwnershipThroughTheGivenRootsLocks(t *testing.T) {
+	testsupport.Isolate(t)
+	mem := afero.NewMemMapFs()
+	files := safefs.NewMem(mem)
+	harp := "memfs-ownership-harp"
+	src := seedMem(t, mem, path.Join(memVendorRoot, "live.jsonl"), fixtureLines(t, 0))
+	e := liveClaudeEntry(harp, src)
+	converted, err := ConvertVendorTranscript(context.Background(), files, engines.Registry(), e)
+	require.NoError(t, err)
+	require.True(t, converted)
+
+	dest, err := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, err)
+	live, err := files.Locks.RLock(paths.PathFor(dest))
+	require.NoError(t, err)
+	converted, err = RefreshVendorTranscript(context.Background(), files, engines.Registry(), e)
+	require.NoError(t, err)
+	assert.False(t, converted, "a rebuild must skip while a live recorder holds the Root's shared lock")
+
+	require.NoError(t, live.Unlock())
+	converted, err = RefreshVendorTranscript(context.Background(), files, engines.Registry(), e)
+	require.NoError(t, err)
+	assert.True(t, converted, "once the recorder releases, the rebuild proceeds")
 }

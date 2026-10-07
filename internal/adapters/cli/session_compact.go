@@ -3,13 +3,13 @@ package cli
 import (
 	"os"
 
-	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // The compaction/compaction cluster the session commands share with the MCP
@@ -63,7 +63,7 @@ func compactMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 		// looked stale or title-less — never for every row in the sweep
 		// (RefreshVendorTranscript's own doc: "a sweep across an index must
 		// not" pay the heal unconditionally).
-		src, herr := operations.ResolveAndHeal(cmd.Context(), afero.NewOsFs(), App().Engines(), e.HarpName)
+		src, herr := operations.ResolveAndHeal(cmd.Context(), safefs.New(), App().Engines(), e.HarpName)
 		if herr != nil {
 			clidiag.Warn("ctxloom", "could not resolve %s: %v", e.HarpName, herr)
 			continue

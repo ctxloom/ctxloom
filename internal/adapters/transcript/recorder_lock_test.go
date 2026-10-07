@@ -2,35 +2,37 @@ package transcript
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// tryLockProbe attempts a non-blocking exclusive lock on path, mirroring
-// flock.Flock.TryLock's own (bool, error) shape but always handing back a
-// release func that is safe to call unconditionally, whether or not
-// anything was actually acquired — the same "defer it immediately" shape
-// every real lock call site in this codebase uses. It creates path's parent
-// directory first (flock.New does not, unlike the old filelock.TryLock's
-// internal ensureDir), matching what every real call site does before
-// acquiring.
+// tryLockProbe makes one exclusive attempt on path, as another process would,
+// and always hands back a release func that is safe to call unconditionally,
+// whether or not anything was acquired. It creates path's parent directory
+// first: TryLock never does.
 func tryLockProbe(t *testing.T, path string) (unlock func(), acquired bool) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-	fl := flock.New(path)
-	ok, err := fl.TryLock()
+	once, cancel := context.WithCancel(context.Background())
+	cancel()
+	lk, err := safefs.New().Locks.TryLock(once, path)
+	if errors.Is(err, safefs.ErrLockHeld) {
+		return func() {}, false
+	}
 	require.NoError(t, err)
-	return func() { _ = fl.Unlock() }, ok
+	return func() { _ = lk.Unlock() }, true
 }
 
 // This file pins the Recorder half of the easeful-dial fix (taskloom
@@ -55,7 +57,7 @@ func TestRecorder_DefaultPath_HoldsSharedOwnershipLockUntilClose(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "lock-holding-harp"
 
-	rec, err := NewRecorder(afero.NewOsFs(), harp, "claude-code")
+	rec, err := NewRecorder(safefs.New(), harp, "claude-code")
 	require.NoError(t, err)
 
 	canonPath, err := paths.HarpCanonicalTranscriptPath(harp)
@@ -97,7 +99,7 @@ func TestRecorder_WithWriter_TakesNoOwnershipLock(t *testing.T) {
 	harp := "lock-free-harp"
 	var sink bytes.Buffer
 
-	rec, err := NewRecorder(afero.NewOsFs(), harp, "claude-code", WithWriter(&sink))
+	rec, err := NewRecorder(safefs.New(), harp, "claude-code", WithWriter(&sink))
 	require.NoError(t, err)
 
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
@@ -112,4 +114,25 @@ func TestRecorder_WithWriter_TakesNoOwnershipLock(t *testing.T) {
 	unlock()
 
 	require.NoError(t, rec.Close())
+}
+
+// TestRecorder_LocksThroughItsRootsLocks: the ownership lock is taken
+// through the Root the recorder was handed, never a fixed one, so over an
+// in-memory Root it contends with that Root's other takers — here a rebuild's
+// exclusive attempt, which must be refused while the recorder is open.
+func TestRecorder_LocksThroughItsRootsLocks(t *testing.T) {
+	testsupport.Isolate(t)
+	harp := "mem-root-harp"
+	files := safefs.NewMem(afero.NewMemMapFs())
+	rec, err := NewRecorder(files, harp, "claude-code")
+	require.NoError(t, err)
+	defer func() { _ = rec.Close() }()
+	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: "hello"}}))
+
+	canonPath, err := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, err)
+	once, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = files.Locks.TryLock(once, paths.PathFor(canonPath))
+	require.ErrorIs(t, err, safefs.ErrLockHeld, "the recorder's shared lock must be its Root's")
 }

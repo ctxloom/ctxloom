@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
@@ -93,9 +93,9 @@ type deliverer interface {
 	Deliver(present.Start) (agent.Delivered, error)
 }
 
-func newSurfaces(in agent.SurfaceInputs, fs afero.Fs) builtSurfaces {
+func newSurfaces(in agent.SurfaceInputs, files safefs.Root) builtSurfaces {
 	must := func(kind agent.SurfaceKind, name string) agent.Approach {
-		a, ok := testDeclaration()[kind].Construct(name, in, fs)
+		a, ok := testDeclaration()[kind].Construct(name, in, files)
 		if !ok {
 			panic("claude does not declare " + kind.String() + "=" + name)
 		}
@@ -121,7 +121,7 @@ func newSurfaces(in agent.SurfaceInputs, fs afero.Fs) builtSurfaces {
 // there is no second one for a cell to pick instead.
 func TestContextSurface_DeliverWritesSyspromptAndExposesPath(t *testing.T) {
 	cwd, home := t.TempDir(), t.TempDir()
-	s := newSurfaces(sampleInputs(), nil)
+	s := newSurfaces(sampleInputs(), safefs.New())
 
 	handle, err := s.Context.Deliver(runRoots(cwd, home))
 	require.NoError(t, err)
@@ -154,7 +154,7 @@ func TestContextSurface_DeliverWritesSyspromptAndExposesPath(t *testing.T) {
 // the manifest-tracked set.
 func TestCommandsSurface_DeliverWritesCommands(t *testing.T) {
 	dir := t.TempDir()
-	s := newSurfaces(sampleInputs(), nil)
+	s := newSurfaces(sampleInputs(), safefs.New())
 
 	handle, err := s.Commands.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
@@ -174,7 +174,7 @@ func TestCommandsSurface_DeliverWritesCommands(t *testing.T) {
 // forwards SurfaceInputs.Skills straight into this Surfaces value).
 func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
 	dir := t.TempDir()
-	s := newSurfaces(sampleInputs(), nil)
+	s := newSurfaces(sampleInputs(), safefs.New())
 
 	handle, err := s.Skills.(deliverer).Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
@@ -259,7 +259,7 @@ func TestNewSurfaces_ThreadsEverySurfaceScopedInput(t *testing.T) {
 	in.SelfContainedCommands = true
 
 	dir := t.TempDir()
-	s := newSurfaces(in, nil)
+	s := newSurfaces(in, safefs.New())
 
 	_, err := s.Commands.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
@@ -283,7 +283,7 @@ func TestSurfaces_PresentedPathIsWhereTheApproachWrites(t *testing.T) {
 			dir := t.TempDir()
 			def, ok := testDeclaration().Default(kind)
 			require.True(t, ok, "%s is declared, so it must have a default", kind)
-			a, ok := testDeclaration()[kind].Construct(def, sampleInputs(), nil)
+			a, ok := testDeclaration()[kind].Construct(def, sampleInputs(), safefs.New())
 			require.True(t, ok)
 			d, delivers := a.(deliverer)
 			if !delivers {
@@ -310,7 +310,7 @@ func TestSurfaces_PresentedPathIsWhereTheApproachWrites(t *testing.T) {
 // construction — which is what keeps a worktree-isolated agent out of the
 // coordinator's checkout. Enumerating the declaration needs neither root.
 func TestSurfaces_RootsBindPerLaunchNotAtConstruction(t *testing.T) {
-	a, ok := testDeclaration()[agent.SurfaceContext].Construct(agent.ApproachUnsafeFile, sampleInputs(), nil)
+	a, ok := testDeclaration()[agent.SurfaceContext].Construct(agent.ApproachUnsafeFile, sampleInputs(), safefs.New())
 	require.True(t, ok)
 	host := a.Present(present.ProjectOnHost("/home/dev/project")).HostPath
 	worktree := a.Present(present.ProjectOnHost("/home/dev/worktrees/project--feat")).HostPath
@@ -331,7 +331,7 @@ func TestSurfaces_RootsBindPerLaunchNotAtConstruction(t *testing.T) {
 // pick one.
 func TestPrivateRootApproaches_RefuseWithoutAnEngineHome(t *testing.T) {
 	project := t.TempDir()
-	s := newSurfaces(sampleInputs(), nil)
+	s := newSurfaces(sampleInputs(), safefs.New())
 	noHome := runRoots(project, "")
 
 	for _, tc := range []struct {

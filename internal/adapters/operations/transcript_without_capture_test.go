@@ -5,7 +5,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -61,7 +61,7 @@ func TestRecordedSessionEntries_UnreadableCanonicalCaptureRefuses(t *testing.T) 
 			require.NoError(t, err)
 			minted, err := mgr.AssignHarp("/proj", eng)
 			require.NoError(t, err)
-			rec, err := transcript.NewRecorder(afero.NewOsFs(), minted.HarpName, eng)
+			rec, err := transcript.NewRecorder(safefs.New(), minted.HarpName, eng)
 			require.NoError(t, err)
 			require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: "q"}}))
 			require.NoError(t, rec.Close())

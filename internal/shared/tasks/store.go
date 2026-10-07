@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 )
 
@@ -28,7 +29,10 @@ func OpenLog(path, sessionHarp string) (*Store, error) {
 	if path == "" {
 		return nil, fmt.Errorf("log path required")
 	}
-	return &Store{log: &eventLog{path: path, session: sessionHarp}}, nil
+	// The log is read and written on the controller's own disk (os, and
+	// safefs's in-place writer, which takes no fs), so its locks are that
+	// disk's.
+	return &Store{log: &eventLog{path: path, session: sessionHarp, locks: safefs.New().Locks}}, nil
 }
 
 // Path returns the absolute path of the task log file.

@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -208,8 +209,8 @@ func (*contextApproach) Name() string { return ApproachSystemPrompt }
 func (*contextApproach) Forms() agent.Presentations {
 	return agent.Presents(EngineName, agent.SurfaceContext, agent.ApproachUnsafeFile,
 		agent.NativeContextFile(ContextFileName)).
-		Or(ApproachSystemPrompt, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-			return &systemPromptContext{content: in.Context, fs: agent.GetFS(fs)}
+		Or(ApproachSystemPrompt, func(in agent.SurfaceInputs, files safefs.Root) agent.Approach {
+			return &systemPromptContext{content: in.Context, fs: agent.GetFS(files.Fs)}
 		}).
 		Or(agent.ApproachHook, agent.HookCarriedContext)
 }
@@ -243,9 +244,9 @@ type mcpApproach struct{ traits }
 
 func (*mcpApproach) Name() string { return ApproachMCPConfig }
 func (*mcpApproach) Forms() agent.Presentations {
-	return agent.Presents(EngineName, agent.SurfaceMCP, ApproachMCPConfig, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+	return agent.Presents(EngineName, agent.SurfaceMCP, ApproachMCPConfig, func(agent.SurfaceInputs, safefs.Root) agent.Approach {
 		return &mcpConfig{}
-	}).Or(agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+	}).Or(agent.ApproachUnsafeFile, func(agent.SurfaceInputs, safefs.Root) agent.Approach {
 		return &mcpUnsafeFile{}
 	})
 }
@@ -480,7 +481,7 @@ type settingsApproach struct{ traits }
 
 func (*settingsApproach) Name() string { return "settings" }
 func (*settingsApproach) Forms() agent.Presentations {
-	return agent.Presents(EngineName, agent.SurfaceSettings, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+	return agent.Presents(EngineName, agent.SurfaceSettings, agent.ApproachUnsafeFile, func(agent.SurfaceInputs, safefs.Root) agent.Approach {
 		return &settingsSurface{}
 	}).Retire(ApproachHewRecord, agent.ApproachUnsafeFile)
 }
@@ -509,11 +510,11 @@ type commandsApproach struct{ traits }
 
 func (*commandsApproach) Name() string { return "commands-dir" }
 func (*commandsApproach) Forms() agent.Presentations {
-	return agent.Presents(EngineName, agent.SurfaceCommands, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return &commandsSurface{commands: in.Commands, fs: agent.GetFS(fs), reporter: in.Reporter, selfContainedCommands: in.SelfContainedCommands}
+	return agent.Presents(EngineName, agent.SurfaceCommands, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, files safefs.Root) agent.Approach {
+		return &commandsSurface{commands: in.Commands, files: files, reporter: in.Reporter, selfContainedCommands: in.SelfContainedCommands}
 	})
 }
-func (a *commandsApproach) DeliverCommands(start present.Start, root present.RootKind, in engine.CommandsInputs, fs afero.Fs) (present.Delivered, error) {
+func (a *commandsApproach) DeliverCommands(start present.Start, root present.RootKind, in engine.CommandsInputs, files safefs.Root) (present.Delivered, error) {
 	cmds := make([]agent.CommandExport, 0, len(in.Commands))
 	for _, c := range in.Commands {
 		cmds = append(cmds, agent.CommandExport{
@@ -530,7 +531,7 @@ func (a *commandsApproach) DeliverCommands(start present.Start, root present.Roo
 			return present.Delivered{}, err
 		}
 		p := underPrivateRoot(start, CommandsDirName).Build()
-		if err := writeCommandDir(agent.GetFS(fs), p.HostPath, cmds); err != nil {
+		if err := writeCommandDir(files, p.HostPath, cmds); err != nil {
 			return present.Delivered{}, err
 		}
 		return present.Delivered{Presented: p, Wrote: []string{p.HostPath}}, nil
@@ -541,7 +542,7 @@ func (a *commandsApproach) DeliverCommands(start present.Start, root present.Roo
 	// The plan's commands land as given: a copy in the materializing
 	// host's own ~/.claude/commands is no reason to withhold one from a
 	// tree that will be read elsewhere.
-	form := &commandsSurface{commands: cmds, fs: agent.GetFS(fs), selfContainedCommands: true}
+	form := &commandsSurface{commands: cmds, files: files, selfContainedCommands: true}
 	h, err := form.Deliver(start)
 	if err != nil {
 		return present.Delivered{}, err
@@ -557,11 +558,11 @@ type skillsApproach struct{ traits }
 
 func (*skillsApproach) Name() string { return "skills-dir" }
 func (*skillsApproach) Forms() agent.Presentations {
-	return agent.Presents(EngineName, agent.SurfaceSkills, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return newSkillsSurface(in, fs)
+	return agent.Presents(EngineName, agent.SurfaceSkills, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, files safefs.Root) agent.Approach {
+		return newSkillsSurface(in, files)
 	})
 }
-func (a *skillsApproach) DeliverSkills(start present.Start, root present.RootKind, in engine.SkillsInputs, fs afero.Fs) (present.Delivered, error) {
+func (a *skillsApproach) DeliverSkills(start present.Start, root present.RootKind, in engine.SkillsInputs, files safefs.Root) (present.Delivered, error) {
 	skills := make([]agent.SkillExport, 0, len(in.Skills))
 	for _, s := range in.Skills {
 		e := agent.SkillExport{Name: s.Name, Description: s.Description, Enabled: s.Enabled}
@@ -580,7 +581,7 @@ func (a *skillsApproach) DeliverSkills(start present.Start, root present.RootKin
 			return present.Delivered{}, err
 		}
 		p := underPrivateRoot(start, SkillsDirName).Build()
-		if err := agent.WriteManagedSkillPackages(agent.GetFS(fs), p.HostPath, acceptedSkills(skills)); err != nil {
+		if err := agent.WriteManagedSkillPackages(files, p.HostPath, acceptedSkills(skills)); err != nil {
 			return present.Delivered{}, err
 		}
 		return present.Delivered{Presented: p, Wrote: []string{p.HostPath}}, nil
@@ -588,7 +589,7 @@ func (a *skillsApproach) DeliverSkills(start present.Start, root present.RootKin
 	default:
 		return present.Delivered{}, errRoot(a.Name(), root)
 	}
-	form := newSkillsSurface(agent.SurfaceInputs{Skills: skills}, fs)
+	form := newSkillsSurface(agent.SurfaceInputs{Skills: skills}, files)
 	h, err := form.Deliver(start)
 	if err != nil {
 		return present.Delivered{}, err

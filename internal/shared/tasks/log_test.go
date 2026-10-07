@@ -961,11 +961,9 @@ func blockLockPath(t *testing.T, path string) {
 	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatalf("block the lock path: %v", err)
 	}
-	fl, err := newFileLock(path)
+	lk, err := safefs.New().Locks.RLock(path)
 	if err == nil {
-		err = fl.RLock()
-	}
-	if err == nil {
+		_ = lk.Unlock()
 		t.Fatalf("the shared lock at %s was acquired; this test no longer exercises the fallback", path)
 	}
 }

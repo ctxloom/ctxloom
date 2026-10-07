@@ -76,7 +76,7 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 | Symbol | Purpose |
 |---|---|
 | `PackageFile` | One rendered file in a package: `{Path, Data, Mode}`. Shared vocabulary across every engine's command/skill writer. |
-| `WriteManagedPackageFiles[T]` | Manifest-scoped tree writer: remove the previously-tracked set, render-to-a-temp-sibling-then-swap each file into place, rewrite the `ledger.Surface`-scoped manifest. Carries an empty-render guard (refuses to touch an existing surface when every enabled item rendered zero files). The whole cycle runs under the lock at `paths.HomePathFor(dir)`, taken only when its `afero.Fs` is the OS filesystem (it is handed no Root; see `filelock`); its render-to-temp-then-swap shape is also invisible to `LockDisciplineAnalyzer`'s write-signal heuristic, which recognizes `AtomicWriteFile`/`save*` but not this function's own `afero.WriteFile`-into-temp-dir + `fs.Rename` swap. |
+| `WriteManagedPackageFiles[T]` | Manifest-scoped tree writer: remove the previously-tracked set, render-to-a-temp-sibling-then-swap each file into place, rewrite the `ledger.Surface`-scoped manifest. Carries an empty-render guard (refuses to touch an existing surface when every enabled item rendered zero files). The whole cycle runs under the lock at `paths.HomePathFor(dir)`, taken through the `safefs.Root` it is handed; its render-to-temp-then-swap shape is also invisible to `LockDisciplineAnalyzer`'s write-signal heuristic, which recognizes `AtomicWriteFile`/`save*` but not this function's own `afero.WriteFile`-into-temp-dir + `fs.Rename` swap. |
 | `pruneEmptyDirs` | Best-effort bottom-up empty-directory cleanup; all errors ignored by design. |
 
 ## Command and skill rendering

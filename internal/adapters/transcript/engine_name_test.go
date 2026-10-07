@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -104,7 +104,7 @@ func TestRecorder_EngineIsWrittenVerbatimAndValidatesAgainstThePublishedSchema(t
 // assistant entry.
 func writeOneClaudeRecord(t *testing.T, harp string) {
 	t.Helper()
-	rec, err := NewRecorder(afero.NewOsFs(), harp, registeredClaudeBackendName)
+	rec, err := NewRecorder(safefs.New(), harp, registeredClaudeBackendName)
 	require.NoError(t, err)
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
 		Type:    agent.EntryTypeAssistant,

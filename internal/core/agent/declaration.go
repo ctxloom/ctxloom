@@ -5,10 +5,9 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file is the OPEN SET of delivery approaches: what an engine hands over
@@ -51,9 +50,11 @@ type Approach interface {
 	Present(start present.Start) present.Presentation
 }
 
-// Construct builds one Approach for ONE RUN from that run's content. It
-// carries no roots: the built Approach receives them at Present/Deliver time.
-type Construct func(in SurfaceInputs, fs afero.Fs) Approach
+// Construct builds one Approach for ONE RUN from that run's content, writing
+// through files (its filesystem paired with the locks its writers take). It
+// carries no present roots: the built Approach receives them at
+// Present/Deliver time.
+type Construct func(in SurfaceInputs, files safefs.Root) Approach
 
 // Declaration is an engine's whole static declaration — registration, phase
 // one. Per surface kind, every approach the engine can construct for it and

@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Bare `ctxloom session` lists the recorded sessions: the collection is the
@@ -351,7 +352,7 @@ func runSessionCompact(cmd *cobra.Command, args []string) error {
 	// success. A one-shot CLI process genuinely cannot tell whether the
 	// session it was pointed at is still growing elsewhere, so it heals
 	// unconditionally every call — slower, and truthful.
-	src, herr := operations.ResolveAndHeal(cmd.Context(), afero.NewOsFs(), App().Engines(), harpName)
+	src, herr := operations.ResolveAndHeal(cmd.Context(), safefs.New(), App().Engines(), harpName)
 	if herr != nil {
 		return herr
 	}

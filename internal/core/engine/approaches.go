@@ -8,6 +8,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // DynamicApproach is the engine's provided way of consuming items served on
@@ -59,16 +60,19 @@ type HooksApproach interface {
 	DeliverHooks(start present.Start, root present.RootKind, in HooksInputs, fs afero.Fs) (present.Delivered, error)
 }
 
-// CommandsApproach delivers the engine's slash-command files.
+// CommandsApproach delivers the engine's slash-command files. files is the
+// filesystem it writes through paired with the locks its writers take: the
+// managed set in a shared directory is a read-modify-write that locks.
 type CommandsApproach interface {
 	present.Approach
-	DeliverCommands(start present.Start, root present.RootKind, in CommandsInputs, fs afero.Fs) (present.Delivered, error)
+	DeliverCommands(start present.Start, root present.RootKind, in CommandsInputs, files safefs.Root) (present.Delivered, error)
 }
 
-// SkillsApproach delivers the engine's Agent Skills packages.
+// SkillsApproach delivers the engine's Agent Skills packages, writing and
+// locking through files as CommandsApproach does.
 type SkillsApproach interface {
 	present.Approach
-	DeliverSkills(start present.Start, root present.RootKind, in SkillsInputs, fs afero.Fs) (present.Delivered, error)
+	DeliverSkills(start present.Start, root present.RootKind, in SkillsInputs, files safefs.Root) (present.Delivered, error)
 }
 
 // Surfaces is the DERIVED approach table (Base.Surfaces()): per Kind, the

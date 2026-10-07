@@ -1,11 +1,10 @@
 package claude
 
 import (
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // fileTemplateDelivery is claude's file-template delivery strategy for the
@@ -15,7 +14,7 @@ import (
 // exactly the manifest-tracked set it wrote.
 type fileTemplateDelivery struct {
 	place placement
-	fs    afero.Fs
+	files safefs.Root
 	// selfContainedCommands, when true, makes DeliverCommands skip the
 	// GlobalCommandsDir()/WithHomeCommandsDir dedup so every command lands in
 	// the target regardless of what happens to exist in the delivering
@@ -27,10 +26,9 @@ type fileTemplateDelivery struct {
 }
 
 // newFileTemplateDelivery constructs the file-template strategy writing into
-// place. A nil fs defaults to the OS filesystem (agent.GetFS), matching claude's
-// settings/context writers so delivery and cleanup share one fs mechanism.
-func newFileTemplateDelivery(place placement, fs afero.Fs) *fileTemplateDelivery {
-	return &fileTemplateDelivery{place: place, fs: agent.GetFS(fs)}
+// place through files, so delivery and cleanup share one Root.
+func newFileTemplateDelivery(place placement, files safefs.Root) *fileTemplateDelivery {
+	return &fileTemplateDelivery{place: place, files: files}
 }
 
 // DeliverCommands materializes the commands surface by delegating to
@@ -59,8 +57,7 @@ func newFileTemplateDelivery(place placement, fs afero.Fs) *fileTemplateDelivery
 // happen to already exist here.
 func (d *fileTemplateDelivery) DeliverCommands(commands []agent.CommandExport) (agent.Delivered, error) {
 	dir := d.place.Dir()
-	fs := d.fs
-	opts := []agent.CommandFileOption{agent.WithCommandFS(fs), agent.WithReporter(d.reporter)}
+	opts := []agent.CommandFileOption{agent.WithCommandRoot(d.files), agent.WithReporter(d.reporter)}
 	if !d.selfContainedCommands {
 		if home, err := GlobalCommandsDir(); err == nil && home != "" {
 			opts = append(opts, agent.WithHomeCommandsDir(home))

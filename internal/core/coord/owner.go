@@ -57,10 +57,10 @@ type OwnerStatus struct {
 }
 
 // ownerStampFileName holds the owner's stamp beside the lock. It is a SEPARATE
-// file because the lock file cannot carry readable content on every platform:
-// Windows' LockFileEx makes the locked range unreadable and unwritable through
-// any other handle, so a stamp inside the lock file could be neither written
-// after the lock is taken nor read by a prober.
+// file because the stamp is written atomically (safefs.WriteFile: a temp file
+// renamed into place), and a rename over the lock file would swap the inode
+// the lock is held on: the next claimant would open the new, unlocked inode
+// and take a root that is still owned.
 const ownerStampFileName = "owner.json"
 
 // ownerStamp is the owner's self-description, written only by the lock holder.

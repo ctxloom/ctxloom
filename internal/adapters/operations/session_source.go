@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/spf13/afero"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -52,7 +52,7 @@ type ResolvedSource struct {
 //
 // harp == "" or an unindexed harp resolves to a zero ResolvedSource with no
 // error and Healed == false: there is nothing to heal.
-func ResolveAndHeal(ctx context.Context, fsys afero.Fs, reg engine.Registry, harp string) (ResolvedSource, error) {
+func ResolveAndHeal(ctx context.Context, files safefs.Root, reg engine.Registry, harp string) (ResolvedSource, error) {
 	if harp == "" {
 		return ResolvedSource{}, nil
 	}
@@ -62,7 +62,7 @@ func ResolveAndHeal(ctx context.Context, fsys afero.Fs, reg engine.Registry, har
 	}
 
 	src := ResolvedSource{Entry: entry}
-	src.Healed, src.HealErr = RefreshVendorTranscript(ctx, fsys, reg, *entry)
+	src.Healed, src.HealErr = RefreshVendorTranscript(ctx, files, reg, *entry)
 
 	// Re-resolve after a successful heal: a fresh conversion can populate or
 	// change CanonicalTranscriptPath (computed on read — see sessions.Entry's

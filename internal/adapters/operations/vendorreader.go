@@ -17,12 +17,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
@@ -31,17 +29,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
-// lockFileMode and lockDirMode are the modes the canonical-transcript
-// ownership lock's sidecar and its parent directory are created with,
-// before umask — not group- or world-WRITABLE, matching every other lock
-// site in this project (see internal/core/agent/rmw_lock.go's
-// identically-reasoned pair).
-const (
-	lockFileMode = 0o644
-	lockDirMode  = 0o755
-)
+// lockDirMode is the mode the canonical-transcript ownership lock's parent
+// directory is created with, before umask: traversable, and not group- or
+// world-writable, since a lock file's writers are who may block whom.
+const lockDirMode = 0o755
 
 // vendorLocate resolves the vendor-native transcript locator (the src string
 // vendorreader.VendorAdapter.Convert expects — a bare file path) for
@@ -232,8 +226,8 @@ func vendorSourceClock(fsys afero.Fs, src string) func() time.Time {
 // hasCanonicalTranscript's presence-only guard would treat a partial file as a
 // complete one forever, silently masking the original failure on every later
 // call for this harp instead of allowing a genuine retry.
-func ConvertVendorTranscript(ctx context.Context, fsys afero.Fs, reg engine.Registry, e sessions.Entry) (converted bool, err error) {
-	return convertVendorTranscript(ctx, fsys, reg, e, false)
+func ConvertVendorTranscript(ctx context.Context, files safefs.Root, reg engine.Registry, e sessions.Entry) (converted bool, err error) {
+	return convertVendorTranscript(ctx, files, reg, e, false)
 }
 
 // RefreshVendorTranscript re-converts e's vendor-native transcript even when a
@@ -253,8 +247,8 @@ func ConvertVendorTranscript(ctx context.Context, fsys afero.Fs, reg engine.Regi
 // vendor transcript is re-read and re-written. That is why this is a separate
 // verb rather than the default: callers that know their session is finished
 // should not pay even the copy, and a sweep across an index must not.
-func RefreshVendorTranscript(ctx context.Context, fsys afero.Fs, reg engine.Registry, e sessions.Entry) (converted bool, err error) {
-	return convertVendorTranscript(ctx, fsys, reg, e, true)
+func RefreshVendorTranscript(ctx context.Context, files safefs.Root, reg engine.Registry, e sessions.Entry) (converted bool, err error) {
+	return convertVendorTranscript(ctx, files, reg, e, true)
 }
 
 // convertVendorTranscript is the shared body of ConvertVendorTranscript and
@@ -274,7 +268,8 @@ func RefreshVendorTranscript(ctx context.Context, fsys afero.Fs, reg engine.Regi
 // everything said before the clear the moment the canonical transcript was
 // (re)built: the vendor file naming that conversation was still on disk, but
 // nothing pointed at it anymore.
-func convertVendorTranscript(ctx context.Context, fsys afero.Fs, reg engine.Registry, e sessions.Entry, refresh bool) (converted bool, err error) {
+func convertVendorTranscript(ctx context.Context, files safefs.Root, reg engine.Registry, e sessions.Entry, refresh bool) (converted bool, err error) {
+	fsys := files.Fs
 	vr, ok := vendorReaderFor(reg, e.Backend)
 	if !ok || e.HarpName == "" {
 		return false, nil
@@ -328,14 +323,15 @@ func convertVendorTranscript(ctx context.Context, fsys afero.Fs, reg engine.Regi
 	if derr != nil {
 		return true, fmt.Errorf("resolve canonical transcript path for %s: %w", e.HarpName, derr)
 	}
-	return rebuildCanonicalTranscript(ctx, fsys, adapter, e, dest, liveSrc, liveOK, refresh)
+	return rebuildCanonicalTranscript(ctx, files, adapter, e, dest, liveSrc, liveOK, refresh)
 }
 
 // rebuildCanonicalTranscript builds e's canonical transcript at dest from its
 // rotation segments and, when liveOK, the live vendor file liveSrc, committing
 // it only when the rebuild produced bytes. See convertVendorTranscript for the
 // contract; converted reports whether a rebuild was attempted.
-func rebuildCanonicalTranscript(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, dest, liveSrc string, liveOK, refresh bool) (converted bool, err error) {
+func rebuildCanonicalTranscript(ctx context.Context, files safefs.Root, adapter vendorreader.VendorAdapter, e sessions.Entry, dest, liveSrc string, liveOK, refresh bool) (converted bool, err error) {
+	fsys := files.Fs
 
 	// OWNERSHIP PROBE: a refresh REBUILDS a canonical
 	// transcript that may already be growing under a live
@@ -359,7 +355,7 @@ func rebuildCanonicalTranscript(ctx context.Context, fsys afero.Fs, adapter vend
 	// Recorder to race with, so probing there would only cost a syscall for
 	// no exclusion anybody needs.
 	if refresh {
-		release, acquired, lerr := tryOwnCanonicalTranscript(e.HarpName, dest)
+		release, acquired, lerr := tryOwnCanonicalTranscript(files, e.HarpName, dest)
 		if lerr != nil {
 			return false, lerr
 		}
@@ -382,7 +378,7 @@ func rebuildCanonicalTranscript(ctx context.Context, fsys afero.Fs, adapter vend
 		return false, fmt.Errorf("create transcripts dir for %s: %w", e.HarpName, mkErr)
 	}
 	if ra, wm, ok := loadWatermark(fsys, adapter, e, liveSrc); ok {
-		converted, rerr := resumeRebuild(ctx, fsys, ra, e, dest, liveSrc, wm)
+		converted, rerr := resumeRebuild(ctx, files, ra, e, dest, liveSrc, wm)
 		if !errors.Is(rerr, errStaleWatermark) {
 			return converted, rerr
 		}
@@ -392,7 +388,7 @@ func rebuildCanonicalTranscript(ctx context.Context, fsys afero.Fs, adapter vend
 		return false, fmt.Errorf("open rebuild file for %s: %w", e.HarpName, aerr)
 	}
 
-	wm, werr := writeRebuildSegments(ctx, fsys, adapter, e, rf, liveSrc, liveOK)
+	wm, werr := writeRebuildSegments(ctx, files, adapter, e, rf, liveSrc, liveOK)
 	if werr != nil {
 		_ = rf.af.Abort()
 		return true, werr
@@ -408,12 +404,13 @@ func rebuildCanonicalTranscript(ctx context.Context, fsys afero.Fs, adapter vend
 // partway leaves the canonical transcript — and the watermark, written only
 // after a commit — exactly as they were. errStaleWatermark when the watermark
 // turns out not to describe the files; the caller rebuilds in full.
-func resumeRebuild(ctx context.Context, fsys afero.Fs, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest, liveSrc string, wm *transcriptWatermark) (converted bool, err error) {
+func resumeRebuild(ctx context.Context, files safefs.Root, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest, liveSrc string, wm *transcriptWatermark) (converted bool, err error) {
+	fsys := files.Fs
 	rf, aerr := newRebuildFile(fsys, dest)
 	if aerr != nil {
 		return false, fmt.Errorf("open rebuild file for %s: %w", e.HarpName, aerr)
 	}
-	next, rerr := resumeInto(ctx, fsys, adapter, e, dest, rf, liveSrc, wm)
+	next, rerr := resumeInto(ctx, files, adapter, e, dest, rf, liveSrc, wm)
 	if rerr != nil {
 		_ = rf.af.Abort()
 		return true, rerr
@@ -421,12 +418,13 @@ func resumeRebuild(ctx context.Context, fsys afero.Fs, adapter vendorreader.Resu
 	return commitRebuild(fsys, rf, e, next)
 }
 
-func resumeInto(ctx context.Context, fsys afero.Fs, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest string, rf *rebuildFile, liveSrc string, wm *transcriptWatermark) (*transcriptWatermark, error) {
+func resumeInto(ctx context.Context, files safefs.Root, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest string, rf *rebuildFile, liveSrc string, wm *transcriptWatermark) (*transcriptWatermark, error) {
+	fsys := files.Fs
 	from := resumePoint{vendor: wm.Vendor, seq: wm.NextSeq, sessionID: wm.SessionID}
 	if err := copyCanonicalPrefix(fsys, dest, wm, rf); err != nil {
 		return nil, err
 	}
-	next, err := convertLive(ctx, fsys, adapter, e, rf, liveSrc, from)
+	next, err := convertLive(ctx, files, adapter, e, rf, liveSrc, from)
 	if errors.Is(err, vendorreader.ErrCheckpointMismatch) {
 		return nil, fmt.Errorf("%w: %w", errStaleWatermark, err)
 	}
@@ -437,16 +435,16 @@ func resumeInto(ctx context.Context, fsys afero.Fs, adapter vendorreader.Resumab
 // converts the live vendor transcript (when liveOK) onto rf from its
 // beginning, returning the watermark the conversion offered (nil for none).
 // The caller aborts rf on error.
-func writeRebuildSegments(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, rf *rebuildFile, liveSrc string, liveOK bool) (*transcriptWatermark, error) {
+func writeRebuildSegments(ctx context.Context, files safefs.Root, adapter vendorreader.VendorAdapter, e sessions.Entry, rf *rebuildFile, liveSrc string, liveOK bool) (*transcriptWatermark, error) {
 	for _, rot := range e.Rotations {
-		if werr := appendRotationSegment(ctx, fsys, adapter, e, rot, rf); werr != nil {
+		if werr := appendRotationSegment(ctx, files, adapter, e, rot, rf); werr != nil {
 			return nil, werr
 		}
 	}
 	if !liveOK {
 		return nil, nil
 	}
-	return convertLive(ctx, fsys, adapter, e, rf, liveSrc, newResumePoint())
+	return convertLive(ctx, files, adapter, e, rf, liveSrc, newResumePoint())
 }
 
 // commitRebuild installs rf over the canonical transcript when the rebuild
@@ -489,20 +487,22 @@ func commitRebuild(fsys afero.Fs, rf *rebuildFile, e sessions.Entry, wm *transcr
 // canonical transcript without waiting. acquired=false means a live recorder
 // (or another rebuild) holds it, which is warned about here. release must be
 // deferred whenever err is nil, acquired or not.
-func tryOwnCanonicalTranscript(harp, dest string) (release func(), acquired bool, err error) {
+func tryOwnCanonicalTranscript(files safefs.Root, harp, dest string) (release func(), acquired bool, err error) {
 	lockPath := paths.PathFor(dest)
-	if lerr := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); lerr != nil {
+	if lerr := files.Fs.MkdirAll(filepath.Dir(lockPath), lockDirMode); lerr != nil {
 		return nil, false, fmt.Errorf("probe canonical-transcript ownership for %s: %w", harp, lerr)
 	}
-	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
-	acquired, lerr := fl.TryLock()
-	if lerr != nil {
-		return nil, false, fmt.Errorf("probe canonical-transcript ownership for %s: %w", harp, lerr)
-	}
-	if !acquired {
+	once, cancel := context.WithCancel(context.Background())
+	cancel()
+	lk, lerr := files.Locks.TryLock(once, lockPath)
+	switch {
+	case errors.Is(lerr, safefs.ErrLockHeld):
 		clidiag.Warn("ctxloom", "rebuild %s: canonical transcript %s is owned by a live recorder (or another rebuild is already in progress); skipping this rebuild — the existing file is current", harp, dest)
+		return func() {}, false, nil
+	case lerr != nil:
+		return nil, false, fmt.Errorf("probe canonical-transcript ownership for %s: %w", harp, lerr)
 	}
-	return func() { _ = fl.Unlock() }, acquired, nil
+	return func() { _ = lk.Unlock() }, true, nil
 }
 
 // appendRotationSegment ensures a cached canonical segment exists for one
@@ -517,7 +517,8 @@ func tryOwnCanonicalTranscript(harp, dest string) (release func(), acquired bool
 // through clidiag rather than returning an error for that case. Only a
 // genuine I/O failure while converting or caching a segment that DOES exist
 // returns an error.
-func appendRotationSegment(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, rf *rebuildFile) error {
+func appendRotationSegment(ctx context.Context, files safefs.Root, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, rf *rebuildFile) error {
+	fsys := files.Fs
 	segPath, perr := paths.ResolveHarpSegmentPath(e.HarpName, rot.SessionID)
 	if perr != nil {
 		return fmt.Errorf("resolve segment path for %s/%s: %w", e.HarpName, rot.SessionID, perr)
@@ -539,7 +540,7 @@ func appendRotationSegment(ctx context.Context, fsys afero.Fs, adapter vendorrea
 		if mkErr := fsys.MkdirAll(filepath.Dir(segPath), 0o755); mkErr != nil {
 			return fmt.Errorf("create segments dir for %s: %w", e.HarpName, mkErr)
 		}
-		cached, cerr := cacheRotationSegment(ctx, fsys, adapter, e, rot, segPath)
+		cached, cerr := cacheRotationSegment(ctx, files, adapter, e, rot, segPath)
 		if cerr != nil || !cached {
 			return cerr
 		}
@@ -553,12 +554,13 @@ func appendRotationSegment(ctx context.Context, fsys afero.Fs, adapter vendorrea
 // produced no events: a legitimate degrade-to-partial outcome for THIS
 // segment (vendorreader.VendorAdapter's contract), not a failure — nothing to
 // cache, nothing to append.
-func cacheRotationSegment(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, segPath string) (cached bool, err error) {
+func cacheRotationSegment(ctx context.Context, files safefs.Root, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, segPath string) (cached bool, err error) {
+	fsys := files.Fs
 	seg, err := newRebuildFile(fsys, segPath)
 	if err != nil {
 		return false, fmt.Errorf("open segment rebuild file for %s/%s: %w", e.HarpName, rot.SessionID, err)
 	}
-	rec, err := transcript.NewRecorder(fsys, e.HarpName, e.Backend, transcript.WithWriter(seg), transcript.WithClock(vendorSourceClock(fsys, rot.TranscriptPath)))
+	rec, err := transcript.NewRecorder(files, e.HarpName, e.Backend, transcript.WithWriter(seg), transcript.WithClock(vendorSourceClock(fsys, rot.TranscriptPath)))
 	if err != nil {
 		_ = seg.af.Abort()
 		return false, fmt.Errorf("open segment recorder for %s/%s: %w", e.HarpName, rot.SessionID, err)

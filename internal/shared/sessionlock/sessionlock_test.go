@@ -2,6 +2,7 @@ package sessionlock
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -150,16 +152,13 @@ func TestAcquire_Dead_KeepsTheLockUntilReleased(t *testing.T) {
 	p, release := Acquire("reclaim-harp")
 	require.Equal(t, Dead, p.Verdict)
 
-	other := newHarpLock(lockPath(t, "reclaim-harp"), harpLockFlagExisting)
-	got, err := other.TryLock()
-	require.NoError(t, err)
-	assert.False(t, got, "while the sweeper holds a Dead harp's lock nobody else can take it")
+	_, err := locks.TryLock(expiredCtx(), lockPath(t, "reclaim-harp"))
+	assert.ErrorIs(t, err, safefs.ErrLockHeld, "while the sweeper holds a Dead harp's lock nobody else can take it")
 
 	release()
-	got, err = other.TryLock()
-	require.NoError(t, err)
-	assert.True(t, got, "release hands the lock back")
-	require.NoError(t, other.Close())
+	other, err := locks.TryLock(expiredCtx(), lockPath(t, "reclaim-harp"))
+	require.NoError(t, err, "release hands the lock back")
+	require.NoError(t, other.Unlock())
 }
 
 // TestAcquire_Alive_ReleaseIsHarmless: the release returned with a refusal
@@ -191,11 +190,9 @@ func TestHold_WhenAnotherHolderWins_ErrorsAndLeavesNoUnlockedFile(t *testing.T) 
 
 	path := lockPath(t, "contested-harp")
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
-	other := newHarpLock(path, harpLockFlagCreate)
-	got, err := other.TryLock()
+	other, err := locks.TryLock(expiredCtx(), path)
 	require.NoError(t, err)
-	require.True(t, got)
-	t.Cleanup(func() { _ = other.Close() })
+	t.Cleanup(func() { _ = other.Unlock() })
 
 	err = Hold("contested-harp")
 	require.Error(t, err)
@@ -216,13 +213,11 @@ func TestHold_WaitsOutABriefSweeperHold(t *testing.T) {
 
 	path := lockPath(t, "briefly-contested-harp")
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
-	other := newHarpLock(path, harpLockFlagCreate)
-	got, err := other.TryLock()
+	other, err := locks.TryLock(expiredCtx(), path)
 	require.NoError(t, err)
-	require.True(t, got)
 	go func() {
 		time.Sleep(150 * time.Millisecond)
-		_ = other.Close()
+		_ = other.Unlock()
 	}()
 
 	require.NoError(t, Hold("briefly-contested-harp"))
@@ -340,4 +335,12 @@ func TestInspect_KilledHolder_IsDead(t *testing.T) {
 	assert.Equal(t, Dead, p.Verdict, "the kernel released the killed holder's lock; no cleanup path ran")
 	assert.True(t, p.Verdict.MayReclaim())
 	assert.Equal(t, child.Process.Pid, p.PID, "the dead holder's pid is still readable for a human")
+}
+
+// expiredCtx is a context already done: TryLock with it makes exactly one
+// attempt.
+func expiredCtx() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
 }

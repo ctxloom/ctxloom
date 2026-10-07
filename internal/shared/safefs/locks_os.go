@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/gofrs/flock"
-
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 )
 
@@ -26,21 +24,42 @@ const lockFileMode = 0o644
 // before umask: traversable, and not group- or world-writable.
 const lockDirMode = 0o755
 
-// lockOpenFlag is how every lock file is opened: created if missing,
-// read-only (flock(2) needs no write access, and it is gofrs/flock's own
-// default, so these locks contend with any gofrs/flock taker of the path),
-// and hardened by lockOpenGuard against a planted FIFO. A symlink is
-// followed: what the link resolves to is held to the regular-file check.
+// lockOpenFlag is how every lock file is opened for taking: created if
+// missing, read-only (flock(2) needs no write access), and hardened by
+// lockOpenGuard against a planted FIFO. A symlink is followed: what the link
+// resolves to is held to the regular-file check.
 const lockOpenFlag = os.O_CREATE | os.O_RDONLY | lockOpenGuard
 
 // tryLockRetry is how often TryLock re-attempts while it waits.
 const tryLockRetry = 25 * time.Millisecond
 
-// osLocks are kernel file locks (gofrs/flock: flock(2) on unix, LockFileEx
-// on Windows). A lock dies with the process holding it, however it ends.
+// osLocks are kernel file locks (newKernelLock: flock(2) on unix, LockFileEx
+// over a byte past the content on Windows). A lock dies with the process
+// holding it, however it ends.
 type osLocks struct{}
 
+// kernelLock is one handle's kernel lock on one path, as newKernelLock
+// builds it per platform. Close releases whatever it holds.
+type kernelLock interface {
+	Lock() error
+	RLock() error
+	TryLock() (bool, error)
+	TryLockContext(ctx context.Context, retry time.Duration) (bool, error)
+	Stat() (fs.FileInfo, error)
+	Close() error
+}
+
 func (osLocks) Lock(path string) (Lock, error) {
+	return takeOSLock(path, kernelLock.Lock)
+}
+
+func (osLocks) RLock(path string) (Lock, error) {
+	return takeOSLock(path, kernelLock.RLock)
+}
+
+// takeOSLock is Lock and RLock: take blocks until the lock is held, in the
+// kind it names.
+func takeOSLock(path string, take func(kernelLock) error) (Lock, error) {
 	if err := os.MkdirAll(filepath.Dir(path), lockDirMode); err != nil {
 		return nil, fmt.Errorf("safefs: preparing lock directory for %s: %w", path, err)
 	}
@@ -51,9 +70,9 @@ func (osLocks) Lock(path string) (Lock, error) {
 	if err := prepareLockFile(path); err != nil {
 		return nil, err
 	}
-	fl := flock.New(path, flock.SetPermissions(lockFileMode), flock.SetFlag(lockOpenFlag))
+	fl := newKernelLock(path, true)
 	stop := lockwait.Watch(path)
-	err := fl.Lock()
+	err := take(fl)
 	stop()
 	if err != nil {
 		return nil, fmt.Errorf("safefs: acquiring lock %s: %w", path, err)
@@ -65,7 +84,7 @@ func (osLocks) TryLock(ctx context.Context, path string) (Lock, error) {
 	if err := refuseNonRegular(path); err != nil {
 		return nil, err
 	}
-	fl := flock.New(path, flock.SetPermissions(lockFileMode), flock.SetFlag(lockOpenFlag))
+	fl := newKernelLock(path, true)
 	got, err := fl.TryLock()
 	if err == nil && !got && ctx.Err() == nil {
 		got, err = fl.TryLockContext(ctx, tryLockRetry)
@@ -88,7 +107,7 @@ func (osLocks) Held(path string) (bool, error) {
 		}
 		return false, err
 	}
-	fl := flock.New(path, flock.SetFlag(os.O_RDONLY|lockOpenGuard))
+	fl := newKernelLock(path, false)
 	got, err := fl.TryLock()
 	_ = fl.Close()
 	switch {
@@ -102,7 +121,7 @@ func (osLocks) Held(path string) (bool, error) {
 
 // heldOSLock checks the handle actually locked — the path can be swapped
 // between a check and the open — and wraps it.
-func heldOSLock(fl *flock.Flock, path string) (Lock, error) {
+func heldOSLock(fl kernelLock, path string) (Lock, error) {
 	if err := requireRegular(fl, path); err != nil {
 		_ = fl.Close()
 		return nil, err
@@ -111,7 +130,7 @@ func heldOSLock(fl *flock.Flock, path string) (Lock, error) {
 }
 
 type osLock struct {
-	fl   *flock.Flock
+	fl   kernelLock
 	path string
 }
 

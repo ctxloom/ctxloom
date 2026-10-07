@@ -36,7 +36,11 @@ func lockIsFree(t *testing.T, target string) bool {
 // slips B in there whenever the dir's lock lets a second writer through.
 func TestWriteManagedPackageFiles_ExcludesAConcurrentWriterOfItsDir(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	fs := afero.NewOsFs()
+	// Production shape: the static writer runs every approach over a
+	// copy-on-write overlay of the controller's filesystem, paired with the
+	// controller's real locks — never over the OS fs itself.
+	fs := afero.NewCopyOnWriteFs(afero.NewOsFs(), afero.NewMemMapFs())
+	files := safefs.Root{Fs: fs, Locks: safefs.New().Locks}
 	dir := t.TempDir()
 
 	item := func(name string) []fakeSkillItem {
@@ -44,7 +48,7 @@ func TestWriteManagedPackageFiles_ExcludesAConcurrentWriterOfItsDir(t *testing.T
 			files: []PackageFile{{RelPath: name + "/SKILL.md", Content: []byte(name)}}}}
 	}
 	write := func(items []fakeSkillItem, render func(fakeSkillItem) ([]PackageFile, error)) error {
-		return WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, render,
+		return WriteManagedPackageFiles(files, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, render,
 			WithWriteReporter(termRep().Sink))
 	}
 	writeB := func() error { return write(item("b"), skillRender) }
@@ -62,7 +66,7 @@ func TestWriteManagedPackageFiles_ExcludesAConcurrentWriterOfItsDir(t *testing.T
 		require.NoError(t, writeB())
 	}
 
-	claimed, err := ledger.Ledger{FS: fs, Dir: dir}.Read(ledger.SurfaceSkills)
+	claimed, err := ledger.Ledger{Root: files, Dir: dir}.Read(ledger.SurfaceSkills)
 	require.NoError(t, err)
 	onDisk := map[string]bool{}
 	for _, name := range []string{"a", "b"} {

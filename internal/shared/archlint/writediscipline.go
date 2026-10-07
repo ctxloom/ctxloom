@@ -16,10 +16,9 @@ var writeDisciplineScopes = []string{"internal", "cmd"}
 
 // writeDisciplineExemptDirs are the packages that ARE the write library, and
 // so are structurally exempt: they hold the decorators and the atomic writer
-// every other package is sent to. The lock primitive is github.com/gofrs/flock,
-// a third-party module, which safefs's Locks wrap (creating only the lock file
-// and its directory), so safefs is the only in-tree write library to name
-// here.
+// every other package is sent to. The kernel lock primitive lives inside
+// safefs's Locks too (creating only the lock file and its directory), so
+// safefs is the only in-tree write library to name here.
 var writeDisciplineExemptDirs = []string{
 	"internal/shared/safefs",
 }

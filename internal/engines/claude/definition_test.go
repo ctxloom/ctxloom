@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -335,14 +336,14 @@ func TestDeliverSettings_LeavesABashTimeoutTheUserSet(t *testing.T) {
 func TestDeliverCommandsAndSkills_LandUnderTheProjectRoot(t *testing.T) {
 	def := claudeDef(t)
 	start, project, _ := hostStart(t)
-	_, err := def.Commands.DeliverCommands(start, present.RootProjectRoot, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "greet", Body: []byte("say hi"), Enabled: true, Description: "greets"}}}, nil)
+	_, err := def.Commands.DeliverCommands(start, present.RootProjectRoot, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "greet", Body: []byte("say hi"), Enabled: true, Description: "greets"}}}, safefs.New())
 	require.NoError(t, err)
 	body, err := os.ReadFile(filepath.Join(project, ".claude", "commands", "greet.md"))
 	require.NoError(t, err)
 	require.Contains(t, string(body), "say hi")
 	require.Contains(t, string(body), "greets")
 
-	_, err = def.Skills.DeliverSkills(start, present.RootProjectRoot, engine.SkillsInputs{Skills: []engine.SkillExport{{Name: "greet", Description: "greets", Enabled: true, Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: []byte("---\nname: greet\ndescription: g\n---\nbody")}}}}}, nil)
+	_, err = def.Skills.DeliverSkills(start, present.RootProjectRoot, engine.SkillsInputs{Skills: []engine.SkillExport{{Name: "greet", Description: "greets", Enabled: true, Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: []byte("---\nname: greet\ndescription: g\n---\nbody")}}}}}, safefs.New())
 	require.NoError(t, err)
 	body, err = os.ReadFile(filepath.Join(project, ".claude", "skills", "greet", "SKILL.md"))
 	require.NoError(t, err)
@@ -418,14 +419,14 @@ func TestRoute_DefaultBindingPlansOnlySessionHomeRoots(t *testing.T) {
 func TestDeliverCommandsAndSkills_SessionHomeLandsUnderTheEngineHome(t *testing.T) {
 	def := claudeDef(t)
 	start, project, home := hostStart(t)
-	_, err := def.Commands.DeliverCommands(start, present.RootSessionHome, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "greet", Body: []byte("say hi"), Enabled: true, Description: "greets"}}}, nil)
+	_, err := def.Commands.DeliverCommands(start, present.RootSessionHome, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "greet", Body: []byte("say hi"), Enabled: true, Description: "greets"}}}, safefs.New())
 	require.NoError(t, err)
 	got, err := os.ReadFile(filepath.Join(home, CommandsDirName, "greet.md"))
 	require.NoError(t, err)
 	require.Contains(t, string(got), "say hi")
 	require.NoFileExists(t, filepath.Join(project, ConfigDirName, CommandsDirName, "greet.md"))
 
-	_, err = def.Skills.DeliverSkills(start, present.RootSessionHome, engine.SkillsInputs{Skills: []engine.SkillExport{{Name: "greet", Description: "greets", Enabled: true, Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: []byte("---\nname: greet\ndescription: g\n---\nbody")}}}}}, nil)
+	_, err = def.Skills.DeliverSkills(start, present.RootSessionHome, engine.SkillsInputs{Skills: []engine.SkillExport{{Name: "greet", Description: "greets", Enabled: true, Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: []byte("---\nname: greet\ndescription: g\n---\nbody")}}}}}, safefs.New())
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(home, SkillsDirName, "greet", "SKILL.md"))
 	require.NoFileExists(t, filepath.Join(project, ConfigDirName, SkillsDirName, "greet", "SKILL.md"))
@@ -439,9 +440,9 @@ func TestDeliverCommandsAndSkills_SessionHomeRefusesAnUnrootedRun(t *testing.T) 
 	def := claudeDef(t)
 	project := t.TempDir()
 	start := present.New(present.OnHost(present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}}))
-	_, err := def.Commands.DeliverCommands(start, present.RootSessionHome, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "greet", Body: []byte("say hi"), Enabled: true}}}, nil)
+	_, err := def.Commands.DeliverCommands(start, present.RootSessionHome, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "greet", Body: []byte("say hi"), Enabled: true}}}, safefs.New())
 	require.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
-	_, err = def.Skills.DeliverSkills(start, present.RootSessionHome, engine.SkillsInputs{Skills: []engine.SkillExport{{Name: "greet", Enabled: true, Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: []byte("x")}}}}}, nil)
+	_, err = def.Skills.DeliverSkills(start, present.RootSessionHome, engine.SkillsInputs{Skills: []engine.SkillExport{{Name: "greet", Enabled: true, Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: []byte("x")}}}}}, safefs.New())
 	require.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
 	home, _ := os.UserHomeDir()
 	require.NoDirExists(t, filepath.Join(home, ConfigDirName), "the real home is never written")

@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // allSurfaceKinds is every kind a backend can be asked about (cells.go's
@@ -97,7 +98,7 @@ func TestApproachDispatch_DeclaredIsConstructible(t *testing.T) {
 			decl := hostedDeclaration(name)
 			for _, kind := range allSurfaceKinds {
 				for _, n := range decl.Names(kind) {
-					a, ok := decl[kind].Construct(n, agent.SurfaceInputs{Context: "ctx"}, afero.NewMemMapFs())
+					a, ok := decl[kind].Construct(n, agent.SurfaceInputs{Context: "ctx"}, safefs.NewMem(afero.NewMemMapFs()))
 					require.True(t, ok, "%s: %s declares %s but Construct rejects it", name, kind, n)
 					require.NotNil(t, a, "%s: %s via %s constructed a nil Approach", name, kind, n)
 					// Present must not panic against advised roots; hook-carried

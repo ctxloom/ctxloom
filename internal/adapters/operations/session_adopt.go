@@ -1,14 +1,13 @@
 package operations
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/spf13/afero"
 )
@@ -47,8 +46,8 @@ const (
 )
 
 // AdoptCandidate is one vendor-transcript file ScanAdoptCandidates found
-// sitting in the harp's claude project directory, un-adopted, together with
-// the verdict it reached about it.
+// sitting beside the harp's bound transcript, un-adopted, together with the
+// verdict it reached about it.
 type AdoptCandidate struct {
 	SessionID      string
 	TranscriptPath string
@@ -102,17 +101,20 @@ type adoptTimelineSpan struct {
 	end       time.Time
 }
 
-// ScanAdoptCandidates resolves harp's entry, scans the SAME claude project
-// directory as its current transcript_path for vendor .jsonl files not
-// already reachable from the index, and judges each one against the harp's
-// existing lineage. Read-only throughout: no Store write method is ever
-// called here (see ApplyAdopt for the write half), so a caller can run this
-// as many times as it likes without changing anything on disk.
+// ScanAdoptCandidates resolves harp's entry, scans the SAME directory as its
+// current transcript_path for transcripts of the entry's engine not already
+// reachable from the index, and judges each one against the harp's existing
+// lineage. Read-only throughout: no Store write method is ever called here
+// (see ApplyAdopt for the write half), so a caller can run this as many times
+// as it likes without changing anything on disk.
 //
-// Only claude-code entries are supported: the scan locates candidates by
-// claude's per-project transcript directory. Errors clearly, naming the backend, rather than silently
-// scanning nothing.
-func ScanAdoptCandidates(fsys afero.Fs, harp string) (*AdoptScan, error) {
+// Everything engine-specific is asked of the entry's engine through the
+// registry: which files are its transcripts, and of which native session
+// (Engine.TranscriptSession), and when each one's records were written (a
+// reader of its store offering vendorreader.RecordSpanner). An engine that
+// offers neither has no store adopt can read, and is refused by that missing
+// capability, naming the engine — never by its name.
+func ScanAdoptCandidates(fsys afero.Fs, reg engine.Registry, harp string) (*AdoptScan, error) {
 	store, err := openSessions()
 	if err != nil {
 		return nil, err
@@ -124,18 +126,24 @@ func ScanAdoptCandidates(fsys afero.Fs, harp string) (*AdoptScan, error) {
 	if entry == nil {
 		return nil, fmt.Errorf("session not found: %q", harp)
 	}
-	// TODO(slice 11b): adopt scans the engine's own transcript store through
-	// Engine.Transcripts(); until the readers are the engine's, only claude's
-	// store format is known here, and the name is the discriminator.
-	if entry.Backend != "claude-code" {
-		return nil, fmt.Errorf("session adopt: backend %q not supported yet", entry.Backend)
+	kind, ok := reg.Lookup(engine.Name(entry.Backend))
+	if !ok {
+		return nil, fmt.Errorf("session adopt: backend %q is not a registered engine", entry.Backend)
+	}
+	spanner, ok := recordSpannerFor(reg, entry.Backend)
+	if !ok {
+		return nil, fmt.Errorf("session adopt: backend %q supplies no transcript reader that can say when its records were written; there is no store adopt can order", entry.Backend)
 	}
 	if entry.TranscriptPath == "" {
 		return nil, fmt.Errorf("session adopt: session %q has no transcript_path bound; nothing to scan", harp)
 	}
+	if _, err := kind.TranscriptSession(entry.TranscriptPath); err != nil {
+		return nil, fmt.Errorf("session adopt: backend %q cannot name the session of its own transcript %s: %w", entry.Backend, entry.TranscriptPath, err)
+	}
+	span := func(path string) (time.Time, time.Time, int, error) { return spanner.RecordSpan(fsys, path) }
 	scanDir := filepath.Dir(entry.TranscriptPath)
 
-	timeline := existingLineageTimeline(fsys, *entry)
+	timeline := existingLineageTimeline(span, *entry)
 
 	dirEntries, err := afero.ReadDir(fsys, scanDir)
 	if err != nil {
@@ -144,11 +152,17 @@ func ScanAdoptCandidates(fsys afero.Fs, harp string) (*AdoptScan, error) {
 
 	var spanned, unspanned []AdoptCandidate
 	for _, de := range dirEntries {
-		if de.IsDir() || filepath.Ext(de.Name()) != ".jsonl" {
+		if de.IsDir() {
 			continue
 		}
-		sessionID := strings.TrimSuffix(de.Name(), ".jsonl")
 		path := filepath.Join(scanDir, de.Name())
+		sessionID, err := kind.TranscriptSession(path)
+		if errors.Is(err, engine.ErrForeignTranscript) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("session adopt: %s: %w", path, err)
+		}
 
 		// "not the current binding, not in Rotations, not another entry's
 		// binding/rotation — use the store's lookup": FindBySessionID
@@ -168,7 +182,7 @@ func ScanAdoptCandidates(fsys afero.Fs, harp string) (*AdoptScan, error) {
 			continue
 		}
 
-		start, end, n, serr := claudeRecordSpan(fsys, path)
+		start, end, n, serr := span(path)
 		switch {
 		case serr != nil:
 			unspanned = append(unspanned, AdoptCandidate{SessionID: sessionID, TranscriptPath: path, Verdict: AdoptVerdictSkip, Reason: fmt.Sprintf("could not read: %v", serr)})
@@ -249,10 +263,10 @@ func ScanAdoptCandidates(fsys afero.Fs, harp string) (*AdoptScan, error) {
 // conservative direction: a candidate that would only have been rejected
 // because of an unreadable member's span is instead judged only against
 // what IS still known, never blocked on it.
-func existingLineageTimeline(fsys afero.Fs, e sessions.Entry) []adoptTimelineSpan {
+func existingLineageTimeline(span func(string) (time.Time, time.Time, int, error), e sessions.Entry) []adoptTimelineSpan {
 	var timeline []adoptTimelineSpan
 	if e.TranscriptPath != "" {
-		if start, end, n, err := claudeRecordSpan(fsys, e.TranscriptPath); err == nil && n > 0 {
+		if start, end, n, err := span(e.TranscriptPath); err == nil && n > 0 {
 			timeline = append(timeline, adoptTimelineSpan{sessionID: e.SessionID, start: start, end: end})
 		}
 	}
@@ -260,7 +274,7 @@ func existingLineageTimeline(fsys afero.Fs, e sessions.Entry) []adoptTimelineSpa
 		if r.TranscriptPath == "" {
 			continue
 		}
-		if start, end, n, err := claudeRecordSpan(fsys, r.TranscriptPath); err == nil && n > 0 {
+		if start, end, n, err := span(r.TranscriptPath); err == nil && n > 0 {
 			timeline = append(timeline, adoptTimelineSpan{sessionID: r.SessionID, start: start, end: end})
 		}
 	}
@@ -306,51 +320,6 @@ func timelineSuccessor(timeline []adoptTimelineSpan, afterEnd time.Time) (adoptT
 		}
 	}
 	return best, found
-}
-
-// claudeTimestampLine reads only the one field claudeRecordSpan needs from
-// a claude-code vendor transcript line. Deliberately NOT
-// vendorreader/claude's own (unexported) line type: that type decodes the
-// whole line shape for full conversion, and importing vendorreader/claude
-// for one field would pull this package into a dependency it has no other
-// reason to carry. Every line of a claude-code vendor transcript carries a
-// top-level "timestamp" (confirmed against transcript-fixture.jsonl and
-// real captured transcripts) — administrative lines included — the same
-// field vendorreader/claude/session.go's line.Timestamp would read.
-type claudeTimestampLine struct {
-	Timestamp string `json:"timestamp"`
-}
-
-// claudeRecordSpan reads every line of a claude-code vendor transcript at
-// path and returns the min/max "timestamp" field across every line that
-// carries a parseable one. n is how many lines actually contributed a
-// timestamp; n==0 means nothing usable was found (empty file, every line
-// missing the field, or every value unparseable) — a real, if unhelpful,
-// outcome the caller treats as "cannot determine this file's span," not an
-// error. err is only ever an I/O failure opening or reading the file.
-func claudeRecordSpan(fsys afero.Fs, path string) (start, end time.Time, n int, err error) {
-	lines, rerr := vendorreader.OpenAndReadJSONLLines(fsys, "claude", path)
-	if rerr != nil {
-		return time.Time{}, time.Time{}, 0, rerr
-	}
-	for _, raw := range lines {
-		var l claudeTimestampLine
-		if jerr := json.Unmarshal(raw, &l); jerr != nil || l.Timestamp == "" {
-			continue
-		}
-		ts, perr := time.Parse(time.RFC3339, l.Timestamp)
-		if perr != nil {
-			continue
-		}
-		if n == 0 || ts.Before(start) {
-			start = ts
-		}
-		if n == 0 || ts.After(end) {
-			end = ts
-		}
-		n++
-	}
-	return start, end, n, nil
 }
 
 // ApplyAdopt appends every Adopt-verdict candidate's Rotation to harp's

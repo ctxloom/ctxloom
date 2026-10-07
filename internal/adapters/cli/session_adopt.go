@@ -122,7 +122,7 @@ type sessionAdoptResult struct {
 
 func runSessionAdopt(cmd *cobra.Command, args []string) error {
 	harp := args[0]
-	scan, err := operations.ScanAdoptCandidates(afero.NewOsFs(), harp)
+	scan, err := operations.ScanAdoptCandidates(afero.NewOsFs(), App().Engines(), harp)
 	if err != nil {
 		return err
 	}

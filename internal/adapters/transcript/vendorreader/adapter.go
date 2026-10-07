@@ -35,6 +35,7 @@ package vendorreader
 
 import (
 	"context"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/spf13/afero"
@@ -74,4 +75,16 @@ import (
 // unparseable vendor line, it means the sink itself is no longer trustworthy).
 type VendorAdapter interface {
 	Convert(ctx context.Context, fsys afero.Fs, rec transcript.Recorder, src string) error
+}
+
+// RecordSpanner is the optional capability of a VendorAdapter whose store
+// stamps each record with the time it was written: it reads the earliest and
+// latest of those stamps in one transcript without converting it. n is how
+// many records carried a parseable stamp (0 = nothing usable, not an error);
+// err is only an I/O failure reading src. `ctxloom session adopt` orders and
+// judges orphaned transcripts by it — by the records' own time, never the
+// file's mtime, which other tools rewrite — and refuses an engine whose
+// readers do not offer it.
+type RecordSpanner interface {
+	RecordSpan(fsys afero.Fs, src string) (start, end time.Time, n int, err error)
 }

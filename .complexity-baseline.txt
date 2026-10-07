@@ -40,7 +40,7 @@
 ./internal/adapters/content/registry_ext_test.go|TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI t * testing . T|1|18|TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI|151-230
 ./internal/adapters/content/surface_skill.go|(t skillType)Encode s Surface|1|14|Encode|317-365
 ./internal/adapters/content/surface_skill.go|detectSkill src Source|1|11|detectSkill|213-243
-./internal/adapters/content/tree.go|(b*treeBundle)Item ctx context . Context , ref trust . Ref|1|12|Item|280-320
+./internal/adapters/content/tree.go|(b*treeBundle)Item ctx context . Context , ref ident . Ref|1|12|Item|280-320
 ./internal/adapters/content/tree.go|(b*treeBundle)walk t SurfaceType , relDir string , depth int|1|15|walk|452-509
 ./internal/adapters/content/tree_test.go|TestForm_RawAndDistilledAreIndependent t * testing . T|1|11|TestForm_RawAndDistilledAreIndependent|235-279
 ./internal/adapters/content/tree_test.go|TestHook_SingleHookInAnEventResolvesIdentically t * testing . T|1|11|TestHook_SingleHookInAnEventResolvesIdentically|557-589
@@ -49,8 +49,8 @@
 ./internal/adapters/content/tree_test.go|TestProfile_PriorityOrderingRoundTrips t * testing . T|1|16|TestProfile_PriorityOrderingRoundTrips|703-759
 ./internal/adapters/content/tree_test.go|TestSkill_DotPrefixedSidecarIsAComponentAndDeclaresExecutability t * testing . T|1|14|TestSkill_DotPrefixedSidecarIsAComponentAndDeclaresExecutability|280-342
 ./internal/adapters/content/tree_test.go|TestSurfaces_DecodeAuthoredFields t * testing . T|1|40|TestSurfaces_DecodeAuthoredFields|593-698
-./internal/adapters/content/writer.go|(s*TreeStore)Delete ctx context . Context , ref trust . Ref|1|14|Delete|139-193
-./internal/adapters/content/writer.go|(s*TreeStore)Put ctx context . Context , ref trust . Ref , f trust . ContentForm , surface Surface|1|20|Put|28-98
+./internal/adapters/content/writer.go|(s*TreeStore)Delete ctx context . Context , ref ident . Ref|1|14|Delete|139-193
+./internal/adapters/content/writer.go|(s*TreeStore)Put ctx context . Context , ref ident . Ref , f ident . ContentForm , surface Surface|1|20|Put|28-98
 ./internal/adapters/content/writer_test.go|TestWriter_FragmentRoundTrip t * testing . T|1|18|TestWriter_FragmentRoundTrip|20-101
 ./internal/adapters/coordgrpc/mcpschema/arch_test.go| n ast . Node|1|12||232-255
 ./internal/adapters/coordgrpc/mcpschema/arch_test.go|readsInScope specs [ ] string|1|12|readsInScope|193-229

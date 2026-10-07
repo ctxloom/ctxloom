@@ -20,6 +20,9 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
 // systemMessageEnvelope is the half of the SessionStart output that reaches the
@@ -90,7 +93,7 @@ func startSessionAfter(w *World, source, transcript string) error {
 	// This journey is about the user-facing channel (systemMessage); the
 	// session-start hook carries no project context, and with no resume set
 	// it delivers no essence either, so nothing else is in the envelope.
-	return w.env.RunWithStdin(string(payload), "hook", "session-start")
+	return w.env.RunWithStdin(string(payload), "hook", "session-start", agent.HookEngineFlag, claude.EngineName)
 }
 
 // seedJ000900IndexBinding records j000900Harp bound to sessionID and points

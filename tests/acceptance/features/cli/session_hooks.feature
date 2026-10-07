@@ -45,7 +45,7 @@ Feature: The machine callbacks every session fires — do they deliver, and do t
       """
       HOOK-MUST-NOT-DELIVER-THIS-EXACT-TEXT and nothing else in this project says so.
       """
-    When I run "ctxloom hook session-start" with input:
+    When I run "ctxloom hook session-start --engine claude-code" with input:
       """
       {"session_id":"vendor-session-1","hook_event_name":"SessionStart","source":"startup"}
       """
@@ -60,7 +60,7 @@ Feature: The machine callbacks every session fires — do they deliver, and do t
   Scenario: Binding a session records the harp both in the transcript and in the index
     Given the session harp is "brisk-copper-moth"
     And the session index has an unbound entry for harp "brisk-copper-moth"
-    When I run "ctxloom hook session-bind" with input:
+    When I run "ctxloom hook session-bind --engine claude-code" with input:
       """
       {"session_id":"vendor-session-42","transcript_path":"/tmp/vendor/transcript.jsonl","hook_event_name":"SessionStart"}
       """
@@ -73,7 +73,7 @@ Feature: The machine callbacks every session fires — do they deliver, and do t
   # would inject that verbatim into the transcript. The warning is what turns
   # an untraceable session into a diagnosable one.
   Scenario: With no active harp the hook stays silent on stdout and warns instead
-    When I run "ctxloom hook session-bind" with input:
+    When I run "ctxloom hook session-bind --engine claude-code" with input:
       """
       {"session_id":"vendor-session-42","hook_event_name":"SessionStart"}
       """
@@ -96,7 +96,7 @@ Feature: The machine callbacks every session fires — do they deliver, and do t
 
       Step one.
       """
-    When I run "ctxloom hook stamp-plan" with input:
+    When I run "ctxloom hook stamp-plan --engine claude-code" with input:
       """
       {"tool_input":{"file_path":"plan-of-attack.md"}}
       """
@@ -113,7 +113,7 @@ Feature: The machine callbacks every session fires — do they deliver, and do t
       """
       Just notes.
       """
-    When I run "ctxloom hook stamp-plan" with input:
+    When I run "ctxloom hook stamp-plan --engine claude-code" with input:
       """
       {"tool_input":{"file_path":"notes.md"}}
       """

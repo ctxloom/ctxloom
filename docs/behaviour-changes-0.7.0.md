@@ -67,9 +67,7 @@ as an unknown key and ignores it.
 
 **Move each hook to a profile** — a profile of your project bundle
 (`.ctxloom/content/bundles/v2/project/profiles/<name>.yaml`), under the same
-`hooks:` key, spelled identically. Note the trust consequence: a profile's
-directly-declared hooks pass the executable trust gate, which the config block's
-did not.
+`hooks:` key, spelled identically.
 
 ## 4. Session essences moved to the session's output dir
 
@@ -188,29 +186,69 @@ headless runs (file edits go through without asking) and says so;
 **claude 2.1.283 or newer** is required: an older claude is refused at launch
 with the upgrade as its remedy.
 
-## 9. Signed content uses the signed release format
+## 9. The trust model is gone: adding a git repository is the trust act
 
-A bundle's signature is now a `SHA256SUMS` manifest over every file in the
-bundle tree, headed by the bundle's `name` and `version`, with the publisher's
-signature filed under the bundle's `.sigs/` directory. The older detached
-`<bundle>.yaml.sig` sibling is retired: every reader refuses a bundle that
-still carries one and names the remedy, `ctxloom bundle sign <bundle>`, which
-writes the new signature and removes the sibling. Only directory-form bundles
-can be signed.
+> **DRAFT for the owner** — the release note for the trust removal. Review the
+> wording before 0.7.0 ships.
 
-**If you publish bundles**, re-sign them with this release and publish again.
-`bundle sign` now refuses to re-sign a version whose files changed since it
-was last signed. Bump the version, or pass `--force` if you mean to replace
-that version's signature. In a project with a `VERSION` file at its root,
-that file is the version: `bundle sign` rewrites the bundle's `version:` to
-match it before signing and says so, so bump `VERSION`. Without one, bump
-`version:` in the bundle.
+ctxloom no longer signs, reviews or approves content. **Registering a remote is
+the one trust decision**: content resolves only through a remote you
+registered, and what it serves reaches the agent at the commit your lockfile
+pins. Why, and what survives, is
+[ADR 0037](adr/0037-adding-a-git-repo-is-the-trust-act.md).
 
-**If you consume bundles**, run `ctxloom deps upgrade` once the publisher has
-re-signed. Until then, content whose signature does not verify is not pinned:
-`deps upgrade` reports `REFUSED to advance`, keeps the last verified pin, and
-`ctxloom doctor` repeats the warning. Nothing is offered for review, because a
-signature that does not cover its bytes is a tamper signal.
+**Review your remotes.** Content now resolves only through a registered remote.
+Earlier versions registered a remote automatically whenever a profile or
+`deps pull` named a repository by its address, and those remotes are still in
+your `remotes.yaml`, where they now count exactly like ones you added yourself.
+Run `ctxloom remote list` and remove any remote you don't recognise with
+`ctxloom remote remove <name> --yes`. Anything that still needs a removed
+repository will fail with a message naming the `ctxloom remote create` that
+restores it.
+
+**What you now see before a pin moves.** `deps upgrade` previews by default and
+`--yes` applies; env and header values appear only as fingerprints. `deps pull`,
+`init` and startup sync show everything a first pin brings in and never move an
+existing pin. See §13 for the details.
+
+**Removed commands and flags.** Each is now an unknown command or flag:
+
+- `ctxloom review` and `bundle trust` / `reject` / `forget` — nothing is
+  withheld for review any more.
+- `ctxloom signer` (`trust`, `list`, `show`, `untrust`) and `bundle sign`.
+- `bundle push --sign` / `--no-sign` and `skill export --sign`.
+- The persistent `--disable-sig-check` flag and `CTXLOOM_DISABLE_SIG_CHECK`.
+- `deps pull --allow-downgrade` and `deps upgrade --allow-downgrade`: there is
+  no version floor, and nothing records or honours a publisher's retraction.
+- `manage commit trust` / `untrust`. Whether a delegated spawn auto-commits a
+  dirty tree is the `dirty_tree_handler` config key (default `commit`, which
+  warns before each commit).
+
+**Configuration.** Every config layer may set every key, in the normal
+precedence; no key is reserved to one layer. The `sign:` block under `config:`
+is gone: a config still carrying it loads, warns
+``unknown key `config.sign` … IGNORED`` and runs exactly as without it, and
+`ctxloom doctor`'s setup check reports the warning. Delete the block.
+
+**Files ctxloom no longer reads or writes.** `allowed_signers` and
+`distrusted_signers` (project and `~/.ctxloom`), the approval stores
+(`.ctxloom/approvals`, `~/.ctxloom/approvals`), and the trust-snapshot store
+under `.ctxloom/state/trust`. Nothing reads them; delete them. Bundle
+`SHA256SUMS` manifests and `.sigs/` directories are ignored. Releases no longer ship `.sig` files
+beside their archives; `checksums.txt` remains.
+
+**Lockfiles.** An existing `lock.yaml` still loads. Its retired fields
+(`signed_version`, `publisher`, `retracted`, `retracted_reason`,
+`retraction_checked_at`) are ignored and dropped the next time ctxloom saves
+the file.
+
+**Machine-readable output.** JSON loses the `signed` and `signer` fields, and
+`deps pull` and `bundle list` lose `retracted`. `deps pull` counts a reference
+re-pulled at its existing pin as `reinstalled`, replacing `updated`.
+
+**Loadouts and doctor.** Companion loadouts are plain YAML with no signature.
+`ctxloom doctor` no longer runs the signing-key, upstream-signature or approval
+checks.
 
 ## 10. Companion binaries run only once you allow them
 
@@ -257,13 +295,11 @@ What else follows from profiles being bundle items:
   bundle; `create` and `import` take `--bundle <local bundle>` for another
   local bundle, and a remote bundle's profiles are refused. `profile create`'s
   `-b/--bundle` therefore no longer names the bundles a profile includes: that
-  is `-i/--include`, and `-b` is gone. Writing into a
-  signed local bundle warns that the write stales its signature.
+  is `-i/--include`, and `-b` is gone.
 - Every profile is decoded strictly: a profile item carrying a key the schema
   does not declare stops its bundle loading.
 - Every local bundle's profiles are dependency roots: a remote bundle referenced
   only from one of them is locked.
-- A profile's own hooks key the trust gate by its bundle's real read.
 - Bundle envelopes are now `schema_version: 2`: profile refs are stored in the
   canonical `ctxloom+git://` spelling, and an older bundle's profile refs are
   read that way.
@@ -293,6 +329,11 @@ Grouped by what you would have to change.
   means for the sessions you already have.
 - The transcript has its own sub-noun.
 - A session is renamed by assigning its name, not by a verb.
+- A `distill` prompt the delivery pipeline withholds now REFUSES the run —
+  `bundle distill`, `fragment distill`, `command distill` and item edits exit 2
+  and name the item — instead of silently distilling with ctxloom's built-in
+  default. A project that never configured a `distill` prompt is unaffected:
+  absence still falls back to the default, because absence is not a decision.
 - `config get <section>` is deleted. `config show <section>` prints one section;
   bare `config show` prints the whole document.
 
@@ -315,16 +356,6 @@ Grouped by what you would have to change.
 - A requested container that cannot start is fatal unless `--degraded`, which
   falls back to the HOST and never to the other ownership mode.
 - Container identity contracts are enforced and ownership residue is surfaced.
-
-**Trust**
-- A `distill` prompt the trust gate withholds now REFUSES the run — `bundle
-  distill`, `fragment distill`, `command distill` and item edits exit 2 and name
-  the item — instead of silently distilling with ctxloom's built-in default. A
-  project that never configured a `distill` prompt is unaffected: absence still
-  falls back to the default, because absence is not a decision.
-- A local attestation overrides a broken or absent remote signature.
-- Countersignatures bind a composite attestation form, not a kind label.
-- The pending-lockfile review ceremony and blind mode are gone.
 
 **Backends**
 - The `gemini` and `codex` backends are removed, with no replacement.

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-
 )
 
 // SessionHarpEnv is sessions.EnvHarp under this package's established name:
@@ -35,7 +34,7 @@ type HashedContext interface {
 // package through the static writer before Execute runs.
 type LaunchBackend struct {
 	BaseBackend
-	context   HashedContext
+	context HashedContext
 
 	// surfaces is the engine's static Declaration: which approaches it
 	// constructs for each surface kind — the engine's own account of its

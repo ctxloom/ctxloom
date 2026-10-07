@@ -1,6 +1,7 @@
 package bundles
 
 import (
+	"bytes"
 	"context"
 	"path/filepath"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/ident"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -282,4 +284,34 @@ func TestLocalTreeForm_FragmentPremiseSurvivesTheRead(t *testing.T) {
 	require.True(t, ok, "fragment must resolve")
 	require.Equal(t, premise, frag.Premise,
 		"the authored premise was dropped on the way in; the fragment would load unconditionally")
+}
+
+// TestLocalTreeForm_EnvelopeSkillPathIsRefusedAloud pins that a tree whose
+// envelope declares a skill with `path:` — here one escaping the bundle — is
+// never a silent drop. A tree places every skill at skills/<name>, so the
+// envelope has no business declaring one: the whole bundle is refused as
+// declaring items inline, before the path is ever resolved, and that refusal
+// reaches stderr and the strictness ledger rather than only the reader.
+func TestLocalTreeForm_EnvelopeSkillPathIsRefusedAloud(t *testing.T) {
+	strictness.Reset()
+	t.Cleanup(strictness.Reset)
+	clidiag.ResetWarnOnce()
+	t.Cleanup(clidiag.ResetWarnOnce)
+	var stderr bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&stderr))
+
+	fsys := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fsys, localV2("vault/bundle.yaml"),
+		"version: 1.0.0\nskills:\n  ghost:\n    path: ../elsewhere\n", 0o644)
+	testsupport.WriteFileString(t, fsys, localV2("vault/skills/ghost/SKILL.md"),
+		"---\nname: ghost\ndescription: d\n---\n\nGHOST-BODY\n", 0o644)
+	testsupport.WriteFileString(t, fsys, localV2("elsewhere/SKILL.md"),
+		"---\nname: ghost\ndescription: d\n---\n\nELSEWHERE-BODY\n", 0o644)
+
+	l := NewLoader(NewProjectReader(fsys, []string{"/bundles"}, WithReaderReporter(ledger()))).WithReporter(ledger())
+	require.Empty(t, admitAllPipe(l, false).SkillsFromBundleRef("vault"), "the refused bundle delivers no skill")
+
+	assert.Contains(t, stderr.String(), "vault", "the refusal names the bundle")
+	assert.Contains(t, stderr.String(), "declares skills inline", "the refusal names the key the author wrote")
+	assert.NotEmpty(t, strictness.All(), "a bundle that will not load is a fatal-class finding")
 }

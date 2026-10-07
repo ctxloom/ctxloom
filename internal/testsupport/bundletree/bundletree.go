@@ -214,7 +214,14 @@ func (tw treeWriter) putSkills(b *bundles.Bundle, o options) error {
 // putSkill writes one skill: its stated package, else — when b declares it
 // with metadata — the files already in place; a skill with neither is
 // skipped.
+//
+// A declared `path:` is refused: a tree places every skill at skills/<name>,
+// so there is nowhere to write one, and dropping it would lay out a bundle
+// that silently lacks what the fixture spelled.
 func (tw treeWriter) putSkill(s string, sk bundles.BundleSkill, o options) error {
+	if sk.Path != "" {
+		return fmt.Errorf("declares path %q, which a tree cannot express: its package is skills/%s", sk.Path, s)
+	}
 	files, stated := o.skills[s]
 	if !stated {
 		if len(sk.Tags) == 0 && sk.Notes == "" && len(sk.Exports) == 0 {

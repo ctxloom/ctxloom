@@ -77,3 +77,23 @@ func TestWriteBundle_WithSkillWritesThePackageAndItsExecBit(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotZero(t, info.Mode().Perm()&0o111, "a declared executable lands executable")
 }
+
+// A tree places every skill at skills/<name>, so a fixture skill declaring
+// `path:` names a location the tree cannot express. Writing it anyway lays out
+// a tree WITHOUT the author's path — the bundle under test then silently lacks
+// what the fixture spelled, and a test asserting "no skill, no warning" is
+// observing the fixture, not the product.
+func TestWriteDoc_ASkillPathIsRefused(t *testing.T) {
+	for name, skill := range map[string]string{
+		"path only":          "    path: ../elsewhere\n",
+		"path with metadata": "    path: skills/ghost\n    notes: n\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := WriteDoc(afero.NewMemMapFs(), paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), "kit",
+				"version: \"1.0\"\nskills:\n  ghost:\n"+skill)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), `skill "ghost"`)
+			assert.Contains(t, err.Error(), "path")
+		})
+	}
+}

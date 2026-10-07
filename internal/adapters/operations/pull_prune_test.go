@@ -111,8 +111,11 @@ func TestPull_PruneNeverFollowsASymlinkOutOfTheCheckoutRoot(t *testing.T) {
 	p := newMovedPinProject(t, viaLocalParent)
 	outside := filepath.Join(t.TempDir(), "outside")
 	require.NoError(t, os.MkdirAll(outside, 0o755))
-	clones := paths.ReposCachePath(p.appDir)
-	require.NoError(t, os.WriteFile(filepath.Join(outside, ".git"), []byte("gitdir: "+clones+"\n"), 0o644))
+	// A gitdir inside this project's clone cache, so ownership alone would
+	// accept it: only containment keeps the walk out of it.
+	gitdir := filepath.Join(paths.ReposCachePath(p.appDir), "evil", ".git", "worktrees", "evil")
+	require.NoError(t, os.MkdirAll(gitdir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(outside, ".git"), []byte("gitdir: "+gitdir+"\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(outside, "precious"), []byte("keep me\n"), 0o644))
 	link := filepath.Join(paths.CacheBundlesPath(p.appDir), "evil"+remote.WorktreeDirSuffix)
 	require.NoError(t, os.Symlink(outside, link))

@@ -341,7 +341,11 @@ Grouped by what you would have to change.
   replacing `updated`. A cached bundle tree checked out at a commit other
   than its pin — a lockfile that moved through git leaves the cache behind —
   is not installed: `deps pull` and startup sync reinstall it at the pin
-  without `--force`.
+  without `--force`. A sync that succeeds in full also deletes the cached
+  checkout of every bundle the lockfile no longer names, and reports each one
+  ("Pruned the checkout at …"; JSON `pruned_checkouts`). It prunes nothing
+  after a failed or incomplete sync, nor when the cache is not physically the
+  project's own (a symlink points it elsewhere).
 - `session delete` actually destroys the session (it previously did not).
 - `session purge` fans out to the population that owns each destroyer.
 - `session backfill` is deleted, and nothing replaces it — see §7 for what that

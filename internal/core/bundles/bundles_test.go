@@ -12,7 +12,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -351,28 +350,6 @@ func TestBundleCommand_EffectiveContent(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
-}
-
-// skillFileSpec is one file of a staged skill package.
-type skillFileSpec struct {
-	body string
-	mode os.FileMode
-}
-
-// stageSkill writes a skill package at <bundleDir>/<rel> on fsys.
-func stageSkill(t *testing.T, fsys afero.Fs, bundleDir, rel string, files map[string]skillFileSpec) {
-	t.Helper()
-	for p, f := range files {
-		testsupport.WriteFileString(t, fsys, filepath.Join(bundleDir, rel, p), f.body, f.mode)
-	}
-}
-
-// stagedSkillMD is a minimal valid SKILL.md.
-const stagedSkillMD = "---\nname: s\ndescription: d\n---\nskillmd1\n"
-
-var twoFileSkill = map[string]skillFileSpec{
-	"SKILL.md":       {stagedSkillMD, 0o644},
-	"scripts/run.sh": {"script1", 0o755},
 }
 
 // =============================================================================

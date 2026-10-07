@@ -1,8 +1,6 @@
 package content
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,29 +8,13 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
-	"golang.org/x/crypto/ssh"
 )
-
-// testKey mints a fresh signing key: the identity a stored signature is filed
-// under. Distinct calls are distinct signers.
-func testKey(t *testing.T) ssh.PublicKey {
-	t.Helper()
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateKey: %v", err)
-	}
-	key, err := ssh.NewPublicKey(pub)
-	if err != nil {
-		t.Fatalf("NewPublicKey: %v", err)
-	}
-	return key
-}
 
 const fixtureRoot = "/store"
 
 // fixtureStore copies testdata/tree into an in-memory filesystem and opens a
-// store over it. The copy is deliberate: tests that mutate the tree (to prove a
-// metadata edit changes a digest, say) must not touch the committed fixture.
+// store over it. The copy is deliberate: tests that mutate the tree must not
+// touch the committed fixture.
 func fixtureStore(t *testing.T) *TreeStore {
 	t.Helper()
 	fsys := afero.NewMemMapFs()

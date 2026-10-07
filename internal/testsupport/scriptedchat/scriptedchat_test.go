@@ -49,3 +49,25 @@ func TestTurn_ConsultsFailedOncePerTurn(t *testing.T) {
 	}
 	assert.Equal(t, []string{"one", "two"}, prompts)
 }
+
+// The session is announced on the first turn only, as a real engine's init
+// precedes its first answer and never recurs.
+func TestTurn_AnnouncesTheSessionOnTheFirstTurnOnly(t *testing.T) {
+	sessionKind := agent.ChatEvent{Session: &agent.ChatSessionInfo{}}.Kind()
+	chat := &Chat{}
+	var announces []int
+	for _, p := range []string{"one", "two"} {
+		out := events()
+		_, err := chat.Turn(context.Background(), engine.Exec{}, engine.Turn{Prompt: p}, out)
+		require.NoError(t, err)
+		close(out)
+		n := 0
+		for ev := range out {
+			if ev.Kind == sessionKind {
+				n++
+			}
+		}
+		announces = append(announces, n)
+	}
+	assert.Equal(t, []int{1, 0}, announces)
+}

@@ -430,31 +430,40 @@ func foldString(e ast.Expr, consts map[string]ast.Expr, depth int) (string, bool
 	}
 	switch x := e.(type) {
 	case *ast.BasicLit:
-		if x.Kind != token.STRING {
-			return "", false
-		}
-		v, err := strconv.Unquote(x.Value)
-		return v, err == nil
+		return unquoteString(x)
 	case *ast.ParenExpr:
 		return foldString(x.X, consts, depth+1)
 	case *ast.BinaryExpr:
-		if x.Op != token.ADD {
-			return "", false
-		}
-		l, lok := foldString(x.X, consts, depth+1)
-		r, rok := foldString(x.Y, consts, depth+1)
-		return l + r, lok && rok
+		return foldConcat(x, consts, depth)
 	case *ast.CallExpr:
-		if len(x.Args) != 1 {
-			return "", false
+		if len(x.Args) == 1 {
+			return foldString(x.Args[0], consts, depth+1)
 		}
-		return foldString(x.Args[0], consts, depth+1)
 	case *ast.Ident:
 		if def, ok := consts[x.Name]; ok {
 			return foldString(def, consts, depth+1)
 		}
 	}
 	return "", false
+}
+
+// unquoteString is a string literal's value.
+func unquoteString(x *ast.BasicLit) (string, bool) {
+	if x.Kind != token.STRING {
+		return "", false
+	}
+	v, err := strconv.Unquote(x.Value)
+	return v, err == nil
+}
+
+// foldConcat folds a + of two foldable operands.
+func foldConcat(x *ast.BinaryExpr, consts map[string]ast.Expr, depth int) (string, bool) {
+	if x.Op != token.ADD {
+		return "", false
+	}
+	l, lok := foldString(x.X, consts, depth+1)
+	r, rok := foldString(x.Y, consts, depth+1)
+	return l + r, lok && rok
 }
 
 // identityViolations reports, for one file outside initial setup, every

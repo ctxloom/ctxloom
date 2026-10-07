@@ -126,71 +126,17 @@ func ScanAdoptCandidates(fsys afero.Fs, reg engine.Registry, harp string) (*Adop
 	if entry == nil {
 		return nil, fmt.Errorf("session not found: %q", harp)
 	}
-	kind, ok := reg.Lookup(engine.Name(entry.Backend))
-	if !ok {
-		return nil, fmt.Errorf("session adopt: backend %q is not a registered engine", entry.Backend)
+	kind, span, err := adoptReader(fsys, reg, *entry)
+	if err != nil {
+		return nil, err
 	}
-	spanner, ok := recordSpannerFor(reg, entry.Backend)
-	if !ok {
-		return nil, fmt.Errorf("session adopt: backend %q supplies no transcript reader that can say when its records were written; there is no store adopt can order", entry.Backend)
-	}
-	if entry.TranscriptPath == "" {
-		return nil, fmt.Errorf("session adopt: session %q has no transcript_path bound; nothing to scan", harp)
-	}
-	if _, err := kind.TranscriptSession(entry.TranscriptPath); err != nil {
-		return nil, fmt.Errorf("session adopt: backend %q cannot name the session of its own transcript %s: %w", entry.Backend, entry.TranscriptPath, err)
-	}
-	span := func(path string) (time.Time, time.Time, int, error) { return spanner.RecordSpan(fsys, path) }
 	scanDir := filepath.Dir(entry.TranscriptPath)
 
 	timeline := existingLineageTimeline(span, *entry)
 
-	dirEntries, err := afero.ReadDir(fsys, scanDir)
+	spanned, unspanned, err := collectAdoptCandidates(fsys, store, kind, span, harp, scanDir)
 	if err != nil {
-		return nil, fmt.Errorf("session adopt: scan %s: %w", scanDir, err)
-	}
-
-	var spanned, unspanned []AdoptCandidate
-	for _, de := range dirEntries {
-		if de.IsDir() {
-			continue
-		}
-		path := filepath.Join(scanDir, de.Name())
-		sessionID, err := kind.TranscriptSession(path)
-		if errors.Is(err, engine.ErrForeignTranscript) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("session adopt: %s: %w", path, err)
-		}
-
-		// "not the current binding, not in Rotations, not another entry's
-		// binding/rotation — use the store's lookup": FindBySessionID
-		// resolves ALL THREE in one call, since a session id that is
-		// already this harp's current binding or already recorded in its
-		// Rotations resolves right back to this same harp.
-		found, ferr := store.FindBySessionID(sessionID)
-		if ferr != nil {
-			return nil, ferr
-		}
-		if found != nil {
-			reason := "already in this session's lineage"
-			if found.HarpName != harp {
-				reason = fmt.Sprintf("bound to another session %q", found.HarpName)
-			}
-			unspanned = append(unspanned, AdoptCandidate{SessionID: sessionID, TranscriptPath: path, Verdict: AdoptVerdictSkip, Reason: reason})
-			continue
-		}
-
-		start, end, n, serr := span(path)
-		switch {
-		case serr != nil:
-			unspanned = append(unspanned, AdoptCandidate{SessionID: sessionID, TranscriptPath: path, Verdict: AdoptVerdictSkip, Reason: fmt.Sprintf("could not read: %v", serr)})
-		case n == 0:
-			unspanned = append(unspanned, AdoptCandidate{SessionID: sessionID, TranscriptPath: path, Verdict: AdoptVerdictSkip, Reason: "no parseable internal record timestamps"})
-		default:
-			spanned = append(spanned, AdoptCandidate{SessionID: sessionID, TranscriptPath: path, HasSpan: true, SpanStart: start, SpanEnd: end})
-		}
+		return nil, err
 	}
 
 	// MEASURED ORDERING RULE: by MAX INTERNAL RECORD TIMESTAMP, never mtime
@@ -202,6 +148,120 @@ func ScanAdoptCandidates(fsys afero.Fs, reg engine.Registry, harp string) (*Adop
 	// the oldest-first order --yes appends in.
 	sort.SliceStable(spanned, func(i, j int) bool { return spanned[i].SpanEnd.Before(spanned[j].SpanEnd) })
 
+	judgeAdoptCandidates(spanned, timeline)
+
+	// Presentation order for the rows nothing could be judged on a
+	// timestamp for: filename order, since there is no other meaningful
+	// order to give them (their SessionID doubles as the vendor file's own
+	// basename, so this is also deterministic run to run).
+	sort.Slice(unspanned, func(i, j int) bool { return unspanned[i].SessionID < unspanned[j].SessionID })
+
+	candidates := make([]AdoptCandidate, 0, len(spanned)+len(unspanned))
+	candidates = append(candidates, spanned...)
+	candidates = append(candidates, unspanned...)
+
+	return &AdoptScan{Harp: harp, Backend: entry.Backend, ScanDir: scanDir, Candidates: candidates}, nil
+}
+
+// collectAdoptCandidates classifies every file in scanDir
+// (classifyAdoptFile): the spanned candidates the verdict passes judge, and
+// the ones skipped before any span could matter.
+func collectAdoptCandidates(fsys afero.Fs, store sessions.Store, kind engine.Engine, span recordSpan, harp, scanDir string) (spanned, unspanned []AdoptCandidate, err error) {
+	dirEntries, err := afero.ReadDir(fsys, scanDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("session adopt: scan %s: %w", scanDir, err)
+	}
+
+	for _, de := range dirEntries {
+		if de.IsDir() {
+			continue
+		}
+		c, ok, err := classifyAdoptFile(store, kind, span, harp, filepath.Join(scanDir, de.Name()))
+		if err != nil {
+			return nil, nil, err
+		}
+		switch {
+		case !ok:
+		case c.HasSpan:
+			spanned = append(spanned, c)
+		default:
+			unspanned = append(unspanned, c)
+		}
+	}
+	return spanned, unspanned, nil
+}
+
+// classifyAdoptFile judges one file beside the bound transcript: not a
+// transcript of the engine (ok false), already known to the index (a Skip),
+// unreadable or unstamped (a Skip), or a spanned candidate for the verdict
+// passes (HasSpan).
+func classifyAdoptFile(store sessions.Store, kind engine.Engine, span recordSpan, harp, path string) (AdoptCandidate, bool, error) {
+	sessionID, err := kind.TranscriptSession(path)
+	if errors.Is(err, engine.ErrForeignTranscript) {
+		return AdoptCandidate{}, false, nil
+	}
+	if err != nil {
+		return AdoptCandidate{}, false, fmt.Errorf("session adopt: %s: %w", path, err)
+	}
+	skip := func(reason string) (AdoptCandidate, bool, error) {
+		return AdoptCandidate{SessionID: sessionID, TranscriptPath: path, Verdict: AdoptVerdictSkip, Reason: reason}, true, nil
+	}
+
+	// "not the current binding, not in Rotations, not another entry's
+	// binding/rotation — use the store's lookup": FindBySessionID
+	// resolves ALL THREE in one call, since a session id that is
+	// already this harp's current binding or already recorded in its
+	// Rotations resolves right back to this same harp.
+	found, err := store.FindBySessionID(sessionID)
+	if err != nil {
+		return AdoptCandidate{}, false, err
+	}
+	if found != nil {
+		if found.HarpName != harp {
+			return skip(fmt.Sprintf("bound to another session %q", found.HarpName))
+		}
+		return skip("already in this session's lineage")
+	}
+
+	start, end, n, err := span(path)
+	switch {
+	case err != nil:
+		return skip(fmt.Sprintf("could not read: %v", err))
+	case n == 0:
+		return skip("no parseable internal record timestamps")
+	}
+	return AdoptCandidate{SessionID: sessionID, TranscriptPath: path, HasSpan: true, SpanStart: start, SpanEnd: end}, true, nil
+}
+
+// recordSpan reads one transcript's record-time span (vendorreader.RecordSpanner).
+type recordSpan func(path string) (start, end time.Time, n int, err error)
+
+// adoptReader asks the entry's engine, through the registry, for what adopt
+// needs of its store: the kind (which names the session a transcript records,
+// Engine.TranscriptSession) and a reader of record-time spans. An engine
+// missing either is refused by the missing capability, naming it.
+func adoptReader(fsys afero.Fs, reg engine.Registry, entry sessions.Entry) (engine.Engine, recordSpan, error) {
+	kind, ok := reg.Lookup(engine.Name(entry.Backend))
+	if !ok {
+		return nil, nil, fmt.Errorf("session adopt: backend %q is not a registered engine", entry.Backend)
+	}
+	spanner, ok := recordSpannerFor(reg, entry.Backend)
+	if !ok {
+		return nil, nil, fmt.Errorf("session adopt: backend %q supplies no transcript reader that can say when its records were written; there is no store adopt can order", entry.Backend)
+	}
+	if entry.TranscriptPath == "" {
+		return nil, nil, fmt.Errorf("session adopt: session %q has no transcript_path bound; nothing to scan", entry.HarpName)
+	}
+	if _, err := kind.TranscriptSession(entry.TranscriptPath); err != nil {
+		return nil, nil, fmt.Errorf("session adopt: backend %q cannot name the session of its own transcript %s: %w", entry.Backend, entry.TranscriptPath, err)
+	}
+	return kind, func(path string) (time.Time, time.Time, int, error) { return spanner.RecordSpan(fsys, path) }, nil
+}
+
+// judgeAdoptCandidates decides each spanned candidate's verdict and, for an
+// adopted one, its RotatedAt, against the lineage timeline. spanned is
+// already in oldest-first order.
+func judgeAdoptCandidates(spanned []AdoptCandidate, timeline []adoptTimelineSpan) {
 	// PASS 1 — verdicts. Processed in the same oldest-first order, checking
 	// each candidate against a timeline that gains every EARLIER candidate
 	// this pass has already adopted (so two orphans discovered together are
@@ -241,18 +301,6 @@ func ScanAdoptCandidates(fsys afero.Fs, reg engine.Registry, harp string) (*Adop
 			c.RotatedAtSource = AdoptRotatedAtOwnLastRecord
 		}
 	}
-
-	// Presentation order for the rows nothing could be judged on a
-	// timestamp for: filename order, since there is no other meaningful
-	// order to give them (their SessionID doubles as the vendor file's own
-	// basename, so this is also deterministic run to run).
-	sort.Slice(unspanned, func(i, j int) bool { return unspanned[i].SessionID < unspanned[j].SessionID })
-
-	candidates := make([]AdoptCandidate, 0, len(spanned)+len(unspanned))
-	candidates = append(candidates, spanned...)
-	candidates = append(candidates, unspanned...)
-
-	return &AdoptScan{Harp: harp, Backend: entry.Backend, ScanDir: scanDir, Candidates: candidates}, nil
 }
 
 // existingLineageTimeline reads a timestamp span for every lineage member
@@ -263,7 +311,7 @@ func ScanAdoptCandidates(fsys afero.Fs, reg engine.Registry, harp string) (*Adop
 // conservative direction: a candidate that would only have been rejected
 // because of an unreadable member's span is instead judged only against
 // what IS still known, never blocked on it.
-func existingLineageTimeline(span func(string) (time.Time, time.Time, int, error), e sessions.Entry) []adoptTimelineSpan {
+func existingLineageTimeline(span recordSpan, e sessions.Entry) []adoptTimelineSpan {
 	var timeline []adoptTimelineSpan
 	if e.TranscriptPath != "" {
 		if start, end, n, err := span(e.TranscriptPath); err == nil && n > 0 {

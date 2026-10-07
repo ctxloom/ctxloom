@@ -13,13 +13,19 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 )
 
 // The mock's STRUCTURED turn: a deterministic echo, one discrete "process"
 // per turn, relayed as the chat events a real driver relays. The default
 // turn is an ECHO — one assistant entry ("mock chat: <text>") plus a
 // completion, the echoed text proving exactly what was delivered to the
-// engine (context lead blocks included). Markers script the vocabulary:
+// engine. The context is delivered ONCE, through the context surface (the
+// file --context names), never in the turn; the session's OPENING turn (no
+// native key to resume) echoes that delivered context ahead of the prompt,
+// the way a real engine's first answer is conditioned on its system prompt,
+// and a resumed turn echoes its prompt alone (openingEcho). Markers, read off
+// the prompt only, script the vocabulary:
 //
 //   - "TOOLS": the turn emits the FULL entry vocabulary a real engine
 //     produces — thinking, tool_use, tool_result, assistant — before
@@ -78,7 +84,7 @@ func (d driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out ch
 			return ctx.Err()
 		}
 	}
-	answer := mockAnswer(ex, in.Prompt)
+	answer := mockAnswer(ex, openingEcho(ex, in))
 	calls := turnCalls{
 		mode: d.mode,
 		ask: func(tool string, input json.RawMessage) (*agent.PermissionDenial, error) {
@@ -119,6 +125,22 @@ func exitCodeErr(ex engine.Exec) error {
 		return fmt.Errorf("mock: the engine process exited %d", n)
 	}
 	return nil
+}
+
+// openingEcho is the text the turn echoes: on the session's opening turn
+// (in.Resume == "") the context the context surface delivered, ahead of the
+// prompt; on a resumed turn, or when no context was delivered, the prompt
+// alone. The delivered file is read whole — it is what the engine sees,
+// including any text a human wrote above ctxloom's claimed section.
+func openingEcho(ex engine.Exec, in engine.Turn) string {
+	if in.Resume != "" {
+		return in.Prompt
+	}
+	body, err := os.ReadFile(argOf(ex, contextFlag))
+	if err != nil {
+		return in.Prompt
+	}
+	return textblocks.Join(strings.TrimSpace(string(body)), in.Prompt)
 }
 
 // mockAnswer is the turn's reply: the scripted response when one is set,
@@ -267,8 +289,8 @@ func toolsTurn(text string) []agent.ChatEvent {
 }
 
 // recordTurn writes the turn's evidence when EnvRecordFile names a file:
-// the prompt as delivered (the context lead is IN it — the runner composes
-// context and prompt into one lead block), where each surface was delivered,
+// the prompt as delivered (the turn alone — the context is not in it; it
+// reaches the engine through the context surface), where each surface was delivered,
 // and what the runner's delivery left on disk, read back off the FILES the
 // exec's argv names — the context, the deny list the settings file carries,
 // the skills the skills dir holds — never a Setup of the mock's own.

@@ -29,7 +29,10 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
 
   # LOCKED — requirement 3 (distinct context): each child's OWN reported
   # turn is read straight off its canonical transcript, never off an
-  # in-process struct and never off the sibling's. BREAK-POINT: if a future
+  # in-process struct and never off the sibling's. The guidance is in that
+  # turn because the mock's OPENING turn echoes the context its context
+  # surface delivered (the first turn itself is the prompt alone, onectx);
+  # a profile that never reached the child cannot appear. BREAK-POINT: if a future
   # change made the mock's composed fragments leak across agents (e.g.
   # resolving from the caller's profile instead of the callee's),
   # "librarian"'s reported turn would start carrying "cartographer"'s

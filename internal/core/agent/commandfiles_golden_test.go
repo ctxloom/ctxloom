@@ -21,11 +21,7 @@ import (
 // fixture in one test process — a genuine before/after capture without
 // depending on a git checkout during the test run. Do not call this from
 // production code; it is frozen, dead-by-design test scaffolding.
-func oldWriteManagedCommandFiles(fs afero.Fs, dir, manifestName string, cmds []CommandExport, render func(CommandExport) (relPath string, content []byte, err error), opts ...ManagedWriteOption) error {
-	o := &managedWriteOptions{}
-	for _, opt := range opts {
-		opt(o)
-	}
+func oldWriteManagedCommandFiles(fs afero.Fs, dir, manifestName string, cmds []CommandExport, render func(CommandExport) (relPath string, content []byte, err error)) error {
 	// Frozen scaffolding: the trailing-newline option it once read was retired
 	// with the per-engine manifest names, so the pre-refactor byte shape is
 	// pinned here instead of taken from live option state.
@@ -61,13 +57,6 @@ func oldWriteManagedCommandFiles(fs afero.Fs, dir, manifestName string, cmds []C
 		if !ok {
 			continue
 		}
-		if o.dedupHomeDir != "" && filepath.Clean(dir) != filepath.Clean(o.dedupHomeDir) {
-			if homePath, ok := SafeCommandRelPath(o.dedupHomeDir, relPath); ok {
-				if existing, rerr := afero.ReadFile(fs, homePath); rerr == nil && string(existing) == string(content) {
-					continue
-				}
-			}
-		}
 		if len(written) == 0 {
 			if err := fs.MkdirAll(dir, 0755); err != nil {
 				continue
@@ -96,7 +85,7 @@ func oldWriteManagedCommandFiles(fs afero.Fs, dir, manifestName string, cmds []C
 
 // goldenRender is the fixture renderer both algorithms run through: a
 // dash-flattened nested name plus ".md", content verbatim — matching the shape
-// claude's WriteCommandFiles renderer uses in production.
+// claude's writeCommandDir renderer uses in production.
 func goldenRender(c CommandExport) (string, []byte, error) {
 	filename := strings.ReplaceAll(c.Name, "/", "-") + ".md"
 	return filename, []byte(c.Content), nil
@@ -132,34 +121,24 @@ func listTree(t *testing.T, fs afero.Fs, dir string) map[string]string {
 // WriteManagedPackageFiles, must produce a BYTE-IDENTICAL materialized tree
 // (every file's path + content, plus the manifest) to the frozen pre-refactor
 // algorithm (oldWriteManagedCommandFiles) for the same fixture — a nested
-// name, a plain name, a disabled command, and a dedup-eligible duplicate.
+// name, a plain name and a disabled command.
 // This is the guard called out by skill-command-split.plan.md §3.4: if this
 // test cannot stay green, the seam refactor must be escalated, not forced.
 func TestWriteManagedCommandFiles_GoldenByteIdentical(t *testing.T) {
-	home := "/home/.claude/commands"
 	fixtureCommands := []CommandExport{
 		{Name: "recover", Content: "Recover the session", Enabled: true},
 		{Name: "group/nested", Content: "Nested command body", Enabled: true},
 		{Name: "disabled-one", Content: "should not appear", Enabled: false},
-		{Name: "shadowed", Content: "SAME AS HOME", Enabled: true}, // dedup-eligible
-	}
-
-	// Seed the home dir (both runs dedup against it identically) with a file
-	// byte-identical to "shadowed" so the dedup path is exercised on both sides.
-	seedHome := func(fs afero.Fs) {
-		require.NoError(t, afero.WriteFile(fs, filepath.Join(home, "shadowed.md"), []byte("SAME AS HOME"), 0644))
 	}
 
 	oldFS := afero.NewMemMapFs()
 	newFS := afero.NewMemMapFs()
-	seedHome(oldFS)
-	seedHome(newFS)
 
 	oldDir := "/proj/.claude/commands"
 	newDir := "/proj/.claude/commands"
 
-	require.NoError(t, oldWriteManagedCommandFiles(oldFS, oldDir, ".ctxloom-manifest", fixtureCommands, goldenRender, WithDedupHomeDir(home)))
-	_, err := WriteManagedCommandFiles(safefs.NewMem(newFS), newDir, fixtureCommands, goldenRender, WithDedupHomeDir(home))
+	require.NoError(t, oldWriteManagedCommandFiles(oldFS, oldDir, ".ctxloom-manifest", fixtureCommands, goldenRender))
+	_, err := WriteManagedCommandFiles(safefs.NewMem(newFS), newDir, fixtureCommands, goldenRender)
 	require.NoError(t, err)
 
 	// The pre-refactor writer also wrote a ".ctxloom-manifest" of bare names;
@@ -172,11 +151,10 @@ func TestWriteManagedCommandFiles_GoldenByteIdentical(t *testing.T) {
 	require.NotEmpty(t, newTree, "an empty tree would make this comparison vacuous")
 
 	// Sanity: the fixture actually exercised every interesting path (nested,
-	// disabled, dedup-skipped), so this golden test isn't accidentally vacuous.
+	// disabled), so this golden test isn't accidentally vacuous.
 	assert.Contains(t, oldTree, "recover.md")
 	assert.Contains(t, oldTree, "group-nested.md")
 	assert.NotContains(t, oldTree, "disabled-one.md")
-	assert.NotContains(t, oldTree, "shadowed.md", "dedup-skipped against the identical home copy")
 }
 
 // withoutMarkers drops the old writer's manifest from a tree listing so a

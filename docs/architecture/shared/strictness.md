@@ -38,7 +38,7 @@ flowchart LR
   MODE -->|Actionable| GATE
 ```
 
-Core never imports `clidiag` or `strictness`; the ratchet in `archrules.LayeringRules` holds the exhausted edges deleted. The coordinator and everything it builds report through `coord.Options.Reporter` (the runner side through `HomeConfig.Reporter`, `DialRunner` and `NewEngineHost`); the engine base reports through the `Reporter` each call is handed (`SetupRequest.Reporter`, `SurfaceInputs.Reporter`, the managed writers' `WithReporter`/`WithWriteReporter`, `SettingsOptions.Reporter`). The one Reporter of a `ctxloom` process is built by `cmd/ctxloom`'s `compose` and travels as `cli.Composition.Reporter` → `operations.App.Reporter`.
+Core never imports `clidiag` or `strictness`; the ratchet in `archrules.LayeringRules` holds the exhausted edges deleted. The coordinator and everything it builds report through `coord.Options.Reporter` (the runner side through `HomeConfig.Reporter`, `DialRunner` and `NewEngineHost`); the engine base reports through the `Reporter` each call is handed (the managed writers' `WithWriteReporter`, `SettingsOptions.Reporter`). The one Reporter of a `ctxloom` process is built by `cmd/ctxloom`'s `compose` and travels as `cli.Composition.Reporter` → `operations.App.Reporter`.
 
 ## Invariants
 

@@ -35,10 +35,6 @@ type LaunchBackend struct {
 	BaseBackend
 	context HashedContext
 
-	// surfaces is the engine's static Declaration: which approaches it
-	// constructs for each surface kind — the engine's own account of its
-	// surfaces, read by the tooling that reports them.
-	surfaces Declaration
 	// extraEnv, when set, contributes per-backend child-env entries on top of the
 	// shared ExecuteEnv (the request env + the SCM context-file path) — the seam a
 	// backend uses to add env computed from the request without reimplementing
@@ -51,13 +47,10 @@ type LaunchBackend struct {
 	engineHomeVar string
 }
 
-// InitLaunch wires the constructed capabilities into the base. Call it from the
-// concrete constructor once the capabilities (which usually close over the
-// concrete backend) have been built. surfaces is the engine's Declaration of
-// the approaches it delivers at launch.
-func (b *LaunchBackend) InitLaunch(ctxProvider HashedContext, surfaces Declaration) {
+// InitLaunch wires the constructed context provider into the base. Call it
+// from the concrete constructor.
+func (b *LaunchBackend) InitLaunch(ctxProvider HashedContext) {
 	b.context = ctxProvider
-	b.surfaces = surfaces
 }
 
 // SetExecuteEnv registers a per-backend child-env contributor merged into

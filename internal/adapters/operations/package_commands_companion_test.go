@@ -8,6 +8,7 @@
 package operations
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,9 +18,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -94,10 +97,19 @@ func TestLoadCommandExports_IncludesCompanionCommandUnconditionally(t *testing.T
 	}
 	require.True(t, found, "expected the ltk/task-runner command export")
 
-	// Materialize to prove the actual slash-command filename: "/" becomes "-",
-	// so ltk's task-runner command becomes /ltk-task-runner.
+	// Deliver through claude's commands approach at the project root to prove
+	// the actual slash-command filename: "/" becomes "-", so ltk's task-runner
+	// command becomes /ltk-task-runner.
+	pkg, err := AssemblePackage(context.Background(), withCompanions(t, cfg), PackageRequest{})
+	require.NoError(t, err)
+	engineExports, err := ExportsFor(engines.Registry(), pkg, claude.EngineName)
+	require.NoError(t, err)
+	kind, ok := engines.Registry().Lookup(claude.EngineName)
+	require.True(t, ok)
 	fs := afero.NewMemMapFs()
-	require.NoError(t, claude.WriteCommandFiles("/project", ex, agent.WithCommandRoot(safefs.NewMem(fs))))
+	_, err = kind.Root().Commands.DeliverCommands(present.ProjectOnHost("/project"), present.RootProjectRoot,
+		engine.CommandsInputs{Commands: engineExports.Commands}, safefs.NewMem(fs))
+	require.NoError(t, err)
 	exists, err := afero.Exists(fs, "/project/.claude/commands/ltk-task-runner.md")
 	require.NoError(t, err)
 	assert.True(t, exists, "ltk's task-runner command must materialize as /ltk-task-runner")

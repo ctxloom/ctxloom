@@ -89,9 +89,9 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 	// servers and hooks land in the written settings with no run-only
 	// resolution step needed.
 
-	// The statusline opt-out (config: settings.statusline: false) rides
-	// SurfaceInputs.ManageStatusline into the settings surface, read per backend in
-	// applyHooksToBackend from freshCfg.Settings.ShouldManageStatusline().
+	// The statusline opt-out (config: settings.statusline: false) rides the
+	// assembled package's Statusline into the settings surface
+	// (managedStatuslineEnabled, package.go).
 
 	workDir := resolveHookWorkDir(req)
 

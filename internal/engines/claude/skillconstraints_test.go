@@ -20,7 +20,7 @@ import (
 
 // skillExport builds an enabled single-file skill export whose SKILL.md
 // frontmatter mirrors name/description, the shape buildSkillExports hands
-// this writer.
+// claude's skills approach.
 func skillExport(name, description string) agent.SkillExport {
 	return agent.SkillExport{
 		Name:        name,
@@ -42,12 +42,12 @@ func captureWarnings(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// TestWriteSkillFiles_VendorInvalidSkillIsRefusedNamingTheConstraint pins the
+// TestDeliverSkills_VendorInvalidSkillIsRefusedNamingTheConstraint pins the
 // emit boundary: a skill whose frontmatter violates one of Anthropic's hard
 // constraints is refused HERE — never written, never delivered — with a
 // warning that names the skill and the constraint it broke, while a valid
 // sibling in the same delivery still lands.
-func TestWriteSkillFiles_VendorInvalidSkillIsRefusedNamingTheConstraint(t *testing.T) {
+func TestDeliverSkills_VendorInvalidSkillIsRefusedNamingTheConstraint(t *testing.T) {
 	cases := []struct {
 		label      string
 		skill      agent.SkillExport
@@ -65,7 +65,7 @@ func TestWriteSkillFiles_VendorInvalidSkillIsRefusedNamingTheConstraint(t *testi
 			dir := t.TempDir()
 			warnings := captureWarnings(t)
 
-			require.NoError(t, WriteSkillFiles(dir, []agent.SkillExport{tc.skill, skillExport("sibling", "fine")}))
+			require.NoError(t, deliverProjectSkills(t, dir, []agent.SkillExport{tc.skill, skillExport("sibling", "fine")}))
 
 			skillsDir := filepath.Join(dir, ConfigDirName, SkillsDirName)
 			assert.FileExists(t, filepath.Join(skillsDir, "sibling", "SKILL.md"),
@@ -105,28 +105,28 @@ func TestDeliverSkills_RefusedSkillIsNotDeclared(t *testing.T) {
 	assert.Contains(t, warnings.String(), strconv.Itoa(SkillDescriptionMaxLen))
 }
 
-// TestWriteSkillFiles_DisabledInvalidSkillIsNotRefused pins that a disabled
+// TestDeliverSkills_DisabledInvalidSkillIsNotRefused pins that a disabled
 // export is not held to the vendor constraints: it is not emitted either way,
 // and a refusal warning for it would be noise naming a rule nobody hit.
-func TestWriteSkillFiles_DisabledInvalidSkillIsNotRefused(t *testing.T) {
+func TestDeliverSkills_DisabledInvalidSkillIsNotRefused(t *testing.T) {
 	dir := t.TempDir()
 	warnings := captureWarnings(t)
 	off := skillExport("Bad_Name", "")
 	off.Enabled = false
 
-	require.NoError(t, WriteSkillFiles(dir, []agent.SkillExport{off}))
+	require.NoError(t, deliverProjectSkills(t, dir, []agent.SkillExport{off}))
 
 	assert.Empty(t, warnings.String())
 }
 
-// TestWriteSkillFiles_ValidSkillPassesWithoutWarning is the control: a skill
+// TestDeliverSkills_ValidSkillPassesWithoutWarning is the control: a skill
 // at the exact limits emits with no refusal.
-func TestWriteSkillFiles_ValidSkillPassesWithoutWarning(t *testing.T) {
+func TestDeliverSkills_ValidSkillPassesWithoutWarning(t *testing.T) {
 	dir := t.TempDir()
 	warnings := captureWarnings(t)
 	name := strings.Repeat("a", SkillNameMaxLen)
 
-	require.NoError(t, WriteSkillFiles(dir, []agent.SkillExport{skillExport(name, strings.Repeat("d", SkillDescriptionMaxLen))}))
+	require.NoError(t, deliverProjectSkills(t, dir, []agent.SkillExport{skillExport(name, strings.Repeat("d", SkillDescriptionMaxLen))}))
 
 	_, err := os.Stat(filepath.Join(dir, ConfigDirName, SkillsDirName, name, "SKILL.md"))
 	require.NoError(t, err)

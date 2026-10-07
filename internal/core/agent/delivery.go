@@ -42,3 +42,6 @@ func (f DeliveredFunc) Cleanup() error { return f() }
 // reconcile it because a new session means a new harp and a new directory.
 // Give scratch this handle and it accumulates forever with nothing reaping it.
 var SurfacePersistsAfterExit Delivered = DeliveredFunc(func() error { return nil })
+
+// Compile-time contract.
+var _ Delivered = DeliveredFunc(nil)

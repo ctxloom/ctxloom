@@ -82,7 +82,7 @@ type approachState struct {
 	runtime   string // host | container-rootless | container-rootful
 	workspace string // none | worktree
 	variant   string // the registry cell's variant ("system-prompt", "unsafe-file-shared")
-	approach  string // the pinned agent.Approach label ("system-prompt", "hook", "unsafe-file")
+	approach  string // the pinned approach name a binding selects ("system-prompt", "unsafe-file")
 	nonce     string
 	stdout    string
 	stderr    string

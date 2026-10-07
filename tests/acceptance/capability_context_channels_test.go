@@ -121,7 +121,7 @@ func deliverContextAcrossRoots(t *testing.T, engineName string, root present.Roo
 // reasons an approach MAY avoid the cwd — two of its arms are type assertions,
 // which establish that a type declares a form, not that this delivery used it.
 // A test calling it would agree with the rule even when the rule is wrong, and
-// could only ever catch a change in what Construct returns.
+// could only ever catch a change in the predicate itself.
 //
 // The answer is lopsided, and the asymmetry is exactly which of claude's cells
 // can be argued side-channel-controlled:

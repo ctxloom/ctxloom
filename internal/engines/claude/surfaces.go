@@ -10,28 +10,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-
-	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
-// This file holds claude's runtime FORMS on the surface-delivery seam
-// (internal/core/agent/cells.go, declaration.go): each form is a value
-// implementing agent.Approach, constructed by name from the Forms the typed
-// approaches in definition.go carry. claude's surface membership itself is
-// stated ONCE, by the typed fields of its engine.Definition (Build); the
-// named table this seam reads is derived from it (Declaration). Every form
-// here WRAPS an existing claude writer verbatim — appendFlagDelivery
-// (contextdelivery.go) and fileTemplateDelivery (surfacedelivery.go).
-//
-// A surface with TWO forms names both: which one runs is the caller's
-// selection, never a conversion applied underneath it. Where each
-// form's bytes land is stated on the form (Present); which forms a kind
-// has is stated on its typed approach (Forms).
-//
-// Hooks are delivered through the settings forms: claude keeps hook
-// registrations inside .claude/settings.json, so the hooks approach
-// (definition.go) writes through the same writer as settings.
+// This file holds the pieces of claude's delivery its typed approaches
+// (definition.go) share: the approach names a binding selects
+// (ApproachSystemPrompt, ApproachMCPConfig — claude's own, declared here and
+// nowhere shared), the private-root seam every session-home approach reads,
+// the framed system-prompt writer the context approach drives, and the relay
+// bearer's by-reference rewrite for a project .mcp.json.
 
 // ApproachSystemPrompt names claude's out-of-cwd framed context consumed via
 // --append-system-prompt-file — semantically distinct from the native file
@@ -39,19 +25,17 @@ import (
 // own name, declared here and nowhere shared: no other engine has it.
 const ApproachSystemPrompt = "system-prompt"
 
-// placement is where a file-writing strategy writes: the reused writers
-// (fileTemplateDelivery, appendFlagDelivery) hold one, injected at
-// construction, never passed as a method parameter.
+// placement is where a file-writing strategy writes: appendFlagDelivery holds
+// one, injected at construction, never passed as a method parameter.
 type placement interface {
 	// Dir returns the directory the strategy writes into.
 	Dir() string
 }
 
 // dirPlacement is a trivial placement whose Dir() returns a fixed directory.
-// It adapts a root read from the advised Start into the placement the reused
-// writers construct against — the project root for the well-known Delivery,
-// the session home for the out-of-cwd forms; all arrive at call
-// time, never at construction.
+// It adapts a root read from the advised Start into the placement
+// appendFlagDelivery constructs against; the root arrives at call time, never
+// at construction.
 type dirPlacement struct{ dir string }
 
 // Dir returns the fixed directory this placement wraps.
@@ -135,8 +119,7 @@ type systemPromptContext struct {
 // with no written file behind it. Announcing the bare private root as the
 // flag's value would violate Deliver's invariant that no flag may name a
 // file that was not written, so this presents nothing at all: an unrooted
-// Presentation{} for the caller to skip, the same shape hookCarriedContext
-// uses for "nothing to present" (approaches_generic.go).
+// Presentation{} for the caller to skip.
 func (s *systemPromptContext) Present(start present.Start) present.Presentation {
 	if s.path == "" {
 		return present.Presentation{}
@@ -175,31 +158,6 @@ func (s *systemPromptContext) Path() string { return s.path }
 // should take by default.
 const ApproachMCPConfig = "mcp-config"
 
-// mcpConfig is claude's DEFAULT MCP approach's presentation: the private
-// .mcp.json beneath the run's session home, announced on --mcp-config <file>.
-// Used WITHOUT --strict-mcp-config, so claude LAYERS ctxloom's servers over
-// the user's own project .mcp.json rather than replacing it (a buildArgs
-// concern). The write is mcpApproach.DeliverMCP's claims.
-type mcpConfig struct{}
-
-// Present declares the private .mcp.json and the flag it is announced with.
-func (*mcpConfig) Present(start present.Start) present.Presentation {
-	return underPrivateRoot(start, MCPFileName).AnnounceFlag(flagMCPConfig).Build()
-}
-
-// mcpUnsafeFile is claude's project-file MCP approach's presentation: the
-// well-known .mcp.json in the project root, which claude reads directly — so
-// it announces no flag. The write is mcpApproach.DeliverMCP's claims, which
-// name the relay's bearer by reference (bearerByReference).
-type mcpUnsafeFile struct{}
-
-// Present declares the well-known project .mcp.json. No flag: claude reads
-// this path itself, and announcing it as well would load the same servers
-// twice.
-func (*mcpUnsafeFile) Present(start present.Start) present.Presentation {
-	return start.UnderProjectRoot(MCPFileName).Build()
-}
-
 // relayBearerRef is how the project .mcp.json names the relay's bearer.
 var relayBearerRef = "${" + EnvRelayBearer + "}"
 
@@ -230,66 +188,5 @@ func bearerByReference(bundle map[string]wire.MCPServer) (map[string]wire.MCPSer
 	return out, env, nil
 }
 
-// settingsSurface is claude's settings approach's presentation:
-// .claude/settings.json, which holds the hooks and ctxloom's settings claims.
-// The write is settingsApproach.DeliverSettings's claims.
-type settingsSurface struct{}
-
-// Present declares .claude/settings.json and names it on --settings.
-func (*settingsSurface) Present(start present.Start) present.Presentation {
-	return start.UnderProjectRoot(relSettings).AnnounceFlag(flagSettings).Build()
-}
-
-// commandsSurface is claude's commands approach: the slash-command exports
-// under .claude/commands/. claude has no out-of-cwd flag for slash-commands,
-// so a SHARED-cwd delivery of it is the loud well-known write; first
-// preference is always an isolated cell. (Unlike the mock, claude's commands
-// ride fileTemplateDelivery.DeliverCommands, which dedups against the
-// user-global commands dir, so they are NOT the shared
-// agent.ManagedCommandsDelivery.)
-type commandsSurface struct {
-	commands              []agent.CommandExport
-	files                 safefs.Root
-	reporter              report.Sink // SurfaceInputs.Reporter, forwarded to the writer
-	selfContainedCommands bool        // mirrors SurfaceInputs.SelfContainedCommands; see DeliverCommands
-}
-
-// Present declares .claude/commands/. No flag: claude has no out-of-cwd
-// redirect for slash commands.
-func (s *commandsSurface) Present(start present.Start) present.Presentation {
-	return start.UnderProjectRoot(relCommands).Build()
-}
-
-// Deliver writes .claude/commands/ beneath the advised project root via the
-// reused file-template commands writer. selfContainedCommands rides along so a
-// materialize target (a portable, self-contained tree) skips deduping against
-// the delivering machine's ~/.claude/commands — see
-// fileTemplateDelivery.DeliverCommands.
-// reprise:accept-drift — the same deliberate three-line shape as mcpWriter.deliver and settingsSurface.deliver, for the reason recorded there: the shape IS the body, and a helper taking both the knob and the delivery as parameters is longer than what it replaces. Commands has no out-of-cwd variant, so the recipe needs no dir-taking split.
-func (s *commandsSurface) Deliver(start present.Start) (agent.Delivered, error) {
-	d := newFileTemplateDelivery(dirPlacement{dir: start.Paths().ProjectRoot.Host}, s.files)
-	d.selfContainedCommands = s.selfContainedCommands
-	d.reporter = s.reporter
-	return d.DeliverCommands(s.commands)
-}
-
-// newSkillsSurface builds claude's skills approach: an
-// agent.ManagedSkillPackagesDelivery bound to WriteSkillFiles (skillfiles.go).
-// The shared delivery type is reusable here (unlike commands) because claude's
-// skill writer needs no home-dir dedup and no out-of-cwd form: no engine has
-// an out-of-cwd flag for a skill package.
-func newSkillsSurface(in agent.SurfaceInputs, files safefs.Root) *agent.ManagedSkillPackagesDelivery {
-	return agent.NewManagedSkillPackagesDelivery(relSkills, in.Skills, func(dir string, skills []agent.SkillExport) error {
-		return WriteSkillFiles(dir, skills, agent.WithCommandRoot(files), agent.WithReporter(in.Reporter))
-	})
-}
-
-// Compile-time capability contracts. Every approach is an agent.Approach.
-var (
-	_ agent.Approach = (*systemPromptContext)(nil)
-	_ agent.Approach = (*mcpConfig)(nil)
-	_ agent.Approach = (*mcpUnsafeFile)(nil)
-	_ agent.Approach = (*settingsSurface)(nil)
-	_ agent.Approach = (*commandsSurface)(nil)
-	_ placement      = dirPlacement{}
-)
+// Compile-time contract.
+var _ placement = dirPlacement{}

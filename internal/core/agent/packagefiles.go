@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -118,17 +117,6 @@ func writeManagedPackageFilesLocked[T any](
 	var written []string
 	for _, p := range prepared {
 		for _, f := range p.files {
-			// Cross-scope dedup ("home/global wins"), per file: when writing
-			// into a NON-home dir, skip a file byte-identical to the
-			// same-named one already in the global dir. See
-			// WithDedupHomeDir.
-			if o.dedupHomeDir != "" && filepath.Clean(dir) != filepath.Clean(o.dedupHomeDir) {
-				if homePath, ok := SafeCommandRelPath(o.dedupHomeDir, f.RelPath); ok {
-					if existing, rerr := afero.ReadFile(fs, homePath); rerr == nil && bytes.Equal(existing, f.Content) {
-						continue
-					}
-				}
-			}
 			tempPath := filepath.Join(tempDir, f.RelPath)
 			if err := fs.MkdirAll(filepath.Dir(tempPath), 0755); err != nil {
 				return nil, fmt.Errorf("write managed package files %s: package %q: create temp subdir: %w", dir, p.name, err)

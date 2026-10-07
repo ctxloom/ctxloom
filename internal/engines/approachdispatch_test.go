@@ -4,13 +4,11 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // allSurfaceKinds is every kind a backend can be asked about (cells.go's
@@ -87,24 +85,18 @@ func TestApproachDispatch_DefaultIsDeclared(t *testing.T) {
 	}
 }
 
-// TestApproachDispatch_DeclaredIsConstructible pins the other half of the
-// pair: every name a backend DECLARES must actually construct a non-nil
-// Approach that presents somewhere. A declared-but-unconstructible name is
-// the silent-no-op shape — Build accepts the selection and the delivery
-// writes nothing.
-func TestApproachDispatch_DeclaredIsConstructible(t *testing.T) {
+// TestApproachDispatch_DeclaredKindsAreDelivered pins the other half of the
+// pair: every kind a backend names approaches for is a kind its Definition
+// actually delivers (a typed approach on the registry's engine value). A
+// selectable name over a kind nothing delivers is the silent-no-op shape — the
+// binding validates and the delivery writes nothing.
+func TestApproachDispatch_DeclaredKindsAreDelivered(t *testing.T) {
 	for _, name := range nativeSurfaceBackends(t) {
 		t.Run(name, func(t *testing.T) {
-			decl := hostedDeclaration(name)
-			for _, kind := range allSurfaceKinds {
-				for _, n := range decl.Names(kind) {
-					a, ok := decl[kind].Construct(n, agent.SurfaceInputs{Context: "ctx"}, safefs.NewMem(afero.NewMemMapFs()))
-					require.True(t, ok, "%s: %s declares %s but Construct rejects it", name, kind, n)
-					require.NotNil(t, a, "%s: %s via %s constructed a nil Approach", name, kind, n)
-					// Present must not panic against advised roots; hook-carried
-					// context may legitimately present nothing.
-					_ = a.Present(present.ProjectOnHost("/p"))
-				}
+			e, ok := Registry().Lookup(engine.Name(name))
+			require.True(t, ok)
+			for kind := range hostedDeclaration(name) {
+				assert.True(t, e.Root().Carries(kind), "%s: names approaches for %s, which its Definition does not deliver", name, kind)
 			}
 		})
 	}

@@ -1,16 +1,12 @@
 package agent
 
-// The WELL-KNOWN approach names. The set of approaches is OPEN — an engine
-// declares whichever it supports in its own Declaration, under whatever names
-// it chooses — and a constant exists here only because SHARED code has to
-// refer to that approach by name: the at-rest callers (materialize, apply,
-// remove, currency) ask every engine for its native file. An approach only one engine has
-// (claude's system prompt) is named by that engine, in its own package; naming
-// it here would be the enum growing back.
-//
-// Preference between approaches is expressed by the CALLER and by the cell,
-// never by a list order: `profile materialize` names the native file because
-// its output must outlive ctxloom; a launch takes the default.
+// The WELL-KNOWN approach names. The set of approach names is OPEN — an
+// engine declares whichever it supports in its own Declaration, under
+// whatever names it chooses — and a constant exists here only for the one
+// name every engine declares: its native file, spelled the same everywhere so
+// a binding's `surfaces:` value means one thing whichever engine it names. An
+// approach only one engine has (claude's system prompt) is named by that
+// engine, in its own package; naming it here would be the enum growing back.
 const (
 	// ApproachUnsafeFile writes the engine's native, well-known file the engine
 	// reads directly (CLAUDE.md, .mcp.json, settings, command/skill dirs…).

@@ -281,16 +281,13 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # The mock backend is now the vehicle for the host rows, because it now
   # genuinely delivers. Mock embeds agent.LaunchBackend, so its Setup routes
   # through the SAME surfaces × typed-cells seam every real launch backend uses
-  # (internal/engines/mock/backend.go), and it declares two surfaces of its own
-  # (internal/engines/mock/forms.go): a CONTEXT surface claiming a section
+  # (internal/engines/mock/backend.go), and its typed approaches
+  # (internal/engines/mock/surfaces.go) are driven by the same static writer
+  # (fsstatic) every engine's are: a CONTEXT approach claiming a section
   # appended to MOCK_CONTEXT.md through the ownership record, and a SKILLS
-  # surface — the shared
-  # agent.ManagedSkillPackagesDelivery bound to the shared
-  # agent.WriteManagedSkillPackages — producing a .mock/skills/ tree. Both are
-  # the same writers every engine's own skills directory goes through,
-  # differing only in
-  # the directory they target, so a row that passes here is exercising the
-  # shared seam rather than a mock-only path.
+  # approach writing each enabled package, at its declared modes, into a
+  # .mock/skills/ tree. A row that passes here is exercising the shared
+  # delivery seam rather than a mock-only path.
   #
   # (This paragraph previously said the opposite twice and was wrong on both
   # counts: it said Mock.Setup "only records its payload" and that mock's
@@ -305,8 +302,8 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # nothing user-authored remains. A step that shells out to `run` and then
   # stats the directory observes nothing, exactly as it would for any engine's
   # AGENTS.md. The LIVE-RUN half of the claim is covered where it can be
-  # observed mid-turn: tests/integration/delivery_approach_matrix_test.go (mock
-  # is in all three matrix tests) and grpc_test's
+  # observed: tests/integration/delivery_approach_matrix_test.go (every
+  # registered engine's kinds, mock's included, through the static writer) and grpc_test's
   # TestRunTurn_MockDeliversContextSurfaceDuringTheTurn.
   #
   # WHAT THE HOST ROWS THEREFORE DO AND DO NOT PROVE. They prove that the

@@ -54,12 +54,12 @@ Feature: One shared profile, reaching every engine in its own native format
   # a substring of a key name: a key name is satisfied by the file merely
   # mentioning it, which is true whether or not any content landed.
   #
-  # READ EVERY CONTEXT ROW CAREFULLY. A context surface must write from
-  # agent.SurfaceInputs.Context — the assembled string, which materialize
-  # populates. It must never be keyed on SurfaceInputs.Fragments:
-  # materialize never fills that field, so a fragments-keyed context surface is
-  # a silent no-op on this path, exit 0 with nothing written. Adding an engine
-  # here is adding a ROW, not new Go.
+  # READ EVERY CONTEXT ROW CAREFULLY. A context approach must write from
+  # engine.ContextInputs.Text — the assembled context, which materialize
+  # populates — and never re-assemble it from the fragment items itself: a
+  # context surface that did would be a second assembly that can disagree with
+  # the first, exit 0 with the wrong bytes written. Adding an engine here is
+  # adding a ROW, not new Go.
   Scenario Outline: The same profile materializes into each engine's own native surfaces
     Given Carol's team profile carries a shared fragment, command, MCP server, and hook
     When Alice materializes the team profile for <engine>

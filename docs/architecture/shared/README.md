@@ -14,8 +14,8 @@ The largest package in the layer (26 internal importers). It has no single respo
 | [`agent-session-ir.md`](agent-session-ir.md) | The normalized transcript IR (`SessionEntry` and friends) every engine's history is mapped into, plus the shared JSONL parse loop. |
 | [`agent-chat.md`](agent-chat.md) | The structured event IR (`ChatEvent`) and chat MCP-server composition. |
 | [`agent-enginecli.md`](agent-enginecli.md) | `EngineCLI` — the declared vendor-CLI grammar that both the real driver and the mock engine parse against; the anti-drift mechanism of the launch path. |
-| [`agent-surface-delivery.md`](agent-surface-delivery.md) | Surface kinds, the open `Approach` set and its optional capabilities, an engine's `Declaration`, the `SurfaceSelection` builder, and isolated-cell vs shared-cwd delivery. |
-| [`agent-launch-lifecycle.md`](agent-launch-lifecycle.md) | `LaunchBackend` — the shared Setup/deliver/Cleanup path every local-CLI engine embeds, and its exec half. |
+| [`agent-surface-delivery.md`](agent-surface-delivery.md) | Surface kinds, an engine's `Declaration` (the static table of approach names a binding may select), binding resolution, and delivery through the typed approaches and the static writer. |
+| [`agent-launch-lifecycle.md`](agent-launch-lifecycle.md) | `LaunchBackend` — the exec half every local-CLI engine embeds: child env, argv trace, interactive vs oneshot routing. |
 | [`agent-context-delivery.md`](agent-context-delivery.md) | Fragment assembly, the hash-named context cache file, system-prompt framing, and why no hook carries the project context. |
 | [`agent-managed-files.md`](agent-managed-files.md) | Every writer that puts bytes into a user's engine config: atomic writes, marker sections, manifest-tracked trees, command/skill rendering, and MCP registries. |
 

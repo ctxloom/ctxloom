@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -99,7 +98,15 @@ func TestTransformToClaudeCommand(t *testing.T) {
 	}
 }
 
-func TestWriteCommandFiles(t *testing.T) {
+// writeProjectCommands writes cmds through claude's command writer into the
+// project's .claude/commands — the directory the commands approach targets at
+// the project root.
+func writeProjectCommands(projectDir string, cmds []agent.CommandExport) error {
+	_, err := writeCommandDir(safefs.New(), filepath.Join(projectDir, ConfigDirName, CommandsDirName), cmds)
+	return err
+}
+
+func TestWriteCommandDir(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	cmds := []agent.CommandExport{
@@ -108,8 +115,8 @@ func TestWriteCommandFiles(t *testing.T) {
 		{Name: "simple", Content: "Simple command", Enabled: true},
 	}
 
-	if err := WriteCommandFiles(tmpDir, cmds); err != nil {
-		t.Fatalf("WriteCommandFiles failed: %v", err)
+	if err := writeProjectCommands(tmpDir, cmds); err != nil {
+		t.Fatalf("writeCommandDir failed: %v", err)
 	}
 
 	reviewPath := filepath.Join(tmpDir, ".claude", "commands", "review.md")
@@ -137,12 +144,12 @@ func TestWriteCommandFiles(t *testing.T) {
 	}
 }
 
-// TestWriteCommandFiles_SkipsTraversalNames verifies command names from
+// TestWriteCommandDir_SkipsTraversalNames verifies command names from
 // bundle content (potentially remote) cannot derive paths outside
 // .claude/commands/: absolute and ".."-bearing names are skipped before any
 // file is written, while plain and nested ("group/cmd", flattened) names
 // still land.
-func TestWriteCommandFiles_SkipsTraversalNames(t *testing.T) {
+func TestWriteCommandDir_SkipsTraversalNames(t *testing.T) {
 	tmpDir := t.TempDir()
 	cmds := []agent.CommandExport{
 		{Name: "../escape", Content: "evil", Enabled: true},
@@ -151,7 +158,7 @@ func TestWriteCommandFiles_SkipsTraversalNames(t *testing.T) {
 		{Name: "good", Content: "fine", Enabled: true},
 		{Name: "group/cmd", Content: "nested fine", Enabled: true},
 	}
-	require.NoError(t, WriteCommandFiles(tmpDir, cmds))
+	require.NoError(t, writeProjectCommands(tmpDir, cmds))
 
 	commandsDir := filepath.Join(tmpDir, ".claude", "commands")
 	for _, p := range []string{
@@ -193,17 +200,4 @@ func TestEscapeYAMLString(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestWriteCommandFiles_WritesTheCommandPayload pins the plain write: an
-// enabled export lands as a flat file under .claude/commands.
-func TestWriteCommandFiles_WritesTheCommandPayload(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	require.NoError(t, WriteCommandFiles("/project", []agent.CommandExport{
-		{Name: "save", Content: "body", Enabled: true},
-	}, agent.WithCommandRoot(safefs.NewMem(fs))))
-
-	data, err := afero.ReadFile(fs, filepath.Join("/project", ".claude", "commands", "save.md"))
-	require.NoError(t, err)
-	assert.Contains(t, string(data), "body", "the command payload must still be written")
 }

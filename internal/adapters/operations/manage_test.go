@@ -25,7 +25,7 @@ func wireClaudeHarness(t *testing.T, fs afero.Fs, dir string) {
 	t.Helper()
 	hooks := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{
-			SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}},
+			SessionStart: []wire.Hook{{Command: "ctxloom hook session-start"}},
 		},
 	}
 	deliverManagedSettings(t, "claude-code", hooks, map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}}, true, dir, fs)

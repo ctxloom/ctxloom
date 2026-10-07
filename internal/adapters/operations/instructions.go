@@ -24,8 +24,8 @@ const InstructionsCharCap = 2048
 
 // mcpServerInstructions tells the client what this reduced MCP surface is for.
 // ctxloom keeps only the agent's runtime context tools here; all management is
-// CLI-driven (see cmd/hook_inject_context.go's onload preamble for the same
-// guidance injected at session start).
+// CLI-driven (agent.ProjectContextPreamble carries the same guidance in the
+// session's system prompt).
 var mcpServerInstructions = resources.MustGetPromptText("layer-instructions")
 
 // premiseCatalogInstruction tells an MCP client that conditional guidance exists

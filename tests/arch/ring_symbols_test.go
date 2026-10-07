@@ -430,7 +430,6 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/core/paths/homeguard.go":          "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
 	"internal/core/paths/paths.go":              "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
 	"internal/adapters/configload/appdir.go":    "slice 7: launch.HostFacts carries home, cwd and the temp root from cmd/*; the reader's directory discovery then takes them as values",
-	"internal/core/agent/rendezvous.go":         "slice 14a: the rendezvous is the engine host's (adapters/runner), handed its temp root",
 
 	// the CLI: HostFacts are computed once by the composition root
 	"internal/adapters/cli/bundle_items.go":    "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",

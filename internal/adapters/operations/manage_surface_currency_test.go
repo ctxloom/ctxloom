@@ -2,8 +2,10 @@ package operations
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -204,4 +206,51 @@ func TestApplyHooks_Claude_WithdrawsAClaimedClaudeMdContextSection(t *testing.T)
 	got, err := os.ReadFile(contextPath)
 	require.NoError(t, err)
 	assert.Equal(t, mine, string(got), "the claimed context section is withdrawn; the hand-written CLAUDE.md is left exactly as it was")
+}
+
+// TestApplyHooks_Claude_DeliversOneContextFreeSessionStartHook: claude's
+// assembled context reaches a session once, through its system prompt. The
+// project settings ctxloom writes at rest carry exactly ONE SessionStart hook
+// of ctxloom's context family — `hook session-start`, which delivers the
+// resumed essence and the session-start notices and never the project's
+// context — and nothing that could hand it the project context: no retired
+// inject-context hook, no context hash on its argv, no context text in the
+// file.
+func TestApplyHooks_Claude_DeliversOneContextFreeSessionStartHook(t *testing.T) {
+	const marker = "PROJECT-CONTEXT-MARKER-4c1e"
+	cfg, workDir := surfaceCurrencyFixture(t, marker)
+
+	res, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
+		Backend: "claude-code", RegenerateContext: true, Root: safefs.New(), Cfg: cfg, WorkDir: workDir,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "applied", res.Status)
+
+	raw, err := os.ReadFile(filepath.Join(workDir, ".claude", "settings.json"))
+	require.NoError(t, err)
+	var settings struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command string   `json:"command"`
+				Args    []string `json:"args"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &settings))
+
+	var family [][]string
+	for _, group := range settings.Hooks["SessionStart"] {
+		for _, h := range group.Hooks {
+			argv := append(strings.Fields(h.Command), h.Args...)
+			if slices.Contains(argv, "inject-context") || slices.Contains(argv, "session-start") {
+				family = append(family, argv)
+			}
+		}
+	}
+	require.Len(t, family, 1, "exactly one SessionStart hook of ctxloom's context family; got %q", family)
+	assert.Equal(t, []string{"ctxloom", "hook", "session-start"}, family[0], "the one hook is session-start, carrying no argument that names a context")
+	if res.ContextHash != "" {
+		assert.NotContains(t, string(raw), res.ContextHash, "no hook names the regenerated context cache")
+	}
+	assert.NotContains(t, string(raw), marker, "the project context never rides the settings file")
 }

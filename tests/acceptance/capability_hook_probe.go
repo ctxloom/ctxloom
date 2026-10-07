@@ -129,8 +129,8 @@ const hookProbeFixtureDirName = "p3-hook-probe"
 //
 // echoLine is emitted only for a stage-(b) cell, and it is the engine's own
 // hook-output protocol (the same hookSpecificOutput/additionalContext envelope
-// ctxloom's real context-injection hook emits from `ctxloom hook
-// inject-context`), so the probe rides the vendor contract production already
+// ctxloom's real SessionStart hook emits from `ctxloom hook session-start`),
+// so the probe rides the vendor contract production already
 // depends on rather than inventing a second one.
 func hookProbeScript(stampPath, echoHarp string) string {
 	var b strings.Builder

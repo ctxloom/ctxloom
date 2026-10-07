@@ -44,7 +44,7 @@ func sampleInputs() agent.SurfaceInputs {
 		},
 		Hooks: &wire.HooksConfig{
 			Unified: wire.UnifiedHooks{
-				SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}},
+				SessionStart: []wire.Hook{{Command: "ctxloom hook session-start"}},
 			},
 		},
 		ManageStatusline: true,

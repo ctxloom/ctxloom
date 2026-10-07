@@ -11,9 +11,12 @@ Feature: Adopting ctxloom without regret — the first hour, and the exit verifi
   of it, she takes it back out again and checks that what she wrote is still
   hers.
 
-  # Every Then here names something ALICE can see: her assistant receives the
-  # project's context, the tool tells her what it wired, her own files survive.
-  # The byte-level proofs — which key in which settings file, how a context
+  # Every Then here names something ALICE can see: her assistant's sessions
+  # start through ctxloom, the tool tells her what it wired, her own files
+  # survive. (The project's context itself reaches a session that
+  # `ctxloom run` starts, as its system prompt; an assistant started by hand
+  # gets ctxloom's session-start hook and no project context.)
+  # The byte-level proofs — which key in which settings file, how the session-start
   # hook is told apart from a statusline entry, each engine's own config
   # surfaces — belong to cli/manage.feature, which owns that noun.
 
@@ -25,16 +28,16 @@ Feature: Adopting ctxloom without regret — the first hour, and the exit verifi
   # project (install alone writes none — a `ctxloom run` session carries its
   # own; ruled 2026-09-21: sessions carry their surfaces). Alice's question
   # ten minutes in is not "did it report success" — that is the thing she is
-  # suspicious of — but whether a fresh assistant session actually receives
-  # the project's context.
-  Scenario: Alice wires ctxloom in and her assistant starts receiving the project's context
+  # suspicious of — but whether a fresh assistant session actually starts
+  # through ctxloom.
+  Scenario: Alice wires ctxloom in and her assistant's sessions start through it
     When Alice wires ctxloom into her project:
       """
       ctxloom manage install --engine claude-code
       ctxloom manage hooks install
       """
     Then the command succeeds
-    And her assistant is wired to receive the project's context at the start of every session
+    And ctxloom's session-start hook is wired into her assistant
     And ctxloom's own working state is kept out of source control
 
   # The tool's report must agree with the disk. A status command that says
@@ -68,7 +71,7 @@ Feature: Adopting ctxloom without regret — the first hour, and the exit verifi
   # pass just as well against an uninstall that does nothing.
   Scenario: Alice verifies she can leave before she commits
     Given ctxloom is already wired into her project
-    And her assistant is wired to receive the project's context at the start of every session
+    And ctxloom's session-start hook is wired into her assistant
     When Alice takes ctxloom back out:
       """
       ctxloom manage uninstall

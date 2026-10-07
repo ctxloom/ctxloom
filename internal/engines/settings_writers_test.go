@@ -7,10 +7,8 @@ package engines
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
@@ -25,8 +23,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // deliverManagedSettings delivers a backend's settings, hooks and MCP servers
@@ -52,81 +48,23 @@ func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfi
 // Hash-based identification enables ctxloom to track which hooks it manages vs
 // user-defined hooks, allowing clean updates without losing user customization.
 
-// TestNewContextInjectionHook_CarriesNoMachineFact pins the portability
+// TestNewSessionStartHook_CarriesNoMachineFact pins the portability
 // invariant on the generated command: neither the binary nor a project path
 // may be a fact about the machine that wrote it. The generated settings file
 // is tracked, so a path here is committed and every other clone gets a hook
-// that fails silently. The project is resolved at FIRE time instead, by
-// cli.resolveInjectContextWorkDir.
+// that fails silently.
 //
-// MUTATION — re-add `--project <abs>` to the emitted command, or return an
+// MUTATION — add a project path to the emitted command, or return an
 // absolute path from agent.CtxloomCommand; both must go RED.
-func TestNewContextInjectionHook_CarriesNoMachineFact(t *testing.T) {
-	h := agent.NewContextInjectionHook("hash1")
+func TestNewSessionStartHook_CarriesNoMachineFact(t *testing.T) {
+	h := agent.NewSessionStartHook()
 
 	assert.Equal(t, "ctxloom", h.Command, "the bare name, resolved on PATH where the hook fires")
-	assert.Equal(t, []string{"hook", "inject-context", "hash1"}, h.Args,
+	assert.Equal(t, []string{"hook", "session-start"}, h.Args,
 		"the generated hook must not embed a project path")
 	assert.True(t, exectoken.IsManaged(h.Line(), "ctxloom"),
 		"the hook's line must still resolve to the ctxloom exec token; got %q", h.Line())
 }
-
-// TestNewContextInjectionHooks_ChunksLargeContext verifies that a large
-// content-addressed context file is split into N ordered chunk hooks
-// (--part k --of N), while small or missing content yields a single
-// whole-content hook (the legacy, backward-compatible form).
-func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
-	writeCtxFile := func(t *testing.T, workDir, hash, content string) {
-		t.Helper()
-		dir := filepath.Join(workDir, agent.SCMContextSubdir)
-		require.NoError(t, os.MkdirAll(dir, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(dir, hash+".md"), []byte(content), 0o644))
-	}
-
-	t.Run("small_content_single_hook", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		writeCtxFile(t, tmpDir, "smallhash", "# tiny\nbody")
-		hooks := agent.NewContextInjectionHooks(report.Reporter{}, "smallhash", tmpDir)
-		require.Len(t, hooks, 1)
-		assert.NotContains(t, hooks[0].Args, "--part",
-			"single chunk must use the legacy whole-content form")
-	})
-
-	t.Run("missing_file_single_hook", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		hooks := agent.NewContextInjectionHooks(report.Reporter{}, "nofile", tmpDir)
-		require.Len(t, hooks, 1)
-		assert.NotContains(t, hooks[0].Args, "--part",
-			"missing file degrades to a single whole-content hook")
-	})
-
-	t.Run("large_content_ordered_chunks", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		var sections []string
-		for i := range 6 {
-			sections = append(sections, "# Section "+string(rune('A'+i))+"\n"+strings.Repeat("x", 3000))
-		}
-		writeCtxFile(t, tmpDir, "bighash", strings.Join(sections, "\n\n---\n\n"))
-
-		hooks := agent.NewContextInjectionHooks(report.Reporter{}, "bighash", tmpDir)
-		n := len(hooks)
-		require.Greater(t, n, 1, "large content must split into multiple chunk hooks")
-		for k, h := range hooks {
-			assert.Containsf(t, strings.Join(h.Args, " "), fmt.Sprintf("--part %d --of %d", k+1, n),
-				"hook %d must be the (k+1)-th of n in order; got %q", k, h.Args)
-			assert.Truef(t, exectoken.IsManaged(h.Line(), "ctxloom"),
-				"chunk hook must be recognized as ctxloom-managed; got %q", h.Line())
-			assert.Equal(t, agent.ContextInjectionTimeout, h.Timeout)
-		}
-	})
-}
-
-// (Managed-command detection is exercised by exectoken.IsManaged's own tests —
-// TestIsManaged in internal/shared/exectoken.)
-
-// =============================================================================
-// Settings Reader Factory Tests
-// =============================================================================
 
 func TestHostedSettingsReader_AllBackends(t *testing.T) {
 	tests := []struct {
@@ -179,7 +117,7 @@ func TestDeliverManagedSettings_WithFS(t *testing.T) {
 //
 // TestClaudeCode_WritesNoAbsolutePaths proves the portability fix end to
 // end: every surface the at-rest delivery materializes (statusline,
-// inject-context hook, auto-registered MCP server) names the BARE `ctxloom`,
+// session-start hook, auto-registered MCP server) names the BARE `ctxloom`,
 // resolved on PATH at fire time. .claude/settings.json is a tracked file, so
 // an absolute path in any of them is one developer's machine committed into
 // the repo — and every other clone then runs hooks that silently do nothing.
@@ -190,10 +128,10 @@ func TestDeliverManagedSettings_WithFS(t *testing.T) {
 func TestClaudeCode_WritesNoAbsolutePaths(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Inject-context hook is constructed exactly the way the lifecycle
-	// constructs it — through the public constructor.
+	// The session-start hook is constructed exactly the way the managed
+	// assembly constructs it — through the public constructor.
 	cfg := &wire.HooksConfig{Unified: wire.UnifiedHooks{
-		SessionStart: []wire.Hook{agent.NewContextInjectionHook("abc123")},
+		SessionStart: []wire.Hook{agent.NewSessionStartHook()},
 		PostFileEdit: []wire.Hook{
 			{Command: "ctxloom hook stamp-plan", Type: "command"},
 		},
@@ -218,7 +156,7 @@ func TestClaudeCode_WritesNoAbsolutePaths(t *testing.T) {
 	require.NotEmpty(t, sessionStart)
 	injectCmd := sessionStart[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)["command"].(string)
 	assert.NotContains(t, injectCmd, "--project",
-		"the materialized inject-context hook must carry no project path; got %q", injectCmd)
+		"the materialized session-start hook must carry no project path; got %q", injectCmd)
 	assert.True(t, exectoken.IsManaged(injectCmd, "ctxloom"),
 		"the bare name must still resolve to the ctxloom exec token; got %q", injectCmd)
 

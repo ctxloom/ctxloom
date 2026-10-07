@@ -33,16 +33,6 @@ type Hook struct {
 	Async   bool     `yaml:"async,omitempty" json:"async,omitempty"`       // Run in background (command only)
 	SCM     string   `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"` // Hash identifying ctxloom-managed hooks
 
-	// ContextHash marks this hook as a context-injection hook for the given
-	// assembled-context hash. In-process only (never serialized): writers for
-	// agents whose harness fires SessionStart hooks ignore it and write the
-	// hook command; a writer for an agent whose harness doesn't would instead
-	// use it to materialize the context through a channel the agent actually
-	// reads, rather than registering a hook that would never fire. A typed
-	// field so no writer ever has to recognize the injection hook by parsing
-	// its command.
-	ContextHash string `yaml:"-" json:"-"`
-
 	// PreToolFallback declares a session_start hook safe to fire on PreToolUse
 	// instead (first tool call and every one after) on agents whose harness
 	// has no session-start event. Only meaningful for idempotent hooks — the

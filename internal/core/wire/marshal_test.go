@@ -64,7 +64,6 @@ func TestLeafMarshalBytesArePinned(t *testing.T) {
 				Timeout:         30,
 				Async:           true,
 				SCM:             "hash",
-				ContextHash:     "never-serialized",
 				PreToolFallback: true,
 			},
 			want: `{"matcher":"Bash","command":"echo hi","type":"command","prompt":"p","timeout":30,"async":true,"_ctxloom":"hash","pre_tool_fallback":true}`,

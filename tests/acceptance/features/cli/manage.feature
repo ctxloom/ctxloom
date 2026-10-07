@@ -67,11 +67,11 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # first-class row — a registered engine with real surfaces of its own.
     #
     # CONTEXT ARRIVES TWO WAYS, and the table says which each engine uses. An
-    # engine with a session hook gets the context injected at session start,
-    # which is live: it reflects the profile as composed at launch. An engine
-    # without one reads a file ctxloom materialized earlier. Where the hook is
-    # available it is what this asserts, because it is the delivery path that
-    # actually runs.
+    # engine that takes its context at launch (claude's system prompt, through
+    # `ctxloom run`) gets none at rest — a copy beside the launch's would
+    # double it — so its row asserts the one hook it does get, ctxloom's
+    # session-start (the resumed essence and the session-start notices). An
+    # engine without a launch channel reads a file ctxloom materialized.
     # (ruled 2026-09-21: sessions carry their surfaces — the project-side
     # copy is the explicit hooks install's, so it is spelled out after the
     # scaffold)
@@ -87,9 +87,9 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the file "<context_surface>" contains "<context_marker>"
       And the file ".ctxloom/.gitignore" contains "ctxloom"
 
-      Examples: engines with a session hook — context is injected at launch
+      Examples: engines that take their context at launch — only the session-start hook is wired at rest
         | engine      | context_surface       | context_marker      |
-        | claude-code | .claude/settings.json | inject-context      |
+        | claude-code | .claude/settings.json | session-start       |
 
       # The marker is a heading from ctxloom's own shipped guidance: the
       # mock's context file is the assembled context verbatim, owned whole
@@ -278,7 +278,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom manage hooks install
         """
       Then the command succeeds
-      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook inject-context"
+      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook session-start"
       When Alice inspects and then removes them:
         """
         ctxloom manage hooks check
@@ -469,7 +469,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom manage hooks install
         """
       Then the command succeeds
-      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook inject-context"
+      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook session-start"
       And the file ".claude/settings.json" contains "1234567890123456789"
       And the file ".claude/settings.json" contains "-9223372036854775808"
       And the file ".claude/settings.json" contains "18446744073709551615"
@@ -500,7 +500,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Then the command fails
       And the output contains "refusing to write settings.json"
       And the file ".claude/settings.json" contains "ccusage"
-      And the file ".claude/settings.json" registers no SessionStart hook whose command contains "hook inject-context"
+      And the file ".claude/settings.json" registers no SessionStart hook whose command contains "hook session-start"
 
   Rule: ctxloom's private state stays out of source control
 
@@ -568,7 +568,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom manage hooks install
         """
       Then the command succeeds
-      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook inject-context"
+      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook session-start"
       And the file ".claude/settings.json" contains "ctxloom hook hud"
       And the file ".mcp.json" registers no MCP server named "ctxloom"
       When Alice takes it back out:

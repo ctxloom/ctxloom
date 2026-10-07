@@ -185,13 +185,13 @@ Feature: The archaeologist — what did we decide in March?
   # records — it sets CTXLOOM_RESUMED_FROM/CTXLOOM_RESUMED_PARTS
   # (cli.resumeCompactEnv) and delivers the essence LATER, at SessionStart, via
   # cli.resumedEssenceForInjection. So this row drives `ctxloom hook
-  # inject-context` directly with those two vars set — the same command and the
+  # session-start` directly with those two vars set — the same command and the
   # same env pair a real resumed session's SessionStart callback receives from
   # the environment `run --session --compact` set before launching the engine —
   # and reads the envelope the engine actually gets, via the existing
   # `the hook's additionalContext contains` step (session_hooks.feature). The
-  # hash argument names a context file that does not exist, so nothing but the
-  # essence delivery can put text in the envelope at all.
+  # hook never carries the project's context, so nothing but the essence
+  # delivery can put text in the envelope at all.
   #
   # UNTAGGED 2026-08-18. Mutation: neutering cli.resumedEssenceForInjection to
   # return "" unconditionally turns this row red while "Resuming without
@@ -200,7 +200,7 @@ Feature: The archaeologist — what did we decide in March?
   Scenario: The SessionStart hook delivers the essence for a --compact resume
     Given the environment variable "CTXLOOM_RESUMED_FROM" is set to "amber-quiet-heron"
     And the environment variable "CTXLOOM_RESUMED_PARTS" is set to "session"
-    When I run "ctxloom hook inject-context no-such-hash" with input:
+    When I run "ctxloom hook session-start" with input:
       """
       {"session_id":"vendor-session-1","hook_event_name":"SessionStart"}
       """

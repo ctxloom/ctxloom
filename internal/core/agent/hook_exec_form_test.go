@@ -19,8 +19,7 @@ func TestCtxloomHooks_AreExecForm(t *testing.T) {
 		hook wire.Hook
 		args []string
 	}{
-		{"inject-context", NewContextInjectionHook("abc"), []string{"hook", "inject-context", "abc"}},
-		{"inject-context chunk", NewContextInjectionChunkHook("abc", 2, 3), []string{"hook", "inject-context", "--part", "2", "--of", "3", "abc"}},
+		{"session-start", NewSessionStartHook(), []string{"hook", "session-start"}},
 		{"tool-reflect", NewToolReflectHook(4096), []string{"hook", "tool-reflect", "--min-output-bytes", "4096"}},
 		{"skill-mates", NewSkillMatesHook(), []string{"hook", "skill-mates"}},
 		{"next-step", NewNextStepHook(), []string{"hook", "next-step"}},

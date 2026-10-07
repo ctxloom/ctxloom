@@ -21,9 +21,7 @@ import (
 // here.
 func ctxloomOwnHooks() []wire.Hook {
 	return []wire.Hook{
-		agent.NewContextInjectionHook("abc123"),
-		agent.NewContextInjectionChunkHook("abc123", 1, 2),
-		agent.NewContextInjectionChunkHook("abc123", 2, 2),
+		agent.NewSessionStartHook(),
 		agent.NewToolReflectHook(agent.DefaultToolReflectBytes),
 		agent.NewNextStepHook(),
 		agent.NewSkillMatesHook(),
@@ -181,9 +179,8 @@ func TestUninstall_ReclaimsAnOwnedExecHook(t *testing.T) {
 // TestInstall_WithoutARecord_TakesOutSupersededSpellingsOfItsOwnHooks: a
 // tracked settings.json carries ctxloom hooks no record on this machine names
 // — an older spelling of a callback ctxloom still installs (the shell form of
-// next-step) and a stale set of context-injection parts (another hash, another
-// part count). Each runs a ctxloom callback ctxloom is installing into that
-// same group now, so each is ctxloom's own leftover: delivery leaves exactly
+// next-step). It runs a ctxloom callback ctxloom is installing into that
+// same group now, so it is ctxloom's own leftover: delivery leaves exactly
 // one of each current hook, and none of the superseded ones, or claude runs
 // every callback twice. The user's hooks — their own script, and their own
 // hook running a ctxloom verb ctxloom never installs there — are untouched.
@@ -191,9 +188,8 @@ func TestInstall_WithoutARecord_TakesOutSupersededSpellingsOfItsOwnHooks(t *test
 	dir := t.TempDir()
 	settingsPath := ProjectSettingsPath(dir)
 	const (
-		userScript      = "./scripts/my-own-hook.sh"
-		staleNextStep   = "'ctxloom' hook next-step"
-		staleInjectPart = "'ctxloom' hook inject-context --part 1 --of 8 0ld0ld0ld0ld0ld0"
+		userScript    = "./scripts/my-own-hook.sh"
+		staleNextStep = "'ctxloom' hook next-step"
 	)
 	nextStep := agent.NewNextStepHook()
 	require.NoError(t, os.MkdirAll(filepath.Dir(settingsPath), 0o755))
@@ -203,21 +199,17 @@ func TestInstall_WithoutARecord_TakesOutSupersededSpellingsOfItsOwnHooks(t *test
     {"type": "command", "command": "ctxloom", "args": ["hook", "next-step"], "timeout": 15},
     {"type": "command", "command": "`+userScript+`"},
     {"type": "command", "command": "ctxloom", "args": ["doctor"]}
-  ]}],
-  "SessionStart": [{"hooks": [
-    {"type": "command", "command": "`+staleInjectPart+`", "timeout": 60}
   ]}]
 }}`), 0o644))
 
 	install(t, atRest(t, afero.NewOsFs(), dir), &wire.HooksConfig{Unified: wire.UnifiedHooks{
-		SessionStart: []wire.Hook{agent.NewContextInjectionChunkHook("abc123", 1, 2), agent.NewContextInjectionChunkHook("abc123", 2, 2)},
+		SessionStart: []wire.Hook{agent.NewSessionStartHook()},
 		TurnEnd:      []wire.Hook{nextStep},
 	}}, nil)
 
 	assert.ElementsMatch(t, []string{
 		nextStep.Line(),
-		agent.NewContextInjectionChunkHook("abc123", 1, 2).Line(),
-		agent.NewContextInjectionChunkHook("abc123", 2, 2).Line(),
+		agent.NewSessionStartHook().Line(),
 		userScript,
 		"'ctxloom' 'doctor'",
 	}, hookCommands(t, dir))

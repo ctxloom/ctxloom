@@ -82,11 +82,9 @@ func parseSourceRef(source string) (ident.BundleRef, error) {
 //
 // Both writers route through this via operations.AssemblePackage: the
 // `ctxloom run` payload (agent.ManagedConfigFor) and operations.ApplyHooks.
-// The context-injection hook is NOT assembled here: its identity is the
-// context hash only the at-rest writer knows (applyHooksToBackend appends
-// it from the regenerated one). A hook one writer assembled and the other did not is
-// withdrawn by the next delivery of the other. Keeping the full assembly here
-// guarantees both writers produce an identical, complete set.
+// A hook one writer assembled and the other did not is withdrawn by the next
+// delivery of the other. Keeping the full assembly here guarantees both
+// writers produce an identical, complete set.
 //
 // Returns a fresh Hooks each call (never aliases cfg.Hooks), so callers
 // that invoke it in a loop — e.g. apply-hooks across every backend — cannot
@@ -128,7 +126,7 @@ func AssembleFor(cfg *config.Config, set []profiles.ResolvedProfile, mail sessio
 			Ref:     resolved.SourceRef,
 		}))
 	}
-	// Bundle-shipped hooks + (optional) the context-injection hook.
+	// Bundle-shipped hooks + ctxloom's own.
 	appendManagedDynamicHooks(hooks, cfg, set, mail)
 	return hooks
 }
@@ -148,9 +146,17 @@ func appendManagedDynamicHooks(m *Hooks, cfg *config.Config, set []profiles.Reso
 	shipped, withheld := cfg.ResolveBundleHooksFor(set)
 	m.mergeUnified(shipped, bundleSource)
 	m.withheld = append(m.withheld, withheld...)
-	// The PostToolUse reflect hook rides the same managed set as context
-	// injection, and for the same reason: it exists to keep the distilled
-	// essence honest, so it belongs to ctxloom rather than to any bundle.
+	// The SessionStart session-start hook delivers a compacted resume's
+	// essence and the session-start notices. It belongs to ctxloom rather
+	// than to any bundle, and it never carries the project's context: that is
+	// the session's system prompt. Ungated — a start with no resume and no
+	// notice is handed nothing.
+	m.mergeUnified(
+		wire.UnifiedHooks{SessionStart: []wire.Hook{agent.NewSessionStartHook()}},
+		fixedSource(Source{Origin: OriginContext}))
+	// The PostToolUse reflect hook rides the same managed set: it exists to
+	// keep the distilled essence honest, so it belongs to ctxloom rather than
+	// to any bundle.
 	if minBytes, enabled := cfg.GetToolReflectBytes(); enabled {
 		m.mergeUnified(
 			wire.UnifiedHooks{PostTool: []wire.Hook{agent.NewToolReflectHook(minBytes)}},

@@ -21,7 +21,7 @@ import (
 func ctxloomManagedHooks() *wire.HooksConfig {
 	return &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{
-			SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}},
+			SessionStart: []wire.Hook{{Command: "ctxloom hook session-start"}},
 		},
 	}
 }

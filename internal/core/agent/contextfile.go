@@ -198,6 +198,9 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 	return hashStr, nil
 }
 
+// contextSectionSep joins the fragments of a context file.
+const contextSectionSep = "\n\n---\n\n"
+
 // ReadContextFile reads the context file for the given hash from .ctxloom/context/[hash].md.
 // Use WithContextFS to provide a custom filesystem for testing.
 //

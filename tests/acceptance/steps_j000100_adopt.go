@@ -18,8 +18,8 @@ import (
 // needs, it builds the way a CLI spec builds it.
 //
 // That is what makes one vocabulary at two granularities hold. A journey says
-// "her assistant is wired to receive the project's context"; cli/manage.feature
-// says `.claude/settings.json` carries the inject-context hook. Same underlying
+// "ctxloom's session-start hook is wired into her assistant"; cli/manage.feature
+// says `.claude/settings.json` carries the session-start hook. Same underlying
 // read, different altitude — so the two files cannot drift into disagreeing
 // about what WIRED means.
 
@@ -78,9 +78,9 @@ func registerJ000100Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^her assistant is wired to receive the project's context at the start of every session$`,
+	ctx.Step(`^ctxloom's session-start hook is wired into her assistant$`,
 		func(c context.Context) error {
-			return assertSessionStartHookCommand(worldFrom(c), ".claude/settings.json", "hook inject-context", true)
+			return assertSessionStartHookCommand(worldFrom(c), ".claude/settings.json", "hook session-start", true)
 		})
 
 	// Uninstall is the empty plan over the ownership record: a settings.json

@@ -257,9 +257,12 @@ daemon's, else that container's daemon-reported mounts (`primaryLayer`). Which
 container it is in is never guessed: a container ctxloom launches carries its
 harp as env and as a `ctxloom.harp` label (`RunSpec.Harp`), and a process in
 one is identified by the label matching the harp it carries (`findSelf`); any
-other container by its own traces. A containerized process its daemon cannot
-identify is refused at the container gate (`settleSelf`), a non-degradable
-finding.
+other container by its own traces. A process the daemon does not list is a
+controller whose own filesystem is the root, so its layer is the identity: a
+`ctxloom run` may or may not be in a container, while every container ctxloom
+launches carries its harp. Only a daemon that cannot answer (it cannot list
+its containers, or several carry one harp) is refused at the container gate
+(`settleSelf`), a non-degradable finding.
 
 A Windows host's container reaches the coordinator through the runtime's own
 route (`reachRoute`): Docker Desktop's `host.docker.internal`; a podman

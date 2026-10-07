@@ -23,7 +23,7 @@ import (
 // socket (docker-outside-of-docker — a devcontainer, a CI job container).
 // Resolved once per runtime value, at selection (resolveSelf), so the route
 // home, every run's mounts and the shared-fs probe read the same answer; a
-// container run whose answer is unknown is refused (settleSelf).
+// container run whose daemon could not answer is refused (settleSelf).
 type selfContainer struct {
 	id      string
 	network selfNetwork // zero: none a sibling can join
@@ -196,11 +196,12 @@ func pickSelfNetwork(in selfInspect) selfNetwork {
 // the verdict rides the runtime value and the container gate refuses on it
 // (settleSelf).
 //
-// Unknown is either an UNDECIDABLE lookup (the CLI cannot list or inspect its
-// daemon's containers) or a process that shows the markers of a container
-// the daemon does not list. Proceeding as "the host" in either would hand the
-// daemon this process's paths as bind sources, and a source the daemon
-// resolves elsewhere is created empty — the run would see a blank tree.
+// Unknown is an UNDECIDABLE lookup: the CLI cannot list or inspect its
+// daemon's containers, or several carry this process's harp. A process the
+// daemon does not list — on its host, or in a container it did not launch —
+// is a controller whose own filesystem is the root (primaryLayer of nil):
+// every container ctxloom launches carries its harp, so only a controller
+// can be unlisted.
 func resolveSelf(rt Runtime) (*selfContainer, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -210,19 +211,12 @@ func resolveSelf(rt Runtime) (*selfContainer, error) {
 		return nil, fmt.Errorf("%w: %w", errSelfUndecidable, err)
 	case ok:
 		return &s, nil
-	case selfInContainer():
-		return nil, fmt.Errorf("%w (%s): %s does not list it", errSelfUnidentified, strings.Join(containerprobe.Markers(), ", "), rt.Name())
 	}
 	return nil, nil
 }
 
-var (
-	// errSelfUndecidable is a self-lookup the daemon could not answer.
-	errSelfUndecidable = errors.New("isolation: cannot tell which of the daemon's containers this process runs in")
-	// errSelfUnidentified is a containerized process its daemon does not
-	// list as one of its own.
-	errSelfUnidentified = errors.New("isolation: this process runs in a container the daemon does not identify")
-)
+// errSelfUndecidable is a self-lookup the daemon could not answer.
+var errSelfUndecidable = errors.New("isolation: cannot tell which of the daemon's containers this process runs in")
 
 // settleSelf is the container gate's identity check: rt's verdict on this
 // process's own container, or a non-degradable ClassIsolation finding and the
@@ -237,9 +231,6 @@ func settleSelf(rt Runtime) error {
 		return nil
 	}
 	remedy := selfLookupRemedy(rt.Name())
-	if errors.Is(err, errSelfUnidentified) {
-		remedy = unidentifiedSelfRemedy
-	}
 	strictness.FailAlways(report.KindIsolation, remedy, "refusing to run a container whose bind sources cannot be named: %v", err)
 	return report.Errorf(remedy, "%w", err)
 }
@@ -248,10 +239,6 @@ func settleSelf(rt Runtime) error {
 func selfLookupRemedy(runtime string) string {
 	return "check that the " + runtime + " CLI can list and inspect containers on its daemon (permission on its socket, or a proxy that forbids listing)"
 }
-
-// unidentifiedSelfRemedy names the ways a containerized ctxloom becomes
-// identifiable to the daemon it drives.
-const unidentifiedSelfRemedy = "run ctxloom on the daemon's host, or in a container of that same daemon (one ctxloom launched carries its harp as a label; any other is found by its id, so keep the container's hostname or cgroup naming it), or use runtime: host"
 
 // errNoSelfNetwork refuses a self whose container has no network a sibling
 // container can join (none, pasta, slirp4netns, container:<x>).

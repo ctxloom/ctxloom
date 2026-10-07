@@ -13,7 +13,7 @@ import "fmt"
 
 // DaemonLayer is this process's own layer as the daemon of the runtime named
 // runtime reports it (primaryLayer): the layer production reverses every bind
-// source through. An unidentified self is an error, never the host layer, for
+// source through. An undecidable self is an error, never the host layer, for
 // the reason settleSelf refuses one.
 func DaemonLayer(runtime string) (Layer, error) {
 	for _, c := range runtimeCandidates() {

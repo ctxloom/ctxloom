@@ -153,21 +153,28 @@ type RepoTrust interface {
 // where the engine keeps the human's own answers, and the run's working
 // directory as THIS process sees it — the repository is walked there, where
 // it can be read. HostPath names a directory of that walk in the host path
-// space the human's answers are keyed by: a process in a container reads its
-// own view, while the human answered on the host. nil is identity (this
-// process shares the host's paths).
+// space: a process in a container reads its own view, and the answers it
+// reads may have been recorded in either. nil is identity (this process
+// shares the host's paths).
 type TrustQuery struct {
 	HostHome string
 	WorkDir  string
 	HostPath func(dir string) (string, error)
 }
 
-// HostKey is dir as the human's answers name it (HostPath).
-func (q TrustQuery) HostKey(dir string) (string, error) {
+// Keys are the names an answer for dir may be recorded under, each once: dir
+// itself, as a claude running in this process's view records it, and its host
+// name (HostPath), as the human's claude on the host does. An answer under
+// either counts. A dir with no host name has only its own.
+func (q TrustQuery) Keys(dir string) []string {
+	keys := []string{dir}
 	if q.HostPath == nil {
-		return dir, nil
+		return keys
 	}
-	return q.HostPath(dir)
+	if host, err := q.HostPath(dir); err == nil && host != dir {
+		keys = append(keys, host)
+	}
+	return keys
 }
 
 // InstanceConfigReport is what it wrote and what it skipped.

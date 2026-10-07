@@ -301,13 +301,57 @@ func TestVerdict_HostNamedTrustAboveTheRepositoryDoesNotReachIntoIt(t *testing.T
 	assert.Equal(t, engine.TrustUntrusted, v)
 }
 
-// A directory with no host name was never answerable by the human: it
-// trusts nothing.
-func TestVerdict_AKeyWithNoHostNameTrustsNothing(t *testing.T) {
+// A directory with no host name (private to the controller's container) is
+// still looked up under the name it has: a claude running beside the
+// controller recorded its answer there.
+func TestVerdict_AKeyWithNoHostNameIsLookedUpUnderItsOwn(t *testing.T) {
 	root := gitRepo(t, t.TempDir())
-	host := hostWithProjects(t, map[string]any{root: accepted(true)})
 	unnamed := func(string) (string, error) { return "", errors.New("no host name") }
-	v, err := claudeRepoTrust{}.Verdict(nil, engine.TrustQuery{HostHome: host, WorkDir: root, HostPath: unnamed})
-	require.NoError(t, err)
-	assert.Equal(t, engine.TrustUntrusted, v)
+	for name, tc := range map[string]struct {
+		projects map[string]any
+		want     engine.WorkspaceTrust
+	}{
+		"answered under its own name": {projects: map[string]any{root: accepted(true)}, want: engine.TrustTrusted},
+		"never answered":              {projects: map[string]any{}, want: engine.TrustUntrusted},
+	} {
+		t.Run(name, func(t *testing.T) {
+			host := hostWithProjects(t, tc.projects)
+			v, err := claudeRepoTrust{}.Verdict(nil, engine.TrustQuery{HostHome: host, WorkDir: root, HostPath: unnamed})
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, v)
+		})
+	}
+}
+
+// A controller in a container reads a ~/.claude.json that either a claude in
+// its own view wrote (keys in the controller's names) or the human's claude on
+// the host wrote (keys in host names). An accepted answer under EITHER name
+// counts, whichever the other name says.
+func TestVerdict_AnAnswerUnderEitherNameCounts(t *testing.T) {
+	root := gitRepo(t, t.TempDir())
+	for name, tc := range map[string]struct {
+		view, host any // nil: no entry under that name
+		want       engine.WorkspaceTrust
+	}{
+		"written in the container":                {view: true, want: engine.TrustTrusted},
+		"written on the host":                     {host: true, want: engine.TrustTrusted},
+		"declined in the container, host accepts": {view: false, host: true, want: engine.TrustTrusted},
+		"declined on the host, container accepts": {view: true, host: false, want: engine.TrustTrusted},
+		"declined under both":                     {view: false, host: false, want: engine.TrustUntrusted},
+		"under neither":                           {want: engine.TrustUntrusted},
+	} {
+		t.Run(name, func(t *testing.T) {
+			projects := map[string]any{}
+			if tc.view != nil {
+				projects[root] = accepted(tc.view.(bool))
+			}
+			if tc.host != nil {
+				projects["/host"+root] = accepted(tc.host.(bool))
+			}
+			host := hostWithProjects(t, projects)
+			v, err := claudeRepoTrust{}.Verdict(nil, engine.TrustQuery{HostHome: host, WorkDir: root, HostPath: hostPrefixed})
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, v)
+		})
+	}
 }

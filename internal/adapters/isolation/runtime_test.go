@@ -122,9 +122,6 @@ func TestNewDockerRuntime_ProbesOnlyReachableDaemons(t *testing.T) {
 		return "", nil
 	}}
 	stubEngine(t, a)
-	// Off the daemon's host (a CI job container), a self the stub does not
-	// find would read as an unidentified container rather than "not one".
-	stubSelfHarp(t, "", false)
 	asked := 0
 	findSelf = func(context.Context, Runtime) (selfContainer, bool, error) {
 		asked++

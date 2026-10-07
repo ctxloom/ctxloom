@@ -276,6 +276,44 @@ Feature: run — assembling a project's context and handing it to an engine
       And the mock recorded input contains "DOCTOR-CHECK-STARTUP-FINDINGS"
       And the mock recorded input contains "unknown key `runt1me`"
 
+    # A profile that VETOES a server with exclude_mcp means it, and the items
+    # linked to that server are withheld with it. The agent is still told,
+    # since an item it cannot see otherwise reads as one never authored; but a
+    # withhold is not a fault, so this launch runs in STRICT mode (no
+    # CTXLOOM_DEGRADED) and must start, with the withhold listed.
+    Scenario: A server vetoed with exclude_mcp withholds its linked items, and a strict launch starts and lists them
+      Given an initialized ctxloom project
+      And the project already has the bundle "linked":
+        """
+        version: "1.0"
+        mcp:
+          think:
+            command: think-server
+            tags: [ctxloom:link_id=think]
+        fragments:
+          guide:
+            content: "LINKED-GUIDE"
+            tags: [ctxloom:link_id=think]
+          plain:
+            content: "PLAIN-FRAGMENT"
+        """
+      And the project already has the file ".ctxloom/content/bundles/v2/project/profiles/vetoed.yaml":
+        """
+        description: vetoes the think server
+        bundles:
+          - linked
+        exclude_mcp:
+          - think
+        """
+      And the mock LLM responds "MOCK-REPLY"
+      When I run "ctxloom run --one-shot --profile vetoed unicorn-prompt"
+      Then the command succeeds
+      And the mock recorded input contains "PLAIN-FRAGMENT"
+      And the mock recorded input does not contain "LINKED-GUIDE"
+      And the mock recorded input contains "DOCTOR-CHECK-WITHHELD-ITEMS"
+      And the mock recorded input contains "linked#fragments/guide"
+      And the mock recorded input contains "which this run was not granted"
+
     # The opt-out, paired with the positive scenario above and with the
     # assembled context still present in the record — so an absent finding is
     # evidence of the flag, not of a launch that delivered nothing.

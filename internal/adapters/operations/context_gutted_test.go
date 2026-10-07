@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
 // A profile whose content the review gate withholds ENTIRELY
@@ -62,7 +64,7 @@ func TestGuttedProfiles(t *testing.T) {
 // empty for any other reason is not withholding's story to tell), and it names
 // the profile — the thing the old generic tally never did.
 func TestWarnGuttedProfiles_NamesProfileAndWithheldItems(t *testing.T) {
-	withheld := []string{"ctxloom+git://github.com/acme/repo//bundles/ensemble#fragments/role"}
+	withheld := []bundles.Withhold{{Ref: "ctxloom+git://github.com/acme/repo//bundles/ensemble#fragments/role", Reason: "it is linked"}}
 
 	var out bytes.Buffer
 	warnGuttedProfilesTo(&out, map[string][]string{"coordinator": {"role"}}, nil, withheld)

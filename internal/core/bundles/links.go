@@ -215,11 +215,16 @@ func LinkWithholds(grant LinkGrant, read BundleRead, tags []string) (linkID, ser
 // assembly runs once per turn and an unchanged gap would otherwise re-warn
 // every time; the finding is content-free (refs and names only).
 func WarnLinkWithheld(rep report.Reporter, ref, linkID, server string) {
+	rep.WarnOncef("%s withheld: %s", ref, linkWithheldReason(linkID, server))
+}
+
+// linkWithheldReason is why a linked item was withheld: the one wording the
+// warning and the pipeline's tally share.
+func linkWithheldReason(linkID, server string) string {
 	if server == "" {
-		rep.WarnOncef("%s withheld: it is linked (%s=%s) but this pipeline has no link grant", ref, linkTagKey, linkID)
-		return
+		return fmt.Sprintf("it is linked (%s=%s) but this pipeline has no link grant", linkTagKey, linkID)
 	}
-	rep.WarnOncef("%s withheld: it is linked (%s=%s) to MCP server %q, which this run was not granted", ref, linkTagKey, linkID, server)
+	return fmt.Sprintf("it is linked (%s=%s) to MCP server %q, which this run was not granted", linkTagKey, linkID, server)
 }
 
 // LinksUnchecked is the management/listing statement, spelled as a value: link

@@ -71,7 +71,7 @@ func (c composeFinder) String() string {
 // names tool.
 type movedPinProject struct {
 	app                        *App
-	appDir                     string
+	appDir, repoURL            string
 	rolesRef, toolRef, keepRef string
 	newPin                     string
 }
@@ -83,6 +83,7 @@ func newMovedPinProject(t *testing.T, compose composeFinder) *movedPinProject {
 	repoDir := filepath.Join(t.TempDir(), "source")
 	repoURL := "file://" + repoDir
 	p := &movedPinProject{
+		repoURL:  repoURL,
 		rolesRef: repoURL + "@bundles/roles",
 		toolRef:  repoURL + "@bundles/tool",
 		keepRef:  repoURL + "@bundles/keep",

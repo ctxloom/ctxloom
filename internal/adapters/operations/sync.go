@@ -103,6 +103,10 @@ type SyncDependenciesResult struct {
 	// Removed names the lockfile entries the post-pull lock rebuild dropped
 	// because nothing the project composes reaches them any more.
 	Removed []string `json:"removed,omitempty"`
+	// PrunedCheckouts names each bundle checkout directory a successful pull
+	// deleted because the lockfile no longer names its bundle (see
+	// pruneUnlockedCheckouts).
+	PrunedCheckouts []string `json:"pruned_checkouts,omitempty"`
 	// Incomplete and Unreachable are the post-sync lock rebuild's
 	// (LockDependenciesResult): part of the closure could not be reached, and
 	// these items' previous lock entries were kept rather than rebuilt.

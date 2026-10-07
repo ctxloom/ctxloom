@@ -103,8 +103,10 @@ type pullView struct {
 	Skipped     []operations.SyncItem `json:"skipped"`
 	Failed      []pullFailureView     `json:"failed"`
 	Removed     []string              `json:"removed"`
-	Incomplete  bool                  `json:"incomplete"`
-	Unreachable []string              `json:"unreachable"`
+	// PrunedCheckouts: operations.SyncDependenciesResult.PrunedCheckouts.
+	PrunedCheckouts []string `json:"pruned_checkouts"`
+	Incomplete      bool     `json:"incomplete"`
+	Unreachable     []string `json:"unreachable"`
 	// ConstraintChanges are pins whose manifest constraint changed; pull kept
 	// them where they are (only `deps upgrade` moves a pin).
 	ConstraintChanges []operations.ConstraintChange `json:"constraint_changes"`
@@ -262,6 +264,9 @@ func renderIncompleteLock(w io.Writer, result *operations.SyncDependenciesResult
 // nothing and keep every pin, and the lines below say which outcome each
 // dependency had.
 const pullSummaryHeaderFormat = "\nDependencies (%d):\n"
+
+// pullPrunedCheckoutFormat names one bundle checkout a successful pull deleted.
+const pullPrunedCheckoutFormat = "  Pruned the checkout at %s: the lockfile no longer names its bundle.\n"
 
 // pullIncompleteFormat is the summary line for a pull whose lock rebuild could
 // not reach part of the closure; it takes the unreachable items, joined.

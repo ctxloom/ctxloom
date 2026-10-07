@@ -125,6 +125,19 @@ func TestRenderPullSummary_NamesAnIncompleteLock(t *testing.T) {
 	assert.NotContains(t, out.String(), strings.SplitN(pullIncompleteFormat, ":", 2)[0])
 }
 
+// Each bundle checkout a successful pull deleted is named, by its directory.
+func TestRenderPullSummary_NamesPrunedCheckouts(t *testing.T) {
+	var out bytes.Buffer
+	renderPullSummary(&out, &operations.SyncDependenciesResult{
+		Total: 1, Installed: 1, PrunedCheckouts: []string{"/p/.ctxloom/cache/bundles/a/x.0011.worktree"},
+	})
+	assert.Contains(t, out.String(), fmt.Sprintf(pullPrunedCheckoutFormat, "/p/.ctxloom/cache/bundles/a/x.0011.worktree"))
+
+	out.Reset()
+	renderPullSummary(&out, &operations.SyncDependenciesResult{Total: 1, Installed: 1})
+	assert.NotContains(t, out.String(), strings.SplitN(pullPrunedCheckoutFormat, "%s", 2)[0])
+}
+
 // Each entry the post-pull lock rebuild dropped is named.
 func TestRenderPullSummary_NamesRemovedEntries(t *testing.T) {
 	var out bytes.Buffer

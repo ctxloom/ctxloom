@@ -8,7 +8,7 @@
 import "../../build/common.justfile"
 
 # Build taskloom (no CGO) to {{TOP}}/bin/taskloom.
-build: (_go-build (TOP / "cmd/taskloom") (TOP / "bin/taskloom") "main.version" "" "0")
+build: (_go-build (TOP / "cmd/taskloom") (TOP / "bin/taskloom") "main.version")
 
 # Compress the built taskloom binary with UPX.
 compress: (_compress (TOP / "bin/taskloom"))

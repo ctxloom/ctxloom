@@ -5,8 +5,6 @@ package acceptance
 import (
 	"strings"
 	"testing"
-
-	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 )
 
 // baseContainerPass is a probeResult that satisfies container guarantees (a)–(d)
@@ -23,7 +21,7 @@ func baseContainerPass() *probeResult {
 
 // TestAssertProbeContainer_RequiresReads: a container cell that captured NO
 // reads must FAIL (e) — that is the write-only-fallback the strace instrument
-// exists to prevent (strace missing, SYS_PTRACE not granted, trace lost).
+// exists to prevent (strace missing, the probe seccomp profile not applied, trace lost).
 func TestAssertProbeContainer_RequiresReads(t *testing.T) {
 	res := baseContainerPass()
 	res.ReadsErr = "trace file absent"
@@ -38,7 +36,7 @@ func TestAssertProbeContainer_RequiresReads(t *testing.T) {
 // probe observed at least one real read.
 func TestAssertProbeContainer_PassesWithReads(t *testing.T) {
 	res := baseContainerPass()
-	res.Reads = []isolation.TraceRead{
+	res.Reads = []TraceRead{
 		{Path: "/home/ctxloom/project/CLAUDE.md", Syscall: "openat", Result: "ok"},
 		{Path: "/home/ctxloom/.claude/settings.json", Syscall: "access", Result: "ENOENT"},
 	}

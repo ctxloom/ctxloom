@@ -1003,8 +1003,7 @@ never permitted in the committable project store.
     ptrace, a determined process can lift the same bytes out of memory even
     past that. A host-runtime agent that reads another host-runtime agent's
     credential this way can then speak to the coordinator *as* that agent.
-    `internal/shared/procsec` raises the cost of the plain file-read path but
-    is explicit that this is bar-raising, not a boundary: the isolation
+    ctxloom does not try to hide it from same-user processes: the isolation
     boundary is a container. This sits outside signing and review — it is a
     property of the runtime axis, not of item trust, which is why it is
     recorded here rather than in the threat model above.

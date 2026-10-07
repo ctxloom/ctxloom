@@ -1,9 +1,5 @@
-# Container justfile - runs inside devcontainer with CGO dependencies
+# Container justfile - runs inside the devcontainer.
 # This file is mounted over justfile when running via `just dev-*` targets
-#
-# Build modes:
-# - Static builds: no CGO features
-# - CGO builds: treesitter (CGO but static-linkable)
 #
 # test-pkg below takes PKG/*ARGS and forwards them to `go test`; this hands
 # them to its shebang script as real shell positional args ($1, "$@")
@@ -88,7 +84,7 @@ default: build
 
 # ===== Build targets =====
 
-# Build ctxloom with all features (treesitter). Codegen prerequisites run here
+# Build ctxloom. Codegen prerequisites run here
 # (the ctxloom module can't depend on these container-level recipes), then the
 # actual go build is delegated to the ctxloom module (cmd/ctxloom/justfile).
 #
@@ -117,18 +113,6 @@ build-static:
         -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
         -o ctxloom ./cmd/ctxloom
 
-# Build with tree-sitter code compression - static linked
-build-treesitter:
-    CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}} {{static_ldflags}}" \
-        -o ctxloom ./cmd/ctxloom
-
-# Build with all CGO features
-build-full: validate proto
-    CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
-        -o ctxloom ./cmd/ctxloom
-
 # Build the architectural linter into bin/archlint.
 #
 # PREBUILT on purpose. The pre-commit hook invokes this binary; compiling an
@@ -153,11 +137,8 @@ build-archlint:
 # own -tags flag is accepted and then ignored, which fails silently in exactly
 # the invisible direction.
 #
-#   PASS 1 is ADDITIVE for every tag but treesitter: no file carries a negated
-#   constraint for them, so enabling them can only open files up, never close
-#   any. treesitter is two-sided (compression's code_stub.go is `!treesitter`)
-#   and needs cgo, so it rides on pass 1 alone — the OS passes cross-compile
-#   with cgo off, where its bindings do not build — and pass 2 covers its stub.
+#   PASS 1 is ADDITIVE: no file carries a negated constraint for its tags, so
+#   enabling them can only open files up, never close any.
 #
 #   PASS 2 reaches the files pass 1's tags HIDE. schemagen and docsgen have
 #   files on BOTH sides of their constraint (cmd/gen-schemas/stub.go is
@@ -209,8 +190,7 @@ build-compressed: validate proto gen-schemas
 
 # Build all four binaries UNCOMPRESSED (ctxloom + ltk + taskloom + harp).
 # Codegen prereqs run here for ctxloom. Used by the host `install`: UPX LZMA
-# decompression adds ~1.5s/exec, so local installs stay uncompressed; UPX is
-# reserved for release artifacts (see .goreleaser.yml).
+# decompression adds ~1.5s/exec, so local installs stay uncompressed.
 build-all-bins: validate proto gen-schemas
     "{{just_executable()}}" --justfile "{{justfile()}}" ctxloom::build
     "{{just_executable()}}" --justfile "{{justfile()}}" ltk::build
@@ -227,17 +207,7 @@ release-check:
 #
 # `build --single-target`, not `release`: archives and checksums are NOT
 # exercised here — `release-check` plus CI cover those. What this DOES prove
-# is the build IDs and real UPX compression of the `-upx` twins (upx is
-# installed here; it is NOT on the host, which is exactly why goreleaser must
-# never run there).
-#
-# SINGLE-TARGET IS A CONSTRAINT, NOT A SPEED CHOICE. The CGO builds link
-# windows with `-extldflags -static`, and this image's mingw-w64 carries no
-# libdl to satisfy it, so the windows/amd64 leg dies in x86_64-w64-mingw32-ld
-# with "cannot find -ldl". The darwin legs are NOT the problem — osxcross is
-# installed here and cross-compiles them to real Mach-O binaries. What this
-# image lacks is a mingw sysroot that can complete a static link, which is
-# what CI's goreleaser-cross image supplies.
+# is that every build ID compiles and its post hooks run.
 #
 # EVERY build's post hook signs through build/signing.justfile, so a signing
 # key has to be reachable at CTXLOOM_SIGN_PUBKEY wherever this runs.
@@ -379,10 +349,6 @@ test-default:
     go test -trimpath -race -coverprofile="$raw" ./...
     "{{just_executable()}}" --justfile "{{justfile()}}" _check-no-ctxloom-leak
     "{{just_executable()}}" --justfile "{{justfile()}}" _filter_coverage "$raw" coverage.out
-
-# Run tests with the treesitter (CGO) build tag — exercises the code compressor
-test-treesitter:
-    CGO_ENABLED=1 go test -trimpath -race -tags treesitter ./internal/shared/compression/...
 
 # Run a single package's tests under -race (fast iteration inside the
 # container). Mirrors the host justfile's test-pkg, including both build-tag

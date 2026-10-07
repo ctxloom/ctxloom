@@ -7,38 +7,14 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/logboot"
-	"github.com/ctxloom/ctxloom/internal/shared/procsec"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 func main() {
-	// Deny same-uid inspection of THIS process's /proc entry, first and for
-	// every ctxloom process without exception. The exec-time environment is
-	// already snapshotted in /proc/<pid>/environ by the time main runs and
-	// os.Unsetenv cannot scrub it, so the window in which a credential stamped
-	// there by the spawning seam is readable by a same-uid peer lasts until
-	// this call lands — hence before any other startup work, and hence no
-	// per-command allowlist: any ctxloom process can be the one holding the
-	// coordinator credential.
-	//
-	// Reports through clidiag (inside HardenAtStartup) rather than zap because
-	// this runs BEFORE logboot.Install below; a warning handed to the
-	// not-yet-installed global logger would be dropped, and a bypass nobody
-	// hears is indistinguishable from hardening that silently failed.
-	procsec.HardenAtStartup("ctxloom", sessions.EnvCoordCred)
-
-	// Companion discovery off from the environment, read BEFORE dispatch
-	// because the pre-cobra window can already assemble context, and probing
-	// EXECUTES the companion binaries on PATH. CTXLOOM_NO_COMPANIONS=1 is the
-	// mechanism for a subprocess/CI that must not depend on what the host has
-	// installed; the persistent --no-companions flag wins over it once parsed
-	// (see cli root's PersistentPreRun).
-
 	// Install the process logger (verbose mode if CTXLOOM_VERBOSE=1) before
 	// composing, so anything composition logs is kept; then dispatch, flush,
 	// exit — in that order, with the exit as the LAST thing this process does

@@ -110,21 +110,8 @@ verify-binary FILE SIGNER=SIGN_KEY:
 
 # --- release artifacts -----------------------------------------------------
 #
-# The two recipes below are invoked by .goreleaser.yml's per-build post hooks,
-# which run with the working directory set to the repo root.
-
-# UPX-compress a release binary in place.
-#
-# This exists HERE, rather than as goreleaser's own `upx:` pipe, because of
-# ORDERING: a build's post hooks all run before that pipe does, so signing in a
-# post hook would cover the UNCOMPRESSED bytes while the archive shipped the
-# compressed ones — a signature that cannot verify against the binary the user
-# actually runs. Compressing here puts the rewrite before the signature, which
-# is the invariant `sign-binary` above states. Same flags as the local
-# `_compress` in build/common.justfile; that one serves the uncompressed local
-# install path and never feeds a signature.
-release-compress-binary FILE:
-    upx --best --lzma {{ FILE }}
+# The recipe below is invoked by .goreleaser.yml's per-build post hooks, which
+# run with the working directory set to the repo root.
 
 # Sign a release binary and stage its release statement and detached signature
 # under a target-keyed path the matching archive can read.

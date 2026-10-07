@@ -192,7 +192,7 @@ func TestArch_CIWorkflows_ContainerJobsSelectTheContainerJustfile(t *testing.T) 
 func TestArch_CIWorkflows_KeepInlineShellOutOfSteps(t *testing.T) {
 	// key: "<workflow basename>/<job>/<step name>"
 	allowedInlineShell := map[string]string{
-		"release-completer.yml/release/Install dependencies": "installs curl, which the `just` bootstrap on the next line needs; goreleaser-cross ships none of it",
+		"release-completer.yml/release/Install dependencies": "installs curl, which the `just` bootstrap on the next line needs; the Go image is not guaranteed to ship it",
 	}
 
 	type step struct {

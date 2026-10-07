@@ -26,7 +26,7 @@ go install ./cmd/ctxloom
 ```
 The module root has no Go files — the main package is `./cmd/ctxloom`. See
 [Build from Source](/getting-started/installation/#build-from-source) for
-the full build (tree-sitter) command and prerequisites.
+the build command and prerequisites.
 
 3. Verify installation:
 ```bash

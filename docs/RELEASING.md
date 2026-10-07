@@ -38,11 +38,10 @@ run `git tag` yourself.
 4. **Tag + release (automatic).** On a successful CI run for the merge,
    `auto-release.yml` tags the `VERSION` value and pushes the tag using a PAT.
    That tag push triggers `release-completer.yml`, which runs GoReleaser to:
-   - build standard (`CGO_ENABLED=0`) and full (tree-sitter, CGO) binaries,
-     statically linked and UPX-compressed on linux/windows,
+   - build one CGO-free (`CGO_ENABLED=0`) binary per platform for ctxloom and
+     each companion,
    - publish a GitHub release with archives + checksums + install scripts,
-   - publish Homebrew **casks** to [`ctxloom/homebrew-tap`](https://github.com/ctxloom/homebrew-tap)
-     (`ctxloom` and `ctxloom-full`).
+   - publish Homebrew **casks** to [`ctxloom/homebrew-tap`](https://github.com/ctxloom/homebrew-tap).
 
 If `auto-release` finds the tag already exists, it **fails** rather than
 silently skipping — a signal that `VERSION` wasn't bumped.

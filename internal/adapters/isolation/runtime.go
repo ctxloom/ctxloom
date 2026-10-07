@@ -244,13 +244,6 @@ type RunSpec struct {
 	// process inside is identified by the one verified against the other
 	// (findSelf). "" for a container that serves no session (a probe).
 	Harp string
-
-	// Trace, when non-nil, marks a PROBE-ONLY run: renderRunSpec then grants
-	// --cap-add=SYS_PTRACE, bind-mounts the trace dir out, and wraps Command in
-	// strace to observe the engine's file READS. NIL on every production run —
-	// the structural gate that keeps SYS_PTRACE unreachable from a normal
-	// `ctxloom run`. Set solely by traceProbeFromEnv. See TraceProbe.
-	Trace *TraceProbe
 }
 
 // mount is one bind mount rendered as `--mount type=bind,source=,target=[,readonly]`.
@@ -490,21 +483,6 @@ func renderRunSpec(spec RunSpec, primary Layer) ([]string, error) {
 	if spec.Network != "" {
 		args = append(args, "--network="+spec.Network)
 	}
-	// PROBE-ONLY: a non-nil Trace overrides Docker's default seccomp profile
-	// with the probe profile (default policy + the ptrace family allowed), which
-	// is what lets strace trace its own children in-container. NO capability is
-	// granted — strace parents the tracee, so the ptrace permission model needs
-	// none; only the seccomp syscall filter had to be loosened, and only for the
-	// ptrace family. This is the SOLE site that can apply the override, and it
-	// fires only when the spec explicitly carries a Trace — nil on every
-	// production run, which therefore keeps Docker's default profile. A
-	// `--security-opt` is a `run` flag and must precede the image, which the
-	// append order guarantees. SeccompProfile is empty only if the probe could
-	// not materialize the profile file; then we skip the override (default
-	// profile stands) rather than run with a broken path.
-	if spec.Trace != nil && spec.Trace.SeccompProfile != "" {
-		args = append(args, "--security-opt", "seccomp="+spec.Trace.SeccompProfile)
-	}
 	args = append(args, identityArgs(spec)...)
 	// Each Env entry renders as `-e <entry>`. Two forms cross here, both native to
 	// the docker/podman `-e` grammar: "KEY=VAL" sets an explicit value
@@ -516,7 +494,7 @@ func renderRunSpec(spec RunSpec, primary Layer) ([]string, error) {
 	for _, e := range spec.Env {
 		args = append(args, "-e", e)
 	}
-	child, err := childLayer(primary, runMounts(spec))
+	child, err := childLayer(primary, spec.Mounts)
 	if err != nil {
 		return nil, err
 	}
@@ -525,15 +503,7 @@ func renderRunSpec(spec RunSpec, primary Layer) ([]string, error) {
 		args = append(args, "-w", spec.WorkDir)
 	}
 	args = append(args, spec.Image)
-	command := spec.Command
-	if spec.Trace != nil {
-		// PROBE-ONLY: wrap the in-container engine exec in strace so the vendor
-		// CLI's file READS (incl. ENOENT probes) are captured. The image
-		// ENTRYPOINT (ctxloom-entrypoint) execs "$@", so strace becomes the
-		// direct child and `-f` follows the fork into ctxloom and the engine.
-		command = append(straceWrapPrefix(spec.Trace), spec.Command...)
-	}
-	args = append(args, command...)
+	args = append(args, spec.Command...)
 	return args, nil
 }
 
@@ -548,18 +518,6 @@ func identityArgs(spec RunSpec) []string {
 		args = append(args, "--label", labelHarp+"="+spec.Harp, "-e", sessions.EnvHarp+"="+spec.Harp)
 	}
 	return args
-}
-
-// runMounts is the spec's mounts, plus — PROBE-ONLY — the trace dir bound
-// OUT so the strace output written from inside survives the container's
-// `--rm` teardown (no docker cp race). A separate slice so the spec's own
-// Mounts are never mutated.
-func runMounts(spec RunSpec) []mount {
-	if spec.Trace == nil {
-		return spec.Mounts
-	}
-	return append(append([]mount(nil), spec.Mounts...),
-		bind(spec.Trace.HostDir, spec.Trace.ContainerDir, false))
 }
 
 // mountArgs renders each mount as a --mount flag.

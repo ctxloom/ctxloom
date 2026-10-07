@@ -632,15 +632,16 @@ fragment ends in `<client> --version`.
 
 ## The trace probe — read observation
 
-`traceprobe.go` verifies *what files the engine actually reads* inside a cell.
+The acceptance harness (`tests/acceptance/isolation_probe_strace.go`) verifies
+*what files the engine actually reads* inside a container cell. The shipped
+binary has no switch for it: nothing in the environment can relax a
+production container's seccomp profile (`TestRunnerSpec_EnvCannotLoosenSandbox`).
 
-- `TraceProbe{HostDir, ContainerDir, OutFile, Syscalls, SeccompProfile}` is a field on `RunSpec` — the seccomp override is a **structural** decision at the render site.
-- Gate: `traceProbeFromEnv` returns non-nil **iff** `CTXLOOM_ISOLATION_PROBE_TRACE_DIR` is set, and materializes the loosened seccomp JSON. A write failure leaves `SeccompProfile=""`, i.e. Docker's default profile — failing toward *more* isolation. Called from `buildRunSpec` and `Container.buildRunnerSpec`.
-- Render: `renderRunSpec` emits `--security-opt seccomp=<path>`, mounts the trace dir, and wraps the engine exec via `straceWrapPrefix`.
-- Parse: `ParseStraceReads` → sorted, deduplicated `[]TraceRead`. `TraceRead.Failed()` is `Result != "ok"`. **ENOENT is first-class.** Consumer: `runProbeContainer` (`tests/acceptance/isolation_probe.go`).
+- `installProbeTrace` puts a runtime-CLI shim first on the launched ctxloom's PATH. For a runner container's `run` (carrying the `ctxloom.harp` label) the shim adds a ptrace-permitting seccomp profile (`tests/acceptance/testdata/probe-seccomp.json`, the default policy plus the ptrace family), a bind of the trace dir, and an entry script that runs the image's entrypoint with an strace-wrapped command. Every other runtime call is forwarded untouched.
+- `ParseStraceReads` → sorted, deduplicated `[]TraceRead`. `TraceRead.Failed()` is `Result != "ok"`. **ENOENT is first-class.** Consumer: `runProbeContainer` (`tests/acceptance/isolation_probe.go`).
 
-`strace` is baked into the default base image and is harmless without
-`CAP_SYS_PTRACE`.
+`strace` is baked into the default base image; the default seccomp profile
+denies it ptrace.
 
 Two further diagnostics: `Diagnose` backs `ctxloom container check` (read-only,
 never errors by design), and `ReapOrphanedWorktrees` sweeps orphaned ephemeral
@@ -684,7 +685,6 @@ image another is between building and running.
 | `InContainer` | `runtime.go` | Self-detection (sentinel files + env + cgroup v1) |
 | `RunSpec` / `LaunchSpec` / `Mount` | `runtime.go` | Run description / spawn params / bind mount |
 | `SessionState` | `statemounts.go` | Harp + project id threaded into the seam |
-| `TraceProbe` / `TraceRead` / `ParseStraceReads` | `traceprobe.go` | Read-observation vocabulary |
 | `Diagnosis` / `Diagnose` | `diagnose.go` | `container check` report |
 | `BuildAgentImage` / `ImageBuildOptions` / `hostProvenanceDigest` | `imagebuild.go` | `container build` |
 | `ReapOrphanedWorktrees` / `WorktreeReapResult` | `worktree_reap.go` | Startup orphan sweep |
@@ -742,16 +742,13 @@ image another is between building and running.
   other same-uid process for that process's entire lifetime, unsetting it
   after read does not scrub the kernel's snapshot, and where
   `ptrace_scope` permits same-uid ptrace a determined process can lift the
-  same bytes out of memory even past that. `internal/shared/procsec` raises
-  the cost of the file-read path but says so itself: "THIS IS BAR-RAISING,
-  NOT A BOUNDARY … The isolation boundary is a container" (`procsec.go:12-17`).
+  same bytes out of memory even past that. The isolation boundary is a
+  container.
 - **`gitDirMounts` mounts the git common dir read-write** (only the `worktrees/` registry is masked). A member can therefore rewrite main's refs/objects/index, hooks and config.
-- **`TraceProbe`'s doc claims the loosened seccomp profile is structurally unreachable from a normal run**, but the gate is a plain `os.Getenv` (`traceProbeFromEnv`) — any parent exporting `CTXLOOM_ISOLATION_PROBE_TRACE_DIR` makes every container run in that process ptrace-permitted and strace-wrapped.
 - **`worktreeWorkspace.Env()` advertises `HomeVar` target directories that nothing creates** if `prepareHomeVarDirs` failed; isolation then depends on each engine choosing to `mkdir -p` rather than falling back to its global home.
 
 **Signal quality**
 
-- **`ParseStraceReads` records `Result:"ok"` whenever the errno group is empty, ignoring the captured return value** — a failed syscall with no named errno reports success, inverting the probe's signal.
 - **REAPED vs SPARED is decided by an `os.Stat` check** in `ClassifyOrphanedWorktrees`, so any stat error reports REAPED — and that number is printed to the user.
 - **`SelectRuntime` silently substitutes on an unrecognized preference**: an explicit `podman` preference that is unknown or unavailable falls through to auto-detection with only a comment (`selectRuntimeWhere`), and the function never errors, so no caller can detect it. (This is orthogonal to the fatal ownership-mismatch path above — an *unrecognized runtime name* degrades quietly, a *recognized runtime with the wrong ownership* does not.)
 - **`IsContainerPolicyName` matches duplicated string literals** rather than the constants the policies return, so a rename silently downgrades `prepareChain`'s fatal finding to a warn.

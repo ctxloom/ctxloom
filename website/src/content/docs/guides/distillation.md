@@ -29,29 +29,17 @@ There is no size target. Verbose guidance shrinks a lot; dense guidance may bare
 
 ctxloom uses a hybrid compression approach:
 
-### AST-Based Compression (Code & JSON)
+### Structural Compression (JSON)
 
-For structured content, ctxloom uses tree-sitter AST parsing for fast, deterministic compression:
-
-| Content Type | Strategy |
-|--------------|----------|
-| **Go, Python, JS, TS, Rust, Java** | Preserve signatures, elide function bodies |
-| **JSON** | Preserve structure, truncate low-entropy values |
-
-This approach is:
+JSON content is compressed locally: ctxloom preserves its structure and
+truncates low-entropy values. This approach is:
 - **Fast**: No API calls, instant compression
 - **Deterministic**: Same input always produces same output
 - **Structure-preserving**: Maintains navigational breadcrumbs
 
-Tree-sitter parsing is built behind a build tag (`treesitter`) and only ships in
-the `ctxloom-full` release artifact. The default `ctxloom` binary — the one
-"recommended for most users" — compiles a stub instead: it never claims a code
-file, so code content falls through to LLM compression the same as prose. JSON
-compression has no such gate and works in every build.
+### LLM-Based Compression (Prose and Code)
 
-### LLM-Based Compression (Prose)
-
-For prose and documentation, ctxloom falls back to LLM compression. It runs as
+For everything else, prose, documentation and source code alike, ctxloom uses LLM compression. It runs as
 the agent named `distiller` (or on `bundle distill --llm <label>`; with neither,
 on the **fast role**, `llm.defaults.fast`), as one internal one-shot session
 whose turns are the items being distilled. The
@@ -69,10 +57,8 @@ run rather than falling back to the built-in prompt.
 When you distill content, ctxloom automatically routes to the best strategy:
 
 ```
-Code file (.go, .py, .js, etc.) → AST compression (ctxloom-full only; falls
-                                    back to LLM compression in the default build)
 JSON file → JSON structure compression
-Markdown/prose → LLM compression
+Everything else → LLM compression
 ```
 
 ## Distilling Fragments

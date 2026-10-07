@@ -52,15 +52,13 @@ trimpath := "-trimpath"
 #   PKG   - package to build  (e.g. {{TOP}}/cmd/ctxloom)
 #   OUT   - output path       (e.g. {{TOP}}/ctxloom)
 #   XPATH - ldflags -X symbol for the version (e.g. main.Version)
-#   TAGS  - build tags, or "" for none
-#   CGO   - "1" or "0"
 #   EXTRA - extra `go build` flags, or "" (default). The ONE caller today is
 #           the coverage build, which passes "-cover": an instrumented binary
 #           has to come from this recipe rather than a parallel one, or the
 #           thing being measured stops being the thing that ships.
 # go build creates OUT's parent directory itself, so no mkdir is needed.
-_go-build PKG OUT XPATH TAGS CGO EXTRA="":
-    CGO_ENABLED={{CGO}} go build {{buildvcs}} {{trimpath}} {{ if TAGS == "" { "" } else { "-tags " + TAGS } }} {{EXTRA}} \
+_go-build PKG OUT XPATH EXTRA="":
+    CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} {{EXTRA}} \
         -ldflags "-s -w -X {{XPATH}}={{version}}" \
         -o {{OUT}} {{PKG}}
 

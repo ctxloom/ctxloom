@@ -1,7 +1,6 @@
 package container
 
 import (
-	"encoding/json"
 	"io/fs"
 	"testing"
 	"testing/fstest"
@@ -18,9 +17,8 @@ import (
 // from its cause.
 func TestEmbeddedAssets_CallerCannotCorruptThem(t *testing.T) {
 	for name, read := range map[string]func() []byte{
-		"Base":         Base,
-		"Entrypoint":   Entrypoint,
-		"ProbeSeccomp": ProbeSeccomp,
+		"Base":       Base,
+		"Entrypoint": Entrypoint,
 	} {
 		pristine := read()
 		require.NotEmpty(t, pristine, "%s", name)
@@ -35,9 +33,8 @@ func TestEmbeddedAssets_CallerCannotCorruptThem(t *testing.T) {
 // TestAssetFrom_EmptyAssetPanics is the truncation guard. The first assertion
 // pins WHY it is needed: a 0-byte file reads as SUCCESS with zero bytes, so
 // without the guard an empty asset would be delivered as a legitimate payload —
-// a zero-instruction build context, an empty entrypoint script, or an empty
-// seccomp document, each failing (or silently weakening confinement) far from
-// its cause.
+// a zero-instruction build context or an empty entrypoint script, each failing
+// far from its cause.
 func TestAssetFrom_EmptyAssetPanics(t *testing.T) {
 	truncated := fstest.MapFS{"base/Containerfile": &fstest.MapFile{Data: nil}}
 
@@ -60,12 +57,4 @@ func TestEmbeddedAssets_PayloadsAreShapedRight(t *testing.T) {
 
 	entrypoint := string(Entrypoint())
 	assert.True(t, len(entrypoint) > 2 && entrypoint[:2] == "#!", "the entrypoint script must carry a shebang")
-
-	var profile struct {
-		DefaultAction string `json:"defaultAction"`
-		Syscalls      []any  `json:"syscalls"`
-	}
-	require.NoError(t, json.Unmarshal(ProbeSeccomp(), &profile), "the probe seccomp profile must be valid JSON")
-	assert.Equal(t, "SCMP_ACT_ERRNO", profile.DefaultAction, "the probe profile stays a TIGHT default, never unconfined")
-	assert.NotEmpty(t, profile.Syscalls, "an empty allowlist would confine the probe to nothing")
 }

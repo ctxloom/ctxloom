@@ -105,9 +105,10 @@ func GetCommand(ctx context.Context, cfg *config.Config, req GetCommandRequest) 
 
 	pipe := req.Pipeline
 	if pipe == nil {
-		// Exposure surface (ctxloom://commands/{name}): gate the resolved content
-		// (trust rework, TR5). A withheld command surfaces as errs.ErrCommandWithheld
-		// so the resource omits it.
+		// Exposure surface (ctxloom://commands/{name}): read through the
+		// delivery pipeline. A command it withholds (an unaddressable ref, an
+		// ungranted link) surfaces as errs.ErrCommandWithheld so the resource
+		// omits it.
 		pipe = exposurePipeline(cfg)
 	}
 

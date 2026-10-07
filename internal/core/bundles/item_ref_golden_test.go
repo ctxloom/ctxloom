@@ -8,25 +8,18 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
-// TestItemRefFor_GoldenAgainstDeletedStringRoute is the S2 proof obligation:
-// deleting Bundle.sourceRef's string half, BundleRead.TrustSourceRef,
-// ident.ItemRefFromSource and ident.BundleRefFromSource is a ROUTE deletion,
-// never a KEY migration. The strings a "<source>#<kind>/<item>" gate ref
-// renders as MUST NOT MOVE — they are trust-store keys, and moving one
-// silently invalidates every grant recorded against it.
+// TestItemRefFor_GoldenAgainstDeletedStringRoute pins the strings a
+// "<source>#<kind>/<item>" item ref renders as, for a builtin, companion,
+// local and git bundle. They MUST NOT MOVE: profiles, selectors and the
+// lockfile address items by them, and moving one silently stops every
+// reference written against the old spelling from matching.
 //
-// The "want" literals were captured by RUNNING fd8b729e's actual deleted
-// route (ident.ItemRefFromSource -> ident.BundleRefFromSource ->
-// ident.ParseItemRef -> Ref.AsBundleRef, fed the pre-canonical source strings
-// a builtin/companion/local/git bundle carried before this slice) — not
-// hand-derived. They are pinned as literals here rather than recomputed by a
-// second copy of that deleted logic living in this test file: a prior draft
-// duplicated ident.BundleRefFromSource's body locally for exactly this
-// comparison, and the reprise duplication gate correctly flagged it as an
-// exact-normalized clone of managedhooks.parseSourceRef (the one production
-// caller that still needs that conversion, documented there). Literal
-// expectations make this a golden test in the ordinary sense: no shared logic
-// to keep in sync, just the string a grant is keyed on.
+// The "want" literals were captured by running the string route these refs
+// were once derived through, not hand-derived, and are pinned as literals
+// rather than recomputed: a second copy of that logic here would be a clone
+// of managedhooks.parseSourceRef (the one production caller that still needs
+// the conversion). Literal expectations make this a golden test in the
+// ordinary sense: no shared logic to keep in sync.
 func TestItemRefFor_GoldenAgainstDeletedStringRoute(t *testing.T) {
 	companionRef, err := ident.CompanionRef("ltk")
 	require.NoError(t, err)

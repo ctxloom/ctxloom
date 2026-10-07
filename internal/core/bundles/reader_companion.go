@@ -32,13 +32,13 @@ type CompanionLoadout struct {
 // has agreed ctxloom may execute.
 //
 // THE PROBER IS THE EXEC. Everything about companion discovery that decides
-// whether a foreign binary runs at all — the PATH scan, trust-on-first-use
-// admission keyed on absolute path plus binary hash, the first-party exemption,
+// whether a foreign binary runs at all — the PATH scan, admission keyed on
+// absolute path plus binary hash, the first-party exemption,
 // the per-probe timeout — lives behind this one function, and the companion
 // reader is the only thing in the read path that calls it. That is what makes
 // the companion reader the single implementation that can prompt a human, and
 // it is deliberate: the meaningful control point for companion content is
-// EXEC, not content review (docs/trust-model.md, "Companion loadouts").
+// EXEC (docs/trust-model.md, "Companions").
 //
 // It returns an error only for a fault that produced NO loadouts at all. An
 // individual companion that is absent, wedged, unapproved or does not implement

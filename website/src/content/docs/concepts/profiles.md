@@ -352,8 +352,7 @@ still carries one is reported with the move to make (write each definition to
 
 The standalone `.ctxloom/profiles/` directory is retired. A project that still
 has one does not load: ctxloom names the exact move into the project bundle
-and moves nothing itself. Writing a profile into a SIGNED local bundle warns
-that the write stales its signature; re-sign it with `ctxloom bundle sign`.
+and moves nothing itself.
 
 Every profile item is validated against the profile schema when its bundle
 loads. A profile that does not match (an unknown key, a value of the wrong

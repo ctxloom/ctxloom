@@ -12,7 +12,7 @@ document the host understands, and never exit non-zero on the hook path.* It is 
 but **"a deny rule the operator wrote did not fire"**.
 
 `ltk` builds and ships independently of ctxloom (it has its own `loadout.yaml` that ctxloom's
-companion discovery execs via `ltk loadout --format json`), and `cmd/taskloom` reuses its
+companion discovery execs via `ltk loadout --format yaml`), and `cmd/taskloom` reuses its
 `internal/ltk/engine` install machinery.
 
 ---

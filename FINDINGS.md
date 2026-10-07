@@ -221,7 +221,7 @@ A dropped field is an **absent statement**, and no coverage, mutation, or comple
 
 - **T8. Nine MCP arguments are declared, accepted, and have zero effect** — CONFIRMED (W1). All 8 agentcoord ones are published as real in the *generated public* reference. Four artifacts agree (proto → generator → runner → docs); only the handler disagrees. **Fix = one generator assertion:** every projected input field must be read by its handler.
 - **T9. The exit-0-on-failure family: five independent root causes**, not one and not thirty (R1–R5). R1 no exit-code policy for management commands (`strictness` is deliberately launch-only: 57 producers, 7 drains, all launch-path). R2 failure not representable in the return type. R3 see T3. R4 "absent" vs "unreadable" conflated. R5 empty input parses as valid — underlies the whole zero-payload family.
-- **T10. Trust store designed fail-closed, implemented fail-open** (F6) — CONFIRMED.
+- **T10. Trust store designed fail-closed, implemented fail-open** (F6) — **MOOT**: the trust store was deleted ([ADR 0037](docs/adr/0037-adding-a-git-repo-is-the-trust-act.md)).
 - **T11. Six real import cycles deferred into external `_test` packages** — VERIFIED (L1): `coord↔cli/tui`, `termui↔cli/tui`, `transcript↔lm/grpc`, `shared/agent↔{claude,codex,kiro}`. **Four were invisible to every unit review** — each is only visible from outside a single unit. Zero production cycles.
 - **T12. Engine identity enumerated in four rosters with four different memberships** — CONFIRMED (L3). `internal/adapters/operations` importing `claude`/`codex`/`kiro` is a literal ADR-0026 violation in the core.
 - **T13. `internal/acp` fs handlers serve any absolute host path** — CONFIRMED (S3). Was masked by the `ChatStart.runtime` drop; that mask is now gone (`40b49a7f`), which is why the ordering mattered. **See fix-ordering constraint 1.** **RESOLVED `73ea8d7f`**: one boundary, `confineToWorkspace` in `internal/acp/fsconfine.go`, applied **before** the fs-upstream branch in both handlers so the editor-chained axis is confined too; symlinks resolved on both root and candidate including dangling links; unresolvable root, unreadable ancestor, stat error and symlink loops all deny; relative paths refused rather than resolved, per the ACP schema. Root is `agent.ChatRequest.WorkDir`, the same value handed to the engine subprocess as `cmd.Dir`, so the boundary and the engine's cwd cannot drift. 18 confinement tests. **Still open, filed as `loud-guide`:** `internal/acpagent/fsupstream.go`'s relay is itself unconfined and its unix socket is locally callable; TOCTOU between check and syscall (needs `openat2` `RESOLVE_BENEATH`); the unconditional `Fs` capability advertisement.
@@ -292,7 +292,7 @@ Do not treat these as findings.
 - Not executed at all: `test-acceptance`, `test-integration`, the mutation gate.
 - Agent 08 §F lists ~13 high-severity + 6 structural-cluster items left **CLAIMED**.
 - Left CLAIMED elsewhere: D10/D13/D14, parts of D11/D12; transcript payload mirrors and `Record.Engine`; MCP resources; a systematic output-schema sweep; `internal/acp` L0 `$defs`.
-- S11's `ssh-keygen` interop half; X68 timings; 2 of 4 retraction paths; `VerifyPublisher` nil-root reachability.
+- X68 timings. (S11's `ssh-keygen` interop half, the retraction paths and `VerifyPublisher` are moot: signing and retraction were deleted, [ADR 0037](docs/adr/0037-adding-a-git-repo-is-the-trust-act.md).)
 - No container, codex, or delegation run was executed by any synthesizer.
 
 ### Raised BY the remediation, still open (added 2026-07-26)
@@ -306,9 +306,9 @@ These are not from the review — the implementing agents surfaced them while fi
 | The `Fs` capability is advertised unconditionally | T13 `73ea8d7f` | **open**, same task |
 | **Partial closure narrowing still writes** a non-empty result — the T1 guard refuses empty-over-populated, not populated-but-smaller | T1 `fd0d87d6` | **open** |
 | **`deps check` still reads via `loadConfigOrFallback`** — the same fault-tolerant fallback whose use by a destructive command *was* T1. `deps check` is read-only today, so it is correct-by-accident, not by construction | T1 `fd0d87d6` | **open** |
-| T4 **diverges from S2's recommended remedy** (S2: refuse to gate a manifest-less skill; the fix: derive a real preimage instead). Recorded as a **product call**, not a defect — reversing it is a decision, not a bug fix | T4 `8d9da20c` | **open decision** |
-| T4 **invalidates previously-recorded approvals of manifest-less skills.** No honest migration exists — they attested to a constant. They return to pending for one re-review | T4 `8d9da20c` | **accepted consequence**, shipped |
-| A **stale orphaned narration block** in `trust_surface.doc.md` | sweep / `f48ec814` | **open** — see below |
+| T4 **diverges from S2's recommended remedy** (S2: refuse to gate a manifest-less skill; the fix: derive a real preimage instead). Recorded as a **product call**, not a defect — reversing it is a decision, not a bug fix | T4 `8d9da20c` | **moot** — the skill preimage was deleted with the trust gate (ADR 0037) |
+| T4 **invalidates previously-recorded approvals of manifest-less skills.** No honest migration exists — they attested to a constant. They return to pending for one re-review | T4 `8d9da20c` | **moot** — no approvals exist (ADR 0037) |
+| A **stale orphaned narration block** in `trust_surface.doc.md` | sweep / `f48ec814` | **moot** — `trust_surface.doc.md` was deleted |
 | T7's runner-up (invert the 6 tests that pin silent no-ops) and its reach beyond `internal/lm/grpc` | T7 `40b49a7f` | **open** |
 | One batch refutation (`confload.Merge`'s swallowing branches are unreachable) named **no finding ID**, so the census cannot key on it | sweep `0e35e9b9` | **untracked** |
 

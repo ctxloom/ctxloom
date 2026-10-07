@@ -65,9 +65,8 @@ type Bundle struct {
 
 	// Hooks shipped with this bundle (e.g. PostFileEdit plan-stamping).
 	// Hooks land in backend settings via ApplyHooks → ResolveBundleHooks.
-	// Bundle-shipped hooks are subject to the same review gate as bundle
-	// fragments/commands/MCP: a remote-sourced bundle whose SHA changed must
-	// be acknowledged before its hooks fire (see docs/bundle-review-plan.md).
+	// A remote-sourced bundle's hooks change only when its pin moves, and
+	// `deps upgrade` discloses every hook it would change before --yes.
 	Hooks BundleHooks `yaml:"hooks,omitempty"`
 
 	// Name is the bundle's DECLARED identity. A bundle that declares `name:`
@@ -452,7 +451,7 @@ func (m BundleMCP) AsWire() wire.MCPServer {
 type ItemBody struct {
 	Tags         []string `yaml:"tags,omitempty"`         // Additional tags (merged with bundle tags); host-evaluated routing, never shown
 	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
+	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. pull/list output)
 	Content      string   `yaml:"content"`
 	ContentHash  string   `yaml:"content_hash,omitempty"` // recorded hash of Content; circular to sign
 	Distilled    string   `yaml:"distilled,omitempty"`
@@ -528,9 +527,8 @@ type BundleSkill struct {
 type BundleProfile = profiles.Profile
 
 // ContentForm is ident.ContentForm: which materialization of an item's content
-// was hashed or served. It is declared at the trust leaf because the review
-// port (ident.ReviewRecords) binds {payload, form} together; this package
-// aliases it so every content-hash site here names the same type.
+// was hashed or served. This package aliases it so every content-hash site
+// here names the same type as the identity package does.
 type ContentForm = ident.ContentForm
 
 const (

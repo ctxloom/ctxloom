@@ -158,9 +158,8 @@ func (m *MockFetcher) FetchFile(ctx context.Context, owner, repo, path, ref stri
 		return content, nil
 	}
 	// Wrap the same sentinel the production fetchers do (GitCloneFetcher,
-	// github). Callers distinguish "absent" from "broken" by errors.Is — a
-	// missing detached .sig is how an UNSIGNED bundle is signalled — so a mock
-	// that returned an untyped error here would make this double disagree with
+	// github). Callers distinguish "absent" from "broken" by errors.Is, so a
+	// mock that returned an untyped error here would make this double disagree with
 	// production about the one thing that path is for.
 	return nil, fmt.Errorf("file not found: %s: %w", path, errs.ErrRemoteContentNotFound)
 }

@@ -12,7 +12,7 @@ both are cross-item operations.
 
 The reference grammar used throughout is `bundle-name#fragments/name`,
 `bundle#commands/name`, `bundle#skills/name` — split by `itemRefTarget` and
-built by `trust.FormatSelector`, the exact inverse of `trust.ParseSelector`. `cli.ItemType` is an alias of
+built by `ident.FormatSelector`, the exact inverse of `ident.ParseSelector`. `cli.ItemType` is an alias of
 `operations.ItemKind`, so the kind vocabulary has one definition.
 
 ## Structure
@@ -29,13 +29,12 @@ flowchart TD
         BM["bundle move --to"] --> RBM["runBundleMove"]
         BV["bundle view name#path"] --> RBV["runBundleView → renderBundleViewItem"]
         BX["bundle export / import"] --> OPS
-        BP["bundle push"] --> PB["pushBundle → pushBundleCfg → resolvePushSignature"]
-        BT["bundle trust / reject / forget"] --> RIT["runItemTrust / runItemReject / runItemForget"]
+        BP["bundle push"] --> PB["pushBundle → pushBundleCfg"]
         BMC["bundle mcp edit"] --> RBME["runBundleMCPEdit → editInEditor"]
     end
 
     subgraph items["item_*.go — fragment + command share one body"]
-        IT["ItemType = operations.ItemKind"] --> PIR["itemRefTarget / trust.FormatSelector"]
+        IT["ItemType = operations.ItemKind"] --> PIR["itemRefTarget / ident.FormatSelector"]
         LI["listItems"] --> LIR["listItemRows"] --> CS["classifySource"] --> RUM["remoteURLMap"]
         LI --> FB["filterByBundle"] --> PII["printItemInfos"]
         LI --> SIT["stampItemTrust"]
@@ -85,8 +84,7 @@ flowchart TD
   `item_crud.go`/`item_list.go`. `fragment premises` is the one verb with no
   `command` twin.
 - **`ctxloom skill`** — each verb hands straight to its `operations.*Skill`
-  function. `skill export` packs a zip, signed under `--sign`; `skill import`
-  reports the archive's signature state.
+  function. `skill export` packs a zip; `skill import` unpacks one.
 - **`ctxloom search <query>`** — `--type`, `--tag`, `--local`, `--remote`.
   `searchScopes` turns the two booleans into a scope pair — both set means both.
   Local results are capped, with `HiddenLocal` in the JSON output and a stderr
@@ -118,7 +116,7 @@ proceeded on the built-in prompt would be indistinguishable from working.
 ## Invariants
 
 - **The ref grammar has one splitter and one builder.** `itemRefTarget`
-  splits, `trust.FormatSelector` builds.
+  splits, `ident.FormatSelector` builds.
 - **`bundle view` renders identically in text and JSON.** `bundleViewResult`
   carries the exact bytes `--format text` prints in its `Content` field, so
   structured consumers see the same thing a human does. `writeViewContent`
@@ -127,9 +125,6 @@ proceeded on the built-in prompt would be indistinguishable from working.
 - **Bundle listings are deterministic.** Renderers iterate the sorted accessors
   `Bundle.FragmentNames()` / `Bundle.PromptNames()` rather than ranging over
   maps.
-- **Signing is resolved before any network call.** `pushBundleCfg` checks
-  `--sign`/`--no-sign` mutual exclusion and `resolvePushSignature` resolves the
-  signer up front.
 - **The distiller fails closed.** `distillWithLLM` refuses empty distilled
   output and conversational replies, so a failed compression leaves the item's
   raw content intact. `newLLMDistiller` returning no distiller (no label

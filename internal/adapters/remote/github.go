@@ -275,7 +275,7 @@ func (f *GitHubFetcher) resolveRefWithClient(ctx context.Context, client GitHubC
 	// transport error means the forge could not be asked, and answering with
 	// ErrRemoteContentNotFound turns a transient blip into a factual claim
 	// about the remote — one callers act on, since that sentinel is how
-	// "legitimately absent" is signalled (an unsigned bundle has no .sig).
+	// "legitimately absent" is signalled.
 	if branchErr != nil && !isHTTPNotFound(branchResp) {
 		return "", fmt.Errorf("could not determine whether ref %q exists: branch lookup failed: %w", ref, branchErr)
 	}

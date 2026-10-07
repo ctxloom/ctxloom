@@ -7,10 +7,8 @@ import (
 )
 
 // mustLocalRef mints an ident.BundleRef for a project-local bundle name, for
-// tests that used to hand extractHooksFromBundle/extractMCPFromBundle/
-// fragmentsFromBundle a bare source STRING (which the old
-// ident.ItemRefFromSource round trip resolved to exactly this identity via
-// the bare-token fallback). Fails the test rather than silently
+// tests that hand extractHooksFromBundle/extractMCPFromBundle/
+// fragmentsFromBundle a local bundle. Fails the test rather than silently
 // minting a zero BundleRef on an unexpected error.
 func mustLocalRef(t testing.TB, name string) ident.BundleRef {
 	t.Helper()

@@ -102,8 +102,6 @@ the lockfile records the resolved SHA.
 `fragment`/`command`/`skill` CLI commands and `-f` accept
 `<bundle-ref>#<kind>/<name>`. A bare fragment name in `-f` is searched across
 installed bundles (deterministic pick with a warning on collision).
-`trust`/`blacklist` refs use the same shape and additionally accept
-`@<commit>` as provenance.
 
 `#commands/<name>` and `#skills/<name>` name two DIFFERENT item kinds that
 happen to sit side by side in a bundle: a command is a user-invoked

@@ -18,8 +18,7 @@ ctxloom bundle create my-standards -d "My coding standards"
 
 This creates `.ctxloom/content/bundles/v2/my-standards.yaml` with an example
 fragment and command. That directory is committed — it's your project's own
-authored content, the tree `ctxloom bundle sign --all` signs, and what a publishing
-repo ships:
+authored content, and what a publishing repo ships:
 
 ```yaml
 version: 1.0.0
@@ -237,8 +236,7 @@ ctxloom bundle push my-standards standards
 `bundle push` refuses a single-file bundle, because bundles are distributed as
 trees; create a shareable one with `ctxloom bundle create my-standards --tree`.
 It commits straight to the default branch; `--pr` opens a pull
-request instead. `--sign` signs the bundle first, so consumers who trust your
-key skip review. See [Sharing](/guides/sharing) for the full publishing guide.
+request instead. See [Sharing](/guides/sharing) for the full publishing guide.
 
 ### Naming for Discovery
 

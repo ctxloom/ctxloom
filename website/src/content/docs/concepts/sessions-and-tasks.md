@@ -29,15 +29,14 @@ ctxloom does not carry a copy of taskloom's wiring. It finds taskloom the same
 way it finds any **companion** — a standalone tool that describes itself. At
 startup ctxloom looks for companion binaries on your `PATH` (the first-party
 names, plus anything called `ctxloom-companion-*`) and runs
-`<bin> loadout --format json`. It executes a binary only when a detached
-`<binary>.sig` beside it verifies against a key you trust; anything else is
-skipped with a warning (`ctxloom companion list` shows which would run, and
-why). The loadout the binary prints carries the bundle it contributes, MCP
+`<bin> loadout --format yaml`. It executes a binary only once you have allowed
+it (`ctxloom companion allow`, which records its path and SHA-256); anything
+else is skipped with a warning (`ctxloom companion list` shows which would run,
+and why). The loadout the binary prints carries the bundle it contributes, MCP
 server included, and that content is admitted as the companion's own, the same
-way your project's authored content is. A rejection you record still withholds
-any item of it.
+way your project's authored content is.
 
-The practical consequence: install a signed `taskloom` and it wires itself in;
+The practical consequence: install and allow `taskloom` and it wires itself in;
 remove it from `PATH` and it quietly disappears from the session.
 
 The same store is scriptable from your shell (`taskloom add`, `taskloom list`,

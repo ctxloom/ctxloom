@@ -43,7 +43,7 @@ pull.
 Adding a remote is the trust decision: what a remote you registered serves
 reaches the agent, with no separate review step. `ctxloom deps upgrade` shows
 what moving each pin would bring in before `--yes` applies it — see
-[Trust](/concepts/review-and-trust/).
+[Remotes](/concepts/remotes/).
 
 ## Browse Available Content
 

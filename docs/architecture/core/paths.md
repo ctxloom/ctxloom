@@ -14,8 +14,7 @@ what it costs — is [docs/layout.md](../../layout.md). This page is about the p
 ## Responsibilities
 
 - The layout constants: directory and file names for sessions, config, remotes, lockfile,
-  profiles, agents, content, cache, local state, per-session engine homes, trust
-  and signing artifacts.
+  profiles, agents, content, cache, local state and per-session engine homes.
 - Path composition functions over those constants.
 - The tier classification (`Tier`, `Entry`, `Layout`) that doctor walks.
 
@@ -36,9 +35,6 @@ flowchart TD
     HOME["os.UserHomeDir()"] --> HSD["HomeSessionsDir<br/>~/.ctxloom/sessions"]
     HOME --> HLD["HomeLogsDir → HomeLogFilePath<br/>~/.ctxloom/logs/&lt;prog&gt;.log"]
     HOME --> TCD["TriggerCacheDir<br/>~/.ctxloom/cache/triggers"]
-    HOME --> HAP["HomeApprovalsPath<br/>~/.ctxloom/approvals"]
-    HOME --> HASP["HomeAllowedSignersPath"]
-    HOME --> HDSP["HomeDistrustedSignersPath"]
 
     HSD --> HD["HarpDir(harp)<br/>machine state only — one member per HarpMembers row"]
     HD --> HSH["HarpSessionEngineHomes<br/>home/ (the per-engine config-home container)"]
@@ -56,9 +52,6 @@ flowchart TD
     AP --> LKP["LockPath lock.yaml"]
     AP --> PP["ProfilesPath profiles/"]
     AP --> AGP["AgentsPath agents/ (retired, signposted only)"]
-    AP --> APP["ApprovalsPath approvals/"]
-    AP --> ASP["AllowedSignersPath"]
-    AP --> DSP["DistrustedSignersPath"]
 
     AP --> LP["LocalPath<br/>content/"]
     LP --> LBP["LocalBundlesPath<br/>content/bundles"]
@@ -67,12 +60,10 @@ flowchart TD
     GCD --> CBP["CacheBundlesPath<br/>cache/bundles"]
     GCD --> RCP["ReposCachePath<br/>cache/repos"]
     GCD --> CTX["cache/context (ContextCacheDir)<br/>agent.WriteContextFile"]
-    GCD --> LTOP["LegacyTrustObjectsPath<br/>cache/trust/objects (migration source only)"]
 
     AP --> PID[".ctxloom/project-id<br/>(ProjectIDFileName)"]
 
     AP --> SP["StatePath<br/>state/"]
-    SP --> TOP["TrustObjectsPath<br/>state/trust/objects"]
     SP --> LKD["LocksPath<br/>state/locks/"]
 
     subgraph committed["COMMITTED · authored"]
@@ -83,9 +74,6 @@ flowchart TD
       LKP
       PP
       AGP
-      APP
-      ASP
-      DSP
     end
     subgraph derived["DERIVED · gitignored (except lock.yaml)"]
       GCD
@@ -96,9 +84,7 @@ flowchart TD
     end
     subgraph localstate["LOCAL · gitignored, nothing rebuilds it"]
       SP
-      TOP
       LKD
-      DTA
       PID
       PSD
     end
@@ -113,7 +99,6 @@ Three vocabularies share one file; `AppDirName` and `CacheDir` cross groups.
 | Home / session layout | `SessionsDir`, the session-dir member names `paths.HarpMembers` rows are built from, the output-dir leaves (`OutputDirName`, `EssenceFileName`, `NextStepFileName`, `PlanFileExt`), `LogsDir`, `TriggersDir`, `CoordDirName`, `CoordEndpointFileName` |
 | Project app-dir layout | `AppDirName`, `ConfigFileName`, `RemotesFileName`, `LockFileName`, `ProfilesDir`, `AgentsDir`, `ContentDir`, `CacheDir`, `RepoContentPrefix`, `BundlesDir`, `ReposCacheDir`, `ContextCacheDir`, `ProjectIDFileName` |
 | Local state tier | `StateDir`, `LocksDir`, `HomeLocksDirName`, `SessionEngineHomesDirName` |
-| Trust / signing | `TrustFileName`, `TrustObjectsDir`, `AllowedSignersFileName`, `DistrustedSignersFileName`, `ApprovalsDirName` |
 
 ## Key functions
 
@@ -133,9 +118,6 @@ this package.
 | `HarpScratchDir`, `HarpWorkDir`, `HarpNativeDir`, `HarpTranscriptsDir`, … | `<harp>/<member>` — one accessor per `paths.HarpMembers` row a caller resolves, all through `HarpDir`'s validation | — |
 | `HarpCanonicalTranscriptPath` | `<harp>/transcripts/transcript.jsonl` — the canonical write target | — |
 | `DefaultOutputBase`, `OutputDir` | `<Documents>/ctxloom/<project>/<harp>` — a session's output dir; resolved once at mint and recorded in `session.yaml` (`sessions.Entry.OutputDir`) | — |
-| `HomeApprovalsPath` | `~/.ctxloom/approvals` — the user countersignature store | 2 |
-| `HomeAllowedSignersPath` | `~/.ctxloom/allowed_signers` | 4 |
-| `HomeDistrustedSignersPath` | `~/.ctxloom/distrusted_signers` | 1 |
 | `TriggerCacheDir` | `~/.ctxloom/cache/triggers` | 1 |
 | `HomeCoordDir` | `~/.ctxloom/coord` — root of one project-keyed subdirectory per project, holding that project's coordinator roots | 1 |
 | `CoordRootStateDir` | `~/.ctxloom/coord/<project-key>/<root-harp>` — one coordinator root's state dir (`internal/core/coord`'s owner lock + journals); **validates the root harp** | 1 |
@@ -149,17 +131,12 @@ this package.
 | `LockPath` | `<appPath>/lock.yaml` | 3 |
 | `ProfilesPath` | `<appPath>/profiles` | 4 |
 | `AgentsPath` | `<appPath>/agents` — retired agent-definition directory; named only by `config.retiredAgentsDirSignpost`, never read | 1 |
-| `ApprovalsPath` | `<appPath>/approvals` — the project countersignature store | 2 |
-| `AllowedSignersPath` | `<appPath>/allowed_signers` | 3 |
-| `DistrustedSignersPath` | `<appPath>/distrusted_signers` | 1 |
 | `LocalPath` | `<appPath>/content` — committed content root | 2 |
 | `LocalBundlesPath` | `<appPath>/content/bundles` — authored bundles | 12 |
 | `CachePath` | `<appPath>/cache` | 0 outside the package (6 in-package) |
 | `CacheBundlesPath` | `<appPath>/cache/bundles` — pulled remote copies | 5 |
 | `ReposCachePath` | `<appPath>/cache/repos` — git clone cache | 3 |
 | `StatePath` | `<appPath>/state` — the third tier | 2 |
-| `TrustObjectsPath` | `<appPath>/state/trust/objects` — review snapshots | 1 |
-| `LegacyTrustObjectsPath` | `<appPath>/cache/trust/objects` — the retired location, read only by the one-time migration | 1 |
 | `LocksPath` | `<appPath>/state/locks` — advisory lock sidecars; the protected-path→lock-name mapping is `ProjectPathFor` (lockpath.go) | 1 |
 | `DefaultRemotesPath` | `RemotesPath(AppDirName)` | 1 |
 
@@ -196,7 +173,7 @@ path within it) both live in this package, so no other package names the
 
 1. **Three tiers, told apart by what a fresh clone gets.** `content/` (`LocalPath`,
    `LocalBundlesPath`) is committed and authored, alongside `config.yaml`, `remotes.yaml`,
-   `lock.yaml`, `profiles/`, `approvals/` and the signer files. `cache/`
+   `lock.yaml` and `profiles/`. `cache/`
    (`CachePath` and everything under it) is derived: deleting it must lose nothing that a
    named command cannot rebuild. `state/` (`StatePath`) is local-only and gitignored, and
    **nothing rebuilds it** — that, not gitignore status, is what earns a path a place there
@@ -213,13 +190,11 @@ path within it) both live in this package, so no other package names the
    torn down — `work/` only after triage; `Persist` rows must not, including the canonical
    transcript and native history. What a human reads lives in the output dir, which no reaper
    touches.
-5. **The countersignature stores are a user/project pair**: `HomeApprovalsPath` and
-   `ApprovalsPath`. `internal/adapters/operations`' countersign-record builder reads their union.
-6. **Every function accepts an empty `appPath` and returns a plausible, wrong path.**
+5. **Every function accepts an empty `appPath` and returns a plausible, wrong path.**
    `ConfigPath("")` is the cwd-relative `"config.yaml"`; `CachePath("")` is `"cache"`. The
    harp-keyed functions are the exception: `HarpDir` and everything riding it reject an
    empty or traversing harp rather than falling back to a shared path.
-7. **A per-session path gets no `Layout` row.** `Layout` enumerates paths whose ABSENCE
+6. **A per-session path gets no `Layout` row.** `Layout` enumerates paths whose ABSENCE
    doctor reports; a session's members are created at session start and reaped with the
    session, so their absence is the normal case, and the home-rooted sessions store row
    covers the tree. `TestArch_LayoutHasNoHarpKeyedRows` (and its in-package twin
@@ -234,7 +209,7 @@ path within it) both live in this package, so no other package names the
    clock (`sessions.ActivityTime`: the newest mtime under the session dir, the dir's own
    mtime and every symlink's excluded). `TestArch_ReaperMemberNamesAreTableRows` keeps
    every member constant the reap, purge and clean code names a row of the table.
-8. **No writes.** Nothing in this package creates a directory or a file.
+7. **No writes.** Nothing in this package creates a directory or a file.
 
 ## Layout slices L4, L5 and L6
 
@@ -268,8 +243,7 @@ entries and the current code support, and no more.
   remote repositories and bundle trees, addressed by repository and commit —
   lives in a shared, home-scoped cache that every project and implementor
   (agents, engines, tools) can read, while cache that is genuinely about one
-  project stays in that project. Trust is unaffected: pins and verification
-  stay per project, because the lockfile decides what is read and the shared
+  project stays in that project. Pins stay per project, because the lockfile decides what is read and the shared
   store only spares the re-fetch.
 
 ## Boundaries

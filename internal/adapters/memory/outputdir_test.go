@@ -18,6 +18,6 @@ func recordOutputDir(t *testing.T, harp string) string {
 	sidecar, err := paths.HarpSidecarPath(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(sidecar), 0o755))
-	require.NoError(t, os.WriteFile(sidecar, []byte("project_dir: /proj\noutput_dir: "+out+"\n"), 0o600))
+	require.NoError(t, os.WriteFile(sidecar, []byte("schema_version: 1\nproject_dir: /proj\noutput_dir: "+out+"\n"), 0o600))
 	return out
 }

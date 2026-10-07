@@ -79,12 +79,8 @@ func (m *LockfileManager) Path() string {
 	return paths.LockPath(m.baseDir)
 }
 
-// lockfileKind versions lock.yaml. LegacyKey: the lockfile spelled its format
-// generation `version` before schemaver. Oldest is LockfileVersion because an
-// older lockfile is keyed by the reference as typed, and no migration can
-// rekey it — a hold cannot be carried across a key the read does not trust —
-// so Load refuses it as ErrLockKeyFormRetired instead of migrating it.
-var lockfileKind = schemaver.Kind{Name: "lockfile", LegacyKey: "version", Oldest: LockfileVersion}
+// lockfileKind versions lock.yaml.
+var lockfileKind = schemaver.Define("lockfile", LockfileVersion)
 
 // Load reads the lockfile from disk.
 // Returns an empty lockfile if the file doesn't exist.

@@ -13,7 +13,7 @@ import (
 func forcePushRules(t *testing.T) *rules.Config {
 	t.Helper()
 	cfg, err := rules.Parse([]byte(`
-version: 1
+schema_version: 1
 rules:
   - id: no-force-push
     match:

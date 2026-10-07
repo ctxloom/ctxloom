@@ -33,7 +33,7 @@ func TestPlanCandidates_ReportsAnUnreadableSessionDir(t *testing.T) {
 	sidecar, err := paths.HarpSidecarPath(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(sidecar), 0o755))
-	require.NoError(t, os.WriteFile(sidecar, []byte("project_dir: /p\noutput_dir: "+dir+"\n"), 0o600))
+	require.NoError(t, os.WriteFile(sidecar, []byte("schema_version: 1\nproject_dir: /p\noutput_dir: "+dir+"\n"), 0o600))
 
 	p := &artifactStamper{harp: harp}
 	got, err := p.planCandidates()

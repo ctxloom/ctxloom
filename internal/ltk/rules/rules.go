@@ -15,7 +15,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
@@ -696,15 +695,8 @@ func isShortCluster(tok string, shell ir.Shell) bool {
 
 // configKind versions the rules file. Its format generation is consumed by
 // schemaver before the strict decode, which is why Config carries no version
-// field. LegacyKey: ltk configs spelled their version `version` before
-// schemaver existed. ltk has no older format, so its first generation is
-// schemaver.IntroduceKey.
-var configKind = schemaver.Kind{
-	Name:      "ltk config",
-	LegacyKey: "version",
-	Oldest:    0,
-	Steps:     []upgrade.Upgrader{schemaver.IntroduceKey},
-}
+// field.
+var configKind = schemaver.Define("ltk config", 1)
 
 // Parse decodes and validates a config from YAML bytes, migrating an older
 // format in memory first. Unknown fields are rejected so that typos in a rule

@@ -48,12 +48,13 @@ A layer declaring a generation below the oldest this ctxloom migrates — or
 declaring none — fails with a migration finding naming the file, the version
 it declares, and `ctxloom init` as the remedy. A layer declaring a generation
 NEWER than this ctxloom knows fails the same way, naming both numbers, with
-upgrading ctxloom as the remedy. The `version` key is read as the legacy
-spelling of `schema_version`.
+upgrading ctxloom as the remedy. `version` is not a spelling of
+`schema_version`: a layer that declares its generation only that way declares
+none.
 
-Config generation 7 stores every agent binding's profile refs
-(`agents.<name>.profiles`) in the canonical `ctxloom+git://` spelling; an older
-layer's are read that way.
+The same holds for every file ctxloom, ltk and taskloom version with
+`schema_version`: one that declares none is refused. Stamp existing stores
+with a release that still migrates them (`--write-upgrades`) before upgrading.
 
 An older layer is migrated in memory and its file is left alone; `ctxloom run`
 no longer offers to rewrite it. Pass `--write-upgrades` to any command to

@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 const notesTarget = "/proj/notes.md"
@@ -92,53 +91,11 @@ func TestClaimsRecord_ContentRoundTripsByteExactly(t *testing.T) {
 	}
 }
 
-// intList spells b as the integer list the generation-2 record wrote.
-func intList(b []byte) string {
-	parts := make([]string, len(b))
-	for i, x := range b {
-		parts[i] = strconv.Itoa(int(x))
-	}
-	return "[" + strings.Join(parts, ", ") + "]"
-}
-
-// A generation-2 record spelled delivered bytes as an integer list, in the
-// claims and in the pending note's prior state. It reads as the same claims,
-// is not rewritten by a read, and the next write stores the new form.
-func TestClaimsRecord_IntegerListRecordMigratesInMemory(t *testing.T) {
-	content := []byte("hi\n\xff")
-	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, notesTarget, string(content), 0o644)
-	body := "claims: 2\ntarget: " + notesTarget + "\ncreated: true\nseq: 1\npaths:\n" +
-		"  \"\":\n    - writer: project\n      seq: 1\n      value: null\n      bytes: " + intList(content) + "\n" +
-		"pending:\n  before: absent\n  after: whatever\n  prior:\n    created: false\n    values:\n" +
-		"      \"\":\n        writer: project\n        seq: 1\n        value: null\n        bytes: " + intList(content) + "\n"
-	testsupport.WriteFileString(t, fs, recordPath(notesTarget), body, 0o600)
-
-	rec, err := decodeClaims(recordPath(notesTarget), []byte(body))
-	require.NoError(t, err)
-	assert.Equal(t, content, []byte(rec.Paths[""][0].Content))
-	require.NotNil(t, rec.Pending)
-	assert.Equal(t, content, []byte(rec.Pending.Prior.Values[""].Content))
-
-	c := newRecords(t, fs)
-	states, err := c.Paths(fs, notesTarget)
-	require.NoError(t, err)
-	require.Len(t, states, 1)
-	assert.True(t, states[0].Live, "the migrated claim is the file's content")
-	targets, err := c.Targets(project)
-	require.NoError(t, err)
-	assert.Equal(t, []string{notesTarget}, targets)
-	assert.Equal(t, body, read(t, fs, recordPath(notesTarget)), "a read must not write")
-
-	mustCommit(t, c, fs, stage(notesTarget, project, whole(content)))
-	assert.Equal(t, content, []byte(read(t, fs, notesTarget)), "restating the migrated claim leaves the file")
-	entry := rawEntry(t, fs, notesTarget)
-	assert.Equal(t, string(content), entry["content"])
-	assert.NotContains(t, entry, "bytes")
-
-	mustCommit(t, c, fs, release(notesTarget, project))
-	_, err = fs.Stat(notesTarget)
-	assert.True(t, os.IsNotExist(err), "the file ctxloom created leaves with its last claim, as before")
+// A record older than the current generation is refused, not guessed at.
+func TestClaimsRecord_AnOlderGenerationIsRefused(t *testing.T) {
+	body := schemaver.Key + ": " + strconv.Itoa(claimsKind.Current()-1) + "\ntarget: " + notesTarget + "\nseq: 1\npaths: {}\n"
+	_, err := decodeClaims(recordPath(notesTarget), []byte(body))
+	require.ErrorIs(t, err, schemaver.ErrTooOld)
 }
 
 // countingFs counts the claims records opened through it.

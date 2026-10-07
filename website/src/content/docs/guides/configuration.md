@@ -52,7 +52,7 @@ shipped default engine registry, so only what your configuration sets is shown.
 
 ## config.yaml Reference
 
-The file declares its format generation as `schema_version` (currently 6; `version` is read as its legacy spelling). A file written for a newer ctxloom is refused, naming both numbers. A file in an older generation this ctxloom still reads is migrated in memory and left unchanged on disk; pass `--write-upgrades` to any command to persist the migration, keeping the previous file as `config.yaml.bak`. The canonical commented example ships as `resources/example-config.yaml` in the repo; `ctxloom config create` scaffolds one.
+The file declares its format generation as `schema_version`. A file declaring none (`version` is not a spelling of it), or one older than this ctxloom reads, is refused; a file written for a newer ctxloom is refused, naming both numbers. What a load changes in memory (such as resolving an `<alias>/…` ref) is left unchanged on disk; pass `--write-upgrades` to any command to persist it, keeping the previous file as `config.yaml.bak`. The canonical commented example ships as `resources/example-config.yaml` in the repo; `ctxloom config create` scaffolds one.
 
 :::note[Unknown keys are rejected]
 `config.yaml` is validated against its schema on load. A key the current schema doesn't recognize, including a retired one such as the old top-level `profiles:` or `hooks:` block, fails startup with a diagnostic naming the key and, where one exists, its replacement. Pass `--degraded` or set `CTXLOOM_DEGRADED=1` to downgrade this to a warning and continue.

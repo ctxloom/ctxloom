@@ -47,7 +47,7 @@ func TestCommandPatternIsRegexNotGlob(t *testing.T) {
 
 // match.path is the contrasting field: its patterns ARE globs.
 func TestPathPatternDoesGlob(t *testing.T) {
-	cfg := mustParse(t, "version: 1\npath_rules:\n  - id: x\n    match: { path: [\"*.lock\"] }\n    message: m\n")
+	cfg := mustParse(t, "schema_version: 1\npath_rules:\n  - id: x\n    match: { path: [\"*.lock\"] }\n    message: m\n")
 	if d := EvaluatePath(cfg, "/proj/a/b/go.lock"); d.Allowed {
 		t.Error("match.path patterns ARE globs; `*.lock` must catch go.lock")
 	}

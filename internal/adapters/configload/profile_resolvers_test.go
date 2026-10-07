@@ -19,7 +19,7 @@ func TestRead_BindsProfileResolversFromTheRemotesRegistry(t *testing.T) {
 	const appDir = "/proj/.ctxloom"
 	fs := afero.NewMemMapFs()
 	testsupport.WriteFileString(t, fs, paths.RemotesPath(appDir),
-		"remotes:\n  personal:\n    name: personal\n    url: https://github.com/owner/repo\n", 0o644)
+		"schema_version: 1\nremotes:\n  personal:\n    name: personal\n    url: https://github.com/owner/repo\n", 0o644)
 
 	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	require.NoError(t, err)

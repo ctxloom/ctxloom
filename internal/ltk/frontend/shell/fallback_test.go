@@ -71,7 +71,7 @@ func TestArgvFallback_DenyRuleStillFires(t *testing.T) {
 	requireExpansionFails(t, degradingCommand)
 
 	cfg, err := rules.Parse([]byte(`
-version: 1
+schema_version: 1
 rules:
   - id: no-force-push
     match:

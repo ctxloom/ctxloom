@@ -12,7 +12,7 @@ import (
 
 func TestAssembleConcatenatesBlocksInOrder(t *testing.T) {
 	md := []byte("# Doc\n\nintro prose\n\n" +
-		"```yaml\nversion: 1\nrules:\n```\n\nrationale for rule A\n\n" +
+		"```yaml\nschema_version: 1\nrules:\n```\n\nrationale for rule A\n\n" +
 		"```yaml\n  - id: a\n    match: { command: [go, test] }\n    message: x\n```\n\n" +
 		"more prose\n\n" +
 		"```yaml\n  - id: b\n    match: { command: [git, tag] }\n    message: y\n```\n")
@@ -44,7 +44,7 @@ func TestAssembleRejectsNoBlocks(t *testing.T) {
 
 func TestAssembleRejectsInvalidRuleSet(t *testing.T) {
 	// A block that parses as YAML but violates the rule schema (duplicate id).
-	md := []byte("```yaml\nversion: 1\nrules:\n```\n" +
+	md := []byte("```yaml\nschema_version: 1\nrules:\n```\n" +
 		"```yaml\n  - id: dup\n    match: { command: [a] }\n```\n" +
 		"```yaml\n  - id: dup\n    match: { command: [b] }\n```\n")
 	if _, err := assemble(md, 1); err == nil {
@@ -79,7 +79,7 @@ func TestEmbeddedSampleMatchesDoc(t *testing.T) {
 // permits everything — silently, with the generator reporting success.
 func TestAssembleRejectsARuleFreeDocument(t *testing.T) {
 	// Well-formed fences, valid YAML, zero rules.
-	md := []byte("# Doc\n\n```yaml\nversion: 1\nrules:\n```\n\n```yaml\n# only a comment\n```\n")
+	md := []byte("# Doc\n\n```yaml\nschema_version: 1\nrules:\n```\n\n```yaml\n# only a comment\n```\n")
 	out, err := assemble(md, 1)
 	if err == nil {
 		t.Fatalf("expected an error for a document that assembles to zero rules, got %d bytes", len(out))
@@ -93,7 +93,7 @@ func TestAssembleRejectsARuleFreeDocument(t *testing.T) {
 // of them is as invisible as dropping all of them, so the generator asserts a
 // floor rather than only a non-zero count.
 func TestAssembleRejectsAnImplausiblyShortRuleSet(t *testing.T) {
-	md := []byte("```yaml\nversion: 1\nrules:\n```\n" +
+	md := []byte("```yaml\nschema_version: 1\nrules:\n```\n" +
 		"```yaml\n  - id: only-one\n    match: { command: [go, test] }\n    message: x\n```\n")
 	if _, err := assemble(md, minDefaultRules); err == nil {
 		t.Error("expected an error for a rule set far below the shipped floor")
@@ -111,7 +111,7 @@ func TestAssembleRejectsAnImplausiblyShortRuleSet(t *testing.T) {
 // sides drop the same block and agree perfectly on a rule set that is missing
 // one. Refuse instead.
 func TestAssembleRejectsAFenceThatIsNotYaml(t *testing.T) {
-	good := "```yaml\nversion: 1\nrules:\n  - id: a\n    match: { command: [git, push] }\n    action: deny\n    message: m\n```\n"
+	good := "```yaml\nschema_version: 1\nrules:\n  - id: a\n    match: { command: [git, push] }\n    action: deny\n    message: m\n```\n"
 	for name, info := range map[string]string{
 		"lowercase yml":      "yml",
 		"uppercase":          "YAML",
@@ -120,7 +120,7 @@ func TestAssembleRejectsAFenceThatIsNotYaml(t *testing.T) {
 		"leading whitespace": "  yaml",
 	} {
 		t.Run(name, func(t *testing.T) {
-			md := []byte("# Doc\n\n" + good + "\n```" + info + "\nversion: 1\nrules:\n  - id: b\n    match: { command: [rm] }\n    action: deny\n    message: m\n```\n")
+			md := []byte("# Doc\n\n" + good + "\n```" + info + "\nschema_version: 1\nrules:\n  - id: b\n    match: { command: [rm] }\n    action: deny\n    message: m\n```\n")
 
 			// The fixture must be hostile: the second block carries a real rule
 			// that the reader is supposed to lose.
@@ -138,7 +138,7 @@ func TestAssembleRejectsAFenceThatIsNotYaml(t *testing.T) {
 // used to need a closing fence to emit anything at all, so a missing one threw
 // the block away.
 func TestAssembleRejectsAnUnterminatedBlock(t *testing.T) {
-	md := []byte("# Doc\n\n```yaml\nversion: 1\nrules:\n  - id: a\n    match: { command: [git, push] }\n    action: deny\n    message: m\n")
+	md := []byte("# Doc\n\n```yaml\nschema_version: 1\nrules:\n  - id: a\n    match: { command: [git, push] }\n    action: deny\n    message: m\n")
 	if _, err := assemble(md, 1); err == nil {
 		t.Fatal("an unterminated ```yaml block was accepted")
 	}

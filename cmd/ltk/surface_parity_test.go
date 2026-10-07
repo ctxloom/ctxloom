@@ -30,7 +30,7 @@ func TestSurfaceParity_CheckAndEvaluateAgree(t *testing.T) {
 	}
 
 	withRules := filepath.Join(t.TempDir(), "rules.yaml")
-	if err := os.WriteFile(withRules, []byte(`version: 1
+	if err := os.WriteFile(withRules, []byte(`schema_version: 1
 rules:
   - id: no-force-push
     match: { command: [git, push], args_all: [--force] }

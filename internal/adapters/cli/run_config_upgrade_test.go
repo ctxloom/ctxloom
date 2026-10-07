@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -50,10 +49,9 @@ func TestRunLoadConfig_NeverPromptsToRewriteTheConfig(t *testing.T) {
 	assert.ErrorIs(t, err, afero.ErrFileNotFound)
 }
 
-// --write-upgrades is a persistent flag on ctxloom's root: with it, any
-// command whose load migrated a config layer writes the layer back (keeping
-// the previous bytes beside it); without it the file is never changed.
-func TestRoot_WriteUpgradesPersistsAMigratedConfigLayer(t *testing.T) {
+// A layer this build refuses is never rewritten, with --write-upgrades or
+// without it: write-back persists a migration, and a refusal migrated nothing.
+func TestRoot_WriteUpgradesNeverRewritesARefusedLayer(t *testing.T) {
 	root, _ := setupProject(t, "claude-code")
 	testsupport.ChangeDir(t, root)
 	resetApp()
@@ -66,25 +64,15 @@ func TestRoot_WriteUpgradesPersistsAMigratedConfigLayer(t *testing.T) {
 	scaffolded, err := afero.ReadFile(osfs, path)
 	require.NoError(t, err)
 	require.Contains(t, string(scaffolded), schemaver.Key+":", "init must stamp the current key")
-	legacy := strings.Replace(string(scaffolded), schemaver.Key+":", "version:", 1)
-	testsupport.WriteFileString(t, osfs, path, legacy, 0o644)
+	unversioned := strings.Replace(string(scaffolded), schemaver.Key+":", "version:", 1)
+	testsupport.WriteFileString(t, osfs, path, unversioned, 0o644)
 
-	_, err = execRootCmd(t, "config", "show")
-	require.NoError(t, err)
-	got, err := afero.ReadFile(osfs, path)
-	require.NoError(t, err)
-	assert.Equal(t, legacy, string(got), "without --%s the file is never changed", schemaver.WriteUpgradesFlag)
-
-	resetApp()
-	_, err = execRootCmd(t, "config", "show", "--"+schemaver.WriteUpgradesFlag)
-	require.NoError(t, err)
-	got, err = afero.ReadFile(osfs, path)
-	require.NoError(t, err)
-	var want, written map[string]any
-	require.NoError(t, yaml.Unmarshal(scaffolded, &want))
-	require.NoError(t, yaml.Unmarshal(got, &written))
-	assert.Equal(t, want, written, "the layer is written back under the current key, its values unchanged")
-	backup, err := afero.ReadFile(osfs, path+schemaver.BackupSuffix)
-	require.NoError(t, err)
-	assert.Equal(t, legacy, string(backup))
+	for _, args := range [][]string{{"config", "show"}, {"config", "show", "--" + schemaver.WriteUpgradesFlag}} {
+		resetApp()
+		_, _ = execRootCmd(t, args...)
+		got, err := afero.ReadFile(osfs, path)
+		require.NoError(t, err)
+		assert.Equal(t, unversioned, string(got), "%v must not rewrite a refused layer", args)
+		assert.NoFileExists(t, path+schemaver.BackupSuffix)
+	}
 }

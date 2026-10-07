@@ -22,20 +22,18 @@ import (
 // envelopeKind versions a bundle's envelope (bundle.yaml), and through it the
 // whole tree: item files carry no format key of their own.
 //
-// No LegacyKey, and that is not an omission: an envelope's `version` is its
-// AUTHOR'S semver release, never a format generation, so it must never be read
-// as one or renamed.
+// An envelope's `version` is its AUTHOR'S semver release, never a format
+// generation.
 //
 // Generation 0 is every envelope that declares no schemaver.Key — which is
 // every bundle published before the key existed, so it must keep loading
 // exactly as it always has. ParseBundle runs the Upgrade on the raw bytes,
 // before the strict decode, and nothing is written back implicitly (see
 // persistEnvelopeUpgrade).
-var envelopeKind = schemaver.Kind{
-	Name:   "bundle",
-	Oldest: 0,
-	Steps:  []upgrade.Upgrader{retiredKeysStep{}, profileRefsStep{}, execItemFieldsStep{}},
-}
+var envelopeKind = schemaver.Define("bundle", execItemFieldsGeneration, envelopeSteps...)
+
+// envelopeSteps is envelopeKind's chain, oldest first; stepsEdit replays it.
+var envelopeSteps = []schemaver.Step{retiredKeysStep{}, profileRefsStep{}, execItemFieldsStep{}}
 
 // execItemFieldsGeneration is the generation execItemFieldsStep migrates an
 // envelope TO.
@@ -53,7 +51,9 @@ func (execItemFieldsStep) Name() string {
 	return "mcp items gain url, headers and tags; hook items gain tags"
 }
 
-func (execItemFieldsStep) Apply(*yaml.Node) bool { return false }
+func (execItemFieldsStep) To() int { return execItemFieldsGeneration }
+
+func (execItemFieldsStep) Apply(*yaml.Node) {}
 
 // profileRefsGeneration is the generation profileRefsStep migrates an
 // envelope TO. A tree whose envelope declares an older one has its profile
@@ -69,18 +69,18 @@ type profileRefsStep struct{}
 
 func (profileRefsStep) Name() string { return "profiles: " + profiles.CanonicalRefs.Name() }
 
-func (profileRefsStep) Apply(root *yaml.Node) bool {
+func (profileRefsStep) To() int { return profileRefsGeneration }
+
+func (profileRefsStep) Apply(root *yaml.Node) {
 	items := yamlx.MapValue(root, "profiles")
 	if items == nil || items.Kind != yaml.MappingNode {
-		return false
+		return
 	}
-	changed := false
 	for i := 1; i < len(items.Content); i += 2 {
-		if items.Content[i].Kind == yaml.MappingNode && profiles.CanonicalRefs.Apply(items.Content[i]) {
-			changed = true
+		if items.Content[i].Kind == yaml.MappingNode {
+			profiles.CanonicalRefs.Apply(items.Content[i])
 		}
 	}
-	return changed
 }
 
 // migrateProfileItems rewrites the profile item files of the tree at dir in
@@ -129,10 +129,11 @@ func (retiredKeysStep) Name() string {
 	return commandsKeyUpgrade{}.Name() + "; " + exportsKeyUpgrade{}.Name()
 }
 
-func (retiredKeysStep) Apply(root *yaml.Node) bool {
-	commands := commandsKeyUpgrade{}.Apply(root)
-	exports := exportsKeyUpgrade{}.Apply(root)
-	return commands || exports
+func (retiredKeysStep) To() int { return 1 }
+
+func (retiredKeysStep) Apply(root *yaml.Node) {
+	commandsKeyUpgrade{}.Apply(root)
+	exportsKeyUpgrade{}.Apply(root)
 }
 
 // commandsKeyUpgrade renames the legacy top-level `prompts:` map key to

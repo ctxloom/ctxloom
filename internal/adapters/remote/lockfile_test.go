@@ -286,7 +286,7 @@ func TestLockfileManager_Load_InvalidYAML(t *testing.T) {
 func TestLockfileManager_Load_NilMaps(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	// Write a lockfile without a bundles map
-	content := "version: 2\n"
+	content := "schema_version: 2\n"
 	testsupport.WriteFileString(t, fs, "/test/"+paths.LockFileName+".yaml", content, 0o644)
 
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
@@ -303,7 +303,7 @@ func TestLockfileManager_Load_NilMaps(t *testing.T) {
 
 // A PRESENT-but-EMPTY (or whitespace/comment-only) lock.yaml must
 // not load as a valid, legitimately-empty lockfile — every path that writes a
-// lockfile (Save/write) always marshals at least "version: 2\nbundles: {}\n"
+// lockfile (Save/write) always marshals at least "schema_version: 2\nbundles: {}\n"
 // plus a timestamp, so a genuinely 0-byte file on disk can only mean
 // truncation, a crash mid-write, or a hand-created stub — never a real
 // "nothing pinned yet" project (that case is instead ordinary IsNotExist,
@@ -336,7 +336,7 @@ func TestLockfileManager_Load_ReadError(t *testing.T) {
 	// Create a scenario where the file exists but cannot be read
 	// Use a read-only filesystem with a file that exists
 	baseFs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, baseFs, "/test/"+paths.LockFileName+".yaml", "version: 2\n", 0o000)
+	testsupport.WriteFileString(t, baseFs, "/test/"+paths.LockFileName+".yaml", "schema_version: 2\n", 0o000)
 	fs := afero.NewReadOnlyFs(baseFs)
 
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
@@ -442,7 +442,7 @@ func TestLockfile_RemoveEntry_UnknownType(t *testing.T) {
 // construction, so dropping it silently loses nothing.
 func TestLockfileManager_Load_IgnoresTheRetiredTreeField(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, "/test/"+paths.LockFileName+".yaml", `version: 2
+	testsupport.WriteFileString(t, fs, "/test/"+paths.LockFileName+".yaml", `schema_version: 2
 locked_at: 2026-01-01T00:00:00Z
 bundles:
   ctxloom+git://github.com/acme/tools//bundles/tools:

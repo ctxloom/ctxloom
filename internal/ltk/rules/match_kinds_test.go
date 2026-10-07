@@ -13,13 +13,13 @@ import (
 
 func TestMatchKindsAreMutuallyExclusive(t *testing.T) {
 	for _, y := range []string{
-		"version: 1\nrules:\n  - id: x\n    match: { path: [VERSION], command: [go] }\n    message: m\n",
-		"version: 1\nrules:\n  - id: x\n    match: { path: [VERSION] }\n    message: m\n",
-		"version: 1\npath_rules:\n  - id: x\n    match: { path: [VERSION], command: [go] }\n    message: m\n",
-		"version: 1\npath_rules:\n  - id: x\n    match: { path: [VERSION], args_any: [--force] }\n    message: m\n",
-		"version: 1\npath_rules:\n  - id: x\n    match: { path: [VERSION], unless: [--list] }\n    message: m\n",
-		"version: 1\npath_rules:\n  - id: x\n    match: { path: [VERSION], shells: [bash] }\n    message: m\n",
-		"version: 1\npath_rules:\n  - id: x\n    match: { path: [VERSION], backgrounded: true }\n    message: m\n",
+		"schema_version: 1\nrules:\n  - id: x\n    match: { path: [VERSION], command: [go] }\n    message: m\n",
+		"schema_version: 1\nrules:\n  - id: x\n    match: { path: [VERSION] }\n    message: m\n",
+		"schema_version: 1\npath_rules:\n  - id: x\n    match: { path: [VERSION], command: [go] }\n    message: m\n",
+		"schema_version: 1\npath_rules:\n  - id: x\n    match: { path: [VERSION], args_any: [--force] }\n    message: m\n",
+		"schema_version: 1\npath_rules:\n  - id: x\n    match: { path: [VERSION], unless: [--list] }\n    message: m\n",
+		"schema_version: 1\npath_rules:\n  - id: x\n    match: { path: [VERSION], shells: [bash] }\n    message: m\n",
+		"schema_version: 1\npath_rules:\n  - id: x\n    match: { path: [VERSION], backgrounded: true }\n    message: m\n",
 	} {
 		if _, err := Parse([]byte(y)); err == nil {
 			t.Errorf("a match mixing path with command-style conditions must be rejected: %s", y)
@@ -29,7 +29,7 @@ func TestMatchKindsAreMutuallyExclusive(t *testing.T) {
 
 func TestEachEvaluatorIgnoresTheOtherKind(t *testing.T) {
 	cfg, err := Parse([]byte(`
-version: 1
+schema_version: 1
 path_rules:
   - id: path-rule
     match: { path: [VERSION] }

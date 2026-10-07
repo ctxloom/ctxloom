@@ -18,7 +18,7 @@ import (
 // process concerns (stdin, stream writes, exit), so it is testable end to end.
 func TestEvaluateDeniesAndAllows(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
-	cfg := `version: 1
+	cfg := `schema_version: 1
 rules:
   - id: no-force-push
     match: { command: [git, push], args_all: [--force] }
@@ -88,7 +88,7 @@ rules:
 func TestEvaluateFailsClosedOnBrokenConfig(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
 	// A typo'd key: rules.Parse rejects unknown fields.
-	broken := "version: 1\nrulez:\n  - id: oops\n"
+	broken := "schema_version: 1\nrulez:\n  - id: oops\n"
 	if err := os.WriteFile(cfgPath, []byte(broken), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -143,11 +143,11 @@ func TestEvaluate_HookPathNeverReturnsAPlainError(t *testing.T) {
 	// An invalid UTF-8 byte, a NUL, control characters and a long run — the
 	// inputs that would break a fallible encoder if one existed.
 	hostile := "bad \xff byte, NUL \x00, ctrl \x01\x02, " + strings.Repeat("x", 4096)
-	if err := os.WriteFile(good, []byte("version: 1\nrules:\n  - id: hostile\n    match: { command: [git, push] }\n    message: "+strconv.Quote(hostile)+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(good, []byte("schema_version: 1\nrules:\n  - id: hostile\n    match: { command: [git, push] }\n    message: "+strconv.Quote(hostile)+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	broken := filepath.Join(dir, "broken.yaml")
-	if err := os.WriteFile(broken, []byte("version: 1\nrulez:\n  - id: oops\n"), 0o644); err != nil {
+	if err := os.WriteFile(broken, []byte("schema_version: 1\nrulez:\n  - id: oops\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	const bash = `{"tool_name":"Bash","tool_input":{"command":"git push"}}`
@@ -259,7 +259,7 @@ func TestEmitDecision_StreamFailuresAreAsymmetric(t *testing.T) {
 // (the diagnostic surface fails loud) — never by returning a clean allow over
 // an expansion that never happened.
 func TestExpandSubmodules_UnknownWorkingDirectoryIsReported(t *testing.T) {
-	cfg, err := rules.Parse([]byte("version: 1\npath_rules:\n  - id: no-submodule-edits\n    match: { path: [\"@submodules\"] }\n    message: \"don't edit submodules\"\n"))
+	cfg, err := rules.Parse([]byte("schema_version: 1\npath_rules:\n  - id: no-submodule-edits\n    match: { path: [\"@submodules\"] }\n    message: \"don't edit submodules\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestEvaluateFailsClosedOnUnresolvableSubmodules(t *testing.T) {
 	cfgPath := filepath.Join(dir, "rules.yaml")
 	// .gitmodules present but unreadable as a file (it is a directory), which
 	// scm.SubmodulePaths reports rather than treating as "no submodules".
-	if err := os.WriteFile(cfgPath, []byte("version: 1\npath_rules:\n  - id: no-submodule-edits\n    match: { path: [\"@submodules\"] }\n    message: \"don't edit submodules\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("schema_version: 1\npath_rules:\n  - id: no-submodule-edits\n    match: { path: [\"@submodules\"] }\n    message: \"don't edit submodules\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, ".gitmodules"), 0o755); err != nil {
@@ -305,7 +305,7 @@ func TestEvaluateFailsClosedOnUnresolvableSubmodules(t *testing.T) {
 // so the hook path must deny.
 func TestEvaluateFailsClosedOnUnknownShell(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
-	cfg := "version: 1\nrules:\n  - id: x\n    match: { command: [git, push], args_all: [--force] }\n    message: no\n"
+	cfg := "schema_version: 1\nrules:\n  - id: x\n    match: { command: [git, push], args_all: [--force] }\n    message: no\n"
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +344,7 @@ func TestEvaluateFailsClosedOnUnknownShell(t *testing.T) {
 // evaluate falls back to claude-code's wire format purely to emit a deny.
 func TestEvaluateFailsClosedOnUnknownEngine(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
-	cfg := "version: 1\nrules:\n  - id: x\n    match: { command: [git, push], args_all: [--force] }\n    message: no\n"
+	cfg := "schema_version: 1\nrules:\n  - id: x\n    match: { command: [git, push], args_all: [--force] }\n    message: no\n"
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +397,7 @@ func TestEvaluateNoConfigFoundAnywhereWarns(t *testing.T) {
 // own .ltk keeps using it (the nearest config always wins).
 func TestConfigSearchCrossesGitfileBoundaries(t *testing.T) {
 	deny := func(message string) string {
-		return "version: 1\nrules:\n  - id: no-force-push\n    match: { command: [git, push], args_all: [--force] }\n    message: \"" + message + "\"\n"
+		return "schema_version: 1\nrules:\n  - id: no-force-push\n    match: { command: [git, push], args_all: [--force] }\n    message: \"" + message + "\"\n"
 	}
 	payload := `{"tool_name":"Bash","tool_input":{"command":"git push --force"}}`
 
@@ -563,7 +563,7 @@ func TestConfirmByRepeatTinyWindowDenies(t *testing.T) {
 // deny — rather than the previous warn-and-allow.
 func TestEvaluateDeniesUnrecognizedToolName(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
-	cfg := `version: 1
+	cfg := `schema_version: 1
 rules:
   - id: no-force-push
     match: { command: [git, push], args_all: [--force] }
@@ -611,7 +611,7 @@ rules:
 // — worse than any missed rule. It must now pass through silently.
 func TestEvaluateBareRedirectionIsAllowed(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
-	cfg := `version: 1
+	cfg := `schema_version: 1
 rules:
   - id: go-test-to-just
     match: { command: [go, test] }

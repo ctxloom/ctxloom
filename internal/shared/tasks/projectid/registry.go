@@ -23,7 +23,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // Entry is one row in the project registry: a stable project-id and the path
@@ -35,9 +34,8 @@ type Entry struct {
 	LastSeenAt time.Time `yaml:"last_seen_at,omitempty"`
 }
 
-// registryKind versions the project registry. The index was unversioned
-// before it declared schemaver.Key, so a keyless index is generation 0.
-var registryKind = schemaver.Kind{Name: "project registry", Oldest: 0, Steps: []upgrade.Upgrader{schemaver.IntroduceKey}}
+// registryKind versions the project registry.
+var registryKind = schemaver.Define("project registry", 1)
 
 // registry is the on-disk form of the project registry.
 type registry struct {

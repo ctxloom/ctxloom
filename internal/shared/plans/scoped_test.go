@@ -15,7 +15,7 @@ import (
 func writeSessionSidecars(t *testing.T, home string, harpToDir map[string]string) {
 	t.Helper()
 	for harp, dir := range harpToDir {
-		body := "backend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\noutput_dir: " + outputDirIn(home, harp) + "\n"
+		body := "schema_version: 1\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\noutput_dir: " + outputDirIn(home, harp) + "\n"
 		if dir != "" {
 			body = "project_dir: " + dir + "\n" + body
 		}

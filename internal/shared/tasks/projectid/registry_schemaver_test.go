@@ -24,25 +24,28 @@ func seedRegistry(t *testing.T, body string) (*Manager, string) {
 	return m, path
 }
 
-// An index written before it was versioned (no key at all) and a current one
-// both load, and reading writes nothing.
-func TestRegistry_KeylessAndCurrentLoadAndReadingNeverWrites(t *testing.T) {
-	for name, body := range map[string]string{
-		"keyless": versionedEntry,
-		"current": schemaver.Key + ": " + strconv.Itoa(registryKind.Current()) + "\n" + versionedEntry,
-	} {
-		t.Run(name, func(t *testing.T) {
-			m, path := seedRegistry(t, body)
-			e, err := m.ResolveByID("seeded-id")
-			require.NoError(t, err)
-			require.NotNil(t, e)
-			assert.Equal(t, "/nowhere/seeded", e.Path)
+func currentRegistry() string {
+	return schemaver.Key + ": " + strconv.Itoa(registryKind.Current()) + "\n" + versionedEntry
+}
 
-			onDisk, err := os.ReadFile(path)
-			require.NoError(t, err)
-			assert.Equal(t, body, string(onDisk), "a read must not write")
-		})
-	}
+// A current index loads, and reading writes nothing.
+func TestRegistry_CurrentLoadsAndReadingNeverWrites(t *testing.T) {
+	m, path := seedRegistry(t, currentRegistry())
+	e, err := m.ResolveByID("seeded-id")
+	require.NoError(t, err)
+	require.NotNil(t, e)
+	assert.Equal(t, "/nowhere/seeded", e.Path)
+
+	onDisk, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, currentRegistry(), string(onDisk), "a read must not write")
+}
+
+// An index that declares no generation is refused, not guessed at.
+func TestRegistry_KeylessIsRefused(t *testing.T) {
+	m, _ := seedRegistry(t, versionedEntry)
+	_, err := m.ResolveByID("seeded-id")
+	require.ErrorIs(t, err, schemaver.ErrTooOld)
 }
 
 func TestRegistry_NewerIsRefusedNamingBothNumbers(t *testing.T) {
@@ -56,7 +59,7 @@ func TestRegistry_NewerIsRefusedNamingBothNumbers(t *testing.T) {
 }
 
 func TestRegistry_WriterStampsSchemaVersion(t *testing.T) {
-	m, path := seedRegistry(t, versionedEntry)
+	m, path := seedRegistry(t, currentRegistry())
 	_, err := m.Mint(t.TempDir())
 	require.NoError(t, err)
 

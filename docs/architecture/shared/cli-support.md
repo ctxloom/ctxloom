@@ -141,10 +141,10 @@ The one implementation of a file kind's format generation: an integer under `sch
 | Symbol | Purpose |
 |---|---|
 | `Key` | `schema_version`, the top-level key every versioned kind declares. |
-| `Kind` | `{Name, LegacyKey, Oldest, Steps}`. `Steps[i]` migrates generation `Oldest+i` to `Oldest+i+1`; `LegacyKey` is a per-kind opt-in older spelling of `Key`. |
-| `Kind.Current` | `Oldest + len(Steps)` — derived, so a version bump without its step cannot be written. |
-| `IntroduceKey` | The no-op first step of a kind that was unversioned before it declared `Key` (`Oldest: 0`): a keyless file means what generation 1 means. |
-| `Kind.Upgrade` | Raw bytes → `Result`: legacy rename, version read, refusal, steps from the declared generation, stamp. A current document comes back as the input slice. |
+| `Step` | `{To() int; Name() string; Apply(*yaml.Node)}` — migrates a document from generation `To()-1` to `To()`. Instances live under `internal/migrations` (its package doc). |
+| `Define(name, current, steps...)` | The only way to make a `Kind`. Panics unless `current >= 1` and the steps are contiguous and end at `current`. |
+| `Kind.Current` / `Kind.Oldest` | `Current` is DECLARED; `Oldest` is `current - len(steps)`. Retiring the oldest step raises `Oldest` and leaves `Current`. |
+| `Kind.Upgrade` | Raw bytes → `Result`: version read, refusal, steps from the declared generation, stamp. A current document comes back as the input slice. |
 | `Result` | `{Data, From, To, Applied}`; empty `Applied` means nothing to write back. |
 | `VersionError` | `{Kind, Found, Current, Oldest, Err}`, `Err` being or wrapping `ErrNewer`, `ErrTooOld` or `ErrUnreadable`. |
 | `Kind.Stamp` | Sets `Key` to `Current` on a root mapping — in place, or as the first key. For writers. |
@@ -211,8 +211,8 @@ The load-site recipe is: `Kind.Upgrade` → decode `Result.Data` → if `len(Res
 ### schemaver
 
 - The version is read from the **raw bytes**, before the caller's strict decode or schema validation, so a newer file is refused as newer rather than for carrying keys this binary does not know.
-- The legacy rename runs **before** the version read; read first, a renamed-only file would look keyless.
-- An empty or comment-only document is generation 0. A present but non-integer version, more than one document (even when it is a later one that fails to parse), and both spellings of the key at once are `ErrUnreadable` — never generation 0, which would replay every step over a probably-corrupt file.
+- A document with no `Key` — an empty or comment-only one included — is generation 0, which is below every kind's `Oldest` unless a step migrates from 0: it is refused, never guessed at. A present but non-integer version and more than one document (even when it is a later one that fails to parse) are `ErrUnreadable` — never generation 0, which would replay every step over a probably-corrupt file.
+- `Current` is declared rather than derived from the steps: retiring a step must not lower it, or every file already stamped current would be refused as newer.
 - A document that is not a well-formed YAML mapping — a syntax error, a non-mapping root, a duplicate key — passes through `Upgrade` untouched with `Applied` empty, as `Pipeline.Run` does: it has no generation to judge, and refusing it as `ErrUnreadable` would report a file that does not parse as a version fault. The kind's own decode, which every caller runs next, reports it as the parse failure it is.
 - A step runs because the declared generation says it must, so unlike a `Pipeline` stage it need not be idempotent, and a step that edits nothing still advances the version.
 - **Every shape change to a persisted format bumps `schema_version` with a step** — a rename, a removal, or a change of meaning, not only additions that need migrating. An older binary does not know a renamed key: unbumped, it reads the file as missing that key and silently falls back to the default instead of refusing a file newer than it understands. The bump is what turns that misread into `ErrNewer`. A step that edits nothing is still the right step for a meaning change.

@@ -72,7 +72,7 @@ func TestLockfile_RefusesTheRetiredPinnedKey(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 
-	legacy := "version: 2\n" +
+	legacy := "schema_version: 2\n" +
 		"bundles:\n" +
 		"  alice/go-tools:\n" +
 		"    sha: abc1234\n" +
@@ -97,7 +97,7 @@ func TestLockfile_LoadsWhenPinnedIsMerelyMentioned(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 
-	mention := "version: 2\n" +
+	mention := "schema_version: 2\n" +
 		"bundles:\n" +
 		"  ctxloom+git://github.com/alice/ctxloom//bundles/pinned-tools:\n" +
 		"    sha: abc1234\n" +

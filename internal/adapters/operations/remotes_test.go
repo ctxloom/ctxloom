@@ -374,7 +374,8 @@ func TestListRemotes_WithFS(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 
 	// Create remotes.yaml with existing remotes
-	remotesContent := `remotes:
+	remotesContent := `schema_version: 1
+remotes:
   test-remote:
     url: https://github.com/test/ctxloom
 `
@@ -420,7 +421,8 @@ func TestRemoveRemote_WithFS(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 
 	// Create remotes.yaml with existing remote
-	remotesContent := `remotes:
+	remotesContent := `schema_version: 1
+remotes:
   to-remove:
     url: https://github.com/test/ctxloom
 `
@@ -1049,7 +1051,7 @@ func TestSearchRemotes_WithValidRegistry(t *testing.T) {
 		"version: 1.0.0\ndescription: a handy widget bundle\n")
 
 	url := "file://" + src
-	remotesContent := "remotes:\n  alice:\n    url: " + url + "\n"
+	remotesContent := "schema_version: 1\nremotes:\n  alice:\n    url: " + url + "\n"
 	require.NoError(t, os.WriteFile(paths.RemotesPath(baseDir), []byte(remotesContent), 0644))
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{baseDir}})

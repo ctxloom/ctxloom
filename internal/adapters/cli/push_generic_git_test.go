@@ -52,7 +52,7 @@ func TestPushBundle_GenericGitRemote_LandsTheTreeInTheBareRepository(t *testing.
 	appDir := t.TempDir()
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "remotes.yaml"),
-		[]byte("default: team\nremotes:\n  team:\n    url: file://"+bare+"\n"), 0o644))
+		[]byte("default: team\nschema_version: 1\nremotes:\n  team:\n    url: file://"+bare+"\n"), 0o644))
 	manifest := writeDirFormBundle(t, cfg, "dir-form")
 	manifestBytes, err := os.ReadFile(manifest)
 	require.NoError(t, err)

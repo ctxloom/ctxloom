@@ -4,6 +4,7 @@
 package bundles
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -878,13 +879,15 @@ func stepsEdit(raw []byte, from int) bool {
 	if err != nil {
 		return true
 	}
-	edited := false
-	for _, step := range envelopeKind.Steps[from-envelopeKind.Oldest:] {
-		if step.Apply(doc.Content[0]) {
-			edited = true
-		}
+	before, err := upgrade.Encode(&doc)
+	if err != nil {
+		return true
 	}
-	return edited
+	for _, step := range envelopeSteps[from-envelopeKind.Oldest():] {
+		step.Apply(doc.Content[0])
+	}
+	after, err := upgrade.Encode(&doc)
+	return err != nil || !bytes.Equal(before, after)
 }
 
 // initMaps replaces every nil content map with an empty one, so a consumer

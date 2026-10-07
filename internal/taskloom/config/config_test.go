@@ -24,8 +24,19 @@ import (
 	"github.com/ctxloom/ctxloom/resources"
 )
 
-// writeConfig writes a taskloom .taskloom/config.yaml under dir.
+// writeConfig writes a taskloom .taskloom/config.yaml under dir. A body that
+// declares no schemaver.Key is stamped current first: these tests are about
+// the config, and the version gate is schemaver_test.go's (writeRawConfig).
 func writeConfig(t *testing.T, dir, body string) {
+	t.Helper()
+	if !strings.Contains(body, schemaver.Key+":") {
+		body = versioned(configKind.Current(), body)
+	}
+	writeRawConfig(t, dir, body)
+}
+
+// writeRawConfig writes body exactly as given.
+func writeRawConfig(t *testing.T, dir, body string) {
 	t.Helper()
 	full := filepath.Join(dir, DirName, FileName)
 	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))

@@ -22,30 +22,37 @@ func readSidecarFile(t *testing.T, root, harp string) []byte {
 	return data
 }
 
-// A sidecar written before it was versioned (every one in the wild) and a
-// current one both load, through the Manager and through OutputDirOf, and
+// A current sidecar loads, through the Manager and through OutputDirOf, and
 // neither read writes.
-func TestSidecar_KeylessAndCurrentLoadAndReadingNeverWrites(t *testing.T) {
-	for name, body := range map[string]string{
-		"keyless": versionedSidecar,
-		"current": schemaver.Key + ": " + strconv.Itoa(sidecarKind.Current()) + "\n" + versionedSidecar,
-	} {
-		t.Run(name, func(t *testing.T) {
-			m, root := openSidecarRoot(t)
-			const harp = "swift-amber-falcon"
-			writeSidecar(t, root, harp, body)
+func TestSidecar_CurrentLoadsAndReadingNeverWrites(t *testing.T) {
+	body := schemaver.Key + ": " + strconv.Itoa(sidecarKind.Current()) + "\n" + versionedSidecar
+	m, root := openSidecarRoot(t)
+	const harp = "swift-amber-falcon"
+	writeSidecar(t, root, harp, body)
 
-			e, err := m.Find(harp)
-			require.NoError(t, err)
-			require.NotNil(t, e)
-			assert.Equal(t, "/proj/a", e.ProjectDir)
-			out, ok := OutputDirOf(filepath.Join(root, harp))
-			assert.True(t, ok)
-			assert.Equal(t, "/out/a", out)
+	e, err := m.Find(harp)
+	require.NoError(t, err)
+	require.NotNil(t, e)
+	assert.Equal(t, "/proj/a", e.ProjectDir)
+	out, ok := OutputDirOf(filepath.Join(root, harp))
+	assert.True(t, ok)
+	assert.Equal(t, "/out/a", out)
 
-			assert.Equal(t, body, string(readSidecarFile(t, root, harp)), "a read must not write")
-		})
-	}
+	assert.Equal(t, body, string(readSidecarFile(t, root, harp)), "a read must not write")
+}
+
+// A sidecar that declares no generation is refused, not guessed at.
+func TestSidecar_KeylessIsRefused(t *testing.T) {
+	m, root := openSidecarRoot(t)
+	const harp = "swift-amber-falcon"
+	dir := filepath.Join(root, harp)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, testSidecarName), []byte(versionedSidecar), 0o644))
+
+	_, err := m.Find(harp)
+	require.ErrorIs(t, err, schemaver.ErrTooOld)
+	_, ok := OutputDirOf(dir)
+	assert.False(t, ok, "a sidecar this build cannot read records no output dir it can trust")
 }
 
 func TestSidecar_NewerIsRefusedNamingBothNumbers(t *testing.T) {

@@ -150,7 +150,7 @@ func TestRegistry_ForgePersistence(t *testing.T) {
 			"    type: github\n"+
 			"    base_url: https://github.mycorp.com\n"+
 			"    token_env: GHE_TOKEN\n"+
-			"remotes:\n"+
+			"schema_version: 1\nremotes:\n"+
 			"  myprofiles:\n"+
 			"    url: https://github.mycorp.com/me/profiles\n"+
 			"    forge: work-ghe\n"), 0o644))
@@ -222,7 +222,8 @@ func TestRegistry_UnknownForgeType(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "remotes.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(
-		"forges:\n"+
+		"schema_version: 1\n"+
+			"forges:\n"+
 			"  bogus:\n"+
 			"    type: subversion\n"), 0o644))
 

@@ -17,57 +17,57 @@ func TestValidateRuleArms(t *testing.T) {
 	}{
 		{
 			"missing id",
-			"version: 1\nrules:\n  - match: { command: [go] }\n    message: m\n",
+			"schema_version: 1\nrules:\n  - match: { command: [go] }\n    message: m\n",
 			ErrMissingID,
 		},
 		{
 			"duplicate id",
-			"version: 1\nrules:\n  - id: x\n    match: { command: [a] }\n    message: m\n  - id: x\n    match: { command: [b] }\n    message: m\n",
+			"schema_version: 1\nrules:\n  - id: x\n    match: { command: [a] }\n    message: m\n  - id: x\n    match: { command: [b] }\n    message: m\n",
 			ErrDuplicateID,
 		},
 		{
 			"invalid action",
-			"version: 1\nrules:\n  - id: x\n    action: nuke\n    match: { command: [go] }\n    message: m\n",
+			"schema_version: 1\nrules:\n  - id: x\n    action: nuke\n    match: { command: [go] }\n    message: m\n",
 			ErrInvalidAction,
 		},
 		{
 			"invalid mode",
-			"version: 1\nrules:\n  - id: x\n    mode: loud\n    match: { command: [go] }\n    message: m\n",
+			"schema_version: 1\nrules:\n  - id: x\n    mode: loud\n    match: { command: [go] }\n    message: m\n",
 			ErrInvalidMode,
 		},
 		{
 			"no conditions",
-			"version: 1\nrules:\n  - id: x\n    match: {}\n    message: m\n",
+			"schema_version: 1\nrules:\n  - id: x\n    match: {}\n    message: m\n",
 			ErrNoConditions,
 		},
 		{
 			"path rule with no patterns",
-			"version: 1\npath_rules:\n  - id: x\n    match: {}\n    message: m\n",
+			"schema_version: 1\npath_rules:\n  - id: x\n    match: {}\n    message: m\n",
 			ErrNoConditions,
 		},
 		{
 			"path under rules",
-			"version: 1\nrules:\n  - id: x\n    match: { path: [VERSION], command: [go] }\n    message: m\n",
+			"schema_version: 1\nrules:\n  - id: x\n    match: { path: [VERSION], command: [go] }\n    message: m\n",
 			ErrRemovedField,
 		},
 		{
 			"empty command pattern",
-			"version: 1\nrules:\n  - id: x\n    match: { command: [go, \"\"] }\n    message: m\n",
+			"schema_version: 1\nrules:\n  - id: x\n    match: { command: [go, \"\"] }\n    message: m\n",
 			ErrEmptyPattern,
 		},
 		{
 			"invalid path glob",
-			"version: 1\npath_rules:\n  - id: x\n    match: { path: [\"[a\"] }\n    message: m\n",
+			"schema_version: 1\npath_rules:\n  - id: x\n    match: { path: [\"[a\"] }\n    message: m\n",
 			ErrInvalidGlob,
 		},
 		{
 			"unknown shell",
-			"version: 1\nrules:\n  - id: x\n    match: { command: [go], shells: [fish] }\n    message: m\n",
+			"schema_version: 1\nrules:\n  - id: x\n    match: { command: [go], shells: [fish] }\n    message: m\n",
 			ErrInvalidShell,
 		},
 		{
 			"deny with nothing to say",
-			"version: 1\nrules:\n  - id: x\n    match: { command: [go] }\n",
+			"schema_version: 1\nrules:\n  - id: x\n    match: { command: [go] }\n",
 			ErrDenyUnexplained,
 		},
 	}
@@ -86,14 +86,14 @@ func TestValidateRuleArms(t *testing.T) {
 // in the rejection table.
 func TestValidateRuleAcceptsTheWellFormedShapes(t *testing.T) {
 	cases := []string{
-		"version: 1\nrules:\n  - id: x\n    match: { command: [go, test] }\n    message: m\n",
-		"version: 1\nrules:\n  - id: x\n    match: { command: [go] }\n    action: allow\n",
-		"version: 1\npath_rules:\n  - id: x\n    match: { path: [VERSION] }\n    message: m\n",
-		"version: 1\npath_rules:\n  - id: x\n    match: { path: [\"@submodules\"] }\n    message: m\n",
-		"version: 1\nrules:\n  - id: x\n    mode: disable\n    match: { command: [go] }\n",
-		"version: 1\ndefaults: { repeat_window_seconds: 30 }\nrules:\n  - id: x\n    mode: confirm\n    match: { command: [go] }\n    message: m\n",
-		"version: 1\nrules:\n  - id: x\n    match: { command: [go], shells: [bash, zsh] }\n    message: m\n",
-		"version: 1\nrules:\n  - id: x\n    match: { command: [go] }\n    suggest: use just test\n",
+		"schema_version: 1\nrules:\n  - id: x\n    match: { command: [go, test] }\n    message: m\n",
+		"schema_version: 1\nrules:\n  - id: x\n    match: { command: [go] }\n    action: allow\n",
+		"schema_version: 1\npath_rules:\n  - id: x\n    match: { path: [VERSION] }\n    message: m\n",
+		"schema_version: 1\npath_rules:\n  - id: x\n    match: { path: [\"@submodules\"] }\n    message: m\n",
+		"schema_version: 1\nrules:\n  - id: x\n    mode: disable\n    match: { command: [go] }\n",
+		"schema_version: 1\ndefaults: { repeat_window_seconds: 30 }\nrules:\n  - id: x\n    mode: confirm\n    match: { command: [go] }\n    message: m\n",
+		"schema_version: 1\nrules:\n  - id: x\n    match: { command: [go], shells: [bash, zsh] }\n    message: m\n",
+		"schema_version: 1\nrules:\n  - id: x\n    match: { command: [go] }\n    suggest: use just test\n",
 	}
 	for i, y := range cases {
 		if _, err := Parse([]byte(y)); err != nil {

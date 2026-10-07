@@ -23,7 +23,7 @@ func testOutputDir(t *testing.T, harp string) string {
 		require.NoError(t, perr)
 		if _, serr := os.Stat(sidecar); os.IsNotExist(serr) {
 			require.NoError(t, os.MkdirAll(filepath.Dir(sidecar), 0o755))
-			require.NoError(t, os.WriteFile(sidecar, []byte("project_dir: /tmp/project\n"), 0o600))
+			require.NoError(t, os.WriteFile(sidecar, []byte("schema_version: 1\nproject_dir: /tmp/project\n"), 0o600))
 		}
 		m, oerr := sessions.Open(nil)
 		require.NoError(t, oerr)

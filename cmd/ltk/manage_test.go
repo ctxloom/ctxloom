@@ -61,7 +61,7 @@ func TestDefaultRules_ShipWithRules(t *testing.T) {
 func TestScaffoldConfig_RefusesRuleLessDefaults(t *testing.T) {
 	restore := defaultRules
 	t.Cleanup(func() { defaultRules = restore })
-	defaultRules = "version: 1\n" // parses fine; gates nothing
+	defaultRules = "schema_version: 1\n" // parses fine; gates nothing
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".ltk", "config.yaml")
@@ -87,7 +87,7 @@ func TestScaffoldConfigPreservesExisting(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mine := "version: 1\nrules: []  # my edited rules\n"
+	mine := "schema_version: 1\nrules: []  # my edited rules\n"
 	if err := os.WriteFile(path, []byte(mine), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestScaffoldConfigForceBacksUp(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mine := "version: 1\nrules: []  # my edited rules\n"
+	mine := "schema_version: 1\nrules: []  # my edited rules\n"
 	if err := os.WriteFile(path, []byte(mine), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestScaffoldConfigForceBackupPreservesMode(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mine := "version: 1\nrules: []  # my edited rules\n"
+	mine := "schema_version: 1\nrules: []  # my edited rules\n"
 	if err := os.WriteFile(path, []byte(mine), 0o600); err != nil {
 		t.Fatal(err)
 	}

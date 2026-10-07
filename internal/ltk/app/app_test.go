@@ -22,7 +22,7 @@ func newApp(t *testing.T, y string) *App {
 }
 
 const cfg = `
-version: 1
+schema_version: 1
 rules:
   - id: go-test-to-just
     match: { command: [go, test] }
@@ -237,7 +237,7 @@ func TestUnparseableCommandPassesThrough(t *testing.T) {
 }
 
 func TestCmdShellEndToEnd(t *testing.T) {
-	a := newApp(t, "version: 1\nrules:\n  - id: no-tag\n    match: { command: [git, tag] }\n    message: use the release pipeline\n")
+	a := newApp(t, "schema_version: 1\nrules:\n  - id: no-tag\n    match: { command: [git, tag] }\n    message: use the release pipeline\n")
 	// git tag buried in a cmd `&` chain, parsed by the cmd frontend.
 	r := a.Decide(context.Background(), engine.Request{Command: "echo hi & git tag v1.0", Shell: "cmd"})
 	if r.Allow {
@@ -345,7 +345,7 @@ func TestRecoverDoesNotSwallowDenials(t *testing.T) {
 // for "ltk could not analyze this" — the same policy a parse error takes — and
 // still warns.
 func TestPanicHonoursParseErrorDenyPolicy(t *testing.T) {
-	a := newApp(t, "version: 1\ndefaults: { on_parse_error: deny }\nrules: []\n")
+	a := newApp(t, "schema_version: 1\ndefaults: { on_parse_error: deny }\nrules: []\n")
 	var warn bytes.Buffer
 	a.Warn = &warn
 	a.Registry.Register(panicFrontend{shell: ir.ShellBash})
@@ -370,7 +370,7 @@ func TestPanicWithNoWarnSink(t *testing.T) {
 }
 
 func TestParseErrorDenyPolicy(t *testing.T) {
-	a := newApp(t, "version: 1\ndefaults: { on_parse_error: deny }\nrules: []\n")
+	a := newApp(t, "schema_version: 1\ndefaults: { on_parse_error: deny }\nrules: []\n")
 	r := a.Decide(context.Background(), engine.Request{Command: "echo $(", Shell: "bash"})
 	if r.Allow {
 		t.Error("unparseable command should be denied under on_parse_error: deny")
@@ -381,7 +381,7 @@ func TestParseErrorDenyPolicy(t *testing.T) {
 // the config-expressible predicate for a detached command (see
 // rules.CommandMatch.Backgrounded), on its own default on_parse_error: allow.
 const backgroundedCfg = `
-version: 1
+schema_version: 1
 rules:
   - id: background-via-harness
     match: { backgrounded: true }

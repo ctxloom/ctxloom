@@ -264,7 +264,7 @@ func TestTagCmd_TextHidesConfiguredTagJSONKeepsIt(t *testing.T) {
 	dir := taskstest.ProjectDir(t)
 	cfgPath := filepath.Join(dir, taskloomconfig.DirName, taskloomconfig.FileName)
 	require.NoError(t, os.MkdirAll(filepath.Dir(cfgPath), 0o755))
-	require.NoError(t, os.WriteFile(cfgPath, []byte("tag_schema:\n  - 'tagma.hide:\"triage:cwe\"=true'\n"), 0o644))
+	require.NoError(t, os.WriteFile(cfgPath, []byte("schema_version: 1\ntag_schema:\n  - 'tagma.hide:\"triage:cwe\"=true'\n"), 0o644))
 
 	tc, err := taskContextSingle()
 	require.NoError(t, err)

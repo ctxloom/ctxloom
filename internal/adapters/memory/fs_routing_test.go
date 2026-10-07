@@ -20,7 +20,7 @@ func absentOutputDir(t *testing.T, harp string) string {
 	sidecar, err := paths.HarpSidecarPath(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(sidecar), 0o755))
-	testsupport.WriteFile(t, afero.NewOsFs(), sidecar, []byte("project_dir: /proj\noutput_dir: "+out+"\n"), 0o600)
+	testsupport.WriteFile(t, afero.NewOsFs(), sidecar, []byte("schema_version: 1\nproject_dir: /proj\noutput_dir: "+out+"\n"), 0o600)
 	return out
 }
 
@@ -58,7 +58,7 @@ func TestMemory_ReadsAndWritesThroughTheGivenFs(t *testing.T) {
 		fsys := afero.NewMemMapFs()
 		dir := filepath.Join(t.TempDir(), "absent-from-disk")
 		require.NoError(t, fsys.MkdirAll(dir, 0o755))
-		testsupport.WriteFileString(t, fsys, filepath.Join(dir, "s1.md"), "---\nsession_id: s1\n---\n\nbody\n", 0o600)
+		testsupport.WriteFileString(t, fsys, filepath.Join(dir, "s1.md"), "---\nschema_version: 2\nsession_id: s1\n---\n\nbody\n", 0o600)
 
 		ds, err := LoadCompactedSession(fsys, dir, "s1")
 		require.NoError(t, err)

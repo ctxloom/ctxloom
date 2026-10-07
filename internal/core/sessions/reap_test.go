@@ -37,7 +37,7 @@ var reapOldEnough = time.Now().Add(-90 * 24 * time.Hour)
 // keep marker is the one row deliberately absent — it exempts the session,
 // and has its own test.
 var reapFixture = map[string]string{
-	paths.SessionSidecarFileName:                                          "project_dir: /tmp/demo\n",
+	paths.SessionSidecarFileName:                                          "schema_version: 1\nproject_dir: /tmp/demo\n",
 	paths.DiagnosticsLogFileName:                                          "a warning\n",
 	paths.ContextMetricsFileName:                                          "{\"pct\":12}\n",
 	paths.SessionEngineHomesDirName + "/settings.json":                    "{}\n",

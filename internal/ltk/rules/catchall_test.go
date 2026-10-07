@@ -25,7 +25,7 @@ import (
 // condition is `shells:` denies EVERY command parsed in that dialect, and
 // allows everything in any other dialect.
 func TestShellsOnlyRuleIsAnUnconditionalDeny(t *testing.T) {
-	cfg, err := Parse([]byte("version: 1\nrules:\n  - id: x\n    match: { shells: [bash] }\n    message: m\n"))
+	cfg, err := Parse([]byte("schema_version: 1\nrules:\n  - id: x\n    match: { shells: [bash] }\n    message: m\n"))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestShellsOnlyRuleIsAnUnconditionalDeny(t *testing.T) {
 // condition is `unless:` denies every command that does not happen to carry one
 // of the exception tokens — an exception list with nothing to except from.
 func TestUnlessOnlyRuleIsAnUnconditionalDeny(t *testing.T) {
-	cfg, err := Parse([]byte("version: 1\nrules:\n  - id: x\n    match: { unless: [--help] }\n    message: m\n"))
+	cfg, err := Parse([]byte("schema_version: 1\nrules:\n  - id: x\n    match: { unless: [--help] }\n    message: m\n"))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}

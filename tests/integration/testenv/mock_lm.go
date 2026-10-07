@@ -99,10 +99,7 @@ func (m *MockLM) WriteConfig() error {
 	root := doc.Content[0]
 
 	// Pinned to ctxloomconfig.CurrentConfigVersion rather than a hardcoded
-	// number so this fixture is never itself an older generation that loading
-	// must migrate. Under schemaver.Key, never the legacy spelling: a config
-	// carrying both is refused as unreadable, and the fixtures this edits
-	// already declare schemaver.Key.
+	// number so this fixture is never itself a generation loading refuses.
 	upgrade.SetVersion(root, schemaver.Key, ctxloomconfig.CurrentConfigVersion)
 
 	llm := yamlx.EnsureMap(root, "llm")

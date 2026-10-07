@@ -47,7 +47,7 @@ bundles:
 // that is not its own bundle identity (hand-edited, or merged from an old
 // branch) is refused the same way, never read with that entry unreachable.
 func TestLoad_RefusesANonIdentityKeyAtTheCurrentVersion(t *testing.T) {
-	lm := lockWithBody(t, `version: 2
+	lm := lockWithBody(t, `schema_version: 2
 bundles:
   ctxloom+git://example.test/repo//bundles/kit:
     sha: abc123
@@ -64,7 +64,7 @@ bundles:
 // A current lockfile keyed by identity loads, and Save stamps the current
 // version so a round trip never produces a file the next Load refuses.
 func TestLoad_AcceptsIdentityKeysAndSaveStampsTheVersion(t *testing.T) {
-	lm := lockWithBody(t, `version: 2
+	lm := lockWithBody(t, `schema_version: 2
 bundles:
   ctxloom+git://example.test/repo//bundles/kit:
     sha: abc123

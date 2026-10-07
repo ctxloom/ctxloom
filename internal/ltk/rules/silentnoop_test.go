@@ -19,34 +19,34 @@ func TestDenyRuleNeedsMessageOrSuggest(t *testing.T) {
 	}{
 		{
 			name:    "deny with no message and no suggest",
-			yaml:    "version: 1\nrules:\n  - id: bare\n    match: { command: [rm] }\n",
+			yaml:    "schema_version: 1\nrules:\n  - id: bare\n    match: { command: [rm] }\n",
 			wantErr: true,
 		},
 		{
 			name:    "explicit deny with no message and no suggest",
-			yaml:    "version: 1\nrules:\n  - id: bare\n    action: deny\n    match: { command: [rm] }\n",
+			yaml:    "schema_version: 1\nrules:\n  - id: bare\n    action: deny\n    match: { command: [rm] }\n",
 			wantErr: true,
 		},
 		{
 			name:    "whitespace-only message is no message",
-			yaml:    "version: 1\nrules:\n  - id: bare\n    match: { command: [rm] }\n    message: \"   \"\n",
+			yaml:    "schema_version: 1\nrules:\n  - id: bare\n    match: { command: [rm] }\n    message: \"   \"\n",
 			wantErr: true,
 		},
 		{
 			name: "suggest alone is enough — it renders as \"Use instead: …\"",
-			yaml: "version: 1\nrules:\n  - id: ok\n    match: { command: [rm] }\n    suggest: \"trash\"\n",
+			yaml: "schema_version: 1\nrules:\n  - id: ok\n    match: { command: [rm] }\n    suggest: \"trash\"\n",
 		},
 		{
 			name: "message alone is enough",
-			yaml: "version: 1\nrules:\n  - id: ok\n    match: { command: [rm] }\n    message: \"no\"\n",
+			yaml: "schema_version: 1\nrules:\n  - id: ok\n    match: { command: [rm] }\n    message: \"no\"\n",
 		},
 		{
 			name: "an allow rule explains nothing by design",
-			yaml: "version: 1\nrules:\n  - id: ok\n    action: allow\n    match: { command: [ls] }\n",
+			yaml: "schema_version: 1\nrules:\n  - id: ok\n    action: allow\n    match: { command: [ls] }\n",
 		},
 		{
 			name: "a disabled rule never fires, so it owes no explanation",
-			yaml: "version: 1\nrules:\n  - id: ok\n    mode: disable\n    match: { command: [rm] }\n",
+			yaml: "schema_version: 1\nrules:\n  - id: ok\n    mode: disable\n    match: { command: [rm] }\n",
 		},
 	}
 	for _, tc := range cases {

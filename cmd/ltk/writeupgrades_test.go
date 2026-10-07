@@ -9,13 +9,12 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
-const legacyRules = "# my rules\nversion: 1\nrules: []\n"
+const currentRules = "# my rules\nschema_version: 1\nrules: []\n"
 
 func writeRules(t *testing.T, doc string) string {
 	t.Helper()
@@ -54,37 +53,28 @@ func TestRoot_WriteUpgradesIsAPersistentFlag(t *testing.T) {
 	}
 }
 
-func TestCheck_WriteUpgradesPersistsTheMigration(t *testing.T) {
-	p := writeRules(t, legacyRules)
+// With nothing to migrate, --write-upgrades writes nothing: no rewrite and no
+// backup.
+func TestCheck_WriteUpgradesLeavesACurrentFileUntouched(t *testing.T) {
+	p := writeRules(t, currentRules)
 	if err := runRoot(t, "check", "--config", p, "--command", "git status", "--format", "json", "--"+schemaver.WriteUpgradesFlag); err != nil {
 		t.Fatal(err)
 	}
-	var got map[string]any
-	if err := yaml.Unmarshal(readFile(t, p), &got); err != nil {
-		t.Fatal(err)
+	if got := readFile(t, p); string(got) != currentRules {
+		t.Errorf("a current file must not be rewritten, got %q", got)
 	}
-	if _, ok := got[schemaver.Key]; !ok {
-		t.Errorf("the rewritten file must declare %s, got %v", schemaver.Key, got)
-	}
-	if _, ok := got["version"]; ok {
-		t.Errorf("the legacy key must be gone, got %v", got)
-	}
-	if bak := readFile(t, p+schemaver.BackupSuffix); string(bak) != legacyRules {
-		t.Errorf("the backup must hold the original bytes, got %q", bak)
-	}
-	// The written file is current: loading it again changes nothing.
-	if _, r, err := rules.Load(p); err != nil || len(r.Applied) != 0 {
-		t.Errorf("the written file must load as current, applied %v err %v", r.Applied, err)
+	if _, err := os.Stat(p + schemaver.BackupSuffix); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("no backup when nothing migrated: %v", err)
 	}
 }
 
 func TestCheck_WithoutWriteUpgradesTheFileIsUntouched(t *testing.T) {
-	p := writeRules(t, legacyRules)
+	p := writeRules(t, currentRules)
 	if err := runRoot(t, "check", "--config", p, "--command", "git status", "--format", "json"); err != nil {
 		t.Fatal(err)
 	}
-	if got := readFile(t, p); string(got) != legacyRules {
-		t.Errorf("an older file must load without changing, got %q", got)
+	if got := readFile(t, p); string(got) != currentRules {
+		t.Errorf("a file must load without changing, got %q", got)
 	}
 	if _, err := os.Stat(p + schemaver.BackupSuffix); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("no backup without --%s: %v", schemaver.WriteUpgradesFlag, err)

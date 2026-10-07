@@ -92,7 +92,7 @@ func TestUnlessIsPositionBlindToOptionArguments(t *testing.T) {
 }
 
 func TestUnlessParsesAndCountsAsConstraint(t *testing.T) {
-	cfg, err := Parse([]byte("version: 1\nrules:\n  - id: x\n    match: { unless: [--help] }\n    message: m\n"))
+	cfg, err := Parse([]byte("schema_version: 1\nrules:\n  - id: x\n    match: { unless: [--help] }\n    message: m\n"))
 	if err != nil {
 		t.Fatal(err)
 	}

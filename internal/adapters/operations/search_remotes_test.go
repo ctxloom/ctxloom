@@ -35,7 +35,7 @@ func TestSearchRemotes_ManifestFallsThroughOnNoMatches(t *testing.T) {
 		"version: 1.0.0\ndescription: a handy widget bundle\n")
 
 	url := "file://" + src
-	remotesContent := "remotes:\n  alice:\n    url: " + url + "\n"
+	remotesContent := "schema_version: 1\nremotes:\n  alice:\n    url: " + url + "\n"
 	require.NoError(t, os.WriteFile(paths.RemotesPath(baseDir), []byte(remotesContent), 0644))
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{baseDir}})
@@ -78,7 +78,7 @@ func TestSearchRemotes_TagAwareDirectorySearch(t *testing.T) {
 	addFileToLocalRepo(t, src, ".ctxloom/content/profiles/go-developer.yaml", profileYAML)
 
 	url := "file://" + src
-	remotesContent := "remotes:\n  acme:\n    url: " + url + "\n"
+	remotesContent := "schema_version: 1\nremotes:\n  acme:\n    url: " + url + "\n"
 	require.NoError(t, os.WriteFile(paths.RemotesPath(baseDir), []byte(remotesContent), 0644))
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{baseDir}})

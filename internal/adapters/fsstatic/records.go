@@ -13,7 +13,6 @@ import (
 	"reflect"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -35,8 +34,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
-	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Records is the ownership record: one record per TARGET FILE, naming for each
@@ -83,63 +80,8 @@ func (e *NotOursError) Error() string {
 // Unwrap makes errors.Is(err, ErrNotOurs) true.
 func (e *NotOursError) Unwrap() error { return ErrNotOurs }
 
-// claimsKind versions a claims record. LegacyKey: the record spelled its
-// format generation `claims` before schemaver.
-var claimsKind = schemaver.Kind{Name: "claims record", LegacyKey: "claims", Oldest: 2, Steps: []upgrade.Upgrader{contentAsText{}}}
-
-// contentAsText is generation 3: a whole-file or appended-section claim's
-// delivered bytes move from `bytes`, one YAML integer per byte, to `content`,
-// the bytes as a string — text when they are UTF-8, !!binary when not — in
-// every claim and in the pending note's prior state.
-type contentAsText struct{}
-
-func (contentAsText) Name() string { return "store delivered bytes as content" }
-
-func (contentAsText) Apply(root *yaml.Node) bool {
-	changed := false
-	if paths := yamlx.MapValue(root, "paths"); paths != nil && paths.Kind == yaml.MappingNode {
-		for i := 1; i < len(paths.Content); i += 2 {
-			for _, e := range paths.Content[i].Content {
-				changed = bytesToContent(e) || changed
-			}
-		}
-	}
-	values := yamlx.MapValue(yamlx.MapValue(yamlx.MapValue(root, "pending"), "prior"), "values")
-	if values != nil && values.Kind == yaml.MappingNode {
-		for i := 1; i < len(values.Content); i += 2 {
-			changed = bytesToContent(values.Content[i]) || changed
-		}
-	}
-	return changed
-}
-
-// bytesToContent rewrites one claim entry's integer-list `bytes` as
-// `content`. A list that is not bytes is left as it is: the claim then holds
-// no content, and so matches no file, which refuses rather than overwrites.
-func bytesToContent(entry *yaml.Node) bool {
-	if entry.Kind != yaml.MappingNode {
-		return false
-	}
-	list := yamlx.MapValue(entry, "bytes")
-	if list == nil || list.Kind != yaml.SequenceNode {
-		return false
-	}
-	b := make([]byte, len(list.Content))
-	for i, n := range list.Content {
-		v, err := strconv.ParseUint(n.Value, 10, 8)
-		if n.Kind != yaml.ScalarNode || err != nil {
-			return false
-		}
-		b[i] = byte(v)
-	}
-	var content yaml.Node
-	if err := content.Encode(deliveredContent(b)); err != nil {
-		return false
-	}
-	yamlx.MapDelete(entry, "bytes")
-	yamlx.MapSet(entry, "content", &content)
-	return true
-}
+// claimsKind versions a claims record.
+var claimsKind = schemaver.Define("claims record", 3)
 
 const (
 	claimsSuffix = ".claims.yaml"

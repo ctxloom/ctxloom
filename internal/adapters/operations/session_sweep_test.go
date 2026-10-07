@@ -22,7 +22,7 @@ func ssSeed(t *testing.T, harp, origin string, compacted bool) string {
 	t.Helper()
 	dir := srSeedHarp(t, harp)
 	out := t.TempDir()
-	sidecar := "project_dir: /tmp/demo\noutput_dir: " + out + "\n"
+	sidecar := "schema_version: 1\nproject_dir: /tmp/demo\noutput_dir: " + out + "\n"
 	if origin != "" {
 		sidecar += "origin: " + origin + "\n"
 	}

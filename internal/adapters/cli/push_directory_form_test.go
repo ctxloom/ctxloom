@@ -93,6 +93,7 @@ func pushTestSetup(t *testing.T) (cfg *config.Config, pub *stubPublisher, mgr *r
 	cfg = config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "remotes.yaml"), []byte(`default: personal
+schema_version: 1
 remotes:
   personal:
     url: https://github.com/example/personal-bundles

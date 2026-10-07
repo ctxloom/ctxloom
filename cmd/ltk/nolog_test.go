@@ -24,7 +24,7 @@ import (
 // being lazy.
 func TestMain_AHookRunThatLogsNothingWritesNothing(t *testing.T) {
 	cfg := filepath.Join(t.TempDir(), "rules.yaml")
-	if err := os.WriteFile(cfg, []byte("version: 1\nrules:\n  - id: no-push\n    match: { command: [git, push] }\n    message: \"no pushing\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfg, []byte("schema_version: 1\nrules:\n  - id: no-push\n    match: { command: [git, push] }\n    message: \"no pushing\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	exe, err := os.Executable()

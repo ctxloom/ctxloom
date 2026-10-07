@@ -13,7 +13,7 @@ import (
 // and a delay, on a path rule and a command rule alike. A field that the
 // Decision -> Response mapping forgets shows up here as a zero value.
 const mappingCfg = `
-version: 1
+schema_version: 1
 path_rules:
   - id: path-rule
     match: { path: ["secrets/**"] }

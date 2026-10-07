@@ -28,6 +28,7 @@ import (
 // rather than TaskContext's own fields set directly.
 func writeConfigForTest(t *testing.T, dir, body string) {
 	t.Helper()
+	body = "schema_version: 1\n" + body
 	full := filepath.Join(dir, taskloomconfig.DirName, taskloomconfig.FileName)
 	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
 	require.NoError(t, os.WriteFile(full, []byte(body), 0o644))

@@ -45,7 +45,7 @@ func TestBareRedirectIsStructurallyUnmatchable(t *testing.T) {
 	}
 
 	// No command rule can reach it: there is no argv to match against.
-	cfg, err := Parse([]byte("version: 1\nrules:\n  - id: x\n    match: { command: [\"/etc/passwd\"] }\n    message: m\n"))
+	cfg, err := Parse([]byte("schema_version: 1\nrules:\n  - id: x\n    match: { command: [\"/etc/passwd\"] }\n    message: m\n"))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestBareRedirectIsStructurallyUnmatchable(t *testing.T) {
 
 	// Nor can a path rule: Evaluate skips path rules, which are matched against
 	// file-editing tool calls only.
-	pathCfg, err := Parse([]byte("version: 1\npath_rules:\n  - id: y\n    match: { path: [\"/etc/passwd\"] }\n    message: m\n"))
+	pathCfg, err := Parse([]byte("schema_version: 1\npath_rules:\n  - id: y\n    match: { path: [\"/etc/passwd\"] }\n    message: m\n"))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestBareRedirectIsStructurallyUnmatchable(t *testing.T) {
 }
 
 func TestPathRuleDoesNotCoverTheShellRedirectRoute(t *testing.T) {
-	cfg, err := Parse([]byte("version: 1\npath_rules:\n  - id: y\n    match: { path: [VERSION] }\n    message: hand-editing VERSION is not allowed\n"))
+	cfg, err := Parse([]byte("schema_version: 1\npath_rules:\n  - id: y\n    match: { path: [VERSION] }\n    message: hand-editing VERSION is not allowed\n"))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}

@@ -28,12 +28,12 @@ func seedPlanWorld(t *testing.T, harpToDir map[string]string, orphanHarps ...str
 	for harp, dir := range harpToDir {
 		writePlanFile(t, home, harp)
 		writeFile(t, filepath.Join(home, ".ctxloom", "sessions", harp, paths.SessionSidecarFileName),
-			"project_dir: "+dir+"\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\noutput_dir: "+planOutputDir(home, harp)+"\n")
+			"schema_version: 1\nproject_dir: "+dir+"\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\noutput_dir: "+planOutputDir(home, harp)+"\n")
 	}
 	for _, harp := range orphanHarps {
 		writePlanFile(t, home, harp)
 		writeFile(t, filepath.Join(home, ".ctxloom", "sessions", harp, paths.SessionSidecarFileName),
-			"backend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\noutput_dir: "+planOutputDir(home, harp)+"\n")
+			"schema_version: 1\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\noutput_dir: "+planOutputDir(home, harp)+"\n")
 	}
 	return home
 }

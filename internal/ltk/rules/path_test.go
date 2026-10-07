@@ -132,14 +132,14 @@ func TestExpandSubmodulesEmpty(t *testing.T) {
 
 // A malformed glob in match.path is a config error, not a silently dead rule.
 func TestPathRuleRejectsBadGlob(t *testing.T) {
-	_, err := Parse([]byte("version: 1\npath_rules:\n  - id: bad\n    match: { path: [\"a[\"] }\n    message: m\n"))
+	_, err := Parse([]byte("schema_version: 1\npath_rules:\n  - id: bad\n    match: { path: [\"a[\"] }\n    message: m\n"))
 	if err == nil {
 		t.Error("an unterminated character class should be a validation error")
 	}
 }
 
 func TestPathRuleParses(t *testing.T) {
-	cfg, err := Parse([]byte("version: 1\npath_rules:\n  - id: v\n    match: { path: [VERSION] }\n    message: use versionator\n"))
+	cfg, err := Parse([]byte("schema_version: 1\npath_rules:\n  - id: v\n    match: { path: [VERSION] }\n    message: use versionator\n"))
 	if err != nil {
 		t.Fatal(err)
 	}

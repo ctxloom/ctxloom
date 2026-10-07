@@ -5,6 +5,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -754,6 +755,11 @@ func TestHoldRestart_ARefusalReplayedAfterAReauthRestartOpensNoHold(t *testing.T
 // replaces the refused credential with another that is refused too. A turn
 // that starts on the replacement is not a replay from before the restart, so
 // its refusal holds the replacement — and the human is told.
+//
+// onTurnFailed journals the hold before it raises the finding, so the hold
+// being visible orders nothing about the finding. The restarted coordinator
+// holds the replacement's finding back until the test lets it through, which
+// opens that window on every run rather than only under load.
 func TestHoldRestart_ARefusalOfTheReplacingCredentialStillHolds(t *testing.T) {
 	const alsoRefused = "sk-fixture-also-refused-token"
 	f, clk := newSecretsFixture(t, nil)
@@ -764,7 +770,19 @@ func TestHoldRestart_ARefusalOfTheReplacingCredentialStillHolds(t *testing.T) {
 	f.opts.RefreshSecrets = (&secretsRefresher{}).refresh
 	f.opts.LookupEnv = envOf(map[string]string{tokenVar: alsoRefused})
 	reasserted := make(chan struct{}, 8)
-	f.restart(t, clk, 0, stepSignal(holdStepReasserted, reasserted))
+	letFinding := make(chan struct{})
+	var let sync.Once
+	f.restartTuned(t, clk, 0, func(c *Coordinator) {
+		c.holdStep = stepSignal(holdStepReasserted, reasserted)
+		prev := c.rep
+		c.rep = report.To(report.SinkFunc(func(x report.Finding) {
+			if strings.Contains(x.Text, refusedLead) {
+				<-letFinding
+			}
+			prev.Report(x)
+		}))
+	})
+	t.Cleanup(func() { let.Do(func() { close(letFinding) }) }) // runs before the coordinator's Close
 	require.Empty(t, f.c.CredentialHolds(), "premise: a different credential released the hold at adoption")
 	f.redial(t)
 	within(t, reasserted, "the worker's owed resume was never delivered")

@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"testing"
 )
 
@@ -28,6 +27,32 @@ func TestPackageDiff_FindsAKnownMutant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gremlins is not on PATH (%v) — `just test-mutation-install`", err)
 	}
+	src := packageDiffModule(t)
+	t.Setenv("TMPDIR", t.TempDir())
+	mutshard := buildMutshard(t)
+	reports := t.TempDir()
+	runIn(t, src, mutshard, "run", "-scope", "diff:main", "-pkg", "sub", "-out", reports, "--", gremlins)
+	verdict := runIn(t, src, mutshard, "aggregate", "-scope", "diff:main", "-pkg", "sub", "-reports", reports)
+
+	m := regexp.MustCompile(`Killed: (\d+), Lived: (\d+)`).FindStringSubmatch(verdict)
+	if m == nil || m[1] == "0" {
+		t.Fatalf("the conditional the diff added in sub/ was not killed:\n%s", verdict)
+	}
+	for _, f := range mutatedFiles(t, filepath.Join(reports, "shard-0.json")) {
+		if f != "sub/sub.go" {
+			t.Errorf("gremlins mutated %s, outside the package", f)
+		}
+	}
+	if n := packageTargetMeasured(t, gremlins, src); n > 0 {
+		t.Errorf("gremlins with the package as its target now measures %d mutant(s) in the diff: the package target works again, so test-mutation-pkg can hand it the package directly", n)
+	}
+}
+
+// packageDiffModule is a git module whose working tree, against main, adds a
+// conditional in sub/ (which TestPos kills) and an arithmetic change in
+// other/, under the project's own .gremlins.yaml.
+func packageDiffModule(t *testing.T) string {
+	t.Helper()
 	// The planner is built and exec'd, so name its sources: an edit to them
 	// must re-run this test, not replay a cached pass.
 	repoInput(t, "scripts/mutshard/*.go", ".gremlins.yaml")
@@ -48,43 +73,39 @@ func TestPackageDiff_FindsAKnownMutant(t *testing.T) {
 	mustGit(t, src, "commit", "-q", "-m", "base")
 	writeFile(t, src, "sub/sub.go", "package sub\n\nfunc Pos(x int) bool {\n\tif x > 0 {\n\t\treturn true\n\t}\n\treturn false\n}\n")
 	writeFile(t, src, "other/other.go", "package other\n\nfunc Add(a, b int) int { return a + b }\n")
-	t.Setenv("TMPDIR", t.TempDir())
+	return src
+}
 
+// buildMutshard builds scripts/mutshard and returns the binary.
+func buildMutshard(t *testing.T) string {
+	t.Helper()
 	bin := filepath.Join(t.TempDir(), "mutshard")
 	build := exec.Command("go", "build", "-o", bin, "./scripts/mutshard")
 	build.Dir = repoRootFromTest(t)
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build mutshard: %v\n%s", err, out)
 	}
-	reports := t.TempDir()
-	run := func(args ...string) string {
-		t.Helper()
-		cmd := exec.Command(bin, args...)
-		cmd.Dir = src
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("mutshard %v: %v\n%s", args, err, out)
-		}
-		return string(out)
-	}
-	run("run", "-scope", "diff:main", "-pkg", "sub", "-out", reports, "--", gremlins)
-	verdict := run("aggregate", "-scope", "diff:main", "-pkg", "sub", "-reports", reports)
+	return bin
+}
 
-	m := regexp.MustCompile(`Killed: (\d+), Lived: (\d+)`).FindStringSubmatch(verdict)
-	if m == nil {
-		t.Fatalf("the aggregate judged no tally:\n%s", verdict)
+// runIn runs bin in dir and returns its output, failing t on any error.
+func runIn(t *testing.T, dir, bin string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command(bin, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s %v: %v\n%s", filepath.Base(bin), args, err, out)
 	}
-	if killed, _ := strconv.Atoi(m[1]); killed == 0 {
-		t.Fatalf("the conditional the diff added in sub/ was not killed:\n%s", verdict)
-	}
-	for _, f := range mutatedFiles(t, filepath.Join(reports, "shard-0.json")) {
-		if f != "sub/sub.go" {
-			t.Errorf("gremlins mutated %s, outside the package", f)
-		}
-	}
+	return string(out)
+}
 
-	// Measuring nothing scores 0% efficacy, so gremlins exits with its threshold
-	// status here; the report is what says it measured nothing.
+// packageTargetMeasured is how many mutants gremlins judges (killed or lived)
+// when handed the package as its target over src's diff. Measuring nothing
+// scores 0% efficacy, so gremlins exits with its threshold status there; the
+// report is what says it measured nothing.
+func packageTargetMeasured(t *testing.T, gremlins, src string) int {
+	t.Helper()
 	out := filepath.Join(t.TempDir(), "pkg-target.json")
 	trap := exec.Command(gremlins, "unleash", "./sub", "--diff", "main", "--output", out)
 	trap.Dir = src
@@ -104,9 +125,7 @@ func TestPackageDiff_FindsAKnownMutant(t *testing.T) {
 	if err := json.Unmarshal(rep, &o); err != nil {
 		t.Fatalf("%s: %v", out, err)
 	}
-	if o.Killed+o.Lived > 0 {
-		t.Errorf("gremlins with the package as its target now measures %d mutant(s) in the diff: the package target works again, so test-mutation-pkg can hand it the package directly", o.Killed+o.Lived)
-	}
+	return o.Killed + o.Lived
 }
 
 // mutatedFiles is every file the shard report's gremlins result scored.

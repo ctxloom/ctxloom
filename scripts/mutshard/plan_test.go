@@ -395,21 +395,7 @@ func TestScopeWithPkg(t *testing.T) {
 // of the plan, which would leave gremlins free to mutate it. A sibling sharing
 // the package's name as a prefix is outside it.
 func TestMakePlan_PkgNarrowsTheDiffAndExcludesTheRest(t *testing.T) {
-	root := t.TempDir()
-	git(t, root, "init", "-q", "-b", "main")
-	writeFile(t, root, ".gremlins.yaml", testGremlinsYAML)
-	for _, f := range []string{"sub/a.go", "sub/deep/b.go", "subway/c.go", "other/d.go"} {
-		writeFile(t, root, f, "package p\n")
-	}
-	git(t, root, "add", "-A")
-	git(t, root, "commit", "-q", "-m", "base")
-	for _, f := range []string{"sub/a.go", "sub/deep/b.go", "subway/c.go", "other/d.go"} {
-		writeFile(t, root, f, "package p\n\nvar v = 1 + 2\n")
-	}
-	cfg, err := loadGremlinsConfig(filepath.Join(root, ".gremlins.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	root, cfg := pkgDiffFixture(t)
 	sc, err := scope{base: "main"}.withPkg(root, "sub")
 	if err != nil {
 		t.Fatal(err)
@@ -427,13 +413,7 @@ func TestMakePlan_PkgNarrowsTheDiffAndExcludesTheRest(t *testing.T) {
 		t.Errorf("planned = %q, want %q", planned, want)
 	}
 	for k := range p.shards {
-		ex := p.excluded(k)
-		sort.Strings(ex)
-		want := append(append([]string(nil), p.shards[1-k]...), "other/d.go", "subway/c.go")
-		sort.Strings(want)
-		if !reflect.DeepEqual(ex, want) {
-			t.Errorf("shard %d excludes %q, want %q (the other shard's files and every changed file outside the package)", k, ex, want)
-		}
+		assertExcludes(t, p, k, append(append([]string(nil), p.shards[1-k]...), "other/d.go", "subway/c.go"))
 	}
 
 	untouched, err := scope{base: "main"}.withPkg(root, "other")
@@ -443,6 +423,40 @@ func TestMakePlan_PkgNarrowsTheDiffAndExcludesTheRest(t *testing.T) {
 	git(t, root, "checkout", "-q", "--", "other")
 	if p, err := makePlan(root, untouched, 1, cfg); err != nil || !strings.Contains(p.skip, "other") {
 		t.Errorf("a package the diff does not touch must skip naming it: plan=%+v err=%v", p, err)
+	}
+}
+
+// pkgDiffFixture is a repository whose working tree changes one mutable line
+// in each of sub/a.go, sub/deep/b.go, subway/c.go and other/d.go against main.
+func pkgDiffFixture(t *testing.T) (string, *gremlinsConfig) {
+	t.Helper()
+	root := t.TempDir()
+	git(t, root, "init", "-q", "-b", "main")
+	writeFile(t, root, ".gremlins.yaml", testGremlinsYAML)
+	files := []string{"sub/a.go", "sub/deep/b.go", "subway/c.go", "other/d.go"}
+	for _, f := range files {
+		writeFile(t, root, f, "package p\n")
+	}
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-q", "-m", "base")
+	for _, f := range files {
+		writeFile(t, root, f, "package p\n\nvar v = 1 + 2\n")
+	}
+	cfg, err := loadGremlinsConfig(filepath.Join(root, ".gremlins.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root, cfg
+}
+
+// assertExcludes checks shard k leaves exactly want alone.
+func assertExcludes(t *testing.T, p plan, k int, want []string) {
+	t.Helper()
+	got := p.excluded(k)
+	sort.Strings(got)
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("shard %d excludes %q, want %q (the other shard's files and every changed file outside the package)", k, got, want)
 	}
 }
 

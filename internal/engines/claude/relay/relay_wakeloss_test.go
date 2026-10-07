@@ -82,18 +82,8 @@ func (c *sessionCutter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	id := r.Header.Get("Mcp-Session-Id")
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	c.mu.Lock()
-	refused := c.dead[id] || (msg.Method == "initialize" && c.cut && c.refuseInit)
-	if !refused && id != "" {
-		c.open[id] = append(c.open[id], cancel)
-	}
-	c.mu.Unlock()
-	switch {
-	case c.isDead(id):
-		http.Error(w, "session not found", http.StatusNotFound)
-		return
-	case refused:
-		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	if status := c.admit(id, msg.Method, cancel); status != http.StatusOK {
+		http.Error(w, http.StatusText(status), status)
 		return
 	}
 	if msg.Method == "ping" && !c.sawPing(id, r.Context()) {
@@ -106,6 +96,24 @@ func (c *sessionCutter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.mu.Unlock()
 		c.subscribed <- struct{}{}
 	}
+}
+
+// admit decides a request on session id: 404 on a dead session, 503 on an
+// initialize refused after the cut, else 200, holding cancel to cut the
+// request with its session.
+func (c *sessionCutter) admit(id, method string, cancel context.CancelFunc) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	switch {
+	case c.dead[id]:
+		return http.StatusNotFound
+	case method == "initialize" && c.cut && c.refuseInit:
+		return http.StatusServiceUnavailable
+	}
+	if id != "" {
+		c.open[id] = append(c.open[id], cancel)
+	}
+	return http.StatusOK
 }
 
 // sawPing announces a ping on session id and, when it is the wake's first
@@ -145,12 +153,6 @@ func (c *sessionCutter) holdWakePing() {
 
 // releaseWakePing lets the held ping through; releasing twice is harmless.
 func (c *sessionCutter) releaseWakePing() { c.releaseNow() }
-
-func (c *sessionCutter) isDead(id string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.dead[id]
-}
 
 // cutWake ends the wake's current session.
 func (c *sessionCutter) cutWake() {

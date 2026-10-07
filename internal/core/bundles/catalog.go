@@ -71,6 +71,12 @@ type Catalog struct {
 	// and left to the sink.
 	rep report.Reporter
 
+	// skillWithheld, when set, is told each declared skill this set could not
+	// load (skillContent), and why. A Pipeline attaches it to its own copy
+	// (Pipeline.catalog) so a read-stage withhold reaches the pipeline's
+	// tally; the set's shared value never carries it.
+	skillWithheld func(ref, reason string)
+
 	// candidates are the identities the readers established WITHOUT content.
 	// They are a SECOND collection rather than nil-content entries in reads,
 	// and that separation is the whole design: every Reads() consumer would

@@ -151,13 +151,8 @@ func (l *Loader) ReadFragment(name string) ([]*ItemRead, error) {
 func (l *Loader) ReadCommand(name string) ([]*ItemRead, error) {
 	return l.Catalog().ReadCommand(name)
 }
-func (l *Loader) ReadSkill(name string) ([]*LoadedSkill, error) { return l.Catalog().ReadSkill(name) }
-func (l *Loader) ReadAllSkills() ([]*LoadedSkill, error)        { return l.Catalog().ReadAllSkills() }
 func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
 	return l.Catalog().ReadBundleCommands(bundleRef)
-}
-func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
-	return l.Catalog().ReadBundleSkills(bundleRef)
 }
 func (l *Loader) ResolveFragmentAsk(name string) string { return l.Catalog().ResolveFragmentAsk(name) }
 

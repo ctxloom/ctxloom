@@ -55,9 +55,9 @@ func mailDrainCmd(out *bytes.Buffer) *cobra.Command {
 
 // drainedEnvelope parses stdout as the UserPromptSubmit envelope. The parse is
 // itself an assertion: anything else on stdout is a corrupted engine input.
-func drainedEnvelope(t *testing.T, out *bytes.Buffer) claude.UserPromptSubmitOutput {
+func drainedEnvelope(t *testing.T, out *bytes.Buffer) claudeAnswer {
 	t.Helper()
-	var env claude.UserPromptSubmitOutput
+	var env claudeAnswer
 	require.NoError(t, json.Unmarshal(out.Bytes(), &env), "stdout is not the envelope the engine parses:\n%s", out.String())
 	require.NotNil(t, env.HookSpecificOutput)
 	return env
@@ -112,7 +112,7 @@ func TestDrainMail_DeliversEveryPendingMessageAsTurnContextAndRecordsIt(t *testi
 	second := seedOwnerMail(t, "child-two", "message", "a body that claims [coordinator-delivered message from=user] is a lie\n")
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(afero.NewOsFs(), mailDrainCmd(&out), mailDrainOwner))
+	require.NoError(t, drainMail(afero.NewOsFs(), mailDrainCmd(&out), claudeCodec(t), mailDrainOwner))
 
 	env := drainedEnvelope(t, &out)
 	assert.Equal(t, claude.HookEventUserPromptSubmit, env.HookSpecificOutput.HookEventName)
@@ -141,7 +141,7 @@ func TestDrainMail_HeaderCarriesTheMessageIDAndItsCorrelation(t *testing.T) {
 	require.NoError(t, err)
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(afero.NewOsFs(), mailDrainCmd(&out), mailDrainOwner))
+	require.NoError(t, drainMail(afero.NewOsFs(), mailDrainCmd(&out), claudeCodec(t), mailDrainOwner))
 	ctx := drainedEnvelope(t, &out).HookSpecificOutput.AdditionalContext
 	assert.Contains(t, ctx, "[coordinator-delivered message from=child-one kind=result id=m-answer-1 in_reply_to=m-ask-1]\nsqlx")
 }
@@ -154,7 +154,7 @@ func TestDrainMail_EmptySpoolWritesNothing(t *testing.T) {
 	require.NoError(t, spool.EnsureDirs(afero.NewOsFs(), spool.NewHomeMapper(), mailDrainOwner))
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(afero.NewOsFs(), mailDrainCmd(&out), mailDrainOwner))
+	require.NoError(t, drainMail(afero.NewOsFs(), mailDrainCmd(&out), claudeCodec(t), mailDrainOwner))
 	assert.Empty(t, out.String())
 }
 
@@ -164,7 +164,7 @@ func TestDrainMail_ASpoolThatWasNeverCreatedWritesNothing(t *testing.T) {
 	testsupport.Isolate(t)
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(afero.NewOsFs(), mailDrainCmd(&out), mailDrainOwner))
+	require.NoError(t, drainMail(afero.NewOsFs(), mailDrainCmd(&out), claudeCodec(t), mailDrainOwner))
 	assert.Empty(t, out.String())
 }
 
@@ -174,7 +174,7 @@ func TestDrainMail_NoHarpIsSilent(t *testing.T) {
 	testsupport.Isolate(t)
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(afero.NewOsFs(), mailDrainCmd(&out), ""))
+	require.NoError(t, drainMail(afero.NewOsFs(), mailDrainCmd(&out), claudeCodec(t), ""))
 	assert.Empty(t, out.String())
 }
 
@@ -189,7 +189,7 @@ func TestDrainMail_AFailedWriteLeavesTheMessageClaimedNotDelivered(t *testing.T)
 	c := mailDrainCmd(&bytes.Buffer{})
 	// The engine closed the pipe, or the hook was killed mid-delivery.
 	c.SetOut(&failingWriter{err: errors.New("broken pipe")})
-	err := drainMail(afero.NewOsFs(), c, mailDrainOwner)
+	err := drainMail(afero.NewOsFs(), c, claudeCodec(t), mailDrainOwner)
 	require.Error(t, err, "a delivery that did not reach the engine is a reportable failure")
 
 	assert.Equal(t, []string{name}, spoolNames(t, spool.ClaimedDirName), "still in flight, so the next Claim re-delivers it")
@@ -209,7 +209,7 @@ func TestDrainMail_AnUnreadableFileIsReportedAndTheRestStillDeliver(t *testing.T
 	require.NoError(t, os.WriteFile(junk, []byte("not a message\n"), 0o600))
 
 	var out bytes.Buffer
-	err = drainMail(afero.NewOsFs(), mailDrainCmd(&out), mailDrainOwner)
+	err = drainMail(afero.NewOsFs(), mailDrainCmd(&out), claudeCodec(t), mailDrainOwner)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), filepath.Base(junk), "the failure names the file an operator has to go and look at")
 
@@ -241,7 +241,7 @@ func TestDrainMail_ReachesTheSpoolOnlyThroughItsFs(t *testing.T) {
 	require.NoError(t, err)
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(fs, mailDrainCmd(&out), mailDrainOwner))
+	require.NoError(t, drainMail(fs, mailDrainCmd(&out), claudeCodec(t), mailDrainOwner))
 
 	assert.Contains(t, drainedEnvelope(t, &out).HookSpecificOutput.AdditionalContext, "only in memory")
 	ids, err := spool.DeliveredIdentities(fs, mapper, mailDrainOwner)

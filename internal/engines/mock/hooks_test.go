@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -39,7 +40,7 @@ func TestMock_ADeliveredPreToolHookFires_WhenTheTurnRunsATool(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "fired")
 	eng, inst, ex := deliverHooked(t, wire.Hook{Type: "command", Command: "cat > " + marker})
 
-	res, err := inst.Drivers()[0].Turn(context.Background(), ex, engine.Turn{Prompt: mock.ToolCall("Bash") + " then answer"}, nil)
+	res, err := inst.Drivers()[0].Turn(context.Background(), ex, engine.Turn{Prompt: mock.ToolCall(string(wire.ToolShell)) + " then answer"}, nil)
 	require.NoError(t, err)
 
 	payload, err := os.ReadFile(marker)
@@ -65,11 +66,11 @@ func TestMock_AHookDoesNotFire_WithoutAToolCall(t *testing.T) {
 // honoured — the hook fires for the tool it names and for no other.
 func TestMock_AHookWithAMatcherFires_OnlyForTheToolItNames(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "fired")
-	_, inst, ex := deliverHooked(t, wire.Hook{Type: "command", Matcher: "Edit", Command: "cat > " + marker})
-	_, err := inst.Drivers()[0].Turn(context.Background(), ex, engine.Turn{Prompt: mock.ToolCall("Bash")}, nil)
+	_, inst, ex := deliverHooked(t, wire.Hook{Type: "command", Matcher: "file_edit", Command: "cat > " + marker})
+	_, err := inst.Drivers()[0].Turn(context.Background(), ex, engine.Turn{Prompt: mock.ToolCall(string(wire.ToolShell))}, nil)
 	require.NoError(t, err)
-	require.NoFileExists(t, marker, "Bash does not match Edit")
-	_, err = inst.Drivers()[0].Turn(context.Background(), ex, engine.Turn{Prompt: mock.ToolCall("Edit")}, nil)
+	require.NoFileExists(t, marker, "shell does not match file_edit")
+	_, err = inst.Drivers()[0].Turn(context.Background(), ex, engine.Turn{Prompt: mock.ToolCall(string(wire.ToolFileEdit))}, nil)
 	require.NoError(t, err)
 	require.FileExists(t, marker)
 }
@@ -118,7 +119,12 @@ func TestMock_AContextFileItCreatesIsOwnerOnly(t *testing.T) {
 // on the event under test.
 func deliverHookedAt(t *testing.T, set func(u *wire.UnifiedHooks, h wire.Hook), hook wire.Hook) (engine.Engine, engine.Instance, engine.Exec) {
 	t.Helper()
-	eng := mock.New()
+	return deliverHookedOn(t, mock.New(), set, hook)
+}
+
+// deliverHookedOn is deliverHookedAt on a given kind.
+func deliverHookedOn(t *testing.T, eng engine.Engine, set func(u *wire.UnifiedHooks, h wire.Hook), hook wire.Hook) (engine.Engine, engine.Instance, engine.Exec) {
+	t.Helper()
 	home := t.TempDir()
 	pkg := compositetest.Fixture(t, compositetest.WithFragment("hello", "hello"))
 	set(&pkg.Hooks.Unified, hook)
@@ -175,4 +181,112 @@ func TestMock_FiresEveryUnifiedEvent(t *testing.T) {
 		event := strings.Split(typ.Field(i).Tag.Get("json"), ",")[0]
 		assert.Contains(t, exports.HookEvent, event, "the mock declares no %s arm — nothing hermetic can prove that event fires", event)
 	}
+}
+
+// TestMock_ToolClassesNarrowTheToolEvents: the mock's tool vocabulary is the
+// neutral one, so a shell-class call fires pre_shell and a file-edit-class
+// call fires post_file_edit — and neither fires the other's.
+//
+// MUTATION -- narrow on any other tool name in eventsOfTurn -- turns this red.
+func TestMock_ToolClassesNarrowTheToolEvents(t *testing.T) {
+	dir := t.TempDir()
+	shell, edit := filepath.Join(dir, "shell"), filepath.Join(dir, "edit")
+	_, inst, ex := deliverHookedAt(t, func(u *wire.UnifiedHooks, _ wire.Hook) {
+		u.PreShell = []wire.Hook{{Type: "command", Command: "cat >> " + shell}}
+		u.PostFileEdit = []wire.Hook{{Type: "command", Command: "cat >> " + edit}}
+	}, wire.Hook{})
+	_, err := inst.Drivers()[0].Turn(context.Background(), ex, engine.Turn{Prompt: mock.ToolCall(string(wire.ToolShell))}, nil)
+	require.NoError(t, err)
+	require.FileExists(t, shell)
+	require.NoFileExists(t, edit, "a shell call is no file edit")
+	require.NoError(t, os.Remove(shell))
+	_, err = inst.Drivers()[0].Turn(context.Background(), ex, engine.Turn{Prompt: mock.ToolCall(string(wire.ToolFileEdit))}, nil)
+	require.NoError(t, err)
+	require.FileExists(t, edit)
+	require.NoFileExists(t, shell, "a file edit is no shell call")
+}
+
+// TestMock_AHookNarrowedToAToolClass_FiresOnlyForThatTool: a hook carrying a
+// tool class (wire.Hook.Tool) is bound to the mock's tool of that class when
+// it is delivered, so it fires for that tool and no other.
+//
+// MUTATION -- make the mock's toolMatcher admit every tool -- turns this red.
+func TestMock_AHookNarrowedToAToolClass_FiresOnlyForThatTool(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "fired")
+	_, inst, ex := deliverHookedAt(t, func(u *wire.UnifiedHooks, h wire.Hook) { u.PostTool = []wire.Hook{h} },
+		wire.Hook{Type: "command", Tool: wire.ToolSkill, Command: "cat > " + marker})
+	_, err := inst.Drivers()[0].Turn(context.Background(), ex, engine.Turn{Prompt: mock.ToolCall(string(wire.ToolShell))}, nil)
+	require.NoError(t, err)
+	require.NoFileExists(t, marker, "a shell call is not the skill tool")
+	_, err = inst.Drivers()[0].Turn(context.Background(), ex, engine.Turn{Prompt: mock.ToolCall(string(wire.ToolSkill))}, nil)
+	require.NoError(t, err)
+	require.FileExists(t, marker)
+}
+
+// TestMock_ADeliveredCallbackNamesTheDouble: a ctxloom callback delivered to
+// a mock double names that double as the engine firing it — the double's own
+// name, never the base mock's — so the verb decodes through its codec.
+func TestMock_ADeliveredCallbackNamesTheDouble(t *testing.T) {
+	_, _, ex := deliverHookedAt(t, func(u *wire.UnifiedHooks, h wire.Hook) { u.TurnEnd = []wire.Hook{h} }, agent.NewNextStepHook())
+	file := ""
+	for i, a := range ex.Args {
+		if a == mock.HooksFlag && i+1 < len(ex.Args) {
+			file = ex.Args[i+1]
+		}
+	}
+	hooks, err := mock.DeliveredHooksFile(file)
+	require.NoError(t, err)
+	require.Len(t, hooks.TurnEnd, 1)
+	require.Equal(t, []string{"hook", "next-step", agent.HookEngineFlag, string(mock.Name)}, hooks.TurnEnd[0].Args)
+}
+
+// TestMock_HooksCodec_RoundTripsItsOwnWire: the mock's codec decodes the
+// fields its own payload carries, encodes a response in its own shape, names
+// a skill only for its skill tool, and bounds no context.
+func TestMock_HooksCodec_RoundTripsItsOwnWire(t *testing.T) {
+	codec := mock.New().Hooks()
+	ev, err := codec.Decode("turn_start", []byte(`{"event":"turn_start","session":"k","tool":"shell","prompt":"p"}`))
+	require.NoError(t, err)
+	require.Equal(t, engine.HookEvent{Event: "turn_start", NativeSession: "k", Tool: "shell", Prompt: "p"}, ev)
+
+	reply, err := codec.Encode("turn_start", engine.HookResponse{Context: "c", Block: true, Reason: "r"})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"context":"c","block":true,"reason":"r"}`, string(reply.Stdout))
+
+	name, ok := codec.InvokedSkill(string(wire.ToolSkill), []byte(`"closeout"`))
+	require.True(t, ok)
+	require.Equal(t, "closeout", name)
+	_, ok = codec.InvokedSkill(string(wire.ToolShell), []byte(`"closeout"`))
+	require.False(t, ok)
+	require.Zero(t, codec.ContextLimit())
+}
+
+// TestMock_TheLossyDoublesHookFileOmitsItsDeclaredLosses: the lossy double
+// declares session_start and session_end lost (it neither exports nor fires
+// them), so its delivered hook file carries no hook for either — the file
+// agrees with the loss report — while every event it does fire is kept.
+//
+// MUTATION -- stop clearing the lost events in hooksFile.DeliverHooks --
+// turns this red.
+func TestMock_TheLossyDoublesHookFileOmitsItsDeclaredLosses(t *testing.T) {
+	eng := mock.NewNamed(mock.NameLossy, mock.WithoutHookEvents("session_start", "session_end"))
+	lost := eng.Root().HookLosses
+	require.NotEmpty(t, lost, "precondition: the lossy double declares hook losses")
+	h := wire.Hook{Type: "command", Command: "true"}
+	_, _, ex := deliverHookedOn(t, eng, func(u *wire.UnifiedHooks, _ wire.Hook) {
+		u.SessionStart, u.SessionEnd, u.TurnStart = []wire.Hook{h}, []wire.Hook{h}, []wire.Hook{h}
+	}, h)
+	file := ""
+	for i, a := range ex.Args {
+		if a == mock.HooksFlag && i+1 < len(ex.Args) {
+			file = ex.Args[i+1]
+		}
+	}
+	require.NotEmpty(t, file, "the hook file is announced on --hooks")
+	got, err := mock.DeliveredHooksFile(file)
+	require.NoError(t, err)
+	for event := range lost {
+		assert.Empty(t, got.Event(event), "%s is declared lost and must not be in the file", event)
+	}
+	assert.Len(t, got.TurnStart, 1, "an event the double fires is kept")
 }

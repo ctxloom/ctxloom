@@ -14,7 +14,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
-	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -50,9 +49,9 @@ func outstanding(t *testing.T) []string {
 }
 
 // decoded parses stdout as the UserPromptSubmit output, whatever its shape.
-func decoded(t *testing.T, out *bytes.Buffer) claude.UserPromptSubmitOutput {
+func decoded(t *testing.T, out *bytes.Buffer) claudeAnswer {
 	t.Helper()
-	var env claude.UserPromptSubmitOutput
+	var env claudeAnswer
 	require.NoError(t, json.Unmarshal(out.Bytes(), &env), "stdout is not the output the engine parses:\n%s", out.String())
 	return env
 }
@@ -62,10 +61,10 @@ func TestDrainMail_AWakeWithNothingPendingIsBlockedAndConsumed(t *testing.T) {
 	nonce := armOwnerWake(t)
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, engine.WakeText(nonce)), mailDrainOwner))
+	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, engine.WakeText(nonce)), claudeCodec(t), mailDrainOwner))
 
 	env := decoded(t, &out)
-	assert.Equal(t, claude.DecisionBlock, env.Decision, "a stale wake must not cost a model turn")
+	assert.Equal(t, "block", env.Decision, "a stale wake must not cost a model turn")
 	assert.NotEmpty(t, env.Reason, "the block names why, for the human who sees it")
 	assert.Nil(t, env.HookSpecificOutput, "a blocked prompt carries no context")
 	assert.Empty(t, outstanding(t), "the wake was redeemed")
@@ -76,8 +75,8 @@ func TestDrainMail_AWakeWithNothingPendingIsBlockedAndConsumed(t *testing.T) {
 func TestDrainMail_AnAlreadyRedeemedWakeIsStillBlocked(t *testing.T) {
 	testsupport.Isolate(t)
 	var out bytes.Buffer
-	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, engine.WakeText("0123456789abcdef")), mailDrainOwner))
-	assert.Equal(t, claude.DecisionBlock, decoded(t, &out).Decision)
+	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, engine.WakeText("0123456789abcdef")), claudeCodec(t), mailDrainOwner))
+	assert.Equal(t, "block", decoded(t, &out).Decision)
 }
 
 func TestDrainMail_AWakeWithMailDeliversItAndConsumesTheNonce(t *testing.T) {
@@ -86,7 +85,7 @@ func TestDrainMail_AWakeWithMailDeliversItAndConsumesTheNonce(t *testing.T) {
 	name := seedOwnerMail(t, "child-one", "report", "FINAL: done\n")
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, engine.WakeText(nonce)), mailDrainOwner))
+	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, engine.WakeText(nonce)), claudeCodec(t), mailDrainOwner))
 
 	env := drainedEnvelope(t, &out)
 	assert.Empty(t, env.Decision, "a wake that found mail is a turn")
@@ -104,7 +103,7 @@ func TestDrainMail_AHumanPromptQuotingTheWakeIsNotTheWake(t *testing.T) {
 	nonce := armOwnerWake(t)
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, "what did the child say? "+engine.WakeText(nonce)), mailDrainOwner))
+	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, "what did the child say? "+engine.WakeText(nonce)), claudeCodec(t), mailDrainOwner))
 
 	assert.Empty(t, out.String(), "a human's prompt is never blocked, and there is nothing to deliver")
 	assert.Equal(t, []string{nonce}, outstanding(t), "quoting the wake text is not the wake")
@@ -113,23 +112,44 @@ func TestDrainMail_AHumanPromptQuotingTheWakeIsNotTheWake(t *testing.T) {
 func TestDrainMail_AHumanPromptWithNothingPendingWritesNothing(t *testing.T) {
 	testsupport.Isolate(t)
 	var out bytes.Buffer
-	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, "hello"), mailDrainOwner))
+	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, "hello"), claudeCodec(t), mailDrainOwner))
 	assert.Empty(t, out.String(), "a human's prompt with no mail is silent — never a block")
 }
 
-// A payload the hook cannot read as a prompt (an engine that sends none) is
-// treated as a human's turn: delivered, never blocked.
+// A payload that carries no prompt is a human's turn: delivered, never
+// blocked.
 func TestDrainMail_APayloadWithoutAPromptIsNotAWake(t *testing.T) {
 	testsupport.Isolate(t)
 	seedOwnerMail(t, "child-one", "report", "FINAL: done\n")
-	for _, payload := range []string{`{"event":"turn_start"}`, `not json`, ``} {
-		var out bytes.Buffer
-		c := mailDrainCmd(&out)
-		c.SetIn(strings.NewReader(payload))
-		require.NoError(t, drainMail(afero.NewOsFs(), c, mailDrainOwner))
-		if out.Len() > 0 {
-			assert.Empty(t, decoded(t, &out).Decision, "payload %q", payload)
-		}
+	var out bytes.Buffer
+	c := mailDrainCmd(&out)
+	c.SetIn(strings.NewReader(`{"hook_event_name":"UserPromptSubmit"}`))
+	require.NoError(t, drainMail(afero.NewOsFs(), c, claudeCodec(t), mailDrainOwner))
+	env := decoded(t, &out)
+	assert.Empty(t, env.Decision)
+	require.NotNil(t, env.HookSpecificOutput, "the waiting mail is delivered")
+}
+
+// A payload the firing engine's codec cannot decode is NAMED — it was not
+// checked for a wake, and an unredeemed wake refuses every later one — while
+// the waiting mail is still delivered and the turn is never blocked.
+//
+// MUTATION -- ignore the codec's Decode error in drainMail -- turns this red.
+func TestDrainMail_AnUndecodablePayloadIsReportedAndMailStillDelivers(t *testing.T) {
+	for name, payload := range map[string]string{"not json": `not json`, "empty": ``} {
+		t.Run(name, func(t *testing.T) {
+			testsupport.Isolate(t)
+			seedOwnerMail(t, "child-one", "report", "FINAL: done\n")
+			var out bytes.Buffer
+			c := mailDrainCmd(&out)
+			c.SetIn(strings.NewReader(payload))
+			err := drainMail(afero.NewOsFs(), c, claudeCodec(t), mailDrainOwner)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "did not decode")
+			env := decoded(t, &out)
+			assert.Empty(t, env.Decision)
+			require.NotNil(t, env.HookSpecificOutput, "the waiting mail is delivered all the same")
+		})
 	}
 }
 
@@ -143,13 +163,13 @@ func TestDrainMail_ADuplicateMessageIsDeliveredOnce(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, "hi"), mailDrainOwner))
+	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, "hi"), claudeCodec(t), mailDrainOwner))
 	assert.Equal(t, 1, strings.Count(drainedEnvelope(t, &out).HookSpecificOutput.AdditionalContext, "FINAL: once"))
 
 	_, err = w.Write(&spool.Message{Kind: "report", FromHarp: "child-one", To: mailDrainOwner, OriginID: "msg-1", Body: "FINAL: once\n"})
 	require.NoError(t, err)
 	out.Reset()
-	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, "again"), mailDrainOwner))
+	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, "again"), claudeCodec(t), mailDrainOwner))
 	assert.Empty(t, out.String(), "a re-send of a delivered message is not delivered again")
 	assert.Equal(t, []string{"msg-1"}, deliveredIDs(t), "one identity, delivered once")
 	assert.Empty(t, spoolNames(t, spool.DirIn), "the re-sends are dropped, not left to be re-read")
@@ -168,7 +188,7 @@ func TestDrainMail_ADrainClearsEveryOutstandingWake(t *testing.T) {
 	seedOwnerMail(t, "child", "result", "done\n")
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, "what did the child say?"), mailDrainOwner))
+	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, "what did the child say?"), claudeCodec(t), mailDrainOwner))
 
 	require.NotNil(t, decoded(t, &out).HookSpecificOutput, "the mail was delivered")
 	assert.Empty(t, outstanding(t), "a delivering turn answers every wake that announced its mail")
@@ -182,7 +202,7 @@ func TestDrainMail_ATurnWithNoMailLeavesWakesArmed(t *testing.T) {
 	armOwnerWake(t)
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, "hello"), mailDrainOwner))
+	require.NoError(t, drainMail(afero.NewOsFs(), promptCmd(t, &out, "hello"), claudeCodec(t), mailDrainOwner))
 
 	assert.Empty(t, out.String())
 	assert.Len(t, outstanding(t), 1)

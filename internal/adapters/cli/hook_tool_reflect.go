@@ -1,14 +1,13 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -29,11 +28,11 @@ const ToolReflectReminder = "That tool result was large. Before your next tool c
 
 var hookToolReflectCmd = &cobra.Command{
 	Use:    "tool-reflect",
-	Hidden: true, // Machine callback (PostToolUse hook) - not for direct use
+	Hidden: true, // Machine callback (post_tool hook) - not for direct use
 	Short:  "Prompt for a finding after a large tool result",
-	Long: `Reads a PostToolUse hook payload on stdin and, when the tool result is at
-least --min-output-bytes, emits an additionalContext reminder asking the agent
-to state what it learned.
+	Long: `Reads a post_tool hook payload on stdin, through the codec of the engine
+--engine names, and, when the tool result is at least --min-output-bytes,
+answers with a reminder asking the agent to state what it learned.
 
 Compaction reduces a tool result to its shape (byte and line counts) because
 a truncated fragment of one is neither the information nor a summary of it. The
@@ -48,57 +47,46 @@ results are small enough that their shape describes them adequately.`,
 	RunE:          runHookToolReflect,
 }
 
+// runHookToolReflect never reports a nonzero exit: a post_tool hook that
+// fails interrupts the tool call it rode on. A payload the firing engine's
+// codec cannot read is NAMED on the diagnostic channel and answered with
+// silence: a hook that fired on everything it could not parse would be
+// loudest exactly where it understood least.
 func runHookToolReflect(cmd *cobra.Command, args []string) (err error) {
-	// A hook that panics or errors must still leave valid JSON on stdout, or
-	// the host is left parsing nothing. Silence is the safe output here: it
-	// injects no context and blocks nothing.
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom hook tool-reflect: panic: %v\n", r)
-			fmt.Println("{}")
 			err = nil
 		}
 	}()
-
-	raw, readErr := io.ReadAll(cmd.InOrStdin())
-	if readErr != nil {
-		clidiag.Warn("ctxloom hook tool-reflect", "failed to read hook input: %v", readErr)
-		fmt.Println("{}")
+	kind, err := firingEngine(cmd)
+	if err != nil {
+		clidiag.Warn("ctxloom hook tool-reflect", "%v", err)
 		return nil
 	}
-
-	out := buildToolReflectOutput(raw, toolReflectMinBytes)
-	if encErr := json.NewEncoder(cmd.OutOrStdout()).Encode(out); encErr != nil {
-		clidiag.Warn("ctxloom hook tool-reflect", "failed to encode output: %v", encErr)
-		fmt.Println("{}")
+	codec := kind.Hooks()
+	var resp engine.HookResponse
+	ev, err := readHookEvent(cmd, codec, wire.HookEventPostTool)
+	if err != nil {
+		clidiag.Warn("ctxloom hook tool-reflect", "%v", err)
+	} else {
+		resp = toolReflectResponse(ev, toolReflectMinBytes)
+	}
+	if err := writeHookResponse(cmd, codec, wire.HookEventPostTool, resp); err != nil {
+		clidiag.Warn("ctxloom hook tool-reflect", "failed to answer the hook: %v", err)
 	}
 	return nil
 }
 
-// buildToolReflectOutput decides whether one PostToolUse payload earns a
-// reminder. Split from runHookToolReflect so the decision is testable without
-// a process, and so the stdin/stdout plumbing has nothing to get wrong.
-//
-// An undecodable payload produces silence rather than a reminder: a hook that
-// fired on everything it could not parse would be loudest exactly where it
-// understood least.
-func buildToolReflectOutput(raw []byte, minBytes int) claude.PostToolUseOutput {
-	if minBytes <= 0 {
-		return claude.PostToolUseOutput{}
+// toolReflectResponse decides whether one post_tool event earns a reminder:
+// a tool response of at least minBytes does. Split from runHookToolReflect so
+// the decision is testable without a process, and so the stdin/stdout
+// plumbing has nothing to get wrong.
+func toolReflectResponse(ev engine.HookEvent, minBytes int) engine.HookResponse {
+	if minBytes <= 0 || len(ev.ToolResponse) < minBytes {
+		return engine.HookResponse{}
 	}
-	var payload claude.PostToolUsePayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return claude.PostToolUseOutput{}
-	}
-	if len(payload.ToolResponse) < minBytes {
-		return claude.PostToolUseOutput{}
-	}
-	return claude.PostToolUseOutput{
-		HookSpecificOutput: &claude.PostToolUseSpecificOutput{
-			HookEventName:     claude.HookEventPostToolUse,
-			AdditionalContext: ToolReflectReminder,
-		},
-	}
+	return engine.HookResponse{Context: ToolReflectReminder}
 }
 
 func init() {

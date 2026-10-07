@@ -69,7 +69,7 @@ func TestBindSessionFromPayload_ContainerChildViewWritesNothing(t *testing.T) {
 	}
 
 	payload := `{"session_id":"child-id","transcript_path":"` + filepath.Join(native, "projects", "-proj", "child-id.jsonl") + `"}`
-	if err := bindSessionFromPayload(strings.NewReader(payload), harp); err != nil {
+	if err := bindSessionFromPayload(strings.NewReader(payload), claudeCodec(t), harp); err != nil {
 		t.Fatalf("bind: %v", err)
 	}
 

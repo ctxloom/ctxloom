@@ -118,31 +118,6 @@ func hookEventMap() map[string]string {
 	return out
 }
 
-// hookCodec decodes the JSON claude writes to a hook's stdin: the native
-// session id and transcript path every payload carries, and the event —
-// the payload's own hook_event_name when present, else the event the hook
-// registration named.
-type hookCodec struct{}
-
-func (hookCodec) Decode(event string, payload []byte) (engine.HookEvent, error) {
-	var p HookPayload
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return engine.HookEvent{}, fmt.Errorf("claude hook payload: %w", err)
-	}
-	native := p.HookEventName
-	if native == "" {
-		native = event
-	}
-	out := engine.HookEvent{Event: native, NativeSession: p.SessionID, Transcript: p.TranscriptPath}
-	for _, e := range nativeHookEvents {
-		if e.native == native || e.unified == native {
-			out.Event = e.unified
-			break
-		}
-	}
-	return out, nil
-}
-
 // instance is one claude kind bound to one session. key is the native
 // session to continue, set by Resume.
 type instance struct {

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"errors"
-	"io"
 	"os"
 
 	"github.com/spf13/afero"
@@ -13,7 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/turnchange"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -24,7 +24,8 @@ var hookNextStepCmd = &cobra.Command{
 	Use:    "next-step",
 	Hidden: true, // Machine callback (TurnEnd hook) — not for direct use
 	Short:  "Capture what the agent was about to do next (internal — used by the TurnEnd hook)",
-	Long: `Reads a TurnEnd hook payload on stdin and stores the last assistant message
+	Long: `Reads a turn_end hook payload on stdin, through the codec of the engine
+--engine names, and stores the last assistant message
 of the turn as this harp's next step, replacing the one stored a turn earlier.
 
 There is no LLM call and no model output: the last thing the agent said is
@@ -49,7 +50,11 @@ overwrites: whatever the final turn said is what survives the session.`,
 // the alternative is this project's characteristic bug: exit 0, and zero bytes
 // written, with nothing said about which.
 func runHookNextStep(cmd *cobra.Command, args []string) error {
-	if err := captureNextStep(cmd); err != nil {
+	kind, err := firingEngine(cmd)
+	if err == nil {
+		err = captureNextStep(cmd, kind.Hooks())
+	}
+	if err != nil {
 		clidiag.Warn(nextStepProg, "no next step captured: %v", err)
 	}
 	return nil
@@ -57,16 +62,12 @@ func runHookNextStep(cmd *cobra.Command, args []string) error {
 
 // captureNextStep does the work and RETURNS its failure rather than warning
 // itself, so a test can assert which reason fired without parsing stderr.
-func captureNextStep(cmd *cobra.Command) error {
+func captureNextStep(cmd *cobra.Command, codec engine.HookCodec) error {
 	harp := os.Getenv(agent.SessionHarpEnv)
 	if harp == "" {
 		return errors.New("no " + agent.SessionHarpEnv + " in the environment: there is no harp to store a next step under")
 	}
-	raw, err := io.ReadAll(cmd.InOrStdin())
-	if err != nil {
-		return err
-	}
-	payload, err := claude.DecodeStopPayload(raw)
+	ev, err := readHookEvent(cmd, codec, wire.HookEventTurnEnd)
 	if err != nil {
 		return err
 	}
@@ -74,7 +75,7 @@ func captureNextStep(cmd *cobra.Command) error {
 	// hook is installed on every hooking backend, so assuming one engine's
 	// format here is how the capture fires every turn on the others and
 	// stores nothing.
-	adapter, src, err := operations.ResolveTurnTranscript(cmd.Context(), afero.NewOsFs(), App().Engines(), harp, payload.TranscriptPath)
+	adapter, src, err := operations.ResolveTurnTranscript(cmd.Context(), afero.NewOsFs(), App().Engines(), harp, ev.Transcript)
 	if err != nil {
 		return err
 	}

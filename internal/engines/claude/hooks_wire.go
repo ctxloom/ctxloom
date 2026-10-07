@@ -6,6 +6,8 @@ import "encoding/json"
 // wire protocol: the JSON Claude Code writes to a hook's stdin and the
 // decision JSON it accepts on stdout. Consumers that sit on the hook wire
 // (ltk's claude-code engine) import these types instead of redefining them.
+// ctxloom's own hook verbs never do: they reach claude's wire through the
+// hook codec (hookcodec.go, Engine.Hooks()).
 //
 // Contract (verified):
 //   - Allow / pass-through: emit nothing, exit 0. The normal permission flow
@@ -68,104 +70,23 @@ type HookSpecificOutput struct {
 	PermissionDecisionReason string `json:"permissionDecisionReason,omitempty"`
 }
 
-// --- SessionStart wire shapes ----------------------------------------------
-//
-// SessionStart: Claude Code writes session identity to the hook's stdin and
-// accepts an additionalContext envelope on stdout. ctxloom's SessionStart
-// hook targets sit on this wire; they import these types instead of
-// redefining them.
+// --- the context envelope ---------------------------------------------------
 
-// HookEventSessionStart is the event name carried in SessionStart decisions.
+// HookEventSessionStart is claude's native event for the unified
+// session_start.
 const HookEventSessionStart = "SessionStart"
 
-// SessionStartPayload is the JSON Claude Code writes to a SessionStart hook's
-// stdin: the session id, the path of the engine's own transcript file (what
-// the bind step records forward), and the launch kind.
-type SessionStartPayload struct {
-	SessionID      string `json:"session_id"`
-	TranscriptPath string `json:"transcript_path"`
-	Source         string `json:"source"` // startup|resume|clear|compact
-}
-
-// SessionStartOutput is the JSON a SessionStart hook writes to stdout to
-// inject context. An empty output (no hookSpecificOutput) injects nothing.
-type SessionStartOutput struct {
-	HookSpecificOutput *AdditionalContextOutput `json:"hookSpecificOutput,omitempty"`
-	// SystemMessage rides a separate channel from HookSpecificOutput: Claude
-	// Code surfaces it to the user in the terminal, NOT to the model. ctxloom
-	// uses it to nudge the user toward /recover after a /clear, where the model
-	// gets no recovered context but the human should know it can be pulled back.
-	SystemMessage string `json:"systemMessage,omitempty"`
-}
-
-// AdditionalContextMaxChars bounds what ctxloom puts in one hook's
-// additionalContext. Claude Code caps a single hook's additionalContext at
-// ~10,000 chars: output above that is persisted to a file and only a ~2KB
-// preview reaches the model. This keeps a safety margin under that cap.
-const AdditionalContextMaxChars = 7500
+// hookEventPostToolUse is claude's native event for the unified post_tool
+// (and, narrowed by a matcher, post_file_edit).
+const hookEventPostToolUse = "PostToolUse"
 
 // AdditionalContextOutput carries the additional context to inject. It is the
 // hookSpecificOutput of every event whose stdout becomes model-visible
-// context — SessionStart and UserPromptSubmit — with HookEventName naming
-// which; Claude Code refuses an envelope whose event does not match the hook
-// that produced it.
+// context — SessionStart, UserPromptSubmit and PostToolUse — with
+// HookEventName naming which; Claude Code refuses an envelope whose event does
+// not match the hook that produced it. The hook codec (hookcodec.go) is its
+// one writer.
 type AdditionalContextOutput struct {
-	HookEventName     string `json:"hookEventName"`
-	AdditionalContext string `json:"additionalContext,omitempty"`
-}
-
-// --- UserPromptSubmit wire shapes ------------------------------------------
-
-// UserPromptSubmitOutput is the JSON a UserPromptSubmit hook writes to stdout
-// to add context to the turn that is starting. An empty output injects
-// nothing; a hook with nothing to say writes no envelope at all, because an
-// envelope with an empty additionalContext is still an event the model sees.
-type UserPromptSubmitOutput struct {
-	// Decision, when DecisionBlock, stops the prompt from being processed:
-	// no model turn runs, and Reason is shown to the user, not the model.
-	Decision           string                   `json:"decision,omitempty"`
-	Reason             string                   `json:"reason,omitempty"`
-	HookSpecificOutput *AdditionalContextOutput `json:"hookSpecificOutput,omitempty"`
-}
-
-// DecisionBlock is the UserPromptSubmit decision that erases the prompt.
-const DecisionBlock = "block"
-
-// UserPromptSubmitPayload is the part of a UserPromptSubmit hook's stdin a
-// hook reads: the prompt as submitted.
-type UserPromptSubmitPayload struct {
-	Prompt string `json:"prompt"`
-}
-
-// --- PostToolUse wire shapes -----------------------------------------------
-
-// HookEventPostToolUse is the event name a PostToolUse decision carries back.
-const HookEventPostToolUse = "PostToolUse"
-
-// PostToolUsePayload is the JSON written to a PostToolUse hook's stdin.
-// ToolInput and ToolResponse are left RAW because their shape is per-tool (a
-// string for some, an object for others): the reflect hook needs only the
-// response's size, the skill-mates hook only the Skill tool's input
-// (InvokedSkill), and decoding either into a concrete type would make a hook
-// fail on every tool it had not modelled.
-type PostToolUsePayload struct {
-	SessionID      string          `json:"session_id"`
-	TranscriptPath string          `json:"transcript_path,omitempty"`
-	Cwd            string          `json:"cwd,omitempty"`
-	ToolName       string          `json:"tool_name"`
-	ToolInput      json.RawMessage `json:"tool_input,omitempty"`
-	ToolResponse   json.RawMessage `json:"tool_response"`
-}
-
-// PostToolUseOutput is the JSON a PostToolUse hook writes to stdout. An empty
-// output injects nothing, which is the common case: the hook stays silent
-// below its threshold.
-type PostToolUseOutput struct {
-	HookSpecificOutput *PostToolUseSpecificOutput `json:"hookSpecificOutput,omitempty"`
-}
-
-// PostToolUseSpecificOutput carries context injected after a tool call.
-type PostToolUseSpecificOutput struct {
 	HookEventName     string `json:"hookEventName"`
 	AdditionalContext string `json:"additionalContext,omitempty"`
 }
@@ -184,29 +105,4 @@ func EncodeDeny(reason string) ([]byte, error) {
 		PermissionDecision:       permissionDeny,
 		PermissionDecisionReason: reason,
 	}})
-}
-
-// --- Stop wire shape -------------------------------------------------------
-
-// StopPayload is the JSON Claude Code writes to a Stop hook's stdin. It fires
-// when a turn is about to end; transcript_path points at the session's own
-// native JSONL store, which is what makes the TURN (rather than the working
-// tree) measurable from a hook.
-//
-// StopHookActive is set when the turn is already resuming because a Stop hook
-// blocked. A hook that blocks again while it is true is an infinite loop, so
-// every Stop hook must exit first and unconditionally on it.
-type StopPayload struct {
-	SessionID      string `json:"session_id,omitempty"`
-	TranscriptPath string `json:"transcript_path,omitempty"`
-	Cwd            string `json:"cwd,omitempty"`
-	HookEventName  string `json:"hook_event_name,omitempty"`
-	StopHookActive bool   `json:"stop_hook_active,omitempty"`
-}
-
-// DecodeStopPayload parses a Stop hook stdin payload.
-func DecodeStopPayload(data []byte) (StopPayload, error) {
-	var p StopPayload
-	err := json.Unmarshal(data, &p)
-	return p, err
 }

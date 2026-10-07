@@ -96,14 +96,16 @@ const SkillMatesTimeout = 15
 // hook is the completion signal, and the hook's additionalContext is the
 // channel -- the same vehicle the skill listing rides.
 //
-// Matched to the Skill tool alone: for any other tool the answer is silence,
-// and a process spawn plus a transcript read is too much to pay to hear it.
+// Narrowed to the skill tool class alone (wire.ToolSkill, which each engine's
+// hooks approach maps to its own skill tool): for any other tool the answer is
+// silence, and a process spawn plus a transcript read is too much to pay to
+// hear it.
 // No arguments, for the reason NewNextStepHook gives: the installed command
 // outlives the session that wrote it, so the session is resolved from the
 // environment at fire time.
 func NewSkillMatesHook() wire.Hook {
 	h := ctxloomCallback(SkillMatesTimeout, "skill-mates")
-	h.Matcher = "Skill"
+	h.Tool = wire.ToolSkill
 	return h
 }
 

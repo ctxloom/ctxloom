@@ -132,7 +132,7 @@ func TestInstall_CtxloomHooksAreWrittenInExecForm(t *testing.T) {
 	}
 	var want, got [][]string
 	for _, h := range own {
-		want = append(want, h.Args)
+		want = append(want, boundArgs(h.Args))
 	}
 	for _, h := range written {
 		assert.Equal(t, agent.CtxloomCommand(), h.Command, "the executable alone")
@@ -208,9 +208,21 @@ func TestInstall_WithoutARecord_TakesOutSupersededSpellingsOfItsOwnHooks(t *test
 	}}, nil)
 
 	assert.ElementsMatch(t, []string{
-		nextStep.Line(),
-		agent.NewSessionStartHook().Line(),
+		boundHook(nextStep).Line(),
+		boundHook(agent.NewSessionStartHook()).Line(),
 		userScript,
 		"'ctxloom' 'doctor'",
 	}, hookCommands(t, dir))
+}
+
+// boundArgs is a ctxloom callback's argv as claude's hooks approach delivers
+// it: naming claude as the engine that fires it (agent.BindHooks).
+func boundArgs(args []string) []string {
+	return append(append([]string(nil), args...), agent.HookEngineFlag, EngineName)
+}
+
+// boundHook is h as delivered to claude (boundArgs).
+func boundHook(h wire.Hook) wire.Hook {
+	h.Args = boundArgs(h.Args)
+	return h
 }

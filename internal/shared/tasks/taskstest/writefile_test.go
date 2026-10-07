@@ -37,8 +37,7 @@ func TestWriteFile_CreatesNestedParentsOnARealBackedFs(t *testing.T) {
 }
 
 // TestWriteFile_DirModeMatchesFileMode pins dirPermFor's DECIDED rule: a
-// 0600 file (the private-store convention, e.g.
-// operations.appendAllowedSignersLine's allowed_signers write) pairs with a
+// 0600 file (the private-store convention) pairs with a
 // 0700 directory, and every other file mode pairs with 0755 — mirroring that
 // existing pairing rather than adding a fourth mode spelling.
 func TestWriteFile_DirModeMatchesFileMode(t *testing.T) {

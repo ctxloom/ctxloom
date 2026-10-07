@@ -12,8 +12,7 @@ import (
 
 // WriteFile creates path's parent directory (mode dirPermFor(perm)) on fs and
 // then writes data through safefs.WriteFile — the same MkdirAll-then-
-// atomic-write sequence production writers use (e.g.
-// internal/adapters/operations/signer.go#appendAllowedSignersLine).
+// atomic-write sequence production writers use.
 //
 // A fixture calling afero.WriteFile directly does not create parents, which
 // only stays invisible on a MemMapFs (it auto-creates them); the moment the
@@ -84,8 +83,7 @@ func SeedTree(t testing.TB, fs afero.Fs, root string, files map[string]string) {
 }
 
 // dirPermFor derives a parent-directory mode from the file mode being
-// written there: 0o600 — the private-store convention (e.g.
-// appendAllowedSignersLine's allowed_signers write) — pairs with 0o700, and
+// written there: 0o600 — the private-store convention — pairs with 0o700, and
 // every other mode pairs with 0o755. This mirrors that existing pairing
 // rather than adding a fourth mode spelling to a repo that already has three.
 func dirPermFor(perm os.FileMode) os.FileMode {

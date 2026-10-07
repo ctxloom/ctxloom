@@ -26,7 +26,7 @@ type Draft = configDoc
 
 // Snapshot is one GENERATION of everything that derives from the config files
 // and the lockfile: the Config value and the bundle Catalog resolved from the
-// sources' readers, verified against the sources' trust root. Nothing
+// sources' readers. Nothing
 // in it re-reads the world; a consumer that holds one sees one state for the
 // whole operation it threads it through.
 type Snapshot struct {
@@ -136,7 +136,7 @@ func (o *Owner) reloadLocked(ctx context.Context) (*Snapshot, error) {
 	return snap, nil
 }
 
-// build resolves the generation's trust root and then its Catalog from the
+// build resolves the generation's Catalog from the
 // sources and binds both to the generation's OWN Config value, so a consumer that
 // reaches this generation through its *Config sees the same catalog
 // the Snapshot carries — and a consumer still holding an earlier

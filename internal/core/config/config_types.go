@@ -264,52 +264,14 @@ type SettingsConfig struct {
 	//
 	// It silences only DECLARED losses; ctxloom's own machinery is already
 	// excluded upstream (ManagedHooks.WireDeclared).
-	SilenceUnsupported bool        `mapstructure:"silence_unsupported" yaml:"silence_unsupported,omitempty"`
-	Sign               *SignConfig `mapstructure:"sign" yaml:"sign,omitempty"` // Publisher-signing defaults (spec §7A.3)
-}
-
-// SignConfig holds the publisher-signing defaults (signature-envelope spec
-// §7A.3): `sign.default` makes signing ride every push the way `git commit
-// -S` rides every commit ("the best signing ceremony is the one that
-// already happened"), and `sign.key` pins the explicit key/fingerprint the
-// zero-config discovery chain (internal/adapters/signing/agentkey) should use when
-// set, overriding git config user.signingkey and ssh-agent auto-detection.
-type SignConfig struct {
-	// Default: when true, `fragment push`/`command push` sign unless --no-sign
-	// is given. Defaults to false — signing must be opted into, exactly like
-	// git commit -S is opt-in until gpg.commit.sign flips it.
-	Default bool `mapstructure:"default" yaml:"default,omitempty"`
-	// Key is an explicit --key-equivalent: a SHA256:... fingerprint, a path
-	// to a public key, or a ssh-agent key's comment/name (matched
-	// case-insensitively, substring OK — the name printed in the
-	// "multiple keys in ssh-agent" error). Empty means "use the zero-config
-	// discovery chain" (git config user.signingkey, then the sole ssh-agent
-	// identity).
-	Key string `mapstructure:"key" yaml:"key,omitempty"`
+	SilenceUnsupported bool `mapstructure:"silence_unsupported" yaml:"silence_unsupported,omitempty"`
 }
 
 // hasAny reports whether any setting is set, so Save can prune the block when
 // empty. It MUST cover every field, or setting only an uncovered field would
 // silently drop the whole block on the next Save.
 func (s SettingsConfig) hasAny() bool {
-	return s.UseDistilled != nil || s.Statusline != nil || s.Sign != nil || s.ToolReflectBytes != 0 || s.EssenceMaxChars != 0 || s.SilenceUnsupported
-}
-
-// ShouldSignByDefault reports whether publish commands should sign unless
-// --no-sign is given (spec §7A.3, `sign.default`). Defaults to false.
-func (s *SettingsConfig) ShouldSignByDefault() bool {
-	if s == nil || s.Sign == nil {
-		return false
-	}
-	return s.Sign.Default
-}
-
-// SignKey returns the configured sign.key override, or "" when unset.
-func (s *SettingsConfig) SignKey() string {
-	if s == nil || s.Sign == nil {
-		return ""
-	}
-	return s.Sign.Key
+	return s.UseDistilled != nil || s.Statusline != nil || s.ToolReflectBytes != 0 || s.EssenceMaxChars != 0 || s.SilenceUnsupported
 }
 
 // ShouldUseDistilled returns whether to prefer distilled versions of

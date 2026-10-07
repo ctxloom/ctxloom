@@ -173,8 +173,6 @@ llm:
     fast: main
 config:
   use_distilled: true
-  sign:
-    default: true
 default_agent: dev
 agents:
   dev:

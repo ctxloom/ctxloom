@@ -975,21 +975,6 @@ func (c *Config) ShouldUseDistilled() bool {
 	return c.settings.ShouldUseDistilled()
 }
 
-// ShouldSignByDefault reports whether publish commands (fragment push,
-// command push) should sign unless --no-sign is given (spec §7A.3,
-// sign.default). Defaults to false.
-func (c *Config) ShouldSignByDefault() bool {
-	return c.settings.ShouldSignByDefault()
-}
-
-// SignKey returns the configured sign.key override (a --key-equivalent
-// fingerprint, public key path, or ssh-agent key name/comment), or "" when
-// unset — meaning the zero-config discovery chain (internal/adapters/signing/agentkey)
-// should be used instead.
-func (c *Config) SignKey() string {
-	return c.settings.SignKey()
-}
-
 // GetProfileLoader returns the profiles.Loader for this config: every bundle
 // profile visible to it (the project bundle's among them) seeded in, and the
 // local bundles roots a new profile item is written under.
@@ -1303,10 +1288,9 @@ func (c *Config) warn(k WarningKind, format string, args ...any) {
 // GetBundleDirs returns the project's AUTHORED bundle directories — the
 // committed content tree (.ctxloom/content/bundles), NOT the gitignored cache.
 // This is the set every authored-bundle path resolves against: `bundle create`
-// writes here, `bundle list` lists it, and `sign --all` signs exactly it (a
-// publishing repo's bundles ARE this directory). The cache
-// (paths.CacheBundlesPath) holds remote-pull artifacts the project has no authority
-// to author or sign, so it is deliberately absent.
+// writes here and `bundle list` lists it (a publishing repo's bundles ARE this
+// directory). The cache (paths.CacheBundlesPath) holds remote-pull artifacts
+// the project has no authority to author, so it is deliberately absent.
 func (c *Config) GetBundleDirs() []string {
 	fs := c.getFS()
 	var dirs []string

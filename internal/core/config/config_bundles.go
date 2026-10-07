@@ -194,14 +194,13 @@ func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[
 	// BundleLoader includes remote bundles from the active lockfile AND every
 	// discovered companion's loadout — ctxloom's own included — read under
 	// its ctxloom:companion@<bin> ref; without them, MCP servers shipped in
-	// remote bundles (or a companion loadout) silently disappear (see
-	// docs/bundle-review-plan.md Phase 1.2).
+	// remote bundles (or a companion loadout) silently disappear.
 	bundleLoader := c.BundleLoader()
 
 	// Companion loadouts first, resolved through loadMCPFromBundleRef — the
 	// SAME path a profile-referenced bundle uses (Load -> extractMCPFromBundle)
-	// — so a companion's server is judged by ITS bundle's own source ref and
-	// verified Signer(). Sorted for a deterministic result across runs.
+	// — so a companion's server is keyed by ITS bundle's own source ref.
+	// Sorted for a deterministic result across runs.
 	// Resolving them first only fixes who is the INCUMBENT of a contested
 	// name; it grants no precedence to anyone, because a later source that
 	// declares a name a companion already claimed is refused loudly rather
@@ -351,8 +350,8 @@ func (c *Config) ResolveBundleHooksFor(set []profiles.ResolvedProfile) wire.Unif
 	bundleLoader := c.BundleLoader()
 
 	// Companion loadout hooks (ctxloom's own included): same extraction+gate
-	// path a profile-referenced bundle uses, keyed and signed by the
-	// companion's OWN bundle. Sorted for a deterministic result across runs.
+	// path a profile-referenced bundle uses, keyed by the companion's OWN
+	// bundle. Sorted for a deterministic result across runs.
 	cat := bundleLoader.Catalog()
 	for _, ref := range cat.CompanionRefs() {
 		result.Append(loadHooksFromBundleRef(c.rep, ref, cat, links))

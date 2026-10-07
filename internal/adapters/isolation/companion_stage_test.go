@@ -67,6 +67,21 @@ func TestStageCompanions_StagesOnlyRegisteredAndRegistersThemByName(t *testing.T
 	assert.NotContains(t, warn.String(), "acme", "a companion the image cannot carry is not the image's to report")
 }
 
+// TestStageCompanions_AMissingCompanionDoesNotStopTheRest: a registered
+// companion the host lacks is skipped, never the end of staging — taskloom is
+// staged before ltk, so its absence must not cost the image its ltk.
+func TestStageCompanions_AMissingCompanionDoesNotStopTheRest(t *testing.T) {
+	hostCompanions(t, "ltk")
+	withRegisteredCompanions(t, "taskloom", "ltk")
+	warn := captureWarnings(t)
+
+	ctxDir := t.TempDir()
+	require.NoError(t, stageCompanions(ctxDir))
+
+	assert.FileExists(t, filepath.Join(ctxDir, "companions", "ltk"))
+	assert.Contains(t, warn.String(), "companion taskloom is registered but not on PATH")
+}
+
 // TestStageCompanions_NothingStagedStillMakesTheHomeDir: the Containerfile
 // copies the staged home unconditionally, so it must exist even empty.
 func TestStageCompanions_NothingStagedStillMakesTheHomeDir(t *testing.T) {

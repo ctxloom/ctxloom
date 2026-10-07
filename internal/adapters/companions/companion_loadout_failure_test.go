@@ -92,7 +92,7 @@ func TestProbeLoadout_FailedProbe_WarnsAndContributesNothing(t *testing.T) {
 		{"timeout", func(*testing.T) ([]byte, error) { return nil, fmt.Errorf("%w", context.DeadlineExceeded) }},
 		{"exec error", func(*testing.T) ([]byte, error) { return nil, exec.ErrNotFound }},
 		{"signal", func(t *testing.T) ([]byte, error) { return nil, exitErr(t, "kill -9 $$") }},
-		{"bad envelope", func(*testing.T) ([]byte, error) { return []byte("not an envelope"), nil }},
+		{"printed nothing", func(*testing.T) ([]byte, error) { return nil, nil }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -104,7 +104,7 @@ func TestProbeLoadout_FailedProbe_WarnsAndContributesNothing(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, bundles.CandidateProbeFailed, cand.Reason)
 			assert.Contains(t, warned, `companion "ltk"`)
-			assert.Contains(t, warned, "/fake/ltk loadout --format json", "the remedy names the command that must answer")
+			assert.Contains(t, warned, "/fake/ltk loadout --format yaml", "the remedy names the command that must answer")
 		})
 	}
 }

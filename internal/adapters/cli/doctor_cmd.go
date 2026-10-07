@@ -159,6 +159,6 @@ func init() {
 	doctorCmd.Flags().BoolVar(&doctorAllFlag, "all", false,
 		"list every check in the text report, not only the warnings")
 	doctorCmd.Flags().BoolVar(&doctorDepsOnlyFlag, "deps", false,
-		"check ONLY machine-capability dependencies (git/ssh/ssh-keygen/container runtime/configured engines' clients/signing key/git identity) — skips agents/profiles/hooks/trust, for use before a project has been set up")
+		"check ONLY machine-capability dependencies (git/ssh/ssh-keygen/container runtime/configured engines' clients/git identity) — skips agents/profiles/hooks/trust, for use before a project has been set up")
 	rootCmd.AddCommand(doctorCmd)
 }

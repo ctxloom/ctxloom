@@ -18,13 +18,12 @@ func selfAt(path string) func() string { return func() string { return path } }
 
 // TestProbeCompanionLoadouts_ProbesItselfThroughSelfexec: ctxloom is its own
 // companion. Its loadout is obtained the way every companion's is — by
-// exec'ing `<bin> loadout --format json` — but the binary is THIS one, at
+// exec'ing `<bin> loadout --format yaml` — but the binary is THIS one, at
 // the path the injected resolver answers (selfexec.Path in production),
 // never a PATH lookup of "ctxloom" (a stale install earlier on PATH would
 // then speak for the running build) and never a raw os.Executable (which
-// goes stale after an in-place upgrade). No signature beside the binary is
-// consulted: the running process is already executing, so exec consent is
-// not a question.
+// goes stale after an in-place upgrade). No allow record is consulted: the
+// running process is already executing, so exec consent is not a question.
 func TestProbeCompanionLoadouts_ProbesItselfThroughSelfexec(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 

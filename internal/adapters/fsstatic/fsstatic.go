@@ -40,6 +40,30 @@ import (
 // (safefs.WriteFile and the helpers built on it).
 var ErrInPlaceWrite = errors.New("an approach may not change an existing file in place; write it to a temp file and rename it into place (safefs.WriteFile)")
 
+// The refusals of a delivery whose declaration (present.Delivered's Files and
+// Claims) does not match what its approach did. Each fails the delivery,
+// naming the approach and the path: the writer claims exactly what is
+// declared, so a mismatch is a defect in the approach, never something to
+// guess past.
+var (
+	// ErrUndeclaredWrite: a file written under a target root that Files does
+	// not name. Claiming it would infer ownership the approach never stated.
+	ErrUndeclaredWrite = errors.New("the approach wrote a file under a target root that it does not declare in Files")
+	// ErrDeclaredUnclaimed: a file declared but not written, which the writer
+	// holds no earlier whole-file claim on. Claiming it from its bytes on
+	// disk would take a file nobody showed was ctxloom's.
+	ErrDeclaredUnclaimed = errors.New("the approach declares a file it did not write and the writer holds no earlier whole-file claim on it")
+	// ErrDeclaredMissing: a file declared but not written, whose earlier claim
+	// names a file no longer standing.
+	ErrDeclaredMissing = errors.New("the approach declares a file it did not write and the file does not stand on disk")
+	// ErrDeclaredAndClaimed: a path both in Files and in Claims. A file is
+	// owned whole or claimed into, never both.
+	ErrDeclaredAndClaimed = errors.New("the approach both declares a file whole and claims values in it")
+	// ErrDeclaredOutsideRoots: a path in Files outside every target root. A
+	// file there is the approach's own state, never claimed or declared.
+	ErrDeclaredOutsideRoots = errors.New("the approach declares a file outside every target root")
+)
+
 // Static is the writer over one Root: its filesystem, and the locks every
 // writer of a target file takes.
 type Static struct {

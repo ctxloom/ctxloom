@@ -164,6 +164,7 @@ type Delivered struct {
 	Presented Presentation
 	Wrote     []string
 	Undo      func(fs afero.Fs) error
+	Files     []string
 	Claims    map[string][]Claim
 }
 

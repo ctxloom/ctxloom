@@ -123,8 +123,8 @@ func (p *Pipeline) linkWithholds(read BundleRead, tags []string) (linkID, server
 
 // withholdLinked tallies and surfaces a link withhold.
 func (p *Pipeline) withholdLinked(ref, linkID, server string) {
-	p.recordWithheld(ref, linkWithheldReason(linkID, server))
-	WarnLinkWithheld(p.loader.cat.rep, ref, linkID, server)
+	w := WarnLinkWithheld(p.loader.cat.rep, ref, linkID, server)
+	p.recordWithheld(w.Ref, w.Reason)
 }
 
 // deliver is the process stage in one function: RESOLVE a form from everything

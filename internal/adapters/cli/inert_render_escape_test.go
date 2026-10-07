@@ -146,7 +146,7 @@ func TestPublisherDisplayPaths_ControlBytesAreEscaped(t *testing.T) {
 		}},
 		{"doctor", func(t *testing.T) string {
 			var buf bytes.Buffer
-			require.NoError(t, renderDoctorReport(&buf, operations.DoctorReport{Checks: []operations.DoctorCheck{{
+			require.NoError(t, operations.WriteDoctorReport(&buf, operations.DoctorReport{Checks: []operations.DoctorCheck{{
 				Marker: "DOCTOR-CHECK-X", Status: operations.DoctorOK, Detail: "bundle " + h + " failed",
 			}}}))
 			return buf.String()

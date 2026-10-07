@@ -52,7 +52,7 @@ func Assemble(ctx context.Context, cat bundles.Catalog, sel Selection, opts Opti
 	a.exportNames()
 	a.skills()
 
-	withheld := pipe.Withheld()
+	withheld := mergeWithheld(pipe.Withheld(), opts.Withheld)
 	if len(withheld) > 0 && !opts.DropWithheld {
 		refs := make([]string, len(withheld))
 		for i, w := range withheld {
@@ -83,6 +83,22 @@ func Assemble(ctx context.Context, cat bundles.Catalog, sel Selection, opts Opti
 		},
 	}
 	return pkg, nil
+}
+
+// mergeWithheld is the stage's withheld tally with the caller's, one entry per
+// ref (the stage's reason kept), sorted by ref as Pipeline.Withheld is.
+func mergeWithheld(stage, caller []bundles.Withhold) []bundles.Withhold {
+	if len(caller) == 0 {
+		return stage
+	}
+	out := slices.Clone(stage)
+	for _, w := range caller {
+		if !slices.ContainsFunc(out, func(x bundles.Withhold) bool { return x.Ref == w.Ref }) {
+			out = append(out, w)
+		}
+	}
+	slices.SortFunc(out, func(a, b bundles.Withhold) int { return strings.Compare(a.Ref, b.Ref) })
+	return out
 }
 
 // assembly is the state of one Assemble call.

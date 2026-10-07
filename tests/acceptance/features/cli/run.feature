@@ -277,10 +277,10 @@ Feature: run — assembling a project's context and handing it to an engine
       And the mock recorded input contains "unknown key `runt1me`"
 
     # A profile that VETOES a server with exclude_mcp means it, and the items
-    # linked to that server are withheld with it. The agent is still told,
-    # since an item it cannot see otherwise reads as one never authored; but a
-    # withhold is not a fault, so this launch runs in STRICT mode (no
-    # CTXLOOM_DEGRADED) and must start, with the withhold listed.
+    # linked to that server — a hook among them — are withheld with it. The
+    # agent is still told, since an item it cannot see otherwise reads as one
+    # never authored; but a withhold is not a fault, so this launch runs in
+    # STRICT mode (no CTXLOOM_DEGRADED) and must start, with the withhold listed.
     Scenario: A server vetoed with exclude_mcp withholds its linked items, and a strict launch starts and lists them
       Given an initialized ctxloom project
       And the project already has the bundle "linked":
@@ -296,6 +296,10 @@ Feature: run — assembling a project's context and handing it to an engine
             tags: [ctxloom:link_id=think]
           plain:
             content: "PLAIN-FRAGMENT"
+        hooks:
+          session_start:
+            - command: think-warmup
+              tags: [ctxloom:link_id=think]
         """
       And the project already has the file ".ctxloom/content/bundles/v2/project/profiles/vetoed.yaml":
         """
@@ -312,6 +316,7 @@ Feature: run — assembling a project's context and handing it to an engine
       And the mock recorded input does not contain "LINKED-GUIDE"
       And the mock recorded input contains "DOCTOR-CHECK-WITHHELD-ITEMS"
       And the mock recorded input contains "linked#fragments/guide"
+      And the mock recorded input contains "hook ctxloom+local:linked#hooks/session_start/0"
       And the mock recorded input contains "which this run was not granted"
 
     # The opt-out, paired with the positive scenario above and with the

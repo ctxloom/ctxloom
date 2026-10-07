@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // noCompanions pins the companion probe to "nothing discovered" so a test
@@ -136,12 +138,15 @@ func TestCompanionDecisions_Withheld(t *testing.T) {
 
 // TestStartupFindings_WithheldItemsAreOneRow: what the launch's package
 // withheld is one row naming each item's kind, ref and why — an item whose
-// ref does not parse has no kind to name, and is still listed. It is a warn
+// ref does not parse has no kind to name, and is still listed. The kind is the
+// name a user knows it by: a slash command is a "command", never the internal
+// "prompt" its ref is stored under. It is a warn
 // row like every other startup finding, and composing it records nothing.
 func TestStartupFindings_WithheldItemsAreOneRow(t *testing.T) {
 	cfg := cleanProject(t)
 	withheld := []bundles.Withhold{
 		{Ref: "::not a ref::", Reason: "its ref could not be parsed: bad"},
+		{Ref: "ctxloom+local:kit#prompts/plan", Reason: `it is linked (ctxloom:link_id=think) to MCP server "think", which this run was not granted`},
 		{Ref: "ctxloom+local:kit#skills/reason", Reason: `it is linked (ctxloom:link_id=think) to MCP server "think", which this run was not granted`},
 	}
 
@@ -153,6 +158,43 @@ func TestStartupFindings_WithheldItemsAreOneRow(t *testing.T) {
 	assert.Equal(t, DoctorWarn, row.Status)
 	assert.Equal(t, "withheld from this session, so not available in it: "+
 		"item ::not a ref:: — its ref could not be parsed: bad; "+
+		`command ctxloom+local:kit#prompts/plan — it is linked (ctxloom:link_id=think) to MCP server "think", which this run was not granted; `+
 		`skill ctxloom+local:kit#skills/reason — it is linked (ctxloom:link_id=think) to MCP server "think", which this run was not granted`,
 		row.Detail)
+}
+
+// TestStartupLead_IsOneBlockRenderedAsDoctorRendersIt: the findings ride as
+// ONE named block after the assembled context, rendered by doctor's own
+// renderer so the agent reads the surface a human would.
+func TestStartupLead_IsOneBlockRenderedAsDoctorRendersIt(t *testing.T) {
+	recorded := []report.Finding{{Kind: report.KindIsolation, Text: "STARTUP-FINDING-REACHES-THE-AGENT: container degraded to host"}}
+
+	lead := startupLead(&App{}, cleanProject(t), isolatedHome(t), recorded, nil)
+
+	require.Len(t, lead, 1, "one block, after the assembled context")
+	assert.Equal(t, StartupLeadName, lead[0].Name)
+	assert.Contains(t, lead[0].Body, "STARTUP-FINDING-REACHES-THE-AGENT: container degraded to host")
+	assert.Contains(t, lead[0].Body, StartupFindingsMarker)
+	assert.True(t, strings.HasPrefix(lead[0].Body, "ctxloom doctor\n"))
+}
+
+// TestStartupLead_NothingToDeliverAddsNothing: a clean launch composes no
+// block at all — not an empty one, not a header with no rows.
+func TestStartupLead_NothingToDeliverAddsNothing(t *testing.T) {
+	assert.Empty(t, startupLead(&App{}, cleanProject(t), isolatedHome(t), nil, nil))
+}
+
+// TestStartupLead_WithheldItemsReachTheLead: what the launch's package
+// withheld rides in the same block as every other finding, with nothing
+// recorded — a withhold never aborts a strict launch.
+func TestStartupLead_WithheldItemsReachTheLead(t *testing.T) {
+	strictness.Reset()
+	t.Cleanup(strictness.Reset)
+
+	lead := startupLead(&App{}, cleanProject(t), isolatedHome(t), nil,
+		[]bundles.Withhold{{Ref: "ctxloom+local:kit#skills/reason", Reason: "WITHHELD-REASON-REACHES-THE-AGENT"}})
+
+	require.Len(t, lead, 1, "one block, after the assembled context")
+	assert.Contains(t, lead[0].Body, "skill ctxloom+local:kit#skills/reason — WITHHELD-REASON-REACHES-THE-AGENT")
+	assert.Empty(t, strictness.All(), "composing the row records nothing")
 }

@@ -333,13 +333,23 @@ func reportBundleRefLoadFailure(rep report.Reporter, bundleRef string, err error
 // emitted hook carries SCM source info so apply-hooks can identify
 // ctxloom-managed entries when reconciling the backend's settings.json.
 func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
-	return c.ResolveBundleHooksFor(c.ResolveProfileSet(profileNames))
+	hooks, _ := c.ResolveBundleHooksFor(c.ResolveProfileSet(profileNames))
+	return hooks
 }
 
 // ResolveBundleHooksFor is ResolveBundleHooks over an already resolved
-// profile set.
-func (c *Config) ResolveBundleHooksFor(set []profiles.ResolvedProfile) wire.UnifiedHooks {
-	var result wire.UnifiedHooks
+// profile set, also returning each hook it withheld for a link the run was
+// not granted. Hooks never pass through the content pipeline, so this tally
+// is how a run's withheld list (composite.Options.Withheld) learns of them.
+func (c *Config) ResolveBundleHooksFor(set []profiles.ResolvedProfile) (wire.UnifiedHooks, []bundles.Withhold) {
+	var (
+		result   wire.UnifiedHooks
+		withheld []bundles.Withhold
+	)
+	add := func(hooks wire.UnifiedHooks, w []bundles.Withhold) {
+		result.Append(hooks)
+		withheld = append(withheld, w...)
+	}
 
 	// One link grant for every arm: the granted set it answers from holds
 	// companion and profile servers alike, so a hook linked to its
@@ -354,13 +364,13 @@ func (c *Config) ResolveBundleHooksFor(set []profiles.ResolvedProfile) wire.Unif
 	// bundle. Sorted for a deterministic result across runs.
 	cat := bundleLoader.Catalog()
 	for _, ref := range cat.CompanionRefs() {
-		result.Append(loadHooksFromBundleRef(c.rep, ref, cat, links))
+		add(loadHooksFromBundleRef(c.rep, ref, cat, links))
 	}
 
 	eachBundleRef(set, func(bundleRef string) {
-		result.Append(loadHooksFromBundleRef(c.rep, bundleRef, cat, links))
+		add(loadHooksFromBundleRef(c.rep, bundleRef, cat, links))
 	})
-	return result
+	return result, withheld
 }
 
 // eachBundleRef calls fn with every bundle reference the resolved profiles
@@ -391,11 +401,11 @@ func (c *Config) resolveProfileScope(profileNames []string) []string {
 // loadHooksFromBundleRef loads hooks from a bundle reference. Like
 // loadMCPFromBundleRef it resolves via loader.Load (seed-aware) rather than a
 // computed fs path, so remote bundles' hooks aren't silently dropped.
-func loadHooksFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.Catalog, links bundles.LinkGrant) wire.UnifiedHooks {
+func loadHooksFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.Catalog, links bundles.LinkGrant) (wire.UnifiedHooks, []bundles.Withhold) {
 	read, err := cat.Read(bundleRef)
 	if err != nil {
 		reportBundleRefLoadFailure(rep, bundleRef, err)
-		return wire.UnifiedHooks{}
+		return wire.UnifiedHooks{}, nil
 	}
 	return extractHooksFromBundle(rep, read, read.SourceRef(), links)
 }
@@ -411,12 +421,14 @@ func loadHooksFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.C
 // pipeline withholds a linked fragment — hooks never pass through that
 // pipeline, so this is where the group's atomicity is enforced for them. A nil
 // grant withholds every linked hook; a surface that checks no links says
-// bundles.LinksUnchecked.
-func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src ident.BundleRef, links bundles.LinkGrant) wire.UnifiedHooks {
+// bundles.LinksUnchecked. Each linked hook withheld is returned too, under its
+// canonical ref.
+func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src ident.BundleRef, links bundles.LinkGrant) (wire.UnifiedHooks, []bundles.Withhold) {
 	bundle := read.Bundle
 	if !bundle.Hooks.HasAny() {
-		return wire.UnifiedHooks{}
+		return wire.UnifiedHooks{}, nil
 	}
+	var withheld []bundles.Withhold
 	marker := "bundle:" + string(src.BundleIdentity())
 	convert := func(event string, in []bundles.BundleHook) []wire.Hook {
 		if len(in) == 0 {
@@ -450,7 +462,8 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src id
 			// Key by the bundle's source ref (canonical for a remote/cloned
 			// bundle, the local name for a project bundle) — NOT bundle.Name,
 			// whose short form is ambiguous across local and cloned bundles.
-			if _, rerr := bundles.ItemRefFor(src, ident.KindHook, id); rerr != nil {
+			ref, rerr := bundles.ItemRefFor(src, ident.KindHook, id)
+			if rerr != nil {
 				// A hook nothing can address is a named load error, and one
 				// such hook costs itself, never the bundle's other hooks.
 				rep.Failf(report.KindBundle,
@@ -459,8 +472,8 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src id
 				continue
 			}
 			// Effective tags, as LinkGroups computes them.
-			if linkID, server, withheld := bundles.LinkWithholds(links, read, slices.Concat(bundle.Tags, h.Tags)); withheld {
-				bundles.WarnLinkWithheld(rep, read.DisplayName()+"#hooks/"+id, linkID, server)
+			if linkID, server, cut := bundles.LinkWithholds(links, read, slices.Concat(bundle.Tags, h.Tags)); cut {
+				withheld = append(withheld, bundles.WarnLinkWithheld(rep, ref, linkID, server))
 				continue
 			}
 			out = append(out, wire.Hook{
@@ -477,7 +490,9 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src id
 		}
 		return out
 	}
-	return wire.UnifiedHooks{
+	// Bound before the return: the converts append to withheld, and a return
+	// list does not order a variable's read after its calls.
+	hooks := wire.UnifiedHooks{
 		PreTool:      convert(bundles.HookEventPreTool, bundle.Hooks.PreTool),
 		PostTool:     convert(bundles.HookEventPostTool, bundle.Hooks.PostTool),
 		SessionStart: convert(bundles.HookEventSessionStart, bundle.Hooks.SessionStart),
@@ -486,6 +501,7 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src id
 		PostFileEdit: convert(bundles.HookEventPostFileEdit, bundle.Hooks.PostFileEdit),
 		TurnEnd:      convert(bundles.HookEventTurnEnd, bundle.Hooks.TurnEnd),
 	}
+	return hooks, withheld
 }
 
 // extractMCPFromBundle extracts MCP servers from a loaded bundle. Each server

@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
@@ -146,6 +147,18 @@ type Hooks struct {
 	// reproduces that skeleton, so a writer sees the same structure it always
 	// did.
 	ext map[string]map[string][]Resolved
+
+	// withheld are the bundle hooks assembly did not deliver, each with why.
+	withheld []bundles.Withhold
+}
+
+// Withheld returns the bundle hooks this model withheld (a hook linked to an
+// MCP server the run was not granted), each with why. Empty when none was.
+func (m *Hooks) Withheld() []bundles.Withhold {
+	if m == nil {
+		return nil
+	}
+	return m.withheld
 }
 
 // newHooks returns an empty model.

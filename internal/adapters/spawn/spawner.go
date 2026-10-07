@@ -22,6 +22,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // StarterFunc is the runner-process seam: the runner-process seam, called
@@ -256,14 +257,27 @@ func (s *spawner) RecordEngineVersion(ctx context.Context, harp, backend string)
 var startEngine = operations.StartEngine
 
 // ResolveLaunch resolves the child's launch (childSource) against the
-// spawn's generation.
+// spawn's generation, led by the child's startup findings the way a top-level
+// launch is (operations.WithStartupFindings): the child is a separate agent
+// that never sees its parent's context, so what its own launch withheld and
+// recorded must reach it in its own package. Recorded means what THIS
+// resolution recorded — the window opened here, never the coordinator
+// process's earlier findings — and a finding is only listed: it never fails
+// the child, let alone its parent.
 func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
 	deps, err := operations.LaunchDepsFor(s.app.LaunchFacts(), plan.Snapshot)
 	if err != nil {
 		return coord.Resolved{}, err
 	}
 	s.stampChild(deps.Sessions, start.Identity.Harp)
-	l, err := launch.Resolve(ctx, deps.ForSession(start.Identity.Harp), childSource(plan, start, s.projectDir))
+	mark := strictness.Checkpoint()
+	defer strictness.Close(mark)
+	childDeps := deps.ForSession(start.Identity.Harp)
+	l, err := launch.Resolve(ctx, childDeps, childSource(plan, start, s.projectDir))
+	if err != nil {
+		return coord.Resolved{}, err
+	}
+	l, err = operations.WithStartupFindings(ctx, s.app, childDeps, l, strictness.Since(mark))
 	if err != nil {
 		return coord.Resolved{}, err
 	}

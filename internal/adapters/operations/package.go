@@ -92,7 +92,9 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 		// resolvers take the set THIS assembly resolved, so a profile that
 		// did not resolve is reported once, here.
 		opts.MCP = cfg.ResolveBundleMCPServersFor(resolved)
-		opts.Hooks = *managedhooks.AssembleFor(cfg, resolved, req.Mail).Wire()
+		hooks := managedhooks.AssembleFor(cfg, resolved, req.Mail)
+		opts.Hooks = *hooks.Wire()
+		opts.Withheld = hooks.Withheld()
 		opts.Statusline = managedStatuslineEnabled(cfg)
 		opts.ShellTimeout = cfg.GetShellTimeout()
 	}

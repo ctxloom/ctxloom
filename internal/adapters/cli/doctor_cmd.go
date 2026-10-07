@@ -9,7 +9,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
-	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // doctorDepsOnlyFlag backs --deps (operations.DoctorRequest.DepsOnly).
@@ -79,7 +78,7 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 	}
 	return emit(cmd, report, func() error {
 		if doctorAllFlag {
-			return renderDoctorReport(cmd.OutOrStdout(), report)
+			return operations.WriteDoctorReport(cmd.OutOrStdout(), report)
 		}
 		return renderDoctorSummary(cmd.OutOrStdout(), report)
 	})
@@ -97,18 +96,6 @@ func doctorHome() string {
 	return home
 }
 
-// renderDoctorReport writes the human-readable check list, one
-// "DOCTOR-CHECK-* [status] detail" line per check, in the fixed order the
-// checks were run.
-func renderDoctorReport(out io.Writer, report operations.DoctorReport) error {
-	w := errwriter.New(out)
-	w.Println("ctxloom doctor")
-	for _, c := range report.Checks {
-		writeDoctorRow(w, c)
-	}
-	return w.Err()
-}
-
 // renderDoctorSummary is the default text report: the warn rows alone, then
 // one line counting them and naming the first remedy, or the all-clear line.
 func renderDoctorSummary(out io.Writer, report operations.DoctorReport) error {
@@ -123,7 +110,7 @@ func renderDoctorSummary(out io.Writer, report operations.DoctorReport) error {
 		if firstFix == "" {
 			firstFix = inertBody(c.Remedy, 0, false).Text
 		}
-		writeDoctorRow(w, c)
+		operations.WriteDoctorRow(w, c)
 	}
 	if warnings == 0 {
 		w.Println(doctorAllClearLine)
@@ -144,15 +131,6 @@ func doctorWarningsSummary(n int, fix string) string {
 		return fmt.Sprintf("%d %s; %s", n, noun, doctorNoFixNamed)
 	}
 	return fmt.Sprintf("%d %s; first fix: %s", n, noun, fix)
-}
-
-// writeDoctorRow writes one "DOCTOR-CHECK-* [status] detail" line and its fix
-// line. A detail is ctxloom's sentence with publisher values (bundle refs,
-// remote errors) spliced in. inertBody and not inertField: inertField's
-// line-sized cap would clip ctxloom's own longer sentences.
-func writeDoctorRow(w *errwriter.Writer, c operations.DoctorCheck) {
-	w.Printf("  %s [%s] %s%s\n", c.Marker, c.Status, inertBody(c.Detail, 0, false).Text,
-		clifmt.FixLine("    ", inertBody(c.Remedy, 0, false).Text))
 }
 
 func init() {

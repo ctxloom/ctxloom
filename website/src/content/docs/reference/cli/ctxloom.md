@@ -65,7 +65,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom config](/reference/cli/ctxloom_config/)	 - Show or modify ctxloom configuration
 * [ctxloom container](/reference/cli/ctxloom_container/)	 - Manage agent container images
 * [ctxloom deps](/reference/cli/ctxloom_deps/)	 - Manage this project's installed dependency closure
-* [ctxloom doctor](/reference/cli/ctxloom_doctor/)	 - Run deterministic setup checks (deps, agents, hooks, MCP, companions, trust)
+* [ctxloom doctor](/reference/cli/ctxloom_doctor/)	 - Run deterministic setup checks (deps, agents, hooks, MCP, companions)
 * [ctxloom fragment](/reference/cli/ctxloom_fragment/)	 - Manage context fragments
 * [ctxloom init](/reference/cli/ctxloom_init/)	 - Initialize a new .ctxloom directory
 * [ctxloom llm](/reference/cli/ctxloom_llm/)	 - Manage LLM backends

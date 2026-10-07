@@ -81,7 +81,7 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 // default, the hook would name the test binary itself, and
 // exectoken.IsManaged(command, "ctxloom") — keyed on that exact exec-token
 // identity — would report it as foreign, not ctxloom-managed. Both are
-// needed for doctorCheckHooksTrust to observe "ok" hermetically, on any
+// needed for doctorCheckHooksMCP to observe "ok" hermetically, on any
 // host, matching the SAME hooks a fully-wired project always carries
 // regardless of what's cached under its real $HOME.
 func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend string) {
@@ -504,8 +504,6 @@ func hashTree(t *testing.T, root string) map[string]string {
 	require.NoError(t, err)
 	return out
 }
-
-// --- the trust half of DOCTOR-CHECK-HOOKS-TRUST-d4 ---
 
 // TestDoctorStatus_WireValuesAreUnchanged pins the constraint: the three
 // statuses are the vocabulary the "ctxloom-doctor" Agent Skill and every

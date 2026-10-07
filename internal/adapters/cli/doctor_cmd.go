@@ -38,7 +38,7 @@ const (
 // Version currency has no check: it is best-effort and skill-guided.
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
-	Short: "Run deterministic setup checks (deps, agents, hooks, MCP, companions, trust)",
+	Short: "Run deterministic setup checks (deps, agents, hooks, MCP, companions)",
 	Long: `Check this project's setup and say what to fix: the .ctxloom marker and
 config, required binaries (git, each configured engine's client, a container
 runtime for container agents), whether every agent resolves, the lockfile and
@@ -159,6 +159,6 @@ func init() {
 	doctorCmd.Flags().BoolVar(&doctorAllFlag, "all", false,
 		"list every check in the text report, not only the warnings")
 	doctorCmd.Flags().BoolVar(&doctorDepsOnlyFlag, "deps", false,
-		"check ONLY machine-capability dependencies (git/ssh/ssh-keygen/container runtime/configured engines' clients/git identity) — skips agents/profiles/hooks/trust, for use before a project has been set up")
+		"check ONLY machine-capability dependencies (git/ssh/ssh-keygen/container runtime/configured engines' clients/git identity) — skips agents/profiles/hooks/MCP, for use before a project has been set up")
 	rootCmd.AddCommand(doctorCmd)
 }

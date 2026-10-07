@@ -9,7 +9,7 @@ This page is generated from `ctxloom doctor --help`.
 
 ## ctxloom doctor
 
-Run deterministic setup checks (deps, agents, hooks, MCP, companions, trust)
+Run deterministic setup checks (deps, agents, hooks, MCP, companions)
 
 ### Synopsis
 
@@ -47,7 +47,7 @@ ctxloom doctor [flags]
 
 ```
       --all    list every check in the text report, not only the warnings
-      --deps   check ONLY machine-capability dependencies (git/ssh/ssh-keygen/container runtime/configured engines' clients/git identity) — skips agents/profiles/hooks/trust, for use before a project has been set up
+      --deps   check ONLY machine-capability dependencies (git/ssh/ssh-keygen/container runtime/configured engines' clients/git identity) — skips agents/profiles/hooks/MCP, for use before a project has been set up
 ```
 
 ### Options inherited from parent commands

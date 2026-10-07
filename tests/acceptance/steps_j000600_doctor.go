@@ -35,12 +35,12 @@ import (
 // emits, so a skill body and the CLI's own output read as one language.
 const doctorSkillMD = `---
 name: ctxloom-doctor
-description: "DOCTOR-SKILL-MARKER-7d4e21 - Validate a ctxloom setup: dependencies, agents, version currency, hooks, and trust store; run before relying on isolation or signing."
+description: "DOCTOR-SKILL-MARKER-7d4e21 - Validate a ctxloom setup: dependencies, agents, version currency, hooks and MCP; run before relying on isolation."
 ---
 
 # ctxloom doctor
 
-Validate a ctxloom setup before relying on isolation or signing. If a
+Validate a ctxloom setup before relying on isolation. If a
 ` + "`ctxloom doctor`" + ` command is available, run it and interpret each
 DOCTOR-CHECK-* line it emits — the checks below use the SAME markers, so this
 skill's job is to run the deterministic command and explain its output, not
@@ -48,8 +48,8 @@ duplicate the checking logic.
 
 ## DOCTOR-CHECK-DEPS-a1: required binaries on PATH
 
-Confirm ` + "`ssh`" + ` and ` + "`ssh-keygen`" + ` are on PATH (needed for
-signing), that every configured engine's own client binary resolves (claude,
+Confirm ` + "`ssh`" + ` and ` + "`ssh-keygen`" + ` are on PATH (recommended
+for ssh:// git remotes), that every configured engine's own client binary resolves (claude,
 codex, opencode — whichever this project actually uses), and
 that a container runtime (docker or podman) is reachable if any agent uses
 ` + "`runtime: container`" + `.
@@ -66,9 +66,12 @@ Best-effort and skill-guided (there is no automated update check): compare
 the output of ` + "`ctxloom version`" + ` against the newest tag on the
 project's configured remote, and suggest an upgrade if it is behind.
 
-## DOCTOR-CHECK-HOOKS-TRUST-d4: hooks and trust store
+## DOCTOR-CHECK-HOOKS-TRUST-d4: hooks and MCP
 
-Confirm hooks are installed for the engine(s) actually in use (` + "`ctxloom manage install`" + `
+Report, per engine actually in use, whether hooks and MCP are delivered per
+session (the healthy default) or also registered in the project (written by
+` + "`ctxloom manage hooks install`" + `).
+`
 writes them) and that the trust store is sane: at least one signer is
 present and there is no dangling trust entry (see the ` + "`signer`" + `
 subcommands for the trust-store roster).

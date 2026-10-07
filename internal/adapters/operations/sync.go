@@ -641,9 +641,8 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 		return item
 	}
 
-	// Skip already-installed items (unless force): lockfile entry + content
-	// retrievable from the clone cache, same probe CheckMissingDependencies
-	// uses. Nothing lives on disk in the reference-only model.
+	// Skip installed items (unless force), through the same probe
+	// CheckMissingDependencies uses: see isInstalled for what installed means.
 	if !force && isInstalled(ctx, ref, baseDir, bundles) {
 		item.Status = "skipped"
 		return item

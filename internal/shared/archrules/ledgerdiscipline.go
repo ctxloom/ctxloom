@@ -7,9 +7,9 @@ package archrules
 // scan cannot see past, or a real gap deferred with its reason; the
 // analyzer fails an entry the scan no longer reports.
 var LedgerDisciplineAllowed = map[string]string{
-	"internal/core/agent/commandfiles.go#WriteManagedCommandFiles":          declaredByTheCaller,
+	"internal/core/agent/commandfiles.go#WriteManagedCommandFiles":            declaredByTheCaller,
 	"internal/core/agent/managed_skill_packages.go#WriteManagedSkillPackages": declaredByTheCaller,
-	"internal/engines/claude/commandfiles.go#writeCommandDir":               declaredByTheCaller,
+	"internal/engines/claude/commandfiles.go#writeCommandDir":                 declaredByTheCaller,
 }
 
 // declaredByTheCaller is why the managed-tree writers stand: each returns the

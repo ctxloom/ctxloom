@@ -27,6 +27,7 @@ func TestLoad_RefusesAFieldTheLockfileDoesNotModel(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), field, "the refusal names the field")
 			assert.Contains(t, err.Error(), "/proj/.ctxloom/lock.yaml", "and the file")
+			assert.Contains(t, err.Error(), "ctxloom deps pull", "and the fix: pull itself refuses this file, so the fix is the delete")
 		})
 	}
 }

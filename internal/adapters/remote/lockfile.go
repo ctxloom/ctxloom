@@ -108,7 +108,8 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 
 	var lockfile Lockfile
 	if err := yamlx.DecodeStrict(r.Data, &lockfile); err != nil {
-		return nil, fmt.Errorf("failed to parse lockfile %s: %w", path, err)
+		return nil, fmt.Errorf("failed to parse lockfile %s: %w — fix it by hand, or delete it and re-run `ctxloom deps pull` "+
+			"to rebuild it (then re-apply any hold with `ctxloom deps hold`)", path, err)
 	}
 	if err := checkIdentityKeys(path, lockfile.Bundles); err != nil {
 		return nil, err

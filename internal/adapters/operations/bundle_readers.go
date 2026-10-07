@@ -261,7 +261,7 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 	}
 	lock, err := remote.NewLockfileManager(baseDir, lockfileFSOptions(cfg)...).Load()
 	if err != nil {
-		strictness.FailOnce(report.KindBundle, "run `ctxloom deps pull` to regenerate the lockfile, or fix it by hand",
+		strictness.FailOnce(report.KindBundle, "fix the lockfile by hand, or delete it and re-run `ctxloom deps pull` to rebuild it (then re-apply any hold with `ctxloom deps hold`)",
 			"failed to load the remote lockfile; no remote bundles loaded: %v", err)
 		return nil
 	}

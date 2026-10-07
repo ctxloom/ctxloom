@@ -14,6 +14,7 @@ import (
 	lockfilemig "github.com/ctxloom/ctxloom/internal/migrations/lockfile"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
@@ -310,8 +311,17 @@ func (m *LockfileManager) guardDestructiveWrite(incoming *Lockfile, o saveOption
 }
 
 // write marshals the lockfile and atomically replaces the on-disk file.
+//
+// It encodes through upgrade.Encode, the encoder --write-upgrades persists a
+// migrated lockfile with (schemaver.WriteBack): one encoding whichever path
+// writes the file, or a pull after an upgrade rewrites every line with no pin
+// moving.
 func (m *LockfileManager) write(lockfile *Lockfile) error {
-	data, err := yaml.Marshal(lockfile)
+	var doc yaml.Node
+	if err := doc.Encode(lockfile); err != nil {
+		return fmt.Errorf("failed to marshal lockfile: %w", err)
+	}
+	data, err := upgrade.Encode(&doc)
 	if err != nil {
 		return fmt.Errorf("failed to marshal lockfile: %w", err)
 	}

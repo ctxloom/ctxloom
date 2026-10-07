@@ -847,7 +847,7 @@ func TestClaimsRefuseARecordedPlaceInAFileHewCannotRead(t *testing.T) {
 	const notes = "/proj/notes.md"
 	fs := afero.NewMemMapFs()
 	testsupport.WriteFileString(t, fs, notes, "mine\n", 0o644)
-	rec := "claims: 2\ntarget: " + notes + "\nseq: 1\npaths:\n  /x:\n    - writer: project\n      seq: 1\n      value: 1\n"
+	rec := "schema_version: 3\ntarget: " + notes + "\nseq: 1\npaths:\n  /x:\n    - writer: project\n      seq: 1\n      value: 1\n"
 	testsupport.WriteFileString(t, fs, filepath.Join(claimsDir, confpatch.RecordPrefix(notes)+".claims.yaml"), rec, 0o600)
 	c := newRecords(t, fs)
 	_, err := commitOps(t, c, fs, release(notes, project))

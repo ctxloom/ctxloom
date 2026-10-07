@@ -31,7 +31,7 @@ import (
 // --runtime container` must not touch the engine, the profiles or the
 // permission posture.
 func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, "version: 5\n")
+	cfg, appDir := loadConfigDir(t, "schema_version: 7\n")
 	mgr := managerFor(t, appDir)
 
 	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
@@ -63,7 +63,7 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 // distinguishable: an explicitly-supplied empty value still clears the field,
 // which is what the pointer-valued request buys over merge-on-zero.
 func TestSetAgent_ExplicitEmptyClears(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, "version: 5\n")
+	cfg, appDir := loadConfigDir(t, "schema_version: 7\n")
 	mgr := managerFor(t, appDir)
 
 	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{Name: "dev", LLM: ptr("claude-code"), Profiles: ptr([]string{"p"})})

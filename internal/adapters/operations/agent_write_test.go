@@ -93,7 +93,7 @@ func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 // registry today DECLARES a container story, so a label pointing at an unmapped engine
 // is the only reachable subject for the container-story refusal — and it is a
 // real one, since `llm.configs.<label>.type` accepts any string a user types.
-const llmLabelsFixture = `version: 5
+const llmLabelsFixture = `schema_version: 7
 llm:
   configs:
     claude-fast:
@@ -419,7 +419,7 @@ func TestSetAgent_UpdatesExisting(t *testing.T) {
 // binding declares, so a field silently dropped on the way out reports a
 // binding the launch will not use — and reports it as success.
 func TestGetAgent_CarriesEveryDeclaredAxis(t *testing.T) {
-	cfg, _ := loadConfigDir(t, `version: 5
+	cfg, _ := loadConfigDir(t, `schema_version: 7
 agents:
   dev:
     llm: claude-code

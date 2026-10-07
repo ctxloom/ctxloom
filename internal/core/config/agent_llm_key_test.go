@@ -9,7 +9,7 @@ import (
 
 func TestParseConfig_ReadsTheAgentLLMLabel(t *testing.T) {
 	cfg, err := ParseConfig([]byte(
-		"version: 5\n" +
+		"schema_version: 7\n" +
 			"agents:\n" +
 			"  coder:\n" +
 			"    profiles: [dev]\n" +

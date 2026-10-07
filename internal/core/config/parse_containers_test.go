@@ -30,13 +30,13 @@ import (
 
 func TestParseConfig_NullLLMConfigsStillYieldsAUsableMap(t *testing.T) {
 	t.Run("bare_null_is_absorbed_by_decode_into_existing", func(t *testing.T) {
-		cfg, err := config.ParseConfig([]byte("version: 5\nllm: null\n"))
+		cfg, err := config.ParseConfig([]byte("schema_version: 7\nllm: null\n"))
 		require.NoError(t, err)
 		assert.NotNil(t, cfg.ToFixture().LM.Configs)
 	})
 
 	t.Run("explicit_null_configs", func(t *testing.T) {
-		cfg, err := config.ParseConfig([]byte("version: 5\nllm:\n  configs: null\n"))
+		cfg, err := config.ParseConfig([]byte("schema_version: 7\nllm:\n  configs: null\n"))
 		require.NoError(t, err)
 		require.NotNil(t, cfg.ToFixture().LM.Configs,
 			"lm.Configs is pre-populated because downstream code assumes it is writable")
@@ -53,7 +53,7 @@ func TestLoad_NullLLMConfigsStillYieldsAUsableMap(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"),
-		[]byte("version: 5\nllm:\n  configs: null\n"), 0o644))
+		[]byte("schema_version: 7\nllm:\n  configs: null\n"), 0o644))
 
 	cfg, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)

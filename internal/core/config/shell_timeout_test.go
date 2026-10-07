@@ -15,7 +15,7 @@ import (
 // nothing gets the built-in foreground default and ceiling, resolved here so
 // no engine re-derives them.
 func TestShellTimeout_Unset_DefaultsToTenMinutesAndAnHour(t *testing.T) {
-	cfg, err := ParseConfig([]byte("version: 1\n"))
+	cfg, err := ParseConfig([]byte("schema_version: 7\n"))
 	require.NoError(t, err)
 	assert.Equal(t, engine.ShellTimeout{Default: 10 * time.Minute, Max: time.Hour}, cfg.GetShellTimeout())
 }
@@ -23,11 +23,11 @@ func TestShellTimeout_Unset_DefaultsToTenMinutesAndAnHour(t *testing.T) {
 // TestShellTimeout_Set_IsReadBackResolved: each half is a Go duration, and a
 // half left unset keeps its own default.
 func TestShellTimeout_Set_IsReadBackResolved(t *testing.T) {
-	cfg, err := ParseConfig([]byte("version: 1\nshell_timeout:\n  default: 5m\n  max: 2h\n"))
+	cfg, err := ParseConfig([]byte("schema_version: 7\nshell_timeout:\n  default: 5m\n  max: 2h\n"))
 	require.NoError(t, err)
 	assert.Equal(t, engine.ShellTimeout{Default: 5 * time.Minute, Max: 2 * time.Hour}, cfg.GetShellTimeout())
 
-	cfg, err = ParseConfig([]byte("version: 1\nshell_timeout:\n  default: 20m\n"))
+	cfg, err = ParseConfig([]byte("schema_version: 7\nshell_timeout:\n  default: 20m\n"))
 	require.NoError(t, err)
 	assert.Equal(t, engine.ShellTimeout{Default: 20 * time.Minute, Max: DefaultShellTimeoutMax}, cfg.GetShellTimeout())
 }
@@ -43,7 +43,7 @@ func TestShellTimeout_Invalid_IsRefusedAtLoad(t *testing.T) {
 		"shell_timeout:\n  default: 2h\n",
 		"shell_timeout:\n  default: 5m\n  max: 1m\n",
 	} {
-		_, err := ParseConfig([]byte("version: 1\n" + bad))
+		_, err := ParseConfig([]byte("schema_version: 7\n" + bad))
 		assert.ErrorIs(t, err, ErrInvalidShellTimeout, "%q", bad)
 	}
 }

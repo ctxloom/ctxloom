@@ -81,7 +81,7 @@ func memConfig(t *testing.T) (*config.Config, *operations.App) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 	require.NoError(t, fs.MkdirAll(appDir, 0o755))
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 5\nllm:\n  defaults:\n    primary: mock\n"), 0o644))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("schema_version: 7\nllm:\n  defaults:\n    primary: mock\n"), 0o644))
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	cfg.SetRoot(safefs.NewMem(fs))
 	app := testApp(t, configload.WithRoot(safefs.NewMem(fs)), configload.WithAppDir(appDir))

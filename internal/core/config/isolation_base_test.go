@@ -9,14 +9,14 @@ import (
 
 func TestParseConfig_ReadsIsolationBase(t *testing.T) {
 	for _, v := range []string{"ctxloom", "devcontainer", "ghcr.io/acme/dev:1.2"} {
-		cfg, err := ParseConfig([]byte("version: 5\nisolation_base: " + v + "\n"))
+		cfg, err := ParseConfig([]byte("schema_version: 7\nisolation_base: " + v + "\n"))
 		require.NoError(t, err)
 		assert.Equal(t, v, cfg.IsolationBase())
 	}
 }
 
 func TestIsolationBase_UnsetIsEmptyAndNilSafe(t *testing.T) {
-	cfg, err := ParseConfig([]byte("version: 5\n"))
+	cfg, err := ParseConfig([]byte("schema_version: 7\n"))
 	require.NoError(t, err)
 	assert.Empty(t, cfg.IsolationBase())
 	var nilCfg *Config
@@ -33,7 +33,7 @@ func TestParseConfig_RefusesANearMissIsolationBase(t *testing.T) {
 		"ctxlom":        IsolationBaseCtxloom,
 		"ctxlooom":      IsolationBaseCtxloom,
 	} {
-		_, err := ParseConfig([]byte("version: 5\nisolation_base: " + typo + "\n"))
+		_, err := ParseConfig([]byte("schema_version: 7\nisolation_base: " + typo + "\n"))
 		require.ErrorIs(t, err, ErrIsolationBaseNearMiss, typo)
 		assert.Contains(t, err.Error(), "did you mean `"+want+"`?", typo)
 	}
@@ -43,7 +43,7 @@ func TestParseConfig_RefusesANearMissIsolationBase(t *testing.T) {
 // both choices, and anything shaped like a registry/tagged/digest ref, load.
 func TestParseConfig_AcceptsRealImageRefs(t *testing.T) {
 	for _, ref := range []string{"ubuntu", "debian", "alpine", "ctxlom:1", "acme/ctxlom", "ctxlom@sha256:abc"} {
-		cfg, err := ParseConfig([]byte("version: 5\nisolation_base: " + ref + "\n"))
+		cfg, err := ParseConfig([]byte("schema_version: 7\nisolation_base: " + ref + "\n"))
 		require.NoError(t, err, ref)
 		assert.Equal(t, ref, cfg.IsolationBase())
 	}

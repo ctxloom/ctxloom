@@ -95,7 +95,7 @@ func TestConfig_Save_PrunesEmptiedEditor(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(appDir, 0o755))
 
 	seed := "" +
-		"version: 3\n" +
+		"schema_version: 7\n" +
 		"editor:\n  command: vim\n" +
 		"custom_unknown: keepme\n"
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(seed), 0o644))
@@ -198,7 +198,7 @@ func TestConfig_Save_CorruptConfig_RefusesToTruncate(t *testing.T) {
 	appDir := "/proj/.ctxloom"
 	require.NoError(t, fs.MkdirAll(appDir, 0o755))
 
-	corrupt := "version: 3\neditor:\n  command: vim\n  bad: [unclosed\ncustom_unknown: keepme\n"
+	corrupt := "schema_version: 7\neditor:\n  command: vim\n  bad: [unclosed\ncustom_unknown: keepme\n"
 	path := paths.ConfigPath(appDir)
 	require.NoError(t, afero.WriteFile(fs, path, []byte(corrupt), 0o644))
 
@@ -220,7 +220,7 @@ func TestConfig_Save_ParseableConfig_StillSaves(t *testing.T) {
 	appDir := "/proj/.ctxloom"
 	require.NoError(t, fs.MkdirAll(appDir, 0o755))
 	path := paths.ConfigPath(appDir)
-	require.NoError(t, afero.WriteFile(fs, path, []byte("version: 3\ncustom_unknown: keepme\n"), 0o644))
+	require.NoError(t, afero.WriteFile(fs, path, []byte("schema_version: 7\ncustom_unknown: keepme\n"), 0o644))
 
 	cfg := &Config{appPaths: []string{appDir}}
 	cfg.SetRoot(safefs.NewMem(fs))

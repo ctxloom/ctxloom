@@ -92,7 +92,7 @@ func TestHarnessStatus_ReportsStatuslinePreference(t *testing.T) {
 // the preference faithfully, read back via ParseConfig (a single-document
 // parse, no layering).
 func TestSetStatusline_PersistsPreference(t *testing.T) {
-	_, appDir := loadConfigDir(t, "version: 5\n")
+	_, appDir := loadConfigDir(t, "schema_version: 7\n")
 	mgr := testApp(t, configload.WithAppDir(appDir))
 
 	res, err := SetStatusline(context.Background(), mgr, SetStatuslineRequest{Enabled: false})

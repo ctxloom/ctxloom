@@ -28,7 +28,7 @@ func cleanFixture(t *testing.T) (projectRoot, appDir string) {
 	write(filepath.Join(paths.AppDirName, paths.CacheDir, paths.BundlesDir, "demo", "bundle.yaml"), "name: demo\n")
 	write(filepath.Join(paths.AppDirName, paths.CacheDir, paths.ContextCacheDir, "abc.md"), "assembled\n")
 	// TierDerived, but COMMITTED and outside cache/ — must survive.
-	write(filepath.Join(paths.AppDirName, paths.LockFileName+".yaml"), "version: 1\n")
+	write(filepath.Join(paths.AppDirName, paths.LockFileName+".yaml"), "schema_version: 2\n")
 	// TierCommitted — the project's authored content.
 	write(filepath.Join(paths.AppDirName, paths.ContentDir, "bundles", "mine.yaml"), "name: mine\n")
 	// TierLocal — nothing rebuilds it.

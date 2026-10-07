@@ -102,7 +102,7 @@ func TestLoad_PreservesBodyMapKeyCase(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
 	configContent := `
-version: 3
+schema_version: 7
 llm:
   configs:
     m:
@@ -181,6 +181,7 @@ func TestLoad_SchemaValidationProducesWarning(t *testing.T) {
 
 	// Create config that fails schema validation (using wrong type)
 	configContent := `
+schema_version: 7
 llm:
   configs: "should be a map not string"
 `
@@ -211,7 +212,7 @@ func TestLoad_SchemaCompileFailureProducesWarning(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
-	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("llm:\n  default_agent: claude\n"), 0644)
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("schema_version: 7\nllm:\n  default_agent: claude\n"), 0644)
 
 	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	assert.NoError(t, err, "a compile failure must degrade to a warning, not abort Load")
@@ -275,7 +276,7 @@ func TestResilientStartup_NonExistentProfile(t *testing.T) {
 	// to carry it forward, which makes it a test of the migration rather than
 	// of the behaviour it names.
 	configYAML := fmt.Sprintf(`
-version: %d
+schema_version: %d
 default_agent: default
 agents:
   default:
@@ -309,7 +310,8 @@ func TestResilientStartup_EmptyConfig(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
-	// Schema validation warns on empty config, but we still start
+	// An empty file carries no schema_version, so its layer is refused as a
+	// finding rather than an error, and we still start.
 	assert.NotNil(t, cfg.ToFixture().LM.Configs)
 }
 
@@ -324,7 +326,7 @@ func TestResilientStartup_PartiallyValidConfig(t *testing.T) {
 	// the project bundle now that the inline arm is retired, so the surviving
 	// good part is read through the loader rather than off the config struct.
 	configYAML := fmt.Sprintf(`
-version: %d
+schema_version: %d
 llm:
   configs:
     claude-code:
@@ -353,6 +355,7 @@ func TestResilientStartup_WarningsAreCollected(t *testing.T) {
 
 	// Create config with type mismatch that schema validation should catch
 	configYAML := `
+schema_version: 7
 llm:
   configs: invalid-should-be-map
 `

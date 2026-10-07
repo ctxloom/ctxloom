@@ -33,7 +33,7 @@ func TestLockDependencies_CorruptLockfileIsNotOverwritten(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(lockPath), 0o755))
 	// Valid-looking but unparseable: this is what a truncated or
 	// half-written lock.yaml looks like.
-	corrupt := []byte("version: 1\nbundles:\n  https://github.com/test/repo@bundles/demo:\n    sha: \"abc\n    pinned: true\n")
+	corrupt := []byte("schema_version: 2\nbundles:\n  https://github.com/test/repo@bundles/demo:\n    sha: \"abc\n    pinned: true\n")
 	require.NoError(t, os.WriteFile(lockPath, corrupt, 0o644))
 
 	_, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})

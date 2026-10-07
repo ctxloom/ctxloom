@@ -65,7 +65,7 @@ func TestAvailableLLMNames_Sorted(t *testing.T) {
 // "claude-code" look already-current and turn this into an unchanged-status
 // test instead of the set-status one it's named for.
 func TestSetDefaultLLM_SetsAndPersists(t *testing.T) {
-	_, appDir := loadConfigDir(t, "version: 5\nllm:\n  defaults:\n    primary: mock\n")
+	_, appDir := loadConfigDir(t, "schema_version: 7\nllm:\n  defaults:\n    primary: mock\n")
 	mgr := managerFor(t, appDir)
 
 	res, err := SetDefaultLLM(context.Background(), mgr, SetDefaultLLMRequest{Name: "claude-code"})
@@ -81,7 +81,7 @@ func TestSetDefaultLLM_SetsAndPersists(t *testing.T) {
 // TestSetDefaultLLM_UnchangedWhenAlreadyDefault proves the "already the
 // default" report and skips the write.
 func TestSetDefaultLLM_UnchangedWhenAlreadyDefault(t *testing.T) {
-	_, appDir := loadConfigDir(t, "version: 5\nllm:\n  defaults:\n    primary: claude-code\n")
+	_, appDir := loadConfigDir(t, "schema_version: 7\nllm:\n  defaults:\n    primary: claude-code\n")
 	mgr := managerFor(t, appDir)
 
 	res, err := SetDefaultLLM(context.Background(), mgr, SetDefaultLLMRequest{Name: "claude-code"})
@@ -91,7 +91,7 @@ func TestSetDefaultLLM_UnchangedWhenAlreadyDefault(t *testing.T) {
 
 // TestSetDefaultLLM_EmptyName errors rather than clearing the default.
 func TestSetDefaultLLM_EmptyName(t *testing.T) {
-	_, appDir := loadConfigDir(t, "version: 5\n")
+	_, appDir := loadConfigDir(t, "schema_version: 7\n")
 	_, err := SetDefaultLLM(context.Background(), managerFor(t, appDir), SetDefaultLLMRequest{Name: ""})
 	assert.Error(t, err)
 }
@@ -112,7 +112,7 @@ func TestSetDefaultLLM_EmptyName(t *testing.T) {
 // commits, B's fresh reload must see "beta" already in place and report
 // "unchanged", never "set" against the stale pre-lock "alpha".
 func TestSetDefaultLLM_UnchangedCheckSeesConcurrentWrite(t *testing.T) {
-	_, appDir := loadConfigDir(t, "version: 5\nllm:\n  defaults:\n    primary: alpha\n")
+	_, appDir := loadConfigDir(t, "schema_version: 7\nllm:\n  defaults:\n    primary: alpha\n")
 	mgr := managerFor(t, appDir)
 
 	aEnteredCritical := make(chan struct{})

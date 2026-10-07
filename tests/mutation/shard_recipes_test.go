@@ -167,3 +167,39 @@ func TestGremlinsRecipes_TheAggregateRefusesAShardThatStrayed(t *testing.T) {
 		})
 	}
 }
+
+// `test-mutation-pkg PKG --diff BASE` once handed gremlins the package as its
+// target, where gremlins names the files it walks relative to the package and
+// its diff names them relative to the module root: nothing matched, and the
+// run measured nothing, green. The recipe now plans the diff narrowed to the
+// package (mutshard -pkg) and runs gremlins from the module root; the known
+// mutant it finds is pinned with the real tool by
+// TestPackageDiff_FindsAKnownMutant (-tags mutation).
+//
+// tests/mutation holds no mutable Go, so its diff is empty on any checkout:
+// the plan says so under the package's name, and gremlins is never launched.
+func TestGremlinsRecipes_PackageDiffIsPlannedFromTheModuleRoot(t *testing.T) {
+	r := runRecipeWithFake(t, fakeGoDir(t, "gremlins ran\n", "0"), "test-mutation-pkg", "tests/mutation", "--diff", "HEAD")
+	if r.code != 0 || !strings.Contains(r.out, "diff:HEAD under tests/mutation/") {
+		t.Fatalf("exit %d, want 0 with the package-narrowed plan's skip:\n%s", r.code, r.out)
+	}
+	if r.argv != "" {
+		t.Errorf("gremlins ran with %q over a package diff with nothing to mutate", r.argv)
+	}
+}
+
+// Anything else beside --diff is refused rather than forwarded: gremlins reads
+// a command-line --exclude-files as the WHOLE list, so a forwarded flag can
+// silently replace .gremlins.yaml's settings.
+func TestGremlinsRecipes_PackageDiffRefusesExtraArgs(t *testing.T) {
+	for _, args := range [][]string{
+		{"--diff", "HEAD", "-E", "x"},
+		{"--workers", "1", "--diff=HEAD"},
+		{"--diff"},
+	} {
+		r := runRecipeWithFake(t, fakeGoDir(t, "gremlins ran\n", "0"), append([]string{"test-mutation-pkg", "tests/mutation"}, args...)...)
+		if r.code == 0 || r.argv != "" {
+			t.Errorf("%q: exit %d, gremlins argv %q; want a refusal before gremlins runs:\n%s", args, r.code, r.argv, r.out)
+		}
+	}
+}

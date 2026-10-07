@@ -6,7 +6,8 @@
 //	mutshard run       -scope S -shard K -shards N -out DIR -- <launcher...>
 //	mutshard aggregate -scope S -reports DIR
 //
-// S is "tree" (the whole module) or "diff:<base>" (gremlins --diff <base>).
+// S is "tree" (the whole module) or "diff:<base>" (gremlins --diff <base>);
+// -pkg DIR narrows a diff to the changed files under DIR (scope.withPkg).
 //
 // A shard is the SAME gremlins invocation as the unsharded run — whole-module
 // coverage, the same timeout budget (derived from that coverage run), the
@@ -80,6 +81,7 @@ type shardFlags struct {
 func parseShardFlags(fs *flag.FlagSet, args []string, extra func()) (shardFlags, error) {
 	var sf shardFlags
 	scopeArg := fs.String("scope", "", `"tree" or "diff:<base>"`)
+	pkgArg := fs.String("pkg", "", "narrow a diff scope to this package directory")
 	fs.IntVar(&sf.shard, "shard", 0, "this shard's index, 0-based")
 	fs.IntVar(&sf.shards, "shards", 1, "the shard count")
 	if extra != nil {
@@ -89,7 +91,7 @@ func parseShardFlags(fs *flag.FlagSet, args []string, extra func()) (shardFlags,
 		return sf, err
 	}
 	var err error
-	if sf.scope, err = parseScope(*scopeArg); err != nil {
+	if sf.scope, err = parseScopeFlags(*scopeArg, *pkgArg); err != nil {
 		return sf, err
 	}
 	if sf.shard < 0 || sf.shard >= sf.shards {
@@ -207,18 +209,12 @@ func measureShard(cfg *gremlinsConfig, p plan, sf shardFlags, outDir string, lau
 // caller named: a tool here is handed its paths, never reads the process's temp
 // root (TestArch_EnvLiteralsOnce).
 func runGremlins(cfg *gremlinsConfig, p plan, sf shardFlags, outDir string, launcher []string, stdout, stderr io.Writer) (json.RawMessage, error) {
-	var others []string
-	for k, files := range p.shards {
-		if k != sf.shard {
-			others = append(others, files...)
-		}
-	}
 	tmp, err := os.MkdirTemp(outDir, ".mutshard-")
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
-	shardCfg, err := cfg.shardConfig(others)
+	shardCfg, err := cfg.shardConfig(p.excluded(sf.shard))
 	if err != nil {
 		return nil, err
 	}
@@ -300,12 +296,24 @@ func reportVerdict(stdout io.Writer, shards int, sc scope, t tally, verdict erro
 func parseAggregateFlags(args []string) (scope, string, error) {
 	fs := flag.NewFlagSet("aggregate", flag.ContinueOnError)
 	scopeArg := fs.String("scope", "", `"tree" or "diff:<base>"`)
+	pkgArg := fs.String("pkg", "", "narrow a diff scope to this package directory")
 	dir := fs.String("reports", "", "directory holding the shards' shard-<K>.json")
 	if err := fs.Parse(args); err != nil {
 		return scope{}, "", err
 	}
-	sc, err := parseScope(*scopeArg)
+	sc, err := parseScopeFlags(*scopeArg, *pkgArg)
 	return sc, *dir, err
+}
+
+// parseScopeFlags is -scope narrowed by -pkg, against the module in the
+// working directory — every command reads the same pair, so a package run's
+// shards and its aggregate plan alike.
+func parseScopeFlags(scopeArg, pkgArg string) (scope, error) {
+	sc, err := parseScope(scopeArg)
+	if err != nil {
+		return sc, err
+	}
+	return sc.withPkg(".", pkgArg)
 }
 
 // nothingToMeasure reports, and says why, when the scope holds no work — in

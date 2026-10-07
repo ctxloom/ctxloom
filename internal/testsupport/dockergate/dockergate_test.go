@@ -275,3 +275,50 @@ func TestDaemonPathDecision_PromotedWhereDockerIsRequired(t *testing.T) {
 		t.Fatalf("a nameable path: got %v, want Proceed", d)
 	}
 }
+
+// TestSelfDecision_UnidentifiedContainerIsPromoted: a containerized test
+// process the daemon does not list is, to production, a controller whose own
+// filesystem is the root — so its fixture paths reach the daemon as host paths
+// and bind whatever the host has there (often an empty tree it creates). A test
+// must not run on that guess: where CTXLOOM_REQUIRE_DOCKER=1 demands the docker
+// suite it FAILS, elsewhere it skips. A process on the daemon's host, or one
+// the daemon identified, proceeds.
+func TestSelfDecision_UnidentifiedContainerIsPromoted(t *testing.T) {
+	old := required
+	t.Cleanup(func() { required = old })
+
+	for _, tc := range []struct {
+		name                      string
+		required                  bool
+		containerized, identified bool
+		want                      Decision
+	}{
+		{"unidentified container, required", true, true, false, Fail},
+		{"unidentified container, not required", false, true, false, Skip},
+		{"identified container", true, true, true, Proceed},
+		{"daemon's host", true, false, false, Proceed},
+	} {
+		required = tc.required
+		d, msg := SelfDecision(tc.containerized, tc.identified, "podman")
+		if d != tc.want {
+			t.Fatalf("%s: got %v %q, want %v", tc.name, d, msg, tc.want)
+		}
+		if d != Proceed && (!strings.Contains(msg, "podman") || !strings.Contains(msg, EnvRequireDocker)) {
+			t.Fatalf("%s: message must name the runtime and %s: %q", tc.name, EnvRequireDocker, msg)
+		}
+	}
+}
+
+// TestRequireIdentifiedSelf_FailsBeforeItSkips: the TB form applies the same
+// decision, and a recorded failure is not reported as a skip.
+func TestRequireIdentifiedSelf_FailsBeforeItSkips(t *testing.T) {
+	old := required
+	required = true
+	t.Cleanup(func() { required = old })
+
+	tb := &fakeTB{}
+	RequireIdentifiedSelf(tb, true, false, "docker")
+	if !tb.fatalCalled || tb.skipCalled {
+		t.Fatalf("required + unidentified container: fatal=%v skip=%v, want only a failure", tb.fatalCalled, tb.skipCalled)
+	}
+}

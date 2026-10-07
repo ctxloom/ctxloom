@@ -1170,11 +1170,40 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
 # gremlins appends /... to the target itself; passing it here yields
 # ./pkg/.../... which matches nothing and fails with "no packages to test".
 # "$@" (not {{ARGS}}), same reasoning as test-mutation above.
+#
+# `--diff BASE` cannot go to gremlins with the package as its target: gremlins
+# then names the files it walks relative to the package while its diff names
+# them relative to the module root, nothing matches, and the run measures
+# nothing, green. So a package diff is planned by mutshard narrowed to the
+# package (-pkg) and gremlins runs from the module root — one shard of one, then
+# the aggregate, as test-mutation-diff. Nothing else rides along with --diff:
+# gremlins reads a command-line --exclude-files as the whole list, so a
+# forwarded flag would replace .gremlins.yaml's.
 test-mutation-pkg PKG *ARGS: _mutation-prereqs
     #!/usr/bin/env bash
     set -euo pipefail
     pkg="$1"; shift
-    bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins unleash "./$pkg" "$@"
+    diff=0 base="" rest=()
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --diff) diff=1; base="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
+            --diff=*) diff=1; base="${1#--diff=}"; shift ;;
+            *) rest+=("$1"); shift ;;
+        esac
+    done
+    if [ "$diff" -eq 0 ]; then
+        exec bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins unleash "./$pkg" ${rest[@]+"${rest[@]}"}
+    fi
+    if [ -z "$base" ] || [ "${#rest[@]}" -gt 0 ]; then
+        echo "error: test-mutation-pkg PKG --diff BASE takes nothing else (got base '$base', extra: ${rest[*]:-none})" >&2
+        exit 2
+    fi
+    {{_mutshard}}
+    reports="$(mktemp -d)"
+    trap 'rm -rf "$reports"' EXIT
+    mutshard run -scope "diff:$base" -pkg "$pkg" -out "$reports" -- \
+        bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins
+    mutshard aggregate -scope "diff:$base" -pkg "$pkg" -reports "$reports"
 
 # Install gitleaks, the secret scanner lefthook's pre-commit `gitleaks` command
 # runs, at the version pinned in .devcontainer/tool-versions.env. `go install`

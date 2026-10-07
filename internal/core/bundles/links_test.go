@@ -1,6 +1,7 @@
 package bundles
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -9,7 +10,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // A LINK GROUP IS ONE DELIVERY UNIT. Items in one bundle that share a
@@ -242,4 +245,25 @@ func TestPipeline_NilLinkGrantWithholdsLinkedItemsOnly(t *testing.T) {
 	got, err = unchecked.GetFragment("b#fragments/guide")
 	require.NoError(t, err)
 	assert.Equal(t, "GUIDE", got.Content)
+}
+
+// An item whose ref does not parse is withheld by the pipeline's address gate
+// and tallied, and voiced only as an advisory: nothing reaches the strictness
+// ledger, which is all a launch's startup findings are built from, so an
+// agent is never told. TestWithholds_ReachStderrButNotTheAgent (operations)
+// pins the link and skill-package withholds the same way. When this withhold
+// is made to reach the agent, flip the last assertion.
+func TestPipeline_UnaddressableRefIsAnAdvisoryOnly(t *testing.T) {
+	strictness.Reset()
+	t.Cleanup(strictness.Reset)
+	var stderr bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&stderr))
+	l := NewLoader(seedLocal(map[string]*Bundle{"b": linkedBundle()})).WithReporter(ledger())
+	l.Catalog()
+	pipe := NewPipeline(l, grantOnly(), false)
+
+	require.False(t, pipe.addressable("::not a ref::"))
+	assert.Equal(t, []string{"::not a ref::"}, pipe.Withheld())
+	assert.Contains(t, stderr.String(), "withheld ::not a ref::: its ref could not be parsed")
+	assert.Empty(t, strictness.All(), "the withhold is ledgered now: it can reach a launch's startup findings")
 }

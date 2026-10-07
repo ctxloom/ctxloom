@@ -83,6 +83,11 @@ func (sc *lockScope) TryLock(ctx context.Context, path string) (safefs.Lock, err
 	return sc.take(path, func() (safefs.Lock, error) { return sc.locks.TryLock(ctx, path) })
 }
 
+// TryLockExisting is TryLock on a lock file that must already exist.
+func (sc *lockScope) TryLockExisting(ctx context.Context, path string) (safefs.Lock, error) {
+	return sc.take(path, func() (safefs.Lock, error) { return sc.locks.TryLockExisting(ctx, path) })
+}
+
 // Held probes path's lock as any other taker would; one the run holds is
 // held.
 func (sc *lockScope) Held(path string) (bool, error) { return sc.locks.Held(path) }

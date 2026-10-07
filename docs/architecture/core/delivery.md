@@ -20,7 +20,7 @@ flowchart TB
     ROUTE["delivery.Route(items, engine root, pref, cell roots) → Plan{Static routes, Dynamic refs, Losses} | ErrUncarried | Unrootable"]:::decide
     LO["delivery.Loadout — launch.Launch.Loadout(pkg): the ONE builder the runner and the local launcher share; delivery.InputsFor(lo) projects it into every kind's typed inputs once"]:::consume
     TGT["delivery.Target{Root (absolute), Ownership, Writer} — Validate refuses the zero value and a relative root; launch.Launch.Target(records) for a session, operations.ProjectTarget for a materialize"]:::decide
-    STATIC["fsstatic.Static.Deliver(lo, surfaces, target): ONE safefs.Batch: release the writer's claims under the target's roots → per static item: the engine's typed Deliver stages its claims (a place in a file, a section, an array element) and every file it writes over an OVERLAY of the target fs is staged as a claim on the whole file → Commit writes each changed file once"]:::consume
+    STATIC["fsstatic.Static.Deliver(lo, surfaces, target): per static item the engine's typed Deliver runs over an OVERLAY of the target fs and DECLARES what it owns (present.Delivered: Files owned whole, Claims on a place in a file, a section, an array element) → ONE safefs.Batch: release the writer's claims under the target's roots except on a declared file it did not rewrite → stage every declaration → Commit writes each changed file once"]:::consume
     REC[("fsstatic.Records — ONE claims record per target file, home-rooted: per place, the writers that put a value there (a session's value over the project's; the latest among sessions); a place leaves the file with its last writer; a user's value is never claimed, and ctxloom's own drifted value is refused")]:::store
     DYN["Dynamic.Serve(lo, ServePolicy) — the runner's MCP package BINDS Launch.MCP"]:::consume
     EMPTY["the EMPTY plan = uninstall for that writer: only what the record names under the target's roots is removed (manage uninstall / hooks uninstall → operations.RemoveProject)"]:::consume
@@ -131,7 +131,21 @@ The ledger sidecar (`.ctxloom-managed` beside every managed directory) and
 the marker section inside a context file were two in-place ownership
 mechanisms. Under the record, a context file's section is claimed after the
 user's text (`present.AppendedSection`) and a structured file's entries are
-claimed place by place. An old sidecar is not read: the writers that still
-consult one keep writing it, and the static writer claims whatever an
-approach wrote whole — a sidecar an approach still writes is claimed like
-any other file and leaves with the empty plan.
+claimed place by place. Nothing writes a sidecar any more; one a project
+still carries is claimed whole in the record from when it was written, is
+declared by nothing, and so is released and removed by the next delivery
+(`TestDeliver_RemovesALegacyManagedMarkerTheRecordClaims`).
+
+## Ownership is declared, never inferred
+
+An approach reports what it owns in `present.Delivered`: `Files`, owned
+whole, and `Claims`, values in files it does not own. The static writer
+claims exactly that declaration, whatever the approach wrote this run. A
+declared file it did not rewrite keeps the writer's earlier whole-file claim
+(which must exist, on a file that stands); a file written under a root but
+not declared, or a path both declared and claimed, fails the delivery
+(`fsstatic.ErrUndeclaredWrite` and its siblings). This is not a preference:
+when ownership was inferred from writes, an approach that skipped an
+identical write lost the file at the next commit. The contract is held for
+every shipped engine by
+`TestStaticDelivery_UnchangedRedeliveryKeepsEveryDeclaredFile`.

@@ -76,7 +76,7 @@ func composedContentHash(content []byte, engine string) string {
 }
 
 // composedImageTagFor is the shared image tag a COMPOSABLE spec's build
-// resolves to: one tag per (ctxloom version + admitted companion set, resolved
+// resolves to: one tag per (ctxloom version + registered companion set, resolved
 // base content, ENGINE) — the key's companion half is hostImageKeys' — and the
 // same triple across different projects and sessions shares the SAME tag
 // and the runtime's layer cache. One engine per image, so the identity is a

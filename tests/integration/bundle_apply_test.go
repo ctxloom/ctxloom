@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -47,14 +46,11 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 	isolatedRecords(t)
 	isolatedLocks(t)
 
-	// This helper runs IN-PROCESS against the developer's real PATH and real
-	// home, and the `session-bind` hook these tests assert on ships in
-	// TASKLOOM's loadout (cmd/taskloom/loadout.yaml), not in an embedded
-	// bundle — so the assertions already depend on a real taskloom being
-	// installed. Pin the admission gate open so they do not ALSO depend on
-	// whether this machine's taskloom is admitted: the subject here is hook
-	// diversion, not admission, and admission has its own tests.
-	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
+	// This helper runs IN-PROCESS against the developer's real PATH, and the
+	// `session-bind` hook these tests assert on ships in TASKLOOM's loadout
+	// (cmd/taskloom/loadout.yaml), not in an embedded bundle — so the
+	// assertions depend on a real taskloom being installed. The fixture
+	// registers it (Companions), as `ctxloom companion add taskloom` would.
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
@@ -71,6 +67,7 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{defaultProfile}}},
 		AppPaths:     []string{appDir},
+		Companions:   []string{"taskloom"},
 	})
 	// The generation's gate: a Config reaching delivery without one is
 	// refused at entry (config.ErrTrustUnbound). A project-local bundle and

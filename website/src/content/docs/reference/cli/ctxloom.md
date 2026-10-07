@@ -61,7 +61,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom bundle](/reference/cli/ctxloom_bundle/)	 - Manage ctxloom bundles
 * [ctxloom clean](/reference/cli/ctxloom_clean/)	 - Remove this project's regenerable cache, keeping everything a clone cannot restore
 * [ctxloom command](/reference/cli/ctxloom_command/)	 - Manage commands
-* [ctxloom companion](/reference/cli/ctxloom_companion/)	 - Inspect and decide which companion binaries ctxloom may execute
+* [ctxloom companion](/reference/cli/ctxloom_companion/)	 - Register which companion programs ctxloom runs
 * [ctxloom config](/reference/cli/ctxloom_config/)	 - Show or modify ctxloom configuration
 * [ctxloom container](/reference/cli/ctxloom_container/)	 - Manage agent container images
 * [ctxloom deps](/reference/cli/ctxloom_deps/)	 - Manage this project's installed dependency closure

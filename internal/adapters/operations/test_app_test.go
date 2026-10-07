@@ -29,7 +29,7 @@ func testApp(t *testing.T, opts ...configload.Option) *App {
 
 // fixtureSources is a config.Sources whose every Read is the same fixture
 // value, with the reader set ComposeSources wires: project, the lockfile's
-// remote readers and every discovered companion's loadout — or, when a test
+// remote readers and every registered companion's loadout — or, when a test
 // hands it loadouts directly, a companion reader over exactly those (no
 // discovery), for a fixture companion under a name discovery would never
 // list.

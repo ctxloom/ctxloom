@@ -9,11 +9,11 @@ This page is generated from `ctxloom container tooling --help`.
 
 ## ctxloom container tooling
 
-Agent-image tooling declarations from admitted companions
+Agent-image tooling declarations from registered companions
 
 ### Synopsis
 
-Collect every admitted companion's typed 'tooling' declaration — the
+Collect every registered companion's typed 'tooling' declaration — the
 tools its content needs inside the agent container image — and emit them with
 instructions for the LLM: fold the additions into the agent image's base
 (the project devcontainer's Dockerfile; 'ctxloom container scaffold' writes one
@@ -42,5 +42,5 @@ ctxloom container tooling [flags]
 ### SEE ALSO
 
 * [ctxloom container](/reference/cli/ctxloom_container/)	 - Manage agent container images
-* [ctxloom container tooling list](/reference/cli/ctxloom_container_tooling_list/)	 - Emit admitted companions' agent-image tooling declarations for the LLM to apply
+* [ctxloom container tooling list](/reference/cli/ctxloom_container_tooling_list/)	 - Emit registered companions' agent-image tooling declarations for the LLM to apply
 

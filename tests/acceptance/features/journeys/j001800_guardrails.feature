@@ -33,8 +33,8 @@ Feature: Guardrails — when the assistant does not listen
   # what the companion does.
 
   # LOCKED — delivery, for TWO independent companions at once: the
-  # loadout-discovery mechanism (internal/core/config/companions.go's
-  # DiscoverCompanions/ProbeCompanionLoadouts) reaching both the assembled
+  # registered-companion loadout probe (internal/adapters/companions'
+  # Prober.ProbeCompanionLoadouts) reaching both the assembled
   # CLAUDE.md AND the generated .claude/settings.json — the hook wiring, not
   # just prose. ltk's fragment content here is its REAL committed loadout
   # (cmd/ltk/loadout.yaml), read at test time, never a hand-typed stand-in.

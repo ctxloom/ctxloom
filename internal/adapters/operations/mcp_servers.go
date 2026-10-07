@@ -44,7 +44,7 @@ type ListMCPServersResult struct {
 
 // ListMCPServers returns the MCP servers this project registers: the set
 // Config.ResolveBundleMCPServers resolves for the configured default profiles
-// — each discovered companion's loadout (ctxloom's own server among them)
+// — each registered companion's loadout (ctxloom's own server among them)
 // and the profile→bundle cascade — which is the same set
 // the settings writers materialize.
 func ListMCPServers(ctx context.Context, cfg *config.Config, req ListMCPServersRequest) (*ListMCPServersResult, error) {

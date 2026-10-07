@@ -234,7 +234,7 @@ func TestProbeCompanionLoadouts_DisabledYieldsNothing(t *testing.T) {
 	got, err := Prober{Disabled: true}.ProbeCompanionLoadouts(context.Background(), firstPartyCompanions)
 	require.NoError(t, err)
 	assert.Empty(t, got.Loadouts, "no loadout may be probed when disabled")
-	assert.Empty(t, got.Candidates, "nothing was discovered, so nothing is reported")
+	assert.Empty(t, got.Candidates, "nothing was probed, so nothing is reported")
 }
 
 // syncBuffer is a mutex-guarded bytes.Buffer: ProbeCompanionLoadouts fans its

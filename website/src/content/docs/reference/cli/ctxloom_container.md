@@ -38,5 +38,5 @@ ctxloom container [flags]
 * [ctxloom container check](/reference/cli/ctxloom_container_check/)	 - Diagnose container capability (runtime, image, shared filesystem)
 * [ctxloom container prune](/reference/cli/ctxloom_container_prune/)	 - Remove superseded ctxloom agent images (a dry run unless --yes)
 * [ctxloom container scaffold](/reference/cli/ctxloom_container_scaffold/)	 - Write a project devcontainer seeded from ctxloom's default base
-* [ctxloom container tooling](/reference/cli/ctxloom_container_tooling/)	 - Agent-image tooling declarations from admitted companions
+* [ctxloom container tooling](/reference/cli/ctxloom_container_tooling/)	 - Agent-image tooling declarations from registered companions
 

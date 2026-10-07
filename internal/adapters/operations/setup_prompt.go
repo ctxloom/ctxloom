@@ -8,7 +8,7 @@ import (
 )
 
 // ResolveSetupPrompt returns the setup prompt to emit: the supplied built-in
-// guidance, PLUS every admitted companion's typed `init.setup_guidance`
+// guidance, PLUS every registered companion's typed `init.setup_guidance`
 // (bundles.InitLoadout), in companion-ref order for a deterministic, stable
 // composition across runs. Nothing replaces anything: each contribution adds
 // to the built-in, it never substitutes for it.

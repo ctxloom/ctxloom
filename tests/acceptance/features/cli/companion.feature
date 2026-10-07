@@ -1,168 +1,109 @@
 @doc
-Feature: companion — which binaries on your machine ctxloom may execute
+Feature: companion — which programs ctxloom runs alongside your session
 
-  Covers: `ctxloom companion list`, `companion show`, `companion allow`,
-  `companion forget`, and the bare `ctxloom companion` form.
+  Covers: `ctxloom companion add`, `companion remove`, `companion list`, and
+  the bare `ctxloom companion` form.
 
-  A companion is a program that CONTRIBUTES context — the shipped ltk,
-  taskloom and reprise, plus anything named `ctxloom-companion-*`. Companions
-  are DISCOVERED, not configured: ctxloom scans $PATH for those names. And
-  reading what a companion contributes means RUNNING it, which is why this
-  noun exists at all.
+  A companion is a program that CONTRIBUTES context — hooks, MCP servers,
+  fragments — by answering `<binary> loadout`. Reading what a companion
+  contributes means RUNNING it, which is why this noun exists at all.
 
-  WHY A GATE. `./node_modules/.bin` is on $PATH in a large share of JavaScript
-  projects, and an npm package — including a transitive dependency nobody
-  chose — can ship a binary under any name. Shipping
-  `ctxloom-companion-anything` once earned an exec at the next session start
-  with no user action at all. That attacker never controlled $PATH; they
-  name-squatted an auto-exec convention in a directory already on it.
+  ONLY WHAT YOU REGISTERED RUNS. `ctxloom companion add <name>` finds the
+  companion on your PATH, checks that it answers the loadout probe, and records
+  its NAME in your home config. From then on, every session resolves that name
+  on PATH and runs it. Nothing else on PATH is ever run for being there: a
+  dependency in `./node_modules/.bin` that ships a `ctxloom-companion-*`
+  binary earns nothing by its name.
 
-  THE GATE IS YOUR ALLOW. A companion is executed when your own
-  ~/.ctxloom/companion_allow.yaml holds a record for its resolved path AND the
-  SHA-256 of its bytes. `ctxloom companion allow <path|name> --yes` writes that
-  record; without --yes it shows what it would record and writes nothing.
-  Nothing else admits a companion: not its name, not where it sits, not a
-  prompt. Two refusals are distinguished and neither is silent — a path nobody
-  allowed, and a path allowed for different bytes (a rebuild, an upgrade, a
-  swap), which names the old and the new hash so you can tell which.
+  A name maps to a binary: the shipped ltk, taskloom and reprise are their own
+  binaries; any other name <n> is the binary `ctxloom-companion-<n>`.
 
-  The record is per user and per machine. No project file can carry one, so a
-  repository you clone cannot arrive with its binaries pre-allowed.
+  The registration is the name only, never a path, so it holds wherever the
+  binary is installed. A binary of a registered name placed EARLIER on PATH is
+  the one that runs.
 
   Deliberately NO MCP tools for any of this: handing the agent the ability to
-  allow the binaries that run alongside it defeats the property the gate
-  exists to provide.
+  register the binaries that run alongside it defeats the property the
+  registration exists to provide.
 
   This is the comprehensive per-noun spec: what the noun DOES, leaf by leaf.
 
-  Rule: A companion nobody allowed is never executed
+  Rule: Only a registered companion is ever executed
 
     The assertion that matters is not the exit code and not the warning — it
     is WHICH BINARIES ACTUALLY RAN. The fake companion in these fixtures
     appends to a witness file every time it is invoked, so "was never
     executed" is read off the filesystem rather than inferred from a missing
-    line of output. An admission gate is exactly the kind of change that
-    passes every exit-code assertion while quietly doing nothing — or quietly
-    doing everything.
+    line of output.
 
-    Scenario: An unallowed companion is skipped, said so, and runs once allowed
+    Scenario: A companion an npm dependency drops on PATH is never run
       Given an initialized ctxloom project
-      And a discovered companion "ctxloom-companion-acme" is on PATH, not allowed
+      And a dependency drops a companion "ctxloom-companion-evil" into an absolute node_modules/.bin on PATH
       When I run "ctxloom doctor"
-      Then the output contains "is not allowed to run"
-      And the output contains "ctxloom companion allow"
-      And the companion "ctxloom-companion-acme" was never executed
-      When I run "ctxloom companion allow ctxloom-companion-acme --yes"
-      And I run "ctxloom doctor"
-      Then the companion "ctxloom-companion-acme" was executed
-
-    # A rebuild is not the same refusal as "never allowed": the path IS
-    # allowed, for other bytes. Reporting it as not-allowed would hide that
-    # the binary a human chose has changed under them.
-    Scenario: A companion rebuilt after it was allowed is refused, naming both hashes
-      Given an initialized ctxloom project
-      And a discovered companion "ctxloom-companion-acme" is on PATH, not allowed
-      And the companion "ctxloom-companion-acme" is allowed, then rebuilt
-      When I run "ctxloom doctor"
-      Then the output contains "hash changed"
-      And the output names the allowed and the current hash of "ctxloom-companion-acme"
-      And the companion "ctxloom-companion-acme" was never executed
-
-  Rule: Allowing and forgetting preview by default, and apply only with --yes
-
-    A bare `allow` or `forget` reports what it would record or remove and
-    writes nothing. That makes the hash a human is agreeing to visible before
-    they agree to it.
-
-    Scenario: Allow without --yes shows the hash and records nothing
-      Given an initialized ctxloom project
-      And a discovered companion "ctxloom-companion-acme" is on PATH, not allowed
-      When I run "ctxloom companion allow ctxloom-companion-acme --format text"
+      Then the companion "ctxloom-companion-evil" was never executed
+      When I run "ctxloom companion list"
       Then the command succeeds
-      And the output contains "sha256:"
-      And the output contains "Re-run with --yes"
+      And the output does not contain "evil"
+      And the companion "ctxloom-companion-evil" was never executed
+
+    Scenario: A registered companion runs, and removing it stops it
+      Given an initialized ctxloom project
+      And a companion "ctxloom-companion-acme" is on PATH, not registered
       When I run "ctxloom doctor"
       Then the companion "ctxloom-companion-acme" was never executed
-      When I run "ctxloom companion allow ctxloom-companion-acme --yes --format text"
-      Then the output contains "Allowed."
+      When I run "ctxloom companion add acme"
+      Then the command succeeds
+      And the home config registers the companion "acme" by name only
+      Given the companion executions so far are forgotten
+      When I run "ctxloom doctor"
+      Then the companion "ctxloom-companion-acme" was executed
+      When I run "ctxloom companion remove acme --yes"
+      Then the command succeeds
+      Given the companion executions so far are forgotten
+      When I run "ctxloom doctor"
+      Then the companion "ctxloom-companion-acme" was never executed
 
-    Scenario: Re-allowing a rebuilt companion shows the hash change before recording it
+  Rule: add checks the companion before it records anything
+
+    Scenario: A name with nothing on PATH is refused, naming the binary it looked for
       Given an initialized ctxloom project
-      And a discovered companion "ctxloom-companion-acme" is on PATH, not allowed
-      And the companion "ctxloom-companion-acme" is allowed, then rebuilt
-      When I run "ctxloom companion allow ctxloom-companion-acme --format text"
-      Then the command succeeds
-      And the output contains "hash changed:"
-      And the output names the allowed and the current hash of "ctxloom-companion-acme"
+      When I run "ctxloom companion add nowhere"
+      Then the command fails
+      And the output contains "ctxloom-companion-nowhere"
+      When I run "ctxloom companion list"
+      Then the output contains "No companions registered"
 
-    Scenario: Forget previews, then withdraws the allow with --yes
+  Rule: remove previews by default, and applies only with --yes
+
+    Scenario: Remove without --yes names the apply command and changes nothing
       Given an initialized ctxloom project
-      And a discovered companion "ctxloom-companion-acme" is on PATH, not allowed
-      And the companion "ctxloom-companion-acme" is allowed
-      When I run "ctxloom companion forget ctxloom-companion-acme --format text"
+      And a companion "ctxloom-companion-acme" is on PATH, not registered
+      When I run "ctxloom companion add acme"
+      And I run "ctxloom companion remove acme --format text"
       Then the command succeeds
-      And the output contains "Nothing was removed"
-      When I run "ctxloom companion forget ctxloom-companion-acme --yes"
-      And I run "ctxloom doctor"
-      Then the output contains "is not allowed to run"
-      And the companion "ctxloom-companion-acme" was never executed
+      And the output contains "ctxloom companion remove acme --yes"
+      And the home config registers the companion "acme" by name only
 
-  Rule: The verdict is inspectable one binary at a time
+  Rule: list reports each registered name and whether it resolves on PATH
 
-    `companion show` runs the EXACT SAME decision the real probes consult
-    (companions.AdmitCompanions), so its answer can never disagree with what
-    actually happens at session start. Merely LOOKING never executes anything:
-    a reporting command that ran a foreign binary to describe it would be the
-    exec this noun exists to gate.
+    Listing runs nothing: it resolves names on PATH and reports what it found.
 
-    Scenario Outline: Show answers whether ctxloom would execute one binary, and why
+    Scenario: List answers which binary each registered name resolves to
       Given an initialized ctxloom project
-      And a discovered companion "ctxloom-companion-acme" is on PATH, not allowed
-      When Alice asks whether one binary would run:
-        """
-        ctxloom companion show ctxloom-companion-acme <flags>
-        """
+      And a companion "ctxloom-companion-acme" is on PATH, not registered
+      When I run "ctxloom companion add acme"
+      And I run "ctxloom companion list --format json"
       Then the command succeeds
-      And the output reports "allowed" as "<not allowed yet>"
-      And the output reports "reason" as "<because not allowed>"
-      When the companion "ctxloom-companion-acme" is allowed
-      And I run "ctxloom companion show ctxloom-companion-acme <flags>"
-      Then the command succeeds
-      And the output reports "allowed" as "<now allowed>"
-      And the output reports "reason" as "<because allowed>"
+      And the output reports "0.name" as "acme"
+      And the output reports "0.bin" as "ctxloom-companion-acme"
+      And the output reports "0.resolves" as "true"
 
-      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-        | flags         | not allowed yet | because not allowed | now allowed | because allowed |
-        |               | false           | not-allowed         | true        | allowed         |
-        | --format json | false           | not-allowed         | true        | allowed         |
-        | --format text | not-allowed     | not-allowed         | allowed     | allowed         |
-
-    # "not installed" and "found but refused" are different facts about the
-    # machine, and collapsing them into one silence is the shape this whole
-    # noun exists to avoid.
-    Scenario Outline: A name that resolves to nothing says so, rather than reporting a refusal
+    Scenario: Bare companion lists the registered companions
       Given an initialized ctxloom project
-      When I run "ctxloom companion show ctxloom-companion-nowhere <flags>"
+      And a companion "ctxloom-companion-acme" is on PATH, not registered
+      When I run "ctxloom companion add acme"
+      And I run "ctxloom companion"
       Then the command succeeds
-      And the output reports "reason" as "<not installed, not refused>"
-
-      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-        | flags         | not installed, not refused |
-        |               | not-installed              |
-        | --format json | not-installed              |
-        | --format text | not found                  |
-
-  Rule: The bare noun reports the live verdict for everything discovered
-
-    `companion list` reports what WOULD happen on the next run, derived from
-    each binary on disk and your allow records together.
-
-    Scenario: Bare companion reports the verdict for what is on PATH
-      Given an initialized ctxloom project
-      And a discovered companion "ctxloom-companion-acme" is on PATH, not allowed
-      When I run "ctxloom companion"
-      Then the command succeeds
+      And the output contains "acme"
       And the output contains "ctxloom-companion-acme"
-      And the output contains "not-allowed"
       And the output does not contain "Available Commands:"
-      And the companion "ctxloom-companion-acme" was never executed

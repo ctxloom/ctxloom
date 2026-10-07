@@ -65,7 +65,7 @@ func WithVersionResolver(fn func(cfg *config.Config) bundles.BundleVersionResolv
 
 // WithReaderSource adds a factory for bundle readers a generation's Catalog
 // is resolved from, after the project reader: the lockfile's pinned remotes,
-// every discovered companion's loadout.
+// every registered companion's loadout.
 func WithReaderSource(fn func(cfg *config.Config) []bundles.Reader) Option {
 	return func(s *Sources) { s.readerSources = append(s.readerSources, fn) }
 }

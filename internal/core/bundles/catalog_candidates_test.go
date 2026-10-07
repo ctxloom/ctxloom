@@ -11,7 +11,7 @@ import (
 )
 
 // candidateProbe is a CompanionProber over a fixed pass: the loadouts that
-// were obtained and the discovered companions that yielded none.
+// were obtained and the registered companions that yielded none.
 func candidateProbe(los []CompanionLoadout, cands []CompanionCandidate) CompanionProber {
 	return func(context.Context) (CompanionProbe, error) {
 		return CompanionProbe{Loadouts: los, Candidates: cands}, nil

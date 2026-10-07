@@ -16,7 +16,7 @@ Remove superseded ctxloom agent images (a dry run unless --yes)
 Find the agent images ctxloom built that nothing uses any more, and — with
 --yes — remove them. Without --yes this only prints the plan.
 
-Every ctxloom commit (and every change to the admitted companion set) builds
+Every ctxloom commit (and every change to the registered companion set) builds
 a new agent image tag, and the old ones are never overwritten, so they pile
 up. Every ctxloom build also applies a one-off ownership tag (own-...) that
 no later build reuses or moves, and labels the image with it. An image is

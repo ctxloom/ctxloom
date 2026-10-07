@@ -1069,7 +1069,7 @@ func (s probeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.
 }
 
 // withCompanionProbe returns cfg as the generation a process would hold when
-// companion discovery answers with probe — what the composition root's
+// companion probe answers with probe — what the composition root's
 // companion reader would have read.
 func withCompanionProbe(t *testing.T, cfg *config.Config, probe bundles.CompanionProber) *config.Config {
 	t.Helper()

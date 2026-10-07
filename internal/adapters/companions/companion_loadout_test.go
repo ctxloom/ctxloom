@@ -35,7 +35,7 @@ func lookPathOnly(bins map[string]string) func(string) (string, error) {
 }
 
 // companionBundles drives the two halves a session drives: the PROBE (which
-// execs the admitted companions and reads their loadouts) and the READER
+// execs the registered companions and reads their loadouts) and the READER
 // (which parses the bytes). Asserting on the pair is what keeps these tests about the behaviour a
 // user gets rather than about either half's internals.
 func companionBundles(t *testing.T) map[string]*bundles.Bundle {

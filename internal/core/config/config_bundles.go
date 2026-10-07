@@ -100,7 +100,7 @@ func (c *mcpNameClaims) claim(name, sourceRef string) bool {
 
 // ResolveBundleMCPServers loads MCP servers from bundles referenced in the
 // caller's selected profiles (or the configured defaults when none are passed),
-// plus servers shipped by every discovered COMPANION's loadout — ctxloom's
+// plus servers shipped by every registered COMPANION's loadout — ctxloom's
 // own included, which is how ctxloom's own MCP server is registered. A
 // companion's MCP registration is unconditional but never exempt: it is
 // routed through the identical extraction+gate path a profile-referenced
@@ -192,7 +192,7 @@ func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[
 	}
 
 	// BundleLoader includes remote bundles from the active lockfile AND every
-	// discovered companion's loadout — ctxloom's own included — read under
+	// registered companion's loadout — ctxloom's own included — read under
 	// its ctxloom:companion@<bin> ref; without them, MCP servers shipped in
 	// remote bundles (or a companion loadout) silently disappear (see
 	// docs/bundle-review-plan.md Phase 1.2).

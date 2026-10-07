@@ -32,9 +32,8 @@ func setupGuidanceLoadout(text string) string {
 }
 
 // installSetupGuidanceCompanion installs a fake companion named bin (a
-// ctxloom-companion-* name, so discovery lists it) whose loadout declares
-// text as its setup guidance. InstallFakeCompanion records an allow for the
-// binary in the scenario's HOME — "allowed to run".
+// ctxloom-companion-* name) whose loadout declares text as its setup
+// guidance. InstallFakeCompanion registers it in the scenario's HOME.
 func installSetupGuidanceCompanion(w *World, bin, text string) error {
 	versionJSON := fmt.Sprintf(`{"name":%q,"version":"9.9.9-j000300-fake"}`, bin)
 	return w.env.InstallFakeCompanion(bin, versionJSON, setupGuidanceLoadout(text))
@@ -51,8 +50,8 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		return installSetupGuidanceCompanion(worldFrom(c), "ctxloom-companion-personal", j000300PersonalPreference)
 	})
 
-	ctx.Step(`^both companions are installed and allowed to run$`, func(c context.Context) error {
-		// The two companions are already on PATH and allowed (the Givens
+	ctx.Step(`^both companions are installed and registered$`, func(c context.Context) error {
+		// The two companions are already on PATH and registered (the Givens
 		// above); this scaffolds the project whose default LLM is the mock
 		// backend and points the mock at its record file.
 		w := worldFrom(c)
@@ -214,7 +213,7 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 	// Failing loud instead of re-skipping turns "should be unreachable" into
 	// a real invariant should a future reorder or step-text reuse ever reach
 	// one of these with w.j000200Live still false.
-	ctx.Step(`^the company's companion is installed and allowed to run$`, func(c context.Context) error {
+	ctx.Step(`^the company's companion is installed and registered$`, func(c context.Context) error {
 		// InstallFakeCompanion already allowed the binary in the scenario's
 		// HOME; nothing is left to do but refuse to be reached out of order.
 		w := worldFrom(c)

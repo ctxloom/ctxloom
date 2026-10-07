@@ -33,10 +33,10 @@ installed that needs a setup step of its own. The assistant conducting your
 setup interview receives all four things — ctxloom's built-in guidance and all
 three contributions — in a stable order.
 
-Execution is the gate. A companion's guidance reaches your setup interview when
-ctxloom is allowed to run that companion, which is the same decision that governs everything else it ships. A
-companion nobody vouched for contributes nothing, silently to the interview and
-loudly where that refusal is reported.
+Registration is the gate. A companion's guidance reaches your setup interview
+when you registered it (`ctxloom companion add <name>`), which is the same
+decision that governs everything else it ships. A companion nobody registered
+is never run and contributes nothing.
 
 ## Why this is worth caring about
 

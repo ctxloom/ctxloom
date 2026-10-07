@@ -23,7 +23,7 @@ import (
 
 // companionSources is a config.Sources over a fixture Config whose readers
 // are exactly what the composition root wires: the project's bundles, the
-// builtins and every discovered companion's loadout.
+// builtins and every registered companion's loadout.
 type companionSources struct {
 	cfg *config.Config
 }

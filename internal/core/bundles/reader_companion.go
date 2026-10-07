@@ -29,19 +29,17 @@ type CompanionLoadout struct {
 }
 
 // CompanionProber obtains the loadouts of every companion this machine's human
-// has agreed ctxloom may execute.
+// registered (ctxloom companion add).
 //
-// THE PROBER IS THE EXEC. Everything about companion discovery that decides
-// whether a foreign binary runs at all — the PATH scan, trust-on-first-use
-// admission keyed on absolute path plus binary hash, the first-party exemption,
-// the per-probe timeout — lives behind this one function, and the companion
-// reader is the only thing in the read path that calls it. That is what makes
-// the companion reader the single implementation that can prompt a human, and
-// it is deliberate: the meaningful control point for companion content is
-// EXEC, not content review (docs/trust-model.md, "Companion loadouts").
+// THE PROBER IS THE EXEC. Everything that decides whether a foreign binary
+// runs at all — which names are registered, resolving each on PATH, the
+// per-probe timeout — lives behind this one function, and the companion
+// reader is the only thing in the read path that calls it. That is
+// deliberate: the meaningful control point for companion content is EXEC,
+// not content review (docs/trust-model.md, "Companion loadouts").
 //
 // It returns an error only for a fault that produced NO loadouts at all. An
-// individual companion that is absent, wedged, unapproved or does not implement
+// individual companion that is absent, wedged or does not implement
 // the protocol never sinks the pass — never fatal, never a stalled startup —
 // and is REPORTED as a CompanionCandidate instead: it was discovered, it has an
 // identity, and saying nothing about it is what makes "found but never allowed

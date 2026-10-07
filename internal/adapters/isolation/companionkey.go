@@ -47,7 +47,7 @@ func imageCompanions() []string {
 
 // companionVersionProbe reads one companion's self-reported version. It goes
 // through cliversion, the single owner of the `<bin> version --format json`
-// contract that boot-time companion discovery reads too: two probes could
+// contract that boot-time companion probe reads too: two probes could
 // disagree about what a companion's version IS, and the disagreement would
 // surface as an image that never rebuilds.
 var companionVersionProbe = cliversion.Probe

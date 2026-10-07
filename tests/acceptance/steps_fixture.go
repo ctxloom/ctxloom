@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -314,25 +313,19 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	// A companion whose loadout declares only typed init.tooling — what
 	// operations.CollectTooling reads — carrying a caller-chosen marker so a
 	// scenario can tell "the gate withheld this declaration" apart from
-	// "collection returned nothing at all". Installed under the
-	// ctxloom-companion-<name> discovery convention, allowed in the scenario's
-	// HOME, so ctxloom executes it.
+	// "collection returned nothing at all". Installed as
+	// ctxloom-companion-<name> and registered in the scenario's HOME, so
+	// ctxloom executes it.
 	ctx.Step(`^a companion "([^"]*)" declaring container tooling "([^"]*)"$`, func(c context.Context, name, marker string) error {
 		return installToolingCompanion(worldFrom(c), name, marker)
 	})
 
-	// The same companion, but not allowed to run here — refused at exec, so
-	// its declaration never enters the process.
-	ctx.Step(`^a companion "([^"]*)" declaring container tooling "([^"]*)", not allowed to run here$`, func(c context.Context, name, marker string) error {
-		w := worldFrom(c)
-		if err := installToolingCompanion(w, name, marker); err != nil {
-			return err
-		}
-		path, err := exec.LookPath("ctxloom-companion-" + name)
-		if err != nil {
-			return fmt.Errorf("the fake companion %q is not on PATH after install: %w", name, err)
-		}
-		return forgetCompanionAllow(w, path)
+	// The same companion on PATH, but never registered — so it is never
+	// executed, and its declaration never enters the process.
+	ctx.Step(`^a companion "([^"]*)" declaring container tooling "([^"]*)", on PATH but not registered$`, func(c context.Context, name, marker string) error {
+		bin, versionJSON, doc := toolingCompanion(name, marker)
+		_, err := worldFrom(c).env.PlaceFakeCompanion(bin, versionJSON, doc)
+		return err
 	})
 
 	// A profile requires at least one bundle or parent. The fixture creates a
@@ -700,10 +693,17 @@ func runFixture(c context.Context, args ...string) error {
 // installToolingCompanion installs a fake companion ctxloom-companion-<name>
 // whose loadout is a v2 document declaring marker as its typed init.tooling.
 func installToolingCompanion(w *World, name, marker string) error {
-	bin := "ctxloom-companion-" + name
-	doc := fmt.Sprintf("init:\n  tooling: %q\n", marker+": install the tools this companion's content needs.")
-	versionJSON := fmt.Sprintf(`{"name":%q,"version":"0.0.0-fixture"}`, bin)
-	return w.env.InstallFakeCompanion(bin, versionJSON, doc)
+	return w.env.InstallFakeCompanion(toolingCompanion(name, marker))
+}
+
+// toolingCompanion is the fake binary name, version answer and loadout of a
+// companion ctxloom-companion-<name> declaring marker as its typed
+// init.tooling.
+func toolingCompanion(name, marker string) (bin, versionJSON, doc string) {
+	bin = "ctxloom-companion-" + name
+	doc = fmt.Sprintf("init:\n  tooling: %q\n", marker+": install the tools this companion's content needs.")
+	versionJSON = fmt.Sprintf(`{"name":%q,"version":"0.0.0-fixture"}`, bin)
+	return bin, versionJSON, doc
 }
 
 // mockSurfacesInSession checks a mock record's surface lines: the record names

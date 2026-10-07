@@ -77,6 +77,22 @@ func TestNewStoreRefusesAnEmptyOwner(t *testing.T) {
 	require.Error(t, err, "a store with no owner cannot prove any recordless entry is its own")
 }
 
+// A root missing either half is refused: the store writes through the Fs and
+// serializes through the Locks, and has no fallback for either.
+func TestNewStoreRefusesAHalfRoot(t *testing.T) {
+	whole := safefs.NewMem(afero.NewMemMapFs())
+	for name, root := range map[string]safefs.Root{
+		"no locks": {Fs: whole.Fs},
+		"no fs":    {Locks: whole.Locks},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, err := NewStore(root, "/home/u/.ctxloom/records", "ctxloom")
+			require.Error(t, err)
+			assert.Nil(t, s)
+		})
+	}
+}
+
 func TestApplyPreservesForeignContent(t *testing.T) {
 	s, fs := newStore(t)
 	const target = "/proj/mcp.json"

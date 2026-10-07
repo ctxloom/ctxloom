@@ -159,7 +159,8 @@ closure. It also prunes nothing when that cache is not physically the
 project's own, for instance a `.ctxloom/cache` that a symlink points somewhere
 another project could share, because it cannot read the other projects'
 lockfiles. It never deletes anything outside the cache, and never follows a
-symlink out of it.
+symlink out of it. The sync ctxloom runs when a session starts, to fetch
+missing bundles, cleans up the same way under the same conditions.
 
 `upgrade` resolves a range (`@^1.2`) to the newest matching tag, a branch to its
 new tip, and leaves exact pins and [held](#holds) items untouched. It is the only

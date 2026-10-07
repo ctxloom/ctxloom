@@ -2,8 +2,6 @@ package present
 
 import (
 	"strings"
-
-	"github.com/spf13/afero"
 )
 
 // Kind is a surface category: the CROSS-ENGINE union of every engine's
@@ -152,9 +150,24 @@ type Approach interface {
 	Traits() Traits
 }
 
-// Delivered is what a typed Deliver reports: where the bytes landed on both
-// sides, what was written, and how to undo it. A nil Undo means nothing was
-// written.
+// Delivered is what a typed Deliver reports: the presentation the engine is
+// launched with, and what the approach OWNS once the run is over.
+//
+// Files and Claims together ARE the declaration: after the run the static
+// writer claims exactly them and releases every earlier claim of the
+// writer's they do not name, whether or not the approach wrote a byte this
+// run. Ownership is never inferred from what the approach happened to write.
+//   - a file in Files that is written: claimed whole, with the bytes and
+//     mode written;
+//   - a file in Files that is NOT written: KEEPS the writer's earlier
+//     whole-file claim unchanged — it must have one and must stand on disk,
+//     else the delivery fails;
+//   - a file written under a target root but absent from Files: the
+//     delivery fails;
+//   - a path in both Files and Claims: the delivery fails.
+//
+// A file written outside every target root is the approach's own state:
+// written through, never claimed, never listed.
 //
 // Claims are the values the approach puts into files it does not own whole,
 // keyed by each file's host path. The approach writes nothing for them: the
@@ -162,8 +175,7 @@ type Approach interface {
 // values into is written once, and each writer's values leave with it.
 type Delivered struct {
 	Presented Presentation
-	Wrote     []string
-	Undo      func(fs afero.Fs) error
+	Files     []string
 	Claims    map[string][]Claim
 }
 

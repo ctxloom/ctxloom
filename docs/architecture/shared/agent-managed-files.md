@@ -14,10 +14,9 @@ flowchart TD
     CC["CtxloomCommand() = CtxloomBinary"]
     RC["RefuseCorrupt(fs, path, data, ...)"]
   end
-  subgraph tree["manifest-tracked trees — packagefiles.go"]
+  subgraph tree["managed trees — packagefiles.go"]
     WMPF["WriteManagedPackageFiles[T]"]
-    PED["pruneEmptyDirs"]
-    PF["PackageFile{Path, Data, Mode}"]
+    PF["PackageFile{RelPath, Content, Mode}"]
   end
   subgraph cmds["command / skill rendering"]
     CE["CommandExport"]
@@ -32,17 +31,14 @@ flowchart TD
     MB["MCPServerJSONEntry / MCPServerInstalledJSON"]
     REG["MCPRegistrar (interface)"]
   end
-  LEDGER[(".ctxloom-managed — internal/shared/ledger")]
   CJ["CanonicalJSON (marshal.go)"]
   SYM["symlink.go — WarnOnCtxloomPathSkew"]
 
   WFL --> AWF
   WMCF --> WMPF
   WMPF --> SCRP
-  WMPF --> PED
   EYS --> YDQ
   CJ --> AWF
-  WMPF --> LEDGER
   MB --> CJ
   REG --> MB
 ```
@@ -71,13 +67,12 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 | `RefuseCorrupt` | The one refusal shape for "part of this user-owned file will not parse": backs the original bytes up to `<path>.corrupt-<unix>` and returns an error so the caller aborts *before* touching the file. Every backend that round-trips a user-editable settings/hooks/MCP file routes partial-parse failures here. |
 | `CanonicalJSON` (`marshal.go`) | Marshal → generic decode with `UseNumber` (numeric precision preserved) → sorted, indented, newline-terminated re-encode. The double round-trip *is* the key-sorting mechanism. |
 
-## Manifest-tracked trees — `packagefiles.go`
+## Managed trees — `packagefiles.go`
 
 | Symbol | Purpose |
 |---|---|
-| `PackageFile` | One rendered file in a package: `{Path, Data, Mode}`. Shared vocabulary across every engine's command/skill writer. |
-| `WriteManagedPackageFiles[T]` | Manifest-scoped tree writer: remove the previously-tracked set, render-to-a-temp-sibling-then-swap each file into place, rewrite the `ledger.Surface`-scoped manifest. Carries an empty-render guard (refuses to touch an existing surface when every enabled item rendered zero files). The whole cycle runs under the lock at `paths.HomePathFor(dir)`, taken through the `safefs.Root` it is handed; its render-to-temp-then-swap shape is also invisible to `LockDisciplineAnalyzer`'s write-signal heuristic, which recognizes `AtomicWriteFile`/`save*` but not this function's own `afero.WriteFile`-into-temp-dir + `fs.Rename` swap. |
-| `pruneEmptyDirs` | Best-effort bottom-up empty-directory cleanup; all errors ignored by design. |
+| `PackageFile` | One rendered file in a package: `{RelPath, Content, Mode}`. Shared vocabulary across every engine's command/skill writer. |
+| `WriteManagedPackageFiles[T]` | Tree writer: render every enabled item off the live tree, then render-to-a-temp-sibling-then-swap each file into place, and return the host path of every file placed — what the calling approach DECLARES as `present.Delivered.Files`. It removes nothing: a file an earlier delivery placed and this one does not declare is removed by the static writer's release. The whole cycle runs under the lock at `paths.HomePathFor(dir)`, taken through the `safefs.Root` it is handed; its render-to-temp-then-swap shape is also invisible to `LockDisciplineAnalyzer`'s write-signal heuristic, which recognizes `AtomicWriteFile`/`save*` but not this function's own `afero.WriteFile`-into-temp-dir + `fs.Rename` swap. |
 
 ## Command and skill rendering
 
@@ -100,14 +95,6 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 | `MCPServerJSONEntry` | Renders one `wire.MCPServer` as the generic map an `mcpServers` table holds, through the shared entry shape and a JSON round trip so `omitempty` is honoured. The one entry renderer every writer of that table shares. |
 | `MCPServerInstalledJSON` | Read side: reports whether a named server is present. The write side is `confpatch` — a registrar patches the named member in place and records what it wrote; the whole-document `Install`/`Uninstall` helpers this package used to carry are gone with it. |
 
-## internal/shared/ledger — the sidecar ownership record
-
-**Marker filename:** `.ctxloom-managed` (constant `ledger.Name`) — **one filename for every engine and every surface**, not the per-engine `<Path>.ledger` variants that predated it. Lines are `<name>\t<surface>`; `Surface` is a deliberately open string type (the constants ctxloom writes, and any caller-defined value), so two co-located surfaces sharing one directory never delete each other's entries, and a plugin can claim its own surface with no registration step.
-
-`ledger.Ledger.Read` returns `(nil, nil)` for a missing marker (the legitimate "nothing managed yet" case) but propagates any other read error — never flattens it to empty. `ledger.Ledger.Write` rewrites the marker atomically (`safefs.WriteFile`), in a stable sorted order (so an unchanged managed set produces byte-identical output), and removes the marker file only when **every** surface is empty.
-
-Consumers: `WriteManagedPackageFiles` (`SurfaceCommands`/`SurfaceSkills`).
-
 ## Binary-path skew warning — `symlink.go`
 
 | Symbol | Purpose |
@@ -117,15 +104,13 @@ Consumers: `WriteManagedPackageFiles` (`SurfaceCommands`/`SurfaceSkills`).
 
 ## Invariants and contracts
 
-- **No write path takes a backup.** A `<path>.ctxloom.bak` copy is only needed by a writer that cannot tell its own content from the user's and rewrites the file wholesale; every writer here knows what it owns (the sidecar ledger, the claims record, or sole authorship) and edits only that.
+- **No write path takes a backup.** A `<path>.ctxloom.bak` copy is only needed by a writer that cannot tell its own content from the user's and rewrites the file wholesale; every writer here knows what it owns (the claims record, or sole authorship) and edits only that.
 - **The temp file name is unique per write** (`afero.TempFile` with a `.`+base+`.*.tmp` pattern), not a fixed suffix — two concurrent writers of the same settings file can never clobber each other's in-flight temp file the way a fixed name could.
 - **A rename failure is returned, never papered over**, and there is no cross-device fallback: the temp file lives in the destination directory by construction, so cross-device rename cannot occur, and every internal failure branch best-effort removes the orphaned temp file before returning the error.
 - **`safefs.WriteFile` and `safefs.WriteFileKeepMode` refuse a zero-byte write over an existing file** unless the caller passes `safefs.AllowEmpty()` — for a writer whose correct output can be literally zero bytes.
 - **`CtxloomCommand` is the command policy for materialized surfaces**, and every writer — hooks, statusline, MCP registry — resolves through it. It returns the BARE name: several materialized surfaces (`.claude/settings.json`, `.mcp.json`) are tracked files shared across machines, and one is read from inside a container where a host path names nothing. The accepted cost is that a surface can fire a different build than the one that wrote it; `WarnOnCtxloomPathSkew` is the only thing that reports it.
-- **`WriteManagedPackageFiles` removes the previously-tracked set BEFORE rendering.** Every per-item failure warns and continues, and the function returns `nil` when nothing was written — so a total render failure wipes the prior delivery and reports success. The manifest is the only record of what ctxloom owns in that tree.
+- **`WriteManagedPackageFiles` removes nothing; the caller's declaration decides what stays.** Every per-item failure warns and continues, so an item that fails to render is not declared and the static writer releases its earlier files. Ownership of the tree is the claims record's, from the declaration — never a sidecar beside the directory.
 - **`SafeCommandRelPath` must gate every bundle-supplied name** before it becomes a path. Bundle content is remote content.
-- **The sidecar ledger (`internal/shared/ledger`, marker `.ctxloom-managed`) is the record of managed names** for every surface that uses it — not a per-engine `<Path>.ledger` file. Written sorted and atomically, removed only when every co-located surface is empty.
-- **A ledger read error is propagated, not flattened.** `ledger.Ledger.Read` returns a real error rather than degrading to "nothing managed" — a writer that mistakes an unreadable ledger for an empty one concludes it manages nothing and orphans every entry it wrote last time. A missing marker is the one legitimate empty case, and it alone returns `(nil, nil)`.
 - **A user-owned settings or registry file that fails to parse is refused, not replaced — at every level of the document.** `claude.ClaudeCodeHookWriter.loadSettings` routes a failed top-level decode through `corruptSettings` to `RefuseCorrupt`, and so does every nested block it splits out (`hooks`, and `parseStatusLine`/`parsePermissions` for `statusLine`/`permissions`/`permissions.deny`). "I could not read it" is not "it was empty": each of those paths once warned and continued, and the delete-then-re-emit-from-the-typed-field shape behind the warning meant the user's own hooks, statusline and allow/ask rules were dropped from the file on a success path. A warning is not a guard — the routing exists so no future field can be added with a warn-and-continue branch. A present-but-wrong-type `mcpServers` value takes the same route: the registrar's error path probes the document and refuses through `RefuseCorrupt` rather than writing members into a scalar.
 - **The registrar contract lives with its consumer.** `taskloom/engine.Engine` is the MCP-registration facet an external tool uses without learning per-agent paths or formats; it is defined there rather than here because a registrar writes through `confpatch`, and `confpatch` depends on this package. `claude.MCPRegistrar` implements it over the same `applyMCPServers` patch ctxloom's own hook writer uses, so the two never disagree about how the table is written.
 - **`WarnOnCtxloomPathSkew` is the guard on bare-name resolution** — every materialized surface carries the bare name `ctxloom`, so a stale build earlier on `PATH` serves them silently unless this warns.

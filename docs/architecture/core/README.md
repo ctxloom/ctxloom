@@ -88,10 +88,9 @@ These hold across every page; each is restated with its citations on the page th
    `ctxloom deps pull` cannot rebuild.
 
 2. **`lock.yaml` is authoritative for the pin, never for the content.** It records
-   `{SHA, URL, RequestedVersion, Version, Kind, FetchedAt, Held}`
-   per bundle (`internal/adapters/remote/types.go:148`) and only for bundles
-   (`internal/adapters/remote/types.go:202`). Bytes are re-fetched from the clone cache at `entry.SHA`
-   on every read.
+   one `remote.LockEntry` per bundle, and only for bundles (`remote.Lockfile`). It
+   records no time, so a pull at unchanged pins rewrites it byte for byte. Bytes are
+   re-fetched from the clone cache at `entry.SHA` on every read.
 
 3. **Sole writers.**
 

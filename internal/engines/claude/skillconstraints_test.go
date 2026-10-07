@@ -12,7 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // skillExport builds an enabled single-file skill export whose SKILL.md
@@ -41,7 +44,7 @@ func captureWarnings(t *testing.T) *bytes.Buffer {
 
 // TestWriteSkillFiles_VendorInvalidSkillIsRefusedNamingTheConstraint pins the
 // emit boundary: a skill whose frontmatter violates one of Anthropic's hard
-// constraints is refused HERE — never written, never ledger-tracked — with a
+// constraints is refused HERE — never written, never delivered — with a
 // warning that names the skill and the constraint it broke, while a valid
 // sibling in the same delivery still lands.
 func TestWriteSkillFiles_VendorInvalidSkillIsRefusedNamingTheConstraint(t *testing.T) {
@@ -76,21 +79,29 @@ func TestWriteSkillFiles_VendorInvalidSkillIsRefusedNamingTheConstraint(t *testi
 	}
 }
 
-// TestWriteSkillFiles_RefusedSkillRevertsItsStaleCopy pins that a skill which
-// was emitted once and later edited into a vendor-invalid state does not
-// linger on claude's surface: the re-materialize refuses it (loudly) and
-// reverts the ledger-tracked copy, exactly as a disabled skill would be.
-func TestWriteSkillFiles_RefusedSkillRevertsItsStaleCopy(t *testing.T) {
-	dir := t.TempDir()
-	skillMD := filepath.Join(dir, ConfigDirName, SkillsDirName, "humanize", "SKILL.md")
-
-	require.NoError(t, WriteSkillFiles(dir, []agent.SkillExport{skillExport("humanize", "fine")}))
-	require.FileExists(t, skillMD)
+// TestDeliverSkills_RefusedSkillIsNotDeclared pins that a skill which was
+// emitted once and later edited into a vendor-invalid state does not linger
+// on claude's surface: the delivery refuses it (loudly) and does not declare
+// it, so the static writer releases its earlier copy exactly as it would a
+// disabled skill's.
+func TestDeliverSkills_RefusedSkillIsNotDeclared(t *testing.T) {
+	def := claudeDef(t)
+	start, _, home := hostStart(t)
+	skill := func(name, description string) engine.SkillExport {
+		e := skillExport(name, description)
+		return engine.SkillExport{Name: e.Name, Description: e.Description, Enabled: true,
+			Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: e.Files[0].Content, Mode: 0o644}}}
+	}
 
 	warnings := captureWarnings(t)
-	require.NoError(t, WriteSkillFiles(dir, []agent.SkillExport{skillExport("humanize", strings.Repeat("d", SkillDescriptionMaxLen+1))}))
+	d, err := def.Skills.DeliverSkills(start, present.RootSessionHome, engine.SkillsInputs{Skills: []engine.SkillExport{
+		skill("fine", "fine"),
+		skill("humanize", strings.Repeat("d", SkillDescriptionMaxLen+1)),
+	}}, safefs.New())
+	require.NoError(t, err)
 
-	assert.NoFileExists(t, skillMD, "the stale copy of a now-refused skill must be reverted")
+	assert.Equal(t, []string{filepath.Join(home, SkillsDirName, "fine", "SKILL.md")}, d.Files,
+		"a refused skill is not declared, so its earlier copy is released")
 	assert.Contains(t, warnings.String(), strconv.Itoa(SkillDescriptionMaxLen))
 }
 

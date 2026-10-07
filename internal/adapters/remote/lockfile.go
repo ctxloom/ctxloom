@@ -5,15 +5,16 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"time"
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	lockfilemig "github.com/ctxloom/ctxloom/internal/migrations/lockfile"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
@@ -80,7 +81,7 @@ func (m *LockfileManager) Path() string {
 }
 
 // lockfileKind versions lock.yaml.
-var lockfileKind = schemaver.Define("lockfile", LockfileVersion)
+var lockfileKind = schemaver.Define("lockfile", LockfileVersion, lockfilemig.Steps()...)
 
 // Load reads the lockfile from disk.
 // Returns an empty lockfile if the file doesn't exist.
@@ -134,7 +135,7 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 func upgradeLockfile(path string, data []byte) (schemaver.Result, error) {
 	// A PRESENT lockfile with no document is a DIFFERENT fact from "no
 	// lockfile" (Load's not-exist case) and must not collapse into it: every
-	// real write stamps its generation and LockedAt, so a documentless file
+	// real write stamps its generation, so a documentless file
 	// can only be truncation, a crash mid-write, or a hand-created stub, and
 	// loading it as a valid empty lockfile would make every pinned remote
 	// bundle vanish with no diagnostic. It is checked BEFORE the generation
@@ -218,7 +219,7 @@ func AllowEmpty() SaveOption {
 	return func(o *saveOptions) { o.allowEmpty = true }
 }
 
-// Save writes the lockfile to disk, stamping LockedAt with the current time.
+// Save writes the lockfile to disk, stamping the current format generation.
 //
 // Save refuses two destructive writes, because the lockfile is the sole
 // on-disk record of every dependency pin and every user hold (Held) — losing
@@ -241,7 +242,7 @@ func AllowEmpty() SaveOption {
 // allowed whenever the file is absent, blank, or already empty.
 func (m *LockfileManager) Save(lockfile *Lockfile, opts ...SaveOption) error {
 	if lockfile == nil {
-		// Before the guard, before the disk read, before the LockedAt stamp:
+		// Before the guard, before the disk read, before the version stamp:
 		// each of those dereferences the argument, and a panic partway through
 		// a write to the sole on-disk pin/hold record leaves the
 		// caller nothing to report. An empty lockfile is a legitimate value
@@ -257,7 +258,6 @@ func (m *LockfileManager) Save(lockfile *Lockfile, opts ...SaveOption) error {
 	if err := m.guardDestructiveWrite(lockfile, o); err != nil {
 		return err
 	}
-	lockfile.LockedAt = time.Now().UTC()
 	lockfile.Version = LockfileVersion
 	return m.write(lockfile)
 }
@@ -310,10 +310,18 @@ func (m *LockfileManager) guardDestructiveWrite(incoming *Lockfile, o saveOption
 		ErrLockfileWouldErase, current.Count(), path)
 }
 
-// write marshals the lockfile and atomically replaces the on-disk file without
-// modifying LockedAt.
+// write marshals the lockfile and atomically replaces the on-disk file.
+//
+// It encodes through upgrade.Encode, the encoder --write-upgrades persists a
+// migrated lockfile with (schemaver.WriteBack): one encoding whichever path
+// writes the file, or a pull after an upgrade rewrites every line with no pin
+// moving.
 func (m *LockfileManager) write(lockfile *Lockfile) error {
-	data, err := yaml.Marshal(lockfile)
+	var doc yaml.Node
+	if err := doc.Encode(lockfile); err != nil {
+		return fmt.Errorf("failed to marshal lockfile: %w", err)
+	}
+	data, err := upgrade.Encode(&doc)
 	if err != nil {
 		return fmt.Errorf("failed to marshal lockfile: %w", err)
 	}

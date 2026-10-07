@@ -4,11 +4,9 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -24,13 +22,10 @@ func lockIsFree(t *testing.T, target string) bool {
 	return !held
 }
 
-// TestWriteManagedPackageFiles_ExcludesAConcurrentWriterOfItsDir forces the
-// lost update a writer of one managed dir suffers when its cycle is not
-// serialized: writer A reads the surface's previous set, and before A records
-// its own set writer B — the same surface, the same dir, another session or
-// profile — completes a whole delivery. A then writes a ledger built from its
-// stale read: B's files are still on disk but no surface claims them, so no
-// later cleanup will ever remove them.
+// TestWriteManagedPackageFiles_ExcludesAConcurrentWriterOfItsDir: a writer
+// holds its dir's lock across its whole cycle, from the first render to the
+// last swap, so a second writer of the same dir — another session or profile
+// — cannot complete inside it.
 //
 // Forced, not waited for: A's render runs inside its cycle, and the scheduler
 // slips B in there whenever the dir's lock lets a second writer through.
@@ -48,8 +43,9 @@ func TestWriteManagedPackageFiles_ExcludesAConcurrentWriterOfItsDir(t *testing.T
 			files: []PackageFile{{RelPath: name + "/SKILL.md", Content: []byte(name)}}}}
 	}
 	write := func(items []fakeSkillItem, render func(fakeSkillItem) ([]PackageFile, error)) error {
-		return WriteManagedPackageFiles(files, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, render,
+		_, err := WriteManagedPackageFiles(files, dir, items, skillEnabled, skillName, render,
 			WithWriteReporter(termRep().Sink))
+		return err
 	}
 	writeB := func() error { return write(item("b"), skillRender) }
 
@@ -62,20 +58,5 @@ func TestWriteManagedPackageFiles_ExcludesAConcurrentWriterOfItsDir(t *testing.T
 		return skillRender(i)
 	}
 	require.NoError(t, write(item("a"), renderA))
-	if !bInWindow {
-		require.NoError(t, writeB())
-	}
-
-	claimed, err := ledger.Ledger{Root: files, Dir: dir}.Read(ledger.SurfaceSkills)
-	require.NoError(t, err)
-	onDisk := map[string]bool{}
-	for _, name := range []string{"a", "b"} {
-		if ok, _ := afero.Exists(fs, dir+"/"+name+"/SKILL.md"); ok {
-			onDisk[name+"/SKILL.md"] = true
-		}
-	}
-	assert.False(t, bInWindow, "a second writer got inside another's cycle over the same managed dir")
-	assert.Equal(t, []string{"b/SKILL.md"}, claimed, "the last writer's set must be what the ledger claims")
-	assert.Equal(t, map[string]bool{"b/SKILL.md": true}, onDisk,
-		"every managed file on disk must be one the ledger claims; anything else is orphaned for good")
+	require.False(t, bInWindow, "a second writer got inside another's cycle over the same managed dir")
 }

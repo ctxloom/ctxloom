@@ -243,9 +243,9 @@ func (*settingsSurface) Present(start present.Start) present.Presentation {
 // commandsSurface is claude's commands approach: the slash-command exports
 // under .claude/commands/. claude has no out-of-cwd flag for slash-commands,
 // so a SHARED-cwd delivery of it is the loud well-known write; first
-// preference is always an isolated cell. (Unlike the
-// mock, claude's commands ride fileTemplateDelivery.DeliverCommands, which
-// owns its own cleanup, so they are NOT the shared
+// preference is always an isolated cell. (Unlike the mock, claude's commands
+// ride fileTemplateDelivery.DeliverCommands, which dedups against the
+// user-global commands dir, so they are NOT the shared
 // agent.ManagedCommandsDelivery.)
 type commandsSurface struct {
 	commands              []agent.CommandExport

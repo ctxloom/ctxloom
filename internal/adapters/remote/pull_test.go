@@ -9,11 +9,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/spf13/afero"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // mockFetcher is a test double for Fetcher.
@@ -176,6 +179,83 @@ func TestPuller_Pull(t *testing.T) {
 	entry, ok := lock.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/ctxloom//bundles/security")
 	require.True(t, ok, "lockfile entry should exist")
 	assert.Equal(t, "abc123def456", entry.SHA)
+}
+
+// securityPull is a puller over one registered remote whose bundle
+// "security" resolves to a fixed commit, and a pull of it that returns the
+// lock.yaml bytes it left on disk.
+func securityPull(t *testing.T) (pull func() []byte, fs afero.Fs, lm *LockfileManager) {
+	t.Helper()
+	fs = afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/test", 0755))
+	registry, err := NewRegistry("/test/remotes.yaml", WithRegistryFS(fs))
+	require.NoError(t, err)
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+	mf := NewMockFetcher()
+	mf.Refs["main"] = "abc123def456"
+	lm = NewLockfileManager("/test", WithLockfileFS(fs))
+	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
+		WithLockfileManager(lm),
+		WithFetcherFactory(mockFetcherFactory(mf)),
+		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{
+			".ctxloom/content/bundles/v2/security": {
+				BundleManifestName: {Data: []byte("description: Security bundle\n")},
+			},
+		}, nil)),
+	)
+
+	pull = func() []byte {
+		t.Helper()
+		_, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
+			LocalDir: "/test", ItemType: ItemTypeBundle,
+		})
+		require.NoError(t, err)
+		data, err := afero.ReadFile(fs, lm.Path())
+		require.NoError(t, err)
+		return data
+	}
+	return pull, fs, lm
+}
+
+// TestPuller_Pull_SamePinsLeaveLockByteIdentical pins that the committed
+// lock.yaml records pins and nothing that moves between pulls: a second pull
+// resolving to the same commit rewrites the lock to exactly the bytes the
+// first one wrote, so a routine pull never dirties a tree.
+func TestPuller_Pull_SamePinsLeaveLockByteIdentical(t *testing.T) {
+	pull, _, _ := securityPull(t)
+	first := pull()
+	assert.Equal(t, string(first), string(pull()), "a pull at unchanged pins must leave lock.yaml byte-identical")
+}
+
+// TestPuller_Pull_AfterWriteUpgradesLeavesLockByteIdentical pins that the
+// lockfile has ONE encoding whichever path writes it: a generation-2 lock, as
+// a pull before generation 3 saved it, persisted by --write-upgrades and then
+// saved by a pull at the same pin, is the bytes the upgrade wrote. Two
+// encodings would rewrite every line a second time with no pin moving.
+func TestPuller_Pull_AfterWriteUpgradesLeavesLockByteIdentical(t *testing.T) {
+	pull, fs, lm := securityPull(t)
+	const v2AsPulled = "schema_version: 2\n" +
+		"locked_at: 2026-10-01T12:00:00Z\n" +
+		"bundles:\n" +
+		"    ctxloom+git://github.com/alice/ctxloom//bundles/security:\n" +
+		"        sha: abc123def456\n" +
+		"        url: https://github.com/alice/ctxloom\n" +
+		"        kind: branch\n" +
+		"        fetched_at: 2026-09-30T08:00:00Z\n"
+	testsupport.WriteFileString(t, fs, lm.Path(), v2AsPulled, 0o644)
+
+	flags := pflag.NewFlagSet("t", pflag.ContinueOnError)
+	schemaver.BindWriteUpgrades(flags)
+	t.Cleanup(func() { schemaver.BindWriteUpgrades(pflag.NewFlagSet("reset", pflag.ContinueOnError)) })
+	require.NoError(t, flags.Parse([]string{"--" + schemaver.WriteUpgradesFlag}))
+	_, err := lm.Load()
+	require.NoError(t, err)
+	upgraded, err := afero.ReadFile(fs, lm.Path())
+	require.NoError(t, err)
+	require.NotEqual(t, v2AsPulled, string(upgraded), "the load must have written the upgrade back")
+
+	assert.Equal(t, string(upgraded), string(pull()), "a pull at the pin the upgraded lock holds must leave it byte-identical")
 }
 
 // TestPuller_Pull_LockfileWriteFailureIsNotSwallowed pins that for a

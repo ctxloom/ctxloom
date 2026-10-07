@@ -54,7 +54,7 @@ func seedRemoteFragmentFixture(t *testing.T) (cfg *config.Config, canonicalRef, 
 	require.NoError(t, err)
 	canonicalRef = repoURL + "@bundles/tools"
 	lock.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, canonicalRef), remote.LockEntry{
-		SHA: commit.String(), URL: repoURL, FetchedAt: time.Now().UTC(),
+		SHA: commit.String(), URL: repoURL,
 	})
 	require.NoError(t, lm.Save(lock))
 

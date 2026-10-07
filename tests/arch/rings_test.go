@@ -110,9 +110,7 @@ var movedAwayPackages = []string{
 
 // diesInPlace are the packages the design retires rather than moves: the only
 // packages permitted outside the rings, each until the slice that deletes it.
-var diesInPlace = []string{
-	"internal/shared/ledger",
-}
+var diesInPlace = []string{}
 
 // listModulePackages runs `go list ./...` and returns the module-relative
 // import paths — every package, test-only ones included, which the source

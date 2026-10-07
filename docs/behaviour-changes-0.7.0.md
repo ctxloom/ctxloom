@@ -224,7 +224,7 @@ their registration.
 
 ## 10. A lockfile keyed by the reference as typed is refused
 
-`.ctxloom/lock.yaml` is now keyed by bundle identity (lockfile version 2). A
+`.ctxloom/lock.yaml` is now keyed by bundle identity. A
 lockfile keyed by the reference as it was typed — every lockfile an earlier
 ctxloom wrote — is refused, and until it is rebuilt no remote bundle loads
 (ctxloom warns that it failed to load the remote lockfile). The refusal names
@@ -232,6 +232,13 @@ the file and the remedy: delete `.ctxloom/lock.yaml` and run
 `ctxloom deps pull`, which re-resolves each bundle and writes the new form. If
 the refusal lists holds, re-apply them after the pull; a lockfile with no holds
 rebuilds at the same pinned commits.
+
+The lockfile also no longer records when it was written (`locked_at`) or when
+each bundle was fetched (`fetched_at`). Both changed on every pull, so a pull
+that moved no pin still modified a committed `lock.yaml`. A pull at unchanged
+pins now leaves the file byte-for-byte as it was. A lockfile that still carries
+the two times loads as before. ctxloom drops them in memory, and the file
+loses them at its next write, or at once under `--write-upgrades`.
 
 ## 11. Your profiles live in the project bundle
 

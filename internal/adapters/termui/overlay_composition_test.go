@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	pty "github.com/aymanbagabas/go-pty"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // This file is the F1 termui<->tui COMPOSITION harness (Wave F playbook,
@@ -34,8 +34,8 @@ import (
 // termui (roster.go), this file is package termui_test (an external test
 // package) — an internal termui test importing tui would cycle.
 //
-// syncBuf/expiry/await deliberately re-derive controller_test.go's
-// lockedBuffer/expiry/await idioms rather than reuse them: those helpers are
+// syncBuf/await deliberately re-derive controller_test.go's
+// lockedBuffer/await idioms rather than reuse them: those helpers are
 // unexported to package termui's internal tests and unreachable from this
 // external package.
 
@@ -76,10 +76,10 @@ func (s *syncBuf) next() (string, <-chan struct{}) {
 }
 
 // await re-checks cond on every write until it holds, and reports false only
-// at the test's deadline.
-func (s *syncBuf) await(t *testing.T, cond func(string) bool) (string, bool) {
+// when the wait runs out.
+func (s *syncBuf) await(t waiter, cond func(string) bool) (string, bool) {
 	t.Helper()
-	expired := expiry(t)
+	expired := testsupport.Expiry(t)
 	for {
 		cur, written := s.next()
 		if cond(cur) {
@@ -106,26 +106,13 @@ func contains(sub string) func(string) bool {
 	return func(s string) bool { return strings.Contains(s, sub) }
 }
 
-// expiry bounds a wait on an event by the test binary's own deadline, less
-// enough to name the event that never came. No wait here carries a deadline of
-// its own: every one is for bytes crossing a real pty or a call a real
-// tea.Program makes, which a loaded machine delays by any amount, and a
-// deadline short enough to matter fails on an event that was merely late.
-func expiry(t *testing.T) <-chan time.Time {
-	d, ok := t.Deadline()
-	if !ok {
-		return nil
-	}
-	return time.After(time.Until(d) - 10*time.Second)
-}
-
-// await receives the event ch carries, failing only at the test's deadline.
+// await receives the event ch carries, failing when the wait runs out.
 func await[T any](t *testing.T, what string, ch <-chan T) T {
 	t.Helper()
 	select {
 	case v := <-ch:
 		return v
-	case <-expiry(t):
+	case <-testsupport.Expiry(t):
 		t.Fatalf("never received %s", what)
 		var zero T
 		return zero

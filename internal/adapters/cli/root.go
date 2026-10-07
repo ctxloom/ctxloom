@@ -254,8 +254,18 @@ func unknownKeyRefusal(mode strictness.Mode, warnings []config.Warning) error {
 			found = append(found, w.Finding())
 		}
 	}
-	return mode.ListingError("the config carries keys ctxloom does not know:", mode.Actionable(found))
+	if err := mode.ListingError("the config carries keys ctxloom does not know:", mode.Actionable(found)); err != nil {
+		return configRefusedError{err}
+	}
+	return nil
 }
+
+// configRefusedError is GetConfig refusing a configuration that loaded, as
+// distinct from one that could not be read: a command that degrades over an
+// unreadable config must still not run on one it refused.
+type configRefusedError struct{ error }
+
+func (e configRefusedError) Unwrap() error { return e.error }
 
 // rootFirstStep is the command the root help's quick start opens with: every
 // other command assumes a project exists, and this is the one that makes it.

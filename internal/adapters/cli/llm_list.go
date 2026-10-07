@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -117,7 +118,10 @@ var llmListCmd = &cobra.Command{
 }
 
 func runLLMList(cmd *cobra.Command, args []string) error {
-	names, defaultLabel, authored, offer := availableLLMsWithDefault()
+	names, defaultLabel, authored, offer, err := availableLLMsWithDefault()
+	if err != nil {
+		return err
+	}
 	entries := llmListEntries(names, defaultLabel, authored, offer)
 	return emit(cmd, entries, func() error {
 		out := cmd.OutOrStdout()
@@ -149,13 +153,17 @@ func runLLMList(cmd *cobra.Command, args []string) error {
 // NO runtime offer — custom labels, the primary, authorship, and the
 // label→backend resolution the offer needs all come from config, and with no
 // config to have written anything in, "not authored" is the fact, not a
-// fallback.
-func availableLLMsWithDefault() ([]string, string, func(string) bool, func(string) operations.RuntimeOffer) {
+// fallback. A config that loaded and was REFUSED (configRefusedError) is not
+// an unusable one: that error is returned.
+func availableLLMsWithDefault() ([]string, string, func(string) bool, func(string) operations.RuntimeOffer, error) {
 	cfg, err := GetConfig()
+	if errors.As(err, new(configRefusedError)) {
+		return nil, "", nil, nil, err
+	}
 	if err != nil {
 		names := operations.EngineNames(App().Engines())
 		sort.Strings(names)
-		return names, "", noneAuthored, nil
+		return names, "", noneAuthored, nil, nil
 	}
 	// Reuse the same name set and default identity `llm default` reports:
 	// built-ins unioned with configured labels, and the primary *label*
@@ -163,7 +171,7 @@ func availableLLMsWithDefault() ([]string, string, func(string) bool, func(strin
 	return operations.AvailableLLMNames(App().Engines(), cfg), cfg.PrimaryLabel(), cfg.IsLLMUserAuthored,
 		func(label string) operations.RuntimeOffer {
 			return operations.AgentRuntimeOffer(App().Engines(), cfg, label)
-		}
+		}, nil
 }
 
 func init() {

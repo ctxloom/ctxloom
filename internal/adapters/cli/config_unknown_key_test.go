@@ -32,11 +32,16 @@ func projectWithUnknownKey(t *testing.T) string {
 // An unknown config key is a FATAL finding: a command that reads the config
 // refuses, naming the key, rather than running on a setting nobody chose.
 func TestGetConfig_UnknownKeyIsFatalByDefault(t *testing.T) {
-	projectWithUnknownKey(t)
-
-	_, err := execRootCmd(t, "agent", "list")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "`frobnicate`")
+	// llm list degrades to the built-in backends over an UNREADABLE config;
+	// a config it refused is not one.
+	for _, args := range [][]string{{"agent", "list"}, {"llm", "list"}} {
+		t.Run(args[0], func(t *testing.T) {
+			projectWithUnknownKey(t)
+			_, err := execRootCmd(t, args...)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "`frobnicate`")
+		})
+	}
 }
 
 // Under --degraded (or CTXLOOM_DEGRADED=1) the config loads best-effort: the

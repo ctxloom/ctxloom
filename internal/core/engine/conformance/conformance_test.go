@@ -3,6 +3,7 @@ package conformance_test
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"testing"
@@ -202,15 +203,42 @@ func TestConformance_AbsentCapabilities_AreEmptyOrRefuseLoudly(t *testing.T) {
 	require.Equal(t, "resume", unsupported.Capability)
 }
 
+// multiVarMock is the mock declaring a home var that names the session home
+// and two further vars beneath it, one nested: the shape of an XDG engine.
+func multiVarMock() engine.Engine {
+	return mock.New(mock.WithHome(engine.HomeSpec{
+		Vars: []engine.HomeVar{
+			{Name: "FIXTURE_HOME", Subdir: "fixture"},
+			{Name: "FIXTURE_CACHE", Subdir: "cache"},
+			{Name: "FIXTURE_CONFIG", Subdir: ".xdg/config"},
+		},
+		Auth: engine.Absent[engine.Auth]("the fixture authenticates against no vendor"),
+	}))
+}
+
+// TestEngine_MultiVarMock_Conforms: an engine declaring several home vars
+// conforms, every var bound and set.
+func TestEngine_MultiVarMock_Conforms(t *testing.T) { conformance.Run(t, multiVarMock()) }
+
+// TestConformance_SessionFor_BindsTheFirstVarAtTheHome: the session the
+// suite hands an engine binds as isolation does: the first var AT the
+// session home, the others beneath it.
+func TestConformance_SessionFor_BindsTheFirstVarAtTheHome(t *testing.T) {
+	s := conformance.SessionFor(t, multiVarMock(), engine.Interactive)
+	home := s.Roots.SessionHome.Engine
+	require.Equal(t, []engine.HomeBinding{
+		{Var: "FIXTURE_HOME", Path: home},
+		{Var: "FIXTURE_CACHE", Path: filepath.Join(home, "cache")},
+		{Var: "FIXTURE_CONFIG", Path: filepath.Join(home, ".xdg", "config")},
+	}, s.Home)
+}
+
 // TestConformance_HomeVars_RootUnderTheSessionHome: a home var the engine
 // declares must point at the session home the engine was HANDED. The
 // compiled present.Paths names that root EngineHome (the plan's SessionHome).
 func TestConformance_HomeVars_RootUnderTheSessionHome(t *testing.T) {
-	eng := mock.New()
+	eng := multiVarMock()
 	home := eng.Home()
-	if len(home.Vars) == 0 {
-		t.Skip("engine relocates no home")
-	}
 	s := conformance.SessionFor(t, eng, engine.Interactive)
 	inst, err := eng.Instance(s)
 	require.NoError(t, err)

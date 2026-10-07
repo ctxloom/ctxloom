@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -28,10 +29,14 @@ import (
 // instance config is generated — an engine that keeps no engine-global state
 // returns it and the cells adapter has nothing to do.
 type HomeSpec struct {
-	// Vars are the env vars that relocate the home, each pointed at Subdir
-	// under the session home. An engine whose whole home moves with one var
-	// has one entry; an engine that splits config and data across separate
-	// XDG vars contributes one entry per var.
+	// Vars are the env vars that relocate the home, and shared isolation
+	// binds EVERY one of them (BindHome). Vars[0] names the session home
+	// itself: its Subdir is the home's own leaf (launch.SessionHome). Each
+	// further var names a directory beneath that home, at its Subdir, which
+	// isolation creates owner-only before the engine starts. An engine whose
+	// whole home moves with one var has one entry; an engine that splits
+	// config, data and the like across separate vars (the XDG family)
+	// contributes one entry per var.
 	Vars []HomeVar
 	// Auth is the engine's authentication capability (modes, the env each
 	// mode launches with, minting), or Absent with the reason for an engine
@@ -53,13 +58,38 @@ type HomeSpec struct {
 	TranscriptStoreRel string
 }
 
-// HomeVar is one env-var-to-subdir mapping. The leaf name is load-bearing:
-// an engine that composes its own home path from a project-dir-shaped value
+// HomeVar is one env-var-to-subdir mapping. For Vars[0] the Subdir is the
+// session home's own leaf, one path segment, and it is load-bearing: an
+// engine that composes its own home path from a project-dir-shaped value
 // must land on this exact directory, so Subdir must match whatever leaf the
-// engine's own resolution appends.
+// engine's own resolution appends. For every further var it is a clean
+// relative slash path beneath the session home, nested or not (".xdg/config"
+// is as valid as "config"), joined with '/' inside a container.
 type HomeVar struct {
 	Name   string
 	Subdir string
+}
+
+// BindHome resolves vars against the session home as the engine sees
+// it: Vars[0] binds the home itself and each further var its Subdir beneath
+// it, joined on each side as present.Presentation.Beneath joins (the host's
+// own separators in place, '/' in a container). nil when there is no var or
+// the home has no engine side (an unreachable root names no path).
+//
+// It is the ONE rule for where a declared var points: isolation places
+// every run's vars by it, and the conformance suite hands an engine
+// bindings made by it.
+func BindHome(vars []HomeVar, home present.Root) []HomeBinding {
+	if len(vars) == 0 || home.Engine == "" {
+		return nil
+	}
+	out := make([]HomeBinding, 0, len(vars))
+	out = append(out, HomeBinding{Var: vars[0].Name, Path: home.Engine})
+	at := present.Presentation{HostPath: home.Host, EnginePath: home.Engine}
+	for _, v := range vars[1:] {
+		out = append(out, HomeBinding{Var: v.Name, Path: at.Beneath(v.Subdir).EnginePath})
+	}
+	return out
 }
 
 // Relocates reports whether the spec moves anything: the zero spec does not.
@@ -92,18 +122,61 @@ func (h HomeSpec) validateWithoutHome() error {
 	return nil
 }
 
-// validateVars requires every home var to name its var and subdir.
+// validateVars requires every home var to name its var and subdir, once
+// each: Vars[0]'s Subdir one clean segment (the home's own leaf), every
+// further one a clean relative slash path beneath the home that neither
+// holds nor sits inside the history store's link (validateVarPath).
 func (h HomeSpec) validateVars() error {
+	seen := map[string]bool{}
 	for i, v := range h.Vars {
 		if v.Name == "" {
 			return fmt.Errorf("HomeSpec: Vars[%d].Name is empty", i)
 		}
-		if v.Subdir == "" {
-			return fmt.Errorf("HomeSpec: Vars[%d].Subdir is empty", i)
+		if seen[v.Name] {
+			return fmt.Errorf("HomeSpec: Vars[%d] declares %s again; one var gets one path", i, v.Name)
+		}
+		seen[v.Name] = true
+		if err := h.validateVarPath(i, v.Subdir); err != nil {
+			return err
 		}
 	}
 	return nil
 }
+
+// validateVarPath checks Vars[i].Subdir for its place in the home: the
+// first is the home's leaf, every further one a directory beneath it.
+func (h HomeSpec) validateVarPath(i int, sub string) error {
+	switch {
+	case sub == "":
+		return fmt.Errorf("HomeSpec: Vars[%d].Subdir is empty", i)
+	case i == 0:
+		return validateHomeLeaf(sub)
+	}
+	return h.validateBeneathHome(i, sub)
+}
+
+// validateHomeLeaf requires Vars[0].Subdir to be one clean path segment.
+func validateHomeLeaf(sub string) error {
+	if strings.Contains(sub, "/") || !isContainerRel(sub) || sub == "." || sub == ".." {
+		return fmt.Errorf("HomeSpec: Vars[0].Subdir %q is not one path segment; it is the session home's own leaf", sub)
+	}
+	return nil
+}
+
+// validateBeneathHome requires a further var's Subdir to be a clean relative
+// slash path strictly beneath the home, clear of the history store's link.
+func (h HomeSpec) validateBeneathHome(i int, sub string) error {
+	if !isContainerRel(sub) || sub == "." {
+		return fmt.Errorf("HomeSpec: Vars[%d].Subdir %q is not a clean relative slash path beneath the session home", i, sub)
+	}
+	if r := h.TranscriptStoreRel; r != "" && (pathWithin(sub, r) || pathWithin(r, sub)) {
+		return fmt.Errorf("HomeSpec: Vars[%d].Subdir %q overlaps TranscriptStoreRel %q; isolation creates the one as a directory and links the other", i, sub, r)
+	}
+	return nil
+}
+
+// pathWithin reports whether the clean slash path p is root or beneath it.
+func pathWithin(p, root string) bool { return p == root || strings.HasPrefix(p, root+"/") }
 
 // validateAuth requires Auth decided, and valid when present.
 func (h HomeSpec) validateAuth() error {

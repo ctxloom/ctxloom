@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines/kit"
 )
 
 type nopWriteCloser struct{ io.Writer }
@@ -25,7 +26,7 @@ func (nopWriteCloser) Close() error { return nil }
 
 // driverFor builds the kind with the transport seam injected and binds an
 // instance to s; it returns the driver and the exec the turn runs over.
-func driverFor(t *testing.T, s engine.Session, open chatTransportFunc, now func() time.Time, presented ...present.Presentation) (engine.StructuredDriver, engine.Exec) {
+func driverFor(t *testing.T, s engine.Session, open kit.TransportFunc, now func() time.Time, presented ...present.Presentation) (engine.StructuredDriver, engine.Exec) {
 	t.Helper()
 	kind, err := Build()
 	require.NoError(t, err)
@@ -49,7 +50,7 @@ func turnArgv(t *testing.T, s engine.Session, in engine.Turn, presented ...prese
 	require.NoError(t, err)
 	ex, err := inst.Exec(presented)
 	require.NoError(t, err)
-	argv, err := (&streamJSONDriver{inst: inst.(*instance)}).argv(ex, in)
+	argv, err := inst.(*instance).turnArgv(ex, in)
 	require.NoError(t, err)
 	return argv
 }
@@ -130,8 +131,8 @@ func TestTurn_WritesTheMessageAndRelaysEvents(t *testing.T) {
 			`{"type":"assistant","message":{"content":[{"type":"text","text":"hi there"}]}}` + "\n" +
 			`{"type":"result","subtype":"success","usage":{"input_tokens":10},"modelUsage":{"m":{"contextWindow":1000,"outputTokens":3}},"total_cost_usd":0.01}` + "\n")
 	var stdin bytes.Buffer
-	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
-		return &chatTransport{stdin: nopWriteCloser{&stdin}, stdout: stdout, close: func() error { return nil }}, nil
+	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*kit.Transport, error) {
+		return &kit.Transport{Stdin: nopWriteCloser{&stdin}, Stdout: stdout, Teardown: func() error { return nil }}, nil
 	}
 	d, ex := driverFor(t, structured("m", ""), open, nil)
 	out := make(chan engine.Event, 16)
@@ -153,36 +154,6 @@ func TestTurn_WritesTheMessageAndRelaysEvents(t *testing.T) {
 	assert.Equal(t, 1000, evs[2].Complete.ContextWindow)
 }
 
-func TestStampEntryTime_StampsWhenZero(t *testing.T) {
-	// claude-code's stream-json carries no per-event time, so a fresh chat entry
-	// has a zero timestamp — stampEntryTime fills it from the injected clock.
-	fixed := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
-	ev := agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeThinking}}
-	out := stampEntryTime(ev, func() time.Time { return fixed })
-	require.NotNil(t, out.Entry)
-	assert.Equal(t, fixed, out.Entry.Timestamp)
-}
-
-func TestStampEntryTime_PreservesExisting(t *testing.T) {
-	// A transcript-derived entry already carries its own timestamp; the clock must
-	// not override it (and must not even be consulted).
-	existing := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
-	called := false
-	ev := agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Timestamp: existing}}
-	out := stampEntryTime(ev, func() time.Time { called = true; return time.Now() })
-	assert.Equal(t, existing, out.Entry.Timestamp)
-	assert.False(t, called, "clock must not be consulted when the entry already has a timestamp")
-}
-
-func TestStampEntryTime_NonEntryUntouched(t *testing.T) {
-	// Non-entry events (complete/session) have no timestamp field to stamp.
-	called := false
-	ev := agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: "opus"}}
-	out := stampEntryTime(ev, func() time.Time { called = true; return time.Now() })
-	assert.Nil(t, out.Entry)
-	assert.False(t, called)
-}
-
 // TestTurn_StampsEntriesWithInjectedClock: the relayed entries (incl. the
 // blank thinking marker) carry the kind's clock time end-to-end through a
 // turn.
@@ -191,8 +162,8 @@ func TestTurn_StampsEntriesWithInjectedClock(t *testing.T) {
 	stdout := strings.NewReader(
 		`{"type":"assistant","message":{"content":[{"type":"thinking","thinking":""},{"type":"text","text":"hi"}]}}` + "\n")
 	var stdin bytes.Buffer
-	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
-		return &chatTransport{stdin: nopWriteCloser{&stdin}, stdout: stdout, close: func() error { return nil }}, nil
+	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*kit.Transport, error) {
+		return &kit.Transport{Stdin: nopWriteCloser{&stdin}, Stdout: stdout, Teardown: func() error { return nil }}, nil
 	}
 	d, ex := driverFor(t, structured("", ""), open, func() time.Time { return fixed })
 	out := make(chan engine.Event, 16)
@@ -212,10 +183,10 @@ func TestTurn_StampsEntriesWithInjectedClock(t *testing.T) {
 // an interrupt: when the turn's context ends it says its last words (a result
 // frame, as claude does on SIGINT) and closes stdout. wrote is closed once the
 // init frame is on the pipe; closed counts hard teardowns.
-func interruptibleTransport(t *testing.T, lastWords string) (chatTransportFunc, *int) {
+func interruptibleTransport(t *testing.T, lastWords string) (kit.TransportFunc, *int) {
 	t.Helper()
 	closed := new(int)
-	open := func(ctx context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
+	open := func(ctx context.Context, _ string, _ []string, _ map[string]string, _ string) (*kit.Transport, error) {
 		pr, pw := io.Pipe()
 		go func() {
 			_, _ = io.WriteString(pw, `{"type":"system","subtype":"init","session_id":"sess-int"}`+"\n")
@@ -223,10 +194,10 @@ func interruptibleTransport(t *testing.T, lastWords string) (chatTransportFunc, 
 			_, _ = io.WriteString(pw, lastWords)
 			_ = pw.Close()
 		}()
-		return &chatTransport{
-			stdin:  nopWriteCloser{io.Discard},
-			stdout: pr,
-			close:  func() error { *closed++; _ = pw.Close(); return nil },
+		return &kit.Transport{
+			Stdin:    nopWriteCloser{io.Discard},
+			Stdout:   pr,
+			Teardown: func() error { *closed++; _ = pw.Close(); return nil },
 		}, nil
 	}
 	return open, closed
@@ -281,13 +252,13 @@ func TestTurn_Interrupt_DrainsTheLastWordsAndKeepsTheKey(t *testing.T) {
 
 // crashingTransport ends stdout after what, then reports exit as how the
 // process ended.
-func crashingTransport(what string, exit error) chatTransportFunc {
-	return func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
-		return &chatTransport{
-			stdin:  nopWriteCloser{io.Discard},
-			stdout: strings.NewReader(what),
-			close:  func() error { return nil },
-			wait:   func() error { return exit },
+func crashingTransport(what string, exit error) kit.TransportFunc {
+	return func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*kit.Transport, error) {
+		return &kit.Transport{
+			Stdin:    nopWriteCloser{io.Discard},
+			Stdout:   strings.NewReader(what),
+			Teardown: func() error { return nil },
+			Reap:     func() error { return exit },
 		}, nil
 	}
 }
@@ -303,7 +274,7 @@ func TestTurn_ProcessDiedMidTurn_IsTheTurnsError(t *testing.T) {
 			`{"type":"assistant","message":{"content":[{"type":"text","text":"half an answ"}]}}`+"\n", died)
 	d, ex := driverFor(t, structured("", ""), open, nil)
 	_, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "x"}, nil)
-	require.ErrorIs(t, err, errTurnProcessDied)
+	require.ErrorIs(t, err, kit.ErrTurnProcessDied)
 	require.ErrorIs(t, err, died, "the process's own account of its death rides along")
 }
 
@@ -325,7 +296,7 @@ func TestTurn_ResultThenFailedExit_IsACompletedTurn(t *testing.T) {
 // TestTurn_TransportOpenError_Propagates: a spawn/open failure surfaces as
 // the turn's error.
 func TestTurn_TransportOpenError_Propagates(t *testing.T) {
-	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
+	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*kit.Transport, error) {
 		return nil, io.ErrClosedPipe
 	}
 	d, ex := driverFor(t, structured("", ""), open, nil)
@@ -339,9 +310,9 @@ func TestTurn_TransportOpenError_Propagates(t *testing.T) {
 func TestTurn_SpawnsTheExecsBinary(t *testing.T) {
 	var gotBinary, gotDir string
 	var gotArgs []string
-	open := func(_ context.Context, binary string, args []string, _ map[string]string, dir string) (*chatTransport, error) {
+	open := func(_ context.Context, binary string, args []string, _ map[string]string, dir string) (*kit.Transport, error) {
 		gotBinary, gotArgs, gotDir = binary, args, dir
-		return &chatTransport{stdin: nopWriteCloser{&bytes.Buffer{}}, stdout: strings.NewReader(""), close: func() error { return nil }}, nil
+		return &kit.Transport{Stdin: nopWriteCloser{&bytes.Buffer{}}, Stdout: strings.NewReader(""), Teardown: func() error { return nil }}, nil
 	}
 	s := structured("", "")
 	s.Label.Binary = "/opt/claude"
@@ -369,8 +340,8 @@ func TestTurn_AccumulatesAcrossResultFrames(t *testing.T) {
 			`{"type":"system","subtype":"permission_denied","tool_name":"Bash","tool_use_id":"t2","message":"bash needs approval"}` + "\n" +
 			`{"type":"assistant","message":{"content":[{"type":"text","text":"second"}]}}` + "\n" +
 			`{"type":"result","subtype":"success","stop_reason":"end_turn","num_turns":2,"permission_denials":[{"tool_name":"Bash","tool_use_id":"t2","tool_input":{}}]}` + "\n")
-	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
-		return &chatTransport{stdin: nopWriteCloser{io.Discard}, stdout: stdout, close: func() error { return nil }}, nil
+	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*kit.Transport, error) {
+		return &kit.Transport{Stdin: nopWriteCloser{io.Discard}, Stdout: stdout, Teardown: func() error { return nil }}, nil
 	}
 	d, ex := driverFor(t, structured("m", ""), open, nil)
 	out := make(chan engine.Event, 32)
@@ -391,55 +362,4 @@ func TestTurn_AccumulatesAcrossResultFrames(t *testing.T) {
 	assert.Equal(t, []agent.PermissionDenial{write}, completes[0].Denials)
 	assert.Equal(t, []agent.PermissionDenial{write, bash}, completes[1].Denials, "the last completion carries the whole turn's denials")
 	assert.Equal(t, 2, completes[1].NumTurns, "the accounting is the last result's")
-}
-
-// TestRelayTurn_StdoutOutlivingTheInterrupt_IsTornDown: a process whose stdout
-// never ends after the interrupt (a grandchild holding it open) is torn down
-// once twice the grace has passed, so an interrupted turn always returns.
-func TestRelayTurn_StdoutOutlivingTheInterrupt_IsTornDown(t *testing.T) {
-	pr, pw := io.Pipe()
-	closed := make(chan struct{})
-	tr := &chatTransport{
-		stdin:  nopWriteCloser{io.Discard},
-		stdout: pr,
-		close:  func() error { close(closed); return pw.Close() },
-	}
-	events := make(chan agent.ChatEvent, 1)
-	go func() { readChatEvents(pr, events, time.Now); close(events) }()
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	done := make(chan error, 1)
-	go func() { _, err := relayTurn(ctx, tr, events, nil, 50*time.Millisecond); done <- err }()
-	select {
-	case err := <-done:
-		require.ErrorIs(t, err, context.Canceled)
-	case <-time.After(5 * time.Second):
-		t.Fatal("an interrupted turn whose stdout never ended did not return")
-	}
-	select {
-	case <-closed:
-	default:
-		t.Fatal("the overdue transport was not torn down")
-	}
-}
-
-// TestRelayTurn_ConsumerGoneAfterInterrupt_IsNotWaitedOn: after the interrupt
-// the process's last words are offered to the consumer for the grace and no
-// longer — a consumer that stopped reading cannot hold the turn open.
-func TestRelayTurn_ConsumerGoneAfterInterrupt_IsNotWaitedOn(t *testing.T) {
-	tr := &chatTransport{stdin: nopWriteCloser{io.Discard}, stdout: strings.NewReader(""), close: func() error { return nil }}
-	events := make(chan agent.ChatEvent, 1)
-	events <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "interrupted"}}
-	close(events)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	out := make(chan engine.Event) // nobody reads
-	done := make(chan error, 1)
-	go func() { _, err := relayTurn(ctx, tr, events, out, 50*time.Millisecond); done <- err }()
-	select {
-	case err := <-done:
-		require.ErrorIs(t, err, context.Canceled)
-	case <-time.After(5 * time.Second):
-		t.Fatal("the relay waited on a consumer that stopped reading")
-	}
 }

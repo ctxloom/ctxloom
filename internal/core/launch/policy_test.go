@@ -258,3 +258,16 @@ func TestResolvePolicy_NoCodecNeedsNoApprover(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, engine.ApproverNone, p.Approver)
 }
+
+// The refusal is about ROUTING: only a structured run puts the engine's
+// requests to the human through ctxloom. An interactive run on the same
+// codec-less engine keeps the human as approver, answering in the engine's
+// own UI, and routes nothing.
+func TestResolvePolicy_NoCodecInteractiveKeepsTheHuman(t *testing.T) {
+	env := launchtest.Deps(t, launchtest.WithAgent("dev"), launchtest.NoApprovals())
+	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, WorkDir: env.Project, Agent: "dev", Mode: engine.Interactive})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
+	assert.Equal(t, engine.ApproverHuman, l.Permission.Approver)
+	assert.False(t, l.RoutesApprovals(), "the human answers in the engine's own UI; nothing is routed")
+}

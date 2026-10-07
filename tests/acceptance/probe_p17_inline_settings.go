@@ -11,7 +11,7 @@
 // WHAT THIS RUNG PINS. A child's settings come from two places at once:
 // ctxloom's hooks live in the session home, claude's USER source; the turn's
 // posture (permission rules, defaultMode) arrives as an inline JSON document
-// on --settings (streamJSONDriver.argv, turnSettings). The design needs both
+// on --settings (instance.turnArgv, turnSettings). The design needs both
 // to apply on the same turn. If the inline document REPLACED the user
 // settings, every child would lose ctxloom's hooks — its approval hook among
 // them — the moment it was given a posture; if claude ignored inline JSON,

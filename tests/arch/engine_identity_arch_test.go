@@ -27,8 +27,11 @@
 // INITIAL SETUP — the only code exempt — is defined by structure, never by a
 // list of files:
 //
-//   - internal/engines and everything below it: the composition root
-//     (engines.Build, the registry wiring) and the engine packages themselves;
+//   - the composition root, the package internal/engines itself
+//     (engines.Build, the registry wiring), and each engine's own tree,
+//     internal/engines/<id>/** for a registered engine ID. A shared package
+//     beside the engines — the engine kit, internal/engines/kit, or any
+//     other that is no engine's — is NOT setup and names no engine;
 //   - every `package main`: a binary's own composition root (config `type` →
 //     engine selection reaches the registry from there);
 //   - an engine's FAMILY: a package whose last path element is a registered
@@ -360,13 +363,19 @@ func isTestCodeDir(dir string) bool {
 		strings.HasSuffix(path.Base(dir), "test")
 }
 
-// isInitialSetup reports a package that may name an engine: the engines
-// tree, a binary's main package, an engine's family package, or a lean
-// binary's own engine registry (see the file doc).
+// isInitialSetup reports a package that may name an engine: the registry
+// root or an engine's own tree under it, a binary's main package, an
+// engine's family package, or a lean binary's own engine registry (see the
+// file doc).
 func isInitialSetup(dir, pkgName string, ids map[string]bool, binaries map[string]bool) bool {
 	switch {
-	case dir == "internal/engines" || strings.HasPrefix(dir, "internal/engines/"):
+	case dir == "internal/engines":
 		return true
+	case strings.HasPrefix(dir, "internal/engines/"):
+		// Only an engine's OWN tree: internal/engines/<id>/**. A shared
+		// package beside the engines (the engine kit) is not an engine and
+		// names none.
+		return ids[strings.ToLower(strings.SplitN(strings.TrimPrefix(dir, "internal/engines/"), "/", 2)[0])]
 	case pkgName == "main":
 		return true
 	case ids[strings.ToLower(path.Base(dir))]:

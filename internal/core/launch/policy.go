@@ -74,7 +74,7 @@ func resolvePolicy(rep report.Reporter, src Source, d permissionDecls, eng engin
 		p.Posture = p.Posture.Named(model)
 	}
 	rungs := d.neutral()
-	if p.Approver, err = resolveApprover(rungs, eng, model, hasModel); err != nil {
+	if p.Approver, err = resolveApprover(rungs, src.Mode, eng, model, hasModel); err != nil {
 		return engine.PermissionPolicy{}, err
 	}
 	if err := plansFirstNeedsHuman(model, hasModel, p, floored); err != nil {
@@ -173,9 +173,11 @@ func resolveDeclared(rep report.Reporter, src Source, decls []engine.Declaration
 }
 
 // resolveApprover is the first declared approver, else the human. The
-// human is only an approver on an engine that can put a request to one;
-// the reviewer only on an engine that has one.
-func resolveApprover(rungs []neutralRung, eng engine.Engine, model engine.PermissionModel, hasModel bool) (engine.Approver, error) {
+// human is refused only where the run would ROUTE a request to them
+// (routesApprovals: a structured run) and the engine cannot put one; an
+// interactive run's human answers in the engine's own UI. The reviewer is
+// only an approver on an engine that has one.
+func resolveApprover(rungs []neutralRung, mode engine.Mode, eng engine.Engine, model engine.PermissionModel, hasModel bool) (engine.Approver, error) {
 	a := engine.ApproverHuman
 	if v, from, ok := first(rungs, func(n agents.NeutralPermissions) string { return n.Approver }); ok {
 		parsed, known := engine.ParseApprover(v)
@@ -188,7 +190,7 @@ func resolveApprover(rungs []neutralRung, eng engine.Engine, model engine.Permis
 		a = parsed
 	}
 	approvals := eng.Approvals()
-	if _, ok := approvals.Get(); !ok && a == engine.ApproverHuman {
+	if _, ok := approvals.Get(); !ok && routesApprovals(mode, engine.PermissionPolicy{Approver: a}) {
 		return 0, fmt.Errorf("%w: the approver is the human, but engine %s cannot put a request to one (%s) — declare `permissions: {approver: none}` to deny what the rules leave open", ErrPermissionUnhonoured, eng.Root().Name, approvals.AbsentReason())
 	}
 	return a, nil
@@ -238,8 +240,8 @@ func resolveSandbox(rungs []neutralRung, name engine.Name, runtime RuntimeAxis, 
 // routesApprovals reports whether a run routes what its posture and rules
 // leave open to the human at the root: a structured run (an interactive
 // run's human answers in the engine's own UI) whose approver is the human.
-// resolvePolicy has already refused the human as approver on an engine with
-// no approval codec.
+// resolvePolicy has already refused a launch for which this holds on an
+// engine with no approval codec.
 func routesApprovals(mode engine.Mode, p engine.PermissionPolicy) bool {
 	return mode == engine.Structured && p.Approver == engine.ApproverHuman
 }

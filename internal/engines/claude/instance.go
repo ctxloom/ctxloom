@@ -1,20 +1,16 @@
 package claude
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"path"
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/engines/kit"
 )
 
 // This file is the INSTANCE half of the port for claude: one kind bound to
@@ -218,16 +214,10 @@ func (i *instance) execArgs(presented []present.Presentation) ([]string, error) 
 // --setting-sources does not filter) and one that is the project's own
 // .mcp.json, projectMCP (a file --strict-mcp-config ignores).
 func presentedArgs(presented []present.Presentation, trust engine.WorkspaceTrust, projectMCP string) ([]string, error) {
-	var args []string
-	for _, p := range presented {
-		if trust != engine.TrustTrusted {
-			if err := untrustedRefusal(p, projectMCP); err != nil {
-				return nil, err
-			}
-		}
-		args = append(args, p.Args...)
+	if trust == engine.TrustTrusted {
+		return kit.PresentedArgs(presented, nil)
 	}
-	return args, nil
+	return kit.PresentedArgs(presented, func(p present.Presentation) error { return untrustedRefusal(p, projectMCP) })
 }
 
 // untrustedRefusal is why an untrusted session cannot take p, or nil.
@@ -258,13 +248,7 @@ func countFlag(args []string, flag string) int {
 // process ends at its result, and a task left running past it would answer
 // into a turn nobody reads).
 func (i *instance) execEnv(presented []present.Presentation) map[string]string {
-	env := map[string]string{}
-	for _, h := range i.s.Home {
-		env[h.Var] = h.Path
-	}
-	for _, p := range presented {
-		maps.Copy(env, p.Env)
-	}
+	env := kit.ComposeEnv(i.s, presented)
 	if i.s.Mode == engine.Interactive {
 		env[classicScreenEnv] = "1"
 	} else {
@@ -286,9 +270,19 @@ func (i *instance) attachPrompt(ex *engine.Exec) {
 	ex.StdinPrompt = []byte(i.s.Prompt)
 }
 
-// Drivers: the stream-json conversation is claude's one structured driver.
+// Drivers: the stream-json conversation is claude's one structured driver,
+// run on a discrete per-turn process (kit.ProcessTurn). claude supplies its
+// argv (turnArgv), its NDJSON user message and its stream-json line codec
+// (turnStream).
 func (i *instance) Drivers() []engine.StructuredDriver {
-	return []engine.StructuredDriver{&streamJSONDriver{inst: i}}
+	return []engine.StructuredDriver{kit.ProcessTurn{
+		Name:        "claude",
+		Argv:        i.turnArgv,
+		WritePrompt: writeUserMessage,
+		NewMapper:   func() kit.LineMapper { return &turnStream{} },
+		Open:        i.c.open,
+		Now:         i.c.now,
+	}}
 }
 
 // Resume re-attaches the instance to a native session: the next Exec
@@ -298,20 +292,15 @@ func (i *instance) Resume(key string) error {
 	return nil
 }
 
-// streamJSONDriver runs claude's native structured protocol — `--print
-// --input-format stream-json --output-format stream-json --verbose` — for
-// one turn on a discrete per-turn process: the Exec the instance composed,
-// the protocol flags, the native key the turn names (unless the Exec
-// already resumes it) and the session's name, so a delegated child's
-// session is findable in claude's /resume picker.
-type streamJSONDriver struct{ inst *instance }
-
-// argv is the per-turn process's argv: Exec (which already keeps an
-// untrusted repository's sources out) plus the protocol, and the turn's
-// posture as the process's one --settings (turnSettings). It refuses an
-// Exec that already names --settings, whether or not the turn has a
-// posture to say.
-func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) ([]string, error) {
+// turnArgv is claude's native structured protocol for one turn's process —
+// `--print --input-format stream-json --output-format stream-json
+// --verbose` — over the Exec (which already keeps an untrusted repository's
+// sources out): the protocol flags, the native key the turn names (unless
+// the Exec already resumes it), the session's name, so a delegated child's
+// session is findable in claude's /resume picker, and the turn's posture as
+// the process's one --settings (turnSettings). It refuses an Exec that
+// already names --settings, whether or not the turn has a posture to say.
+func (i *instance) turnArgv(ex engine.Exec, in engine.Turn) ([]string, error) {
 	if slices.Contains(ex.Args, flagSettings) {
 		return nil, errTurnSettingsPresented
 	}
@@ -320,10 +309,10 @@ func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) ([]string, error
 	if in.Resume != "" && !slices.Contains(ex.Args, flagResume) {
 		args = append(args, flagResume, in.Resume)
 	}
-	if harp := d.inst.s.Identity.Harp; harp != "" {
+	if harp := i.s.Identity.Harp; harp != "" {
 		args = append(args, flagName, harp)
 	}
-	doc, err := turnSettings(d.inst.pos, d.inst.s.MCPServers, in.Posture)
+	doc, err := turnSettings(i.pos, i.s.MCPServers, in.Posture)
 	if err != nil {
 		return nil, err
 	}
@@ -331,214 +320,6 @@ func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) ([]string, error
 		args = append(args, flagSettings, doc)
 	}
 	return args, nil
-}
-
-// Turn spawns one stream-json process, writes the one user message, relays
-// every native event and returns the native key the next turn resumes by
-// with the assistant's answer. The env is the Exec's laid over the
-// process's own (spawnChatTransport merges it onto os.Environ). A nil out
-// relays nothing.
-//
-// ctx ending is an INTERRUPT, not a teardown: the transport asks the process
-// to stop and kills it after its grace, while the driver keeps reading, so
-// what the process says on its way out (its result, its session) is still
-// relayed. The turn then returns ctx's error — it was cut short. A process
-// that ends without a result frame and exits in failure died mid-turn
-// (errTurnProcessDied).
-func (d *streamJSONDriver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out chan<- engine.Event) (engine.TurnResult, error) {
-	argv, err := d.argv(ex, in)
-	if err != nil {
-		return engine.TurnResult{}, err
-	}
-	open, now := d.seams()
-	tr, err := open(ctx, ex.Binary, argv, ex.Env, ex.WorkDir)
-	if err != nil {
-		return engine.TurnResult{}, err
-	}
-	events := make(chan agent.ChatEvent, 64)
-	go func() {
-		readChatEvents(tr.stdout, events, now)
-		close(events)
-	}()
-	if err := writeUserMessage(tr.stdin, in.Prompt); err != nil {
-		_ = tr.Close()
-		for range events {
-			// drained, so the reader can return
-		}
-		return engine.TurnResult{}, err
-	}
-	_ = tr.stdin.Close()
-	return relayTurn(ctx, tr, events, out, turnInterruptGrace)
-}
-
-// relayTurn folds and relays the turn's events until the process's stdout
-// ends, then classifies how the turn ended. grace is the interrupt's: a
-// process whose stdout outlives the interrupt by twice it (a grandchild
-// holding stdout open) is torn down, so an interrupted turn always returns.
-func relayTurn(ctx context.Context, tr *chatTransport, events <-chan agent.ChatEvent, out chan<- engine.Event, grace time.Duration) (engine.TurnResult, error) {
-	finished := make(chan struct{})
-	defer close(finished)
-	go closeOverdue(ctx, finished, tr, 2*grace)
-	relay := turnRelay{ctx: ctx, out: out, grace: grace}
-	var res engine.TurnResult
-	var acc turnAccumulator
-	var relayErr error
-	for ev := range events {
-		acc.absorb(&res, &ev)
-		if err := relay.send(ev); err != nil && relayErr == nil {
-			relayErr = err
-			_ = tr.Close()
-		}
-	}
-	res.Answer = acc.answer()
-	exitErr := tr.Wait()
-	res.ExitCode = engineExit(ctx, tr, exitErr)
-	switch {
-	case relayErr != nil:
-		return res, relayErr
-	case ctx.Err() != nil:
-		return res, ctx.Err()
-	case acc.results == 0 && exitErr != nil:
-		return res, fmt.Errorf("%w: %w", errTurnProcessDied, exitErr)
-	}
-	return res, nil
-}
-
-// closeOverdue tears tr down when the turn is still unfinished bound after ctx
-// ended.
-func closeOverdue(ctx context.Context, finished <-chan struct{}, tr *chatTransport, bound time.Duration) {
-	select {
-	case <-finished:
-		return
-	case <-ctx.Done():
-	}
-	select {
-	case <-finished:
-	case <-time.After(bound):
-		_ = tr.Close()
-	}
-}
-
-// seams is the transport opener and clock, the real ones unless the
-// instance's constructor injected stand-ins.
-func (d *streamJSONDriver) seams() (chatTransportFunc, func() time.Time) {
-	open := d.inst.c.open
-	if open == nil {
-		open = spawnChatTransport
-	}
-	now := d.inst.c.now
-	if now == nil {
-		now = time.Now
-	}
-	return open, now
-}
-
-// turnAccumulator folds one turn's events, which may span more than one
-// result frame (one process can answer more than once): the answer is the
-// LAST result's text, while the denials are EVERY result's, each joined with
-// the reason its permission_denied frame gave — result.permission_denials
-// carries no reason of its own. The runner keeps the last completion, so
-// absorb rewrites each completion's Denials to the turn's so far.
-type turnAccumulator struct {
-	segment  []string // assistant text since the last result
-	last     string   // the last result's text
-	results  int
-	reasons  map[string]string // tool_use_id → permission_denied message
-	denials  []agent.PermissionDenial
-	seenCall map[string]bool
-}
-
-// absorb records ev's native key on res and folds ev into the turn; a
-// completion's Denials are rewritten in place before it is relayed.
-func (a *turnAccumulator) absorb(res *engine.TurnResult, ev *agent.ChatEvent) {
-	switch {
-	case ev.Session != nil:
-		if ev.Session.SessionID != "" {
-			res.NativeKey = ev.Session.SessionID
-		}
-	case ev.Entry != nil:
-		if ev.Entry.Type == agent.EntryTypeAssistant {
-			a.segment = append(a.segment, ev.Entry.Content)
-		}
-	case ev.Denied != nil:
-		if a.reasons == nil {
-			a.reasons = map[string]string{}
-		}
-		a.reasons[ev.Denied.ToolCallID] = ev.Denied.Reason
-	case ev.Complete != nil:
-		a.complete(ev.Complete)
-	}
-}
-
-// complete closes one result frame: its text becomes the answer so far, and
-// its Denials are replaced by the turn's, each first-seen call once.
-func (a *turnAccumulator) complete(m *agent.TurnMeta) {
-	a.last = strings.Join(a.segment, "")
-	a.segment = nil
-	a.results++
-	for _, d := range m.Denials {
-		if a.seenCall[d.ToolCallID] {
-			continue
-		}
-		if a.seenCall == nil {
-			a.seenCall = map[string]bool{}
-		}
-		a.seenCall[d.ToolCallID] = true
-		if d.Reason == "" {
-			d.Reason = a.reasons[d.ToolCallID]
-		}
-		a.denials = append(a.denials, d)
-	}
-	m.Denials = slices.Clone(a.denials)
-}
-
-// answer is the turn's answer: the last result's text, or — a process that
-// ended with no result — everything it said.
-func (a *turnAccumulator) answer() string {
-	if a.results == 0 {
-		return strings.Join(a.segment, "")
-	}
-	return a.last
-}
-
-// turnRelay sends a turn's events on out (a nil out relays nothing). Before the
-// interrupt a send waits for the consumer; after it, the consumer still gets
-// the process's last words, but a send waits no longer than the grace in all —
-// a consumer that stopped reading must not hold the turn open.
-type turnRelay struct {
-	ctx      context.Context
-	out      chan<- engine.Event
-	grace    time.Duration
-	deadline <-chan time.Time // armed at the interrupt
-	expired  bool
-}
-
-// send relays ev; the only error is one ev cannot be encoded.
-func (r *turnRelay) send(ev agent.ChatEvent) error {
-	if r.out == nil || r.expired {
-		return nil
-	}
-	payload, err := json.Marshal(ev)
-	if err != nil {
-		return fmt.Errorf("claude stream-json event: %w", err)
-	}
-	e := engine.Event{Kind: ev.Kind(), Payload: payload}
-	if r.ctx.Err() == nil {
-		select {
-		case r.out <- e:
-			return nil
-		case <-r.ctx.Done():
-		}
-	}
-	if r.deadline == nil {
-		r.deadline = time.After(r.grace)
-	}
-	select {
-	case r.out <- e:
-	case <-r.deadline:
-		r.expired = true
-	}
-	return nil
 }
 
 var _ engine.Instance = (*instance)(nil)

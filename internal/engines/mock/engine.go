@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines/kit"
 )
 
 // This file is the mock ENGINE KIND: the conformance double and the first
@@ -354,16 +355,10 @@ type instance struct {
 // one's argv channel (the context and hook files) and env, after the home
 // vars.
 func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
-	env := map[string]string{}
-	for _, h := range i.s.Home {
-		env[h.Var] = h.Path
-	}
-	args := []string{}
-	for _, p := range presented {
-		args = append(args, p.Args...)
-		for k, v := range p.Env {
-			env[k] = v
-		}
+	env := kit.ComposeEnv(i.s, presented)
+	args, err := kit.PresentedArgs(presented, nil)
+	if err != nil {
+		return engine.Exec{}, err
 	}
 	interactive := i.s.Mode == engine.Interactive
 	if root := i.s.Roots.SessionHome.Engine; interactive && root != "" {

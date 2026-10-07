@@ -144,9 +144,11 @@ type Cells interface {
 // dir, which has nowhere to put one. The zero agents.HomeMode is the parser's
 // default, the session.
 //
-// The leaf is the DECLARED subdir rather than the engine name because the
-// engine's own home var points at <session home>/<subdir> (engine.HomeVar);
+// The leaf is the first home var's DECLARED subdir rather than the engine
+// name because that var names this directory itself (engine.HomeVar,
+// engine.BindHome), and the engine's own resolution may append the leaf;
 // naming the directory any other way would split the root from the var.
+// Every further var the engine declares is a directory beneath it.
 func SessionHome(sessionDir string, eng engine.Engine, m agents.HomeMode) (dir string, ok bool) {
 	if m == agents.HomeModeHost || sessionDir == "" {
 		return "", false

@@ -315,6 +315,16 @@ var LayeringRules = []LayeringRule{
 		},
 	},
 	{
+		// THE SHARED ENGINE KIT (internal/engines/kit) is what every engine
+		// assembles; an engine importing it is the point, and kit importing
+		// an engine would make one engine's code every engine's. kit stays
+		// inside the engines ring (the rule above) and imports no engine.
+		Name:   "enginekit-imports-no-engine",
+		From:   []string{"internal/engines/kit"},
+		Forbid: []string{"internal/engines"},
+		Except: []string{"internal/engines/kit"},
+	},
+	{
 		// THE GENERATED COORDINATION PROTO (adapters/coordgrpc/pb) is a wire
 		// codec's private vocabulary: only the packages that speak the wire
 		// may import it. from is the whole module so a new importer is caught

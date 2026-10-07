@@ -118,7 +118,8 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 	// The approval hook's POST rides the same listener, behind the same
 	// bearer and Origin rules.
 	mux.Handle(runner.HookPath, guard(lo.MCP.Credential, policy.AllowedOrigins, hookHandler(e.Home)))
-	srv := &http.Server{Handler: mux}
+	unstarted := &unstartedConns{open: map[net.Conn]struct{}{}}
+	srv := &http.Server{Handler: mux, ConnState: unstarted.track}
 	if e.served != nil {
 		e.served(server)
 	}
@@ -149,6 +150,7 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 		case <-e.reap(server):
 		case <-sctx.Done():
 		}
+		unstarted.end()
 		err := srv.Shutdown(sctx)
 		// Shutdown closes only the listeners srv.Serve has already registered.
 		// Until the goroutine above reaches that point ln is not yet srv's, and
@@ -182,6 +184,46 @@ func (e Endpoint) reap(server *mcp.Server) (done <-chan struct{}) {
 		}
 	}()
 	return closed
+}
+
+// unstartedConns holds the connections the server has accepted that have
+// not yet begun a request. Shutdown counts such a connection as busy for
+// several seconds, longer than shutdownBudget, and an HTTP client may hold
+// one indefinitely (Go's transport parks a dialed connection it ended up not
+// needing), so Close ends them itself: once end has run, no connection that
+// has not begun a request stays open, including one accepted afterwards.
+// A connection already carrying a request is left to Shutdown's grace.
+type unstartedConns struct {
+	mu     sync.Mutex
+	open   map[net.Conn]struct{}
+	ending bool
+}
+
+// track is the server's ConnState hook.
+func (u *unstartedConns) track(c net.Conn, state http.ConnState) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if state != http.StateNew {
+		delete(u.open, c)
+		return
+	}
+	if u.ending {
+		_ = c.Close()
+		return
+	}
+	u.open[c] = struct{}{}
+}
+
+// end closes every connection that has not begun a request, now and from
+// now on.
+func (u *unstartedConns) end() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.ending = true
+	for c := range u.open {
+		_ = c.Close()
+	}
+	clear(u.open)
 }
 
 // bindable refuses what Serve cannot serve — no allowlist, no reach-back

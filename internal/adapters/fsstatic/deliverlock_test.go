@@ -3,7 +3,6 @@ package fsstatic_test
 import (
 	"context"
 	"path/filepath"
-	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -19,7 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -135,29 +133,23 @@ func commandLoadout(t *testing.T, project, name string) delivery.Loadout {
 	return delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}
 }
 
-// requireLedgerIsDisk holds dir's commands ledger to exactly the command
-// files standing in dir, and returns them: an entry with no file, or a file
-// no entry claims, is what an interleaved delivery leaves behind.
-func requireLedgerIsDisk(t *testing.T, files safefs.Root, dir string) []string {
+// requireRecordIsDisk holds the project writer's claims to exactly the files
+// standing under project: a claim with no file, or a file no claim names, is
+// what an interleaved delivery leaves behind.
+func requireRecordIsDisk(t *testing.T, fs afero.Fs, rec delivery.Ownership, project string) {
 	t.Helper()
-	recorded, err := ledger.Ledger{Root: files, Dir: dir}.Read(ledger.SurfaceCommands)
+	claimed, err := rec.Targets(delivery.ProjectWriter)
 	require.NoError(t, err)
 	var onDisk []string
-	entries, err := afero.ReadDir(files.Fs, dir)
-	require.NoError(t, err)
-	for _, e := range entries {
-		if e.Name() != ledger.Name {
-			onDisk = append(onDisk, e.Name())
-		}
+	for _, rel := range deliverytest.RelativeFiles(fs, project) {
+		onDisk = append(onDisk, filepath.Join(project, rel))
 	}
-	sort.Strings(recorded)
-	require.Equal(t, onDisk, recorded, "the ledger must record exactly the files in %s", dir)
-	return recorded
+	require.Equal(t, onDisk, claimed, "the record must claim exactly the files under %s", project)
 }
 
 // writeCommand writes one command, name, into dir through the shared
-// managed-file writer: under dir's lock, recorded in dir's ledger.
-func writeCommand(files safefs.Root, dir, name string) error {
+// managed-file writer, under dir's lock, and returns what it placed.
+func writeCommand(files safefs.Root, dir, name string) ([]string, error) {
 	return agent.WriteManagedCommandFiles(files, dir,
 		[]agent.CommandExport{{Name: name, Content: "body of " + name, Enabled: true}},
 		func(c agent.CommandExport) (string, []byte, error) { return c.Name + ".md", []byte(c.Content), nil })
@@ -168,7 +160,8 @@ func writeCommand(files safefs.Root, dir, name string) error {
 func managedCommands(dir string) engine.Base {
 	root := mock.New().Root()
 	root.Commands = commandsBy{CommandsApproach: root.Commands, deliver: func(files safefs.Root) (present.Delivered, error) {
-		return present.Delivered{}, writeCommand(files, dir, "b")
+		placed, err := writeCommand(files, dir, "b")
+		return present.Delivered{Files: placed}, err
 	}}
 	return root
 }
@@ -220,9 +213,8 @@ func awaitBoth(t *testing.T, a, b <-chan error) (aErr, bErr error) {
 // interleaving a delivery's locks exist to exclude: delivery B runs its
 // approach (having read its writer's previous files from the record), and is
 // parked before its commit; delivery A into the SAME dir is
-// then started. A must not complete inside B's window — had it, B would
-// commit a ledger built from what it read before A's files landed, and A's
-// file would stand beside B's: B's release of the writer's previous files was
+// then started. A must not complete inside B's window — had it, A's file
+// would stand beside B's: B's release of the writer's previous files was
 // read before A's landed. Whichever order the two land in, what stands on
 // disk is one delivery's set, and the record names exactly it.
 func TestDeliver_TwoDeliveriesIntoOneDirectoryDoNotInterleave(t *testing.T) {
@@ -262,10 +254,8 @@ func TestDeliver_TwoDeliveriesIntoOneDirectoryDoNotInterleave(t *testing.T) {
 // dir that is not this static writer — the shared managed-file writer
 // called on the real filesystem — takes the dir's lock and does its whole
 // cycle under it. A delivery parked between its approach run and its commit
-// still holds that dir's lock, so the direct writer waits until the
-// delivery's files are on disk and reads them, rather than completing in the
-// delivery's window and having its ledger overwritten by the delivery's
-// stale one.
+// still holds that dir's lock, so the direct writer must WAIT on it rather
+// than complete inside the delivery's window.
 func TestDeliver_HoldsTheDirectoryLockThroughItsCommit(t *testing.T) {
 	fs := afero.NewOsFs()
 	base := safefs.NewMem(fs)
@@ -286,14 +276,25 @@ func TestDeliver_HoldsTheDirectoryLockThroughItsCommit(t *testing.T) {
 	go func() { _, err := st.Deliver(context.Background(), lo, root, target); bDone <- err }()
 	awaitParked(t, "B", parked, bDone)
 	go func() {
-		wDone <- writeCommand(tr.root(base, "W"), dir, "w")
+		_, err := writeCommand(tr.root(base, "W"), dir, "w")
+		wDone <- err
 	}()
-	awaitBlockedOrDone(t, tr, "W", wDone)
+	select {
+	case <-tr.blockedOn("W"):
+	case err := <-wDone:
+		t.Fatalf("the direct writer finished inside the parked delivery's window (err %v): the delivery released its dir lock before its commit", err)
+	case <-time.After(deadlockBound):
+		t.Fatalf("deadlock: the direct writer neither finished nor waited on the dir lock within %s", deadlockBound)
+	}
 	close(resume)
 	wErr, bErr := awaitBoth(t, wDone, bDone)
 	require.NoError(t, bErr)
 	require.NoError(t, wErr)
-	require.Equal(t, []string{"w.md"}, requireLedgerIsDisk(t, base, dir), "the direct writer ran last, over the delivery's files")
+	require.FileExists(t, filepath.Join(dir, "b.md"))
+	require.FileExists(t, filepath.Join(dir, "w.md"))
+	owned, err := rec.Targets(delivery.ProjectWriter)
+	require.NoError(t, err)
+	require.Equal(t, []string{filepath.Join(dir, "b.md")}, owned, "the record names the delivery's file, not the direct writer's")
 }
 
 // TestDeliver_DeliveriesTakingOverlappingDirsInOppositeOrdersDoNotDeadlock:
@@ -316,15 +317,18 @@ func TestDeliver_DeliveriesTakingOverlappingDirsInOppositeOrdersDoNotDeadlock(t 
 	inOrder := func(name string, between func(), dirs ...string) engine.Base {
 		root := mock.New().Root()
 		root.Commands = commandsBy{CommandsApproach: root.Commands, deliver: func(files safefs.Root) (present.Delivered, error) {
+			var out present.Delivered
 			for i, dir := range dirs {
-				if err := writeCommand(files, dir, name); err != nil {
+				placed, err := writeCommand(files, dir, name)
+				if err != nil {
 					return present.Delivered{}, err
 				}
+				out.Files = append(out.Files, placed...)
 				if i == 0 {
 					between()
 				}
 			}
-			return present.Delivered{}, nil
+			return out, nil
 		}}
 		return root
 	}
@@ -349,6 +353,5 @@ func TestDeliver_DeliveriesTakingOverlappingDirsInOppositeOrdersDoNotDeadlock(t 
 	aErr, bErr := awaitBoth(t, aDone, bDone)
 	require.NoError(t, aErr)
 	require.NoError(t, bErr)
-	requireLedgerIsDisk(t, base, one)
-	requireLedgerIsDisk(t, base, two)
+	requireRecordIsDisk(t, fs, rec, project)
 }

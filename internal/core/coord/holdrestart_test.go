@@ -770,10 +770,18 @@ func TestHoldRestart_ARefusalOfTheReplacingCredentialStillHolds(t *testing.T) {
 	f.opts.RefreshSecrets = (&secretsRefresher{}).refresh
 	f.opts.LookupEnv = envOf(map[string]string{tokenVar: alsoRefused})
 	reasserted := make(chan struct{}, 8)
+	folded := make(chan struct{}, 64) // beyond this test's failures: a full buffer would stall the coordinator
 	letFinding := make(chan struct{})
 	var let sync.Once
 	f.restartTuned(t, clk, 0, func(c *Coordinator) {
-		c.holdStep = stepSignal(holdStepReasserted, reasserted)
+		c.holdStep = func(step string) {
+			switch step {
+			case holdStepReasserted:
+				reasserted <- struct{}{}
+			case holdStepTurnFolded:
+				folded <- struct{}{}
+			}
+		}
 		prev := c.rep
 		c.rep = report.To(report.SinkFunc(func(x report.Finding) {
 			if strings.Contains(x.Text, refusedLead) {
@@ -788,10 +796,17 @@ func TestHoldRestart_ARefusalOfTheReplacingCredentialStillHolds(t *testing.T) {
 	within(t, reasserted, "the worker's owed resume was never delivered")
 	within(t, reasserted, "the sibling's owed resume was never delivered")
 	f.awaitReplayed(t, 0)
+	for len(folded) > 0 { // a replayed boundary folds, into nothing; only the replacement's refusal is awaited below
+		<-folded
+	}
+	f.folded = folded
 
 	f.send(t, f.worker, credRefused+" again, on the replacement")
 	awaitChatText(t, f.sp, 0, "again, on the replacement")
 	f.awaitHold(t, f.worker, f.sibling)
+	require.Zero(t, f.findingsWith(refusedFinding), "premise: the hold is visible while its finding is still held back")
+	let.Do(func() { close(letFinding) })
+	f.awaitFolds(t, 1) // the fold step follows raiseHoldFinding; the hold alone orders nothing
 	assert.Equal(t, alsoRefused, lastExecEnv(f.sp, 0)[tokenVar], "premise: the turn ran on the replacement")
 	opened := journaled[holdOpened](t, f.c, factHoldOpened)
 	require.Len(t, opened, 2, "the replacement's refusal opened a hold of its own")

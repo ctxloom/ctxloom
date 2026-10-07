@@ -13,16 +13,13 @@ Print the context, commands, hooks and MCP servers ctxloom contributes to a sess
 
 ### Synopsis
 
-loadout emits the ctxloom loadout ctxloom contributes — a document with the RUN
+loadout prints the ctxloom loadout ctxloom contributes — a document with the RUN
 bundle a session consumes and the typed INIT section setup consumes — for
 ctxloom's companion discovery to seed under the source ref
-ctxloom:companion@ctxloom (signature-envelope spec §4.3, §6).
+ctxloom:companion@ctxloom.
 
---format json is the machine contract ctxloom's companion discovery execs
-(`ctxloom loadout --format json`): a JSON envelope carrying the exact loadout
-document bytes (base64) plus an OPTIONAL detached publish signature.
-
---format yaml (the default) prints the raw loadout document for a human to read.
+ctxloom's companion discovery execs `ctxloom loadout --format yaml` and parses
+the document it prints.
 
 ```
 ctxloom loadout [flags]
@@ -32,13 +29,12 @@ ctxloom loadout [flags]
 
 ```
   ctxloom loadout
-  ctxloom loadout --format json
 ```
 
 ### Options
 
 ```
-      --format string   output format: yaml (raw loadout document) or json (signed envelope) (default "yaml")
+      --format string   output format: yaml (the loadout document) (default "yaml")
 ```
 
 ### Options inherited from parent commands
@@ -46,7 +42,6 @@ ctxloom loadout [flags]
 ```
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
-      --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted (nothing ctxloom starts inherits it; signing is unaffected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
       --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)

@@ -70,7 +70,6 @@ export default defineConfig({
 						{ label: 'Choosing an isolation boundary', link: '/security/environment-isolation/' },
 						{ label: 'What a bundle can do to you', link: '/security/bundle-anatomy/' },
 						{ label: 'Threat model', link: '/security/threat-model/' },
-						{ label: 'Key management', link: '/security/key-management/' },
 					],
 				},
 				{

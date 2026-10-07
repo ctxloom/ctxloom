@@ -9,16 +9,6 @@ signed with an Apple Developer ID or a Windows code-signing certificate. Your
 operating system will treat them accordingly, and depending on how you
 install, you may have extra steps before the binary runs.
 
-The archives do carry a release statement and a detached SSH signature over it
-beside each binary (`<binary>.release`, `<binary>.sig`). Those are ctxloom's,
-not the operating system's: ctxloom runs a companion only when its `.sig`
-verifies against a publisher key you trust and its `.release` names and hashes
-the binary it sits beside (see `ctxloom companion --help`), so keep both next to
-the binary, under the name it shipped with, when you install by hand. The
-statement's hash covers the binary's exact bytes: **never re-sign a companion**
-(`codesign --force` or anything else that rewrites the file), or ctxloom refuses
-it as tampered. Removing extended attributes is safe; they are metadata, not
-file contents.
 
 ## TL;DR by install method
 
@@ -52,8 +42,7 @@ Consequences for an unsigned binary:
 
 `install.sh` removes both attributes when `xattr` is available. It does not
 re-sign anything: Apple Silicon requires only an ad-hoc signature, which the
-linker already embeds, and re-signing would rewrite the bytes the companion's
-signed `.release` statement hashes. The Homebrew casks do **less** — every cask's post-install hook
+linker already embeds. The Homebrew casks do **less** — every cask's post-install hook
 runs exactly one command, `xattr -dr com.apple.quarantine`. No cask touches
 `com.apple.provenance`, so a brew-installed binary can still be killed outright
 on Sequoia+. If a binary is blocked or killed — or you downloaded an archive

@@ -9,24 +9,19 @@ This page is generated from `ctxloom bundle move --help`.
 
 ## ctxloom bundle move
 
-Move an authored bundle to a remote or another project, carrying its signature
+Move an authored bundle to a remote or another project
 
 ### Synopsis
 
-Move an authored bundle out of .ctxloom/content/bundles, signature and all.
+Move an authored bundle out of .ctxloom/content/bundles.
 
-The bundle's tree is carried VERBATIM — never re-parsed, re-serialized, or
-re-signed. Its signature (the SHA256SUMS manifest and .sigs/ entries made by
-'ctxloom bundle sign') therefore stays valid at the destination, because the
-bytes it covers do not change. If a signature exists but cannot be carried, the move
-FAILS: it never lands the bundle unsigned behind your back.
+The bundle's tree is carried VERBATIM — never re-parsed or re-serialized.
 
 --to resolves one of two ways, and never guesses:
 
   remote name   A remote configured in .ctxloom/remotes.yaml (see
                 'ctxloom remote list'). The bundle is published to it — the same
-                path 'ctxloom bundle push' takes — with its signature published
-                alongside as a detached sibling.
+                path 'ctxloom bundle push' takes.
 
   directory     An existing local directory. If it is a ctxloom project checkout
                 (it contains .ctxloom/), the bundle lands in that project's
@@ -36,8 +31,8 @@ FAILS: it never lands the bundle unsigned behind your back.
 A configured remote NAME always wins over a directory of the same spelling. An
 argument that is neither a known remote nor an existing directory is an error.
 
-The source is removed ONLY after the destination write has fully succeeded
-(bundle AND signature). A move that fails part-way leaves the source untouched.
+The source is removed ONLY after the destination write has fully succeeded.
+A move that fails part-way leaves the source untouched.
 
 ```
 ctxloom bundle move <name> --to <remote|path> [flags]
@@ -64,7 +59,6 @@ ctxloom bundle move <name> --to <remote|path> [flags]
 ```
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
-      --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted (nothing ctxloom starts inherits it; signing is unaffected)
       --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context

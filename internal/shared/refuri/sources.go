@@ -14,8 +14,7 @@ const LocalSource = "ctxloom:local"
 
 // CompanionSource is the fixed source token for ctxloom:companion@<bin>
 // references — a bundle emitted live by a companion binary discovered on
-// PATH (`<bin> loadout --format json`, signature-envelope spec §4.3/§6
-// discovery). This is the FIRST-CLASS, RECOGNIZED source token companion
+// PATH (`<bin> loadout --format yaml`). This is the FIRST-CLASS, RECOGNIZED source token companion
 // loadouts are seeded under: recognized here (so the unrecognized-source
 // guard every caller builds on IsSelfContainedRef never fires for it) and mapped to a NON-local
 // trust.Ref (Reference.IsLocal stays false), so companion content is never

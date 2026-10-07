@@ -120,10 +120,10 @@ func (p Prober) ProbeCompanions() []CompanionStatus {
 	return out
 }
 
-// ===== Companion LOADOUT discovery (signature-envelope spec §4.3, §6) =====
+// ===== Companion LOADOUT discovery =====
 //
 // A companion loadout is a bundle a binary on PATH advertises about itself
-// (`<bin> loadout --format json`), distinct from the built-in bundles above
+// (`<bin> loadout --format yaml`), distinct from the built-in bundles above
 // (which ship INSIDE the ctxloom binary).
 //
 // THE CONTROL POINT IS EXEC, NOT CONTENT. Reading a loadout means RUNNING the
@@ -186,7 +186,7 @@ var readDir = os.ReadDir
 // every name on PATH matching the ctxloom-companion-* convention. First-
 // party binaries do not match the glob (their names predate the
 // convention), so both mechanisms are required — neither alone finds every
-// companion (signature-envelope spec §6 discovery).
+// companion.
 func DiscoverCompanions() []string {
 	seen := make(map[string]bool, len(firstPartyCompanions))
 	for _, bin := range firstPartyCompanions {

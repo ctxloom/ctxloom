@@ -304,23 +304,6 @@ A run whose credential is not exported is refused and tells you what to export. 
 share its usage limits with your own interactive use. See
 [Environment Variables](/reference/environment/#engine-authentication).
 
-### Signing and publishing (needs SSH)
-
-Verifying a signature is pure Go and needs no external binary at all — it runs the same inside a minimal container with no SSH tooling
-present. **Producing** one does need SSH tooling, because ctxloom never generates, stores, or
-reads private key material itself (see [Key management](/security/key-management/)) — it always
-signs through your existing `ssh-agent`. `ctxloom bundle sign` needs:
-
-- The OpenSSH client tools (`ssh-keygen`, `ssh-add`) — to create a key, if you don't already have
-  one. These ship with the OS on macOS/Linux and with Git for Windows; nothing extra to install
-  on those platforms.
-- A running `ssh-agent` with a key loaded (`ssh-add ~/.ssh/id_ed25519`), or `git config
-  user.signingkey` naming one — either satisfies ctxloom's key-discovery chain.
-
-If you already sign git commits over SSH, there is nothing extra to set up — ctxloom reuses that
-key. If you have neither, `ctxloom bundle sign` fails with an actionable error (the exact
-`ssh-add`/`ssh-keygen` commands to run) rather than a silent no-op.
-
 ### Container isolation (`runtime: container-rootless` / `container-rootful`)
 
 Only needed if you opt into `runtime: container-rootless` or `runtime: container-rootful` (or run `ctxloom container build`) — the

@@ -13,16 +13,13 @@ Print the context, commands, hooks and MCP servers ltk contributes to a session
 
 ### Synopsis
 
-loadout emits the ctxloom loadout ltk contributes — a document with the RUN
+loadout prints the ctxloom loadout ltk contributes — a document with the RUN
 bundle a session consumes and the typed INIT section setup consumes — for
 ctxloom's companion discovery to seed under the source ref
-ctxloom:companion@ltk (signature-envelope spec §4.3, §6).
+ctxloom:companion@ltk.
 
---format json is the machine contract ctxloom's companion discovery execs
-(`ltk loadout --format json`): a JSON envelope carrying the exact loadout
-document bytes (base64) plus an OPTIONAL detached publish signature.
-
---format yaml (the default) prints the raw loadout document for a human to read.
+ctxloom's companion discovery execs `ltk loadout --format yaml` and parses
+the document it prints.
 
 ```
 ltk loadout [flags]
@@ -32,13 +29,12 @@ ltk loadout [flags]
 
 ```
   ltk loadout
-  ltk loadout --format json
 ```
 
 ### Options
 
 ```
-      --format string   output format: yaml (raw loadout document) or json (signed envelope) (default "yaml")
+      --format string   output format: yaml (the loadout document) (default "yaml")
   -h, --help            help for loadout
 ```
 

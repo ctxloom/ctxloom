@@ -17,10 +17,6 @@ Pack a skill's source tree into a .zip shaped exactly like the Anthropic
 Skills-API upload expects: a single top-level directory (named after the
 skill) containing every manifest file, with POSIX modes preserved.
 
---sign additionally writes a detached signature over the skill's manifest
-(the same bytes 'ctxloom skill import' verifies), using the same zero-config
-key discovery 'ctxloom bundle sign' uses.
-
 ```
 ctxloom skill export <bundle>#skills/<name> [flags]
 ```
@@ -29,14 +25,13 @@ ctxloom skill export <bundle>#skills/<name> [flags]
 
 ```
   ctxloom skill export my-bundle#skills/code-reviewer
-  ctxloom skill export my-bundle#skills/code-reviewer -o /tmp/code-reviewer.zip --sign
+  ctxloom skill export my-bundle#skills/code-reviewer -o /tmp/code-reviewer.zip
 ```
 
 ### Options
 
 ```
   -o, --output string   Output .zip path (default: <name>.zip)
-      --sign            sign the exported manifest (writes a detached .sig sibling)
 ```
 
 ### Options inherited from parent commands
@@ -44,7 +39,6 @@ ctxloom skill export <bundle>#skills/<name> [flags]
 ```
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
-      --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted (nothing ctxloom starts inherits it; signing is unaffected)
       --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context

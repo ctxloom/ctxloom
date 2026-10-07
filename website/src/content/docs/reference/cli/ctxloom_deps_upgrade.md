@@ -32,16 +32,6 @@ This is the only command that moves an existing pin. 'deps pull', 'init' and
 startup create first pins and keep every existing one, even when you change a
 constraint; that change takes effect here.
 
-A pin is NOT advanced onto content that cannot be read as a bundle: advancing
-onto it would leave you with nothing. The old pin is kept and the refusal is
-reported.
-
-A refusal EXITS 2, not 0 and not 1: the command ran fine and deliberately did
-not do part of what it was asked, so an unattended sync can tell "I refused
-something" apart from both "nothing to do" (0) and a failure (1). An applied
-refusal also survives the run — 'ctxloom doctor' reports it until an upgrade
-advances that pin.
-
 ```
 ctxloom deps upgrade [flags]
 ```
@@ -64,7 +54,6 @@ ctxloom deps upgrade [flags]
 ```
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
-      --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted (nothing ctxloom starts inherits it; signing is unaffected)
       --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context

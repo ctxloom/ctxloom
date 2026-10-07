@@ -91,7 +91,6 @@ classDiagram
 | `NewBaseContextProvider` | `internal/core/agent/base_context.go:15` | Zero-value constructor. |
 | `BaseContextProvider.Provide` | `internal/core/agent/base_context.go:20` | Writes the context file and records its hash. |
 | `BaseContextProvider.Clear` | `internal/core/agent/base_context.go:30` | Removes the context file and clears the hash. |
-| `BaseContextProvider.GetContextHash` | `internal/core/agent/base_context.go:40` | Getter satisfying `HashedContext`. |
 | `BaseContextProvider.GetContextFilePath` | `internal/core/agent/base_context.go:45` | Recomputes the relative path from the hash. |
 
 ## Cross-cutting value types
@@ -109,7 +108,7 @@ classDiagram
 - **`NewBaseBackend` is the only safe constructor.** It initializes `Args` and `Env` to non-nil (`base.go:88`). A zero-value `BaseBackend` passed to `ApplyLocalCLIConfig` panics on assignment into a nil `Env` map — real behaviour, not documented.
 - **`BaseBackend.WorkDir()` returns `"."` when unset**, so callers never see an empty work dir.
 - **`BuildEnv` appends rather than overrides.** Duplicate keys are emitted and correctness relies on `os/exec`'s last-wins semantics.
-- **`Provide` must be called before `GetContextHash`/`GetContextFilePath`.** Both return `""` beforehand.
+- **`Provide` must be called before `GetContextFilePath`.** It returns `""` beforehand.
 - **`BaseContextProvider` re-derives the context-file path** as `SCMContextSubdir + hash + ".md"` (`base_context.go:32`, `:49`) rather than asking `WriteContextFile` — the naming scheme lives in two places and must be changed in both.
 - **`Clear` always returns nil and always clears `contextHash`** even when the removal failed — the `error` return is decorative and the hash needed to retry is discarded. Diverges from the `ContextProvider.Clear(workDir) error` signature's implied contract.
 - **`ExecutionMode` values are pinned to the proto enum** (`= 0`, `= 1`); the pin is not documented at the constant site.

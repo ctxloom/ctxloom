@@ -2,10 +2,9 @@ package agent
 
 // The WELL-KNOWN approach names. The set of approaches is OPEN — an engine
 // declares whichever it supports in its own Declaration, under whatever names
-// it chooses — and these constants exist only because SHARED code has to refer
-// to these two by name: the at-rest callers (materialize, apply, remove,
-// currency) ask every engine for its native file, and apply and the launch
-// fallback ask for hook-carried context. An approach only one engine has
+// it chooses — and a constant exists here only because SHARED code has to
+// refer to that approach by name: the at-rest callers (materialize, apply,
+// remove, currency) ask every engine for its native file. An approach only one engine has
 // (claude's system prompt) is named by that engine, in its own package; naming
 // it here would be the enum growing back.
 //
@@ -20,9 +19,4 @@ const (
 	// locked against a concurrent session using those exact files. Into an
 	// isolated (private) cell it is always safe — isolation IS the conversion.
 	ApproachUnsafeFile = "unsafe-file"
-	// ApproachHook delivers context via a SessionStart inject-context hook
-	// reading a content-addressed cache file. It RIDES the settings surface
-	// (the hook is written there), which is what the shared HookCarriedContext
-	// implementation declares.
-	ApproachHook = "hook"
 )

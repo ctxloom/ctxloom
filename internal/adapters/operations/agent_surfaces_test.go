@@ -77,3 +77,15 @@ func TestResolveAgentSurfaces_RefusesAnUnsupportedApproachNamingTheSupported(t *
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), agent.ApproachUnsafeFile)
 }
+
+// TestResolveAgentSurfaces_ClaudeRefusesTheRetiredHookApproach: no hook
+// carries the project context any more (onectx) — claude takes it once, as the
+// system prompt of a launch — so the `hook` context approach is gone, and a
+// binding that still names it is refused with what claude does support rather
+// than launching a session with no context.
+func TestResolveAgentSurfaces_ClaudeRefusesTheRetiredHookApproach(t *testing.T) {
+	got, err := ResolveAgentSurfaces(engines.Registry(), "claude-code", map[string]string{"context": "hook"})
+	require.Error(t, err, "claude declares no hook-carried context")
+	assert.Nil(t, got)
+	assert.Contains(t, err.Error(), "supports: system-prompt, unsafe-file")
+}

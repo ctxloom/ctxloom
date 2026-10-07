@@ -30,7 +30,7 @@ func TestBaseContextProvider_ProvidesAndClearsThroughItsFs(t *testing.T) {
 	exists, err = afero.Exists(mem, path)
 	require.NoError(t, err)
 	assert.False(t, exists, "Clear must remove the context file from the provider's fs")
-	assert.Empty(t, p.GetContextHash())
+	assert.Empty(t, p.contextHash)
 
 	_, err = os.Stat(work)
 	assert.ErrorIs(t, err, fs.ErrNotExist, "nothing may reach the real disk")

@@ -270,9 +270,9 @@ func TestHookProbeAssert_StageAOnlyCellIgnoresStdoutShape(t *testing.T) {
 // claude for failing to do something ctxloom never asked of it.
 func TestHookProbeIngestsHookStdout_MatchesTheDeclaredApproachTables(t *testing.T) {
 	for engine, want := range map[string]bool{
-		// No shipped engine ingests hook stdout: claude declares ApproachHook
-		// but SurfaceFor resolves it to noopContextDelivery, and mock's
-		// context surface is a native file. The permissive direction is the
+		// No shipped engine ingests hook stdout as its context: claude takes
+		// its context as a launch's system prompt and no hook carries it,
+		// and mock's context surface is a native file. The permissive direction is the
 		// expensive mistake, so the table states false rather than omitting.
 		"claude-code": false,
 		"mock":        false,

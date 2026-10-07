@@ -142,15 +142,16 @@ func TestMockSessionForm_KeepsTheSessionHomesEngineSide(t *testing.T) {
 // TestMockDeclaration_UnsupportedApproach_IsRefused pins the branch Build
 // takes when the KIND is declared but the requested APPROACH is not one of
 // its names — mock declares the session and project forms only, so asking
-// for ApproachHook on the context surface must be refused, not silently
+// for claude's system-prompt on the context surface must be refused, not silently
 // resolved to something else. The message must distinguish "the approach is unsupported" from "the
 // kind is absent": it names the surface, the name and what IS declared.
 func TestMockDeclaration_UnsupportedApproach_IsRefused(t *testing.T) {
 	decl := New().(Mock).Declaration()
 
-	_, ok := decl[agent.SurfaceContext].Construct(agent.ApproachHook, agent.SurfaceInputs{Context: "X"}, safefs.New())
+	const claudeOnly = "system-prompt"
+	_, ok := decl[agent.SurfaceContext].Construct(claudeOnly, agent.SurfaceInputs{Context: "X"}, safefs.New())
 	assert.False(t, ok, "an undeclared approach is refused")
-	assert.NotContains(t, decl.Names(agent.SurfaceContext), agent.ApproachHook)
+	assert.NotContains(t, decl.Names(agent.SurfaceContext), claudeOnly)
 }
 
 // TestMockDeclaration_UnsupportedKind_IsAbsent pins that a KIND absent from

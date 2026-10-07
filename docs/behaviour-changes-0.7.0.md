@@ -290,6 +290,10 @@ that `ctxloom run` launches. The hook no longer carries it:
 - **A claude session you start by hand gets no ctxloom context.** Nothing
   tells you so: the session starts normally, without your profiles'
   guidance. Start it with `ctxloom run` instead.
+- The `hook` context approach (`surfaces: {context: hook}` on a claude agent
+  binding) is removed, because no hook delivers context any more. A binding
+  that names it is refused, with the approaches claude supports:
+  `system-prompt` (the default) and `unsafe-file`.
 - Run `ctxloom manage hooks install` once after upgrading. It adds the
   `session-start` hook. It removes the old `inject-context` entries only
   where this machine's ctxloom recorded installing them. An entry written by

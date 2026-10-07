@@ -4,9 +4,10 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
   ctxloom can hand an agent its context four different ways, and until this
   feature existed it had only ever been observed doing it ONE way per engine:
   whichever way that engine defaults to. `agent.ApproachSystemPrompt` (claude's
-  --append-system-prompt-file) and `agent.ApproachHook` (the SessionStart
-  inject-context route) were both claimed by the descriptors and proven by
-  nobody — rows 4 and 5 of the capability inventory, "C, ?" in both columns.
+  --append-system-prompt-file) was claimed by the descriptors and proven by
+  nobody — row 4 of the capability inventory. (Row 5, the hook-carried route,
+  was proven here and then retired by onectx with the approach itself: no hook
+  carries context any more.)
 
   This is that gap closed. Each cell runs the JSON hello-world task from
   engine_isolation_matrix.feature — byte-identical prompt, byte-identical
@@ -31,14 +32,15 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
   Two corrections came out of it, and both are load-bearing here:
 
     - the verdict now reads ctxloom's REPORT, not only the model's answer:
-      approachPinHonoured refuses a run that degraded off the pin, and
-      approachRequiredSurfaceDelivered refuses a hook-pinned cell whose hook
-      surface production said it did not write;
+      approachPinHonoured refuses a run that degraded off the pin (a sibling
+      check for a hook-pinned cell whose hook was never written retired with
+      the hook approach);
     - each cell's registry row states whether it is SIDE-CHANNEL-CONTROLLED —
       whether the nonce bytes were out of reach of a file search. Only claude's
       system-prompt cell is: its delivery writes out of cwd, and its negative
-      control is the hook cell beside it, which sees the identical project tree
-      with the identical tools and comes back with nothing. Every other context
+      control was the hook cell beside it (since retired with the hook
+      approach), which saw the identical project tree with the identical tools
+      and came back with nothing. Every other context
       delivery in the ladder lands IN the working directory (only claude's
       system-prompt route has an out-of-cwd realization), so those cells prove the bytes reached the
       workspace and the model produced them — not which route the model read.
@@ -76,10 +78,7 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
   pin survived to the backend's surface selection. It is not a positive sighting
   of which writer ran — no ctxloom surface reports the resolved per-surface
   approach (`run --dry-run` shows the assembled context and the target file, not
-  the mechanism), and the hook route's own artifact, the
-  .ctxloom/cache/context/<hash>.md file the SessionStart hook reads, is removed
-  at teardown by BaseContextProvider.Clear before an assertion could read it.
-  That is stated here rather than smoothed over, and it is recorded as this
+  the mechanism). That is stated here rather than smoothed over, and it is recorded as this
   probe's deferred work.
 
   THE ASSERTION IS P0'S, UNCHANGED AND UNLOOSENED. stdout, whitespace-trimmed
@@ -91,7 +90,7 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
   ADDRESSING ONE CELL. Every Examples block carries the probe, the engine, both
   isolation axes and its VARIANT as tags, so
   `ACCEPTANCE_TAGS="@live && @probe-p1-approach-sweep && @claude-code && @host
-  && @ws-none && @var-hook"` selects exactly one cell. The variant tag is not
+  && @ws-none && @var-system-prompt"` selects exactly one cell. The variant tag is not
   decoration: two of these cells share an engine and both axes and differ only
   by the mechanism, so without it they are not separately addressable — and the
   minted-harp ledger keys on it too, which is what stops them from being handed
@@ -110,9 +109,9 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
     #
     # THE LADDER'S ONE SIDE-CHANNEL-CONTROLLED CONTEXT CELL. The delivery puts
     # no nonce bytes in the workspace, and the fixture bytes that ARE in the tree
-    # are ruled out by the hook cell below: same tree, same tools, same prompt,
-    # no nonce in the answer. An engine reading the fixture off disk would have
-    # passed both.
+    # were ruled out by the hook cell that stood beside it until onectx retired
+    # the hook approach: same tree, same tools, same prompt, no nonce in the
+    # answer. An engine reading the fixture off disk would have passed both.
     @claude-code @host @ws-none @var-system-prompt
     Examples:
       | engine      | runtime | workspace | approach      | variant       |
@@ -142,67 +141,6 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
     Examples:
       | engine      | runtime            | workspace | approach      | variant       |
       | claude-code | container-rootless | worktree  | system-prompt | system-prompt |
-
-    # FIXED 2026-08-16 (was RED, MEASURED 2026-08-13, AND THE FINDING WAS A
-    # PRODUCT ONE). claude's hook route should carry context through a
-    # SessionStart inject-context hook ctxloom writes into .claude/settings.json
-    # and the vendor binary then executes. Three consecutive pre-fix runs,
-    # three freshly minted harps, one shape — exit 0, well-formed JSON, no
-    # trace of the nonce:
-    #
-    #   harp "vast-racy-pound"  -> {"hello":"2467643947"}
-    #   harp "near-green-parka" -> {"hello":"bumpy-stony-sixth"}
-    #   harp "free-rich-jet"    -> {"hello":"mere-teal-jet"}
-    #
-    # reported as: CONTEXT-DELIVERY failure — stdout is well-formed JSON but
-    # carries nothing of the nonce.
-    #
-    # It was not a degraded pin (no degrade marker on stderr —
-    # approachPinHonoured is the check that separates those and it passed),
-    # and not an empty assembly (the same stderr says "context: 2 fragment(s),
-    # ~336 tokens"). The mechanism was selected and the context was composed;
-    # the model never saw it. Every other declared approach on both engines
-    # went green on this same fixture within the hour.
-    #
-    # ROOT CAUSE: agent.LaunchBackend.deliverSet's SharedCell delivery loop
-    # only installed the SessionStart injection hook (recoverContextViaHook)
-    # when a surface's write returned a non-nil error. claude's ApproachHook
-    # context surface (claude.noopContextDelivery) "succeeds" with a nil error
-    # and a nil handle BY DESIGN — it is a documented no-op write on the
-    # premise that the settings-carried SessionStart hook itself carries the
-    # context. Nothing actually installed that hook on the success path, so a
-    # run pinned to context delivery "hook" launched with zero context while
-    # Setup reported success. FIX: deliverSet now also installs the hook
-    # (agent.LaunchBackend.installContextInjectionHook, factored out of
-    # recoverContextViaHook) whenever a SharedCell resolves SurfaceContext at
-    # ApproachHook, whether or not the surface write itself errored.
-    # SINCE: recoverContextViaHook is deleted (feeble-sway). A failed delivery
-    # refuses the launch instead of rerouting context through the hook, so
-    # installContextInjectionHook now has this one deliberate caller only.
-    #
-    # A CORRECTION TO THE ORIGINAL READING ABOVE, folded in 2026-08-16 after a
-    # re-run against the still-broken code measured a fourth shape:
-    # {"hello":"prone-wide-deity"} for nonce harp "pale-young-getup". That
-    # string is not any nonce minted in that run and appears nowhere ctxloom
-    # emitted it — the model INVENTED a harp-shaped value unprompted, it did
-    # not need to read one from its ambient environment. So "the model found a
-    # plausible phraselet in its ambient environment" is not the general
-    # mechanism; it only explains the two answers above that were verifiably
-    # this run's own CTXLOOM_SESSION_HARP. Two consequences: (1) the model
-    # emitting harp-shaped strings unprompted means a future matcher must
-    # check the EXACT minted value, never harp SHAPE alone — a shape check
-    # would be vacuously green here; (2) the historical false-green risk this
-    # cell's minted-harp design closes is still real for the session-harp leak
-    # channel specifically (had the nonce still been the session's own harp —
-    # the design before the 2026-08-12 minted-harp ruling — this cell could
-    # have gone GREEN on a leaked value rather than a delivered one).
-    #
-    # DO NOT fix a recurrence of this by loosening anything. There is nothing
-    # to loosen: the output was perfect and the value was simply not there.
-    @claude-code @host @ws-none @var-hook
-    Examples:
-      | engine      | runtime | workspace | approach | variant |
-      | claude-code | host    | none      | hook     | hook    |
 
     # claude's native-file route (CLAUDE.md marker-merge), on the WORKTREE axis.
     # The axis is the point: "unsafe" in ApproachUnsafeFile names a shared-cwd

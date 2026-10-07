@@ -15,13 +15,12 @@ import (
 // the run env; an engine's Execute reads it to name its session.
 const SessionHarpEnv = sessions.EnvHarp
 
-// HashedContext is a ContextProvider that exposes the content hash and on-disk
-// path of the context it last provided. BaseContextProvider implements it; the
-// hash seeds the agent's context-injection hook and the path is handed to the
-// child process via the SCM context-file env var.
+// HashedContext is a ContextProvider that exposes the on-disk path of the
+// content-addressed context it last provided. BaseContextProvider implements
+// it; the path is handed to the child process via the SCM context-file env
+// var.
 type HashedContext interface {
 	ContextProvider
-	GetContextHash() string
 	GetContextFilePath() string
 }
 

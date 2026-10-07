@@ -107,11 +107,11 @@ engine's approach offers there; a kind the engine does not carry is an
 accepted loss the report names (`MaterializeProfileResult.NotCarried`); a
 carried kind offering no root the project target has is `Unrootable`,
 refused with the remedy, never rerouted. Whether the CONTEXT is a file at
-the project root or rides the engine's session-start injection hook is
-derived from the declaration alone (`operations.contextRidesTheHook`): an
-engine whose context approach is told on argv and which exports a
-`session_start` event takes it live; an engine that opens a context file
-reads the file. `profile materialize` always writes the file (a
+the project root at all is derived from the declaration alone
+(`operations.contextRidesTheLaunch`): an engine whose context approach is
+told on argv (claude's system prompt) takes it at launch, so `manage hooks
+install` writes it nowhere — a copy at rest would double it; an engine that
+opens a context file reads the file. `profile materialize` always writes the file (a
 materialized tree must be readable with ctxloom out of the loop).
 
 ## Hooks are a delivered surface the engine fires

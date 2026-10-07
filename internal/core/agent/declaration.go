@@ -18,7 +18,7 @@ import (
 //
 // The shape follows the open-sets ruling that already governs roots: the SET
 // is open and keyed by name; the well-known members stay well-known as NAMED
-// CONSTANTS (ApproachUnsafeFile, ApproachHook), never as struct fields or
+// CONSTANTS (ApproachUnsafeFile), never as struct fields or
 // method names; and a name the declaration cannot construct FAILS LOUD, never
 // resolves to a zero value that delivers nothing while reporting success.
 //

@@ -10,25 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestClaudeContext_GetContextHash(t *testing.T) {
-	workDir := t.TempDir()
-	context := agent.NewBaseContextProvider()
-
-	// Write context to set hash
-	fragments := []*agent.Fragment{{Content: "test content"}}
-	require.NoError(t, context.Provide(workDir, fragments))
-
-	hash := context.GetContextHash()
-	assert.NotEmpty(t, hash)
-}
-
-func TestClaudeContext_GetContextHash_Empty(t *testing.T) {
-	context := agent.NewBaseContextProvider()
-
-	hash := context.GetContextHash()
-	assert.Equal(t, "", hash)
-}
-
 func TestClaudeContext_GetContextFilePath_Empty(t *testing.T) {
 	context := agent.NewBaseContextProvider()
 
@@ -56,7 +37,8 @@ func TestClaudeContext_Clear(t *testing.T) {
 	// Provide some context first
 	require.NoError(t, context.Provide(workDir, []*agent.Fragment{{Content: "test"}}))
 
+	require.NotEmpty(t, context.GetContextFilePath(), "precondition: there is a context file to clear")
 	err := context.Clear(workDir)
 	require.NoError(t, err)
-	assert.Equal(t, "", context.GetContextHash())
+	assert.Equal(t, "", context.GetContextFilePath())
 }

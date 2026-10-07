@@ -39,13 +39,10 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
 
   TWO STAGES. Stage (a) — firing — runs on every cell. Stage (b) asks whether the
   engine INGESTS what the hook printed, and it is asserted only where production
-  itself makes that claim: an ApproachTable that lists agent.ApproachHook FIRST
-  for agent.SurfaceContext, making the hook that engine's DEFAULT context route.
-  claude declares ApproachHook too, but claude's SurfaceFor resolves that pair to
-  noopContextDelivery — the documented no-op that never carries — so asserting an
-  echo on a claude cell would red it for failing to do something ctxloom never
-  asked. No engine at this base declares the hook its context route, so stage (b)
-  runs on no cell today. It uses a SECOND minted harp, planted only in the hook's
+  itself makes that claim: an engine whose context route is a hook. None is:
+  claude takes its context as a launch's system prompt and no hook carries it
+  (onectx), so asserting an echo on a claude cell would red it for failing to do
+  something ctxloom never asked. Stage (b) runs on no cell today. It uses a SECOND minted harp, planted only in the hook's
   standard output, so the two stages cannot satisfy each other.
 
   WHAT IS ABSENT HERE IS DECLARED, NOT FORGOTTEN. A backend that declares hooks
@@ -95,10 +92,9 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
     # The container cells, added once the stamp stopped being a host-absolute
     # path. A PAIR on purpose: P6's host/worktree cell failed where both-off and
     # both-on passed, so a container row without its worktree partner rebuilds
-    # that blind spot. Stage (a) only, as on claude's host row — claude's
-    # SurfaceFor resolves ApproachHook to noopContextDelivery, so ctxloom never
-    # delivers claude's context through a hook and this cell must not assert an
-    # echo production never asked for.
+    # that blind spot. Stage (a) only, as on claude's host row — no hook carries
+    # claude's context, so this cell must not assert an echo production never
+    # asked for.
     # The settings, hooks and command files claude reads live under its engine
     # home, which the runner writes at the CONTAINER side of that mount
     # (runner.Execute, pinned by TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath).

@@ -76,7 +76,6 @@ func sampleInputs() agent.SurfaceInputs {
 type builtSurfaces struct {
 	Native    agent.Approach
 	Context   *systemPromptContext
-	Hook      agent.Approach
 	MCP       *mcpConfig
 	MCPUnsafe *mcpUnsafeFile
 	Settings  *settingsSurface
@@ -104,7 +103,6 @@ func newSurfaces(in agent.SurfaceInputs, files safefs.Root) builtSurfaces {
 	return builtSurfaces{
 		Native:    must(agent.SurfaceContext, agent.ApproachUnsafeFile),
 		Context:   must(agent.SurfaceContext, ApproachSystemPrompt).(*systemPromptContext),
-		Hook:      must(agent.SurfaceContext, agent.ApproachHook),
 		MCP:       must(agent.SurfaceMCP, ApproachMCPConfig).(*mcpConfig),
 		MCPUnsafe: must(agent.SurfaceMCP, agent.ApproachUnsafeFile).(*mcpUnsafeFile),
 		Settings:  must(agent.SurfaceSettings, agent.ApproachUnsafeFile).(*settingsSurface),
@@ -201,8 +199,8 @@ func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
 
 // ---- the declaration ---------------------------------------------------------
 
-// Surfaces pins claude's per-surface declaration: context offers all three
-// approaches (native file, system prompt, settings-carried hook); MCP offers
+// Surfaces pins claude's per-surface declaration: context offers two
+// approaches (native file, system prompt) — no hook carries it; MCP offers
 // the private config file and the project file; settings, commands and skills
 // offer only the native file, and settings refuses the retired engine-home
 // record write by name.
@@ -213,8 +211,8 @@ func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
 // so it must be asked for by name. Context's default stays the native file —
 // a shared launch derives the system prompt instead, which is a preference, not
 // a declaration.
-func TestSurfaces_DeclaresContextThreeWaysMCPTwoAndTheRestOnce(t *testing.T) {
-	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachSystemPrompt, agent.ApproachHook},
+func TestSurfaces_DeclaresContextTwoWaysMCPTwoAndTheRestOnce(t *testing.T) {
+	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachSystemPrompt},
 		testDeclaration().Names(agent.SurfaceContext))
 	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachMCPConfig}, testDeclaration().Names(agent.SurfaceMCP))
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {

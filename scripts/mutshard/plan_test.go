@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -442,5 +443,35 @@ func TestMakePlan_PkgNarrowsTheDiffAndExcludesTheRest(t *testing.T) {
 	git(t, root, "checkout", "-q", "--", "other")
 	if p, err := makePlan(root, untouched, 1, cfg); err != nil || !strings.Contains(p.skip, "other") {
 		t.Errorf("a package the diff does not touch must skip naming it: plan=%+v err=%v", p, err)
+	}
+}
+
+// Every command reads -scope and -pkg the same way, against the module in the
+// working directory, so a package run's shards and
+// its aggregate plan alike — and a bad pair is refused by both, never planned.
+func TestScopeFlags_ShardsAndAggregateAgree(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "p/p.go", "package p\n")
+	t.Chdir(root)
+	good := []string{"-scope", "diff:main", "-pkg", "./p/"}
+	sf, err := parseShardFlags(flag.NewFlagSet("run", flag.ContinueOnError), good, nil)
+	if err != nil || sf.scope != (scope{base: "main", pkg: "p"}) {
+		t.Fatalf("shard flags = %+v, %v", sf, err)
+	}
+	sc, _, err := parseAggregateFlags(good)
+	if err != nil || sc != sf.scope {
+		t.Fatalf("aggregate scope = %+v, %v; the shards planned %+v", sc, err, sf.scope)
+	}
+	for _, bad := range [][]string{
+		{"-scope", "diff:main", "-pkg", "no-such-dir"},
+		{"-scope", "tree", "-pkg", "p"},
+		{"-scope", "main"},
+	} {
+		if _, err := parseShardFlags(flag.NewFlagSet("run", flag.ContinueOnError), bad, nil); err == nil {
+			t.Errorf("shard flags %q: accepted", bad)
+		}
+		if _, _, err := parseAggregateFlags(bad); err == nil {
+			t.Errorf("aggregate flags %q: accepted", bad)
+		}
 	}
 }

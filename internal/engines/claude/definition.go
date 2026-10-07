@@ -179,24 +179,6 @@ func errRoot(name string, root present.RootKind) error {
 	return fmt.Errorf("claude/%s: root %v is not one this approach offers", name, root)
 }
 
-// pathed is the shape a delivered out-of-cwd form reports: the path its
-// file actually landed at, "" when it did not.
-type pathed interface{ Path() string }
-
-// delivered adapts a runtime form's write into the port's Delivered: the
-// presentation the form composes, the path it recorded (when it has one)
-// and the cleanup handle as Undo.
-func delivered(a agent.Approach, start present.Start, h agent.Delivered) present.Delivered {
-	out := present.Delivered{Presented: a.Present(start)}
-	if p, ok := a.(pathed); ok && p.Path() != "" {
-		out.Wrote = []string{p.Path()}
-	}
-	if h != nil {
-		out.Undo = func(afero.Fs) error { return h.Cleanup() }
-	}
-	return out
-}
-
 // contextApproach is claude's context surface: the framed system prompt,
 // announced on --append-system-prompt-file, under the session home; at the
 // project root (a materialize, or a binding that selects the shared root)
@@ -223,17 +205,20 @@ func (a *contextApproach) DeliverContext(start present.Start, root present.RootK
 		return present.Delivered{}, errRoot(a.Name(), root)
 	}
 	s := &systemPromptContext{content: string(in.Text), fs: agent.GetFS(fs)}
-	h, err := s.Deliver(start)
-	if err != nil {
+	if _, err := s.Deliver(start); err != nil {
 		return present.Delivered{}, err
 	}
-	return delivered(s, start, h), nil
+	out := present.Delivered{Presented: s.Present(start)}
+	if s.Path() != "" {
+		out.Files = []string{s.Path()}
+	}
+	return out, nil
 }
 
 // appendContextFile claims the context as a section after the file's own
 // text: the user's CLAUDE.md is theirs, and the record owns what is appended.
 func appendContextFile(p present.Presentation, text []byte) present.Delivered {
-	return present.Delivered{Presented: p, Wrote: []string{p.HostPath},
+	return present.Delivered{Presented: p,
 		Claims: map[string][]present.Claim{p.HostPath: {{Pointer: present.AppendedSection, Value: slices.Clone(text)}}}}
 }
 
@@ -272,7 +257,7 @@ func (a *mcpApproach) DeliverMCP(start present.Start, root present.RootKind, in 
 		if len(claims) == 0 {
 			claims = []present.Claim{{Pointer: present.PointerKey(mcpServersKey), Value: map[string]any{}}}
 		}
-		return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Claims: map[string][]present.Claim{p.HostPath: claims}}, nil
+		return present.Delivered{Presented: p, Claims: map[string][]present.Claim{p.HostPath: claims}}, nil
 	case present.RootProjectRoot:
 		bundle, env, err := bearerByReference(in.Servers)
 		if err != nil {
@@ -328,7 +313,7 @@ func deliverSettingsFile(name string, start present.Start, root present.RootKind
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Claims: map[string][]present.Claim{p.HostPath: cs}}, nil
+	return present.Delivered{Presented: p, Claims: map[string][]present.Claim{p.HostPath: cs}}, nil
 }
 
 // bashTimeoutEnv is the engine-neutral shell timeout as the env claude's
@@ -516,32 +501,37 @@ func (a *commandsApproach) DeliverCommands(start present.Start, root present.Roo
 			Description: c.Description, ArgumentHint: c.ArgumentHint, AllowedTools: c.AllowedTools, Model: c.Model,
 		})
 	}
-	switch root {
-	case present.RootSessionHome:
-		// The session's config dir is its own instance: nothing in the
-		// user's real ~/.claude/commands is deduped against, and a run with
-		// no engine home advised is refused rather than served from there.
-		if err := privateRooted(start); err != nil {
-			return present.Delivered{}, err
-		}
-		p := underPrivateRoot(start, CommandsDirName).Build()
-		if err := writeCommandDir(files, p.HostPath, cmds); err != nil {
-			return present.Delivered{}, err
-		}
-		return present.Delivered{Presented: p, Wrote: []string{p.HostPath}}, nil
-	case present.RootProjectRoot:
-	default:
-		return present.Delivered{}, errRoot(a.Name(), root)
-	}
-	// The plan's commands land as given: a copy in the materializing
-	// host's own ~/.claude/commands is no reason to withhold one from a
-	// tree that will be read elsewhere.
-	form := &commandsSurface{commands: cmds, files: files, selfContainedCommands: true}
-	h, err := form.Deliver(start)
+	// The session's config dir is its own instance: nothing in the user's
+	// real ~/.claude/commands is deduped against. At the project root the
+	// plan's commands land as given too: a copy in the materializing host's
+	// own ~/.claude/commands is no reason to withhold one from a tree that
+	// will be read elsewhere.
+	p, err := managedDir(a.Name(), start, root, CommandsDirName, relCommands)
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	return delivered(form, start, h), nil
+	placed, err := writeCommandDir(files, p.HostPath, cmds)
+	if err != nil {
+		return present.Delivered{}, err
+	}
+	return present.Delivered{Presented: p, Files: placed}, nil
+}
+
+// managedDir is the directory a managed-tree approach delivers into: rel
+// beneath the session home (a run with no engine home advised is refused
+// rather than served from the user's own), or projectRel beneath the project
+// root.
+func managedDir(name string, start present.Start, root present.RootKind, rel, projectRel string) (present.Presentation, error) {
+	switch root {
+	case present.RootSessionHome:
+		if err := privateRooted(start); err != nil {
+			return present.Presentation{}, err
+		}
+		return underPrivateRoot(start, rel).Build(), nil
+	case present.RootProjectRoot:
+		return start.UnderProjectRoot(projectRel).Build(), nil
+	}
+	return present.Presentation{}, errRoot(name, root)
 }
 
 // skillsApproach is claude's skills surface: <config dir>/skills/<name>/
@@ -569,26 +559,15 @@ func (a *skillsApproach) DeliverSkills(start present.Start, root present.RootKin
 		}
 		skills = append(skills, e)
 	}
-	switch root {
-	case present.RootSessionHome:
-		if err := privateRooted(start); err != nil {
-			return present.Delivered{}, err
-		}
-		p := underPrivateRoot(start, SkillsDirName).Build()
-		if err := agent.WriteManagedSkillPackages(files, p.HostPath, acceptedSkills(skills)); err != nil {
-			return present.Delivered{}, err
-		}
-		return present.Delivered{Presented: p, Wrote: []string{p.HostPath}}, nil
-	case present.RootProjectRoot:
-	default:
-		return present.Delivered{}, errRoot(a.Name(), root)
-	}
-	form := newSkillsSurface(agent.SurfaceInputs{Skills: skills}, files)
-	h, err := form.Deliver(start)
+	p, err := managedDir(a.Name(), start, root, SkillsDirName, relSkills)
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	return delivered(form, start, h), nil
+	placed, err := agent.WriteManagedSkillPackages(files, p.HostPath, acceptedSkills(skills))
+	if err != nil {
+		return present.Delivered{}, err
+	}
+	return present.Delivered{Presented: p, Files: placed}, nil
 }
 
 // RelayCommand is the hidden ctxloom subcommand claude spawns as its ctxloom

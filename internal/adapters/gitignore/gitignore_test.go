@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -154,7 +153,6 @@ func TestWorktreeArtifactPatterns_MatchExpectedSet(t *testing.T) {
 		"CLAUDE.md",
 		".mock/",
 		"MOCK_CONTEXT.md",
-		ledger.Name,
 	}, WorktreeArtifactPatterns)
 }
 
@@ -440,7 +438,7 @@ func TestRetireSuperseded_RetiresEveryBlanketSpelling(t *testing.T) {
 func TestRetireSuperseded_LeavesNonBlanketLinesAlone(t *testing.T) {
 	for _, keep := range []string{
 		".ctxloom/cache/", ".ctxloom/sessions/", ".ctxloom/project-id",
-		".ctxloom/content/drafts/", ".ctxloomer/", ledger.Name,
+		".ctxloom/content/drafts/", ".ctxloomer/",
 		"!.ctxloom/", "!/.ctxloom/**",
 		"# .ctxloom/",
 	} {

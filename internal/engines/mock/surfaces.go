@@ -7,7 +7,6 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
-	"sort"
 
 	"github.com/spf13/afero"
 
@@ -76,15 +75,26 @@ func (s *surface) rooted(start present.Start, root present.RootKind, rel string)
 	return start.UnderSessionHome(rel), nil
 }
 
-// writeFile writes bytes at the composed presentation's host path.
-func writeFile(fs afero.Fs, p present.Presentation, bytes []byte, mode os.FileMode) (present.Delivered, error) {
+// writeFile writes bytes at the composed presentation's host path and
+// returns that path, for the approach to declare.
+func writeFile(fs afero.Fs, p present.Presentation, bytes []byte, mode os.FileMode) (string, error) {
 	if err := fs.MkdirAll(filepath.Dir(p.HostPath), 0o755); err != nil {
-		return present.Delivered{}, err
+		return "", err
 	}
 	if err := safefs.WriteFile(fs, p.HostPath, bytes, mode); err != nil {
+		return "", err
+	}
+	return p.HostPath, nil
+}
+
+// writeWhole writes p's file and declares it: the delivery of a kind that is
+// one file the mock owns whole.
+func writeWhole(fs afero.Fs, p present.Presentation, bytes []byte, mode os.FileMode) (present.Delivered, error) {
+	path, err := writeFile(fs, p, bytes, mode)
+	if err != nil {
 		return present.Delivered{}, err
 	}
-	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Undo: func(fs afero.Fs) error { return fs.Remove(p.HostPath) }}, nil
+	return present.Delivered{Presented: p, Files: []string{path}}, nil
 }
 
 // contextFile claims the assembled context as a section of MOCK_CONTEXT.md —
@@ -98,7 +108,7 @@ func (a *contextFile) DeliverContext(start present.Start, root present.RootKind,
 		return present.Delivered{}, err
 	}
 	p := r.AnnounceFlag(contextFlag).Build()
-	return present.Delivered{Presented: p, Wrote: []string{p.HostPath},
+	return present.Delivered{Presented: p,
 		Claims: map[string][]present.Claim{p.HostPath: {{Pointer: present.AppendedSection, Value: slices.Clone(in.Text)}}}}, nil
 }
 
@@ -115,7 +125,7 @@ func (a *mcpFile) DeliverMCP(start present.Start, root present.RootKind, in engi
 		return present.Delivered{}, err
 	}
 	// Owner-only: the session endpoint's bearer rides in this file.
-	return writeFile(fs, r.AnnounceFlag(mcpFlag).Build(), append(bytes, '\n'), 0o600)
+	return writeWhole(fs, r.AnnounceFlag(mcpFlag).Build(), append(bytes, '\n'), 0o600)
 }
 
 // settingsFile writes the settings inputs it is handed: the deny list, the
@@ -133,7 +143,7 @@ func (a *settingsFile) DeliverSettings(start present.Start, root present.RootKin
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	return writeFile(fs, r.AnnounceFlag(settingsFlag).Build(), append(bytes, '\n'), 0o644)
+	return writeWhole(fs, r.AnnounceFlag(settingsFlag).Build(), append(bytes, '\n'), 0o644)
 }
 
 // hooksFile writes the unified hook set as the mock's native hook file and
@@ -149,7 +159,7 @@ func (a *hooksFile) DeliverHooks(start present.Start, root present.RootKind, in 
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	return writeFile(fs, r.AnnounceFlag(HooksFlag).Build(), append(bytes, '\n'), 0o644)
+	return writeWhole(fs, r.AnnounceFlag(HooksFlag).Build(), append(bytes, '\n'), 0o644)
 }
 
 // commandsDir writes each enabled command as <name>.md under the commands
@@ -168,13 +178,12 @@ func (a *commandsDir) DeliverCommands(start present.Start, root present.RootKind
 			continue
 		}
 		p := dir.Beneath(c.Name + ".md")
-		d, err := writeFile(files.Fs, p, c.Body, 0o644)
+		path, err := writeFile(files.Fs, p, c.Body, 0o644)
 		if err != nil {
 			return present.Delivered{}, err
 		}
-		out.Wrote = append(out.Wrote, d.Wrote...)
+		out.Files = append(out.Files, path)
 	}
-	out.Undo = removeAll(out.Wrote)
 	return out, nil
 }
 
@@ -199,30 +208,12 @@ func (a *skillsDir) DeliverSkills(start present.Start, root present.RootKind, in
 			if mode == 0 {
 				mode = 0o644
 			}
-			d, err := writeFile(files.Fs, p, f.Bytes, mode)
+			path, err := writeFile(files.Fs, p, f.Bytes, mode)
 			if err != nil {
 				return present.Delivered{}, err
 			}
-			out.Wrote = append(out.Wrote, d.Wrote...)
+			out.Files = append(out.Files, path)
 		}
 	}
-	out.Undo = removeAll(out.Wrote)
 	return out, nil
-}
-
-// removeAll undoes a set of written files; nil when none was written.
-func removeAll(paths []string) func(afero.Fs) error {
-	if len(paths) == 0 {
-		return nil
-	}
-	sorted := append([]string(nil), paths...)
-	sort.Strings(sorted)
-	return func(fs afero.Fs) error {
-		for _, p := range sorted {
-			if err := fs.Remove(p); err != nil && !os.IsNotExist(err) {
-				return err
-			}
-		}
-		return nil
-	}
 }

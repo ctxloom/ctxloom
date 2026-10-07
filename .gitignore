@@ -120,7 +120,7 @@ DECISIONS.md
 # Python bytecode cache, written beside any script run with python3.
 __pycache__/
 
-# ctxloom delivers these (each dir carries a .ctxloom-managed marker); they are
+# ctxloom delivers these; they are
 # regenerated per machine by `ctxloom manage hooks install`, so tracking them
 # only turns every delivery into a spurious diff. settings.json stays tracked:
 # it also carries project settings ctxloom does not own.

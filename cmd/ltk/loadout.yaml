@@ -100,6 +100,31 @@ run:
         to work around a rule the agent can, so it makes the easy, accidental
         path the right one rather than enforcing hard isolation. For strict
         "never" boundaries, run the agent in a container.
+      distilled_by: claude-opus-5-5
+      content_hash: sha256:e5de94d1856dd8ab77f9a1a014158e14994734417ca5f04fd8417dbd099f8e61
+      distilled: |
+        # llm-tool-killer (ltk)
+
+        This project may run **ltk**, a pre-tool hook that inspects each shell
+        command before it executes and redirects it when a rule matches (ctxloom
+        shapes your context; ltk guides your commands). It parses the real command
+        (resolving variables, unwrapping trivial wrappers and sub-shells), matches it
+        against `.ltk/config.yaml`, and the first matching `deny` returns a
+        `message`/`suggest` naming what to run instead:
+
+            go test ./...   ->   blocked: "Run tests through the task runner."
+                            ->   retry with `just test`
+
+        - A redirect is guidance, not a failure: read the suggestion and retry the
+          way the rule asks.
+        - Prefer the project's task runner (e.g. `just <target>`) over invoking
+          build/test/lint tools directly.
+        - **Agents do not cut releases.** ltk blocks `git tag` and release commands.
+          Prepare the version bump and PR; a human (or CI) cuts the tag.
+
+        ltk is a cooperative redirect, not a sandbox: an agent explicitly instructed
+        to work around a rule can. It makes the easy, accidental path the right one.
+        For strict "never" boundaries, run the agent in a container.
 
   commands:
     task-runner:

@@ -42,12 +42,15 @@ env:
   IMAGE_NAME: ${{ github.repository }}-devcontainer
 
 jobs:
-  # Release gate: every change to main must carry a fresh, untagged VERSION.
-  # Fails the PR/push if VERSION already has a git tag, forcing a deliberate
-  # `versionator set` bump (no auto-increment). On merge, auto-release.yml tags
-  # this VERSION and triggers the release.
+  # Release gate: a push or PR that CHANGES VERSION must change it to an
+  # untagged one, forcing a deliberate `versionator set` bump (no
+  # auto-increment). Every other change passes: auto-release.yml tags VERSION
+  # once the bump goes green, so the tag exists for the rest of the line. The
+  # recipe compares VERSION against the push's `before` SHA (a PR's base SHA);
+  # a manual dispatch changes nothing, so it is not judged.
   version-guard:
     name: Version Guard
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -57,8 +60,8 @@ jobs:
 
       - uses: ./.github/actions/setup-just
 
-      - name: Fail if VERSION is already tagged
-        run: just version-untagged-check
+      - name: Fail if this change sets VERSION to a tagged one
+        run: just version-untagged-check "${{ github.event.pull_request.base.sha || github.event.before }}"
 
   build-container:
     name: Build Dev Container

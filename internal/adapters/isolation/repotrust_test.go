@@ -157,6 +157,22 @@ func TestRepoTrust_AContainerizedControllerLooksUpTheHostName(t *testing.T) {
 	assert.Equal(t, engine.TrustUntrusted, pl.Trust, "under the controller's own name the answer is not there")
 }
 
+// A controller in a devcontainer reads a ~/.claude.json the claude in that
+// container wrote, keyed by the controller's own names: that answer counts
+// too, beside one under the host name.
+func TestRepoTrust_AContainerizedControllerFindsAnAnswerUnderItsOwnName(t *testing.T) {
+	home := fakeHostHome(t, tokenFixture)
+	cwd := t.TempDir()
+	trustedByHuman(t, home, cwd, true)
+
+	rt := layerRuntime{fakeRuntime: fakeRuntime{name: "docker", available: true}, layer: Layer{mounts: []LayerMount{{Host: "/host", View: "/"}}}}
+	r := containerRelocator{rt: rt, instanceHome: defaultContainerInstanceHome, home: defaultContainerHome}
+	pl, _ := placeOn(t, homeSpec(t, claudeEngine(t), home, harpA, agents.HomeModeSession), cwd, r)
+	assert.Equal(t, engine.TrustTrusted, pl.Trust, "the answer recorded under the controller's own name is found")
+	accepted, written := sessionHomeTrust(t, home, pl.Paths.Paths().ProjectRoot.Engine)
+	assert.True(t, written && accepted)
+}
+
 // A HOST-runtime child of a containerized controller runs in the controller's
 // own container, and ctxloom mounts nothing for it: the child's config home is
 // the session home, at one path in both views, and the .claude.json it reads

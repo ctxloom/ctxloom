@@ -132,9 +132,9 @@ type Runtime interface {
 	// containerByLabelArgs builds the argv printing the full id of every
 	// RUNNING container carrying label (key=value).
 	containerByLabelArgs(label string) []string
-	// identified is nil when this process's own container is known (or it
-	// runs in none), else why it is not: the container gate refuses on it
-	// (settleSelf).
+	// identified is nil when the daemon answered which of its containers
+	// this process is (or that it is none of them), else why it could not:
+	// the container gate refuses on it (settleSelf).
 	identified() error
 }
 

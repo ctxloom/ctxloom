@@ -310,13 +310,11 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output contains "unknown flag: --auth"
       And the file ".ctxloom/config.yaml" does not contain "auth:"
 
-    # A binding written before the removal still carries `auth:`. Every other
-    # unknown key warns and is ignored; this one is REFUSED, deliberately:
-    # ignored, a stale auth would silently change which credential the
-    # agent's runs use (a binding written to share the login would run on the
-    # token), and a warning scrolls past. The refusal names the token and
-    # where the human's own login is chosen now.
-    Scenario: A binding still carrying auth is refused, naming the token and the top-level auth
+    # A binding written before the removal still carries `auth:`. It is
+    # REFUSED, never ignored: ignored, a stale auth would silently change
+    # which credential the agent's runs use. Config decodes strictly, so the
+    # refusal is the unknown-key one, naming the key and the legal keys.
+    Scenario: A binding still carrying auth is refused, naming the key
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
         """
@@ -327,10 +325,8 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
             auth: login
         """
       When I run "ctxloom agent list"
-      Then the output contains "removed key 'auth:'"
-      And the output contains "developer"
-      And the output contains "claude setup-token"
-      And the output contains "auth: login"
+      Then the command fails
+      And the output contains "unknown key `agents.developer.auth`"
 
   Rule: --engine-home decides WHOSE engine config home this binding's runs get
 

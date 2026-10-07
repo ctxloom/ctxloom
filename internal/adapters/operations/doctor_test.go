@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -28,6 +27,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -202,10 +203,14 @@ func TestGitConfigGet_RealGit(t *testing.T) {
 	testsupport.Isolate(t)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "absent-gitconfig"))
+	// GitConfigGet runs git in the process environment, so a GIT_DIR a hook
+	// exported would point it at the real repository whatever dir says.
+	for _, k := range gitutil.RepoLocationEnvVars {
+		t.Setenv(k, "")
+		require.NoError(t, os.Unsetenv(k))
+	}
 	repo := t.TempDir()
-	init := exec.Command("git", "init", "-q", repo)
-	out, err := init.CombinedOutput()
-	require.NoError(t, err, "%s", out)
+	taskstest.Git(t, repo, nil, "init", "-q")
 	f, err := os.OpenFile(filepath.Join(repo, ".git", "config"), os.O_APPEND|os.O_WRONLY, 0)
 	require.NoError(t, err)
 	_, err = f.WriteString("[ctxloomtest]\n\tkey = only-in-this-repo\n")

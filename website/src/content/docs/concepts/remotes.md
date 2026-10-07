@@ -150,6 +150,18 @@ ctxloom deps upgrade   # show every pin that would move within its constraint, a
 
 Locking happens automatically as part of `pull` — there is no separate lock step.
 
+`pull` also cleans up. Each pinned bundle is checked out under the project's
+`.ctxloom/cache`, and when the lockfile stops naming a bundle (it moved to
+another repository, or nothing the project composes uses it any more), a `pull`
+that succeeds deletes that bundle's checkout and names each one it removed. It
+prunes nothing after a pull that failed or could not reach part of the
+closure. It also prunes nothing when that cache is not physically the
+project's own, for instance a `.ctxloom/cache` that a symlink points somewhere
+another project could share, because it cannot read the other projects'
+lockfiles. It never deletes anything outside the cache, and never follows a
+symlink out of it. The sync ctxloom runs when a session starts, to fetch
+missing bundles, cleans up the same way under the same conditions.
+
 `upgrade` resolves a range (`@^1.2`) to the newest matching tag, a branch to its
 new tip, and leaves exact pins and [held](#holds) items untouched. It is the only
 command that moves an existing pin, and it shows each move first — every item

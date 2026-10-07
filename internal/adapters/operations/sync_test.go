@@ -118,7 +118,7 @@ func TestCollectRemoteReferences(t *testing.T) {
 	// Create the profiles directory
 	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 
-	bundles := collectRemoteReferences(cfg, nil)
+	bundles := collectRemoteReferences(cfg, nil, walkSeeded)
 
 	// Two remote bundle refs plus the bundle behind the bundle-profile parent.
 	if len(bundles) != 3 {
@@ -145,14 +145,14 @@ func TestCollectRemoteReferences_DefaultProfilesAreRoots(t *testing.T) {
 	})
 	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 
-	bundles := collectRemoteReferences(cfg, nil)
+	bundles := collectRemoteReferences(cfg, nil, walkSeeded)
 	if len(bundles) != 1 || bundles[0] != seededDefaultBundle {
 		t.Errorf("expected default bundle %q as the sole root, got %v", seededDefaultBundle, bundles)
 	}
 
 	// An explicit profile filter scopes the sync to those profiles only —
 	// config defaults must not leak into a targeted sync.
-	bundles = collectRemoteReferences(cfg, []string{"go-dev"})
+	bundles = collectRemoteReferences(cfg, []string{"go-dev"}, walkSeeded)
 	if len(bundles) != 0 {
 		t.Errorf("expected no roots for a targeted sync, got %v", bundles)
 	}
@@ -178,7 +178,7 @@ func TestCollectRemoteReferences_RetiredProfileRefsSkipped(t *testing.T) {
 	}, config.Fixture{})
 	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 
-	bundles := collectRemoteReferences(cfg, nil)
+	bundles := collectRemoteReferences(cfg, nil, walkSeeded)
 	if len(bundles) != 1 || bundles[0] != validBundle {
 		t.Errorf("expected only %q collected, got %v", validBundle, bundles)
 	}
@@ -197,7 +197,7 @@ func TestCollectRemoteReferences_RetiredDefaultProfileSkipped(t *testing.T) {
 	})
 	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 
-	bundles := collectRemoteReferences(cfg, nil)
+	bundles := collectRemoteReferences(cfg, nil, walkSeeded)
 	if len(bundles) != 0 {
 		t.Errorf("expected no roots from a retired default ref, got %v", bundles)
 	}
@@ -1008,7 +1008,7 @@ func TestCollectRemoteReferences_NestedLocalProfiles(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	bundleSet := collections.NewSetFrom(collectRemoteReferences(cfg, []string{"driftway"})...)
+	bundleSet := collections.NewSetFrom(collectRemoteReferences(cfg, []string{"driftway"}, walkSeeded)...)
 
 	// Should find the remote bundle from the nested local parent.
 	assert.True(t, bundleSet.Has("https://github.com/owner/repo@bundles/core"),
@@ -1036,7 +1036,7 @@ func TestCollectRemoteReferences_ProfilePrefixStripped(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	bundleSet := collections.NewSetFrom(collectRemoteReferences(cfg, []string{"top"})...)
+	bundleSet := collections.NewSetFrom(collectRemoteReferences(cfg, []string{"top"}, walkSeeded)...)
 
 	// Should find the remote bundle from nested/profile
 	assert.True(t, bundleSet.Has("https://github.com/test/forge@bundles/remote-bundle"),
@@ -1057,7 +1057,7 @@ func TestCollectRemoteReferences_CircularDependency(t *testing.T) {
 	}, config.Fixture{})
 
 	// Should not panic or infinite loop
-	bundleSet := collections.NewSetFrom(collectRemoteReferences(cfg, []string{"profile-a"})...)
+	bundleSet := collections.NewSetFrom(collectRemoteReferences(cfg, []string{"profile-a"}, walkSeeded)...)
 
 	// Should still find the bundle
 	assert.True(t, bundleSet.Has("https://github.com/test/forge@bundles/bundle"))

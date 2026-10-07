@@ -103,8 +103,10 @@ type pullView struct {
 	Skipped     []operations.SyncItem `json:"skipped"`
 	Failed      []pullFailureView     `json:"failed"`
 	Removed     []string              `json:"removed"`
-	Incomplete  bool                  `json:"incomplete"`
-	Unreachable []string              `json:"unreachable"`
+	// PrunedCheckouts: operations.SyncDependenciesResult.PrunedCheckouts.
+	PrunedCheckouts []string `json:"pruned_checkouts"`
+	Incomplete      bool     `json:"incomplete"`
+	Unreachable     []string `json:"unreachable"`
 	// ConstraintChanges are pins whose manifest constraint changed; pull kept
 	// them where they are (only `deps upgrade` moves a pin).
 	ConstraintChanges []operations.ConstraintChange `json:"constraint_changes"`
@@ -140,17 +142,18 @@ type reconcileUnreachableView struct {
 
 func newPullView(result *operations.SyncDependenciesResult, plan *operations.ReconcilePlan) pullView {
 	view := pullView{
-		Status:      result.Status,
-		Total:       result.Total,
-		Installed:   result.Installed,
-		Reinstalled: result.Reinstalled,
-		Errors:      result.Errors,
-		Synced:      result.Synced,
-		Skipped:     result.Skipped,
-		Removed:     result.Removed,
-		Incomplete:  result.Incomplete,
-		Unreachable: result.Unreachable,
-		Message:     result.Message,
+		Status:          result.Status,
+		Total:           result.Total,
+		Installed:       result.Installed,
+		Reinstalled:     result.Reinstalled,
+		Errors:          result.Errors,
+		Synced:          result.Synced,
+		Skipped:         result.Skipped,
+		Removed:         result.Removed,
+		PrunedCheckouts: result.PrunedCheckouts,
+		Incomplete:      result.Incomplete,
+		Unreachable:     result.Unreachable,
+		Message:         result.Message,
 
 		ConstraintChanges: result.ConstraintChanges,
 		Changes:           result.Changes,
@@ -232,6 +235,9 @@ func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 	for _, identity := range result.Removed {
 		fmt.Fprintf(w, "  Removed %s from the lockfile: nothing this project composes depends on it any more.\n", inertField(identity))
 	}
+	for _, dir := range result.PrunedCheckouts {
+		fmt.Fprintf(w, pullPrunedCheckoutFormat, inertField(dir))
+	}
 	if result.Errors > 0 {
 		fmt.Fprintf(w, "  Failed: %d\n", result.Errors)
 		for _, item := range result.Failed {
@@ -262,6 +268,9 @@ func renderIncompleteLock(w io.Writer, result *operations.SyncDependenciesResult
 // nothing and keep every pin, and the lines below say which outcome each
 // dependency had.
 const pullSummaryHeaderFormat = "\nDependencies (%d):\n"
+
+// pullPrunedCheckoutFormat names one bundle checkout a successful pull deleted.
+const pullPrunedCheckoutFormat = "  Pruned the checkout at %s: the lockfile no longer names its bundle.\n"
 
 // pullIncompleteFormat is the summary line for a pull whose lock rebuild could
 // not reach part of the closure; it takes the unreachable items, joined.

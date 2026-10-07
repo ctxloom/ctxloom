@@ -157,7 +157,7 @@ func (s loadoutSurface) searchIndex(in searchContentInput) *operations.SearchCon
 		wantType[t] = true
 	}
 	for _, e := range s.lo.Index.Entries {
-		typ := indexKindName(e.Kind)
+		typ := e.Kind.Noun()
 		if len(wantType) > 0 && !wantType[typ] {
 			continue
 		}
@@ -200,20 +200,6 @@ func limitSearchResults(results []operations.SearchResult, limit int) []operatio
 		return results[:limit]
 	}
 	return results
-}
-
-// indexKindName is the search_content type vocabulary for a catalog kind.
-func indexKindName(k ident.ItemKind) string {
-	switch k {
-	case ident.KindFragment:
-		return "fragment"
-	case ident.KindPrompt:
-		return "command"
-	case ident.KindSkill:
-		return "skill"
-	default:
-		return string(k)
-	}
 }
 
 // matchesQuery is a case-insensitive substring match over the fields a

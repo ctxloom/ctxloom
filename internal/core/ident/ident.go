@@ -80,6 +80,18 @@ func (k ItemKind) Dir() string {
 	}
 }
 
+// Noun is the name a user knows the kind by — the word the CLI, search's
+// types and any message to a human or agent use. It differs from the stored
+// spelling for one kind: a slash command is a "command", stored under
+// KindPrompt so existing grants survive the item-kind rename. A kind outside
+// the closed core renders as itself.
+func (k ItemKind) Noun() string {
+	if k == KindPrompt {
+		return "command"
+	}
+	return string(k)
+}
+
 // Ref addresses an item: its source repo, the repo-relative bundle path, the
 // item kind, and the item name.
 type Ref struct {

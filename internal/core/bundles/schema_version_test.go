@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // envelopeKeys decodes an envelope into its top-level keys, so a test can
@@ -146,7 +147,7 @@ func TestProjectReader_WithoutWriteUpgradesNothingIsWritten(t *testing.T) {
 
 func itoaYAML(t *testing.T, n int) string {
 	t.Helper()
-	out, err := yaml.Marshal(n)
+	out, err := yamlx.Marshal(n)
 	require.NoError(t, err)
 	return string(bytes.TrimSpace(out))
 }

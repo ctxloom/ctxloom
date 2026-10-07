@@ -16,12 +16,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -56,7 +56,7 @@ func dirCurationCfg(t *testing.T, defaults []string, dirProfiles map[string]stri
 			"default": map[string]any{"profiles": defaults},
 		},
 	}
-	data, err := yaml.Marshal(doc)
+	data, err := yamlx.Marshal(doc)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), data, 0o644))

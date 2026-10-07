@@ -17,7 +17,6 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
@@ -38,6 +37,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -323,7 +323,7 @@ func askerFixture(t *testing.T) (*config.Config, string) {
 		},
 		"agents": subs,
 	}
-	raw, err := yaml.Marshal(doc)
+	raw, err := yamlx.Marshal(doc)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(app, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(app, "config.yaml"), raw, 0o644))

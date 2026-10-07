@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -360,7 +361,7 @@ func TestRecordRoundTripsAnArrayValued(t *testing.T) {
 			continue
 		}
 		sawValue = true
-		round, merr := yamlv3.Marshal(&op.Value)
+		round, merr := yamlx.Marshal(&op.Value)
 		require.NoError(t, merr)
 		assert.NotEqual(t, "null\n", string(round),
 			"op %s %s: the record's value read back as null — it was silently dropped", op.Op, op.Path)

@@ -6,6 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Undeclared is today's behaviour: the engine inherits every variable.
@@ -62,7 +64,7 @@ func TestAgent_EnvHostKeysRoundTrip(t *testing.T) {
 	require.NotNil(t, a.EnvHost)
 	assert.False(t, *a.EnvHost)
 	assert.Equal(t, []string{"GITHUB_TOKEN"}, a.Env)
-	out, err := yaml.Marshal(a)
+	out, err := yamlx.Marshal(a)
 	require.NoError(t, err)
 	assert.Contains(t, string(out), "env_host: false")
 	assert.Contains(t, string(out), "- GITHUB_TOKEN")

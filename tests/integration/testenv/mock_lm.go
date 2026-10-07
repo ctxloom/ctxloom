@@ -131,15 +131,12 @@ func (m *MockLM) WriteConfig() error {
 	useDistilled.Tag = "!!bool"
 	yamlx.MapSet(cfgSection, "use_distilled", useDistilled)
 
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(&doc); err != nil {
+	data, err := yamlx.Marshal(&doc)
+	if err != nil {
 		return fmt.Errorf("marshal config.yaml: %w", err)
 	}
-	_ = enc.Close()
 
-	return os.WriteFile(configPath, buf.Bytes(), 0644)
+	return os.WriteFile(configPath, data, 0644)
 }
 
 // EnsureHomeMockLabel merges an `llm.configs.<label>: {type: mock}` entry into
@@ -179,17 +176,14 @@ func (e *TestEnvironment) mergeHomeConfig(edit func(root *yaml.Node)) error {
 	upgrade.SetVersion(root, schemaver.Key, ctxloomconfig.CurrentConfigVersion)
 	edit(root)
 
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(&doc); err != nil {
+	data, err := yamlx.Marshal(&doc)
+	if err != nil {
 		return fmt.Errorf("marshal home config.yaml: %w", err)
 	}
-	_ = enc.Close()
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(configPath, buf.Bytes(), 0o644)
+	return os.WriteFile(configPath, data, 0o644)
 }
 
 // quotedYAMLString builds a double-quoted string scalar node, letting the

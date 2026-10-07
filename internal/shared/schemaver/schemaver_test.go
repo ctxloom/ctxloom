@@ -49,7 +49,7 @@ func doc(version int, rest string) []byte {
 }
 
 func itoa(n int) string {
-	out, err := yaml.Marshal(n)
+	out, err := yamlx.Marshal(n)
 	if err != nil {
 		panic(err)
 	}
@@ -329,7 +329,7 @@ func TestStamp(t *testing.T) {
 		var d yaml.Node
 		require.NoError(t, yaml.Unmarshal([]byte("a: 1\n"), &d))
 		withSteps.Stamp(d.Content[0])
-		out, err := yaml.Marshal(&d)
+		out, err := yamlx.Marshal(&d)
 		require.NoError(t, err)
 		assert.Equal(t, Key+": 3\na: 1\n", string(out))
 	})
@@ -337,7 +337,7 @@ func TestStamp(t *testing.T) {
 		var d yaml.Node
 		require.NoError(t, yaml.Unmarshal([]byte("a: 1\n"+Key+": 1\n"), &d))
 		withSteps.Stamp(d.Content[0])
-		out, err := yaml.Marshal(&d)
+		out, err := yamlx.Marshal(&d)
 		require.NoError(t, err)
 		assert.Equal(t, "a: 1\n"+Key+": 3\n", string(out))
 	})

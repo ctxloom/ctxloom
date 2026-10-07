@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // TestMCPServer_RemoteRoundTrip pins that a network-hosted server — URL and
@@ -29,7 +31,7 @@ func TestMCPServer_RemoteRoundTrip(t *testing.T) {
 		unmarshal func([]byte, any) error
 	}{
 		{"json", json.Marshal, json.Unmarshal},
-		{"yaml", yaml.Marshal, yaml.Unmarshal},
+		{"yaml", yamlx.Marshal, yaml.Unmarshal},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, in := range []MCPServer{remote, stdio} {
@@ -119,7 +121,7 @@ func TestMCPServer_SessionEndpoint_RoundTripsAsServedBy(t *testing.T) {
 	if got.ServedBy != ServedBySessionEndpoint {
 		t.Fatalf("decoded ServedBy = %q, want %q", got.ServedBy, ServedBySessionEndpoint)
 	}
-	out, err := yaml.Marshal(MCPServer{ServedBy: ServedBySessionEndpoint})
+	out, err := yamlx.Marshal(MCPServer{ServedBy: ServedBySessionEndpoint})
 	if err != nil {
 		t.Fatal(err)
 	}

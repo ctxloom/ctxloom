@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -71,7 +71,7 @@ func writeDelegationConfigYAML(t *testing.T, app string, subs map[string]agents.
 	}{"fast": {Type: "mock", Model: "m-fast"}}
 	doc.LLM.Defaults.Primary = "fast"
 	doc.Agents = subs
-	raw, err := yaml.Marshal(doc)
+	raw, err := yamlx.Marshal(doc)
 	require.NoError(t, err)
 	writeDelegationFile(t, filepath.Join(app, "config.yaml"), string(raw))
 }

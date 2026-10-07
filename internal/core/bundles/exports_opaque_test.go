@@ -5,7 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Per-engine exports are OPAQUE blocks keyed by engine name: the bundle
@@ -73,7 +74,7 @@ func TestParseBundle_ExportsReadBothShapesToTheSameBlocks(t *testing.T) {
 func TestBundle_MarshalWritesOnlyTheExportsKey(t *testing.T) {
 	b, err := ParseBundle([]byte(legacyShape))
 	require.NoError(t, err)
-	out, err := yaml.Marshal(b)
+	out, err := yamlx.Marshal(b)
 	require.NoError(t, err)
 
 	assert.Contains(t, string(out), "exports:")

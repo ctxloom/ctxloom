@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // shippedOverlaidConfig is a project that configured no LLMs, read the way the
@@ -21,7 +23,7 @@ func shippedOverlaidConfig(t *testing.T) *Config {
 
 func renderedMap(t *testing.T, v any) map[string]any {
 	t.Helper()
-	data, err := yaml.Marshal(v)
+	data, err := yamlx.Marshal(v)
 	require.NoError(t, err)
 	var m map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &m))

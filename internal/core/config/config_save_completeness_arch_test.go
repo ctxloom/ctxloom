@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Every write and every `config show` renders a view built from toDoc. A persisted field declared on configDoc but not copied by toDoc
@@ -32,7 +34,7 @@ import (
 func TestArch_ConfigSave_PersistsEveryConfigDocField(t *testing.T) {
 	cfg := NewFixture(fullyPopulatedFixture())
 
-	data, err := yaml.Marshal(cfg)
+	data, err := yamlx.Marshal(cfg)
 	require.NoError(t, err)
 
 	var got map[string]any
@@ -53,7 +55,7 @@ func TestArch_ConfigSave_PersistsEveryConfigDocField(t *testing.T) {
 func TestArch_ConfigSave_PrunesUnsetSections(t *testing.T) {
 	cfg := NewFixture(Fixture{SchemaVersion: CurrentConfigVersion})
 
-	data, err := yaml.Marshal(cfg)
+	data, err := yamlx.Marshal(cfg)
 	require.NoError(t, err)
 
 	var got map[string]any

@@ -6,6 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // TestHooksConfig_UnmarshalYAML_ExtKeyReadsEngineHooks pins the on-disk
@@ -59,7 +61,7 @@ func TestHooksConfig_UnmarshalYAML_ExtEngineNamesAreFree(t *testing.T) {
 // is what UnmarshalYAML reads back, under the one current spelling.
 func TestHooksConfig_MarshalYAML_WritesExt(t *testing.T) {
 	h := HooksConfig{Ext: map[string]BackendHooks{"claude-code": {"PreToolUse": []Hook{{Command: "x"}}}}}
-	out, err := yaml.Marshal(h)
+	out, err := yamlx.Marshal(h)
 	require.NoError(t, err)
 	assert.Contains(t, string(out), "ext:")
 	assert.NotContains(t, string(out), "plugins")

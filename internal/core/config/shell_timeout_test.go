@@ -6,9 +6,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // TestShellTimeout_Unset_DefaultsToTenMinutesAndAnHour: a config that says
@@ -52,7 +52,7 @@ func TestShellTimeout_Invalid_IsRefusedAtLoad(t *testing.T) {
 // API: written, marshalled, parsed back, read via the accessor.
 func TestShellTimeout_SurvivesSaveRoundTrip(t *testing.T) {
 	cfg := NewFixture(Fixture{SchemaVersion: CurrentConfigVersion, ShellTimeout: ShellTimeoutConfig{Default: "3m", Max: "90m"}})
-	data, err := yaml.Marshal(cfg)
+	data, err := yamlx.Marshal(cfg)
 	require.NoError(t, err)
 	reloaded, err := ParseConfig(data)
 	require.NoError(t, err)

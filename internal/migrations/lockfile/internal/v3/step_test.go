@@ -6,6 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 func apply(t *testing.T, in string) string {
@@ -13,7 +15,7 @@ func apply(t *testing.T, in string) string {
 	var doc yaml.Node
 	require.NoError(t, yaml.Unmarshal([]byte(in), &doc))
 	Step{}.Apply(doc.Content[0])
-	out, err := yaml.Marshal(&doc)
+	out, err := yamlx.Marshal(&doc)
 	require.NoError(t, err)
 	return string(out)
 }
@@ -30,11 +32,11 @@ func TestStep_DropsLockAndFetchTimes(t *testing.T) {
 		"        sha: def\n"
 	want := "schema_version: 2\n" +
 		"bundles:\n" +
-		"    a:\n" +
-		"        sha: abc\n" +
-		"        held: true\n" +
-		"    b:\n" +
-		"        sha: def\n"
+		"  a:\n" +
+		"    sha: abc\n" +
+		"    held: true\n" +
+		"  b:\n" +
+		"    sha: def\n"
 	assert.Equal(t, want, apply(t, in))
 }
 

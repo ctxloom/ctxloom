@@ -27,9 +27,11 @@ type layout struct {
 	// sessionHome is the session's home for the engine (launch.SessionHome),
 	// "" when this run has none.
 	sessionHome string
-	// homeVar is the engine's declared home var when it relocates one, nil
-	// for an engine that relocates nothing.
-	homeVar *engine.HomeVar
+	// homeVars are the engine's declared home vars, every one bound
+	// (engine.BindHome): homeVars[0] names the session home and its Subdir
+	// is the home's leaf; each further var names a directory beneath it.
+	// Empty for an engine that relocates nothing.
+	homeVars []engine.HomeVar
 	// nativeHome is where the session keeps the engine's native history
 	// (launch.NativeHome), linked from the session home; "" when none.
 	nativeHome string
@@ -132,13 +134,20 @@ func nativeHomeFor(s Spec, inContainer bool) string {
 	return native
 }
 
-// placeHome records a present session home on the layout.
+// placeHome records a present session home on the layout, with every home
+// var the engine declares.
 func placeHome(l *layout, eng engine.Engine, dir string) {
 	l.sessionHome = dir
-	if home := eng.Home(); home.Relocates() {
-		v := home.Vars[0]
-		l.homeVar = &v
+	l.homeVars = slices.Clone(eng.Home().Vars)
+}
+
+// homeLeaf is the session home's declared leaf (the first var's Subdir), ok
+// false for an engine that relocates nothing.
+func (l layout) homeLeaf() (string, bool) {
+	if len(l.homeVars) == 0 {
+		return "", false
 	}
+	return l.homeVars[0].Subdir, true
 }
 
 // repoTrust is eng's verdict on cwd's repository, read from the human's own
@@ -204,17 +213,16 @@ func prepareSessionHome(eng engine.Engine, req InstanceHomeRequest) bool {
 }
 
 // placementOf is the Placement for relocated paths: the workspace's own env,
-// the home var at the session home's Engine side (also recorded as the home
-// binding), the mode's credential over both, then storeEnv (each shared
-// store's var, as this environment presents it); and the names the engine
-// must not inherit.
+// every home var bound against the session home's Engine side
+// (engine.BindHome; also recorded as the home bindings), the mode's
+// credential over both, then storeEnv (each shared store's var, as this
+// environment presents it); and the names the engine must not inherit.
 func placementOf(paths present.Paths, l layout, storeEnv map[string]string) launch.Placement {
 	env := map[string]string{}
 	maps.Copy(env, l.env)
-	var home []engine.HomeBinding
-	if l.homeVar != nil && paths.SessionHome.Engine != "" {
-		env[l.homeVar.Name] = paths.SessionHome.Engine
-		home = append(home, engine.HomeBinding{Var: l.homeVar.Name, Path: paths.SessionHome.Engine})
+	home := engine.BindHome(l.homeVars, paths.SessionHome)
+	for _, b := range home {
+		env[b.Var] = b.Path
 	}
 	maps.Copy(env, l.creds.Env)
 	maps.Copy(env, storeEnv)
@@ -284,11 +292,14 @@ func (r containerRelocator) relocate(l layout) (launch.Placement, []mount, error
 	paths := present.Paths{ProjectRoot: project.root}
 	mounts := []mount{project.mount}
 	if l.sessionHome != "" {
+		// A further home var's directory lies inside the home, so this one
+		// mount carries every var.
 		target := r.home
-		if l.homeVar != nil {
+		leaf, relocates := l.homeLeaf()
+		if relocates {
 			// A container path, so joined with forward slashes whatever the
 			// host's separator.
-			target = path.Join(r.instanceHome, l.homeVar.Subdir)
+			target = path.Join(r.instanceHome, leaf)
 		}
 		home, err := relocateRoot(r.rt, l.sessionHome, target)
 		if err != nil {
@@ -296,10 +307,10 @@ func (r containerRelocator) relocate(l layout) (launch.Placement, []mount, error
 		}
 		paths.SessionHome = home.root
 		mounts = append(mounts, home.mount)
-		if l.nativeHome != "" && l.homeVar != nil {
+		if l.nativeHome != "" && relocates {
 			// Beside the instance root, at the depth the home's relative link
 			// climbs out of it: <root>/<leaf>/<rel> -> ../../native/<leaf>/<rel>.
-			native, err := relocateRoot(r.rt, l.nativeHome, path.Join(path.Dir(r.instanceHome), sessionpaths.NativeDirName, l.homeVar.Subdir))
+			native, err := relocateRoot(r.rt, l.nativeHome, path.Join(path.Dir(r.instanceHome), sessionpaths.NativeDirName, leaf))
 			if err != nil {
 				refuse("native history", err)
 			}

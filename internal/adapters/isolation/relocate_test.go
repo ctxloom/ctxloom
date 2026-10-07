@@ -16,7 +16,7 @@ import (
 // host, exactly as stage 1 (launch.SessionHome) places it.
 const hostSessionHome = "/home/u/.ctxloom/sessions/ugly-icy-squid/home/claude"
 
-var claudeHomeVar = &engine.HomeVar{Name: "CLAUDE_CONFIG_DIR", Subdir: "claude"}
+var claudeHomeVars = []engine.HomeVar{{Name: "CLAUDE_CONFIG_DIR", Subdir: "claude"}}
 
 // THE FIXED ROOT, pinned by value so a refactor cannot quietly move it: every
 // container hangs its relocated engine home under this well-known
@@ -24,7 +24,7 @@ var claudeHomeVar = &engine.HomeVar{Name: "CLAUDE_CONFIG_DIR", Subdir: "claude"}
 // the container filesystem ctxloom owns, not of $HOME.
 func TestContainerRelocator_RelocatedHomeIsUnderTheFixedRoot(t *testing.T) {
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
-	pl, _, err := c.relocator().relocate(layout{cwd: "/proj", sessionHome: hostSessionHome, homeVar: claudeHomeVar})
+	pl, _, err := c.relocator().relocate(layout{cwd: "/proj", sessionHome: hostSessionHome, homeVars: claudeHomeVars})
 	require.NoError(t, err)
 	assert.Equal(t, present.Root{Host: hostSessionHome, Engine: "/ctxloom/home/claude"}, pl.Paths.Paths().SessionHome)
 	assert.Equal(t, "/ctxloom/home/claude", pl.Env["CLAUDE_CONFIG_DIR"], "the home var names the Engine side")
@@ -35,7 +35,7 @@ func TestContainerRelocator_RelocatedHomeIsUnderTheFixedRoot(t *testing.T) {
 // filesystem cannot host the default root pins its own.
 func TestContainerRelocator_InstanceRootIsOverridableOnThePolicy(t *testing.T) {
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code").WithInstanceHome("/opt/agent-home")
-	pl, _, err := c.relocator().relocate(layout{cwd: "/proj", sessionHome: hostSessionHome, homeVar: claudeHomeVar})
+	pl, _, err := c.relocator().relocate(layout{cwd: "/proj", sessionHome: hostSessionHome, homeVars: claudeHomeVars})
 	require.NoError(t, err)
 	assert.Equal(t, "/opt/agent-home/claude", pl.Paths.Paths().SessionHome.Engine)
 }
@@ -43,7 +43,7 @@ func TestContainerRelocator_InstanceRootIsOverridableOnThePolicy(t *testing.T) {
 // The host presents every root in place and mounts nothing: the engine opens
 // the host path itself.
 func TestHostRelocator_PresentsInPlaceAndMountsNothing(t *testing.T) {
-	pl, mounts, err := hostRelocator{}.relocate(layout{cwd: "/proj", sessionHome: hostSessionHome, homeVar: claudeHomeVar})
+	pl, mounts, err := hostRelocator{}.relocate(layout{cwd: "/proj", sessionHome: hostSessionHome, homeVars: claudeHomeVars})
 	require.NoError(t, err)
 	assert.Nil(t, mounts)
 	assert.Equal(t, present.Root{Host: "/proj", Engine: "/proj"}, pl.Paths.Paths().ProjectRoot)
@@ -57,7 +57,7 @@ func TestHostRelocator_PresentsInPlaceAndMountsNothing(t *testing.T) {
 func TestContainerRelocator_EveryPresentedRootComesWithItsMount(t *testing.T) {
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	for name, l := range map[string]layout{
-		"relocating engine":     {cwd: "/proj", sessionHome: hostSessionHome, homeVar: claudeHomeVar},
+		"relocating engine":     {cwd: "/proj", sessionHome: hostSessionHome, homeVars: claudeHomeVars},
 		"non-relocating engine": {cwd: "/proj", sessionHome: "/home/u/.ctxloom/sessions/h/home/mock"},
 		"no session home":       {cwd: "/proj"},
 	} {
@@ -120,7 +120,7 @@ func TestContainerRelocator_UnroutableRootIsErrUnreachableRoot(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			rt := mapperRuntime{fakeRuntime: fakeRuntime{name: "docker", available: true}, m: unroutableMapper{under: tc.under}}
 			c := NewContainerFor(rt, "claude-code")
-			_, mounts, err := c.relocator().relocate(layout{cwd: "/proj", sessionHome: hostSessionHome, homeVar: claudeHomeVar})
+			_, mounts, err := c.relocator().relocate(layout{cwd: "/proj", sessionHome: hostSessionHome, homeVars: claudeHomeVars})
 			require.ErrorIs(t, err, present.ErrUnreachableRoot)
 			require.ErrorIs(t, err, errNoRoute, "the mapper's own reason rides along")
 			assert.Contains(t, err.Error(), tc.names)
@@ -141,7 +141,7 @@ func TestHostRelocator_NeverUnreachable(t *testing.T) {
 func TestContainerEnvironment_MountsTheHomeAndNoCredential(t *testing.T) {
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	cw := &containerWorkspace{dir: "/proj"}
-	pl, roots, err := c.relocator().relocate(layout{cwd: cw.dir, sessionHome: hostSessionHome, homeVar: claudeHomeVar})
+	pl, roots, err := c.relocator().relocate(layout{cwd: cw.dir, sessionHome: hostSessionHome, homeVars: claudeHomeVars})
 	require.NoError(t, err)
 	_, err = c.environment(cw, pl, roots, engine.Credentials{})
 	require.NoError(t, err)

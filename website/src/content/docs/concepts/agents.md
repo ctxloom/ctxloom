@@ -33,7 +33,7 @@ An agent names:
 - **`profiles`** — one or more profiles that compose into a single assembled context.
 - **`runtime`** (optional) — where the engine process executes: `host`, `container-rootless`, or `container-rootful` (the two container values name WHO OWNS the container runtime daemon and are not interchangeable — a rootful daemon maps the engine's writes to a different uid than a rootless one). Omit to inherit the project's `runtime:` default.
 - **`permissions`** (optional) — the agent's permission block: the engine-neutral fields, and one block per engine, keyed by the engine's name, holding that engine's own keys. Every field is optional:
-  - `approver` — who answers a request the posture leaves open: `human` (the default), `none` (nobody: it is denied) or `reviewer` (the engine's own classifier, where the engine has one).
+  - `approver` — who answers a request the posture leaves open: `human` (the default), `none` (nobody: it is denied) or `reviewer` (the engine's own classifier, where the engine has one). Some engines cannot hand ctxloom a request to answer. On those, a structured run refuses `human` (declare `none`), while an interactive run keeps it, and you answer in the engine's own UI.
   - `approval_timeout` — how long a request waits before it is denied (`20m`; default 15m, at most 60m).
   - `sandbox` — what the engine's own commands may touch: `read-only`, `workspace-write` (the working tree only) or `full`. Undeclared, the engine's default applies; a value the engine cannot enforce where the agent runs is refused.
   - `network` — whether sandboxed commands may reach the network.

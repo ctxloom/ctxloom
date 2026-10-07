@@ -115,8 +115,8 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 	defer unlock()
 
 	var rep InstanceHomeReport
-	if err := req.root().Private.Ensure(req.InstanceHome); err != nil {
-		return rep, fmt.Errorf("instance home for %s: restrict %s to its owner: %w", req.Engine, req.InstanceHome, err)
+	if err := ensureHomeDirs(req, f.Home.Vars); err != nil {
+		return rep, err
 	}
 	if req.NativeHome != "" && f.Home.TranscriptStoreRel != "" {
 		place := linkNativeHistory
@@ -131,6 +131,27 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 		return rep, nil
 	}
 	return writeInstanceConfig(req, f.Home.InstanceConfig)
+}
+
+// ensureHomeDirs makes the session home owner-only, then creates, owner-only,
+// the directory of every home var after the first (engine.HomeSpec.Vars):
+// each is a Subdir beneath the home the first var names, and the engine is
+// pointed at it (engine.BindHome) before it starts, so it must exist. Inside
+// the home, they ride the home's own container mount.
+func ensureHomeDirs(req InstanceHomeRequest, vars []engine.HomeVar) error {
+	if err := req.root().Private.Ensure(req.InstanceHome); err != nil {
+		return fmt.Errorf("instance home for %s: restrict %s to its owner: %w", req.Engine, req.InstanceHome, err)
+	}
+	for i, v := range vars {
+		if i == 0 {
+			continue
+		}
+		dir := filepath.Join(req.InstanceHome, filepath.FromSlash(v.Subdir))
+		if err := req.root().Private.Ensure(dir); err != nil {
+			return fmt.Errorf("instance home for %s: %s's directory %s: %w", req.Engine, v.Name, dir, err)
+		}
+	}
+	return nil
 }
 
 // writeInstanceConfig has the engine write its own instance config into the

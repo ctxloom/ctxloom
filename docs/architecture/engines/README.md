@@ -40,7 +40,9 @@ An engine is two halves on one port (`internal/core/engine`):
   pty-only and a Structured launch is refused with
   `ErrUnsupported{drive}`); `Instance.Resume(key)` re-attaches a native
   session. The engine's own stories are the kind's methods: `Home()`
-  (`engine.HomeSpec`, the zero value the null object; `Auth` names the env
+  (`engine.HomeSpec`, the zero value the null object; `Vars` are the home
+  vars isolation binds, every one of them, by `engine.BindHome`: the first names
+  the session home, each further one a directory beneath it; `Auth` names the env
   var the engine reads its long-lived token from), `Container()` (a spec or a refusal),
   `Transcripts()` (readers the composition root hands in — they are
   transcript adapters an engine must not import) and `Hooks()` (the native

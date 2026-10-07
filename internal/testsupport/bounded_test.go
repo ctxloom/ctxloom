@@ -1,6 +1,7 @@
 package testsupport
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -44,12 +45,23 @@ func TestAwait_FormatsItsArgsOnlyOnFailure(t *testing.T) {
 	assert.Equal(t, 1, arg.n)
 }
 
-// A wait is bounded by its own budget, so a test that hangs spends that and
-// no more; only near the binary's deadline does the deadline bound it, early
-// enough to say which wait never ended.
-func TestWaitBudget_IsTheWaitsOwnUnlessTheDeadlineIsNearer(t *testing.T) {
-	now := time.Now()
-	assert.Equal(t, waitBudget, waitBudgetAt(now, time.Time{}, false), "no deadline: the wait's own budget")
-	assert.Equal(t, waitBudget, waitBudgetAt(now, now.Add(10*waitBudget), true), "a distant deadline is not the wait's to spend")
-	assert.Equal(t, 30*time.Second-deadlineMargin, waitBudgetAt(now, now.Add(30*time.Second), true), "a near deadline, less the margin to report in")
+// TestBudgetUntil_EndsAMarginBeforeTheDeadline: a wait ends deadlineMargin
+// ahead of the binary's deadline, so a failure still has room to print what it
+// waited on, and it spends the whole of what is left: no limit of its own.
+func TestBudgetUntil_EndsAMarginBeforeTheDeadline(t *testing.T) {
+	deadline := time.Now().Add(time.Hour)
+	before := time.Until(deadline)
+	got := BudgetUntil(deadline, true)
+	after := time.Until(deadline)
+	assert.LessOrEqual(t, got, before-deadlineMargin)
+	assert.GreaterOrEqual(t, got, after-deadlineMargin, "a distant deadline is the wait's to spend")
+}
+
+// TestBudgetUntil_WithoutADeadlineOutlastsAnyRun: no deadline means no bound
+// worth the name, and the stand-in survives conversion to nanoseconds from
+// milliseconds (a poll(2) timeout's unit) without overflowing.
+func TestBudgetUntil_WithoutADeadlineOutlastsAnyRun(t *testing.T) {
+	got := BudgetUntil(time.Time{}, false)
+	assert.GreaterOrEqual(t, got, 24*time.Hour, "longer than any run")
+	assert.LessOrEqual(t, got.Milliseconds(), int64(math.MaxInt64/int64(time.Millisecond)), "no overflow back to nanoseconds")
 }

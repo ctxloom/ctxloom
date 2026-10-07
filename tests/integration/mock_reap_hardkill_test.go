@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/procpin"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/procalive"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -142,7 +143,7 @@ func TestRunnerReapedOnHardKilledParent(t *testing.T) {
 	// while the process keeps running is precisely the defect this is the
 	// regression test for, and this project's characteristic bug is exit 0
 	// with nothing actually done.
-	require.True(t, child.WaitExit(testenv.TestBudget(t)),
+	require.True(t, child.WaitExit(testsupport.Budget(t)),
 		"runner subprocess pid %d outlived its hard-killed parent %d with nothing left to reap it — an orphaned runner; output:\n%s", childPID, parentPID, sess.Output())
 	require.False(t, processAlive(childPID), "runner subprocess pid %d exited but still reads as alive", childPID)
 }

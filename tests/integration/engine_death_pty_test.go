@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/shared/procpin"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -30,7 +31,7 @@ const engineDeathDumpWait = 5 * time.Second
 // then needs. The defect these guard held both processes for as long as
 // nobody intervened, so no shorter bound tells a defect from a loaded box.
 func engineDeathBound(t *testing.T) time.Time {
-	return time.Now().Add(testenv.TestBudget(t) - 2*engineDeathDumpWait)
+	return time.Now().Add(testsupport.Budget(t) - 2*engineDeathDumpWait)
 }
 
 // pinRunner pins the run's runner while it is alive, so its exit is an event

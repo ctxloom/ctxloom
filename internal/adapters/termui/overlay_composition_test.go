@@ -76,7 +76,9 @@ func (s *syncBuf) next() (string, <-chan struct{}) {
 }
 
 // await re-checks cond on every write until it holds, and reports false only
-// when the wait runs out.
+// at the test binary's deadline (testsupport.Expiry). That deadline is every
+// later test's too, so cond must also hold once what the wait is for can no
+// longer arrive: awaitScreen's does, on a frame it cannot judge.
 func (s *syncBuf) await(t waiter, cond func(string) bool) (string, bool) {
 	t.Helper()
 	expired := testsupport.Expiry(t)
@@ -106,7 +108,8 @@ func contains(sub string) func(string) bool {
 	return func(s string) bool { return strings.Contains(s, sub) }
 }
 
-// await receives the event ch carries, failing when the wait runs out.
+// await receives the event ch carries, failing only at the test binary's
+// deadline (testsupport.Expiry).
 func await[T any](t *testing.T, what string, ch <-chan T) T {
 	t.Helper()
 	select {

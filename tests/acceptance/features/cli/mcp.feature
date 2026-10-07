@@ -128,8 +128,8 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
                     command: echo
         """
       When I run "ctxloom mcp server list"
-      Then the output contains "unknown key `mcp`"
-      And the output contains "IGNORED"
+      Then the command fails
+      And the output contains "unknown key `mcp`"
 
   Rule: Editing a bundle's server is a round trip through the user's editor
 

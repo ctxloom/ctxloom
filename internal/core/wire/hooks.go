@@ -5,10 +5,11 @@
 package wire
 
 import (
-	"errors"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Hook defines a single hook action.
@@ -88,32 +89,19 @@ type HooksConfig struct {
 	Ext map[string]BackendHooks `yaml:"ext,omitempty" json:"ext,omitempty"`
 }
 
-// RetiredHooksExtKey is the pre-rename spelling of HooksConfig.Ext.
-const RetiredHooksExtKey = "plugins"
-
-// ErrRetiredHooksExtKey names the current spelling, because a rename that
-// leaves people guessing has moved the cost rather than paid it.
-var ErrRetiredHooksExtKey = errors.New(
-	"hooks use the retired key '" + RetiredHooksExtKey + ":'; it is now 'ext:' — " +
-		"the same engine-namespaced passthrough map (engine name → native event → hooks), renamed")
-
-// UnmarshalYAML refuses a hooks block still spelling RetiredHooksExtKey.
-// Refused at decode rather than ignored: yaml.v3 without KnownFields drops a
-// key it cannot map, so a renamed tag that silently stops matching leaves
-// every engine-specific hook unwritten with every signal green — the silent
-// no-op this codebase hunts. Living on the type, the guard holds at every
-// YAML surface the type is embedded in, not only the one loader that
-// remembered to check.
+// UnmarshalYAML decodes a hooks block STRICTLY: a key the type does not model,
+// at any level, is refused. A type's own UnmarshalYAML does not inherit its
+// caller's KnownFields, so living on the type is what holds the rule at every
+// YAML surface that embeds a hooks block; without it an unknown key — a
+// misspelled event, a key that once meant something — would leave those hooks
+// unwritten with every signal green.
 func (h *HooksConfig) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind == yaml.MappingNode {
-		for i := 0; i+1 < len(node.Content); i += 2 {
-			if node.Content[i].Value == RetiredHooksExtKey {
-				return ErrRetiredHooksExtKey
-			}
-		}
+	data, err := yaml.Marshal(node)
+	if err != nil {
+		return err
 	}
-	type plain HooksConfig
-	return node.Decode((*plain)(h))
+	type hooksConfig HooksConfig
+	return yamlx.DecodeStrict(data, (*hooksConfig)(h))
 }
 
 // HasAny reports whether any hook is configured. Used by config Save() to decide

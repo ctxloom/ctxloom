@@ -307,16 +307,14 @@ Feature: llm — the named engine configurations
       When I run "ctxloom llm list"
       Then the output contains "claude-code"
 
-  Rule: A config carrying a label's retired env: block is refused, not ignored
+  Rule: A config carrying an env: block under a label is refused, not ignored
 
     THE SCENARIO THIS RULE IS FOR. A silently-dropped key is the worse outcome:
     a user who wrote `env:` under a label believes their variable reached the
-    engine, and nothing tells them otherwise. So the load fails naming the
-    key, the label, and where the variable goes instead — the ambient
-    environment. Asserting the REPLACEMENT, not just the failure, is what
-    separates this from any other reason a load might fail.
+    engine, and nothing tells them otherwise. So the command fails naming the
+    key by its path, label included.
 
-    Scenario: An env: block under a label fails the load and names the ambient environment
+    Scenario: An env: block under a label fails the command and names the key
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
         """
@@ -329,9 +327,8 @@ Feature: llm — the named engine configurations
                 OPENAI_API_KEY: sk-acceptance-MUST-NEVER-BE-APPLIED
         """
       When I run "ctxloom llm list"
-      Then the output contains "removed key 'env:'"
-      And the output contains "big"
-      And the output contains "ambient environment"
+      Then the command fails
+      And the output contains "llm.configs.big.env"
 
     # There is no flag that would write the key either: a credential has no
     # way into ctxloom's config from the command line, by file or by argv.

@@ -50,7 +50,6 @@ func TestLoad_UnknownTopLevelKey_NamesTheKey(t *testing.T) {
 	require.Len(t, warns, 1, "an unknown top-level key produces exactly one unknown-key warning")
 	assert.Contains(t, warns[0].Text, "agentz", "the message must name the offending key")
 	assert.Contains(t, warns[0].Text, "config.yaml", "the message must name the file")
-	assert.Contains(t, warns[0].Text, "IGNORED", "the message must say the key has no effect")
 	assert.Contains(t, warns[0].Text, "agents", "a near-miss typo must suggest the real key")
 }
 

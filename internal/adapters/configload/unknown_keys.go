@@ -23,14 +23,8 @@ import (
 //
 // which tells a user nothing about what to write instead. This file translates
 // those violations into the diagnostic the fail-loudly model promises: the
-// offending key by its DOTTED PATH, the fact that ctxloom ignored it, the
-// near-miss key it probably meant and the keys the section does know.
-//
-// Ordering matters and is owned by loadConfigFile: validation (and therefore
-// this classification) runs AFTER the upgrade pipeline, so a key an older config
-// still legitimately carries is migrated forward first and never reaches here.
-// Only a key that survives migration — i.e. one the current schema truly does
-// not know — is reported.
+// offending key by its DOTTED PATH, the near-miss key it probably meant and
+// the keys the section does know.
 
 // additionalPropsRe extracts the offending key names from a jsonschema
 // additionalProperties violation ("additionalProperties 'a', 'b' not allowed").
@@ -175,8 +169,7 @@ func unknownKeysIn(message string) []string {
 }
 
 // unknownKeyMessage renders the user-visible line for one unknown key: the
-// dotted path, the fact that it was ignored, a did-you-mean and the section's
-// known keys.
+// dotted path, a did-you-mean and the section's known keys.
 func unknownKeyMessage(configPath, instanceLocation, key string, validator *schema.ConfigValidator) string {
 	section := dottedPath(instanceLocation)
 	path := key
@@ -185,7 +178,7 @@ func unknownKeyMessage(configPath, instanceLocation, key string, validator *sche
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "unknown key `%s` in %s: ctxloom does not know it, so it is IGNORED", path, configPath)
+	fmt.Fprintf(&b, "unknown key `%s` in %s: ctxloom does not know it", path, configPath)
 
 	// This used to re-walk the RAW schema JSON by hand
 	// (configSchemaDocument/knownKeysAt) and get it wrong the moment the

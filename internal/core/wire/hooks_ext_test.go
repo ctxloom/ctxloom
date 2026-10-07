@@ -25,29 +25,29 @@ func TestHooksConfig_UnmarshalYAML_ExtKeyReadsEngineHooks(t *testing.T) {
 	assert.Equal(t, "x", h.Ext["claude-code"]["PreToolUse"][0].Command)
 }
 
-// TestHooksConfig_UnmarshalYAML_RetiredPluginsKeyRefused pins the rename's
-// loud failure. yaml.v3 without KnownFields drops a key it cannot map, so a
-// hooks block still spelling the retired `plugins:` would decode into a
-// config with NO engine-specific hooks and every signal green — the silent
-// no-op this codebase treats as its characteristic bug. The refusal is a
-// sentinel (errors.Is-able) and its text names the current spelling, so the
-// person reading it knows what to write instead.
-func TestHooksConfig_UnmarshalYAML_RetiredPluginsKeyRefused(t *testing.T) {
-	const doc = "unified:\n  pre_tool:\n    - command: u\n" +
-		"plugins:\n  claude-code:\n    PreToolUse:\n      - command: x\n"
-
-	var h HooksConfig
-	err := yaml.Unmarshal([]byte(doc), &h)
-	require.ErrorIs(t, err, ErrRetiredHooksExtKey)
-	assert.Contains(t, err.Error(), "'"+RetiredHooksExtKey+":'", "the refusal names the retired key")
-	assert.Contains(t, err.Error(), "'ext:'", "the refusal names the current spelling, not only the rejected one")
-	assert.Empty(t, h.Ext, "a refused document must not half-decode")
+// TestHooksConfig_UnmarshalYAML_IsStrict: a hooks block decodes strictly at
+// every level, whatever document embeds it. A type's own UnmarshalYAML does
+// not inherit its caller's KnownFields, so without this an unknown key — a
+// misspelled event, a key that once meant something — would decode into a
+// config with those hooks silently missing.
+func TestHooksConfig_UnmarshalYAML_IsStrict(t *testing.T) {
+	for name, doc := range map[string]string{
+		"top level": "unified:\n  pre_tool:\n    - command: u\nplugins:\n  claude-code: {}\n",
+		"an event":  "unified:\n  pre_tooll:\n    - command: u\n",
+		"a hook":    "unified:\n  pre_tool:\n    - comand: u\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var h HooksConfig
+			err := yaml.Unmarshal([]byte(doc), &h)
+			require.Error(t, err)
+			assert.Regexp(t, `plugins|pre_tooll|comand`, err.Error(), "the refusal names the key")
+		})
+	}
 }
 
-// TestHooksConfig_UnmarshalYAML_PluginsAsEngineNameIsNotTheRetiredKey keeps
-// the guard a KEY check: the word appearing one level down — as an engine
-// label under ext, or as a matcher — is not the retired hooks key.
-func TestHooksConfig_UnmarshalYAML_PluginsAsEngineNameIsNotTheRetiredKey(t *testing.T) {
+// TestHooksConfig_UnmarshalYAML_ExtEngineNamesAreFree: under ext the engine
+// labels and native event names are the author's, not keys the type models.
+func TestHooksConfig_UnmarshalYAML_ExtEngineNamesAreFree(t *testing.T) {
 	const doc = "ext:\n  plugins:\n    SomeEvent:\n      - command: x\n        matcher: plugins\n"
 
 	var h HooksConfig

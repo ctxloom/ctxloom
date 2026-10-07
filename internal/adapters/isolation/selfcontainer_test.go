@@ -320,19 +320,27 @@ func TestFindSelf_OffContainerTheHarpIsNotLookedUp(t *testing.T) {
 	assert.Empty(t, *calls)
 }
 
-// An undecidable lookup (a CLI that cannot list its daemon's containers) and a
-// container the daemon does not list both leave this process's own layer
-// unknown. Selection is not refused for it — a host run never needs it — but
-// the container gate is: a run that would name its paths to that daemon by
+// A daemon that cannot answer leaves this process's own layer unknown: an
+// undecidable lookup (a CLI that cannot list its daemon's containers), or a
+// harp two running containers carry, so the claim matches no single one.
+// Selection is not refused for it — a host run never needs it — but the
+// container gate is: a run that would name its paths to that daemon by
 // guesswork is a non-degradable finding.
 func TestResolveSelf_AnUnknownSelfRefusesTheContainerGate(t *testing.T) {
 	for name, tc := range map[string]struct {
-		ps     func() (string, error)
-		inCont bool
+		harp   string
+		script map[string]func() (string, error)
 		want   error
 	}{
-		"undecidable":                     {ps: func() (string, error) { return "", errors.New("permission denied on the socket") }, want: errSelfUndecidable},
-		"in a container it does not list": {ps: out(""), inCont: true, want: errSelfUnidentified},
+		"undecidable": {
+			script: map[string]func() (string, error){dockerPS + selfID: func() (string, error) { return "", errors.New("permission denied on the socket") }},
+			want:   errSelfUndecidable,
+		},
+		"a harp two containers carry": {
+			harp:   "brisk-amber-fox",
+			script: map[string]func() (string, error){dockerPSHarp("brisk-amber-fox"): out("aaa\nbbb\n")},
+			want:   errHarpAmbiguous,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			resetStrictness(t)
@@ -340,8 +348,8 @@ func TestResolveSelf_AnUnknownSelfRefusesTheContainerGate(t *testing.T) {
 			t.Cleanup(func() { engineInfo = prevInfo })
 			engineInfo = func(context.Context, string, string) (string, error) { return "[name=seccomp]", nil }
 			stubSelfCandidates(t, selfID)
-			stubSelfHarp(t, "", tc.inCont)
-			scriptExec(t, map[string]func() (string, error){dockerPS + selfID: tc.ps})
+			stubSelfHarp(t, tc.harp, true)
+			scriptExec(t, tc.script)
 
 			mark := strictness.Checkpoint()
 			t.Cleanup(func() { strictness.Close(mark) })
@@ -357,6 +365,30 @@ func TestResolveSelf_AnUnknownSelfRefusesTheContainerGate(t *testing.T) {
 			require.Error(t, strictness.Mode{Degraded: true}.FindingsError(mark), "not degradable")
 		})
 	}
+}
+
+// A controller in a container its daemon does not list (a `ctxloom run` in a
+// devcontainer, a docker-in-docker sidecar) cannot identify itself, so its own
+// filesystem is the root: the identity layer, and no finding. A container
+// ctxloom launched is still identified by its harp (findSelfByHarp).
+func TestResolveSelf_AnUnlistedContainerIsItsOwnRoot(t *testing.T) {
+	resetStrictness(t)
+	prevInfo := engineInfo
+	t.Cleanup(func() { engineInfo = prevInfo })
+	engineInfo = func(context.Context, string, string) (string, error) { return "[name=seccomp]", nil }
+	stubSelfCandidates(t, selfID)
+	stubSelfHarp(t, "brisk-amber-fox", true)
+	scriptExec(t, map[string]func() (string, error){
+		dockerPSHarp("brisk-amber-fox"): out(""),
+		dockerPS + selfID:               out(""),
+	})
+	mark := strictness.Checkpoint()
+	t.Cleanup(func() { strictness.Close(mark) })
+	d, _ := newDockerRuntime(func(string) bool { return true })
+	require.NoError(t, settleSelf(d))
+	assert.Empty(t, strictness.Since(mark))
+	assert.Nil(t, d.self)
+	assert.Equal(t, HostLayer(), d.primary())
 }
 
 // Off-container, an unmatched lookup is the host: nothing to refuse.
@@ -382,8 +414,6 @@ func TestResolveSelf_DecidedAnswersAreKept(t *testing.T) {
 	t.Cleanup(func() { findSelf = orig })
 	var warned bytes.Buffer
 	t.Cleanup(clidiag.SetSink(&warned))
-
-	stubSelfHarp(t, "", false)
 
 	findSelf = func(context.Context, Runtime) (selfContainer, bool, error) { return ciSelf, true, nil }
 	self, err := resolveSelf(Docker{})

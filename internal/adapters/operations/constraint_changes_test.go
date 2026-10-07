@@ -19,8 +19,8 @@ func TestConstraintChanges_NamesOnlyAMovedConstraint(t *testing.T) {
 	const repo = "https://github.com/test/repo@bundles/"
 	const sha = "0123456789abcdef0123456789abcdef01234567"
 	registerTestRemote(t, tmp, "https://github.com/test/repo")
-	unparseable := "https://github.com/test/repo"  // never collected: it names no bundle
-	unkeyable := "https://github.com/@bundles/x" // parses, but names no repository
+	unparseable := "https://github.com/test/repo" // never collected: it names no bundle
+	unkeyable := "https://github.com/@bundles/x"  // parses, but names no repository
 	_, err := remote.ParseReference(unparseable)
 	require.Error(t, err)
 	parsed, err := remote.ParseReference(unkeyable)
@@ -30,11 +30,11 @@ func TestConstraintChanges_NamesOnlyAMovedConstraint(t *testing.T) {
 	refs := []string{
 		unparseable,
 		unkeyable,
-		repo + "unpinned@^1.0",   // no pin yet: pull's job, not a change
-		repo + "held@^1.0",       // held: the user froze it
-		repo + "same@^1.0",       // pinned from the constraint still declared
-		repo + "commit@" + sha,   // a bare commit the pin already sits at
-		repo + "moved@^2.0",      // the one change
+		repo + "unpinned@^1.0", // no pin yet: pull's job, not a change
+		repo + "held@^1.0",     // held: the user froze it
+		repo + "same@^1.0",     // pinned from the constraint still declared
+		repo + "commit@" + sha, // a bare commit the pin already sits at
+		repo + "moved@^2.0",    // the one change
 	}
 	writeLocalProfile(t, tmp, "dev", "bundles:\n  - "+strings.Join(refs, "\n  - ")+"\n")
 	lock := &remote.Lockfile{Bundles: map[ident.BundleKey]remote.LockEntry{

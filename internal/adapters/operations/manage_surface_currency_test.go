@@ -179,3 +179,29 @@ func TestContextFileCurrency_ReadsOnlyWhatTheRecordOwns(t *testing.T) {
 	require.True(t, owned)
 	assert.Equal(t, agent.StatusMissing, cur.Status)
 }
+
+// TestApplyHooks_Claude_WithdrawsAClaimedClaudeMdContextSection: claude's
+// assembled context reaches a session through its system prompt, never a
+// CLAUDE.md beside it. A CLAUDE.md section the project writer's record
+// claims — here one a materialize left — is withdrawn by the next claude
+// delivery, and the user's own bytes come back exactly as they were.
+func TestApplyHooks_Claude_WithdrawsAClaimedClaudeMdContextSection(t *testing.T) {
+	const mine = "# my own notes\n\nLive claude usage is hand-written here.\n"
+	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
+	contextPath := filepath.Join(workDir, "CLAUDE.md")
+	require.NoError(t, os.WriteFile(contextPath, []byte(mine), 0o644))
+	materializeInto(t, cfg, "claude-code", workDir)
+	claimed, err := os.ReadFile(contextPath)
+	require.NoError(t, err)
+	require.Contains(t, string(claimed), "SECURITY-RULES", "precondition: the record claims a context section in CLAUDE.md")
+
+	res, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
+		Backend: "claude-code", RegenerateContext: true, Root: safefs.New(), Cfg: cfg, WorkDir: workDir,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "applied", res.Status)
+
+	got, err := os.ReadFile(contextPath)
+	require.NoError(t, err)
+	assert.Equal(t, mine, string(got), "the claimed context section is withdrawn; the hand-written CLAUDE.md is left exactly as it was")
+}

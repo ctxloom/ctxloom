@@ -135,9 +135,6 @@ func UseTranscriptSessions(f TranscriptSessionFunc) (restore func()) {
 // /clear; the newest transcript in the harp's native dir is where the
 // session actually is. Reported ok=true when the transcript was located.
 func fillBindingByLocation(e *Entry) bool {
-	if e == nil || e.HarpName == "" {
-		return false
-	}
 	if e.TranscriptPath != "" {
 		if _, err := os.Stat(e.TranscriptPath); err == nil {
 			return false

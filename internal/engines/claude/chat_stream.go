@@ -108,12 +108,12 @@ type turnStream struct {
 	limited  bool
 }
 
-// mapLine normalizes one stream-json line into 0..N ChatEvents. An assistant
+// Map normalizes one stream-json line into 0..N ChatEvents. An assistant
 // message holds an array of content blocks, so one event can yield several
 // entries. Unknown/irrelevant events (hook_*, thinking_tokens, an allowed
 // rate_limit_event, malformed JSON, a future event type) return nil — the
 // stream must never crash on something we don't model.
-func (s *turnStream) mapLine(raw []byte) []agent.ChatEvent {
+func (s *turnStream) Map(raw []byte) []agent.ChatEvent {
 	var e sjEvent
 	if err := json.Unmarshal(raw, &e); err != nil {
 		return nil
@@ -134,6 +134,10 @@ func (s *turnStream) mapLine(raw []byte) []agent.ChatEvent {
 	}
 	return evs
 }
+
+// End adds nothing: claude's result frame says how the turn ended, and the
+// driver classifies a process that died without one.
+func (s *turnStream) End() []agent.ChatEvent { return nil }
 
 // message is an assistant/user frame's message object; nil when absent or
 // not an object.

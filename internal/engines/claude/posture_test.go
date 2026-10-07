@@ -274,7 +274,7 @@ func headlessTurnArgv(t *testing.T, p engine.PermissionPolicy, in engine.Turn, p
 	require.NoError(t, err)
 	ex, err := inst.Exec(presented)
 	require.NoError(t, err)
-	return (&streamJSONDriver{inst: inst.(*instance)}).argv(ex, in)
+	return inst.(*instance).turnArgv(ex, in)
 }
 
 // Each turn's process carries its posture as its one --settings: the

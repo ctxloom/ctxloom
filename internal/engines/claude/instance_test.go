@@ -37,11 +37,8 @@ func TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol(t *testing.T) {
 	ex, err := inst.Exec([]present.Presentation{mcp})
 	require.NoError(t, err)
 	require.Equal(t, "--disallowedTools Bash,Edit,Write,NotebookEdit --allowedTools mcp__probe --model claude-opus-5 --print --setting-sources user --strict-mcp-config --mcp-config /h/.mcp.json", strings.Join(ex.Args, " "))
-	drivers := inst.Drivers()
-	require.Len(t, drivers, 1)
-	d, ok := drivers[0].(*streamJSONDriver)
-	require.True(t, ok)
-	argv, err := d.argv(ex, engine.Turn{Prompt: "hi", Resume: "native-key-1", Posture: engine.TurnPosture{Mode: modePlan}})
+	require.Len(t, inst.Drivers(), 1)
+	argv, err := inst.(*instance).turnArgv(ex, engine.Turn{Prompt: "hi", Resume: "native-key-1", Posture: engine.TurnPosture{Mode: modePlan}})
 	require.NoError(t, err)
 	require.Equal(t, strings.Join(ex.Args, " ")+` --input-format stream-json --output-format stream-json --verbose --resume native-key-1 --name perky-same-chevy --settings {"permissions":{"defaultMode":"plan"}}`,
 		strings.Join(argv, " "))
@@ -49,7 +46,7 @@ func TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol(t *testing.T) {
 	ex, err = inst.Exec([]present.Presentation{mcp})
 	require.NoError(t, err)
 	require.Contains(t, strings.Join(ex.Args, " "), "--resume native-key-2", "a resumed instance continues its native session on the next Exec")
-	argv, err = d.argv(ex, engine.Turn{Prompt: "hi", Resume: "native-key-2"})
+	argv, err = inst.(*instance).turnArgv(ex, engine.Turn{Prompt: "hi", Resume: "native-key-2"})
 	require.NoError(t, err)
 	require.Equal(t, strings.Count(strings.Join(argv, " "), "--resume"), 1, "the driver adds no second --resume")
 }

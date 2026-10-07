@@ -16,11 +16,11 @@
 // The cell blocks claude on a PermissionRequest hook that holds far longer
 // than the cell waits, interrupts claude the way the driver does
 // (procsig.Interrupt to a process-group leader, then a kill after the grace
-// spawnChatTransportGrace gives it), and reads the hook's own process from
+// kit.Spawn gives it), and reads the hook's own process from
 // /proc once claude has exited.
 //
 // Whether claude writes a result frame on its way out is MEASURED, not
-// required: the driver relays one if it comes (relayTurn) and ends the turn
+// required: the driver relays one if it comes (kit.ProcessTurn) and ends the turn
 // on the interrupt either way, so the evidence line records it for the
 // registry and the verdict does not depend on it.
 package acceptance
@@ -41,7 +41,7 @@ const p15Family = "hook-interrupt"
 
 // p15Grace is how long claude gets to exit after the interrupt before the
 // cell kills it — the grace claude's driver gives an interrupted turn
-// (turnInterruptGrace in internal/engines/claude), so the cell judges claude
+// (kit.DefaultInterruptGrace in internal/engines/kit), so the cell judges claude
 // by the bound production holds it to.
 const p15Grace = 10 * time.Second
 
@@ -87,7 +87,7 @@ func p15HookScript(dir string) (string, error) {
 }
 
 // p15Args is the turn's argv after the binary: the driver's stream-json
-// shape (streamJSONDriver.argv), the hook's settings, the cheap model.
+// shape (claude's instance.turnArgv), the hook's settings, the cheap model.
 func p15Args(settingsPath string) []string {
 	return []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--settings", settingsPath, "--model", liveClaudeModel}

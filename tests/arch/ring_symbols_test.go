@@ -321,6 +321,13 @@ var engineNameHomes = []string{
 	"cmd/mockengine",
 }
 
+// engineNameNonHomes are directories under an engine home where no engine's
+// name may be spelled all the same: the shared engine kit receives every
+// engine-specific part as a value and names no engine.
+var engineNameNonHomes = []string{
+	"internal/engines/kit",
+}
+
 // noEngineNameInCoreAllowed is the rule's shrinking allowlist, keyed by
 // FILE (the brief's granularity for a literal rule: a file either spells
 // the name or it does not), mapped to the slice in which the spelling
@@ -351,7 +358,7 @@ func scanEngineNameLiterals(t *testing.T) []ringSite {
 	var out []ringSite
 	seen := map[string]bool{}
 	walkRingFiles(t, func(rf ringFile) {
-		if archrules.UnderAny(rf.dir, engineNameHomes) {
+		if archrules.UnderAny(rf.dir, engineNameHomes) && !archrules.UnderAny(rf.dir, engineNameNonHomes) {
 			return
 		}
 		ast.Inspect(rf.f, func(n ast.Node) bool {

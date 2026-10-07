@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines/kit"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -49,7 +50,7 @@ type Claude struct {
 	// stream-json driver's I/O seam (the hook the driver's tests use to run
 	// a turn against in-memory pipes); now, when set, replaces time.Now as
 	// the clock stamping chat entries that arrive without a timestamp.
-	open chatTransportFunc
+	open kit.TransportFunc
 	now  func() time.Time
 }
 

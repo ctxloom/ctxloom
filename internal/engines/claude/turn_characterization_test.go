@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/engines/kit"
 )
 
 // These pin what claude's structured turn and Exec hand the outside world,
@@ -29,9 +30,9 @@ func TestTurn_HandsTheTransportExactlyTheExecAndOneNDJSONMessage(t *testing.T) {
 	var gotBinary, gotDir string
 	var gotArgs []string
 	var gotEnv map[string]string
-	open := func(_ context.Context, binary string, args []string, env map[string]string, dir string) (*chatTransport, error) {
+	open := func(_ context.Context, binary string, args []string, env map[string]string, dir string) (*kit.Transport, error) {
 		gotBinary, gotArgs, gotEnv, gotDir = binary, args, env, dir
-		return &chatTransport{stdin: nopWriteCloser{&stdin}, stdout: strings.NewReader(""), close: func() error { return nil }}, nil
+		return &kit.Transport{Stdin: nopWriteCloser{&stdin}, Stdout: strings.NewReader(""), Teardown: func() error { return nil }}, nil
 	}
 	s := structured("m", "")
 	s.Label.Binary = "/opt/claude"
@@ -61,8 +62,8 @@ func TestTurn_ProcessDied_ErrorText(t *testing.T) {
 // message tears the transport down and is the turn's error.
 func TestTurn_PromptWriteFailure_ClosesAndPropagates(t *testing.T) {
 	closed := 0
-	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
-		return &chatTransport{stdin: failingWriteCloser{}, stdout: strings.NewReader(""), close: func() error { closed++; return nil }}, nil
+	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*kit.Transport, error) {
+		return &kit.Transport{Stdin: failingWriteCloser{}, Stdout: strings.NewReader(""), Teardown: func() error { closed++; return nil }}, nil
 	}
 	d, ex := driverFor(t, structured("", ""), open, nil)
 	_, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "x"}, nil)

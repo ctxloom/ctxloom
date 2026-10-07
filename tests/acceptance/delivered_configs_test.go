@@ -62,7 +62,7 @@ func (e unlinkedBeforeInfo) Info() (fs.FileInfo, error) {
 // goes on to report the configs that are.
 func TestDeliveredConfigsSurvivesADepartingSessionsTeardown(t *testing.T) {
 	for name, engineHome := range map[string]string{
-		"its config is unlinked before its lstat":           "mock",
+		"its config is unlinked before its lstat":            "mock",
 		"its config dir is removed before the walk descends": "gone",
 	} {
 		t.Run(name, func(t *testing.T) {

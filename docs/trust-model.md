@@ -238,7 +238,7 @@ needs on first launch.
     environment.
 5. **The `unsafe-file` MCP approach writes ctxloom's session entry into the
     project's `.mcp.json`.** Selecting the project root for the MCP surface
-    (`mcpUnsafeFile`, `internal/engines/claude/surfaces.go`) writes ctxloom's
+    (`mcpApproach.DeliverMCP`, `internal/engines/claude/definition.go`) writes ctxloom's
     session-endpoint entry into the project's own `.mcp.json`, a file teams
     commit. The bearer is never in it: `bearerByReference` writes
     `${CTXLOOM_CLAUDE_RELAY_BEARER}` (`relayBearerRef`) and the value rides

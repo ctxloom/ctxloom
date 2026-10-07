@@ -97,10 +97,10 @@ private cwd (worktree) or a container cell.**
 | Backend | MCP file | MCP scopes | Commands dir | Skills dir |
 |---|---|---|---|---|
 | `claude-code` | `.mcp.json` (+ out-of-cwd via `--mcp-config`; in a trusted repository ctxloom's servers **layer over** the project's, otherwise `--strict-mcp-config` keeps the project's out — `repoSourceArgs`) | project + global (`~/.claude.json`) | `.claude/commands/*.md` | `.claude/skills/<n>/**` |
-| the doubles | — | — | — | `.mock/skills/<n>/**` (`mockSkillsPath`), except `config.BackendMockNoSkills`, which declares no skills mapper at all |
+| the doubles | — | — | — | `.mock/skills/<n>/**` (`skillsRel`, `surfaces.go`), except `config.BackendMockNoSkills`, which declares no skills mapper at all |
 
-**Skills cross the launch wire** (§3). A descriptor's `skillExports` maps them
-into `SurfaceInputs.Skills`; `Engine.Exports` reports which engines
+**Skills cross the launch wire** (§3). An engine's `Exports` maps them into
+`engine.SkillsInputs` for its skills approach, and reports which engines
 declare one, and `config.BackendMockNoSkills` exists so the "no skills surface"
 arm of every caller has a subject.
 

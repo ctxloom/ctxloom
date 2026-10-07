@@ -31,13 +31,11 @@ the one place claude's surface membership is stated.
 | `ClaudeCodeHookWriter` | `claude.go` | `agent.SettingsReader` |
 | `NewWriter` | `claude.go` | Constructs the settings status read (`agent.SettingsReader`), reached through `Claude.SettingsReader` (`definition.go`) |
 | `Status` | `claude.go` | The `SettingsReader`: what the project writer's claims say is installed. Every write is a claim (`DeliverSettings`, `DeliverHooks`, `DeliverMCP` in `definition.go`) |
-| `ProjectSettingsPath` / `GlobalSettingsPath` / `GlobalCommandsDir` / `SettingsPath` / `MCPConfigPath` | `claude.go:48` / `:54` / `:67` / `:76` / `:83` | Path vocabulary consumed by `internal/adapters/operations/hooks.go:272,277` and `internal/ltk/engine/claudecode.go:151,153` |
+| `ProjectSettingsPath` / `GlobalSettingsPath` / `SettingsPath` / `MCPConfigPath` | `claude.go` | Path vocabulary consumed by `internal/adapters/operations/hooks.go:272,277` and `internal/ltk/engine/claudecode.go:151,153` |
 | `MCPRegistrar` | `mcp_registrar.go` | taskloom's `engine.Engine`; `Register` patches one `mcpServers` member through a taskloom-owned `confpatch.Store` via `applyMCPServers` |
-| `WriteCommandFiles` / `TransformToClaudeCommand` | `commandfiles.go:18` / `:44` | `.claude/commands/*.md` manifest write + renderer |
-| `WriteSkillFiles` | `skillfiles.go:21` | `.claude/skills/<name>/**` manifest write |
-| `Surfaces` | `surfaces.go` | claude's `agent.Declaration`: per surface kind, the approaches claude can construct and its default. Every approach wraps an existing claude writer verbatim |
+| `writeCommandDir` / `TransformToClaudeCommand` | `commandfiles.go` | The commands approach's `<dir>/*.md` write + renderer |
+| `Declaration` | `definition.go` | claude's `agent.Declaration`: per surface kind, the approach names a binding may select and the default — a static table; delivery is the typed approaches' |
 | `ApproachSystemPrompt` | `surfaces.go` | claude's own name for its out-of-cwd framed context consumed via `--append-system-prompt-file`. Declared here and nowhere shared: no other engine has it |
-| `flagArgs` | `surfaces.go` | Reads the out-of-cwd launch flags off the run's `Resolved()` selection — flag name from each approach's own `Present`, path from what it recorded — and contributes nothing for an approach that delivered nothing |
 | `HookPayload` / `HookOutput` / `DecodeHookPayload` / `EncodeDeny` | `hooks_wire.go:33` / `:103` / `:110` | The hook wire contract `internal/ltk/engine` and `internal/adapters/cli` import rather than redefine |
 
 **Stubbed or absent:** there is no
@@ -68,8 +66,8 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 | Native per-tool deny list | **yes — the only engine with one.** (a) the fixed plan-tier `--disallowedTools` token; (b) configurable `deny_tools` unioned into `permissions.deny` in `.claude/settings.json` as one claim per denied tool on a `permissions.deny` element (`settingsClaims`, `definition.go`); a deny the user already has stays theirs |
 | Context surface | Project root → a section appended to `CLAUDE.md`, owned by the ownership record (`appendContextFile`, `definition.go`). Shared cell → out-of-cwd `<hash>.sysprompt.md` (`contextdelivery.go:50`) pointed at by `--append-system-prompt-file` (`claudecode.go:294-299`). **claude does not read `AGENTS.md`** — deliberate (`enginecli.go:34-38`) |
 | MCP | Project `.mcp.json` (`mcpApproach.DeliverMCP`'s claims, `definition.go`). In a shared cell it is an out-of-cwd file passed as `--mcp-config`; in a trusted repository ctxloom's servers **layer over** the project `.mcp.json`, and otherwise `--strict-mcp-config` keeps it out (`repoSourceArgs`, invariant 8). Global via `MCPRegistrar.ConfigPath` → `~/.claude.json` |
-| Commands | `.claude/commands/*.md`, frontmatter + mustache→`$N` body (`commandfiles.go:18`, `:44`); optional home dedup against `~/.claude/commands` (`surfacedelivery.go:99-104`) |
-| Skills | `.claude/skills/<name>/**` (`skillfiles.go:21`) |
+| Commands | `.claude/commands/*.md` at the project root, `<config dir>/commands/*.md` under the session home; frontmatter + mustache→`$N` body (`commandsApproach.DeliverCommands`, `commandfiles.go`). No dedup against the user's `~/.claude/commands` |
+| Skills | `.claude/skills/<name>/**` at the project root, `<config dir>/skills/<name>/**` under the session home, vendor-invalid skills refused (`skillsApproach.DeliverSkills`, `skillconstraints.go`) |
 | One-shot / resume | **Supported.** Declares `DelegatedChildren` with `ResumesByKey` (`Build`). This adapter's only session-identity lever is `--name <harp>` (display name only) |
 | Transcript | **No scrape.** The `~/.claude/projects/<encoded-cwd>/*.jsonl` scraper was deleted (`capabilities.go:17-27`) after its cwd→slug encoder produced non-existent dirs for any path with a dot, underscore, or space. An opt-in vendor reader exists for the interactive-pty gap (`internal/adapters/operations/vendorreader.go:71`) |
 | Model + auth | `--model` emitted when non-empty; empty lets the CLI pick (`claudecode.go:263-266`). Auth is the run's mode (`claudeAuth`, settled by `launch.RunAuth`; see [isolation](isolation.md#credential-delivery)): the token for every agent, the top-level `auth:` for the human's own session |
@@ -78,8 +76,8 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 
 ## Invariants
 
-1. **`Setup` must run before `buildArgs`** — connascence of execution order. `buildArgs` reads the out-of-cwd paths off `LaunchBackend.Resolved()`, which is nil before `Setup`; `flagArgs` then contributes nothing, so the argv is *silently flagless*, not an error.
-2. **`Present` is load-bearing for argv.** `flagArgs` takes each flag's NAME from the resolved approach's own `Present(...)`, never from a constant beside it: change a declared flag and the argv changes with it.
+1. **The argv's surface flags come from what the runner delivered.** `Execute` hands `inst.Exec` the delivery's presentations (`req.Presented`); each flag's NAME and path come from the typed approach's own `Presented`, never from a constant beside it, so a moved file or a changed flag changes the argv with it.
+2. **What is presented is where the bytes are.** A delivery's `Presented` path is a file it declares, a file it claims into, or the directory its files land in (`TestDelivered_PresentsWhereTheApproachWrites`).
 3. **`Path() == ""` means "emit no flag"** — the seam between delivery and argv. An approach reports `""` when it delivered nothing (empty content), and claude must never be handed a flag naming a file that was never written.
 4. **Ownership is marked by the `"ctxloom"` executable token** via `agent.IsManaged(cmd, "ctxloom")`, repeated at six call sites and deliberately verb-agnostic.
 5. **`claudeCodeHook.SCM` is `json:"-"`** because claude validates settings against a strict Zod schema (`claude.go:149`).

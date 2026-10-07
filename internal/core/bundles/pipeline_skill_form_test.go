@@ -104,3 +104,27 @@ func TestGetSkill_AppliesTheSameBodySelection(t *testing.T) {
 	assert.Equal(t, distilledSkillMD, byPath["SKILL.md"])
 	assert.NotContains(t, byPath, "SKILL.distilled.md")
 }
+
+// The address gate admits a skill package only when it EXISTS AND its ref
+// parses: a package that was read but whose ref is unaddressable is withheld,
+// and tallied with the address gate's reason, before selection ever runs.
+func TestDeliverSkill_UnaddressablePackageIsWithheldWithItsReason(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	writeTwoBodySkillBundle(t, fsys, "/bundles")
+	loader := NewLoader(NewProjectReader(fsys, []string{"/bundles"}))
+	pipe := admitAllPipe(loader, false)
+
+	reads, err := loader.Catalog().ReadSkill("skill-bundle#skills/humanize")
+	require.NoError(t, err)
+	require.Len(t, reads, 1)
+	require.NotNil(t, pipe.deliverSkill(reads[0]), "control: the package as read is delivered")
+	require.Empty(t, pipe.Withheld())
+
+	unaddressable := *reads[0]
+	unaddressable.ItemRef = "::not a ref::"
+	assert.Nil(t, pipe.deliverSkill(&unaddressable))
+	got := pipe.Withheld()
+	require.Len(t, got, 1)
+	assert.Equal(t, "::not a ref::", got[0].Ref)
+	assert.Contains(t, got[0].Reason, "its ref could not be parsed")
+}

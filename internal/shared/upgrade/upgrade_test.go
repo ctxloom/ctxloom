@@ -224,7 +224,7 @@ func TestEncoder_WritesTheWholeDocumentBeforeClose(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal([]byte("# c\nkept: 1\nnested:\n  k: v\n"), &doc))
 
 	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
+	enc := yaml.NewEncoder(&buf) //nolint:forbidigo // probes the yaml.v3 encoder property yamlx.Marshal relies on
 	enc.SetIndent(2)
 	require.NoError(t, enc.Encode(&doc))
 
@@ -253,7 +253,7 @@ func TestEncoder_FailingNodesFailAtEncodeNotAtClose(t *testing.T) {
 			yamlx.MapSet(doc.Content[0], "broken", bad)
 
 			var buf bytes.Buffer
-			enc := yaml.NewEncoder(&buf)
+			enc := yaml.NewEncoder(&buf) //nolint:forbidigo // probes the yaml.v3 encoder property yamlx.Marshal relies on
 			require.Error(t, enc.Encode(&doc), "the failure must surface at Encode")
 			assert.Empty(t, buf.String(), "a refused encode writes nothing at all")
 			_ = enc.Close()

@@ -1,6 +1,6 @@
 //go:build !windows
 
-package claude
+package kit
 
 import (
 	"bufio"
@@ -34,21 +34,21 @@ func readLine(t *testing.T, r *bufio.Reader) string {
 	}
 }
 
-// TestSpawnChatTransport_CancelInterruptsTheProcess: ending the turn's context
-// INTERRUPTS the engine process (procsig.Interrupt) — it is not killed — so a
-// claude that unwinds on SIGINT keeps its session for the next turn's
-// --resume. The process also leads its own process group (procsig.SpawnAttr).
-func TestSpawnChatTransport_CancelInterruptsTheProcess(t *testing.T) {
+// TestSpawn_CancelInterruptsTheProcess: ending the turn's context
+// INTERRUPTS the engine process (procsig.Interrupt) — it is not killed — so an
+// engine that unwinds on SIGINT keeps its session for the next turn's
+// resume. The process also leads its own process group (procsig.SpawnAttr).
+func TestSpawn_CancelInterruptsTheProcess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// The trap is armed before the pid line is written, so the cancel below
 	// can only land on an armed handler.
 	script := `trap 'echo interrupted; exit 0' INT; echo "$$"; while :; do sleep 0.05; done`
 	grace := 5 * time.Second
-	tr, err := spawnChatTransportGrace(ctx, "sh", []string{"-c", script}, nil, t.TempDir(), grace)
+	tr, err := spawnGrace(ctx, "sh", []string{"-c", script}, nil, t.TempDir(), grace)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = tr.Close() })
-	r := bufio.NewReader(tr.stdout)
+	r := bufio.NewReader(tr.Stdout)
 
 	pid, err := strconv.Atoi(readLine(t, r))
 	require.NoError(t, err)
@@ -63,18 +63,18 @@ func TestSpawnChatTransport_CancelInterruptsTheProcess(t *testing.T) {
 	assert.Less(t, time.Since(start), grace, "a process that honours the interrupt is not waited out")
 }
 
-// TestSpawnChatTransport_KillsAfterGrace: a process that ignores the interrupt
+// TestSpawn_KillsAfterGrace: a process that ignores the interrupt
 // is killed once the grace has passed (WaitDelay) — and not before, because the
 // interrupt is tried first. Its stdout ends, so a reader draining it returns.
-func TestSpawnChatTransport_KillsAfterGrace(t *testing.T) {
+func TestSpawn_KillsAfterGrace(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	script := `trap '' INT; echo ready; while :; do sleep 0.05; done`
 	grace := 300 * time.Millisecond
-	tr, err := spawnChatTransportGrace(ctx, "sh", []string{"-c", script}, nil, t.TempDir(), grace)
+	tr, err := spawnGrace(ctx, "sh", []string{"-c", script}, nil, t.TempDir(), grace)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = tr.Close() })
-	r := bufio.NewReader(tr.stdout)
+	r := bufio.NewReader(tr.Stdout)
 	require.Equal(t, "ready", readLine(t, r))
 
 	start := time.Now()
@@ -91,25 +91,25 @@ func TestSpawnChatTransport_KillsAfterGrace(t *testing.T) {
 	require.Error(t, tr.Wait(), "a killed process does not exit cleanly")
 }
 
-// TestSpawnChatTransport_WaitReportsACrash: a process that ends on its own
+// TestSpawn_WaitReportsACrash: a process that ends on its own
 // with a failure reports it through Wait — the driver's evidence that a turn
 // died mid-flight rather than finishing.
-func TestSpawnChatTransport_WaitReportsACrash(t *testing.T) {
-	tr, err := spawnChatTransportGrace(context.Background(), "sh", []string{"-c", "echo partial; exit 7"}, nil, t.TempDir(), time.Second)
+func TestSpawn_WaitReportsACrash(t *testing.T) {
+	tr, err := spawnGrace(context.Background(), "sh", []string{"-c", "echo partial; exit 7"}, nil, t.TempDir(), time.Second)
 	require.NoError(t, err)
-	_, _ = io.Copy(io.Discard, tr.stdout)
+	_, _ = io.Copy(io.Discard, tr.Stdout)
 	var exitErr interface{ ExitCode() int }
 	require.ErrorAs(t, tr.Wait(), &exitErr)
 	assert.Equal(t, 7, exitErr.ExitCode())
 }
 
-// TestSpawnChatTransport_WaitKillsALingeringProcess: a process that closed its
+// TestSpawn_WaitKillsALingeringProcess: a process that closed its
 // stdout but does not exit is killed once the grace has passed — its turn is
 // over, and a reap that could hang would hold the turn open forever.
-func TestSpawnChatTransport_WaitKillsALingeringProcess(t *testing.T) {
-	tr, err := spawnChatTransportGrace(context.Background(), "sh", []string{"-c", "exec 1>&-; exec sleep 30"}, nil, t.TempDir(), 200*time.Millisecond)
+func TestSpawn_WaitKillsALingeringProcess(t *testing.T) {
+	tr, err := spawnGrace(context.Background(), "sh", []string{"-c", "exec 1>&-; exec sleep 30"}, nil, t.TempDir(), 200*time.Millisecond)
 	require.NoError(t, err)
-	_, _ = io.Copy(io.Discard, tr.stdout)
+	_, _ = io.Copy(io.Discard, tr.Stdout)
 	done := make(chan error, 1)
 	go func() { done <- tr.Wait() }()
 	select {

@@ -55,7 +55,7 @@ func launchArgv(t *testing.T, path launchPath, trust engine.WorkspaceTrust, pres
 	if err != nil || !path.turn {
 		return ex.Args, err
 	}
-	return (&streamJSONDriver{inst: inst.(*instance)}).argv(ex, engine.Turn{Prompt: "p"})
+	return inst.(*instance).turnArgv(ex, engine.Turn{Prompt: "p"})
 }
 
 // An untrusted repository's session reads only the user source — the

@@ -167,7 +167,7 @@ func TestChatArgs_Parity_Golden(t *testing.T) {
 					require.NoError(t, err)
 					// A first turn asks for no mode of its own: it runs at the
 					// launch's.
-					argv, err := (&streamJSONDriver{inst: inst}).argv(ex, engine.Turn{})
+					argv, err := inst.turnArgv(ex, engine.Turn{})
 					require.NoError(t, err)
 					fmt.Fprintf(&out, "%s/model=%q/resume=%q/mcp=%q: %s\n", perm, model, resume, mcp, strings.Join(argv, " "))
 				}

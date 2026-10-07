@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -28,7 +27,7 @@ func fixture(t *testing.T, name string) []byte {
 }
 
 // mapStreamJSONEvent maps one frame as the first of its turn.
-func mapStreamJSONEvent(raw []byte) []agent.ChatEvent { return new(turnStream).mapLine(raw) }
+func mapStreamJSONEvent(raw []byte) []agent.ChatEvent { return new(turnStream).Map(raw) }
 
 func TestMapStreamJSONEvent_AssistantText_OneAssistantEntry(t *testing.T) {
 	evs := mapStreamJSONEvent(fixture(t, "assistant_text.json"))
@@ -266,23 +265,16 @@ func rateLimitFrame(t *testing.T, status string) []byte {
 // capturedResetsAt is rate_limit_event.json's resetsAt.
 var capturedResetsAt = time.Unix(1782318600, 0)
 
-// readTurn runs one turn's frames through the stream reader and returns
-// every failure it relayed.
+// readTurn maps one turn's frames through one turnStream and returns every
+// failure it emitted.
 func readTurn(t *testing.T, frames ...[]byte) []agent.TurnFailure {
 	t.Helper()
-	var in bytes.Buffer
-	for _, f := range frames {
-		in.Write(f)
-		in.WriteByte('\n')
-	}
-	events := make(chan agent.ChatEvent, 64)
-	readChatEvents(&in, events, time.Now)
-	close(events)
+	var stream turnStream
 	var evs []agent.ChatEvent
-	for ev := range events {
-		evs = append(evs, ev)
+	for _, f := range frames {
+		evs = append(evs, stream.Map(f)...)
 	}
-	return failuresIn(evs)
+	return failuresIn(append(evs, stream.End()...))
 }
 
 func TestMapStreamJSONEvent_RateLimit_RateLimited(t *testing.T) {

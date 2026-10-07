@@ -36,7 +36,8 @@ An engine is two halves on one port (`internal/core/engine`):
   `Chat` are projections onto it and the launch golden
   (`engines/claude/testdata/exec_parity.golden`) pins every launch of the
   matrix byte-identical; `Instance.Drivers()` are the engine's native
-  structured drivers (claude: a per-turn stream-json driver; empty means
+  structured drivers (claude: a per-turn stream-json driver assembled from
+  `kit.ProcessTurn`; empty means
   pty-only and a Structured launch is refused with
   `ErrUnsupported{drive}`); `Instance.Resume(key)` re-attaches a native
   session. The engine's own stories are the kind's methods: `Home()`
@@ -70,6 +71,42 @@ An engine is two halves on one port (`internal/core/engine`):
 Core code reads an engine's facts off the Definition (through the
 registry) and never branches on its name: `tests/arch`'s
 `no-engine-name-in-core` gate holds that, with a shrinking allowlist.
+
+## Shared engine components: `internal/engines/kit`
+
+What every engine would otherwise write the same way lives once in
+`internal/engines/kit`, as SHAPE with a hole for the engine's content: a
+component takes the engine-specific part as a value (a func, a name, a line
+mapper) and never branches on which engine it serves. Content (argv flags,
+config dialects, renderers, failure tables) stays in each engine.
+
+- **`kit.ProcessTurn`**: the per-turn subprocess driver, an
+  `engine.StructuredDriver`. It opens the turn's process from the Exec
+  (`kit.Spawn`: piped stdio, its own process group, interrupt then kill
+  after `kit.DefaultInterruptGrace`), writes the prompt, reads stdout as
+  lines through the engine's `kit.LineMapper` (`Map` per line, `End` once at
+  stdout's end), relays every event, and classifies the turn: native key,
+  answer (the last completion's text), denials joined across completions,
+  the engine's own exit status, and `kit.ErrTurnProcessDied` for a process
+  that ended with no completion and a failed exit. The engine supplies
+  `Argv`, `WritePrompt` and `NewMapper` (claude: `instance.turnArgv`, its
+  NDJSON user message, `turnStream`).
+- **`kit.ComposeEnv`, `kit.PresentedArgs`**: the Exec composition every
+  engine's `Instance.Exec` starts from: home vars at their bound paths then
+  each presentation's env in delivery order; each presentation's argv in
+  delivery order, with an optional per-presentation refusal (claude's
+  untrusted-repository vetoes). claude and the mock both use them.
+
+**The kit rule: a component enters `internal/engines/kit` only when two
+engines use it in the same slice.** A component with one user is that
+engine's code, however generic it looks. kit imports no engine (layering
+rule `enginekit-imports-no-engine`, enforced by archlint) and spells no
+engine's name (`tests/arch`'s no-engine-name scan treats kit as a
+non-home). Recorded exception: `kit.ProcessTurn` entered with claude as its
+only user, ahead of the opencode runner that is its second; the owner
+approved that slice (opencode-seams plan, S1) before the rule was written
+down. The mock's driver is in-process and does not spawn, so it is not a
+second user.
 
 ## Start here
 
@@ -122,7 +159,8 @@ each one contradicts what the surrounding code looks like it does.
 ## Scope
 
 Covered here: `internal/engines` (the composition root), `internal/engines/conformance`,
-`internal/adapters/isolation`, `internal/engines/claude`, `internal/engines/mock`.
+`internal/engines/kit`, `internal/adapters/isolation`, `internal/engines/claude`,
+`internal/engines/mock`.
 
 Types shared with the rest of the system — `agent.Backend`, `agent.ManagedConfig`,
 `agent.Declaration` — live in

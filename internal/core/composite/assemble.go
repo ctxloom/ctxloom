@@ -12,7 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
@@ -126,7 +126,7 @@ func (a *assembly) companionAsks() []FragmentAsk {
 	var asks []FragmentAsk
 	for _, read := range a.pipe.Loader().Catalog().Scoped(bundles.ProvenanceCompanion).Reads() {
 		for _, name := range slices.Sorted(maps.Keys(read.Bundle.Fragments)) {
-			ref, err := bundles.ItemRefFor(read.SourceRef(), trust.KindFragment, name)
+			ref, err := bundles.ItemRefFor(read.SourceRef(), ident.KindFragment, name)
 			if err != nil {
 				// One unaddressable loadout costs its own fragments, never
 				// the rest of the catalog.
@@ -400,14 +400,14 @@ func digest(b []byte) string {
 }
 
 // identityKey reduces an item ref to the identity the context dedupes on:
-// the source-qualified, version-less trust.BundleRef.Identity. Two sources
+// the source-qualified, version-less ident.BundleRef.Identity. Two sources
 // publishing an item of one name are two items, even with identical bytes —
 // a project bundle sharing a companion's leaf name overrides nothing — while
 // two spellings of ONE item (with and without a version) are one. A ref
 // outside the canonical grammar is used verbatim: it can then only match
 // another occurrence spelled the same way, never a different one.
 func identityKey(ref string) string {
-	if br, err := trust.ParseBundleRef(ref); err == nil {
+	if br, err := ident.ParseBundleRef(ref); err == nil {
 		return br.Identity()
 	}
 	return ref
@@ -499,7 +499,7 @@ func block(exports map[string][]byte, name engine.Name) []byte {
 func IndexOf(cat bundles.Catalog) (Index, error) {
 	var idx Index
 	seen := map[string]bool{}
-	add := func(read bundles.BundleRead, kind trust.ItemKind, name, description, premise string) error {
+	add := func(read bundles.BundleRead, kind ident.ItemKind, name, description, premise string) error {
 		ref, err := bundles.ItemRefFor(read.SourceRef(), kind, name)
 		if err != nil {
 			return fmt.Errorf("composite: %s %q in bundle %q: %w", kind, name, read.DisplayName(), err)
@@ -514,17 +514,17 @@ func IndexOf(cat bundles.Catalog) (Index, error) {
 	for _, read := range cat.Reads() {
 		b := read.Bundle
 		for _, name := range slices.Sorted(maps.Keys(b.Fragments)) {
-			if err := add(read, trust.KindFragment, name, "", b.Fragments[name].Premise); err != nil {
+			if err := add(read, ident.KindFragment, name, "", b.Fragments[name].Premise); err != nil {
 				return Index{}, err
 			}
 		}
 		for _, name := range slices.Sorted(maps.Keys(b.Commands)) {
-			if err := add(read, trust.KindPrompt, name, b.Commands[name].Description, ""); err != nil {
+			if err := add(read, ident.KindPrompt, name, b.Commands[name].Description, ""); err != nil {
 				return Index{}, err
 			}
 		}
 		for _, name := range slices.Sorted(maps.Keys(b.Skills)) {
-			if err := add(read, trust.KindSkill, name, "", ""); err != nil {
+			if err := add(read, ident.KindSkill, name, "", ""); err != nil {
 				return Index{}, err
 			}
 		}

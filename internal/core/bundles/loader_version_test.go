@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
@@ -253,9 +253,9 @@ func TestMultiVersion_TypedSourceRefIsStamped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bundleAtVersion: %v", err)
 	}
-	want, err := trust.GitRef("github.com", "/acme/b", "cq")
+	want, err := ident.GitRef("github.com", "/acme/b", "cq")
 	if err != nil {
-		t.Fatalf("trust.GitRef: %v", err)
+		t.Fatalf("ident.GitRef: %v", err)
 	}
 	if got := read.SourceRef(); got != want {
 		t.Errorf("SourceRef() = %+v, want %+v (a version-pinned read must be addressable, or its items are silently withheld)", got, want)

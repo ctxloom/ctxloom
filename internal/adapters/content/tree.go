@@ -13,7 +13,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // maxWalkDepth caps how far below a kind directory the candidate walk descends.
@@ -49,7 +49,7 @@ func (p Provenance) validate() error {
 	return nil
 }
 
-func (p Provenance) stamp(r trust.Ref) trust.Ref {
+func (p Provenance) stamp(r ident.Ref) ident.Ref {
 	r.RepoURL = p.RepoURL
 	r.IsLocal = p.IsLocal
 	return r
@@ -57,7 +57,7 @@ func (p Provenance) stamp(r trust.Ref) trust.Ref {
 
 // TreeStore reads (and, as a Writer, writes) bundles laid out as directory
 // trees: "<root>/<bundle>/<kind-dir>/<name><ext>", where kind-dir comes from
-// the existing trust.ItemKind.Dir() and therefore matches the ref grammar
+// the existing ident.ItemKind.Dir() and therefore matches the ref grammar
 // unchanged. Addressing is untouched by this package — only RESOLUTION changes,
 // from a lookup in a parsed document to a path.
 type TreeStore struct {
@@ -202,7 +202,7 @@ func (s *TreeStore) Open(ctx context.Context, id BundleID) (Bundle, error) {
 }
 
 // validateBundleID refuses an id that is not a single path segment. A bundle id
-// becomes a directory name and a trust.Ref.Bundle, and a traversal in either
+// becomes a directory name and an ident.Ref.Bundle, and a traversal in either
 // would let one bundle's identity address another's files.
 func validateBundleID(id BundleID) error {
 	s := string(id)
@@ -232,7 +232,7 @@ func (b *treeBundle) ID() BundleID { return b.id }
 
 // Refs enumerates the bundle's items. Ordering is by ref key so repeated calls
 // agree byte-for-byte.
-func (b *treeBundle) Refs(ctx context.Context, kinds ...trust.ItemKind) ([]trust.Ref, error) {
+func (b *treeBundle) Refs(ctx context.Context, kinds ...ident.ItemKind) ([]ident.Ref, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -240,7 +240,7 @@ func (b *treeBundle) Refs(ctx context.Context, kinds ...trust.ItemKind) ([]trust
 	for _, k := range kinds {
 		wanted[k.Dir()] = true
 	}
-	var out []trust.Ref
+	var out []ident.Ref
 	for _, t := range Types() {
 		if len(wanted) > 0 && !wanted[t.Dir()] {
 			continue
@@ -276,7 +276,7 @@ func (b *treeBundle) Refs(ctx context.Context, kinds ...trust.ItemKind) ([]trust
 // names the directory, ref.Name names the entry, and grouping by stem in the
 // containing directory reassembles the item's components — content file,
 // dot-prefixed sidecar, form siblings and same-named subdirectory alike.
-func (b *treeBundle) Item(ctx context.Context, ref trust.Ref) (Item, error) {
+func (b *treeBundle) Item(ctx context.Context, ref ident.Ref) (Item, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -545,11 +545,11 @@ func (b *treeBundle) abs(rel string) string {
 type treeItem struct {
 	bundle *treeBundle
 	stype  SurfaceType
-	ref    trust.Ref
+	ref    ident.Ref
 	src    *treeSource
 }
 
-func (i *treeItem) Ref() trust.Ref { return i.ref }
+func (i *treeItem) Ref() ident.Ref { return i.ref }
 
 func (i *treeItem) Surface(ctx context.Context) (Surface, error) {
 	if err := ctx.Err(); err != nil {
@@ -562,7 +562,7 @@ func (i *treeItem) Surface(ctx context.Context) (Surface, error) {
 	return s, nil
 }
 
-func (i *treeItem) Forms(ctx context.Context) ([]trust.ContentForm, error) {
+func (i *treeItem) Forms(ctx context.Context) ([]ident.ContentForm, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -573,7 +573,7 @@ func (i *treeItem) Forms(ctx context.Context) ([]trust.ContentForm, error) {
 	return forms, nil
 }
 
-func (i *treeItem) Form(ctx context.Context, f trust.ContentForm) (Form, error) {
+func (i *treeItem) Form(ctx context.Context, f ident.ContentForm) (Form, error) {
 	forms, err := i.Forms(ctx)
 	if err != nil {
 		return nil, err
@@ -587,11 +587,11 @@ func (i *treeItem) Form(ctx context.Context, f trust.ContentForm) (Form, error) 
 // treeForm is one attestable form of one item.
 type treeForm struct {
 	item  *treeItem
-	form  trust.ContentForm
-	forms []trust.ContentForm
+	form  ident.ContentForm
+	forms []ident.ContentForm
 }
 
-func (f *treeForm) ContentForm() trust.ContentForm { return f.form }
+func (f *treeForm) ContentForm() ident.ContentForm { return f.form }
 
 func (f *treeForm) Surface(ctx context.Context) (Surface, error) { return f.item.Surface(ctx) }
 

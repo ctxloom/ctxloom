@@ -9,7 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -108,7 +108,7 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 
 	lockfile := &remote.Lockfile{
 		Version: remote.LockfileVersion,
-		Bundles: make(map[trust.BundleKey]remote.LockEntry),
+		Bundles: make(map[ident.BundleKey]remote.LockEntry),
 	}
 	for _, p := range pins {
 		lockfile.AddEntry(p.Type, p.Identity, relockEntry(p, prevEntries))
@@ -159,7 +159,7 @@ func saveRelock(lockManager *remote.LockfileManager, prev, lockfile *remote.Lock
 }
 
 // relockKey keys a lock entry by type and identity.
-func relockKey(t remote.ItemType, id trust.BundleKey) string {
+func relockKey(t remote.ItemType, id ident.BundleKey) string {
 	return string(t) + "\x00" + string(id)
 }
 

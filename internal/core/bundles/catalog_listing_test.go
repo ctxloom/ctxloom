@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
@@ -34,7 +34,7 @@ func TestCatalogInfos_ListsTheResolvableRefNotTheLeafName(t *testing.T) {
 }
 
 // TestCatalogLookupRef_ResolvesByTypedSourceIdentity proves the typed
-// counterpart to Lookup(ask): a caller holding a structured trust.BundleRef
+// counterpart to Lookup(ask): a caller holding a structured ident.BundleRef
 // (LocalRef("kit"), the identity a real project bundle's SourceRef carries)
 // resolves the same read Lookup("kit") does.
 func TestCatalogLookupRef_ResolvesByTypedSourceIdentity(t *testing.T) {
@@ -44,7 +44,7 @@ func TestCatalogLookupRef_ResolvesByTypedSourceIdentity(t *testing.T) {
 	byName, err := cat.Lookup("kit")
 	require.NoError(t, err, "Lookup(ask) must still resolve an unambiguous bare name")
 
-	want, err := trust.LocalRef("kit")
+	want, err := ident.LocalRef("kit")
 	require.NoError(t, err)
 	byTyped, ok := cat.LookupRef(want)
 	require.True(t, ok, "LookupRef must resolve the typed identity Lookup(ask) resolves")
@@ -58,14 +58,14 @@ func TestCatalogLookupRef_ResolvesByTypedSourceIdentity(t *testing.T) {
 	// Identity() (item-carrying) — the two coincide for a bundle-level query,
 	// so only an item-qualified query can catch a regression back to
 	// Identity().
-	itemQualified, err := want.WithItem(trust.KindFragment, "x")
+	itemQualified, err := want.WithItem(ident.KindFragment, "x")
 	require.NoError(t, err)
 	byItemQualified, ok := cat.LookupRef(itemQualified)
 	require.True(t, ok, "an item-qualified BundleRef must still resolve its owning bundle")
 	assert.Equal(t, byName.Key(), byItemQualified.Key())
 
 	// An identity nothing was resolved under misses cleanly, no panic.
-	other, err := trust.LocalRef("no-such-bundle")
+	other, err := ident.LocalRef("no-such-bundle")
 	require.NoError(t, err)
 	_, ok = cat.LookupRef(other)
 	assert.False(t, ok, "an identity nothing was resolved under must miss")
@@ -77,9 +77,9 @@ func TestCatalogLookupRef_ResolvesByTypedSourceIdentity(t *testing.T) {
 // distinguishably.
 func twoBundlesOneDisplayName(t *testing.T) Catalog {
 	t.Helper()
-	localSrc, err := trust.LocalRef("isolation")
+	localSrc, err := ident.LocalRef("isolation")
 	require.NoError(t, err)
-	companionSrc, err := trust.CompanionRef("isolation")
+	companionSrc, err := ident.CompanionRef("isolation")
 	require.NoError(t, err)
 
 	localBundle := &Bundle{Name: "isolation", Version: "1.0.0"}

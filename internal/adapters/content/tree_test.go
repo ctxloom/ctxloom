@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 func TestTreeStore_Bundles(t *testing.T) {
@@ -95,7 +95,7 @@ func TestBundle_RefsKindFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	refs, err := bundle.Refs(context.Background(), trust.KindHook, trust.KindMCP)
+	refs, err := bundle.Refs(context.Background(), ident.KindHook, ident.KindMCP)
 	if err != nil {
 		t.Fatalf("Refs: %v", err)
 	}
@@ -141,10 +141,10 @@ func TestBundle_ItemNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	for name, ref := range map[string]trust.Ref{
-		"missing fragment":   {Bundle: "code-quality", Kind: trust.KindFragment, Name: "nope"},
-		"sidecar as item":    {Bundle: "code-quality", Kind: trust.KindMCP, Name: ".postgres.meta"},
-		"hook without event": {Bundle: "code-quality", Kind: trust.KindHook, Name: "guard"},
+	for name, ref := range map[string]ident.Ref{
+		"missing fragment":   {Bundle: "code-quality", Kind: ident.KindFragment, Name: "nope"},
+		"sidecar as item":    {Bundle: "code-quality", Kind: ident.KindMCP, Name: ".postgres.meta"},
+		"hook without event": {Bundle: "code-quality", Kind: ident.KindHook, Name: "guard"},
 	} {
 		if _, err := bundle.Item(context.Background(), ref); !errors.Is(err, ErrNotFound) {
 			t.Errorf("%s: err = %v, want ErrNotFound", name, err)
@@ -161,16 +161,16 @@ func TestItem_FormsReportExactlyWhatExists(t *testing.T) {
 	store := fixtureStore(t)
 	bundle, _ := store.Open(context.Background(), "code-quality")
 	for _, tc := range []struct {
-		ref  trust.Ref
-		want []trust.ContentForm
+		ref  ident.Ref
+		want []ident.ContentForm
 	}{
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"}, []trust.ContentForm{trust.FormRaw, trust.FormDistilled}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "tricky"}, []trust.ContentForm{trust.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindPrompt, Name: "review"}, []trust.ContentForm{trust.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}, []trust.ContentForm{trust.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/guard"}, []trust.ContentForm{trust.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "code-reviewer"}, []trust.ContentForm{trust.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: KindProfile, Name: "strict"}, []trust.ContentForm{trust.FormRaw}},
+		{ident.Ref{Bundle: "code-quality", Kind: ident.KindFragment, Name: "solid"}, []ident.ContentForm{ident.FormRaw, ident.FormDistilled}},
+		{ident.Ref{Bundle: "code-quality", Kind: ident.KindFragment, Name: "tricky"}, []ident.ContentForm{ident.FormRaw}},
+		{ident.Ref{Bundle: "code-quality", Kind: ident.KindPrompt, Name: "review"}, []ident.ContentForm{ident.FormRaw}},
+		{ident.Ref{Bundle: "code-quality", Kind: ident.KindMCP, Name: "postgres"}, []ident.ContentForm{ident.FormRaw}},
+		{ident.Ref{Bundle: "code-quality", Kind: ident.KindHook, Name: "pre_tool/guard"}, []ident.ContentForm{ident.FormRaw}},
+		{ident.Ref{Bundle: "code-quality", Kind: ident.KindSkill, Name: "code-reviewer"}, []ident.ContentForm{ident.FormRaw}},
+		{ident.Ref{Bundle: "code-quality", Kind: KindProfile, Name: "strict"}, []ident.ContentForm{ident.FormRaw}},
 	} {
 		item, err := bundle.Item(context.Background(), tc.ref)
 		if err != nil {
@@ -198,18 +198,18 @@ func TestItem_FormsReportExactlyWhatExists(t *testing.T) {
 func TestItem_ExecutableSurfacesCarryOnlyTheBaseForm(t *testing.T) {
 	store := fixtureStore(t)
 	bundle, _ := store.Open(context.Background(), "code-quality")
-	for _, ref := range []trust.Ref{
-		{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"},
-		{Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/audit"},
+	for _, ref := range []ident.Ref{
+		{Bundle: "code-quality", Kind: ident.KindMCP, Name: "postgres"},
+		{Bundle: "code-quality", Kind: ident.KindHook, Name: "pre_tool/audit"},
 	} {
 		item, err := bundle.Item(context.Background(), ref)
 		if err != nil {
 			t.Fatalf("Item(%s): %v", ref.Key(), err)
 		}
-		if _, err := item.Form(context.Background(), trust.FormRaw); err != nil {
+		if _, err := item.Form(context.Background(), ident.FormRaw); err != nil {
 			t.Errorf("%s: FormRaw: %v", ref.Key(), err)
 		}
-		if _, err := item.Form(context.Background(), trust.FormDistilled); !errors.Is(err, ErrNoSuchForm) {
+		if _, err := item.Form(context.Background(), ident.FormDistilled); !errors.Is(err, ErrNoSuchForm) {
 			t.Errorf("%s: FormDistilled err = %v, want ErrNoSuchForm", ref.Key(), err)
 		}
 	}
@@ -218,11 +218,11 @@ func TestItem_ExecutableSurfacesCarryOnlyTheBaseForm(t *testing.T) {
 func TestItem_MissingFormIsRefused(t *testing.T) {
 	store := fixtureStore(t)
 	bundle, _ := store.Open(context.Background(), "code-quality")
-	item, err := bundle.Item(context.Background(), trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "tricky"})
+	item, err := bundle.Item(context.Background(), ident.Ref{Bundle: "code-quality", Kind: ident.KindFragment, Name: "tricky"})
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	if _, err := item.Form(context.Background(), trust.FormDistilled); !errors.Is(err, ErrNoSuchForm) {
+	if _, err := item.Form(context.Background(), ident.FormDistilled); !errors.Is(err, ErrNoSuchForm) {
 		t.Fatalf("err = %v, want ErrNoSuchForm for a never-distilled fragment", err)
 	}
 }
@@ -235,16 +235,16 @@ func TestForm_RawAndDistilledAreIndependent(t *testing.T) {
 	store := fixtureStore(t)
 	ctx := context.Background()
 	bundle, _ := store.Open(ctx, "code-quality")
-	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"}
+	ref := ident.Ref{Bundle: "code-quality", Kind: ident.KindFragment, Name: "solid"}
 	item, err := bundle.Item(ctx, ref)
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	raw, err := item.Form(ctx, trust.FormRaw)
+	raw, err := item.Form(ctx, ident.FormRaw)
 	if err != nil {
 		t.Fatalf("Form(raw): %v", err)
 	}
-	distilled, err := item.Form(ctx, trust.FormDistilled)
+	distilled, err := item.Form(ctx, ident.FormDistilled)
 	if err != nil {
 		t.Fatalf("Form(distilled): %v", err)
 	}
@@ -281,12 +281,12 @@ func TestSkill_DotPrefixedSidecarIsAComponentAndDeclaresExecutability(t *testing
 	ctx := context.Background()
 	store := fixtureStore(t)
 	bundle, _ := store.Open(ctx, "code-quality")
-	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "code-reviewer"}
+	ref := ident.Ref{Bundle: "code-quality", Kind: ident.KindSkill, Name: "code-reviewer"}
 	item, err := bundle.Item(ctx, ref)
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, trust.FormRaw)
+	form, err := item.Form(ctx, ident.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestSkill_DotPrefixedSidecarIsAComponentAndDeclaresExecutability(t *testing
 	if err != nil {
 		t.Fatalf("Item after sidecar edit: %v", err)
 	}
-	form2, err := item2.Form(ctx, trust.FormRaw)
+	form2, err := item2.Form(ctx, ident.FormRaw)
 	if err != nil {
 		t.Fatalf("Form after sidecar edit: %v", err)
 	}
@@ -348,11 +348,11 @@ func TestMCP_SidecarIsAComponentAndContentFileStaysPure(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
 	bundle, _ := store.Open(ctx, "code-quality")
-	item, err := bundle.Item(ctx, trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"})
+	item, err := bundle.Item(ctx, ident.Ref{Bundle: "code-quality", Kind: ident.KindMCP, Name: "postgres"})
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, trust.FormRaw)
+	form, err := item.Form(ctx, ident.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -392,12 +392,12 @@ func TestHook_TwoHooksInOneEventHaveNameIdentity(t *testing.T) {
 		{"pre_tool/guard", "ltk guard"},
 		{"pre_tool/audit", "audit-log record"},
 	} {
-		ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: tc.name}
+		ref := ident.Ref{Bundle: "code-quality", Kind: ident.KindHook, Name: tc.name}
 		item, err := bundle.Item(ctx, ref)
 		if err != nil {
 			t.Fatalf("Item(%s): %v", tc.name, err)
 		}
-		form, err := item.Form(ctx, trust.FormRaw)
+		form, err := item.Form(ctx, ident.FormRaw)
 		if err != nil {
 			t.Fatalf("Form(%s): %v", tc.name, err)
 		}
@@ -441,7 +441,7 @@ func TestHook_SingleHookInAnEventResolvesIdentically(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
 	bundle, _ := store.Open(ctx, "code-quality")
-	refs, err := bundle.Refs(ctx, trust.KindHook)
+	refs, err := bundle.Refs(ctx, ident.KindHook)
 	if err != nil {
 		t.Fatalf("Refs: %v", err)
 	}
@@ -454,11 +454,11 @@ func TestHook_SingleHookInAnEventResolvesIdentically(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("session_start/greet enumerated %d times, want exactly 1 (refs=%v)", count, refs)
 	}
-	item, err := bundle.Item(ctx, trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: "session_start/greet"})
+	item, err := bundle.Item(ctx, ident.Ref{Bundle: "code-quality", Kind: ident.KindHook, Name: "session_start/greet"})
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, trust.FormRaw)
+	form, err := item.Form(ctx, ident.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -478,7 +478,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 	store := fixtureStore(t)
 	bundle, _ := store.Open(ctx, "code-quality")
 
-	formFor := func(ref trust.Ref, f trust.ContentForm) Form {
+	formFor := func(ref ident.Ref, f ident.ContentForm) Form {
 		t.Helper()
 		item, err := bundle.Item(ctx, ref)
 		if err != nil {
@@ -491,7 +491,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		return form
 	}
 
-	frag, err := As[Fragment](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"}, trust.FormRaw))
+	frag, err := As[Fragment](ctx, formFor(ident.Ref{Bundle: "code-quality", Kind: ident.KindFragment, Name: "solid"}, ident.FormRaw))
 	if err != nil {
 		t.Fatalf("As[Fragment]: %v", err)
 	}
@@ -508,7 +508,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		t.Error("content_hash not carried verbatim")
 	}
 
-	tricky, err := As[Fragment](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "tricky"}, trust.FormRaw))
+	tricky, err := As[Fragment](ctx, formFor(ident.Ref{Bundle: "code-quality", Kind: ident.KindFragment, Name: "tricky"}, ident.FormRaw))
 	if err != nil {
 		t.Fatalf("As[Fragment]: %v", err)
 	}
@@ -519,7 +519,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		t.Errorf("body with rules and mustaches corrupted: %q", tricky.Body)
 	}
 
-	cmd, err := As[Command](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindPrompt, Name: "review"}, trust.FormRaw))
+	cmd, err := As[Command](ctx, formFor(ident.Ref{Bundle: "code-quality", Kind: ident.KindPrompt, Name: "review"}, ident.FormRaw))
 	if err != nil {
 		t.Fatalf("As[Command]: %v", err)
 	}
@@ -545,7 +545,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		t.Errorf("unknown engine's settings were dropped: %+v", cmd.Exports)
 	}
 
-	mcp, err := As[MCP](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}, trust.FormRaw))
+	mcp, err := As[MCP](ctx, formFor(ident.Ref{Bundle: "code-quality", Kind: ident.KindMCP, Name: "postgres"}, ident.FormRaw))
 	if err != nil {
 		t.Fatalf("As[MCP]: %v", err)
 	}
@@ -553,7 +553,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		t.Errorf("mcp = %+v", mcp)
 	}
 
-	skill, err := As[Skill](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "code-reviewer"}, trust.FormRaw))
+	skill, err := As[Skill](ctx, formFor(ident.Ref{Bundle: "code-quality", Kind: ident.KindSkill, Name: "code-reviewer"}, ident.FormRaw))
 	if err != nil {
 		t.Fatalf("As[Skill]: %v", err)
 	}
@@ -587,12 +587,12 @@ func TestProfile_PriorityOrderingRoundTrips(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
 	bundle, _ := store.Open(ctx, "code-quality")
-	ref := trust.Ref{Bundle: "code-quality", Kind: KindProfile, Name: "strict"}
+	ref := ident.Ref{Bundle: "code-quality", Kind: KindProfile, Name: "strict"}
 	item, err := bundle.Item(ctx, ref)
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, trust.FormRaw)
+	form, err := item.Form(ctx, ident.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -645,11 +645,11 @@ func TestAs_WrongTypeIsRefused(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
 	bundle, _ := store.Open(ctx, "code-quality")
-	item, err := bundle.Item(ctx, trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"})
+	item, err := bundle.Item(ctx, ident.Ref{Bundle: "code-quality", Kind: ident.KindFragment, Name: "solid"})
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, trust.FormRaw)
+	form, err := item.Form(ctx, ident.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -715,8 +715,8 @@ func TestDecode_RefusesUnexplainedSidecars(t *testing.T) {
 	writeFile(t, store.fsys, root+"/profiles/.strict.meta.yaml", "owner: nobody\n")
 
 	bundle, _ := store.Open(ctx, "code-quality")
-	for name, ref := range map[string]trust.Ref{
-		"fragment": {Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"},
+	for name, ref := range map[string]ident.Ref{
+		"fragment": {Bundle: "code-quality", Kind: ident.KindFragment, Name: "solid"},
 		"profile":  {Bundle: "code-quality", Kind: KindProfile, Name: "strict"},
 		// Hooks are deliberately NOT in this table any more: `order` gave them
 		// legitimate metadata, so their sidecar is explained. That it decodes
@@ -764,7 +764,7 @@ func TestEngineExports_EncodeIsDeterministic(t *testing.T) {
 // TestMCPEnv_EncodeIsDeterministic is the same guard for the other map field.
 func TestMCPEnv_EncodeIsDeterministic(t *testing.T) {
 	env := map[string]string{"PGHOST": "h", "PGPORT": "5432", "PGDATABASE": "d", "PGUSER": "u"}
-	mt, _ := TypeForKind(trust.KindMCP)
+	mt, _ := TypeForKind(ident.KindMCP)
 	first, err := mt.Encode(MCP{Name: "pg", Command: "c", Env: env})
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -784,19 +784,19 @@ func TestMCPEnv_EncodeIsDeterministic(t *testing.T) {
 // so a residency change is a visible diff rather than a surprise in a digest.
 func TestSurfaceType_MetaResidencyIsPerType(t *testing.T) {
 	for _, tc := range []struct {
-		kind        trust.ItemKind
+		kind        ident.ItemKind
 		wantSidecar bool
 		wantPath    string
 	}{
-		{trust.KindFragment, false, ""},
-		{trust.KindPrompt, false, ""},
+		{ident.KindFragment, false, ""},
+		{ident.KindPrompt, false, ""},
 		// A hook DOES keep a sidecar: `order` is ctxloom's key, not the hook's
 		// behavioural config, so encodeExecItem's purity rule puts it beside the
 		// content file rather than in it.
-		{trust.KindHook, true, "hooks/.postgres.meta.yaml"},
+		{ident.KindHook, true, "hooks/.postgres.meta.yaml"},
 		{KindProfile, false, ""},
-		{trust.KindMCP, true, "mcp/.postgres.meta.yaml"},
-		{trust.KindSkill, true, "skills/.postgres.meta.yaml"},
+		{ident.KindMCP, true, "mcp/.postgres.meta.yaml"},
+		{ident.KindSkill, true, "skills/.postgres.meta.yaml"},
 	} {
 		ty, ok := TypeForKind(tc.kind)
 		if !ok {

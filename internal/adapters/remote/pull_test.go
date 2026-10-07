@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -279,7 +279,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 
 		// Initialize empty lockfile
-		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}))
+		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[ident.BundleKey]LockEntry)}))
 
 		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
 			WithLockfileManager(lm),
@@ -310,7 +310,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		registry, _ := NewRegistry(paths.DefaultRemotesPath(), WithRegistryFS(fs))
 		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 
-		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}))
+		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[ident.BundleKey]LockEntry)}))
 
 		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
 			WithLockfileManager(lm),
@@ -327,8 +327,8 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		loaded, err := lm.Load()
 		require.NoError(t, err)
 		assert.Len(t, loaded.Bundles, 2)
-		assert.Contains(t, loaded.Bundles, trust.BundleKey("ctxloom+git://github.com/alice/ctxloom//bundles/security"))
-		assert.Contains(t, loaded.Bundles, trust.BundleKey("ctxloom+git://github.com/alice/ctxloom//bundles/testing"))
+		assert.Contains(t, loaded.Bundles, ident.BundleKey("ctxloom+git://github.com/alice/ctxloom//bundles/security"))
+		assert.Contains(t, loaded.Bundles, ident.BundleKey("ctxloom+git://github.com/alice/ctxloom//bundles/testing"))
 	})
 }
 
@@ -342,7 +342,7 @@ func TestPuller_Pull_ARePullKeepsTheHeldPin(t *testing.T) {
 	lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 
 	const ref = "https://github.com/alice/ctxloom@bundles/security"
-	seeded := &Lockfile{Version: LockfileVersion, Bundles: map[trust.BundleKey]LockEntry{}}
+	seeded := &Lockfile{Version: LockfileVersion, Bundles: map[ident.BundleKey]LockEntry{}}
 	seeded.AddEntry(ItemTypeBundle, lockKeyOf(t, ref), LockEntry{
 		SHA: "pinnedsha", URL: "https://github.com/alice/ctxloom", Version: "v1.0.0", RequestedVersion: "v1.0.0", Held: true,
 	})

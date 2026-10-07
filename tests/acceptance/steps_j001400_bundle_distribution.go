@@ -80,7 +80,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 
@@ -180,7 +180,7 @@ default_agent: default
 // (see internal/adapters/content/testdata/tree). Two spellings are easy to get wrong
 // and are pinned here deliberately:
 //
-//   - a command lives under "prompts/", not "commands/" — trust.KindPrompt's
+//   - a command lives under "prompts/", not "commands/" — ident.KindPrompt's
 //     Dir() is "prompts" (the skill/command rename freed "skills" for real
 //     Agent Skills).
 //   - metadata placement is per-kind, not uniform: the .md content kinds carry
@@ -1055,7 +1055,7 @@ func j001400ConsumerHooks(w *World) ([]content.Hook, error) {
 		return nil, err
 	}
 	ctx := context.Background()
-	refs, err := bundle.Refs(ctx, trust.KindHook)
+	refs, err := bundle.Refs(ctx, ident.KindHook)
 	if err != nil {
 		return nil, fmt.Errorf("list the consumer's hook refs: %w", err)
 	}

@@ -14,24 +14,24 @@ import (
 	"testing"
 )
 
-// trustImportPath is the package that owns trust.BundleKey, and the one
+// identImportPath is the package that owns ident.BundleKey, and the one
 // package allowed to convert to it.
-const trustImportPath = "github.com/ctxloom/ctxloom/internal/core/trust"
+const identImportPath = "github.com/ctxloom/ctxloom/internal/core/ident"
 
 // A LOCK KEY IS MINTED, NEVER CAST.
 //
-// trust.BundleKey is the key a lockfile entry is stored under and the key every
+// ident.BundleKey is the key a lockfile entry is stored under and the key every
 // reader looks a pin up by. The two are equal only because both come from
 // BundleRef.BundleIdentity (remote.Reference.LockKey is that, over a parsed
 // reference). A conversion from an arbitrary string produces a value of the
 // right TYPE in whatever spelling the string happened to have, and a lookup
 // keyed on the canonical spelling then misses it. That is the class
 // stony-overtime closed; this gate keeps a
-// new cast from reopening it. The trust package itself defines the type and is
+// new cast from reopening it. The ident package itself defines the type and is
 // exempt; _test.go files are exempt because a test pins a literal key.
-func TestArch_BundleKeyOnlyMintedInTrust(t *testing.T) {
+func TestArch_BundleKeyOnlyMintedInIdent(t *testing.T) {
 	root := moduleRoot(t)
-	exempt := filepath.Join(root, filepath.FromSlash("internal/core/trust"))
+	exempt := filepath.Join(root, filepath.FromSlash("internal/core/ident"))
 	fset := token.NewFileSet()
 	var findings []string
 	var scanned int
@@ -66,19 +66,19 @@ func TestArch_BundleKeyOnlyMintedInTrust(t *testing.T) {
 	}
 	sort.Strings(findings)
 	for _, f := range findings {
-		t.Errorf("trust.BundleKey conversion in production code: %s\n"+
+		t.Errorf("ident.BundleKey conversion in production code: %s\n"+
 			"    take the key from Reference.LockKey or BundleRef.BundleIdentity; "+
 			"a cast keys the string in whatever spelling it arrived in.", f)
 	}
 }
 
-// bundleKeyCasts returns the position of every conversion to trust.BundleKey in
-// f, under whatever name f imports the trust package as.
+// bundleKeyCasts returns the position of every conversion to ident.BundleKey in
+// f, under whatever name f imports the ident package as.
 func bundleKeyCasts(f *ast.File) []token.Pos {
 	name := ""
 	for _, imp := range f.Imports {
-		if path, _ := strconv.Unquote(imp.Path.Value); path == trustImportPath {
-			name = "trust"
+		if path, _ := strconv.Unquote(imp.Path.Value); path == identImportPath {
+			name = "ident"
 			if imp.Name != nil {
 				name = imp.Name.Name
 			}

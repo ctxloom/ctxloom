@@ -15,7 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/compression"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
@@ -348,7 +348,7 @@ func buildSiblingContext(bundle *bundles.Bundle, excludeName string) string {
 // prefix, so the selector grammar lives only in trust (FormatSelector /
 // ParseSelector).
 func hasSiblingsOfType(count int, excludeName string, kind ItemType) bool {
-	excludedKind, _, err := trust.ParseSelector(excludeName)
+	excludedKind, _, err := ident.ParseSelector(excludeName)
 	return count > 1 || (count == 1 && (err != nil || excludedKind != itemKindOf(kind)))
 }
 
@@ -371,7 +371,7 @@ func appendSiblingFragments(ctx *strings.Builder, bundle *bundles.Bundle, exclud
 	}
 	ctx.WriteString("Sibling fragments:\n")
 	for _, name := range slices.Sorted(maps.Keys(bundle.Fragments)) {
-		if trust.FormatSelector(trust.KindFragment, name) == excludeName {
+		if ident.FormatSelector(ident.KindFragment, name) == excludeName {
 			continue
 		}
 		fmt.Fprintf(ctx, "- %s: %s\n", name, firstLineTruncated(bundle.Fragments[name].Content))
@@ -388,7 +388,7 @@ func appendSiblingPrompts(ctx *strings.Builder, bundle *bundles.Bundle, excludeN
 	}
 	ctx.WriteString("Sibling commands:\n")
 	for _, name := range slices.Sorted(maps.Keys(bundle.Commands)) {
-		if trust.FormatSelector(trust.KindPrompt, name) == excludeName {
+		if ident.FormatSelector(ident.KindPrompt, name) == excludeName {
 			continue
 		}
 		prompt := bundle.Commands[name]

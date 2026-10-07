@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,7 +120,7 @@ func TestRefreshRemoteRepos_SkipsUncheckableEntries(t *testing.T) {
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	cfg := config.NewFixture(config.Fixture{AppDir: appDir})
 
-	lockfile := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
+	lockfile := &remote.Lockfile{Bundles: map[ident.BundleKey]remote.LockEntry{
 		// No SHA: never pulled, so there is nothing to check for updates.
 		"https://github.com/o/unpulled@bundles/x": {SHA: ""},
 		// Unparseable reference: skipped, not fatal.
@@ -161,7 +161,7 @@ func TestDepsCheck_UnregisteredRepositoryIsReportedNotFetched(t *testing.T) {
 	sha := initLocalRepoWithFile(t, src, repoV2("demo")+"/bundle.yaml", "version: \"1.0.0\"\n")
 	cfg := config.NewFixture(config.Fixture{AppDir: appDir})
 	srcURL := "file://" + src
-	lockfile := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
+	lockfile := &remote.Lockfile{Bundles: map[ident.BundleKey]remote.LockEntry{
 		lockKeyOf(t, srcURL+"@bundles/demo"): {SHA: sha, URL: srcURL},
 	}}
 

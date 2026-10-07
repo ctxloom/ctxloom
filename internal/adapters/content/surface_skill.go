@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // skillDescriptorName is the file an Agent Skill package must contain.
@@ -27,8 +27,8 @@ const skillDescriptorName = "SKILL.md"
 // suffix spliced before its extension otherwise ("SKILL.distilled.md"). That
 // is the same filename convention formOf reads, so the store's per-form
 // partition and Materialize's body selection name the same file.
-func skillBodyName(f trust.ContentForm) string {
-	if f == trust.FormRaw {
+func skillBodyName(f ident.ContentForm) string {
+	if f == ident.FormRaw {
 		return skillDescriptorName
 	}
 	ext := path.Ext(skillDescriptorName)
@@ -37,16 +37,16 @@ func skillBodyName(f trust.ContentForm) string {
 
 // skillBodyForms is every form a skill body can be authored in: the base form
 // first, then each suffix form.
-func skillBodyForms() []trust.ContentForm {
-	return append([]trust.ContentForm{trust.FormRaw}, formSuffixForms...)
+func skillBodyForms() []ident.ContentForm {
+	return append([]ident.ContentForm{ident.FormRaw}, formSuffixForms...)
 }
 
 // SkillForms reports the forms a skill package carries, given its
 // package-relative file paths: the base form always, then each suffix form
 // whose body file is present. It is the rule skillType.Forms applies and is
 // exported for a loader that holds a package as paths rather than as a Source.
-func SkillForms(files []string) []trust.ContentForm {
-	out := []trust.ContentForm{trust.FormRaw}
+func SkillForms(files []string) []ident.ContentForm {
+	out := []ident.ContentForm{ident.FormRaw}
 	for _, f := range formSuffixForms {
 		if slices.Contains(files, skillBodyName(f)) {
 			out = append(out, f)
@@ -64,7 +64,7 @@ func SkillForms(files []string) []trust.ContentForm {
 // A form the package has no body for is ErrNoSuchForm, never an empty map and
 // never a fallback to the body it does have: a caller that asked for a form
 // gets that form or an error it cannot mistake for success.
-func SkillMaterialization(files []string, f trust.ContentForm) (map[string]string, error) {
+func SkillMaterialization(files []string, f ident.ContentForm) (map[string]string, error) {
 	if !slices.Contains(SkillForms(files), f) {
 		return nil, fmt.Errorf("%w: skill package has no %q body (has %v)", ErrNoSuchForm, f, SkillForms(files))
 	}
@@ -74,7 +74,7 @@ func SkillMaterialization(files []string, f trust.ContentForm) (map[string]strin
 		switch {
 		case p == selected:
 			out[p] = skillDescriptorName
-		case slices.ContainsFunc(skillBodyForms(), func(other trust.ContentForm) bool { return p == skillBodyName(other) }):
+		case slices.ContainsFunc(skillBodyForms(), func(other ident.ContentForm) bool { return p == skillBodyName(other) }):
 			continue
 		default:
 			out[p] = p
@@ -105,7 +105,7 @@ type Skill struct {
 // form's body at the descriptor path, every other body omitted, every other
 // file as-is, in path order. It applies SkillMaterialization, so selecting a
 // form the package has no body for is ErrNoSuchForm and nothing is returned.
-func (s Skill) Materialize(f trust.ContentForm) ([]SkillFile, error) {
+func (s Skill) Materialize(f ident.ContentForm) ([]SkillFile, error) {
 	paths := make([]string, len(s.Files))
 	for i, file := range s.Files {
 		paths[i] = file.Path
@@ -138,7 +138,7 @@ type SkillFile struct {
 	Bytes []byte
 }
 
-func (Skill) Kind() trust.ItemKind { return trust.KindSkill }
+func (Skill) Kind() ident.ItemKind { return ident.KindSkill }
 
 // skillMeta is the sidecar shape.
 type skillMeta struct {
@@ -175,7 +175,7 @@ type skillMeta struct {
 // whose item IS a directory of files; every other kind's component is a single
 // document with no mode to declare.
 func DeclaredExecutable(files map[string][]byte) (map[string]bool, error) {
-	dir := trust.KindSkill.Dir()
+	dir := ident.KindSkill.Dir()
 	out := map[string]bool{}
 	for p, data := range files {
 		if !IsMetaPath(p) || path.Base(path.Dir(p)) != dir {
@@ -195,8 +195,8 @@ func DeclaredExecutable(files map[string][]byte) (map[string]bool, error) {
 
 type skillType struct{}
 
-func (skillType) Name() string { return trust.KindSkill.Dir() }
-func (skillType) Dir() string  { return trust.KindSkill.Dir() }
+func (skillType) Name() string { return ident.KindSkill.Dir() }
+func (skillType) Dir() string  { return ident.KindSkill.Dir() }
 
 // Meta: a sidecar, placed BESIDE the package directory rather than inside it, so
 // skills/<name>/ stays a pure Agent Skill tree with nothing of ours in it.
@@ -210,7 +210,7 @@ func (skillType) Meta() MetaStore { return SidecarMeta{} }
 // by nobody, and recursing into it finds no SKILL.md at that level either, so a
 // malformed package yields no item rather than a misnamed one.
 func detectSkill(src Source) (string, bool) {
-	dir := trust.KindSkill.Dir()
+	dir := ident.KindSkill.Dir()
 	paths, err := src.List()
 	if err != nil {
 		return "", false
@@ -250,7 +250,7 @@ func (t skillType) Detect(src Source) bool {
 // carries beside the descriptor (SkillForms). Only the descriptor carries a
 // form: a sibling file whose name happens to end in a form suffix is content,
 // not a body, and does not make the package claim a form it cannot materialize.
-func (t skillType) Forms(src Source) ([]trust.ContentForm, error) {
+func (t skillType) Forms(src Source) ([]ident.ContentForm, error) {
 	name, ok := detectSkill(src)
 	if !ok {
 		return nil, fmt.Errorf("%w: not a skill package", ErrUnrecognized)
@@ -269,12 +269,12 @@ func (t skillType) Forms(src Source) ([]trust.ContentForm, error) {
 	return SkillForms(rels), nil
 }
 
-func (t skillType) RefFor(bundle string, src Source) (trust.Ref, error) {
+func (t skillType) RefFor(bundle string, src Source) (ident.Ref, error) {
 	name, ok := detectSkill(src)
 	if !ok {
-		return trust.Ref{}, fmt.Errorf("%w: not a skill package", ErrUnrecognized)
+		return ident.Ref{}, fmt.Errorf("%w: not a skill package", ErrUnrecognized)
 	}
-	return trust.Ref{Bundle: bundle, Kind: trust.KindSkill, Name: name}, nil
+	return ident.Ref{Bundle: bundle, Kind: ident.KindSkill, Name: name}, nil
 }
 
 func (t skillType) Decode(src Source) (Surface, error) {

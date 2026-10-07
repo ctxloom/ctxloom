@@ -17,9 +17,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
@@ -58,7 +58,7 @@ type Bundle struct {
 	// Addressed by "<bundle>#profiles/<name>" (refuri.ProfileSelector) and seeded
 	// into the shared profile loader so a bundle profile resolves/runs exactly
 	// like a top-level or local profile (config bundle-profile seed). The profile
-	// DEFINITION is never trust-gated (no trust.ItemKind for profiles, never
+	// DEFINITION is never trust-gated (no ident.ItemKind for profiles, never
 	// baselined); its constituent fragments/commands still gate at content
 	// assembly and any mcp/hooks it pulls in still gate at the exec choke.
 	Profiles map[string]BundleProfile `yaml:"profiles,omitempty"`
@@ -93,9 +93,9 @@ type Bundle struct {
 	// sole input to contentSourceRef — the content trust key. Every shape it
 	// takes is decided by WHERE the bundle was found, never by what it says
 	// about itself: the class-appropriate minter's BundleRef for a remote
-	// (cloned) source, a companion loadout (trust.CompanionRef), and the
+	// (cloned) source, a companion loadout (ident.CompanionRef), and the
 	// path-relative resolution
-	// name for a bundle in the project's own tree (trust.LocalRef) — the
+	// name for a bundle in the project's own tree (ident.LocalRef) — the
 	// last of those is what lets project content auto-trust.
 	//
 	// newRead stamps the resolution ref here whenever a reader left it empty,
@@ -108,7 +108,7 @@ type Bundle struct {
 	// The declared name is CONTENT, and therefore never an input to the
 	// identity it is keyed under.
 	//
-	// It is a trust.BundleRef, not a string: the field used to carry BOTH a
+	// It is an ident.BundleRef, not a string: the field used to carry BOTH a
 	// string rendering and this structured counterpart, set by the same call
 	// sites through the matching class minter — so the two could never
 	// independently disagree on what a bundle's source IS, only on how it was
@@ -128,12 +128,12 @@ type Bundle struct {
 	//
 	// Because the zero value is reachable and meaningful, "has a reader
 	// already stamped this" cannot be read off sourceRef itself — a failed
-	// mint and an untouched field are the same trust.BundleRef{}. sourceRefSet
+	// mint and an untouched field are the same ident.BundleRef{}. sourceRefSet
 	// is that separate sentinel: newRead's local fallback (the only caller
 	// that ever asks) checks it, not sourceRef's value, so an UNMINTABLE
 	// canonical ref from repoFSReader stays unaddressable rather than being
 	// silently re-stamped as a local bundle of that name.
-	sourceRef    trust.BundleRef `yaml:"-"`
+	sourceRef    ident.BundleRef `yaml:"-"`
 	sourceRefSet bool            `yaml:"-"`
 
 	// self marks ctxloom's OWN companion loadout (CompanionLoadout.Self).
@@ -170,9 +170,9 @@ func (b *Bundle) Self() bool { return b.self }
 // stamping, the fallback is unreachable. Its removal is trap removal — the
 // stamp is the load-bearing half, and the tests that die are the ones that die
 // when the stamp goes (internal/adapters/operations/declared_name_trust_test.go).
-func (b *Bundle) contentSourceRef() trust.BundleRef {
+func (b *Bundle) contentSourceRef() ident.BundleRef {
 	if b == nil {
-		return trust.BundleRef{}
+		return ident.BundleRef{}
 	}
 	return b.sourceRef
 }
@@ -527,15 +527,15 @@ type BundleSkill struct {
 // are yaml:"-"); the seed sets Name to the "<bundle>#profiles/<name>" identity.
 type BundleProfile = profiles.Profile
 
-// ContentForm is trust.ContentForm: which materialization of an item's content
+// ContentForm is ident.ContentForm: which materialization of an item's content
 // was hashed or served. It is declared at the trust leaf because the review
-// port (trust.ReviewRecords) binds {payload, form} together; this package
+// port (ident.ReviewRecords) binds {payload, form} together; this package
 // aliases it so every content-hash site here names the same type.
-type ContentForm = trust.ContentForm
+type ContentForm = ident.ContentForm
 
 const (
-	FormRaw       = trust.FormRaw
-	FormDistilled = trust.FormDistilled
+	FormRaw       = ident.FormRaw
+	FormDistilled = ident.FormDistilled
 )
 
 // hashContent is the single sha256 helper every content-hash computation in this
@@ -1067,7 +1067,7 @@ const DirectoryFormManifest = paths.BundleManifestName
 
 // ExtractBundleName derives a bundle's name from the path of its envelope: the
 // name of the directory holding it. Exported so other packages addressing a bundle FILE as a
-// trust.Ref{IsLocal:true} item (e.g. operations.DistillBundleFile's
+// ident.Ref{IsLocal:true} item (e.g. operations.DistillBundleFile's
 // re-distill invalidation check) key it identically to how the loader itself
 // names a bundle — one definition, not two that can drift apart.
 func ExtractBundleName(path string) string {

@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // Resolution across the bundles root: a bundle is a tree, so a name has one
@@ -33,8 +33,8 @@ func stageTree(t *testing.T, fsys afero.Fs, root, name, body string) {
 // putFragmentIn writes one fragment into a NAMED bundle.
 func putFragmentIn(w content.Writer, bundle, name, body string) {
 	_ = w.Put(context.Background(),
-		trust.Ref{Bundle: bundle, Kind: trust.KindFragment, Name: name},
-		trust.FormRaw,
+		ident.Ref{Bundle: bundle, Kind: ident.KindFragment, Name: name},
+		ident.FormRaw,
 		content.Fragment{Name: name, ItemMeta: content.ItemMeta{Body: body}})
 }
 

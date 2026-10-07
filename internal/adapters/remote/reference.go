@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
@@ -495,34 +495,34 @@ func (r *Reference) CanonicalString() string {
 // content version. It is the ONE place a parsed Reference becomes an identity:
 // the lockfile key, the canonical string and a reader's source ref all come
 // from here, so no two of them can spell one bundle two ways.
-func (r *Reference) BundleRef() (trust.BundleRef, error) {
+func (r *Reference) BundleRef() (ident.BundleRef, error) {
 	var (
-		br  trust.BundleRef
+		br  ident.BundleRef
 		err error
 	)
 	switch {
 	case r.IsLocal:
-		br, err = trust.LocalRef(r.Path)
+		br, err = ident.LocalRef(r.Path)
 	case r.IsCompanion:
-		br, err = trust.CompanionRef(r.Path)
+		br, err = ident.CompanionRef(r.Path)
 	case r.URL == "":
-		return trust.BundleRef{}, fmt.Errorf("%w: reference has no source URL", trust.ErrRefSyntax)
+		return ident.BundleRef{}, fmt.Errorf("%w: reference has no source URL", ident.ErrRefSyntax)
 	default:
 		repo, rerr := refuri.ParseRepoIdentity(r.URL)
 		if rerr != nil {
-			return trust.BundleRef{}, fmt.Errorf("unparseable repository URL %q: %w", r.URL, rerr)
+			return ident.BundleRef{}, fmt.Errorf("unparseable repository URL %q: %w", r.URL, rerr)
 		}
 		switch repo.Class {
 		case refuri.ClassGit:
-			br, err = trust.GitRef(repo.Host, repo.RepoPath, r.Path)
+			br, err = ident.GitRef(repo.Host, repo.RepoPath, r.Path)
 		case refuri.ClassFile:
-			br, err = trust.FileRef(repo.RepoPath, r.Path)
+			br, err = ident.FileRef(repo.RepoPath, r.Path)
 		default:
-			return trust.BundleRef{}, fmt.Errorf("%w: source URL %q names no repository", trust.ErrRefSyntax, r.URL)
+			return ident.BundleRef{}, fmt.Errorf("%w: source URL %q names no repository", ident.ErrRefSyntax, r.URL)
 		}
 	}
 	if err != nil {
-		return trust.BundleRef{}, err
+		return ident.BundleRef{}, err
 	}
 	if r.ContentVersion == "" {
 		return br, nil
@@ -534,7 +534,7 @@ func (r *Reference) BundleRef() (trust.BundleRef, error) {
 // version-less bundle identity, BundleRef().BundleIdentity(). The lockfile
 // keys on identity rather than on the address as typed because two spellings
 // of one repository must not be two entries — one of which no lookup reaches.
-func (r *Reference) LockKey() (trust.BundleKey, error) {
+func (r *Reference) LockKey() (ident.BundleKey, error) {
 	br, err := r.BundleRef()
 	if err != nil {
 		return "", err
@@ -641,7 +641,7 @@ var ErrNoCacheDirectory = errors.New("no cache directory")
 // identityDigest is a short, filesystem-safe, case-insensitive-safe (lowercase
 // hex) digest of a bundle identity. 64 bits keeps a crafted second identity
 // that lands in a victim's directory out of reach.
-func identityDigest(key trust.BundleKey) string {
+func identityDigest(key ident.BundleKey) string {
 	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:8])
 }

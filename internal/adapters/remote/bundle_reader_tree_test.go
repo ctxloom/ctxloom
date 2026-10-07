@@ -3,7 +3,7 @@ package remote
 import (
 	"context"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,7 +52,7 @@ func treeReaderOver(t *testing.T, tcap *treeCapture, sha string) *BundleReader {
 	return NewBundleReader(nil,
 		func(string, AuthConfig) (Fetcher, error) { return NewMockFetcher(), nil },
 		AuthConfig{},
-		&Lockfile{Bundles: map[trust.BundleKey]LockEntry{
+		&Lockfile{Bundles: map[ident.BundleKey]LockEntry{
 			treeReadCanonical: {SHA: sha, URL: "https://github.com/trent/atelier"},
 		}},
 		WithReaderTreeFetcher(tcap.fetch),

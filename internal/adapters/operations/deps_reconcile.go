@@ -3,7 +3,7 @@ package operations
 import (
 	"context"
 	"errors"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -63,12 +63,12 @@ type reachProbe func(ctx context.Context, repoURL string) error
 // contentProbe reports whether one reference's content is retrievable from its
 // repository's current tip. It answers about that reference's own path and
 // never about a directory listing (see THE EVIDENCE RULE above).
-type contentProbe func(ctx context.Context, ref trust.BundleKey) error
+type contentProbe func(ctx context.Context, ref ident.BundleKey) error
 
 // ReconcilePlan is what a reconcile decided, split by whether it is authority.
 type ReconcilePlan struct {
 	// Gone is every installed reference upstream demonstrably no longer serves.
-	Gone []trust.BundleKey
+	Gone []ident.BundleKey
 	// Unreachable is every repository whose state could not be established,
 	// with the dependencies left untouched because of it.
 	Unreachable []UncheckedRemote
@@ -79,7 +79,7 @@ type ReconcilePlan struct {
 // cause is something a user can neither act on nor decide to ignore.
 type UncheckedRemote struct {
 	URL    string
-	Refs   []trust.BundleKey
+	Refs   []ident.BundleKey
 	Reason string
 }
 
@@ -89,7 +89,7 @@ type UncheckedRemote struct {
 // It is a pure function of its two probes so the rule can be exercised against
 // every shape of failure without a network: an unreachable host, a revoked
 // credential, a transport error mid-listing, an unparseable lockfile entry.
-func planReconcile(ctx context.Context, installed []trust.BundleKey, reach reachProbe, content contentProbe) ReconcilePlan {
+func planReconcile(ctx context.Context, installed []ident.BundleKey, reach reachProbe, content contentProbe) ReconcilePlan {
 	byRepo, unparseable := groupRefsByRepo(installed)
 
 	var plan ReconcilePlan
@@ -123,7 +123,7 @@ func planReconcile(ctx context.Context, installed []trust.BundleKey, reach reach
 				// about the repository; anything else is a fact about the
 				// attempt, and an attempt says nothing about what exists.
 				plan.Unreachable = append(plan.Unreachable, UncheckedRemote{
-					URL: repoURL, Refs: []trust.BundleKey{ref}, Reason: err.Error(),
+					URL: repoURL, Refs: []ident.BundleKey{ref}, Reason: err.Error(),
 				})
 			}
 		}
@@ -135,8 +135,8 @@ func planReconcile(ctx context.Context, installed []trust.BundleKey, reach reach
 // from, so reachability is proved once per repository rather than once per
 // dependency — and so a repository can never be observed reachable for one of
 // its bundles and unreachable for another inside one reconcile.
-func groupRefsByRepo(installed []trust.BundleKey) (byRepo map[string][]trust.BundleKey, unparseable []trust.BundleKey) {
-	byRepo = map[string][]trust.BundleKey{}
+func groupRefsByRepo(installed []ident.BundleKey) (byRepo map[string][]ident.BundleKey, unparseable []ident.BundleKey) {
+	byRepo = map[string][]ident.BundleKey{}
 	for _, ref := range installed {
 		parsed, err := remote.ParseReference(string(ref))
 		if err != nil || parsed.URL == "" {
@@ -170,7 +170,7 @@ func ReconcileInstalled(ctx context.Context, cfg *config.Config) (ReconcileResul
 		return ReconcileResult{}, err
 	}
 
-	var installed []trust.BundleKey
+	var installed []ident.BundleKey
 	for _, e := range lockfile.AllEntries() {
 		installed = append(installed, e.Ref)
 	}
@@ -250,7 +250,7 @@ func upstreamProbes(cfg *config.Config) (reachProbe, contentProbe) {
 		return nil
 	}
 
-	content := func(ctx context.Context, key trust.BundleKey) error {
+	content := func(ctx context.Context, key ident.BundleKey) error {
 		ref, err := remote.ParseReference(string(key))
 		if err != nil {
 			return err

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,7 +52,7 @@ func stagedTreeFetcher() remote.FetcherFactory {
 }
 
 func treeProbeLock() *remote.Lockfile {
-	return &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
+	return &remote.Lockfile{Bundles: map[ident.BundleKey]remote.LockEntry{
 		treeProbeCanonical: {SHA: treeProbeSHA, URL: treeProbeRepoURL},
 	}}
 }
@@ -116,7 +116,7 @@ func TestNewBundleReaderForConfig_CarriesTheTreeReadSurface(t *testing.T) {
 	// thing left to prove here is that the entry itself survives a save/load.
 	reloaded, err := lm.Load()
 	require.NoError(t, err)
-	require.Contains(t, reloaded.Bundles, trust.BundleKey(treeProbeCanonical), "fixture did not round-trip through the lockfile")
+	require.Contains(t, reloaded.Bundles, ident.BundleKey(treeProbeCanonical), "fixture did not round-trip through the lockfile")
 
 	reader := NewBundleReaderForConfig(config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 	require.NotNil(t, reader)

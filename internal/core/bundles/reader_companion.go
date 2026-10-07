@@ -7,7 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // CompanionLoadout is one companion application's advertised loadout, exactly
@@ -161,7 +161,7 @@ func (r *companionReader) Candidates() []Candidate {
 // warned about and dropped rather than entered under an empty key where every
 // unmintable name would stand in for every other.
 func companionCandidate(rep report.Reporter, bin, path string, reason CandidateReason) (Candidate, bool) {
-	typed, err := trust.CompanionRef(bin)
+	typed, err := ident.CompanionRef(bin)
 	if err != nil {
 		warnUnmintableSource(rep, companionRefPrefix+bin, err)
 		return Candidate{}, false
@@ -189,7 +189,7 @@ func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 	if b.Name == "" {
 		b.Name = ref
 	}
-	typed, err := trust.CompanionRef(lo.Bin)
+	typed, err := ident.CompanionRef(lo.Bin)
 	if err != nil {
 		warnUnmintableSource(r.cfg.rep, ref, err)
 	}

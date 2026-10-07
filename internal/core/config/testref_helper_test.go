@@ -3,18 +3,18 @@ package config
 import (
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
-// mustLocalRef mints a trust.BundleRef for a project-local bundle name, for
+// mustLocalRef mints an ident.BundleRef for a project-local bundle name, for
 // tests that used to hand extractHooksFromBundle/extractMCPFromBundle/
 // fragmentsFromBundle a bare source STRING (which the old
-// trust.ItemRefFromSource round trip resolved to exactly this identity via
+// ident.ItemRefFromSource round trip resolved to exactly this identity via
 // the bare-token fallback). Fails the test rather than silently
 // minting a zero BundleRef on an unexpected error.
-func mustLocalRef(t testing.TB, name string) trust.BundleRef {
+func mustLocalRef(t testing.TB, name string) ident.BundleRef {
 	t.Helper()
-	ref, err := trust.LocalRef(name)
+	ref, err := ident.LocalRef(name)
 	if err != nil {
 		t.Fatalf("mustLocalRef(%q): %v", name, err)
 	}

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // candidateProbe is a CompanionProber over a fixed pass: the loadouts that
@@ -44,7 +44,7 @@ func mixedCompanionCatalog(t *testing.T) Catalog {
 func TestCatalogCandidates_CarriesTheReasonForEachCompanionThatProducedNothing(t *testing.T) {
 	cat := mixedCompanionCatalog(t)
 
-	got := make(map[trust.BundleKey]Candidate)
+	got := make(map[ident.BundleKey]Candidate)
 	for _, c := range cat.Candidates() {
 		got[c.Ref] = c
 	}
@@ -80,12 +80,12 @@ func TestCatalogReads_HoldNoCandidateAndNoNilBundle(t *testing.T) {
 	require.Len(t, reads, 1, "guard: exactly the one parseable loadout is content")
 	require.NotEmpty(t, cat.Candidates(), "guard: there must BE candidates, or the exclusion below is vacuous")
 
-	inReads := make(map[trust.BundleKey]bool, len(reads))
+	inReads := make(map[ident.BundleKey]bool, len(reads))
 	for _, read := range reads {
 		require.NotNil(t, read.Bundle, "no read may carry a nil bundle")
 		inReads[read.Key()] = true
 	}
-	assert.Equal(t, trust.BundleKey("ctxloom+companion:ltk"), reads[0].Key())
+	assert.Equal(t, ident.BundleKey("ctxloom+companion:ltk"), reads[0].Key())
 
 	for _, c := range cat.Candidates() {
 		assert.False(t, inReads[c.Ref], "a candidate is an identity with NO content and must not appear in Reads: %s", c.Ref)

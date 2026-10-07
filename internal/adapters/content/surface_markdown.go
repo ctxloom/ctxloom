@@ -5,7 +5,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // mdMeta is the YAML front-matter DTO for the .md content kinds.
@@ -69,7 +69,7 @@ func detectMarkdownItem(dir string, src Source) (string, bool) {
 // local cache derivative — so both live in the content tree, both are hashed, and
 // both are separately attestable. Reporting a form that has no file would hand a
 // caller an empty Form to sign.
-func markdownForms(dir string, src Source) ([]trust.ContentForm, error) {
+func markdownForms(dir string, src Source) ([]ident.ContentForm, error) {
 	stem, ok := detectMarkdownItem(dir, src)
 	if !ok {
 		return nil, fmt.Errorf("%w: not a %s item", ErrUnrecognized, dir)
@@ -78,10 +78,10 @@ func markdownForms(dir string, src Source) ([]trust.ContentForm, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := []trust.ContentForm{trust.FormRaw}
+	out := []ident.ContentForm{ident.FormRaw}
 	for _, p := range paths {
-		if !IsMetaPath(p) && logicalBase(p) == stem+"."+string(trust.FormDistilled) {
-			out = append(out, trust.FormDistilled)
+		if !IsMetaPath(p) && logicalBase(p) == stem+"."+string(ident.FormDistilled) {
+			out = append(out, ident.FormDistilled)
 			break
 		}
 	}
@@ -132,7 +132,7 @@ func readMarkdownItem(t SurfaceType, src Source) (markdownParts, error) {
 		if err := unmarshalYAML(fm, &meta); err != nil {
 			return out, fmt.Errorf("content: %s: %w", p, err)
 		}
-		if logicalBase(p) == stem+"."+string(trust.FormDistilled) {
+		if logicalBase(p) == stem+"."+string(ident.FormDistilled) {
 			out.distilled, out.distBody, out.hasDist = meta, body, true
 			continue
 		}
@@ -160,7 +160,7 @@ func encodeMarkdownItem(dir, stem string, raw mdMeta, rawBody string, distilled 
 			return nil, err
 		}
 		out = append(out, Component{
-			Path:  itemPath(dir, stem+"."+string(trust.FormDistilled), ".md"),
+			Path:  itemPath(dir, stem+"."+string(ident.FormDistilled), ".md"),
 			Mode:  ModeRegular,
 			Bytes: distBytes,
 		})
@@ -235,12 +235,12 @@ type Fragment struct {
 	ItemMeta
 }
 
-func (Fragment) Kind() trust.ItemKind { return trust.KindFragment }
+func (Fragment) Kind() ident.ItemKind { return ident.KindFragment }
 
 type fragmentType struct{}
 
-func (fragmentType) Name() string { return trust.KindFragment.Dir() }
-func (fragmentType) Dir() string  { return trust.KindFragment.Dir() }
+func (fragmentType) Name() string { return ident.KindFragment.Dir() }
+func (fragmentType) Dir() string  { return ident.KindFragment.Dir() }
 
 // Meta: front-matter. Fragments are .md, so they follow the SKILL.md convention.
 func (fragmentType) Meta() MetaStore { return InlineMeta{} }
@@ -250,16 +250,16 @@ func (t fragmentType) Detect(src Source) bool {
 	return ok
 }
 
-func (t fragmentType) Forms(src Source) ([]trust.ContentForm, error) {
+func (t fragmentType) Forms(src Source) ([]ident.ContentForm, error) {
 	return markdownForms(t.Dir(), src)
 }
 
-func (t fragmentType) RefFor(bundle string, src Source) (trust.Ref, error) {
+func (t fragmentType) RefFor(bundle string, src Source) (ident.Ref, error) {
 	stem, ok := detectMarkdownItem(t.Dir(), src)
 	if !ok {
-		return trust.Ref{}, fmt.Errorf("%w: not a fragment", ErrUnrecognized)
+		return ident.Ref{}, fmt.Errorf("%w: not a fragment", ErrUnrecognized)
 	}
-	return trust.Ref{Bundle: bundle, Kind: trust.KindFragment, Name: stem}, nil
+	return ident.Ref{Bundle: bundle, Kind: ident.KindFragment, Name: stem}, nil
 }
 
 func (t fragmentType) Decode(src Source) (Surface, error) {
@@ -283,7 +283,7 @@ func (t fragmentType) Encode(s Surface) ([]Component, error) {
 // ----------------------------------------------------------------- commands
 
 // Command is a user-invoked slash command. Its selector directory is "prompts"
-// (trust.KindPrompt.Dir()); the kind is deliberately NOT the legacy "skills"
+// (ident.KindPrompt.Dir()); the kind is deliberately NOT the legacy "skills"
 // value, which now means an Agent Skill package.
 type Command struct {
 	Name string
@@ -297,12 +297,12 @@ type Command struct {
 	Exports EngineExports
 }
 
-func (Command) Kind() trust.ItemKind { return trust.KindPrompt }
+func (Command) Kind() ident.ItemKind { return ident.KindPrompt }
 
 type commandType struct{}
 
-func (commandType) Name() string { return trust.KindPrompt.Dir() }
-func (commandType) Dir() string  { return trust.KindPrompt.Dir() }
+func (commandType) Name() string { return ident.KindPrompt.Dir() }
+func (commandType) Dir() string  { return ident.KindPrompt.Dir() }
 
 // Meta: front-matter, as for fragments.
 func (commandType) Meta() MetaStore { return InlineMeta{} }
@@ -312,16 +312,16 @@ func (t commandType) Detect(src Source) bool {
 	return ok
 }
 
-func (t commandType) Forms(src Source) ([]trust.ContentForm, error) {
+func (t commandType) Forms(src Source) ([]ident.ContentForm, error) {
 	return markdownForms(t.Dir(), src)
 }
 
-func (t commandType) RefFor(bundle string, src Source) (trust.Ref, error) {
+func (t commandType) RefFor(bundle string, src Source) (ident.Ref, error) {
 	stem, ok := detectMarkdownItem(t.Dir(), src)
 	if !ok {
-		return trust.Ref{}, fmt.Errorf("%w: not a command", ErrUnrecognized)
+		return ident.Ref{}, fmt.Errorf("%w: not a command", ErrUnrecognized)
 	}
-	return trust.Ref{Bundle: bundle, Kind: trust.KindPrompt, Name: stem}, nil
+	return ident.Ref{Bundle: bundle, Kind: ident.KindPrompt, Name: stem}, nil
 }
 
 func (t commandType) Decode(src Source) (Surface, error) {

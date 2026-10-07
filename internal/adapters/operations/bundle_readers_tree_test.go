@@ -16,7 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -70,7 +70,7 @@ func stageInstalledTree(t *testing.T) (*config.Config, *content.TreeStore, conte
 // readTreeBundle drives the reader the Config builds for one lockfile tree
 // entry, and returns both halves a caller cares about: the bundle document, and
 // the read.
-func readTreeBundle(t *testing.T, c *config.Config, ctx context.Context, canonical trust.BundleKey, entry remote.LockEntry) (*bundles.Bundle, bundles.BundleRead, error) {
+func readTreeBundle(t *testing.T, c *config.Config, ctx context.Context, canonical ident.BundleKey, entry remote.LockEntry) (*bundles.Bundle, bundles.BundleRead, error) {
 	t.Helper()
 	reader, err := treeBundleReader(c, canonical, entry)
 	if err != nil {
@@ -105,7 +105,7 @@ func TestLoadTreeBundle_ReadsTheInstalledTreeIntoABundle(t *testing.T) {
 	// shape a repoFSReader reads at all now — the single-document path it used
 	// to fall back to is gone — and nothing else in the suite reaches this call
 	// site (readTreeForm).
-	wantTyped, err := trust.GitRef("github.com", "/acme/ctx", "atelier")
+	wantTyped, err := ident.GitRef("github.com", "/acme/ctx", "atelier")
 	require.NoError(t, err)
 	assert.Equal(t, wantTyped, read.SourceRef(),
 		"a tree-form bundle's typed source ref is GitRef(host, repo path, bundle) from its own canonical ref")
@@ -133,7 +133,7 @@ func loadFailureFinding(t *testing.T, err error) report.Finding {
 	t.Helper()
 	mark := strictness.Checkpoint()
 	defer strictness.Close(mark)
-	reportBundleLoadFailures(map[trust.BundleKey]error{treeCanonical: err})
+	reportBundleLoadFailures(map[ident.BundleKey]error{treeCanonical: err})
 	found := strictness.Since(mark)
 	require.Len(t, found, 1)
 	return found[0]
@@ -158,9 +158,9 @@ func TestLoadTreeBundle_MissingTreeNamesThePathAndTheFix(t *testing.T) {
 func TestTreeBundleReaders_ClaimsTreeRefusalsAndLeavesOtherFailuresAlone(t *testing.T) {
 	c, _, _, _ := stageInstalledTree(t)
 
-	lock := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{treeCanonical: treeEntry()}}
+	lock := &remote.Lockfile{Bundles: map[ident.BundleKey]remote.LockEntry{treeCanonical: treeEntry()}}
 	other := assert.AnError
-	failures := map[trust.BundleKey]error{
+	failures := map[ident.BundleKey]error{
 		treeCanonical: remote.ErrTreeBundleUnreadable,
 		"https://github.com/acme/ctx@bundles/other": other,
 	}
@@ -197,11 +197,11 @@ func TestTreeBundleReaders_MalformedEntryIsSkippedGoodOneStillLoads(t *testing.T
 	testsupport.WriteFileString(t, fsys, filepath.Join(brokenDir, bundles.DirectoryFormManifest),
 		"\tnot: valid yaml\n", 0o644)
 
-	lock := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
+	lock := &remote.Lockfile{Bundles: map[ident.BundleKey]remote.LockEntry{
 		treeCanonical:   treeEntry(),
 		brokenCanonical: {SHA: "0123456789abcdef", URL: "https://github.com/acme/ctx"},
 	}}
-	failures := map[trust.BundleKey]error{}
+	failures := map[ident.BundleKey]error{}
 
 	readers := treeBundleReaders(c, lock, failures)
 	require.Len(t, readers, 2, "both entries have an installed directory, so both get a reader — "+

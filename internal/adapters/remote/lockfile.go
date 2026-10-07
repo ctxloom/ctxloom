@@ -11,8 +11,8 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
@@ -98,7 +98,7 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	if os.IsNotExist(err) {
 		return &Lockfile{
 			Version: LockfileVersion,
-			Bundles: make(map[trust.BundleKey]LockEntry),
+			Bundles: make(map[ident.BundleKey]LockEntry),
 		}, nil
 	}
 	if err != nil {
@@ -117,7 +117,7 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 
 	// Initialize maps if nil
 	if lockfile.Bundles == nil {
-		lockfile.Bundles = make(map[trust.BundleKey]LockEntry)
+		lockfile.Bundles = make(map[ident.BundleKey]LockEntry)
 	}
 
 	if len(r.Applied) > 0 && schemaver.WriteUpgrades() {
@@ -201,7 +201,7 @@ func isDocumentless(data []byte) bool {
 var ErrLockKeyFormRetired = errors.New("lockfile uses a retired key form")
 
 // findRetiredKeyForm reports whether data carries any key k that is not
-// trust.ParseBundleRef(k).BundleIdentity(), and the keys of the entries it
+// ident.ParseBundleRef(k).BundleIdentity(), and the keys of the entries it
 // holds (sorted), so a refusal can list them for re-holding. The version half
 // of the retired form is lockfileKind's to judge. Unparseable input reports
 // false and leaves the loader's own decode to produce the error.
@@ -230,7 +230,7 @@ func findRetiredKeyForm(data []byte) (held []string, found bool) {
 // parses to — the one test for a key written the retired way, shared by every
 // store keyed by bundle identity so they cannot disagree about what is retired.
 func IsBundleIdentity(key string) bool {
-	br, err := trust.ParseBundleRef(key)
+	br, err := ident.ParseBundleRef(key)
 	return err == nil && string(br.BundleIdentity()) == key
 }
 
@@ -414,14 +414,14 @@ func (m *LockfileManager) write(lockfile *Lockfile) error {
 
 // AddEntry adds or updates an entry in the lockfile. Only bundles are locked now
 // (top-level profile distribution was retired); a non-bundle itemType is a no-op.
-func (l *Lockfile) AddEntry(itemType ItemType, ref trust.BundleKey, entry LockEntry) {
+func (l *Lockfile) AddEntry(itemType ItemType, ref ident.BundleKey, entry LockEntry) {
 	if itemType == ItemTypeBundle {
 		l.Bundles[ref] = entry
 	}
 }
 
 // GetEntry retrieves an entry from the lockfile.
-func (l *Lockfile) GetEntry(itemType ItemType, ref trust.BundleKey) (LockEntry, bool) {
+func (l *Lockfile) GetEntry(itemType ItemType, ref ident.BundleKey) (LockEntry, bool) {
 	if itemType != ItemTypeBundle {
 		return LockEntry{}, false
 	}
@@ -430,7 +430,7 @@ func (l *Lockfile) GetEntry(itemType ItemType, ref trust.BundleKey) (LockEntry, 
 }
 
 // RemoveEntry removes an entry from the lockfile.
-func (l *Lockfile) RemoveEntry(itemType ItemType, ref trust.BundleKey) {
+func (l *Lockfile) RemoveEntry(itemType ItemType, ref ident.BundleKey) {
 	if itemType == ItemTypeBundle {
 		delete(l.Bundles, ref)
 	}
@@ -444,7 +444,7 @@ func (l *Lockfile) RemoveEntry(itemType ItemType, ref trust.BundleKey) {
 // variable, passed to a helper or ranged over by anything but its producer.
 type LockedEntry struct {
 	Type  ItemType
-	Ref   trust.BundleKey
+	Ref   ident.BundleKey
 	Entry LockEntry
 }
 

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,7 +17,7 @@ import (
 // depsCheckApp opens the composition over a project whose lockfile holds
 // exactly the given bundle entries and whose one profile composes the given
 // refs. Check reports only on entries the project composes.
-func depsCheckApp(t *testing.T, bundles map[trust.BundleKey]remote.LockEntry, composes ...string) *App {
+func depsCheckApp(t *testing.T, bundles map[ident.BundleKey]remote.LockEntry, composes ...string) *App {
 	t.Helper()
 	appDir := t.TempDir()
 	if bundles != nil {
@@ -49,7 +49,7 @@ func TestCheckDependencies_NothingInstalled_ReportsNoEntries(t *testing.T) {
 // (detectUpdates' own Unchecked row for an unparseable in-memory entry is
 // TestDetectUpdates_FailedChecksAreCounted.)
 func TestCheckDependencies_UnparseableEntryIsRefusedNotCurrent(t *testing.T) {
-	app := depsCheckApp(t, map[trust.BundleKey]remote.LockEntry{
+	app := depsCheckApp(t, map[ident.BundleKey]remote.LockEntry{
 		"::::not-a-valid-reference": {SHA: "somesha", RequestedVersion: "main"},
 	})
 	_, err := CheckDependencies(context.Background(), app, CheckDependenciesRequest{})
@@ -61,7 +61,7 @@ func TestCheckDependencies_UnparseableEntryIsRefusedNotCurrent(t *testing.T) {
 // counted so the frontend can say so, never reported as current or as
 // unchecked.
 func TestCheckDependencies_EmptySHAEntriesAreSkippedAndCounted(t *testing.T) {
-	app := depsCheckApp(t, map[trust.BundleKey]remote.LockEntry{
+	app := depsCheckApp(t, map[ident.BundleKey]remote.LockEntry{
 		"ctxloom+git://github.com/o/r//bundles/x": {SHA: "", RequestedVersion: "main"},
 	}, "https://github.com/o/r@bundles/x@abc123def456")
 	res, err := CheckDependencies(context.Background(), app, CheckDependenciesRequest{})

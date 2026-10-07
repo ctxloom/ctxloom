@@ -11,7 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
@@ -154,18 +154,18 @@ func (s *fsStore) saveTree(ctx context.Context, b *Bundle) error {
 		return fmt.Errorf("bundles: opening the tree at %s: %w", dir, err)
 	}
 	t := treeSave{ctx: ctx, w: w, bundle: id}
-	if err := saveItems(t, trust.KindFragment, cur.Fragments, b.Fragments, func(n string, f BundleFragment) (content.Surface, string, error) {
+	if err := saveItems(t, ident.KindFragment, cur.Fragments, b.Fragments, func(n string, f BundleFragment) (content.Surface, string, error) {
 		return TreeFragment(n, f), f.Distilled, nil
 	}); err != nil {
 		return err
 	}
-	if err := saveItems(t, trust.KindPrompt, cur.Commands, b.Commands, func(n string, c BundleCommand) (content.Surface, string, error) {
+	if err := saveItems(t, ident.KindPrompt, cur.Commands, b.Commands, func(n string, c BundleCommand) (content.Surface, string, error) {
 		s, err := TreeCommand(n, c)
 		return s, c.Distilled, err
 	}); err != nil {
 		return err
 	}
-	if err := saveItems(t, trust.KindMCP, cur.MCP, b.MCP, func(n string, m BundleMCP) (content.Surface, string, error) {
+	if err := saveItems(t, ident.KindMCP, cur.MCP, b.MCP, func(n string, m BundleMCP) (content.Surface, string, error) {
 		return TreeMCP(n, m), "", nil
 	}); err != nil {
 		return err
@@ -212,7 +212,7 @@ type treeSave struct {
 // and next, and deletes the ones next no longer holds. An item that lost its
 // distilled form is deleted first, so a stale distilled file cannot outlive
 // the content it summarised.
-func saveItems[T any](t treeSave, kind trust.ItemKind, cur, next map[string]T, surface func(string, T) (content.Surface, string, error)) error {
+func saveItems[T any](t treeSave, kind ident.ItemKind, cur, next map[string]T, surface func(string, T) (content.Surface, string, error)) error {
 	if err := deleteDropped(t, kind, cur, next); err != nil {
 		return err
 	}
@@ -221,7 +221,7 @@ func saveItems[T any](t treeSave, kind trust.ItemKind, cur, next map[string]T, s
 		if had && reflect.DeepEqual(was, next[name]) {
 			continue
 		}
-		ref := trust.Ref{Bundle: t.bundle, Kind: kind, Name: name}
+		ref := ident.Ref{Bundle: t.bundle, Kind: kind, Name: name}
 		s, distilled, err := surface(name, next[name])
 		if err != nil {
 			return err
@@ -239,10 +239,10 @@ func saveItems[T any](t treeSave, kind trust.ItemKind, cur, next map[string]T, s
 }
 
 // deleteDropped deletes every item of kind that cur holds and next does not.
-func deleteDropped[T any](t treeSave, kind trust.ItemKind, cur, next map[string]T) error {
+func deleteDropped[T any](t treeSave, kind ident.ItemKind, cur, next map[string]T) error {
 	for _, name := range collections.SortedKeys(cur) {
 		if _, ok := next[name]; !ok {
-			if err := t.w.Delete(t.ctx, trust.Ref{Bundle: t.bundle, Kind: kind, Name: name}); err != nil {
+			if err := t.w.Delete(t.ctx, ident.Ref{Bundle: t.bundle, Kind: kind, Name: name}); err != nil {
 				return fmt.Errorf("bundles: removing %s %q: %w", kind, name, err)
 			}
 		}
@@ -253,7 +253,7 @@ func deleteDropped[T any](t treeSave, kind trust.ItemKind, cur, next map[string]
 // clearStaleDistilled deletes ref first when the item was distilled and its
 // next version is not, so a stale distilled file cannot outlive the content
 // it summarised.
-func clearStaleDistilled[T any](t treeSave, ref trust.Ref, surface func(string, T) (content.Surface, string, error), name string, was T, distilled string) error {
+func clearStaleDistilled[T any](t treeSave, ref ident.Ref, surface func(string, T) (content.Surface, string, error), name string, was T, distilled string) error {
 	if _, wasDistilled, _ := surface(name, was); wasDistilled == "" || distilled != "" {
 		return nil
 	}
@@ -264,14 +264,14 @@ func clearStaleDistilled[T any](t treeSave, ref trust.Ref, surface func(string, 
 }
 
 // putItem writes the item's raw form, and its distilled form when it has one.
-func (t treeSave) putItem(ref trust.Ref, s content.Surface, distilled string) error {
-	if err := t.w.Put(t.ctx, ref, trust.FormRaw, s); err != nil {
+func (t treeSave) putItem(ref ident.Ref, s content.Surface, distilled string) error {
+	if err := t.w.Put(t.ctx, ref, ident.FormRaw, s); err != nil {
 		return fmt.Errorf("bundles: writing %s: %w", ref.Key(), err)
 	}
 	if distilled == "" {
 		return nil
 	}
-	if err := t.w.Put(t.ctx, ref, trust.FormDistilled, s); err != nil {
+	if err := t.w.Put(t.ctx, ref, ident.FormDistilled, s); err != nil {
 		return fmt.Errorf("bundles: writing %s (distilled): %w", ref.Key(), err)
 	}
 	return nil

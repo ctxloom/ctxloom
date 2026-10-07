@@ -6,7 +6,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // The fragment/command item vocabulary and its reference grammar: the kind names
@@ -26,14 +26,14 @@ const (
 
 // itemKindOf is the trust item kind an ItemType addresses. The two
 // vocabularies differ by exactly one word — a command is WRITTEN "#commands/"
-// but STORED under trust.KindPrompt, so existing grants survive the item-kind
+// but STORED under ident.KindPrompt, so existing grants survive the item-kind
 // rename — and stating the mapping once here is what keeps that divergence
 // from being re-derived, differently, at each frontend.
-func itemKindOf(t ItemType) trust.ItemKind {
+func itemKindOf(t ItemType) ident.ItemKind {
 	if t == ItemTypeCommand {
-		return trust.KindPrompt
+		return ident.KindPrompt
 	}
-	return trust.KindFragment
+	return ident.KindFragment
 }
 
 // itemRefTarget resolves a `<bundle>#<kind>/<name>` argument into the bundle
@@ -50,11 +50,11 @@ func itemRefTarget(ref string, itemType ItemType) (bundleName, itemName string, 
 		return "", "", err
 	}
 	if !ask.Scoped {
-		return "", "", fmt.Errorf("invalid reference format: expected bundle#%s (got %q)", trust.FormatSelector(itemKindOf(itemType), "name"), ref)
+		return "", "", fmt.Errorf("invalid reference format: expected bundle#%s (got %q)", ident.FormatSelector(itemKindOf(itemType), "name"), ref)
 	}
 	if want := itemKindOf(itemType); ask.Kind != want {
 		return "", "", fmt.Errorf("%q selects a %s, not a %s (expected bundle#%s)",
-			ref, trust.FormatSelector(ask.Kind, ""), trust.FormatSelector(itemKindOf(itemType), ""), trust.FormatSelector(itemKindOf(itemType), "name"))
+			ref, ident.FormatSelector(ask.Kind, ""), ident.FormatSelector(itemKindOf(itemType), ""), ident.FormatSelector(itemKindOf(itemType), "name"))
 	}
 	if ask.Bundle == "" {
 		return "", "", fmt.Errorf("invalid reference: missing bundle name in %q", ref)

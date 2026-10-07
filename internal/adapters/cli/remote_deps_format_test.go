@@ -15,7 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -195,8 +195,8 @@ func TestDepsPull_PipedEmitsTheApprovedShapeThenFails(t *testing.T) {
 	})
 	stub(t, &reconcileInstalledOp, func(context.Context, *config.Config) (operations.ReconcileResult, error) {
 		return operations.ReconcileResult{Plan: operations.ReconcilePlan{
-			Gone:        []trust.BundleKey{"corp/old"},
-			Unreachable: []operations.UncheckedRemote{{URL: "https://x", Reason: "timeout", Refs: []trust.BundleKey{"corp/c"}}},
+			Gone:        []ident.BundleKey{"corp/old"},
+			Unreachable: []operations.UncheckedRemote{{URL: "https://x", Reason: "timeout", Refs: []ident.BundleKey{"corp/c"}}},
 		}}, nil
 	})
 	cmd, stdout, stderr := pipedCmd(t)

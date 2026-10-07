@@ -8,20 +8,20 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
-func lockOf(entries map[trust.BundleKey]remote.LockEntry) *remote.Lockfile {
+func lockOf(entries map[ident.BundleKey]remote.LockEntry) *remote.Lockfile {
 	return &remote.Lockfile{Version: remote.LockfileVersion, Bundles: entries}
 }
 
 func TestPreserveUnreachedEntries_CarriesUnreachedAndKeepsReached(t *testing.T) {
 	warnings := captureWarnings(t)
-	active := lockOf(map[trust.BundleKey]remote.LockEntry{
+	active := lockOf(map[ident.BundleKey]remote.LockEntry{
 		"https://github.com/o/r@bundles/reached":   {SHA: "old", URL: "https://github.com/o/r"},
 		"https://github.com/o/r@bundles/unreached": {SHA: "kept", URL: "https://github.com/o/r", Held: true},
 	})
-	next := lockOf(map[trust.BundleKey]remote.LockEntry{
+	next := lockOf(map[ident.BundleKey]remote.LockEntry{
 		"https://github.com/o/r@bundles/reached": {SHA: "new", URL: "https://github.com/o/r"},
 	})
 
@@ -38,10 +38,10 @@ func TestPreserveUnreachedEntries_CarriesUnreachedAndKeepsReached(t *testing.T) 
 
 func TestPreserveUnreachedEntries_SilentWhenNothingCarried(t *testing.T) {
 	warnings := captureWarnings(t)
-	active := lockOf(map[trust.BundleKey]remote.LockEntry{
+	active := lockOf(map[ident.BundleKey]remote.LockEntry{
 		"https://github.com/o/r@bundles/reached": {SHA: "old"},
 	})
-	next := lockOf(map[trust.BundleKey]remote.LockEntry{
+	next := lockOf(map[ident.BundleKey]remote.LockEntry{
 		"https://github.com/o/r@bundles/reached": {SHA: "new"},
 	})
 
@@ -55,7 +55,7 @@ func TestPreserveUnreachedEntries_SilentWhenNothingCarried(t *testing.T) {
 // INCOMPLETE: its profile gains a parent that cannot be expanded, and the lock
 // holds an extra entry the remaining closure no longer reaches. Only the
 // incomplete-closure carry keeps that entry.
-func setupIncompleteClosure(t *testing.T) (baseDir string, orphan trust.BundleKey) {
+func setupIncompleteClosure(t *testing.T) (baseDir string, orphan ident.BundleKey) {
 	t.Helper()
 	baseDir, ref, _, _ := setupUpgrade(t)
 	cfg := testConfigWithSCMPath(baseDir)

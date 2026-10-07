@@ -3,10 +3,10 @@
 // path and bundle path, the "@<ver>" suffix and the "#" fragment — and nothing
 // above it.
 //
-// It sits below both internal/core/trust (which interprets the fragment as a trust
+// It sits below both internal/core/ident (which interprets the fragment as an
 // item kind and mints BundleRef identities) and internal/adapters/remote (which turns a
 // reference into a FETCH). Those two packages cannot share the grammar by
-// importing each other: trust is core and may not reach an adapter, so the
+// importing each other: ident is core and may not reach an adapter, so the
 // shared syntax has to live under both or be written twice. Written twice is
 // the failure this package exists to prevent — two parsers are two addressing
 // schemes, and a reference accepted by one and refused by the other is a

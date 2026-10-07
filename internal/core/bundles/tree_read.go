@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
@@ -142,7 +142,7 @@ type reader struct {
 // otherwise be silently dropped: the tree would enumerate it, the manifest
 // would cover it, the signature would verify, and the item simply would not
 // exist in the bundle anyone reads.
-func (r *reader) add(ref trust.Ref, s content.Surface) error {
+func (r *reader) add(ref ident.Ref, s content.Surface) error {
 	switch v := s.(type) {
 	case content.Fragment:
 		r.addFragment(v)

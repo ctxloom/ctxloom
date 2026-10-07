@@ -22,8 +22,8 @@ import (
 // Scoped to the three packages that mint or consume a bundle-shipped
 // executable's SCM/source ref — internal/core/bundles, internal/core/config,
 // operations/managedhooks — which is where every genuine producer lives.
-// Deliberately NOT a whole-repo sweep: internal/core/trust.IsRetiredBuiltinSpelling
-// and internal/adapters/operations.ResolveSignTarget both still recognize the RETIRED
+// Deliberately NOT a whole-repo sweep: internal/core/ident.IsRetiredBuiltinSpelling
+// still recognizes the RETIRED
 // "builtin:<name>" ASK spelling on purpose — recognizing it is what lets it be
 // REFUSED by name instead of silently re-read as a bundle name — and
 // sweeping those in would fail on code that is correct by design, not

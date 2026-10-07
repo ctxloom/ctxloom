@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -99,7 +99,7 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	// sourceBundleRef bridge repoFSReader.sourceRefTyped uses on a
 	// ref of this identical canonical shape — never left for newRead's
 	// only-if-empty fallback to reach, because that fallback mints
-	// trust.LocalRef unconditionally and would misclassify every non-local
+	// ident.LocalRef unconditionally and would misclassify every non-local
 	// historical version. Without this, BundleRead.SourceRef on a
 	// version-pinned read reported the zero BundleRef, and a zero source ref
 	// is not merely undocumented — the producers that mint an item's ref from
@@ -181,8 +181,8 @@ func (l *Loader) ReadFragmentAtVersion(ref, commit string) ([]*ItemRead, error) 
 	if !ask.Scoped {
 		return l.Catalog().searchFragment(ref)
 	}
-	if ask.Kind != trust.KindFragment {
-		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, ref, ask.Kind, trust.KindFragment)
+	if ask.Kind != ident.KindFragment {
+		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, ref, ask.Kind, ident.KindFragment)
 	}
 	read, err := l.bundleAtVersion(ask.Bundle, commit)
 	if err != nil {
@@ -210,8 +210,8 @@ func (l *Loader) ReadCommandAtVersion(ref, commit string) ([]*ItemRead, error) {
 	if !ask.Scoped {
 		return l.Catalog().searchCommand(ref)
 	}
-	if ask.Kind != trust.KindPrompt {
-		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, ref, ask.Kind, trust.KindPrompt)
+	if ask.Kind != ident.KindPrompt {
+		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, ref, ask.Kind, ident.KindPrompt)
 	}
 	read, err := l.bundleAtVersion(ask.Bundle, commit)
 	if err != nil {

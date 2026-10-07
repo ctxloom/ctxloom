@@ -1,7 +1,7 @@
 package content
 
 import (
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"path"
 	"strings"
 )
@@ -88,7 +88,7 @@ func stemOf(p string) string {
 //
 // This is the axis that reaches FILENAMES, which is why it is the plain
 // raw/distilled vocabulary: the suffix is ".distilled.md" and could never be ".fragment/distilled.md".
-var formSuffixForms = []trust.ContentForm{trust.FormDistilled}
+var formSuffixForms = []ident.ContentForm{ident.FormDistilled}
 
 // formOf reports which form a component belongs to, given the forms the item
 // carries.
@@ -100,7 +100,7 @@ var formSuffixForms = []trust.ContentForm{trust.FormDistilled}
 // fragments/solid.distilled.md is distilled, and mcp/postgres.yaml — unsuffixed,
 // single-form — is raw too: one rule, and a newly registered kind gets it for
 // free.
-func formOf(p string, forms []trust.ContentForm) trust.ContentForm {
+func formOf(p string, forms []ident.ContentForm) ident.ContentForm {
 	lb := logicalBase(p)
 	for _, f := range forms {
 		if f == "" {
@@ -111,7 +111,7 @@ func formOf(p string, forms []trust.ContentForm) trust.ContentForm {
 		}
 	}
 	if len(forms) == 0 {
-		return trust.FormNone
+		return ident.FormNone
 	}
 	return forms[0]
 }

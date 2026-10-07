@@ -9,7 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
@@ -28,7 +28,7 @@ func attestedPackage() Package {
 			Files: []engine.SkillFile{{Path: "SKILL.md", Digest: "d", Size: 3, Mode: 0o644, Bytes: []byte("abc")}}}, Ref: "b/s"}},
 		Hooks:      wire.HooksConfig{Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "echo hi", Type: "command"}}}},
 		MCP:        map[string]wire.MCPServer{"ctxloom": {Command: "ctxloom", Args: []string{"mcp"}, Env: map[string]string{"K": "v"}}},
-		Links:      []LinkGroup{{Server: "ctxloom", Members: []trust.Ref{{Bundle: "b", Kind: trust.ItemKind("command"), Name: "c"}}}},
+		Links:      []LinkGroup{{Server: "ctxloom", Members: []ident.Ref{{Bundle: "b", Kind: ident.ItemKind("command"), Name: "c"}}}},
 		DenyTools:  []string{"Task"},
 		Statusline: true,
 		Selection:  Selection{Profiles: []string{"base"}, LLM: "primary", Preference: map[string]string{"context": "file"}},

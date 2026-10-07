@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -40,7 +40,7 @@ func TestLockfileManager_SaveAndLoad(t *testing.T) {
 	// Create lockfile
 	lockfile := &Lockfile{
 		Version: 1,
-		Bundles: make(map[trust.BundleKey]LockEntry),
+		Bundles: make(map[ident.BundleKey]LockEntry),
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
@@ -93,7 +93,7 @@ func TestLockfileManager_SaveStampsTheCurrentVersion(t *testing.T) {
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 
 	require.NoError(t, manager.Save(&Lockfile{
-		Bundles: map[trust.BundleKey]LockEntry{"ctxloom+git://github.com/a/r//bundles/x": {SHA: "abc1234"}},
+		Bundles: map[ident.BundleKey]LockEntry{"ctxloom+git://github.com/a/r//bundles/x": {SHA: "abc1234"}},
 	}))
 
 	onDisk, err := afero.ReadFile(fs, manager.Path())
@@ -107,7 +107,7 @@ func TestLockfileManager_SaveStampsTheCurrentVersion(t *testing.T) {
 
 func TestLockfile_AddEntry(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles: make(map[trust.BundleKey]LockEntry),
+		Bundles: make(map[ident.BundleKey]LockEntry),
 	}
 
 	entry := LockEntry{SHA: "abc123"}
@@ -121,7 +121,7 @@ func TestLockfile_AddEntry(t *testing.T) {
 
 func TestLockfile_GetEntry(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles: map[trust.BundleKey]LockEntry{
+		Bundles: map[ident.BundleKey]LockEntry{
 			"ctxloom+git://github.com/alice/ctxloom//bundles/go-tools": {SHA: "abc123"},
 		},
 	}
@@ -144,7 +144,7 @@ func TestLockfile_GetEntry(t *testing.T) {
 
 func TestLockfile_RemoveEntry(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles: map[trust.BundleKey]LockEntry{
+		Bundles: map[ident.BundleKey]LockEntry{
 			"ctxloom+git://github.com/alice/ctxloom//bundles/go-tools": {SHA: "abc123"},
 			"ctxloom+git://github.com/bob/ctxloom//bundles/testing":    {SHA: "def456"},
 		},
@@ -165,7 +165,7 @@ func TestLockfile_RemoveEntry(t *testing.T) {
 
 func TestLockfile_AllEntries(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles: map[trust.BundleKey]LockEntry{
+		Bundles: map[ident.BundleKey]LockEntry{
 			"ctxloom+git://github.com/alice/ctxloom//bundles/go-tools": {SHA: "abc123"},
 		},
 	}
@@ -195,14 +195,14 @@ func TestLockfile_IsEmpty(t *testing.T) {
 		{
 			name: "empty",
 			lockfile: Lockfile{
-				Bundles: make(map[trust.BundleKey]LockEntry),
+				Bundles: make(map[ident.BundleKey]LockEntry),
 			},
 			want: true,
 		},
 		{
 			name: "with bundle",
 			lockfile: Lockfile{
-				Bundles: map[trust.BundleKey]LockEntry{"a": {}},
+				Bundles: map[ident.BundleKey]LockEntry{"a": {}},
 			},
 			want: false,
 		},
@@ -219,7 +219,7 @@ func TestLockfile_IsEmpty(t *testing.T) {
 
 func TestLockfile_Count(t *testing.T) {
 	lockfile := Lockfile{
-		Bundles: map[trust.BundleKey]LockEntry{"a": {}, "b": {}},
+		Bundles: map[ident.BundleKey]LockEntry{"a": {}, "b": {}},
 	}
 
 	if got := lockfile.Count(); got != 2 {
@@ -254,7 +254,7 @@ func TestWithLockfileFS(t *testing.T) {
 	// Verify the custom FS is used by saving and loading
 	lockfile := &Lockfile{
 		Version: 1,
-		Bundles: make(map[trust.BundleKey]LockEntry),
+		Bundles: make(map[ident.BundleKey]LockEntry),
 	}
 	lockfile.AddEntry(ItemTypeBundle, "ctxloom+git://example.test/r//bundles/bundle", LockEntry{SHA: "abc123"})
 
@@ -354,7 +354,7 @@ func TestLockfileManager_Save_SetsLockedAt(t *testing.T) {
 
 	lockfile := &Lockfile{
 		Version: 1,
-		Bundles: make(map[trust.BundleKey]LockEntry),
+		Bundles: make(map[ident.BundleKey]LockEntry),
 	}
 
 	before := time.Now().UTC()
@@ -371,7 +371,7 @@ func TestLockfileManager_Save_SetsLockedAt(t *testing.T) {
 
 func TestLockfile_GetEntry_UnknownType(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles: make(map[trust.BundleKey]LockEntry),
+		Bundles: make(map[ident.BundleKey]LockEntry),
 	}
 
 	// Unknown item type should not find any entry
@@ -410,7 +410,7 @@ func TestLockfile_OnlyBundlesAreDistributed(t *testing.T) {
 
 func TestLockfile_AddEntry_UnknownType(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles: make(map[trust.BundleKey]LockEntry),
+		Bundles: make(map[ident.BundleKey]LockEntry),
 	}
 
 	// Unknown type should not add to any map
@@ -423,7 +423,7 @@ func TestLockfile_AddEntry_UnknownType(t *testing.T) {
 
 func TestLockfile_RemoveEntry_UnknownType(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles: map[trust.BundleKey]LockEntry{"ctxloom+git://example.test/r//bundles/bundle": {SHA: "abc123"}},
+		Bundles: map[ident.BundleKey]LockEntry{"ctxloom+git://example.test/r//bundles/bundle": {SHA: "abc123"}},
 	}
 
 	// Unknown type should not remove from any map

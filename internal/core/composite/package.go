@@ -6,7 +6,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
@@ -182,7 +182,7 @@ type Skill struct {
 // LinkGroup is one link group the package delivers whole.
 type LinkGroup struct {
 	Server  string
-	Members []trust.Ref
+	Members []ident.Ref
 }
 
 // Item pairs an admitted value with the read facts it was admitted on.
@@ -269,7 +269,7 @@ type Index struct{ Entries []IndexEntry }
 // IndexEntry is one catalog item.
 type IndexEntry struct {
 	Ref         string
-	Kind        trust.ItemKind
+	Kind        ident.ItemKind
 	Description string
 	Premise     string
 }

@@ -14,8 +14,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
@@ -67,16 +67,16 @@ func TestAssemble_ProvenanceNamesDirectoryProfileAndItsBundles(t *testing.T) {
 // provenance the flat bundle pass carries. Builtin, companion and
 // profile-referenced bundles (local, and the two remote classes, git and
 // file) are genuinely different answers to "what do I change", so they must
-// not collapse into one — walked over every trust.SourceClass value, not just
+// not collapse into one — walked over every ident.SourceClass value, not just
 // the two internal ones a raw string-prefix test could tell apart.
 //
 // The marker is config.extractHooksFromBundle's canonical
 // "bundle:" + src.BundleIdentity() — bundleSource classifies it by PARSED
-// CLASS (trust.ParseBundleRef), never a string prefix, so this pins that
+// CLASS (ident.ParseBundleRef), never a string prefix, so this pins that
 // classification against every class the grammar defines, not the two the old
 // prefix test happened to check.
 func TestBundleSource_ClassifiesEveryClass(t *testing.T) {
-	mustRef := func(br trust.BundleRef, err error) trust.BundleRef {
+	mustRef := func(br ident.BundleRef, err error) ident.BundleRef {
 		require.NoError(t, err)
 		return br
 	}
@@ -87,22 +87,22 @@ func TestBundleSource_ClassifiesEveryClass(t *testing.T) {
 	}{
 		{
 			name: "companion",
-			scm:  "bundle:" + string(mustRef(trust.CompanionRef("ltk")).BundleIdentity()),
+			scm:  "bundle:" + string(mustRef(ident.CompanionRef("ltk")).BundleIdentity()),
 			want: Source{Origin: OriginCompanion, Ref: "ctxloom+companion:ltk"},
 		},
 		{
 			name: "local",
-			scm:  "bundle:" + string(mustRef(trust.LocalRef("local-kit")).BundleIdentity()),
+			scm:  "bundle:" + string(mustRef(ident.LocalRef("local-kit")).BundleIdentity()),
 			want: Source{Origin: OriginBundle, Ref: "ctxloom+local:local-kit"},
 		},
 		{
 			name: "git",
-			scm:  "bundle:" + string(mustRef(trust.GitRef("github.com", "/acme/tools", "kit")).BundleIdentity()),
+			scm:  "bundle:" + string(mustRef(ident.GitRef("github.com", "/acme/tools", "kit")).BundleIdentity()),
 			want: Source{Origin: OriginBundle, Ref: "ctxloom+git://github.com/acme/tools//bundles/kit"},
 		},
 		{
 			name: "file",
-			scm:  "bundle:" + string(mustRef(trust.FileRef("/srv/repo", "kit")).BundleIdentity()),
+			scm:  "bundle:" + string(mustRef(ident.FileRef("/srv/repo", "kit")).BundleIdentity()),
 			want: Source{Origin: OriginBundle, Ref: "ctxloom+file:///srv/repo//bundles/kit"},
 		},
 		// A marker that fails to parse (the retired, non-canonical spelling

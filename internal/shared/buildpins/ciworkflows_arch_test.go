@@ -368,3 +368,43 @@ func sortedKeys(m map[string]string) []string {
 	sort.Strings(keys)
 	return keys
 }
+
+// TestArch_CIWorkflows_VersionGuardMeasuresFromTheChangeBase fails when ci.yml's
+// version guard stops measuring VERSION against the change's own base.
+//
+// version-untagged-check passes whenever VERSION is unchanged since BASE, so a
+// BASE that is not where the change started — `github.sha`, a branch name —
+// makes every push "unchanged" and the guard passes vacuously, with nothing
+// red to say so. A push's base is `before`; a PR's is its base SHA.
+func TestArch_CIWorkflows_VersionGuardMeasuresFromTheChangeBase(t *testing.T) {
+	const want = `just version-untagged-check "${{ github.event.pull_request.base.sha || github.event.before }}"`
+	raw, err := os.ReadFile(filepath.Join(workflowsDir, "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Run string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	found := 0
+	for name, j := range doc.Jobs {
+		for _, s := range j.Steps {
+			if !strings.Contains(s.Run, "version-untagged-check") {
+				continue
+			}
+			found++
+			if strings.TrimSpace(s.Run) != want {
+				t.Errorf("ci.yml job %q runs %q; want %q", name, strings.TrimSpace(s.Run), want)
+			}
+		}
+	}
+	if found == 0 {
+		t.Error("ci.yml no longer runs version-untagged-check — the release gate is gone")
+	}
+}

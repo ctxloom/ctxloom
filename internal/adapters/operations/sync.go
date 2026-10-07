@@ -142,10 +142,20 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 	fs := getFS(req.FS)
 	baseDir := ProjectAppDir(cfg)
 
-	// Collect all remote bundle references from profiles. Bundle profiles used
-	// as parents contribute their underlying bundle; top-level remote profiles
-	// were retired, so there is no separate profile-ref set.
-	bundleRefs := collectRemoteReferences(cfg, req.Profiles)
+	// The loop's ref source, named as an argument rather than reached for
+	// through cfg — that is what keeps syncToFixedPoint free of any knowledge
+	// that a Config exists. Bundle profiles used as parents contribute their
+	// underlying bundle; top-level remote profiles were retired, so there is no
+	// separate profile-ref set.
+	//
+	// It walks into a bundle-profile parent only once that parent's bundle is
+	// installed at its pin, judged against the lock as it stands on THIS pass
+	// (walkInstalled builds a fresh probe each call): a parent pulled by an
+	// earlier pass is then walked, one still off its pin is pulled first.
+	collect := func() []string {
+		return collectRemoteReferences(cfg, req.Profiles, walkInstalled(ctx, cfg, req.BundleReader, baseDir))
+	}
+	bundleRefs := collect()
 
 	if len(bundleRefs) == 0 {
 		return &SyncDependenciesResult{
@@ -174,11 +184,6 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 	if err != nil {
 		return nil, err
 	}
-
-	// The loop's two dependencies, named as arguments rather than reached for
-	// through cfg. Building them here — and nowhere else — is what keeps
-	// syncToFixedPoint free of any knowledge that a Config exists.
-	collect := func() []string { return collectRemoteReferences(cfg, req.Profiles) }
 
 	pullBatch := func(ctx context.Context, refs []string) error {
 		// Refresh each referenced clone to its live tip before pulling. A first
@@ -271,7 +276,7 @@ func constraintChangesIn(cfg *config.Config, profileNames []string, baseDir stri
 // already satisfied and is not a change.
 func constraintChanges(cfg *config.Config, profileNames []string, lock *remote.Lockfile) []ConstraintChange {
 	var out []ConstraintChange
-	for _, r := range closureBundleRefs(cfg, profileNames) {
+	for _, r := range closureBundleRefs(cfg, profileNames, walkSeeded) {
 		ref := r.parsed
 		key, err := ref.LockKey()
 		if err != nil {
@@ -481,8 +486,8 @@ func syncRefURLs(refs []string) []string {
 // collectRemoteReferences returns the remote bundle refs the project closure
 // reaches (see closureBundleRefs), selector stripped, first-seen order — the
 // set `deps pull` installs.
-func collectRemoteReferences(cfg *config.Config, profileNames []string) []string {
-	reached := closureBundleRefs(cfg, profileNames)
+func collectRemoteReferences(cfg *config.Config, profileNames []string, walkInto parentGate) []string {
+	reached := closureBundleRefs(cfg, profileNames, walkInto)
 	refs := make([]string, 0, len(reached))
 	for _, r := range reached {
 		refs = append(refs, r.ref)
@@ -510,8 +515,9 @@ type closureRef struct {
 //
 // A bundle-profile parent is readable only once its bundle is installed, so
 // before that its own dependencies are not yet visible. syncToFixedPoint
-// re-collects after every pull for exactly that reason.
-func closureBundleRefs(cfg *config.Config, profileNames []string) []closureRef {
+// re-collects after every pull for exactly that reason. walkInto decides
+// whether a parent that IS readable is walked; see parentGate.
+func closureBundleRefs(cfg *config.Config, profileNames []string, walkInto parentGate) []closureRef {
 	loader := cfg.GetProfileLoader()
 	var roots []*profiles.Profile
 	if len(profileNames) == 0 {
@@ -519,19 +525,49 @@ func closureBundleRefs(cfg *config.Config, profileNames []string) []closureRef {
 	} else {
 		roots, _ = namedRoots(cfg, loader, profileNames)
 	}
-	c := &refCollector{loader: loader, seen: collections.NewSet[string](), visited: collections.NewSet[string]()}
+	c := &refCollector{loader: loader, walkInto: walkInto, seen: collections.NewSet[string](), visited: collections.NewSet[string]()}
 	for _, root := range roots {
 		c.walk(root)
 	}
 	return c.refs
 }
 
+// parentGate reports whether the closure walk may descend into the profile a
+// bundle-profile parent names, given that parent's bundle ref. The parent's
+// bundle itself is collected either way.
+//
+// WHY A GATE: a remote bundle's profiles are seeded from its INSTALLED tree,
+// and the tree is whatever commit its worktree last checked out — not
+// necessarily the one the lock pins. When a lock moves through git, a profile
+// read from the old tree still names bundles the new pin dropped, and an
+// install-side walk that trusted it fetched them at the new commit, where they
+// may not exist: the first pull after a bundle moved repositories failed, and
+// only the second (by then the parent was reinstalled) succeeded.
+type parentGate func(bundleRef string) bool
+
+// walkSeeded walks every parent whose profile is seeded: right for a walk that
+// installs nothing and runs against trees a pull has just put at their pins.
+func walkSeeded(string) bool { return true }
+
+// walkInstalled walks a parent only when its bundle is installed at its pin
+// (isInstalled, the probe pull skips by), read against the lock as it stands
+// now; injected overrides the probe, as SyncDependenciesRequest.BundleReader
+// does.
+func walkInstalled(ctx context.Context, cfg *config.Config, injected remote.BundleByteSource, baseDir string) parentGate {
+	probe := injected
+	if probe == nil {
+		probe = NewBundleReaderForConfig(cfg)
+	}
+	return func(bundle string) bool { return isInstalled(ctx, bundle, baseDir, probe) }
+}
+
 // refCollector is one closureBundleRefs walk.
 type refCollector struct {
-	loader  *profiles.Loader
-	seen    collections.Set[string] // bundle identities already collected
-	visited collections.Set[string] // profile names already walked
-	refs    []closureRef
+	loader   *profiles.Loader
+	walkInto parentGate
+	seen     collections.Set[string] // bundle identities already collected
+	visited  collections.Set[string] // profile names already walked
+	refs     []closureRef
 }
 
 func (c *refCollector) walk(p *profiles.Profile) {
@@ -554,7 +590,8 @@ func (c *refCollector) walk(p *profiles.Profile) {
 			continue
 		}
 		c.add(parent, p.Name)
-		if _, _, ok := remote.SplitBundleProfileRef(parent); !ok {
+		bundle, _, ok := remote.SplitBundleProfileRef(parent)
+		if !ok || !c.walkInto(bundle) {
 			continue
 		}
 		// Not loadable until its bundle is installed; see closureBundleRefs.
@@ -725,8 +762,9 @@ func CheckMissingDependencies(ctx context.Context, cfg *config.Config, req Check
 		bundleReader = NewBundleReaderForConfig(cfg)
 	}
 	var missing []MissingDependency
-	for _, r := range closureBundleRefs(cfg, req.Profiles) {
-		if !isInstalled(ctx, r.ref, missingBaseDir, bundleReader) {
+	installed := func(ref string) bool { return isInstalled(ctx, ref, missingBaseDir, bundleReader) }
+	for _, r := range closureBundleRefs(cfg, req.Profiles, installed) {
+		if !installed(r.ref) {
 			missing = append(missing, MissingDependency{Reference: r.ref, Type: "bundle", Profile: r.owner})
 		}
 	}
@@ -836,7 +874,7 @@ func refreshReferencedClones(ctx context.Context, cfg *config.Config) {
 	if err != nil {
 		return
 	}
-	refreshRepoCaches(ctx, NewRepoCache(cfg), syncRefURLs(collectRemoteReferences(cfg, nil)), registered)
+	refreshRepoCaches(ctx, NewRepoCache(cfg), syncRefURLs(collectRemoteReferences(cfg, nil, walkSeeded)), registered)
 }
 
 // SyncOnStartup is a convenience function that runs sync with sensible defaults.

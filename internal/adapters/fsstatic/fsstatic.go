@@ -109,35 +109,20 @@ func (s *Static) Deliver(_ context.Context, lo delivery.Loadout, root engine.Bas
 // stage because the record folds a file's operations in order: a release
 // staged after a claim on the same file would drop that claim.
 func (s *Static) deliver(sc *lockScope, lo delivery.Loadout, root engine.Base, target delivery.Target) (delivery.Delivered, error) {
-	surfaces := root.Surfaces()
 	paths := target.Root.Paths()
 	within := func(path string) bool { return underARoot(paths, path) }
-	undo := func(context.Context) error { return s.reverse(target.Ownership, within, target.Writer) }
-	out := delivery.Delivered{Undo: undo}
-	var runs []ran
-	if len(lo.Plan.Static) > 0 {
-		inputs, err := delivery.InputsFor(lo, root.Dynamic)
-		if err != nil {
-			return delivery.Delivered{}, err
-		}
-		for _, it := range lo.Plan.Static {
-			r, err := s.run(sc, it, surfaces[it.Kind], target, inputs)
-			if err != nil {
-				return delivery.Delivered{}, err
-			}
-			runs = append(runs, r)
-			out.Presented = append(out.Presented, r.d.Presented)
-			out.Wrote = append(out.Wrote, it.Kind)
-		}
-	}
-	retained, err := s.retain(runs, target)
+	out := delivery.Delivered{Undo: func(context.Context) error { return s.reverse(target.Ownership, within, target.Writer) }}
+	runs, err := s.runAll(sc, lo, root, target)
 	if err != nil {
 		return delivery.Delivered{}, err
 	}
 	for _, r := range runs {
-		if err := s.writeOwnState(r); err != nil {
-			return delivery.Delivered{}, err
-		}
+		out.Presented = append(out.Presented, r.d.Presented)
+		out.Wrote = append(out.Wrote, r.kind)
+	}
+	retained, err := s.retain(runs, target)
+	if err != nil {
+		return delivery.Delivered{}, err
 	}
 	b := s.batch(sc)
 	st := target.Ownership.In(b)
@@ -191,6 +176,34 @@ func planRootable(items []delivery.StaticItem, surfaces engine.Surfaces, paths p
 		}
 	}
 	return nil
+}
+
+// runAll is phase A's run: each static item's approach over its own
+// overlay, its declaration checked against what it wrote, and the files it
+// wrote outside every root written through as its own state.
+func (s *Static) runAll(sc *lockScope, lo delivery.Loadout, root engine.Base, target delivery.Target) ([]ran, error) {
+	if len(lo.Plan.Static) == 0 {
+		return nil, nil
+	}
+	inputs, err := delivery.InputsFor(lo, root.Dynamic)
+	if err != nil {
+		return nil, err
+	}
+	surfaces := root.Surfaces()
+	runs := make([]ran, 0, len(lo.Plan.Static))
+	for _, it := range lo.Plan.Static {
+		r, err := s.run(sc, it, surfaces[it.Kind], target, inputs)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, r)
+	}
+	for _, r := range runs {
+		if err := s.writeOwnState(r); err != nil {
+			return nil, err
+		}
+	}
+	return runs, nil
 }
 
 // ran is one approach's run: its declaration, and the files it wrote over

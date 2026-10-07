@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
@@ -127,7 +128,7 @@ func TestWriteManagedPackageFiles_RemovesNothing(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/work/.claude/skills"
 	foreign := filepath.Join(dir, "my-own-skill", "SKILL.md")
-	require.NoError(t, afero.WriteFile(fs, foreign, []byte("hand authored"), 0644))
+	testsupport.WriteFileString(t, fs, foreign, "hand authored", 0644)
 
 	items := []fakeSkillItem{{
 		name:    "humanize",

@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
@@ -44,15 +43,10 @@ func TestWriteSkillFiles_EnabledSkillLandsAtPathWithModes(t *testing.T) {
 	info, err = os.Stat(filepath.Join(base, "assets", "data.txt"))
 	require.NoError(t, err)
 	fileperm.Equal(t, 0o644, info.Mode())
-
-	manifest, err := os.ReadFile(filepath.Join(dir, ".claude", "skills", ledger.Name))
-	require.NoError(t, err)
-	assert.Contains(t, string(manifest), "humanize/SKILL.md")
-	assert.Contains(t, string(manifest), "humanize/scripts/run.sh")
 }
 
 // TestWriteSkillFiles_DisabledSkillNotWritten proves a disabled skill is
-// never written to disk and never manifest-tracked.
+// never written to disk.
 func TestWriteSkillFiles_DisabledSkillNotWritten(t *testing.T) {
 	dir := t.TempDir()
 	skills := []agent.SkillExport{{
@@ -65,34 +59,4 @@ func TestWriteSkillFiles_DisabledSkillNotWritten(t *testing.T) {
 	require.NoError(t, WriteSkillFiles(dir, skills))
 
 	assert.NoFileExists(t, filepath.Join(dir, ".claude", "skills", "off", "SKILL.md"))
-	assert.NoFileExists(t, filepath.Join(dir, ".claude", "skills", ledger.Name),
-		"nothing written means no manifest at all")
-}
-
-// TestWriteSkillFiles_CleanupPreservesForeignSkill proves re-materializing
-// with fewer skills reverts only the manifest-tracked set — a foreign,
-// user-authored skill directory in .claude/skills/ survives.
-func TestWriteSkillFiles_CleanupPreservesForeignSkill(t *testing.T) {
-	dir := t.TempDir()
-	foreign := filepath.Join(dir, ".claude", "skills", "my-own-skill", "SKILL.md")
-	require.NoError(t, os.MkdirAll(filepath.Dir(foreign), 0755))
-	require.NoError(t, os.WriteFile(foreign, []byte("hand authored"), 0644))
-
-	skills := []agent.SkillExport{{
-		Name:        "humanize",
-		Description: "d",
-		Enabled:     true,
-		Files:       []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("managed"), Mode: 0644}},
-	}}
-	require.NoError(t, WriteSkillFiles(dir, skills))
-	require.FileExists(t, filepath.Join(dir, ".claude", "skills", "humanize", "SKILL.md"))
-
-	// Cleanup: re-materialize with no skills.
-	require.NoError(t, WriteSkillFiles(dir, nil))
-
-	assert.NoFileExists(t, filepath.Join(dir, ".claude", "skills", "humanize", "SKILL.md"))
-	assert.FileExists(t, foreign, "a foreign skill directory must survive cleanup")
-	content, err := os.ReadFile(foreign)
-	require.NoError(t, err)
-	assert.Equal(t, "hand authored", string(content))
 }

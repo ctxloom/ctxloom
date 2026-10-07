@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
 func TestBookend_HighestFirstSecondHighestLast(t *testing.T) {
@@ -97,4 +99,23 @@ func TestDedupe_KeepsTheHighestPriorityPerName(t *testing.T) {
 	assert.Equal(t, 10, priorities["a"], "should keep higher priority for 'a'")
 	assert.Equal(t, 3, priorities["b"], "should keep first (higher) priority for 'b'")
 	assert.Equal(t, 1, priorities["c"])
+}
+
+// A bundle item's command is added once however many routes reach it, while
+// commands with no item (injected ones) are each added; every added command
+// carries exactly one attestation row.
+func TestCommandCollector_AddsEachBundleItemOnce(t *testing.T) {
+	a := &assembly{}
+	cc := commandCollector{a: a, seen: map[string]bool{}}
+	cc.add(Command{Name: "review", Item: "kit#commands/review", Body: "first"}, "ref-a", bundles.FormRaw)
+	cc.add(Command{Name: "review", Item: "kit#commands/review", Body: "again"}, "ref-b", bundles.FormRaw)
+	cc.add(Command{Name: "injected-1", Body: "x"}, "injected-1", bundles.FormRaw)
+	cc.add(Command{Name: "injected-2", Body: "y"}, "injected-2", bundles.FormRaw)
+
+	var names []string
+	for _, it := range a.commandItems {
+		names = append(names, it.Value.Name+"="+it.Value.Body)
+	}
+	assert.Equal(t, []string{"review=first", "injected-1=x", "injected-2=y"}, names)
+	assert.Len(t, a.rows, 3)
 }

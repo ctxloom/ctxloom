@@ -361,6 +361,32 @@ function Install-Completion {
 # ║ Companions - taskloom and ltk ride along (unless told not to)             ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
+# Register-Companion: ctxloom runs a companion only once it is registered by
+# name (`ctxloom companion add`). Registers an installed companion with
+# $Destination leading PATH so the check runs the binary just installed.
+# Best-effort: a failure warns and returns.
+function Register-Companion {
+    param(
+        [string]$Name,
+        [string]$Destination
+    )
+    $ctxloom = Join-Path $Destination "ctxloom.exe"
+    $savedPath = $env:PATH
+    try {
+        $env:PATH = "$Destination;$savedPath"
+        & $ctxloom companion add $Name
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "${Name}: installed but not registered; register it later: ctxloom companion add $Name"
+        }
+    }
+    catch {
+        Write-Warn "${Name}: installed but not registered ($_); register it later: ctxloom companion add $Name"
+    }
+    finally {
+        $env:PATH = $savedPath
+    }
+}
+
 # Install-Companion: best-effort sibling of Install-Ctxloom. Any failure warns
 # and returns so the ctxloom install never fails over a companion. Verifies
 # the archive against the release's checksums.txt when available.
@@ -404,6 +430,7 @@ function Install-Companion {
         Install-Binary -SourceDir $tempDir -Name $Binary -Destination $Destination
         $dest = Join-Path $Destination "$Binary.exe"
         Write-Success "Installed companion: $dest"
+        Register-Companion -Name $Binary -Destination $Destination
     }
     catch {
         Write-Warn "${Binary}: install failed ($_); skipping"

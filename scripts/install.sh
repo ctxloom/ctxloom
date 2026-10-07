@@ -58,11 +58,12 @@ INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 BINARY_NAME="ctxloom"
 
 # Companion tools - taskloom (task tracking MCP server) and ltk (command
-# guardrail pre-tool hook), which ctxloom's built-in bundles wire in when
-# present on PATH. Both are now folded into the ctxloom repo and ship from THIS
-# same release/tag, so they install alongside ctxloom from the very same archive
-# set — no separate repos, no opt-out flags. A companion that fails to download
-# is a warning, never a failed ctxloom install.
+# guardrail pre-tool hook). ctxloom runs a companion only once it is registered
+# by name (`ctxloom companion add`), so each one installed here is registered.
+# Both ship from THIS same release/tag, so they install alongside ctxloom from
+# the very same archive set — no separate repos, no opt-out flags. A companion
+# that fails to download or register is a warning, never a failed ctxloom
+# install.
 readonly COMPANIONS=(taskloom ltk)
 
 # --brew: delegate everything to Homebrew instead of fetching archives.
@@ -359,6 +360,19 @@ install_companion() {
 
     log_success "Installed companion: ${INSTALL_DIR}/${binary}"
     rm_temp
+    register_companion "${binary}" "${INSTALL_DIR}/${BINARY_NAME}" "${INSTALL_DIR}"
+    return 0
+}
+
+# register_companion <name> <ctxloom> <dir>: register an installed companion
+# by name (`ctxloom companion add`), with <dir> leading PATH so the check runs
+# the binary just installed. Best-effort: a failure warns and returns 0.
+register_companion() {
+    local name="$1" ctxloom_bin="$2" dir="$3"
+    if PATH="${dir}:${PATH}" "${ctxloom_bin}" companion add "${name}"; then
+        return 0
+    fi
+    log_warn "${name}: installed but not registered; register it later: ctxloom companion add ${name}"
     return 0
 }
 
@@ -563,6 +577,7 @@ install_via_brew() {
     for companion in "${COMPANIONS[@]}"; do
         if brew install "ctxloom/tap/${companion}"; then
             log_success "Installed companion ${companion} via brew"
+            register_companion "${companion}" "$(brew --prefix)/bin/${BINARY_NAME}" "$(brew --prefix)/bin"
         else
             log_warn "${companion}: brew install failed (cask may not be published yet); skipping"
         fi

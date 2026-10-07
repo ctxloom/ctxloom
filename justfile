@@ -1610,9 +1610,10 @@ run *ARGS:
 # entry leaves the busy inode mapped for any running binary (avoids ETXTBSY and
 # never dumps a live ctxloom-managed session); new launches pick up the new one.
 #
-# Every install changes the companions' bytes, and ctxloom runs a companion
-# only while its path and SHA-256 are allowed — so the companions installed
-# here are re-allowed by the ctxloom installed alongside them.
+# ctxloom runs only the companions registered by name, so the ones installed
+# here are registered (`ctxloom companion add`) by the ctxloom installed
+# alongside them, with ~/go/bin leading PATH so the check runs the binaries
+# just installed.
 install: build-all-bins
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1626,7 +1627,7 @@ install: build-all-bins
     install_bin bin/ltk ltk
     install_bin bin/taskloom taskloom
     for companion in ltk taskloom; do
-        ~/go/bin/ctxloom companion allow ~/go/bin/"$companion" --yes
+        PATH=~/go/bin:"$PATH" ~/go/bin/ctxloom companion add "$companion"
     done
 
 # Uninstall all three binaries from ~/go/bin

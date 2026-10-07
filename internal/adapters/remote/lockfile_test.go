@@ -433,4 +433,3 @@ func TestLockfile_RemoveEntry_UnknownType(t *testing.T) {
 		t.Error("unknown type should not remove from bundles")
 	}
 }
-

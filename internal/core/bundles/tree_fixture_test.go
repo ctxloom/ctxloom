@@ -53,6 +53,7 @@ func writeTree(t testing.TB, fsys afero.Fs, root, name, doc string) string {
 	}
 	for _, name := range collections.SortedKeys(b.Skills) {
 		sk := b.Skills[name]
+		require.Emptyf(t, sk.Path, "skill %q declares a path, which a tree cannot express: its package is skills/%s", name, name)
 		if len(sk.Tags) == 0 && sk.Notes == "" && len(sk.Exports) == 0 {
 			continue
 		}

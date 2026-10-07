@@ -54,8 +54,8 @@ flowchart TD
     VP --> TERM
     TERM -->|"Stdin/Stdout/Resize"| VP
 
-    LTK -->|"loadout.yaml via companion discovery"| CTX["ctxloom"]
-    TL -->|"loadout.yaml via companion discovery"| CTX
+    LTK -->|"loadout.yaml, once registered (companion add)"| CTX["ctxloom"]
+    TL -->|"loadout.yaml, once registered (companion add)"| CTX
     TL -.->|"reuses internal/ltk/engine's<br/>hooks.json merge machinery"| LTK
 
     CF --> LTK & TL & CTX

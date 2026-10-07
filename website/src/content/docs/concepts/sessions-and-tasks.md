@@ -27,18 +27,16 @@ task_tag          # add or remove a task's tags
 
 ctxloom does not carry a copy of taskloom's wiring. It finds taskloom the same
 way it finds any **companion** — a standalone tool that describes itself. At
-startup ctxloom looks for companion binaries on your `PATH` (the first-party
-names, plus anything called `ctxloom-companion-*`) and runs
-`<bin> loadout --format json`. It executes a binary only when a detached
-`<binary>.sig` beside it verifies against a key you trust; anything else is
-skipped with a warning (`ctxloom companion list` shows which would run, and
-why). The loadout the binary prints carries the bundle it contributes, MCP
-server included, and that content is admitted as the companion's own, the same
-way your project's authored content is. A rejection you record still withholds
-any item of it.
+startup ctxloom resolves each companion you registered (`ctxloom companion add
+taskloom`) on your `PATH` and runs `<bin> loadout --format yaml`; nothing on
+`PATH` is run unless its name is registered (`ctxloom companion list` shows
+what is registered and whether each resolves). The loadout the binary prints
+carries the bundle it contributes, MCP server included, and that content is
+taken as the companion's own, the same way your project's authored content is.
 
-The practical consequence: install a signed `taskloom` and it wires itself in;
-remove it from `PATH` and it quietly disappears from the session.
+The practical consequence: install `taskloom` and register it (the installer
+does both) and it wires itself in; `ctxloom companion remove taskloom --yes`
+takes it out of the session.
 
 The same store is scriptable from your shell (`taskloom add`, `taskloom list`,
 `taskloom status`, `taskloom edit`, `taskloom summary`, `taskloom statuses`).

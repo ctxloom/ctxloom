@@ -129,10 +129,11 @@ visible in `docker images` rather than only by recomputing a digest — and imag
 built by different ctxloom versions COEXIST instead of overwriting one shared
 tag. The key comes from `hostImageKeys`: ctxloom's commit (`versionCommitKey`,
 not the raw stamp, which embeds a build timestamp) plus the digest of the
-ADMITTED companions. The companion digest is in the tag, not only the
-provenance label, because admission follows the invoking HOME's trust: two
-environments at one commit stage different images, and sharing a tag made each
-rebuild over the other's.
+companions the image stages (`imageCompanions`: those REGISTERED on the
+invoking machine). The companion digest is in the tag, not only the
+provenance label, because the staged set follows the invoking HOME's
+registration: two environments at one commit stage different images, and
+sharing a tag made each rebuild over the other's.
 
 **THE ORDER ABOVE IS LOAD-BEARING.** The version `LABEL`s interpolate
 `ARG CTXLOOM_VERSION`, which changes on every build, and docker invalidates

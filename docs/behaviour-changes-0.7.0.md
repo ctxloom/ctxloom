@@ -212,18 +212,26 @@ re-signed. Until then, content whose signature does not verify is not pinned:
 `ctxloom doctor` repeats the warning. Nothing is offered for review, because a
 signature that does not cover its bytes is a tamper signal.
 
-## 10. Companion binaries run only once you allow them
+## 10. Companions run only once you register them, by name
 
-ctxloom executes a companion binary it finds on PATH (`ltk`, `taskloom`,
-`reprise`, `ctxloom-companion-*`) only when your own
-`~/.ctxloom/companion_allow.yaml` records its resolved path and the SHA-256 of
-its bytes. Allow one with `ctxloom companion allow <path|name> --yes`; without
-`--yes` the command shows the path and hash it would record and writes
-nothing. A companion with no record is skipped as `not-allowed`, and one whose
-bytes changed since it was allowed — a rebuild or an upgrade — is skipped as
-`hash-changed`, naming the old and the new hash. Re-run `companion allow` after
-installing a new build; `just install` does this for the companions it
-installs. `ctxloom companion forget <path|name> --yes` withdraws an allow.
+ctxloom no longer scans PATH for companions. It runs exactly the companions
+you registered with `ctxloom companion add <name>`, which finds the binary on
+PATH (`ltk`, `taskloom` and `reprise` are their own binaries; any other name
+`<n>` is `ctxloom-companion-<n>`), checks that it answers
+`<binary> loadout --format yaml`, and records the NAME in your home config
+(`companions:` in `~/.ctxloom/config.yaml`). Each session resolves the
+registered names on PATH afresh. `ctxloom companion list` shows what is
+registered and whether each resolves; `ctxloom companion remove <name> --yes`
+unregisters one. A registered name that is no longer on PATH is reported with
+both ways out.
+
+`just install` and the install scripts register the companions they install.
+If you installed companions another way, register them once:
+`ctxloom companion add ltk` and `ctxloom companion add taskloom`.
+
+`ctxloom companion allow`, `companion forget` and `companion show` are gone,
+and `~/.ctxloom/companion_allow.yaml` is no longer read. An agent container
+image carries the registered first-party companions and their registration.
 
 ## 11. A lockfile keyed by the reference as typed is refused
 

@@ -16,10 +16,9 @@ and no per-item approval to record.
   remotes you registered.
 - **Your project** — fragments, commands, MCP servers, hooks, and skills you
   authored in this project are yours.
-- **Companions** — a companion binary (ctxloom itself, ltk, taskloom, ...) runs
-  only once you allow it by path and content hash (`ctxloom companion allow
-  <path>`). A rebuilt binary at an allowed path is reported as "hash changed"
-  until you allow it again.
+- **Companions** — a companion binary (ltk, taskloom, ...) runs only once you
+  register it by name (`ctxloom companion add <name>`). Nothing else on your
+  `PATH` is run for being there.
 
 ## What changes reach you
 

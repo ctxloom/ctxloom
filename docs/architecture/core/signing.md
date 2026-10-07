@@ -137,6 +137,6 @@ flowchart TD
 
 - **Depended on by:** the countersign store, bundle reading and skill-archive verification in
   `internal/core/bundles`, publishing and review in `internal/adapters/operations` and
-  `internal/adapters/content/attest`, and companion discovery and the `loadout` emitter under
+  `internal/adapters/content/attest`, and companion probing and the `loadout` emitter under
   `internal/adapters/companions`. `git grep` on the import path gives the current set.
 - **Depends on:** `internal/core/trust` (the port), `github.com/hiddeco/sshsig`.

@@ -293,97 +293,52 @@ rejection — see the decision function above):
 
 ### Companion loadouts
 
-A companion (`ltk`, `taskloom`, `reprise`, or any `ctxloom-companion-*` binary
-on `$PATH`) tells ctxloom what it contributes by being **run**:
-`<bin> loadout --format json`.
+A companion (`ltk`, `taskloom`, `reprise`, or a `ctxloom-companion-<name>`
+binary) tells ctxloom what it contributes by being **run**:
+`<bin> loadout --format yaml`. Gating the *content* of a loadout would put the
+decision strictly **after** the arbitrary code execution it would be protecting
+you from — the binary already ran, as you, before a single byte of content
+existed. So the decision sits where it has purchase: **which binaries ctxloom
+runs at all**. Companion content itself is local-equivalent.
 
-**The posture reversed here, deliberately.** This document and
-`docs/signing-design.md` previously recorded that a companion loadout is
-*"withheld, never crashes, never auto-allowed"* — gated "exactly like a remote
-bundle". Only **"never crashes"** survives. Companion content is
-**local-equivalent**: allowed at step 4b, never withheld for want of a
-signature or a review.
+**Registration is the gate, and it is a name.** ctxloom runs exactly the
+companions you registered with `ctxloom companion add <name>`. `add` resolves
+the binary on `$PATH`, requires it to answer the loadout probe, and records the
+NAME in your home config (`companions:` in `~/.ctxloom/config.yaml`). Every use
+resolves each registered name on `$PATH` afresh; nothing is ever found by
+scanning `$PATH`. A first-party name resolves its own binary; any other name
+`<n>` resolves `ctxloom-companion-<n>`.
 
-The reason is order of operations. Gating the *content* of a loadout puts the
-review prompt strictly **after** the arbitrary code execution it would be
-protecting you from: the binary already ran, as you, before a single byte of
-content existed. A prompt in that position buys ~nothing, and it costs friction
-on content the user deliberately installed — which is how prompt fatigue trains
-people to approve without reading, blunting the prompts that *do* matter.
+This closes a real hole. `./node_modules/.bin` is on `$PATH` in a large share
+of JavaScript projects (npx and direnv add it as an absolute entry), and an npm
+package — including a transitive dependency nobody chose — can ship a binary
+under any name. Shipping `ctxloom-companion-anything` once earned an exec at the
+next session start with no user action. A name nobody registered now earns
+nothing.
 
-So the decision moved to where it has purchase: **may ctxloom execute this
-binary at all**.
+The registration is deliberately a name, never a path, so it holds wherever the
+binary is installed — an agent container included, whose image stages the
+registered first-party companions and registers them in the image's own home
+config. Two residuals are accepted: a binary of a REGISTERED name placed earlier
+on `$PATH` is the one that runs, and a project config may set `companions:`
+too, because adding a repository is already the trust decision.
 
-**Admission is a signature, and nothing else.** Discovery is deliberately
-permissive — it lists every first-party name plus every `ctxloom-companion-*`
-found by scanning `$PATH`, filtering nothing, because it is a *candidate list*.
-The gate is at exec: a companion runs only when the release statement beside it
-(its name, version and SHA-256) carries a signature from a key the trust root
-authorizes for the `companion.v1.ctxloom.dev` namespace, the name matches the
-file resolved and the hash matches its bytes (`companions.AdmitCompanions`).
-Unsigned, untrusted-signer and tampered binaries are refused, never prompted;
-`ctxloom companion show <path>` says which and why.
+**Failure is reported, never fatal.** A registered name that resolves to
+nothing contributes nothing, with a warning naming it and both ways out
+(`companion add` once it is installed, or `companion remove`). A companion that
+answers it has no loadout contributes nothing, quietly. One that never answers
+— wedged, timed out, or printing an unusable envelope — contributes something
+UNKNOWN; it contributes nothing this time, with a warning naming it and the
+command that must answer. A loadout whose bundle YAML will not parse is skipped
+with a warning. Nothing stalls startup.
 
-This closes a real hole. `./node_modules/.bin` is on `$PATH` in a large share of
-JavaScript projects, and an npm package — including a transitive dependency
-nobody chose — can ship a binary under any name. Shipping
-`ctxloom-companion-anything` previously earned an exec at the next session
-start with no user action at all. That attacker does not control `$PATH`; they
-name-squatted an auto-exec convention in a directory already on it. Every *other*
-consumer of `node_modules/.bin` requires a human to type the command.
-
-**A loadout's signature is a diagnostic, not a gate.** This is the second place
-the companion class parts company with remote content, and it follows from the
-same fact. A publisher signature exists to protect bytes from an
-**intermediary** — a forge, a network, a tampered clone object. A loadout has no
-intermediary: its bytes come straight off the stdout of a binary the user
-its publisher's signature admitted. So a companion loadout is admitted whatever its
-signature says, and the signature facts are **reported** instead:
-
-- **No signature** → admitted, silently. Ordinary.
-- **Signature present, does not verify over the bytes** → **admitted, with a
-  warning**, and the content is delivered unattributed. This is a *bug* signal,
-  not an attack signal: it almost always means the companion's release shipped a
-  stale or mismatched signature, and the fix belongs to the companion's authors.
-  Calling it tampering would be both wrong and useless. (A **remote** bundle
-  keeps the opposite posture — an invalid signature there is tamper and
-  withholds — because its bytes crossed exactly the intermediary a loadout's do
-  not.)
-- **Signature valid, signer not trusted for publish** → admitted, with a
-  warning, unattributed. The key's trust status is a fact about the key, not a
-  gate on local content.
-
-The control that actually catches a **swapped companion binary** is the signed
-release statement's hash above, which is the right place for it: it fires before
-the binary runs, rather than after it has already executed.
-
-**What does not change.** Rejection still reaches companion content (step 1,
-above the exemption). An unreadable approvals store still denies it along with
-everything else. Nothing is fatal and nothing stalls startup. An absent
-companion, or one that answers it has no loadout, contributes nothing, quietly.
-One that is admitted but never answers — wedged, timed out, or printing an
-unusable envelope — contributes something UNKNOWN; it contributes nothing this
-time, with a warning naming it and the command that must answer. A loadout whose
-bundle YAML will not parse is skipped with a warning. Nothing is dropped silently: reporting replaces
-filtering throughout.
-
-**Admitting a loadout is not the same as delivering it unconditionally.**
-Admission decides whether a companion's bytes are *admitted*; it says nothing about
-how much of the agent's context they then occupy. Those are separate controls and
-conflating them overstates what this section governs.
-
-A loadout fragment may declare a **premise** — an applicability condition — and
+**Running a companion is not the same as delivering all of its loadout.** A
+loadout fragment may declare a **premise** — an applicability condition — and
 ctxloom honours it exactly as it honours a premise on any other fragment: the
-fragment is withheld from unconditional context and offered on demand instead. A
-fragment that declares none stays unconditional, which is what makes the
-mechanism additive rather than a breaking change. The consequence worth knowing
-here is that a trusted, admitted companion can still be *absent* from a given
-session's context by design, and that is not a trust failure.
-
-See `docs/companion-loadout-standard.md` for the premise's authoring rules and the
-measured effect on the unconditional floor. It is the authority; this paragraph
-exists only so a reader of the trust model does not conclude that admission and
-delivery are the same decision.
+fragment is withheld from unconditional context and offered on demand instead.
+A registered companion can therefore still be *absent* from a given session's
+context by design. See `docs/companion-loadout-standard.md` for the premise's
+authoring rules; it is the authority.
 
 
 ### Trusted publishers
@@ -640,8 +595,8 @@ context.
 | Listing stamp (`TrustStamper`) | JSON listings | stamped `trusted: false` + source |
 
 There is one choke *above* all of these, and it is not a content decision at
-all: **companion admission**. A companion no trusted publisher signed is never
-run, so its content never exists to gate. See "Companion loadouts".
+all: **companion registration**. A companion nobody registered is never run,
+so its content never exists to gate. See "Companion loadouts".
 
 Companion content — ctxloom's own included — passes through every one of
 these chokes exactly like remote/local content; it is simply allowed by
@@ -834,11 +789,11 @@ Addressed:
 - **`$PATH` name-squatting into an auto-exec** — a binary named
   `ctxloom-companion-*` (or one of the three first-party names) dropped into a
   directory already on `$PATH`, `./node_modules/.bin` being the realistic case,
-  used to be executed at the next session start with no user action. It is now
-  trust-on-first-use, keyed on absolute path + SHA-256, and skipped outright in
-  any non-interactive session. The first-party name exemption is pinned to
-  ctxloom's own install directory so it cannot be claimed by a shadowing
-  binary. See "Companion loadouts".
+  used to be executed at the next session start with no user action. Nothing
+  on `$PATH` is now run unless its name was registered
+  (`ctxloom companion add`). A binary of a registered name placed earlier on
+  `$PATH` still shadows the real one; that residual is accepted. See
+  "Companion loadouts".
 - **Content-form-flip escape** — closed by requiring an independent
   countersignature over EACH exposed form; a raw approval never validates a
   distilled exposure or vice versa.

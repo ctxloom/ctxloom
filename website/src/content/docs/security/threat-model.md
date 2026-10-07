@@ -51,10 +51,12 @@ carries.
 It does nothing. The field is not deserialized from content; it can only be set by a load
 path that already verified a signature against Alice's trust root.
 
-**Companion binaries run only once allowed.** ctxloom reads a companion's contribution by
-running it, so the decision is whether to execute it: a companion runs only when its path and
-content hash are on record (`ctxloom companion allow <path>`). A rebuilt binary at an allowed
-path is reported as "hash changed" until it is allowed again.
+**Companion binaries run only once registered.** ctxloom reads a companion's contribution by
+running it, so the decision is whether to execute it: a companion runs only when you registered
+its name (`ctxloom companion add <name>`), and nothing on `PATH` is run for being there — a
+dependency that drops `ctxloom-companion-*` into `node_modules/.bin` earns nothing. The
+registration is a name, so a binary of a registered name placed earlier on `PATH` is the one
+that runs.
 
 ## What we do not defend
 
@@ -191,7 +193,7 @@ its next write refuses rather than overwrite your edit.
 ## The one line we hold
 
 Everything above reduces to a single invariant: **adding a git repository is the trust act.**
-Content reaches your agent only from your project, from a companion you allowed, or from a
+Content reaches your agent only from your project, from a companion you registered, or from a
 repository you added — and what a pin move would change is shown to you before it lands.
 
 We do not claim to know whether a prompt is safe. We claim to know **where it came from** and

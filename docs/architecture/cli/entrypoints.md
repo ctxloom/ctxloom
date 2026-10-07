@@ -79,7 +79,7 @@ for it: a broken config cannot excuse itself.
   rather than merely documented.
 - `--degraded` — downgrades strictness findings from fatal to advisory (env
   fallback `CTXLOOM_DEGRADED`).
-- `--no-companions` — disables companion discovery (env fallback
+- `--no-companions` — runs no registered companion (env fallback
   `CTXLOOM_NO_COMPANIONS`).
 - Config overrides (`CTXLOOM_CONFIG_*`, the flag funnel) are captured exactly
   once per process by `installApp`; every later generation resolves through

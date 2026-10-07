@@ -12,7 +12,7 @@ Environment variables that affect ctxloom behavior.
 | `CTXLOOM_ROOT` | Override project-root resolution (normally the git root or the directory containing `.ctxloom`) | unset |
 | `CTXLOOM_DEBUG_HTTP` | Log HTTP requests made to remote forges | `0` (disabled) |
 | `CTXLOOM_DEGRADED` | Set to `1` for the environment-variable form of `--degraded`: relaxed strictness (warn-and-continue instead of a hard fail on findings that would otherwise abort). Read before cobra dispatch, so it also covers the pre-command window (config discovery, project-root resolution). There is deliberately no config-file equivalent — a broken config can't excuse itself. As config decoding becomes stricter, this is the escape hatch that unblocks a session a strict decode would otherwise refuse to start | unset |
-| `CTXLOOM_NO_COMPANIONS` | Set to `1` to skip companion discovery (the pre-dispatch probe that executes whatever companion binaries, like `ltk` or `taskloom`, are on `PATH`). Same purpose as `--no-companions`: a subprocess or CI run that must not depend on what the host happens to have installed | unset |
+| `CTXLOOM_NO_COMPANIONS` | Set to `1` to run no registered companion (the pre-dispatch probe executes each registered companion binary, like `ltk` or `taskloom`, resolved on `PATH`). Same purpose as `--no-companions`: a subprocess or CI run that must not depend on what the host happens to have installed | unset |
 
 ```bash
 CTXLOOM_VERBOSE=1 ctxloom run -p developer "help"

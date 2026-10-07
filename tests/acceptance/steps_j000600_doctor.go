@@ -72,10 +72,6 @@ Report, per engine actually in use, whether hooks and MCP are delivered per
 session (the healthy default) or also registered in the project (written by
 ` + "`ctxloom manage hooks install`" + `).
 `
-writes them) and that the trust store is sane: at least one signer is
-present and there is no dangling trust entry (see the ` + "`signer`" + `
-subcommands for the trust-store roster).
-`
 
 func j000600Of(w *World) *j000600State {
 	if w.j000600 == nil {

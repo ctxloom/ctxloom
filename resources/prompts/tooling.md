@@ -6,11 +6,15 @@ show the exact diff before writing anything.**
 
 ## Do this
 
-1. **Locate the editable base Containerfile.** If config has no
-   `isolation_base_containerfile` yet, run `ctxloom container scaffold` — it
-   materializes the embedded default base (the same one the default auto-build
-   was already using) and wires it into config, so nothing changes until you
-   edit. Then read the file.
+1. **Locate the editable base.** It is the project devcontainer's Dockerfile
+   (`.devcontainer/devcontainer.json`'s `build.dockerfile`). If the project has
+   no devcontainer, run `ctxloom container scaffold` — it writes one seeded
+   from the embedded default base (the same one the default auto-build was
+   already using), so nothing changes until you edit. Then read the file. If
+   config sets `isolation_base` to `ctxloom` or an image ref, agent images do
+   not build on the devcontainer: the user either unsets it, or builds their
+   own Containerfile into an image and sets `isolation_base: <image ref>` —
+   config does not take a Containerfile path.
 2. **Propose the edits.** For each bundle declaration below, translate its
    required tools into concrete Containerfile additions (install layers,
    version pins where the declaration asks). Keep the file's existing
@@ -27,6 +31,6 @@ show the exact diff before writing anything.**
 
 - Never apply tooling automatically on pull/sync or without showing the diff.
 - Never install from a declaration the user hasn't seen.
-- Never edit anything other than the base Containerfile for this purpose.
+- Never edit anything other than the base's Dockerfile for this purpose.
 
 ## Bundle declarations

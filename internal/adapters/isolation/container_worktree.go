@@ -201,7 +201,7 @@ func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (m mount, ok
 // NewContainerWorktreeFor builds the worktree-in-container policy for a REGISTERED
 // backend name: the container half comes from the backend's container spec
 // (image, auth, build sources — see NewContainerFor) with the user's image
-// configuration applied (image override run as-is / base Containerfile for local
+// configuration applied (image override run as-is / isolation_base for local
 // builds), the worktree half from the Git seam.
 func NewContainerWorktreeFor(rt Runtime, backend string, img ImageConfig, g git.Git) Container {
 	c := containerFor(rt, backend, img)

@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/schema"
 )
 
 // writeDevcontainer writes appRoot/.devcontainer/devcontainer.json.
@@ -351,4 +353,29 @@ func TestResolveDevcontainerBase_EmptyComposeFileNamesTheShape(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "could not parse dockerComposeFile")
 	assert.Contains(t, err.Error(), "array of strings", "the message names the shapes the spec allows")
+}
+
+// configKeyRe matches a snake_case identifier — the shape of every top-level
+// config key — wherever advice text names one.
+var configKeyRe = regexp.MustCompile(`\b[a-z]+(?:_[a-z]+)+\b`)
+
+// TestDevcontainerAdvice_NamesOnlyAcceptedConfigKeys holds the devcontainer
+// advice to keys the config decoder accepts. The config schema rejects an
+// unknown key (additionalProperties: false), so advice naming a RETIRED key
+// sends a user straight into a config ctxloom refuses to start with. The keys
+// are scraped from the text rather than listed here, so a reworded message
+// is checked against the schema as it stands, not against this test's memory.
+func TestDevcontainerAdvice_NamesOnlyAcceptedConfigKeys(t *testing.T) {
+	v, err := schema.NewConfigValidator()
+	require.NoError(t, err)
+	for name, msg := range map[string]string{
+		"devcontainerFeaturesNotice":      devcontainerFeaturesNotice,
+		"devcontainerComposeServiceError": devcontainerComposeServiceError,
+	} {
+		keys := configKeyRe.FindAllString(msg, -1)
+		require.NotEmpty(t, keys, "%s names no config key — the scrape found nothing to check", name)
+		for _, key := range keys {
+			assert.True(t, v.KnownPath([]string{key}), "%s names config key %q, which the config schema rejects", name, key)
+		}
+	}
 }

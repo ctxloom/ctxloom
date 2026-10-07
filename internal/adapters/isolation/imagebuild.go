@@ -671,8 +671,7 @@ func SetBinaryVersion(v string) { binaryVersion = v }
 const provenanceLabel = "ctxloom.provenance"
 
 // hostProvenanceDigest returns the provenance label an agent image built NOW —
-// by this ctxloom, on the given base Containerfile config ("" = the embedded
-// default) — would carry: this build's version key (ctxloom's own version plus
+// by this ctxloom, on the embedded default base — would carry: this build's version key (ctxloom's own version plus
 // the staged companions' versions — see hostImageKeys), suffixed with the base
 // config's content hash. It is the STALENESS SIGNAL: a new ctxloom version, an
 // uncommitted (tracked-dirty) rebuild, an updated companion, or a changed base
@@ -808,7 +807,7 @@ func (c Container) ensureImage(ctx context.Context) error {
 // the stale image (returns nil, so the container axis is never taken down), but
 // records a fatal ClassIsolation finding: a stale, pre-entrypoint image can run
 // as ROOT, so strict mode aborts before spawning it while --degraded runs it
-// as-is. A failed build from an EXPLICITLY-configured base Containerfile
+// as-is. A failed build from an EXPLICITLY-configured base (isolation_base)
 // likewise records a finding rather than silently substituting another base.
 // Anything else (image absent and unbuildable, or a hard build failure) errors,
 // so the caller degrades down the chain — a fatal finding (ClassIsolation) the

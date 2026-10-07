@@ -102,8 +102,10 @@ finding.
 
 ### Image build — two stages
 
-**Stage 1 (base)** precedence, `baseForIdentity`: **user Containerfile >
-devcontainer > embedded default**. The embedded default (`defaultBaseStage`) is
+**Stage 1 (base)** is chosen by `resolveBase` from `isolation_base`: an image
+ref is used verbatim as `FROM <ref>`; otherwise the project devcontainer or the
+embedded default. A user's own Containerfile reaches stage 1 only as an image
+they built and named there. The embedded default (`defaultBaseStage`) is
 `FROM node:22-slim` and bakes `git`, `ripgrep`, `curl`, `ca-certificates`,
 `unzip`, `jq`, `strace` plus `TERM=xterm-256color`.
 

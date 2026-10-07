@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -81,7 +80,6 @@ func directCmd(t *testing.T, cmd *cobra.Command) *cobra.Command {
 // second open.
 func TestManageHooksInstall_LoadsTheDefaultProfileOnce(t *testing.T) {
 	testsupport.ProjectDir(t)
-	t.Cleanup(companions.AdmitNoCompanionForTesting())
 
 	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "claude-code")
 	require.NoError(t, err, "scaffold the project the hooks install applies to")
@@ -99,7 +97,6 @@ func TestManageHooksInstall_LoadsTheDefaultProfileOnce(t *testing.T) {
 // once.
 func TestManageInstall_LoadsTheDefaultProfileAtMostOnce(t *testing.T) {
 	testsupport.ProjectDir(t)
-	t.Cleanup(companions.AdmitNoCompanionForTesting())
 
 	counter := newProfileReadCounter(operations.SeedProfileName)
 	testApp(t, configload.WithRoot(safefs.NewMem(counter)))

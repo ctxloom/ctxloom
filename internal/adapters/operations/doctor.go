@@ -772,14 +772,14 @@ func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cf
 // doctorCheckSetupCompanions reports what the session's companions actually
 // contributed, from the ONE resolved bundle set (config.Config.BundleLoader)
 // AssembleContext's own assembly reads. Reporting only: a project with no
-// companions installed is not misconfigured (they are optional add-ons), so
+// companions registered is not misconfigured (they are optional add-ons), so
 // this is never a "warn".
 //
 // It discovers nothing itself. The catalog's reads are the loadouts a session
 // carries and its candidates are the identities that produced none, each with
-// the reason — so "found on PATH" and "actually run" stay different facts
-// without a second pass over the machine that could answer differently from
-// the session being described. Reporting only the first would tell a user
+// the reason — so "registered" and "actually contributing" stay different
+// facts without a second pass over the machine that could answer differently
+// from the session being described. Reporting only the first would tell a user
 // their companion is fine while it contributes nothing, the exact silent no-op
 // doctor exists to surface.
 func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error, noCompanions bool) DoctorCheck {
@@ -792,7 +792,7 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error, noCompanions b
 	}
 	decided := readCompanionDecisions(cfg)
 	if !decided.discovered() {
-		return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: "no companions discovered"}
+		return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: "no companions registered (ctxloom companion add <name>)"}
 	}
 	return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: decided.detail()}
 }
@@ -807,9 +807,9 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error, noCompanions b
 type companionDecisions struct {
 	// contributing named companions whose loadout the session actually reads.
 	contributing []string
-	// absent is on nobody's PATH; notRun is present but never consented to
-	// (with its path); failed is present, consented, and its probe broke.
-	absent, notRun, failed []string
+	// absent is registered but on nobody's PATH; failed is present and its
+	// probe broke.
+	absent, failed []string
 	// noLoadout ran and answered that it offers no loadout: found, and
 	// withholding nothing.
 	noLoadout []string
@@ -828,8 +828,6 @@ func readCompanionDecisions(cfg *config.Config) companionDecisions {
 		switch cand.Reason {
 		case bundles.CandidateAbsent:
 			d.absent = append(d.absent, bin)
-		case bundles.CandidateUnconsented:
-			d.notRun = append(d.notRun, fmt.Sprintf("%s (%s)", bin, cand.Path))
 		case bundles.CandidateNoLoadout:
 			d.noLoadout = append(d.noLoadout, bin)
 		default:
@@ -845,10 +843,10 @@ func (d companionDecisions) discovered() bool {
 }
 
 // withheld reports whether any companion the session might have expected is
-// NOT contributing — absent, unconsented, or failed. This is the decision an
+// NOT contributing — registered but absent, or failed. This is the decision an
 // agent needs to hear: the tool it expects is not there.
 func (d companionDecisions) withheld() bool {
-	return len(d.absent)+len(d.notRun)+len(d.failed) > 0
+	return len(d.absent)+len(d.failed) > 0
 }
 
 // detail renders the decisions as the doctor row's text. "(none)" rather than
@@ -867,9 +865,8 @@ func (d companionDecisions) detail() string {
 		items []string
 		hint  string
 	}{
-		{"NOT RUN", d.notRun, " — why, and how to allow it: 'ctxloom companion show <path>'"},
 		{"probe failed", d.failed, ""},
-		{"not installed", d.absent, ""},
+		{"registered, not on PATH", d.absent, " — install it, or unregister it: 'ctxloom companion remove <name>'"},
 		{"no loadout", d.noLoadout, ""},
 	} {
 		if len(section.items) == 0 {
@@ -951,8 +948,7 @@ func doctorCheckIngestionLimit(reg engine.Registry, cfg *config.Config) DoctorCh
 // A row's Presence decides how its absence is treated. PresenceMustExist
 // (every RootProject row, and the zero value) warns on absence exactly as
 // before RootKind/Presence existed. PresenceIfUsed (the RootHome rows added
-// by C13 — sessions, trigger cache, coord, companion
-// consent) never warns on absence: a home-rooted store is shared across every
+// by C13 — sessions, trigger cache, coord) never warns on absence: a home-rooted store is shared across every
 // project on the machine and created lazily by exercising a specific
 // feature, so having none of it yet is normal, not a loss. When a
 // PresenceIfUsed row IS present, it is reported anyway (the `present` list

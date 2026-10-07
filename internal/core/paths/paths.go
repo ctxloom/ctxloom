@@ -112,12 +112,6 @@ const (
 	// classify the directory without either side inventing the name twice.
 	ContextCacheDir = "context"
 
-	// CompanionPinCacheDir is the CacheDir subdirectory holding copies of the
-	// admitted companions' bytes, one directory per admitted
-	// set's digest (companions.PinAdmittedCompanions) — what a host launch puts
-	// first on the engine's PATH.
-	CompanionPinCacheDir = "companions"
-
 	// LocksDir is the StateDir subdirectory holding the advisory lock sidecars
 	// that guard project-scoped files (ProjectPathFor, lockpath.go). It is state,
 	// not cache: a lock file is a fact about THIS machine's concurrent
@@ -135,11 +129,6 @@ const (
 
 	// ReposCacheDir is the subdirectory for cached git repo clones.
 	ReposCacheDir = "repos"
-
-	// CompanionAllowFileName is the name (without extension) of the per-user
-	// record of companion binaries ctxloom may execute — see
-	// HomeCompanionAllowPath.
-	CompanionAllowFileName = "companion_allow"
 
 	// ProjectIDFileName is the name of the gitignored project-identity marker
 	// at .ctxloom/project-id (ADR 0025) — the key to this project's task log,
@@ -378,8 +367,6 @@ const (
 	whatAllowedSigners    = "the user trust root"
 	whatDistrustedSigners = "the user distrust record"
 	whatHomeRecords       = "the home records directory"
-	whatCompanionPin      = "the admitted-companion pin"
-	whatCompanionAllow    = "the companion allow store"
 )
 
 // homeUnder resolves ~/<AppDirName>/<segments...>, naming what failed in the
@@ -395,31 +382,6 @@ func homeUnder(what string, segments ...string) (string, error) {
 		return "", fmt.Errorf(homeUnderErrFormat, what, AppDirName, filepath.Join(segments...), err)
 	}
 	return filepath.Join(append([]string{home, AppDirName}, segments...)...), nil
-}
-
-// HomeCompanionPinDir returns ~/.ctxloom/cache/companions — the store
-// companions.PinAdmittedCompanions writes admitted companions into.
-func HomeCompanionPinDir() (string, error) {
-	return homeUnder(whatCompanionPin, CacheDir, CompanionPinCacheDir)
-}
-
-// HomeCompanionAllowPath returns ~/.ctxloom/companion_allow.yaml — the
-// per-user record of which companion binaries (path and SHA-256) ctxloom may
-// execute. Personal by construction: a record admits an executable on one
-// machine, so no project file can carry one.
-//
-// Guarded against a real home under a test binary: a stray record there would
-// admit a binary on the developer's machine.
-func HomeCompanionAllowPath() (string, error) {
-	p, err := homeUnder(whatCompanionAllow, CompanionAllowFileName+".yaml")
-	if err != nil {
-		return "", err
-	}
-	if err := UnsandboxedHomeError(whatCompanionAllow, p,
-		"testsupport.SandboxedMain / testsupport.Isolate, so HOME points at a temp root"); err != nil {
-		return "", err
-	}
-	return p, nil
 }
 
 func HomeSessionsDir() (string, error) {
@@ -1029,14 +991,6 @@ func Layout() []Entry {
 			Rel: filepath.Join(AppDirName, CacheDir, ContextCacheDir), Tier: TierDerived,
 			Rebuild: "ctxloom manage hooks install (the next ctxloom run also rewrites it)",
 		},
-		// The admitted companions a host launch puts first on the engine's
-		// PATH (companions.PinAdmittedCompanions). Content-addressed by the
-		// admitted set, so sessions share one copy; every launch re-verifies
-		// and rewrites whatever is missing.
-		{
-			Rel: filepath.Join(AppDirName, CacheDir, CompanionPinCacheDir), Tier: TierDerived,
-			Rebuild: "ctxloom run (every host launch re-pins the admitted companions)",
-		},
 		{
 			Rel: filepath.Join(AppDirName, ProjectIDFileName), Tier: TierLocal,
 			Lost: "the key to this project's task log (~/.ctxloom/tasks/<project-id>.jsonl); without it a fresh clone mints a NEW project id and starts an empty log, and every task the team logged stays on disk under the old id, unreachable from the clone",
@@ -1095,10 +1049,6 @@ func Layout() []Entry {
 		{
 			Rel: filepath.Join(AppDirName, HomeRecordsDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
 			Lost: "the audit trail of what `util config-write` changed in foreign JSON config files (hew §9.7 application records) — the files themselves are unaffected; only the record of having changed them is gone",
-		},
-		{
-			Rel: filepath.Join(AppDirName, CompanionAllowFileName+".yaml"), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
-			Lost: "every companion binary you allowed (ctxloom companion allow); each is refused until it is allowed again",
 		},
 	}
 }

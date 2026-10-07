@@ -12,7 +12,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"time"
 
 	containerfiles "github.com/ctxloom/ctxloom/container"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
@@ -27,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/spf13/afero"
+	"gopkg.in/yaml.v3"
 )
 
 // imageBuildTimeout caps one on-the-fly agent-image build. The production
@@ -575,30 +576,28 @@ func companionGateFor(names []string) string {
 }
 
 // imageHomeContextDir is the build-context directory copied over the image
-// user's home (companionHomeCopy). It carries the allow file that admits the
-// staged companions at their in-image paths, and exists even when empty
-// because the COPY needs a source.
+// user's home (companionHomeCopy). It carries the home config that registers
+// the staged companions, and exists even when empty because the COPY needs a
+// source.
 const imageHomeContextDir = "companion-home"
-
-// imageCompanionDir is where the staged companions are installed in the image.
-const imageCompanionDir = "/usr/local/bin"
 
 // companionHomeCopy installs the staged home into the image user's home
 // (defaultContainerHome), owned by the image user so a run that is not
-// remapped can still write beside the allow file.
+// remapped can still write beside the home config.
 var companionHomeCopy = fmt.Sprintf("COPY --chown=%d:%d %s/ %s/", imageUserID, imageUserID, imageHomeContextDir, defaultContainerHome)
 
-// stageCompanions populates <contextDir>/companions with every ADMITTED
-// companion — the bytes admission read (companionLookPath resolves only the
-// admitted copy) — and <contextDir>/companion-home with the allow file that
-// admits them at their in-image paths, so an in-image ctxloom runs them under
-// the same rule. A companion that is absent, or present but not admitted, is
-// refused and warned about, and the image builds without it (CLAUDE.md fault
-// tolerance); baking whatever binary of that name the host PATH resolved first
-// would ship unallowed code as the in-container pre-tool hook. Both
-// directories always exist — the Containerfiles COPY them even when empty —
-// and a copy failure of an admitted binary errors, since shipping a silently
-// truncated tool would be worse than no image.
+// stageCompanions populates <contextDir>/companions with every companion the
+// image carries (imageCompanions: registered on this machine, and one the
+// image knows how to carry) as the host PATH resolves it, and
+// <contextDir>/companion-home with a home config registering exactly the ones
+// staged — the NAMES, as on the host, so the in-image ctxloom resolves them on
+// the image's PATH, where the staged copies lead (companionPathLeads). A
+// container gets no host ~/.ctxloom, so this home config is how the
+// registration reaches it. A registered companion absent from the host is
+// warned about, and the image builds without it (CLAUDE.md fault tolerance).
+// Both directories always exist — the Containerfiles COPY them even when
+// empty — and a copy failure errors, since shipping a silently truncated tool
+// would be worse than no image.
 func stageCompanions(contextDir string) error {
 	dir := filepath.Join(contextDir, "companions")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -608,43 +607,45 @@ func stageCompanions(contextDir string) error {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return fmt.Errorf("companions build context: %w", err)
 	}
-	installed := map[string]string{}
-	for _, name := range companionBinaries {
+	var staged []string
+	for _, name := range imageCompanions() {
 		src, err := companionLookPath(name)
 		if err != nil {
-			clidiag.Warn("ctxloom", "companion %s is not admitted (absent, or not allowed: ctxloom companion allow %s); "+
-				"the agent image builds without it", name, name)
+			clidiag.Warn("ctxloom", "companion %s is registered but not on PATH; the agent image builds without it "+
+				"(install it, or: ctxloom companion remove %s --yes)", name, name)
 			continue
 		}
-		staged := filepath.Join(dir, name)
-		if err := copyExecutable(src, staged); err != nil {
+		if err := copyExecutable(src, filepath.Join(dir, name)); err != nil {
 			return fmt.Errorf("companions build context: stage %s: %w", name, err)
 		}
-		installed[path.Join(imageCompanionDir, name)] = staged
+		staged = append(staged, name)
 	}
-	return stageImageAllowFile(home, installed)
+	return stageImageHomeConfig(home, staged)
 }
 
-// stageImageAllowFile writes the allow file admitting installed into the
+// imageHomeConfig is the image's home config: the staged companions'
+// registration and nothing else.
+type imageHomeConfig struct {
+	SchemaVersion int      `yaml:"schema_version"`
+	Companions    []string `yaml:"companions"`
+}
+
+// stageImageHomeConfig writes the home config registering staged into the
 // staged home, or nothing when nothing was staged.
-func stageImageAllowFile(home string, installed map[string]string) error {
-	if len(installed) == 0 {
+func stageImageHomeConfig(home string, staged []string) error {
+	if len(staged) == 0 {
 		return nil
 	}
-	if companionAllowFile == nil {
-		clidiag.Warn("ctxloom", "no companion allow renderer is wired; the agent image's ctxloom will run none of its companions")
-		return nil
-	}
-	data, err := companionAllowFile(installed)
+	data, err := yaml.Marshal(imageHomeConfig{SchemaVersion: config.CurrentConfigVersion, Companions: staged})
 	if err != nil {
-		return fmt.Errorf("companions build context: allow file: %w", err)
+		return fmt.Errorf("companions build context: home config: %w", err)
 	}
 	appDir := filepath.Join(home, paths.AppDirName)
 	if err := os.MkdirAll(appDir, 0o755); err != nil { //nolint:gosec // the image user's home directory
 		return fmt.Errorf("companions build context: %w", err)
 	}
-	if err := safefs.WriteFile(afero.NewOsFs(), filepath.Join(appDir, paths.CompanionAllowFileName+".yaml"), data, 0o644); err != nil { //nolint:gosec // readable by whichever uid the run is remapped to
-		return fmt.Errorf("companions build context: allow file: %w", err)
+	if err := safefs.WriteFile(afero.NewOsFs(), paths.ConfigPath(appDir), data, 0o644); err != nil { //nolint:gosec // readable by whichever uid the run is remapped to
+		return fmt.Errorf("companions build context: home config: %w", err)
 	}
 	return nil
 }

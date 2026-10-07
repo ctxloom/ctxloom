@@ -672,7 +672,6 @@ func TestAssembleContext_EmptyRequest(t *testing.T) {
 // wiring itself; gating is proven separately in
 // internal/core/config's TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated).
 func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
-	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	ltkEnvelope := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: |\n      llm-tool-killer briefing\n")
 	taskloomEnvelope := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  taskloom:\n    content: |\n      taskloom briefing\n")
 
@@ -681,7 +680,7 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 		// A fresh Config per sub-test: companion probing is memoized once per
 		// Config's lifetime, so sharing one across sub-tests with different
 		// fakes would silently reuse the first sub-test's cached result.
-		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}, Companions: fakedCompanionNames})
 
 		restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
 			return "/fake/" + bin, nil // every companion is "installed"
@@ -713,7 +712,7 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 
 	t.Run("companion absent (loadout probe fails) → that companion's fragments skipped", func(t *testing.T) {
 		_, _ = setupContextTestFS(t)
-		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}, Companions: fakedCompanionNames})
 
 		restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
 			if bin == "ltk" {

@@ -26,7 +26,7 @@ func noCompanions(t *testing.T, cfg *config.Config) *config.Config {
 }
 
 // cleanProject is a project with nothing to report: marker present, config
-// valid, every local-only path scaffolded, no companions discovered.
+// valid, every local-only path scaffolded, no companions registered.
 func cleanProject(t *testing.T) *config.Config {
 	t.Helper()
 	root, cfg := setupProject(t, "claude-code")

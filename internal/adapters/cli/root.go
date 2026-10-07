@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -399,12 +398,10 @@ func rootCommand() *cobra.Command {
 		// this stays a Set* push for now rather than churning that wiring too.
 		isolation.SetBinaryVersion(version.Version)
 
-		// A host launch puts the admitted companions first on the engine's
-		// PATH, and an agent image stages only admitted ones with an allow file
-		// for their in-image paths; admission lives in companions, which
-		// isolation does not import.
-		isolation.SetCompanionPin(pinAdmittedCompanions)
-		isolation.SetCompanionAllowFile(companions.AllowFileFor)
+		// An agent image stages the companions this machine registered, and
+		// registers them in the image's home config; the registration lives in
+		// configuration, which isolation does not read.
+		isolation.SetRegisteredCompanions(registeredCompanions)
 	})
 	resetHelpFlag(rootCmd)
 	return rootCmd

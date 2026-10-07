@@ -22,7 +22,6 @@ func TestCarriedSources_NameEveryCompanionWhoseProbeFailed(t *testing.T) {
 	got := carriedSources([]bundles.Candidate{
 		{Ref: ref("taskloom").BundleIdentity(), Reason: bundles.CandidateProbeFailed},
 		{Ref: ref("ltk").BundleIdentity(), Reason: bundles.CandidateNoLoadout},
-		{Ref: ref("other").BundleIdentity(), Reason: bundles.CandidateUnconsented},
 		{Ref: ref("gone").BundleIdentity(), Reason: bundles.CandidateAbsent},
 	})
 	require.Equal(t, []string{bundles.BundleSCM(ref("taskloom"))}, got)

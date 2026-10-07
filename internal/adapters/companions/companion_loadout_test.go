@@ -20,68 +20,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// --- DiscoverCompanions: first-party UNION ctxloom-companion-* on PATH -----
-
-// TestDiscoverCompanions_UnionsFirstPartyAndPathConvention proves discovery
-// is the UNION the spec requires: the shipped first-party list (which does
-// NOT match the naming convention) plus every ctxloom-companion-* name found
-// scanning $PATH. Neither mechanism alone would find every companion.
-func TestDiscoverCompanions_UnionsFirstPartyAndPathConvention(t *testing.T) {
-	dir := t.TempDir()
-	for _, name := range []string{"ctxloom-companion-acme", "ctxloom-companion-widgets", "not-a-companion"} {
-		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"), 0o755))
-	}
-	restorePath := setPathDirsForTesting(t, []string{dir})
-	defer restorePath()
-
-	got := DiscoverCompanions()
-	assert.Equal(t, []string{
-		"ctxloom-companion-acme", "ctxloom-companion-widgets",
-		"ltk", "reprise", "taskloom",
-	}, got, "sorted union of first-party names and PATH-convention names")
-}
-
-// TestDiscoverCompanions_PathConventionDedupesAcrossDirs proves the first
-// PATH directory containing a given name wins — mirroring shell PATH
-// resolution — rather than the name appearing twice.
-func TestDiscoverCompanions_PathConventionDedupesAcrossDirs(t *testing.T) {
-	dir1, dir2 := t.TempDir(), t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir1, "ctxloom-companion-acme"), []byte("x"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir2, "ctxloom-companion-acme"), []byte("x"), 0o755))
-	restorePath := setPathDirsForTesting(t, []string{dir1, dir2})
-	defer restorePath()
-
-	got := companionsOnPathByConvention()
-	assert.Equal(t, []string{"ctxloom-companion-acme"}, got)
-}
-
-// TestDiscoverCompanions_UnreadablePathDirDegradesQuietly proves a PATH
-// entry that doesn't exist (a common, ordinary PATH misconfiguration) is
-// skipped rather than erroring the whole scan.
-func TestDiscoverCompanions_UnreadablePathDirDegradesQuietly(t *testing.T) {
-	restorePath := setPathDirsForTesting(t, []string{filepath.Join(t.TempDir(), "does-not-exist")})
-	defer restorePath()
-
-	got := DiscoverCompanions()
-	assert.Equal(t, []string{"ltk", "reprise", "taskloom"}, got)
-}
-
-// setPathDirsForTesting overrides the pathDirs seam so a test can control
-// exactly which directories companionsOnPathByConvention scans (readDir
-// itself stays the real os.ReadDir — these tests use real temp dirs).
-func setPathDirsForTesting(t *testing.T, dirs []string) func() {
-	t.Helper()
-	prev := pathDirs
-	pathDirs = func() []string { return dirs }
-	return func() { pathDirs = prev }
-}
-
-// --- ProbeCompanionLoadouts: discovery + verify + parse, fail-safe --------
+// --- ProbeCompanionLoadouts: resolve + probe + parse, fail-safe -----------
 
 // lookPathOnly builds a lookPath fake that resolves exactly the given bins
 // (to a fixed fake path) and reports every other name as not found —
-// including the two OTHER first-party names DiscoverCompanions always
-// includes, which every test in this file must account for.
+// including the other registered first-party names these tests pass.
 func lookPathOnly(bins map[string]string) func(string) (string, error) {
 	return func(bin string) (string, error) {
 		if p, ok := bins[bin]; ok {
@@ -91,23 +34,13 @@ func lookPathOnly(bins map[string]string) func(string) (string, error) {
 	}
 }
 
-// admitEveryDiscoveredCompanion pins the EXEC-CONSENT gate open for tests
-// whose subject is what a companion CONTRIBUTES once it runs, not whether it
-// was allowed to run at all. Those two questions are answered by different
-// code and are worth failing separately: the gate itself is proven in
-// companion_admission_gate_test.go, against real allowed files.
-func admitEveryDiscoveredCompanion(t *testing.T) {
-	t.Helper()
-	t.Cleanup(AdmitEveryDiscoveredCompanionForTesting())
-}
-
 // companionBundles drives the two halves a session drives: the PROBE (which
 // execs the admitted companions and reads their loadouts) and the READER
 // (which parses the bytes). Asserting on the pair is what keeps these tests about the behaviour a
 // user gets rather than about either half's internals.
 func companionBundles(t *testing.T) map[string]*bundles.Bundle {
 	t.Helper()
-	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background())
+	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background(), firstPartyCompanions)
 	require.NoError(t, err)
 	reads, err := bundles.NewCompanionReader(
 		func(context.Context) (bundles.CompanionProbe, error) { return probe, nil },
@@ -122,7 +55,6 @@ func companionBundles(t *testing.T) map[string]*bundles.Bundle {
 }
 
 func TestProbeCompanionLoadouts_NoneOnPathYieldsEmptyMap(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
 	restore := SetLookPathForTesting(lookPathOnly(nil))
 	defer restore()
 
@@ -131,7 +63,6 @@ func TestProbeCompanionLoadouts_NoneOnPathYieldsEmptyMap(t *testing.T) {
 }
 
 func TestProbeCompanionLoadouts_ProbeFailureSkippedNotCrash(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
 	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) {
@@ -144,7 +75,6 @@ func TestProbeCompanionLoadouts_ProbeFailureSkippedNotCrash(t *testing.T) {
 }
 
 func TestProbeCompanionLoadouts_UnparseableLoadoutWithheldNotCrash(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
 	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) {
@@ -157,7 +87,6 @@ func TestProbeCompanionLoadouts_UnparseableLoadoutWithheldNotCrash(t *testing.T)
 }
 
 func TestProbeCompanionLoadouts_LoadoutIsSeeded(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
 	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
@@ -178,7 +107,6 @@ func TestProbeCompanionLoadouts_LoadoutIsSeeded(t *testing.T) {
 // ctxloom:companion@<bin> ref, and is visible through the loader's normal read
 // surface (List/ListAllFragments) exactly like pinned remote content.
 func TestBundleLoader_ReadsCompanionAlongsideRemote(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
 	t.Setenv("HOME", t.TempDir())
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
@@ -189,7 +117,7 @@ func TestBundleLoader_ReadsCompanionAlongsideRemote(t *testing.T) {
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}})
+	cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}, Companions: firstPartyCompanions})
 
 	loader := cfg.BundleLoader()
 	infos := loader.List()
@@ -262,7 +190,6 @@ func fakeCompanionEnvelope(t *testing.T, bundleYAML string) func(string) ([]byte
 }
 
 func TestResolveBundleHooks_IncludesCompanionLoadoutHooks(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
 	restoreProbe := SetCompanionLoadoutOutputForTesting(fakeCompanionEnvelope(t, companionLoadoutWithEverything))
@@ -272,7 +199,7 @@ func TestResolveBundleHooks_IncludesCompanionLoadoutHooks(t *testing.T) {
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
 	t.Run("companion hook is included", func(t *testing.T) {
-		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}})
+		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}, Companions: firstPartyCompanions})
 		result := cfg.ResolveBundleHooks(nil)
 		require.Len(t, result.PreTool, 1)
 		assert.Equal(t, "ltk evaluate", result.PreTool[0].Command)
@@ -282,7 +209,6 @@ func TestResolveBundleHooks_IncludesCompanionLoadoutHooks(t *testing.T) {
 }
 
 func TestResolveBundleMCPServers_IncludesCompanionLoadoutServers(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
 	restoreProbe := SetCompanionLoadoutOutputForTesting(fakeCompanionEnvelope(t, companionLoadoutWithEverything))
@@ -292,7 +218,7 @@ func TestResolveBundleMCPServers_IncludesCompanionLoadoutServers(t *testing.T) {
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
 	t.Run("companion MCP server is included", func(t *testing.T) {
-		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}})
+		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}, Companions: firstPartyCompanions})
 		result := cfg.ResolveBundleMCPServers(nil)
 		require.Contains(t, result, "ltk-server")
 		assert.Equal(t, "bundle:ctxloom+companion:ltk", result["ltk-server"].SCM)
@@ -312,7 +238,6 @@ func TestResolveBundleMCPServers_IncludesCompanionLoadoutServers(t *testing.T) {
 // merges and applied to every write into result, so exclude_mcp means the same
 // thing regardless of which source offered the server.
 func TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
 	restoreProbe := SetCompanionLoadoutOutputForTesting(fakeCompanionEnvelope(t, companionLoadoutWithEverything))
@@ -329,6 +254,7 @@ func TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers(t *testing
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
 			AppPaths:     []string{appDir},
+			Companions:   firstPartyCompanions,
 		})
 	}
 

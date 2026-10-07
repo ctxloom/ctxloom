@@ -1,6 +1,6 @@
 You are folding bundle-declared tooling into this project's **agent container
 image**. The declarations below were collected from the companions this machine
-allowed (`ctxloom companion allow`), but a Containerfile edit is still a
+registered (`ctxloom companion add`), but a Containerfile edit is still a
 code-execution surface: **every change needs the user's explicit approval —
 show the exact diff before writing anything.**
 

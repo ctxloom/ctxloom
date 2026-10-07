@@ -60,13 +60,12 @@ func TestClassifyLoadoutProbe_SplitsAnAnswerFromAFailure(t *testing.T) {
 // with out/err, returning the probe's account and every warning it printed.
 func probeLtk(t *testing.T, out []byte, err error) (bundles.CompanionProbe, string) {
 	t.Helper()
-	admitEveryDiscoveredCompanion(t)
 	t.Cleanup(SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"})))
 	t.Cleanup(SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return out, err }))
 	var warnings bytes.Buffer
 	restore := clidiag.SetSink(&warnings)
 	defer restore()
-	probe, perr := Prober{}.ProbeCompanionLoadouts(context.Background())
+	probe, perr := Prober{}.ProbeCompanionLoadouts(context.Background(), firstPartyCompanions)
 	require.NoError(t, perr)
 	return probe, warnings.String()
 }

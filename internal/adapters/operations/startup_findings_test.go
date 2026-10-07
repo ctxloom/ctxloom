@@ -23,7 +23,7 @@ func noCompanions(t *testing.T, cfg *config.Config) *config.Config {
 }
 
 // cleanProject is a project with nothing to report: marker present, config
-// valid, every local-only path scaffolded, no companions discovered.
+// valid, every local-only path scaffolded, no companions registered.
 func cleanProject(t *testing.T) *config.Config {
 	t.Helper()
 	root, cfg := setupProject(t, "claude-code")
@@ -82,8 +82,8 @@ func TestStartupFindings_AbsentLocalStateIsAFinding(t *testing.T) {
 }
 
 // TestStartupFindings_WithheldCompanionIsAFinding: the companions
-// check reports ok even when a companion was found and NOT RUN, or is not
-// installed — doctor treats add-ons as never a failure. For the agent those
+// check reports ok even when a registered companion is not installed, or its
+// probe failed — doctor treats add-ons as never a failure. For the agent those
 // are the decisions that matter: the tool it expects is absent. So the row
 // is selected on WHAT WAS DECIDED, not on the status.
 func TestStartupFindings_WithheldCompanionIsAFinding(t *testing.T) {
@@ -95,7 +95,7 @@ func TestStartupFindings_WithheldCompanionIsAFinding(t *testing.T) {
 				{Bin: "ltk", Path: "/opt/bin/ltk", Document: []byte("run:\n  version: \"1.0\"\n")},
 			},
 			Candidates: []bundles.CompanionCandidate{
-				{Bin: "taskloom", Path: "/opt/bin/taskloom", Reason: bundles.CandidateUnconsented},
+				{Bin: "taskloom", Reason: bundles.CandidateAbsent},
 			},
 		}, nil
 	})
@@ -104,10 +104,10 @@ func TestStartupFindings_WithheldCompanionIsAFinding(t *testing.T) {
 
 	require.Len(t, report.Checks, 1)
 	assert.Equal(t, doctorCheckSetupCompanions(cfg, nil, false), report.Checks[0])
-	assert.Contains(t, report.Checks[0].Detail, "NOT RUN: taskloom (/opt/bin/taskloom)")
+	assert.Contains(t, report.Checks[0].Detail, "registered, not on PATH: taskloom")
 }
 
-// TestStartupFindings_CleanCompanionsAreNotAFinding: every discovered
+// TestStartupFindings_CleanCompanionsAreNotAFinding: every registered
 // companion contributing its loadout is the intended state, and the intended
 // state is not news.
 func TestStartupFindings_CleanCompanionsAreNotAFinding(t *testing.T) {
@@ -125,12 +125,11 @@ func TestStartupFindings_CleanCompanionsAreNotAFinding(t *testing.T) {
 }
 
 // TestCompanionDecisions_Withheld pins the discriminator the report selects
-// on: any companion absent, unconsented or failed is withheld; a catalog of
+// on: any companion absent or failed is withheld; a catalog of
 // only contributing loadouts, or of nothing at all, is not.
 func TestCompanionDecisions_Withheld(t *testing.T) {
 	assert.False(t, companionDecisions{}.withheld())
 	assert.False(t, companionDecisions{contributing: []string{"ltk"}}.withheld())
 	assert.True(t, companionDecisions{absent: []string{"reprise"}}.withheld())
-	assert.True(t, companionDecisions{notRun: []string{"taskloom (/opt/bin/taskloom)"}}.withheld())
 	assert.True(t, companionDecisions{failed: []string{"wedged (/opt/bin/wedged)"}}.withheld())
 }

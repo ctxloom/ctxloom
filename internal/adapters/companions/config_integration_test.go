@@ -47,7 +47,6 @@ func (s companionSources) Readers(_ context.Context, cfg *config.Config) ([]bund
 // loadoutYAML as its (unsigned) loadout.
 func fakeCompanion(t *testing.T, bin, loadoutYAML string) {
 	t.Helper()
-	t.Cleanup(companions.AdmitEveryDiscoveredCompanionForTesting())
 	t.Cleanup(companions.SetLookPathForTesting(func(name string) (string, error) {
 		if name == bin {
 			return "/fake/" + bin, nil
@@ -75,6 +74,7 @@ func projectWith(t *testing.T, profiles map[string]string, bundlesYAML map[strin
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
 		AppPaths:     []string{appDir},
+		Companions:   []string{"ltk", "taskloom"},
 	})
 }
 
@@ -122,4 +122,20 @@ func TestCompanionLoadoutHooks_SurviveSkippedProfiles(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "companion loadout hooks survive when profile-gated resolution skips everything")
+}
+
+// An UNREGISTERED companion contributes nothing even when it is on PATH and
+// answers: removing a registration stops its use.
+func TestCompanionLoadoutHooks_UnregisteredContributesNothing(t *testing.T) {
+	fakeCompanion(t, "taskloom", "version: \"1.0.0\"\nhooks:\n  post_file_edit:\n    - command: ctxloom hook stamp-plan\n      type: command\n")
+	cfg := projectWith(t, map[string]string{"dev": "bundles: []\n"}, nil)
+	f := cfg.ToFixture()
+	f.Companions = nil
+	cfg = config.NewFixture(f)
+
+	owner, err := config.Open(context.Background(), companionSources{cfg: cfg})
+	require.NoError(t, err)
+	for _, h := range owner.Current().Config.ResolveBundleHooks(nil).PostFileEdit {
+		assert.NotEqual(t, "bundle:ctxloom+companion:taskloom", h.SCM, "an unregistered companion's hook must not be delivered")
+	}
 }

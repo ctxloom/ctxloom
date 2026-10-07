@@ -3,19 +3,47 @@ package isolation
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"os/exec"
+	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// companionLookPath resolves a companion binary to its ADMITTED copy (see
-// pinnedCompanionLookPath) — never a bare PATH lookup, which would bake
-// whatever binary of that name happened to come first. It is the seam
-// stageCompanions and companionVersionKey SHARE, so the key is computed over
-// exactly the files a build would stage — a key describing a different binary
-// than the one baked in would be worse than no key at all.
-var companionLookPath = pinnedCompanionLookPath
+// companionLookPath resolves a companion binary on the host PATH. It is the
+// seam stageCompanions and companionVersionKey SHARE, so the key is computed
+// over exactly the files a build would stage — a key describing a different
+// binary than the one baked in would be worse than no key at all.
+var companionLookPath = exec.LookPath
+
+// registeredCompanions answers this machine's registered companion names (the
+// config's `companions`). Injected by the CLI at startup
+// (SetRegisteredCompanions): the registration lives in configuration, which
+// this package does not read. Unset registers nothing.
+var registeredCompanions func() []string
+
+// SetRegisteredCompanions injects the registered-companion provider. Called
+// once by the CLI at startup; nil clears it.
+func SetRegisteredCompanions(fn func() []string) { registeredCompanions = fn }
+
+// imageCompanions is the set an agent image carries: each companionBinaries
+// entry this machine registered, in companionBinaries order. It is the ONE set
+// staging, the image key and the image's own registration read, so the three
+// cannot describe different companions.
+func imageCompanions() []string {
+	if registeredCompanions == nil {
+		return nil
+	}
+	registered := registeredCompanions()
+	var out []string
+	for _, name := range companionBinaries {
+		if slices.Contains(registered, name) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
 
 // companionVersionProbe reads one companion's self-reported version. It goes
 // through cliversion, the single owner of the `<bin> version --format json`
@@ -43,7 +71,7 @@ const companionTagSeparator = "-c"
 const companionVersionUnreportableToken = "\x00unreportable"
 
 // companionVersionKey digests the self-reported version of every companion a
-// build would stage into the agent image (companionBinaries), so updating a
+// build would stage into the agent image (imageCompanions), so updating a
 // companion invalidates the image exactly as updating ctxloom does.
 //
 // WHY THIS EXISTS. The image bakes ctxloom AND its companions, but the
@@ -54,9 +82,10 @@ const companionVersionUnreportableToken = "\x00unreportable"
 // stale binary producing confidently wrong work is the failure this project
 // pays for most.
 //
-// A companion ABSENT from the host is not staged, and is simply not in the
-// digest — installing one therefore changes the key, which is correct: the
-// image it would be baked into is a different image.
+// A companion ABSENT from the host, or not registered, is not staged, and is
+// simply not in the digest — installing or registering one therefore changes
+// the key, which is correct: the image it would be baked into is a different
+// image.
 //
 // A companion PRESENT but unable to report a version BLOCKS: the finding is
 // fatal by default and the launch refuses. That is deliberate, and it is the
@@ -66,7 +95,7 @@ const companionVersionUnreportableToken = "\x00unreportable"
 // site must never branch on it).
 func companionVersionKey() string {
 	h := sha256.New()
-	for _, name := range companionBinaries {
+	for _, name := range imageCompanions() {
 		path, err := companionLookPath(name)
 		if err != nil {
 			continue

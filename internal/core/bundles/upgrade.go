@@ -32,7 +32,7 @@ import (
 // persistEnvelopeUpgrade).
 var envelopeKind = schemaver.Define("bundle", execItemFieldsGeneration, envelopeSteps...)
 
-// envelopeSteps is envelopeKind's chain, oldest first; stepsEdit replays it.
+// envelopeSteps is envelopeKind's chain, oldest first.
 var envelopeSteps = []schemaver.Step{retiredKeysStep{}, profileRefsStep{}, execItemFieldsStep{}}
 
 // execItemFieldsGeneration is the generation execItemFieldsStep migrates an

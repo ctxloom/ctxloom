@@ -96,6 +96,31 @@ func TestDefine_DroppingTheOldestStepRaisesOldestOnly(t *testing.T) {
 	assert.Equal(t, 1, requireVersionError(t, err, ErrTooOld).Found, "the retired generation is refused")
 }
 
+// StepsAbove(gen) is exactly the chain that takes a document at gen to
+// Current: all of it at Oldest, the tail above a middle generation, nothing
+// at Current.
+func TestStepsAbove_IsTheChainFromGenToCurrent(t *testing.T) {
+	assert.Equal(t, []Step{stepA, stepB}, withSteps.StepsAbove(1), "at Oldest: every step")
+	assert.Equal(t, []Step{stepB}, withSteps.StepsAbove(2), "a middle generation: only the steps above it")
+	assert.Empty(t, withSteps.StepsAbove(3), "at Current: nothing to run")
+	assert.Empty(t, zeroSteps.StepsAbove(2), "zero steps: Oldest IS Current")
+}
+
+// A generation outside [Oldest, Current] has no chain to Current; asking for
+// one is a caller that skipped the generation gate, so it PANICS like a broken
+// Define rather than returning a chain that does not exist.
+func TestStepsAbove_PanicsOutsideOldestToCurrent(t *testing.T) {
+	cases := map[string]func(){
+		"below Oldest":      func() { withSteps.StepsAbove(0) },
+		"above Current":     func() { withSteps.StepsAbove(4) },
+		"zero steps, below": func() { zeroSteps.StepsAbove(1) },
+		"zero steps, above": func() { zeroSteps.StepsAbove(3) },
+	}
+	for name, call := range cases {
+		t.Run(name, func(t *testing.T) { assert.Panics(t, call) })
+	}
+}
+
 func TestDefine_PanicsOnABrokenChain(t *testing.T) {
 	cases := map[string]func(){
 		"generation zero":         func() { Define("k", 0) },

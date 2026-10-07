@@ -1,10 +1,9 @@
 package content
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"path"
 	"strings"
-
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 )
 
 // MetaSuffix is the suffix of a metadata sidecar. Combined with the leading dot
@@ -89,7 +88,7 @@ func stemOf(p string) string {
 //
 // This is the axis that reaches FILENAMES, which is why it is the plain
 // raw/distilled vocabulary: the suffix is ".distilled.md" and could never be ".fragment/distilled.md".
-var formSuffixForms = []signing.Form{signing.FormDistilled}
+var formSuffixForms = []trust.ContentForm{trust.FormDistilled}
 
 // formOf reports which form a component belongs to, given the forms the item
 // carries.
@@ -101,7 +100,7 @@ var formSuffixForms = []signing.Form{signing.FormDistilled}
 // fragments/solid.distilled.md is distilled, and mcp/postgres.yaml — unsuffixed,
 // single-form — is raw too: one rule, and a newly registered kind gets it for
 // free.
-func formOf(p string, forms []signing.Form) signing.Form {
+func formOf(p string, forms []trust.ContentForm) trust.ContentForm {
 	lb := logicalBase(p)
 	for _, f := range forms {
 		if f == "" {
@@ -112,7 +111,7 @@ func formOf(p string, forms []signing.Form) signing.Form {
 		}
 	}
 	if len(forms) == 0 {
-		return signing.FormNone
+		return trust.FormNone
 	}
 	return forms[0]
 }

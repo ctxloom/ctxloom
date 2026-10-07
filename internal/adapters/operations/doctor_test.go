@@ -3,8 +3,6 @@ package operations
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -17,21 +15,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/agent"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/agentkey"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -180,12 +172,9 @@ func TestDoctorDepBinariesRequired_IncludesGit(t *testing.T) {
 }
 
 // TestDoctorCheckDeps_WrongState_SSHKeygenMissing_IsRecommendedNotRequired
-// pins DEPS-a1's TRUTHFULNESS fix: an audit found ssh-keygen is NEVER exec'd
-// by ctxloom (signing is pure Go over the ssh-agent protocol —
-// internal/adapters/signing/sign.go, internal/adapters/signing/agentkey/agentkey.go), so a
+// pins DEPS-a1's TRUTHFULNESS: ssh-keygen is NEVER exec'd by ctxloom, so a
 // missing ssh-keygen (with git/engine/runtime all present) must be reported
-// as RECOMMENDED, not implied to be required for signing, and must NOT use
-// the word "signing" to explain why it's missing.
+// as RECOMMENDED, not implied to be required.
 func TestDoctorCheckDeps_WrongState_SSHKeygenMissing_IsRecommendedNotRequired(t *testing.T) {
 	dir := t.TempDir()
 	for _, bin := range []string{"ssh", "git", "docker"} {
@@ -201,111 +190,16 @@ func TestDoctorCheckDeps_WrongState_SSHKeygenMissing_IsRecommendedNotRequired(t 
 	}
 	assert.Contains(t, check.Detail, "ssh-keygen", "a missing ssh-keygen must still be named")
 	assert.Contains(t, check.Detail, "recommended", "must be labeled recommended, not implied required")
-	assert.NotContains(t, check.Detail, "for signing", "must not claim signing needs ssh-keygen — it's pure Go and never execs it")
 }
 
-// TestDoctorCheckDeps_RightState_AllPresent_DoesNotClaimSigningNeedsThem
-// proves the OK Detail text — reached when ssh/ssh-keygen/git/engine/runtime
-// are ALL present — never claims ssh/ssh-keygen are needed "for signing"
-// either; the truthful framing must hold on both the ok and warn paths.
-func TestDoctorCheckDeps_RightState_AllPresent_DoesNotClaimSigningNeedsThem(t *testing.T) {
-	dir := t.TempDir()
-	for _, bin := range []string{"ssh", "ssh-keygen", "git", "docker"} {
-		writeFakeExecutable(t, dir, bin)
-	}
-	t.Setenv("PATH", dir)
-	check := doctorCheckDeps(engines.Registry(), &config.Config{}, doctorRuntimes())
-	if check.Status != DoctorOK {
-		t.Skip("container runtime unexpectedly unavailable on this host; the all-present ok Detail wording is exercised only on the ok path")
-	}
-	assert.NotContains(t, check.Detail, "for signing", "must not claim signing needs ssh/ssh-keygen — it's pure Go and never execs either")
-}
-
-// --- DOCTOR-CHECK-SIGNKEY-k1: reuses agentkey.Discoverer, the SAME
-// resolver `ctxloom sign` itself uses (internal/adapters/signing/agentkey), via an
-// in-memory ssh-agent keyring (agent.NewKeyring — no socket, no real
-// SSH_AUTH_SOCK, no host ssh-agent state leaks in) mirroring sign_test.go's
-// discovererWithSoleAgentIdentity pattern.
-
-// signKeyDiscoverer wires an agentkey.Discoverer to an in-memory ssh-agent
-// keyring holding exactly the given comments (0, 1, or many identities) and
-// no git config value, so doctorCheckSignKey is exercisable without a real
-// ssh-agent or git binary.
-func signKeyDiscoverer(t *testing.T, comments ...string) (*agentkey.Discoverer, []ssh.Signer) {
-	t.Helper()
-	kr := agent.NewKeyring()
-	for _, comment := range comments {
-		_, priv, err := ed25519.GenerateKey(rand.Reader)
-		require.NoError(t, err)
-		require.NoError(t, kr.Add(agent.AddedKey{PrivateKey: priv, Comment: comment}))
-	}
-	signers, err := kr.Signers()
-	require.NoError(t, err)
-	return &agentkey.Discoverer{
-		GitConfig: func(ctx context.Context, dir, key string) (string, bool, error) { return "", false, nil },
-		DialAgent: func() (agent.Agent, error) { return kr, nil },
-		ReadFile:  func(path string) ([]byte, error) { return nil, assert.AnError },
-	}, signers
-}
-
-func TestDoctorCheckSignKey_RightState_SoleIdentityResolves(t *testing.T) {
-	disc, signers := signKeyDiscoverer(t, "ben@abbitt.me")
-	check := doctorCheckSignKey(context.Background(), &config.Config{}, disc)
-	assert.Equal(t, DoctorOK, check.Status)
-	assert.Contains(t, check.Detail, "ssh-agent (sole identity)", "must name the SAME Source agentkey.Discovered reports")
-	assert.Contains(t, check.Detail, ssh.FingerprintSHA256(signers[0].PublicKey()), "must name the resolved key's fingerprint")
-}
-
-func TestDoctorCheckSignKey_WrongState_NothingResolvable(t *testing.T) {
-	disc, _ := signKeyDiscoverer(t) // empty agent, no git config, no explicit key
-	check := doctorCheckSignKey(context.Background(), &config.Config{}, disc)
-	assert.Equal(t, DoctorWarn, check.Status)
-	assert.Contains(t, check.Detail, "no signing key resolves")
-	assert.NotContains(t, check.Detail, "ctxloom review", "names no command that does not exist")
-	assert.Contains(t, check.Detail, "ctxloom bundle sign", "must name the publishing feature this gap affects")
-	assert.Contains(t, check.Detail, "ssh-add", "must give an actionable fix")
-	assert.Equal(t, doctorSignKeyRemedy, check.Remedy)
-}
-
-// TestDoctorCheckSignKey_WrongState_Ambiguous observes agentkey's REAL
-// multi-identity behavior directly: with no git config user.signingkey and
-// no explicit sign.key, ssh-agent holding MORE than one identity resolves to
-// agentkey.AmbiguousKeyError (agentkey.go resolveSoleAgentIdentity) — it
-// never silently picks one. The warn message must reflect that specific
-// situation, not the generic "no key" wording.
-func TestDoctorCheckSignKey_WrongState_Ambiguous(t *testing.T) {
-	disc, _ := signKeyDiscoverer(t, "one@example.com", "two@example.com")
-	check := doctorCheckSignKey(context.Background(), &config.Config{}, disc)
-	assert.Equal(t, DoctorWarn, check.Status)
-	assert.Contains(t, check.Detail, "ambiguous", "must name the specific ambiguous-choice situation, not generic absence")
-	assert.Contains(t, check.Detail, "one@example.com")
-	assert.Contains(t, check.Detail, "two@example.com")
-}
-
-// TestDoctorCheckSignKey_ConfiguredSignKeyDisambiguates proves the check
-// honors cfg.SignKey() (sign.key config) exactly like runSign does (sign.go:
-// "explicit := keyFlag; if explicit == "" ... explicit = cfg.SignKey()"): an
-// agent holding multiple identities resolves cleanly once sign.key names one
-// by comment.
-func TestDoctorCheckSignKey_ConfiguredSignKeyDisambiguates(t *testing.T) {
-	disc, signers := signKeyDiscoverer(t, "other@example.com", "ben@abbitt.me")
-	cfg := config.NewFixture(config.Fixture{Settings: config.SettingsConfig{Sign: &config.SignConfig{Key: "ben@abbitt.me"}}})
-	check := doctorCheckSignKey(context.Background(), cfg, disc)
-	assert.Equal(t, DoctorOK, check.Status)
-	// The comment-matched signer is the second one added.
-	assert.Contains(t, check.Detail, ssh.FingerprintSHA256(signers[1].PublicKey()))
-}
-
-// --- DOCTOR-CHECK-GITIDENT-l2: reuses agentkey's git-config plumbing (the
-// one existing generic `git config --get <key>` reader in this codebase,
-// already used to resolve user.signingkey) rather than shelling out a
-// second, bespoke way. A fake gitConfigFunc closure isolates every test from
-// the host's real git config (no ~/.gitconfig read, no real git binary
-// call), same discipline as signKeyDiscoverer above.
+// --- DOCTOR-CHECK-GITIDENT-l2: reads git through GitConfigGet, the one
+// generic `git config --get <key>` reader in this codebase. A fake
+// gitConfigFunc closure isolates every test from the host's real git config
+// (no ~/.gitconfig read, no real git binary call).
 
 // fakeGitConfig returns a gitConfigFunc backed by an in-memory map — set
 // values resolve, everything else is "unset" ("", false, nil), exactly
-// execGitConfig's contract for a key `git config --get` doesn't find.
+// GitConfigGet's contract for a key `git config --get` doesn't find.
 func fakeGitConfig(values map[string]string) gitConfigFunc {
 	return func(ctx context.Context, dir, key string) (string, bool, error) {
 		v, ok := values[key]
@@ -685,8 +579,7 @@ func TestDoctorCheckLocalTierState_PartialState_NamesOnlyWhatsMissing(t *testing
 // scaffoldLocalTierState creates a stand-in for every paths.TierLocal path
 // (internal/core/paths.Layout) — the local-only state a FRESH init/machine never
 // has (it's exactly what accrues from actually using a project AND this
-// machine: running sessions, using taskloom, reviewing an update, giving a
-// countersignature, trusting a signer, running a coordinator). RootProject
+// machine: running sessions, using taskloom, running a coordinator). RootProject
 // entries land under root's .ctxloom; RootHome entries land under the
 // isolated HOME testsupport.Isolate already set for this test (setupProject
 // calls it). Only DOCTOR-CHECK-LOCAL-STATE-p6 reads these paths at all
@@ -746,91 +639,6 @@ func materializeLayoutEntry(t *testing.T, base, rel string) {
 		return
 	}
 	require.NoError(t, os.MkdirAll(full, 0o755))
-}
-
-// TestDoctorTrustStoreDetail_UnreadableEntriesWarnAndAreNotCountedActive pins
-// the real defect. An earlier finding claimed doctorCheckHooksTrust appends
-// ListSigners' ERROR text without setting warn; that mechanism is refuted —
-// ListSigners returns `out, nil` unconditionally (signer.go), so the
-// error arm is unreachable. The IMPACT it describes was real by another route:
-// a store ListSigners could not read comes back as SignerListing rows with
-// Unreadable set, the old count treated every non-Suppressed row as an active
-// signer, and the status stayed "ok" — reporting more trust than the machine
-// has, and calling it healthy.
-func TestDoctorTrustStoreDetail_UnreadableEntriesWarnAndAreNotCountedActive(t *testing.T) {
-	detail, ok := doctorTrustStoreDetail([]SignerListing{
-		{Source: "embedded", Path: "(compiled-in)"},
-		{Source: "embedded", Path: "(compiled-in)", Suppressed: true},
-		{Source: "project", Path: "/p/.ctxloom/allowed_signers", Unreadable: "line 2 is not a usable entry"},
-	}, nil)
-
-	assert.False(t, ok, "a store that could not be fully read is not an 'ok' trust store")
-	assert.Contains(t, detail, "1 active signer(s)",
-		"an unreadable row grants no trust and must not inflate the count")
-	assert.Contains(t, detail, "/p/.ctxloom/allowed_signers", "the gap must name the file")
-	assert.Contains(t, detail, "grant NO trust")
-}
-
-// TestDoctorTrustStoreDetail_ListsProjectStoreApproveGrants: the project store
-// is committed, so anyone who can land a commit can add a line to it. Doctor
-// names every principal it grants approval, so such a grant is visible rather
-// than inferred. Publish grants and grants from other stores are not listed.
-func TestDoctorTrustStoreDetail_ListsProjectStoreApproveGrants(t *testing.T) {
-	const path = "/p/.ctxloom/allowed_signers"
-	grant := func(principal, source string, ns ...string) SignerListing {
-		return SignerListing{Source: source, Path: path, Entry: allowedsigners.Entry{Principals: []string{principal}, Namespaces: ns}}
-	}
-	detail, ok := doctorTrustStoreDetail([]SignerListing{
-		grant("lead@example.com", signerSourceProject, signing.NamespaceApprove, signing.NamespaceReject),
-		grant("publisher@example.com", signerSourceProject, signing.NamespacePublish),
-		grant("me@example.com", "user", signing.NamespaceApprove),
-	}, nil)
-
-	assert.True(t, ok, "listing a grant is information, not a fault")
-	assert.Contains(t, detail, signing.NamespaceApprove+" to lead@example.com")
-	assert.Contains(t, detail, path)
-	assert.NotContains(t, detail, "publisher@example.com", "a publish-only grant is not listed")
-	assert.NotContains(t, detail, "me@example.com", "the user store is not committed to the repo")
-}
-
-func TestDoctorTrustStoreDetail_HealthyStore(t *testing.T) {
-	detail, ok := doctorTrustStoreDetail([]SignerListing{
-		{Source: "embedded", Path: "(compiled-in)"},
-		{Source: "project", Path: "/p/.ctxloom/allowed_signers"},
-	}, nil)
-
-	assert.True(t, ok)
-	assert.Equal(t, "trust store: 2 active signer(s)", detail)
-}
-
-func TestDoctorTrustStoreDetail_ErrorArmWarns(t *testing.T) {
-	// Defensive only: ListSigners cannot currently return an error (it ends in
-	// `return out, nil`), so this arm is unreachable in production. It is still
-	// pinned, because the old code appended the error text and left the status
-	// at "ok".
-	detail, ok := doctorTrustStoreDetail(nil, assert.AnError)
-	assert.False(t, ok)
-	assert.Contains(t, detail, assert.AnError.Error())
-}
-
-// TestDoctorCheckHooksTrust_WrongState_UnreadableProjectTrustStore drives the
-// whole check against a REAL malformed allowed_signers file, so the wiring
-// (not just the helper) is pinned: a line with no key field is a parse error
-// ListSigners surfaces as an Unreadable row.
-func TestDoctorCheckHooksTrust_WrongState_UnreadableProjectTrustStore(t *testing.T) {
-	testsupport.Isolate(t) // keep the developer's ~/.ctxloom store out of the listing
-	appDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(appDir, "allowed_signers"),
-		[]byte("this-line-has-no-key-field\n"), 0o644))
-	// No configured agents: the hooks half short-circuits, isolating the trust half.
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-
-	check := doctorCheckHooksTrust(context.Background(), engines.Registry(), cfg, nil)
-
-	assert.Equal(t, DoctorWarn, check.Status,
-		"a trust store the loader could not fully read must not report ok")
-	assert.Contains(t, check.Detail, "grant NO trust")
-	assert.Contains(t, check.Detail, appDir)
 }
 
 // --- a container runtime is required only where containers run ---
@@ -1256,15 +1064,10 @@ func (s probeSources) ReadTarget(context.Context) (*config.Config, error) {
 }
 
 func (s probeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.TrustRoot()
 	return []bundles.Reader{
-		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
-		bundles.NewCompanionReader(s.probe, bundles.WithTrustRoot(root)),
+		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs()),
+		bundles.NewCompanionReader(s.probe),
 	}, nil
-}
-
-func (s probeSources) TrustRoot(context.Context, *config.Config) (trust.TrustRoot, error) {
-	return trust.NoSigners{}, nil
 }
 
 // withCompanionProbe returns cfg as the generation a process would hold when

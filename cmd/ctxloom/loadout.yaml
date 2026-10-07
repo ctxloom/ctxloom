@@ -1,6 +1,5 @@
 # ctxloom's own loadout — what ctxloom delivers into an engine ON ITS OWN
-# BEHALF, emitted by `ctxloom loadout --format json` (signature-envelope spec
-# §4.3) as a loadout DOCUMENT: `run:` is the bundles.Bundle a session
+# BEHALF, emitted by `ctxloom loadout --format yaml` as a loadout DOCUMENT: `run:` is the bundles.Bundle a session
 # consumes every time; a typed `init:` section (setup_guidance, tooling,
 # legacy_context, questions) is consumed once at setup — ctxloom declares
 # none today.
@@ -9,10 +8,8 @@
 # binary (companions.Prober's self-probe, resolved via selfexec — never a
 # PATH lookup), read by the same companion reader and admitted through the
 # same gate as every companion's, under the ctxloom:companion@ctxloom source
-# ref — so a profile can exclude any of it and a human can reject it. It is
-# signed uniformly with the release key; that signature is CIRCULAR (the trust
-# root vouching for the key ships in the same binary) and the reader never
-# presents it as trust. This file is the single source of truth for what
+# ref — so a profile can exclude any of it. This file is the single source of
+# truth for what
 # ctxloom tells an engine about itself.
 #
 # The MCP entry is the companion's DYNAMIC declaration: ctxloom's own server

@@ -287,20 +287,15 @@ func skillExistsInBundle(ctx context.Context, cfg *config.Config, bundle, name s
 }
 
 var skillExportOutput string
-var skillExportSign bool
 
 var skillExportCmd = &cobra.Command{
 	Use:   "export <bundle>#skills/<name>",
 	Short: "Pack a skill to an Anthropic-shaped .zip",
 	Long: `Pack a skill's source tree into a .zip shaped exactly like the Anthropic
 Skills-API upload expects: a single top-level directory (named after the
-skill) containing every manifest file, with POSIX modes preserved.
-
---sign additionally writes a detached signature over the skill's manifest
-(the same bytes 'ctxloom skill import' verifies), using the same zero-config
-key discovery 'ctxloom bundle sign' uses.`,
+skill) containing every manifest file, with POSIX modes preserved.`,
 	Example: `  ctxloom skill export my-bundle#skills/code-reviewer
-  ctxloom skill export my-bundle#skills/code-reviewer -o /tmp/code-reviewer.zip --sign`,
+  ctxloom skill export my-bundle#skills/code-reviewer -o /tmp/code-reviewer.zip`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSkillExport,
 }
@@ -318,19 +313,6 @@ func runSkillExport(cmd *cobra.Command, args []string) error {
 		Bundle:  bundleName,
 		Name:    skillName,
 		OutPath: skillExportOutput,
-		Sign:    skillExportSign,
-	}
-	if skillExportSign {
-		discoverer, err := operations.SignerDiscoverer()
-		if err != nil {
-			return err
-		}
-		discovered, err := discoverer.Discover(cmd.Context(), cfg.SignKey())
-		if err != nil {
-			return err
-		}
-		defer func() { _ = discovered.Close() }()
-		req.Signer = discovered.Signer
 	}
 	res, err := operations.ExportSkill(cmd.Context(), cfg, req)
 	if err != nil {
@@ -345,13 +327,9 @@ func runSkillExport(cmd *cobra.Command, args []string) error {
 // renderSkillExport is `skill export`'s text rendering.
 func renderSkillExport(out io.Writer, res *operations.ExportSkillResult) {
 	fmt.Fprintf(out, "Exported %s -> %s (%d bytes)\n", inertField(res.Name), inertField(res.ZipPath), res.Bytes)
-	if res.SigPath != "" {
-		fmt.Fprintf(out, "Signed: %s\n", res.SigPath)
-	}
 }
 
 var skillImportBundle string
-var skillImportSig string
 
 var skillImportCmd = &cobra.Command{
 	Use:   "import <archive>",
@@ -361,16 +339,11 @@ traversal, symlinks, hardlinks/device files, entry-count bombs, and
 decompression bombs are all rejected before anything is written to disk.
 Accepts either the canonical Anthropic-shaped .zip or a .tar.gz.
 
-If --sig names a detached signature (as 'ctxloom skill export --sign'
-produces), it is verified against the extracted tree's own recomputed
-manifest before the import is reported; an unsigned or untrusted-publisher
-signature does not block the import, but a STRUCTURALLY invalid archive or
-package (a rejected entry, or a SKILL.md that fails frontmatter validation) is
-refused and cleaned up.`,
-	Example: `  ctxloom skill import ./code-reviewer.zip --bundle my-bundle
-  ctxloom skill import ./code-reviewer.zip --bundle my-bundle --sig ./code-reviewer.zip.sig`,
-	Args: cobra.ExactArgs(1),
-	RunE: runSkillImport,
+A STRUCTURALLY invalid archive or package (a rejected entry, or a SKILL.md
+that fails frontmatter validation) is refused and cleaned up.`,
+	Example: `  ctxloom skill import ./code-reviewer.zip --bundle my-bundle`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runSkillImport,
 }
 
 func runSkillImport(cmd *cobra.Command, args []string) error {
@@ -384,7 +357,6 @@ func runSkillImport(cmd *cobra.Command, args []string) error {
 	res, err := operations.ImportSkill(cmd.Context(), cfg, operations.ImportSkillRequest{
 		Bundle:      skillImportBundle,
 		ArchivePath: args[0],
-		SigPath:     skillImportSig,
 	})
 	if err != nil {
 		return err
@@ -399,7 +371,6 @@ func runSkillImport(cmd *cobra.Command, args []string) error {
 func renderSkillImport(out io.Writer, res *operations.ImportSkillResult) {
 	fmt.Fprintf(out, "Imported skill %q into bundle %q (%d file(s))\n", res.Name, res.Bundle, res.FileCount)
 	fmt.Fprintf(out, "  %s\n", inertField(res.Dir))
-	fmt.Fprintf(out, "  signature: %s\n", inertField(res.SignatureState))
 }
 
 func init() {
@@ -416,7 +387,5 @@ func init() {
 	skillCreateCmd.Flags().StringVarP(&skillCreateDescription, "description", "d", "", "SKILL.md frontmatter description (default: a TODO placeholder)")
 	skillRemoveCmd.Flags().BoolVarP(&skillRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")
 	skillExportCmd.Flags().StringVarP(&skillExportOutput, outputFlagName, "o", "", "Output .zip path (default: <name>.zip)")
-	skillExportCmd.Flags().BoolVar(&skillExportSign, "sign", false, "sign the exported manifest (writes a detached .sig sibling)")
 	skillImportCmd.Flags().StringVar(&skillImportBundle, "bundle", "", "target bundle to import into (required)")
-	skillImportCmd.Flags().StringVar(&skillImportSig, "sig", "", "path to a detached signature covering the archive's manifest")
 }

@@ -1,5 +1,5 @@
 @doc
-Feature: skill — authoring an Agent Skill package, curating it, and shipping it signed
+Feature: skill — authoring an Agent Skill package, curating it, and shipping it
 
   A "command" is a user-invoked slash template. An Agent Skill is a different
   thing: a directory carrying SKILL.md (frontmatter name + description, an
@@ -8,7 +8,7 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
 
   This is the comprehensive per-noun spec for `ctxloom skill` — authoring a
   package, listing and showing it, curating which
-  skills a profile exports, and round-tripping one through sign/export/import.
+  skills a profile exports, and round-tripping one through export/import.
   The narrative version is journeys/j000600_agent_skill.feature, which asserts what
   a PERSON gets: one authored skill arriving whole in every engine's own skill
   folder.
@@ -97,48 +97,20 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
       Then "out-curated/.claude/skills/reviewer/SKILL.md" carries the marker "SKILL-MARKER-reviewer-9f3c21"
       And "out-curated/.claude/skills/planner" does not exist
 
-  Rule: A package's signature is reported honestly, and its bytes always land
+  Rule: A package round-trips through export and import byte for byte
 
-    Import reports what it could verify — trusted, untrusted, or tampered — and
-    never silently upgrades one to another. The files land byte-for-byte
-    regardless, so verification is a REPORT about provenance rather than a
-    filter that quietly drops content.
+    Export packs the package's tree into an archive and import lands it in
+    another bundle; the files arrive exactly as authored, modes included.
 
-
-    Scenario Outline: A skill's signature is reported honestly on import, and its files always land byte-for-byte
+    Scenario: A skill's files survive export and import byte-for-byte
       Given Alice's project has a directory-form bundle "vault"
       And I run "ctxloom skill create vault reviewer -d SKILL-MARKER-reviewer-9f3c21"
       And Alice adds an executable scripts/run.sh carrying the marker "SCRIPT-MARKER-reviewer-2b7e40" to the skill "vault#skills/reviewer"
       And a directory-form bundle "landed" exists
       When I run "ctxloom skill export vault#skills/reviewer -o reviewer.zip"
-      And <signer>'s key signs the skill "vault#skills/reviewer" over its current manifest, into "reviewer.zip.sig"
-      And Trent is a trusted publisher for this project
-      And I run "ctxloom skill import reviewer.zip --bundle landed --sig reviewer.zip.sig --format json"
-      Then the import reports the signature as <outcome>
+      And I run "ctxloom skill import reviewer.zip --bundle landed --format json"
+      Then the command succeeds
       And the imported files under "landed#skills/reviewer" match the originally-authored "vault#skills/reviewer", byte for byte
-
-      Examples:
-        | signer  | outcome    |
-        | Trent   | verified   |
-        | Mallory | unverified |
-
-
-    # A signature that does not cover the archive is an attack signal, not an
-    # absence: the import is refused before anything lands, where an unsigned
-    # or untrusted archive would still land for review.
-    Scenario: A skill package tampered with after signing fails verification even though it was legitimately signed
-      Given Alice's project has a directory-form bundle "vault"
-      And I run "ctxloom skill create vault reviewer -d SKILL-MARKER-reviewer-9f3c21"
-      And Alice adds an executable scripts/run.sh carrying the marker "SCRIPT-MARKER-reviewer-2b7e40" to the skill "vault#skills/reviewer"
-      And Trent's key signs the skill "vault#skills/reviewer" over its current manifest, into "reviewer-tampered.zip.sig"
-      And Trent is a trusted publisher for this project
-      And the skill "vault#skills/reviewer"'s SKILL.md is modified after signing
-      And a directory-form bundle "landed-tampered" exists
-      When I run "ctxloom skill export vault#skills/reviewer -o reviewer-tampered.zip"
-      And I run "ctxloom skill import reviewer-tampered.zip --bundle landed-tampered --sig reviewer-tampered.zip.sig --format json"
-      Then the command fails
-      And the output contains "does not match the archive's contents"
-      And the file ".ctxloom/content/bundles/v2/landed-tampered/skills/reviewer" does not exist
 
   Rule: A curated skill lands in every engine's own skill folder
 

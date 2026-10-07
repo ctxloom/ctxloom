@@ -6,8 +6,7 @@
 //
 // The publication AND consumption halves are GREEN. `deps pull` walks the tree
 // at the pinned SHA through internal/adapters/content/remotetree and installs it
-// under the consumer's cache with the publisher's exec bit intact; the
-// installed tree is read back and verified by internal/adapters/content/attest.
+// under the consumer's cache with the publisher's exec bit intact.
 //
 // THE DELIVERY HALF IS NOW HERMETIC TOO, on the host runtime. The vehicle is
 // `profile materialize --backend mock`, over the mock backend's own context and
@@ -78,11 +77,9 @@ import (
 
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
-	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
@@ -92,9 +89,6 @@ import (
 
 // j001400State is this journey's fixture state.
 type j001400State struct {
-	signer    *testenv.TestSigner
-	principal string
-
 	// authored is the bundle tree Trent wrote, bundle-relative path -> file.
 	// It is the ONLY source of truth for what "as published" means: every
 	// consumer-side assertion compares against this map rather than against a
@@ -273,8 +267,8 @@ func j001400AuthoredTree() map[string]j001400File {
 		// must agree, and the fixture says so in both places on purpose.
 		"skills/.reviewer.meta.yaml": f("description: ATELIER-SKILL-DESC\nexecutable:\n  - scripts/run.sh\n"),
 
-		// profile — the sixth kind. Never trust-gated as an item, but still a
-		// file in the tree that must arrive intact.
+		// profile — the sixth kind: a file in the tree that must arrive
+		// intact.
 		//
 		// It selects ONE fragment by item ref rather than pulling the whole
 		// bundle, because that is what makes materializing it an EFFECT
@@ -289,7 +283,7 @@ func j001400AuthoredTree() map[string]j001400File {
 }
 
 // j001400SeedTreeRemote seeds a bare git repo carrying the authored tree WITH ITS
-// MODES, and signs the named paths if a signer is given. It mirrors
+// MODES. It mirrors
 // testenv.SeedRemote's plumbing but preserves each file's mode, for the reason
 // in this file's package doc.
 func j001400SeedTreeRemote(w *World, st *j001400State) error {
@@ -313,9 +307,6 @@ func j001400SeedTreeRemote(w *World, st *j001400State) error {
 	if err := j001400WriteTree(work, st.authored); err != nil {
 		return err
 	}
-	if err := j001400SignTree(work, st); err != nil {
-		return err
-	}
 	if err := j001400GitAll(work, [][]string{
 		{"add", "-A"},
 		{"commit", "-m", "publish atelier tree"},
@@ -333,9 +324,7 @@ func j001400SeedTreeRemote(w *World, st *j001400State) error {
 }
 
 // j001400GitAll runs a sequence of git commands in dir, stopping at the first
-// failure. Seeding is a linear script of them and inlining each loop made the
-// one step that is NOT a git command — signing the tree — hard to see among
-// them.
+// failure. Seeding is a linear script of them.
 func j001400GitAll(dir string, cmds [][]string) error {
 	for _, a := range cmds {
 		if err := j001400Git(dir, a...); err != nil {
@@ -372,43 +361,6 @@ func j001400WriteTree(work string, authored map[string]j001400File) error {
 		if err := os.Chmod(full, file.Mode); err != nil {
 			return fmt.Errorf("chmod %s: %w", rel, err)
 		}
-	}
-	return nil
-}
-
-// j001400SignTree signs the authored tree with Trent's key, which is what the
-// scenarios' "signed with the company key" actually means: attest.SignBundle
-// builds the tree's SHA256SUMS manifest and writes a detached publisher
-// signature over it into the tree's own .sigs/ store, so both travel with the
-// bundle to a consumer who has never seen its content.
-//
-// It goes through the PRODUCT's signing path rather than hand-writing a manifest
-// and a .sig. Hand-rolling either would make this fixture a second
-// implementation of the signed-tree format, and the first thing it would stop
-// catching is the format drifting out from under it.
-//
-// There is no CLI route to it yet — `ctxloom bundle sign` signs a single file's
-// bytes — so the Go API is used directly (taskloom: no verb signs a tree).
-func j001400SignTree(work string, st *j001400State) error {
-	if st.signer == nil {
-		return fmt.Errorf("there is no publishing key for Trent, so the tree cannot be signed")
-	}
-	root := filepath.Join(work, filepath.FromSlash(testenv.BundlesRoot()))
-	store, err := content.NewTreeStore(afero.NewOsFs(), root, content.Provenance{RepoURL: "https://example.test/trent/company"})
-	if err != nil {
-		return fmt.Errorf("open the authored tree at %s: %w", root, err)
-	}
-	ctx := context.Background()
-	bundle, err := store.Open(ctx, content.BundleID(j001400Bundle))
-	if err != nil {
-		return fmt.Errorf("open the %q tree for signing: %w", j001400Bundle, err)
-	}
-	rel, err := testenv.TreeRelease(ctx, bundle)
-	if err != nil {
-		return fmt.Errorf("the %q tree carries no signable release: %w", j001400Bundle, err)
-	}
-	if err := attest.SignBundle(ctx, store, bundle, rel, st.signer.Signer); err != nil {
-		return fmt.Errorf("sign the %q tree with Trent's key: %w", j001400Bundle, err)
 	}
 	return nil
 }
@@ -473,7 +425,7 @@ func j001400RequireConsumerFile(w *World, rel string) ([]byte, os.FileInfo, erro
 }
 
 func registerJ001400Steps(ctx *godog.ScenarioContext) {
-	// --- Given: authoring + trust ------------------------------------------
+	// --- Given: authoring ----------------------------------------------------
 
 	ctx.Step(`^Trent authors a directory-form bundle "([^"]*)" carrying every surface kind$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
@@ -484,11 +436,6 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		if err := scaffoldProjectWithConfig(w, j001400ConfigYAML()); err != nil {
 			return err
 		}
-		signer, err := testenv.GenerateTestSigner()
-		if err != nil {
-			return fmt.Errorf("generate Trent's publishing key: %w", err)
-		}
-		st.signer = signer
 		st.authored = j001400AuthoredTree()
 		// Guard against a fixture that silently authors nothing: an empty
 		// authored map would make every "byte for byte" assertion below
@@ -499,23 +446,9 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^Alice trusts Trent's publishing key$`, func(c context.Context) error {
-		w := worldFrom(c)
-		st := j001400Of(w)
-		if st.signer == nil {
-			return fmt.Errorf("nothing has been authored by Trent yet, so there is no key to trust")
-		}
-		st.principal = "trent@example.com"
-		keyPath := filepath.Join(w.env.Root, "j001400-trent.pub")
-		if err := os.WriteFile(keyPath, ssh.MarshalAuthorizedKey(st.signer.Public), 0o644); err != nil {
-			return fmt.Errorf("write Trent's public key: %w", err)
-		}
-		return runOK(w, "signer", "trust", st.principal, "--key", keyPath, "--project", "--yes")
-	})
-
 	// --- Given/When: publication and consumption ----------------------------
 
-	ctx.Step(`^Trent publishes the "([^"]*)" tree to his company repo, signed with the company key$`, func(c context.Context, name string) error {
+	ctx.Step(`^Trent publishes the "([^"]*)" tree to his company repo$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
 		st := j001400Of(w)
 		if name != j001400Bundle {
@@ -537,7 +470,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		}
 		// A profile needs at least one bundle or parent at creation time, so
 		// the consumer gets a local seed bundle first and the published one is
-		// ADDED to the profile below. Same shape J001600 uses. Doing it in one
+		// ADDED to the profile below. Doing it in one
 		// step would make the profile's creation depend on the very fetch this
 		// scenario is testing, and the failure would then read as "could not
 		// create a profile" rather than "the published tree never arrived".

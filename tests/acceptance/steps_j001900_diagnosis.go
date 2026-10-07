@@ -6,7 +6,7 @@
 // was written.
 //
 // THE SPINE IS THE BOUNDARY TABLE (FLOWS-UNIFIED.md Appendix A.2). Content
-// travels authored → packaged → attested → distributed → admitted → composed →
+// travels authored → packaged → distributed → admitted → composed →
 // delivered → ingested, and the product's bar is that EVERY hop has an
 // inspector that NAMES THE CAUSE when content stops arriving. One scenario per
 // boundary: plant the cause, run the inspector, assert the inspector says the
@@ -32,17 +32,8 @@
 // failure mode under test, so "the command succeeds" would be an assertion of
 // the bug.
 //
-// SEAM WITH J001600/J001500. J001600 owns the PRODUCTION of signatures and J001500 owns the
-// ADVERSARY. This journey owns neither: it re-uses signing only as a way to
-// PLANT a cause, and every assertion is about what an INSPECTOR reports.
-// Nothing here re-proves that a tampered bundle is detected or that
-// `bundle sign` writes bytes.
-//
-// ISOLATION follows steps_j001600_signing.go exactly: everything runs through
-// testenv.TestEnvironment's isolated HOME/XDG, and the single environment
-// variable this file sets is SSH_AUTH_SOCK, pointed at a hermetic in-process
-// agent minted under w.env.Root and forced through SetChildEnv. See that
-// file's header for why this coexists with J001500's guaranteed-absent agent.
+// ISOLATION: everything runs through testenv.TestEnvironment's isolated
+// HOME/XDG.
 package acceptance
 
 import (
@@ -53,9 +44,7 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
-	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -72,20 +61,11 @@ const (
 	// it that carries the deploy process.
 	j001900Bundle   = "deploy-runbook"
 	j001900Fragment = "deploy-process"
-
-	// j001900KeyComment / j001900Principal mirror J001600's split: the ssh-agent comment a
-	// human recognizes is deliberately NOT the allowed_signers principal, so a
-	// fixture can never confuse the two.
-	j001900KeyComment = "carol@acme.example"
-	j001900Principal  = "runbooks@acme.example"
-	j001900PubKeyFile = "acme-runbooks.pub"
 )
 
 // j001900State is this journey's fixture state.
 type j001900State struct {
-	signer    *testenv.TestSigner
-	stopAgent func() error
-	ready     bool
+	ready bool
 
 	// Remote bookkeeping for the boundaries that need a real publish hop.
 	bare       string
@@ -97,29 +77,6 @@ type j001900State struct {
 	// message can name exactly what was probed rather than asserting against
 	// one guessed spelling. See j001900Probe.
 	probes []j001900ProbeResult
-
-	// pinBeforeSync is the runbook's locked commit read off lock.yaml
-	// IMMEDIATELY BEFORE Monday's sync runs. It is what makes "the pin did not
-	// advance" a payload assertion rather than a re-reading of whatever the
-	// lockfile happens to say afterwards: the scenario compares the file
-	// against a value captured before the command that would have moved it.
-	pinBeforeSync string
-
-	// syncExit is the exit code Monday's `deps upgrade` returned, captured
-	// alongside syncOutput and for the same reason: every later Then runs more
-	// commands, so w.env.LastExitCode() has moved on by the time the code is
-	// asserted. A script running an unattended sync reads only this — the
-	// refusal message is for the human — so it is asserted separately from
-	// what was printed.
-	syncExit int
-
-	// syncOutput is what Monday's `deps upgrade` said, captured at the
-	// moment it ran. Every later Then in this journey materializes the profile
-	// to read a payload, and materializing is itself a command — so
-	// w.env.LastOutput() no longer holds the sync's words by the time a "she
-	// was told" assertion runs. Capturing here is what keeps the message
-	// assertion honest instead of order-dependent.
-	syncOutput string
 }
 
 // j001900ProbeResult is one candidate inspector invocation and what it produced.
@@ -142,9 +99,8 @@ func j001900Of(w *World) *j001900State {
 // The VERSION is a parameter because it is what makes a republish an actual
 // PIN ADVANCE. Measured while writing this journey: editing a bundle's content
 // while leaving `version:` alone republishes bytes that `deps check` never
-// advances to, so the consumer keeps receiving the previous copy and the whole
-// attestation boundary is never reached. B2's silent-loss mode is explicitly
-// "withheld silently ON PIN ADVANCE", so the fixture has to produce one.
+// advances to, so the consumer keeps receiving the previous copy. A republish
+// that is meant to be seen has to produce a pin advance.
 func j001900EnvelopeYAML(version string) string {
 	return fmt.Sprintf("version: %q\n", version)
 }
@@ -169,9 +125,7 @@ func j001900FragmentPath() string {
 }
 
 // j001900Setup is the Background: a hermetic project with one engine, a seed
-// bundle and a "default" profile, plus Carol's signing key live in an
-// in-process ssh-agent so the attestation boundaries can plant their causes
-// through the real `bundle sign` path.
+// bundle and a "default" profile.
 func j001900Setup(w *World) error {
 	st := j001900Of(w)
 	if st.ready {
@@ -182,24 +136,6 @@ func j001900Setup(w *World) error {
 	}
 	if err := os.MkdirAll(filepath.Join(w.env.ProjectDir, filepath.FromSlash(testenv.BundlesRoot())), 0o755); err != nil {
 		return fmt.Errorf("create authored bundles dir: %w", err)
-	}
-
-	signer, err := testenv.GenerateTestSigner()
-	if err != nil {
-		return fmt.Errorf("generate Carol's key: %w", err)
-	}
-	st.signer = signer
-	if err := w.env.WriteFile(j001900PubKeyFile, signer.AuthorizedKey(j001900KeyComment)); err != nil {
-		return fmt.Errorf("write Carol's public key: %w", err)
-	}
-	sock, stop, err := testenv.StartSSHAgent(w.env.Root, testenv.SSHAgentIdentity{Signer: signer, Comment: j001900KeyComment})
-	if err != nil {
-		return fmt.Errorf("start hermetic ssh-agent: %w", err)
-	}
-	st.stopAgent = stop
-	w.env.SetChildEnv("SSH_AUTH_SOCK", sock)
-	if err := w.env.GitConfigLocal("user.signingkey", filepath.Join(w.env.ProjectDir, j001900PubKeyFile)); err != nil {
-		return err
 	}
 
 	st.ready = true
@@ -220,10 +156,7 @@ func j001900WriteAuthored(w *World, content string) error {
 // j001900WriteRevised writes Carol's revision at a HIGHER version, so republishing
 // it is a genuine pin advance rather than a byte change the consumer's lock
 // never moves to. See j001900EnvelopeYAML. It touches the SAME two files
-// j001900WriteAuthored wrote — this is what makes "never re-signs it" a real
-// planted cause: the tree's SHA256SUMS/.sigs (or single-document .sig sibling)
-// a prior `bundle sign` produced are left on disk, now stale against the
-// revised fragment.
+// j001900WriteAuthored wrote.
 func j001900WriteRevised(w *World, content string) error {
 	if err := w.env.WriteFile(j001900BundlePath(), j001900EnvelopeYAML("1.1.0")); err != nil {
 		return err
@@ -236,15 +169,13 @@ func j001900WriteRevised(w *World, content string) error {
 // `deps hold` resolves against.
 func j001900LockedName() string { return "team/" + j001900Bundle }
 
-// j001900PublishFromDisk publishes the WHOLE authored tree — the envelope, the
-// fragment file, and whatever attestation `bundle sign` produced (the tree's
-// SHA256SUMS/.sigs) — into the team remote,
-// then hands the authoring copy off out of the project.
+// j001900PublishFromDisk publishes the WHOLE authored tree — the envelope and
+// the fragment file — into the team remote, then hands the authoring copy off
+// out of the project.
 //
-// The hand-off is load-bearing, for the reason steps_j001600_signing.go's
-// j001600SeedFromDisk documents: one hermetic project plays both the publishing
+// The hand-off is load-bearing: one hermetic project plays both the publishing
 // and the consuming checkout, and a LOCAL authored bundle of the same name
-// shadows the remote one. Left in place, every "withheld" assertion in this
+// shadows the remote one. Left in place, every delivery assertion in this
 // journey would silently measure the local copy and pass while proving
 // nothing.
 func j001900PublishFromDisk(w *World) error {
@@ -295,7 +226,7 @@ func j001900PublishFromDisk(w *World) error {
 }
 
 // j001900Reference wires the team remote into the consuming project the ordinary
-// way — remote create (an address, never trust), reference it from the composed
+// way — remote create (registering it is the trust act), reference it from the composed
 // profile, pull — and is idempotent so a scenario can pull again after the
 // publisher advances.
 func j001900Reference(w *World) error {
@@ -314,12 +245,6 @@ func j001900Reference(w *World) error {
 	}
 	st.referenced = true
 	return runOK(w, "deps", "pull")
-}
-
-// j001900TrustCarol writes Carol's key into the committable project trust store,
-// so the ATTESTATION boundary is the only thing left to plant a cause at.
-func j001900TrustCarol(w *World) error {
-	return w.env.TrustSigner(j001900Of(w).signer, j001900Principal, true)
 }
 
 // j001900Delivered materializes the default profile and returns the assembled
@@ -476,53 +401,7 @@ func j001900NamesAll(out, what string, wants ...string) error {
 	return nil
 }
 
-// j001900LockedSHA reads the runbook's pinned commit straight out of the project's
-// lock.yaml.
-//
-// It reads the FILE rather than asking a ctxloom command what is pinned, on
-// purpose: the claim this journey makes at this boundary is about persisted
-// state, and a command that renders the pin from the same code path that
-// writes it could agree with itself while the file said something else.
-func j001900LockedSHA(w *World) (string, error) {
-	raw, err := w.env.ReadFile(filepath.Join(".ctxloom", "lock.yaml"))
-	if err != nil {
-		return "", fmt.Errorf("read lock.yaml: %w", err)
-	}
-	var lock struct {
-		Bundles map[string]struct {
-			SHA string `yaml:"sha"`
-		} `yaml:"bundles"`
-	}
-	if err := yaml.Unmarshal([]byte(raw), &lock); err != nil {
-		return "", fmt.Errorf("parse lock.yaml: %w\n%s", err, raw)
-	}
-	for key, entry := range lock.Bundles {
-		if strings.Contains(key, j001900Bundle) {
-			if entry.SHA == "" {
-				return "", fmt.Errorf("lock.yaml pins %q with an EMPTY sha — an unpinned entry silently reads the branch tip:\n%s", key, raw)
-			}
-			return entry.SHA, nil
-		}
-	}
-	return "", fmt.Errorf("lock.yaml has no entry for %q, so there is no pin to reason about:\n%s", j001900Bundle, raw)
-}
-
 func registerJ001900Steps(ctx *godog.ScenarioContext) {
-	// The in-process ssh-agent is this journey's only long-lived resource;
-	// stopping it here joins its accept loop before the scenario is over.
-	ctx.After(func(c context.Context, sc *godog.Scenario, err error) (context.Context, error) {
-		w := worldFrom(c)
-		if w == nil || w.j001900 == nil || w.j001900.stopAgent == nil {
-			return c, nil
-		}
-		stop := w.j001900.stopAgent
-		w.j001900.stopAgent = nil
-		if serr := stop(); serr != nil {
-			return c, fmt.Errorf("stop hermetic ssh-agent: %w", serr)
-		}
-		return c, nil
-	})
-
 	// --- Background ---------------------------------------------------------
 
 	ctx.Step(`^Alice's team ships its deploy process as ctxloom content$`, func(c context.Context) error {
@@ -554,20 +433,14 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// --- B2: packaged -> attested -------------------------------------------
+	// --- Publishing the runbook ---------------------------------------------
 
-	ctx.Step(`^Carol published the signed runbook, and Alice's assistant receives its deploy guidance$`, func(c context.Context) error {
+	ctx.Step(`^Carol published the runbook, and Alice's assistant receives its deploy guidance$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := j001900Setup(w); err != nil {
 			return err
 		}
 		if err := j001900WriteAuthored(w, j001900DeployMarker); err != nil {
-			return err
-		}
-		if err := runOK(w, "bundle", "sign", j001900Bundle); err != nil {
-			return err
-		}
-		if err := j001900TrustCarol(w); err != nil {
 			return err
 		}
 		if err := j001900PublishFromDisk(w); err != nil {
@@ -579,190 +452,21 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		return j001900AssertDelivery(w, j001900DeployMarker, true)
 	})
 
-	ctx.Step(`^Carol edits the runbook on Friday and never re-signs it$`, func(c context.Context) error {
-		w := worldFrom(c)
-		// The publisher's edit lands in the remote WITHOUT a refreshed
-		// signature: the stale .sig is carried forward verbatim, which is what
-		// really happens when someone edits a bundle and pushes. The version
-		// moves, so this is a real pin advance — B2's stated trigger.
-		if err := j001900WriteRevised(w, j001900RevisedMarker); err != nil {
-			return err
-		}
-		return j001900PublishFromDisk(w)
-	})
-
 	ctx.Step(`^Alice syncs on Monday$`, func(c context.Context) error {
 		w := worldFrom(c)
-		// An ordinary sync: no incident ceremony, no special flag. `remote
-		// update` is allowed to report problems, so its exit code is not the
-		// assertion — what it SAYS and what arrives afterwards are.
-		//
-		// `deps upgrade` is the third call and it is LOAD-BEARING. B2's
-		// silent-loss mode is "withheld silently ON PIN ADVANCE", so a sync
-		// that never advances a pin never reaches the attestation boundary at
-		// all.
-		//
-		// MEASURED, and the reason this line exists: `deps check` is a DRY
-		// CHECK, and `deps pull` keeps an existing pin at its locked commit.
-		// With only those two the lockfile stayed at Friday's commit, so every
-		// "the revision never arrived" assertion in this journey passed
-		// because NOTHING WAS EVER SYNCED — not because anything was withheld.
-		// Two independent checks confirmed it: making the fixture re-sign
-		// properly changed no outcome, and gutting signing.VerifyPublisher so
-		// an invalid signature verifies changed no outcome either. The
-		// signature gate was never consulted.
-		//
-		// `deps upgrade` is the ordinary sync a person actually performs when
-		// they want Monday's content: it is the one command that advances a
-		// pin.
+		// An ordinary sync: no incident ceremony, no special flag. Its exit
+		// codes are not the assertion — what arrives afterwards is. `deps
+		// upgrade --yes` is the one command that advances a pin, so it is what
+		// a person runs when they want Monday's content.
 		_ = w.env.Run("deps", "check")
 		_ = w.env.Run("deps", "pull")
-		// Read the pin BEFORE the command that would move it, so the
-		// "it did not advance" assertion compares against a captured value and
-		// not against the lockfile explaining itself.
-		pin, err := j001900LockedSHA(w)
-		if err != nil {
-			return err
-		}
-		j001900Of(w).pinBeforeSync = pin
-		// Text: the steps below read what the sync told her in words.
 		_ = w.env.Run("--format", "text", "deps", "upgrade", "--yes")
-		j001900Of(w).syncOutput = w.env.LastOutput()
-		j001900Of(w).syncExit = w.env.LastExitCode()
 		return nil
 	})
 
-	ctx.Step(`^her assistant never receives the revised deploy guidance$`, func(c context.Context) error {
-		return j001900AssertDelivery(worldFrom(c), j001900RevisedMarker, false)
-	})
+	// --- B3: packaged -> distributed ----------------------------------------
 
-	// --- B2, the decided behaviour: refuse the advance ----------------------
-	//
-	// Three assertions, deliberately separate, because they are three
-	// different ways this can be wrong: the pin moved anyway; the pin held but
-	// the content stopped arriving; the pin held and the content arrived and
-	// nobody was told, which is indistinguishable from "already up to date".
-
-	ctx.Step(`^the runbook's pin did not advance, and the lockfile still holds the commit whose signature verified$`, func(c context.Context) error {
-		w := worldFrom(c)
-		st := j001900Of(w)
-		if st.pinBeforeSync == "" {
-			return fmt.Errorf("no pre-sync pin was captured — the sync step did not run, so 'it did not advance' would be vacuous")
-		}
-		after, err := j001900LockedSHA(w)
-		if err != nil {
-			return err
-		}
-		if after != st.pinBeforeSync {
-			return fmt.Errorf("the pin ADVANCED onto content whose signature does not verify: lock.yaml went from %s to %s. "+
-				"Upgrade must keep the last verified pin — advancing here withholds the new copy as tampered AND puts the old one "+
-				"out of reach, leaving nothing", st.pinBeforeSync, after)
-		}
-		return nil
-	})
-
-	ctx.Step(`^her assistant is still served the content at that pin$`, func(c context.Context) error {
-		// This is the whole reason option (a) was chosen: she goes on working.
-		return j001900AssertDelivery(worldFrom(c), j001900DeployMarker, true)
-	})
-
-	ctx.Step(`^the sync told her the runbook cannot be verified, naming the pin it kept$`, func(c context.Context) error {
-		w := worldFrom(c)
-		st := j001900Of(w)
-		out := st.syncOutput
-		if strings.TrimSpace(out) == "" {
-			return fmt.Errorf("the sync printed NOTHING — a silent non-advance is indistinguishable from 'everything is up to date', " +
-				"which is the defect this row exists to prevent")
-		}
-		if strings.Contains(out, "Everything is up to date.") {
-			return fmt.Errorf("the sync claimed everything is up to date while refusing an advance; it said:\n%s", out)
-		}
-		kept := st.pinBeforeSync
-		if len(kept) > 16 {
-			kept = kept[:16] // the pin is rendered abbreviated for humans
-		}
-		return j001900NamesAll(out, "Monday's sync", j001900Bundle, bundles.ErrTreeBundleWithheld.Error(), kept)
-	})
-
-	// The remedy has to be one that can fix it: the publisher repairing the
-	// runbook and publishing it again.
-	ctx.Step(`^the remedy it named is the publisher republishing the runbook$`, func(c context.Context) error {
-		out := j001900Of(worldFrom(c)).syncOutput
-		if !strings.Contains(out, "publish again") {
-			return fmt.Errorf("the sync named no action that can fix it: nothing in it points at the publisher publishing again. "+
-				"It said:\n%s", out)
-		}
-		return nil
-	})
-
-	// THE MACHINE-READABLE HALF. Every other Then on this row reads what a
-	// HUMAN was told; this one reads what a SCRIPT was told, and they are
-	// different audiences with different failure modes. An unattended sync that
-	// refuses and exits 0 is indistinguishable, to the cron job that ran it,
-	// from one that had nothing to do — the refusal message scrolls past into a
-	// log nobody reads. Exit 2 (cli.exitCodeRefused, docs/cli-ux-principles.md
-	// §7) is "completed, and deliberately did not do something asked": not 1,
-	// which would report a decision as a fault on the user's machine, and not
-	// 0, which is the silence.
-	ctx.Step(`^the sync exited with the code for "did some of this deliberately not happen"$`, func(c context.Context) error {
-		w := worldFrom(c)
-		st := j001900Of(w)
-		switch st.syncExit {
-		case 2:
-			return nil
-		case 0:
-			return fmt.Errorf("the sync exited 0 after refusing an advance — to a script that is indistinguishable from a round with "+
-				"nothing to do, which is the whole silence this row exists to remove. It printed:\n%s", st.syncOutput)
-		case 1:
-			return fmt.Errorf("the sync exited 1 after refusing an advance. A refusal is not an error: nothing failed and the user's "+
-				"environment is fine, and 1 sends them hunting a fault on their own machine. It printed:\n%s", st.syncOutput)
-		default:
-			return fmt.Errorf("the sync exited %d; the documented code for a deliberate non-action is 2 (docs/cli-ux-principles.md §7). "+
-				"It printed:\n%s", st.syncExit, st.syncOutput)
-		}
-	})
-
-	// THE ROW'S SUBJECT MOVED WITH THE PRODUCT, and the assertion moved with
-	// it. It used to look for the word "unsigned", which was never true of the
-	// cause this fixture plants: Carol's bundle IS signed — she edited the
-	// bytes and carried the old .sig forward, which is a signature that does
-	// not cover what it sits beside, a different state from unsigned entirely
-	// (docs/trust-model.md, "Item states"). And since upgrade started REFUSING
-	// that advance, nothing is withheld at all: the kept pin verifies, the
-	// guidance keeps arriving, and only the REVISION is missing.
-	//
-	// So the question this row asks — "why is the newer copy not here, days
-	// after the sync that refused it?" — is unchanged, and the three facts an
-	// answer needs are: which bundle, that its signature does not verify, and
-	// which pin is being served instead. Asserting all three is strictly more
-	// than the two tokens this step used to look for.
-	ctx.Step(`^some inspector names the runbook, the signature that does not verify, and the pin she is kept at$`, func(c context.Context) error {
-		w := worldFrom(c)
-		kept := j001900Of(w).pinBeforeSync
-		if kept == "" {
-			return fmt.Errorf("no pre-sync pin was captured — the sync step did not run, so there is no kept pin to look for")
-		}
-		if len(kept) > 16 {
-			kept = kept[:16] // the pin is rendered abbreviated for humans
-		}
-		return j001900ProbesAnswered(w, j001900Bundle, bundles.ErrTreeBundleWithheld.Error(), kept)
-	})
-
-	ctx.Step(`^Alice asks ctxloom why the runbook stopped arriving$`, func(c context.Context) error {
-		w := worldFrom(c)
-		// Every inspector FLOWS-UNIFIED names for this hop, plus the two
-		// plausible spellings a user would reach for. None of them is claimed
-		// to exist; the assertion is that SOMETHING answers.
-		j001900Probe(w, "doctor")
-		j001900Probe(w, "bundle", "list")
-		j001900Probe(w, "bundle", "show", j001900LockedName())
-		j001900Probe(w, "signer", "list")
-		return nil
-	})
-
-	// --- B3: attested -> distributed ----------------------------------------
-
-	ctx.Step(`^Carol publishes a newer signed runbook while Alice's copy is held$`, func(c context.Context) error {
+	ctx.Step(`^Carol publishes a newer runbook while Alice's copy is held$`, func(c context.Context) error {
 		w := worldFrom(c)
 		// Held by its LOCKFILE name (remote-qualified): `deps hold` resolves
 		// against the active lockfile, and the bare name is not an entry there.
@@ -770,9 +474,6 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		if err := j001900WriteRevised(w, j001900RevisedMarker); err != nil {
-			return err
-		}
-		if err := runOK(w, "bundle", "sign", j001900Bundle); err != nil {
 			return err
 		}
 		return j001900PublishFromDisk(w)

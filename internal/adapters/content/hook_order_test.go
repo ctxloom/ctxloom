@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -205,7 +204,7 @@ func mustHookItem(t *testing.T, store *TreeStore, bundleID BundleID, name string
 func mustComponents(t *testing.T, item Item) []Component {
 	t.Helper()
 	ctx := context.Background()
-	form, err := item.Form(ctx, signing.FormRaw)
+	form, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}

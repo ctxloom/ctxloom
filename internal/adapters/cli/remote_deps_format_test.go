@@ -307,24 +307,17 @@ func TestDepsCheckRef_PipedEmitsTheApprovedShape(t *testing.T) {
 	assert.Equal(t, []any{}, got["refresh_failures"])
 }
 
-func TestDepsUpgrade_PipedEmitsTheApprovedShapeThenExitsRefused(t *testing.T) {
+func TestDepsUpgrade_PipedEmitsTheApprovedShape(t *testing.T) {
 	stub(t, &upgradeDependencies, func(context.Context, *config.Config, operations.UpgradeRequest) (operations.UpgradeResult, error) {
-		return operations.UpgradeResult{Changes: []operations.PinChange{{Identity: "corp/b"}}, Refused: []operations.RefusedAdvance{{Identity: "corp/a",
-			KeptSHA: "1111", ProposedSHA: "2222", Detail: "unreadable", Cause: operations.RefusalUnreadable}}}, nil
+		return operations.UpgradeResult{Changes: []operations.PinChange{{Identity: "corp/b"}}}, nil
 	})
 	cmd, stdout, stderr := pipedCmd(t)
 
-	err := runDepsUpgrade(cmd, discoverTestConfig)
+	require.NoError(t, runDepsUpgrade(cmd, discoverTestConfig))
 
-	var exitErr *ExitError
-	require.ErrorAs(t, err, &exitErr)
-	assert.Equal(t, exitCodeRefused, exitErr.Code, "a refusal exits 2 — after the payload")
 	got := decodeObject(t, stdout)
-	assertKeys(t, got, "applied", "changes", "incomplete", "nothing_declared", "refused", "removed")
+	assertKeys(t, got, "applied", "changes", "incomplete", "nothing_declared", "removed")
 	assertKeys(t, got["changes"].([]any)[0], "identity", "url", "from_sha", "to_sha", "from_version", "to_version", "items", "files")
 	assert.Equal(t, []any{}, got["removed"])
-	assertKeys(t, got["refused"].([]any)[0], "identity", "kept_sha", "proposed_sha", "detail", "cause")
-	assert.Equal(t, "unreadable", got["refused"].([]any)[0].(map[string]any)["cause"])
-	assert.NotContains(t, stdout.String(), "REFUSED", "refusal prose is the text rendering only")
 	assert.Contains(t, stderr.String(), "Resolving latest commits", "progress belongs on stderr")
 }

@@ -10,8 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// An MCP entry's content hash is derived from its executable surface and read
-// by nothing — trust hashes ContentPayload() live — so it is not persisted. A
+// An MCP entry's content hash is read by nothing, so it is not persisted. A
 // sidecar written before that, still carrying content_hash, must load, and
 // the next edit must write the sidecar back without it.
 func TestBundleMCP_EditDropsALegacyContentHashFromTheSidecar(t *testing.T) {

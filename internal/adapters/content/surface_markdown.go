@@ -5,7 +5,6 @@ import (
 	"path"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -70,7 +69,7 @@ func detectMarkdownItem(dir string, src Source) (string, bool) {
 // local cache derivative — so both live in the content tree, both are hashed, and
 // both are separately attestable. Reporting a form that has no file would hand a
 // caller an empty Form to sign.
-func markdownForms(dir string, src Source) ([]signing.Form, error) {
+func markdownForms(dir string, src Source) ([]trust.ContentForm, error) {
 	stem, ok := detectMarkdownItem(dir, src)
 	if !ok {
 		return nil, fmt.Errorf("%w: not a %s item", ErrUnrecognized, dir)
@@ -79,10 +78,10 @@ func markdownForms(dir string, src Source) ([]signing.Form, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := []signing.Form{signing.FormRaw}
+	out := []trust.ContentForm{trust.FormRaw}
 	for _, p := range paths {
-		if !IsMetaPath(p) && logicalBase(p) == stem+"."+string(signing.FormDistilled) {
-			out = append(out, signing.FormDistilled)
+		if !IsMetaPath(p) && logicalBase(p) == stem+"."+string(trust.FormDistilled) {
+			out = append(out, trust.FormDistilled)
 			break
 		}
 	}
@@ -133,7 +132,7 @@ func readMarkdownItem(t SurfaceType, src Source) (markdownParts, error) {
 		if err := unmarshalYAML(fm, &meta); err != nil {
 			return out, fmt.Errorf("content: %s: %w", p, err)
 		}
-		if logicalBase(p) == stem+"."+string(signing.FormDistilled) {
+		if logicalBase(p) == stem+"."+string(trust.FormDistilled) {
 			out.distilled, out.distBody, out.hasDist = meta, body, true
 			continue
 		}
@@ -161,7 +160,7 @@ func encodeMarkdownItem(dir, stem string, raw mdMeta, rawBody string, distilled 
 			return nil, err
 		}
 		out = append(out, Component{
-			Path:  itemPath(dir, stem+"."+string(signing.FormDistilled), ".md"),
+			Path:  itemPath(dir, stem+"."+string(trust.FormDistilled), ".md"),
 			Mode:  ModeRegular,
 			Bytes: distBytes,
 		})
@@ -251,7 +250,7 @@ func (t fragmentType) Detect(src Source) bool {
 	return ok
 }
 
-func (t fragmentType) Forms(src Source) ([]signing.Form, error) {
+func (t fragmentType) Forms(src Source) ([]trust.ContentForm, error) {
 	return markdownForms(t.Dir(), src)
 }
 
@@ -313,7 +312,7 @@ func (t commandType) Detect(src Source) bool {
 	return ok
 }
 
-func (t commandType) Forms(src Source) ([]signing.Form, error) {
+func (t commandType) Forms(src Source) ([]trust.ContentForm, error) {
 	return markdownForms(t.Dir(), src)
 }
 

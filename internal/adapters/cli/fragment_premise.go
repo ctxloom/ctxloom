@@ -19,9 +19,7 @@ import (
 
 // Premise authoring is a PROPOSAL surface: the model drafts and critiques, and
 // only a human at a terminal ratifies. Off a terminal, or with --dry-run, the
-// command presents and writes nothing. Accepting writes the premise and never
-// signs — the premise is inside the item's trust preimage, so signing is the
-// author's deliberate `bundle sign`, not a side effect of saying yes.
+// command presents and writes nothing. Accepting writes the premise.
 
 var (
 	fragmentDraftPremiseLLM        string
@@ -45,8 +43,7 @@ Only a human at a terminal ratifies. When stdout is not a terminal, or with
 --dry-run, the proposal is printed (use --format json for a structured one)
 and nothing is written.
 
-Accepting or editing writes the premise; it never signs. A changed premise
-leaves the item's approvals stale until you run 'ctxloom bundle sign <bundle>'.
+Accepting or editing writes the premise.
 
 In the editor, always-load must be written as the literal NONE: an emptied
 premise is refused rather than read as always-load.`,
@@ -94,9 +91,6 @@ type premiseProposal struct {
 	Critique *operations.PremiseCritique `json:"critique,omitempty"`
 	Decision string                      `json:"decision"`
 	Written  *premiseValues              `json:"written,omitempty"`
-	// StaleApprovals is set when the written premise differs from the current
-	// one: the premise is signed, notes are not.
-	StaleApprovals bool `json:"stale_approvals,omitempty"`
 }
 
 const (
@@ -156,11 +150,8 @@ func runFragmentDraftPremise(cmd *cobra.Command, args []string) error {
 			_, err := fmt.Fprintln(w, "Rejected: nothing written.")
 			return err
 		}
-		fmt.Fprintf(w, "Wrote the premise for %s.\n", inertField(ref))
-		if p.StaleApprovals {
-			fmt.Fprintf(w, "The item's approvals are now stale: run 'ctxloom bundle sign %s' to ratify it.\n", inertField(bundleName))
-		}
-		return nil
+		_, err := fmt.Fprintf(w, "Wrote the premise for %s.\n", inertField(ref))
+		return err
 	})
 }
 
@@ -215,7 +206,6 @@ func decideAndWritePremise(ctx context.Context, cmd *cobra.Command, cfg *config.
 	}); err != nil {
 		return err
 	}
-	p.StaleApprovals = p.Written.Premise != currentPremise
 	return nil
 }
 

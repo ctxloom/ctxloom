@@ -208,11 +208,9 @@ func renderRemoteList(out io.Writer, result *operations.ListRemotesResult) error
 	return nil
 }
 
-// A remote carries no trust of its own — it is an address to fetch from, and
-// nothing more. Trusting a publisher is `ctxloom signer trust <principal> --key
-// <path>`, which trusts a KEY, verified over the bytes, rather than a LOCATION,
-// which is hash-blind. Publishing needs no separate blessing either: registering
-// a remote is the act that names it as a destination.
+// Registering a remote is the trust act for what it serves. Publishing needs no
+// separate blessing either: registering a remote is the act that names it as a
+// destination.
 //
 // Which remotes a caller may PUBLISH to is therefore exactly which remotes are
 // registered here.

@@ -190,10 +190,3 @@ func stubTreeInstaller() TreeInstallFunc {
 		return filepath.Join(worktreeDir, filepath.FromSlash(subpath)), nil
 	}
 }
-
-// stubTreeVerifier admits every tree.
-func stubTreeVerifier() TreeVerifyFunc {
-	return func(context.Context, map[string]TreeFile, string, string, string) (Verified, error) {
-		return Verified{}, nil
-	}
-}

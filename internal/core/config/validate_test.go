@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -130,9 +129,6 @@ func (s stubSources) ReadTarget(ctx context.Context) (*config.Config, error) {
 }
 func (stubSources) Readers(context.Context, *config.Config) ([]bundles.Reader, error) {
 	return nil, nil
-}
-func (stubSources) TrustRoot(context.Context, *config.Config) (trust.TrustRoot, error) {
-	return trust.NoSigners{}, nil
 }
 
 // TestOpen_WithEngines_ValidatesEveryGeneration: a process composed with

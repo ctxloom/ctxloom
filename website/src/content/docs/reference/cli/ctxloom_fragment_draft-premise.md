@@ -25,8 +25,7 @@ Only a human at a terminal ratifies. When stdout is not a terminal, or with
 --dry-run, the proposal is printed (use --format json for a structured one)
 and nothing is written.
 
-Accepting or editing writes the premise; it never signs. A changed premise
-leaves the item's approvals stale until you run 'ctxloom bundle sign <bundle>'.
+Accepting or editing writes the premise.
 
 In the editor, always-load must be written as the literal NONE: an emptied
 premise is refused rather than read as always-load.
@@ -57,7 +56,6 @@ ctxloom fragment draft-premise <bundle>#fragments/<name> [flags]
 ```
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
-      --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted (nothing ctxloom starts inherits it; signing is unaffected)
       --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context

@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -65,21 +64,21 @@ func readOneLocal(t *testing.T, fsys afero.Fs) *Bundle {
 func putFragment(w content.Writer, name, body string) {
 	_ = w.Put(context.Background(),
 		trust.Ref{Bundle: "vault", Kind: trust.KindFragment, Name: name},
-		signing.FormRaw,
+		trust.FormRaw,
 		content.Fragment{Name: name, ItemMeta: content.ItemMeta{Body: body, Tags: []string{"style"}}})
 }
 
 func putCommand(w content.Writer, name, body string) {
 	_ = w.Put(context.Background(),
 		trust.Ref{Bundle: "vault", Kind: trust.KindPrompt, Name: name},
-		signing.FormRaw,
+		trust.FormRaw,
 		content.Command{Name: name, ItemMeta: content.ItemMeta{Body: body, Description: "ship it"}})
 }
 
 func putSkill(w content.Writer, name, body string) {
 	_ = w.Put(context.Background(),
 		trust.Ref{Bundle: "vault", Kind: trust.KindSkill, Name: name},
-		signing.FormRaw,
+		trust.FormRaw,
 		content.Skill{Name: name, Files: []content.SkillFile{
 			{Path: "SKILL.md", Bytes: []byte(body), Mode: content.ModeRegular},
 		}})
@@ -271,7 +270,7 @@ func TestLocalTreeForm_FragmentPremiseSurvivesTheRead(t *testing.T) {
 	fsys := stageLocalTree(t, treeEnvelope, func(w content.Writer) {
 		_ = w.Put(context.Background(),
 			trust.Ref{Bundle: "vault", Kind: trust.KindFragment, Name: "conditional"},
-			signing.FormRaw,
+			trust.FormRaw,
 			content.Fragment{Name: "conditional", ItemMeta: content.ItemMeta{
 				Body:        "BODY",
 				Description: premise,

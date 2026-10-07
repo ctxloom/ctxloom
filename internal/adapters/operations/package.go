@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -70,19 +69,16 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 		opts = composite.Options{DropWithheld: true, Static: static}
 	)
 	var versions bundles.BundleVersionResolver
-	var versionRoot trust.TrustRoot
 	if req.Pipeline != nil {
 		// An injected stage carries its own links, form and versions.
 		opts.Pipeline = req.Pipeline
 		opts.PreferDistilled = req.Pipeline.PreferDistilled()
 		cat = req.Pipeline.Loader().Catalog()
 		versions = req.Pipeline.Loader().VersionResolver()
-		versionRoot = req.Pipeline.Loader().VersionRoot()
 	} else {
 		cat = cfg.Catalog()
 		opts.PreferDistilled = cfgPreferDistilled(cfg)
 		versions = cfg.VersionResolver()
-		versionRoot = cfg.TrustRoot()
 		opts.Versions = versions
 	}
 
@@ -100,7 +96,7 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 		opts.Statusline = managedStatuslineEnabled(cfg)
 		opts.ShellTimeout = cfg.GetShellTimeout()
 	}
-	sel, err := composite.Select(resolved, cat, composite.SelectRequest{Fragments: req.Fragments, Tags: req.Tags, Versions: versions, VersionRoot: versionRoot})
+	sel, err := composite.Select(resolved, cat, composite.SelectRequest{Fragments: req.Fragments, Tags: req.Tags, Versions: versions})
 	if err != nil {
 		return composite.Package{}, err
 	}
@@ -112,7 +108,7 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 	opts.Commands = builtinCommands()
 	opts.CarryForward = carriedSources(cat.Candidates())
 
-	pkg, err := composite.Assemble(ctx, cat, sel, versionRoot, opts)
+	pkg, err := composite.Assemble(ctx, cat, sel, opts)
 	if err != nil {
 		return composite.Package{}, err
 	}
@@ -304,7 +300,6 @@ func LoadedSkills(pkg composite.Package) []*bundles.LoadedSkill {
 			Exports:     engineBlocks(s.Value.Exports),
 			Curated:     s.Value.Curated,
 			TrustRef:    s.Ref,
-			Signer:      s.Signer,
 		})
 	}
 	return out

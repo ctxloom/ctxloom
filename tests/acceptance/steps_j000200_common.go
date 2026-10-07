@@ -1,7 +1,7 @@
 //go:build acceptance
 
-// J000200 shared harness: the "developer's assistant only sees what it's handed,
-// signed, and trusted" journey (j000200_setup.feature, j000300_source_augmentation.feature).
+// J000200 shared harness: the "developer's assistant sees what the repositories
+// she added hand it" journey (j000200_setup.feature, j000300_source_augmentation.feature).
 //
 // Deliberately does NOT drive a fresh `ctxloom init` for its hermetic
 // scenarios: a first-time init on a NEW .ctxloom dir always clones the seeded
@@ -25,12 +25,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-
-	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // j000200Source is one named J000200 source fixture: a seeded git remote carrying one
-// bundle, optionally signed and/or trusted, plus enough bookkeeping for the
+// bundle, plus enough bookkeeping for the
 // "adds ... as a source" wiring and later delivery assertions.
 type j000200Source struct {
 	name       string
@@ -39,8 +37,6 @@ type j000200Source struct {
 	marker     string // the distinctive content this source's item carries
 	itemKind   string // "fragments" or "commands" — for building item refs
 	itemName   string
-	signer     *testenv.TestSigner
-	principal  string
 }
 
 // source returns (lazily creating) the named j000200Source for this scenario.
@@ -84,8 +80,8 @@ func j000200ItemTreePath(kind, item string) (string, error) {
 }
 
 // seedSource seeds a remote for a named J000200 source: a TRUE TREE (envelope
-// with no inline item keys, one item file) whose single item is (kind, item),
-// optionally signed and/or trusted. Records the source in World for later
+// with no inline item keys, one item file) whose single item is (kind, item).
+// Records the source in World for later
 // "adds ... as a source" wiring and assertions.
 //
 // marker and content are separate because they usually are but not always the
@@ -94,7 +90,7 @@ func j000200ItemTreePath(kind, item string) (string, error) {
 // SENTENCE containing the codeword as content while marker stays the bare
 // codeword an assertion later searches for.
 
-func seedSource(w *World, name, kind, item, marker, content string, sign, trustAsProject bool) (*j000200Source, error) {
+func seedSource(w *World, name, kind, item, marker, content string) (*j000200Source, error) {
 	src := w.source(name)
 	src.marker = marker
 	src.itemKind = kind
@@ -116,21 +112,10 @@ func seedSource(w *World, name, kind, item, marker, content string, sign, trustA
 		itemBody = fmt.Sprintf("---\ndescription: J000200 %s\n---\n\n%s\n", item, content)
 	}
 
-	var url string
-	if sign {
-		signer, serr := testenv.GenerateTestSigner()
-		if serr != nil {
-			return nil, fmt.Errorf("generate signer for %q: %w", name, serr)
-		}
-		src.signer = signer
-		url, err = w.env.SeedSignedTreeRemote(root, src.bundleName, envelope, map[string]string{itemPath: itemBody}, signer)
-	} else {
-		files := map[string]string{
-			root + "/" + bundles.DirectoryFormManifest: envelope,
-			root + "/" + itemPath:                      itemBody,
-		}
-		url, err = w.env.SeedRemote(files)
-	}
+	url, err := w.env.SeedRemote(map[string]string{
+		root + "/" + bundles.DirectoryFormManifest: envelope,
+		root + "/" + itemPath:                      itemBody,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("seed remote %q: %w", name, err)
 	}
@@ -140,15 +125,6 @@ func seedSource(w *World, name, kind, item, marker, content string, sign, trustA
 	}
 	w.remoteBare[name] = strings.TrimPrefix(url, "file://")
 
-	if trustAsProject {
-		if src.signer == nil {
-			return nil, fmt.Errorf("cannot trust %q: it was not signed", name)
-		}
-		src.principal = name + "@example.com"
-		if err := w.env.TrustSigner(src.signer, src.principal, true); err != nil {
-			return nil, fmt.Errorf("trust the signing key for %q: %w", name, err)
-		}
-	}
 	return src, nil
 }
 
@@ -156,9 +132,8 @@ func seedSource(w *World, name, kind, item, marker, content string, sign, trustA
 // as a developer adding a personal/company repo: `remote add` (an address),
 // `profile modify <profile> --add-bundle <remote>/<bundle>` (reference it from
 // the composed profile), then `deps pull` (fetch + lock the closure). This
-// is the ONLY step that can make the source's content reachable — adding a
-// remote never implies trust (spec §11); whether it is EXPOSED is decided
-// later, per item, by the trust gate at materialize/assemble time.
+// is the ONLY step that can make the source's content reachable, and adding
+// the remote is the trust act.
 func addSourceAsRemote(w *World, name, profile string) error {
 	src := w.j000200Sources[name]
 	if src == nil {
@@ -395,11 +370,6 @@ func installFreshInitEngineStub(w *World) error {
 // Each answer waits for its own prompt, so a question that is skipped,
 // reordered or renamed fails here, naming the one that never came.
 func driveFreshInitInterview(w *World) (string, error) {
-	// isolatedEnv passes SSH_AUTH_SOCK through, and init reports on the
-	// signing identities it finds: a developer's real agent would put their
-	// identities into this transcript, which is the scenario's published
-	// evidence, and make it differ from a run with no agent.
-	w.env.SetChildEnv("SSH_AUTH_SOCK", "")
 	env := []string{
 		"PATH=" + freshInitStubDir(w) + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"GIT_ALLOW_PROTOCOL=file",

@@ -33,11 +33,10 @@ type LoadedContent struct {
 	// form actually served, never re-derived (a re-derivation drops terms like
 	// no_distill and describes bytes that were never served).
 	Form ContentForm
-	// TrustRef / Signer are the read facts this delivery decision was made on,
-	// carried through so a delivered item names its own provenance. See
-	// ItemRead, which is where they originate.
+	// TrustRef is the read fact this delivery decision was made on, carried
+	// through so a delivered item names its own provenance. See ItemRead,
+	// which is where it originates.
 	TrustRef string
-	Signer   string
 	Exports  EngineBlocks // per engine name, opaque; that engine decodes its block
 	// Curated marks an item a profile named explicitly; an engine exports
 	// it even where its block opts out, because naming it is the ask.
@@ -77,7 +76,7 @@ type ItemRead struct {
 	// Resolve is the item's own process-stage resolution (BundleFragment /
 	// BundleCommand.Resolve), carried from the read UNCALLED: the read has no
 	// form preference and picks nothing. The process stage calls it once and
-	// gets served bytes, form and gate preimage from that single call — never
+	// gets served bytes and form from that single call — never
 	// re-deriving "the bytes of this item" from separate fields.
 	Resolve func(preferDistilled bool) ItemSurface
 
@@ -89,24 +88,7 @@ type ItemRead struct {
 	// like an executable, the local name for a project bundle so its text
 	// auto-trusts). A read FACT the reader establishes, never a decision.
 	TrustRef string
-	// Signer is the owning bundle's VERIFIED publisher identity, or "" when the
-	// bundle is unsigned or was signed by a key this machine does not trust to
-	// publish. It is Bundle.Signer() carried through — stamped only by a load
-	// path that actually verified a signature, before any parse — so it is never
-	// a claim the content made about itself.
-	//
-	// Establishing it is READING: the reader keeps its signature awareness. What
-	// it no longer does is act on it.
-	//
-	// It is the COLLAPSED form of two of Read's axes and cannot express the
-	// third: signing.VerifyPublisher returns "" for both "unsigned" and "signed
-	// by a key we do not trust", and nothing about it can say "invalid". Read is
-	// the un-collapsed truth; this stays because a DELIVERED item names its
-	// own publisher.
-	Signer string
-
-	// Read is the owning bundle's read — the trust FACTS its reader established,
-	// on all three axes.
+	// Read is the owning bundle's read — the facts its reader established.
 	//
 	// Exported, and safe to be: BundleRead's axes are unexported and settable
 	// only by a reader, so an ItemRead built from a struct literal outside this
@@ -348,7 +330,6 @@ func itemRead(read BundleRead, kind trust.ItemKind, name string, body ItemBody, 
 		DistilledBy:  body.DistilledBy,
 		Resolve:      resolve,
 		TrustRef:     trustRef,
-		Signer:       bundle.Signer(),
 		Read:         read,
 	}, nil
 }

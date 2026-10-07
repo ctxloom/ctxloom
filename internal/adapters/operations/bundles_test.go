@@ -1106,20 +1106,6 @@ func TestCreateBundle_NotesAndInstallationRoundTrip(t *testing.T) {
 	assert.Equal(t, "install m", got.MCP["m"].Installation)
 }
 
-func TestPushBundle_NoSigner_NeverPublishesSig(t *testing.T) {
-	mock := &mockPublisher{returnCommitSHA: "nosig"}
-	cfg, bundlePath, mgr := pushTestSetup(t, mock)
-
-	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
-		Path:           bundlePath,
-		Remote:         "personal",
-		PublishManager: mgr,
-	})
-	require.NoError(t, err)
-	assert.False(t, result.Signed)
-	require.Len(t, mock.createOrUpdateCalls, 1, "no signer means no .sig call at all")
-}
-
 // readBackBundle reads the tree whose envelope is at path, as the local reader
 // does: a tree's items are files, so its envelope alone holds none of them.
 func readBackBundle(t *testing.T, path string) bundles.Bundle {

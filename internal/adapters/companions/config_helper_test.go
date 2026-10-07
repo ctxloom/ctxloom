@@ -8,7 +8,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // companionSources is a config.Sources over a fixture whose readers are what
@@ -27,15 +26,10 @@ func (s companionSources) ReadTarget(context.Context) (*config.Config, error) {
 }
 
 func (s companionSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
-		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
+		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs()),
 	}
 	return append(readers, Prober{}.ReaderSource()(cfg)...), nil
-}
-
-func (s companionSources) TrustRoot(context.Context, *config.Config) (trust.TrustRoot, error) {
-	return trust.NoSigners{}, nil
 }
 
 // companionConfig publishes f through a real config.Owner whose generation

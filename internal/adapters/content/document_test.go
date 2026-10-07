@@ -1,13 +1,11 @@
 package content
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"slices"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -73,7 +71,7 @@ func TestDocumentStore_ReadsABundleWithNoFilesystem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormRaw)
+	form, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -90,49 +88,6 @@ func TestDocumentStore_ReadsABundleWithNoFilesystem(t *testing.T) {
 	}
 	if got := componentPaths(components); !slices.Equal(got, []string{"mcp/.ltk.meta.yaml", "mcp/ltk.yaml"}) {
 		t.Fatalf("Components = %v", got)
-	}
-}
-
-// TestDocumentStore_DigestMatchesTheTreeForIdenticalBytes is the property that makes
-// this one format rather than two: a companion-delivered item and a tree-delivered
-// item with the same bytes at the same path produce the SAME digest, so a signature
-// or approval over one is the same attestation over the other.
-func TestDocumentStore_DigestMatchesTheTreeForIdenticalBytes(t *testing.T) {
-	ctx := context.Background()
-	files := DocumentBundle{
-		"mcp/pg.yaml":       []byte("command: mcp-postgres\n"),
-		"mcp/.pg.meta.yaml": []byte("notes: n\n"),
-	}
-	docStore, err := NewDocumentStore(map[BundleID]DocumentBundle{"b": files}, Provenance{IsLocal: true})
-	if err != nil {
-		t.Fatalf("NewDocumentStore: %v", err)
-	}
-	treeStore := emptyStore(t)
-	for p, body := range files {
-		writeFile(t, treeStore.fsys, fixtureRoot+"/b/"+p, string(body))
-	}
-	digestOf := func(s Store, id BundleID) []byte {
-		t.Helper()
-		bundle, err := s.Open(ctx, id)
-		if err != nil {
-			t.Fatalf("Open: %v", err)
-		}
-		item, err := bundle.Item(ctx, trust.Ref{Bundle: string(id), Kind: trust.KindMCP, Name: "pg"})
-		if err != nil {
-			t.Fatalf("Item: %v", err)
-		}
-		form, err := item.Form(ctx, signing.FormRaw)
-		if err != nil {
-			t.Fatalf("Form: %v", err)
-		}
-		d, err := form.Content(ctx)
-		if err != nil {
-			t.Fatalf("Content: %v", err)
-		}
-		return d
-	}
-	if !bytes.Equal(digestOf(docStore, "b"), digestOf(treeStore, "b")) {
-		t.Fatal("the same bytes digested differently over the two transports; that would make this two formats")
 	}
 }
 

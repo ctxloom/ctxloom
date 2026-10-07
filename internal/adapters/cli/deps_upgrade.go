@@ -50,17 +50,7 @@ A held entry ('ctxloom deps hold') stays frozen.
 
 This is the only command that moves an existing pin. 'deps pull', 'init' and
 startup create first pins and keep every existing one, even when you change a
-constraint; that change takes effect here.
-
-A pin is NOT advanced onto content that cannot be read as a bundle: advancing
-onto it would leave you with nothing. The old pin is kept and the refusal is
-reported.
-
-A refusal EXITS 2, not 0 and not 1: the command ran fine and deliberately did
-not do part of what it was asked, so an unattended sync can tell "I refused
-something" apart from both "nothing to do" (0) and a failure (1). An applied
-refusal also survives the run — 'ctxloom doctor' reports it until an upgrade
-advances that pin.`,
+constraint; that change takes effect here.`,
 	Example: `  ctxloom deps upgrade                   # Show what would move, and what it brings in
   ctxloom deps upgrade --yes             # Apply it`,
 	RunE: runDepsUpgradeCmd,
@@ -94,31 +84,15 @@ func runDepsUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, error
 		return err
 	}
 
-	if err := emit(cmd, res, func() error {
+	return emit(cmd, res, func() error {
 		renderUpgrade(cmd.OutOrStdout(), res)
 		return nil
-	}); err != nil {
-		return err
-	}
-	// A round can BOTH advance some pins and refuse others; the refusal is what
-	// decides the exit code, because it is the part of the request that was not
-	// carried out. Reporting a partial round as a clean 0 is the silence this
-	// whole feature exists to remove. The payload above went out first, so a
-	// machine caller has the refusals the exit code announces.
-	if len(res.Refused) > 0 {
-		return refusedExit()
-	}
-	return nil
+	})
 }
 
-// renderUpgrade is the human report of an upgrade round: refusals, removals,
-// each pin that moves with what it brings in, and what to do next.
+// renderUpgrade is the human report of an upgrade round: removals, each pin
+// that moves with what it brings in, and what to do next.
 func renderUpgrade(out io.Writer, res operations.UpgradeResult) {
-	// The refusals print FIRST and unconditionally. A pin that did not move
-	// because its new content could not be read reads exactly like a pin that
-	// had nothing to move to, and the difference is the whole point: one means
-	// "you are current", the other means "upstream published something broken".
-	reportRefusedAdvances(out, res.Refused)
 	// Removals print on every branch: the lock is rewritten wholesale, so an
 	// entry dropped without a line here is indistinguishable from one that was
 	// never pinned — including under "Everything is up to date."
@@ -139,17 +113,13 @@ func renderUpgrade(out io.Writer, res operations.UpgradeResult) {
 // depends on WHY nothing moves.
 func renderNothingMoves(out io.Writer, res operations.UpgradeResult) {
 	switch {
-	case len(res.Refused) > 0:
-		// Deliberately NOT "Everything is up to date." — nothing moves
-		// precisely because something was wrong upstream.
-		fmt.Fprintf(out, "No pins advanced: %d refused above. Your existing pins are unchanged.\n", len(res.Refused))
 	case res.Incomplete:
 		// No changes only means nothing that WAS resolved needs to move — it
 		// says nothing about the part that was never resolved at all.
 		fmt.Fprintln(out, "No pins advanced among what could be resolved — part of the dependency closure was unreachable this round (see warning above); re-run once it's reachable to get a complete picture.")
 	case res.NothingDeclared:
-		// An empty closure reaches here with nothing refused, exactly like a
-		// healthy current project. The difference is the one the user needs:
+		// An empty closure reaches here exactly like a healthy current
+		// project. The difference is the one the user needs:
 		// one means "your pins are current", the other means "there is
 		// nothing here", and only the second has a remedy.
 		fmt.Fprintln(out, msgNothingDeclared)
@@ -168,23 +138,6 @@ func renderNothingMoves(out io.Writer, res operations.UpgradeResult) {
 // nothing and would read as a failure of the tool rather than a decision by it.
 func refusedExit() error {
 	return &ExitError{Code: exitCodeRefused}
-}
-
-// msgRefusedUnreadable closes each refusal reportRefusedAdvances prints.
-const msgRefusedUnreadable = "  If the reason above is a fault in the bundle, the publisher must fix it and publish again; then re-run 'ctxloom deps upgrade'."
-
-// reportRefusedAdvances says, for each pin upgrade declined to move, the three
-// things a human needs and cannot infer: WHICH bundle, WHY its new content was
-// refused, and WHICH pin is being kept instead.
-//
-// It names no command that cannot help.
-func reportRefusedAdvances(out io.Writer, refused []operations.RefusedAdvance) {
-	for _, r := range refused {
-		fmt.Fprintf(out, "REFUSED to advance %s: the content at %s could not be read as a bundle (%s).\n",
-			r.Identity, shortSHA(r.ProposedSHA), r.Detail)
-		fmt.Fprintf(out, "  Keeping the pin %s — your assistant goes on receiving the content at that pin.\n", shortSHA(r.KeptSHA))
-		fmt.Fprintln(out, msgRefusedUnreadable)
-	}
 }
 
 // reportRemovedPins names each lockfile entry upgrade dropped (applied) or

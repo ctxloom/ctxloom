@@ -4,19 +4,8 @@
 // distinct from the renamed slash
 // "command" surface command.feature already covers. Every scenario here
 // drives the real `ctxloom skill` CLI and asserts real, on-disk payload
-// (bundle.yaml manifest bytes, materialized files with their POSIX modes,
-// signature verification outcomes) — never a bare exit-code or
-// substring-of-a-key-name.
-//
-// Signing here mirrors steps_j000200_common.go/signing_acceptance.go's approach
-// (a generated ed25519 TestSigner + signing.Sign / TrustSigner) rather than
-// driving `ctxloom skill export --sign`: that flag resolves a key through a
-// real ssh-agent (internal/adapters/signing/agentkey), which is not something a
-// hermetic acceptance run can assume is present. Signing the manifest bytes
-// directly with a TestSigner is the exact preimage
-// bundles.PublisherSkillSignatureVerifier verifies against
-// (pkg.Manifest.Serialize()), so `ctxloom skill import --sig` is exercised
-// for real either way.
+// (bundle.yaml manifest bytes, materialized files with their POSIX modes) —
+// never a bare exit-code or substring-of-a-key-name.
 package acceptance
 
 import (
@@ -29,10 +18,7 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
-	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -66,25 +52,6 @@ func splitSkillRef(ref string) (bundle, name string, err error) {
 		return "", "", fmt.Errorf("skill ref %q: want \"bundle#skills/name\"", ref)
 	}
 	return b, n, nil
-}
-
-// skillSignerFor lazily generates (and caches, per-scenario) a fresh ed25519
-// TestSigner keyed by a human name ("Trent", "Mallory") — the same identity
-// must be produced whether this name is first seen via a signing step or a
-// trust step, in whichever order the Gherkin uses them.
-func skillSignerFor(w *World, name string) (*testenv.TestSigner, error) {
-	if w.skillSigners == nil {
-		w.skillSigners = map[string]*testenv.TestSigner{}
-	}
-	if s, ok := w.skillSigners[name]; ok {
-		return s, nil
-	}
-	signer, err := testenv.GenerateTestSigner()
-	if err != nil {
-		return nil, fmt.Errorf("generate signer for %q: %w", name, err)
-	}
-	w.skillSigners[name] = signer
-	return signer, nil
 }
 
 func registerSkillSteps(ctx *godog.ScenarioContext) {
@@ -135,50 +102,6 @@ func registerSkillSteps(ctx *godog.ScenarioContext) {
 		}
 		body += fmt.Sprintf("skills:\n  - %s\n", ref)
 		return w.env.WriteFile(path, body)
-	})
-
-	ctx.Step(`^(\S+)'s key signs the skill "([^"]*)" over its current manifest, into "([^"]*)"$`, func(c context.Context, signerName, ref, sigFile string) error {
-		w := worldFrom(c)
-		bundle, name, err := splitSkillRef(ref)
-		if err != nil {
-			return err
-		}
-		pkg, err := bundles.ParseSkillPackage(afero.NewOsFs(), skillPackageDir(w, bundle, name), 0)
-		if err != nil {
-			return fmt.Errorf("parse skill %q for signing: %w", ref, err)
-		}
-		signer, err := skillSignerFor(w, signerName)
-		if err != nil {
-			return err
-		}
-		armored, err := signing.Sign(pkg.Manifest.Serialize(), signer.Signer, signing.NamespacePublish)
-		if err != nil {
-			return fmt.Errorf("sign %q: %w", ref, err)
-		}
-		return os.WriteFile(filepath.Join(w.env.ProjectDir, sigFile), armored, 0o644)
-	})
-
-	ctx.Step(`^(\S+) is a trusted publisher for this project$`, func(c context.Context, name string) error {
-		w := worldFrom(c)
-		signer, err := skillSignerFor(w, name)
-		if err != nil {
-			return err
-		}
-		return w.env.TrustSigner(signer, strings.ToLower(name)+"@example.com", true)
-	})
-
-	ctx.Step(`^the skill "([^"]*)"'s SKILL\.md is modified after signing$`, func(c context.Context, ref string) error {
-		w := worldFrom(c)
-		bundle, name, err := splitSkillRef(ref)
-		if err != nil {
-			return err
-		}
-		path := filepath.Join(skillPackageDir(w, bundle, name), "SKILL.md")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("read %s: %w", path, err)
-		}
-		return os.WriteFile(path, append(data, []byte("\n<!-- TAMPERED-AFTER-SIGNING-by-Mallory -->\n")...), 0o644)
 	})
 
 	// --- Then: payload assertions (every one sets w.docStepMaterialized with
@@ -333,30 +256,6 @@ func registerSkillSteps(ctx *godog.ScenarioContext) {
 		w.docStepMaterialized = line
 		if line == "" {
 			return fmt.Errorf("materialize output does not contain the skill-wins warning; output:\n%s", out)
-		}
-		return nil
-	})
-
-	ctx.Step(`^the import reports the signature as (\S+)$`, func(c context.Context, want string) error {
-		w := worldFrom(c)
-		if code := w.env.LastExitCode(); code != 0 {
-			return fmt.Errorf("`ctxloom skill import` exited %d, want 0; output:\n%s", code, w.env.LastOutput())
-		}
-		var doc map[string]any
-		out := w.env.LastStdout()
-		if err := json.Unmarshal([]byte(out), &doc); err != nil {
-			return fmt.Errorf("parse `ctxloom skill import --format json` stdout: %w; stdout:\n%s", err, out)
-		}
-		state, _ := doc["signature_state"].(string)
-		w.docStepMaterialized = fmt.Sprintf("signature_state: %s", state)
-		if want == "verified" {
-			if state != "verified" {
-				return fmt.Errorf("signature_state = %q, want %q", state, want)
-			}
-			return nil
-		}
-		if !strings.HasPrefix(state, want) {
-			return fmt.Errorf("signature_state = %q, want prefix %q", state, want)
 		}
 		return nil
 	})

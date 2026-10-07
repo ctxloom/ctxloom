@@ -95,10 +95,6 @@ type SelectRequest struct {
 	// whole-bundle ask carrying "@<commit>", so its fragment set can be
 	// enumerated; nil leaves such an ask unexpanded.
 	Versions bundles.BundleVersionResolver
-	// VersionRoot is the trust root Versions verifies a historical version
-	// against: the root of the loader the versions came from. Nil trusts no
-	// signer.
-	VersionRoot trust.TrustRoot
 }
 
 // Package is the composed loadout SOURCE: every admitted item, the assembled
@@ -191,10 +187,9 @@ type LinkGroup struct {
 
 // Item pairs an admitted value with the read facts it was admitted on.
 type Item[T any] struct {
-	Value  T
-	Ref    string
-	Form   bundles.ContentForm
-	Signer string
+	Value T
+	Ref   string
+	Form  bundles.ContentForm
 }
 
 // Finding is one content-free fact about the assembly a surface voices.

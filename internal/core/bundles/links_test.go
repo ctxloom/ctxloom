@@ -16,8 +16,8 @@ import (
 // `ctxloom:link_id=<name>` tag deliver together or not at all: when any MCP
 // member of the group did not reach the run's granted set, every other member
 // is withheld, so a fragment is never handed over beside a tool it depends on
-// that is not there. The tag rides in the already-classified selection
-// surface (ItemBody.Tags), so it is not a preimage widening.
+// that is not there. The tag rides in the host-evaluated selection surface
+// (ItemBody.Tags).
 
 // The parser is the one place the tag's spelling is known.
 func TestParseLinkTag_RecognisesOnlyTheLinkNamespace(t *testing.T) {
@@ -242,23 +242,4 @@ func TestPipeline_NilLinkGrantWithholdsLinkedItemsOnly(t *testing.T) {
 	got, err = unchecked.GetFragment("b#fragments/guide")
 	require.NoError(t, err)
 	assert.Equal(t, "GUIDE", got.Content)
-}
-
-// Tags are outside the MCP executable preimage: linking a server changes
-// nothing an approval was granted over.
-func TestBundleMCP_TagsAreOutsideTheExecutablePreimage(t *testing.T) {
-	plain := BundleMCP{Command: "think-server", Args: []string{"--x"}}
-	linked := plain
-	linked.Tags = []string{"ctxloom:link_id=think"}
-	assert.Equal(t, mcpTrustHash(t, plain), mcpTrustHash(t, linked))
-}
-
-// Tags are outside the hook executable preimage too: hooks share
-// ExecPreimageContract with MCP, and linking a hook to its server must not
-// invalidate the approval granted over what the hook runs.
-func TestBundleHook_TagsAreOutsideTheExecutablePreimage(t *testing.T) {
-	plain := BundleHook{Matcher: "Bash", Command: "think-warmup"}
-	linked := plain
-	linked.Tags = []string{"ctxloom:link_id=think"}
-	assert.Equal(t, hookTrustHash(t, plain), hookTrustHash(t, linked))
 }

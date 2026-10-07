@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
@@ -37,7 +36,7 @@ func writeTree(t testing.TB, fsys afero.Fs, root, name, doc string) string {
 	w, err := content.NewTreeStore(fsys, filepath.Dir(dir), content.Provenance{IsLocal: true})
 	require.NoError(t, err)
 	put := func(kind trust.ItemKind, item string, s content.Surface) {
-		require.NoError(t, w.Put(context.Background(), trust.Ref{Bundle: filepath.Base(dir), Kind: kind, Name: item}, signing.FormRaw, s))
+		require.NoError(t, w.Put(context.Background(), trust.Ref{Bundle: filepath.Base(dir), Kind: kind, Name: item}, trust.FormRaw, s))
 	}
 	for _, p := range collections.SortedKeys(b.Profiles) {
 		put(content.KindProfile, p, content.Profile{Name: p, Def: b.Profiles[p]})

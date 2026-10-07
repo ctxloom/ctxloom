@@ -30,9 +30,8 @@ import (
 // and `.ctxloom/state/` rules also keep what an earlier ctxloom wrote there
 // (a per-session engine-home instance holding a copied credential) out of
 // git in a checkout it never cleaned. Everything else
-// under .ctxloom/ (config.yaml, remotes.yaml, lock.yaml, allowed_signers,
-// approvals/, content/) is committed by omission — it's content, config, or
-// trust state the project depends on.
+// under .ctxloom/ (config.yaml, remotes.yaml, lock.yaml, content/) is
+// committed by omission — it's content or config the project depends on.
 //
 // EVERY ENTRY NAMES A PATH SOME WRITER PRODUCES. Two did not: `.ctxloom/pieces/`
 // (the sparse-checkout piece fetcher was never built) and `.ctxloom/ephemeral/`
@@ -82,9 +81,8 @@ const appDirPrefix = ".ctxloom/"
 // know that before they lose the edit, not after.
 const NestedComment = `# ctxloom's private working state: rebuildable or purely local, and so must
 # never ride a distributable tree. Everything else under .ctxloom/ — config.yaml,
-# remotes.yaml, lock.yaml, allowed_signers, approvals/, content/ — is committed
-# by omission, because it is content, config, or trust state the project
-# depends on.
+# remotes.yaml, lock.yaml, content/ — is committed by omission, because it is
+# content or config the project depends on.
 #
 # GENERATED from gitignore.PrivateStatePatterns, relativized to this directory.
 # ctxloom REWRITES THIS FILE WHOLESALE; hand edits are lost. Change that list.

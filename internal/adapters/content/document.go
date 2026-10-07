@@ -27,7 +27,7 @@ import (
 // # The boundary, stated deliberately
 //
 // This type takes BYTES, never a command line. Probing companions — discovery,
-// exec, timeouts, the signed loadout envelope, the withhold-on-failure policy —
+// exec, timeouts, the withhold-on-failure policy —
 // lives in the companion layer and must stay there: it needs to exec processes and
 // to parse a bundle document, and pulling either into this package would make the
 // content layer depend on the things that are meant to depend on IT. The adapter
@@ -79,7 +79,7 @@ func NewDocumentStore(bundles map[BundleID]DocumentBundle, prov Provenance) (*Do
 		}
 		sort.Strings(paths)
 		for _, p := range paths {
-			if err := validateDigestPath(p); err != nil {
+			if err := validComponentPath(p); err != nil {
 				return nil, fmt.Errorf("bundle %q: %w", id, err)
 			}
 			target := filepath.Join(root, string(id), filepath.FromSlash(p))

@@ -21,7 +21,7 @@ import (
 //
 // The link is a VALUE in the tag field every item already carries — the
 // selection surface the host evaluates and the agent never sees — rather than
-// a new field, so it widens no preimage and invalidates no approval. The cost
+// a new field. The cost
 // of that shape is that a link is two edits that must agree, which is why
 // checkLinks refuses a one-sided link at parse.
 //

@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/spf13/afero"
 	"testing"
+
+	"github.com/spf13/afero"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"

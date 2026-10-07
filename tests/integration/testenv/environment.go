@@ -456,12 +456,6 @@ func (e *TestEnvironment) Setup() error {
 // integration fixture's whole subject turned out to be a hook contributed by
 // the developer's companions rather than by the fixture.
 //
-// Signature-based admission made it visible rather than causing it: those
-// binaries are signed by a key a scenario's own trust root does not carry, so
-// each one now emits a refusal warning on EVERY ctxloom invocation. Three
-// warnings after a JSON payload is a `--format json` consumer's parse error,
-// which is how this surfaced.
-//
 // Scrubbing the DIRECTORY rather than unsetting PATH entirely is deliberate:
 // scenarios still need sh, git and the toolchain. Only the entries that would
 // hand a scenario a companion it did not install are removed.
@@ -620,24 +614,6 @@ func (e *TestEnvironment) InitGitRepo() error {
 	return nil
 }
 
-// GitConfigLocal sets a repository-local git config value in the project
-// checkout, through this environment's own isolated environment (gitCmd —
-// HOME/XDG rooted at e.HomeDir and every testsupport.EnvKeys variable
-// scrubbed), so no caller has to hand-roll HOME redirection to make git read
-// the fake home instead of the developer's.
-//
-// It exists for `user.signingkey`: J001600 drives ctxloom's zero-config
-// key-discovery chain (internal/adapters/signing/agentkey step 2, `git config
-// user.signingkey`), which reads the REPOSITORY's own .git/config, so the
-// fixture must write there — repository-local, never global, never the host's.
-func (e *TestEnvironment) GitConfigLocal(key, value string) error {
-	cmd := e.gitCmd("config", "--local", key, value)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git config --local %s failed: %s: %w", key, output, err)
-	}
-	return nil
-}
-
 // AddGitWorktree creates a LINKED git worktree of e.ProjectDir on a fresh
 // branch named name, checked out under e.Root/worktrees/<name>, via a real
 // `git worktree add` (mirroring taskstest.RealGitWorktreeFixture's shape, but
@@ -660,11 +636,10 @@ func (e *TestEnvironment) AddGitWorktree(name string) (string, error) {
 
 // sshAuthSockEnv names the host's ssh-agent socket. It is not ctxloom session
 // state, so testsupport.EnvKeys does not list it, but an inherited one hands the
-// child the DEVELOPER's agent: its identities (emails, key fingerprints) then
-// appear in doctor and signer output, make a scenario's result depend on the
-// machine running it, and land in every living-docs page generated there. A
-// scenario that needs an agent stands up a hermetic one
-// (StartSSHAgent) and forces it with SetChildEnv.
+// child the DEVELOPER's agent: any git-over-ssh the child runs would then
+// authenticate as the developer, making a scenario's result depend on the
+// machine running it. A scenario that needs an agent forces its own with
+// SetChildEnv.
 const sshAuthSockEnv = "SSH_AUTH_SOCK"
 
 // scrubbedEnvKeys are the ambient variables dropped before any child binary is

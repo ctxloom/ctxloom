@@ -69,7 +69,7 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 		}
 	}
 
-	b, err := l.versionResolver(canonical, commit, l.versionRoot)
+	b, err := l.versionResolver(canonical, commit)
 	if err != nil {
 		return BundleRead{}, fmt.Errorf("resolve %s@%s: %w", canonical, commit, err)
 	}
@@ -125,21 +125,9 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 // produced: BundleVersionResolver fetches one document's bytes at one commit
 // and parses them, and that is all it does.
 //
-// The facts it reports are therefore the honest ones for that fetch:
-//
-//   - TrustCtx comes from the ref. A ctxloom:local pin reads the PROJECT'S OWN
-//     git history, so it is local exactly as its unpinned twin is; anything else
-//     crossed a forge and is remote.
-//   - Signature/Signer are none/none, and that is now an UNDERSTATEMENT on one
-//     of the two arms rather than a description of both. A remote tree at
-//     @<commit> IS verified before it is interpreted — the resolver routes
-//     through bundles.ReadRemoteRef, which runs attest.VerifyBundle over the
-//     fetched tree — but this read does not stamp that result, so verified
-//     content still reaches review as unsigned. That is over-cautious, not
-//     unsafe, and it is the remaining gap on this path. The ctxloom:local arm
-//     genuinely verifies nothing: it is `git show <commit>:<path>` against the
-//     project's own history, where locality already answered the trust
-//     question. Neither arm is a claim that the publisher did not sign.
+// Its TrustCtx comes from the ref: a ctxloom:local pin reads the PROJECT'S OWN
+// git history, so it is local exactly as its unpinned twin is; anything else
+// crossed a forge and is remote.
 //
 // It is unexported and takes the resolver's own output, so it cannot be used to
 // mint a posture for anything else.
@@ -148,8 +136,7 @@ func versionRead(rep report.Reporter, canonical, commit string, b *Bundle) Bundl
 	if parsed, err := remote.ParseReference(canonical); err == nil && parsed.IsLocal {
 		tctx, prov = TrustCtxLocal, ProvenanceProject
 	}
-	return newRead(canonical+"@"+commit, b, prov, tctx,
-		SignatureFacts{Signature: SignatureNone, Signer: SignerNone})
+	return newRead(canonical+"@"+commit, b, prov, tctx)
 }
 
 // splitBundleVersion separates a bundle reference's version-less canonical form

@@ -115,5 +115,3 @@ badge.
 - [Threat model](/security/threat-model/) — who we defend against, and what we explicitly do
   not defend.
 - [Trust](/concepts/review-and-trust/) — where ctxloom's trust decision is made.
-- [Key management](/security/key-management/) — signing keys, `allowed_signers`, and the
-  limits of revocation.

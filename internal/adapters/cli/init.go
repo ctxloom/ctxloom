@@ -375,11 +375,8 @@ func writeInitialConfig(appDir, engine, dirtyTreeHandler, headlessPermissions st
 // binds every remote to that forge (github, git, or a configured label) instead
 // of letting resolution fall back to URL-host matching.
 //
-// A remote is no longer trusted on add (spec §11): trusting content is now
-// keyed to a publisher KEY, not to the repo it came from. To auto-trust your own
-// personal repo's content, sign its bundles with `ctxloom sign` and trust your
-// key with `ctxloom signer trust`. Until you do, its content takes the review
-// path, which is exactly right for content nobody has vouched for.
+// Adding the remote is the trust act: its content reaches the assistant
+// because the project added it.
 func personalRemoteRequests(repos []string, forge string) []operations.AddRemoteRequest {
 	reqs := make([]operations.AddRemoteRequest, 0, len(repos))
 	for i, repo := range repos {

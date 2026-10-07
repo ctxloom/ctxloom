@@ -1,12 +1,11 @@
 # taskloom's own loadout — what taskloom contributes to a ctxloom session,
-# emitted by `taskloom loadout --format json` (signature-envelope spec §4.3)
-# as a loadout DOCUMENT: `run:` is the bundles.Bundle a session consumes
+# emitted by `taskloom loadout --format yaml` as a loadout DOCUMENT: `run:` is the bundles.Bundle a session consumes
 # every time; a typed `init:` section (setup_guidance, tooling,
 # legacy_context, questions) is consumed once at setup — taskloom declares
 # none today. ctxloom discovers this binary on PATH, execs the loadout
-# command, and seeds the RUN bundle into the trust gate under the
-# ctxloom:companion@taskloom source ref — same shape a remote bundle takes,
-# same review path when unsigned. This file is the single source of truth
+# command, and seeds the RUN bundle under the ctxloom:companion@taskloom
+# source ref — same shape a remote bundle takes. This file is the single
+# source of truth
 # for what taskloom tells ctxloom about itself.
 
 run:

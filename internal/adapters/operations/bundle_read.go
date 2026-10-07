@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -28,9 +27,7 @@ type ReadBundleRequest struct {
 type ReadBundleResult struct {
 	Bundle *bundles.Bundle `json:"-"`
 	// Raw is the bundle as stored: each file of its tree, the envelope first
-	// and the rest in path order, under a "==> <path> <==" header. The
-	// tree's attestation (SHA256SUMS, .sigs/) is left out — it is about the
-	// content, not content.
+	// and the rest in path order, under a "==> <path> <==" header.
 	Raw []byte `json:"-"`
 }
 
@@ -74,12 +71,9 @@ func dumpBundleTree(fs afero.Fs, dir string) ([]byte, error) {
 			return err
 		}
 		if info.IsDir() {
-			if rel == content.SigDirName {
-				return filepath.SkipDir
-			}
 			return nil
 		}
-		if rel != content.ManifestPath && rel != bundles.DirectoryFormManifest {
+		if rel != bundles.DirectoryFormManifest {
 			rels = append(rels, filepath.ToSlash(rel))
 		}
 		return nil

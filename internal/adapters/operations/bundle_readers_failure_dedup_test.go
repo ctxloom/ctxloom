@@ -28,7 +28,7 @@ func TestPinnedTreeReaders_FailedTreeIsReportedOnceAndKnownToTheCatalog(t *testi
 	lock := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{treeCanonical: treeEntry()}}
 
 	mark := strictness.Checkpoint()
-	readers := pinnedTreeReaders(c, lock, nil, map[trust.BundleKey]error{})
+	readers := pinnedTreeReaders(c, lock, map[trust.BundleKey]error{})
 
 	var bundleFindings int
 	for _, f := range strictness.Since(mark) {

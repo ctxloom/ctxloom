@@ -11,11 +11,9 @@ Feature: remote — registering the sources content comes from, and browsing the
   use. A clone that fails is a warning, not a refusal: the remote stays
   registered. Nothing is installed and no credential is stored.
 
-  A remote carries no trust either. Its content takes the review path whatever
-  address it arrived from, and auto-trusting a publisher means trusting their
-  signing KEY (`ctxloom signer trust`), which is verified over the bytes, never
-  a URL, which is not. Registering a remote is also the consent to PUBLISH to
-  it: `ctxloom bundle push` writes to a registered remote and asks for no
+  Registering a remote is the trust act: its content reaches the assistant
+  because the project added it. Registering a remote is also the consent to
+  PUBLISH to it: `ctxloom bundle push` writes to a registered remote and asks for no
   second blessing, because naming the destination was the deliberate act.
 
   What this project has INSTALLED from these remotes is a different question

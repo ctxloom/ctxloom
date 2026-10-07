@@ -3,14 +3,12 @@ package operations
 import (
 	"context"
 	"fmt"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -74,29 +72,20 @@ type MoveBundleResult struct {
 	DestKind string `json:"dest_kind"` // "remote" | "path"
 	// Dest is the local destination tree, or the path inside the remote repo.
 	Dest string `json:"dest"`
-	// SigDest is where the tree's .sigs/ store landed, or "" when the
-	// bundle was never signed.
-	SigDest string `json:"sig_dest,omitempty"`
-	// Remote/CommitSHA/Signed are set for a remote destination only.
+	// Remote/CommitSHA are set for a remote destination only.
 	Remote    string `json:"remote,omitempty"`
 	CommitSHA string `json:"commit_sha,omitempty"`
-	Signed    bool   `json:"signed,omitempty"`
 }
 
 // MoveBundle relocates an authored bundle out of this project — to a configured
 // remote (a publish) or to another local directory / ctxloom checkout (a copy) —
 // and then removes the source.
 //
-// Bytes are carried VERBATIM. A tree's signature — its SHA256SUMS manifest and
-// the .sigs/ entries over it — covers its files' exact bytes, so move never
-// parses-and-re-emits, and never re-signs: the signature stays valid at the
-// destination precisely because the bytes don't change. A signature that exists
-// but cannot be carried is an error — landing the bundle unsigned would be a
-// silent trust downgrade (spec §7A.4).
+// Bytes are carried VERBATIM: move never parses-and-re-emits.
 //
 // ORDERING (the invariant that stops this command eating someone's work): the
-// source is removed ONLY after the destination write has fully succeeded —
-// bundle bytes AND, when present, the signature. Every failure path above
+// source is removed ONLY after the destination write has fully succeeded.
+// Every failure path above
 // returns early with the source untouched, so a move that dies half-way is a
 // no-op locally, never a deletion.
 func MoveBundle(ctx context.Context, cfg *config.Config, req MoveBundleRequest) (*MoveBundleResult, error) {
@@ -230,9 +219,8 @@ func knownRemotesHint(registry *remote.Registry) string {
 	return fmt.Sprintf(" (configured remotes: %s)", strings.Join(names, ", "))
 }
 
-// moveToPath copies the bundle (and its signature) into a local directory. The
-// copy itself is ExportBundle — one verbatim-bytes copier, signature-carrying
-// included — so move re-implements none of it.
+// moveToPath copies the bundle into a local directory. The copy itself is
+// ExportBundle — one verbatim-bytes copier — so move re-implements none of it.
 func moveToPath(ctx context.Context, cfg *config.Config, fs afero.Fs, req MoveBundleRequest, name, src, destDir string) (*MoveBundleResult, error) {
 	srcTree := filepath.Dir(src)
 	destTree := filepath.Join(destDir, filepath.Base(srcTree))
@@ -253,14 +241,11 @@ func moveToPath(ctx context.Context, cfg *config.Config, fs afero.Fs, req MoveBu
 		Source:   src,
 		DestKind: string(moveDestPath),
 		Dest:     res.Dest,
-		SigDest:  res.SigDest,
 	}, nil
 }
 
 // moveToRemote publishes the bundle to a configured remote via the same
-// PushBundle path `ctxloom bundle push` uses. A tree's signature — its
-// SHA256SUMS manifest and .sigs/ entries — travels inside the tree; a stale
-// one is refused by PushBundle before anything is written.
+// PushBundle path `ctxloom bundle push` uses.
 func moveToRemote(ctx context.Context, cfg *config.Config, fs afero.Fs, req MoveBundleRequest, name, src, remoteName string) (*MoveBundleResult, error) {
 	res, err := PushBundle(ctx, cfg, PushBundleRequest{
 		Path:           src,
@@ -272,20 +257,14 @@ func moveToRemote(ctx context.Context, cfg *config.Config, fs afero.Fs, req Move
 		return nil, err
 	}
 
-	sigDest := ""
-	if res.Signed {
-		sigDest = path.Join(res.TargetPath, content.SigDirName)
-	}
 	return &MoveBundleResult{
 		Status:    "moved",
 		Name:      name,
 		Source:    src,
 		DestKind:  string(moveDestRemote),
 		Dest:      res.TargetPath,
-		SigDest:   sigDest,
 		Remote:    res.Remote,
 		CommitSHA: res.CommitSHA,
-		Signed:    res.Signed,
 	}, nil
 }
 

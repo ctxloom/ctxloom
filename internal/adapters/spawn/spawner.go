@@ -262,7 +262,7 @@ func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, star
 	if err != nil {
 		return coord.Resolved{}, err
 	}
-	s.stampChild(deps.Sessions, start.Identity.Harp, plan.Snapshot.Config.SignatureCheckDisabled())
+	s.stampChild(deps.Sessions, start.Identity.Harp)
 	l, err := launch.Resolve(ctx, deps.ForSession(start.Identity.Harp), childSource(plan, start, s.projectDir))
 	if err != nil {
 		return coord.Resolved{}, err
@@ -272,12 +272,11 @@ func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, star
 }
 
 // stampChild records on a delegated child's session what its mint knew: that
-// it is an agent's, and whether it decides with the signature check waived —
-// so a child that ran waived can be told apart later. A failed stamp warns:
+// it is an agent's. A failed stamp warns:
 // an unstamped session reads as a human's, which a sweep never purges.
-func (s *spawner) stampChild(store sessions.Store, harp string, sigCheckDisabled bool) {
-	if err := store.StampMint(harp, sessions.MintStamp{Origin: sessions.OriginAgent, SigCheckDisabled: sigCheckDisabled}); err != nil {
-		s.rep.Warnf("session %s: cannot record its origin and signature-check posture: %v", harp, err)
+func (s *spawner) stampChild(store sessions.Store, harp string) {
+	if err := store.StampMint(harp, sessions.MintStamp{Origin: sessions.OriginAgent}); err != nil {
+		s.rep.Warnf("session %s: cannot record its origin: %v", harp, err)
 	}
 }
 

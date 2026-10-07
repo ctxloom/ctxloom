@@ -52,9 +52,8 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 	// TASKLOOM's loadout (cmd/taskloom/loadout.yaml), not in an embedded
 	// bundle — so the assertions already depend on a real taskloom being
 	// installed. Pin the admission gate open so they do not ALSO depend on
-	// whether this machine's taskloom carries a signature its trust root
-	// accepts: the subject here is hook diversion, not admission, and
-	// admission has its own tests.
+	// whether this machine's taskloom is admitted: the subject here is hook
+	// diversion, not admission, and admission has its own tests.
 	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")

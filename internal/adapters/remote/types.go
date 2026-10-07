@@ -18,9 +18,9 @@ type Remote struct {
 	// forked, typosquatted, or compromised; a URL you trusted once could serve
 	// changed bytes silently for the rest of time.
 	//
-	// Trust is now keyed to the signing IDENTITY (a publisher key in
-	// allowed_signers), verified over the bytes themselves at the exposure gate.
-	// A remote is just an address to fetch from, and carries no authority at all.
+	// Registering a remote is itself the trust act: content resolves only
+	// through a registered remote, and every pin into it is a reviewed
+	// `deps upgrade`. The remote carries no per-content authority beyond that.
 
 	// Forge is the label of the forges entry this remote binds to. Empty
 	// means resolve by URL host (configured base_url match, else built-in
@@ -133,14 +133,9 @@ type Reference struct {
 
 	// IsCompanion indicates a ctxloom:companion@<bin> reference — a bundle
 	// EMITTED LIVE by a companion binary on PATH (`<bin> loadout --format
-	// json`, signature-envelope spec §4.3), rather than read from a git tree.
-	// Deliberately a SEPARATE flag from IsLocal: a companion loadout is
-	// third-party content arriving from elsewhere (the binary's author, not
-	// this project), so it must NOT auto-allow the way local content does — it
-	// is judged by who signed it (trusted-signer) or sent to review (pending),
-	// exactly like a remote bundle. Every consumer of this Reference relies on
-	// IsLocal staying false here to route it through the gate instead of the
-	// local exemption.
+	// yaml`), rather than read from a git tree. Deliberately a SEPARATE flag
+	// from IsLocal: a companion loadout is content from the binary's author,
+	// not this project, so it must never be treated as project-local.
 	IsCompanion bool
 }
 

@@ -43,13 +43,14 @@ package acceptance
 import (
 	"context"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 
 	"github.com/cucumber/godog"
 )

@@ -32,7 +32,7 @@ func Select(resolved []profiles.ResolvedProfile, cat bundles.Catalog, req Select
 		seen:   map[string]bool{},
 	}
 	if req.Versions != nil {
-		sl.loader.WithVersionResolver(req.Versions, req.VersionRoot)
+		sl.loader.WithVersionResolver(req.Versions)
 	}
 	for _, p := range resolved {
 		sl.mergeSettings(p)

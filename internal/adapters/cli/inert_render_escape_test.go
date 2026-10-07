@@ -101,7 +101,6 @@ func TestPublisherDisplayPaths_ControlBytesAreEscaped(t *testing.T) {
 			var buf bytes.Buffer
 			renderSkillImport(&buf, &operations.ImportSkillResult{
 				Name: h, Bundle: "b", Dir: "/proj/skills/" + h, FileCount: 1,
-				SignatureState: "unverified: " + h,
 			})
 			return buf.String()
 		}},

@@ -17,17 +17,17 @@ func TestSeedBundleRef(t *testing.T) {
 	local, err := trust.LocalRef("kit")
 	require.NoError(t, err)
 
-	got, ok := seedBundleRef(bundletree.ProjectRead(t, "kit", &bundles.Bundle{}, bundletree.Unsigned), local)
+	got, ok := seedBundleRef(bundletree.ProjectRead(t, "kit", &bundles.Bundle{}), local)
 	assert.True(t, ok)
 	assert.Equal(t, "ctxloom+local:kit", got)
 
-	got, ok = seedBundleRef(bundletree.ProjectRead(t, "my-kit", &bundles.Bundle{}, bundletree.Unsigned), trust.BundleRef{})
+	got, ok = seedBundleRef(bundletree.ProjectRead(t, "my-kit", &bundles.Bundle{}), trust.BundleRef{})
 	assert.True(t, ok, "a project name with no typed source seeds verbatim")
 	assert.Equal(t, "my-kit", got)
 
 	_, ok = seedBundleRef(bundletree.RemoteRead(t, "https://example.test/repo@bundles/kit", &bundles.Bundle{
 		Fragments: map[string]bundles.BundleFragment{"f": {ItemBody: bundles.ItemBody{Content: "x"}}},
-	}, bundletree.Unsigned), trust.BundleRef{})
+	}), trust.BundleRef{})
 	assert.False(t, ok, "a source-naming read with no typed source has no canonical identity")
 
 	_, ok = seedBundleRef(bundles.BundleRead{}, trust.BundleRef{})

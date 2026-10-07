@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
@@ -16,7 +15,7 @@ import (
 //
 // This axis is purely about layout, so an executable surface reports the same
 // base form a never-distilled document does.
-var execForms = []signing.Form{signing.FormRaw}
+var execForms = []trust.ContentForm{trust.FormRaw}
 
 // detectSingleYAML is the shared recognition for the executable surfaces: exactly
 // one non-sidecar component, a .yaml file, at the expected depth below the kind
@@ -107,7 +106,7 @@ func encodeExecItem(t SurfaceType, name string, content, meta any) ([]Component,
 	}
 	dir := t.Dir()
 	contentPath := itemPath(dir, name, ".yaml")
-	if err := validateDigestPath(contentPath); err != nil {
+	if err := validComponentPath(contentPath); err != nil {
 		return nil, err
 	}
 	body, err := marshalYAML(content)
@@ -190,7 +189,7 @@ func (t mcpType) Detect(src Source) bool {
 	return ok
 }
 
-func (t mcpType) Forms(src Source) ([]signing.Form, error) {
+func (t mcpType) Forms(src Source) ([]trust.ContentForm, error) {
 	if _, ok := detectSingleYAML(t.Dir(), src, 0); !ok {
 		return nil, fmt.Errorf("%w: not an mcp item", ErrUnrecognized)
 	}
@@ -323,9 +322,8 @@ func (h Hook) refName() string { return h.Event + "/" + h.Name }
 
 // hookContent is the hook's behavioural configuration. It deliberately carries
 // NEITHER the name NOR the order: the filename is the identity, order is ctxloom
-// bookkeeping, and keeping both out of the content file keeps them out of any
-// payload a later layer builds from those bytes — which is what lets existing hook
-// approvals and content-rejections survive with no exec-preimage contract bump.
+// bookkeeping, and keeping both out of the content file keeps the vendor
+// config pure.
 type hookContent struct {
 	Matcher         string   `yaml:"matcher,omitempty"`
 	Type            string   `yaml:"type,omitempty"`
@@ -366,7 +364,7 @@ func (t hookType) Detect(src Source) bool {
 	return ok
 }
 
-func (t hookType) Forms(src Source) ([]signing.Form, error) {
+func (t hookType) Forms(src Source) ([]trust.ContentForm, error) {
 	if _, ok := detectSingleYAML(t.Dir(), src, 1); !ok {
 		return nil, fmt.Errorf("%w: not a hook item", ErrUnrecognized)
 	}

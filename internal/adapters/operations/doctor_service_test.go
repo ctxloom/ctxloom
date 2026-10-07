@@ -16,12 +16,11 @@ import (
 )
 
 // doctorApp scaffolds a hermetic project the way `ctxloom manage install`
-// does and opens the composition over it, with the host's ssh-agent and git
-// identity out of reach so the two machine probes never read this machine.
+// does and opens the composition over it, with the host's git identity out
+// of reach so the machine probes never read this machine.
 func doctorApp(t *testing.T) (*App, string) {
 	t.Helper()
 	home := testsupport.Isolate(t)
-	t.Setenv("SSH_AUTH_SOCK", "")
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	root := t.TempDir()
 	appDir := filepath.Join(root, ".ctxloom")
@@ -47,7 +46,6 @@ func TestDoctor_DepsOnly_ReportsTheMachineProbesInOrder(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"DOCTOR-CHECK-DEPS-a1",
-		"DOCTOR-CHECK-SIGNKEY-k1",
 		"DOCTOR-CHECK-GITIDENT-l2",
 	}, doctorMarkers(rep))
 }
@@ -63,7 +61,6 @@ func TestDoctor_FullReport_RunsEveryCheckInItsFixedOrder(t *testing.T) {
 	assert.Equal(t, []string{
 		"DOCTOR-CHECK-SETUP-MARKER-e5",
 		"DOCTOR-CHECK-DEPS-a1",
-		"DOCTOR-CHECK-SIGNKEY-k1",
 		"DOCTOR-CHECK-GITIDENT-l2",
 		"DOCTOR-CHECK-AGENTS-b2",
 		"DOCTOR-CHECK-CAPABILITY-LOSS-u1",
@@ -71,8 +68,6 @@ func TestDoctor_FullReport_RunsEveryCheckInItsFixedOrder(t *testing.T) {
 		"DOCTOR-CHECK-TRANSCRIPT-READER-v2",
 		"DOCTOR-CHECK-HOOKS-TRUST-d4",
 		"DOCTOR-CHECK-MCP-INVOCATION-g7",
-		"DOCTOR-CHECK-SIG-CHECK-e2",
-		"DOCTOR-CHECK-UPSTREAM-SIGNATURES-o5",
 		"DOCTOR-CHECK-SETUP-DEPS-h8",
 		"DOCTOR-CHECK-SETUP-COMPANIONS-i9",
 		"DOCTOR-CHECK-SETUP-AUTHPING-j0",

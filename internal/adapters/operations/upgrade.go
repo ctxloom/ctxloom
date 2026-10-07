@@ -22,9 +22,8 @@ type UpgradeRequest struct {
 
 // UpgradeResult is what one `deps upgrade` round would do (a preview) or did
 // (Applied). It is a struct rather than a tuple because the facts are not
-// independent: a caller that reads Changes without reading Refused prints
-// "Everything is up to date." over a refused advance, which is the exact
-// silence this feature exists to prevent.
+// independent: no Changes means "up to date" only when the round was neither
+// Incomplete nor NothingDeclared.
 type UpgradeResult struct {
 	// Applied reports that this round wrote what it computed.
 	Applied bool `json:"applied"`
@@ -44,10 +43,6 @@ type UpgradeResult struct {
 	// cannot distinguish them — it lists moves among what was resolved, and
 	// here nothing was resolved because nothing was asked for.
 	NothingDeclared bool `json:"nothing_declared"`
-	// Refused lists the pins that do NOT move because the content at the
-	// proposed commit could not be read as a bundle. Non-empty means the human
-	// must be told: the lockfile deliberately does not change for them.
-	Refused []RefusedAdvance `json:"refused"`
 	// Removed names, sorted, the lockfile entries this round drops because the
 	// closure no longer reaches them. The lock is rewritten wholesale, so
 	// without this a removal is indistinguishable from never having been
@@ -62,8 +57,8 @@ type UpgradeResult struct {
 // It runs in two phases. The compute phase (planUpgrade) resolves the new lock
 // in memory and discloses every pin that would move (UpgradeResult.Changes); it
 // writes nothing and moves no worktree. Without req.Apply that is the whole
-// round — a preview. With req.Apply the apply phase writes the lock, moves each
-// moved bundle's worktree, and records the round's refusals. Apply recomputes
+// round — a preview. With req.Apply the apply phase writes the lock and moves
+// each moved bundle's worktree. Apply recomputes
 // rather than replaying a preview, so a tip that moved since the preview is
 // what lands, and what Changes reports.
 //
@@ -71,13 +66,8 @@ type UpgradeResult struct {
 // advances. A hash conflict in the proposed closure is a hard error; nothing is
 // written.
 //
-// There is no review gate here: the lockfile is pure dependency pinning.
-//
-// ONE ADVANCE IS REFUSED OUTRIGHT: content the reader refuses at the proposed
-// commit, because moving the pin onto it leaves the consumer with nothing.
-// Such an entry keeps its existing lockfile values verbatim and is reported in
-// UpgradeResult.Refused, which the caller must tell the human about. See
-// verifyAdvance for the exact rule.
+// There is no review gate here: the lockfile is pure dependency pinning, and
+// the preview is the review.
 //
 // UpgradeResult.NothingDeclared is true when the closure resolved to nothing
 // and no lock state existed either. Such a round writes NO lockfile: a file
@@ -94,7 +84,6 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, req UpgradeReq
 	}
 	result := UpgradeResult{
 		Incomplete: plan.incomplete,
-		Refused:    plan.refused,
 		Removed:    droppedEntries(plan.active, plan.next),
 		Changes:    pinChanges(ctx, cfg, plan.active, plan.next),
 	}
@@ -120,22 +109,6 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, req UpgradeReq
 	for _, p := range plan.moved {
 		movePinnedWorktree(ctx, cfg, p)
 	}
-
-	// Persist this round's refusals AFTER the lockfile write, never before: a
-	// record says "the pin for X is being KEPT at <sha>", and a record written
-	// ahead of a Save that then failed would claim a pin the lockfile does not
-	// hold. Writing second means the record can only ever describe state that
-	// is already on disk.
-	//
-	// A failed write does NOT fail the upgrade. The lockfile — the thing the
-	// user asked to change — is correct and saved, and the caller reports every
-	// refusal on stdout regardless; losing the durable copy costs the
-	// after-the-fact `doctor` advisory and nothing else. Warned rather than
-	// swallowed, because a silently missing record is how the advisory would
-	// quietly stop existing.
-	if rerr := saveRefusedAdvances(cfg, result.Refused); rerr != nil {
-		clidiag.Warn("ctxloom", "could not record this upgrade's refusal(s) for later inspection (`ctxloom doctor` will not report them): %v", rerr)
-	}
 	return result, nil
 }
 
@@ -145,7 +118,6 @@ type upgradePlan struct {
 	active, next *remote.Lockfile
 	// moved is every proposed pin whose SHA moves (or is first created).
 	moved      []PinnedRef
-	refused    []RefusedAdvance
 	incomplete bool
 }
 
@@ -178,7 +150,6 @@ func planUpgrade(ctx context.Context, cfg *config.Config) (*upgradePlan, error) 
 	unexpanded = append(unexpanded, rootsUnexpanded...)
 
 	round := upgradeRound{
-		ctx: ctx, cfg: cfg, factory: factory, auth: auth,
 		plan: &upgradePlan{
 			active: active,
 			next:   &remote.Lockfile{Version: remote.LockfileVersion, Bundles: map[trust.BundleKey]remote.LockEntry{}},
@@ -221,7 +192,7 @@ func reResolveClosure(ctx context.Context, cfg *config.Config, loader *profiles.
 	}
 	fetchFailed = refreshRepoCaches(ctx, NewRepoCache(cfg), unionLockedRepoURLs(directRepoURLs(roots), active), registered)
 	resolve := newConstraintResolver(ctx, active, factory, auth, true)
-	proposed, conflicts, unexpanded, err := flattenRootsWith(ctx, loader, factory, auth, cfg.TrustRoot(), roots, resolve, registered)
+	proposed, conflicts, unexpanded, err := flattenRootsWith(ctx, loader, factory, auth, roots, resolve, registered)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -231,19 +202,14 @@ func reResolveClosure(ctx context.Context, cfg *config.Config, loader *profiles.
 	return proposed, unexpanded, fetchFailed, nil
 }
 
-// upgradeRound is one planUpgrade pass: the plan it builds, and what it
-// needs to verify each proposed advance.
+// upgradeRound is one planUpgrade pass: the plan it builds.
 type upgradeRound struct {
-	ctx     context.Context
-	cfg     *config.Config
-	factory remote.FetcherFactory
-	auth    remote.AuthConfig
-	plan    *upgradePlan
+	plan *upgradePlan
 }
 
 // decide places one proposed pin in the plan: a held entry carries forward
-// unchanged, a refused advance keeps its current pin, anything else lands at
-// the proposed commit (and, if it moved, is listed for the apply phase).
+// unchanged, anything else lands at the proposed commit (and, if it moved, is
+// listed for the apply phase).
 func (u *upgradeRound) decide(p PinnedRef) {
 	cur, has := u.plan.active.GetEntry(p.Type, p.Identity)
 	// A held entry never advances — carry its current pin forward unchanged.
@@ -252,32 +218,10 @@ func (u *upgradeRound) decide(p PinnedRef) {
 		return
 	}
 	moved := !has || cur.SHA != p.Hash
-	// A REAL advance — an entry that already exists and would move to a
-	// different commit — must land on content the reader accepts. A FIRST pin
-	// is never refused: it has no current pin to keep, so there is nothing to
-	// refuse back to.
-	if moved && has {
-		if refusal := verifyAdvance(u.ctx, u.cfg, u.factory, u.auth, p); refusal != nil {
-			u.refuse(p, cur, refusal)
-			return
-		}
-	}
 	u.plan.next.AddEntry(p.Type, p.Identity, upgradedEntry(p, cur, moved))
 	if moved {
 		u.plan.moved = append(u.plan.moved, p)
 	}
-}
-
-// refuse keeps cur verbatim and records why p's advance was refused.
-func (u *upgradeRound) refuse(p PinnedRef, cur remote.LockEntry, refusal error) {
-	u.plan.next.AddEntry(p.Type, p.Identity, cur)
-	u.plan.refused = append(u.plan.refused, RefusedAdvance{
-		Identity:    string(p.Identity),
-		KeptSHA:     cur.SHA,
-		ProposedSHA: p.Hash,
-		Detail:      refusal.Error(),
-		Cause:       RefusalUnreadable,
-	})
 }
 
 // upgradedEntry is the lock entry p lands as: an unmoved pin keeps the fetch
@@ -306,8 +250,8 @@ func preserveUnreachedEntries(active, newActive *remote.Lockfile, unexpandedCoun
 }
 
 // checkUpgradedLock decides whether plan.next is to be recorded, sets
-// result.NothingDeclared, and returns the refusal Save would give — so a
-// preview refuses exactly what applying it would.
+// result.NothingDeclared, and returns the error Save would give — so a
+// preview fails exactly where applying it would.
 //
 // NOTHING DECLARED, AND NOTHING ON DISK TO PROTECT. Writing then would
 // CREATE a lockfile that pins nothing — a project marker for a project that

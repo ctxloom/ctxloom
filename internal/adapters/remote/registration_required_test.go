@@ -49,7 +49,6 @@ func TestPuller_Pull_UnregisteredAddressIsRefused(t *testing.T) {
 	mf.Refs["main"] = "abc123def456"
 	lm := NewLockfileManager("/test", WithLockfileFS(fs))
 	puller := NewPuller(reg, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-		WithTreeVerifier(stubTreeVerifier()),
 		WithLockfileManager(lm),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{

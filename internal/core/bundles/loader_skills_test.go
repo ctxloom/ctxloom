@@ -264,10 +264,9 @@ func TestSkillContent_ExecBitSurvivesLoad(t *testing.T) {
 	assert.Equal(t, uint32(0644), modes["SKILL.md"])
 }
 
-// TestSkillContent_ManifestResolutionFailureWarns refutes the claim that
-// the preimage path was the one withhold in skillContent with no
-// clidiag.Warn. The preimage is derived by parsing the package, which CAN
-// fail for real (an unparseable SKILL.md) and warns when it does.
+// TestSkillContent_ManifestResolutionFailureWarns: skillContent parses the
+// package, which CAN fail for real (an unparseable SKILL.md), and warns when it
+// does.
 //
 // This drives the reachable failure and asserts the warning payload, so
 // deleting the warn puts the row's own complaint back and this test goes red.
@@ -275,8 +274,7 @@ func TestSkillContent_ManifestResolutionFailureWarns(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
 	root := paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2)
-	// A package whose SKILL.md has no frontmatter: the preimage must be
-	// derived from a package that does not parse.
+	// A package whose SKILL.md has no frontmatter does not parse.
 	require.NoError(t, afero.WriteFile(fsys, filepath.Join(root, "skill-bundle", "skills", "ghost", "SKILL.md"),
 		[]byte("no frontmatter here\n"), 0644))
 	writeTree(t, fsys, root, "skill-bundle", "version: \"1.0\"\n")
@@ -286,7 +284,7 @@ func TestSkillContent_ManifestResolutionFailureWarns(t *testing.T) {
 	defer restore()
 
 	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir})).WithReporter(ledger())
-	assert.Empty(t, admitAllPipe(loader, false).SkillsFromBundleRef("skill-bundle"), "an underivable preimage must withhold")
+	assert.Empty(t, admitAllPipe(loader, false).SkillsFromBundleRef("skill-bundle"), "an unparseable package must withhold")
 
 	out := sink.String()
 	assert.Contains(t, out, "ghost", "the withheld skill must be named")

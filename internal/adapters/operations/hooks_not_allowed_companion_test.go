@@ -15,7 +15,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engines"
@@ -129,8 +128,7 @@ func TestApplyHooks_SurfacesNeverNameTheRunningBinary(t *testing.T) {
 // probe prints it.
 func ltkGuardEnvelope(t *testing.T) []byte {
 	t.Helper()
-	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout("mcp:\n  ltk-guard:\n    command: ltk\n    args: [mcp]\n"), nil, "")
-	require.NoError(t, err)
+	envelope := testsupport.RunLoadout("mcp:\n  ltk-guard:\n    command: ltk\n    args: [mcp]\n")
 	return envelope
 }
 
@@ -175,7 +173,7 @@ func TestApplyHooks_VerifiedCompanionProbeFails_WarnsAndApplies(t *testing.T) {
 	require.NoError(t, err, "an unknown contribution is warned about, not a refusal")
 	assert.Equal(t, "applied", result.Status)
 	assert.Contains(t, warned, `companion "ltk"`)
-	assert.Contains(t, warned, "/opt/bin/ltk loadout --format json", "the warning names the remedy")
+	assert.Contains(t, warned, "/opt/bin/ltk loadout --format yaml", "the warning names the remedy")
 }
 
 // TestApplyHooks_VerifiedCompanionAnswersNoLoadout_ContributesNothing is the

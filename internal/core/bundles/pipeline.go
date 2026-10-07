@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
@@ -152,7 +151,6 @@ func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 		Exports:     r.Exports,
 		Form:        s.Form,
 		TrustRef:    r.TrustRef,
-		Signer:      r.Signer,
 		Premise:     r.Premise,
 	}
 }
@@ -186,9 +184,9 @@ func (p *Pipeline) deliverSkill(ls *LoadedSkill) *LoadedSkill {
 	for i, f := range ls.Files {
 		paths[i] = f.RelPath
 	}
-	form := signing.FormRaw
-	if p.preferDistilled && slices.Contains(content.SkillForms(paths), signing.FormDistilled) {
-		form = signing.FormDistilled
+	form := trust.FormRaw
+	if p.preferDistilled && slices.Contains(content.SkillForms(paths), trust.FormDistilled) {
+		form = trust.FormDistilled
 	}
 	layout, err := content.SkillMaterialization(paths, form)
 	if err != nil {

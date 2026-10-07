@@ -3,10 +3,8 @@ package bundles
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -273,43 +271,6 @@ func TestSafeSkillRelJoin(t *testing.T) {
 // SkillManifest determinism tests
 // =============================================================================
 
-func TestSkillManifest_SerializeIsDeterministicRegardlessOfInputOrder(t *testing.T) {
-	a := SkillManifest{
-		{Path: "scripts/run.sh", SHA256: "sha256:aaa", Mode: "0755"},
-		{Path: "SKILL.md", SHA256: "sha256:bbb", Mode: "0644"},
-		{Path: "assets/logo.png", SHA256: "sha256:ccc", Mode: "0644"},
-	}
-	b := SkillManifest{
-		{Path: "SKILL.md", SHA256: "sha256:bbb", Mode: "0644"},
-		{Path: "assets/logo.png", SHA256: "sha256:ccc", Mode: "0644"},
-		{Path: "scripts/run.sh", SHA256: "sha256:aaa", Mode: "0755"},
-	}
-
-	assert.Equal(t, a.Serialize(), b.Serialize(), "same tree, different insertion order, must serialize identically")
-	assert.Equal(t, a.Hash(), b.Hash())
-}
-
-func TestSkillManifest_HashChangesWithContent(t *testing.T) {
-	a := SkillManifest{{Path: "SKILL.md", SHA256: "sha256:aaa", Mode: "0644"}}
-	c := SkillManifest{{Path: "SKILL.md", SHA256: "sha256:different", Mode: "0644"}}
-	assert.NotEqual(t, a.Hash(), c.Hash())
-}
-
-func TestSkillManifest_SameTreeSameHash(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	dir1 := "/bundle1/skills/humanize"
-	dir2 := "/bundle2/skills/humanize"
-	writeSkillFixture(t, fsys, dir1, "humanize")
-	writeSkillFixture(t, fsys, dir2, "humanize")
-
-	pkg1, err := ParseSkillPackage(fsys, dir1, 0)
-	require.NoError(t, err)
-	pkg2, err := ParseSkillPackage(fsys, dir2, 0)
-	require.NoError(t, err)
-
-	assert.Equal(t, pkg1.Manifest.Hash(), pkg2.Manifest.Hash(), "identical trees must hash identically")
-}
-
 // =============================================================================
 // ResolveSkillDir confinement tests
 // =============================================================================
@@ -380,47 +341,4 @@ func TestBuildSkillManifest_MidWalkFailureNamesTheSkillAndFile(t *testing.T) {
 		"the failing file must be named, relative to the package root")
 	assert.Contains(t, err.Error(), "simulated permission denied",
 		"the underlying cause must still be wrapped, not replaced")
-}
-
-// TestSkillManifestSerializeFallback_IsNotSharedAcrossManifests pins the fix
-// below.
-//
-// Serialize's error fallback is a SIGNATURE PREIMAGE: PublisherSkillSignature
-// Verifier.VerifyManifestSignature verifies a detached signature over exactly
-// these bytes, and operations.ExportSkill signs exactly these bytes. One
-// constant standing in for every manifest therefore means one signature would
-// verify against ANY manifest that hit the fallback — which is precisely the
-// defect the sibling BundleMCP/BundleHook fallbacks call out in their own
-// comments ("to a digest DISTINCT per server/failure, not a shared constant:
-// one constant standing in for many different items is exactly the defect
-// this guards against"), even though this comment previously claimed to be
-// following that precedent under a different name.
-//
-// Different manifests must produce different fallback bytes.
-func TestSkillManifestSerializeFallback_IsNotSharedAcrossManifests(t *testing.T) {
-	a := SkillManifest{{Path: "SKILL.md", SHA256: "sha256:aaa", Mode: "0644"}}
-	b := SkillManifest{{Path: "scripts/run.sh", SHA256: "sha256:bbb", Mode: "0755"}}
-
-	boom := errors.New("simulated marshal failure")
-	assert.NotEqual(t, string(skillManifestSerializeFallback(a, boom)), string(skillManifestSerializeFallback(b, boom)),
-		"two different manifests must not share one preimage — a signature over that preimage would cover both")
-	assert.Equal(t, string(skillManifestSerializeFallback(a, boom)), string(skillManifestSerializeFallback(a, boom)),
-		"the fallback must still be deterministic for a given manifest")
-}
-
-// TestSkillManifestEntry_HoldsOnlyStringsSoMarshalCannotFail is the MEASURED
-// reason Serialize's error branch is unreachable today, turned into a gate:
-// encoding/json cannot fail on a slice of structs whose every field is a
-// string, so no live signature can carry the fallback preimage. This test goes
-// red the moment a field of some other kind (a channel, a func, a
-// map[interface{}]…) is added — i.e. the moment the branch becomes reachable
-// and its bytes start to matter.
-func TestSkillManifestEntry_HoldsOnlyStringsSoMarshalCannotFail(t *testing.T) {
-	typ := reflect.TypeOf(SkillManifestEntry{})
-	require.Positive(t, typ.NumField())
-	for i := range typ.NumField() {
-		f := typ.Field(i)
-		assert.Equal(t, reflect.String, f.Type.Kind(),
-			"field %s is not a string: json.Marshal can now fail, so Serialize's fallback preimage is reachable and must be reviewed", f.Name)
-	}
 }

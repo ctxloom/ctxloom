@@ -11,7 +11,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
@@ -266,13 +265,13 @@ func clearStaleDistilled[T any](t treeSave, ref trust.Ref, surface func(string, 
 
 // putItem writes the item's raw form, and its distilled form when it has one.
 func (t treeSave) putItem(ref trust.Ref, s content.Surface, distilled string) error {
-	if err := t.w.Put(t.ctx, ref, signing.FormRaw, s); err != nil {
+	if err := t.w.Put(t.ctx, ref, trust.FormRaw, s); err != nil {
 		return fmt.Errorf("bundles: writing %s: %w", ref.Key(), err)
 	}
 	if distilled == "" {
 		return nil
 	}
-	if err := t.w.Put(t.ctx, ref, signing.FormDistilled, s); err != nil {
+	if err := t.w.Put(t.ctx, ref, trust.FormDistilled, s); err != nil {
 		return fmt.Errorf("bundles: writing %s (distilled): %w", ref.Key(), err)
 	}
 	return nil

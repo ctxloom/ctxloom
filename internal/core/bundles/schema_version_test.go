@@ -2,6 +2,7 @@ package bundles
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -13,6 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
@@ -105,9 +109,9 @@ func loadProjectTree(t *testing.T, fsys afero.Fs, name string) string {
 	return said.String()
 }
 
-func TestProjectReader_WriteUpgradesPersistsAnUnsignedEnvelope(t *testing.T) {
+func TestProjectReader_WriteUpgradesPersistsTheEnvelope(t *testing.T) {
 	withWriteUpgrades(t)
-	mem, dir := localTreeFixture(t, "plain", false)
+	mem, dir := localTreeFixture(t, "plain")
 	envelope := filepath.Join(dir, DirectoryFormManifest)
 	before, err := afero.ReadFile(mem, envelope)
 	require.NoError(t, err)
@@ -127,26 +131,8 @@ func TestProjectReader_WriteUpgradesPersistsAnUnsignedEnvelope(t *testing.T) {
 	loadProjectTree(t, mem, "plain") // the upgraded tree still reads
 }
 
-func TestProjectReader_WriteUpgradesSkipsASignedTree(t *testing.T) {
-	withWriteUpgrades(t)
-	mem, dir := localTreeFixture(t, "sealed", true)
-	envelope := filepath.Join(dir, DirectoryFormManifest)
-	before, err := afero.ReadFile(mem, envelope)
-	require.NoError(t, err)
-
-	said := loadProjectTree(t, mem, "sealed")
-
-	after, err := afero.ReadFile(mem, envelope)
-	require.NoError(t, err)
-	assert.Equal(t, before, after, "a signed tree's bytes are what its signature covers")
-	assert.Contains(t, said, resignToPersist)
-	wrote, err := afero.Exists(mem, envelope+schemaver.BackupSuffix)
-	require.NoError(t, err)
-	assert.False(t, wrote, "nothing is written beside a signed tree")
-}
-
 func TestProjectReader_WithoutWriteUpgradesNothingIsWritten(t *testing.T) {
-	mem, dir := localTreeFixture(t, "plain", false)
+	mem, dir := localTreeFixture(t, "plain")
 	envelope := filepath.Join(dir, DirectoryFormManifest)
 	before, err := afero.ReadFile(mem, envelope)
 	require.NoError(t, err)
@@ -163,4 +149,22 @@ func itoaYAML(t *testing.T, n int) string {
 	out, err := yaml.Marshal(n)
 	require.NoError(t, err)
 	return string(bytes.TrimSpace(out))
+}
+
+// localTreeFixture stages a project tree bundle name holding one fragment and
+// returns the filesystem and the bundle's directory.
+func localTreeFixture(t *testing.T, name string) (afero.Fs, string) {
+	t.Helper()
+	mem := afero.NewMemMapFs()
+	v2 := paths.BundlesLayoutRoot("/bundles", paths.LayoutV2)
+	require.NoError(t, mem.MkdirAll(v2, 0o755))
+	st, err := content.NewTreeStore(mem, v2, content.Provenance{IsLocal: true})
+	require.NoError(t, err)
+	require.NoError(t, st.Put(context.Background(),
+		trust.Ref{Bundle: name, Kind: trust.KindFragment, Name: "keeper"},
+		trust.FormRaw,
+		content.Fragment{Name: "keeper", ItemMeta: content.ItemMeta{Body: "KEEPER-PAYLOAD"}}))
+	require.NoError(t, st.PutRootFile(context.Background(), content.BundleID(name), DirectoryFormManifest,
+		[]byte("name: "+name+"\nversion: 2.0.0\n")))
+	return mem, filepath.Join(v2, name)
 }

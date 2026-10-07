@@ -1,6 +1,6 @@
 // Package content is the storage-agnostic access surface for ctxloom bundle
-// contents: the L0 foundation the signing, trust, distillation, search and
-// materialize layers are meant to be built ON TOP OF rather than beside.
+// contents: the L0 foundation the distillation, search and materialize layers
+// are built ON TOP OF rather than beside.
 //
 // The shape is four nested interfaces — Store -> Bundle -> Item -> Form — plus
 // a registry of SurfaceType values that own their own on-disk recognition and
@@ -10,52 +10,21 @@
 // SurfaceType. A new kind therefore plugs in by calling Register, with no edit
 // to this file.
 //
-// # An Item is addressable; a Form is attestable
+// # An Item is addressable; a Form is materializable
 //
-// Signatures and approvals key on (assertion, kind, form, bytes), so the
-// bytes, the components and the signatures all hang off Form — never off Item.
 // A fragment with a published distilled rewrite has ONE Item and TWO Forms,
-// stored as two sibling files, and the existing rule that "blessing the raw
-// form can never validate a distilled exposure" therefore falls out of the
-// storage model instead of needing enforcement in code.
+// stored as two sibling files, so the bytes and the components hang off Form,
+// never off Item. Raw bytes are reached through Form.Components.
 //
-// # Content is ALWAYS a digest, never raw bytes
-//
-// Form.Content returns a deterministic SHA256SUMS-shaped manifest of the
-// form's components, even when there is exactly one component. Raw bytes are
-// reached ONLY through Form.Components. There is one rule and no single-file
-// special case, because a special case is a second code path that the
-// multi-component path's tests never cover. See digest.go for the format and
-// the reasons no mode bit appears in it.
-//
-// # What this package deliberately does NOT do
-//
-// It does not sign, verify, approve or reject anything: Form.Signatures and
-// Bundle.BundleSignatures hand back signature BYTES and nothing else, because
-// layer 0 knows only WHERE signature bytes live and layer 2 owns what they
-// mean. It does not read or write bundle.yaml, and no existing consumer is
-// wired to it yet — the tree implementation here reads a layout that no shipped
-// bundle currently uses.
-//
-// # The manifest (layer 1) lives here; trust (layer 2) does not
-//
-// manifest.go adds the bundle-level manifest — Bundle.Manifest,
-// Writer.PutManifest, BuildManifest and Manifest.VerifyContents. It is layer 1,
-// integrity only: it answers "is this tree exactly the set of files, with
-// exactly the bytes, that the manifest claims", in both directions, and it
-// answers nothing at all about WHO said so. That question belongs to layer 2,
-// which lives in the attest subpackage so that this package never imports a
-// trust root.
+// It does not read or write bundle.yaml.
 package content
 
 import (
 	"context"
 	"errors"
-	"sort"
+	"fmt"
+	"strings"
 
-	"golang.org/x/crypto/ssh"
-
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -92,39 +61,22 @@ type Bundle interface {
 	Item(ctx context.Context, ref trust.Ref) (Item, error)
 
 	// Files enumerates EVERY file in the bundle, bundle-relative and sorted,
-	// including dot-prefixed files, the manifest, and the signature store.
+	// including dot-prefixed files.
 	//
-	// It is deliberately total and deliberately NOT item-scoped. Refs answers
-	// "what items are here"; a file that no SurfaceType claims is invisible to
-	// it by construction, and that invisibility is precisely the channel a
-	// hostile publisher uses — add a directory nothing enumerates and it rides
-	// along through every pull, move and materialize. Files is the primitive
-	// that makes "this tree is exactly what was published" checkable at all.
-	// It applies no exemption policy of its own: exemptions are stated once, in
-	// ManifestCovers, where they can be read.
+	// It is deliberately total and deliberately NOT item-scoped: Refs answers
+	// "what items are here", and a file that no SurfaceType claims is
+	// invisible to it by construction.
 	Files(ctx context.Context) ([]string, error)
 
 	// ReadFile returns one file's exact stored bytes, by bundle-relative path.
 	//
-	// It exists so integrity and signing can hash arbitrary NON-ITEM files —
-	// the README, the LICENSE, the file a typo left unrecognised — without
-	// reaching around the store to a filesystem. A layer that had Files but not
-	// ReadFile could name what it must cover and not cover it.
+	// It reaches NON-ITEM files — the bundle envelope, the README, the LICENSE —
+	// without reaching around the store to a filesystem.
 	ReadFile(ctx context.Context, relPath string) ([]byte, error)
-
-	// Manifest reads and parses the bundle's manifest, or returns
-	// ErrManifestMissing. The manifest is a BUNDLE-LEVEL object, not an item:
-	// it enumerates items and is not one of them.
-	Manifest(ctx context.Context) (Manifest, error)
-
-	// BundleSignatures returns the signature BYTES filed against the bundle's
-	// manifest, and says nothing about whether any of them verify — the same
-	// division of labour Form.Signatures follows.
-	BundleSignatures(ctx context.Context) (SigSet, error)
 }
 
-// Item is one addressable item. It carries no bytes of its own: the attestable
-// unit is (item, form), so bytes live on Form.
+// Item is one addressable item. It carries no bytes of its own: the
+// materializable unit is (item, form), so bytes live on Form.
 type Item interface {
 	Ref() trust.Ref
 	// Surface returns the decoded, typed representation of the WHOLE item —
@@ -133,21 +85,16 @@ type Item interface {
 	// Forms reports exactly the LAYOUT forms this item actually has on disk. A
 	// fragment with no distilled sibling reports only FormRaw, and so does a
 	// single-form surface such as an mcp server or a hook.
-	Forms(ctx context.Context) ([]signing.Form, error)
+	Forms(ctx context.Context) ([]trust.ContentForm, error)
 	// Form returns one form, or ErrNoSuchForm when the item does not carry it.
-	Form(ctx context.Context, f signing.Form) (Form, error)
+	Form(ctx context.Context, f trust.ContentForm) (Form, error)
 }
 
-// Form is one attestable materialization of an item.
+// Form is one materialization of an item.
 type Form interface {
-	ContentForm() signing.Form
-	// Content is ALWAYS the deterministic component digest — never raw bytes,
-	// not even when there is a single component. See digest.go.
-	Content(ctx context.Context) ([]byte, error)
+	ContentForm() trust.ContentForm
 	// Components returns every component of this form, sorted by path, with
-	// its bytes. Every component returned here is covered by Content: there is
-	// no partial-coverage tier, because a partial manifest would mean adding a
-	// file to a signed tree could not break verification.
+	// its bytes.
 	Components(ctx context.Context) ([]Component, error)
 	// Surface returns the decoded surface of the item this form belongs to.
 	//
@@ -165,15 +112,10 @@ type Writer interface {
 	// Put writes the components of s that belong to form f. A surface decoded
 	// with two forms therefore writes one form per call, and writing the
 	// distilled form never rewrites the raw file.
-	Put(ctx context.Context, ref trust.Ref, f signing.Form, s Surface) error
+	Put(ctx context.Context, ref trust.Ref, f trust.ContentForm, s Surface) error
 	// Delete removes every component of the item, in every form — the content
 	// file AND its metadata sidecar.
 	Delete(ctx context.Context, ref trust.Ref) error
-
-	// PutManifest writes a bundle's manifest, replacing any existing one. It
-	// takes a BundleID rather than a ref because a manifest belongs to the
-	// bundle, not to any item in it.
-	PutManifest(ctx context.Context, id BundleID, m Manifest) error
 
 	// PutRootFile writes one bundle-ROOT file that is not an item: the bundle
 	// envelope, a README, a LICENSE. It is the write-side counterpart to
@@ -182,33 +124,21 @@ type Writer interface {
 	// incomplete.
 	//
 	// It refuses a path with a directory component. Everything below the root is
-	// either a kind directory, where an item must go through Put so its surface
-	// type does the encoding, or the signature store, which PutBundleSignature
-	// owns. Without that guard this would be a way to place an unrecognised file
+	// a kind directory, where an item must go through Put so its surface type
+	// does the encoding. Without that guard this would be a way to place an unrecognised file
 	// inside a kind directory — which Refs then fails on, turning a write here
 	// into a bundle nobody can enumerate.
 	PutRootFile(ctx context.Context, id BundleID, name string, data []byte) error
-
-	// PutBundleSignature stores signature bytes over the bundle's manifest
-	// under the given namespace, filed under the key that made them: a
-	// re-sign by the same key REPLACES its earlier entry, and a second key
-	// adds a second entry. It performs no verification, and it does not
-	// check that a manifest is present: layer 0 stores bytes, layer 2 decides
-	// what they mean.
-	PutBundleSignature(ctx context.Context, id BundleID, ns Namespace, by ssh.PublicKey, sig []byte) error
 }
 
-// ComponentMode is a component's declared, attested mode. It is ONE enum
-// rather than a boolean so a further value (readonly, say) can be added
-// without a schema break, and it replaces the rejected prompt/executable/asset
-// role taxonomy.
+// ComponentMode is a component's declared mode. It is ONE enum rather than a
+// boolean so a further value (readonly, say) can be added without a schema
+// break.
 //
-// It governs what materialize sets on disk and what review emphasises. It
-// never governs what the digest covers — coverage is total. And it is DECLARED
-// metadata, read from the item's signed bytes rather than from the
-// filesystem's mode bits, because a filesystem mode is not portable: on
-// Windows Go toggles only the read-only bit, so a mode-bearing digest would be
-// platform-dependent and a checkout there would fail its own signature.
+// It governs what materialize sets on disk. It is DECLARED metadata, read from
+// the item's bytes rather than from the filesystem's mode bits, because a
+// filesystem mode is not portable: on Windows Go toggles only the read-only
+// bit.
 type ComponentMode string
 
 const (
@@ -223,52 +153,12 @@ const (
 // Component is one file of one form of one item.
 type Component struct {
 	// Path is bundle-relative and always uses forward slashes, e.g.
-	// "fragments/solid.md". It is also the path that appears in the digest, so
-	// Content can be checked against a bundle root with stock `sha256sum -c`.
+	// "fragments/solid.md".
 	Path string
 	// Mode is the declared mode (see ComponentMode).
 	Mode ComponentMode
 	// Bytes is the component's exact stored bytes.
 	Bytes []byte
-}
-
-// Namespace is a signature's assertion namespace — the same byte string the
-// signing package uses (signing.NamespacePublish and friends). It is a
-// filename component in the tree's signature store, so it is validated against
-// a conservative charset.
-type Namespace string
-
-// Signature is one stored signature: its namespace and its bytes. Nothing here
-// claims it verifies.
-type Signature struct {
-	Namespace Namespace
-	Bytes     []byte
-}
-
-// SigSet is every signature stored against one form's content, sorted for
-// determinism.
-type SigSet []Signature
-
-// ForNamespace returns the signature bytes stored under ns, in SigSet order.
-func (s SigSet) ForNamespace(ns Namespace) [][]byte {
-	var out [][]byte
-	for _, sig := range s {
-		if sig.Namespace == ns {
-			out = append(out, sig.Bytes)
-		}
-	}
-	return out
-}
-
-// sortSigs orders a SigSet by namespace, then by bytes, so repeated reads of an
-// unchanged store return byte-identical results.
-func sortSigs(s SigSet) {
-	sort.Slice(s, func(i, j int) bool {
-		if s[i].Namespace != s[j].Namespace {
-			return s[i].Namespace < s[j].Namespace
-		}
-		return string(s[i].Bytes) < string(s[j].Bytes)
-	})
 }
 
 // The package's error vocabulary. Callers match with errors.Is.
@@ -284,6 +174,29 @@ var (
 	// surface whose kind has no registered type.
 	ErrSurfaceType = errors.New("content: wrong surface type")
 	// ErrBadPath reports a component path that cannot be represented safely —
-	// one that escapes its bundle, or that the digest format cannot encode.
+	// one that escapes its bundle, or that cannot be encoded as a line of
+	// text (see validComponentPath).
 	ErrBadPath = errors.New("content: invalid component path")
+	// ErrUnclaimed reports files inside a kind directory that no registered
+	// SurfaceType recognises. Enumeration FAILS on these rather than skipping
+	// them: a silently dropped file is how a mis-extensioned hook vanishes.
+	ErrUnclaimed = errors.New("content: unclaimed file in a kind directory")
 )
+
+// validComponentPath refuses a component path that is empty, absolute, escapes
+// the bundle root, or carries a newline or backslash (a path is one line of
+// text wherever it is listed, and a backslash would read as a separator on
+// Windows).
+func validComponentPath(p string) error {
+	switch {
+	case p == "":
+		return fmt.Errorf("%w: empty path", ErrBadPath)
+	case strings.ContainsAny(p, "\n\r\\"):
+		return fmt.Errorf("%w: %q contains a newline or backslash", ErrBadPath, p)
+	case strings.HasPrefix(p, "/"):
+		return fmt.Errorf("%w: %q is absolute, paths must be bundle-relative", ErrBadPath, p)
+	case p == "." || p == ".." || strings.HasPrefix(p, "../") || strings.Contains(p, "/../") || strings.HasSuffix(p, "/.."):
+		return fmt.Errorf("%w: %q escapes the bundle root", ErrBadPath, p)
+	}
+	return nil
+}

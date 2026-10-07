@@ -627,9 +627,9 @@ func escapeAt(s string) string {
 
 // isRefControlRune matches the C0 range plus DEL, the characters a ctxloom
 // reference can never legally carry. It mirrors remote.isRefControlChar, which
-// is unexported there; the duplication is a deliberate defence-in-depth split,
-// the same one signing.CountersignHeader.Validate makes — a layer that shares
-// an implementation with the layer it backstops is one layer.
+// is unexported there; the duplication is a deliberate defence-in-depth split —
+// a layer that shares an implementation with the layer it backstops is one
+// layer.
 func isRefControlRune(r rune) bool { return r < 0x20 || r == 0x7f }
 
 // indexEncodedSlash reports the byte offset of an encoded "/" ("%2F" in any

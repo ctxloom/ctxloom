@@ -89,9 +89,8 @@ type FileChange struct {
 // diffPin computes what moving p's pin from prior (has) to p.Hash brings in;
 // without a prior pin it is everything the bundle carries at p.Hash.
 //
-// It reads the trees WITHOUT publisher verification. This is a disclosure of
-// bytes, not an exposure of them, and an unsigned bundle has to be disclosed
-// exactly as fully as a signed one.
+// It reads the trees as fetched: this is a disclosure of bytes, not an
+// exposure of them.
 func diffPin(ctx context.Context, cfg *config.Config, p PinnedRef, prior remote.LockEntry, has bool) (PinChange, error) {
 	pc := PinChange{Identity: string(p.Identity), URL: p.URL, ToSHA: p.Hash, ToVersion: p.Version}
 	if has {

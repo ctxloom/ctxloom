@@ -12,11 +12,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
@@ -352,292 +350,6 @@ func TestBundleCommand_EffectiveContent(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
-}
-
-// =============================================================================
-// Effective-content hash (trust rework TR0)
-// =============================================================================
-// EffectiveContentHash hashes EXACTLY the bytes EffectiveContent returns and
-// reports their form. The trust gate binds to this — never the recorded
-// ContentHash field, never a raw fallback when distilled is served. A raw-form
-// grant must NOT validate a distilled exposure (different hash AND different form).
-
-func TestBundleFragment_EffectiveContentHash(t *testing.T) {
-	frag := BundleFragment{
-		ItemBody: ItemBody{
-			Content:   "RAW-BYTES",
-			Distilled: "DISTILLED-BYTES",
-		},
-	}
-
-	rawHash, rawForm := frag.EffectiveContentHash(false)
-	distHash, distForm := frag.EffectiveContentHash(true)
-
-	// Hashes cover the framed surface over exactly the bytes EffectiveContent
-	// would serve.
-	assert.Equal(t, hashContent(signing.FragmentPreimage("", []byte("RAW-BYTES"))), rawHash)
-	assert.Equal(t, hashContent(signing.FragmentPreimage("", []byte("DISTILLED-BYTES"))), distHash)
-	assert.Equal(t, FormRaw, rawForm)
-	assert.Equal(t, FormDistilled, distForm)
-
-	// Raw vs distilled exposure differ on BOTH hash and form, so a raw-form
-	// grant can never validate a distilled exposure.
-	assert.NotEqual(t, rawHash, distHash)
-	assert.NotEqual(t, rawForm, distForm)
-
-	// NoDistill pins the form to raw even when distilled is preferred — no
-	// raw fallback ambiguity: the served bytes are raw and the hash says raw.
-	noDistill := BundleFragment{
-		ItemBody: ItemBody{
-			Content:   "RAW-BYTES",
-			Distilled: "DISTILLED-BYTES",
-			NoDistill: true,
-		},
-	}
-	h, form := noDistill.EffectiveContentHash(true)
-	assert.Equal(t, hashContent(signing.FragmentPreimage("", []byte("RAW-BYTES"))), h)
-	assert.Equal(t, FormRaw, form)
-
-	// The recorded ContentHash field is irrelevant to the effective hash — a
-	// forged recorded value cannot move it.
-	forged := BundleFragment{
-		ItemBody: ItemBody{
-			Content:     "RAW-BYTES",
-			ContentHash: "sha256:deadbeef",
-		},
-	}
-	fh, _ := forged.EffectiveContentHash(false)
-	assert.Equal(t, hashContent(signing.FragmentPreimage("", []byte("RAW-BYTES"))), fh)
-}
-
-func TestBundleCommand_EffectiveContentHash(t *testing.T) {
-	prompt := BundleCommand{
-		ItemBody: ItemBody{
-			Content:   "RAW-BYTES",
-			Distilled: "DISTILLED-BYTES",
-		},
-	}
-
-	rawHash, rawForm := prompt.EffectiveContentHash(false)
-	distHash, distForm := prompt.EffectiveContentHash(true)
-
-	exports := prompt.Surface(false).ExportsPayload()
-	assert.Equal(t, hashContent(signing.CommandPreimage("", exports, []byte("RAW-BYTES"))), rawHash)
-	assert.Equal(t, hashContent(signing.CommandPreimage("", exports, []byte("DISTILLED-BYTES"))), distHash)
-	assert.Equal(t, FormRaw, rawForm)
-	assert.Equal(t, FormDistilled, distForm)
-	assert.NotEqual(t, rawHash, distHash)
-	assert.NotEqual(t, rawForm, distForm)
-}
-
-// =============================================================================
-// BundleMCP content hash (trust rework TR0)
-// =============================================================================
-// The MCP hash binds an executable surface: Command + Args + Env + Installation.
-// Env keys are canonicalized (order-insensitive); Args order is significant;
-// Notes are excluded (human-only, never executed).
-
-// mcpTrustHash is the hash an MCP trust grant binds to: HashPayload over
-// ContentPayload, the same composition every trust reader applies.
-func mcpTrustHash(t *testing.T, m BundleMCP) string {
-	t.Helper()
-	payload, err := m.ContentPayload()
-	require.NoError(t, err)
-	return HashPayload(payload)
-}
-
-// hookTrustHash is the hash the trust path computes for a hook: HashPayload
-// over its ContentPayload.
-func hookTrustHash(t *testing.T, h BundleHook) string {
-	t.Helper()
-	payload, err := h.ContentPayload()
-	require.NoError(t, err)
-	return HashPayload(payload)
-}
-
-func TestBundleMCP_TrustHash(t *testing.T) {
-	base := BundleMCP{
-		Command:      "postgres-mcp",
-		Args:         []string{"--host", "db", "--port", "5432"},
-		Env:          map[string]string{"PGUSER": "admin", "PGPASSWORD": "secret", "PGDATABASE": "app"},
-		Installation: "npm i -g postgres-mcp",
-		Notes:        "human-only notes",
-	}
-	baseHash := mcpTrustHash(t, base)
-	assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, baseHash)
-
-	// Deterministic across calls.
-	assert.Equal(t, baseHash, mcpTrustHash(t, base))
-
-	// Env key order does not affect the hash (json.Marshal sorts map keys).
-	envReordered := base
-	envReordered.Env = map[string]string{"PGDATABASE": "app", "PGPASSWORD": "secret", "PGUSER": "admin"}
-	assert.Equal(t, baseHash, mcpTrustHash(t, envReordered), "env key order must not change the hash")
-
-	// Notes are excluded.
-	notesChanged := base
-	notesChanged.Notes = "totally different notes"
-	assert.Equal(t, baseHash, mcpTrustHash(t, notesChanged), "Notes must be excluded from the hash")
-
-	// Arg order is significant.
-	argsReordered := base
-	argsReordered.Args = []string{"--port", "5432", "--host", "db"}
-	assert.NotEqual(t, baseHash, mcpTrustHash(t, argsReordered), "arg order must change the hash")
-
-	// Installation is part of the hash.
-	installChanged := base
-	installChanged.Installation = "different install steps"
-	assert.NotEqual(t, baseHash, mcpTrustHash(t, installChanged), "Installation must be part of the hash")
-
-	// Env value changes change the hash.
-	envValueChanged := base
-	envValueChanged.Env = map[string]string{"PGUSER": "admin", "PGPASSWORD": "changed", "PGDATABASE": "app"}
-	assert.NotEqual(t, baseHash, mcpTrustHash(t, envValueChanged), "env value must be part of the hash")
-
-	// Command changes change the hash.
-	cmdChanged := base
-	cmdChanged.Command = "mysql-mcp"
-	assert.NotEqual(t, baseHash, mcpTrustHash(t, cmdChanged), "Command must be part of the hash")
-}
-
-// =============================================================================
-// ContentPayload — the single preimage builder invariant (signature envelope
-// spec §3.2: "there must be exactly one definition of 'the bytes of item X in
-// form F' in the codebase"). These tests prove ComputeContentHash/
-// EffectiveContentHash hash EXACTLY the bytes ContentPayload returns, so a
-// countersignature built over ContentPayload's output and a hash computed by
-// these methods can never drift apart.
-// =============================================================================
-
-func TestBundleCommand_ContentPayload_IsHashPreimage(t *testing.T) {
-	cmd := BundleCommand{
-		ItemBody: ItemBody{
-			Content:   "RAW-BYTES",
-			Distilled: "DISTILLED-BYTES",
-		},
-	}
-
-	rawPayload, rawForm := cmd.ContentPayload(false)
-	distPayload, distForm := cmd.ContentPayload(true)
-
-	exports := cmd.Surface(false).ExportsPayload()
-	assert.Equal(t, signing.CommandPreimage("", exports, []byte("RAW-BYTES")), rawPayload)
-	assert.Equal(t, FormRaw, rawForm)
-	assert.Equal(t, signing.CommandPreimage("", exports, []byte("DISTILLED-BYTES")), distPayload)
-	assert.Equal(t, FormDistilled, distForm)
-
-	rawHash, _ := cmd.EffectiveContentHash(false)
-	distHash, _ := cmd.EffectiveContentHash(true)
-	assert.Equal(t, hashContent(rawPayload), rawHash)
-	assert.Equal(t, hashContent(distPayload), distHash)
-}
-
-func TestBundleMCP_ContentPayload_IsHashPreimage(t *testing.T) {
-	mcp := BundleMCP{
-		Command:      "postgres-mcp",
-		Args:         []string{"--host", "db"},
-		Env:          map[string]string{"PGUSER": "admin"},
-		Installation: "npm i -g postgres-mcp",
-		Notes:        "human-only, excluded",
-	}
-
-	payload, err := mcp.ContentPayload()
-	require.NoError(t, err)
-	// The `preimage` field is the exec-preimage contract version (spec §3.3.2).
-	// It was ADDED to this fixture when the version carrier landed, which
-	// changed the preimage bytes and therefore invalidated every pre-existing
-	// MCP approval — the one-time, deliberate mass re-review the version exists
-	// to make announced rather than accidental. It cost nothing here only
-	// because v0.7.0-pre1 has never shipped. See exec_preimage_test.go, which
-	// pins the exact byte layout and its field ORDER (JSONEq below is
-	// order-insensitive and would not catch a misplaced version carrier).
-	assert.JSONEq(t, `{"preimage":"ctxloom-exec/2","command":"postgres-mcp","args":["--host","db"],"env":{"PGUSER":"admin"},"url":"","headers":null,"installation":"npm i -g postgres-mcp"}`, string(payload))
-}
-
-// skillFileSpec is one file of a staged skill package.
-type skillFileSpec struct {
-	body string
-	mode os.FileMode
-}
-
-// stageSkill writes a skill package at <bundleDir>/<rel> on fsys.
-func stageSkill(t *testing.T, fsys afero.Fs, bundleDir, rel string, files map[string]skillFileSpec) {
-	t.Helper()
-	for p, f := range files {
-		testsupport.WriteFileString(t, fsys, filepath.Join(bundleDir, rel, p), f.body, f.mode)
-	}
-}
-
-// skillHash is the content hash of a skill whose package holds files.
-func skillHash(t *testing.T, files map[string]skillFileSpec) string {
-	t.Helper()
-	fsys := afero.NewMemMapFs()
-	stageSkill(t, fsys, "/b", "skills/s", files)
-	return (&BundleSkill{}).ComputeContentHash(fsys, "/b", "s")
-}
-
-// stagedSkillMD is a minimal valid SKILL.md.
-const stagedSkillMD = "---\nname: s\ndescription: d\n---\nskillmd1\n"
-
-var twoFileSkill = map[string]skillFileSpec{
-	"SKILL.md":       {stagedSkillMD, 0o644},
-	"scripts/run.sh": {"script1", 0o755},
-}
-
-// TestBundleSkill_ContentPayload_IsHashPreimage proves ComputeContentHash
-// hashes EXACTLY ContentPayload's output — the single-preimage-builder
-// contract every other kind's ContentPayload/ComputeContentHash pair holds
-// (see BundleFragment/BundleMCP/BundleHook above) — and that the payload is a
-// canonical encoding of the package manifest, versioned like the other
-// exec-shaped preimages.
-func TestBundleSkill_ContentPayload_IsHashPreimage(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	stageSkill(t, fsys, "/b", "skills/s", twoFileSkill)
-	skill := BundleSkill{}
-
-	payload, err := skill.ContentPayload(fsys, "/b", "s")
-	require.NoError(t, err)
-	assert.JSONEq(t,
-		`{"preimage":"ctxloom-skill/1","exports":{"claude-code":{"enabled":true}},"manifest":[`+
-			`{"path":"SKILL.md","sha256":"`+hashContent([]byte(stagedSkillMD))+`","mode":"0644"},`+
-			`{"path":"scripts/run.sh","sha256":"`+hashContent([]byte("script1"))+`","mode":"0755"}]}`,
-		string(payload))
-
-	assert.Equal(t, hashContent(payload), skill.ComputeContentHash(fsys, "/b", "s"))
-}
-
-// TestBundleSkill_ComputeContentHash proves editing ANY single file in the
-// package — content, path, or the exec bit — changes the hash, which is what
-// re-triggers review/sign on a script edit (skill/command split plan §3.1).
-func TestBundleSkill_ComputeContentHash(t *testing.T) {
-	baseHash := skillHash(t, twoFileSkill)
-	assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, baseHash)
-	assert.Equal(t, baseHash, skillHash(t, twoFileSkill), "deterministic across calls")
-
-	assert.NotEqual(t, baseHash, skillHash(t, map[string]skillFileSpec{
-		"SKILL.md":       {stagedSkillMD, 0o644},
-		"scripts/run.sh": {"different", 0o755},
-	}), "editing a file's content must change the package hash")
-
-	assert.NotEqual(t, baseHash, skillHash(t, map[string]skillFileSpec{
-		"SKILL.md":       {stagedSkillMD, 0o644},
-		"scripts/run.sh": {"script1", 0o644},
-	}), "losing the exec bit must change the package hash")
-
-	assert.NotEqual(t, baseHash, skillHash(t, map[string]skillFileSpec{
-		"SKILL.md":         {stagedSkillMD, 0o644},
-		"scripts/run.sh":   {"script1", 0o755},
-		"assets/README.md": {"extra", 0o644},
-	}), "adding a file must change the package hash")
-}
-
-// A mode bit other than exec is umask noise, not content: a 0664 checkout is
-// the same package as a 0644 one and must not carry a second trust hash.
-func TestBundleSkill_ComputeContentHash_IgnoresNonExecModeBits(t *testing.T) {
-	assert.Equal(t, skillHash(t, twoFileSkill), skillHash(t, map[string]skillFileSpec{
-		"SKILL.md":       {stagedSkillMD, 0o664},
-		"scripts/run.sh": {"script1", 0o775},
-	}))
 }
 
 // =============================================================================
@@ -1785,40 +1497,6 @@ func TestLoader_ResolveFragmentAsk(t *testing.T) {
 	assert.Equal(t, "nope", resolve("nope"))
 }
 
-func TestBundleHook_TrustHash(t *testing.T) {
-	base := BundleHook{
-		Matcher:         "Bash",
-		Command:         "echo hi",
-		Type:            "command",
-		Prompt:          "do the thing",
-		Timeout:         30,
-		Async:           true,
-		PreToolFallback: true,
-	}
-	baseHash := hookTrustHash(t, base)
-	assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, baseHash)
-	assert.Equal(t, baseHash, hookTrustHash(t, base), "deterministic across calls")
-
-	// Operational knobs (Timeout/Async) are excluded from the executable hash.
-	knobs := base
-	knobs.Timeout = 99
-	knobs.Async = false
-	assert.Equal(t, baseHash, hookTrustHash(t, knobs), "Timeout/Async must not change the hash")
-
-	// Each executable-surface field is part of the hash.
-	for name, mut := range map[string]func(*BundleHook){
-		"Matcher":         func(h *BundleHook) { h.Matcher = "Write" },
-		"Command":         func(h *BundleHook) { h.Command = "rm -rf /" },
-		"Type":            func(h *BundleHook) { h.Type = "prompt" },
-		"Prompt":          func(h *BundleHook) { h.Prompt = "something else" },
-		"PreToolFallback": func(h *BundleHook) { h.PreToolFallback = false },
-	} {
-		changed := base
-		mut(&changed)
-		assert.NotEqualf(t, baseHash, hookTrustHash(t, changed), "%s must be part of the hash", name)
-	}
-}
-
 func TestBundleHooks_EntriesAndEntryByID(t *testing.T) {
 	hooks := BundleHooks{
 		PreTool: []BundleHook{
@@ -1991,15 +1669,14 @@ commands:
 
 // TestInstallation_IsNeverInTheModelFacingBytes pins the invariant the
 // corrected field comments now assert. `installation:` is operator-facing setup prose
-// (surfaced in review/pull/list output); it must never reach the model. The two
+// (surfaced in pull/list output); it must never reach the model. The two
 // field comments used to say OPPOSITE things about identically-plumbed fields —
 // BundleFragment's "not sent to AI" and BundleCommand's "sent to AI" — and
 // nothing executable could tell you which was right.
 //
-// The bytes the trust gate decides on ARE the bytes the agent sees
-// (ContentPayload is the single preimage builder), so asserting the payload
-// covers both questions at once. If installation prose is ever folded into
-// content, this goes red.
+// Resolve is the single source of the bytes the agent is served, so asserting
+// its Body covers every delivery path. If installation prose is ever folded
+// into content, this goes red.
 func TestInstallation_IsNeverInTheModelFacingBytes(t *testing.T) {
 	const secretish = "run: curl example.invalid/install.sh | sh"
 
@@ -2017,13 +1694,8 @@ func TestInstallation_IsNeverInTheModelFacingBytes(t *testing.T) {
 	}
 
 	for _, preferDistilled := range []bool{false, true} {
-		fragPayload, _ := frag.ContentPayload(preferDistilled)
-		assert.NotContains(t, string(fragPayload), secretish)
-		assert.Equal(t, signing.FragmentPreimage("", []byte("fragment body")), fragPayload)
-
-		cmdPayload, _ := cmd.ContentPayload(preferDistilled)
-		assert.NotContains(t, string(cmdPayload), secretish)
-		assert.Equal(t, signing.CommandPreimage("", cmd.Surface(false).ExportsPayload(), []byte("command body")), cmdPayload)
+		assert.Equal(t, "fragment body", string(frag.Resolve(preferDistilled).Body))
+		assert.Equal(t, "command body", string(cmd.Resolve(preferDistilled).Body))
 	}
 
 	// And the loader carries it as sidecar metadata, never spliced into Content.

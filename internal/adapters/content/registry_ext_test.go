@@ -17,7 +17,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -78,11 +77,11 @@ func (widgetType) Detect(src content.Source) bool {
 	return ok
 }
 
-func (t widgetType) Forms(src content.Source) ([]signing.Form, error) {
+func (t widgetType) Forms(src content.Source) ([]trust.ContentForm, error) {
 	if _, ok := widgetName(src); !ok {
 		return nil, fmt.Errorf("not a widget")
 	}
-	return []signing.Form{signing.FormRaw}, nil
+	return []trust.ContentForm{trust.FormRaw}, nil
 }
 
 func (t widgetType) RefFor(bundle string, src content.Source) (trust.Ref, error) {
@@ -192,7 +191,7 @@ func TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormRaw)
+	form, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -204,21 +203,23 @@ func TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI(t *testing.T) {
 		t.Fatalf("decoded widget = %+v", widget)
 	}
 
-	// The digest covers the dot-prefixed sidecar for a third-party kind too — the
-	// grouping rule is in the walker, not in any kind's code.
-	digest, err := form.Content(ctx)
+	// The form's components include the dot-prefixed sidecar for a third-party
+	// kind too — the grouping rule is in the walker, not in any kind's code.
+	components, err := form.Components(ctx)
 	if err != nil {
-		t.Fatalf("Content: %v", err)
+		t.Fatalf("Components: %v", err)
 	}
-	for _, want := range []string{"widgets/.sprocket.meta.yaml", "widgets/sprocket.widget"} {
-		if !strings.Contains(string(digest), want) {
-			t.Errorf("digest is missing %q:\n%s", want, digest)
-		}
+	var paths []string
+	for _, c := range components {
+		paths = append(paths, c.Path)
+	}
+	if want := []string{"widgets/.sprocket.meta.yaml", "widgets/sprocket.widget"}; !slices.Equal(paths, want) {
+		t.Errorf("components = %v, want %v", paths, want)
 	}
 
-	// Writing and signing work through the same interfaces.
+	// Writing works through the same interfaces.
 	newRef := trust.Ref{Bundle: "gadgets", Kind: widgetKind, Name: "flange"}
-	if err := store.Put(ctx, newRef, signing.FormRaw, Widget{Name: "flange", Spec: "teeth: 3\n", Owner: "me"}); err != nil {
+	if err := store.Put(ctx, newRef, trust.FormRaw, Widget{Name: "flange", Spec: "teeth: 3\n", Owner: "me"}); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	if err := store.Delete(ctx, newRef); err != nil {

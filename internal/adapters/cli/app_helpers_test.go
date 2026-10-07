@@ -12,9 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
@@ -73,21 +71,10 @@ func (s probeSources) ReadTarget(context.Context) (*config.Config, error) {
 }
 
 func (s probeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.TrustRoot()
 	return []bundles.Reader{
-		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
-		bundles.NewCompanionReader(s.probe, bundles.WithTrustRoot(root)),
+		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs()),
+		bundles.NewCompanionReader(s.probe),
 	}, nil
-}
-
-// TrustRoot builds the root a generation read over the fixture's app dir
-// holds (its signer files, read now).
-func (s probeSources) TrustRoot(_ context.Context, cfg *config.Config) (trust.TrustRoot, error) {
-	read, err := configload.Load(configload.WithRoot(safefs.NewMem(cfg.FS())), configload.WithAppDir(cfg.GetAppPaths()[0]))
-	if err != nil {
-		return nil, err
-	}
-	return read.TrustRoot(), nil
 }
 
 // withCompanionProbe returns cfg as the generation a process would hold when

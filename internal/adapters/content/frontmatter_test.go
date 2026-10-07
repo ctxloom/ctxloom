@@ -1,10 +1,9 @@
 package content
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"strings"
 	"testing"
-
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 )
 
 // TestSplitFrontMatter_DoesNotCorruptBodies pins the two corruptions this repo
@@ -131,19 +130,19 @@ func TestPathHelpers(t *testing.T) {
 }
 
 func TestFormOf(t *testing.T) {
-	both := []signing.Form{signing.FormRaw, signing.FormDistilled}
+	both := []trust.ContentForm{trust.FormRaw, trust.FormDistilled}
 	for _, tc := range []struct {
 		path  string
-		forms []signing.Form
-		want  signing.Form
+		forms []trust.ContentForm
+		want  trust.ContentForm
 	}{
-		{"fragments/solid.md", both, signing.FormRaw},
-		{"fragments/solid.distilled.md", both, signing.FormDistilled},
-		{"fragments/.solid.meta.yaml", both, signing.FormRaw},
-		{"fragments/.solid.distilled.meta.yaml", both, signing.FormDistilled},
-		{"mcp/postgres.yaml", execForms, signing.FormRaw},
-		{"mcp/.postgres.meta.yaml", execForms, signing.FormRaw},
-		{"skills/code-reviewer/SKILL.md", []signing.Form{signing.FormRaw}, signing.FormRaw},
+		{"fragments/solid.md", both, trust.FormRaw},
+		{"fragments/solid.distilled.md", both, trust.FormDistilled},
+		{"fragments/.solid.meta.yaml", both, trust.FormRaw},
+		{"fragments/.solid.distilled.meta.yaml", both, trust.FormDistilled},
+		{"mcp/postgres.yaml", execForms, trust.FormRaw},
+		{"mcp/.postgres.meta.yaml", execForms, trust.FormRaw},
+		{"skills/code-reviewer/SKILL.md", []trust.ContentForm{trust.FormRaw}, trust.FormRaw},
 	} {
 		if got := formOf(tc.path, tc.forms); got != tc.want {
 			t.Errorf("formOf(%q, %v) = %q, want %q", tc.path, tc.forms, got, tc.want)

@@ -13,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
@@ -48,22 +47,17 @@ func (s fixtureSources) ReadTarget(context.Context) (*config.Config, error) {
 }
 
 func (s fixtureSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
-		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
+		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs()),
 	}
 	readers = append(readers, RemoteBundleReaders(cfg)...)
 	if s.loadouts != nil {
 		probe := func(context.Context) (bundles.CompanionProbe, error) {
 			return bundles.CompanionProbe{Loadouts: s.loadouts}, nil
 		}
-		return append(readers, bundles.NewCompanionReader(probe, bundles.WithTrustRoot(root))), nil
+		return append(readers, bundles.NewCompanionReader(probe)), nil
 	}
 	return append(readers, companions.Prober{}.ReaderSource()(cfg)...), nil
-}
-
-func (s fixtureSources) TrustRoot(context.Context, *config.Config) (trust.TrustRoot, error) {
-	return trust.NoSigners{}, nil
 }
 
 // fixtureApp opens the process composition over a fixture Config.
@@ -129,25 +123,6 @@ var packageDirAtStart, _ = os.Getwd()
 func withCtxloomLoadout(t *testing.T, cfg *config.Config) *config.Config {
 	t.Helper()
 	return publishedWith(t, cfg, ctxloomOwnLoadout(t))
-}
-
-// onDiskRoot is the trust root a generation read over appDir holds: the
-// embedded signers plus the user's and appDir's allowed_signers, minus any
-// distrusted — built by configload exactly as a process builds it.
-func onDiskRoot(t *testing.T, appDir string) trust.TrustRoot {
-	t.Helper()
-	cfg, err := configload.Load(configload.WithAppDir(appDir))
-	require.NoError(t, err)
-	return cfg.TrustRoot()
-}
-
-// withOnDiskRoot rebinds cfg's trust root to the one a generation read over
-// appDir holds (onDiskRoot): for a fixture whose test trusts a publisher by
-// writing its allowed_signers, as a user would.
-func withOnDiskRoot(t *testing.T, cfg *config.Config, appDir string) *config.Config {
-	t.Helper()
-	cfg.BindTrustRootForTesting(onDiskRoot(t, appDir), cfg.SignatureCheckDisabled())
-	return cfg
 }
 
 // testLaunchFacts is the launch facts a composition root would hand: the

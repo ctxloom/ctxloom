@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -35,19 +34,11 @@ type ExportBundleResult struct {
 	Name   string `json:"name"`
 	Source string `json:"source"`
 	Dest   string `json:"dest"`
-	// SigDest is the exported tree's .sigs/ store — where its signature
-	// travelled to — or "" when the bundle carries none.
-	SigDest string `json:"sig_dest,omitempty"`
 }
 
 // ExportBundle copies a named bundle out to an arbitrary file or directory (an
 // author workflow — e.g. staging for publish). The destination is user-chosen
 // and outside the bundles tree, so no symlink guard applies.
-//
-// A tree's signature is its SHA256SUMS manifest and the .sigs/ entries over
-// it, and they travel with the tree. A manifest that no longer covers the
-// tree is refused outright (refuseStaleSignature): exporting it would plant a
-// tamper alarm at the destination.
 func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest) (*ExportBundleResult, error) {
 	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no bundles directory found")
@@ -68,12 +59,6 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 	if err != nil {
 		return nil, fmt.Errorf("bundle %q not found: %w", req.Name, err)
 	}
-	// Refuse BEFORE writing anything: a refusal must leave no trace at the
-	// destination.
-	if err := refuseStaleSignature(fs, dirs, name); err != nil {
-		return nil, fmt.Errorf("export %s: %w", req.Name, err)
-	}
-
 	return exportBundleTree(fs, req, bundle.Path)
 }
 
@@ -100,22 +85,14 @@ func exportBundleTree(fs afero.Fs, req ExportBundleRequest, manifestPath string)
 	if err := copyBundleTree(fs, srcDir, dest); err != nil {
 		return nil, fmt.Errorf("export %s: %w", req.Name, err)
 	}
-	res := &ExportBundleResult{Status: "exported", Name: req.Name, Source: manifestPath, Dest: dest}
-	// The .sigs/ store lives INSIDE the tree, so the copy above already
-	// carried it. Naming it here is reporting, not a second write.
-	if present, _ := afero.DirExists(fs, filepath.Join(dest, content.SigDirName)); present {
-		res.SigDest = filepath.Join(dest, content.SigDirName)
-	}
-	return res, nil
+	return &ExportBundleResult{Status: "exported", Name: req.Name, Source: manifestPath, Dest: dest}, nil
 }
 
 // copyBundleTree copies every file under src to dest, preserving each file's
 // path relative to src and its permission bits.
 //
-// Every file travels, with no filter. A bundle tree states its own integrity
-// through a SHA256SUMS covering all of it and a .sigs/ store attesting that
-// manifest, so a copy that dropped — or added — a single file would arrive
-// reporting tampering rather than arriving incomplete.
+// Every file travels, with no filter: a bundle is its whole tree, and a copy
+// that dropped a file nothing enumerates would arrive silently incomplete.
 func copyBundleTree(fs afero.Fs, src, dest string) error {
 	return afero.Walk(fs, src, func(p string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
@@ -137,37 +114,13 @@ func copyBundleTree(fs afero.Fs, src, dest string) error {
 			return fmt.Errorf("read %s: %w", p, err)
 		}
 		// AllowEmpty: the source tree is the authority on what this bundle
-		// contains. A legitimately empty file in it is covered by SHA256SUMS
-		// like any other, so refusing to copy it would land a tree that reports
-		// content MISSING rather than one that failed to write.
+		// contains, so a legitimately empty file in it is copied like any other.
 		if err := safefs.WriteFile(fs, target, data, info.Mode().Perm(), safefs.AllowEmpty()); err != nil {
 			return err
 		}
 		return nil
 	})
 }
-
-// refuseStaleSignature is the one refusal every publishing boundary gives
-// when the bundle it would ship carries a signature that no longer covers
-// its files: the reader established that fact (SignatureInvalid, the
-// stale-manifest row), so the boundary asks the reader rather than verifying
-// a second time. It names the remedy, because there is exactly one: re-sign.
-// Shipping a stale pair is not on the menu — that is what makes every
-// consumer see tampering.
-func refuseStaleSignature(fs afero.Fs, dirs []string, name string) error {
-	read, err := bundles.NewLoader(projectReader(fs, dirs)).Read(name)
-	if err != nil {
-		return err
-	}
-	if read.Signature() != bundles.SignatureInvalid {
-		return nil
-	}
-	return fmt.Errorf("%w: %s", ErrStaleSignature, bundles.StaleSignatureAdvice(read))
-}
-
-// ErrStaleSignature is the publishing boundaries' refusal of a bundle whose
-// signature no longer covers its files.
-var ErrStaleSignature = errors.New("the bundle's signature no longer covers its files — re-sign it before publishing")
 
 // ImportBundleRequest is the input for ImportBundle.
 type ImportBundleRequest struct {
@@ -187,11 +140,6 @@ type ImportBundleResult struct {
 	Fragments int    `json:"fragments"`
 	Commands  int    `json:"commands"`
 	MCP       int    `json:"mcp"`
-	// SigDest is the imported tree's .sigs/ store, or "" when the source
-	// carried none. Import PLACES the signature but never verifies it:
-	// verification belongs to the reader (attest.VerifyBundle), not to the
-	// copy step.
-	SigDest string `json:"sig_dest,omitempty"`
 }
 
 // ImportBundle copies a bundle tree — addressed by its directory or by the
@@ -245,10 +193,8 @@ func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, 
 	}
 	if exists {
 		// Replace the tree wholesale rather than copying over it. A file the
-		// incoming version DROPPED would otherwise survive as an extra that the
-		// incoming SHA256SUMS does not cover, and every reader of the result
-		// would report content added after signing — a tamper finding produced
-		// by the import itself.
+		// incoming version DROPPED would otherwise survive as an extra item the
+		// imported bundle never had.
 		if err := fs.RemoveAll(destPath); err != nil {
 			return nil, fmt.Errorf("failed to replace existing bundle %s: %w", destPath, err)
 		}
@@ -263,7 +209,7 @@ func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, 
 		return nil, fmt.Errorf("import %s: the imported bundle does not load: %w", srcDir, err)
 	}
 
-	res := &ImportBundleResult{
+	return &ImportBundleResult{
 		Status:    "imported",
 		Source:    srcDir,
 		Dest:      destPath,
@@ -271,19 +217,7 @@ func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, 
 		Fragments: len(bundle.Fragments),
 		Commands:  len(bundle.Commands),
 		MCP:       len(bundle.MCP),
-	}
-	// Import PLACES a signature and never judges it (see ImportBundleResult).
-	// The .sigs/ store travelled inside the copy, so this reports where it
-	// landed rather than writing it again.
-	sigDest := filepath.Join(destPath, content.SigDirName)
-	present, err := afero.DirExists(fs, sigDest)
-	if err != nil {
-		return nil, fmt.Errorf("import %s: cannot check for %s: %w", srcDir, sigDest, err)
-	}
-	if present {
-		res.SigDest = sigDest
-	}
-	return res, nil
+	}, nil
 }
 
 // importedBundleName is the name of the bundle tree at srcDir, which must

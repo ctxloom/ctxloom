@@ -207,7 +207,7 @@ func hookKey(h Hook) string {
 // shell form; in exec form, Command and each of Args single-quoted, so a
 // shell handed the line runs exactly the argv. It is the hook's command
 // identity wherever a single string must stand for what runs — its dedupe
-// key, its ownership digest, its trust preimage, its listing — so an exec
+// key, its ownership digest, its listing — so an exec
 // hook and a shell hook that run the same argv are one hook.
 func (h Hook) Line() string {
 	if len(h.Args) == 0 {

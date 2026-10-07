@@ -27,15 +27,12 @@ func fakeBinDir(t *testing.T, names ...string) string {
 	return dir
 }
 
-// isolateSignKeyEnv makes both warnIfNoSignKey's and warnIfGitIdentityMissing's
-// real agentkey.NewDiscoverer() calls hermetic: SSH_AUTH_SOCK empty (never
-// dials the host's real ssh-agent) and HOME/XDG_CONFIG_HOME repointed at a
-// fresh, empty temp dir with system config disabled (GIT_CONFIG_NOSYSTEM) so
-// `git config --get user.signingkey`/`user.name`/`user.email` never see the
-// host's real config either. Without this, checkSystemDeps tests on a
-// developer machine that already has SSH commit signing AND a git identity
-// configured (the exact population these features target) would have their
-// warn output depend on that machine's config. The empty HOME also means
+// isolateGitEnv makes warnIfGitIdentityMissing's real `git config --get`
+// hermetic: HOME/XDG_CONFIG_HOME repointed at a fresh, empty temp dir with
+// system config disabled (GIT_CONFIG_NOSYSTEM) so `user.name`/`user.email`
+// never see the host's real config. Without this, checkSystemDeps tests on a
+// developer machine that already has a git identity configured would have
+// their warn output depend on that machine's config. The empty HOME also means
 // this is, incidentally, the "git identity missing" state — see
 // TestCheckSystemDeps_GitIdentitySet_NoWarn for the opposite.
 //
@@ -53,9 +50,8 @@ func fakeBinDir(t *testing.T, names ...string) string {
 // local tier entirely, so only the global config this function controls
 // (or, for TestCheckSystemDeps_GitIdentitySet_NoWarn, writes deliberately)
 // is ever visible.
-func isolateSignKeyEnv(t *testing.T) {
+func isolateGitEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("SSH_AUTH_SOCK", "")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
@@ -67,7 +63,7 @@ func isolateSignKeyEnv(t *testing.T) {
 // init ever reaches the clone step that would otherwise surface a raw,
 // unguided "executable file not found" error.
 func TestCheckSystemDeps_GitMissing_FailsLoud(t *testing.T) {
-	isolateSignKeyEnv(t)
+	isolateGitEnv(t)
 	t.Setenv("PATH", t.TempDir()) // empty: no git, no ssh-keygen, no docker/podman
 
 	err := checkSystemDeps()
@@ -82,7 +78,7 @@ func TestCheckSystemDeps_GitMissing_FailsLoud(t *testing.T) {
 // phases, not by PRIME itself — while still surfacing a warning for each so
 // the user sees the full picture up front.
 func TestCheckSystemDeps_GitPresent_MissingExtrasWarnButDoNotBlock(t *testing.T) {
-	isolateSignKeyEnv(t) // deterministic "no signing key" — no SSH_AUTH_SOCK, no host git config
+	isolateGitEnv(t) // no host git config
 	dir := fakeBinDir(t, "git")
 	t.Setenv("PATH", dir)
 
@@ -94,11 +90,7 @@ func TestCheckSystemDeps_GitPresent_MissingExtrasWarnButDoNotBlock(t *testing.T)
 	require.NoError(t, err, "missing ssh-keygen/container runtime must not block init")
 	assert.Contains(t, stderr, "ssh-keygen")
 	assert.Contains(t, stderr, "recommended, not required", "the ssh-keygen warning must not imply it's a hard requirement")
-	assert.NotContains(t, stderr, "you'll need it later to sign your own bundles", "must not claim signing needs ssh-keygen — it's pure Go and never execs it")
 	assert.Contains(t, stderr, "container runtime")
-	assert.Contains(t, stderr, "no signing key resolves", "an absent signing key must warn too, informational-only like the others")
-	assert.NotContains(t, stderr, "ctxloom review", "names no command that does not exist")
-	assert.Contains(t, stderr, "ctxloom bundle sign", "must name the publishing feature this gap affects")
 	assert.Contains(t, stderr, "git commit identity not fully set", "a missing git identity must warn too, informational-only like the others")
 	assert.Contains(t, stderr, "user.name")
 	assert.Contains(t, stderr, "user.email")
@@ -108,7 +100,7 @@ func TestCheckSystemDeps_GitPresent_MissingExtrasWarnButDoNotBlock(t *testing.T)
 // ssh-keygen both on PATH, the whole gate is silent — this only pins that
 // having them present never itself trips an error.
 func TestCheckSystemDeps_AllPresent_Succeeds(t *testing.T) {
-	isolateSignKeyEnv(t)
+	isolateGitEnv(t)
 	dir := fakeBinDir(t, "git", "ssh-keygen")
 	t.Setenv("PATH", dir)
 
@@ -116,39 +108,15 @@ func TestCheckSystemDeps_AllPresent_Succeeds(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestCheckSystemDeps_SignKeyResolves_NoWarn proves warnIfNoSignKey stays
-// silent when a signing key DOES resolve — mirroring
-// TestCheckSystemDeps_AllPresent_Succeeds but with a hermetic ssh-agent (see
-// startFakeSSHAgent, doctor_cmd_test.go) holding exactly one identity, the
-// same "ssh-agent (sole identity)" step of the chain agentkey_test.go covers.
-func TestCheckSystemDeps_SignKeyResolves_NoWarn(t *testing.T) {
-	isolateSignKeyEnv(t)
-	sock := startFakeSSHAgent(t, "ben@abbitt.me")
-	t.Setenv("SSH_AUTH_SOCK", sock)
-	dir := fakeBinDir(t, "git", "ssh-keygen")
-	t.Setenv("PATH", dir)
-
-	var err error
-	stderr := captureStderr(t, func() {
-		err = checkSystemDeps()
-	})
-
-	require.NoError(t, err)
-	assert.NotContains(t, stderr, "no signing key resolves", "a resolvable key must never warn")
-}
-
 // TestCheckSystemDeps_GitIdentitySet_NoWarn proves warnIfGitIdentityMissing
 // stays silent when BOTH user.name and user.email resolve — a real,
-// isolated ~/.gitconfig (not the host's) written into isolateSignKeyEnv's
-// fresh HOME, mirroring TestCheckSystemDeps_SignKeyResolves_NoWarn's shape
-// for the sibling check.
+// isolated ~/.gitconfig (not the host's) written into isolateGitEnv's
+// fresh HOME.
 func TestCheckSystemDeps_GitIdentitySet_NoWarn(t *testing.T) {
-	isolateSignKeyEnv(t)
+	isolateGitEnv(t)
 	home := os.Getenv("HOME")
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".gitconfig"),
 		[]byte("[user]\n\tname = Ben\n\temail = ben@abbitt.me\n"), 0644))
-	sock := startFakeSSHAgent(t, "ben@abbitt.me")
-	t.Setenv("SSH_AUTH_SOCK", sock)
 	dir := fakeBinDir(t, "git", "ssh-keygen")
 	t.Setenv("PATH", dir)
 

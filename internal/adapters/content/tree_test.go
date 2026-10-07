@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -163,15 +162,15 @@ func TestItem_FormsReportExactlyWhatExists(t *testing.T) {
 	bundle, _ := store.Open(context.Background(), "code-quality")
 	for _, tc := range []struct {
 		ref  trust.Ref
-		want []signing.Form
+		want []trust.ContentForm
 	}{
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"}, []signing.Form{signing.FormRaw, signing.FormDistilled}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "tricky"}, []signing.Form{signing.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindPrompt, Name: "review"}, []signing.Form{signing.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}, []signing.Form{signing.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/guard"}, []signing.Form{signing.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "code-reviewer"}, []signing.Form{signing.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: KindProfile, Name: "strict"}, []signing.Form{signing.FormRaw}},
+		{trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"}, []trust.ContentForm{trust.FormRaw, trust.FormDistilled}},
+		{trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "tricky"}, []trust.ContentForm{trust.FormRaw}},
+		{trust.Ref{Bundle: "code-quality", Kind: trust.KindPrompt, Name: "review"}, []trust.ContentForm{trust.FormRaw}},
+		{trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}, []trust.ContentForm{trust.FormRaw}},
+		{trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/guard"}, []trust.ContentForm{trust.FormRaw}},
+		{trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "code-reviewer"}, []trust.ContentForm{trust.FormRaw}},
+		{trust.Ref{Bundle: "code-quality", Kind: KindProfile, Name: "strict"}, []trust.ContentForm{trust.FormRaw}},
 	} {
 		item, err := bundle.Item(context.Background(), tc.ref)
 		if err != nil {
@@ -207,10 +206,10 @@ func TestItem_ExecutableSurfacesCarryOnlyTheBaseForm(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Item(%s): %v", ref.Key(), err)
 		}
-		if _, err := item.Form(context.Background(), signing.FormRaw); err != nil {
+		if _, err := item.Form(context.Background(), trust.FormRaw); err != nil {
 			t.Errorf("%s: FormRaw: %v", ref.Key(), err)
 		}
-		if _, err := item.Form(context.Background(), signing.FormDistilled); !errors.Is(err, ErrNoSuchForm) {
+		if _, err := item.Form(context.Background(), trust.FormDistilled); !errors.Is(err, ErrNoSuchForm) {
 			t.Errorf("%s: FormDistilled err = %v, want ErrNoSuchForm", ref.Key(), err)
 		}
 	}
@@ -223,7 +222,7 @@ func TestItem_MissingFormIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	if _, err := item.Form(context.Background(), signing.FormDistilled); !errors.Is(err, ErrNoSuchForm) {
+	if _, err := item.Form(context.Background(), trust.FormDistilled); !errors.Is(err, ErrNoSuchForm) {
 		t.Fatalf("err = %v, want ErrNoSuchForm for a never-distilled fragment", err)
 	}
 }
@@ -241,11 +240,11 @@ func TestForm_RawAndDistilledAreIndependent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	raw, err := item.Form(ctx, signing.FormRaw)
+	raw, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form(raw): %v", err)
 	}
-	distilled, err := item.Form(ctx, signing.FormDistilled)
+	distilled, err := item.Form(ctx, trust.FormDistilled)
 	if err != nil {
 		t.Fatalf("Form(distilled): %v", err)
 	}
@@ -264,103 +263,11 @@ func TestForm_RawAndDistilledAreIndependent(t *testing.T) {
 	if got := componentPaths(distComponents); !slices.Equal(got, []string{"fragments/solid.distilled.md"}) {
 		t.Errorf("distilled components = %v", got)
 	}
-
-	rawDigest, err := raw.Content(ctx)
-	if err != nil {
-		t.Fatalf("raw.Content: %v", err)
-	}
-	distDigest, err := distilled.Content(ctx)
-	if err != nil {
-		t.Fatalf("distilled.Content: %v", err)
-	}
-	if bytes.Equal(rawDigest, distDigest) {
-		t.Fatal("raw and distilled produced the same Content digest")
-	}
-}
-
-// TestForm_ContentIsAlwaysADigestEvenAtN1 pins the uniform poly-file rule: a
-// single-file item is N=1, not a special case, so Content is the manifest and
-// never the file bytes.
-func TestForm_ContentIsAlwaysADigestEvenAtN1(t *testing.T) {
-	store := fixtureStore(t)
-	ctx := context.Background()
-	bundle, _ := store.Open(ctx, "code-quality")
-	item, err := bundle.Item(ctx, trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "tricky"})
-	if err != nil {
-		t.Fatalf("Item: %v", err)
-	}
-	form, err := item.Form(ctx, signing.FormRaw)
-	if err != nil {
-		t.Fatalf("Form: %v", err)
-	}
-	components, err := form.Components(ctx)
-	if err != nil {
-		t.Fatalf("Components: %v", err)
-	}
-	if len(components) != 1 {
-		t.Fatalf("want a single component, got %v", componentPaths(components))
-	}
-	digest, err := form.Content(ctx)
-	if err != nil {
-		t.Fatalf("Content: %v", err)
-	}
-	if bytes.Equal(digest, components[0].Bytes) {
-		t.Fatal("Content returned raw bytes at N=1 instead of a digest")
-	}
-	if !bytes.HasPrefix(digest, []byte(DigestVersionMarker)) {
-		t.Fatalf("Content is not a digest: %q", digest)
-	}
-}
-
-// TestForm_ContentIsDeterministic covers the three axes the design calls out:
-// repeated reads, on-disk write order, and a real content change.
-func TestForm_ContentIsDeterministic(t *testing.T) {
-	ctx := context.Background()
-	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "code-reviewer"}
-
-	read := func(store *TreeStore) []byte {
-		t.Helper()
-		bundle, err := store.Open(ctx, "code-quality")
-		if err != nil {
-			t.Fatalf("Open: %v", err)
-		}
-		item, err := bundle.Item(ctx, ref)
-		if err != nil {
-			t.Fatalf("Item: %v", err)
-		}
-		form, err := item.Form(ctx, signing.FormRaw)
-		if err != nil {
-			t.Fatalf("Form: %v", err)
-		}
-		digest, err := form.Content(ctx)
-		if err != nil {
-			t.Fatalf("Content: %v", err)
-		}
-		return digest
-	}
-
-	first := fixtureStore(t)
-	a, b := read(first), read(first)
-	if !bytes.Equal(a, b) {
-		t.Fatalf("repeated reads of one tree differ:\n%s\n---\n%s", a, b)
-	}
-	// A second tree with the SAME contents written in REVERSE order — the
-	// "component reorder on disk must not change the digest" requirement. Nothing
-	// in the digest may depend on creation order, directory-read order, or mtime.
-	second := reverseOrderFixtureStore(t)
-	if got := read(second); !bytes.Equal(a, got) {
-		t.Fatalf("writing the same tree in reverse order changed the digest:\n%s\n---\n%s", a, got)
-	}
-	// And any content change MUST change it.
-	writeFile(t, second.fsys, fixtureRoot+"/code-quality/skills/code-reviewer/scripts/run.sh", "#!/bin/sh\necho changed\n")
-	if got := read(second); bytes.Equal(a, got) {
-		t.Fatal("a changed component did not change the digest")
-	}
 }
 
 // ---------------------------------------------------------------- the trap
 
-// TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability is the required
+// TestSkill_DotPrefixedSidecarIsAComponentAndDeclaresExecutability is the required
 // security-trap test.
 //
 // Dotfiles are excluded by default in much glob and walk code. If the walker
@@ -370,7 +277,7 @@ func TestForm_ContentIsDeterministic(t *testing.T) {
 // verifies and everything looks green. So: the sidecar must appear in
 // Components(), it must change Content(), and its declaration must reach
 // Component.Mode.
-func TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability(t *testing.T) {
+func TestSkill_DotPrefixedSidecarIsAComponentAndDeclaresExecutability(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
 	bundle, _ := store.Open(ctx, "code-quality")
@@ -379,7 +286,7 @@ func TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormRaw)
+	form, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -398,15 +305,6 @@ func TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability(t *testing.T) {
 		t.Fatalf("Components =\n  %s\nwant\n  %s", strings.Join(paths, "\n  "), strings.Join(want, "\n  "))
 	}
 
-	// The digest must name the sidecar.
-	digest, err := form.Content(ctx)
-	if err != nil {
-		t.Fatalf("Content: %v", err)
-	}
-	if !strings.Contains(string(digest), "skills/.code-reviewer.meta.yaml") {
-		t.Fatalf("the dot-prefixed sidecar is missing from the digest:\n%s", digest)
-	}
-
 	// The declaration must reach Component.Mode — with the FIXTURE's own file
 	// modes irrelevant, since the declaration is the source of truth.
 	byPath := map[string]ComponentMode{}
@@ -421,23 +319,16 @@ func TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability(t *testing.T) {
 	}
 
 	// Editing ONLY the sidecar — dropping the executable declaration — must
-	// change Content. If it does not, executability is unattested.
+	// drop the executable mode.
 	writeFile(t, store.fsys, fixtureRoot+"/code-quality/skills/.code-reviewer.meta.yaml",
 		"tags:\n  - review\nnotes: Wraps the house review checklist.\n")
 	item2, err := bundle.Item(ctx, ref)
 	if err != nil {
 		t.Fatalf("Item after sidecar edit: %v", err)
 	}
-	form2, err := item2.Form(ctx, signing.FormRaw)
+	form2, err := item2.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form after sidecar edit: %v", err)
-	}
-	digest2, err := form2.Content(ctx)
-	if err != nil {
-		t.Fatalf("Content after sidecar edit: %v", err)
-	}
-	if bytes.Equal(digest, digest2) {
-		t.Fatal("dropping the executable declaration did not change Content — executability is not attested")
 	}
 	components2, err := form2.Components(ctx)
 	if err != nil {
@@ -450,10 +341,10 @@ func TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability(t *testing.T) {
 	}
 }
 
-// TestMCP_SidecarIsHashedAndContentFileStaysPure covers the same trap for an
+// TestMCP_SidecarIsAComponentAndContentFileStaysPure covers the same trap for an
 // executable surface, and the property the sidecar exists for: the content file
 // carries nothing of ours.
-func TestMCP_SidecarIsHashedAndContentFileStaysPure(t *testing.T) {
+func TestMCP_SidecarIsAComponentAndContentFileStaysPure(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
 	bundle, _ := store.Open(ctx, "code-quality")
@@ -461,7 +352,7 @@ func TestMCP_SidecarIsHashedAndContentFileStaysPure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormRaw)
+	form, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -481,13 +372,6 @@ func TestMCP_SidecarIsHashedAndContentFileStaysPure(t *testing.T) {
 				t.Errorf("the mcp content file carries our key %q — it must stay pure vendor config:\n%s", ours, c.Bytes)
 			}
 		}
-	}
-	digest, err := form.Content(ctx)
-	if err != nil {
-		t.Fatalf("Content: %v", err)
-	}
-	if !strings.Contains(string(digest), "mcp/.postgres.meta.yaml") {
-		t.Fatalf("sidecar missing from the digest:\n%s", digest)
 	}
 }
 
@@ -513,7 +397,7 @@ func TestHook_TwoHooksInOneEventHaveNameIdentity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Item(%s): %v", tc.name, err)
 		}
-		form, err := item.Form(ctx, signing.FormRaw)
+		form, err := item.Form(ctx, trust.FormRaw)
 		if err != nil {
 			t.Fatalf("Form(%s): %v", tc.name, err)
 		}
@@ -528,9 +412,8 @@ func TestHook_TwoHooksInOneEventHaveNameIdentity(t *testing.T) {
 		if hook.Command != tc.command {
 			t.Errorf("%s: Command = %q, want %q", tc.name, hook.Command, tc.command)
 		}
-		// Neither name nor order may appear in the hook's CONTENT file: keeping
-		// them out is what lets existing hook approvals and content-rejections
-		// survive the identity change with no preimage contract bump.
+		// Neither name nor order may appear in the hook's CONTENT file: it
+		// stays pure vendor config.
 		components, err := form.Components(ctx)
 		if err != nil {
 			t.Fatalf("Components(%s): %v", tc.name, err)
@@ -575,7 +458,7 @@ func TestHook_SingleHookInAnEventResolvesIdentically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormRaw)
+	form, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -595,7 +478,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 	store := fixtureStore(t)
 	bundle, _ := store.Open(ctx, "code-quality")
 
-	formFor := func(ref trust.Ref, f signing.Form) Form {
+	formFor := func(ref trust.Ref, f trust.ContentForm) Form {
 		t.Helper()
 		item, err := bundle.Item(ctx, ref)
 		if err != nil {
@@ -608,7 +491,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		return form
 	}
 
-	frag, err := As[Fragment](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"}, signing.FormRaw))
+	frag, err := As[Fragment](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"}, trust.FormRaw))
 	if err != nil {
 		t.Fatalf("As[Fragment]: %v", err)
 	}
@@ -625,7 +508,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		t.Error("content_hash not carried verbatim")
 	}
 
-	tricky, err := As[Fragment](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "tricky"}, signing.FormRaw))
+	tricky, err := As[Fragment](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "tricky"}, trust.FormRaw))
 	if err != nil {
 		t.Fatalf("As[Fragment]: %v", err)
 	}
@@ -636,7 +519,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		t.Errorf("body with rules and mustaches corrupted: %q", tricky.Body)
 	}
 
-	cmd, err := As[Command](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindPrompt, Name: "review"}, signing.FormRaw))
+	cmd, err := As[Command](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindPrompt, Name: "review"}, trust.FormRaw))
 	if err != nil {
 		t.Fatalf("As[Command]: %v", err)
 	}
@@ -662,7 +545,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		t.Errorf("unknown engine's settings were dropped: %+v", cmd.Exports)
 	}
 
-	mcp, err := As[MCP](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}, signing.FormRaw))
+	mcp, err := As[MCP](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}, trust.FormRaw))
 	if err != nil {
 		t.Fatalf("As[MCP]: %v", err)
 	}
@@ -670,7 +553,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		t.Errorf("mcp = %+v", mcp)
 	}
 
-	skill, err := As[Skill](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "code-reviewer"}, signing.FormRaw))
+	skill, err := As[Skill](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "code-reviewer"}, trust.FormRaw))
 	if err != nil {
 		t.Fatalf("As[Skill]: %v", err)
 	}
@@ -709,7 +592,7 @@ func TestProfile_PriorityOrderingRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormRaw)
+	form, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -766,7 +649,7 @@ func TestAs_WrongTypeIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormRaw)
+	form, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}

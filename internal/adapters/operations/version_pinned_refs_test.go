@@ -16,7 +16,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // acmeBundle is the bundle-ref prefix of the acme test repository.
@@ -40,7 +39,7 @@ func versionPinnedLoader(t *testing.T, def *bundles.Bundle, versions map[string]
 	t.Helper()
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
-	resolver := func(_canonical, commit string, _ trust.TrustRoot) (*bundles.Bundle, error) {
+	resolver := func(_canonical, commit string) (*bundles.Bundle, error) {
 		b, ok := versions[commit]
 		if !ok {
 			return nil, fmt.Errorf("fake resolver: no commit %q", commit)
@@ -50,7 +49,7 @@ func versionPinnedLoader(t *testing.T, def *bundles.Bundle, versions map[string]
 	}
 
 	pipe := bundles.NewPipeline(
-		seedLoader(t, map[string]*bundles.Bundle{cqVersionRef: def}).WithVersionResolver(resolver, nil),
+		seedLoader(t, map[string]*bundles.Bundle{cqVersionRef: def}).WithVersionResolver(resolver),
 		bundles.LinksUnchecked(), true)
 	return pipe, cfg
 }

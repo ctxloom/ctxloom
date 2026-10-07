@@ -207,8 +207,8 @@ func TestIsolatedEnv_ScrubsAmbientButKeepsWhatTheScenarioSet(t *testing.T) {
 }
 
 // TestIsolatedEnv_DropsTheHostSSHAgentButKeepsAHermeticOne: the developer's
-// ssh-agent must never reach a child — its identities would surface in
-// doctor/signer output and in every living-docs page generated from it — while
+// ssh-agent must never reach a child — git-over-ssh would authenticate as the
+// developer — while
 // an agent a scenario stood up itself and forced through SetChildEnv must.
 func TestIsolatedEnv_DropsTheHostSSHAgentButKeepsAHermeticOne(t *testing.T) {
 	const hostSock, hermeticSock = "/host/agent.sock", "/scenario/agent.sock"

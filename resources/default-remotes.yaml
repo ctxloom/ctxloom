@@ -1,12 +1,8 @@
 # ctxloom Remote Sources
 # Pre-configured remotes for common ctxloom bundles and profiles.
 #
-# A remote is only an ADDRESS to fetch bundles from — it carries no trust.
-# ctxloom-default's content is trusted when its bundles are signed by ctxloom's
-# publishing key (in the binary's embedded allowed_signers); until those
-# signatures ship, its content takes the review path like any other remote.
-# Source trust (trusting a location, hash-blind) was deleted — trust is a
-# property of the publisher key now, never of the remote.
+# Registering a remote is the trust act: its content reaches the assistant
+# because the project added it.
 
 schema_version: 1
 

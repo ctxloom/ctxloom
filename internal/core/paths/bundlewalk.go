@@ -16,8 +16,8 @@ import (
 //
 // Three independent walkers each failed to, with three different symptoms:
 // the loader raised one spurious "malformed bundle" finding per item file on
-// every command; `bundle sign --all` enumerated "agent-ensemble/profiles/
-// coordinator" as a bundle and died resolving it; a remote listing offered
+// every command; a bundle enumeration took "agent-ensemble/profiles/
+// coordinator" for a bundle and died resolving it; a remote listing offered
 // item paths as installable bundle names. Each was fixed where it was found,
 // which is why it recurred. Classification and the stop live here TOGETHER —
 // a caller cannot ask "is this a bundle" without being handed the answer to

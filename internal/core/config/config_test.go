@@ -478,7 +478,7 @@ func TestExtractMCPFromBundle(t *testing.T) {
 		},
 	}
 
-	result := extractMCPFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", bundle, bundletree.Unsigned), mustLocalRef(t, "my-bundle"))
+	result := extractMCPFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", bundle), mustLocalRef(t, "my-bundle"))
 
 	assert.Len(t, result, 1)
 	assert.Equal(t, "test-cmd", result["test-server"].Command)

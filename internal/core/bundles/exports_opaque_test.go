@@ -85,27 +85,6 @@ func TestBundle_MarshalWritesOnlyTheExportsKey(t *testing.T) {
 	assert.Equal(t, b.Skills["reviewer"].Exports, again.Skills["reviewer"].Exports)
 }
 
-// The trust preimage is UNCHANGED by the migration: the command contract's
-// canonical exports payload is the same bytes for a raw block as it was for
-// the typed struct — every field always emitted, in declaration order, the
-// effective enablement (absent means enabled) and an empty tool grant as an
-// empty list. An item with no block for the engine canonicalises to the
-// defaults.
-func TestCommandSurface_ExportsPayloadIsTheFrozenCanonicalForm(t *testing.T) {
-	b, err := ParseBundle([]byte(opaqueShape))
-	require.NoError(t, err)
-	review := b.Commands["review"]
-	got := review.Surface(false).ExportsPayload()
-	assert.Equal(t, `{"claude-code":{"enabled":false,"description":"Review (claude)","argument_hint":"","allowed_tools":["Read"],"model":""}}`, string(got))
-
-	bare := BundleCommand{ItemBody: ItemBody{Content: "x"}}
-	assert.Equal(t, `{"claude-code":{"enabled":true,"description":"","argument_hint":"","allowed_tools":[],"model":""}}`, string(bare.Surface(false).ExportsPayload()))
-
-	skillBytes, err := skillPayloadFor(b.Skills["reviewer"].Exports, SkillManifest{})
-	require.NoError(t, err)
-	assert.Contains(t, string(skillBytes), `"exports":{"claude-code":{"enabled":false}}`)
-}
-
 // A raw block that is not a JSON object is refused at parse: a scalar under
 // an engine name is an authoring error, not a block an engine could decode.
 func TestParseBundle_ExportsBlockMustBeAMapping(t *testing.T) {

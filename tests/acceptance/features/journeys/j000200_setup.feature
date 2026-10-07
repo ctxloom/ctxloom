@@ -5,27 +5,27 @@ Feature: Setting up ctxloom on a project
   chance, every engineer's assistant behaves differently and none of them knows
   the team's standards. ctxloom's first job is to make the right context — the
   developer's own, the team's, the company's — actually reach the assistant,
-  automatically, on every session, without copying anything by hand. And only
-  the context the developer trusts: everything is signed, and reaches the
-  assistant because a key the developer trusts signed it.
+  automatically, on every session, without copying anything by hand. Adding a
+  repository is the trust act: what the developer adds is what reaches the
+  assistant.
 
   # HARNESS CAVEAT: the init discovery / agent-setup machinery some of these
   # scenarios exercise may not all be built yet (see the source-augmentation
   # feature and its tasks). If a piece is missing, FILE the gap — do not fake a
   # scenario green or assume it exists.
 
-  # LOCKED — trust posture only (no engine): after setup, what is wired into the
-  # configuration, and why. Delivery to a running assistant is the restart scenario.
-  Scenario Outline: After setup, trusted sources are part of the configuration
+  # LOCKED — configuration only (no engine): after setup, what is wired into the
+  # configuration. Delivery to a running assistant is the restart scenario.
+  Scenario Outline: After setup, added sources are part of the configuration
     Given Alice has a fresh project directory
-    And her personal ctxloom repository is signed with her own key
-    And her company's ctxloom repository is signed with the company key, which Alice trusts
+    And Alice has a personal ctxloom repository
+    And her company has a ctxloom repository
     When Alice runs the ctxloom setup for <engine>
     And she adds her personal repository as a source
     And she adds her company's repository as a source
     Then her project is configured for <engine>
-    And her personal repository's context is part of her configuration, because it is signed with her own key
-    And her company repository's context is part of her configuration, because she trusts the company key
+    And her personal repository's context is part of her configuration
+    And her company repository's context is part of her configuration
 
     Examples:
       | engine      |
@@ -35,8 +35,8 @@ Feature: Setting up ctxloom on a project
   # configured context to a fresh agent (the setup session itself cannot see what
   # it just installed — init.go offerSessionRelaunch). Mock engine, called out.
   Scenario Outline: Setup configures the agents, then a restart delivers their context
-    Given her personal ctxloom repository is signed with her own key
-    And her company's ctxloom repository is signed with the company key, which Alice trusts
+    Given Alice has a personal ctxloom repository
+    And her company has a ctxloom repository
     When Alice runs the ctxloom setup for <engine>
     And she adds her personal and company repositories as sources
     And the setup interview composes her agents' profiles from the sources' fragments
@@ -53,23 +53,17 @@ Feature: Setting up ctxloom on a project
   # delivered context. Self-skips without credentials.
   @live
   Scenario: The restarted assistant can see every source
-    Given her personal and company repositories are trusted, signed sources
+    Given Alice has personal and company ctxloom repositories
     And each source carries a distinct marker phrase
     And Alice has completed setup and restarted into her configured session
     When she asks her assistant to repeat every marker phrase it can see
     Then its reply contains her personal repository's marker
     And its reply contains her company repository's marker
 
-  # LOCKED — adding a repository is the trust act. Whether its content is
-  # signed, or signed by a key Alice never trusted, does not decide whether it
-  # is delivered: she added the repository, so its content reaches her.
-  Scenario Outline: Content from a repository Alice adds reaches her assistant, signed or not
-    Given a third-party ctxloom repository whose content is <trust_state>
+  # LOCKED — adding a repository is the trust act: she added the repository,
+  # so its content reaches her.
+  Scenario: Content from a repository Alice adds reaches her assistant
+    Given a third-party ctxloom repository
     When Alice adds it as a source
     And Alice starts a session
     Then her assistant receives that repository's content
-
-    Examples:
-      | trust_state                            |
-      | unsigned                               |
-      | signed with a key Alice does not trust |

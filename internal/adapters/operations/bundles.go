@@ -20,7 +20,6 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -125,7 +124,7 @@ type BundleCommandInput struct {
 // the patch applied to the zero entry.
 //
 // BundleMCP has no Description; use Notes for AI-invisible annotations and
-// Installation for setup text shown to the human. Header values are signed
+// Installation for setup text shown to the human. Header values are published
 // bundle content: put a secret in an env reference, never a literal.
 type BundleMCPInput struct {
 	Command      *string            `json:"command"`
@@ -198,7 +197,7 @@ type CreateBundleResult struct {
 // a new bundle is this project's own authored content, git-tracked from the
 // moment it exists, and it takes no remote/destination (choosing where a
 // bundle goes happens later, at push time). Writing it to the gitignored cache
-// instead is how authored work ends up untracked and unsignable.
+// instead is how authored work ends up untracked.
 //
 // A bundle created with no items is its envelope alone: the author's scaffold,
 // which the local reader reads as an empty bundle until items are added.
@@ -784,10 +783,6 @@ type PushBundleRequest struct {
 	// a manager backed by a mock Publisher; production callers leave this
 	// nil so a real network-backed manager is constructed from cfg.
 	PublishManager *remote.PublishManager `json:"-"`
-
-	// A bundle's signature is not a publish-time concern: `ctxloom bundle
-	// sign` writes a tree's SHA256SUMS manifest and its .sigs/ entry, and a
-	// tree push carries that store with the rest of the tree.
 }
 
 // PushBundleResult reports what was (or would be) published.
@@ -808,10 +803,6 @@ type PushBundleResult struct {
 
 	// Set on dry-run only — human-readable summary of what would happen.
 	Preview string `json:"preview,omitempty"`
-
-	// Signed reports whether the published tree carries a signature — an
-	// entry in its .sigs/ store.
-	Signed bool `json:"signed,omitempty"`
 }
 
 // PushBundle publishes (or dry-runs) a local bundle tree, named by its
@@ -849,15 +840,6 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	}
 	if err != nil {
 		return nil, fmt.Errorf("invalid bundle: %w", err)
-	}
-
-	// The last gate before bytes leave the machine: a tree whose manifest no
-	// longer covers its files is refused (the reader established that fact),
-	// because publishing it hands every consumer a hard tamper alarm over
-	// content that was never attacked — just edited after it was signed.
-	// Fail-closed: never a quiet downgrade to unsigned.
-	if err := refusePushOfStaleTree(cfg, absPath); err != nil {
-		return nil, err
 	}
 
 	registry, err := getRegistry(cfg)
@@ -945,11 +927,6 @@ func pushDryRunPreview(bundleName string, size int, remURL, targetPath string, c
 // runPush performs the actual (non-dry-run) publish and records the outcome
 // on result. The tree travels through PublishTree, so that every file under
 // the bundle's directory lands in ONE commit (engaged-chivalry).
-//
-// A tree's signature — its SHA256SUMS manifest and .sigs/ entries, written to
-// disk before PushBundle runs by `ctxloom bundle sign` — is just more of the
-// files gatherPublishTreeFiles walks off disk, so it travels in that same
-// commit and result.Signed reports whether one was carried.
 func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry, remoteName, absPath string, req PushBundleRequest, result *PushBundleResult) (*PushBundleResult, error) {
 	pm := req.PublishManager
 	if pm == nil {
@@ -977,7 +954,6 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 
 	result.CommitSHA = pubResult.SHA
 	result.PRURL = pubResult.PRURL
-	result.Signed = treeCarriesSignature(files)
 	result.Status = "pushed"
 	if req.CreatePR {
 		result.Status = "pr-created"
@@ -991,11 +967,7 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 // wants for its per-file remote paths.
 //
 // Every file travels, with no filter — the same rule bundle_transfer.go's
-// copyBundleTree states for export: a bundle proves its own integrity with a
-// SHA256SUMS covering the whole tree (or, for the simpler manifest-only
-// sidecar this format still uses, the manifest bytes alone), so silently
-// dropping one file here would make a consumer see tampering rather than an
-// interrupted publish.
+// copyBundleTree states for export: a bundle is its whole tree.
 func gatherPublishTreeFiles(afs afero.Fs, dir string) (map[string][]byte, error) {
 	files := make(map[string][]byte)
 	err := afero.Walk(afs, dir, func(p string, info os.FileInfo, walkErr error) error {
@@ -1453,34 +1425,4 @@ func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Di
 			p.ContentHash = p.ComputeContentHash()
 			b.Commands[name] = p
 		})
-}
-
-// treeCarriesSignature reports whether a walked tree carries a signature:
-// an entry in its .sigs/ store.
-func treeCarriesSignature(files map[string][]byte) bool {
-	for rel := range files {
-		if strings.HasPrefix(filepath.ToSlash(rel), content.SigDirName+"/") {
-			return true
-		}
-	}
-	return false
-}
-
-// refusePushOfStaleTree refuses to publish a bundle whose signature no longer
-// covers its files, by the reader's own facts (refuseStaleSignature over the
-// project's bundle roots). A tree outside the project's bundle roots has no
-// reader to ask and publishes as it stands.
-func refusePushOfStaleTree(cfg *config.Config, absPath string) error {
-	if cfg == nil {
-		return nil
-	}
-	name := filepath.Base(filepath.Dir(absPath))
-	read, err := bundles.NewLoader(projectReader(afero.NewOsFs(), cfg.BundleReaderDirs())).Read(name)
-	if err != nil || filepath.Clean(read.Bundle.Path) != filepath.Clean(absPath) {
-		return nil
-	}
-	if read.Signature() != bundles.SignatureInvalid {
-		return nil
-	}
-	return fmt.Errorf("%w: %s", ErrStaleSignature, bundles.StaleSignatureAdvice(read))
 }

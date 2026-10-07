@@ -285,8 +285,8 @@ func TestRepoURL_ScpDiffersOnlyInTransport(t *testing.T) {
 	assert.Equal(t, "git@github.com:owner/repo.git", parsed.CloneArg())
 
 	// ...and the https spelling of the same repo agrees on identity, which is
-	// what makes an approval portable between a lead who clones over ssh and a
-	// developer who clones over https (signature-envelope spec 1.4). Both
+	// what makes a pin portable between a lead who clones over ssh and a
+	// developer who clones over https. Both
 	// spellings here are CLONE urls, which is what a forge hands out for both
 	// transports and therefore what a user actually pastes; GitHub's ssh and
 	// https clone urls both end ".git".

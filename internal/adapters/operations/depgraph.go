@@ -206,7 +206,7 @@ func flattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profil
 	// which is exactly the empty-lock behaviour of a first-ever lock.
 	active, _ := remote.NewLockfileManager(ProjectAppDir(cfg)).Load()
 	resolve := newConstraintResolver(ctx, active, factory, auth, false)
-	return flattenRootsWith(ctx, loader, factory, auth, cfg.TrustRoot(), roots, resolve, registered)
+	return flattenRootsWith(ctx, loader, factory, auth, roots, resolve, registered)
 }
 
 // registeredRepos is the registration rule's predicate over cfg's remotes
@@ -227,7 +227,7 @@ func registeredRepos(cfg *config.Config) (func(repoURL string) bool, error) {
 // share one traversal and differ only in how each ref's constraint resolves.
 // The third return is the unexpanded-parent set (see FlattenDependencies);
 // the error joins every repository refused as unregistered.
-func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remote.FetcherFactory, auth remote.AuthConfig, trustRoot trust.TrustRoot, roots []*profiles.Profile, resolve func(*remote.Reference) (string, string, remote.SelectorKind, bool), registered func(repoURL string) bool) ([]PinnedRef, []DependencyConflict, []string, error) {
+func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remote.FetcherFactory, auth remote.AuthConfig, roots []*profiles.Profile, resolve func(*remote.Reference) (string, string, remote.SelectorKind, bool), registered func(repoURL string) bool) ([]PinnedRef, []DependencyConflict, []string, error) {
 	w := &depWalker{
 		registered:  registered,
 		refused:     map[string]error{},
@@ -236,7 +236,6 @@ func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remo
 		factory:     factory,
 		auth:        auth,
 		treeFetch:   remotetree.PullTreeFetcher,
-		trustRoot:   trustRoot,
 		resolveHash: resolve,
 		pins:        map[trust.BundleKey]PinnedRef{},
 		hashes:      map[trust.BundleKey]map[string]struct{}{},
@@ -267,14 +266,6 @@ type depWalker struct {
 	// needs, wired in for the same layering reason Puller and BundleReader
 	// take theirs (see remote.TreeFetchFunc). Nil reads nothing.
 	treeFetch remote.TreeFetchFunc
-
-	// trustRoot decides whether a remote tree bundle's publisher is one this
-	// machine trusts. The walk READS remote parent profiles out of fetched item
-	// files, so it interprets publisher-supplied bytes; verifying them before
-	// ReadTree is the same rule the local tree path applies, and this is the
-	// only thing that can answer it. A nil root trusts nothing, which fails
-	// closed rather than opening the walk up.
-	trustRoot trust.TrustRoot
 
 	// resolveHash resolves a remote ref's version constraint to a concrete
 	// commit (and the tag it chose, if any). ok=false means unresolvable — the
@@ -461,7 +452,7 @@ func (w *depWalker) recurseBundleProfile(bundleRef, profName string) {
 	// beside its bundle.yaml, so the manifest alone can never carry the profile
 	// looked up below — the lookup failed structurally for every tree-form
 	// parent, which is every published bundle.
-	b, _, ferr := bundles.ReadRemoteRef(w.ctx, w.factory, w.auth, rec, hash, w.treeFetch, w.trustRoot)
+	b, ferr := bundles.ReadRemoteRef(w.ctx, w.factory, w.auth, rec, hash, w.treeFetch)
 	if ferr != nil {
 		// Fault tolerant: a parent we can't read just isn't expanded — but the
 		// closure is now INCOMPLETE, so warn and record it; a silent skip here

@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
@@ -320,8 +319,8 @@ func TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet(t *testing.T) {
 // real sides, so renaming any of the three passed the whole suite while
 // silently breaking every companion in production. Drives the REAL
 // loadout.NewCommand (the emitter side) with the EXACT argv
-// companionLoadoutOutput builds (the consumer side) and checks the output
-// round-trips through the real signing.DecodeLoadoutEnvelope decoder.
+// companionLoadoutOutput builds (the consumer side) and checks the output is
+// the loadout document byte for byte.
 func TestCompanionLoadoutOutput_ArgvMatchesTheEmitterSide(t *testing.T) {
 	bundleYAML := []byte("version: \"1.0.0\"\nfragments:\n  x:\n    content: hi\n")
 	// loadout.NewCommand returns the "loadout" command itself (it has no
@@ -329,16 +328,13 @@ func TestCompanionLoadoutOutput_ArgvMatchesTheEmitterSide(t *testing.T) {
 	// argv applies here — the loadout.Subcommand constant is what a real companion
 	// binary's root command would dispatch ON to reach this command in the
 	// first place.
-	cmd := loadout.NewCommand("acme", bundleYAML, nil)
+	cmd := loadout.NewCommand("acme", bundleYAML)
 	require.Equal(t, loadout.Subcommand, cmd.Use, "the emitter side's command name must still match loadout.Subcommand")
-	cmd.SetArgs([]string{"--" + loadout.FormatFlag, loadout.FormatJSON})
+	cmd.SetArgs(loadoutArgs[1:])
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
 	require.NoError(t, cmd.Execute())
-
-	decoded, _, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), nil, time.Now())
-	require.NoError(t, err)
-	assert.Equal(t, bundleYAML, decoded)
+	assert.Equal(t, bundleYAML, buf.Bytes())
 }
 
 // TestCompanionVersion_ReadsTheCliversionContract pins the cross-binary

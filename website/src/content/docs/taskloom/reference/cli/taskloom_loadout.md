@@ -13,16 +13,13 @@ Print the context, commands, hooks and MCP servers taskloom contributes to a ses
 
 ### Synopsis
 
-loadout emits the ctxloom loadout taskloom contributes — a document with the RUN
+loadout prints the ctxloom loadout taskloom contributes — a document with the RUN
 bundle a session consumes and the typed INIT section setup consumes — for
 ctxloom's companion discovery to seed under the source ref
-ctxloom:companion@taskloom (signature-envelope spec §4.3, §6).
+ctxloom:companion@taskloom.
 
---format json is the machine contract ctxloom's companion discovery execs
-(`taskloom loadout --format json`): a JSON envelope carrying the exact loadout
-document bytes (base64) plus an OPTIONAL detached publish signature.
-
---format yaml (the default) prints the raw loadout document for a human to read.
+ctxloom's companion discovery execs `taskloom loadout --format yaml` and parses
+the document it prints.
 
 ```
 taskloom loadout [flags]
@@ -32,13 +29,12 @@ taskloom loadout [flags]
 
 ```
   taskloom loadout
-  taskloom loadout --format json
 ```
 
 ### Options
 
 ```
-      --format string   output format: yaml (raw loadout document) or json (signed envelope) (default "yaml")
+      --format string   output format: yaml (the loadout document) (default "yaml")
   -h, --help            help for loadout
 ```
 

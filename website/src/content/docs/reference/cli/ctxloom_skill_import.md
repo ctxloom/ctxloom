@@ -18,12 +18,8 @@ traversal, symlinks, hardlinks/device files, entry-count bombs, and
 decompression bombs are all rejected before anything is written to disk.
 Accepts either the canonical Anthropic-shaped .zip or a .tar.gz.
 
-If --sig names a detached signature (as 'ctxloom skill export --sign'
-produces), it is verified against the extracted tree's own recomputed
-manifest before the import is reported; an unsigned or untrusted-publisher
-signature does not block the import, but a STRUCTURALLY invalid archive or
-package (a rejected entry, or a SKILL.md that fails frontmatter validation) is
-refused and cleaned up.
+A STRUCTURALLY invalid archive or package (a rejected entry, or a SKILL.md
+that fails frontmatter validation) is refused and cleaned up.
 
 ```
 ctxloom skill import <archive> [flags]
@@ -33,14 +29,12 @@ ctxloom skill import <archive> [flags]
 
 ```
   ctxloom skill import ./code-reviewer.zip --bundle my-bundle
-  ctxloom skill import ./code-reviewer.zip --bundle my-bundle --sig ./code-reviewer.zip.sig
 ```
 
 ### Options
 
 ```
       --bundle string   target bundle to import into (required)
-      --sig string      path to a detached signature covering the archive's manifest
 ```
 
 ### Options inherited from parent commands
@@ -48,7 +42,6 @@ ctxloom skill import <archive> [flags]
 ```
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
-      --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted (nothing ctxloom starts inherits it; signing is unaffected)
       --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context

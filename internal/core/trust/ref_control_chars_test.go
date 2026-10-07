@@ -14,9 +14,8 @@ import (
 // in internal/adapters/remote. A bundle pulled from a remote repo can therefore name a
 // fragment with a control character in it.
 //
-// Key is where those fields become a ref string, and
-// operations.countersignRef composes that string straight into the countersign
-// preimage. So Key is the ingest boundary for this path.
+// Key is where those fields become a ref string, so Key is the ingest
+// boundary for this path.
 func TestRefKey_StripsControlCharacters(t *testing.T) {
 	for _, tc := range []struct {
 		name, bundle, item, want string

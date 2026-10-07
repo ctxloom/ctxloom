@@ -205,7 +205,7 @@ Feature: The close-out — the end of a workstream
   # The reason is a scope boundary, not a spelling preference. `session compact`
   # exists to RECOVER LOCAL STATE — it compresses a session into an essence so
   # that session can be resumed. Its output is local and per-session. Extracting
-  # lessons and publishing them into a shared, signed, team-distributed bundle
+  # lessons and publishing them into a shared, team-distributed bundle
   # is a different concern with a different lifetime and a different audience,
   # and hanging it off this verb's flags would overload the one command whose
   # job has to stay small.

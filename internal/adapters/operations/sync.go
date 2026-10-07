@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
@@ -391,10 +390,6 @@ func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir st
 			// same reason: git owns the checkout (remote.RepoCache) and the
 			// content layer owns the tree format that decides its modes.
 			remote.WithTreeInstaller(remotetree.WorktreeInstaller(NewRepoCache(cfg))),
-			// Verify before pin: the tree is held to its publisher's signature
-			// before anything is checked out or recorded, with the same
-			// verifier every reader uses.
-			remote.WithTreeVerifier(bundles.TreeVerifier(cfg.TrustRoot())),
 		)
 	}
 	return puller, nil

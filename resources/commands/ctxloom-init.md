@@ -38,9 +38,9 @@ belabor it):
 > **per-agent isolation** — agents run in containers or git worktrees, so a
 > delegated agent can't reach your host or another agent's state;
 > **cross-engine delegation** — an orchestrator agent spawns and collects work
-> from child agents, even ones on a different engine; and **signed,
-> trust-verified context** — bundles pulled from shared remotes carry
-> signatures from publishers you've chosen to trust.
+> from child agents, even ones on a different engine; and **pinned,
+> reproducible context** — bundles from the repositories you add are pinned
+> in a lockfile, and an upgrade shows what it changes before it applies.
 >
 > Setup takes a few minutes: we'll wire up companions, choose your profiles
 > and agents, and verify it all.
@@ -55,7 +55,7 @@ Then lead straight into the scan — don't recite the phase list mechanically.
 
 **Then check what ctxloom already has configured** — don't guess, enumerate:
 - `ctxloom doctor --deps` — confirm the system tools ctxloom depends on are
-  present (`git`, `ssh-keygen` for signing, a container runtime). A fresh
+  present (`git`, `ssh-keygen`, a container runtime). A fresh
   `ctxloom init` already checked this up front (init needs `git` to clone),
   so this is mainly for the reconfigure path (`/ctxloom-init` in an existing
   session, which skipped init) — worth re-confirming here, cheaply, before

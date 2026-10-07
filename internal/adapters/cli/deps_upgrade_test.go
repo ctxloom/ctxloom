@@ -115,16 +115,3 @@ func TestRenderUpgrade_PreviewOfARemovalNamesYes(t *testing.T) {
 	assert.Contains(t, out, "Would remove corp/old from the lockfile")
 	assert.Contains(t, out, "Re-run with --yes to apply.")
 }
-
-// A refusal names the bundle, the reader's reason, the kept pin, and the
-// publisher's remedy.
-func TestRemoteUpgrade_ReportsARefusal(t *testing.T) {
-	out := captureStdout(t, func() {
-		reportRefusedAdvances(os.Stdout, []operations.RefusedAdvance{{Identity: "ctxloom+git://github.com/o/r//bundles/a",
-			KeptSHA: "1111111111111111", ProposedSHA: "2222222222222222", Detail: "the reader's words", Cause: operations.RefusalUnreadable}})
-	})
-	assert.Contains(t, out, "REFUSED to advance ctxloom+git://github.com/o/r//bundles/a")
-	assert.Contains(t, out, "the reader's words")
-	assert.Contains(t, out, "Keeping the pin 1111111")
-	assert.Contains(t, out, msgRefusedUnreadable)
-}

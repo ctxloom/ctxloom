@@ -8,9 +8,8 @@ import (
 )
 
 // TestParseReference_Companion proves remote.ParseReference RECOGNIZES the
-// ctxloom:companion@<bin> source token (signature-envelope spec §4.3/§6): the
-// companion loadout protocol's whole trust story depends on this ref never
-// falling into ParseReference's "unsupported reference" error, which every
+// ctxloom:companion@<bin> source token: companion loadouts depend on this ref
+// never falling into ParseReference's "unsupported reference" error, which every
 // fail-closed guard built on IsSelfContainedRef treats as an attempted-but-
 // unrecognized source (denied, never silently local).
 func TestParseReference_Companion(t *testing.T) {

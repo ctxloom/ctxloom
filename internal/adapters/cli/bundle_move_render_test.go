@@ -23,12 +23,10 @@ func TestPrintMoveResult_BranchesOnDestKind(t *testing.T) {
 			DestKind:  operations.MoveDestRemote,
 			Remote:    "ctxloom-default",
 			CommitSHA: "0123456789abcdef",
-			SigDest:   "bundles/go-tools.yaml.sig",
 		}))
 		got := buf.String()
 		assert.Contains(t, got, "Moved .ctxloom/content/bundles/v2/go-tools/bundle.yaml -> bundles/go-tools.yaml (ctxloom-default)")
 		assert.Contains(t, got, "Commit: ")
-		assert.Contains(t, got, "Signature: bundles/go-tools.yaml.sig")
 	})
 
 	t.Run("local path destination does not", func(t *testing.T) {

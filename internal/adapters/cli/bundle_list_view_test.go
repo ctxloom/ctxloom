@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -38,7 +36,6 @@ func TestBundleListRow_JSONShape(t *testing.T) {
 		MCPCount:      1,
 		ProfileCount:  1,
 		Held:          true,
-		Signer:        "alice@example.com",
 	}
 
 	b, err := json.Marshal(newBundleListRow(info))
@@ -50,7 +47,6 @@ func TestBundleListRow_JSONShape(t *testing.T) {
 		"name", "ref", "path", "version", "description", "tags",
 		"fragment_count", "command_count", "mcp_count", "profile_count",
 		"held",
-		"signed", "signer",
 	}, keysOf(got))
 
 	assert.Equal(t, "developer", got["name"])
@@ -64,15 +60,12 @@ func TestBundleListRow_JSONShape(t *testing.T) {
 	assert.EqualValues(t, 1, got["mcp_count"])
 	assert.EqualValues(t, 1, got["profile_count"])
 	assert.Equal(t, true, got["held"])
-	assert.Equal(t, true, got["signed"])
-	assert.Equal(t, "alice@example.com", got["signer"])
 }
 
-// TestBundleListRow_UnsignedMinimalEntry: the counts and state flags are
-// ALWAYS present — a script asking "is this held?" must read false, not a
-// missing key — while the optional prose (description, tags, signer)
-// is omitted when empty. `signed` is derived from Signer: "" is unsigned.
-func TestBundleListRow_UnsignedMinimalEntry(t *testing.T) {
+// TestBundleListRow_MinimalEntry: the counts and state flags are ALWAYS
+// present — a script asking "is this held?" must read false, not a missing
+// key — while the optional prose (description, tags) is omitted when empty.
+func TestBundleListRow_MinimalEntry(t *testing.T) {
 	info := &bundles.BundleInfo{Name: "bare", Ref: trust.BundleKey("local:bare"), Path: "/p/bare.yaml"}
 
 	b, err := json.Marshal(newBundleListRow(info))
@@ -83,11 +76,10 @@ func TestBundleListRow_UnsignedMinimalEntry(t *testing.T) {
 	assert.ElementsMatch(t, []string{
 		"name", "ref", "path",
 		"fragment_count", "command_count", "mcp_count", "profile_count",
-		"held", "signed",
+		"held",
 	}, keysOf(got))
 	assert.EqualValues(t, 0, got["fragment_count"])
 	assert.Equal(t, false, got["held"])
-	assert.Equal(t, false, got["signed"])
 }
 
 // TestBundleListRows_PreservesOrderAndNeverNil: the listing is a JSON array
@@ -161,12 +153,11 @@ func showViewBundle() *bundles.Bundle {
 			SessionStart: []bundles.BundleHook{{Command: "hello"}},
 		},
 	}
-	b.StampSigner("alice@example.com")
 	return b
 }
 
 // TestBundleShowView_JSONShape pins `bundle show`'s wire shape: the header,
-// the trust state, and one map per section keyed by item name — the
+// and one map per section keyed by item name — the
 // container's STRUCTURE, which is what `show` is for.
 func TestBundleShowView_JSONShape(t *testing.T) {
 	b, err := json.Marshal(newBundleShowView(showViewBundle()))
@@ -176,7 +167,7 @@ func TestBundleShowView_JSONShape(t *testing.T) {
 
 	assert.ElementsMatch(t, []string{
 		"name", "path", "version", "author", "description", "tags",
-		"notes", "installation", "signed", "signer",
+		"notes", "installation",
 		"fragments", "commands", "mcp", "skills", "profiles", "hooks",
 	}, keysOf(got))
 
@@ -188,8 +179,6 @@ func TestBundleShowView_JSONShape(t *testing.T) {
 	assert.Equal(t, []any{"go", "review"}, got["tags"])
 	assert.Equal(t, "Internal usage only.", got["notes"])
 	assert.Equal(t, "run make setup", got["installation"])
-	assert.Equal(t, true, got["signed"])
-	assert.Equal(t, "alice@example.com", got["signer"])
 
 	fragments := got["fragments"].(map[string]any)
 	require.Len(t, fragments, 2)
@@ -272,8 +261,7 @@ func TestBundleShowView_OmitsEmptySections(t *testing.T) {
 	require.NoError(t, err)
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(b, &got))
-	assert.ElementsMatch(t, []string{"name", "path", "signed"}, keysOf(got))
-	assert.Equal(t, false, got["signed"])
+	assert.ElementsMatch(t, []string{"name", "path"}, keysOf(got))
 }
 
 // =============================================================================
@@ -349,7 +337,7 @@ func TestBundleListAndShow_FormatJSON_EmitTheViews(t *testing.T) {
 			}
 		}
 		require.NotNil(t, demo, "the created bundle must be listed under its name key; got %s", out.String())
-		assert.Subset(t, keysOf(demo), []string{"name", "ref", "path", "fragment_count", "signed"})
+		assert.Subset(t, keysOf(demo), []string{"name", "ref", "path", "fragment_count", "held"})
 		assert.NotContains(t, keysOf(demo), "Name", "the schema type's field names must not be the contract")
 		assert.NotContains(t, keysOf(demo), "FragmentCount")
 	})
@@ -362,38 +350,9 @@ func TestBundleListAndShow_FormatJSON_EmitTheViews(t *testing.T) {
 		var got map[string]any
 		require.NoError(t, json.Unmarshal(out.Bytes(), &got), out.String())
 		assert.Equal(t, "demo", got["name"])
-		assert.Contains(t, keysOf(got), "signed")
+		assert.Contains(t, keysOf(got), "path")
 		assert.NotContains(t, keysOf(got), "Name", "the schema type's field names must not be the contract")
 		assert.NotContains(t, keysOf(got), "Fragments")
 		assert.NotContains(t, out.String(), `"content"`, "show never carries an item's body")
 	})
-}
-
-// TestBundleShowView_SelfLoadoutIsNotPresentedAsTrust pins how ctxloom's own
-// loadout renders its signing state: signed and verified, but NOT by a
-// publisher — the view says the signature is ctxloom's own and circular, and
-// carries no signer a reader could mistake for independent trust.
-func TestBundleShowView_SelfLoadoutIsNotPresentedAsTrust(t *testing.T) {
-	dir, cfg := setupProject(t, "claude-code")
-	doc := []byte("run:\n  version: 1.0.0\n  fragments:\n    isolation-axes:\n      content: SELF\n")
-	sig := testsupport.SignLoadoutForTesting(t, doc, "releases@ctxloom.test", paths.AllowedSignersPath(filepath.Join(dir, paths.AppDirName)))
-	cfg = withCompanionProbe(t, cfg, func(context.Context) (bundles.CompanionProbe, error) {
-		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{
-			{Bin: "ctxloom", Path: "/opt/build/ctxloom", Document: doc, Signature: sig, Self: true},
-		}}, nil
-	})
-	b, err := cfg.BundleLoader().Load("ctxloom:companion@ctxloom")
-	require.NoError(t, err)
-	require.True(t, b.SelfSigned(), "control: the reader verified ctxloom's own circular signature")
-
-	v := newBundleShowView(b)
-	assert.True(t, v.Signed, "the loadout IS signed and the signature verified")
-	assert.Empty(t, v.Signer, "no publisher identity: the verification is circular")
-	assert.True(t, v.SelfSigned)
-
-	var out strings.Builder
-	require.NoError(t, renderBundleShow(&out, b))
-	assert.Contains(t, out.String(), selfSignedLine,
-		"the human view must say the signature adds no trust")
-	assert.Equal(t, "Signature: ctxloom's own (verified, but circular — it adds no trust)", selfSignedLine)
 }

@@ -241,16 +241,6 @@ func runCompanionForgetCmd(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// shortSHA abbreviates a hex digest for human display. Full digests are in
-// --format json; a 64-char hex string in a status line is noise a human cannot
-// check by eye anyway.
-func shortSHA(sum string) string {
-	if len(sum) <= 16 {
-		return sum
-	}
-	return sum[:16]
-}
-
 func init() {
 	rootCmd.AddCommand(companionCmd)
 	companionCmd.AddCommand(companionListCmd)

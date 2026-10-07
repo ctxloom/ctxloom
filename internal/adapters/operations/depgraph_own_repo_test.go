@@ -27,13 +27,10 @@ func TestLockDependencies_RemoteParentReachingIntoAnotherRepoIsNotExpanded(t *te
 	initLocalRepoWithFile(t, elsewhere, repoV2("payload")+"/bundle.yaml", "version: 1.0.0\n")
 	initLocalRepoWithFile(t, src, repoV2("kit")+"/bundle.yaml", "version: 1.0.0\n")
 	addFileToLocalRepo(t, src, repoV2("kit")+"/profiles/parent.yaml", "bundles:\n  - "+foreignID+"\n")
-	signer := testSigner(t)
-	signTreeAndCommit(t, src, "kit", signer)
-	trustPublisher(t, baseDir, signer)
 	writeLocalProfile(t, baseDir, "default", "parents:\n  - "+parentBundleID+"#profiles/parent\n")
 	// Both registered, so what refuses the reach is the own-repository rule.
 	registerRefRemotes(t, baseDir, parentBundleID, foreignID)
-	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
+	cfg := testConfigWithSCMPath(baseDir)
 
 	stderr := captureStderr(t, func() {
 		_, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})

@@ -14,12 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -39,15 +37,10 @@ func (s companionSources) ReadTarget(context.Context) (*config.Config, error) {
 }
 
 func (s companionSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
-		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
+		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs()),
 	}
 	return append(readers, companions.Prober{}.ReaderSource()(cfg)...), nil
-}
-
-func (s companionSources) TrustRoot(context.Context, *config.Config) (trust.TrustRoot, error) {
-	return trust.NoSigners{}, nil
 }
 
 // fakeCompanion puts one companion named bin on the fake PATH, admitted, with
@@ -61,8 +54,7 @@ func fakeCompanion(t *testing.T, bin, loadoutYAML string) {
 		}
 		return "", exec.ErrNotFound
 	}))
-	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout(loadoutYAML), nil, "")
-	require.NoError(t, err)
+	envelope := testsupport.RunLoadout(loadoutYAML)
 	t.Cleanup(companions.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil }))
 }
 

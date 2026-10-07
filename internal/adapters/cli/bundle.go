@@ -10,7 +10,7 @@ var bundleCmd = groupNodeDefault(&cobra.Command{
 	Use:   "bundle",
 	Short: "Manage ctxloom bundles",
 	// Unhidden: every command's help already assumed 'bundle' as the
-	// underlying unit (push/sign/hold/mcp have no other home), so hiding the
+	// underlying unit (push/hold/mcp have no other home), so hiding the
 	// noun itself from --help was the stale part.
 	Long: `Manage ctxloom bundles - versioned collections of fragments, commands, and MCP servers.
 
@@ -38,7 +38,7 @@ because '#' starts a comment in most shells.`,
   ctxloom bundle create my-bundle      # Create a new bundle
   ctxloom bundle export go-tools ./out # Export bundle to directory
   ctxloom bundle import ./my-bundle.yaml # Import bundle from file
-  ctxloom bundle move go-tools --to ctxloom-default # Relocate a bundle (signature and all)`,
+  ctxloom bundle move go-tools --to ctxloom-default # Relocate a bundle`,
 }, "list")
 
 func init() {
@@ -63,10 +63,6 @@ func init() {
 	// deleted the `bundle mcp` group node too.
 
 	// Bundle hold/unhold — dependency management over the active lockfile.
-
-	// Real home of the deprecated top-level `ctxloom sign` (flags registered
-	// in sign.go alongside its shared RunE).
-	bundleCmd.AddCommand(bundleSignCmd)
 
 	// Each command's flags are defined ALONGSIDE the command, in its own file
 	// (the shape registerPushFlags already had); this is only the wiring, so

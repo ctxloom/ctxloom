@@ -23,17 +23,6 @@ import (
 // not write, and the symptom is a bundle that resolves to nothing rather than an
 // error anyone can read. Routing all three through one enum is what makes
 // "these three agree" a property of the code instead of a thing to remember.
-//
-// # The other v1 on these paths versions something else entirely
-//
-// A real path after this change reads
-//
-//	bundles/v2/<name>/.sigs/SHA256SUMS.publish.v1.ctxloom.dev.<hash>.sig
-//
-// and the two numbers version DIFFERENT AXES. The one this type names is the
-// on-disk LAYOUT. The one inside a signature filename is signing.NamespacePublish
-// — the signature SCHEME's namespace, which has nothing to do with where a file
-// sits. Neither moves when the other does.
 type BundleLayout int
 
 const (
@@ -44,8 +33,7 @@ const (
 	// Every accessor here REFUSES it.
 	LayoutUnknown BundleLayout = 0
 
-	// LayoutV2 is the tree form: <name>/bundle.yaml plus item files, a
-	// SHA256SUMS manifest and a .sigs/ directory.
+	// LayoutV2 is the tree form: <name>/bundle.yaml plus item files.
 	LayoutV2 BundleLayout = 2
 )
 

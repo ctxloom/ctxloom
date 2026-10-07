@@ -19,11 +19,6 @@ import "build/gates.justfile"
 # JUST_JUSTFILE=justfile.container and then call these by bare name.
 import "build/ci.justfile"
 
-# Signing identity, namespace and sign/verify recipes. Imported here as well
-# as in the host justfile: the release pipeline runs against THIS root and
-# signs the artifacts it builds, so both paths must sign under one definition.
-import "build/signing.justfile"
-
 # Containers build in plain module mode: github.com/ctxloom/* come from the
 # go.mod pins (module cache/proxy), never from a host go.work or sibling
 # checkouts. Push sibling changes and bump the pin to pick them up here.
@@ -209,8 +204,6 @@ release-check:
 # exercised here — `release-check` plus CI cover those. What this DOES prove
 # is that every build ID compiles and its post hooks run.
 #
-# EVERY build's post hook signs through build/signing.justfile, so a signing
-# key has to be reachable at CTXLOOM_SIGN_PUBKEY wherever this runs.
 release-snapshot: validate proto gen-schemas
     goreleaser build --snapshot --clean --single-target
 

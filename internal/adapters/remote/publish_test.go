@@ -280,7 +280,7 @@ func TestPublishPath_MatchesFetchSideRefResolution(t *testing.T) {
 	}
 }
 
-// --- Exact-bytes publishing (signature-envelope spec §3.0, §3.1) -----------
+// --- Exact-bytes publishing ------------------------------------------------
 
 // publishOnce publishes content as a one-file tree through a fresh mock
 // publisher and returns the bytes that landed at the remote.
@@ -403,5 +403,3 @@ func TestSplitTitleBody(t *testing.T) {
 		})
 	}
 }
-
-// --- SignPayload wiring (signature-envelope spec §7A) ----------------------

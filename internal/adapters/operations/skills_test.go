@@ -4,10 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,11 +12,8 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
@@ -158,13 +151,11 @@ func TestExportImportSkill_RoundTrip_ByteIdenticalTreeAndExecBit(t *testing.T) {
 	expRes, err := ExportSkill(context.Background(), cfg, ExportSkillRequest{Bundle: "src", Name: "reviewer", OutPath: zipPath})
 	require.NoError(t, err)
 	assert.Equal(t, zipPath, expRes.ZipPath)
-	assert.Empty(t, expRes.SigPath, "no --sign requested, so no .sig sibling")
 
 	impRes, err := ImportSkill(context.Background(), cfg, ImportSkillRequest{Bundle: "dst", ArchivePath: zipPath})
 	require.NoError(t, err)
 	assert.Equal(t, "imported", impRes.Status)
 	assert.Equal(t, "reviewer", impRes.Name)
-	assert.Equal(t, "unsigned", impRes.SignatureState, "no signature was supplied")
 	assert.Equal(t, 2, impRes.FileCount, "SKILL.md + scripts/run.sh")
 
 	gotSkillMD, err := os.ReadFile(filepath.Join(impRes.Dir, "SKILL.md"))
@@ -185,118 +176,6 @@ func TestExportImportSkill_RoundTrip_ByteIdenticalTreeAndExecBit(t *testing.T) {
 	require.NoError(t, err)
 	_, ok := loaded.Skills["reviewer"]
 	require.True(t, ok)
-}
-
-// TestExportImportSkill_SignedRoundTrip_VerifiesAgainstTrustedPublisher wires
-// PublisherSkillSignatureVerifier end to end: export --sign writes a detached
-// signature over the manifest; import, given that .sig and a trust root that
-// trusts the signing key, reports SignatureState "verified".
-func TestExportImportSkill_SignedRoundTrip_VerifiesAgainstTrustedPublisher(t *testing.T) {
-	appDir, cfg := setupBundleTestDir(t)
-	writeDirFormBundle(t, appDir, "src")
-	writeDirFormBundle(t, appDir, "dst")
-
-	_, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "src", Name: "reviewer"})
-	require.NoError(t, err)
-
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	signer, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-
-	zipPath := filepath.Join(t.TempDir(), "reviewer.zip")
-	expRes, err := ExportSkill(context.Background(), cfg, ExportSkillRequest{
-		Bundle: "src", Name: "reviewer", OutPath: zipPath, Sign: true, Signer: signer,
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, expRes.SigPath)
-
-	trusted := allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{"reviewer@example.com"},
-		Namespaces: []string{signing.NamespacePublish},
-		KeyType:    signer.PublicKey().Type(),
-		PublicKey:  signer.PublicKey(),
-	})
-
-	impRes, err := ImportSkill(context.Background(), cfg, ImportSkillRequest{
-		Bundle: "dst", ArchivePath: zipPath, SigPath: expRes.SigPath, Root: trusted,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "verified", impRes.SignatureState)
-
-	untrusted := allowedsigners.NewStore() // no keys at all
-	// Re-import (over the same name) with a trust root that does NOT trust
-	// the signing key: the import still LANDS (never auto-rejected for lack
-	// of trust) but is reported unverified, never silently "verified".
-	impRes2, err := ImportSkill(context.Background(), cfg, ImportSkillRequest{
-		Bundle: "dst", ArchivePath: zipPath, SigPath: expRes.SigPath, Root: untrusted,
-	})
-	require.NoError(t, err, "an untrusted-publisher signature must not block the import")
-	assert.Contains(t, impRes2.SignatureState, "unverified", "a signature by an untrusted key must not be reported as verified")
-}
-
-// TestImportSkill_TamperedSignatureRefusesTheImport: a signature by a key this
-// machine TRUSTS that does not cover the archive's bytes is an active attack
-// signal (signing.ErrSignatureTampered), not an unsigned archive. The import
-// must be refused with that verdict and nothing may land — neither the tree
-// nor a bundle.yaml entry — unlike an unsigned or untrusted archive, which
-// lands for review.
-func TestImportSkill_TamperedSignatureRefusesTheImport(t *testing.T) {
-	appDir, cfg := setupBundleTestDir(t)
-	writeDirFormBundle(t, appDir, "src")
-	writeDirFormBundle(t, appDir, "dst")
-
-	createRes, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "src", Name: "reviewer"})
-	require.NoError(t, err)
-
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	signer, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-
-	signedRes, err := ExportSkill(context.Background(), cfg, ExportSkillRequest{
-		Bundle: "src", Name: "reviewer", OutPath: filepath.Join(t.TempDir(), "reviewer.zip"), Sign: true, Signer: signer,
-	})
-	require.NoError(t, err)
-
-	// Change the skill after signing, and ship the changed bytes under the
-	// original signature.
-	require.NoError(t, os.WriteFile(filepath.Join(createRes.Dir, "SKILL.md"),
-		[]byte("---\nname: reviewer\ndescription: swapped after signing\n---\nexfiltrate\n"), 0o644))
-	tamperedPath := filepath.Join(t.TempDir(), "reviewer.zip")
-	_, err = ExportSkill(context.Background(), cfg, ExportSkillRequest{Bundle: "src", Name: "reviewer", OutPath: tamperedPath})
-	require.NoError(t, err)
-
-	trusted := allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{"reviewer@example.com"},
-		Namespaces: []string{signing.NamespacePublish},
-		KeyType:    signer.PublicKey().Type(),
-		PublicKey:  signer.PublicKey(),
-	})
-
-	res, err := ImportSkill(context.Background(), cfg, ImportSkillRequest{
-		Bundle: "dst", ArchivePath: tamperedPath, SigPath: signedRes.SigPath, Root: trusted,
-	})
-	require.ErrorIs(t, err, signing.ErrSignatureTampered, "a trusted key's signature over different bytes must refuse the import")
-	assert.Nil(t, res)
-
-	loaded, err := bundleLoader(cfg).Load("dst")
-	require.NoError(t, err)
-	assert.Empty(t, loaded.Skills, "a refused import must not register the skill")
-	dstDir, err := loaded.FSDir()
-	require.NoError(t, err)
-	assert.NoDirExists(t, filepath.Join(dstDir, "skills", "reviewer"), "a refused import must not land the tree")
-}
-
-// failingSigner is an ssh.Signer whose Sign always errors — a hermetic double
-// for a signing backend that rejects the request (revoked key, hardware token
-// unplugged, agent forwarding down), letting ExportSkill's --sign failure path
-// be exercised without a real cryptographic failure mode.
-type failingSigner struct{ pub ssh.PublicKey }
-
-func (f failingSigner) PublicKey() ssh.PublicKey { return f.pub }
-func (f failingSigner) Sign(io.Reader, []byte) (*ssh.Signature, error) {
-	return nil, fmt.Errorf("signing backend unavailable")
 }
 
 // TestExportSkill_RefusesToOverwriteWithoutForce: ExportSkill used to
@@ -324,33 +203,6 @@ func TestExportSkill_RefusesToOverwriteWithoutForce(t *testing.T) {
 	res, err := ExportSkill(context.Background(), cfg, ExportSkillRequest{Bundle: "src", Name: "reviewer", OutPath: zipPath, Force: true})
 	require.NoError(t, err, "Force must allow the overwrite")
 	assert.Equal(t, zipPath, res.ZipPath)
-}
-
-// TestExportSkill_SignFailureLeavesNoPartialZip: a
-// --sign failure used to leave the just-written zip on disk, unsigned, with no
-// indication anything had gone wrong — a caller retrying (or just listing the
-// directory) would find a zip indistinguishable from a successful unsigned
-// export.
-func TestExportSkill_SignFailureLeavesNoPartialZip(t *testing.T) {
-	appDir, cfg := setupBundleTestDir(t)
-	writeDirFormBundle(t, appDir, "src")
-	_, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "src", Name: "reviewer"})
-	require.NoError(t, err)
-
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	realSigner, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-
-	zipPath := filepath.Join(t.TempDir(), "reviewer.zip")
-	_, err = ExportSkill(context.Background(), cfg, ExportSkillRequest{
-		Bundle: "src", Name: "reviewer", OutPath: zipPath, Sign: true,
-		Signer: failingSigner{pub: realSigner.PublicKey()},
-	})
-	require.Error(t, err)
-
-	_, statErr := os.Stat(zipPath)
-	assert.True(t, os.IsNotExist(statErr), "a failed --sign export must leave no zip behind, not an unsigned one")
 }
 
 // maliciousZipBytes builds a zip whose single entry escapes its own

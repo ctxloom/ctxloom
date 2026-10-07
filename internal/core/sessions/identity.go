@@ -94,13 +94,10 @@ type Seed struct {
 // the minting process knows.
 type MintStamp struct {
 	Origin Origin
-	// SigCheckDisabled: the minting invocation waived signature verification.
-	SigCheckDisabled bool
 }
 
 func (s MintStamp) apply(e *Entry) {
 	e.Origin = s.Origin
-	e.SigCheckDisabled = s.SigCheckDisabled
 }
 
 // Origin is who a session was minted for, recorded at the mint so a later

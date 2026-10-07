@@ -1,15 +1,10 @@
 package companions
 
 import (
-	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/base64"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -17,16 +12,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -112,17 +102,15 @@ func admitEveryDiscoveredCompanion(t *testing.T) {
 }
 
 // companionBundles drives the two halves a session drives: the PROBE (which
-// execs the admitted companions and unwraps their envelopes) and the READER
-// (which parses the bytes and establishes what their signature turned out to
-// be). Asserting on the pair is what keeps these tests about the behaviour a
+// execs the admitted companions and reads their loadouts) and the READER
+// (which parses the bytes). Asserting on the pair is what keeps these tests about the behaviour a
 // user gets rather than about either half's internals.
-func companionBundles(t *testing.T, root trust.TrustRoot) map[string]*bundles.Bundle {
+func companionBundles(t *testing.T) map[string]*bundles.Bundle {
 	t.Helper()
 	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background())
 	require.NoError(t, err)
 	reads, err := bundles.NewCompanionReader(
 		func(context.Context) (bundles.CompanionProbe, error) { return probe, nil },
-		bundles.WithTrustRoot(root),
 		bundles.WithReaderReporter(strictness.Sink("ctxloom")),
 	).Read(context.Background())
 	require.NoError(t, err)
@@ -138,7 +126,7 @@ func TestProbeCompanionLoadouts_NoneOnPathYieldsEmptyMap(t *testing.T) {
 	restore := SetLookPathForTesting(lookPathOnly(nil))
 	defer restore()
 
-	got := companionBundles(t, nil)
+	got := companionBundles(t)
 	assert.Empty(t, got)
 }
 
@@ -151,104 +139,11 @@ func TestProbeCompanionLoadouts_ProbeFailureSkippedNotCrash(t *testing.T) {
 	})
 	defer restoreProbe()
 
-	got := companionBundles(t, nil)
+	got := companionBundles(t)
 	assert.Empty(t, got, "a companion whose loadout probe fails contributes nothing, and must not panic")
 }
 
-// TestProbeCompanionLoadouts_InvalidSignatureIsReportedNotWithheld pins the
-// posture for a signature that FAILS to verify.
-//
-// This test asserts the OPPOSITE of what an earlier draft did. A publisher
-// signature protects bytes from an INTERMEDIARY, and a companion loadout has
-// none — the bytes arrive on the stdout of a binary the user already consented
-// to execute. So a signature that does not verify here is a stale or mismatched
-// signature in the companion's own release: a bug signal, not an attack signal.
-// Withholding the loadout would punish the user for the companion's build
-// error. The control that catches a SWAPPED companion binary is the hash-keyed
-// exec consent, not this.
-//
-// Two assertions, and the second is the one that matters: the content arrives,
-// AND the failure is said out loud. Reporting is what replaces filtering here,
-// so a silent admit would be as wrong as a silent drop.
-func TestProbeCompanionLoadouts_InvalidSignatureIsReportedNotWithheld(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
-	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
-	defer restoreLook()
-
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	sshSigner, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-	sshPub, err := ssh.NewPublicKey(pub)
-	require.NoError(t, err)
-
-	// Sign one payload, ship a DIFFERENT one under that signature — the exact
-	// shape a companion release with a stale .sig produces.
-	signed := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: OLD\n")
-	shipped := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: NEW\n")
-	sig, err := signing.Sign(signed, sshSigner, signing.NamespacePublish)
-	require.NoError(t, err)
-	envelope, err := signing.EncodeLoadoutEnvelope(shipped, sig, "ltk@example.com")
-	require.NoError(t, err)
-	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
-	defer restoreProbe()
-
-	root := allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{"ltk@example.com"},
-		Namespaces: []string{signing.NamespacePublish},
-		PublicKey:  sshPub,
-	})
-
-	var warnings bytes.Buffer
-	restoreSink := clidiag.SetSink(&warnings)
-	defer restoreSink()
-
-	got := companionBundles(t, root)
-	require.Contains(t, got, remote.CompanionSource+"@ltk",
-		"a companion's content must still be delivered when its signature does not verify")
-	b := got[remote.CompanionSource+"@ltk"]
-	assert.Equal(t, "NEW", b.Fragments["ltk"].Content, "the SHIPPED bytes are delivered, not the signed ones")
-	assert.Empty(t, b.Signer(), "an unverifiable signature attributes nobody — the content arrives unattributed")
-
-	assert.Contains(t, warnings.String(), "does not verify over its own bytes")
-	assert.Contains(t, warnings.String(), "stale or mismatched signature",
-		"the warning must name the likely cause a companion author can act on")
-	assert.NotContains(t, strings.ToLower(warnings.String()), "tamper",
-		"this is a build-error signal, not an attack signal, and must not be phrased as tampering")
-}
-
-// TestProbeCompanionLoadouts_UntrustedSignerIsReportedNotWithheld: a valid
-// signature by a key this machine does not trust to publish is a FACT about the
-// key, not a gate — companion content is admitted at exec.
-func TestProbeCompanionLoadouts_UntrustedSignerIsReportedNotWithheld(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
-	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
-	defer restoreLook()
-
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	sshSigner, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
-	sig, err := signing.Sign(bundleYAML, sshSigner, signing.NamespacePublish)
-	require.NoError(t, err)
-	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, sig, "stranger@example.com")
-	require.NoError(t, err)
-	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
-	defer restoreProbe()
-
-	var warnings bytes.Buffer
-	restoreSink := clidiag.SetSink(&warnings)
-	defer restoreSink()
-
-	got := companionBundles(t, nil) // no trust root trusts this key
-	require.Contains(t, got, remote.CompanionSource+"@ltk")
-	assert.Empty(t, got[remote.CompanionSource+"@ltk"].Signer(), "an untrusted key attributes nobody")
-	assert.Contains(t, warnings.String(), "does not trust to publish",
-		"the key's trust status is a fact to REPORT, and reporting replaces filtering here")
-}
-
-func TestProbeCompanionLoadouts_UnparseableEnvelopeWithheldNotCrash(t *testing.T) {
+func TestProbeCompanionLoadouts_UnparseableLoadoutWithheldNotCrash(t *testing.T) {
 	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
@@ -257,90 +152,23 @@ func TestProbeCompanionLoadouts_UnparseableEnvelopeWithheldNotCrash(t *testing.T
 	})
 	defer restoreProbe()
 
-	got := companionBundles(t, nil)
+	got := companionBundles(t)
 	assert.Empty(t, got, "an unparseable loadout is withheld, not crashed on")
 }
 
-func TestProbeCompanionLoadouts_UnsignedLoadoutSeededWithEmptySigner(t *testing.T) {
+func TestProbeCompanionLoadouts_LoadoutIsSeeded(t *testing.T) {
 	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
 	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
-	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, nil, "")
-	require.NoError(t, err)
+	envelope := bundleYAML
 	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
 	defer restoreProbe()
 
-	got := companionBundles(t, nil)
+	got := companionBundles(t)
 	require.Contains(t, got, remote.CompanionSource+"@ltk")
 	b := got[remote.CompanionSource+"@ltk"]
-	assert.Empty(t, b.Signer(), "unsigned loadout: empty verified signer, routes to review")
 	assert.Contains(t, b.Fragments, "ltk")
-}
-
-// TestProbeCompanionLoadouts_SignedByTrustedKeySeededWithPrincipal proves the
-// signed loadout -> trusted-signer path end to end: a real ed25519 key,
-// trusted for the publish namespace in the caller's root, signs the bundle
-// bytes, and the resulting seeded Bundle carries that principal as its
-// verified Signer().
-func TestProbeCompanionLoadouts_SignedByTrustedKeySeededWithPrincipal(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
-	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
-	defer restoreLook()
-
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	sshSigner, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-	sshPub, err := ssh.NewPublicKey(pub)
-	require.NoError(t, err)
-
-	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
-	sig, err := signing.Sign(bundleYAML, sshSigner, signing.NamespacePublish)
-	require.NoError(t, err)
-	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, sig, "ltk@example.com")
-	require.NoError(t, err)
-	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
-	defer restoreProbe()
-
-	root := allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{"ltk@example.com"},
-		Namespaces: []string{signing.NamespacePublish},
-		PublicKey:  sshPub,
-	})
-
-	got := companionBundles(t, root)
-	require.Contains(t, got, remote.CompanionSource+"@ltk")
-	assert.Equal(t, "ltk@example.com", got[remote.CompanionSource+"@ltk"].Signer())
-}
-
-// TestProbeCompanionLoadouts_AdvisorySignerFieldNeverTrusted proves trap #3
-// on this surface: an envelope claiming a signer with NO valid signature
-// must never be believed, even when that exact principal IS in the trust
-// root.
-func TestProbeCompanionLoadouts_AdvisorySignerFieldNeverTrusted(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
-	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
-	defer restoreLook()
-
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	sshPub, err := ssh.NewPublicKey(pub)
-	require.NoError(t, err)
-	root := allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{"ltk@example.com"},
-		Namespaces: []string{signing.NamespacePublish},
-		PublicKey:  sshPub,
-	})
-
-	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\n")
-	forged := []byte(`{"contract":"` + signing.LoadoutContract + `","loadout":"` + base64.StdEncoding.EncodeToString(bundleYAML) + `","signer":"ltk@example.com"}`)
-	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return forged, nil })
-	defer restoreProbe()
-
-	got := companionBundles(t, root)
-	require.Contains(t, got, remote.CompanionSource+"@ltk")
-	assert.Empty(t, got[remote.CompanionSource+"@ltk"].Signer(), "a claimed signer with no signature must never be believed")
 }
 
 // --- BundleLoader: companion content sits alongside remote ----------------
@@ -355,8 +183,7 @@ func TestBundleLoader_ReadsCompanionAlongsideRemote(t *testing.T) {
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
 	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
-	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, nil, "")
-	require.NoError(t, err)
+	envelope := bundleYAML
 	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
 	defer restoreProbe()
 
@@ -430,8 +257,7 @@ commands:
 
 func fakeCompanionEnvelope(t *testing.T, bundleYAML string) func(string) ([]byte, error) {
 	t.Helper()
-	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout(bundleYAML), nil, "")
-	require.NoError(t, err)
+	envelope := testsupport.RunLoadout(bundleYAML)
 	return func(string) ([]byte, error) { return envelope, nil }
 }
 

@@ -138,10 +138,8 @@ var LayeringRules = []LayeringRule{
 
 			// core/bundles
 			"internal/core/bundles -> internal/adapters/content":            "slice 5: readers become adapters behind bundles.Reader",
-			"internal/core/bundles -> internal/adapters/content/attest":     "slice 5: attest.VerifyBundle is called by the reader adapters",
 			"internal/core/bundles -> internal/adapters/content/remotetree": "slice 5: readers become adapters behind bundles.Reader",
 			"internal/core/bundles -> internal/adapters/remote":             "slice 5: readers become adapters behind bundles.Reader",
-			"internal/core/bundles -> internal/adapters/signing":            "slice 5: one verifier, behind the trust ports",
 			"internal/core/bundles -> internal/shared/upgrade":              "the envelope's schema-upgrade steps (upgrade.Upgrader), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (slice 5); slice 5 landed without the move, which is still open",
 
 			// shared/agent → its contract half becomes core/engine. Its
@@ -173,28 +171,24 @@ var LayeringRules = []LayeringRule{
 			"internal/engines",
 		},
 		Allowed: map[string]string{
-			// sanctioned: the trust adapters compose each other at the
-			// root — config.Sources.TrustRoot builds the generation's trust root.
-			"internal/adapters/configload -> internal/adapters/remote":                 "sanctioned: configload reads the lockfile through the remote adapter",
-			"internal/adapters/configload -> internal/adapters/signing/allowedsigners": "sanctioned: Sources.TrustRoot builds the generation's trust root from the embedded and on-disk allowed_signers stores",
-			"internal/adapters/companions -> internal/adapters/companions/loadout":     "sanctioned: a package's own subpackage",
-			"internal/adapters/companions/loadout -> internal/adapters/signing":        "slice 5: the loadout envelope is signed and verified through the trust ports",
-			"internal/adapters/configload -> internal/adapters/projectroot":            "slice 7: launch.HostFacts carries the project root from cmd/*",
-			"internal/adapters/operations -> internal/adapters/configload":             "slice 7: the process is composed at cmd/*; operations.App receives the Sources",
-			"internal/adapters/operations -> internal/adapters/companions":             "slice 7: the process is composed at cmd/*; the companion Prober is injected",
-			"internal/adapters/operations -> internal/adapters/fsstatic":               "slice 14a: the composition root hands operations the static writer; until then operations composes the at-rest delivery itself (DeliverProject, RemoveProject)",
-			"internal/adapters/fsstatic -> internal/adapters/confpatch":                "sanctioned: the ownership record diffs its structured reversals through confpatch's hew machinery; the record lives beside the static writer because the lean companions link confpatch and must not link the package model delivery carries",
-			"internal/adapters/cli -> internal/adapters/fsstatic":                      "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and composes the runner's static writer",
-			"internal/adapters/cli -> internal/adapters/fsstore":                       "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and roots the runner's claim store",
-			"internal/adapters/cli -> internal/adapters/runner":                        "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root",
-			"internal/adapters/cli -> internal/adapters/hostpty":                       "composition root (cmd/*): the interactive owner's runner is started on its pty by spawn.Runtimes composed there; until then `ctxloom run` starts it itself",
-			"internal/adapters/cli -> internal/adapters/attach":                        "composition root (cmd/*): the interactive owner's container runner is attached on its pty by spawn.Runtimes composed there; until then `ctxloom run` attaches it itself",
-			"internal/adapters/attach -> internal/adapters/hostpty":                    "sanctioned: attach is the container's shape of the SAME pty-held runner hostpty owns for the host; one master for the frontend, wherever the runner runs",
-			"internal/adapters/runner -> internal/adapters/coordgrpc":                  "slice 10: the runner's RunnerChannel client is coordgrpc's, which decodes the frame and calls runner.Execute; until then runner.Host decodes it",
-			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":               "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",
-			"internal/adapters/cli -> internal/adapters/configload":                    "slice 7: the process is composed at cmd/*; the CLI receives the composition (init's pinned target)",
-			"internal/adapters/cli -> internal/adapters/companions":                    "slice 7: the companion list/show/status commands drive the probe; composed at cmd/*",
-			"internal/adapters/cli -> internal/adapters/companions/loadout":            "ctxloom is its own companion: the CLI owns `ctxloom loadout`'s place in the documented tree while cmd/ctxloom owns the embedded bytes; removed when the companion-side loadout package (cobra + envelope encode, no other adapter) moves out of adapters",
+			"internal/adapters/configload -> internal/adapters/remote":             "sanctioned: configload reads the lockfile through the remote adapter",
+			"internal/adapters/companions -> internal/adapters/companions/loadout": "sanctioned: a package's own subpackage",
+			"internal/adapters/configload -> internal/adapters/projectroot":        "slice 7: launch.HostFacts carries the project root from cmd/*",
+			"internal/adapters/operations -> internal/adapters/configload":         "slice 7: the process is composed at cmd/*; operations.App receives the Sources",
+			"internal/adapters/operations -> internal/adapters/companions":         "slice 7: the process is composed at cmd/*; the companion Prober is injected",
+			"internal/adapters/operations -> internal/adapters/fsstatic":           "slice 14a: the composition root hands operations the static writer; until then operations composes the at-rest delivery itself (DeliverProject, RemoveProject)",
+			"internal/adapters/fsstatic -> internal/adapters/confpatch":            "sanctioned: the ownership record diffs its structured reversals through confpatch's hew machinery; the record lives beside the static writer because the lean companions link confpatch and must not link the package model delivery carries",
+			"internal/adapters/cli -> internal/adapters/fsstatic":                  "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and composes the runner's static writer",
+			"internal/adapters/cli -> internal/adapters/fsstore":                   "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and roots the runner's claim store",
+			"internal/adapters/cli -> internal/adapters/runner":                    "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root",
+			"internal/adapters/cli -> internal/adapters/hostpty":                   "composition root (cmd/*): the interactive owner's runner is started on its pty by spawn.Runtimes composed there; until then `ctxloom run` starts it itself",
+			"internal/adapters/cli -> internal/adapters/attach":                    "composition root (cmd/*): the interactive owner's container runner is attached on its pty by spawn.Runtimes composed there; until then `ctxloom run` attaches it itself",
+			"internal/adapters/attach -> internal/adapters/hostpty":                "sanctioned: attach is the container's shape of the SAME pty-held runner hostpty owns for the host; one master for the frontend, wherever the runner runs",
+			"internal/adapters/runner -> internal/adapters/coordgrpc":              "slice 10: the runner's RunnerChannel client is coordgrpc's, which decodes the frame and calls runner.Execute; until then runner.Host decodes it",
+			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":           "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",
+			"internal/adapters/cli -> internal/adapters/configload":                "slice 7: the process is composed at cmd/*; the CLI receives the composition (init's pinned target)",
+			"internal/adapters/cli -> internal/adapters/companions":                "slice 7: the companion list/show/status commands drive the probe; composed at cmd/*",
+			"internal/adapters/cli -> internal/adapters/companions/loadout":        "ctxloom is its own companion: the CLI owns `ctxloom loadout`'s place in the documented tree while cmd/ctxloom owns the embedded bytes; removed when the companion-side loadout package (cobra + envelope encode, no other adapter) moves out of adapters",
 			// sanctioned: the CLI is a frontend over operations; a
 			// package may import its own subpackage.
 			"internal/adapters/cli -> internal/adapters/operations":                                         "sanctioned: cli → operations is one of the two sanctioned adapter-to-adapter edges",
@@ -205,7 +199,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/transcript/vendorreader/mock -> internal/adapters/transcript":                "sanctioned: a package's own parent tree (transcript/*)",
 			"internal/adapters/transcript/vendorreader -> internal/adapters/transcript":                     "sanctioned: a package's own parent tree (transcript/*)",
 			"internal/adapters/transcript -> internal/adapters/transcript/policy":                           "sanctioned: a package's own subpackage (the read-side content policy FilteredSource applies)",
-			"internal/adapters/content/attest -> internal/adapters/content":                                 "sanctioned: a package's own parent tree (content/*)",
 			"internal/adapters/content/remotetree -> internal/adapters/content":                             "sanctioned: a package's own parent tree (content/*)",
 			"internal/adapters/coordgrpc/mcpschema/gen -> internal/adapters/coordgrpc/mcpschema":            "sanctioned: a package's own parent tree (coordgrpc/*)",
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb":                       "sanctioned: the proto is coordgrpc's own subpackage (slice 10 folds mcpschema into coordgrpc)",
@@ -227,7 +220,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/adapters/selfexec":                       "slice 13: hostpty spawns the runner; the self-exec path is a HostFacts value (measured; no ring placement is decided for selfexec)",
 			"internal/adapters/isolation -> internal/adapters/selfexec":                 "composition root (cmd/*): the runner binary is launch.HostFacts.Binary handed to spawn.Runtimes; until then the host cell's runner command resolves its own self-exec path (measured; no ring placement is decided for selfexec)",
 			"internal/adapters/cli -> internal/adapters/turnchange":                     "measured; no ring placement is decided for turnchange — no slice names this edge",
-			"internal/adapters/content -> internal/adapters/signing":                    "slice 5: one verifier behind the trust ports",
 			"internal/adapters/content/remotetree -> internal/adapters/remote":          "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
 			"internal/adapters/isolation -> internal/adapters/git":                      "measured; no ring placement is decided for git — no slice names this edge",
 			"internal/adapters/isolation -> internal/adapters/gitignore":                "measured; no ring placement is decided for gitignore — no slice names this edge",
@@ -243,17 +235,15 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/turnchange -> internal/adapters/transcript/vendorreader": "slice 11b: the readers become engine.TranscriptReader values (Engine.Transcripts)",
 
 			// cli reaching past operations
-			"internal/adapters/cli -> internal/engines/claude":            "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
-			"internal/adapters/cli -> internal/engines":                   "slice 11b: engines.Build() is called by the composition root, cmd/*",
-			"internal/adapters/cli -> internal/adapters/isolation":        "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
-			"internal/adapters/cli -> internal/adapters/mcp":              "the session host composes the coordinator's hosting helper and the host relay (mcp.HostCoordinatorForSession); the session endpoint lives in runner/interaction",
-			"internal/adapters/cli -> internal/adapters/memory":           "slice 14a: the compactor (memory.NewCompactor) is called by operations.Compact",
-			"internal/adapters/cli -> internal/adapters/remote":           "measured: `bundle push` drives remote.PublishManager, `deps list` reads the lockfile, the item listing parses references and `remote discover` normalises URLs directly; they belong behind operations and no slice names them",
-			"internal/adapters/cli -> internal/adapters/signing":          "measured: init and `signer trust` spell signing.NamespacePublish, the trust namespace they write into; leaves when the namespace is a value operations hands back",
-			"internal/adapters/cli -> internal/adapters/signing/agentkey": "measured: the signing frontends (sign, bundle push) hold the *agentkey.Discoverer operations.SignerDiscoverer composes and render agentkey's own candidate listing and hardware-key posture; a rendering vocabulary, not an orchestration",
-			"internal/adapters/cli -> internal/adapters/termui":           "slice 13: termui sits over the pty master the runner owns",
-			"internal/adapters/cli -> internal/adapters/transcript":       "slice 13: cli/tui reads the transcript file; the CLI does not open transcripts itself",
-			"internal/adapters/cli -> internal/adapters/confpatch":        "slice 12: delivery.Ownership (adapters/confpatch) is reached through delivery, not from the CLI",
+			"internal/adapters/cli -> internal/engines/claude":      "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
+			"internal/adapters/cli -> internal/engines":             "slice 11b: engines.Build() is called by the composition root, cmd/*",
+			"internal/adapters/cli -> internal/adapters/isolation":  "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
+			"internal/adapters/cli -> internal/adapters/mcp":        "the session host composes the coordinator's hosting helper and the host relay (mcp.HostCoordinatorForSession); the session endpoint lives in runner/interaction",
+			"internal/adapters/cli -> internal/adapters/memory":     "slice 14a: the compactor (memory.NewCompactor) is called by operations.Compact",
+			"internal/adapters/cli -> internal/adapters/remote":     "measured: `bundle push` drives remote.PublishManager, `deps list` reads the lockfile, the item listing parses references and `remote discover` normalises URLs directly; they belong behind operations and no slice names them",
+			"internal/adapters/cli -> internal/adapters/termui":     "slice 13: termui sits over the pty master the runner owns",
+			"internal/adapters/cli -> internal/adapters/transcript": "slice 13: cli/tui reads the transcript file; the CLI does not open transcripts itself",
+			"internal/adapters/cli -> internal/adapters/confpatch":  "slice 12: delivery.Ownership (adapters/confpatch) is reached through delivery, not from the CLI",
 
 			// cli/tui and termui
 			"internal/adapters/cli/tui -> internal/adapters/operations": "slice 13: the watch UI reads the coordination proto and the transcript file, not the application services",
@@ -261,15 +251,11 @@ var LayeringRules = []LayeringRule{
 
 			// operations reaching sibling adapters (it is the application-services
 			// layer; it holds ports, not adapters)
-			"internal/adapters/operations -> internal/adapters/content/attest":          "slice 5: attest.VerifyBundle is behind the trust root",
 			"internal/adapters/operations -> internal/adapters/isolation":               "slice 7: launch.Cells is the port; isolation is injected at cmd/*",
 			"internal/adapters/operations -> internal/adapters/memory":                  "slice 14a: memory.NewCompactor; the compactor is injected",
 			"internal/adapters/operations -> internal/adapters/remote":                  "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
 			"internal/adapters/operations -> internal/adapters/operations/managedhooks": "sanctioned: a package's own subpackage — the managed hook set operations assembles and reports",
 			"internal/adapters/operations/managedhooks -> internal/adapters/remote":     "slice 5: the profile gate's bundle refs are parsed through the pull-walk's ref grammar (remote.ParseReference); behind composite.Transport / bundles.Reader with the operations edge above",
-			"internal/adapters/operations -> internal/adapters/signing":                 "slice 5: one verifier behind the trust ports",
-			"internal/adapters/operations -> internal/adapters/signing/agentkey":        "slice 5: one verifier behind the trust ports",
-			"internal/adapters/operations -> internal/adapters/signing/allowedsigners":  "slice 5: composite.SignerDecision is core-owned; the adapter is injected",
 			"internal/adapters/operations -> internal/adapters/transcript":              "slice 14a: sessions.Entry.NativeSession is the one record; transcript is an injected reader",
 			"internal/adapters/operations -> internal/adapters/transcript/policy":       "slice 14a: transcript policy rides with the reader adapter",
 			"internal/adapters/operations -> internal/adapters/transcript/vendorreader": "slice 11b: the readers become engine.TranscriptReader values (Engine.Transcripts)",
@@ -310,8 +296,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/runner/coordtest -> internal/adapters/isolation": "the double stands in for a runner in the host relay's tests (measured)",
 
 			// isolation, memory, and the leaf adapters
-			"internal/adapters/companions -> internal/adapters/signing":                   "slice 4: adapters/companions probes; signing is reached through the trust ports",
-			"internal/adapters/content/attest -> internal/adapters/signing":               "slice 5: attest.VerifyBundle is the one verifier over the signing adapter — a `must never know: each other` edge no decision resolves yet; measured",
 			"internal/adapters/transcript/vendorreader/claude -> internal/engines/claude": "slice 11b: the claude reader becomes an engine.TranscriptReader the engine package supplies (Engine.Transcripts)",
 		},
 	},

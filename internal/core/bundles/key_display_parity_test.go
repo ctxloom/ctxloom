@@ -39,7 +39,7 @@ func TestBundleRead_KeyEqualsCanonicalBundleRefOfDisplayName(t *testing.T) {
 	}
 	for _, ref := range remoteRefs {
 		t.Run(ref, func(t *testing.T) {
-			tree := repoTree(t, "kit", readerTreeEnvelope, readerTreeFragments, nil)
+			tree := repoTree(t, "kit", readerTreeEnvelope, readerTreeFragments)
 			reads, err := NewRepoFSReader(tree, ref, WithRepoURL(repoTreeURL)).Read(context.Background())
 			require.NoError(t, err)
 			require.Len(t, reads, 1)

@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions/loadout"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 )
 
 // TestLoadoutCmd_IsOnTheRoot: `ctxloom loadout` is an ordinary command on
@@ -23,18 +22,15 @@ func TestLoadoutCmd_IsOnTheRoot(t *testing.T) {
 // TestLoadoutCmd_EmitsTheCompositionsLoadout: the bytes come from the
 // composition root (cmd/ctxloom embeds them); the command itself carries
 // none, so a process composed without a loadout fails LOUD rather than
-// emitting an empty envelope.
+// emitting an empty document.
 func TestLoadoutCmd_EmitsTheCompositionsLoadout(t *testing.T) {
 	doc := []byte("run:\n  version: 1.0.0\n")
 	comp := testComposition()
 	comp.Loadout = EmbeddedLoadout{YAML: doc}
 
 	var out bytes.Buffer
-	require.Equal(t, 0, RunWithArgs(comp, []string{loadout.Subcommand, "--" + loadout.FormatFlag, loadout.FormatJSON}, &out), out.String())
-	got, sig, _, err := signing.ParseLoadoutEnvelope(out.Bytes())
-	require.NoError(t, err)
-	assert.Equal(t, doc, got)
-	assert.Empty(t, sig)
+	require.Equal(t, 0, RunWithArgs(comp, []string{loadout.Subcommand, "--" + loadout.FormatFlag, loadout.FormatYAML}, &out), out.String())
+	assert.Equal(t, doc, out.Bytes())
 
 	var empty bytes.Buffer
 	assert.NotEqual(t, 0, RunWithArgs(testComposition(), []string{loadout.Subcommand}, &empty),

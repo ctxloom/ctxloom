@@ -22,8 +22,7 @@ This journey is the proof that the collision is resolved and the real thing
 now exists end to end: author a package, materialize it
 into an engine's own skills directory with its files' permissions intact,
 curate which skills a profile actually exports, and move a package between
-machines through export/import — with a signature that is reported honestly,
-never silently upgraded into trust it did not earn.
+machines through export/import, byte for byte.
 <!-- /doc:intro -->
 
 <!-- doc:scenario: Alice authors a skill package and its listing and show reflect the real tree -->
@@ -35,9 +34,7 @@ scenario adds a `scripts/` file itself, exactly as a human author would.
 
 Nothing records the package's files anywhere else, so there is nothing to
 keep in step: `ctxloom skill show` lists what is in the directory now — every
-file with its sha256 and POSIX mode — and a signed bundle's SHA256SUMS covers
-the same files. The listing asserted here is the one a later export/import
-round-trip signs and verifies.
+file with its sha256 and POSIX mode.
 <!-- /doc:scenario -->
 
 <!-- doc:scenario: A curated skill materializes into claude's native Agent Skills directory with its exec bit intact -->
@@ -65,37 +62,19 @@ engine a narrower slice of a shared bundle's skills does not need a second
 bundle to do it.
 <!-- /doc:scenario -->
 
-<!-- doc:scenario: A skill's signature is reported honestly on import, and its files always land byte-for-byte -->
-Importing a skill archive is deliberately never a trust decision by itself.
-The tree lands — reviewable, exactly like any other freshly-pulled content —
-regardless of whether its signature checks out; what varies is only how
-honestly ctxloom reports what it found. A signature from a publisher this
-machine actually trusts (Trent, here) is reported "verified"; the identical
-signature from a key nobody has chosen to trust (Mallory) is reported
-"unverified" — same mechanism, same package, different trust root, and the
-files that landed are byte-for-byte identical either way. Trust is a human
-decision layered on top of an honest report, never an automatic upgrade one
-way or the other.
-<!-- /doc:scenario -->
-
-<!-- doc:scenario: A skill package tampered with after signing fails verification even though it was legitimately signed -->
-A signature covers exact bytes, not a name or a good intention. Here Trent
-legitimately signs the package, and only afterward does its `SKILL.md` change
-on disk — the same shape a compromised build step or a corrupted transfer
-would produce. Re-exporting after the change packs the *new* bytes, and the
-old signature — which only ever covered the original manifest — no longer
-verifies against them. The report is the same honest "unverified" the
-untrusted-signer case gets, because to the verifier the two situations are
-the same fact: these exact bytes are not covered by a signature this machine
-can stand behind.
+<!-- doc:scenario: A skill's files survive export and import byte-for-byte -->
+Importing a skill archive lands the package's tree in another bundle exactly
+as it was authored: every file, byte for byte, its script still executable.
+The archive goes through the hardened extractor first, so a malformed or
+hostile archive is refused before anything lands.
 <!-- /doc:scenario -->
 
 <!-- doc:outro -->
 What this journey does not do: drive a live model to actually invoke a skill
 mid-conversation. That is a real engine's own progressive-disclosure
 behavior, out of scope for a hermetic acceptance run — this journey's promise
-stops at "the right bytes, in the right place, with the right permissions,
-and an honestly-reported signature," which is exactly the boundary ctxloom
+stops at "the right bytes, in the right place, with the right permissions,"
+which is exactly the boundary ctxloom
 itself owns.
 <!-- /doc:outro -->
 

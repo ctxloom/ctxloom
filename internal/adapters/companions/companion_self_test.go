@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -19,13 +18,12 @@ func selfAt(path string) func() string { return func() string { return path } }
 
 // TestProbeCompanionLoadouts_ProbesItselfThroughSelfexec: ctxloom is its own
 // companion. Its loadout is obtained the way every companion's is — by
-// exec'ing `<bin> loadout --format json` — but the binary is THIS one, at
+// exec'ing `<bin> loadout --format yaml` — but the binary is THIS one, at
 // the path the injected resolver answers (selfexec.Path in production),
 // never a PATH lookup of "ctxloom" (a stale install earlier on PATH would
 // then speak for the running build) and never a raw os.Executable (which
-// goes stale after an in-place upgrade). No signature beside the binary is
-// consulted: the running process is already executing, so exec consent is
-// not a question.
+// goes stale after an in-place upgrade). No allow record is consulted: the
+// running process is already executing, so exec consent is not a question.
 func TestProbeCompanionLoadouts_ProbesItselfThroughSelfexec(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
@@ -35,8 +33,7 @@ func TestProbeCompanionLoadouts_ProbesItselfThroughSelfexec(t *testing.T) {
 		return "", exec.ErrNotFound
 	}))
 	var execd []string
-	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout("version: 1.0.0\nfragments:\n  isolation-axes:\n    content: SELF\n"), nil, "")
-	require.NoError(t, err)
+	envelope := testsupport.RunLoadout("version: 1.0.0\nfragments:\n  isolation-axes:\n    content: SELF\n")
 	t.Cleanup(SetCompanionLoadoutOutputForTesting(func(path string) ([]byte, error) {
 		execd = append(execd, path)
 		return envelope, nil
@@ -82,8 +79,7 @@ func TestProbeCompanionLoadouts_DisabledStillProbesItself(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Cleanup(SetLookPathForTesting(func(bin string) (string, error) { return "/fake/" + bin, nil }))
 	t.Cleanup(AdmitEveryDiscoveredCompanionForTesting())
-	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout("version: 1.0.0\n"), nil, "")
-	require.NoError(t, err)
+	envelope := testsupport.RunLoadout("version: 1.0.0\n")
 	var execd []string
 	t.Cleanup(SetCompanionLoadoutOutputForTesting(func(path string) ([]byte, error) {
 		execd = append(execd, path)

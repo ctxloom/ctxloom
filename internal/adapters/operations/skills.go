@@ -2,20 +2,16 @@ package operations
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/spf13/afero"
-	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -229,11 +225,6 @@ func skillTemplate(name, description string) string {
 // is registered in bundle.yaml. The scaffold is validated with
 // ParseSkillPackage before returning — a template that wouldn't itself pass
 // validation is never left on disk claiming success.
-//
-// A signed tree's SHA256SUMS no longer covers the new package, so the bundle
-// reads as an invalid signature until it is signed again. That is the
-// manifest working: new content in a signed tree is a real change, and
-// re-signing is the remedy the reader names.
 func CreateSkill(_ context.Context, cfg *config.Config, req CreateSkillRequest) (*CreateSkillResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
@@ -348,17 +339,7 @@ type ExportSkillRequest struct {
 	Name    string `json:"name"`
 	OutPath string `json:"out_path,omitempty"` // default: "<name>.zip" in the cwd
 
-	// Sign detaches-signs the exported manifest (the SAME bytes
-	// PublisherSkillSignatureVerifier verifies on import) alongside the zip,
-	// reusing the existing publish signing machinery — no new scheme. Signer
-	// must be supplied when Sign is true; ExportSkill never resolves a key
-	// itself (key discovery is internal/adapters/signing/agentkey's job, mirroring
-	// SignBundleFile).
-	Sign   bool       `json:"sign,omitempty"`
-	Signer ssh.Signer `json:"-"`
-
-	// Force allows overwriting an existing file at the output path (the zip,
-	// and its .sig sibling when Sign is set). Without it, ExportSkill refuses
+	// Force allows overwriting an existing file at the output path. Without it, ExportSkill refuses
 	// to clobber a pre-existing file at OutPath: the default
 	// "<name>.zip" lands in the process cwd, so a second `ctxloom skill
 	// export foo` — or any unrelated file already named `foo.zip` — used to
@@ -370,12 +351,10 @@ type ExportSkillRequest struct {
 	FS afero.Fs `json:"-"`
 }
 
-// ExportSkillResult reports where the packed archive (and optional detached
-// signature) landed.
+// ExportSkillResult reports where the packed archive landed.
 type ExportSkillResult struct {
 	Name    string `json:"name"`
 	ZipPath string `json:"zip_path"`
-	SigPath string `json:"sig_path,omitempty"`
 	Bytes   int    `json:"bytes"`
 }
 
@@ -383,7 +362,7 @@ type ExportSkillResult struct {
 // shaped `.zip` (bundles.ExportSkillZip) — the archive interchange form
 // (skill/command split plan §3.1b). Reads through the plain (ungated)
 // bundleLoader: exporting your own authored bundle is an authoring action, not
-// an exposure surface, mirroring `ctxloom sign`'s own read path.
+// an exposure surface.
 func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) (*ExportSkillResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
@@ -416,13 +395,6 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("skill %q: %w", req.Name, err)
 	}
-	// A --sign request with no signer is a caller-configuration
-	// error, checked BEFORE any write — it used to run after the zip landed
-	// on disk, so a caller who fixed the missing signer and retried found a
-	// stale unsigned zip masquerading as a fresh export.
-	if req.Sign && req.Signer == nil {
-		return nil, fmt.Errorf("export %q: --sign requires a signer", req.Name)
-	}
 	zipBytes, err := bundles.ExportSkillZip(fs, dir, pkg)
 	if err != nil {
 		return nil, fmt.Errorf("export %q: %w", req.Name, err)
@@ -446,31 +418,7 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 		return nil, fmt.Errorf("write %s: %w", outPath, err)
 	}
 
-	result := &ExportSkillResult{Name: req.Name, ZipPath: outPath, Bytes: len(zipBytes)}
-	if req.Sign {
-		// Sign the MANIFEST bytes, not the zip bytes: this is exactly what
-		// PublisherSkillSignatureVerifier verifies against on import (it
-		// recomputes the manifest from the extracted tree and checks the
-		// signature covers THAT), so a sig produced here round-trips through
-		// import without inventing a second preimage.
-		armored, err := signing.Sign(pkg.Manifest.Serialize(), req.Signer, signing.NamespacePublish)
-		if err != nil {
-			// A --sign failure used to leave the just-written zip
-			// on disk, unsigned, looking exactly like an export that never
-			// asked to be signed. Clean it up so a failed signed export
-			// leaves nothing behind to be mistaken for a successful one.
-			_ = fs.Remove(outPath)
-			return nil, fmt.Errorf("sign %q: %w", req.Name, err)
-		}
-		sigPath := outPath + skillArchiveSigSuffix
-		// No AllowEmpty: armored is signing.Sign's output, never empty.
-		if err := safefs.WriteFile(fs, sigPath, armored, 0o644); err != nil {
-			_ = fs.Remove(outPath)
-			return nil, fmt.Errorf("write %s: %w", sigPath, err)
-		}
-		result.SigPath = sigPath
-	}
-	return result, nil
+	return &ExportSkillResult{Name: req.Name, ZipPath: outPath, Bytes: len(zipBytes)}, nil
 }
 
 // ImportSkillRequest is the input for ImportSkill.
@@ -478,30 +426,15 @@ type ImportSkillRequest struct {
 	Bundle      string `json:"bundle"`       // target bundle to land the package in (must already exist)
 	ArchivePath string `json:"archive_path"` // .zip or .tar.gz to read
 
-	// SigPath, when set, is a detached signature covering the archive's
-	// manifest bytes (as ExportSkill --sign produces). VERIFIED against the
-	// trust root via bundles.PublisherSkillSignatureVerifier BEFORE
-	// acceptance — this is PublisherSkillSignatureVerifier wired to a
-	// live command for the first time. No signature (SigPath empty) is not a
-	// failure: the import still lands, reported unsigned — ctxloom does not
-	// require signing to accept content, only to auto-trust it, which this
-	// never does either way (see SignatureState doc).
-	SigPath string `json:"sig_path,omitempty"`
-
 	// Store, when non-nil, is the bundle storage adapter (ADR 0026); nil
 	// defaults to the filesystem.
 	Store bundles.Store `json:"-"`
 	// FS, when non-nil, is the afero filesystem read/written; nil defaults to
 	// the OS filesystem.
 	FS afero.Fs `json:"-"`
-	// Root resolves which keys are trusted to publish (trust.TrustRoot);
-	// nil uses cfg.TrustRoot() (embedded + user + project allowed_signers,
-	// unioned).
-	Root trust.TrustRoot `json:"-"`
 }
 
-// ImportSkillResult reports the landed tree and the signature's verification
-// outcome.
+// ImportSkillResult reports the landed tree.
 type ImportSkillResult struct {
 	Status string `json:"status"`
 	Bundle string `json:"bundle"`
@@ -509,30 +442,13 @@ type ImportSkillResult struct {
 	Dir    string `json:"dir"`
 
 	FileCount int `json:"file_count"`
-
-	// SignatureState is one of "unsigned" (no SigPath given), "verified"
-	// (SigPath given, cryptographically covers the extracted tree's
-	// manifest, by a key this machine trusts to publish), or "unverified:
-	// <reason>" (a signature was given but is by a key not trusted here).
-	// None of these three changes whether the tree lands.
-	// A TAMPERED signature never reaches this field — ImportSkill refuses the
-	// import instead (see there).
-	SignatureState string `json:"signature_state"`
 }
 
 // ImportSkill imports a `.zip`/`.tar.gz` Agent Skill archive into a bundle via
 // the hardened extractor (bundles.ImportSkillArchive — zip-slip/symlink/
 // entry-count/decompression-bomb rejections all apply, unconditionally,
 // before this function ever sees a byte) and lands a reviewable package at
-// skills/<name>/ — which, in a tree, is the whole of registering it. If
-// SigPath is given, the signature is verified against the
-// STAGED tree's recomputed manifest via bundles.PublisherSkillSignatureVerifier,
-// before the tree replaces anything. An absent or untrusted signature never
-// blocks the import: "do not auto-trust remote content" means neither branch
-// auto-accepts trust, not that an untrusted import is destroyed. A tampered
-// signature (signing.ErrSignatureTampered: a trusted key's signature that
-// does not cover these bytes) is an attack signal, not an unsigned archive, and
-// is refused like a structurally invalid archive/tree: nothing lands.
+// skills/<name>/ — which, in a tree, is the whole of registering it.
 func ImportSkill(ctx context.Context, cfg *config.Config, req ImportSkillRequest) (*ImportSkillResult, error) {
 	if req.ArchivePath == "" {
 		return nil, fmt.Errorf("archive path is required")
@@ -546,19 +462,6 @@ func ImportSkill(ctx context.Context, cfg *config.Config, req ImportSkillRequest
 	archiveBytes, err := afero.ReadFile(fs, req.ArchivePath)
 	if err != nil {
 		return nil, fmt.Errorf("read archive %s: %w", req.ArchivePath, err)
-	}
-
-	// Read the signature BEFORE anything is extracted: an unreadable --sig
-	// path is a caller error that has nothing to do with the destination, and
-	// discovering it after the swap meant deleting a good skill tree over a
-	// typo'd path (a second loss path).
-	var sigBytes []byte
-	if req.SigPath != "" {
-		var serr error
-		sigBytes, serr = afero.ReadFile(fs, req.SigPath)
-		if serr != nil {
-			return nil, fmt.Errorf("read signature %s: %w", req.SigPath, serr)
-		}
 	}
 
 	// Bundle.Path is overloaded; FSDir refuses the values that are not
@@ -575,7 +478,6 @@ func ImportSkill(ctx context.Context, cfg *config.Config, req ImportSkillRequest
 	// name, so "import this over the skill I already have" was the ordinary
 	// case, not an exotic one.
 	var pkg *bundles.SkillPackage
-	sigState := "unsigned"
 	landedDir, err := bundles.ImportSkillArchive(ctx, fs, archiveBytes, skillsParent, bundles.ExtractOptions{},
 		func(vfs afero.Fs, staged string) error {
 			p, perr := bundles.ParseSkillPackage(vfs, staged, 0)
@@ -583,23 +485,6 @@ func ImportSkill(ctx context.Context, cfg *config.Config, req ImportSkillRequest
 				return fmt.Errorf("imported skill failed validation: %w", perr)
 			}
 			pkg = p
-			if req.SigPath == "" {
-				return nil
-			}
-			root := req.Root
-			if root == nil {
-				root = cfg.TrustRoot()
-			}
-			verifier := bundles.PublisherSkillSignatureVerifier{ArmoredSignature: sigBytes, Root: root}
-			verr := verifier.VerifyManifestSignature(p.Manifest)
-			switch {
-			case errors.Is(verr, signing.ErrSignatureTampered):
-				return fmt.Errorf("refusing import: signature %s does not match the archive's contents, which means the archive or its signature was modified: %w", req.SigPath, verr)
-			case verr != nil:
-				sigState = fmt.Sprintf("unverified: %v", verr)
-			default:
-				sigState = "verified"
-			}
 			return nil
 		})
 	if err != nil {
@@ -607,16 +492,10 @@ func ImportSkill(ctx context.Context, cfg *config.Config, req ImportSkillRequest
 	}
 
 	return &ImportSkillResult{
-		Status:         "imported",
-		Bundle:         req.Bundle,
-		Name:           pkg.Name,
-		Dir:            landedDir,
-		FileCount:      len(pkg.Manifest),
-		SignatureState: sigState,
+		Status:    "imported",
+		Bundle:    req.Bundle,
+		Name:      pkg.Name,
+		Dir:       landedDir,
+		FileCount: len(pkg.Manifest),
 	}, nil
 }
-
-// skillArchiveSigSuffix is the detached signature beside an exported skill
-// archive (`<name>.zip.sig`) — the archive's own attestation, verified by
-// the skill import path, not a bundle signature.
-const skillArchiveSigSuffix = ".sig"

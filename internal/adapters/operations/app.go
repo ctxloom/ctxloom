@@ -27,12 +27,6 @@ type App struct {
 	// NoCompanions is the --no-companions / CTXLOOM_NO_COMPANIONS switch: no
 	// companion binary is executed and none contributes to a generation.
 	NoCompanions bool
-	// SigCheckDisabled is the --disable-sig-check / CTXLOOM_DISABLE_SIG_CHECK
-	// switch: every generation this App opens decides without the signature
-	// step (config.WithoutSignatureCheck).
-	SigCheckDisabled bool
-	// SessionSigCheckWaived is Switches.SessionSigCheckWaived.
-	SessionSigCheckWaived bool
 	// SelfLoadout mirrors Compose.SelfLoadout for the probers this App hands out.
 	SelfLoadout func() string
 	// Strictness is the posture this composition runs under — the program
@@ -78,8 +72,7 @@ type Compose struct {
 // ComposeSources builds the process's config.Sources: the file/env/flag
 // reader with the remote readers behind the lockfile, the companion prober,
 // the profile-ref canonicalizer and the bundle version resolver wired in.
-// The ONE place these adapters meet. The trust root is the Sources' own
-// (configload.Sources.TrustRoot).
+// The ONE place these adapters meet.
 // A flag or env override that cannot be bound is returned alongside a
 // usable Sources; the root degrades it to a warning.
 func ComposeSources(c Compose) (config.Sources, error) {
@@ -116,20 +109,14 @@ type Handed struct {
 // Switches are the per-invocation process switches an App is composed with.
 // None of them is a config value: each belongs to the invocation that set it.
 type Switches struct {
-	NoCompanions     bool
-	SigCheckDisabled bool
-	// SessionSigCheckWaived: this process runs inside a session whose
-	// signature check is waived (sessions.EnvSigCheckWaived reached it),
-	// whether or not this command honours that. A command that does not — a
-	// doctor or a run typed in the session's shell — still names it.
-	SessionSigCheckWaived bool
+	NoCompanions bool
 }
 
 // NewApp holds src as the process's sources; the owner opens on the first
 // Owner/Snapshot/Config call, so a command that never reads configuration
 // never reads the files either.
 func NewApp(src config.Sources, sw Switches, selfLoadout func() string, mode strictness.Mode, h Handed) *App {
-	return &App{NoCompanions: sw.NoCompanions, SigCheckDisabled: sw.SigCheckDisabled, SessionSigCheckWaived: sw.SessionSigCheckWaived, SelfLoadout: selfLoadout, Strictness: mode, Reporter: h.Reporter, Root: h.Root, src: src, open: h.Open, engines: h.Engines, claims: h.SessionClaims}
+	return &App{NoCompanions: sw.NoCompanions, SelfLoadout: selfLoadout, Strictness: mode, Reporter: h.Reporter, Root: h.Root, src: src, open: h.Open, engines: h.Engines, claims: h.SessionClaims}
 }
 
 // OpenedApp wraps an owner a test already opened, with what a composition
@@ -166,11 +153,7 @@ func (a *App) Owner(ctx context.Context) (*config.Owner, error) {
 		a.mu.Lock()
 		a.opened = true
 		a.mu.Unlock()
-		opts := []config.Option{config.WithEngines(a.engines), config.WithReporter(a.Reporter)}
-		if a.SigCheckDisabled {
-			opts = append(opts, config.WithoutSignatureCheck())
-		}
-		a.owner, a.err = a.open(ctx, a.src, opts...)
+		a.owner, a.err = a.open(ctx, a.src, config.WithEngines(a.engines), config.WithReporter(a.Reporter))
 	})
 	return a.owner, a.err
 }

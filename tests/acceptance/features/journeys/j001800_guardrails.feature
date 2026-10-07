@@ -2,7 +2,7 @@
 Feature: Guardrails — when the assistant does not listen
 
   Every other journey in this suite proves DELIVERY: the right context reaches
-  the right assistant, signed, trusted, current. None of that answers a
+  the right assistant, current. None of that answers a
   different question — what happens when the assistant, mid-session, does not
   listen? An LLM agent just handed a fragment saying "use the task runner"
   will still, sometimes, reach for the raw tool out of habit. One just told to

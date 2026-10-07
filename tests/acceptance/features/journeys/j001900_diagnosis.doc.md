@@ -21,7 +21,7 @@ model read it" quietly dropped it on the floor.
 
 ctxloom's answer to that ticket is supposed to be a rule, and the rule is
 strong: every stage boundary NAMES ITS INSPECTOR. Content is authored, then
-packaged, then attested, then distributed, then composed, then delivered, then
+packaged, then distributed, then composed, then delivered, then
 ingested — and at each of those seams there is meant to be one
 command you can run that tells you, in words, whether the content made it
 across and why not. A boundary that has no such command is not an untested
@@ -47,43 +47,11 @@ Cells that moved against the prediction are marked.
 | Boundary | Predicted | Measured | The inspector's actual words |
 |---|---|---|---|
 | B1 authored → packaged | OK | **green** | `search` names no packaged item, and does not answer with silence |
-| B2 packaged → attested | PARTIAL | **red** | nothing, anywhere, says "unsigned" |
-| B3 attested → distributed | OK | **red** ← moved | `bundle list` renders a held bundle as an ordinary entry |
+| B3 packaged → distributed | OK | **red** ← moved | `bundle list` renders a held bundle as an ordinary entry |
 | B5 distributed → composed | OK | **green**, all three inspectors | `profile show`, `agent show`, and `run --dry-run` ← moved |
 | B6 composed → delivered | OK | **red** ← moved | `manage check` never mentions a materialized surface |
 | B7 delivered → ingested | DEFECT | **red** | nothing, by design-so-far |
 | M5 two machines | miss | **red** | `unknown flag: --compare` |
-
-### B2 — the cause, and the decision it forced
-
-Carol edited the runbook on Friday and did not re-sign it. On Monday the
-revision is withheld. That much was expected.
-
-What was not expected was what Alice was left with. A first pass recorded here
-that she "keeps serving Friday's superseded copy" — but that was measured from
-a sync that never advanced a pin at all, so the attestation boundary was never
-reached. Once the sync genuinely advanced, the answer was the opposite and
-much worse: she was left with **nothing**. The revision was refused as
-tampered, and the copy that *did* verify went out of reach along with the pin
-that named it. Silent capability loss, at exactly the moment a signature stops
-verifying.
-
-That is now fixed, by a decision rather than a discovery: `deps upgrade`
-**refuses to advance a pin onto content whose publisher signature does not
-verify**. The lockfile keeps the last commit that verified, Alice goes on
-being served that content, and the sync says so out loud — naming the bundle,
-the fact that the new bytes cannot be verified, and the pin it is keeping her
-at. She is running slightly old, verified content, and she knows it. The
-alternative, advancing and withholding, made the failure unrecoverable and
-silent.
-
-The scenario asserts each half separately, and deliberately: the pin holding,
-the old content still arriving, and Alice being told are three different ways
-this can go wrong, and a scenario checking only that the revised bytes were
-absent would pass for all of them.
-
-The sync also has to name the remedy — the publisher repairing the runbook and
-publishing it again — and the scenario asserts that it does.
 
 ### B3 and B6 — two hops the boundary table credits with work they do not do
 
@@ -126,7 +94,7 @@ three look identical to everything being fine.
 
 This is the one that cannot be worked around by a careful operator. Every
 other hop in this table can be checked by hand if you know enough: read the
-lockfile, diff the signature, cat the materialized file. B7 cannot, because
+lockfile, cat the materialized file. B7 cannot, because
 the fact you need is inside a process ctxloom does not own. J000400's live table
 proves ingestion in CI; it is not a tool anybody can run on a Monday morning.
 
@@ -147,17 +115,16 @@ without this file having pre-decided the flag.
 The honest summary is that ctxloom is good at the hops where it owns both
 sides of the seam and weak at the hops where it owns one. Authoring,
 composition and admission — where the content is entirely inside ctxloom's
-world — answer clearly. Attestation, distribution state, and delivery — where
+world — answer clearly. Distribution state and delivery — where
 the answer depends on correlating two things ctxloom holds separately — go
 quiet. Ingestion, where the far side is a vendor process, has no answer at
 all.
 
 That is a coherent shape, and it points at a coherent fix: the missing
 inspectors are almost all the same missing capability, which is comparing two
-states ctxloom already stores and reporting the difference in words. Signed
-bytes versus current bytes is B2. Locked version versus available version, and
+states ctxloom already stores and reporting the difference in words. Locked version versus available version, and
 by whose decision, is B3. Composed context versus materialized file is B6.
-Her delivered context versus his is M5. Four gaps, one shape.
+Her delivered context versus his is M5. Three gaps, one shape.
 
 B7 is the exception and stays the hard one, because the second state lives in
 somebody else's process.

@@ -3,11 +3,9 @@ package mock
 import (
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/spf13/afero"
@@ -158,10 +156,7 @@ func WriteRecord(file string, in Record) error {
 	}
 	_, _ = fmt.Fprintf(&input, "container_markers=%s\n", strings.Join(containerprobe.Markers(), ","))
 	input.WriteString("=== Env ===\n")
-	// The session's signature-check carrier rides beside the home vars: it
-	// is the one value the launch puts on the engine's environment for the
-	// engine's own ctxloom children, and a scenario proves it reached them.
-	for _, key := range append(slices.Clone(in.HomeEnvKeys), sessions.EnvSigCheckWaived) {
+	for _, key := range in.HomeEnvKeys {
 		if v := Env(in.Env, key); v != "" {
 			_, _ = fmt.Fprintf(&input, "%s=%s\n", key, v)
 		}

@@ -1,7 +1,6 @@
 package bundles
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -57,11 +56,8 @@ type SkillManifestEntry struct {
 	Mode   string `json:"mode"`
 }
 
-// SkillManifest is a skill package's full per-file manifest — what B2's
-// signing will cover and B1b's archive codec will pack. Serialize is
-// deterministic (entries sorted by path before encoding), so the same tree
-// always produces the same bytes, and therefore the same hash, regardless of
-// directory-walk or map-iteration order.
+// SkillManifest is a skill package's full per-file manifest — what the archive
+// codec packs.
 type SkillManifest []SkillManifestEntry
 
 // sorted returns a copy of m sorted by Path, leaving m untouched.
@@ -69,43 +65,6 @@ func (m SkillManifest) sorted() SkillManifest {
 	out := slices.Clone(m)
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
-}
-
-// Serialize returns the canonical, deterministic encoding of the manifest:
-// entries sorted by path, then JSON-marshaled (struct field order is fixed by
-// declaration order, the same contract mcpContentPayload/hookContentPayload
-// rely on). Two SkillManifest values holding the same entries — in any
-// insertion order — produce byte-identical Serialize() output.
-func (m SkillManifest) Serialize() []byte {
-	data, err := json.Marshal(m.sorted())
-	if err != nil {
-		return skillManifestSerializeFallback(m, err)
-	}
-	return data
-}
-
-// skillManifestSerializeFallback is Serialize's fallback for a marshal error
-// that cannot currently happen: SkillManifestEntry holds only strings, and
-// encoding/json cannot fail on those (pinned by
-// TestSkillManifestEntry_HoldsOnlyStringsSoMarshalCannotFail).
-//
-// It is factored out so it can be exercised directly, and it is DISTINCT per
-// manifest rather than a shared constant: these bytes are a signature
-// PREIMAGE, so one constant standing in for many different manifests would
-// make a single signature verify against all of them.
-func skillManifestSerializeFallback(m SkillManifest, err error) []byte {
-	identity := make([]string, 0, len(m))
-	for _, e := range m.sorted() {
-		identity = append(identity, e.Path+"@"+e.SHA256+"@"+e.Mode)
-	}
-	return fmt.Appendf(nil, "ctxloom:skill-manifest-serialize-error:%d:%s:%v",
-		len(m), strings.Join(identity, ","), err)
-}
-
-// Hash returns the sha256 digest of Serialize() — the manifest hash B2's
-// signing preimage will cover.
-func (m SkillManifest) Hash() string {
-	return hashContent(m.Serialize())
 }
 
 // SkillPackage is an Agent Skill package parsed from its source-tree

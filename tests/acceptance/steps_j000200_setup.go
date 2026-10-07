@@ -29,22 +29,15 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		return worldFrom(c).env.InitGitRepo()
 	})
 
-	ctx.Step(`^her personal ctxloom repository is signed with her own key$`, func(c context.Context) error {
+	ctx.Step(`^Alice has a personal ctxloom repository$`, func(c context.Context) error {
 		w := worldFrom(c)
-		// "Signed with her OWN key" carries the same self-evident trust a real
-		// publish-then-trust-your-own-key pair of commands would establish for
-		// content you author yourself (docs/trust-model.md: "sign your bundles
-		// and trust your own signing key") — this fixture step performs both
-		// halves (seedSource signs; TrustSigner trusts), exactly as the Then
-		// step's "because it is signed with her own key" requires for the
-		// content to actually reach the assembled context.
-		_, err := seedSource(w, "personal", "fragments", "marker", j000200PersonalMarker, j000200PersonalMarker, true, true)
+		_, err := seedSource(w, "personal", "fragments", "marker", j000200PersonalMarker, j000200PersonalMarker)
 		return err
 	})
 
-	ctx.Step(`^her company's ctxloom repository is signed with the company key, which Alice trusts$`, func(c context.Context) error {
+	ctx.Step(`^her company has a ctxloom repository$`, func(c context.Context) error {
 		w := worldFrom(c)
-		_, err := seedSource(w, "company", "fragments", "marker", j000200CompanyMarker, j000200CompanyMarker, true, true)
+		_, err := seedSource(w, "company", "fragments", "marker", j000200CompanyMarker, j000200CompanyMarker)
 		return err
 	})
 
@@ -79,11 +72,11 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^her personal repository's context is part of her configuration, because it is signed with her own key$`, func(c context.Context) error {
+	ctx.Step(`^her personal repository's context is part of her configuration$`, func(c context.Context) error {
 		return assertMaterializedContains(c, "out", j000200PersonalMarker)
 	})
 
-	ctx.Step(`^her company repository's context is part of her configuration, because she trusts the company key$`, func(c context.Context) error {
+	ctx.Step(`^her company repository's context is part of her configuration$`, func(c context.Context) error {
 		return assertMaterializedContains(c, "out", j000200CompanyMarker)
 	})
 
@@ -164,7 +157,7 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 
 	// --- Scenario 3: @live, restarted assistant sees every source -----------
 
-	ctx.Step(`^her personal and company repositories are trusted, signed sources$`, func(c context.Context) error {
+	ctx.Step(`^Alice has personal and company ctxloom repositories$`, func(c context.Context) error {
 		w := worldFrom(c)
 		a, ok := liveAgents["claude"]
 		if !ok {
@@ -182,10 +175,10 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		if err := seedLiveCredentials(a, w.env.SetChildEnv); err != nil {
 			return err
 		}
-		if _, err := seedSource(w, "personal", "fragments", "marker", j000200LivePersonalMark, j000200LivePersonalMark, true, true); err != nil {
+		if _, err := seedSource(w, "personal", "fragments", "marker", j000200LivePersonalMark, j000200LivePersonalMark); err != nil {
 			return err
 		}
-		_, err := seedSource(w, "company", "fragments", "marker", j000200LiveCompanyMark, j000200LiveCompanyMark, true, true)
+		_, err := seedSource(w, "company", "fragments", "marker", j000200LiveCompanyMark, j000200LiveCompanyMark)
 		return err
 	})
 
@@ -249,23 +242,15 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// --- Scenario 4: held content, unsigned or untrusted-key -----------------
+	// --- Scenario 4: content from an added repository is delivered ----------
 
-	ctx.Step(`^a third-party ctxloom repository whose content is (.+)$`, func(c context.Context, trustState string) error {
+	ctx.Step(`^a third-party ctxloom repository$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
 			return err
 		}
-		switch trustState {
-		case "unsigned":
-			_, err := seedSource(w, "thirdparty", "fragments", "marker", j000200ThirdPartyMarker, j000200ThirdPartyMarker, false, false)
-			return err
-		case "signed with a key Alice does not trust":
-			_, err := seedSource(w, "thirdparty", "fragments", "marker", j000200ThirdPartyMarker, j000200ThirdPartyMarker, true, false)
-			return err
-		default:
-			return fmt.Errorf("unknown trust_state %q", trustState)
-		}
+		_, err := seedSource(w, "thirdparty", "fragments", "marker", j000200ThirdPartyMarker, j000200ThirdPartyMarker)
+		return err
 	})
 
 	ctx.Step(`^Alice adds it as a source$`, func(c context.Context) error {

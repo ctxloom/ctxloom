@@ -221,7 +221,7 @@ func TestEnsureNested_InitBehavior_CommitsContentIgnoresPrivateState(t *testing.
 
 	for _, committed := range []string{
 		"/content", "/config.yaml", "/remotes.yaml",
-		"/lock.yaml", "/allowed_signers", "/approvals",
+		"/lock.yaml",
 	} {
 		assert.NotContains(t, ignoreRules(got), committed,
 			"expected %q to stay committed (not ignored)", committed)

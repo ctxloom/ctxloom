@@ -142,7 +142,7 @@ func TestDoctorCheckSetupMarker_WrongState_ConfigLoadError(t *testing.T) {
 
 func TestDoctorCheckDeps_RightState_GitPresentIsEnumeratedInOK(t *testing.T) {
 	dir := t.TempDir()
-	for _, bin := range []string{"ssh", "ssh-keygen", "git", "docker"} {
+	for _, bin := range []string{"ssh", "git", "docker"} {
 		writeFakeExecutable(t, dir, bin)
 	}
 	t.Setenv("PATH", dir)
@@ -160,9 +160,7 @@ func TestDoctorCheckDeps_RightState_GitPresentIsEnumeratedInOK(t *testing.T) {
 
 func TestDoctorCheckDeps_WrongState_GitMissing(t *testing.T) {
 	dir := t.TempDir()
-	for _, bin := range []string{"ssh", "ssh-keygen"} {
-		writeFakeExecutable(t, dir, bin)
-	}
+	writeFakeExecutable(t, dir, "ssh")
 	t.Setenv("PATH", dir) // deliberately no git on this PATH
 	check := doctorCheckDeps(engines.Registry(), &config.Config{}, doctorRuntimes())
 	assert.Equal(t, DoctorWarn, check.Status)
@@ -174,25 +172,23 @@ func TestDoctorDepBinariesRequired_IncludesGit(t *testing.T) {
 	assert.Contains(t, doctorDepBinariesRequired, "git", "worktree isolation and deps pull hard-depend on git")
 }
 
-// TestDoctorCheckDeps_WrongState_SSHKeygenMissing_IsRecommendedNotRequired
-// pins DEPS-a1's TRUTHFULNESS: ssh-keygen is NEVER exec'd by ctxloom, so a
-// missing ssh-keygen (with git/engine/runtime all present) must be reported
-// as RECOMMENDED, not implied to be required.
-func TestDoctorCheckDeps_WrongState_SSHKeygenMissing_IsRecommendedNotRequired(t *testing.T) {
+// TestDoctorCheckDeps_WrongState_SSHMissing_IsRecommendedNotRequired pins
+// DEPS-a1's TRUTHFULNESS: ssh is NEVER exec'd by ctxloom (only by git, for an
+// ssh:// remote), so a missing ssh must be reported in the RECOMMENDED bucket,
+// not implied to be required. ssh-keygen is absent from this PATH too, and
+// must not be named at all: ctxloom has no use for it.
+func TestDoctorCheckDeps_WrongState_SSHMissing_IsRecommendedNotRequired(t *testing.T) {
 	dir := t.TempDir()
-	for _, bin := range []string{"ssh", "git", "docker"} {
+	for _, bin := range []string{"git", "docker"} {
 		writeFakeExecutable(t, dir, bin)
 	}
-	t.Setenv("PATH", dir) // deliberately no ssh-keygen
+	t.Setenv("PATH", dir) // deliberately no ssh, no ssh-keygen
 	check := doctorCheckDeps(engines.Registry(), &config.Config{}, doctorRuntimes())
-	if check.Status == DoctorOK {
-		// A host without a real docker/podman daemon can still warn on the
-		// container runtime alone; skip only if ssh-keygen genuinely wasn't
-		// flagged at all, which would itself be the bug this test guards.
-		t.Skip("container runtime unexpectedly available in this ok path; ssh-keygen-missing behavior is exercised by the warn branch below on hosts without docker/podman")
-	}
-	assert.Contains(t, check.Detail, "ssh-keygen", "a missing ssh-keygen must still be named")
-	assert.Contains(t, check.Detail, "recommended", "must be labeled recommended, not implied required")
+	assert.Equal(t, DoctorWarn, check.Status, "a missing recommended dep still warns")
+	_, recommended, found := strings.Cut(check.Detail, "missing (recommended")
+	require.True(t, found, "a missing ssh must land in the recommended bucket:\n%s", check.Detail)
+	assert.Contains(t, recommended, "ssh", "a missing ssh must be named")
+	assert.NotContains(t, check.Detail, "ssh-keygen", "ssh-keygen is not a dependency and must never be reported")
 }
 
 // GitConfigGet against the real git binary, with the host's global and
@@ -733,11 +729,11 @@ func TestDoctorContainerRuntimeRequired(t *testing.T) {
 }
 
 // TestDoctorCheckDeps_NoContainerAgents_RuntimeIsRecommendedNotRequired is the
-// end-to-end half: with git/ssh/ssh-keygen present and NO container runtime
+// end-to-end half: with git/ssh present and NO container runtime
 // reachable, a host-only project must report the runtime as recommended.
 func TestDoctorCheckDeps_NoContainerAgents_RuntimeIsRecommendedNotRequired(t *testing.T) {
 	dir := t.TempDir()
-	for _, bin := range []string{"ssh", "ssh-keygen", "git", "claude"} {
+	for _, bin := range []string{"ssh", "git", "claude"} {
 		writeFakeExecutable(t, dir, bin)
 	}
 	t.Setenv("PATH", dir) // no docker, no podman
@@ -761,7 +757,7 @@ func TestDoctorCheckDeps_ContainerAgent_RuntimeStaysRequired(t *testing.T) {
 	for _, mode := range []string{"container-rootless", "container-rootful"} {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
-			for _, bin := range []string{"ssh", "ssh-keygen", "git", "claude"} {
+			for _, bin := range []string{"ssh", "git", "claude"} {
 				writeFakeExecutable(t, dir, bin)
 			}
 			t.Setenv("PATH", dir) // no docker, no podman

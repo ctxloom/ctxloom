@@ -48,7 +48,7 @@ duplicate the checking logic.
 
 ## DOCTOR-CHECK-DEPS-a1: required binaries on PATH
 
-Confirm ` + "`ssh`" + ` and ` + "`ssh-keygen`" + ` are on PATH (recommended
+Confirm ` + "`ssh`" + ` is on PATH (recommended
 for ssh:// git remotes), that every configured engine's own client binary resolves (claude,
 codex, opencode — whichever this project actually uses), and
 that a container runtime (docker or podman) is reachable if any agent uses

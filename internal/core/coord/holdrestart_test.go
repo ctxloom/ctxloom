@@ -540,9 +540,15 @@ func TestHoldsFold_ReplayEqualsTheLiveFold(t *testing.T) {
 	f.awaitHold(t, f.worker, f.sibling)
 	f.awaitParks(t, f.worker, f.sibling)
 
+	// One View for both: the writer holds the store exclusively across
+	// append, fsync and apply, so inside it the file is exactly the input the
+	// live fold has applied — no append in flight, none landing between them.
 	var live []holdRecord
-	f.c.runs.View(func() { live = f.c.holdsF.inForce() })
-	raw, err := os.ReadFile(filepath.Join(f.c.stateDir, "runs.jsonl"))
+	var raw []byte
+	f.c.runs.View(func() {
+		live = f.c.holdsF.inForce()
+		raw, err = os.ReadFile(filepath.Join(f.c.stateDir, "runs.jsonl"))
+	})
 	require.NoError(t, err)
 	cp := filepath.Join(t.TempDir(), "runs.jsonl")
 	require.NoError(t, os.WriteFile(cp, raw, 0o600))

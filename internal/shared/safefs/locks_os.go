@@ -41,6 +41,16 @@ const tryLockRetry = 25 * time.Millisecond
 type osLocks struct{}
 
 func (osLocks) Lock(path string) (Lock, error) {
+	return takeOSLock(path, (*flock.Flock).Lock)
+}
+
+func (osLocks) RLock(path string) (Lock, error) {
+	return takeOSLock(path, (*flock.Flock).RLock)
+}
+
+// takeOSLock is Lock and RLock: take blocks until the lock is held, in the
+// kind it names.
+func takeOSLock(path string, take func(*flock.Flock) error) (Lock, error) {
 	if err := os.MkdirAll(filepath.Dir(path), lockDirMode); err != nil {
 		return nil, fmt.Errorf("safefs: preparing lock directory for %s: %w", path, err)
 	}
@@ -53,7 +63,7 @@ func (osLocks) Lock(path string) (Lock, error) {
 	}
 	fl := flock.New(path, flock.SetPermissions(lockFileMode), flock.SetFlag(lockOpenFlag))
 	stop := lockwait.Watch(path)
-	err := fl.Lock()
+	err := take(fl)
 	stop()
 	if err != nil {
 		return nil, fmt.Errorf("safefs: acquiring lock %s: %w", path, err)

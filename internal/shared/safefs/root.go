@@ -59,21 +59,27 @@ type ExposedError struct {
 
 func (e *ExposedError) Error() string { return e.Path + " " + e.Why }
 
-// Locks are advisory locks on files of the Root's filesystem: one holder per
-// path at a time, across processes on the real filesystem and across
-// goroutines everywhere (a lock conflicts per taking, not per process).
+// Locks are advisory locks on files of the Root's filesystem: one exclusive
+// holder per path at a time, or any number of shared ones, across processes
+// on the real filesystem and across goroutines everywhere (a lock conflicts
+// per taking, not per process).
 type Locks interface {
-	// Lock blocks until path's lock is held, creating the lock file and its
-	// directory if missing. A wait that runs long is reported (lockwait).
+	// Lock blocks until path's lock is held exclusively, creating the lock
+	// file and its directory if missing. A wait that runs long is reported
+	// (lockwait).
 	Lock(path string) (Lock, error)
+	// RLock blocks until path's lock is held SHARED: beside any other shared
+	// holder, never beside an exclusive one. It creates the lock file and its
+	// directory as Lock does, and a long wait is reported the same way.
+	RLock(path string) (Lock, error)
 	// TryLock makes one attempt at once, then retries until ctx is done, and
 	// is ErrLockHeld if the lock is still held then. It creates a missing
 	// lock file but NEVER its directory: a directory removed under a
 	// claimant is fs.ErrNotExist, which is how the claimant learns of it.
 	TryLock(ctx context.Context, path string) (Lock, error)
-	// Held probes whether some taker holds path's lock, without taking it
-	// for longer than the probe and without creating anything. A lock file
-	// that does not exist is not held.
+	// Held probes whether some taker holds path's lock, shared or exclusive,
+	// without taking it for longer than the probe and without creating
+	// anything. A lock file that does not exist is not held.
 	Held(path string) (bool, error)
 }
 

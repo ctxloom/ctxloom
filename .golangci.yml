@@ -94,12 +94,12 @@ linters:
         linters:
           - forbidigo
         text: 'yamlx\.Marshal'
-      # pkg/clifmt renders --format yaml command OUTPUT, not a file ctxloom
-      # saves, and it is the module's standalone leaf library (stdlib, toml and
-      # yaml.v3 only; docs/architecture/companions/clifmt.md). Routing it through
-      # internal/shared/yamlx would tie it to ctxloom's internals and change the
-      # --format yaml output of every command, which the one-encoder ruling did
-      # not ask for.
+      # pkg/clifmt renders --format yaml command OUTPUT and is the module's
+      # standalone leaf library (stdlib, toml and yaml.v3 only;
+      # docs/architecture/companions/clifmt.md), so it cannot import
+      # internal/shared/yamlx. It needs yaml.NewEncoder directly to set the
+      # same two-space indent yamlx uses (renderYAML; pinned by
+      # TestRenderYAMLIndentsTwoSpaces), so files and command output agree.
       - path: 'pkg/clifmt/marshal\.go'
         linters:
           - forbidigo

@@ -165,7 +165,10 @@ func resolveConfigSection(doc yaml.Marshaler, name string) (any, error) {
 // YAML, so the resolve + marshal + write composition is testable without
 // invoking cobra.
 // Its twin by shape, pkg/clifmt's renderYAML, is the one exclusion from the
-// one-encoder lint rule (.golangci.yml), so it keeps its own encoder.
+// one-encoder lint rule (.golangci.yml): a leaf package that cannot import
+// yamlx, it keeps its own encoder set to the same two-space indent, so this
+// section and every other command's --format yaml print the same layout. The
+// two cannot merge: clifmt derives keys from json: tags, this from yaml: tags.
 // reprise:accept-drift
 func renderConfigSection(doc yaml.Marshaler, name string, out io.Writer) error {
 	data, err := resolveConfigSection(doc, name)

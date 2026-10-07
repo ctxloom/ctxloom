@@ -180,17 +180,19 @@ type waiter interface {
 	Deadline() (time.Time, bool)
 }
 
-// awaitScreen is screenWhen on any terminal and any test.
+// awaitScreen is screenWhen on any terminal and any test. A frame carrying a
+// sequence the screen model does not understand ends the wait at once: the
+// model replays the whole stream, so that frame and every one after it is
+// unjudgeable, and waiting on could only spend the deadline.
 func awaitScreen(t waiter, tty *syncBuf, what string, check func(tb, *vtemu.Screen)) *vtemu.Screen {
 	t.Helper()
-	judged := func(t tb, e *vtemu.Screen) {
-		t.Helper()
-		require.Empty(t, e.Unhandled(), "every byte on the terminal must be understood before a frame is judged")
-		check(t, e)
-	}
-	cur, ok := tty.await(t, func(s string) bool { return accepts(judged, emulate(s)) })
+	cur, ok := tty.await(t, func(s string) bool {
+		e := emulate(s)
+		return len(e.Unhandled()) > 0 || accepts(check, e)
+	})
 	e := emulate(cur)
-	judged(t, e)
+	require.Empty(t, e.Unhandled(), "the terminal wrote what the screen model does not understand, so no frame from here on can be judged; the frame:\n%s", e)
+	check(t, e)
 	if !ok {
 		t.Fatalf("the terminal never showed %s", what)
 	}

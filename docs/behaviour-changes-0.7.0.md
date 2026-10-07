@@ -195,24 +195,31 @@ with the upgrade as its remedy.
 
 ## 9. Companions run only once you register them, by name
 
-ctxloom no longer scans PATH for companions. It runs exactly the companions
-you registered with `ctxloom companion add <name>`, which finds the binary on
-PATH (`ltk`, `taskloom` and `reprise` are their own binaries; any other name
-`<n>` is `ctxloom-companion-<n>`), checks that it answers
-`<binary> loadout --format yaml`, and records the NAME in your home config
-(`companions:` in `~/.ctxloom/config.yaml`). Each session resolves the
-registered names on PATH afresh. `ctxloom companion list` shows what is
-registered and whether each resolves; `ctxloom companion remove <name> --yes`
-unregisters one. A registered name that is no longer on PATH is reported with
-both ways out.
+ctxloom runs exactly the companions you registered. Register one with
+`ctxloom companion add <name>`: it finds the companion's binary on PATH (a
+shipped first-party companion is its own binary; any other name `<n>` is
+`ctxloom-companion-<n>`), checks that it answers
+`<binary> loadout --format yaml`, and records the NAME — never the path — in
+your home config (`companions:` in `~/.ctxloom/config.yaml`). Nothing is
+recorded when the check fails. Each session resolves the registered names on
+PATH afresh, so a binary of a registered name placed earlier on PATH is the
+one that runs.
+
+A project's config may list more names under the same `companions:` key. They
+are added to home's list; a project cannot replace or remove a home
+registration.
+
+`ctxloom companion list` shows the registered names and whether each resolves
+on PATH. `ctxloom companion remove <name>` reports what it would unregister;
+add `--yes` to apply it. A registered name that does not resolve on PATH is
+reported with both ways out: install it, or remove it.
 
 `just install` and the install scripts register the companions they install.
-If you installed companions another way, register them once:
+If you installed companions another way, register each once, for example
 `ctxloom companion add ltk` and `ctxloom companion add taskloom`.
 
-`ctxloom companion allow`, `companion forget` and `companion show` are gone,
-and `~/.ctxloom/companion_allow.yaml` is no longer read. An agent container
-image carries the registered first-party companions and their registration.
+An agent container image carries the registered first-party companions and
+their registration.
 
 ## 10. A lockfile keyed by the reference as typed is refused
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"gopkg.in/yaml.v3"
 )
 
@@ -110,20 +111,13 @@ func joinFrontMatter(meta any, body string) ([]byte, error) {
 // marshalYAML encodes a metadata struct, returning nil for a struct that
 // produces an empty mapping (yaml.v3 renders that as "{}\n").
 //
-// Indentation is pinned to 2 explicitly rather than left to the package default:
-// the encoded bytes land inside a signed component, so a library default change
-// would silently reshape every digest.
+// The encoded bytes land inside a signed component, so the encoding is a
+// digest input: yamlx.Marshal pins it rather than a library default.
 func marshalYAML(v any) ([]byte, error) {
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(v); err != nil {
+	out, err := yamlx.Marshal(v)
+	if err != nil {
 		return nil, fmt.Errorf("content: encoding metadata: %w", err)
 	}
-	if err := enc.Close(); err != nil {
-		return nil, fmt.Errorf("content: encoding metadata: %w", err)
-	}
-	out := buf.Bytes()
 	if bytes.Equal(bytes.TrimSpace(out), []byte("{}")) {
 		return nil, nil
 	}

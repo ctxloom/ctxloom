@@ -1,14 +1,12 @@
 package content
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Profile is a bundle-shipped profile.
@@ -102,18 +100,13 @@ func (t profileType) Encode(s Surface) ([]Component, error) {
 	if strings.ContainsAny(p.Name, `/\`) {
 		return nil, fmt.Errorf("%w: profile name %q must be a single path segment", ErrBadPath, p.Name)
 	}
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(p.Def); err != nil {
-		return nil, fmt.Errorf("content: encoding profile %q: %w", p.Name, err)
-	}
-	if err := enc.Close(); err != nil {
+	body, err := yamlx.Marshal(p.Def)
+	if err != nil {
 		return nil, fmt.Errorf("content: encoding profile %q: %w", p.Name, err)
 	}
 	return []Component{{
 		Path:  itemPath(t.Dir(), p.Name, ".yaml"),
 		Mode:  ModeRegular,
-		Bytes: buf.Bytes(),
+		Bytes: body,
 	}}, nil
 }

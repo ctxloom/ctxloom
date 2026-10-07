@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/ident"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Premise authoring is a PROPOSAL surface: the model drafts and critiques, and
@@ -285,7 +286,7 @@ func editPremise(cfg *config.Config, p *premiseProposal) (*premiseValues, error)
 	if premise == "" {
 		premise = "NONE"
 	}
-	doc, err := yaml.Marshal(premiseEditDoc{Premise: &premise, Notes: proposedNotes(p)})
+	doc, err := yamlx.Marshal(premiseEditDoc{Premise: &premise, Notes: proposedNotes(p)})
 	if err != nil {
 		return nil, fmt.Errorf("render premise for editing: %w", err)
 	}

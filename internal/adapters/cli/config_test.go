@@ -19,6 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -64,7 +65,7 @@ func TestResolveConfigSection_KnownSections(t *testing.T) {
 }
 
 // TestResolveConfigSection_CoversEveryShowKey walks the SAME document
-// `config show` renders (yaml.Marshal(cfg), which yaml.v3 routes through
+// `config show` renders (yamlx.Marshal(cfg), which yaml.v3 routes through
 // Config.MarshalYAML — renderConfigYAML's exact call) and asserts `config
 // show <section>` can resolve every top-level key found there. It contains no
 // hand-typed section name: this is the row's own regression case
@@ -75,7 +76,7 @@ func TestResolveConfigSection_KnownSections(t *testing.T) {
 func TestResolveConfigSection_CoversEveryShowKey(t *testing.T) {
 	cfg := fixtureConfig()
 
-	data, err := yaml.Marshal(cfg)
+	data, err := yamlx.Marshal(cfg)
 	require.NoError(t, err)
 	var doc map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &doc))

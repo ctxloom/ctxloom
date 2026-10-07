@@ -196,7 +196,7 @@ func setQuietFastLabel(projectDir, label string) error {
 	yamlx.MapSet(entry, "permissions", perms)
 	yamlx.MapSet(yamlx.EnsureMap(llm, "configs"), label, entry)
 	yamlx.MapSet(yamlx.EnsureMap(llm, "defaults"), "fast", yamlx.ScalarNode(label))
-	out, err := yaml.Marshal(&doc)
+	out, err := yamlx.Marshal(&doc)
 	if err != nil {
 		return fmt.Errorf("marshal project config: %w", err)
 	}

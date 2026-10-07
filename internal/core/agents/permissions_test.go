@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -82,12 +83,12 @@ func TestProjectPermissions_NeutralOnly(t *testing.T) {
 func TestPermissions_RoundTripsAndIsZero(t *testing.T) {
 	assert.True(t, agents.Permissions{}.IsZero())
 	p := agents.Permissions{NeutralPermissions: agents.NeutralPermissions{Approver: "none"}, Engines: map[string]map[string]any{"mock": {"mode": "plan"}}}
-	out, err := yaml.Marshal(agents.Agent{Permissions: p})
+	out, err := yamlx.Marshal(agents.Agent{Permissions: p})
 	require.NoError(t, err)
 	var back agents.Agent
 	require.NoError(t, yaml.Unmarshal(out, &back))
 	assert.Equal(t, p, back.Permissions)
-	out, err = yaml.Marshal(agents.Agent{LLM: "x"})
+	out, err = yamlx.Marshal(agents.Agent{LLM: "x"})
 	require.NoError(t, err)
 	assert.NotContains(t, string(out), "permissions")
 

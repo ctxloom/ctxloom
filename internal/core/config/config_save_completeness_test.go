@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // This file is the UNTAGGED half of the config-save completeness pair. Its
@@ -67,7 +68,7 @@ func TestSessionReapAgeSurvivesSaveRoundTrip(t *testing.T) {
 		SessionReapAge: "45d",
 	})
 
-	data, err := yaml.Marshal(cfg)
+	data, err := yamlx.Marshal(cfg)
 	require.NoError(t, err)
 
 	reloaded, err := ParseConfig(data)
@@ -86,7 +87,7 @@ func TestUISurvivesSaveRoundTrip(t *testing.T) {
 		UI:            UIConfig{PrefixKey: "ctrl-b", Surround: &surround},
 	})
 
-	data, err := yaml.Marshal(cfg)
+	data, err := yamlx.Marshal(cfg)
 	require.NoError(t, err)
 
 	var doc configDoc
@@ -109,7 +110,7 @@ func TestDelegationDepthAloneSurvivesSaveRoundTrip(t *testing.T) {
 		Delegation:    DelegationConfig{Depth: 2},
 	})
 
-	data, err := yaml.Marshal(cfg)
+	data, err := yamlx.Marshal(cfg)
 	require.NoError(t, err)
 
 	var doc configDoc
@@ -125,13 +126,13 @@ func TestDelegationDepthAloneSurvivesSaveRoundTrip(t *testing.T) {
 // session_purge_age has NO default: unset reads as empty, so a sweep
 // reports its purge rows and acts on none of them.
 func TestSessionPurgeAgeSurvivesSaveRoundTrip(t *testing.T) {
-	data, err := yaml.Marshal(NewFixture(Fixture{SchemaVersion: CurrentConfigVersion, SessionPurgeAge: "180d"}))
+	data, err := yamlx.Marshal(NewFixture(Fixture{SchemaVersion: CurrentConfigVersion, SessionPurgeAge: "180d"}))
 	require.NoError(t, err)
 	reloaded, err := ParseConfig(data)
 	require.NoError(t, err)
 	assert.Equal(t, "180d", reloaded.SessionPurgeAge())
 
-	data, err = yaml.Marshal(NewFixture(Fixture{SchemaVersion: CurrentConfigVersion}))
+	data, err = yamlx.Marshal(NewFixture(Fixture{SchemaVersion: CurrentConfigVersion}))
 	require.NoError(t, err)
 	reloaded, err = ParseConfig(data)
 	require.NoError(t, err)

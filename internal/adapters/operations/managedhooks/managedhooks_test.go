@@ -6,11 +6,11 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -153,7 +153,7 @@ func eventWithCommands(t *testing.T, cmds ...string) *Hooks {
 	for _, c := range cmds {
 		hooks = append(hooks, wire.Hook{Command: c, Type: "command"})
 	}
-	body, err := yaml.Marshal(map[string]any{"hooks": wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: hooks}}})
+	body, err := yamlx.Marshal(map[string]any{"hooks": wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: hooks}}})
 	require.NoError(t, err)
 	return Assemble(dirProfileCfg(t, []string{"p"}, map[string]string{"p": string(body)}), nil)
 }
@@ -305,7 +305,7 @@ func TestManagedHooks_ReorderOfAnEmptyEventIsNotAnError(t *testing.T) {
 // rows for hooks that do not exist, and the gate that decides every declared
 // hook (gateProfileHooks) does not carry one onto the wire either.
 func TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys(t *testing.T) {
-	body, err := yaml.Marshal(map[string]any{"hooks": wire.HooksConfig{
+	body, err := yamlx.Marshal(map[string]any{"hooks": wire.HooksConfig{
 		Ext: map[string]wire.BackendHooks{
 			"zed":    {"PreCompact": []wire.Hook{{Command: "z-native"}}},
 			"claude": {"PreToolUse": []wire.Hook{{Command: "c-native"}}, "PostToolUse": {}},

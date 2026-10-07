@@ -51,6 +51,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -376,7 +377,7 @@ func Load(workDir string, fs *pflag.FlagSet) (Config, error) {
 		return Config{}, err
 	}
 
-	data, err := yaml.Marshal(merged)
+	data, err := yamlx.Marshal(merged)
 	if err != nil {
 		return Config{}, fmt.Errorf("taskloom: remarshal merged config: %w", err)
 	}

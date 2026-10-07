@@ -7,7 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // MergeHooksConfig is the nil-handling wrapper over HooksConfig.Append that
@@ -82,9 +83,9 @@ func TestHooksConfig_Append_EmptySourceLeavesExtNil(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, string(wantJSON), string(gotJSON))
 
-	wantYAML, err := yaml.Marshal(pristine)
+	wantYAML, err := yamlx.Marshal(pristine)
 	require.NoError(t, err)
-	gotYAML, err := yaml.Marshal(dest)
+	gotYAML, err := yamlx.Marshal(dest)
 	require.NoError(t, err)
 	assert.Equal(t, string(wantYAML), string(gotYAML))
 }

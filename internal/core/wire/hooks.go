@@ -86,7 +86,7 @@ type HooksConfig struct {
 // misspelled event, a key that once meant something — would leave those hooks
 // unwritten with every signal green.
 func (h *HooksConfig) UnmarshalYAML(node *yaml.Node) error {
-	data, err := yaml.Marshal(node)
+	data, err := yamlx.Marshal(node)
 	if err != nil {
 		return err
 	}

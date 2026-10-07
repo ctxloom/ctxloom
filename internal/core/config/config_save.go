@@ -51,7 +51,7 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 	// is re-encoded, exactly like the comment-preserving upgrade path, rather than
 	// re-emitting a sorted, comment-stripped map[string]interface{} marshal on
 	// every write (U049-F16). A first write (no existing bytes) emits a fresh
-	// document with every key sorted: the same bytes yaml.Marshal(c.Authored())
+	// document with every key sorted: the same bytes yamlx.Marshal(c.Authored())
 	// produces.
 	data, err := marshalPreservingComments(existingData, merged)
 	if err != nil {
@@ -98,9 +98,9 @@ func marshalPreservingComments(original []byte, desired map[string]any) ([]byte,
 		return nil, err
 	}
 	if haveDoc {
-		return yaml.Marshal(&doc)
+		return yamlx.Marshal(&doc)
 	}
-	return yaml.Marshal(root)
+	return yamlx.Marshal(root)
 }
 
 // reconcileMappingNode mutates root (a mapping node) so it represents desired,
@@ -160,8 +160,13 @@ func nodeCanonicallyEqual(node *yaml.Node, v any) (bool, error) {
 	return bytes.Equal(a, b), nil
 }
 
+// canonicalYAML is v re-encoded through a generic decode, so values that
+// differ only in Go type compare alike. Its look-alikes by shape (fsstatic's
+// canon, sessions' decodeSidecar) encode no YAML, so the one-encoder change has
+// no counterpart there.
+// reprise:accept-drift
 func canonicalYAML(v any) ([]byte, error) {
-	raw, err := yaml.Marshal(v)
+	raw, err := yamlx.Marshal(v)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +174,7 @@ func canonicalYAML(v any) ([]byte, error) {
 	if err := yaml.Unmarshal(raw, &g); err != nil {
 		return nil, err
 	}
-	return yaml.Marshal(g)
+	return yamlx.Marshal(g)
 }
 
 // readExistingConfig loads the current config file into a generic map so that

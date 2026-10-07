@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -16,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // The ctxloom:// resource URIs this endpoint serves. The catalog resources
@@ -344,8 +344,12 @@ func (s loadoutSurface) handleCommand(_ context.Context, req *mcp.ReadResourceRe
 	return nil, fmt.Errorf("command %q is not carried by this session's package (the catalog is %s)", name, resourceCommandsURI)
 }
 
+// marshalResourceYAML renders v as a YAML resource. Its look-alike,
+// taskloom's jsonResourceResult, renders JSON, so encoding YAML through
+// yamlx.Marshal has no counterpart there.
+// reprise:accept-drift
 func marshalResourceYAML(uri string, v any) (*mcp.ReadResourceResult, error) {
-	data, err := yaml.Marshal(v)
+	data, err := yamlx.Marshal(v)
 	if err != nil {
 		return nil, err
 	}

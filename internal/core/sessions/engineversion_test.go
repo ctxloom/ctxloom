@@ -5,7 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 func newIndexManager(t *testing.T) (*Manager, string) {
@@ -91,7 +92,7 @@ func TestEngineVersion_IsAdditiveAndOmitted(t *testing.T) {
 	assert.Empty(t, got.EngineVersion, "a pre-field session carries no version — which the read path treats as unknown")
 
 	// And a session with no version must not gain an engine_version key.
-	out, err := yaml.Marshal(Entry{HarpName: "h", ProjectDir: "/p"})
+	out, err := yamlx.Marshal(Entry{HarpName: "h", ProjectDir: "/p"})
 	require.NoError(t, err)
 	assert.NotContains(t, string(out), "engine_version",
 		"omitempty keeps the key out of files that have nothing to say, so an older binary reads back what it wrote")

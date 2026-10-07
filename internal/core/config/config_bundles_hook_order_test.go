@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
@@ -117,7 +117,7 @@ func TestExtractHooksFromBundle_OrderIsConsumedAndNeverSerialized(t *testing.T) 
 	assert.NotContains(t, string(encoded), "4242",
 		"the order VALUE leaked into a hook's serialized form:\n%s", encoded)
 
-	yamlEncoded, err := yaml.Marshal(got.PreTool[0])
+	yamlEncoded, err := yamlx.Marshal(got.PreTool[0])
 	require.NoError(t, err)
 	assert.NotContains(t, string(yamlEncoded), "4242",
 		"the order VALUE leaked into a hook's YAML form:\n%s", yamlEncoded)

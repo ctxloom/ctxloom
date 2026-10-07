@@ -353,6 +353,11 @@ Grouped by what you would have to change.
   key the schema does not have (a `name:` key, for one) or a value of the wrong
   type is a fatal finding naming the file and the offending key; `--degraded`
   downgrades it to a warning and launches with the profile as read.
+- Every YAML file ctxloom saves is written in one format, two-space indented:
+  the same bytes `--write-upgrades` writes. A file you wrote by hand is
+  reindented the next time ctxloom saves it. `.ctxloom/config.yaml` keeps its
+  comments and key order; a file ctxloom re-renders from its own model, such
+  as a bundle's `bundle.yaml`, does not keep its comments.
 
 **Isolation**
 - The container runtime axis splits into two ownership modes,

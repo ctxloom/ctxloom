@@ -14,13 +14,13 @@ import (
 
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/app"
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 	"github.com/ctxloom/ctxloom/internal/ltk/state"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // readmePath is the ltk README, relative to this package's directory. Its
@@ -80,7 +80,7 @@ func commandRule(id, command, message, suggest string, mode rules.Mode) (rules.C
 	if len(options) > 0 {
 		match["args_all"] = options
 	}
-	doc, err := yaml.Marshal(map[string]any{
+	doc, err := yamlx.Marshal(map[string]any{
 		"schema_version": 1,
 		"defaults":       map[string]int{"repeat_window_seconds": int(confirmWindow.Seconds())},
 		"rules": []map[string]any{{

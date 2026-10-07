@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/spf13/afero"
 
 	"gopkg.in/yaml.v3"
@@ -1106,7 +1107,7 @@ func (c *Compactor) saveCompacted(sessionID, body string, meta compactedMeta) (s
 	meta.SchemaVersion = essenceKind.Current()
 	meta.CompactedAt = time.Now().UTC()
 
-	frontmatter, err := yaml.Marshal(meta)
+	frontmatter, err := yamlx.Marshal(meta)
 	if err != nil {
 		return "", fmt.Errorf("marshal frontmatter: %w", err)
 	}

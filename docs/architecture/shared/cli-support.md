@@ -23,7 +23,7 @@ flowchart TD
   end
 
   CFMT["pkg/clifmt<br/>Format, Render, RenderError, EncodeWarning"]
-  YAMLX["internal/shared/yamlx<br/>MapValue, MapSet, ScalarNode"]
+  YAMLX["internal/shared/yamlx<br/>Marshal, MapValue, MapSet, ScalarNode"]
   SESS["internal/core/sessions<br/>session index, OutputDir"]
 
   CLI & TL --> CD
@@ -128,7 +128,7 @@ Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators 
 | `Pipeline` | An ordered `[]Upgrader`. It is not itself an `Upgrader`; pipelines do not nest. |
 | `Pipeline.Run` | The byte driver: parse exactly one document (`DecodeSingle`) → require a mapping root → refuse a document with a duplicate key (`HasDuplicateKey`) → run stages collecting names → re-encode (`Encode`) if any fired. Returns `(out []byte, applied []string, err error)`; the only error is `ErrEncode`, a changed document that cannot be serialized again. |
 | `DecodeSingle` | Parses a stream that must hold exactly one document: `io.EOF` for an empty or comment-only stream, `ErrMultiDocument` for a second document, the yaml error for malformed input. |
-| `Encode` | Serializes a document node the way every upgrade writes one back (two-space indent). |
+| `Encode` | Serializes a document node the way every upgrade writes one back: `yamlx.Marshal` (two-space indent), the one encoder every ordinary save uses too, so a file upgraded by `--write-upgrades` and the same file saved normally are the same bytes. A lint rule (`.golangci.yml`, forbidigo) forbids `yaml.Marshal` and `yaml.NewEncoder` outside `yamlx`. |
 | `HasDuplicateKey` | Reports a mapping anywhere in the tree that repeats a key — which a `yaml.Node` decode accepts but every struct decode refuses. |
 | `Pending` | `{Path string; Data []byte; Applied []string}` — records that a load upgraded an older document in memory; `Data` is "ready to persist verbatim". |
 | `Version` | Reads a top-level int schema version as `(version int, ok bool)`: a missing key is `(0, true)`, the pre-versioning generation; a present but non-integer value is `(0, false)`. |

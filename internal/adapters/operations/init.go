@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -16,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -263,7 +263,7 @@ func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([
 		setBlockMode(&seed.Permissions, engine, headlessPermissions)
 		f.Agents[SeedProfileName] = seed
 	}
-	return yaml.Marshal(config.NewFixture(f).Authored())
+	return yamlx.Marshal(config.NewFixture(f).Authored())
 }
 
 // engineRegistry builds the llm block for an engine by selecting its

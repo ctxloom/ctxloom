@@ -23,6 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Entry is one row in the project registry: a stable project-id and the path
@@ -103,7 +104,7 @@ func (m *Manager) loadLocked() (*registry, error) {
 
 func (m *Manager) saveLocked(reg *registry) error {
 	reg.SchemaVersion = registryKind.Current()
-	data, err := yaml.Marshal(reg)
+	data, err := yamlx.Marshal(reg)
 	if err != nil {
 		return fmt.Errorf("marshal registry: %w", err)
 	}

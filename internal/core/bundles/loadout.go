@@ -100,7 +100,7 @@ func ParseLoadout(data []byte) (*Loadout, error) {
 		lo.Run = emptyBundle()
 		return lo, nil
 	}
-	runBytes, err := yaml.Marshal(&doc.Run)
+	runBytes, err := yamlx.Marshal(&doc.Run)
 	if err != nil {
 		return nil, fmt.Errorf("loadout run section: %w", err)
 	}

@@ -26,8 +26,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/spf13/afero"
-	"gopkg.in/yaml.v3"
 )
 
 // imageBuildTimeout caps one on-the-fly agent-image build. The production
@@ -636,7 +636,7 @@ func stageImageHomeConfig(home string, staged []string) error {
 	if len(staged) == 0 {
 		return nil
 	}
-	data, err := yaml.Marshal(imageHomeConfig{SchemaVersion: config.CurrentConfigVersion, Companions: staged})
+	data, err := yamlx.Marshal(imageHomeConfig{SchemaVersion: config.CurrentConfigVersion, Companions: staged})
 	if err != nil {
 		return fmt.Errorf("companions build context: home config: %w", err)
 	}

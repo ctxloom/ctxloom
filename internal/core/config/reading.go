@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Builder is the reading half's hand-off into the value: adapters/configload
@@ -55,7 +56,7 @@ func (b *Builder) Warn(k WarningKind, format string, args ...any) {
 // UnmarshalYAML), and a document the value cannot decode is a warning, not a
 // refusal: the layers were read and validated — this failure is ours.
 func (b *Builder) Decode(merged map[string]any) {
-	mergedYAML, err := yaml.Marshal(merged)
+	mergedYAML, err := yamlx.Marshal(merged)
 	if err != nil {
 		b.cfg.warn(WarnKindParse, "failed to remarshal layered config: %v", err)
 		zap.L().Warn("config_layer_remarshal_warning", zap.Error(err))

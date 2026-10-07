@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // scope is what a mutation run covers: the whole tree, or the changeset
@@ -198,7 +200,7 @@ func (c *gremlinsConfig) mutable(path string) bool {
 func (c *gremlinsConfig) shardConfig(others []string) ([]byte, error) {
 	var doc map[string]any
 	// Round-trip for a deep copy: the loaded document is shared.
-	raw, err := yaml.Marshal(c.doc)
+	raw, err := yamlx.Marshal(c.doc)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +221,7 @@ func (c *gremlinsConfig) shardConfig(others []string) ([]byte, error) {
 		unleash["exclude-files"] = append(excl, "^(?:"+strings.Join(quoted, "|")+")$")
 	}
 	unleash["threshold"] = map[string]any{"efficacy": 0, "mutant-coverage": 0}
-	return yaml.Marshal(doc)
+	return yamlx.Marshal(doc)
 }
 
 // diffCandidates is gremlins' changeset for base — it runs `git diff

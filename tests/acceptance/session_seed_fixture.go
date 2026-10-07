@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // sessionSeed is what a fixture records about a session it plants: the keys
@@ -62,7 +63,7 @@ func seedSessionSidecar(w *World, harp string, seed sessionSeed) error {
 	// carries the stamp its writer would; mergeSessionSidecar leaves it unset
 	// and keeps the record's own.
 	seed.SchemaVersion = sessionSidecarSchemaVersion
-	body, err := yaml.Marshal(seed)
+	body, err := yamlx.Marshal(seed)
 	if err != nil {
 		return fmt.Errorf("seed session %q: %w", harp, err)
 	}
@@ -116,7 +117,7 @@ func mergeSessionSidecar(w *World, harp string, seed sessionSeed) error {
 	if err := yaml.Unmarshal([]byte(existing), &doc); err != nil {
 		return fmt.Errorf("merge into session %q: parse its record: %w", harp, err)
 	}
-	overlay, err := yaml.Marshal(seed)
+	overlay, err := yamlx.Marshal(seed)
 	if err != nil {
 		return fmt.Errorf("merge into session %q: %w", harp, err)
 	}
@@ -130,7 +131,7 @@ func mergeSessionSidecar(w *World, harp string, seed sessionSeed) error {
 	for k, v := range fields {
 		doc[k] = v
 	}
-	body, err := yaml.Marshal(doc)
+	body, err := yamlx.Marshal(doc)
 	if err != nil {
 		return err
 	}

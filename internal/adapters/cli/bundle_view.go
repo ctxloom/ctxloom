@@ -7,12 +7,12 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // bundleViewResult is emit()'s result for `bundle view`: Content is exactly
@@ -197,7 +197,7 @@ const profileViewPrefix = "profiles/"
 // renderBundleViewItem differ only in heading and in what a marshal failure is
 // called, so the shape lives here once. what names the item in that error.
 func writeViewYAML(w *errwriter.Writer, heading string, v any, what string) error {
-	data, err := yaml.Marshal(v)
+	data, err := yamlx.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("failed to marshal %s: %w", what, err)
 	}

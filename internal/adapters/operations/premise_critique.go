@@ -8,6 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Pass 2 of premise authoring: ATTACK a drafted premise rather than polish it.
@@ -103,7 +104,7 @@ func critiquePayload(name, body string, draft *PremiseDraft, siblings []PremiseI
 	if premise == "" {
 		premise = premiseNone
 	}
-	draftDoc, err := yaml.Marshal(premiseDraftDoc{
+	draftDoc, err := yamlx.Marshal(premiseDraftDoc{
 		Premise: &premise, Moments: draft.Moments, NotFor: draft.NotFor, Split: draft.SplitHint,
 	})
 	if err != nil {
@@ -117,7 +118,7 @@ func critiquePayload(name, body string, draft *PremiseDraft, siblings []PremiseI
 	for _, s := range siblings {
 		rows = append(rows, sibling(s))
 	}
-	sibDoc, err := yaml.Marshal(rows)
+	sibDoc, err := yamlx.Marshal(rows)
 	if err != nil {
 		return "", fmt.Errorf("render siblings: %w", err)
 	}

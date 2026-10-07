@@ -64,6 +64,9 @@ linters:
     - forbidigo
   settings:
     forbidigo:
+      # Type-aware matching, so an aliased import (yamlv3.Marshal) is matched
+      # by its package path rather than slipping past a text pattern.
+      analyze-types: true
       forbid:
         - pattern: 'os\.Setenv'
           msg: 'use t.Setenv (auto-restores) or testsupport.Isolate/ProjectDir'
@@ -71,6 +74,13 @@ linters:
           msg: 'use testsupport.ProjectDir'
         - pattern: '\.ResetConnectBackoff$'
           msg: 'grpc iterates the conn''s subconn map outside its lock here, racing the balancer; dial a fresh conn per attempt instead (runner.Home.runChannelAttempt)'
+        # One encoder for everything: yamlx.Marshal is the only YAML serializer,
+        # so an ordinary save and the --write-upgrades write-back (upgrade.Encode,
+        # which delegates to it) produce the same bytes. Tests included: a test
+        # that renders YAML another way pins a format nothing writes.
+        - pattern: '^yaml\.(Marshal|NewEncoder)$'
+          pkg: '^gopkg\.in/yaml\.v3$'
+          msg: 'serialize YAML with yamlx.Marshal (internal/shared/yamlx), the one encoder every writer and the upgrade write-back share'
   exclusions:
     presets:
       - std-error-handling
@@ -79,6 +89,21 @@ linters:
         linters:
           - forbidigo
         text: 'os\.(Setenv|Chdir)'
+      # yamlx is the encoder itself.
+      - path: 'internal/shared/yamlx/'
+        linters:
+          - forbidigo
+        text: 'yamlx\.Marshal'
+      # pkg/clifmt renders --format yaml command OUTPUT, not a file ctxloom
+      # saves, and it is the module's standalone leaf library (stdlib, toml and
+      # yaml.v3 only; docs/architecture/companions/clifmt.md). Routing it through
+      # internal/shared/yamlx would tie it to ctxloom's internals and change the
+      # --format yaml output of every command, which the one-encoder ruling did
+      # not ask for.
+      - path: 'pkg/clifmt/marshal\.go'
+        linters:
+          - forbidigo
+        text: 'yamlx\.Marshal'
 
 # v2 moved formatting checks out of `linters:` into this separate top-level
 # section. Without it, `just lint` never gates Go source formatting at all —

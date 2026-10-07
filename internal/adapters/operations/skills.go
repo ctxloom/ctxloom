@@ -8,11 +8,11 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // This file is the operations core for `ctxloom skill`: author (create,
@@ -205,7 +205,7 @@ type CreateSkillResult struct {
 // just the shipped placeholder.
 func skillTemplate(name, description string) string {
 	fm := bundles.SkillFrontmatter{Name: name, Description: description}
-	data, err := yaml.Marshal(fm)
+	data, err := yamlx.Marshal(fm)
 	if err != nil {
 		// SkillFrontmatter holds only strings/slices/maps, so yaml.Marshal
 		// cannot fail on it — genuinely unreachable. A fallback here used to
@@ -214,7 +214,7 @@ func skillTemplate(name, description string) string {
 		// yaml.Marshal exists to prevent, for zero benefit since the branch
 		// could never run. Panic loudly instead of silently reintroducing the
 		// bug it would be covering for.
-		panic(fmt.Sprintf("skillTemplate: yaml.Marshal of SkillFrontmatter failed unexpectedly: %v", err))
+		panic(fmt.Sprintf("skillTemplate: yamlx.Marshal of SkillFrontmatter failed unexpectedly: %v", err))
 	}
 	return "---\n" + string(data) + "---\n\n# " + name + "\n\nTODO: describe what this skill does and how to use it.\n"
 }

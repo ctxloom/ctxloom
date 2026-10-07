@@ -5,7 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // TestCompanionsSurviveSaveRoundTrip pins the registration key end to end: a
@@ -17,9 +18,9 @@ func TestCompanionsSurviveSaveRoundTrip(t *testing.T) {
 		Companions:    []string{"acme", "ltk"},
 	})
 
-	data, err := yaml.Marshal(cfg)
+	data, err := yamlx.Marshal(cfg)
 	require.NoError(t, err)
-	assert.Contains(t, string(data), "companions:\n    - acme\n    - ltk\n")
+	assert.Contains(t, string(data), "companions:\n  - acme\n  - ltk\n")
 
 	reloaded, err := ParseConfig(data)
 	require.NoError(t, err)

@@ -34,6 +34,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Records is the ownership record: one record per TARGET FILE, naming for each
@@ -530,7 +531,7 @@ func (t *targetOps) writeRecord(before []byte, existed bool, after []byte, keep 
 		return nil
 	}
 	rec.SchemaVersion, rec.Target = claimsKind.Current(), t.target
-	data, err := yaml.Marshal(rec)
+	data, err := yamlx.Marshal(rec)
 	if err != nil {
 		return err
 	}
@@ -559,7 +560,7 @@ func (t *targetOps) confirm() error {
 		}
 		return nil
 	}
-	data, err := yaml.Marshal(rec)
+	data, err := yamlx.Marshal(rec)
 	if err != nil {
 		return err
 	}

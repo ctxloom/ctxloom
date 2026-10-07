@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 func ptrBool(b bool) *bool { return &b }
@@ -65,7 +66,7 @@ func TestConfigRender_SectionPresence(t *testing.T) {
 			cfg := &Config{}
 			tt.mutate(cfg)
 
-			data, err := yaml.Marshal(cfg)
+			data, err := yamlx.Marshal(cfg)
 			require.NoError(t, err)
 			var out map[string]any
 			require.NoError(t, yaml.Unmarshal(data, &out))

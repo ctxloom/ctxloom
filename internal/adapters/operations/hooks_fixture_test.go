@@ -6,12 +6,12 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -26,7 +26,7 @@ import (
 // Pass the fs the test already uses; appDir is where .ctxloom lives in it.
 func cfgWithProfileHooks(t *testing.T, fs afero.Fs, appDir string, h wire.HooksConfig, f config.Fixture) *config.Config {
 	t.Helper()
-	body, err := yaml.Marshal(map[string]any{"hooks": h})
+	body, err := yamlx.Marshal(map[string]any{"hooks": h})
 	require.NoError(t, err)
 	profilesDir := bundletree.ProjectProfilesDirFS(t, fs, appDir)
 	require.NoError(t, fs.MkdirAll(profilesDir, 0o755))

@@ -349,7 +349,7 @@ func TestSkillReadPaths_NilConfigReturnsErrorNotPanic(t *testing.T) {
 func TestSkillTemplate_MarshalFailureFallbackDeleted(t *testing.T) {
 	out := skillTemplate("my-skill", "TODO: describe this, dangerously")
 	assert.Contains(t, out, `description: 'TODO: describe this, dangerously'`,
-		"yaml.Marshal must quote a colon-space-bearing description, never hand it to naive fmt interpolation")
+		"yamlx.Marshal must quote a colon-space-bearing description, never hand it to naive fmt interpolation")
 	// Round-trip: a real YAML parse of the frontmatter must recover the exact
 	// description — the naive fmt.Sprintf fallback this test guards against
 	// would have produced a colon that breaks the plain scalar and misparses.

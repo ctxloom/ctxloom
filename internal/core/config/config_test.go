@@ -7,6 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -1181,7 +1182,7 @@ func TestFragmentRef_MarshalYAML(t *testing.T) {
 			{Name: "simple", Priority: 0},
 			{Name: "prioritized", Priority: 5},
 		}
-		data, err := yaml.Marshal(original)
+		data, err := yamlx.Marshal(original)
 		require.NoError(t, err)
 
 		var loaded []FragmentRef

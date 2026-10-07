@@ -218,20 +218,10 @@ func (u *upgradeRound) decide(p PinnedRef) {
 		return
 	}
 	moved := !has || cur.SHA != p.Hash
-	u.plan.next.AddEntry(p.Type, p.Identity, upgradedEntry(p, cur, moved))
+	u.plan.next.AddEntry(p.Type, p.Identity, pinnedEntry(p))
 	if moved {
 		u.plan.moved = append(u.plan.moved, p)
 	}
-}
-
-// upgradedEntry is the lock entry p lands as: an unmoved pin keeps the fetch
-// time it was recorded with.
-func upgradedEntry(p PinnedRef, cur remote.LockEntry, moved bool) remote.LockEntry {
-	entry := pinnedEntry(p)
-	if !moved {
-		keepFetchedAt(&entry, cur)
-	}
-	return entry
 }
 
 // preserveUnreachedEntries carries every active entry the new lock does not
@@ -255,8 +245,8 @@ func preserveUnreachedEntries(active, newActive *remote.Lockfile, unexpandedCoun
 //
 // NOTHING DECLARED, AND NOTHING ON DISK TO PROTECT. Writing then would
 // CREATE a lockfile that pins nothing — a project marker for a project that
-// does not exist — or re-stamp LockedAt on an empty one to record a check
-// that had nothing to check. Save's own guard is the mirror image of this
+// does not exist — or rewrite an empty one to record a check that had
+// nothing to check. Save's own guard is the mirror image of this
 // one and deliberately does not cover it: ErrLockfileWouldErase protects
 // entries that EXIST, and by construction there are none here, so an empty
 // write is a legitimate success at that layer (a genuinely empty project

@@ -140,7 +140,7 @@ func TestClosureParity_UnreferencedPinAgreedByPullCheckUpgrade(t *testing.T) {
 	lf := p.lock(t)
 	kitEntry, ok := lf.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, p.kitRef))
 	require.True(t, ok)
-	lf.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, p.containRef), remote.LockEntry{SHA: kitEntry.SHA, URL: kitEntry.URL, FetchedAt: time.Now().UTC()})
+	lf.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, p.containRef), remote.LockEntry{SHA: kitEntry.SHA, URL: kitEntry.URL})
 	require.NoError(t, lm.Save(lf))
 	addFileToLocalRepo(t, p.repoDir, "README.md", "moved on\n")
 
@@ -291,7 +291,7 @@ func TestPull_LockRebuildNamesDroppedEntries(t *testing.T) {
 	lf := p.lock(t)
 	kitEntry, ok := lf.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, p.kitRef))
 	require.True(t, ok)
-	lf.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, p.containRef), remote.LockEntry{SHA: kitEntry.SHA, URL: kitEntry.URL, FetchedAt: time.Now().UTC()})
+	lf.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, p.containRef), remote.LockEntry{SHA: kitEntry.SHA, URL: kitEntry.URL})
 	require.NoError(t, remote.NewLockfileManager(p.appDir).Save(lf))
 	// Something must install for the rebuild to run.
 	p.removeTree(t, p.kitRef)

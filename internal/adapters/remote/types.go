@@ -167,9 +167,6 @@ type LockEntry struct {
 	// existed — SelectorKind() derives it from RequestedVersion in that case.
 	Kind SelectorKind `yaml:"kind,omitempty" json:"kind,omitempty"`
 
-	// FetchedAt is when the item was pulled
-	FetchedAt time.Time `yaml:"fetched_at" json:"fetched_at"`
-
 	// Held freezes this entry at the recorded SHA (a "hold"): `deps upgrade`
 	// leaves it put even when its constraint would allow a newer commit, and a
 	// lock rebuild carries the flag forward. Toggled via `ctxloom deps
@@ -183,16 +180,19 @@ type LockEntry struct {
 // Lockfile represents the .ctxloom/lock.yaml file for pinning dependencies.
 // Only bundles are locked (top-level profile distribution was retired).
 type Lockfile struct {
-	Version  int                           `yaml:"schema_version" json:"version"`
-	LockedAt time.Time                     `yaml:"locked_at" json:"locked_at"`
-	Bundles  map[ident.BundleKey]LockEntry `yaml:"bundles,omitempty" json:"bundles,omitempty"`
+	Version int                           `yaml:"schema_version" json:"version"`
+	Bundles map[ident.BundleKey]LockEntry `yaml:"bundles,omitempty" json:"bundles,omitempty"`
 }
 
 // LockfileVersion is the lockfile format this build writes and the only one it
 // reads: entries keyed by bundle identity (Reference.LockKey, checked by
 // ErrLockKeyNotIdentity), decoded strictly. Load refuses anything older
 // (schemaver.ErrTooOld) or newer (schemaver.ErrNewer).
-const LockfileVersion = 2
+//
+// It records no time — no write time, no fetch time — so a lock changes only
+// when a pin, URL, kind or requested version does, and a pull at unchanged
+// pins rewrites it byte for byte.
+const LockfileVersion = 3
 
 // ManifestEntry represents an item in the optional manifest.yaml index.
 type ManifestEntry struct {

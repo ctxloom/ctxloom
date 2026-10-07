@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -80,4 +81,42 @@ func TestLoad_MalformedIsAParseFailureNotAVersionFault(t *testing.T) {
 	require.Error(t, err)
 	var ve *schemaver.VersionError
 	assert.NotErrorAs(t, err, &ve)
+}
+
+// v2LockWithTimes is a generation-2 lock as every release before 3 wrote it:
+// a write time on the file and a fetch time on each entry.
+const v2LockWithTimes = "# kept by hand\nschema_version: 2\nlocked_at: 2026-10-01T12:00:00Z\nbundles:\n  " +
+	string(schemaverLockKey) + ":\n    sha: abc123\n    fetched_at: 2026-09-30T08:00:00Z\n    held: true\n"
+
+// A generation-2 lock still carries the two times generation 3 dropped. Strict
+// decoding refuses any field the format does not model, so the migration must
+// remove them first: the lock loads with its pins and holds intact, and
+// reading it writes nothing.
+func TestLoad_V2WithTimesMigratesToCurrent(t *testing.T) {
+	lm := lockWithBody(t, v2LockWithTimes)
+	lock, err := lm.Load()
+	require.NoError(t, err)
+	entry, ok := lock.GetEntry(ItemTypeBundle, schemaverLockKey)
+	require.True(t, ok)
+	assert.Equal(t, LockEntry{SHA: "abc123", Held: true}, entry)
+	onDisk, err := afero.ReadFile(lm.FS(), lm.Path())
+	require.NoError(t, err)
+	assert.Equal(t, v2LockWithTimes, string(onDisk), "a load never writes without --write-upgrades")
+}
+
+// Under --write-upgrades the migrated generation-2 lock reaches disk at the
+// current generation, without either time and with its comment kept.
+func TestLoad_V2WriteUpgradesPersistsWithoutTimes(t *testing.T) {
+	flags := pflag.NewFlagSet("t", pflag.ContinueOnError)
+	schemaver.BindWriteUpgrades(flags)
+	t.Cleanup(func() { schemaver.BindWriteUpgrades(pflag.NewFlagSet("reset", pflag.ContinueOnError)) })
+	require.NoError(t, flags.Parse([]string{"--" + schemaver.WriteUpgradesFlag}))
+
+	lm := lockWithBody(t, v2LockWithTimes)
+	_, err := lm.Load()
+	require.NoError(t, err)
+	onDisk, err := afero.ReadFile(lm.FS(), lm.Path())
+	require.NoError(t, err)
+	assert.Equal(t, "# kept by hand\nschema_version: "+strconv.Itoa(LockfileVersion)+"\nbundles:\n  "+
+		string(schemaverLockKey)+":\n    sha: abc123\n    held: true\n", string(onDisk))
 }

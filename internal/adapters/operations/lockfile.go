@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/spf13/afero"
 
@@ -165,8 +164,8 @@ func relockKey(t remote.ItemType, id ident.BundleKey) string {
 
 // relockEntry is the entry p lands as in a rebuild, carrying what its previous
 // entry must keep. The rebuild never moves a pin (the lock-mode resolver
-// carries every existing SHA), so a carried pin keeps its constraint and fetch
-// time; Held carries regardless.
+// carries every existing SHA), so a carried pin keeps its constraint; Held
+// carries regardless.
 func relockEntry(p PinnedRef, prevEntries map[string]remote.LockEntry) remote.LockEntry {
 	entry := pinnedEntry(p)
 	prevEntry, ok := prevEntries[relockKey(p.Type, p.Identity)]
@@ -178,29 +177,16 @@ func relockEntry(p PinnedRef, prevEntries map[string]remote.LockEntry) remote.Lo
 		// The manifest may ask for something else now; only `deps upgrade`
 		// applies that (see constraintChanges).
 		entry.RequestedVersion = prevEntry.RequestedVersion
-		keepFetchedAt(&entry, prevEntry)
 	}
 	return entry
 }
 
-// pinnedEntry is the lock entry p resolves to, stamped as fetched now.
+// pinnedEntry is the lock entry p resolves to.
 // RequestedVersion records the manifest constraint so a later relock can carry
 // this SHA forward while the constraint is unchanged; Version records the tag a
 // semver constraint chose, for display and satisfaction checks.
 func pinnedEntry(p PinnedRef) remote.LockEntry {
-	return remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind,
-		FetchedAt: time.Now().UTC()}
-}
-
-// keepFetchedAt carries prev's fetch time onto entry when the pin did not move:
-// fetched_at records when THIS content was pulled, so rewriting the lock around
-// an unmoved pin is not a new fetch. A zero prev (an entry written before its
-// time was recorded) keeps entry's fresh stamp rather than a zero that reads as
-// data.
-func keepFetchedAt(entry *remote.LockEntry, prev remote.LockEntry) {
-	if !prev.FetchedAt.IsZero() {
-		entry.FetchedAt = prev.FetchedAt
-	}
+	return remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
 }
 
 // dropConflicted returns the pins whose identity is NOT in conflicts — used by

@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 
@@ -62,7 +61,6 @@ func TestUpgrade_AdvancesActiveLock(t *testing.T) {
 	c2 := addFileToLocalRepo(t, srcDirOf(ref), repoV2("demo2"), "name: demo2\n")
 	require.NotEqual(t, c1, c2)
 
-	before := time.Now().UTC()
 	res, err := UpgradeDependencies(ctx, cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)
 	assert.Len(t, res.Changes, 1)
@@ -70,8 +68,6 @@ func TestUpgrade_AdvancesActiveLock(t *testing.T) {
 	// The active lock now holds the new SHA — no approval step.
 	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, identity))
 	assert.Equal(t, c2, e1.SHA, "the upgrade advances the active lock directly")
-	// A moved pin was fetched by this upgrade, so it records this upgrade's time.
-	assert.False(t, e1.FetchedAt.Before(before), "an advanced entry's fetched_at %s must not predate the upgrade (%s)", e1.FetchedAt, before)
 
 	// The manifest still holds the bare constraint — never rewritten.
 	loaded, err := cfg.GetProfileLoader().Load("default")

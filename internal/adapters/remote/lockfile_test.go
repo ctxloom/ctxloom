@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -43,11 +42,9 @@ func TestLockfileManager_SaveAndLoad(t *testing.T) {
 		Bundles: make(map[ident.BundleKey]LockEntry),
 	}
 
-	now := time.Now().UTC().Truncate(time.Second)
 	lockfile.AddEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/ctxloom//bundles/go-tools", LockEntry{
-		SHA:       "abc1234def5678",
-		URL:       "https://github.com/alice/ctxloom",
-		FetchedAt: now,
+		SHA: "abc1234def5678",
+		URL: "https://github.com/alice/ctxloom",
 	})
 
 	// Save
@@ -345,27 +342,6 @@ func TestLockfileManager_Load_ReadError(t *testing.T) {
 	if err != nil {
 		// Expected if filesystem blocks reads
 		return
-	}
-}
-
-func TestLockfileManager_Save_SetsLockedAt(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	manager := NewLockfileManager("/test", WithLockfileFS(fs))
-
-	lockfile := &Lockfile{
-		Version: 1,
-		Bundles: make(map[ident.BundleKey]LockEntry),
-	}
-
-	before := time.Now().UTC()
-	if err := manager.Save(lockfile); err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
-	after := time.Now().UTC()
-
-	// LockedAt should be set during save
-	if lockfile.LockedAt.Before(before) || lockfile.LockedAt.After(after) {
-		t.Error("LockedAt should be set to current time")
 	}
 }
 

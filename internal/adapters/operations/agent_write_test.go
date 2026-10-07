@@ -612,10 +612,10 @@ func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 	assert.False(t, ok, "a refused write must not half-apply a binding")
 }
 
-// TestSetAgent_RetiredSurfaceApproachIsRefusedTyped: a binding naming an
-// approach whose writer was deleted is refused with the typed error that
-// names the replacement, and the refusal writes nothing.
-func TestSetAgent_RetiredSurfaceApproachIsRefusedTyped(t *testing.T) {
+// TestSetAgent_UnsupportedSurfaceApproachIsRefused: a binding naming an
+// approach the engine does not declare is refused, and the refusal writes
+// nothing.
+func TestSetAgent_UnsupportedSurfaceApproachIsRefused(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 
 	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
@@ -623,9 +623,8 @@ func TestSetAgent_RetiredSurfaceApproachIsRefusedTyped(t *testing.T) {
 		LLM:      ptr("claude-code"),
 		Surfaces: map[string]string{"settings": "hew-record"},
 	})
-	var retired *agent.RetiredApproachError
-	require.ErrorAs(t, err, &retired)
-	assert.Equal(t, agent.ApproachUnsafeFile, retired.Replacement)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), agent.ApproachUnsafeFile)
 
 	reloaded, rerr := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, rerr)

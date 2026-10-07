@@ -77,8 +77,8 @@ func (m *MockLM) Echo() error {
 // (a journey Given, another engine's WriteConfig call) had written.
 //
 // The mock's CTXLOOM_MOCK_* knobs ride the entry's `mock_control` map — test
-// control, which is fine in a project file. (The retired `env` key is not:
-// it is refused at load, see config.RetiredLLMEnvKey.)
+// control, which is fine in a project file. (`env` is not: the config schema
+// does not know it.)
 func (m *MockLM) WriteConfig() error {
 	if m.ProjectDir == "" {
 		return fmt.Errorf("ProjectDir not set; call SetupMockLM first")

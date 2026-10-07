@@ -411,8 +411,8 @@ func (w *depWalker) recurseParent(parentRef string) {
 	// bundle and walk ITS closure (its composed bundles + parents).
 	bundleRef, profName, ok := remote.SplitBundleProfileRef(parentRef)
 	if !ok {
-		// Not a bundle-profile ref — a retired top-level @profiles/ parent (or a
-		// malformed ref). No longer distributable; its subtree is gone.
+		// Not a bundle-profile ref — a malformed one. No longer
+		// distributable; its subtree is gone.
 		// This used to be silent — record it so a caller rebuilding
 		// the lockfile wholesale doesn't erase entries this subtree owned.
 		w.markUnexpanded(parentRef, errors.New("not a bundle-profile reference (<url>@bundles/x#profiles/y) — top-level @profiles/ parents are retired"))

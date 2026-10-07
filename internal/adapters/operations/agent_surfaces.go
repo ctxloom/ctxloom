@@ -38,9 +38,6 @@ func ResolveAgentSurfaces(reg engine.Registry, engine string, declared map[strin
 			return nil, fmt.Errorf("surfaces: %w", err)
 		}
 		approach = strings.TrimSpace(approach)
-		if replacement, retired := decl.Retired(kind, approach); retired {
-			return nil, &agent.RetiredApproachError{Engine: engine, Kind: kind, Name: approach, Replacement: replacement}
-		}
 		supported := decl.Names(kind)
 		if !slices.Contains(supported, approach) {
 			// Names is already sorted, so the message is stable; an empty set

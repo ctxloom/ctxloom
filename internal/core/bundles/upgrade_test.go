@@ -44,27 +44,19 @@ func TestParseBundle_CommandsWinsOverLegacyPrompts(t *testing.T) {
 	assert.NotContains(t, b.Commands, "old", "legacy prompts: must not override the current commands:")
 }
 
-// TestParseBundle_LegacySkillsKeyErrsLoud is the migration guard (D1, hard
-// break): `skills:` is repurposed for a future Agent Skills item-kind (Part B)
-// that never carries an inline `content:` field. An entry under `skills:`
-// still shaped like the legacy command/prompt item — a scalar `content:` —
-// must fail the load with a loud, actionable error rather than being silently
-// dropped (default YAML unmarshal ignores unknown keys) or misparsed.
-func TestParseBundle_LegacySkillsKeyErrsLoud(t *testing.T) {
-	legacy := []byte("version: \"1.0\"\nskills:\n  review:\n    description: d\n    content: c\n")
-	_, err := ParseBundle(legacy)
+// An entry under `skills:` carrying an inline `content:` (a command's shape)
+// is refused by the strict decode, naming the key, rather than dropped.
+func TestParseBundle_ContentShapedSkillIsRefused(t *testing.T) {
+	_, err := ParseBundle([]byte("version: \"1.0\"\nskills:\n  humanize:\n    path: skills/humanize\n  review:\n    content: c\n"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "skills:")
-	assert.Contains(t, err.Error(), "commands:")
-	assert.Contains(t, err.Error(), "review")
+	assert.Contains(t, err.Error(), "content")
 }
 
 // TestParseBundle_NewShapeSkillsKeyParsesAsSkill is the other half of the D1
 // guard, now that Part B's real skill item-kind exists: an entry under
 // `skills:` that does NOT carry `content:` (the legacy command shape) is a
 // genuine Agent Skill package reference and must parse cleanly into
-// Bundle.Skills, never error. Shape alone (presence/absence of `content:`)
-// is what detectLegacySkillsKey uses to tell the two apart deterministically.
+// Bundle.Skills, never error.
 func TestParseBundle_NewShapeSkillsKeyParsesAsSkill(t *testing.T) {
 	future := []byte("version: \"1.0\"\nskills:\n  humanize:\n    path: skills/humanize\n    tags: [writing]\n")
 	b, err := ParseBundle(future)
@@ -84,40 +76,6 @@ func TestParseBundle_NewShapeSkillsKeyDefaultsPath(t *testing.T) {
 	require.Contains(t, b.Skills, "humanize")
 	assert.Empty(t, b.Skills["humanize"].Path)
 	assert.Equal(t, "a note", b.Skills["humanize"].Notes)
-}
-
-// TestParseBundle_SkillsKeyLegacyEntryAmongNewShapeStillErrs guards the mixed
-// case: a `skills:` block with one legacy (content-bearing) entry alongside a
-// new-shape one must still fail loud on the legacy entry specifically — the
-// new-shape sibling does not "vote" the legacy entry into being accepted.
-func TestParseBundle_SkillsKeyLegacyEntryAmongNewShapeStillErrs(t *testing.T) {
-	mixed := []byte("version: \"1.0\"\nskills:\n  humanize:\n    path: skills/humanize\n  oldcmd:\n    content: c\n")
-	_, err := ParseBundle(mixed)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "oldcmd")
-	assert.Contains(t, err.Error(), "commands:")
-}
-
-// TestParseBundle_LegacySkillsKeyErrorOnARealBundle pins that every other
-// test of this guard hands ParseBundle a document with a root `name:` key —
-// which is precisely why nobody noticed that a REAL bundle.yaml has no such
-// key. Bundle.Name is `yaml:"-"`, so the marshaller never writes one and the
-// unmarshaller never reads one; the root scan for it found nothing and the
-// message opened with an empty identifier.
-//
-// The file identity belongs to the caller (LoadFile wraps this error with the
-// path), so the message must carry the entry names and no dangling blank.
-func TestParseBundle_LegacySkillsKeyErrorOnARealBundle(t *testing.T) {
-	// No `name:` — the shape ctxloom itself writes.
-	legacy := []byte("version: \"1.0\"\nskills:\n  review:\n    content: c\n")
-	_, err := ParseBundle(legacy)
-	require.Error(t, err)
-
-	msg := err.Error()
-	assert.Contains(t, msg, "review", "the offending entry must be named")
-	assert.Contains(t, msg, "commands:", "the remedy must be named")
-	assert.NotContains(t, msg, "bundle :", "no empty identifier where a name would go")
-	assert.NotContains(t, msg, "bundle:", "no empty identifier where a name would go")
 }
 
 // A bundle that is not YAML is its parse failure, not a version fault.

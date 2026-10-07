@@ -253,41 +253,6 @@ func SplitBundleProfileRef(ref string) (bundle, name string, ok bool) {
 	return ref[:i], ref[i+len(refuri.ProfileSelector):], true
 }
 
-// RetiredProfileSelector is the item-type segment of the RETIRED top-level
-// profile distribution grammar ("<url>@profiles/<name>"). Top-level profile
-// distribution was removed with ItemTypeProfile — profiles ship inside bundles
-// (ProfileSelector) — but the segment constant survives so load-time migration
-// (the profile upgrade pipeline) and sync collection can recognize the retired
-// form and steer it to the bundle-profile grammar instead of treating it as an
-// installable reference.
-const RetiredProfileSelector = "@profiles/"
-
-// SplitRetiredProfileRef reports whether ref is written in the retired
-// top-level profile distribution grammar ("<url>@profiles/<name>[@version]")
-// and splits it into the repo URL and bare profile name. Any trailing
-// "@<version>" pin is dropped: the successor "<bundle>#profiles/<name>" grammar
-// pins via the bundle's lockfile entry, not the ref. ok is false for anything
-// else — the successor form (carries a "#" selector), non-canonical refs, and
-// local names — so callers can hand any ref here safely.
-func SplitRetiredProfileRef(ref string) (url, name string, ok bool) {
-	ref = NormalizeRef(ref)
-	if !IsFetchAddressRef(ref) || strings.Contains(ref, "#") {
-		return "", "", false
-	}
-	i := strings.Index(ref, RetiredProfileSelector)
-	if i == -1 {
-		return "", "", false
-	}
-	url, name = ref[:i], ref[i+len(RetiredProfileSelector):]
-	if atIdx := strings.LastIndex(name, "@"); atIdx != -1 {
-		name = name[:atIdx]
-	}
-	if url == "" || name == "" {
-		return "", "", false
-	}
-	return url, name, true
-}
-
 // IsFetchAddressRef reports whether ref is spelled as a fetch address — an
 // http(s), file or scp-like repository URL a reference can be written over.
 // It does NOT recognise the canonical ctxloom+<scheme>:// spelling: a caller

@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"fmt"
 	"maps"
 	"slices"
 
@@ -84,25 +83,6 @@ func (d Declaration) Default(kind SurfaceKind) (string, bool) {
 		return "", false
 	}
 	return p.Default(), true
-}
-
-// Retired reports the approach that replaces a retired name for kind; false
-// when kind is absent or the name was never retired.
-func (d Declaration) Retired(kind SurfaceKind, name string) (string, bool) {
-	return d[kind].Retired(name)
-}
-
-// RetiredApproachError refuses a binding that names an approach whose
-// writer was deleted, naming the approach to select instead.
-type RetiredApproachError struct {
-	Engine      string
-	Kind        SurfaceKind
-	Name        string
-	Replacement string
-}
-
-func (e *RetiredApproachError) Error() string {
-	return fmt.Sprintf("surfaces %s=%s: %s's %q approach is retired; select %q instead", e.Kind, e.Name, e.Engine, e.Name, e.Replacement)
 }
 
 // AllNames is the union of every approach name across every kind, sorted:

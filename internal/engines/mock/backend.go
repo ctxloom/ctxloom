@@ -40,7 +40,7 @@ type Backend struct {
 // entry's body (Mock.NewConfig). Control carries the CTXLOOM_MOCK_* knobs
 // (response, exit code, record file) through to Execute via the run
 // request's env. It is TEST CONTROL, not credentials, and its key says so:
-// `mock_control`, not the retired `env` (config.RetiredLLMEnvKey) — no
+// `mock_control`, not `env` (which the config schema does not know) — no
 // real engine carries an environment map in its config, so the mock is
 // the only label body with one, and it must not read as the place a
 // credential goes. kind is the double the config drives: a decoded config

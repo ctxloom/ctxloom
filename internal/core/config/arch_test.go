@@ -247,9 +247,7 @@ func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 		// was aborted at startup and told their own valid key was unknown.
 		{
 			// `coordinator:` is deliberately absent: it was REMOVED, not
-			// renamed, and is now refused at load (agents.RetiredCoordinatorKey),
-			// so the parser no longer accepts this form and the schema is right
-			// to reject it. Delegation privilege is decided by depth against
+			// renamed, so the schema is right to reject it as unknown. Delegation privilege is decided by depth against
 			// delegation.depth, not declared per binding.
 			"agent driving binding",
 			"agents:\n  coord:\n    llm: fast\n    profiles: [review]\n    driving: oneshot\n",

@@ -446,8 +446,8 @@ func installIsoSpy(dir, engineName string, names ...string) error {
 // The spy's own output path (CTXLOOM_ISOSPY_OUT) is NOT in here: it reaches
 // the spy the way any variable reaches an engine — exported in the
 // environment ctxloom runs in, which the launched process inherits. The
-// config carries no environment for an engine at all (the retired `env` key
-// is refused at load, config.RetiredLLMEnvKey), and every scenario that
+// config carries no environment for an engine at all (`env` under a label is
+// an unknown key), and every scenario that
 // reaches the spy runs it on the host, where the ambient environment is the
 // engine's environment.
 func isoMatrixConfigYAML(engineType, engineHome, sessionAuth string) string {

@@ -216,9 +216,6 @@ func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
 func TestSurfaces_DeclaresContextThreeWaysMCPTwoAndTheRestOnce(t *testing.T) {
 	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachSystemPrompt, agent.ApproachHook},
 		testDeclaration().Names(agent.SurfaceContext))
-	replacement, retired := testDeclaration().Retired(agent.SurfaceSettings, ApproachHewRecord)
-	assert.True(t, retired, "hew-record is retired, not merely unknown")
-	assert.Equal(t, agent.ApproachUnsafeFile, replacement)
 	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachMCPConfig}, testDeclaration().Names(agent.SurfaceMCP))
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
 		assert.Equal(t, []string{agent.ApproachUnsafeFile}, testDeclaration().Names(kind), "%s", kind)

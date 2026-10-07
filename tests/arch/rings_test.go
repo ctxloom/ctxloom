@@ -14,8 +14,7 @@ import (
 
 // ringPrefixes are the directories a ctxloom package may live in: the three
 // rings, the toolbox, the family products, the format migrations, the
-// test-only tree and the
-// composition roots. The module also carries packages that are not ctxloom's
+// test-only tree and the composition roots. The module also carries packages that are not ctxloom's
 // to restructure — the standalone `pkg/clifmt` library, the embedded
 // `resources` and `container` data, the `scripts/` tools and the `tests/`
 // trees — and those roots are tolerated by name.

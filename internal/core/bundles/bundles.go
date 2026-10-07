@@ -16,8 +16,6 @@ import (
 	"strconv"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
@@ -46,10 +44,8 @@ type Bundle struct {
 
 	// Skills are Agent Skill packages (SKILL.md dir + optional scripts/assets),
 	// model-invoked via progressive disclosure — a different concept from
-	// Commands (user-invoked slash templates). The `skills:` key was freed for
-	// this meaning by the skill->command rename (Part A of the skill/command
-	// split); see detectLegacySkillsKey for the migration guard that keeps a
-	// leftover legacy (command-shaped) entry from being silently misread.
+	// Commands (user-invoked slash templates). A command-shaped entry (an
+	// inline `content:`) under `skills:` is refused by the strict decode.
 	Skills map[string]BundleSkill `yaml:"skills,omitempty"`
 
 	// Profiles shipped with this bundle, keyed by name. A profile is an
@@ -500,10 +496,7 @@ type BundleCommand struct {
 // BundleFragment/BundleCommand, a skill carries NO inline `content:` and NO
 // distillation: SKILL.md's description IS the progressive-disclosure
 // mechanism a model reads before deciding to load the rest of the package, and
-// distilling a model-facing capability description would defeat that. This
-// shape difference (no `content:`) is exactly what lets detectLegacySkillsKey
-// tell a real skill entry apart from a legacy command entry still sitting
-// under the reserved `skills:` key.
+// distilling a model-facing capability description would defeat that.
 //
 // The package's files are not declared here: the skill directory IS the
 // package, and ParseSkillPackage reads its manifest from the tree.
@@ -771,17 +764,6 @@ func ParseBundle(raw []byte) (*Bundle, error) {
 	if err != nil {
 		return nil, err
 	}
-	data := upgraded.Data
-
-	// `skills:` is reserved for a future, different item-kind (Agent Skills,
-	// SKILL.md packages) that never carries an inline `content:` field. Detect
-	// any leftover legacy (command-shaped) entry under `skills:` and fail loud
-	// — a permanent rewrite is impossible here (it would corrupt real Agent
-	// Skills once that item-kind exists), and a silent unmarshal-drop would be
-	// exactly the silent-no-op this codebase treats as a bug.
-	if err := detectLegacySkillsKey(data); err != nil {
-		return nil, err
-	}
 
 	// STRICT: a key the Bundle schema does not model is refused, not dropped.
 	// The default unmarshal ignored it, so `hoooks:` or `promts:` loaded
@@ -941,68 +923,6 @@ func (b *Bundle) declaresNothing() bool {
 	return b.Version == "" &&
 		len(b.Fragments) == 0 && len(b.Commands) == 0 && len(b.Skills) == 0 &&
 		len(b.MCP) == 0 && len(b.Profiles) == 0 && !b.Hooks.HasAny()
-}
-
-// detectLegacySkillsKey inspects the raw bundle YAML for a top-level
-// `skills:` key and fails loud on any entry still shaped like the legacy
-// command item (a scalar `content:` field) rather than letting the default
-// YAML unmarshal silently misparse it into a BundleSkill with a stray
-// content-shaped map dropped. `skills:` used to be this codebase's name for
-// the command item-kind; it now means a real Agent Skill package (BundleSkill:
-// Path/Tags/Notes/Files/Exports), which never carries an inline `content:` field —
-// that shape difference is the deterministic discriminator this function uses.
-//
-// An entry under `skills:` that is NOT content-shaped is a genuine new-shape
-// skill reference and is left alone here; the normal unmarshal below parses it
-// into Bundle.Skills. Only a content-shaped (legacy) entry errors, with a
-// precise, actionable message naming the offending entries.
-func detectLegacySkillsKey(data []byte) error {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil // let the normal parse path below surface the real error
-	}
-	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return nil
-	}
-	root := doc.Content[0]
-
-	// No root `name:` is consulted: Bundle.Name is yaml:"-", the schema has no
-	// such key, and the caller already knows which document this is (LoadFile
-	// wraps this error with the file path).
-	var skillsNode *yaml.Node
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value == "skills" {
-			skillsNode = root.Content[i+1]
-		}
-	}
-	if skillsNode == nil || skillsNode.Kind != yaml.MappingNode {
-		return nil
-	}
-
-	var legacyNames []string
-	for i := 0; i+1 < len(skillsNode.Content); i += 2 {
-		entryName := skillsNode.Content[i].Value
-		entryNode := skillsNode.Content[i+1]
-		if entryNode.Kind != yaml.MappingNode {
-			continue
-		}
-		for j := 0; j+1 < len(entryNode.Content); j += 2 {
-			if entryNode.Content[j].Value == "content" {
-				legacyNames = append(legacyNames, entryName)
-				break
-			}
-		}
-	}
-
-	if len(legacyNames) > 0 {
-		return fmt.Errorf(
-			"`skills:` now means Agent Skills (SKILL.md packages); "+
-				"entr(y/ies) %v are shaped like slash commands (they carry `content:`) — "+
-				"rename the `skills:` key to `commands:` (skill→command rename, v0.7.0) or re-init the bundle",
-			legacyNames)
-	}
-
-	return nil
 }
 
 // ValidateBundleName rejects bundle names that would escape the bundles

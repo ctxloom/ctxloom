@@ -73,9 +73,8 @@ func TestReference_Companion_StringRoundTrip(t *testing.T) {
 }
 
 // TestParseReference_Companion_NotBuiltin proves a companion ref is
-// distinguishable from the retired "builtin:" source ref
-// (ident.IsRetiredBuiltinSpelling) and from ctxloom:local — they are different
-// source classes and must never be confused. refuri's TestCanonicalRepoURL
+// distinguishable from a "builtin:" source ref and from ctxloom:local — they
+// are different source classes and must never be confused. refuri's TestCanonicalRepoURL
 // covers the companion-source special case in CanonicalRepoURL.
 func TestParseReference_Companion_NotBuiltin(t *testing.T) {
 	// A companion ref must be distinguishable from a "builtin:" source ref —

@@ -32,7 +32,7 @@ func DecodeBackendConfig(reg engine.Registry, cfg *config.Config, label string) 
 // (mock.Config), the only label bodies that carry a
 // map of variables for the launched process: the CTXLOOM_MOCK_* test-control
 // knobs. No real engine's config carries one — an engine's credentials and
-// environment are ambient, never ctxloom's (config.RetiredLLMEnvKey). It is a
+// environment are ambient, never ctxloom's. It is a
 // structural interface local to this package, not part of
 // agent.BackendConfig, so MockControlFor reaches the map without a
 // concrete-type switch: internal/adapters/operations (the ADR-0026 core) must not

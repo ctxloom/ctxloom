@@ -24,8 +24,7 @@ import (
 // which tells a user nothing about what to write instead. This file translates
 // those violations into the diagnostic the fail-loudly model promises: the
 // offending key by its DOTTED PATH, the fact that ctxloom ignored it, the
-// near-miss key it probably meant, and — for a key a past schema generation
-// RETIRED — the key that replaced it (config.RetiredKeyMessage).
+// near-miss key it probably meant and the keys the section does know.
 //
 // Ordering matters and is owned by loadConfigFile: validation (and therefore
 // this classification) runs AFTER the upgrade pipeline, so a key an older config
@@ -176,8 +175,8 @@ func unknownKeysIn(message string) []string {
 }
 
 // unknownKeyMessage renders the user-visible line for one unknown key: the
-// dotted path, the fact that it was ignored, the retired-key replacement when we
-// know one, and otherwise a did-you-mean plus the section's known keys.
+// dotted path, the fact that it was ignored, a did-you-mean and the section's
+// known keys.
 func unknownKeyMessage(configPath, instanceLocation, key string, validator *schema.ConfigValidator) string {
 	section := dottedPath(instanceLocation)
 	path := key
@@ -185,9 +184,6 @@ func unknownKeyMessage(configPath, instanceLocation, key string, validator *sche
 		path = section + "." + key
 	}
 
-	if msg, ok := config.RetiredKeyMessage(path, configPath); ok {
-		return msg
-	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "unknown key `%s` in %s: ctxloom does not know it, so it is IGNORED", path, configPath)
 

@@ -88,10 +88,9 @@ var (
 	// errors.Is.
 	ErrBundleAmbiguous = errors.New("bundle name resolves to more than one bundle")
 
-	// ErrRetiredRefSpelling indicates an ask carries a scheme marker that
-	// once addressed a bundle but no longer does (e.g. the pre-U3b-3
-	// "builtin:<name>" spelling) — a spelling that fails CLOSED rather than
-	// being downgraded to a bare-name search, so an obsolete or malformed
+	// ErrRetiredRefSpelling indicates a typed ask carries a scheme marker a
+	// human may not type (ident.IsRetiredAtEntry) — a spelling that fails
+	// CLOSED rather than being downgraded to a bare-name search, so a
 	// scheme-qualified ref can never be silently misread as a first-party
 	// local bundle name. Detect via errors.Is.
 	ErrRetiredRefSpelling = errors.New("retired bundle-reference spelling")

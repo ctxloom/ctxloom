@@ -16,7 +16,7 @@ import (
 
 const (
 	remotesTestPath = "/proj/.ctxloom/remotes.yaml"
-	remotesEntry    = "schema_version: 1\nremotes:\n  kit:\n    url: https://example.test/kit\n"
+	remotesEntry    = "remotes:\n  kit:\n    url: https://example.test/kit\n"
 )
 
 func seedRemotes(t *testing.T, body string) afero.Fs {

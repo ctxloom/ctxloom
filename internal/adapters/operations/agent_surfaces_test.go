@@ -69,14 +69,11 @@ func TestResolveAgentSurfaces_EmptyIsNotAPreference(t *testing.T) {
 	assert.Nil(t, got)
 }
 
-// TestResolveAgentSurfaces_RefusesARetiredApproachNamingItsReplacement: an
-// approach whose writer was deleted is refused by a typed error that names
-// the approach to select instead — never accepted, and never reported as a
-// name the engine simply does not have.
-func TestResolveAgentSurfaces_RefusesARetiredApproachNamingItsReplacement(t *testing.T) {
+// TestResolveAgentSurfaces_RefusesAnUnsupportedApproachNamingTheSupported:
+// an approach the engine does not declare is refused, and the refusal lists
+// the ones it does.
+func TestResolveAgentSurfaces_RefusesAnUnsupportedApproachNamingTheSupported(t *testing.T) {
 	_, err := ResolveAgentSurfaces(engines.Registry(), "claude-code", map[string]string{"settings": "hew-record"})
-	var retired *agent.RetiredApproachError
-	require.ErrorAs(t, err, &retired)
-	assert.Equal(t, agent.RetiredApproachError{Engine: "claude-code", Kind: agent.SurfaceSettings, Name: "hew-record", Replacement: agent.ApproachUnsafeFile}, *retired)
-	assert.EqualError(t, err, `surfaces settings=hew-record: claude-code's "hew-record" approach is retired; select "unsafe-file" instead`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), agent.ApproachUnsafeFile)
 }

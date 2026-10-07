@@ -65,37 +65,6 @@ func TestLoad_UnknownNestedKey_NamesTheFullPath(t *testing.T) {
 	assert.Contains(t, warns[0].Text, "use_distilled", "and suggest the near-miss key it meant")
 }
 
-// THE trap this whole machinery exists for: a user copies a retired block out of
-// a stale doc into a CURRENT-version config. The migrator won't touch it (it is
-// version-gated), so without this the block is silently dropped. The message must
-// name the retired key AND its replacement.
-//
-// `profiles:` is now that case in full: the inline arm is gone, so a config
-// carrying ANY of it — the whole block, not just the older `profiles.defaults`
-// — must be told where profiles live now rather than getting a bare
-// "unknown key" that reads like a typo.
-func TestLoad_RetiredProfilesBlock_AtCurrentVersion_NamesReplacement(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 7\nprofiles:\n  definitions:\n    dev:\n      description: d\n")
-
-	warns := unknownKeyWarnings(cfg)
-	require.Len(t, warns, 1)
-	assert.Contains(t, warns[0].Text, "RETIRED", "the user must be told the key is gone, not misspelled")
-	assert.Contains(t, warns[0].Text, "project bundle", "and pointed at where a profile lives now")
-	assert.Contains(t, warns[0].Text, "ctxloom profile import", "and at how to put it there")
-	assert.Contains(t, warns[0].Text, "default_agent", "and at how the default context is chosen")
-}
-
-// The older `profiles.defaults` spelling reaches the same guidance, since the
-// whole block is retired — a user pasting either one is asking the same question.
-func TestLoad_RetiredProfilesDefaults_AtCurrentVersion_NamesReplacement(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 7\nprofiles:\n  defaults:\n    - dev\n")
-
-	warns := unknownKeyWarnings(cfg)
-	require.Len(t, warns, 1)
-	assert.Contains(t, warns[0].Text, "RETIRED", "the user must be told the key is gone, not misspelled")
-	assert.Contains(t, warns[0].Text, "default_agent", "and pointed at its replacement")
-}
-
 // Every unknown key is reported, not just the first: a user who pasted a stale
 // block must be told about all of it in one pass, the way the findings gate lists
 // every finding rather than the first.
@@ -282,30 +251,4 @@ func TestLoad_NonUnknownKeyFaultInsideAnyOfBranch_StillReported(t *testing.T) {
 	assert.Empty(t, unknownKeyWarnings(cfg), "a wrong-typed value is not an unknown key")
 	require.NotEmpty(t, cfg.GetWarnings(), "a fault inside a branch must still be reported")
 	assert.Equal(t, config.WarnKindValidate, cfg.GetWarnings()[0].Kind)
-}
-
-// `dirty_tree_commit_ack` is retired: the user is told the key is gone and
-// which key decides the auto-commit now.
-func TestLoad_RetiredDirtyTreeCommitAck_NamesTheDecidingKey(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 7\ndirty_tree_commit_ack: true\n")
-
-	warns := unknownKeyWarnings(cfg)
-	require.Len(t, warns, 1)
-	assert.Contains(t, warns[0].Text, "dirty_tree_commit_ack", "the message must name the retired key")
-	assert.Contains(t, warns[0].Text, "RETIRED", "the user must be told the key is gone, not misspelled")
-	assert.Contains(t, warns[0].Text, "dirty_tree_handler: commit", "and which key decides it now")
-}
-
-// Both keys isolation_base replaced must fail validation naming the
-// replacement: an ignored old key would leave the agent image building on a
-// base the user did not choose, and there is no migration to carry it over.
-func TestLoad_RetiredIsolationBaseKeys_NameIsolationBase(t *testing.T) {
-	for _, doc := range []string{
-		"schema_version: 7\nisolation_base_containerfile: .ctxloom/base.Containerfile\n",
-		"schema_version: 7\nisolation_devcontainer_base: false\n",
-	} {
-		warns := unknownKeyWarnings(loadYAML(t, doc))
-		require.Len(t, warns, 1, doc)
-		assert.Contains(t, warns[0].Text, "REPLACED by `isolation_base", "the fix line names the replacement key: %s", warns[0].Text)
-	}
 }

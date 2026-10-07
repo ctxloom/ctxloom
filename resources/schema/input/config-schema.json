@@ -221,7 +221,7 @@
         "properties": {
           "llm": {
             "type": "string",
-            "description": "llm.configs label hoisted to this agent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend). A label names an engine AND a model \u2014 it is not an engine, and it carries no credentials (an engine reads those from the ambient environment; the retired key 'env' is refused at load). The retired spelling 'engine' is refused at load"
+            "description": "llm.configs label hoisted to this agent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend). A label names an engine AND a model \u2014 it is not an engine, and it carries no credentials (an engine reads those from the ambient environment)."
           },
           "profiles": {
             "type": "array",
@@ -518,7 +518,7 @@
               "additionalProperties": {
                 "type": "string"
               },
-              "description": "The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map \u2014 an engine reads its credentials from the ambient environment, and the retired key 'env' is refused at load."
+              "description": "The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map \u2014 an engine reads its credentials from the ambient environment."
             }
           },
           "additionalProperties": false

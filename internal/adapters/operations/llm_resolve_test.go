@@ -75,8 +75,8 @@ func TestDecodeBackendConfig_DecodeFailureRidesTheDiagnosticChannel(t *testing.T
 // TestMockControlFor_ReadsTheMockLabelsControlMapAndNothingElse pins the
 // surviving request-env channel: the mock's `mock_control` map reaches the
 // run request through its own key, while a real engine's label yields
-// nothing — a real engine's environment is ambient, never config-declared
-// (config.RetiredLLMEnvKey), so there is no map on its config to read.
+// nothing — a real engine's environment is ambient, never config-declared,
+// so there is no map on its config to read.
 func TestMockControlFor_ReadsTheMockLabelsControlMapAndNothingElse(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
 		LM: config.LMConfig{

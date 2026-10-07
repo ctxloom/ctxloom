@@ -41,9 +41,6 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-	for _, key := range retiredConfigKeys {
-		delete(merged, key)
-	}
 	for _, key := range persistedKeys() {
 		delete(merged, key)
 	}
@@ -94,7 +91,6 @@ func marshalPreservingComments(original []byte, desired map[string]any) ([]byte,
 	var root *yaml.Node
 	if haveDoc {
 		root = doc.Content[0]
-		renameLegacyVersionKey(root)
 	} else {
 		root = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	}
@@ -105,22 +101,6 @@ func marshalPreservingComments(original []byte, desired map[string]any) ([]byte,
 		return yaml.Marshal(&doc)
 	}
 	return yaml.Marshal(root)
-}
-
-// renameLegacyVersionKey renames the format generation's legacy key to
-// schema_version in place, so the node keeps its position and its comments —
-// including the file header yaml.v3 hangs on a document's first key, which
-// dropping the legacy key and appending the current one would delete.
-func renameLegacyVersionKey(root *yaml.Node) {
-	if mappingValue(root, "schema_version") != nil {
-		return
-	}
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value == "version" {
-			root.Content[i].Value = "schema_version"
-			return
-		}
-	}
 }
 
 // reconcileMappingNode mutates root (a mapping node) so it represents desired,
@@ -255,17 +235,6 @@ type authoredView struct{ c *Config }
 // MarshalYAML returns the configDoc itself, like Config.MarshalYAML, so
 // `config show --raw <section>` can reflect a section out of it by yaml tag.
 func (v authoredView) MarshalYAML() (any, error) { return v.c.persistedDoc(), nil }
-
-// retiredConfigKeys are top-level keys ctxloom once wrote and no longer
-// models; a save removes them from the file rather than carrying them forward
-// as unknown keys.
-var retiredConfigKeys = []string{
-	"version",    // the format generation's legacy key, now schema_version
-	"lm",         // renamed to llm
-	"generators", // no longer supported
-	"profiles",   // the inline arm is retired; profiles are files
-	"defaults",   // superseded by the config block
-}
 
 // persistedKeys is every top-level key configDoc declares, read off its yaml
 // tags so it cannot fall behind the document it describes.

@@ -330,17 +330,13 @@ func roleLabel(registry config.LMConfig, engine, role string) string {
 // (internal/core/config/arch_test.go asserts every accessor resolves), so the point
 // is not that it happens often — it is that when it does, init must not write
 // a hollow config and call it a project.
-// parseShippedConfig parses a config document ctxloom ships (config.ParseConfig)
-// and refuses one carrying a recorded warning — a retired key: the document is
-// ours, so the key would be our own defect, and silently dropping it would
-// seed every new project with a config missing what the key once set.
+// parseShippedConfig parses a config document ctxloom ships
+// (config.ParseConfig). Its keys are the schema's by construction:
+// TestArch_ConfigSchema_ShippedConfigsValidate validates every shipped config.
 func parseShippedConfig(data []byte, what string) (*config.Config, error) {
 	cfg, err := config.ParseConfig(data)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", what, err)
-	}
-	if warns := cfg.GetWarnings(); len(warns) > 0 {
-		return nil, fmt.Errorf("embedded %s: %s", what, warns[0].Text)
 	}
 	return cfg, nil
 }

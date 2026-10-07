@@ -6,21 +6,9 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
-
-// decodeNormalizers are the normalizer stages Decode runs over every profile
-// document. The canonical-spelling rewrite is not one of them: it is a FORMAT
-// step (CanonicalRefs) the bundle envelope's generation decides; the alias
-// stage, which needs this machine's remote registry, runs in the loader and
-// only over a LOCAL bundle's profiles (Loader.canonicalizeLocalAliases); and
-// the retired-parent rewrite, which needs the whole seed, runs over the seed
-// (RewriteRetiredParents).
-var decodeNormalizers = upgrade.Pipeline{
-	promptSelectorUpgrade{},
-}
 
 // CanonicalRefs is the profile-document step that moves a profile's stored
 // bundle and parent references onto the canonical ctxloom URI grammar
@@ -32,74 +20,6 @@ var CanonicalRefs upgrade.Upgrader = bundleRefCanonicalizeUpgrade{}
 // CanonicalizeRefs applies CanonicalRefs to an already-decoded profile.
 func (p *Profile) CanonicalizeRefs() {
 	bundleRefCanonicalizeUpgrade{}.applyTo(p)
-}
-
-// promptSelectorUpgrade rewrites legacy item selectors that targeted a bundle
-// prompt ("<bundle>#prompts/<name>" or the ":prompts/" alias) to the commands
-// section, matching the prompt→skill→command item-kind rename (the one-hop
-// rewrite lands directly on "commands" — "skills" is reserved for a
-// different, future item-kind, so a permanent rewrite can never target it).
-// It runs BEFORE bundleRefCanonicalizeUpgrade so the ':' alias it preserves is
-// then normalized to the canonical '#' form by that later stage. Idempotent:
-// a ref already pointing at "#commands/"/":commands/" (or with no item
-// selector) is untouched.
-type promptSelectorUpgrade struct{}
-
-// Name identifies the upgrade in logs and the rewrite prompt.
-func (promptSelectorUpgrade) Name() string { return "rename prompt selectors to commands" }
-
-// Apply rewrites prompt selectors in the bundles and bundle_items sequences.
-func (u promptSelectorUpgrade) Apply(root *yaml.Node) bool {
-	bundlesChanged := mapScalarSeq(root, "bundles", rewriteCommandSelector)
-	itemsChanged := mapScalarSeq(root, "bundle_items", rewriteCommandSelector)
-	return bundlesChanged || itemsChanged
-}
-
-// rewriteCommandSelector migrates a single ref's legacy prompt item selector
-// to the commands section, preserving the selector's separator ('#' or ':').
-// Returns the ref unchanged (false) when it carries no prompt selector.
-func rewriteCommandSelector(ref string) (string, bool) {
-	for _, sep := range []string{"#prompts/", ":prompts/"} {
-		if strings.Contains(ref, sep) {
-			return strings.Replace(ref, sep, sep[:1]+"commands/", 1), true
-		}
-	}
-	return ref, false
-}
-
-// findBundleProfileKey returns the key in seeded for the profile shipped by
-// repo url under the bare name, when exactly one bundle from that repo ships
-// it. Ambiguity — two bundles from the same repo shipping the same profile
-// name — yields false: a migration must not guess between them.
-//
-// A seeded key is the bundle's canonical identity plus "#profiles/<name>", and
-// url is however the retired ref spelled the repository (https, scp, file), so
-// the two are compared as REPOSITORIES — each parsed and normalized by the
-// repo-URL grammar — never as string prefixes.
-func findBundleProfileKey(seeded map[string]*Profile, url, name string) (string, bool) {
-	repo, err := refuri.CanonicalRepoURL(url)
-	if err != nil {
-		return "", false
-	}
-	var match string
-	for key := range seeded {
-		bundle, profile, ok := remote.SplitBundleProfileRef(key)
-		if !ok || profile != name {
-			continue
-		}
-		ref, err := remote.ParseReference(bundle)
-		if err != nil || ref.URL == "" {
-			continue
-		}
-		if canon, cerr := refuri.CanonicalRepoURL(ref.URL); cerr != nil || canon != repo {
-			continue
-		}
-		if match != "" {
-			return "", false
-		}
-		match = key
-	}
-	return match, match != ""
 }
 
 // bundleRefCanonicalizeUpgrade rewrites bundle references to their canonical
@@ -250,23 +170,4 @@ func splitBundleSelector(ref string) (base, item string) {
 		}
 	}
 	return ref, ""
-}
-
-// RewriteRetiredParents rewrites, in place, every seeded profile parent
-// authored in the retired top-level "@profiles/" grammar to its bundle-shipped
-// successor: the one seeded bundle profile the repo ships under that name,
-// verbatim when unmatched or ambiguous. Seeded profiles arrive already parsed
-// and never pass through a loader's document pipeline, so the seed applies the
-// same rule (findBundleProfileKey) here. In-memory only: a seeded profile is
-// read-only and migrates at its source.
-func RewriteRetiredParents(seeded map[string]*Profile) {
-	for _, p := range seeded {
-		for i, parent := range p.Parents {
-			if url, name, ok := remote.SplitRetiredProfileRef(parent); ok {
-				if successor, found := findBundleProfileKey(seeded, url, name); found {
-					p.Parents[i] = successor
-				}
-			}
-		}
-	}
 }

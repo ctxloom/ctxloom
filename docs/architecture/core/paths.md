@@ -50,7 +50,6 @@ flowchart TD
     AP["appPath (caller-supplied)"] --> CP["ConfigPath config.yaml"]
     AP --> RP["RemotesPath remotes.yaml"]
     AP --> LKP["LockPath lock.yaml"]
-    AP --> PP["ProfilesPath profiles/"]
     AP --> AGP["AgentsPath agents/ (retired, signposted only)"]
 
     AP --> LP["LocalPath<br/>content/"]
@@ -72,7 +71,6 @@ flowchart TD
       CP
       RP
       LKP
-      PP
       AGP
     end
     subgraph derived["DERIVED · gitignored (except lock.yaml)"]
@@ -129,7 +127,6 @@ this package.
 | `ConfigPath` | `<appPath>/config.yaml` | 11 |
 | `RemotesPath` | `<appPath>/remotes.yaml` | 6 |
 | `LockPath` | `<appPath>/lock.yaml` | 3 |
-| `ProfilesPath` | `<appPath>/profiles` | 4 |
 | `AgentsPath` | `<appPath>/agents` — retired agent-definition directory; named only by `config.retiredAgentsDirSignpost`, never read | 1 |
 | `LocalPath` | `<appPath>/content` — committed content root | 2 |
 | `LocalBundlesPath` | `<appPath>/content/bundles` — authored bundles | 12 |

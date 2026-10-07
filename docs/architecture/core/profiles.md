@@ -19,9 +19,8 @@ name. Home uses the same rule under its own app directory.
   `<bundle>#profiles/<name>` spelling — local, remote, short, aliased or version-pinned —
   resolves through the seed under its canonical key (`lookupSeeded`, `canonicalProfileName`).
 - Writes of a LOCAL bundle's profile items (`Loader.Save`, `Loader.Delete`).
-- The profile-ref format step a bundle envelope carries (`CanonicalRefs`), the in-memory alias
-  canonicalization of a local bundle's profiles, and the retired-parent rewrite over the seed
-  (`RewriteRetiredParents`).
+- The profile-ref format step a bundle envelope carries (`CanonicalRefs`) and the in-memory alias
+  canonicalization of a local bundle's profiles.
 - Parent-graph resolution: depth and cycle guards, per-branch visited set, merge semantics.
 
 ## Non-responsibilities
@@ -34,8 +33,6 @@ name. Home uses the same rule under its own app directory.
 - Creating the project bundle, the signed-bundle warning, and profile CRUD *operations* —
   `internal/adapters/operations` (`CreateProfile`, `ImportProfile`, `prepareLocalBundleWrite`);
   see [operations.md](./operations.md).
-- Refusing a project that still holds the retired standalone profiles directory
-  (`paths.ProfilesPath`) — `internal/adapters/configload` (`refuseRetiredProfilesDir`).
 - Turning a resolved profile into delivered text — `operations.AssembleContext`.
 - The reference grammar itself — `internal/adapters/remote`; see [remote.md](./remote.md).
 
@@ -53,7 +50,7 @@ flowchart TD
     MERGE --> OUT["ResolvedProfile<br/>+ SourceRef of THIS profile's bundle"]
     OUT --> GATE["managedhooks.profileGateRefFor<br/>the bundle's own read keys the exec gate"]
 
-    ITEM["content.profileType.Decode"] --> DEC["profiles.Decode<br/>schema check as written, then decodeNormalizers"]
+    ITEM["content.profileType.Decode"] --> DEC["profiles.Decode<br/>schema check as written, then decode"]
 ```
 
 ## Key types
@@ -69,13 +66,12 @@ flowchart TD
 
 | Signature | Contract |
 |---|---|
-| `Decode(data)` | Schema validation of the document as written (a violation is an error naming each cause), then `decodeNormalizers`, then the decode. It does not re-spell refs: that is `CanonicalRefs`, run by the bundle envelope's generation. |
+| `Decode(data)` | Schema validation of the document as written (a violation is an error naming each cause), then the decode. It does not re-spell refs: that is `CanonicalRefs`, run by the bundle envelope's generation. |
 | `Loader.Load(name)` / `Loader.Exists(name)` / `Loader.List()` | Seed lookups. A miss on a selector-less name or an explicitly local ref is a plain `errs.ErrProfileNotFound`; any other bundle-profile miss carries the `deps pull` hint. A hollow LOCAL profile loads and reports a fail-loudly finding. |
 | `Loader.ResolveProfile(name)` | Public entry for parent-graph resolution. |
 | `Loader.Save(p)` | Writes a LOCAL bundle's profile item: back to its own file, or as a new item of the local bundle its name addresses (`newItemPath`). Refuses a remote profile, a nested name, a missing local bundle (`errs.ErrBundleNotFound`), and a path where a file is present but did not load (`os.ErrExist`). Joins the seed, so the same loader resolves what it saved. |
 | `Loader.Delete(name)` | Removes a local profile item's file and drops it from the seed; refuses a remote profile. |
 | `CanonicalRefs` / `Profile.CanonicalizeRefs` | The profile-document step (and its struct form) that re-spells stored bundle and parent refs canonically (`remote.CanonicalSpelling`). Carried by the bundle envelope kind. |
-| `RewriteRetiredParents(seed)` | Rewrites retired `@profiles/` parents to the one bundle profile the repo ships under that name; unmatched or ambiguous stay verbatim. |
 | `ResolvedProfile.Merge(parent)` | Folds a parent in. Must not touch `SourceRef`. |
 | `Profile.CheckOwnRepo()` | Refuses, with `ErrCrossRepoReference` naming the profile and the ref, a profile with a `SourceURL` that names content outside that repository through any bundle-bearing field. Enforced by `Loader.Load` and by the lock walk (`operations` `depWalker.walkProfile`). |
 

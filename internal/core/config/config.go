@@ -425,21 +425,6 @@ func (c *Config) MarshalYAML() (any, error) {
 // discard that pre-population whenever a key was absent — the same
 // silent-no-op shape this codebase treats as its characteristic bug.
 func (c *Config) UnmarshalYAML(node *yaml.Node) error {
-	if name, found := findRetiredAgentKey(node, agents.RetiredLLMKey); found {
-		return fmt.Errorf("agent %q: %w", name, agents.ErrRetiredLLMKey)
-	}
-	if name, found := findRetiredAgentKey(node, agents.RetiredCoordinatorKey); found {
-		return fmt.Errorf("agent %q: %w", name, agents.ErrRetiredCoordinatorKey)
-	}
-	if name, found := findRetiredAgentKey(node, agents.RetiredAuthKey); found {
-		return fmt.Errorf("agent %q: %w", name, agents.ErrRetiredAuthKey)
-	}
-	if mappingValue(node, retiredAgentTurnCapKey) != nil {
-		return errRetiredAgentTurnCapKey
-	}
-	if label, found := findRetiredEntryKey(mappingValue(mappingValue(node, "llm"), "configs"), RetiredLLMEnvKey); found {
-		return fmt.Errorf("llm config %q: %w", label, ErrRetiredLLMEnvKey)
-	}
 	doc := c.toDoc()
 	if err := node.Decode(&doc); err != nil {
 		return err
@@ -512,80 +497,6 @@ func validateIdleTimeout(raw string) error {
 		return fmt.Errorf("%w: %q", ErrInvalidIdleTimeout, raw)
 	}
 	return nil
-}
-
-// retiredAgentTurnCapKey is the pre-rename, flat-top-level spelling of
-// DelegationConfig.Concurrency ("turn cap" read as a per-run quota; the field
-// is a concurrency ceiling, not a turn count — see DelegationConfig's doc).
-// Refused at load rather than ignored, for the same reason agents.RetiredLLMKey
-// is: this decode path is lenient (no KnownFields), so an untouched
-// `agent_turn_cap:` would be dropped in silence and the concurrency ceiling
-// would silently fall back to the built-in default — the same silent-ignore
-// shape that has already cost real diagnosis time on a different renamed key
-// in this codebase.
-const retiredAgentTurnCapKey = "agent_turn_cap"
-
-// errRetiredAgentTurnCapKey names the current spelling, because a rename that
-// leaves people guessing has moved the cost rather than paid it.
-var errRetiredAgentTurnCapKey = errors.New(
-	"config uses the retired key 'agent_turn_cap:'; it is now 'delegation.concurrency:' — " +
-		"same resource ceiling (concurrently EXECUTING delegated child turns), correctly named and grouped under 'delegation:'")
-
-// RetiredLLMEnvKey is the REMOVED per-label environment map,
-// llm.configs.<label>.env. A removal, not a rename: ctxloom no longer carries
-// an engine's environment or credentials in its config at all. Every engine
-// authenticates itself, and the process ctxloom launches inherits the ambient
-// environment (an isolated run forwards it across the boundary), so a
-// variable exported in the shell that runs ctxloom reaches the engine with
-// ctxloom neither seeing nor storing it. The key was retired because its only
-// documented use was credentials, and the project config file it invited
-// them into is committed.
-//
-// Refused at load for the same reason agents.RetiredLLMKey is: this decode
-// path is lenient, so an untouched `env:` would decode into a Body key that
-// nothing reads, and a user would believe their variable reached the engine.
-// The mock's test-control knobs, which once rode this key, live under their
-// own key (see backends.MockConfig.Control).
-const RetiredLLMEnvKey = "env"
-
-// ErrRetiredLLMEnvKey says what replaced the key rather than only that it is
-// gone, since "unknown key" leaves the reader to guess where their variable
-// should go instead.
-var ErrRetiredLLMEnvKey = errors.New(
-	"llm config uses the removed key 'env:'; ctxloom no longer carries engine credentials or environment " +
-		"in its config — the engine reads them from the ambient environment, so export the variable in the " +
-		"shell that runs ctxloom and delete the key")
-
-// findRetiredAgentKey returns the first agent carrying the named retired key,
-// and whether one was found. It walks the NODE rather than the decoded value
-// because the decode is what loses the information: this path does not set
-// KnownFields, so an untouched retired key is dropped in silence — `engine:`
-// leaves the binding falling back to the profiles' llm (a different model,
-// chosen by nobody), and `coordinator:` leaves a binding written to delegate
-// quietly unable to.
-//
-// Walking the tree is also what separates a KEY from the same word appearing
-// as a profile name, a model string, or prose.
-func findRetiredAgentKey(node *yaml.Node, key string) (string, bool) {
-	return findRetiredEntryKey(mappingValue(node, "agents"), key)
-}
-
-// findRetiredEntryKey returns the first entry of a name-keyed section
-// (agents.<name>, llm.configs.<label>) whose mapping carries key, and whether
-// one was found. A nil or non-mapping section finds nothing.
-func findRetiredEntryKey(section *yaml.Node, key string) (string, bool) {
-	if section == nil || section.Kind != yaml.MappingNode {
-		return "", false
-	}
-	// Content pairs as [key, value, key, value, ...]; entries are already in
-	// document order, so the name reported is stable across runs.
-	for i := 0; i+1 < len(section.Content); i += 2 {
-		name := section.Content[i].Value
-		if mappingValue(section.Content[i+1], key) != nil {
-			return name, true
-		}
-	}
-	return "", false
 }
 
 // mappingValue returns the value node for key in a mapping node, or nil when
@@ -1147,7 +1058,6 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 	if len(loaded) == 0 {
 		return nil
 	}
-	profiles.RewriteRetiredParents(loaded)
 	return loaded
 }
 
@@ -1234,8 +1144,7 @@ func (c *Config) ProfileRemoteURLResolver() func(string) string {
 // default registry. Unlike Load it does not read from disk, schema-validate,
 // upgrade, or merge defaults; callers that need the raw registry entries (e.g.
 // init reading the shipped default-config) use this so the role markers and
-// exact entries survive untouched. It does record a retired key as the same
-// unknown-key warning Load would (retiredKeyWarnings).
+// exact entries survive untouched.
 func ParseConfig(data []byte) (*Config, error) {
 	cfg := &Config{
 		lm: LMConfig{Configs: make(map[string]LLMConfig)},
@@ -1250,7 +1159,6 @@ func ParseConfig(data []byte) (*Config, error) {
 	if err := root.Content[0].Decode(cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
-	cfg.warnings = append(cfg.warnings, retiredKeyWarnings(root.Content[0], parsedDocumentSource)...)
 	return cfg, nil
 }
 

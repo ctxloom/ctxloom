@@ -468,12 +468,6 @@ func hookValue(h wire.Hook) (map[string]any, error) {
 	return v, json.Unmarshal(b, &v)
 }
 
-// ApproachHewRecord is the retired name of claude's record-backed settings
-// write into the engine home. That write is now the default approach's: its
-// claims are recorded, and claude's settings land under the session home by
-// default. A binding still naming it is refused, told to select the default.
-const ApproachHewRecord = "hew-record"
-
 // settingsApproach is claude's settings surface: ctxloom's own keys in
 // .claude/settings.json (settingsClaims).
 type settingsApproach struct{ traits }
@@ -482,7 +476,7 @@ func (*settingsApproach) Name() string { return "settings" }
 func (*settingsApproach) Forms() agent.Presentations {
 	return agent.Presents(EngineName, agent.SurfaceSettings, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 		return &settingsSurface{}
-	}).Retire(ApproachHewRecord, agent.ApproachUnsafeFile)
+	})
 }
 func (a *settingsApproach) DeliverSettings(start present.Start, root present.RootKind, in engine.SettingsInputs, fs afero.Fs) (present.Delivered, error) {
 	return deliverSettingsFile(a.Name(), start, root, func(path string) ([]present.Claim, error) {

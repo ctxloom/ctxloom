@@ -42,13 +42,11 @@ func TestCatalogResolveAsk_CanonicalURINotInCatalogRefusesNotFound(t *testing.T)
 
 // TestCatalogResolveAsk_RetiredSchemeMarkerRefusedNotDowngraded proves arm 2:
 // a retired scheme marker is refused with ErrRetiredRefSpelling and never
-// falls through to arm 3's name search — even though "builtin:isolation" is
-// syntactically a perfectly good candidate bare name to search for.
+// falls through to arm 3's name search.
 func TestCatalogResolveAsk_RetiredSchemeMarkerRefusedNotDowngraded(t *testing.T) {
 	cat := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n")).Catalog()
 
 	for _, ask := range []string{
-		"builtin:isolation",
 		"ctxloom:local@bundles/kit",
 		"ctxloom:companion@ltk",
 		"git@github.com:acme/repo.git",
@@ -163,24 +161,8 @@ func TestCatalog_Lookup_CanonicalURIResolvesExactly(t *testing.T) {
 	assert.ErrorIs(t, err, errs.ErrBundleNotFound)
 }
 
-// TestCatalog_Lookup_RetiredSpellingRefusedNotDowngraded proves Lookup's
-// retired-spelling arm: a spelling the grammar no longer accepts is refused as
-// such, never re-read as a bare name that happens to look similar. "You typed
-// a retired spelling" and "no such bundle" are different faults.
-func TestCatalog_Lookup_RetiredSpellingRefusedNotDowngraded(t *testing.T) {
-	cat := NewLoader(projectReaderOver(t, "isolation", "version: 1.0.0\n")).Catalog()
-
-	_, err := cat.Lookup("builtin:isolation")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, errs.ErrRetiredRefSpelling)
-	assert.NotErrorIs(t, err, errs.ErrBundleNotFound,
-		"a retired spelling must not be downgraded to a name search that resolves to something else")
-	assert.Contains(t, err.Error(), "ctxloom bundle --help",
-		"a refusal a user cannot act on is a dead end; the refusal must say where the current grammar is")
-}
-
 // TestCatalog_Lookup_UnknownBareNameIsNotFound proves the zero-match arm stays
-// distinguishable from both refusals above.
+// distinguishable from the refusals.
 func TestCatalog_Lookup_UnknownBareNameIsNotFound(t *testing.T) {
 	cat := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n")).Catalog()
 

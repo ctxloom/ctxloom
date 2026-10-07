@@ -695,13 +695,6 @@ func LockPath(appPath string) string {
 	return filepath.Join(appPath, LockFileName+".yaml")
 }
 
-// ProfilesPath returns the RETIRED standalone profiles directory (at appPath
-// root). Nothing reads profiles from it; config refuses to load while it
-// exists, naming the move into the project bundle.
-func ProfilesPath(appPath string) string {
-	return filepath.Join(appPath, ProfilesDir)
-}
-
 // AgentsPath returns the RETIRED agents directory (at appPath root). Nothing
 // reads definitions from it; config.retiredAgentsDirSignpost uses this to name
 // the files a user must move into config.yaml's `agents:` key.

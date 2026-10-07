@@ -129,7 +129,3 @@ has no equivalent of).
 - **A local bundle's profiles resolve `<alias>/…` refs on load**, in memory —
   an alias table is this machine's, so a remote bundle's profiles are never
   read against it.
-- **The retired top-level profile grammar** (`<url>@profiles/<name>`) is
-  migrated in memory on load to the bundle-shipped successor when exactly one installed
-  bundle from that repo ships the profile; otherwise it is left verbatim and
-  the resolver warns.

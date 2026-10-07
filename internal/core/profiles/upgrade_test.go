@@ -1,7 +1,6 @@
 package profiles
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -11,28 +10,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
-
-// TestPromptSelectorUpgrade_MigratesSelectors pins the prompt→command selector
-// migration: legacy "#prompts/" and ":prompts/" item selectors in a profile's
-// bundles/bundle_items are rewritten to the commands section on load.
-func TestPromptSelectorUpgrade_MigratesSelectors(t *testing.T) {
-	in := []byte("bundles:\n  - core#prompts/review\n  - alias/other:prompts/lint\nbundle_items:\n  - b#prompts/x\n")
-	out, applied := mustRun(t, upgrade.Pipeline{promptSelectorUpgrade{}}, in)
-	require.NotEmpty(t, applied, "migration should fire on legacy prompt selectors")
-	s := string(out)
-	assert.Contains(t, s, "core#commands/review")
-	assert.Contains(t, s, "other:commands/lint")
-	assert.Contains(t, s, "b#commands/x")
-	assert.NotContains(t, s, "prompts/", "no prompt selector should remain")
-}
-
-// TestPromptSelectorUpgrade_Idempotent confirms a profile already on the
-// commands vocabulary is left untouched.
-func TestPromptSelectorUpgrade_Idempotent(t *testing.T) {
-	in := []byte("bundles:\n  - core#commands/review\n")
-	_, applied := mustRun(t, upgrade.Pipeline{promptSelectorUpgrade{}}, in)
-	assert.Empty(t, applied, "commands-vocabulary profile must not change")
-}
 
 // personalURL and defaultURL are the canonical repo URLs the test alias resolver
 // maps the two stock remotes to.
@@ -61,12 +38,12 @@ func testAliasToURL(alias string) string {
 	return ""
 }
 
-// runCanonicalize runs the decode normalizers plus the alias stage a LOCAL
-// bundle's profiles get (Loader.canonicalizeLocalAliases) over data, and
-// reports the upgraded bytes plus which upgrades fired.
+// runCanonicalize runs the alias stage a LOCAL bundle's profiles get
+// (Loader.canonicalizeLocalAliases) over data, and reports the upgraded bytes
+// plus which upgrades fired.
 func runCanonicalize(t *testing.T, data []byte) ([]byte, []string) {
 	t.Helper()
-	return mustRun(t, upgrade.Pipeline{promptSelectorUpgrade{}, bundleRefCanonicalizeUpgrade{aliasToURL: testAliasToURL}}, data)
+	return mustRun(t, upgrade.Pipeline{bundleRefCanonicalizeUpgrade{aliasToURL: testAliasToURL}}, data)
 }
 
 // TestBundleRefCanonicalize_ShortRefsBecomeCanonical verifies that
@@ -143,37 +120,6 @@ func TestBundleRefCanonicalize_NoContextNoOp(t *testing.T) {
 
 	assert.Empty(t, applied, "bare ref + unknown alias => no canonicalization")
 	assert.Equal(t, string(in), string(out))
-}
-
-// testBundleProfileSeed is the seeded bundle-profile map the retired-parent
-// upgrade discovers successors in: keys are the canonical
-// "<bundle>#profiles/<name>" refs the config bundle-profile seed produces.
-func testBundleProfileSeed() map[string]*Profile {
-	return map[string]*Profile{
-		seedKey(defaultURL, "ai-developer", "developer"): {},
-		seedKey(defaultURL, "default", "default"):        {},
-	}
-}
-
-// TestFindBundleProfileKey pins the discovery rule the retired-parent rewrite
-// (RewriteRetiredParents) uses: exactly one bundle from the ref's repo
-// shipping the profile name — none and ambiguity both yield false.
-func TestFindBundleProfileKey(t *testing.T) {
-	seed := testBundleProfileSeed()
-
-	key, ok := findBundleProfileKey(seed, defaultURL, "developer")
-	assert.True(t, ok)
-	assert.Equal(t, seedKey(defaultURL, "ai-developer", "developer"), key)
-
-	_, ok = findBundleProfileKey(seed, defaultURL, "missing")
-	assert.False(t, ok, "unknown profile name must not match")
-
-	_, ok = findBundleProfileKey(seed, personalURL, "developer")
-	assert.False(t, ok, "a different repo's profile must not match")
-
-	seed[seedKey(defaultURL, "other-kit", "developer")] = &Profile{}
-	_, ok = findBundleProfileKey(seed, defaultURL, "developer")
-	assert.False(t, ok, "ambiguity must not match")
 }
 
 // TestLoader_CanonicalizesLocalBundleProfileAliases verifies the loader seam:
@@ -291,66 +237,6 @@ func TestSplitBundleSelector_LegacyMarkersAreTheColonEraSections(t *testing.T) {
 			base, item := splitBundleSelector(tt.ref)
 			assert.Equal(t, tt.wantBase, base)
 			assert.Equal(t, tt.wantItem, item)
-		})
-	}
-}
-
-// TestRewriteRetiredParents verifies bundle-shipped profiles whose parents
-// were authored in the retired top-level "@profiles/" grammar are rewritten
-// in-memory to their bundle-shipped successor at seed time — seeded profiles
-// never pass through the loader's document upgrade pipeline, so the seed
-// post-pass owns this rewrite. Unmatched and ambiguous parents stay verbatim
-// (findBundleProfileKey is the discovery rule).
-func TestRewriteRetiredParents(t *testing.T) {
-	const repo = "https://github.com/ctxloom/ctxloom-default"
-	loaded := map[string]*Profile{
-		seedKey(repo, "ai-developer", "developer"): {},
-		seedKey(repo, "kit", "dev"): {
-			Parents: []string{
-				repo + "@profiles/developer",         // retired, one successor → rewritten
-				repo + "@profiles/go-developer",      // retired, no successor → verbatim
-				repo + "@profiles/developer@abc1234", // retired and pinned: the pin is dropped, the bundle's lock entry pins
-				"local-parent",                       // local name → untouched
-			},
-		},
-	}
-
-	RewriteRetiredParents(loaded)
-
-	got := loaded[seedKey(repo, "kit", "dev")].Parents
-	assert.Equal(t, []string{
-		seedKey(repo, "ai-developer", "developer"),
-		repo + "@profiles/go-developer",
-		seedKey(repo, "ai-developer", "developer"),
-		"local-parent",
-	}, got)
-}
-
-// The config seed keys a bundle's profiles on the bundle's CANONICAL identity
-// ("ctxloom+git://host/repo//bundles/<b>#profiles/<n>"), so the retired-parent
-// rewrite must find its successor under that shape, for every spelling a
-// retired parent can name the repository in.
-func TestRewriteRetiredParents_MatchesProductionSeedKeys(t *testing.T) {
-	cases := []struct {
-		name, bundle, profile, retired string
-	}{
-		{"https", defaultURL + "@bundles/ai-developer", "developer", defaultURL + "@profiles/developer"},
-		{"scp", defaultURL + "@bundles/ai-developer", "developer", "git@github.com:ctxloom/ctxloom-default@profiles/developer"},
-		{"file", "file:///srv/content@bundles/kit", "dev", "file:///srv/content@profiles/dev"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			successor, err := remote.BundleProfileRef(tc.bundle, tc.profile)
-			require.NoError(t, err)
-			require.True(t, strings.HasPrefix(successor, "ctxloom+"), "the fixture must be production-shaped: %s", successor)
-			seeded := map[string]*Profile{
-				successor:                        {},
-				"ctxloom+local:kid#profiles/kid": {Parents: []string{tc.retired}},
-			}
-
-			RewriteRetiredParents(seeded)
-
-			assert.Equal(t, successor, seeded["ctxloom+local:kid#profiles/kid"].Parents[0])
 		})
 	}
 }

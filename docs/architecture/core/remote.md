@@ -135,7 +135,6 @@ flowchart TD
 | `CanonicalBundleRef(name) (string, error)` | `internal/adapters/remote/normalize.go` | Canonical form of a bundle name. |
 | `SplitFragmentVersion` / `SplitPromptVersion` | `internal/adapters/remote/normalize.go` | Split a canonical bundle ref from its `@version`, per selector family. |
 | `CanonicalProfileKey` / `SplitBundleProfileRef` | `internal/adapters/remote/normalize.go` | Version-less `<bundle>#profiles/<name>` key, and its split. |
-| `SplitRetiredProfileRef` | `internal/adapters/remote/normalize.go` | Recognizes the retired `@profiles/` grammar so it can be refused with a remedy. |
 | `IsFetchAddressRef(ref) bool` | `internal/adapters/remote/normalize.go` | Fetch-address check (http(s), file, scp-like); false for the canonical `ctxloom+` spelling. |
 | `CanonicalizeShortRef(ref, aliasToURL, localExists) string` | `internal/adapters/remote/shortname.go` | `<alias>/<path>` → `<url>@bundles/<path>` preserving the selector verbatim; local file wins over a same-spelled alias; unknown alias returns the input unchanged. |
 | `CanonicalizeProfileShortRef(ref, aliasToURL) string` | `internal/adapters/remote/shortname.go` | Guards on `#profiles/` then delegates; selector-less names stay local. |

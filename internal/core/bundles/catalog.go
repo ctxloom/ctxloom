@@ -325,16 +325,11 @@ func (c Catalog) Candidates() []Candidate {
 //     — minted to its canonical key and resolved EXACTLY, again by LookupKey.
 //     This arm is a bridge for the identities the assembly pipeline and the
 //     lockfile still author; it never searches, so it cannot pick a winner.
-//  3. ask carries the one scheme marker nothing still mints
-//     (ident.IsRetiredBuiltinSpelling) — errs.ErrRetiredRefSpelling with the
-//     migration hint. It is never downgraded to arm 4: "you typed a spelling
-//     the grammar no longer accepts" and "no such bundle" are different faults
-//     and deserve different messages. The WIDER ask-surface set
-//     (ident.IsRetiredAtEntry, used by ResolveAsk) must not be refused
-//     here: arm 2's spellings are live identities on this path, and an
-//     identity that resolves to nothing is a missing bundle, not a retired
-//     spelling.
-//  4. otherwise ask is a bare NAME. Every read is compared on the name a
+//     The ask-surface refusal (ident.IsRetiredAtEntry, used by ResolveAsk)
+//     must not apply here: arm 2's spellings are live identities on this
+//     path, and an identity that resolves to nothing is a missing bundle,
+//     not a retired spelling.
+//  3. otherwise ask is a bare NAME. Every read is compared on the name a
 //     listing shows (DisplayName), then on the bundle's DECLARED name.
 //     Exactly one match resolves; zero is errs.ErrBundleNotFound; two or more
 //     is errs.ErrBundleAmbiguous naming every candidate's canonical URI.
@@ -349,9 +344,6 @@ func (c Catalog) Lookup(ask string) (BundleRead, error) {
 		if read, ok := c.selfContained(ask); ok {
 			return read, nil
 		}
-	}
-	if ident.IsRetiredBuiltinSpelling(ask) {
-		return BundleRead{}, retiredSpelling(ask)
 	}
 	matches := c.matchingName(ask)
 	switch len(matches) {

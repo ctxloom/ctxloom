@@ -82,7 +82,6 @@ Rebuildability and commitment are independent questions.
 |---|---|
 | `cache/bundles` | `ctxloom deps pull` |
 | `cache/repos` | `ctxloom deps pull` |
-| `cache/refused_advances.yaml` | `ctxloom deps upgrade` |
 | `cache/context` | `ctxloom manage hooks install` (the next `ctxloom run` also rewrites it) |
 
 `cache/bundles` holds *pulled copies* of remote bundles and is **never** a

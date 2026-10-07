@@ -66,7 +66,6 @@ flowchart TD
     AP --> GCD["CachePath<br/>cache/"]
     GCD --> CBP["CacheBundlesPath<br/>cache/bundles"]
     GCD --> RCP["ReposCachePath<br/>cache/repos"]
-    GCD --> RAP["RefusedAdvancesPath<br/>cache/refused_advances.yaml"]
     GCD --> CTX["cache/context (ContextCacheDir)<br/>agent.WriteContextFile"]
     GCD --> LTOP["LegacyTrustObjectsPath<br/>cache/trust/objects (migration source only)"]
 
@@ -113,7 +112,7 @@ Three vocabularies share one file; `AppDirName` and `CacheDir` cross groups.
 | Group | Constants |
 |---|---|
 | Home / session layout | `SessionsDir`, the session-dir member names `paths.HarpMembers` rows are built from, the output-dir leaves (`OutputDirName`, `EssenceFileName`, `NextStepFileName`, `PlanFileExt`), `LogsDir`, `TriggersDir`, `CoordDirName`, `CoordEndpointFileName` |
-| Project app-dir layout | `AppDirName`, `ConfigFileName`, `RemotesFileName`, `LockFileName`, `ProfilesDir`, `AgentsDir`, `ContentDir`, `CacheDir`, `RepoContentPrefix`, `BundlesDir`, `ReposCacheDir`, `ContextCacheDir`, `RefusedAdvancesFileName`, `ProjectIDFileName` |
+| Project app-dir layout | `AppDirName`, `ConfigFileName`, `RemotesFileName`, `LockFileName`, `ProfilesDir`, `AgentsDir`, `ContentDir`, `CacheDir`, `RepoContentPrefix`, `BundlesDir`, `ReposCacheDir`, `ContextCacheDir`, `ProjectIDFileName` |
 | Local state tier | `StateDir`, `LocksDir`, `HomeLocksDirName`, `DirtyTreeCommitAckFileName`, `SessionEngineHomesDirName` |
 | Trust / signing | `TrustFileName`, `TrustObjectsDir`, `AllowedSignersFileName`, `DistrustedSignersFileName`, `ApprovalsDirName` |
 
@@ -159,7 +158,6 @@ this package.
 | `CachePath` | `<appPath>/cache` | 0 outside the package (6 in-package) |
 | `CacheBundlesPath` | `<appPath>/cache/bundles` — pulled remote copies | 5 |
 | `ReposCachePath` | `<appPath>/cache/repos` — git clone cache | 3 |
-| `RefusedAdvancesPath` | `<appPath>/cache/refused_advances.yaml` — what the last `deps upgrade` declined | 1 |
 | `StatePath` | `<appPath>/state` — the third tier | 2 |
 | `TrustObjectsPath` | `<appPath>/state/trust/objects` — review snapshots | 1 |
 | `LegacyTrustObjectsPath` | `<appPath>/cache/trust/objects` — the retired location, read only by the one-time migration | 1 |

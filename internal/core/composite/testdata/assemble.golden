@@ -459,6 +459,11 @@
       ],
       "pre_tool": [
         {
+          "command": "echo golden",
+          "matcher": "Bash",
+          "type": "command"
+        },
+        {
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "async": true,
           "command": "audit-log record",
@@ -990,6 +995,11 @@
         }
       ],
       "pre_tool": [
+        {
+          "command": "echo golden",
+          "matcher": "Bash",
+          "type": "command"
+        },
         {
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "async": true,
@@ -1523,6 +1533,11 @@
       ],
       "pre_tool": [
         {
+          "command": "echo golden",
+          "matcher": "Bash",
+          "type": "command"
+        },
+        {
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "async": true,
           "command": "audit-log record",
@@ -2055,6 +2070,11 @@
       ],
       "pre_tool": [
         {
+          "command": "echo golden",
+          "matcher": "Bash",
+          "type": "command"
+        },
+        {
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "async": true,
           "command": "audit-log record",
@@ -2517,6 +2537,11 @@
         }
       ],
       "pre_tool": [
+        {
+          "command": "echo golden",
+          "matcher": "Bash",
+          "type": "command"
+        },
         {
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "async": true,

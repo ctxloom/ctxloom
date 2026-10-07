@@ -47,7 +47,7 @@ ctxloom doctor [flags]
 
 ```
       --all    list every check in the text report, not only the warnings
-      --deps   check ONLY machine-capability dependencies (git/ssh/ssh-keygen/container runtime/configured engines' clients/git identity) — skips agents/profiles/hooks/MCP, for use before a project has been set up
+      --deps   check ONLY machine-capability dependencies (git/ssh/container runtime/configured engines' clients/git identity) — skips agents/profiles/hooks/MCP, for use before a project has been set up
 ```
 
 ### Options inherited from parent commands

@@ -26,11 +26,9 @@ import (
 // loud here, with a named fix, beats letting the clone step surface a raw
 // "executable file not found" error with no guidance.
 //
-// ssh-keygen and a container runtime (needed later for containerized
-// agents) are INFORMATIONAL ONLY: nothing PRIME itself does needs them yet,
-// so their absence surfaces as a warning, not a block. ctxloom never execs
-// ssh-keygen; it is only useful, by hand, to GENERATE a new SSH key for an
-// ssh:// git remote.
+// A container runtime (needed later for containerized agents) is
+// INFORMATIONAL ONLY: nothing PRIME itself does needs it yet, so its absence
+// surfaces as a warning, not a block.
 //
 // A sibling slice adds git to `ctxloom doctor`'s own comprehensive dependency
 // check on a separate, unmerged branch; the couple of lines of overlap
@@ -43,9 +41,6 @@ func checkSystemDeps() error {
 		return fmt.Errorf("git is required (ctxloom is about to clone/pull remote content, and worktree isolation shells out to it later) but was not found on PATH — install it (e.g. `apt install git`, `brew install git`, `winget install Git.Git`) and re-run `ctxloom init`")
 	}
 
-	if _, err := exec.LookPath("ssh-keygen"); err != nil {
-		clidiag.Warn("ctxloom", "ssh-keygen not found on PATH — recommended, not required (ctxloom never execs it): it's the tool you'd run by hand to generate a new SSH key for an ssh:// git remote")
-	}
 	warnIfGitIdentityMissing()
 	if !(isolation.Docker{}.Available()) && !(isolation.Podman{}.Available()) {
 		clidiag.Warn("ctxloom", "no container runtime detected (docker/podman) — you'll need one later to run containerized agents")

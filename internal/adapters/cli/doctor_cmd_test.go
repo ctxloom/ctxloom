@@ -40,7 +40,7 @@ func writeFakeExecutable(t *testing.T, dir, name string) {
 // prepended in front of the host's real PATH — for a full-command test that
 // needs ONE additional binary resolvable (e.g. a container runtime, which
 // is not expected to be on the suite's real host PATH)
-// without losing the real PATH's other binaries (git, ssh, ssh-keygen, the
+// without losing the real PATH's other binaries (git, ssh, the
 // engine clients, a container runtime) that the same test also depends on.
 func prependFakeBinToPath(t *testing.T, name string) {
 	t.Helper()
@@ -264,7 +264,7 @@ func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 	// host-dependent checks — so it needs a real git identity, not the empty
 	// default runDoctor otherwise forces.
 	// DOCTOR-CHECK-DEPS-a1 needs the same treatment for its two probes that
-	// have no ambient presence in a bare container (unlike git/ssh/ssh-keygen,
+	// have no ambient presence in a bare container (unlike git/ssh,
 	// which the devcontainer image itself provides): a fake "claude" binary
 	// (doctorEngineBinaries["claude-code"]) and a fake "docker" — its `docker
 	// info` reachability check (isolation.Docker.Available) only shells out to

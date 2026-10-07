@@ -64,7 +64,7 @@ func isolateGitEnv(t *testing.T) {
 // unguided "executable file not found" error.
 func TestCheckSystemDeps_GitMissing_FailsLoud(t *testing.T) {
 	isolateGitEnv(t)
-	t.Setenv("PATH", t.TempDir()) // empty: no git, no ssh-keygen, no docker/podman
+	t.Setenv("PATH", t.TempDir()) // empty: no git, no docker/podman
 
 	err := checkSystemDeps()
 	require.Error(t, err)
@@ -73,10 +73,11 @@ func TestCheckSystemDeps_GitMissing_FailsLoud(t *testing.T) {
 }
 
 // TestCheckSystemDeps_GitPresent_MissingExtrasWarnButDoNotBlock: with git on
-// PATH but ssh-keygen and a container runtime absent, checkSystemDeps must
-// still succeed (nil) — those two are informational-only, needed by LATER
-// phases, not by PRIME itself — while still surfacing a warning for each so
-// the user sees the full picture up front.
+// PATH but a container runtime and git identity absent, checkSystemDeps must
+// still succeed (nil) — both are informational-only, needed by LATER phases,
+// not by PRIME itself — while still surfacing a warning for each so the user
+// sees the full picture up front. ssh-keygen is absent too and must not be
+// mentioned: ctxloom has no use for it.
 func TestCheckSystemDeps_GitPresent_MissingExtrasWarnButDoNotBlock(t *testing.T) {
 	isolateGitEnv(t) // no host git config
 	dir := fakeBinDir(t, "git")
@@ -87,21 +88,20 @@ func TestCheckSystemDeps_GitPresent_MissingExtrasWarnButDoNotBlock(t *testing.T)
 		err = checkSystemDeps()
 	})
 
-	require.NoError(t, err, "missing ssh-keygen/container runtime must not block init")
-	assert.Contains(t, stderr, "ssh-keygen")
-	assert.Contains(t, stderr, "recommended, not required", "the ssh-keygen warning must not imply it's a hard requirement")
+	require.NoError(t, err, "a missing container runtime must not block init")
+	assert.NotContains(t, stderr, "ssh-keygen", "ssh-keygen is not a dependency and must never be warned about")
 	assert.Contains(t, stderr, "container runtime")
 	assert.Contains(t, stderr, "git commit identity not fully set", "a missing git identity must warn too, informational-only like the others")
 	assert.Contains(t, stderr, "user.name")
 	assert.Contains(t, stderr, "user.email")
 }
 
-// TestCheckSystemDeps_AllPresent_Succeeds is the control case: with git and
-// ssh-keygen both on PATH, the whole gate is silent — this only pins that
-// having them present never itself trips an error.
+// TestCheckSystemDeps_AllPresent_Succeeds is the control case: with git on
+// PATH the gate passes — this only pins that having it present never itself
+// trips an error.
 func TestCheckSystemDeps_AllPresent_Succeeds(t *testing.T) {
 	isolateGitEnv(t)
-	dir := fakeBinDir(t, "git", "ssh-keygen")
+	dir := fakeBinDir(t, "git")
 	t.Setenv("PATH", dir)
 
 	err := checkSystemDeps()
@@ -117,7 +117,7 @@ func TestCheckSystemDeps_GitIdentitySet_NoWarn(t *testing.T) {
 	home := os.Getenv("HOME")
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".gitconfig"),
 		[]byte("[user]\n\tname = Ben\n\temail = ben@abbitt.me\n"), 0644))
-	dir := fakeBinDir(t, "git", "ssh-keygen")
+	dir := fakeBinDir(t, "git")
 	t.Setenv("PATH", dir)
 
 	var err error

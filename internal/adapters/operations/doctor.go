@@ -42,19 +42,12 @@ import (
 // DOCTOR-CHECK-DEPS-a1 warn instead.
 var doctorDepBinariesRequired = []string{"git"}
 
-// doctorDepBinariesRecommended are binaries ctxloom ITSELF never execs —
-// grepped repo-wide: no exec.Command/LookPath("ssh") or ("ssh-keygen")
-// anywhere but this probe and init PRIME's mirror of it
-// (cli.checkSystemDeps) — but that are still worth flagging present:
-//
-//   - ssh is what `git` ITSELF shells out to for an ssh:// or git@host:
-//     remote (irrelevant for the default HTTPS remote ctxloom seeds).
-//   - ssh-keygen is the tool a user without an existing SSH key would run BY
-//     HAND to make one for an ssh:// git remote; ctxloom never runs it.
-//
-// Their absence still warns (worth having), and the Detail text below says
-// what they are actually for.
-var doctorDepBinariesRecommended = []string{"ssh", "ssh-keygen"}
+// doctorDepBinariesRecommended are binaries ctxloom ITSELF never execs but
+// that are still worth flagging present: ssh is what `git` ITSELF shells out
+// to for an ssh:// or git@host: remote (irrelevant for the default HTTPS
+// remote ctxloom seeds). Their absence still warns (worth having), and the
+// Detail text below says what they are actually for.
+var doctorDepBinariesRecommended = []string{"ssh"}
 
 // DoctorStatus is one check's verdict, and there are exactly three of them. It
 // is a named type rather than a bare string because the value set IS the
@@ -98,7 +91,7 @@ type DoctorReport struct {
 // DoctorRequest scopes one report.
 type DoctorRequest struct {
 	// DepsOnly scopes the report to ONLY the machine-capability probes
-	// (DEPS-a1's git/ssh/ssh-keygen/container runtime/each configured
+	// (DEPS-a1's git/ssh/container runtime/each configured
 	// engine's client, and GITIDENT-l2) — questions that are
 	// true-or-false regardless of whether a project has been set up yet.
 	// init's PRIME and the setup skill's phase 1 run in THIS mode: the full
@@ -222,9 +215,9 @@ func doctorContainerRuntimeRequired(cfg *config.Config) bool {
 
 // doctorCheckDeps probes PATH for git (worktree isolation + remote clone/
 // pull + init/manage install's own clone) and each configured engine's native
-// client — both genuinely REQUIRED — plus ssh/ssh-keygen, which are RECOMMENDED
-// but not required (see doctorDepBinariesRecommended's doc for why: ctxloom
-// never execs either). A container runtime lands in
+// client — both genuinely REQUIRED — plus ssh, which is RECOMMENDED but not
+// required (see doctorDepBinariesRecommended's doc for why: ctxloom never
+// execs it). A container runtime lands in
 // whichever bucket THIS project's configuration puts it in
 // (doctorContainerRuntimeRequired). The two buckets are reported separately so
 // "missing" never conflates an optional convenience with a real hard
@@ -245,7 +238,7 @@ func doctorCheckDeps(reg engine.Registry, cfg *config.Config, runtimes []isolati
 	}
 	if len(missingRequired) == 0 && len(missingRecommended) == 0 {
 		return DoctorCheck{Marker: marker, Status: DoctorOK,
-			Detail: "git and every configured engine's client are on PATH (required); ssh, ssh-keygen and a container runtime are also present (recommended: ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW key for one by hand; a container runtime is required only for `runtime: container` agents)"}
+			Detail: "git and every configured engine's client are on PATH (required); ssh and a container runtime are also present (recommended: ssh is what git itself needs for an ssh:// remote; a container runtime is required only for `runtime: container` agents)"}
 	}
 	sort.Strings(missingRequired)
 	sort.Strings(missingRecommended)
@@ -254,7 +247,7 @@ func doctorCheckDeps(reg engine.Registry, cfg *config.Config, runtimes []isolati
 		parts = append(parts, "missing (required): "+strings.Join(missingRequired, ", "))
 	}
 	if len(missingRecommended) > 0 {
-		parts = append(parts, "missing (recommended, not required — ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW key for one by hand): "+strings.Join(missingRecommended, ", "))
+		parts = append(parts, "missing (recommended, not required — ssh is what git itself needs for an ssh:// remote): "+strings.Join(missingRecommended, ", "))
 	}
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: strings.Join(parts, "; ")}
 }

@@ -42,9 +42,7 @@ func setupTestEnv(t *testing.T) *testenv.TestEnvironment {
 	return env
 }
 
-// localBundleName is the bundle writeFragment authors into. It is named
-// because a second file signs that same bundle (local_signature_trust_test.go)
-// and the two must address one bundle, not two spellings of one.
+// localBundleName is the bundle writeFragment authors into.
 const localBundleName = "local"
 
 // writeFragment adds a fragment to the project's authored bundle tree,

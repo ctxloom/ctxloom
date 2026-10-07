@@ -16,12 +16,11 @@ import (
 )
 
 // doctorApp scaffolds a hermetic project the way `ctxloom manage install`
-// does and opens the composition over it, with the host's ssh-agent and git
-// identity out of reach so the two machine probes never read this machine.
+// does and opens the composition over it, with the host's git identity out
+// of reach so the machine probes never read this machine.
 func doctorApp(t *testing.T) (*App, string) {
 	t.Helper()
 	home := testsupport.Isolate(t)
-	t.Setenv("SSH_AUTH_SOCK", "")
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	root := t.TempDir()
 	appDir := filepath.Join(root, ".ctxloom")

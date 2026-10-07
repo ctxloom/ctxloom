@@ -370,11 +370,6 @@ func installFreshInitEngineStub(w *World) error {
 // Each answer waits for its own prompt, so a question that is skipped,
 // reordered or renamed fails here, naming the one that never came.
 func driveFreshInitInterview(w *World) (string, error) {
-	// isolatedEnv passes SSH_AUTH_SOCK through, and init reports on the
-	// signing identities it finds: a developer's real agent would put their
-	// identities into this transcript, which is the scenario's published
-	// evidence, and make it differ from a run with no agent.
-	w.env.SetChildEnv("SSH_AUTH_SOCK", "")
 	env := []string{
 		"PATH=" + freshInitStubDir(w) + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"GIT_ALLOW_PROTOCOL=file",

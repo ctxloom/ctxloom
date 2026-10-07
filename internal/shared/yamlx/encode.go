@@ -14,7 +14,8 @@ import (
 // with no content change. The lint rule forbidding yaml.Marshal and
 // yaml.NewEncoder elsewhere, tests included (.golangci.yml, forbidigo), is
 // what holds this; its one exclusion is pkg/clifmt, which renders command
-// output rather than a file ctxloom saves.
+// output and, as a leaf package that cannot import this one, sets the same
+// two-space indent on its own encoder.
 func Marshal(v any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)

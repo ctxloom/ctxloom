@@ -115,12 +115,12 @@ func TestRenderAllFormatsTableDriven(t *testing.T) {
 		want := "count: 2\n" +
 			"name: nightly-build\n" +
 			"owner:\n" +
-			"    team: platform\n" +
+			"  team: platform\n" +
 			"rows:\n" +
-			"    - id: r1\n" +
-			"      status: ok\n" +
-			"    - id: r2\n" +
-			"      status: failed\n"
+			"  - id: r1\n" +
+			"    status: ok\n" +
+			"  - id: r2\n" +
+			"    status: failed\n"
 		if buf.String() != want {
 			t.Errorf("Render(yaml) got:\n%s\nwant:\n%s", buf.String(), want)
 		}

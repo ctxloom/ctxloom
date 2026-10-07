@@ -45,8 +45,8 @@ func (MCPRegistrar) ConfigPath(dir string, global bool) (string, error) {
 }
 
 // Register writes the named server into the config at path through store, by
-// the same byte-preserving patch ClaudeCodeHookWriter uses for ctxloom's own
-// servers; a nil server is the uninstall. The name is always an owned path:
+// confpatch's byte-preserving patch (ctxloom's own servers are delivery claims,
+// mcpClaims, not this path); a nil server is the uninstall. The name is always an owned path:
 // with no record to reverse, an entry already there is taken out only if it
 // runs the store owner's executable — a user's own server parked under the
 // same name is left exactly where it is.

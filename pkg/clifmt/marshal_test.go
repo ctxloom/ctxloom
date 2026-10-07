@@ -143,3 +143,30 @@ func TestNormalizeNumbers_PreservesUint64BeyondInt64(t *testing.T) {
 		t.Errorf("renderTOML wrote a lossy approximation %q of %s", strings.TrimSpace(tomlBuf.String()), exact)
 	}
 }
+
+// --format yaml is 2-space, nested maps and sequences alike, matching every
+// file ctxloom saves (internal/shared/yamlx). yaml.v3's own default is 4, so
+// this pins that clifmt sets the indent on its encoder rather than inheriting
+// the library default.
+func TestRenderYAMLIndentsTwoSpaces(t *testing.T) {
+	v := map[string]any{
+		"outer": map[string]any{
+			"inner": map[string]any{"leaf": 1},
+			"list":  []any{"a", map[string]any{"k": "v", "m": 2}},
+		},
+	}
+	var buf bytes.Buffer
+	if err := renderYAML(&buf, v); err != nil {
+		t.Fatalf("renderYAML: %v", err)
+	}
+	want := "outer:\n" +
+		"  inner:\n" +
+		"    leaf: 1\n" +
+		"  list:\n" +
+		"    - a\n" +
+		"    - k: v\n" +
+		"      m: 2\n"
+	if buf.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", buf.String(), want)
+	}
+}

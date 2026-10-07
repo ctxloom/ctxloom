@@ -295,11 +295,11 @@ func (a commandsBy) DeliverCommands(_ present.Start, _ present.RootKind, _ engin
 func TestDeliver_AnApproachLocksThroughTheWritersOwnLocks(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	files := safefs.NewMem(fs)
-	rec, err := fsstatic.NewRecords(fs, "/records")
+	rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
 	require.NoError(t, err)
-	project := "/project"
+	project := t.TempDir()
 	require.NoError(t, fs.MkdirAll(project, 0o755))
-	lockPath := "/locks/managed-dir.lock"
+	lockPath := filepath.Join(t.TempDir(), "managed-dir.lock")
 	held, err := files.Locks.Lock(lockPath)
 	require.NoError(t, err)
 	defer func() { _ = held.Unlock() }()

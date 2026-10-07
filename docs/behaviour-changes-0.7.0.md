@@ -350,3 +350,9 @@ in a tagged release, so this only matters if you ran a build from `main`.
   directory stays after the session exits, so `ctxloom run --session` can
   resume its tree, until `ctxloom session sweep` removes it with the session.
 
+- A ctxloom-launched session — `ctxloom run`, interactive or one-shot, and
+  every `agent_run` child — received its assembled context twice: once
+  through the engine's context surface (claude's system prompt) and again
+  as the text of its first turn. The first turn is now the prompt alone. An
+  interactive `ctxloom run` with no prompt opens with no turn at all, rather
+  than with the context posted as your first message.

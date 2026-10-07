@@ -26,24 +26,26 @@ func seedRemotes(t *testing.T, body string) afero.Fs {
 	return fs
 }
 
-// A remotes.yaml written before it was versioned (every one in the wild) and a
-// current one both load, and constructing the registry writes nothing.
-func TestRegistry_KeylessAndCurrentLoadAndReadingNeverWrites(t *testing.T) {
-	for name, body := range map[string]string{
-		"keyless": remotesEntry,
-		"current": schemaver.Key + ": " + strconv.Itoa(remotesKind.Current()) + "\n" + remotesEntry,
-	} {
-		t.Run(name, func(t *testing.T) {
-			fs := seedRemotes(t, body)
-			reg, err := NewRegistry(remotesTestPath, WithRegistryFS(fs))
-			require.NoError(t, err)
-			assert.True(t, reg.Has("kit"))
+func currentRemotes() string {
+	return schemaver.Key + ": " + strconv.Itoa(remotesKind.Current()) + "\n" + remotesEntry
+}
 
-			onDisk, err := afero.ReadFile(fs, remotesTestPath)
-			require.NoError(t, err)
-			assert.Equal(t, body, string(onDisk), "a read must not write")
-		})
-	}
+// A current remotes.yaml loads, and constructing the registry writes nothing.
+func TestRegistry_CurrentLoadsAndReadingNeverWrites(t *testing.T) {
+	fs := seedRemotes(t, currentRemotes())
+	reg, err := NewRegistry(remotesTestPath, WithRegistryFS(fs))
+	require.NoError(t, err)
+	assert.True(t, reg.Has("kit"))
+
+	onDisk, err := afero.ReadFile(fs, remotesTestPath)
+	require.NoError(t, err)
+	assert.Equal(t, currentRemotes(), string(onDisk), "a read must not write")
+}
+
+// A remotes.yaml that declares no generation is refused, not guessed at.
+func TestRegistry_KeylessIsRefused(t *testing.T) {
+	_, err := NewRegistry(remotesTestPath, WithRegistryFS(seedRemotes(t, remotesEntry)))
+	require.ErrorIs(t, err, schemaver.ErrTooOld)
 }
 
 func TestRegistry_NewerIsRefusedNamingBothNumbers(t *testing.T) {
@@ -59,7 +61,7 @@ func TestRegistry_NewerIsRefusedNamingBothNumbers(t *testing.T) {
 // save stamps the current generation and still carries every top-level key it
 // does not manage.
 func TestRegistry_SaveStampsAndKeepsUnknownKeys(t *testing.T) {
-	fs := seedRemotes(t, "not_ours: kept\n"+remotesEntry)
+	fs := seedRemotes(t, "not_ours: kept\n"+currentRemotes())
 	reg, err := NewRegistry(remotesTestPath, WithRegistryFS(fs))
 	require.NoError(t, err)
 	require.NoError(t, reg.Add("other", "https://example.test/other"))

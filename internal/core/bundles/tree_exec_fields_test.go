@@ -104,7 +104,7 @@ func TestLoader_ATreeBundleCarriesRemoteMCPAndTags(t *testing.T) {
 // it, and an envelope of the generation before it migrates with the marker
 // step and nothing else.
 func TestExecItemFieldsGeneration_IsWhereTheStepLands(t *testing.T) {
-	_, ok := envelopeKind.Steps[execItemFieldsGeneration-1-envelopeKind.Oldest].(execItemFieldsStep)
+	_, ok := envelopeSteps[execItemFieldsGeneration-1-envelopeKind.Oldest()].(execItemFieldsStep)
 	assert.True(t, ok)
 }
 

@@ -69,7 +69,7 @@ func cotSeedSession(t *testing.T, harp string, age time.Duration) string {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), []byte(cotPlan), 0o644))
 	out := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("---\nsummary: seeded\n---\n"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionSidecarFileName), []byte("project_dir: /tmp/demo\noutput_dir: "+out+"\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionSidecarFileName), []byte("schema_version: 1\nproject_dir: /tmp/demo\noutput_dir: "+out+"\n"), 0o644))
 
 	require.NoError(t, sessionlock.Hold(harp))
 	sessionlock.Release(harp)

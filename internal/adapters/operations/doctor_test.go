@@ -995,7 +995,7 @@ func TestDoctorCheckHarpDurability_RightState_OnlyClassifiedFiles(t *testing.T) 
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(harpDir, paths.TranscriptsDirName), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(harpDir, paths.ScratchDirName), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(harpDir, paths.SessionSidecarFileName), []byte("project_dir: /p\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(harpDir, paths.SessionSidecarFileName), []byte("schema_version: 1\nproject_dir: /p\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(harpDir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), []byte("{}"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(harpDir, paths.ScratchDirName, "notes.md"), []byte("fine here"), 0o644))
 

@@ -47,7 +47,7 @@ func unwritableRegistry(t *testing.T, seed string) *Manager {
 // The mutate() seam that every mutator now shares is what makes the zeroing
 // uniform; this pins that a persist failure never leaks a value again.
 func TestMutatorsReturnZeroEntryOnPersistFailure(t *testing.T) {
-	const seeded = "projects:\n    - project_id: seeded-id\n      path: /nowhere/seeded\n"
+	const seeded = "schema_version: 1\nprojects:\n    - project_id: seeded-id\n      path: /nowhere/seeded\n"
 
 	t.Run("adopt existing id", func(t *testing.T) {
 		m := unwritableRegistry(t, seeded)

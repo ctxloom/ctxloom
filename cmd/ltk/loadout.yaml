@@ -142,7 +142,7 @@ run:
         **merge**, never overwrite). If it does not exist, start from:
 
         ```yaml
-        version: 1
+        schema_version: 1
         defaults:
           on_parse_error: allow
           repeat_window_seconds: 30

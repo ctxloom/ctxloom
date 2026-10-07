@@ -53,13 +53,6 @@ func TestLockPath_AtRoot(t *testing.T) {
 	assert.Equal(t, ".ctxloom/lock.yaml", LockPath(".ctxloom"))
 }
 
-func TestProfilesPath_AtRoot(t *testing.T) {
-	// Profiles directory should be at root: .ctxloom/profiles/
-	// NOT: .ctxloom/persistent/profiles/
-	assert.Equal(t, ".ctxloom/profiles", ProfilesPath(".ctxloom"))
-	assert.Equal(t, "/project/.ctxloom/profiles", ProfilesPath("/project/.ctxloom"))
-}
-
 // =============================================================================
 // Harp Session Directory Tests
 // =============================================================================

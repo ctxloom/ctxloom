@@ -15,7 +15,7 @@ func newResolveTestRegistry(t *testing.T) *Registry {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "remotes.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(
-		"remotes:\n"+
+		"schema_version: 1\nremotes:\n"+
 			"  personal:\n"+
 			"    url: https://github.com/benjaminabbitt/ctxloom-personal\n"+
 			"  ctxloom-default:\n"+

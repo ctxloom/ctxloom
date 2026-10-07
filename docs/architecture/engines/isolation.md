@@ -302,10 +302,9 @@ human's own session (`OriginSession`: depth 0, not a one-shot, whether
 interactive or `run --one-shot`) takes the top-level `auth:`
 (`config.Config.SessionAuth`): `token` (undeclared) or `login`; `ctxloom init`
 writes `login`. An agent binding has no `auth:`: a binding still carrying one
-is refused at load (`agents.ErrRetiredAuthKey`). That is a deliberate
-exception to the rule that an unknown config key warns and is ignored:
-ignored, a stale `auth:` would silently change which credential the agent's
-runs use, and a warning scrolls past. The rule is one function so
+carries an unknown config key, which fails the load unless `--degraded`
+(a stale `auth:`, ignored, would silently change which credential the agent's
+runs use). The rule is one function so
 the coordinator's spawns, one-shots, resumes and the human's launch cannot
 disagree: `launch.Resolve` settles the mode onto `launch.CellRequest.Auth`
 for every launch.

@@ -14,37 +14,35 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
-// setKey is a test step: it sets key to "yes". Its name is the key, so a
+// fakeStep is a test step to generation to: it sets key to "yes", or edits
+// nothing when key is empty (a marker generation). Its name is the key, so a
 // test can predict Applied without a magic string.
-type setKey string
-
-func (s setKey) Name() string { return string(s) }
-func (s setKey) Apply(root *yaml.Node) bool {
-	yamlx.MapSet(root, string(s), yamlx.ScalarNode("yes"))
-	return true
+type fakeStep struct {
+	to  int
+	key string
 }
 
-// noop is a step that changes nothing in the tree; it still advances the
-// version, because a step marks a generation whether or not it edits keys.
-type noop string
+func (s fakeStep) To() int      { return s.to }
+func (s fakeStep) Name() string { return "to " + itoa(s.to) + " " + s.key }
+func (s fakeStep) Apply(root *yaml.Node) {
+	if s.key != "" {
+		yamlx.MapSet(root, s.key, yamlx.ScalarNode("yes"))
+	}
+}
 
-func (n noop) Name() string                  { return string(n) }
-func (noop) Apply(*yaml.Node) (changed bool) { return false }
-
-const (
-	stepA = setKey("added_a")
-	stepB = setKey("added_b")
+var (
+	stepA = fakeStep{to: 2, key: "added_a"}
+	stepB = fakeStep{to: 3, key: "added_b"}
 )
 
 // withSteps: generations 1..3, two steps.
-var withSteps = Kind{Name: "widget", Oldest: 1, Steps: []upgrade.Upgrader{stepA, stepB}}
+var withSteps = Define("widget", 3, stepA, stepB)
 
 // zeroSteps: the steady state of a kind with no migrations registered.
-var zeroSteps = Kind{Name: "gadget", Oldest: 2}
+var zeroSteps = Define("gadget", 2)
 
 func doc(version int, rest string) []byte {
 	return []byte(Key + ": " + itoa(version) + "\n" + rest)
@@ -78,14 +76,43 @@ func requireVersionError(t *testing.T, err error, sentinel error) *VersionError 
 	return ve
 }
 
-func TestCurrent_IsOldestPlusSteps(t *testing.T) {
+func TestDefine_CurrentIsDeclaredAndOldestFollowsTheSteps(t *testing.T) {
 	assert.Equal(t, 3, withSteps.Current())
-	assert.Equal(t, 2, zeroSteps.Current(), "zero steps: the floor IS current")
+	assert.Equal(t, 1, withSteps.Oldest())
+	assert.Equal(t, 2, zeroSteps.Current())
+	assert.Equal(t, 2, zeroSteps.Oldest(), "zero steps: the floor IS current")
+}
+
+// Retiring the oldest step raises Oldest and leaves Current where it was, so a
+// file already stamped current still reads: the reason Current is declared.
+func TestDefine_DroppingTheOldestStepRaisesOldestOnly(t *testing.T) {
+	dropped := Define("widget", 3, stepB)
+	assert.Equal(t, withSteps.Current(), dropped.Current())
+	assert.Equal(t, 2, dropped.Oldest())
+
+	_, err := dropped.Upgrade(doc(3, ""))
+	require.NoError(t, err, "a current file still reads")
+	_, err = dropped.Upgrade(doc(1, ""))
+	assert.Equal(t, 1, requireVersionError(t, err, ErrTooOld).Found, "the retired generation is refused")
+}
+
+func TestDefine_PanicsOnABrokenChain(t *testing.T) {
+	cases := map[string]func(){
+		"generation zero":         func() { Define("k", 0) },
+		"a gap":                   func() { Define("k", 3, stepA, fakeStep{to: 4}) },
+		"a step above current":    func() { Define("k", 2, stepB) },
+		"a step below the top":    func() { Define("k", 4, stepA, stepB) },
+		"out of order":            func() { Define("k", 3, stepB, stepA) },
+		"more steps than history": func() { Define("k", 1, fakeStep{to: 0}, fakeStep{to: 1}) },
+	}
+	for name, define := range cases {
+		t.Run(name, func(t *testing.T) { assert.Panics(t, define) })
+	}
 }
 
 func TestUpgrade_CurrentPassesThroughByteIdentical(t *testing.T) {
 	for _, k := range []Kind{withSteps, zeroSteps} {
-		t.Run(k.Name, func(t *testing.T) {
+		t.Run(k.Name(), func(t *testing.T) {
 			in := doc(k.Current(), "# keep me\nkept:   x\n")
 			r, err := k.Upgrade(in)
 			require.NoError(t, err)
@@ -108,8 +135,8 @@ func TestUpgrade_OlderIsMigratedAndStamped(t *testing.T) {
 	var m map[string]any
 	require.NoError(t, yaml.Unmarshal(r.Data, &m))
 	assert.Equal(t, "x", m["kept"])
-	assert.Equal(t, "yes", m[string(stepA)])
-	assert.Equal(t, "yes", m[string(stepB)])
+	assert.Equal(t, "yes", m[stepA.key])
+	assert.Equal(t, "yes", m[stepB.key])
 }
 
 // Steps run FROM the declared version: a generation-2 document must not
@@ -119,25 +146,26 @@ func TestUpgrade_RunsOnlyTheStepsAboveFound(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, r.From)
 	assert.Equal(t, []string{stepB.Name()}, r.Applied)
-	assert.NotContains(t, string(r.Data), string(stepA))
+	assert.NotContains(t, string(r.Data), stepA.key)
 }
 
 // A step that edits nothing still marks a generation: it is reported and the
 // document is stamped.
 func TestUpgrade_NoopStepStillAdvancesAndStamps(t *testing.T) {
-	k := Kind{Name: "marker", Oldest: 0, Steps: []upgrade.Upgrader{noop("introduce")}}
+	marker := fakeStep{to: 1}
+	k := Define("marker", 1, marker)
 	r, err := k.Upgrade(doc(0, "kept: x\n"))
 	require.NoError(t, err)
-	assert.Equal(t, []string{"introduce"}, r.Applied)
+	assert.Equal(t, []string{marker.Name()}, r.Applied)
 	assert.Equal(t, 1, declared(t, r.Data))
 }
 
 func TestUpgrade_NewerIsRefused(t *testing.T) {
 	for _, k := range []Kind{withSteps, zeroSteps} {
-		t.Run(k.Name, func(t *testing.T) {
+		t.Run(k.Name(), func(t *testing.T) {
 			_, err := k.Upgrade(doc(k.Current()+4, ""))
 			ve := requireVersionError(t, err, ErrNewer)
-			assert.Equal(t, VersionError{Kind: k.Name, Found: k.Current() + 4, Current: k.Current(), Oldest: k.Oldest, Err: ErrNewer}, *ve)
+			assert.Equal(t, VersionError{Kind: k.Name(), Found: k.Current() + 4, Current: k.Current(), Oldest: k.Oldest(), Err: ErrNewer}, *ve)
 			assert.Contains(t, err.Error(), itoa(k.Current()+4), "the message names the found version")
 			assert.Contains(t, err.Error(), itoa(k.Current()), "the message names the version this binary reads")
 		})
@@ -146,20 +174,27 @@ func TestUpgrade_NewerIsRefused(t *testing.T) {
 
 func TestUpgrade_BelowFloorIsRefused(t *testing.T) {
 	for _, k := range []Kind{withSteps, zeroSteps} {
-		t.Run(k.Name, func(t *testing.T) {
-			_, err := k.Upgrade(doc(k.Oldest-1, ""))
+		t.Run(k.Name(), func(t *testing.T) {
+			_, err := k.Upgrade(doc(k.Oldest()-1, ""))
 			ve := requireVersionError(t, err, ErrTooOld)
-			assert.Equal(t, VersionError{Kind: k.Name, Found: k.Oldest - 1, Current: k.Current(), Oldest: k.Oldest, Err: ErrTooOld}, *ve)
-			assert.Contains(t, err.Error(), itoa(k.Oldest), "the message names the floor")
+			assert.Equal(t, VersionError{Kind: k.Name(), Found: k.Oldest() - 1, Current: k.Current(), Oldest: k.Oldest(), Err: ErrTooOld}, *ve)
+			assert.Contains(t, err.Error(), itoa(k.Oldest()), "the message names the floor")
 		})
 	}
 }
 
-// Keyless is generation 0, which is below a floor of 1.
+// Keyless is generation 0, which is below every floor: a kind whose chain
+// does not reach back to 0 refuses a file that never declared a generation,
+// and so does a kind with no steps at all. `version:` is just some other key.
 func TestUpgrade_KeylessBelowFloorIsRefused(t *testing.T) {
-	_, err := withSteps.Upgrade([]byte("kept: x\n"))
-	ve := requireVersionError(t, err, ErrTooOld)
-	assert.Equal(t, 0, ve.Found)
+	for _, in := range []string{"kept: x\n", "version: 1\n"} {
+		for _, k := range []Kind{withSteps, zeroSteps, Define("one", 1)} {
+			t.Run(k.Name()+"/"+in, func(t *testing.T) {
+				_, err := k.Upgrade([]byte(in))
+				assert.Equal(t, 0, requireVersionError(t, err, ErrTooOld).Found)
+			})
+		}
+	}
 }
 
 func TestUpgrade_Unreadable(t *testing.T) {
@@ -175,10 +210,10 @@ func TestUpgrade_Unreadable(t *testing.T) {
 	}
 	for _, k := range []Kind{withSteps, zeroSteps} {
 		for name, in := range cases {
-			t.Run(k.Name+"/"+name, func(t *testing.T) {
+			t.Run(k.Name()+"/"+name, func(t *testing.T) {
 				_, err := k.Upgrade([]byte(in))
 				ve := requireVersionError(t, err, ErrUnreadable)
-				assert.Equal(t, k.Name, ve.Kind)
+				assert.Equal(t, k.Name(), ve.Kind)
 				assert.Equal(t, k.Current(), ve.Current)
 			})
 		}
@@ -202,7 +237,7 @@ func TestUpgrade_NotAWellFormedMappingPassesThroughToTheKindsParse(t *testing.T)
 	}
 	for _, k := range []Kind{withSteps, zeroSteps} {
 		for name, in := range cases {
-			t.Run(k.Name+"/"+name, func(t *testing.T) {
+			t.Run(k.Name()+"/"+name, func(t *testing.T) {
 				data := []byte(in)
 				r, err := k.Upgrade(data)
 				require.NoError(t, err)
@@ -216,29 +251,23 @@ func TestUpgrade_NotAWellFormedMappingPassesThroughToTheKindsParse(t *testing.T)
 }
 
 func TestUpgrade_EmptyAndCommentOnlyAreGenerationZero(t *testing.T) {
-	gen0 := Kind{Name: "fresh", Oldest: 0, Steps: []upgrade.Upgrader{stepA}}
+	gen0 := Define("fresh", 1, fakeStep{to: 1, key: "added_a"})
 	for name, in := range map[string]string{
 		"empty":         "",
 		"comment-only":  "# just a comment\n",
 		"bare document": "---\n",
 		"null document": "~\n",
 	} {
-		t.Run(name+"/zero steps passes through", func(t *testing.T) {
-			k := Kind{Name: "fresh", Oldest: 0}
-			data := []byte(in)
-			r, err := k.Upgrade(data)
-			require.NoError(t, err)
-			assert.Equal(t, 0, r.From)
-			assert.Equal(t, 0, r.To)
-			assert.Empty(t, r.Applied)
-			assert.Equal(t, in, string(r.Data))
+		t.Run(name+"/no step from zero refuses", func(t *testing.T) {
+			_, err := zeroSteps.Upgrade([]byte(in))
+			assert.Equal(t, 0, requireVersionError(t, err, ErrTooOld).Found)
 		})
-		t.Run(name+"/with steps migrates", func(t *testing.T) {
+		t.Run(name+"/with a step from zero migrates", func(t *testing.T) {
 			r, err := gen0.Upgrade([]byte(in))
 			require.NoError(t, err)
 			assert.Equal(t, 0, r.From)
 			assert.Equal(t, 1, r.To)
-			assert.Equal(t, []string{stepA.Name()}, r.Applied)
+			assert.Len(t, r.Applied, 1)
 			assert.Equal(t, 1, declared(t, r.Data))
 		})
 	}
@@ -247,51 +276,11 @@ func TestUpgrade_EmptyAndCommentOnlyAreGenerationZero(t *testing.T) {
 // A comment-only file's comments are its whole content; a migration must not
 // throw them away.
 func TestUpgrade_CommentOnlyKeepsItsComments(t *testing.T) {
-	k := Kind{Name: "fresh", Oldest: 0, Steps: []upgrade.Upgrader{noop("introduce")}}
+	k := Define("fresh", 1, fakeStep{to: 1})
 	r, err := k.Upgrade([]byte("# keep me\n"))
 	require.NoError(t, err)
 	assert.Contains(t, string(r.Data), "# keep me")
 	assert.Equal(t, 1, declared(t, r.Data))
-}
-
-// The rename runs BEFORE the version read: with a floor of 1, a `version: 1`
-// file read before the rename would be keyless — generation 0, below the
-// floor — and be refused for merely spelling its version the old way.
-func TestUpgrade_LegacyKeyRenamedBeforeTheVersionCheck(t *testing.T) {
-	k := Kind{Name: "legacy", LegacyKey: "version", Oldest: 1}
-	r, err := k.Upgrade([]byte("# head\nversion: 1 # why\nkept: x\n"))
-	require.NoError(t, err)
-	assert.Equal(t, 1, r.From)
-	assert.Equal(t, 1, r.To)
-	assert.Equal(t, []string{renameStepName(k.LegacyKey)}, r.Applied, "the rename is a change and is reported")
-	assert.Equal(t, 1, declared(t, r.Data))
-	assert.NotRegexp(t, `(?m)^version:`, string(r.Data))
-	assert.True(t, strings.HasPrefix(string(r.Data), "# head\n"+Key+": 1"), "renamed in place: %q", r.Data)
-	assert.Contains(t, string(r.Data), "# why")
-}
-
-// The rename is per-kind opt-in: without LegacyKey, `version:` is just some
-// other key and the document is keyless.
-func TestUpgrade_NoLegacyKeyMeansNoRename(t *testing.T) {
-	k := Kind{Name: "bundle-like", Oldest: 1}
-	_, err := k.Upgrade([]byte("version: 1\n"))
-	ve := requireVersionError(t, err, ErrTooOld)
-	assert.Equal(t, 0, ve.Found)
-}
-
-func TestUpgrade_LegacyRenameThenMigrates(t *testing.T) {
-	k := Kind{Name: "legacy", LegacyKey: "version", Oldest: 1, Steps: []upgrade.Upgrader{stepA}}
-	r, err := k.Upgrade([]byte("version: 1\n"))
-	require.NoError(t, err)
-	assert.Equal(t, []string{renameStepName("version"), stepA.Name()}, r.Applied)
-	assert.Equal(t, 2, declared(t, r.Data))
-}
-
-// Both spellings present: no safe way to pick one.
-func TestUpgrade_LegacyAndKeyBothPresentIsUnreadable(t *testing.T) {
-	k := Kind{Name: "legacy", LegacyKey: "version", Oldest: 1}
-	_, err := k.Upgrade([]byte("version: 1\n" + Key + ": 1\n"))
-	assert.Equal(t, k.Name, requireVersionError(t, err, ErrUnreadable).Kind)
 }
 
 func TestStamp(t *testing.T) {
@@ -428,24 +417,6 @@ func TestWriteUpgrades_ConcurrentReadAndSet(t *testing.T) {
 	close(start)
 	wg.Wait()
 	assert.True(t, WriteUpgrades())
-}
-
-// IntroduceKey is the first step of a kind that was unversioned: a keyless
-// file means what a generation-1 file means, so the step edits nothing and
-// only the stamp changes the document.
-func TestIntroduceKey_KeylessBecomesGenerationOneUnchangedOtherwise(t *testing.T) {
-	k := Kind{Name: "was unversioned", Oldest: 0, Steps: []upgrade.Upgrader{IntroduceKey}}
-	var root yaml.Node
-	require.NoError(t, yaml.Unmarshal([]byte("kept: x\n"), &root))
-	assert.False(t, IntroduceKey.Apply(root.Content[0]), "the step edits nothing")
-
-	r, err := k.Upgrade([]byte("kept: x\n"))
-	require.NoError(t, err)
-	assert.Equal(t, []string{IntroduceKey.Name()}, r.Applied)
-	assert.Equal(t, 1, declared(t, r.Data))
-	var m map[string]any
-	require.NoError(t, yaml.Unmarshal(r.Data, &m))
-	assert.Equal(t, map[string]any{Key: 1, "kept": "x"}, m)
 }
 
 // widget is what Decode fills in the tests below.

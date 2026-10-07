@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,15 +23,15 @@ func TestLoader_Load_ProfileHooksExt(t *testing.T) {
 	assert.Equal(t, "x", p.Hooks.Ext["claude-code"]["PreToolUse"][0].Command)
 }
 
-// TestDecode_ProfileHooksRetiredPluginsKeyFails pins the loud failure at the
-// surface a user actually edits: a profile document still spelling
-// `hooks.plugins` does not decode, and the error is the wire sentinel naming
-// the current spelling. (The bundle's content decoder wraps it with the file.)
-func TestDecode_ProfileHooksRetiredPluginsKeyFails(t *testing.T) {
+// TestDecode_ProfileHooksUnknownKeyFails pins the loud failure at the surface
+// a user actually edits: a profile whose hooks block carries a key the type
+// does not model does not decode. (The bundle's content decoder wraps it with
+// the file.)
+func TestDecode_ProfileHooksUnknownKeyFails(t *testing.T) {
 	p, err := Decode([]byte(
 		"hooks:\n  plugins:\n    claude-code:\n      PreToolUse:\n        - command: x\n          type: command\n",
 	))
-	require.ErrorIs(t, err, wire.ErrRetiredHooksExtKey)
-	assert.Contains(t, err.Error(), "'ext:'", "the refusal names the current spelling")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "plugins")
 	assert.Nil(t, p, "a refused profile must not load half-decoded, with its engine hooks silently gone")
 }

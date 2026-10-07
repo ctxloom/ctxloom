@@ -50,7 +50,7 @@ func TestSetAgent_PersistsEnvHostAndEnv(t *testing.T) {
 // persists nothing: env with env_host left on (absent, or flipped back on
 // over recorded names), and an entry that is not a bare name.
 func TestSetAgent_RefusesAnEnvTheBindingWouldIgnore(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf(`version: %d
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf(`schema_version: %d
 agents:
   curated:
     llm: claude-code

@@ -41,7 +41,7 @@ const goldenHomeConfigYAML = `llm:
   defaults:
     primary: claude-code
     fast: claude-fast
-version: 5
+schema_version: 7
 `
 
 // TestGoldenFixture_CurrentEffectiveConfig_D3Characterization is the REQUIRED

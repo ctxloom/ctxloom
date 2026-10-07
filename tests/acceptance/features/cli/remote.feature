@@ -272,9 +272,9 @@ Feature: remote — registering the sources content comes from, and browsing the
       Then the output contains "origin"
       And the output contains "mirror"
 
-    # A registry from before the file declared its schema generation is the
-    # first generation, and still reads.
-    Scenario: A registry that declares no schema generation is still read
+    # A registry that declares no schema generation is refused, naming the
+    # generation it found and the oldest this build reads, rather than guessed at.
+    Scenario: A registry that declares no schema generation is refused
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/remotes.yaml":
         """
@@ -283,8 +283,8 @@ Feature: remote — registering the sources content comes from, and browsing the
             url: file:///tmp/acceptance-remote.git
         """
       When I run "ctxloom remote list"
-      Then the command succeeds
-      And the output contains "origin"
+      Then the command fails
+      And the output contains "schema_version 0"
 
   Rule: A command finds the registry from wherever it runs
 

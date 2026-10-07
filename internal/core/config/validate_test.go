@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -147,27 +146,6 @@ func TestOpen_WithEngines_ValidatesEveryGeneration(t *testing.T) {
 	unvalidated, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
 	assert.Empty(t, unvalidated.Current().Warnings, "without engines there is nothing to validate against")
-}
-
-// An agent binding has no auth to choose: every run ctxloom spawns
-// authenticates with the token. A binding still carrying `auth:` -- any
-// value, the retired api-key and cloud and the human's login among them -- is
-// refused at load, typed, naming the token and where the human's own login
-// is chosen instead.
-//
-// WHY A REFUSAL AND NOT THE WARNING every other unknown key gets: ignored,
-// a stale `auth:` would silently change which credential the agent's runs
-// use (a binding written to share the login would run on the token), and a
-// warning scrolls past. This is the deliberate exception for review.
-func TestParseConfig_RefusesAnAgentAuthKey(t *testing.T) {
-	for _, mode := range []string{"login", "api-key", "cloud", "token"} {
-		_, err := config.ParseConfig([]byte("schema_version: 7\nagents:\n  dev:\n    profiles: [base]\n    auth: " + mode + "\n"))
-		require.ErrorIs(t, err, agents.ErrRetiredAuthKey, mode)
-		assert.Contains(t, err.Error(), `"dev"`, mode)
-		assert.Contains(t, err.Error(), "claude setup-token", mode)
-		assert.Contains(t, err.Error(), "CLAUDE_CODE_OAUTH_TOKEN", mode)
-		assert.Contains(t, err.Error(), "auth: login", mode)
-	}
 }
 
 // The top-level `auth:` is how the HUMAN's own session authenticates:

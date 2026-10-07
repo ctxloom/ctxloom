@@ -77,8 +77,8 @@ func (m *MockLM) Echo() error {
 // (a journey Given, another engine's WriteConfig call) had written.
 //
 // The mock's CTXLOOM_MOCK_* knobs ride the entry's `mock_control` map — test
-// control, which is fine in a project file. (The retired `env` key is not:
-// it is refused at load, see config.RetiredLLMEnvKey.)
+// control, which is fine in a project file. (`env` is not: the config schema
+// does not know it.)
 func (m *MockLM) WriteConfig() error {
 	if m.ProjectDir == "" {
 		return fmt.Errorf("ProjectDir not set; call SetupMockLM first")
@@ -99,10 +99,7 @@ func (m *MockLM) WriteConfig() error {
 	root := doc.Content[0]
 
 	// Pinned to ctxloomconfig.CurrentConfigVersion rather than a hardcoded
-	// number so this fixture is never itself an older generation that loading
-	// must migrate. Under schemaver.Key, never the legacy spelling: a config
-	// carrying both is refused as unreadable, and the fixtures this edits
-	// already declare schemaver.Key.
+	// number so this fixture is never itself a generation loading refuses.
 	upgrade.SetVersion(root, schemaver.Key, ctxloomconfig.CurrentConfigVersion)
 
 	llm := yamlx.EnsureMap(root, "llm")

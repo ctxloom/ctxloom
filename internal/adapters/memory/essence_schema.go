@@ -5,44 +5,18 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 const (
-	compactedAtKey = "compacted_at"
-	distilledAtKey = "distilled_at"
-
 	frontMatterOpen  = "---\n"
 	frontMatterClose = "\n---\n"
 )
 
 // essenceKind versions an essence file's front-matter — the YAML block the
-// file opens with, never its markdown body. Front-matter declared no
-// schemaver.Key before this Kind existed, so a keyless block is generation 0.
-var essenceKind = schemaver.Kind{
-	Name:   "session essence",
-	Oldest: 0,
-	Steps:  []upgrade.Upgrader{schemaver.IntroduceKey, compactedAtRename{}},
-}
-
-// compactedAtRename names the essence timestamp after the feature that writes
-// it. The rename is in place, keeping the key's position and comments.
-type compactedAtRename struct{}
-
-func (compactedAtRename) Name() string { return "rename " + distilledAtKey + " to " + compactedAtKey }
-
-func (compactedAtRename) Apply(root *yaml.Node) (changed bool) {
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value == distilledAtKey {
-			root.Content[i].Value = compactedAtKey
-			return true
-		}
-	}
-	return false
-}
+// file opens with, never its markdown body.
+var essenceKind = schemaver.Define("session essence", 2)
 
 // splitEssence separates an essence file into its front-matter YAML (ending
 // in a newline) and everything after the closing delimiter.

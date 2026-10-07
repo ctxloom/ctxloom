@@ -39,7 +39,7 @@ func TestLoad_ConfigSetEnumTypoIsSchemaChecked(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`version: 1
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`schema_version: 7
 agents:
   reviewer:
     profiles: [default]
@@ -70,7 +70,7 @@ func TestLoad_ConfigSetTypeGuessIsSchemaChecked(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`version: 1
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`schema_version: 7
 llm:
   configs:
     big:
@@ -98,7 +98,7 @@ func TestLoad_ValidOverridesWarnNothing(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`version: 1
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(`schema_version: 7
 agents:
   reviewer:
     profiles: [default]

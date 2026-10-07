@@ -26,7 +26,6 @@ func appPathFamily() []appPathFunc {
 		{"ConfigPath", ConfigPath, "config.yaml"},
 		{"RemotesPath", RemotesPath, "remotes.yaml"},
 		{"LockPath", LockPath, "lock.yaml"},
-		{"ProfilesPath", ProfilesPath, "profiles"},
 		{"AgentsPath", AgentsPath, "agents"},
 		{"CacheBundlesPath", CacheBundlesPath, filepath.Join("cache", "bundles")},
 		{"LocalPath", LocalPath, "content"},

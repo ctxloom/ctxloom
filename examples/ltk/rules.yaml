@@ -3,7 +3,7 @@
 # Commands proposed by the LLM are parsed into a command graph and matched
 # against these rules. The first matching `deny` rule wins; its message (and
 # suggested replacement) is returned to the LLM so it can try the right command.
-version: 1
+schema_version: 1
 
 defaults:
   # What to do when a command can't be parsed at all (e.g. PowerShell absent).

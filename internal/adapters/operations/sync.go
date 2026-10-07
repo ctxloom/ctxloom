@@ -564,19 +564,12 @@ func (c *refCollector) walk(p *profiles.Profile) {
 	}
 }
 
-// add records ref's bundle base, once per bundle identity. A ref in the
-// retired top-level "@profiles/" grammar — or otherwise unparseable — must
-// never enter the install plan: it cannot pull, so planning it walks the user
-// into a confirmed install that then fails with "unknown item type". Warn once
-// and keep collecting (report the failure, continue with what works).
+// add records ref's bundle base, once per bundle identity. An unparseable ref
+// must never enter the install plan: it cannot pull, so planning it walks the
+// user into a confirmed install that then fails. Warn once and keep collecting
+// (report the failure, continue with what works).
 func (c *refCollector) add(ref, owner string) {
 	base, _, _ := strings.Cut(ref, "#")
-	if _, _, retired := remote.SplitRetiredProfileRef(base); retired {
-		clidiag.WarnOnce("ctxloom",
-			"profile %q references %s in the retired top-level @profiles/ grammar; profiles ship inside bundles now — point the parent at \"<url>@bundles/<bundle>#profiles/<name>\" (or install a bundle that ships it, which auto-rewrites the parent on load); skipping from sync",
-			owner, ref)
-		return
-	}
 	parsed, err := remote.ParseReference(base)
 	if err != nil {
 		clidiag.WarnOnce("ctxloom", "profile %q references invalid ref %s (%v); skipping from sync", owner, ref, err)

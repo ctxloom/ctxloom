@@ -357,12 +357,12 @@ rules fire out of the box. Details in [the rules reference](https://ctxloom.dev/
 
 `schema_version` declares the rules file's format generation: an integer that
 changes only when the file format does, independent of ltk's own release
-version. ltk reads an older or unversioned file (including the earlier
-`version:` spelling) by migrating it in memory, and leaves the file alone. Pass
-`--write-upgrades` to any ltk command — `ltk check --write-upgrades --command true`
-will do — to persist the migration to the rules file it resolved, keeping the
-original as `<file>.bak`. A file declaring a newer generation than this ltk
-reads is refused with both numbers named: upgrade ltk.
+version. A file declaring no generation (`version:` is not a spelling of it) or
+one older than this ltk migrates is refused; a file declaring a newer
+generation than this ltk reads is refused with both numbers named: upgrade ltk.
+When ltk migrates an older generation in memory, it leaves the file alone
+unless you pass `--write-upgrades` to the command, which persists the migration
+and keeps the original as `<file>.bak`.
 
 ### This repo runs its own rules
 

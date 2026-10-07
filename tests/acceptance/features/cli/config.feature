@@ -116,12 +116,10 @@ Feature: config — the project's one configuration document, read and scaffolde
       | --format json | claude-code             | claude-code              |
       | --format text | configs:                | defaults:                |
 
-    # The `profiles:` block was RETIRED — a profile is a file. A config still
-    # carrying one must be TOLD that, and told where profiles live now: the
-    # block is silently ignored otherwise, and a user whose profiles stopped
-    # applying has nothing to go on. Reporting it as a plain unknown key would
-    # read as a typo in a key they spelled correctly.
-    Scenario: A config still carrying the retired profiles block is told where profiles live
+    # A key the config schema does not describe — a typo, or a block that once
+    # meant something, such as an inline `profiles:` — fails the command and
+    # is named, rather than silently ignored with its settings gone.
+    Scenario: A config carrying an inline profiles block is refused, naming the key
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a profile "dev" is defined inline in config with bundle "demo"
@@ -129,9 +127,8 @@ Feature: config — the project's one configuration document, read and scaffolde
         """
         ctxloom config show llm
         """
-      Then the output contains "RETIRED"
-      And the output contains "project bundle"
-      And the output contains "default_agent"
+      Then the command fails
+      And the output contains "unknown key `profiles`"
 
     # The refusal has to be USEFUL, not merely correct: a caller who guessed
     # wrong recovers from the message or not at all, so it names every section

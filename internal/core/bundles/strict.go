@@ -20,8 +20,7 @@ import (
 // schema does not model is an ERROR instead of a silent drop. That refusal is
 // the whole point: a misspelled `hoooks:` or a `promt:` used to load cleanly
 // and leave the bundle quietly doing less than its author wrote — exit 0, a
-// success message, and a hook that never fires. detectLegacySkillsKey exists
-// because one such misparse already cost someone a debugging session.
+// success message, and a hook that never fires.
 //
 // yaml's own complaint for that case is
 //

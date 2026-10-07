@@ -50,7 +50,8 @@ func dirCurationCfg(t *testing.T, defaults []string, dirProfiles map[string]stri
 	}
 
 	doc := map[string]any{
-		"default_agent": "default",
+		"schema_version": config.CurrentConfigVersion,
+		"default_agent":  "default",
 		"agents": map[string]any{
 			"default": map[string]any{"profiles": defaults},
 		},

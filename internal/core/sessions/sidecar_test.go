@@ -3,6 +3,8 @@ package sessions
 import (
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
 // The session store is the set of session DIRECTORIES under the sessions
@@ -37,10 +40,16 @@ func openSidecarRoot(t *testing.T) (*Manager, string) {
 	return m, root
 }
 
+// writeSidecar writes a sidecar fixture. A body that declares no
+// schemaver.Key is stamped current first: these tests are about the record,
+// and the version gate is sidecar_schemaver_test.go's.
 func writeSidecar(t *testing.T, root, harp, yamlBody string) {
 	t.Helper()
 	dir := filepath.Join(root, harp)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
+	if !strings.Contains(yamlBody, schemaver.Key+":") {
+		yamlBody = schemaver.Key + ": " + strconv.Itoa(sidecarKind.Current()) + "\n" + yamlBody
+	}
 	require.NoError(t, os.WriteFile(filepath.Join(dir, testSidecarName), []byte(yamlBody), 0o644))
 }
 

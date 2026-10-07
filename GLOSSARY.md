@@ -131,8 +131,8 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
      `delegation.depth`. Position expresses privilege only while the tree is
      flat. Add recursion and there is an orchestrator at depth n and executors at n+1 for
      every n, so no global cap can express "orchestrators may delegate,
-     executors may not" — which revives the per-binding flag
-     `agents.RetiredCoordinatorKey` deliberately REMOVED in favour of position.
+     executors may not" — which revives the per-binding `coordinator:` flag
+     deliberately REMOVED in favour of position.
      That retirement is correct only because the tree is flat.
 
   2. ONE CAP SEES EVERYTHING. Heavy work is bounded because a single
@@ -166,10 +166,9 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
   four properties above; the full analysis is in the container-topology study.
 
   Note that delegation privilege is DERIVED, never declared: a per-binding
-  `coordinator: true` flag existed and was deliberately REMOVED
-  (`agents.RetiredCoordinatorKey`) in favour of position in the tree. Any
-  proposal to re-add a per-agent "may delegate" field is reviving something
-  this codebase retired on purpose — read that constant's doc before doing it.
+  `coordinator: true` flag existed and was deliberately REMOVED in favour of
+  position in the tree. Any proposal to re-add a per-agent "may delegate"
+  field is reviving something this codebase retired on purpose.
 
 ## Implied code renames (consequences; schedule separately, not blockers)
 

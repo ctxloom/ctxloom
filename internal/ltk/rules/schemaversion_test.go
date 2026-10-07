@@ -12,21 +12,36 @@ import (
 
 func current() string { return schemaver.Key + ": " + strconv.Itoa(configKind.Current()) + "\n" }
 
-func TestParse_LoadsEveryAcceptedVersionSpelling(t *testing.T) {
+func TestParse_LoadsTheCurrentGeneration(t *testing.T) {
 	for name, doc := range map[string]string{
-		"current":         current() + "rules: []\n",
-		"legacy key":      "version: 1\nrules: []\n",
-		"keyless":         "rules: []\n",
-		"empty":           "",
-		"comment-only":    "# nothing yet\n",
-		"bare document":   "---\n",
-		"defaults only":   current() + "defaults:\n  on_parse_error: allow\n",
-		"legacy, a rule":  "version: 1\nrules:\n  - id: a\n    match: { command: [rm] }\n    message: no\n",
-		"current, a rule": current() + "rules:\n  - id: a\n    match: { command: [rm] }\n    message: no\n",
+		"no rules":      current() + "rules: []\n",
+		"defaults only": current() + "defaults:\n  on_parse_error: allow\n",
+		"a rule":        current() + "rules:\n  - id: a\n    match: { command: [rm] }\n    message: no\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Parse([]byte(doc)); err != nil {
 				t.Fatalf("Parse(%q): %v", doc, err)
+			}
+		})
+	}
+}
+
+// A file that declares no generation is refused, never guessed at: `version`
+// is not a spelling of schemaver.Key, and an empty or comment-only file
+// declares nothing.
+func TestParse_RefusesAFileThatDeclaresNoGeneration(t *testing.T) {
+	for name, doc := range map[string]string{
+		"keyless":       "rules: []\n",
+		"version key":   "version: 1\nrules: []\n",
+		"empty":         "",
+		"comment-only":  "# nothing yet\n",
+		"bare document": "---\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Parse([]byte(doc))
+			var ve *schemaver.VersionError
+			if !errors.Is(err, schemaver.ErrTooOld) || !errors.As(err, &ve) || ve.Found != 0 {
+				t.Fatalf("Parse(%q): want ErrTooOld at generation 0, got %v", doc, err)
 			}
 		})
 	}
@@ -65,35 +80,18 @@ func TestParse_StrictDecodeStillRefusesUnknownKeys(t *testing.T) {
 	}
 }
 
-func TestLoad_ReportsTheMigration(t *testing.T) {
-	dir := t.TempDir()
-	for name, tc := range map[string]struct {
-		doc     string
-		changed bool
-	}{
-		"legacy key is renamed": {"version: 1\nrules: []\n", true},
-		"keyless is stamped":    {"rules: []\n", true},
-		"current is untouched":  {current() + "rules: []\n", false},
-	} {
-		t.Run(name, func(t *testing.T) {
-			p := filepath.Join(dir, name+".yaml")
-			if err := os.WriteFile(p, []byte(tc.doc), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			_, r, err := Load(p)
-			if err != nil {
-				t.Fatalf("Load: %v", err)
-			}
-			if got := len(r.Applied) > 0; got != tc.changed {
-				t.Fatalf("changed = %v, want %v (applied %v)", got, tc.changed, r.Applied)
-			}
-			if r.To != configKind.Current() {
-				t.Fatalf("To = %d, want %d", r.To, configKind.Current())
-			}
-			if !tc.changed && string(r.Data) != tc.doc {
-				t.Fatalf("a current file must come back byte-identical, got %q", r.Data)
-			}
-		})
+func TestLoad_CurrentIsUntouched(t *testing.T) {
+	doc := current() + "rules: []\n"
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(p, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, r, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(r.Applied) > 0 || r.To != configKind.Current() || string(r.Data) != doc {
+		t.Fatalf("a current file must come back byte-identical and unmigrated, got %+v", r)
 	}
 }
 

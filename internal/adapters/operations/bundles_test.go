@@ -505,7 +505,8 @@ func writeRemotesYAML(t *testing.T, appDir, content string) {
 
 func TestResolveBundleRemote_FromCachedPath(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
-	writeRemotesYAML(t, appDir, `remotes:
+	writeRemotesYAML(t, appDir, `schema_version: 1
+remotes:
   personal:
     url: https://github.com/example/personal-bundles
     version: v1
@@ -524,6 +525,7 @@ func TestResolveBundleRemote_FromCachedPath(t *testing.T) {
 func TestResolveBundleRemote_UsesDefaultRemote(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	writeRemotesYAML(t, appDir, `default: personal
+schema_version: 1
 remotes:
   personal:
     url: https://github.com/example/personal
@@ -543,7 +545,8 @@ remotes:
 
 func TestResolveBundleRemote_SingleRemoteFallback(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
-	writeRemotesYAML(t, appDir, `remotes:
+	writeRemotesYAML(t, appDir, `schema_version: 1
+remotes:
   only:
     url: https://github.com/example/only
     version: v1
@@ -559,7 +562,8 @@ func TestResolveBundleRemote_SingleRemoteFallback(t *testing.T) {
 
 func TestResolveBundleRemote_AmbiguousRemote_Errors(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
-	writeRemotesYAML(t, appDir, `remotes:
+	writeRemotesYAML(t, appDir, `schema_version: 1
+remotes:
   a:
     url: https://github.com/example/a
     version: v1
@@ -580,6 +584,7 @@ func TestResolveBundleRemote_AmbiguousRemote_Errors(t *testing.T) {
 func TestResolveBundleRemote_Override(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	writeRemotesYAML(t, appDir, `default: personal
+schema_version: 1
 remotes:
   personal:
     url: https://github.com/example/personal
@@ -614,6 +619,7 @@ func TestPushBundle_FileMissing_Errors(t *testing.T) {
 func TestPushBundle_FileNotABundle_Errors(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	writeRemotesYAML(t, appDir, `default: r
+schema_version: 1
 remotes:
   r:
     url: https://github.com/x/y
@@ -646,6 +652,7 @@ remotes:
 func TestPushBundle_EmptyBundleIsRefused(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	writeRemotesYAML(t, appDir, `default: r
+schema_version: 1
 remotes:
   r:
     url: https://github.com/x/y
@@ -683,7 +690,8 @@ remotes:
 // to a configured registry entry.
 func TestResolveBundleRemote_GitRemoteFallback(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
-	writeRemotesYAML(t, appDir, `remotes:
+	writeRemotesYAML(t, appDir, `schema_version: 1
+remotes:
   mine:
     url: https://github.com/example/my-bundles
     version: v1
@@ -718,6 +726,7 @@ func TestResolveBundleRemote_GitRemoteFallback(t *testing.T) {
 func TestPushBundle_DryRun_PreviewShape(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	writeRemotesYAML(t, appDir, `default: personal
+schema_version: 1
 remotes:
   personal:
     url: https://github.com/example/personal
@@ -817,6 +826,7 @@ func pushTestSetup(t *testing.T, mock *mockPublisher) (cfg *config.Config, bundl
 	t.Helper()
 	appDir, cfg := setupBundleTestDir(t)
 	writeRemotesYAML(t, appDir, `default: personal
+schema_version: 1
 remotes:
   personal:
     url: https://github.com/example/personal-bundles

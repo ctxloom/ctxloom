@@ -32,7 +32,7 @@ func TestCheckCmd_CommandFlagIsRequired(t *testing.T) {
 // fields (never the concatenated hook-reason string).
 func TestRunCheck(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
-	cfg := `version: 1
+	cfg := `schema_version: 1
 rules:
   - id: no-force-push
     match: { command: [git, push], args_all: [--force] }
@@ -149,7 +149,7 @@ rules:
 	t.Run("unresolvable @submodules errors (loud, unlike the hook)", func(t *testing.T) {
 		dir := t.TempDir()
 		subCfg := filepath.Join(dir, "rules.yaml")
-		if err := os.WriteFile(subCfg, []byte("version: 1\npath_rules:\n  - id: no-submodule-edits\n    match: { path: [\"@submodules\"] }\n    message: \"don't edit submodules\"\n"), 0o644); err != nil {
+		if err := os.WriteFile(subCfg, []byte("schema_version: 1\npath_rules:\n  - id: no-submodule-edits\n    match: { path: [\"@submodules\"] }\n    message: \"don't edit submodules\"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		// .gitmodules exists but is a directory: unreadable, which
@@ -167,7 +167,7 @@ rules:
 
 	t.Run("broken config errors (loud, unlike the hook)", func(t *testing.T) {
 		broken := filepath.Join(t.TempDir(), "broken.yaml")
-		if err := os.WriteFile(broken, []byte("version: 1\nrulez:\n  - id: oops\n"), 0o644); err != nil {
+		if err := os.WriteFile(broken, []byte("schema_version: 1\nrulez:\n  - id: oops\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		var buf, diag bytes.Buffer

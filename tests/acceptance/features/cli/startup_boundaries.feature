@@ -118,7 +118,7 @@ Feature: What a start writes, and whose pins it reads
       And the home config declares the mock engine label "session-owner"
       And the home already has the file ".ctxloom/lock.yaml":
         """
-        version: 1
+        schema_version: 2
         bundles:
           broken:
             sha: "abc
@@ -132,7 +132,7 @@ Feature: What a start writes, and whose pins it reads
       # makes this directory resolve as a project at all.
       Given the project already has the file ".ctxloom/lock.yaml":
         """
-        version: 1
+        schema_version: 2
         bundles:
           broken:
             sha: "abc

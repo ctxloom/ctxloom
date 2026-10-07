@@ -104,6 +104,8 @@ var LayeringRules = []LayeringRule{
 		Except: []string{
 			// core (the from-set again: core may import core)
 			"internal/core",
+			// a versioned kind's owner imports its kind's step list
+			"internal/migrations",
 			// the toolbox (domain-free leaf libraries), listed by
 			// member rather than as the internal/shared prefix: a package
 			// that merely sits under that directory is not thereby a
@@ -139,16 +141,12 @@ var LayeringRules = []LayeringRule{
 			"internal/core/bundles -> internal/adapters/content":            "slice 5: readers become adapters behind bundles.Reader",
 			"internal/core/bundles -> internal/adapters/content/remotetree": "slice 5: readers become adapters behind bundles.Reader",
 			"internal/core/bundles -> internal/adapters/remote":             "slice 5: readers become adapters behind bundles.Reader",
-			"internal/core/bundles -> internal/shared/upgrade":              "the envelope's schema-upgrade steps (upgrade.Upgrader), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (slice 5); slice 5 landed without the move, which is still open",
+			"internal/core/bundles -> internal/shared/upgrade":              "the envelope's step replay (stepsEdit) and item migration (migrateProfileItems) parse and encode through upgrade, not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (slice 5); slice 5 landed without the move, which is still open",
 
 			// shared/agent → its contract half becomes core/engine. Its
 			// lockwait and safefs edges reach the toolbox, which is excepted, so they
 			// are not violations.
 			"internal/core/agent -> internal/shared/ledger": "slice 12: shared/ledger is deleted",
-
-			// core/sessions — the sidecar's schemaver.Kind spells its steps
-			// as upgrade.Upgraders.
-			"internal/core/sessions -> internal/shared/upgrade": "a schemaver.Kind's Steps are []upgrade.Upgrader, so a core package that versions a file names that type; leaves if upgrade joins the toolbox or schemaver stops exposing the type (urban-borough)",
 		},
 	},
 	{
@@ -337,6 +335,20 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":              "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",
 			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                 "slice 13: allowlisted until then",
 			"internal/adapters/operations -> internal/adapters/coordgrpc/pb":          "slice 13: allowlisted until then",
+		},
+	},
+	{
+		// A migration is a leaf: a pure function of one YAML document. It may
+		// reach the version seam and the node helpers, nothing else, so
+		// deleting one can never break a caller and adding one can never pull
+		// a layer in.
+		Name:   "migrations-are-leaves",
+		From:   []string{"internal/migrations"},
+		Forbid: []string{"cmd", "container", "internal", "pkg", "resources", "scripts"},
+		Except: []string{
+			"internal/migrations",       // a kind's list imports its own instances
+			"internal/shared/schemaver", // Step
+			"internal/shared/yamlx",     // the node helpers
 		},
 	},
 	{

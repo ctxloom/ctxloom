@@ -92,7 +92,7 @@ func TestAgentNamedHelp_IsShowable(t *testing.T) {
 	appDir := filepath.Join(root, ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"),
-		[]byte("version: 5\nagents:\n  help:\n    llm: claude-code\n    profiles: [default]\n"), 0o644))
+		[]byte("schema_version: 7\nagents:\n  help:\n    llm: claude-code\n    profiles: [default]\n"), 0o644))
 	resetApp()
 	t.Cleanup(resetApp)
 

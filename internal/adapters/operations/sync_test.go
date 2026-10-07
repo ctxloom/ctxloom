@@ -299,6 +299,7 @@ func TestSyncDependencies_WithRemotes(t *testing.T) {
 
 	// Create registry with test remote
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+schema_version: 1
 remotes:
   github:
     url: https://github.com/test/ctxloom
@@ -385,6 +386,7 @@ func TestSyncDependencies_SkipsExisting(t *testing.T) {
 
 	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
+schema_version: 1
 remotes:
   github:
     url: https://github.com/test/ctxloom
@@ -436,6 +438,7 @@ func TestSyncDependencies_SkipCanonicalizesRef(t *testing.T) {
 
 	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
+schema_version: 1
 remotes:
   github:
     url: https://github.com/test/ctxloom
@@ -477,6 +480,7 @@ func TestSyncDependencies_ForceRedownload(t *testing.T) {
 
 	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+schema_version: 1
 remotes:
   github:
     url: https://github.com/test/ctxloom
@@ -523,6 +527,7 @@ func TestSyncDependencies_PullError(t *testing.T) {
 	_ = fs.MkdirAll(authoredV1(testBaseDir), 0755)
 
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+schema_version: 1
 remotes:
   github:
     url: https://github.com/test/ctxloom
@@ -576,6 +581,7 @@ func TestSyncDependencies_UpdatedStatus(t *testing.T) {
 	_ = fs.MkdirAll(authoredV1(testBaseDir), 0755)
 
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+schema_version: 1
 remotes:
   github:
     url: https://github.com/test/ctxloom
@@ -1171,6 +1177,7 @@ func TestSyncDependencies_PullsRefsRevealedByEarlierPulls(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755))
 	require.NoError(t, fs.MkdirAll(authoredV1(testBaseDir), 0755))
 	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+schema_version: 1
 remotes:
   github:
     url: https://github.com/test/ctxloom
@@ -1236,6 +1243,7 @@ func TestSyncDependencies_NoUnconvergedWarningWhenLastPassConverges(t *testing.T
 	require.NoError(t, fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755))
 	require.NoError(t, fs.MkdirAll(authoredV1(testBaseDir), 0755))
 	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+schema_version: 1
 remotes:
   github:
     url: https://github.com/test/ctxloom

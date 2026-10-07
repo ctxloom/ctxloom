@@ -629,9 +629,8 @@ func (l *Loader) Exists(name string) bool {
 
 // Decode is the ONE decoder for a profile document, whichever bundle it is
 // read from: the document is checked against the profile schema AS WRITTEN —
-// decoding is what loses a typo'd key or coerces a wrong type — then the
-// context-free normalizer stages run (legacy prompt selectors, stored-ref
-// renormalization), and only then is it decoded. A document that does not
+// decoding is what loses a typo'd key or coerces a wrong type — and only then
+// is it decoded. A document that does not
 // match the schema is an error, not a warning: a bundle carrying one does not
 // load.
 //
@@ -644,13 +643,6 @@ func Decode(data []byte) (*Profile, error) {
 	}
 	if err := validateProfileDocument(&doc, data); err != nil {
 		return nil, err
-	}
-	upgraded, applied, err := decodeNormalizers.Run(data)
-	if err != nil {
-		return nil, err
-	}
-	if len(applied) > 0 {
-		data = upgraded
 	}
 	var profile Profile
 	if err := yaml.Unmarshal(data, &profile); err != nil {
@@ -949,21 +941,9 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 				// loader (assembly, hooks, MCP, ...), so an unresolvable parent
 				// would otherwise repeat the same line — and finding — a dozen
 				// times per startup.
-				if _, bare, retired := remote.SplitRetiredProfileRef(parent); retired {
-					// The retired top-level @profiles/ grammar can never pull or
-					// pin, so "deps pull"/"deps upgrade" would both be wrong
-					// advice. The load-time upgrade rewrites this parent
-					// automatically once a bundle shipping the profile is
-					// installed — so the fix is to point the parent at the
-					// bundle-shipped form (or install a bundle that ships it).
-					l.rep.FailOncef(report.KindRef, "point the parent at \"<url>@bundles/<bundle>#profiles/<name>\", or install a bundle that ships it",
-						"profile %q: parent %s uses the retired top-level @profiles/ grammar and no installed bundle ships profile %q; point the parent at \"<url>@bundles/<bundle>#profiles/<name>\", or install a bundle that ships it (the load-time upgrade then rewrites the parent automatically)",
-						name, parent, bare)
-				} else {
-					l.rep.FailOncef(report.KindRef, "ctxloom deps pull",
-						"profile %q: parent %s not installed; skipping (run `ctxloom deps pull` to install)",
-						name, parent)
-				}
+				l.rep.FailOncef(report.KindRef, "ctxloom deps pull",
+					"profile %q: parent %s not installed; skipping (run `ctxloom deps pull` to install)",
+					name, parent)
 			default:
 				// Corrupt parent (invalid YAML, IO/permission error): skip this
 				// branch rather than aborting the whole resolution — degraded

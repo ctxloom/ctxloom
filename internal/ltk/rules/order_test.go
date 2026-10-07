@@ -11,7 +11,7 @@ import (
 func twoDenyRules(t *testing.T) *Config {
 	t.Helper()
 	cfg, err := Parse([]byte(`
-version: 1
+schema_version: 1
 rules:
   - id: first
     match: { command: [rm] }
@@ -65,7 +65,7 @@ func TestCommandOrderDominatesRuleOrder(t *testing.T) {
 // which is the part of the original wording that was right.
 func TestRuleOrderStillDecidesWithinOneCommand(t *testing.T) {
 	cfg, err := Parse([]byte(`
-version: 1
+schema_version: 1
 rules:
   - id: allow-status
     match: { command: [git, status] }

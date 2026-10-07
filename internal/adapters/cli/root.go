@@ -228,15 +228,44 @@ func envSwitchOn(name string) bool {
 // GetConfig returns the published generation's configuration. Warnings the
 // reader downgraded from hard errors (schema-invalid files, refused
 // overrides) are echoed to stderr here so every GetConfig-based command
-// surfaces them instead of silently operating on a partial config.
+// surfaces them instead of silently operating on a partial config; an
+// unknown key additionally refuses the command (unknownKeyRefusal).
 func GetConfig() (*config.Config, error) {
 	cfg, err := App().Config(context.Background())
 	if err != nil {
 		return nil, err
 	}
-	config.ReportWarnings(strictness.Sink("ctxloom"), cfg.GetWarnings())
+	warnings := cfg.GetWarnings()
+	config.ReportWarnings(strictness.Sink("ctxloom"), warnings)
+	if err := unknownKeyRefusal(App().Strictness, warnings); err != nil {
+		return nil, err
+	}
 	return cfg, nil
 }
+
+// unknownKeyRefusal is the config's unknown-key rule at the choke commands
+// read the config through: a key the schema does not describe is FATAL, so no
+// command runs on a setting it silently dropped. Under a degraded mode the
+// gate passes it, leaving the warning ReportWarnings already printed.
+func unknownKeyRefusal(mode strictness.Mode, warnings []config.Warning) error {
+	var found report.Findings
+	for _, w := range warnings {
+		if w.Kind == config.WarnKindUnknownKey {
+			found = append(found, w.Finding())
+		}
+	}
+	if err := mode.ListingError("the config carries keys ctxloom does not know:", mode.Actionable(found)); err != nil {
+		return configRefusedError{err}
+	}
+	return nil
+}
+
+// configRefusedError is GetConfig refusing a configuration that loaded, as
+// distinct from one that could not be read: a command that degrades over an
+// unreadable config must still not run on one it refused.
+type configRefusedError struct{ error }
+
+func (e configRefusedError) Unwrap() error { return e.error }
 
 // rootFirstStep is the command the root help's quick start opens with: every
 // other command assumes a project exists, and this is the one that makes it.

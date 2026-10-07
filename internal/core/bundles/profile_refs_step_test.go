@@ -25,7 +25,7 @@ const (
 // the tree reader and the write-backs gate on; this keeps the constant and the
 // step's position in envelopeKind one fact.
 func TestProfileRefsGeneration_IsWhereProfileRefsStepLands(t *testing.T) {
-	_, ok := envelopeKind.Steps[profileRefsGeneration-1-envelopeKind.Oldest].(profileRefsStep)
+	_, ok := envelopeSteps[profileRefsGeneration-1-envelopeKind.Oldest()].(profileRefsStep)
 	assert.True(t, ok)
 }
 

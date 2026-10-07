@@ -38,7 +38,7 @@ func TestConfig_ParsesAgentsKey(t *testing.T) {
 	// contribute anything.
 	testsupport.Isolate(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	writeAppConfig(t, appDir, `version: 5
+	writeAppConfig(t, appDir, `schema_version: 7
 agents:
   dev:
     llm: claude-code
@@ -132,7 +132,7 @@ func TestLoadAgents_ReadsTheConfigKey(t *testing.T) {
 	// the appDir fixture built below is meant to contribute anything.
 	testsupport.Isolate(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	writeAppConfig(t, appDir, `version: 5
+	writeAppConfig(t, appDir, `schema_version: 7
 agents:
   dev:
     llm: claude-code
@@ -253,7 +253,7 @@ func TestConfig_SaveRoundTripsAgents(t *testing.T) {
 	// contribute anything.
 	testsupport.Isolate(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	writeAppConfig(t, appDir, "version: 5\n")
+	writeAppConfig(t, appDir, "schema_version: 7\n")
 	src, err := configload.New(nil, nil, configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	owner, err := config.Open(context.Background(), src)

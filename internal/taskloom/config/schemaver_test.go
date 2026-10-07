@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
@@ -32,26 +31,23 @@ func writeUpgradesOn(t *testing.T) {
 	t.Cleanup(func() { schemaver.BindWriteUpgrades(pflag.NewFlagSet("reset", pflag.ContinueOnError)) })
 }
 
-// TestSchemaVersion_KeylessConfigLoadsAndStaysUntouched: every taskloom
-// config written before schema_version existed is generation 0 and loads as
-// it always did; without --write-upgrades nothing on disk changes.
-func TestSchemaVersion_KeylessConfigLoadsAndStaysUntouched(t *testing.T) {
+// TestSchemaVersion_KeylessConfigIsRefused: a config that declares no
+// generation is refused, in either layer, and nothing on disk changes.
+func TestSchemaVersion_KeylessConfigIsRefused(t *testing.T) {
 	home := taskstest.Isolate(t)
-	const homeBody, projectBody = "homing: home\n", "# project\nhoming: repo\n"
-	writeConfig(t, home, homeBody)
 	project := t.TempDir()
-	writeConfig(t, project, projectBody)
+	const keyless = "homing: repo\n"
+	writeRawConfig(t, project, keyless)
 
-	cfg, err := Load(project, nil)
+	_, err := Load(project, nil)
+	require.ErrorIs(t, err, schemaver.ErrTooOld)
+	got, err := os.ReadFile(configPath(project))
 	require.NoError(t, err)
-	assert.Equal(t, "repo", cfg.Homing)
+	assert.Equal(t, keyless, string(got))
 
-	for path, want := range map[string]string{configPath(home): homeBody, configPath(project): projectBody} {
-		got, err := os.ReadFile(path)
-		require.NoError(t, err)
-		assert.Equal(t, want, string(got), "a load without --write-upgrades never rewrites %s", path)
-		assert.NoFileExists(t, path+schemaver.BackupSuffix)
-	}
+	writeRawConfig(t, home, keyless)
+	_, err = Load(t.TempDir(), nil)
+	require.ErrorIs(t, err, schemaver.ErrTooOld, "the home layer is gated too")
 }
 
 // TestSchemaVersion_CurrentKeyPassesMergedValidation: the merged document is
@@ -87,41 +83,23 @@ func TestSchemaVersion_NewerConfigIsRefusedNamingBothNumbers(t *testing.T) {
 	assert.Contains(t, err.Error(), configPath(home), "the refusal names the file")
 }
 
-// TestSchemaVersion_WriteBackOnlyWithTheFlag: --write-upgrades persists the
-// in-memory migration of an older file, keeping the original as a backup;
-// a file already current is left alone even with the flag.
-func TestSchemaVersion_WriteBackOnlyWithTheFlag(t *testing.T) {
+// TestSchemaVersion_WriteUpgradesLeavesACurrentFileAlone: with nothing to
+// migrate, --write-upgrades writes nothing and keeps no backup.
+func TestSchemaVersion_WriteUpgradesLeavesACurrentFileAlone(t *testing.T) {
 	taskstest.Isolate(t)
 	project := t.TempDir()
-	const keyless = "homing: repo\n"
-	writeConfig(t, project, keyless)
+	body := versioned(configKind.Current(), "homing: repo\n")
+	writeConfig(t, project, body)
 	path := configPath(project)
-
-	_, err := Load(project, nil)
-	require.NoError(t, err)
-	got, err := os.ReadFile(path)
-	require.NoError(t, err)
-	require.Equal(t, keyless, string(got), "without the flag the file is never rewritten")
 
 	writeUpgradesOn(t)
 	cfg, err := Load(project, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "repo", cfg.Homing)
-
-	got, err = os.ReadFile(path)
+	got, err := os.ReadFile(path)
 	require.NoError(t, err)
-	var onDisk map[string]any
-	require.NoError(t, yaml.Unmarshal(got, &onDisk))
-	assert.Equal(t, configKind.Current(), onDisk[schemaver.Key], "the upgrade is persisted")
-	assert.Equal(t, "repo", onDisk["homing"])
-	backup, err := os.ReadFile(path + schemaver.BackupSuffix)
-	require.NoError(t, err)
-	assert.Equal(t, keyless, string(backup), "the original is kept")
-
-	require.NoError(t, os.Remove(path+schemaver.BackupSuffix))
-	_, err = Load(project, nil)
-	require.NoError(t, err)
-	assert.NoFileExists(t, path+schemaver.BackupSuffix, "a current file is not written back")
+	assert.Equal(t, body, string(got))
+	assert.NoFileExists(t, path+schemaver.BackupSuffix)
 }
 
 // A config that is not YAML is its parse failure, not a version fault.

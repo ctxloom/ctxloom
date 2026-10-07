@@ -181,12 +181,6 @@ func TestRefIngestPointsStripControlChars(t *testing.T) {
 		assert.Equal(t, "x", name)
 	})
 
-	t.Run("SplitRetiredProfileRef", func(t *testing.T) {
-		url, name, ok := SplitRetiredProfileRef("https://example.com/repo@profiles/x" + nl)
-		require.True(t, ok)
-		assert.Equal(t, "https://example.com/repo", url)
-		assert.Equal(t, "x", name)
-	})
 }
 
 // TestRefIngest_CleanRefsAreUntouched pins the other half: normalisation is a

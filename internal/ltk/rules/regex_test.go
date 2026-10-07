@@ -10,12 +10,12 @@ import (
 
 // denyRule wraps one match body in a single deny command rule.
 func denyRule(match string) string {
-	return "version: 1\nrules:\n  - id: r\n    match: " + match + "\n    message: m\n"
+	return "schema_version: 1\nrules:\n  - id: r\n    match: " + match + "\n    message: m\n"
 }
 
 // allowRule wraps one match body in a single allow command rule.
 func allowRule(match string) string {
-	return "version: 1\nrules:\n  - id: r\n    match: " + match + "\n    action: allow\n"
+	return "schema_version: 1\nrules:\n  - id: r\n    match: " + match + "\n    action: allow\n"
 }
 
 func denied(t *testing.T, cfg *Config, shell ir.Shell, argv ...string) bool {
@@ -91,7 +91,7 @@ func TestTrailingDotStarRequiresAnOperandEvenAnEmptyOne(t *testing.T) {
 
 func TestExactAlignmentForbidsTrailingOperandsAndOptions(t *testing.T) {
 	cfg := mustParse(t, `
-version: 1
+schema_version: 1
 rules:
   - id: read
     match: { command: [git, config, 'user\.name'], align: exact }
@@ -116,7 +116,7 @@ rules:
 
 func TestPrefixAllowStillAnchorsAtOperandZero(t *testing.T) {
 	cfg := mustParse(t, `
-version: 1
+schema_version: 1
 rules:
   - id: ok
     match: { command: [git, 'status|log'] }
@@ -250,7 +250,7 @@ func TestRemovedFieldErrorNamesTheReplacement(t *testing.T) {
 
 func TestPathRulesLiveUnderTheirOwnKey(t *testing.T) {
 	cfg := mustParse(t, `
-version: 1
+schema_version: 1
 rules:
   - id: no-force
     match: { command: [git, push], args_any: ['--force|-f'] }
@@ -267,11 +267,11 @@ path_rules:
 		t.Error("command rule must fire")
 	}
 	// A command condition under path_rules is not a field of a path rule.
-	if _, err := Parse([]byte("version: 1\npath_rules:\n  - id: x\n    match: { path: [V], command: [go] }\n    message: m\n")); err == nil {
+	if _, err := Parse([]byte("schema_version: 1\npath_rules:\n  - id: x\n    match: { path: [V], command: [go] }\n    message: m\n")); err == nil {
 		t.Error("a path rule carrying command must be refused")
 	}
 	// Ids are unique across both lists.
-	re := parseErr(t, "version: 1\nrules:\n  - id: x\n    match: { command: [go] }\n    message: m\npath_rules:\n  - id: x\n    match: { path: [V] }\n    message: m\n")
+	re := parseErr(t, "schema_version: 1\nrules:\n  - id: x\n    match: { command: [go] }\n    message: m\npath_rules:\n  - id: x\n    match: { path: [V] }\n    message: m\n")
 	if !errors.Is(re, ErrDuplicateID) {
 		t.Errorf("want ErrDuplicateID, got %v", re)
 	}

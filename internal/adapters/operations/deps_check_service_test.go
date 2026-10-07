@@ -53,7 +53,7 @@ func TestCheckDependencies_UnparseableEntryIsRefusedNotCurrent(t *testing.T) {
 		"::::not-a-valid-reference": {SHA: "somesha", RequestedVersion: "main"},
 	})
 	_, err := CheckDependencies(context.Background(), app, CheckDependenciesRequest{})
-	require.ErrorIs(t, err, remote.ErrLockKeyFormRetired)
+	require.ErrorIs(t, err, remote.ErrLockKeyNotIdentity)
 }
 
 // TestCheckDependencies_EmptySHAEntriesAreSkippedAndCounted: an entry with

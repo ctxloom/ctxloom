@@ -51,9 +51,6 @@ type Agent struct {
 	// profiles' llm. It is not an engine: a label names an engine AND a
 	// model, and GLOSSARY.md reserves "engine" for what the runner drives.
 	// `--llm` is the flag that sets it.
-	//
-	// The retired spelling `engine` is REFUSED at load rather than ignored —
-	// see RetiredLLMKey.
 	LLM string `yaml:"llm,omitempty"`
 	// Surfaces is this binding's DELIVERY PREFERENCE: which approach each
 	// surface kind is delivered by, as the labels the CLI already uses
@@ -286,58 +283,6 @@ func ValidateDriving(d DrivingMode) error {
 	}
 	return nil
 }
-
-// RetiredLLMKey is the pre-rename spelling of Agent.LLM.
-//
-// It is refused rather than ignored: internal/core/config decodes the `agents:` key
-// leniently, so an untouched `engine:` would be dropped in silence and the
-// binding would fall back to the profiles' llm — a different model, chosen by
-// nobody, reported as success. config.findRetiredAgentKey is the refusal.
-const RetiredLLMKey = "engine"
-
-// ErrRetiredLLMKey names the current spelling, because a rename that leaves
-// people guessing has moved the cost rather than paid it.
-var ErrRetiredLLMKey = errors.New(
-	"agent uses the retired key 'engine:'; it is now 'llm:' — it selects an llm.configs label " +
-		"(engine + model), not an engine")
-
-// RetiredCoordinatorKey is the REMOVED per-agent delegation-privilege flag.
-//
-// Unlike RetiredLLMKey this is a removal, not a rename: whether a run may
-// delegate is now decided by its position in the tree (its depth against
-// delegation.depth), not declared per binding. It is refused for the same
-// reason all the same: internal/core/config decodes `agents:` leniently, so an
-// untouched `coordinator: true` would be dropped in silence, and the binding
-// that was written to delegate would quietly become one that cannot — reported
-// as success. Real configs carry it, this repo's own among them.
-const RetiredCoordinatorKey = "coordinator"
-
-// ErrRetiredCoordinatorKey says what replaced the flag rather than only that
-// it is gone, since "unknown key" leaves the reader to guess whether their
-// delegation still works.
-var ErrRetiredCoordinatorKey = errors.New(
-	"agent uses the removed key 'coordinator:'; delegation privilege is no longer declared per " +
-		"binding — a run may spawn while its depth is below delegation.depth (the session owner " +
-		"is depth 0, its subagents depth 1), so raise delegation.depth to allow deeper trees")
-
-// RetiredAuthKey is the REMOVED per-agent auth mode. A removal, not a move:
-// every run ctxloom spawns authenticates with the engine's long-lived token,
-// so an agent has no auth to choose; how the HUMAN's own session
-// authenticates is the top-level `auth:`.
-//
-// REFUSED, NOT WARNED: this is a deliberate exception to the rule that an
-// unknown config key warns and is ignored. A stale `auth:` on an agent,
-// ignored, would silently change which credential that agent's runs use — a
-// binding written to share the human's login would quietly run on the token
-// — and a warning scrolls past where a refusal cannot.
-const RetiredAuthKey = "auth"
-
-// ErrRetiredAuthKey names both replacements: the token every agent runs on,
-// and where the human's own login is selected.
-var ErrRetiredAuthKey = errors.New(
-	"agent uses the removed key 'auth:'; every agent ctxloom spawns authenticates with the engine's " +
-		"long-lived token (claude: run `claude setup-token` and export CLAUDE_CODE_OAUTH_TOKEN), so delete " +
-		"the key; to have your own `ctxloom run` share your login, set the top-level `auth: login`")
 
 // Delegates reports whether this agent may launch role: any role when
 // MayDelegate is unset or empty, else exactly the roles it lists.

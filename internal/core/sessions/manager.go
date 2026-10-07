@@ -36,7 +36,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // lockDirMode is the mode the sessions root and a session directory are
@@ -276,9 +275,8 @@ func (m *Manager) readSidecar(harpName string) (*Entry, error) {
 	return e, nil
 }
 
-// sidecarKind versions the session sidecar. The sidecar was unversioned before
-// it declared schemaver.Key, so a keyless sidecar is generation 0.
-var sidecarKind = schemaver.Kind{Name: "session sidecar", Oldest: 0, Steps: []upgrade.Upgrader{schemaver.IntroduceKey}}
+// sidecarKind versions the session sidecar.
+var sidecarKind = schemaver.Define("session sidecar", 1)
 
 // sidecarDoc is the sidecar on disk: an Entry plus the format generation,
 // which is a fact about the file rather than about the session, so Entry does

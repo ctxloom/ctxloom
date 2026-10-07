@@ -93,7 +93,7 @@ func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 // registry today DECLARES a container story, so a label pointing at an unmapped engine
 // is the only reachable subject for the container-story refusal — and it is a
 // real one, since `llm.configs.<label>.type` accepts any string a user types.
-const llmLabelsFixture = `version: 5
+const llmLabelsFixture = `schema_version: 7
 llm:
   configs:
     claude-fast:
@@ -419,7 +419,7 @@ func TestSetAgent_UpdatesExisting(t *testing.T) {
 // binding declares, so a field silently dropped on the way out reports a
 // binding the launch will not use — and reports it as success.
 func TestGetAgent_CarriesEveryDeclaredAxis(t *testing.T) {
-	cfg, _ := loadConfigDir(t, `version: 5
+	cfg, _ := loadConfigDir(t, `schema_version: 7
 agents:
   dev:
     llm: claude-code
@@ -612,10 +612,10 @@ func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 	assert.False(t, ok, "a refused write must not half-apply a binding")
 }
 
-// TestSetAgent_RetiredSurfaceApproachIsRefusedTyped: a binding naming an
-// approach whose writer was deleted is refused with the typed error that
-// names the replacement, and the refusal writes nothing.
-func TestSetAgent_RetiredSurfaceApproachIsRefusedTyped(t *testing.T) {
+// TestSetAgent_UnsupportedSurfaceApproachIsRefused: a binding naming an
+// approach the engine does not declare is refused, and the refusal writes
+// nothing.
+func TestSetAgent_UnsupportedSurfaceApproachIsRefused(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 
 	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
@@ -623,9 +623,8 @@ func TestSetAgent_RetiredSurfaceApproachIsRefusedTyped(t *testing.T) {
 		LLM:      ptr("claude-code"),
 		Surfaces: map[string]string{"settings": "hew-record"},
 	})
-	var retired *agent.RetiredApproachError
-	require.ErrorAs(t, err, &retired)
-	assert.Equal(t, agent.ApproachUnsafeFile, retired.Replacement)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), agent.ApproachUnsafeFile)
 
 	reloaded, rerr := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, rerr)

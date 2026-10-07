@@ -19,7 +19,7 @@ import (
 // real config.yaml: a fresh label with a type, model and permissions posture
 // all land and survive a reload.
 func TestSetLLM_CreatesAndPersists(t *testing.T) {
-	_, appDir := loadConfigDir(t, "version: 5\n")
+	_, appDir := loadConfigDir(t, "schema_version: 7\n")
 	mgr := managerFor(t, appDir)
 
 	entry, err := SetLLM(context.Background(), mgr, SetLLMRequest{
@@ -49,7 +49,7 @@ func TestSetLLM_CreatesAndPersists(t *testing.T) {
 func TestSetLLM_RefusesNonRegisteredSpellings(t *testing.T) {
 	for _, spelling := range []string{"claude", "CLAUDE", "Claude-Code", "claudecode"} {
 		t.Run(spelling, func(t *testing.T) {
-			_, appDir := loadConfigDir(t, "version: 5\n")
+			_, appDir := loadConfigDir(t, "schema_version: 7\n")
 			mgr := managerFor(t, appDir)
 
 			_, err := SetLLM(context.Background(), mgr, SetLLMRequest{Label: "big", Type: ptr(spelling)})
@@ -69,7 +69,7 @@ func TestSetLLM_RefusesNonRegisteredSpellings(t *testing.T) {
 // no backend registers leaves the entry broken (EffectiveType would silently
 // degrade at resolve time). Nothing must be written.
 func TestSetLLM_RejectsUnknownType(t *testing.T) {
-	_, appDir := loadConfigDir(t, "version: 5\n")
+	_, appDir := loadConfigDir(t, "schema_version: 7\n")
 	mgr := managerFor(t, appDir)
 
 	_, err := SetLLM(context.Background(), mgr, SetLLMRequest{Label: "big", Type: ptr("bogus-backend")})
@@ -86,7 +86,7 @@ func TestSetLLM_RejectsUnknownType(t *testing.T) {
 // caller did not name keeps its stored value, mirroring SetAgent's contract
 // (`agent edit dev --runtime container` must not wipe dev's engine).
 func TestSetLLM_EditOnlyChangesNamedFields(t *testing.T) {
-	_, appDir := loadConfigDir(t, "version: 5\n")
+	_, appDir := loadConfigDir(t, "schema_version: 7\n")
 	mgr := managerFor(t, appDir)
 
 	_, err := SetLLM(context.Background(), mgr, SetLLMRequest{Label: "big", Type: ptr("mock"), Model: ptr("o1")})
@@ -108,7 +108,7 @@ func TestSetLLM_EditOnlyChangesNamedFields(t *testing.T) {
 
 // TestRemoveLLM_DeletesAndPersists proves the removal round-trips.
 func TestRemoveLLM_DeletesAndPersists(t *testing.T) {
-	_, appDir := loadConfigDir(t, "version: 5\n")
+	_, appDir := loadConfigDir(t, "schema_version: 7\n")
 	mgr := managerFor(t, appDir)
 
 	_, err := SetLLM(context.Background(), mgr, SetLLMRequest{Label: "big", Type: ptr("mock")})
@@ -130,7 +130,7 @@ func TestRemoveLLM_DeletesAndPersists(t *testing.T) {
 // fills an EMPTY llm.configs with it, but that is not a user declaration,
 // see IsLLMUserAuthored) is an error, never a silent zero-effect success.
 func TestRemoveLLM_UnknownLabelErrors(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, "version: 5\n")
+	cfg, appDir := loadConfigDir(t, "schema_version: 7\n")
 	mgr := managerFor(t, appDir)
 
 	err := RemoveLLM(context.Background(), mgr, cfg, "claude-code")
@@ -142,7 +142,7 @@ func TestRemoveLLM_UnknownLabelErrors(t *testing.T) {
 // user override IS removable — IsLLMUserAuthored must not blanket-refuse
 // every default-shaped name, only the ones the user never actually wrote.
 func TestRemoveLLM_UserDeclaredOverrideOfADefaultName_Succeeds(t *testing.T) {
-	_, appDir := loadConfigDir(t, "version: 5\nllm:\n  configs:\n    claude-code: { permissions: { mode: bypass } }\n")
+	_, appDir := loadConfigDir(t, "schema_version: 7\nllm:\n  configs:\n    claude-code: { permissions: { mode: bypass } }\n")
 	mgr := managerFor(t, appDir)
 	cfg, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)

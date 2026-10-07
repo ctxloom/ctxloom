@@ -75,7 +75,7 @@ func TestContainer_ARunWithNoRecordedOutputDirIsRefused(t *testing.T) {
 	sidecar, err := paths.HarpSidecarPath("brisk-teal-otter")
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(sidecar), 0o755))
-	require.NoError(t, os.WriteFile(sidecar, []byte("project_dir: /p\n"), 0o600))
+	require.NoError(t, os.WriteFile(sidecar, []byte("schema_version: 1\nproject_dir: /p\n"), 0o600))
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	c.state = SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"}

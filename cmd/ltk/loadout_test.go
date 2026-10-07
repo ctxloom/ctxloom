@@ -105,7 +105,7 @@ func TestRoot_FormatMeansTheLoadoutFormatUnderLoadout(t *testing.T) {
 
 	t.Run("check still speaks the root's five formats", func(t *testing.T) {
 		cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
-		require.NoError(t, os.WriteFile(cfgPath, []byte("version: 1\nrules: []\n"), 0o644))
+		require.NoError(t, os.WriteFile(cfgPath, []byte("schema_version: 1\nrules: []\n"), 0o644))
 		for _, f := range []string{"text", "json", "yaml", "toml", "markdown"} {
 			out, err := run(t, "check", "--command", "git status", "--config", cfgPath, "--format", f)
 			require.NoError(t, err, "check --format %s", f)
@@ -126,7 +126,7 @@ func TestLoadout_UnknownFormatErrors(t *testing.T) {
 // 2) — kept here as a literal so this test proves the ACTUAL text the command
 // ships, not a paraphrase that could drift from it.
 const exampleTaskRunnerRule = `
-version: 1
+schema_version: 1
 defaults:
   on_parse_error: allow
   repeat_window_seconds: 30

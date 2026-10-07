@@ -31,7 +31,7 @@ func TestConfirmWindowCap(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := Parse([]byte(tc.yaml))
+			_, err := Parse([]byte(stamped(tc.yaml)))
 			if !tc.wantErr {
 				if err != nil {
 					t.Fatalf("Parse: unexpected error: %v", err)

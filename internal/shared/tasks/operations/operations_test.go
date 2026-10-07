@@ -1571,7 +1571,7 @@ func TestMissingLogSiblingNote_SaysWhenItCouldNotLook(t *testing.T) {
 	t.Run("sibling id unusable", func(t *testing.T) {
 		taskstest.Isolate(t)
 		work := t.TempDir()
-		writeRegistry(t, "projects:\n  - project_id: \"../escape\"\n    path: "+work+"\n")
+		writeRegistry(t, "schema_version: 1\nprojects:\n  - project_id: \"../escape\"\n    path: "+work+"\n")
 		tc := TaskContext{WorkDir: work, ProjectID: "pinned-project", SessionHarp: "sess"}
 
 		got, err := ListTasks(tc, ListOptions{})

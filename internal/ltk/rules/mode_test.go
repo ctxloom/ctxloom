@@ -13,12 +13,12 @@ func TestDelayValidation(t *testing.T) {
 		yaml    string
 		wantErr bool
 	}{
-		{"valid delay under window", "version: 1\ndefaults: { repeat_window_seconds: 30 }\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    delay_seconds: 10\n    message: m\n", false},
-		{"delay equals window", "version: 1\ndefaults: { repeat_window_seconds: 10 }\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    delay_seconds: 10\n    message: m\n", true},
-		{"delay without any window", "version: 1\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    delay_seconds: 10\n    message: m\n", true},
-		{"delay on non-confirm is ignored", "version: 1\nrules:\n  - id: r\n    match: { command: [go, test] }\n    delay_seconds: 10\n    message: m\n", false},
-		{"default delay under window", "version: 1\ndefaults: { repeat_window_seconds: 30, repeat_delay_seconds: 10 }\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    message: m\n", false},
-		{"default delay equals window", "version: 1\ndefaults: { repeat_window_seconds: 10, repeat_delay_seconds: 10 }\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    message: m\n", true},
+		{"valid delay under window", "schema_version: 1\ndefaults: { repeat_window_seconds: 30 }\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    delay_seconds: 10\n    message: m\n", false},
+		{"delay equals window", "schema_version: 1\ndefaults: { repeat_window_seconds: 10 }\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    delay_seconds: 10\n    message: m\n", true},
+		{"delay without any window", "schema_version: 1\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    delay_seconds: 10\n    message: m\n", true},
+		{"delay on non-confirm is ignored", "schema_version: 1\nrules:\n  - id: r\n    match: { command: [go, test] }\n    delay_seconds: 10\n    message: m\n", false},
+		{"default delay under window", "schema_version: 1\ndefaults: { repeat_window_seconds: 30, repeat_delay_seconds: 10 }\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    message: m\n", false},
+		{"default delay equals window", "schema_version: 1\ndefaults: { repeat_window_seconds: 10, repeat_delay_seconds: 10 }\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    message: m\n", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -35,19 +35,19 @@ func TestDelayValidation(t *testing.T) {
 // instead of inverting the author's escape hatch into a firm denial.
 func TestConfirmWithoutWindowRejected(t *testing.T) {
 	// no per-rule window and no global default → rejected.
-	if _, err := Parse([]byte("version: 1\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    message: m\n")); err == nil {
+	if _, err := Parse([]byte("schema_version: 1\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    message: m\n")); err == nil {
 		t.Error("windowless confirm rule should be a validation error")
 	}
 	// a per-rule window makes it valid.
-	if _, err := Parse([]byte("version: 1\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    window_seconds: 30\n    message: m\n")); err != nil {
+	if _, err := Parse([]byte("schema_version: 1\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    window_seconds: 30\n    message: m\n")); err != nil {
 		t.Errorf("confirm rule with window_seconds should be valid: %v", err)
 	}
 	// a global default window makes it valid too.
-	if _, err := Parse([]byte("version: 1\ndefaults: { repeat_window_seconds: 30 }\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    message: m\n")); err != nil {
+	if _, err := Parse([]byte("schema_version: 1\ndefaults: { repeat_window_seconds: 30 }\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    message: m\n")); err != nil {
 		t.Errorf("confirm rule with default window should be valid: %v", err)
 	}
 	// a non-confirm rule with no window is unaffected.
-	if _, err := Parse([]byte("version: 1\nrules:\n  - id: r\n    match: { command: [go, test] }\n    message: m\n")); err != nil {
+	if _, err := Parse([]byte("schema_version: 1\nrules:\n  - id: r\n    match: { command: [go, test] }\n    message: m\n")); err != nil {
 		t.Errorf("enable rule needs no window: %v", err)
 	}
 }
@@ -55,7 +55,7 @@ func TestConfirmWithoutWindowRejected(t *testing.T) {
 // mode controls whether a rule fires: disable → inert, enable/confirm → fires.
 func TestRuleModeMatching(t *testing.T) {
 	mk := func(mode Mode) *Config {
-		cfg := mustParse(t, "version: 1\nrules:\n  - id: no-go-test\n    match: { command: [go, test] }\n    message: use just test\n")
+		cfg := mustParse(t, "schema_version: 1\nrules:\n  - id: no-go-test\n    match: { command: [go, test] }\n    message: use just test\n")
 		cfg.Rules[0].Mode = mode
 		return cfg
 	}
@@ -82,7 +82,7 @@ func TestRuleModeMatching(t *testing.T) {
 
 // mode decodes from YAML, defaulting to enable when absent.
 func TestModeParsesFromYAML(t *testing.T) {
-	cfg, err := Parse([]byte(`version: 1
+	cfg, err := Parse([]byte(`schema_version: 1
 rules:
   - id: off-rule
     match: { command: [go, test] }
@@ -103,7 +103,7 @@ rules:
 }
 
 func TestInvalidModeRejected(t *testing.T) {
-	_, err := Parse([]byte("version: 1\nrules:\n  - id: x\n    mode: sometimes\n    match: { command: [go] }\n"))
+	_, err := Parse([]byte("schema_version: 1\nrules:\n  - id: x\n    mode: sometimes\n    match: { command: [go] }\n"))
 	if err == nil {
 		t.Error("an unknown mode should be a validation error")
 	}

@@ -18,91 +18,46 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
-// TestLoad_RetiredAgentTurnCapKeyRefusedNotIgnored pins the load-bearing half
-// of the agent_turn_cap -> delegation.concurrency rename: a config still
-// carrying the retired flat key must FAIL LOUD, naming the new key — never
-// silently drop the setting back to the built-in default. This decode path
-// (loadLayeredConfig's merged-layer Unmarshal) is lenient (no KnownFields),
-// so without this explicit check an untouched `agent_turn_cap:` would be
-// dropped in silence.
-//
-// Load() itself is fault-tolerant by this package's own design (every load
-// fault, this one included, downgrades to a recorded config.Warning rather than a
-// returned error — see decodeMergedLayers and warnings.go's "EVERY kind
-// declared below is fatal-class in strict mode"): the actual fail-loud
-// enforcement is the STRICT-MODE gate a caller runs over cfg.GetWarnings()
-// (config.RecordWarnings + strictness.FindingsError), not Load's own return
-// value. So this test asserts what Load() actually contracts: cfg still
-// loads (never nil), but carries a warning whose text names BOTH the
-// retired key and its replacement — the exact text a fatal-class finding
-// surfaces to a user under that gate.
-func TestLoad_RetiredAgentTurnCapKeyRefusedNotIgnored(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	testsupport.WriteFile(t, fs, "/proj/.ctxloom/config.yaml", []byte("schema_version: 7\nagent_turn_cap: 3\n"), 0644)
+// A key the config schema does not describe is an unknown-key finding naming
+// its dotted path — whatever it once meant. These keys each once changed what
+// a run did (a credential, a concurrency ceiling, a delegation privilege, an
+// engine environment, engine hooks); a load that dropped one silently would
+// run on a setting nobody chose, so each must reach the unknown-key gate.
+func TestLoad_FormerlyMeaningfulKeysAreUnknownKeys(t *testing.T) {
+	for path, body := range map[string]string{
+		"agents.dev.auth":        "agents:\n  dev:\n    llm: claude-code\n    auth: login\n",
+		"agents.dev.engine":      "agents:\n  dev:\n    engine: claude-code\n",
+		"agents.dev.coordinator": "agents:\n  dev:\n    llm: claude-code\n    coordinator: true\n",
+		"agent_turn_cap":         "agent_turn_cap: 4\n",
+		"llm.configs.big.env":    "llm:\n  configs:\n    big:\n      type: claude-code\n      env:\n        ANTHROPIC_API_KEY: sk-secret\n",
+		"hooks":                  "hooks:\n  plugins: {}\n",
+	} {
+		t.Run(path, func(t *testing.T) {
+			fs := afero.NewMemMapFs()
+			testsupport.WriteFileString(t, fs, "/proj/.ctxloom/config.yaml", "schema_version: 7\n"+body, 0o644)
 
-	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir("/proj/.ctxloom"))
-	require.NoError(t, err)
-	require.NotNil(t, cfg)
-
-	var found *config.Warning
-	for _, w := range cfg.GetWarnings() {
-		if strings.Contains(w.Text, "agent_turn_cap") {
-			found = &w
-		}
+			cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir("/proj/.ctxloom"))
+			require.NoError(t, err)
+			var found bool
+			for _, w := range cfg.GetWarnings() {
+				if w.Kind == config.WarnKindUnknownKey && strings.Contains(w.Text, "`"+path+"`") {
+					found = true
+				}
+			}
+			assert.True(t, found, "want an unknown-key finding naming %s, got %+v", path, cfg.GetWarnings())
+		})
 	}
-	require.NotNil(t, found, "a config carrying the retired key must record a warning naming it, not silently ignore it: %+v", cfg.GetWarnings())
-	assert.Contains(t, found.Text, "delegation.concurrency", "the warning must name the CURRENT key, not just reject the old one")
 }
 
-// TestLoad_RetiredLLMEnvKeyRefusedNotIgnored pins the retirement of
-// llm.configs.<label>.env: ctxloom no longer carries an engine's environment
-// or credentials in its config at all (every engine authenticates itself
-// from the ambient environment, and the launched process inherits it), so a
-// config still spelling the key must FAIL LOUD and name the replacement —
-// never decode into a dead Body key that nothing reads, which would leave a
-// user believing their variable reached the engine.
-//
-// Same contract as TestLoad_RetiredAgentTurnCapKeyRefusedNotIgnored: Load()
-// records the refusal as a fatal-class config.Warning naming both the retired key
-// and its replacement; config.ParseConfig (the init path, which returns decode
-// errors outright) surfaces the sentinel itself.
-func TestLoad_RetiredLLMEnvKeyRefusedNotIgnored(t *testing.T) {
-	const doc = "schema_version: 7\nllm:\n  configs:\n    big:\n      type: claude-code\n      env:\n        ANTHROPIC_API_KEY: sk-secret\n"
-
-	t.Run("Load records a fatal-class warning naming the key, the label and the replacement", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		testsupport.WriteFileString(t, fs, "/proj/.ctxloom/config.yaml", doc, 0644)
-
-		cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir("/proj/.ctxloom"))
-		require.NoError(t, err)
-		require.NotNil(t, cfg)
-
-		var found *config.Warning
-		for _, w := range cfg.GetWarnings() {
-			if strings.Contains(w.Text, config.ErrRetiredLLMEnvKey.Error()) {
-				found = &w
-			}
-		}
-		require.NotNil(t, found, "a config carrying llm.configs.<label>.env must record the refusal, not silently ignore it: %+v", cfg.GetWarnings())
-		assert.Contains(t, found.Text, `"big"`, "the refusal must name the label carrying the key")
-		assert.Contains(t, found.Text, "ambient environment", "the refusal must name the replacement, not just reject the key")
-		_, decoded := cfg.GetLLMEntry("big")
-		assert.False(t, decoded, "a refused document must not half-decode into a label whose env silently went nowhere")
-	})
-
-	t.Run("config.ParseConfig returns the sentinel", func(t *testing.T) {
-		_, err := config.ParseConfig([]byte(doc))
-		require.ErrorIs(t, err, config.ErrRetiredLLMEnvKey)
-	})
-
-	t.Run("the mock's control channel is not the retired key", func(t *testing.T) {
-		const mockDoc = "schema_version: 7\nllm:\n  configs:\n    m:\n      type: mock\n      mock_control:\n        CTXLOOM_MOCK_RESPONSE: canned\n"
-		cfg, err := config.ParseConfig([]byte(mockDoc))
-		require.NoError(t, err)
-		entry, ok := cfg.GetLLMEntry("m")
-		require.True(t, ok)
-		assert.Equal(t, map[string]any{"CTXLOOM_MOCK_RESPONSE": "canned"}, entry.Body["mock_control"])
-	})
+// The mock's test-control knobs live under their own key, which the schema
+// describes.
+func TestParseConfig_MockControlIsItsOwnKey(t *testing.T) {
+	const mockDoc = "schema_version: 7\nllm:\n  configs:\n    m:\n      type: mock\n      mock_control:\n        CTXLOOM_MOCK_RESPONSE: canned\n"
+	cfg, err := config.ParseConfig([]byte(mockDoc))
+	require.NoError(t, err)
+	entry, ok := cfg.GetLLMEntry("m")
+	require.True(t, ok)
+	assert.Equal(t, map[string]any{"CTXLOOM_MOCK_RESPONSE": "canned"}, entry.Body["mock_control"])
 }
 
 func TestLoad_WithOptions(t *testing.T) {
@@ -147,7 +102,7 @@ func TestLoad_PreservesBodyMapKeyCase(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
 	configContent := `
-version: 3
+schema_version: 7
 llm:
   configs:
     m:
@@ -226,6 +181,7 @@ func TestLoad_SchemaValidationProducesWarning(t *testing.T) {
 
 	// Create config that fails schema validation (using wrong type)
 	configContent := `
+schema_version: 7
 llm:
   configs: "should be a map not string"
 `
@@ -256,7 +212,7 @@ func TestLoad_SchemaCompileFailureProducesWarning(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
-	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("llm:\n  default_agent: claude\n"), 0644)
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("schema_version: 7\nllm:\n  default_agent: claude\n"), 0644)
 
 	cfg, err := Load(WithRoot(safefs.NewMem(fs)), WithAppDir(appDir))
 	assert.NoError(t, err, "a compile failure must degrade to a warning, not abort Load")
@@ -320,7 +276,7 @@ func TestResilientStartup_NonExistentProfile(t *testing.T) {
 	// to carry it forward, which makes it a test of the migration rather than
 	// of the behaviour it names.
 	configYAML := fmt.Sprintf(`
-version: %d
+schema_version: %d
 default_agent: default
 agents:
   default:
@@ -354,7 +310,8 @@ func TestResilientStartup_EmptyConfig(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
-	// Schema validation warns on empty config, but we still start
+	// An empty file carries no schema_version, so its layer is refused as a
+	// finding rather than an error, and we still start.
 	assert.NotNil(t, cfg.ToFixture().LM.Configs)
 }
 
@@ -369,7 +326,7 @@ func TestResilientStartup_PartiallyValidConfig(t *testing.T) {
 	// the project bundle now that the inline arm is retired, so the surviving
 	// good part is read through the loader rather than off the config struct.
 	configYAML := fmt.Sprintf(`
-version: %d
+schema_version: %d
 llm:
   configs:
     claude-code:
@@ -398,6 +355,7 @@ func TestResilientStartup_WarningsAreCollected(t *testing.T) {
 
 	// Create config with type mismatch that schema validation should catch
 	configYAML := `
+schema_version: 7
 llm:
   configs: invalid-should-be-map
 `

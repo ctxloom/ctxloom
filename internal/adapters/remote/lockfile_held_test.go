@@ -62,42 +62,13 @@ func TestLockfile_RoundTripsAHold(t *testing.T) {
 	}
 }
 
-// The retired key REFUSES rather than being ignored.
-//
-// yaml silently drops a key the struct does not model, so a lockfile written
-// by an older ctxloom would load cleanly with every hold gone — `deps upgrade`
-// would then advance a dependency the user deliberately froze, reporting
-// success. Refusing names the fix instead.
-func TestLockfile_RefusesTheRetiredPinnedKey(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	manager := NewLockfileManager("/test", WithLockfileFS(fs))
-
-	legacy := "version: 2\n" +
-		"bundles:\n" +
-		"  alice/go-tools:\n" +
-		"    sha: abc1234\n" +
-		"    url: https://github.com/alice/ctxloom\n" +
-		"    pinned: true\n"
-	testsupport.WriteFileString(t, fs, manager.Path(), legacy, 0o644)
-
-	_, err := manager.Load()
-	if err == nil {
-		t.Fatal("a lockfile carrying the retired `pinned:` key must be refused, not silently read with the hold dropped")
-	}
-	if !strings.Contains(err.Error(), "held") {
-		t.Errorf("the refusal must name the current spelling; got: %v", err)
-	}
-}
-
-// The refusal fires on the KEY, not on the characters — the same distinction
-// the retired-schema-field check draws, and for the same reason: a repository
-// URL, a bundle path or a requested version may contain the word without any
-// such key existing.
+// The strict decode judges KEYS, not characters: a repository URL, a bundle
+// path or a requested version may contain a word that is not a field.
 func TestLockfile_LoadsWhenPinnedIsMerelyMentioned(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 
-	mention := "version: 2\n" +
+	mention := "schema_version: 2\n" +
 		"bundles:\n" +
 		"  ctxloom+git://github.com/alice/ctxloom//bundles/pinned-tools:\n" +
 		"    sha: abc1234\n" +
@@ -107,7 +78,7 @@ func TestLockfile_LoadsWhenPinnedIsMerelyMentioned(t *testing.T) {
 
 	loaded, err := manager.Load()
 	if err != nil {
-		t.Fatalf("a mere mention must not be read as the retired key: %v", err)
+		t.Fatalf("a mere mention must not be read as a field: %v", err)
 	}
 	if _, ok := loaded.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/ctxloom//bundles/pinned-tools"); !ok {
 		t.Error("entry not found")

@@ -39,7 +39,7 @@ func w74ShortNameFS(t *testing.T, withLocalFile bool) (afero.Fs, *config.Config,
 	appDir := filepath.Join("/proj", ".ctxloom")
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "remotes.yaml"),
-		[]byte("default: personal\nremotes:\n  personal:\n    url: "+w74RemoteURL+"\n    version: v1\n"), 0644))
+		[]byte("default: personal\nschema_version: 1\nremotes:\n  personal:\n    url: "+w74RemoteURL+"\n    version: v1\n"), 0644))
 
 	// The document goes in the FORMAT ROOT; the search dirs returned are the
 	// bundles ROOT, which the reader expands itself.

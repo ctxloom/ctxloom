@@ -9,9 +9,9 @@ import (
 
 func newAppWithDefault(t *testing.T, defaultShell ir.Shell) *App {
 	t.Helper()
-	y := "version: 1\nrules: []\n"
+	y := "schema_version: 1\nrules: []\n"
 	if defaultShell != "" {
-		y = "version: 1\ndefaults: { shell: " + string(defaultShell) + " }\nrules: []\n"
+		y = "schema_version: 1\ndefaults: { shell: " + string(defaultShell) + " }\nrules: []\n"
 	}
 	cfg, err := rules.Parse([]byte(y))
 	if err != nil {
@@ -64,7 +64,7 @@ func TestResolveShellPrecedence(t *testing.T) {
 // preventing. If Shells ever stops being a required argument to New, this test
 // is the one that stops compiling.
 func TestNew_ShellsAreSuppliedAtConstruction(t *testing.T) {
-	cfg, err := rules.Parse([]byte("version: 1\nrules: []\n"))
+	cfg, err := rules.Parse([]byte("schema_version: 1\nrules: []\n"))
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}

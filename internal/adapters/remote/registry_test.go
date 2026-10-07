@@ -40,6 +40,7 @@ func TestNewRegistry(t *testing.T) {
 		configPath := filepath.Join(tmpDir, "remotes.yaml")
 
 		configContent := `
+schema_version: 1
 remotes:
   github:
     url: https://github.com/test/repo

@@ -14,7 +14,7 @@ import (
 // a config that says nothing gets the built-in default, resolved HERE so
 // the coordinator never re-derives it.
 func TestDelegationIdleTimeout_Unset_DefaultsToFifteenMinutes(t *testing.T) {
-	cfg, err := ParseConfig([]byte("version: 1\n"))
+	cfg, err := ParseConfig([]byte("schema_version: 7\n"))
 	require.NoError(t, err)
 	assert.Equal(t, 15*time.Minute, cfg.GetDelegationIdleTimeout())
 	assert.Equal(t, DefaultDelegationIdleTimeout, cfg.GetDelegationIdleTimeout())
@@ -23,7 +23,7 @@ func TestDelegationIdleTimeout_Unset_DefaultsToFifteenMinutes(t *testing.T) {
 // TestDelegationIdleTimeout_Set_IsReadBackResolved: the key is a duration in
 // Go's grammar, read through the accessor as a time.Duration.
 func TestDelegationIdleTimeout_Set_IsReadBackResolved(t *testing.T) {
-	cfg, err := ParseConfig([]byte("version: 1\ndelegation:\n  idle_timeout: 90s\n"))
+	cfg, err := ParseConfig([]byte("schema_version: 7\ndelegation:\n  idle_timeout: 90s\n"))
 	require.NoError(t, err)
 	assert.Equal(t, 90*time.Second, cfg.GetDelegationIdleTimeout())
 }
@@ -34,7 +34,7 @@ func TestDelegationIdleTimeout_Set_IsReadBackResolved(t *testing.T) {
 // reaper that fires at a cadence nobody configured.
 func TestDelegationIdleTimeout_Invalid_IsRefusedAtLoad(t *testing.T) {
 	for _, bad := range []string{"fifteen", "0s", "-5m"} {
-		_, err := ParseConfig([]byte("version: 1\ndelegation:\n  idle_timeout: " + bad + "\n"))
+		_, err := ParseConfig([]byte("schema_version: 7\ndelegation:\n  idle_timeout: " + bad + "\n"))
 		require.Error(t, err, "idle_timeout %q must be refused", bad)
 		assert.ErrorIs(t, err, ErrInvalidIdleTimeout, "idle_timeout %q", bad)
 	}

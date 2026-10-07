@@ -14,7 +14,7 @@ import (
 // TestEvaluateDeniesAndAllows, end to end through evaluate.
 func TestEvaluateDeniesNotebookEditByPathRule(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
-	cfg := `version: 1
+	cfg := `schema_version: 1
 path_rules:
   - id: no-notebook-edits
     match: { path: ["*.ipynb"] }

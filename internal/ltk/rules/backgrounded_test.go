@@ -19,7 +19,7 @@ func cmdBG(shell ir.Shell, background bool, argv ...string) *ir.Script {
 }
 
 const backgroundedYAML = `
-version: 1
+schema_version: 1
 rules:
   - id: background-via-harness
     match: { backgrounded: true }
@@ -79,7 +79,7 @@ func TestBackgroundedDoesNotMatchPlainCommand(t *testing.T) {
 // positive requirement that the command NOT be backgrounded.
 func TestBackgroundedFalseIsNoConstraint(t *testing.T) {
 	cfg := mustParse(t, `
-version: 1
+schema_version: 1
 rules:
   - id: no-op-rule
     match: { command: [go, test], backgrounded: false }
@@ -109,7 +109,7 @@ func TestBackgroundedAloneIsAValidConstraint(t *testing.T) {
 // exclusive, the same as match.path is with command/args/shells/unless.
 func TestBackgroundedCannotCombineWithPath(t *testing.T) {
 	_, err := Parse([]byte(`
-version: 1
+schema_version: 1
 path_rules:
   - id: bad
     match: { path: ["VERSION"], backgrounded: true }

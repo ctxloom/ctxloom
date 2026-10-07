@@ -158,7 +158,7 @@ func TestMoveBundle_MissingDestination_Errors(t *testing.T) {
 func TestResolveMoveDest_RemoteNameWinsOverSamePath(t *testing.T) {
 	fs, cfg := memMoveFS(t)
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(cfg.GetAppPaths()[0], "remotes.yaml"), []byte(
-		"default: personal\nremotes:\n  personal:\n    url: https://github.com/example/personal\n    version: v1\n"), 0644))
+		"default: personal\nschema_version: 1\nremotes:\n  personal:\n    url: https://github.com/example/personal\n    version: v1\n"), 0644))
 	require.NoError(t, fs.MkdirAll("personal", 0755)) // a directory of the same spelling
 
 	dest, err := resolveMoveDest(cfg, fs, "personal")

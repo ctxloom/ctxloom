@@ -22,7 +22,7 @@ func srSeedRoot(t *testing.T, harp string) (sessionDir, rootDir string) {
 	t.Helper()
 	sessionDir = srSeedHarp(t, harp)
 	projectDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(sessionDir, paths.SessionSidecarFileName), []byte("project_dir: "+projectDir+"\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(sessionDir, paths.SessionSidecarFileName), []byte("schema_version: 1\nproject_dir: "+projectDir+"\n"), 0o644))
 	srBackdate(t, sessionDir)
 	srSeedDeadSession(t, harp)
 

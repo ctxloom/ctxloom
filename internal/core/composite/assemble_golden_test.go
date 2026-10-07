@@ -138,10 +138,11 @@ skills:
 select_tags: [ctxloom]
 deny_tools: [Task]
 hooks:
-  pre_tool:
-    - matcher: Bash
-      type: command
-      command: echo golden
+  unified:
+    pre_tool:
+      - matcher: Bash
+        type: command
+        command: echo golden
 `
 
 // renderToday renders what the assembly produces for one engine and one

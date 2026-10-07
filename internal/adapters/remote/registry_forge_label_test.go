@@ -21,7 +21,7 @@ func TestRegistry_ResolveForgeForURL_HonoursStoredForgeLabel(t *testing.T) {
 	)
 	fs := afero.NewMemMapFs()
 	testsupport.WriteFileString(t, fs, path,
-		"forges:\n  corp:\n    type: github\n    base_url: https://github.corp.example\n    token_env: CORP_TOKEN\n", 0o644)
+		"schema_version: 1\nforges:\n  corp:\n    type: github\n    base_url: https://github.corp.example\n    token_env: CORP_TOKEN\n", 0o644)
 	reg, err := NewRegistry(path, WithRegistryFS(fs))
 	require.NoError(t, err)
 	require.NoError(t, reg.Add("team", customURL))

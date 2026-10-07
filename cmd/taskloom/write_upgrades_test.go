@@ -25,33 +25,19 @@ func keylessProjectConfig(t *testing.T) (path, body string) {
 	return path, body
 }
 
-// TestWriteUpgrades_FlagPersistsTheConfigMigration drives the real root:
-// --write-upgrades is a persistent flag, and with it an older config is
-// rewritten at the current generation, the original kept as a backup.
-func TestWriteUpgrades_FlagPersistsTheConfigMigration(t *testing.T) {
-	path, body := keylessProjectConfig(t)
+// TestWriteUpgrades_ARefusedConfigIsNeverRewritten drives the real root: a
+// config that declares no generation is refused, and --write-upgrades, a
+// persistent flag, persists migrations only — a refusal migrated nothing.
+func TestWriteUpgrades_ARefusedConfigIsNeverRewritten(t *testing.T) {
+	for _, flags := range [][]string{nil, {"--" + schemaver.WriteUpgradesFlag}} {
+		path, body := keylessProjectConfig(t)
 
-	out, err := executeTaskloom(t, "list", "--format", "text", "--"+schemaver.WriteUpgradesFlag)
-	require.NoError(t, err, out)
+		out, err := executeTaskloom(t, append([]string{"list", "--format", "text"}, flags...)...)
+		require.ErrorIs(t, err, schemaver.ErrTooOld, out)
 
-	backup, err := os.ReadFile(path + schemaver.BackupSuffix)
-	require.NoError(t, err)
-	assert.Equal(t, body, string(backup))
-	got, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.NotEqual(t, body, string(got), "the migration is written back")
-}
-
-// TestWriteUpgrades_WithoutTheFlagTheConfigIsUntouched is the other half:
-// the same load without the flag migrates in memory only.
-func TestWriteUpgrades_WithoutTheFlagTheConfigIsUntouched(t *testing.T) {
-	path, body := keylessProjectConfig(t)
-
-	out, err := executeTaskloom(t, "list", "--format", "text")
-	require.NoError(t, err, out)
-
-	got, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Equal(t, body, string(got))
-	assert.NoFileExists(t, path+schemaver.BackupSuffix)
+		got, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, body, string(got))
+		assert.NoFileExists(t, path+schemaver.BackupSuffix)
+	}
 }

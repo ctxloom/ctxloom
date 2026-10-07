@@ -22,7 +22,7 @@ func ssSeedRecorded(t *testing.T, harp string, age time.Duration) string {
 	dir := crSeedSession(t, harp, age)
 	out, ok := sessions.OutputDirOf(dir)
 	require.True(t, ok, "the seed records an output dir: it is what makes the session compacted")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionSidecarFileName), []byte("project_dir: /elsewhere\noutput_dir: "+out+"\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionSidecarFileName), []byte("schema_version: 1\nproject_dir: /elsewhere\noutput_dir: "+out+"\n"), 0o644))
 	cotBackdate(t, dir, age)
 	return dir
 }

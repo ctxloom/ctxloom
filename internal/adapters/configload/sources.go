@@ -209,9 +209,6 @@ func (s *Sources) read(ctx context.Context, layered bool) (*config.Config, []con
 		b.BindVersionResolver(s.versionResolver(b.Shell()))
 	}
 	cfg := b.Build()
-	if err := refuseRetiredProfilesDir(fs, cfg.GetAppPaths()); err != nil {
-		return nil, nil, err
-	}
 	return cfg, cfg.GetWarnings(), nil
 }
 

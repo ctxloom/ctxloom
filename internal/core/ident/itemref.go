@@ -8,30 +8,11 @@ import (
 )
 
 // The item-selector GRAMMAR: the "#<kind>/<name>" half of a reference, and
-// the recognizers for spellings the reference grammar no longer accepts.
+// the entry-boundary recognizer for spellings a human may not type.
 //
 // It lives HERE, in the package that owns Ref and BundleRef, rather than in
 // operations, because every caller must judge a selector the same way. Two
 // parsers would be two addressing schemes.
-
-// IsRetiredBuiltinSpelling reports whether ask is written as "builtin:<name>",
-// the one bundle-reference spelling NOTHING in this system still mints: the
-// bundles that used to be embedded in the binary now arrive as ctxloom's own
-// companion loadout, and no lockfile, resolved profile or assembly identity
-// carries this prefix.
-//
-// It is therefore the only spelling the LOAD path may refuse outright. The
-// load path is handed self-contained identities that are still authored today
-// — an authored "<url>@bundles/<path>", a resolved profile's
-// "ctxloom:local@bundles/<name>" — and refusing those would withhold the
-// content they address.
-//
-// The literal is inlined rather than named: a constant invites reuse, and a
-// retired spelling must not spread to a new call site. It lives in THIS
-// package because it is the one package the builtin-literal sweep exempts.
-func IsRetiredBuiltinSpelling(ask string) bool {
-	return strings.HasPrefix(ask, "builtin:")
-}
 
 // IsRetiredAtEntry is the ENTRY-BOUNDARY guard: call it only where a human
 // types a reference, never on the load path. It reports whether ask carries
@@ -41,12 +22,12 @@ func IsRetiredBuiltinSpelling(ask string) bool {
 // resolves to something else or to "not found". Those are different faults
 // and they deserve different messages.
 //
-// The set is refuri.IsSelfContainedRef's plus IsRetiredBuiltinSpelling. It is
-// deliberately WIDER than the load path's: at a surface where a human types a
-// reference, the pipeline's own identity spellings are retired input, while on
-// the load path the same strings are live identities a reader stamped.
+// The set is refuri.IsSelfContainedRef's. The load path must NOT use it: at a
+// surface where a human types a reference, the pipeline's own identity
+// spellings are retired input, while on the load path the same strings are
+// live identities a reader stamped.
 func IsRetiredAtEntry(ask string) bool {
-	return IsRetiredBuiltinSpelling(ask) || refuri.IsSelfContainedRef(ask)
+	return refuri.IsSelfContainedRef(ask)
 }
 
 // FormatSelector renders the "<kind>/<name>" selector (the part after "#")

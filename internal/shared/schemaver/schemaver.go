@@ -15,9 +15,9 @@
 // refusing a file newer than it understands (ErrNewer). The bump is what makes
 // it refuse.
 //
-// schemaver owns the version gate and nothing else. The parse, the steps and
-// the encode are internal/shared/upgrade's; a Kind's steps are ordinary
-// upgrade.Upgraders. Context-dependent normalization (anything that needs more
+// schemaver owns the version gate and the Step contract. The parse and the
+// encode are internal/shared/upgrade's; a kind's steps live under
+// internal/migrations (see its package doc). Context-dependent normalization (anything that needs more
 // than the document's own bytes to decide) is not a schema step and stays with
 // the caller.
 package schemaver
@@ -43,41 +43,59 @@ import (
 // generation under.
 const Key = "schema_version"
 
-// Kind is one versioned file kind.
-//
-// Current is DERIVED (Oldest + len(Steps)) rather than declared, so a version
-// bump without the step that migrates to it cannot be written.
-type Kind struct {
-	// Name identifies the kind in messages, e.g. "ltk config".
-	Name string
-	// LegacyKey, when set, is an older spelling of Key that Upgrade renames to
-	// Key BEFORE reading the version. It is per-kind opt-in because the same
-	// spelling can mean something else elsewhere: a bundle's `version` is its
-	// author's semver, never a format generation.
-	LegacyKey string
-	// Oldest is the lowest generation still migratable; below it Upgrade
-	// refuses with ErrTooOld.
-	Oldest int
-	// Steps[i] migrates generation Oldest+i to Oldest+i+1. A step runs because
-	// the document's generation says it must, not because it detects work to
-	// do, so — unlike a Pipeline stage — it need not be idempotent, and one
-	// that edits nothing (a marker generation) still advances the version.
-	Steps []upgrade.Upgrader
+// Step migrates a document from generation To()-1 to To(). It runs because
+// the document's generation says it must, so — unlike an upgrade.Pipeline
+// stage — it need not be idempotent and reports nothing; a step that edits
+// nothing (a marker generation) still advances the version.
+type Step interface {
+	To() int
+	Name() string
+	Apply(root *yaml.Node)
 }
 
-// IntroduceKey is generation 1 of a kind that was unversioned before it
-// declared Key: Oldest 0, IntroduceKey as the first step. It edits nothing,
-// because a file with no version at all means exactly what a generation-1 file
-// means; Upgrade's stamp is the whole migration.
-var IntroduceKey upgrade.Upgrader = introduceKey{}
+// Kind is one versioned file kind. Its fields are unexported: a Kind exists
+// only through Define, so a broken chain cannot be declared.
+type Kind struct {
+	name    string
+	current int
+	steps   []Step // ascending, contiguous, last To() == current
+}
 
-type introduceKey struct{}
+// Define declares a kind at generation current, migratable from
+// current-len(steps). Current is DECLARED, never derived from the steps: the
+// generation is the format the binary writes, and retiring the oldest step
+// must raise Oldest without lowering it — a lowered Current would refuse
+// every file already stamped as newer.
+//
+// It PANICS, a programming error in a shipped declaration, unless current >= 1
+// and steps[i].To() == current-len(steps)+1+i for every i. Deleting the oldest
+// steps therefore raises Oldest and needs no other edit; deleting a middle or
+// newest one fails at package init, in every test of the owner.
+func Define(name string, current int, steps ...Step) Kind {
+	if current < 1 {
+		panic(fmt.Sprintf("schemaver: kind %q declares generation %d; the lowest is 1", name, current))
+	}
+	if len(steps) > current {
+		panic(fmt.Sprintf("schemaver: kind %q declares %d steps below generation %d", name, len(steps), current))
+	}
+	oldest := current - len(steps)
+	for i, s := range steps {
+		if want := oldest + 1 + i; s.To() != want {
+			panic(fmt.Sprintf("schemaver: kind %q step %q migrates to %d, but its position in the chain is %d", name, s.Name(), s.To(), want))
+		}
+	}
+	return Kind{name: name, current: current, steps: steps}
+}
 
-func (introduceKey) Name() string                    { return "introduce " + Key }
-func (introduceKey) Apply(*yaml.Node) (changed bool) { return false }
+// Name identifies the kind in messages, e.g. "ltk config".
+func (k Kind) Name() string { return k.name }
 
 // Current is the generation this binary reads and writes.
-func (k Kind) Current() int { return k.Oldest + len(k.Steps) }
+func (k Kind) Current() int { return k.current }
+
+// Oldest is the lowest generation still migratable; below it Upgrade refuses
+// with ErrTooOld.
+func (k Kind) Oldest() int { return k.current - len(k.steps) }
 
 // Result is a document brought to the current generation in memory.
 type Result struct {
@@ -85,8 +103,7 @@ type Result struct {
 	Data []byte
 	// From is the generation the input declared; To is the one Data declares.
 	From, To int
-	// Applied names every change made, in order: the legacy-key rename, then
-	// each step run. Empty means Data is the input, byte for byte, and there
+	// Applied names every step run, in order. Empty means Data is the input, byte for byte, and there
 	// is nothing to write back.
 	Applied []string
 }
@@ -99,7 +116,6 @@ var (
 	ErrUnreadable = errors.New("format version cannot be read")
 
 	errNotInteger = errors.New(Key + " is not an integer")
-	errBothKeys   = errors.New("both " + Key + " and its legacy spelling are present")
 
 	// errMalformed marks a document that is not a well-formed YAML mapping.
 	// It never leaves Upgrade, which passes such a document through.
@@ -128,7 +144,7 @@ func (e *VersionError) Error() string {
 func (e *VersionError) Unwrap() error { return e.Err }
 
 func (k Kind) refuse(found int, err error) *VersionError {
-	return &VersionError{Kind: k.Name, Found: found, Current: k.Current(), Oldest: k.Oldest, Err: err}
+	return &VersionError{Kind: k.name, Found: found, Current: k.current, Oldest: k.Oldest(), Err: err}
 }
 
 func (k Kind) unreadable(cause error) *VersionError {
@@ -139,12 +155,12 @@ func (k Kind) unreadable(cause error) *VersionError {
 // runs before any strict decode or schema validation the caller applies to
 // the result:
 //
-//  1. rename LegacyKey to Key, when the kind opts in;
-//  2. read the generation — an empty or comment-only document is generation
-//     0; a non-integer version or more than one document is ErrUnreadable;
-//     above Current is ErrNewer, below Oldest is ErrTooOld;
-//  3. run the steps from that generation up;
-//  4. stamp Current, when anything changed.
+//  1. read the generation — a document with no Key (an empty or comment-only
+//     one included) is generation 0; a non-integer version or more than one
+//     document is ErrUnreadable; above Current is ErrNewer, below Oldest is
+//     ErrTooOld;
+//  2. run the steps from that generation up;
+//  3. stamp Current, when any step ran.
 //
 // A document already current passes through untouched: Result.Data is the
 // input slice and Applied is empty. So does one that is not a well-formed
@@ -184,11 +200,12 @@ func (k Kind) migrate(data []byte) (Result, *yaml.Node, error) {
 		return Result{}, nil, err
 	}
 	root := doc.Content[0]
-	found, applied, err := k.gate(root)
+	found, err := k.gate(root)
 	if err != nil {
 		return Result{}, nil, err
 	}
-	for _, step := range k.Steps[found-k.Oldest:] {
+	var applied []string
+	for _, step := range k.steps[found-k.Oldest():] {
 		step.Apply(root)
 		applied = append(applied, step.Name())
 	}
@@ -232,28 +249,18 @@ func (k Kind) parse(data []byte) (doc yaml.Node, commentOnly bool, err error) {
 	return doc, false, nil
 }
 
-// gate renames the legacy key, then reads and checks the declared
-// generation. applied carries the rename when one happened.
-func (k Kind) gate(root *yaml.Node) (found int, applied []string, err error) {
-	if k.LegacyKey != "" {
-		renamed, err := renameKey(root, k.LegacyKey)
-		if err != nil {
-			return 0, nil, k.unreadable(err)
-		}
-		if renamed {
-			applied = append(applied, renameStepName(k.LegacyKey))
-		}
-	}
+// gate reads and checks the declared generation.
+func (k Kind) gate(root *yaml.Node) (found int, err error) {
 	found, ok := upgrade.Version(root, Key)
 	switch {
 	case !ok:
-		return 0, nil, k.unreadable(errNotInteger)
-	case found > k.Current():
-		return 0, nil, k.refuse(found, ErrNewer)
-	case found < k.Oldest:
-		return 0, nil, k.refuse(found, ErrTooOld)
+		return 0, k.unreadable(errNotInteger)
+	case found > k.current:
+		return 0, k.refuse(found, ErrNewer)
+	case found < k.Oldest():
+		return 0, k.refuse(found, ErrTooOld)
 	}
-	return found, applied, nil
+	return found, nil
 }
 
 // encode stamps and serializes a changed document.
@@ -278,38 +285,18 @@ func isNullDocument(doc *yaml.Node) bool {
 	return len(doc.Content) == 1 && doc.Content[0].Kind == yaml.ScalarNode && doc.Content[0].Tag == "!!null"
 }
 
-// renameKey renames legacy to Key in place, keeping its position and
-// comments. Both spellings present is refused: there is no safe way to pick.
-func renameKey(root *yaml.Node, legacy string) (renamed bool, err error) {
-	if yamlx.MapValue(root, legacy) == nil {
-		return false, nil
-	}
-	if yamlx.MapValue(root, Key) != nil {
-		return false, errBothKeys
-	}
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value == legacy {
-			root.Content[i].Value = Key
-			break
-		}
-	}
-	return true, nil
-}
-
-func renameStepName(legacy string) string { return "rename " + legacy + " to " + Key }
-
 // Stamp sets Key to k.Current() on a root mapping: in place when present,
 // otherwise as the FIRST key, taking over the document's leading comment so a
 // file header stays at the top. Writers stamp what they write.
 func (k Kind) Stamp(root *yaml.Node) {
 	if v := yamlx.MapValue(root, Key); v != nil {
 		// Edited, not replaced, so a comment on the line survives.
-		*v = yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(k.Current()),
+		*v = yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(k.current),
 			HeadComment: v.HeadComment, LineComment: v.LineComment, FootComment: v.FootComment}
 		return
 	}
 	key := yamlx.ScalarNode(Key)
-	value := yamlx.ScalarNode(strconv.Itoa(k.Current()))
+	value := yamlx.ScalarNode(strconv.Itoa(k.current))
 	value.Tag = "!!int"
 	if len(root.Content) > 0 {
 		key.HeadComment, root.Content[0].HeadComment = root.Content[0].HeadComment, ""

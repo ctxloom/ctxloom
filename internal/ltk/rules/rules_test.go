@@ -2,13 +2,15 @@ package rules
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
 const sampleYAML = `
-version: 1
+schema_version: 1
 rules:
   - id: go-test-to-just
     match: { command: [go, test] }
@@ -23,13 +25,23 @@ rules:
     message: "No sh -c."
 `
 
+// mustParse parses a rule fixture. A fixture that declares no schemaver.Key is
+// stamped current first: these tests are about rules, and the version gate is
+// schemaversion_test.go's.
 func mustParse(t *testing.T, y string) *Config {
 	t.Helper()
-	cfg, err := Parse([]byte(y))
+	cfg, err := Parse([]byte(stamped(y)))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
 	return cfg
+}
+
+func stamped(y string) string {
+	if strings.Contains(y, schemaver.Key+":") {
+		return y
+	}
+	return current() + y
 }
 
 // matchOf parses one deny rule with the given flow-map match and returns its
@@ -108,7 +120,7 @@ func TestNestedCommandTriggersDeny(t *testing.T) {
 
 func TestShellRestriction(t *testing.T) {
 	y := `
-version: 1
+schema_version: 1
 rules:
   - id: cmd-only
     match: { command: [foo], shells: [cmd] }
@@ -151,7 +163,7 @@ func TestCommandPatternForms(t *testing.T) {
 
 func TestOptionsAreOrderIndependent(t *testing.T) {
 	// Options match as a set, in any order; positional `push` stays first.
-	y := "version: 1\nrules:\n  - id: force-push\n    match: { command: [git, push], args_all: [--force, --no-verify] }\n    message: x\n"
+	y := "schema_version: 1\nrules:\n  - id: force-push\n    match: { command: [git, push], args_all: [--force, --no-verify] }\n    message: x\n"
 	cfg := mustParse(t, y)
 
 	orders := [][]string{
@@ -187,7 +199,7 @@ func TestOptionsDoNotConsumePositions(t *testing.T) {
 // subsequence, so the real subcommand is still found and the rule still fires —
 // closing an easy evasion of a command-gating tool (e.g. `git -C /repo push`).
 func TestValueOptionBeforeSubcommandDoesNotEvade(t *testing.T) {
-	gitCfg := mustParse(t, "version: 1\nrules:\n  - id: no-force-push\n    match: { command: [git, push], args_all: [--force] }\n    message: x\n")
+	gitCfg := mustParse(t, "schema_version: 1\nrules:\n  - id: no-force-push\n    match: { command: [git, push], args_all: [--force] }\n    message: x\n")
 	deny := [][]string{
 		{"git", "-C", "/repo", "push", "--force"}, // separated value-option before push
 		{"git", "-c", "k=v", "push", "--force"},   // -c name=value before push
@@ -199,7 +211,7 @@ func TestValueOptionBeforeSubcommandDoesNotEvade(t *testing.T) {
 		}
 	}
 
-	dockerCfg := mustParse(t, "version: 1\nrules:\n  - id: no-build\n    match: { command: [docker, build] }\n    message: x\n")
+	dockerCfg := mustParse(t, "schema_version: 1\nrules:\n  - id: no-build\n    match: { command: [docker, build] }\n    message: x\n")
 	if Evaluate(dockerCfg, cmd(ir.ShellBash, "docker", "--context", "prod", "build", ".")).Allowed {
 		t.Error("`docker --context prod build` should match [docker, build]")
 	}
@@ -208,7 +220,7 @@ func TestValueOptionBeforeSubcommandDoesNotEvade(t *testing.T) {
 // Subsequence still requires ORDER: two positionals must appear in the given
 // order among the operands, so a reversed operand sequence does not match.
 func TestPositionalSubsequenceRespectsOrder(t *testing.T) {
-	cfg := mustParse(t, "version: 1\nrules:\n  - id: r\n    match: { command: [git, stash, push] }\n    message: x\n")
+	cfg := mustParse(t, "schema_version: 1\nrules:\n  - id: r\n    match: { command: [git, stash, push] }\n    message: x\n")
 	if Evaluate(cfg, cmd(ir.ShellBash, "git", "stash", "push")).Allowed {
 		t.Error("`git stash push` should match [git, stash, push]")
 	}
@@ -239,7 +251,7 @@ func TestCmdSlashOptionsArePortable(t *testing.T) {
 }
 
 func TestBareCommandMatchesAnyInvocation(t *testing.T) {
-	cfg := mustParse(t, "version: 1\nrules:\n  - id: no-go\n    match: { command: [go] }\n    message: x\n")
+	cfg := mustParse(t, "schema_version: 1\nrules:\n  - id: no-go\n    match: { command: [go] }\n    message: x\n")
 	for _, args := range [][]string{{"go"}, {"go", "build"}, {"go", "test", "./..."}} {
 		if Evaluate(cfg, cmd(ir.ShellBash, args...)).Allowed {
 			t.Errorf("bare `command: go` should match %v", args)
@@ -262,7 +274,7 @@ func TestBareCommandMatchesAnyInvocation(t *testing.T) {
 // of `-m`) is an operand and would satisfy a one-element subsequence.
 func TestAllowRuleCannotBeSmuggledPastDeny(t *testing.T) {
 	y := `
-version: 1
+schema_version: 1
 rules:
   - id: allow-git-status
     match: { command: [git, status] }
@@ -287,7 +299,7 @@ rules:
 // deny rule alone already catches it, isolating what the allow rule changes).
 func TestAllowRuleCannotBeSmuggledPastDeny_WithoutAllowRule(t *testing.T) {
 	y := `
-version: 1
+schema_version: 1
 rules:
   - id: no-force-commit
     match: { command: [git, commit], args_all: [--no-verify] }
@@ -305,7 +317,7 @@ rules:
 // allow rule.
 func TestAllowRuleStillMatchesPositionally(t *testing.T) {
 	y := `
-version: 1
+schema_version: 1
 rules:
   - id: allow-git-status
     match: { command: [git, status] }
@@ -326,7 +338,7 @@ rules:
 // switched to strict prefix — the two operators are independent per rule
 // action, not a single shared one.
 func TestDenySubsequenceStillPermissive(t *testing.T) {
-	y := "version: 1\nrules:\n  - id: no-push\n    match: { command: [git, push] }\n    action: deny\n    message: x\n"
+	y := "schema_version: 1\nrules:\n  - id: no-push\n    match: { command: [git, push] }\n    action: deny\n    message: x\n"
 	cfg := mustParse(t, y)
 	if Evaluate(cfg, cmd(ir.ShellBash, "git", "-C", "/repo", "push")).Allowed {
 		t.Error("`git -C /repo push` should still match the [git, push] deny rule (subsequence, not prefix)")
@@ -346,7 +358,7 @@ func TestAllowRuleHasNoPositionBlindEscapeHatch(t *testing.T) {
 	}
 
 	strictCfg := mustParse(t, `
-version: 1
+schema_version: 1
 rules:
   - id: allow-docker-build-positional
     match: { command: [docker, build] }
@@ -363,12 +375,12 @@ rules:
 
 func TestValidationErrors(t *testing.T) {
 	cases := map[string]string{
-		"missing id":          "version: 1\nrules:\n  - match: { command: [go] }\n",
-		"bad action":          "version: 1\nrules:\n  - id: x\n    action: nuke\n    match: { command: [go] }\n",
-		"empty match":         "version: 1\nrules:\n  - id: x\n    match: {}\n",
-		"empty command token": "version: 1\nrules:\n  - id: x\n    match: { command: [go, \"\"] }\n",
-		"duplicate id":        "version: 1\nrules:\n  - id: x\n    match: { command: [a] }\n  - id: x\n    match: { command: [b] }\n",
-		"bad default":         "version: 1\ndefaults: { on_parse_error: maybe }\nrules: []\n",
+		"missing id":          "schema_version: 1\nrules:\n  - match: { command: [go] }\n",
+		"bad action":          "schema_version: 1\nrules:\n  - id: x\n    action: nuke\n    match: { command: [go] }\n",
+		"empty match":         "schema_version: 1\nrules:\n  - id: x\n    match: {}\n",
+		"empty command token": "schema_version: 1\nrules:\n  - id: x\n    match: { command: [go, \"\"] }\n",
+		"duplicate id":        "schema_version: 1\nrules:\n  - id: x\n    match: { command: [a] }\n  - id: x\n    match: { command: [b] }\n",
+		"bad default":         "schema_version: 1\ndefaults: { on_parse_error: maybe }\nrules: []\n",
 	}
 	for name, y := range cases {
 		if _, err := Parse([]byte(y)); err == nil {
@@ -390,7 +402,7 @@ func TestValidationErrors(t *testing.T) {
 // in other dialects.
 func TestEvaluateMatchesNestedCommandsAgainstTheirOwnShell(t *testing.T) {
 	cfg := mustParse(t, `
-version: 1
+schema_version: 1
 rules:
   - id: no-del-in-cmd
     match: { command: [del], shells: [cmd] }
@@ -421,7 +433,7 @@ rules:
 // [cmd]` rule silently never firing under the dialect it targets.
 func TestMatchCommandResolvesWindowsAbsolutePathBasename(t *testing.T) {
 	cfg := mustParse(t, `
-version: 1
+schema_version: 1
 rules:
   - id: no-cmd-del
     match: { command: [cmd, del], args_all: ['/c'], shells: [cmd] }
@@ -444,7 +456,7 @@ rules:
 // PowerShell's own convention never treats `-Recurse` as bundled short flags.
 func TestShortClusterExpansionUsesInvokedProgramNotScriptShell(t *testing.T) {
 	cfg := mustParse(t, `
-version: 1
+schema_version: 1
 rules:
   - id: no-posix-dash-r
     match: { command: [pwsh], args_any: ["-R"] }

@@ -34,7 +34,7 @@ func showFixture(t *testing.T) (root, outDir string) {
 	require.NoError(t, os.MkdirAll(outDir, 0o755))
 	sidecar := filepath.Join(root, "vital-deaf-stunt", paths.SessionSidecarFileName)
 	require.NoError(t, os.MkdirAll(filepath.Dir(sidecar), 0o755))
-	require.NoError(t, os.WriteFile(sidecar, []byte("project_dir: /work\noutput_dir: "+outDir+"\n"), 0o600))
+	require.NoError(t, os.WriteFile(sidecar, []byte("schema_version: 1\nproject_dir: /work\noutput_dir: "+outDir+"\n"), 0o600))
 	return root, outDir
 }
 

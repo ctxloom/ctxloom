@@ -65,7 +65,7 @@ func srSeedHarp(t *testing.T, harp string) string {
 
 // srLayout is the fixture's member set, relative to the harp directory.
 var srLayout = map[string]string{
-	paths.SessionSidecarFileName:                                          "project_dir: /tmp/demo\n",
+	paths.SessionSidecarFileName:                                          "schema_version: 1\nproject_dir: /tmp/demo\n",
 	paths.ScratchDirName + "/scratch.txt":                                 "disposable scratch\n",
 	paths.ScratchDirName + "/overlay/settings.json":                       "{}\n",
 	paths.TranscriptsDirName + "/" + paths.CanonicalTranscriptFileName:    "{\"bulk\":true}\n",

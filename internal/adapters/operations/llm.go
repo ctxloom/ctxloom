@@ -90,8 +90,8 @@ func AvailableLLMNames(reg engine.Registry, cfg *config.Config) []string {
 
 // LLMEntry is one labeled LLM registry entry's declared definition — the
 // `llm create`/`llm edit`/`llm list` write-confirmation shape. An entry
-// carries no credentials: an engine's are ambient, never ctxloom's
-// (config.RetiredLLMEnvKey), so there is nothing on this type to withhold.
+// carries no credentials: an engine's are ambient, never ctxloom's, so there
+// is nothing on this type to withhold.
 type LLMEntry struct {
 	Label       string                  `json:"label"`
 	Type        string                  `json:"type,omitempty"`

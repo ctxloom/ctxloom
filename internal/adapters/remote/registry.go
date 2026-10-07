@@ -18,7 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // Registry manages configured remote sources.
@@ -71,9 +70,8 @@ func NewRegistry(configPath string, opts ...RegistryOption) (*Registry, error) {
 	return r, nil
 }
 
-// remotesKind versions remotes.yaml. The file was unversioned before it
-// declared schemaver.Key, so a keyless file is generation 0.
-var remotesKind = schemaver.Kind{Name: "remotes", Oldest: 0, Steps: []upgrade.Upgrader{schemaver.IntroduceKey}}
+// remotesKind versions remotes.yaml.
+var remotesKind = schemaver.Define("remotes", 1)
 
 // configFile represents the structure of the config file.
 // Only contains remotes-related fields to avoid overwriting other config.

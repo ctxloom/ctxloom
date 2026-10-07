@@ -48,22 +48,29 @@ A layer declaring a generation below the oldest this ctxloom migrates — or
 declaring none — fails with a migration finding naming the file, the version
 it declares, and `ctxloom init` as the remedy. A layer declaring a generation
 NEWER than this ctxloom knows fails the same way, naming both numbers, with
-upgrading ctxloom as the remedy. The `version` key is read as the legacy
-spelling of `schema_version`.
+upgrading ctxloom as the remedy. `version` is not a spelling of
+`schema_version`: a layer that declares its generation only that way declares
+none.
 
-Config generation 7 stores every agent binding's profile refs
-(`agents.<name>.profiles`) in the canonical `ctxloom+git://` spelling; an older
-layer's are read that way.
+The same holds for every file ctxloom, ltk and taskloom version with
+`schema_version`: one that declares none is refused. Stamp existing stores
+with a release that still migrates them (`--write-upgrades`) before upgrading.
 
-An older layer is migrated in memory and its file is left alone; `ctxloom run`
-no longer offers to rewrite it. Pass `--write-upgrades` to any command to
-persist the migration (the previous file is kept beside it as `<file>.bak`).
+What a load changes in memory (an `<alias>/…` ref resolved through the
+registry) leaves the file alone; `ctxloom run` no longer offers to rewrite
+it. Pass `--write-upgrades` to any command to persist it (the previous file
+is kept beside it as `<file>.bak`).
+
+A key the config schema does not describe fails every command that reads the
+config, naming the key and the keys its section does know. Under
+`--degraded` (or `CTXLOOM_DEGRADED=1`) the config loads best-effort: the key
+is warned about and ignored.
 
 ## 3. The config-level `hooks:` block is gone
 
 It was a second implementation of something profiles already do, with exactly
 one consumer and no writer anywhere. A config carrying `hooks:` now reports it
-as an unknown key and ignores it.
+as an unknown key (see section 2).
 
 **Move each hook to a profile** — a profile of your project bundle
 (`.ctxloom/content/bundles/v2/project/profiles/<name>.yaml`), under the same
@@ -226,9 +233,10 @@ existing pin. See §13 for the details.
 
 **Configuration.** Every config layer may set every key, in the normal
 precedence; no key is reserved to one layer. The `sign:` block under `config:`
-is gone: a config still carrying it loads, warns
-``unknown key `config.sign` … IGNORED`` and runs exactly as without it, and
-`ctxloom doctor`'s setup check reports the warning. Delete the block.
+is gone: a config still carrying it is refused, naming
+``unknown key `config.sign` ``; under `--degraded` it loads, warns, and runs
+exactly as without it. `ctxloom doctor`'s setup check reports it. Delete the
+block.
 
 **Files ctxloom no longer reads or writes.** `allowed_signers` and
 `distrusted_signers` (project and `~/.ctxloom`), the approval stores

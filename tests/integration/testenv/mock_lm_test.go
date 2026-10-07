@@ -105,8 +105,8 @@ func TestMockLM_WriteConfig_FreshFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := string(got)
-	// The mock's knobs ride the entry's mock_control map — never the retired
-	// env key, which a real Load refuses (config.RetiredLLMEnvKey).
+	// The mock's knobs ride the entry's mock_control map — never an `env`
+	// key, which the config schema does not know.
 	for _, want := range []string{"mock:", "type: mock", "primary: mock", "version:", "mock_control:", "CTXLOOM_MOCK_RESPONSE", "CTXLOOM_MOCK_EXIT_CODE", "CTXLOOM_MOCK_RECORD_FILE"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("fresh WriteConfig missing %q from output:\n%s", want, out)

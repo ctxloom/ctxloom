@@ -33,24 +33,29 @@ func writeClaimsRecord(t *testing.T, fs afero.Fs, versionKey string, version int
 }
 
 // Both read paths — one target's record (Paths) and every record (Writers) —
-// read the current key and the legacy `claims` key, and neither writes.
-func TestClaimsRecord_CurrentAndLegacyKeyedLoadAndReadingNeverWrites(t *testing.T) {
-	for _, key := range []string{schemaver.Key, "claims"} {
-		t.Run(key, func(t *testing.T) {
-			fs := afero.NewMemMapFs()
-			body := writeClaimsRecord(t, fs, key, claimsKind.Current())
-			c := newRecords(t, fs)
+// read the current generation, and neither writes.
+func TestClaimsRecord_CurrentLoadsAndReadingNeverWrites(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	body := writeClaimsRecord(t, fs, schemaver.Key, claimsKind.Current())
+	c := newRecords(t, fs)
 
-			states, err := c.Paths(fs, versionedTarget)
-			require.NoError(t, err)
-			require.Len(t, states, 1)
-			writers, err := c.Writers()
-			require.NoError(t, err)
-			assert.Equal(t, []delivery.Writer{project}, writers)
+	states, err := c.Paths(fs, versionedTarget)
+	require.NoError(t, err)
+	require.Len(t, states, 1)
+	writers, err := c.Writers()
+	require.NoError(t, err)
+	assert.Equal(t, []delivery.Writer{project}, writers)
 
-			assert.Equal(t, body, read(t, fs, claimsRecordPath()), "a read must not write")
-		})
-	}
+	assert.Equal(t, body, read(t, fs, claimsRecordPath()), "a read must not write")
+}
+
+// `claims` is not a spelling of schemaver.Key: a record declaring its
+// generation only that way declares none, and is refused.
+func TestClaimsRecord_ClaimsKeyIsNotTheGeneration(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writeClaimsRecord(t, fs, "claims", claimsKind.Current())
+	_, err := newRecords(t, fs).Paths(fs, versionedTarget)
+	require.ErrorIs(t, err, schemaver.ErrTooOld)
 }
 
 func TestClaimsRecord_NewerIsRefusedNamingBothNumbers(t *testing.T) {

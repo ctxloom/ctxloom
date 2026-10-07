@@ -159,8 +159,9 @@ func TestLoadCompactedSession(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	frontmatter := "---\n" +
+		"schema_version: 2\n" +
 		"session_id: abc123\n" +
-		"distilled_at: 2024-01-15T10:00:00Z\n" +
+		"compacted_at: 2024-01-15T10:00:00Z\n" +
 		"entry_count: 8\n" +
 		"plan_blocks: 0\n" +
 		"---\n\n" +
@@ -547,7 +548,7 @@ func TestCompact_EmptySessionDoesNotOverwriteExistingEssence(t *testing.T) {
 	outDir := t.TempDir()
 
 	const sessionID = "previously-compacted"
-	const goodEssence = "---\nsession_id: previously-compacted\n---\n\n# Session summary\n\nReal, hard-won compacted context.\n"
+	const goodEssence = "---\nschema_version: 2\nsession_id: previously-compacted\n---\n\n# Session summary\n\nReal, hard-won compacted context.\n"
 	existing := filepath.Join(outDir, sessionID+".md")
 	require.NoError(t, os.WriteFile(existing, []byte(goodEssence), 0o644))
 
@@ -785,7 +786,7 @@ func TestCompact_CompactionFailed_KeepsPreviousEssence(t *testing.T) {
 	home := testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 
-	prior := "---\nsession_id: old\n---\n\n# Session summary\n\nprior good essence\n"
+	prior := "---\nschema_version: 2\nsession_id: old\n---\n\n# Session summary\n\nprior good essence\n"
 	harpDir := filepath.Join(home, ".ctxloom", "sessions", "fail-harp")
 	require.NoError(t, os.MkdirAll(harpDir, 0o755))
 	essencePath := filepath.Join(harpDir, "essence.md")

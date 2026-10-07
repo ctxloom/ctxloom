@@ -337,11 +337,11 @@ flowchart LR
 ```
 
 - `rules.Parse` first runs the rules file's `schemaver.Kind` (`configKind`) over the raw bytes:
-  the legacy `version` key is renamed to `schema_version`, a keyless file is generation 0 and is
-  migrated in memory, and a file newer than the binary is refused before anything else reads it.
-  Then `checkRemovedForms`, then a strict decode (`yamlx.DecodeStrict`) through a wrapper that
-  accepts `schema_version` — `Config` itself carries no version — then `normalizeAndValidate`. An **empty document is a valid
-  zero-rule config**, and `cmd/ltk` ships `empty.ltk.yaml`.
+  a file declaring no `schema_version` (an empty one included) or one newer than the binary is
+  refused before anything else reads it. Then `checkRemovedForms`, then a strict decode
+  (`yamlx.DecodeStrict`) through a wrapper that accepts `schema_version` — `Config` itself
+  carries no version — then `normalizeAndValidate`. A document declaring only its generation is
+  a valid zero-rule config, and `cmd/ltk` ships `empty.ltk.yaml`.
 - `normalizeAndValidate` defaults `on_parse_error` to allow, then validates each rule's shared
   fields in `validateRuleBase`: id present and unique, valid action and mode, a coherent confirm
   setting, and an explanation on every deny (`validateDenyIsExplained`).

@@ -81,8 +81,8 @@ func commandRule(id, command, message, suggest string, mode rules.Mode) (rules.C
 		match["args_all"] = options
 	}
 	doc, err := yaml.Marshal(map[string]any{
-		"version":  1,
-		"defaults": map[string]int{"repeat_window_seconds": int(confirmWindow.Seconds())},
+		"schema_version": 1,
+		"defaults":       map[string]int{"repeat_window_seconds": int(confirmWindow.Seconds())},
 		"rules": []map[string]any{{
 			"id": id, "match": match, "message": message, "suggest": suggest, "mode": string(mode),
 		}},

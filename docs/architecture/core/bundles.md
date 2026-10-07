@@ -44,8 +44,7 @@ flowchart TD
 
     LOADER["Loader — loader.go:48<br/>Find / LoadFile / List"] --> PARSE["ParseBundle — bundles.go:724"]
     PARSE --> UPG["envelopeKind.Upgrade<br/>schema_version gate; generation 0 → 1: prompts: → commands:, llm: → exports:"]
-    UPG --> LEG["detectLegacySkillsKey — bundles.go:781"]
-    LEG --> BUNDLE["*Bundle — bundles.go:28"]
+    UPG --> BUNDLE["*Bundle — bundles.go:28"]
 
     BUNDLE --> KINDS
     subgraph KINDS["item kinds in one bundle"]

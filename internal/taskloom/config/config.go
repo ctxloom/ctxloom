@@ -51,7 +51,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -237,11 +236,7 @@ func (c Config) ParsedTagSchema() (*tagschema.Schema, error) {
 // (see upgradeFile), before the merge, so a newer file is refused whichever
 // layer it sits in. Config carries no version field: the merged document
 // holds schemaver.Key only for the schema to accept it.
-var configKind = schemaver.Kind{
-	Name:   "taskloom config",
-	Oldest: 0,
-	Steps:  []upgrade.Upgrader{schemaver.IntroduceKey},
-}
+var configKind = schemaver.Define("taskloom config", 1)
 
 // upgradeFile is taskloom's confload.Product.UpgradeFile: it brings one
 // config file to configKind.Current() in memory, and under --write-upgrades

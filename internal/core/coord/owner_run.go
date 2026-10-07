@@ -168,8 +168,9 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	c.mu.Unlock()
 	c.recordContainerName(rt.runID, runner.ContainerName)
 
-	// The runner leads the first turn with the package's context ahead of
-	// Launch.Prompt; prompt is what the host asked for this run.
+	// prompt is what the host asked for this run, and the whole first turn:
+	// the package's context reaches the engine through its delivered context
+	// surface, never again as a turn.
 	//
 	// This bare return LOOKS like it skips cleanup (the two
 	// failure paths above both call c.failChild explicitly), but it does

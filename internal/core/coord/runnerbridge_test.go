@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/shared/remedystatus"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 )
 
 // The bridge: this external test package MAY import adapters/runner (the
@@ -96,17 +95,12 @@ func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) erro
 	if r.refuse != nil && r.refuse() {
 		return delivery.ErrEndpointUnavailable
 	}
-	pkg, err := composite.Open(ctx, composite.Inline{}, composite.ClaimCheck{Store: launchtest.MemStore{}}, l.Package)
-	if err != nil {
+	if _, err := composite.Open(ctx, composite.Inline{}, composite.ClaimCheck{Store: launchtest.MemStore{}}, l.Package); err != nil {
 		return err
-	}
-	prompt := l.Prompt
-	if l.Resume.NativeKey == "" {
-		prompt = textblocks.Join(pkg.Context.Text, l.Prompt)
 	}
 	ex, err := r.inst.Exec(nil)
 	if err != nil {
 		return err
 	}
-	return r.eh.Drive(ctx, runner.Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: prompt})
+	return r.eh.Drive(ctx, runner.Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: l.Prompt})
 }

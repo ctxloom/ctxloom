@@ -259,9 +259,9 @@ func TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt(t *testing.T) {
 	harp := spawnGatedChild(t, sp, c)
 	// The engine records its turn BEFORE it announces its session, and the
 	// announcement reaches the coordinator over the run channel after that.
-	// Only a bound key makes the relaunch a native resume whose first turn is
-	// the mail; an unbound one is the context-primed relaunch that
-	// TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime
+	// Only a bound key makes the relaunch a native resume; an unbound one is
+	// the fresh relaunch that
+	// TestTerminateRun_LeftoverMailOfAnUnboundSessionIsTheFreshRunsFirstTurn
 	// pins.
 	require.Eventually(t, func() bool { return sp.NativeSession(harp) != "" }, conformanceWait, 5*time.Millisecond,
 		"precondition: the child's session key must be bound when it dies")
@@ -288,11 +288,12 @@ func TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt(t *testing.T) {
 	assert.NotEqual(t, runID, currentRunID(c, harp), "the delivery rides a fresh run, not the dead one")
 }
 
-// TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime pins
+// TestTerminateRun_LeftoverMailOfAnUnboundSessionIsTheFreshRunsFirstTurn pins
 // the relaunch's fallback when the dead run left no key to resume by: a
-// fresh, context-primed run, with the mail that raced the death as the turn
-// AFTER that prime — still delivered, still consumed, never stranded behind
-// it.
+// fresh run, whose context reaches the engine through its delivered context
+// surface, with the mail that raced the death as its first turn — still
+// delivered, still consumed, never stranded. The composed context is never
+// replayed as a turn of its own ahead of it.
 //
 // dropBinds reaches that state by discarding a bind the coordinator DID
 // receive, which is a failure real code cannot produce here: the runner sends
@@ -301,7 +302,7 @@ func TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt(t *testing.T) {
 // severing it, so an announce the engine sent is bound. The fallback itself
 // is still reachable — an engine that dies before it announces leaves no key
 // — and forcing it this way is what keeps that path pinned.
-func TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime(t *testing.T) {
+func TestTerminateRun_LeftoverMailOfAnUnboundSessionIsTheFreshRunsFirstTurn(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	spawned := 0
@@ -331,12 +332,13 @@ func TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime(t *te
 		"a child that dies with mail pending must be relaunched exactly once")
 	awaitDeliveredCount(t, harp, 1, "after the relaunched run took the leftover mail")
 	// The delivered record is the turn's hand-off; the engine records the text
-	// on its own goroutine after that, so the second text is waited for.
-	require.Eventually(t, func() bool { return len(sp.chat(1).RecordedTexts()) == 2 }, conformanceWait, 5*time.Millisecond,
-		"the context prime, then the leftover mail")
+	// on its own goroutine after that, so the text is waited for.
+	require.Eventually(t, func() bool { return len(sp.chat(1).RecordedTexts()) >= 1 }, conformanceWait, 5*time.Millisecond,
+		"the leftover mail reaches the relaunched run")
 	texts := sp.chat(1).RecordedTexts()
-	assert.Equal(t, "FRAG-ONE", texts[0], "no key to resume by: the relaunch is primed with the composed context")
-	assert.Contains(t, texts[1], leftover, "the mail that raced the death follows the prime")
+	require.Len(t, texts, 1, "no key to resume by: the relaunch's only turn is the mail, with no context replayed ahead of it")
+	assert.Contains(t, texts[0], leftover, "the mail that raced the death is the fresh run's first turn")
+	assert.NotContains(t, texts[0], "FRAG-ONE", "the composed context rides the delivered surface, not a turn")
 	assert.Zero(t, c.pendingCount(harp), "delivery consumes the mail; nothing is left queued behind the new run")
 }
 

@@ -837,7 +837,8 @@ const defaultRunnerAwaitTimeout = 5 * time.Minute
 // resolves, and rides Launch.Prompt: the caller's prompt on a fresh spawn;
 // on a resume with a native key NOTHING (the engine continues its own
 // recorded session); on a resume without one the rendered history ahead of
-// the prompt. The runner leads with the package's context. ctx is the
+// the prompt. The package's context is not a turn: it reaches the engine
+// through its delivered context surface. ctx is the
 // caller's CANCELLABLE launch context (launchgate.go), not baseCtx:
 // agent_stop cancels it to abort a spawn that is still in flight.
 func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url string, start SpawnStart) {

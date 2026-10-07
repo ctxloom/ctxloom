@@ -28,7 +28,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -299,19 +298,14 @@ func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) erro
 	if r.refuse != nil && r.refuse() {
 		return delivery.ErrEndpointUnavailable
 	}
-	pkg, err := composite.Open(ctx, composite.Inline{}, composite.ClaimCheck{Store: launchtest.MemStore{}}, l.Package)
-	if err != nil {
+	if _, err := composite.Open(ctx, composite.Inline{}, composite.ClaimCheck{Store: launchtest.MemStore{}}, l.Package); err != nil {
 		return err
-	}
-	prompt := l.Prompt
-	if l.Resume.NativeKey == "" {
-		prompt = textblocks.Join(pkg.Context.Text, l.Prompt)
 	}
 	ex, err := r.inst.Exec(nil)
 	if err != nil {
 		return err
 	}
-	return r.eh.Drive(ctx, Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: prompt, approval: r.approval})
+	return r.eh.Drive(ctx, Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: l.Prompt, approval: r.approval})
 }
 
 // newTestEngineHost is NewEngineHost with the test runner bound over the
@@ -380,7 +374,7 @@ func TestEngineHost_StartRunDrivesTheFirstTurnThroughTheDriver(t *testing.T) {
 	require.NotNil(t, resp.GetStartRun())
 	assert.NotZero(t, resp.GetStartRun().GetPid())
 
-	// The briefing (context pre-joined) is the first turn, verbatim.
+	// The launch's prompt is the first turn, verbatim.
 	require.Eventually(t, func() bool { return len(sc.RecordedTexts()) == 1 }, 5*time.Second, 10*time.Millisecond)
 	assert.Equal(t, "CTX\n\ndo the thing", sc.RecordedTexts()[0])
 

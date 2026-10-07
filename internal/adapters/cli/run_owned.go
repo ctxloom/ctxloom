@@ -93,8 +93,8 @@ func startOwnedRun(ctx context.Context, c *coord.Coordinator, spec ownedRunLaunc
 	// not for its whole lifetime.
 	_, events, cancel, narrow := c.WatchRuns(nil)
 
-	// The runner leads the first turn with the package's context ahead of
-	// the prompt; the prompt alone rides the launch.
+	// The prompt alone is the first turn: the package's context reaches the
+	// engine once, through its delivered context surface.
 	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnerRun{
 		Launch:      spec.Launch,
 		MCPServers:  spec.MCPServers,

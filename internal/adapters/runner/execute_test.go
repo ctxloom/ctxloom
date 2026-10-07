@@ -102,15 +102,19 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	t.Logf("delivered (both arms):\n%s", strings.Join(keys(hostSet), "\n"))
 
 	// The delegated arm's drive: the engine is driven in the child's cell,
-	// at the floored posture, with the assembled context leading the first
-	// turn and the session's .mcp.json naming the composed servers.
+	// at the floored posture, with the session's .mcp.json naming the
+	// composed servers. The assembled context reaches the engine ONCE,
+	// through its delivered context surface: the first turn is the prompt
+	// alone, never the context again ahead of it.
 	require.Len(t, drive.turns, 1)
 	turn := drive.turns[0]
 	require.Equal(t, child.Cell.Paths.Paths().ProjectRoot.Engine, turn.Exec.WorkDir, "the engine is exec'd in the child's cell")
 	require.NotNil(t, turn.Instance, "the session bound to the engine rides the turn")
 	require.Equal(t, "run-1", turn.Launch.Identity.RunID)
-	require.True(t, strings.HasPrefix(turn.Prompt, opened.Package.Context.Text), "the composed context leads the first turn")
-	require.True(t, strings.HasSuffix(turn.Prompt, "go"), "the prompt is the first turn")
+	require.Equal(t, "go", turn.Prompt, "the first turn is the prompt alone")
+	require.NotEmpty(t, opened.Package.Context.Text, "the fixture composes a context")
+	require.Equal(t, 1, contextCopies(t, child, opened.Package.Context.Text)+strings.Count(turn.Prompt, opened.Package.Context.Text),
+		"the assembled context reaches the engine exactly once: its delivered context surface, not also the first turn")
 	mcpConfig := childOut.MCPConfig
 	require.FileExists(t, mcpConfig)
 	require.True(t, strings.HasPrefix(mcpConfig, child.Cell.Paths.Paths().SessionHome.Host), "the MCP file lands under the session's own root, never the project tree")
@@ -441,6 +445,27 @@ func cellTree(t *testing.T, l launch.Launch) map[string]string {
 		}
 	}
 	return out
+}
+
+// contextCopies counts the copies of text in every file delivered into l's
+// cell, across both of its roots.
+func contextCopies(t *testing.T, l launch.Launch, text string) int {
+	t.Helper()
+	n := 0
+	for _, root := range []string{l.Cell.Paths.Paths().SessionHome.Host, l.Cell.Paths.Paths().ProjectRoot.Host} {
+		require.NoError(t, filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || !d.Type().IsRegular() {
+				return err
+			}
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			n += strings.Count(string(b), text)
+			return nil
+		}))
+	}
+	return n
 }
 
 // treeOf is every regular file under root, keyed by its path relative to

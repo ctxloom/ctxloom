@@ -67,7 +67,7 @@ func companionCfg(t *testing.T) *config.Config {
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}, Companions: fakedCompanionNames})
 }
 
 // TestLoadCommandExports_IncludesCompanionCommandUnconditionally proves ltk's
@@ -76,10 +76,6 @@ func companionCfg(t *testing.T) *config.Config {
 // how S8 made companion fragments/hooks/MCP unconditional-when-present. It
 // also pins the exact slash-command name the ltk loadout's command gets.
 func TestLoadCommandExports_IncludesCompanionCommandUnconditionally(t *testing.T) {
-	// This test's subject is command EXPORT, not companion admission: grant
-	// exec consent for the fake ltk so the trust-on-first-use gate does not
-	// withhold the loadout before there is anything to export.
-	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
 
@@ -112,10 +108,6 @@ func TestLoadCommandExports_IncludesCompanionCommandUnconditionally(t *testing.T
 // still gets exactly that command, AND the companion's unconditional command,
 // together.
 func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T) {
-	// This test's subject is command EXPORT, not companion admission: grant
-	// exec consent for the fake ltk so the trust-on-first-use gate does not
-	// withhold the loadout before there is anything to export.
-	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
 	appDir := cfg.GetAppPaths()[0]
@@ -126,6 +118,7 @@ func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T
 		AppPaths:     cfg.GetAppPaths(),
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
+		Companions:   fakedCompanionNames,
 	})
 
 	prompts := commandsOf(t, withSeedAndCompanions(t, cfg, devToolsSeed()), nil)

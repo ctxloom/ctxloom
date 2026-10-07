@@ -15,11 +15,11 @@ Print the context, commands, hooks and MCP servers ltk contributes to a session
 
 loadout prints the ctxloom loadout ltk contributes — a document with the RUN
 bundle a session consumes and the typed INIT section setup consumes — for
-ctxloom's companion discovery to seed under the source ref
-ctxloom:companion@ltk.
+ctxloom to seed under the source ref ctxloom:companion@ltk, once the companion
+is registered (ctxloom companion add).
 
-ctxloom's companion discovery execs `ltk loadout --format yaml` and parses
-the document it prints.
+ctxloom execs `ltk loadout --format yaml` and parses the document it
+prints.
 
 ```
 ltk loadout [flags]

@@ -11,7 +11,7 @@ import (
 )
 
 // companionSources is a config.Sources over a fixture whose readers are what
-// the composition root wires — project, builtin and every discovered
+// the composition root wires — project, builtin and every registered
 // companion's loadout.
 type companionSources struct {
 	cfg *config.Config

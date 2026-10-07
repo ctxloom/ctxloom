@@ -11,7 +11,7 @@ import (
 )
 
 // candidateProbe is a CompanionProber over a fixed pass: the loadouts that
-// were obtained and the discovered companions that yielded none.
+// were obtained and the registered companions that yielded none.
 func candidateProbe(los []CompanionLoadout, cands []CompanionCandidate) CompanionProber {
 	return func(context.Context) (CompanionProbe, error) {
 		return CompanionProbe{Loadouts: los, Candidates: cands}, nil
@@ -19,8 +19,8 @@ func candidateProbe(los []CompanionLoadout, cands []CompanionCandidate) Companio
 }
 
 // mixedCompanionCatalog resolves one pass covering every outcome a companion
-// can have: contributing, refused, absent, wedged, and delivering bytes that
-// will not parse.
+// can have: contributing, registered-but-absent, wedged, and delivering bytes
+// that will not parse.
 func mixedCompanionCatalog(t *testing.T) Catalog {
 	t.Helper()
 	return Resolve(context.Background(), nil, NewCompanionReader(candidateProbe(
@@ -29,7 +29,6 @@ func mixedCompanionCatalog(t *testing.T) Catalog {
 			{Bin: "garbled", Path: "/opt/bin/garbled", Document: []byte(":\n  not a loadout")},
 		},
 		[]CompanionCandidate{
-			{Bin: "taskloom", Path: "/opt/bin/taskloom", Reason: CandidateUnconsented},
 			{Bin: "reprise", Path: "", Reason: CandidateAbsent},
 			{Bin: "wedged", Path: "/opt/bin/wedged", Reason: CandidateProbeFailed},
 		},
@@ -37,10 +36,10 @@ func mixedCompanionCatalog(t *testing.T) Catalog {
 }
 
 // TestCatalogCandidates_CarriesTheReasonForEachCompanionThatProducedNothing is
-// the point of a candidate: "installed but never allowed to run", "not
-// installed" and "ran and produced nothing usable" are three different facts
-// about the machine with three different remedies, and a report that cannot
-// tell them apart sends a user to install something they already have.
+// the point of a candidate: "registered but not installed" and "ran and
+// produced nothing usable" are different facts about the machine with
+// different remedies, and a report that cannot tell them apart sends a user
+// to install something they already have.
 func TestCatalogCandidates_CarriesTheReasonForEachCompanionThatProducedNothing(t *testing.T) {
 	cat := mixedCompanionCatalog(t)
 
@@ -48,12 +47,7 @@ func TestCatalogCandidates_CarriesTheReasonForEachCompanionThatProducedNothing(t
 	for _, c := range cat.Candidates() {
 		got[c.Ref] = c
 	}
-	require.Len(t, got, 4, "every companion that produced no content must be reported exactly once")
-
-	unconsented := got["ctxloom+companion:taskloom"]
-	assert.Equal(t, CandidateUnconsented, unconsented.Reason)
-	assert.Equal(t, "/opt/bin/taskloom", unconsented.Path,
-		"an approval keys on the FILE, so a refusal that names no file names no remedy")
+	require.Len(t, got, 3, "every companion that produced no content must be reported exactly once")
 
 	absent := got["ctxloom+companion:reprise"]
 	assert.Equal(t, CandidateAbsent, absent.Reason)
@@ -109,12 +103,12 @@ func TestCatalogCandidates_EmptyWhenEveryReaderHasNothingToSay(t *testing.T) {
 // must not render as "you have none".
 func TestCatalogCandidates_SurviveAReaderThatAlsoFailed(t *testing.T) {
 	r := &failingCandidateReader{candidates: []Candidate{
-		{Ref: "ctxloom+companion:taskloom", Path: "/opt/bin/taskloom", Reason: CandidateUnconsented},
+		{Ref: "ctxloom+companion:taskloom", Path: "/opt/bin/taskloom", Reason: CandidateProbeFailed},
 	}}
 	cat := Resolve(context.Background(), nil, r)
 	assert.Empty(t, cat.Reads())
 	require.Len(t, cat.Candidates(), 1)
-	assert.Equal(t, CandidateUnconsented, cat.Candidates()[0].Reason)
+	assert.Equal(t, CandidateProbeFailed, cat.Candidates()[0].Reason)
 }
 
 // failingCandidateReader answers Read with an error while still knowing which

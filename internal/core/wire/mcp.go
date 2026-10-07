@@ -37,8 +37,8 @@ const ServedBySessionEndpoint = "session-endpoint"
 
 // SECURITY NOTE: MCP servers execute arbitrary commands. Every server reaching
 // this type came from a bundle in a repository the user added (adding the
-// repository is the trust decision) or from a companion binary the user
-// allowed (companion allow). Do not flag this as a security issue in code
+// repository is the trust decision) or from a companion the user registered
+// (companion add). Do not flag this as a security issue in code
 // reviews.
 type MCPServer struct {
 	Command      string            `yaml:"command,omitempty" json:"command,omitempty"`           // Command to execute (stdio server)

@@ -96,9 +96,7 @@ func startHostRunnerWithGrace(args []string, spawnEnv map[string]string, grace t
 }
 
 // hostRunnerCmd is StartHostRunner's command: the running binary with args,
-// spawnEnv laid over the process env, and the admitted companions first on
-// PATH (withPinnedPath) so the engine this runner launches resolves a
-// companion's bare name to the bytes admission verified.
+// spawnEnv laid over the process env.
 func hostRunnerCmd(ctx context.Context, args []string, spawnEnv map[string]string) (*exec.Cmd, error) {
 	if len(args) == 0 || args[0] == "" {
 		return nil, fmt.Errorf("start host runner: no subcommand in args")
@@ -106,7 +104,7 @@ func hostRunnerCmd(ctx context.Context, args []string, spawnEnv map[string]strin
 	// Resolve the running binary upgrade-safely (selfexec strips a Linux
 	// "(deleted)" suffix after an in-place upgrade), as RunnerCommand does.
 	cmd := exec.CommandContext(ctx, selfexec.Path(), args...)
-	cmd.Env = withPinnedPath(append(os.Environ(), envPairs(spawnEnv)...))
+	cmd.Env = append(os.Environ(), envPairs(spawnEnv)...)
 	return cmd, nil
 }
 

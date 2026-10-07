@@ -9,7 +9,7 @@ This page is generated from `ctxloom container tooling list --help`.
 
 ## ctxloom container tooling list
 
-Emit admitted companions' agent-image tooling declarations for the LLM to apply
+Emit registered companions' agent-image tooling declarations for the LLM to apply
 
 ```
 ctxloom container tooling list [flags]
@@ -28,11 +28,11 @@ ctxloom container tooling list [flags]
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
-      --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
+      --no-companions            run no registered companion: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
       --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
 ```
 
 ### SEE ALSO
 
-* [ctxloom container tooling](/reference/cli/ctxloom_container_tooling/)	 - Agent-image tooling declarations from admitted companions
+* [ctxloom container tooling](/reference/cli/ctxloom_container_tooling/)	 - Agent-image tooling declarations from registered companions
 

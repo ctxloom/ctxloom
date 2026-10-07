@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/companions"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 )
 
 // Companion-binary status for `manage check`. Companions are separate binaries
-// that ctxloom never installs; a missing one contributes no loadout, so the
-// status report names what is disabled and how to install it.
+// that ctxloom never installs; a registered one that is missing contributes no
+// loadout, so the status report names what is disabled and how to install it.
 
 // companionHint describes what a missing companion binary disables and how to
 // install it.
@@ -26,50 +26,43 @@ var companionHints = map[string]companionHint{
 	"ltk":      {"command-redirect pre-tool hook", "brew install ctxloom/tap/ltk"},
 }
 
-// hintForCompanion returns the install-hint text for bin, falling back to a
-// generic description for companions without a curated entry.
-func hintForCompanion(bin string) companionHint {
-	if h, ok := companionHints[bin]; ok {
+// hintForCompanion returns the install-hint text for a companion name,
+// falling back to a generic description for companions without a curated
+// entry.
+func hintForCompanion(name string) companionHint {
+	if h, ok := companionHints[name]; ok {
 		return h
 	}
 	return companionHint{
-		feature: "its built-in bundle wiring",
-		install: "brew install ctxloom/tap/" + bin,
+		feature: "its loadout",
+		install: "put its binary on PATH",
 	}
 }
 
-// printCompanionStatus reports each companion binary's presence AND whether
-// ctxloom is allowed to execute it; a missing one contributes no loadout.
+// printCompanionStatus reports each REGISTERED companion (names) and whether
+// its binary resolves on PATH; a missing one contributes no loadout.
 //
-// THIS REPORT RUNS NOTHING AND ASKS NOTHING, on every path, and that is a
-// property of the command rather than of the fixture it happens to run in.
-// Someone typing `ctxloom manage check` is asking what the state of things is,
-// and the answer to that question must never be a trust-on-first-use question
-// that changes the state of things. So this reads the admission decision from
-// the allow store and never touches the resolved bundle set, whose companion
-// reader IS the exec. An ALLOWED companion is not executed here either: a
-// report has no use for what running it would produce.
-//
-// Presence alone is not the whole answer: a binary that is on PATH but not
-// allowed is skipped, so printing its path
-// and nothing else would tell the user everything is fine while the companion
-// contributes nothing.
-func printCompanionStatus(w io.Writer) {
+// THIS REPORT RUNS NOTHING, on every path, and that is a property of the
+// command rather than of the fixture it happens to run in: it resolves names
+// on PATH and never touches the resolved bundle set, whose companion reader IS
+// the exec. A report has no use for what running a companion would produce.
+func printCompanionStatus(w io.Writer, names []string) {
 	fmt.Fprintln(w, "Companions:")
 	if App().NoCompanions {
-		fmt.Fprintln(w, "  (companion discovery disabled for this run — --no-companions/CTXLOOM_NO_COMPANIONS)")
+		fmt.Fprintln(w, "  (companions disabled for this run — --no-companions/CTXLOOM_NO_COMPANIONS)")
 		return
 	}
-	for _, adm := range companions.AdmitCompanions(companions.DiscoverCompanions(), companions.LoadAllowed()) {
-		hint := hintForCompanion(adm.Bin)
-		switch {
-		case adm.Path == "":
-			fmt.Fprintf(w, "  %s: NOT FOUND — %s disabled (install: %s)\n", adm.Bin, hint.feature, hint.install)
-		case !adm.Allow:
-			fmt.Fprintf(w, "  %s: %s — NOT RUN (%s); %s disabled (to allow it: ctxloom companion allow %s)\n",
-				adm.Bin, adm.Path, adm.Reason, hint.feature, adm.Path)
-		default:
-			fmt.Fprintf(w, "  %s: %s\n", adm.Bin, adm.Path)
+	if len(names) == 0 {
+		fmt.Fprintln(w, "  (none registered — ctxloom companion add <name>)")
+		return
+	}
+	for _, l := range operations.ListCompanions(names) {
+		hint := hintForCompanion(l.Name)
+		if !l.Resolves {
+			fmt.Fprintf(w, "  %s: NOT FOUND (%s) — %s disabled (install: %s; or unregister: ctxloom companion remove %s --yes)\n",
+				l.Name, l.Bin, hint.feature, hint.install, l.Name)
+			continue
 		}
+		fmt.Fprintf(w, "  %s: %s\n", l.Name, l.Path)
 	}
 }

@@ -112,11 +112,10 @@ and the deprecated `mcp *` and `config *` alias trees.
 `companionHint` is the "what breaks / how to install" text for a missing
 companion binary; `hintForCompanion` keys on companion binary names, and a
 name with no entry degrades to a generic fallback. `printCompanionStatus` reads
-`companions.AdmitCompanions(..., prompt=false)` and nothing else: a status
-command executes no companion — approved or not — and can never raise the
-trust-on-first-use question, because the answer to "what is the state of
-things" must not itself change that state. The resolved `bundles.Catalog` is
-deliberately NOT consulted here; its companion reader is the exec. `ctxloom
+the registered names and resolves each on PATH (`operations.ListCompanions`)
+and nothing else: a status command executes no companion, because the answer
+to "what is the state of things" must not itself change that state. The
+resolved `bundles.Catalog` is deliberately NOT consulted here; its companion reader is the exec. `ctxloom
 doctor` reads the catalog instead (`Catalog.Candidates()` for the companions
 that produced nothing), which is where a diagnosis is allowed to cost a
 resolution.

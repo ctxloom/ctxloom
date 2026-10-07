@@ -347,10 +347,10 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		// Scrub any REAL "reprise" binary from this process's PATH first: a
 		// developer/CI machine that happens to already have one installed
-		// (e.g. the ctxloom devcontainer itself) would otherwise satisfy
-		// config.DiscoverCompanions's lookPath even in the "not installed"
-		// row, making the negative case host-dependent instead of
-		// deterministic.
+		// (e.g. the ctxloom devcontainer itself) must not be the binary the
+		// installed row's registration resolves, and must not be reachable at
+		// all in the "not installed" row — the negative case stays
+		// deterministic rather than host-dependent.
 		if err := j001800ScrubFromPath(w, "reprise"); err != nil {
 			return err
 		}

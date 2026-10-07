@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
@@ -441,49 +440,9 @@ func (e *TestEnvironment) Setup() error {
 	if err := os.Symlink(e.AppBinary, filepath.Join(binDir, "ctxloom")); err != nil && !os.IsExist(err) {
 		return fmt.Errorf("put the binary under test on the scenario's PATH: %w", err)
 	}
-	e.storeAndSetEnv("PATH", binDir+string(os.PathListSeparator)+scrubCompanionDirs(os.Getenv("PATH")))
+	e.storeAndSetEnv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	return nil
-}
-
-// scrubCompanionDirs removes from path every directory holding a first-party
-// companion binary.
-//
-// A scenario must not depend on what is installed on the machine running it.
-// companionsOnPathByConvention walks every $PATH entry and filters nothing, so
-// a developer's own ltk / taskloom / reprise were DISCOVERED inside every
-// scenario. That was always host-dependent — it shifted hook ordinals, and one
-// integration fixture's whole subject turned out to be a hook contributed by
-// the developer's companions rather than by the fixture.
-//
-// Scrubbing the DIRECTORY rather than unsetting PATH entirely is deliberate:
-// scenarios still need sh, git and the toolchain. Only the entries that would
-// hand a scenario a companion it did not install are removed.
-func scrubCompanionDirs(path string) string {
-	if path == "" {
-		return path
-	}
-	sep := string(os.PathListSeparator)
-	kept := make([]string, 0, len(strings.Split(path, sep)))
-	for _, dir := range strings.Split(path, sep) {
-		if dir == "" || holdsCompanion(dir) {
-			continue
-		}
-		kept = append(kept, dir)
-	}
-	return strings.Join(kept, sep)
-}
-
-// holdsCompanion reports whether dir contains any first-party companion binary.
-// The names are asked of config rather than spelled here, so a companion added
-// there is scrubbed without anyone remembering to update this list.
-func holdsCompanion(dir string) bool {
-	for _, bin := range companions.FirstPartyCompanionNames() {
-		if _, err := os.Stat(filepath.Join(dir, bin)); err == nil {
-			return true
-		}
-	}
-	return false
 }
 
 // storeAndSetEnv stores the original value and sets a new one. The original

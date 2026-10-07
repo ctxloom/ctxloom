@@ -1,7 +1,7 @@
 // Package loadout is the companion SIDE of the companion contract: the shared
 // `loadout` subcommand every in-repo companion binary wires in identically —
 // print the companion's own ctxloom loadout document, the bytes ctxloom's
-// companion discovery execs and parses (`<bin> loadout --format yaml`).
+// companion probe execs and parses (`<bin> loadout --format yaml`).
 //
 // docs/companion-loadout-standard.md is the contract this implements, stated
 // once: what a companion emits, how ctxloom asks for it, what happens when the
@@ -57,11 +57,11 @@ func NewDeferredCommand(binName string, content func() []byte) *cobra.Command {
 		Short: fmt.Sprintf("Print the context, commands, hooks and MCP servers %s contributes to a session", binName),
 		Long: fmt.Sprintf(`loadout prints the ctxloom loadout %s contributes — a document with the RUN
 bundle a session consumes and the typed INIT section setup consumes — for
-ctxloom's companion discovery to seed under the source ref
-ctxloom:companion@%s.
+ctxloom to seed under the source ref ctxloom:companion@%s, once the companion
+is registered (ctxloom companion add).
 
-ctxloom's companion discovery execs `+"`%s loadout --format yaml`"+` and parses
-the document it prints.`, binName, binName, binName),
+ctxloom execs `+"`%s loadout --format yaml`"+` and parses the document it
+prints.`, binName, binName, binName),
 		Example: fmt.Sprintf("  %[1]s %[2]s", binName, Subcommand),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return Emit(cmd.OutOrStdout(), resolveFormat(cmd, format), content())

@@ -16,7 +16,7 @@ import (
 )
 
 // TestCollectTooling_CollectsCompanionToolingDeclarations proves collection
-// reads every admitted companion's TYPED `init.tooling` field, attributes it
+// reads every registered companion's TYPED `init.tooling` field, attributes it
 // to the companion's source ref, and skips companions that declare none. The
 // nil pipe exercises the real trust-gated exposure path.
 func TestCollectTooling_CollectsCompanionToolingDeclarations(t *testing.T) {
@@ -26,7 +26,7 @@ func TestCollectTooling_CollectsCompanionToolingDeclarations(t *testing.T) {
 		"taskloom": "run:\n  version: 1.0.0\n",
 	})
 	appDir, _ := regenTestApp(t)
-	cfg := published(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
+	cfg := published(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}, Companions: fakedCompanionNames}))
 
 	got := CollectTooling(cfg, nil)
 	require.Len(t, got, 1, "only the companion declaring tooling is collected")
@@ -48,7 +48,7 @@ commands:
   tooling:
     content: "PROJECT-MAGIC-COMMAND"
 `)
-	cfg := published(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
+	cfg := published(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}, Companions: fakedCompanionNames}))
 
 	assert.Empty(t, CollectTooling(cfg, nil), "a command named tooling is not a tooling declaration")
 }

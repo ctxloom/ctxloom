@@ -35,28 +35,20 @@ func SweepOrphanedWorktrees(ctx context.Context, w io.Writer) {
 	}
 }
 
-// ReportCompanions probes the built-in companion binaries (taskloom, ltk) on
-// PATH and logs each one found with its self-reported version, so a boot
-// transcript shows exactly which companion versions the session was wired
-// with. A present binary that fails the probe (predates `version --format json`,
-// wedged, not actually the companion) gets a warning but stays wired — PATH
-// presence is the gating signal, the version is reporting (CLAUDE.md fault
-// tolerance). Missing binaries stay silent here: the bundle resolvers emit
-// the one-shot install hint when they skip those entries.
-func ReportCompanions(w io.Writer, prober companions.Prober) {
+// ReportCompanions probes each REGISTERED companion (names) on PATH and logs
+// each one found with its self-reported version, so a boot transcript shows
+// exactly which companion versions the session was wired with. A present
+// binary that fails the probe (predates `version --format json`, wedged, not
+// actually the companion) gets a warning but stays wired — the version is
+// reporting (CLAUDE.md fault tolerance). A registered name that resolves to
+// nothing stays silent here: the loadout probe names it with its remedy.
+func ReportCompanions(w io.Writer, prober companions.Prober, names []string) {
 	// Best-effort reporting on fault-tolerant startup paths; failed writes
 	// are intentionally dropped (captured-but-unchecked via errwriter.Writer).
 	ew := errwriter.New(w)
-	for _, st := range prober.ProbeCompanions() {
+	for _, st := range prober.ProbeCompanions(names) {
 		switch {
 		case st.Path == "":
-		case !st.Executed():
-			// Present on PATH but NOT run — not allowed, allowed for other
-			// bytes, or unreadable. AdmitCompanions already warned with the
-			// specific reason and the way to fix it; what this line adds is the
-			// version slot NOT silently coming back blank, which would read as
-			// "probed, said nothing" instead of "never ran".
-			ew.Printf("ctxloom: companion %s not run (%s)\n", st.Bin, st.Admission)
 		case st.Err != nil:
 			clidiag.Fwarn(ew, "ctxloom", "companion %s (%s): %v", st.Bin, st.Path, st.Err)
 		default:

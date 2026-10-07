@@ -36,7 +36,7 @@ func TestLoadout_YAML_IsAValidLoadout(t *testing.T) {
 
 // TestLoadout_YAMLFormat_EmitsRawBytesVerbatim proves --format yaml writes
 // the exact embedded bytes, unmodified — no re-serialization anywhere in the
-// path: the bytes a human reads are the bytes ctxloom's companion discovery
+// path: the bytes a human reads are the bytes ctxloom's companion probe
 // parses.
 func TestLoadout_YAMLFormat_EmitsRawBytesVerbatim(t *testing.T) {
 	var buf bytes.Buffer
@@ -55,7 +55,7 @@ func TestLoadout_YAMLFormat_EmitsRawBytesVerbatim(t *testing.T) {
 //     root default "text", which loadout cannot emit — the DEFAULT invocation
 //     would start erroring;
 //   - renaming it breaks a cross-process wire contract: ctxloom's companion
-//     discovery execs `<bin> loadout --format yaml`, built from
+//     probe execs `<bin> loadout --format yaml`, built from
 //     loadout.Subcommand/FormatFlag/FormatYAML, and shared with
 //     cmd/taskloom;
 //   - unifying the vocabularies would have loadout advertise formats that do
@@ -85,7 +85,7 @@ func TestRoot_FormatMeansTheLoadoutFormatUnderLoadout(t *testing.T) {
 
 	t.Run("--format yaml after the subcommand emits the document", func(t *testing.T) {
 		out, err := run(t, "loadout", "--format", "yaml")
-		require.NoError(t, err, "this is the exact argv ctxloom's companion discovery execs")
+		require.NoError(t, err, "this is the exact argv ctxloom's companion probe execs")
 		assert.Equal(t, string(loadoutYAML), out)
 	})
 

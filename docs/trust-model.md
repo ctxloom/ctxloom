@@ -55,12 +55,22 @@ scope.
 
 ## Companions
 
-ctxloom discovers companions on `$PATH` — its shipped first-party set plus any
-binary named `ctxloom-companion-*` — and EXECUTES each one it may run, to read
-the context it contributes. Being on `$PATH` makes a binary a candidate only.
-Which candidates run is decided by companion admission; the
+A companion contributes context by being EXECUTED (`<bin> loadout --format
+yaml`), so the decision is which binaries ctxloom runs at all. It runs exactly
+the companions you registered with `ctxloom companion add <name>`: `add`
+resolves the binary on `$PATH`, requires it to answer the loadout probe, and
+records the NAME — never a path — in your home config (`companions:`). Each use
+resolves the registered names on `$PATH` afresh. Nothing is found by scanning
+`$PATH` and there is no separate allow gate: a dependency that drops
+`ctxloom-companion-*` into `./node_modules/.bin` earns nothing. A first-party
+name (ltk, taskloom, reprise) is its own binary; any other name `<n>` is
+`ctxloom-companion-<n>`.
+
+Two residuals are accepted: a binary of a REGISTERED name placed earlier on
+`$PATH` is the one that runs, and a project config may set `companions:` too,
+since adding a repository is the trust act. The
 [`ctxloom companion`](../website/src/content/docs/reference/cli/ctxloom_companion.md) reference states the
-current rule.
+commands.
 
 ## Engine workspace-trust prompts
 

@@ -288,33 +288,32 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the output contains ".devcontainer.json"
       And the file ".devcontainer/devcontainer.json" does not exist
 
-  Rule: Tooling collection is trust-gated, and never applies anything itself
+  Rule: Tooling collection reads only registered companions, and never applies anything itself
 
     A companion declares the tools its content needs inside the agent image as
     the typed `tooling` field of its loadout's init section. `container tooling
-    list` collects those declarations from ADMITTED companions and emits them
+    list` collects those declarations from REGISTERED companions and emits them
     with instructions for the LLM: locate or scaffold the base Containerfile,
     propose the additions as a diff, get the user's explicit approval per
     change, then rebuild.
 
-    Collection goes through the same trust gate as any other content — a
-    companion ctxloom may not execute declares nothing, and a rejected one is
-    withheld — and nothing is ever written here. The edit is the LLM's, gated
-    by the user.
+    A companion nobody registered (`ctxloom companion add`) is never run, so
+    it declares nothing — and nothing is ever written here. The edit is the
+    LLM's, gated by the user.
 
     # Adjusted under the loadout contract v2 (ugly-yodel): a bundle no longer
     # declares tooling — the well-known `tooling` command is gone. A companion
     # declares it, typed, in its loadout; "untrusted" is therefore a companion
-    # this machine has not allowed to run, which is refused at EXEC (the
-    # companion model's control point) and so declares nothing at all.
+    # on PATH that this machine never registered, which is never executed and
+    # so declares nothing at all.
     #
     # ABSENCE SATISFIED ABSENCE. With nothing declared anywhere, "none
     # reported" was equally consistent with the trust gate working and with
     # collection being broken outright — a render that dropped EVERY
     # declaration, trusted or not, left this green. So the fixture declares
-    # tooling twice: once from a companion ctxloom refuses to run (must be
-    # withheld, and the summary line is then a fact about the GATE), and once
-    # from a companion that is trusted (must come through — the positive
+    # tooling twice: once from a companion nobody registered (must be
+    # withheld, and the summary line is then a fact about REGISTRATION), and
+    # once from a registered companion (must come through — the positive
     # control that makes "none reported" mean something).
     #
     # WITHHELD CONTENT IS NAMED BY REF, NEVER BY BODY. A ref is a
@@ -326,13 +325,13 @@ Feature: container — the images isolated agents run in, and the questions you 
     # are what pin that no route — output or warning — carries the body.
     Scenario Outline: An untrusted declaration is withheld, and a trusted one comes through
       Given an initialized ctxloom project
-      And a companion "shady" declaring container tooling "TOOLING-DECL-SHADY", not allowed to run here
+      And a companion "shady" declaring container tooling "TOOLING-DECL-SHADY", on PATH but not registered
       When Alice collects what her installed content needs in the image:
         """
         ctxloom container tooling list <flags>
         """
       Then the command succeeds
-      And the output reports "declarations" as empty, saying "No admitted companion declares container tooling"
+      And the output reports "declarations" as empty, saying "No registered companion declares container tooling"
       And the output does not contain "TOOLING-DECL-SHADY"
       Given a companion "tooled" declaring container tooling "TOOLING-DECL-TOOLED"
       When Alice collects again now that a trusted bundle declares tooling:

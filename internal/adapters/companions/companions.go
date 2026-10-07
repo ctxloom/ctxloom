@@ -1,17 +1,17 @@
-// Package companions is ctxloom's side of the companion contract: discover
-// companion binaries on PATH, admit them against the allow store, exec each
-// admitted one's loadout, and hand the result to a generation as a bundle
-// reader. The companion side — the `loadout` subcommand a companion binary
+// Package companions is ctxloom's side of the companion contract: resolve
+// each REGISTERED companion name on PATH, exec its loadout, and hand the
+// result to a generation as a bundle reader. The companion side — the `loadout` subcommand a companion binary
 // wires in — is the loadout subpackage, so a lean binary links nothing of
 // the bundle model.
 package companions
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +21,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
-	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
 // companionProbeTimeout bounds the `<bin> loadout --format json` exec at
@@ -50,65 +50,41 @@ func SetCompanionVersionOutputForTesting(fn func(string) ([]byte, error)) func()
 	return cliversion.SetOutputForTesting(fn)
 }
 
-// CompanionStatus is one boot-time probe of a companion binary — a standalone
-// tool (taskloom, ltk) whose built-in bundle wires it into the agent session.
+// CompanionStatus is one boot-time probe of a registered companion binary — a
+// standalone tool (taskloom, ltk) whose loadout wires it into the agent
+// session.
 type CompanionStatus struct {
-	Bin     string
+	Name    string // the registered name
+	Bin     string // the binary the name resolves (BinaryName)
 	Path    string // resolved PATH location; empty when not installed
 	Version string // self-reported via `<bin> version --format json`
 	Err     error  // version-probe failure for a present binary
-	// Admission is why this companion was or was not executed. A present
-	// binary that was NOT admitted has a Path, no Version and no Err — without
-	// this field that state is indistinguishable from "probe returned nothing",
-	// which is precisely the silent no-op a reader must not have to guess at.
-	Admission CompanionAdmissionReason
 }
 
-// Executed reports whether this companion was actually run. Reason-aware so
-// callers stop inferring it from an empty Version.
-func (s CompanionStatus) Executed() bool {
-	return s.Admission == CompanionAllowed
-}
-
-// sortedBins renders a companion-name set as the sorted slice every discovery
-// function here returns.
-
-// ProbeCompanions resolves each discovered companion on PATH and asks it for
-// its version. Missing binaries yield Path == "" (their bundle entries are
-// skipped by the resolvers, which also emit the install hint); a present
-// binary whose probe fails carries the error. Reporting only — never fatal.
-//
-// ADMISSION applies here too, not only to the loadout probe: `<bin> version
-// --format json` is an exec of a foreign binary exactly like `<bin> loadout` is,
-// and this loop runs unconditionally from reportCompanions on `ctxloom run` /
-// `ctxloom mcp`. Gating only the loadout probe would have left the auto-exec
-// hole wide open through the version probe. An admitted-but-unapproved
-// companion reports its Path with Admission naming the refusal, so a caller
-// renders "found, not approved" rather than the untrue "not installed".
+// ProbeCompanions resolves each REGISTERED companion on PATH and asks it for
+// its version. A registered name that resolves to nothing yields Path == ""
+// (the loadout probe reports it); a present binary whose probe fails carries
+// the error. Reporting only — never fatal.
 //
 // Probes run concurrently: each is bounded by companionProbeTimeout, so a
-// sequential loop would add that bound per wedged companion to startup. Running
-// them in parallel keeps the worst-case wall-clock to ~one timeout (CLAUDE.md:
-// never block startup). Admission runs before the fan-out, so no unadmitted
-// binary is ever exec'd. Output order is preserved (sorted by bin) since each
-// goroutine writes its own slot.
-func (p Prober) ProbeCompanions() []CompanionStatus {
+// sequential loop would add that bound per wedged companion to startup.
+// Output order follows names, since each goroutine writes its own slot.
+func (p Prober) ProbeCompanions(names []string) []CompanionStatus {
 	// Enforced at the exec boundary, not only at each caller: a report path
 	// that forgets the switch must still never exec a companion binary.
 	if p.Disabled {
 		return nil
 	}
-	admissions := companionAdmission(DiscoverCompanions(), LoadAllowed())
-	out := make([]CompanionStatus, len(admissions))
+	out := make([]CompanionStatus, len(names))
 	var wg sync.WaitGroup
-	for i, adm := range admissions {
-		st := CompanionStatus{Bin: adm.Bin, Path: adm.Path, Admission: adm.Reason}
-		if !adm.Allow {
-			// Present but refused: keep the Path so the report can say WHICH
-			// file was refused, and never exec it.
+	for i, name := range names {
+		st := CompanionStatus{Name: name, Bin: BinaryName(name)}
+		r, err := Resolve(name)
+		if err != nil {
 			out[i] = st
 			continue
 		}
+		st.Path = r.Path
 		wg.Add(1)
 		go func(i int, st CompanionStatus) {
 			defer wg.Done()
@@ -120,109 +96,124 @@ func (p Prober) ProbeCompanions() []CompanionStatus {
 	return out
 }
 
-// ===== Companion LOADOUT discovery =====
+// ===== Companion REGISTRATION =====
 //
 // A companion loadout is a bundle a binary on PATH advertises about itself
-// (`<bin> loadout --format yaml`), distinct from the built-in bundles above
-// (which ship INSIDE the ctxloom binary).
-//
-// THE CONTROL POINT IS EXEC, NOT CONTENT. Reading a loadout means RUNNING the
-// companion binary, so by the time any content exists that binary has already
-// executed arbitrary code with the user's privileges, so the decision the
-// human is asked to make is the one that has purchase: may ctxloom EXECUTE this file (see
-// companion_admission.go's trust-on-first-use, keyed on absolute path + binary
-// hash). Its SIGNATURE does not gate the content (a loadout's bytes cross no
-// intermediary, so a publisher signature has nothing to protect them from
-// here; signature facts are reported as diagnostics — see
-// ProbeCompanionLoadouts).
-//
-// Discovery here only finds candidate binaries; admission decides which get
-// exec'd, and every surviving loadout is seeded into Config.SeededBundleLoader
-// under the ctxloom:companion@<bin> source ref. See config.go's
-// companionBundleSeed / SeededBundleLoader wiring.
+// (`<bin> loadout --format yaml`), distinct from the built-in bundles (which
+// ship INSIDE the ctxloom binary). Reading one means RUNNING the binary, so
+// the control point is which binaries ctxloom runs at all: exactly the names
+// a human registered (`ctxloom companion add <name>`, the config's
+// `companions` key), each resolved on PATH when it is used. Nothing on PATH
+// is ever discovered by scanning — a transitive npm dependency that ships
+// ctxloom-companion-<anything> into node_modules/.bin earns nothing by its
+// name alone. The registration is a NAME, never a path, so it holds wherever
+// the binary is installed; the accepted residual is that a binary of a
+// registered name placed earlier on PATH shadows the real one.
 
-// firstPartyCompanions are the shipped, first-class companions that do NOT
-// match the ctxloom-companion-* PATH convention below (their names predate
-// it) but are still discovered unconditionally. reprise is listed for
-// completeness (per the agreed discovery contract, "first-party list UNION
-// ctxloom-companion-* on PATH") even though it does not implement `loadout`
-// yet — its loadout is a separate-repo follow-up; a probe of it degrades
-// exactly like any other companion whose loadout subcommand is absent
-// (silently skipped, never an error).
+// firstPartyCompanions are the shipped companions whose binaries carry their
+// own names (they predate the ctxloom-companion-* convention): registering
+// one resolves that bare name.
 var firstPartyCompanions = []string{"ltk", "taskloom", "reprise"}
 
 // SelfCompanion is the companion identity ctxloom probes ITSELF under —
-// ctxloom:companion@ctxloom. It is deliberately NOT in firstPartyCompanions:
-// those are discovered on PATH and admitted by an allow record for the binary,
-// whereas ctxloom's own loadout comes from the RUNNING binary (Prober.Self —
-// never a PATH lookup, which could answer with a stale install, and never
-// a raw os.Executable, which goes stale after an in-place upgrade) and needs
-// no exec consent, because the process is already executing.
+// ctxloom:companion@ctxloom. It is never registered: ctxloom's own loadout
+// comes from the RUNNING binary (Prober.Self — never a PATH lookup, which
+// could answer with a stale install, and never a raw os.Executable, which
+// goes stale after an in-place upgrade).
 const SelfCompanion = agent.CtxloomBinary
 
-// FirstPartyCompanionNames returns the shipped companion names. Exported so a
-// test harness can scrub them from a scenario's PATH by asking the list rather
-// than keeping a second copy of it — a copy would silently stop matching the
-// day a companion is added here.
-func FirstPartyCompanionNames() []string {
-	return append([]string(nil), firstPartyCompanions...)
-}
-
-// companionPathPrefix is the PATH-naming convention a THIRD-PARTY companion
-// opts into so ctxloom discovers it without a hardcoded name: any executable
-// on PATH named ctxloom-companion-<name> is a discovery candidate.
+// companionPathPrefix is the binary-naming convention for every companion
+// that is not first-party: name <n> resolves ctxloom-companion-<n>.
 const companionPathPrefix = "ctxloom-companion-"
 
-// pathDirs is the $PATH-scanning seam for tests.
-var pathDirs = func() []string {
-	return filepath.SplitList(os.Getenv("PATH"))
+// ErrInvalidCompanionName refuses a name that could address anything other
+// than one binary on PATH: empty, a path, or a flag.
+var ErrInvalidCompanionName = errors.New("invalid companion name")
+
+// ErrCompanionNotOnPath is a registered (or to-be-registered) name whose
+// binary is not on PATH.
+var ErrCompanionNotOnPath = errors.New("companion not found on PATH")
+
+// ErrNotACompanion is a binary that does not answer the companion loadout
+// probe with a loadout.
+var ErrNotACompanion = errors.New("binary does not answer the companion loadout probe")
+
+// validName is the shape a companion name takes: one path segment of plain
+// characters, not starting like a flag. The config schema's companions items
+// carry the same pattern.
+var validName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// ValidateName refuses a name that is not a plain companion name.
+func ValidateName(name string) error {
+	if !validName.MatchString(name) {
+		return fmt.Errorf("%w: %q (a companion is registered by name, e.g. `acme` for ctxloom-companion-acme)", ErrInvalidCompanionName, name)
+	}
+	return nil
 }
 
-// readDir is the directory-listing seam for tests (companions-on-PATH scan).
-var readDir = os.ReadDir
-
-// DiscoverCompanions returns the deduplicated, sorted set of companion
-// binary names to probe for a loadout: the shipped first-party list UNION
-// every name on PATH matching the ctxloom-companion-* convention. First-
-// party binaries do not match the glob (their names predate the
-// convention), so both mechanisms are required — neither alone finds every
-// companion.
-func DiscoverCompanions() []string {
-	seen := make(map[string]bool, len(firstPartyCompanions))
-	for _, bin := range firstPartyCompanions {
-		seen[bin] = true
+// BinaryName is the binary a companion name resolves on PATH: a first-party
+// name is its own binary, any other is ctxloom-companion-<name>.
+func BinaryName(name string) string {
+	if slices.Contains(firstPartyCompanions, name) {
+		return name
 	}
-	for _, bin := range companionsOnPathByConvention() {
-		seen[bin] = true
-	}
-	return collections.SortedKeys(seen)
+	return companionPathPrefix + name
 }
 
-// companionsOnPathByConvention scans every $PATH directory for entries named
-// ctxloom-companion-*, mirroring shell PATH resolution: the first directory
-// containing a given name wins over a later duplicate. It does not check the
-// executable bit (permission semantics differ by OS, and an attempted exec
-// of a non-executable file degrades cleanly through the same "probe failed,
-// skip it" path every other companion failure takes) — this is a candidate
-// LIST, not a trust decision.
-func companionsOnPathByConvention() []string {
-	seen := make(map[string]bool)
-	var out []string
-	for _, dir := range pathDirs() {
-		entries, err := readDir(dir)
-		if err != nil {
-			continue // unreadable/absent PATH entry — ordinary, not a warning
-		}
-		for _, e := range entries {
-			name := e.Name()
-			if !strings.HasPrefix(name, companionPathPrefix) || seen[name] {
-				continue
-			}
-			seen[name] = true
-			out = append(out, name)
-		}
+// Resolved is one companion name resolved on PATH now.
+type Resolved struct {
+	Name string `json:"name" yaml:"name"`
+	Bin  string `json:"bin" yaml:"bin"`
+	Path string `json:"path" yaml:"path"`
+}
+
+// Resolve finds name's binary on PATH. It runs nothing.
+func Resolve(name string) (Resolved, error) {
+	if err := ValidateName(name); err != nil {
+		return Resolved{}, err
 	}
-	return out
+	bin := BinaryName(name)
+	p, err := lookPath(bin)
+	if err != nil {
+		return Resolved{Name: name, Bin: bin}, fmt.Errorf("%w: %s (for companion %q): %w", ErrCompanionNotOnPath, bin, name, err)
+	}
+	return Resolved{Name: name, Bin: bin, Path: p}, nil
+}
+
+// Verify resolves name and runs the same loadout probe a session runs,
+// requiring it to answer with a loadout: what `companion add` checks before it
+// records the name.
+func Verify(name string) (Resolved, error) {
+	r, err := Resolve(name)
+	if err != nil {
+		return r, err
+	}
+	raw, err := companionLoadoutOutput(r.Path)
+	if err != nil {
+		return r, fmt.Errorf("%w: `%s %s`: %w", ErrNotACompanion, r.Path, strings.Join(loadoutArgs, " "), classifyLoadoutProbe(err))
+	}
+	if len(raw) == 0 {
+		return r, fmt.Errorf("%w: `%s %s` printed no loadout", ErrNotACompanion, r.Path, strings.Join(loadoutArgs, " "))
+	}
+	return r, nil
+}
+
+// warnNotOnPath names a registered companion that resolves to nothing, and
+// both ways out.
+const warnNotOnPath = "companion %q is registered but %s is not on PATH, so it contributes nothing — install it " +
+	"(then `ctxloom companion add %s` checks it), or unregister it: ctxloom companion remove %s"
+
+// lookPath is the PATH-resolution seam: the one place this package asks the
+// host which binaries exist. Tests fake it so companion resolution is a
+// property of the test, not of the developer's machine.
+var lookPath = exec.LookPath
+
+// SetLookPathForTesting overrides the PATH-resolution seam and returns a
+// restore function.
+func SetLookPathForTesting(fn func(string) (string, error)) func() {
+	prev := lookPath
+	lookPath = fn
+	return func() { lookPath = prev }
 }
 
 // companionLoadoutOutput runs a companion's loadout probe; seam for tests,
@@ -271,9 +262,8 @@ type Prober struct {
 }
 
 // ReaderSource is the per-generation companion reader the composition root
-// hands the config Sources: every discovered companion's loadout, seeded
-// under its ctxloom:companion@<bin> ref. The reader owns the trust facts (it
-// verifies any signature against the generation's full trust root); a
+// hands the config Sources: every REGISTERED companion's loadout
+// (cfg.GetCompanions), seeded under its ctxloom:companion@<bin> ref. A
 // generation resolves its catalog once, so each probe runs once per
 // generation.
 func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
@@ -281,101 +271,82 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 		if len(cfg.GetAppPaths()) == 0 {
 			return nil
 		}
+		names := cfg.GetCompanions()
 		probe := func(ctx context.Context) (bundles.CompanionProbe, error) {
-			return p.ProbeCompanionLoadouts(ctx)
+			return p.ProbeCompanionLoadouts(ctx, names)
 		}
 		return []bundles.Reader{bundles.NewCompanionReader(probe, bundles.WithReaderReporter(cfg.Reporter()))}
 	}
 }
 
-// ProbeCompanionLoadouts is the companion reader's EXEC seam: it discovers
-// companions (DiscoverCompanions), ADMITS the ones this machine's human agreed
-// ctxloom may execute (AdmitCompanions), and for each admitted one execs
-// `<bin> loadout --format json` and unwraps the envelope into the loadout
-// document's raw bytes and detached signature.
+// ProbeCompanionLoadouts is the companion reader's EXEC seam: it resolves each
+// REGISTERED name on PATH and, for each that resolves, execs
+// `<bin> loadout --format yaml`, returning the loadout document's raw bytes.
 //
-// It stops at BYTES. Parsing them and establishing what their signature turned
-// out to be belongs to bundles.NewCompanionReader — one place, shared with
-// every other source — so that this function cannot quietly become a second
-// notion of what a verified companion is.
+// It stops at BYTES. Parsing them belongs to bundles.NewCompanionReader — one
+// place, shared with every other source.
 //
-// A companion that is absent from PATH, not admitted for execution, or that
-// answers it offers no loadout (a first-party name that does not implement
-// `loadout` yet, e.g. reprise today) contributes nothing, quietly. One whose
-// probe fails or times out, or whose loadout ENVELOPE is structurally
-// unusable, never answered: it contributes nothing this time, with a warning
-// (see failedLoadout). NEVER fatal, NEVER a crash, NEVER a stalled startup.
+// A registered name that resolves to nothing contributes nothing, with a
+// warning naming it (warnNotOnPath). A companion that answers it offers no
+// loadout contributes nothing, quietly. One whose probe fails or times out
+// contributes nothing this time, with a warning (see failedLoadout). NEVER
+// fatal, NEVER a crash, NEVER a stalled startup.
 //
-// A SIGNATURE that does not verify is NOT one of those cases, and is not even
-// looked at here: companion content is admitted at EXEC, not by signature (see
-// docs/trust-model.md, "Companion loadouts"), so the bytes travel on and the
-// reader says out loud what their signature was.
-//
-// Probes run concurrently (mirrors ProbeCompanions), each bounded by
-// companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
-// regardless of how many companions are admitted.
-func (p Prober) ProbeCompanionLoadouts(ctx context.Context) (bundles.CompanionProbe, error) {
+// Probes run concurrently, each bounded by companionProbeTimeout, so the
+// worst-case wall-clock stays ~one timeout however many are registered.
+func (p Prober) ProbeCompanionLoadouts(ctx context.Context, names []string) (bundles.CompanionProbe, error) {
 	if err := ctx.Err(); err != nil {
 		return bundles.CompanionProbe{}, err
 	}
-	// Disabled (--no-companions) means NO DISCOVERED binary is executed — the
+	// Disabled (--no-companions) means NO registered binary is executed — the
 	// switch makes a run independent of what the host has installed. It does
 	// not disarm the self-probe below: ctxloom's own loadout is the running
 	// binary's, not something installed on the host, and a run without it
 	// would lose ctxloom's MCP server and its always-on guidance.
-	var decided []CompanionAdmission
+	var resolved []Resolved
+	var candidates []bundles.CompanionCandidate
 	if !p.Disabled {
-		// ADMISSION, resolved BEFORE the fan-out: a companion nobody allowed
-		// is never exec'd. See AdmitCompanions.
-		//
-		// The refused half is KEPT rather than filtered away. It is the only
-		// place a "found on PATH, never allowed to run" companion exists at all
-		// — it produces no loadout by definition — and reporting it costs
-		// nothing here while reconstructing it later would cost a second
-		// discovery pass.
-		decided = companionAdmission(DiscoverCompanions(), LoadAllowed())
+		resolved, candidates = resolveRegistered(names)
 	}
-	admitted, candidates := splitAdmissions(decided)
-	// ctxloom ITSELF, first in the fan-out: admitted by identity (the running
-	// binary needs no consent to run), probed through the same exec as every
-	// other companion so its loadout takes exactly the path theirs does.
+	// ctxloom ITSELF, first in the fan-out, probed through the same exec as
+	// every other companion so its loadout takes exactly the path theirs does.
 	if p.Self != nil {
-		admitted = append([]CompanionAdmission{selfAdmission(p.Self())}, admitted...)
+		resolved = append([]Resolved{{Name: SelfCompanion, Bin: SelfCompanion, Path: p.Self()}}, resolved...)
 	}
-	slots := make([]*bundles.CompanionLoadout, len(admitted))
-	failed := make([]*bundles.CompanionCandidate, len(admitted))
+	slots := make([]*bundles.CompanionLoadout, len(resolved))
+	failed := make([]*bundles.CompanionCandidate, len(resolved))
 	var wg sync.WaitGroup
-	for i, adm := range admitted {
+	for i, r := range resolved {
 		wg.Add(1)
 		go func(i int, bin, path string) {
 			defer wg.Done()
 			slots[i], failed[i] = probeLoadout(bin, path)
-		}(i, adm.Bin, adm.Path)
+		}(i, r.Bin, r.Path)
 	}
 	wg.Wait()
 	return collectProbes(slots, failed, candidates), nil
 }
 
-// splitAdmissions separates the admitted companions from the refused ones,
-// which are kept as catalog candidates (with room for ctxloom itself among
-// the admitted).
-func splitAdmissions(decided []CompanionAdmission) ([]CompanionAdmission, []bundles.CompanionCandidate) {
-	admitted := make([]CompanionAdmission, 0, len(decided)+1)
-	var candidates []bundles.CompanionCandidate
-	for _, a := range decided {
-		if a.Allow {
-			admitted = append(admitted, a)
+// resolveRegistered resolves each registered name on PATH. One that resolves
+// to nothing is warned about and kept as an absent catalog candidate, so a
+// report can say the registered companion is missing rather than nothing.
+func resolveRegistered(names []string) ([]Resolved, []bundles.CompanionCandidate) {
+	resolved := make([]Resolved, 0, len(names)+1)
+	var absent []bundles.CompanionCandidate
+	for _, name := range names {
+		r, err := Resolve(name)
+		if err != nil {
+			clidiag.WarnOnce("ctxloom", warnNotOnPath, name, BinaryName(name), name, name)
+			absent = append(absent, bundles.CompanionCandidate{Bin: BinaryName(name), Reason: bundles.CandidateAbsent})
 			continue
 		}
-		candidates = append(candidates, bundles.CompanionCandidate{
-			Bin: a.Bin, Path: a.Path, Reason: candidateReasonFor(a.Reason),
-		})
+		resolved = append(resolved, r)
 	}
-	return admitted, candidates
+	return resolved, absent
 }
 
-// probeLoadout execs one admitted companion's loadout probe: its loadout, or
-// what failedLoadout makes of a probe that produced none.
+// probeLoadout execs one companion's loadout probe: its loadout, or what
+// failedLoadout makes of a probe that produced none.
 func probeLoadout(bin, path string) (*bundles.CompanionLoadout, *bundles.CompanionCandidate) {
 	raw, err := companionLoadoutOutput(path)
 	if err != nil {
@@ -388,7 +359,7 @@ func probeLoadout(bin, path string) (*bundles.CompanionLoadout, *bundles.Compani
 	return &bundles.CompanionLoadout{Bin: bin, Path: path, Document: raw, Self: bin == SelfCompanion}, nil
 }
 
-// collectProbes gathers the probes' loadouts, in admission order, and adds
+// collectProbes gathers the probes' loadouts, in resolution order, and adds
 // each failed probe to the candidates.
 func collectProbes(slots []*bundles.CompanionLoadout, failed []*bundles.CompanionCandidate, candidates []bundles.CompanionCandidate) bundles.CompanionProbe {
 	out := make([]bundles.CompanionLoadout, 0, len(slots))
@@ -403,27 +374,4 @@ func collectProbes(slots []*bundles.CompanionLoadout, failed []*bundles.Companio
 		}
 	}
 	return bundles.CompanionProbe{Loadouts: out, Candidates: candidates}
-}
-
-// candidateReasonFor translates a refusal to execute into the reason a catalog
-// candidate carries.
-//
-// Everything except "nothing on this machine answers to that name" is
-// UNCONSENTED: not allowed, allowed for other bytes, or a binary that cannot be
-// read all mean the same thing to a reader — the binary is here and ctxloom was
-// not allowed to run it. The specific refusal is already announced by
-// admitCompanionAllowed itself, which is where the distinction has purchase.
-func candidateReasonFor(r CompanionAdmissionReason) bundles.CandidateReason {
-	if r == CompanionNotInstalled {
-		return bundles.CandidateAbsent
-	}
-	return bundles.CandidateUnconsented
-}
-
-// selfAdmission is the running binary's own admission: allowed, at the path
-// the composition root resolved (Prober.Self), with no record consulted — the
-// process IS executing. Its reason is CompanionSelf so a report can say which
-// arm allowed it rather than presenting it as allowed by a record.
-func selfAdmission(path string) CompanionAdmission {
-	return newCompanionAdmission(CompanionKey{Bin: SelfCompanion, Path: path}, true, CompanionSelf)
 }

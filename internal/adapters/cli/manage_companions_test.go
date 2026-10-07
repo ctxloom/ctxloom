@@ -24,87 +24,60 @@ import (
 // when it runs; it returns the sentinel's path. Nothing except an actual
 // execution can create that file, which is what makes it evidence rather than a
 // restatement of the code under test.
-//
-// $PATH is REPLACED, not prepended: companion discovery scans it, so whatever
-// the developer has installed would otherwise decide how many rows the report
-// has and what they say.
-//
-// The exec seams are deliberately left at their production bodies. A recorder
-// installed into config's exec seam would only witness an exec that still
-// travels through the seam, so a report that grew its own way to run the binary
-// would leave such a recorder empty and the assertion green.
-// Returns the sentinel the script touches when executed, AND the binary's own
-// path — admission now reads the binary's bytes to verify them, so a caller has
-// to be able to name the file it is vouching for.
-func plantRealCompanion(t *testing.T, bin string) (sentinel, binPath string) {
+func plantRealCompanion(t *testing.T, bin string) (sentinel string) {
 	t.Helper()
 	dir := t.TempDir()
 	sentinel = filepath.Join(t.TempDir(), "executed")
 	script := "#!/bin/sh\necho \"$1\" >> " + sentinel + "\n"
-	binPath = filepath.Join(dir, bin)
-	require.NoError(t, os.WriteFile(binPath, []byte(script), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, bin), []byte(script), 0o755))
 	t.Setenv("PATH", dir)
-	return sentinel, binPath
+	return sentinel
 }
 
-// TestPrintCompanionStatus_ExecutesNothingEvenWhenAdmissible pins the property
-// a status command owes its reader: asking what the state of things is must
-// never run a foreign binary.
-//
-// The companion is ALLOWED first, on purpose. An unallowed companion is
-// refused by the admission gate, so a report that wrongly reached for the
-// resolved bundle set would still exec nothing and this test would pass while
-// the property was broken. With an allow in place, admission says yes and the
-// ONLY thing standing between this report and an execution is the report's own
-// refusal to ask for content it has no use for.
-func TestPrintCompanionStatus_ExecutesNothingEvenWhenAdmissible(t *testing.T) {
+// TestPrintCompanionStatus_ExecutesNothingForARegisteredCompanion pins the
+// property a status command owes its reader: asking what the state of things
+// is must never run a foreign binary — not even a registered one.
+func TestPrintCompanionStatus_ExecutesNothingForARegisteredCompanion(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the sentinel companion is an sh script")
 	}
 	const bin = "ctxloom-companion-acme"
-	root, _ := setupProject(t, "claude-code")
-	testsupport.ChangeDir(t, root)
-	sentinel, binPath := plantRealCompanion(t, bin)
-
-	allowWithYes(t, binPath)
+	sentinel := plantRealCompanion(t, bin)
 
 	var out bytes.Buffer
-	printCompanionStatus(&out)
+	printCompanionStatus(&out, []string{"acme"})
 
-	// Guard: the companion has to have been FOUND and reported as runnable.
-	// Without this the sentinel assertion below would pass just as well against
-	// a fixture whose binary was never discovered — absence satisfying absence.
-	line := companionLineFor(t, out.String(), bin)
-	assert.NotContains(t, line, "NOT RUN",
-		"consent was recorded, so admission must say yes — otherwise the gate, not the report, is what withheld the exec")
-	assert.NotContains(t, line, "NOT FOUND", "the planted binary must be discovered on PATH")
-
-	assert.NoFileExists(t, sentinel,
-		"a status report must execute nothing — not even a companion this machine's human approved")
+	// Guard: the companion has to have been FOUND, or the sentinel assertion
+	// below passes against a binary that was never resolved.
+	line := companionLineFor(t, out.String(), "acme")
+	assert.NotContains(t, line, "NOT FOUND", "the planted binary must resolve on PATH")
+	assert.Contains(t, line, bin)
+	assert.NoFileExists(t, sentinel, "a status report must execute nothing")
 }
 
-// TestPrintCompanionStatus_ReportsTheRefusedPathNotAnAbsence is the other half
-// of the same report: a companion present on PATH and never confirmed is not
-// missing, and telling a user to install what they already have sends them
-// chasing nothing. The path is what `ctxloom companion allow` has to be pointed
-// at, so it has to be in the line.
-func TestPrintCompanionStatus_ReportsTheRefusedPathNotAnAbsence(t *testing.T) {
+// TestPrintCompanionStatus_RegisteredButMissingNamesTheWayOut: a registered
+// companion that resolves to nothing is reported with both remedies.
+func TestPrintCompanionStatus_RegisteredButMissingNamesTheWayOut(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	var out bytes.Buffer
+	printCompanionStatus(&out, []string{"acme"})
+	line := companionLineFor(t, out.String(), "acme")
+	assert.Contains(t, line, "NOT FOUND (ctxloom-companion-acme)")
+	assert.Contains(t, line, "ctxloom companion remove acme --yes")
+}
+
+// TestPrintCompanionStatus_UnregisteredOnPathIsNotReported: a companion
+// binary on PATH that nobody registered is not a companion of this machine.
+func TestPrintCompanionStatus_UnregisteredOnPathIsNotReported(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the sentinel companion is an sh script")
 	}
-	const bin = "ctxloom-companion-acme"
-	root, _ := setupProject(t, "claude-code")
-	testsupport.ChangeDir(t, root)
-	sentinel, _ := plantRealCompanion(t, bin)
-
+	sentinel := plantRealCompanion(t, "ctxloom-companion-acme")
 	var out bytes.Buffer
-	printCompanionStatus(&out)
-
-	line := companionLineFor(t, out.String(), bin)
-	assert.Contains(t, line, "NOT RUN", "found but never approved is not the same fact as not installed")
-	assert.NotContains(t, line, "NOT FOUND", "the binary is on PATH; reporting it missing is a false errand")
-	assert.Contains(t, line, "ctxloom companion allow", "a refusal a user cannot act on is a dead end")
-	assert.NoFileExists(t, sentinel, "reporting a refusal must not run the file it refused")
+	printCompanionStatus(&out, nil)
+	assert.Contains(t, out.String(), "none registered")
+	assert.NotContains(t, out.String(), "acme")
+	assert.NoFileExists(t, sentinel)
 }
 
 // TestPrintCompanionStatus_DisabledSaysSoAndStillRunsNothing covers the
@@ -119,11 +92,7 @@ func TestPrintCompanionStatus_DisabledSaysSoAndStillRunsNothing(t *testing.T) {
 	const bin = "ctxloom-companion-acme"
 	root, _ := setupProject(t, "claude-code")
 	testsupport.ChangeDir(t, root)
-	sentinel, binPath := plantRealCompanion(t, bin)
-	// Admissible on its own merits, so the DISABLE SWITCH below is the only
-	// thing withholding the exec — otherwise this would pass for the wrong
-	// reason, with the companion refused for want of an allow.
-	allowWithYes(t, binPath)
+	sentinel := plantRealCompanion(t, bin)
 
 	// The switch is a property of the process composition, not a global.
 	src, err := operations.ComposeSources(operations.Compose{NoCompanions: true})
@@ -131,7 +100,7 @@ func TestPrintCompanionStatus_DisabledSaysSoAndStillRunsNothing(t *testing.T) {
 	t.Cleanup(SetAppForTesting(operations.NewApp(src, operations.Switches{NoCompanions: true}, nil, strictness.Mode{Prog: "ctxloom"}, operations.Handed{Open: config.Open, Reporter: strictness.Sink("ctxloom"), Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})))
 
 	var out bytes.Buffer
-	printCompanionStatus(&out)
+	printCompanionStatus(&out, []string{"acme"})
 
 	assert.Contains(t, out.String(), "Companions:")
 	assert.Contains(t, out.String(), "disabled", "the report must name the switch rather than going quiet")

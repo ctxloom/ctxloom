@@ -27,7 +27,7 @@ ctxloom container [flags]
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
-      --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
+      --no-companions            run no registered companion: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
       --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
 ```
 
@@ -38,5 +38,5 @@ ctxloom container [flags]
 * [ctxloom container check](/reference/cli/ctxloom_container_check/)	 - Diagnose container capability (runtime, image, shared filesystem)
 * [ctxloom container prune](/reference/cli/ctxloom_container_prune/)	 - Remove superseded ctxloom agent images (a dry run unless --yes)
 * [ctxloom container scaffold](/reference/cli/ctxloom_container_scaffold/)	 - Write a project devcontainer seeded from ctxloom's default base
-* [ctxloom container tooling](/reference/cli/ctxloom_container_tooling/)	 - Agent-image tooling declarations from admitted companions
+* [ctxloom container tooling](/reference/cli/ctxloom_container_tooling/)	 - Agent-image tooling declarations from registered companions
 

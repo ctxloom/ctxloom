@@ -407,11 +407,11 @@ func TestDoctorCheckSetupCompanions_NeverWarns(t *testing.T) {
 	assert.NotEqual(t, DoctorWarn, check.Status, "companions are optional add-ons, never a doctor failure")
 }
 
-// TestDoctorCheckSetupCompanions_TellsNotRunApartFromNotInstalled is the
-// report a user acts on: "found on PATH but never allowed to run" and "not
-// installed" send them to different remedies, and the check reads BOTH off the
-// one resolved catalog rather than discovering companions a second time.
-func TestDoctorCheckSetupCompanions_TellsNotRunApartFromNotInstalled(t *testing.T) {
+// TestDoctorCheckSetupCompanions_TellsMissingApartFromFailed is the report a
+// user acts on: "registered but not on PATH" and "probe failed" send them to
+// different remedies, and the check reads both off the one resolved catalog
+// rather than probing companions a second time.
+func TestDoctorCheckSetupCompanions_TellsMissingApartFromFailed(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 	cfg = withCompanionProbe(t, cfg, func(context.Context) (bundles.CompanionProbe, error) {
 		return bundles.CompanionProbe{
@@ -419,7 +419,6 @@ func TestDoctorCheckSetupCompanions_TellsNotRunApartFromNotInstalled(t *testing.
 				{Bin: "ltk", Path: "/opt/bin/ltk", Document: []byte("run:\n  version: \"1.0\"\n")},
 			},
 			Candidates: []bundles.CompanionCandidate{
-				{Bin: "taskloom", Path: "/opt/bin/taskloom", Reason: bundles.CandidateUnconsented},
 				{Bin: "reprise", Reason: bundles.CandidateAbsent},
 				{Bin: "wedged", Path: "/opt/bin/wedged", Reason: bundles.CandidateProbeFailed},
 				{Bin: "plain", Path: "/opt/bin/plain", Reason: bundles.CandidateNoLoadout},
@@ -431,13 +430,12 @@ func TestDoctorCheckSetupCompanions_TellsNotRunApartFromNotInstalled(t *testing.
 
 	assert.NotEqual(t, DoctorWarn, check.Status, "companions are optional add-ons, never a doctor failure")
 	assert.Contains(t, check.Detail, "loadouts read: ltk")
-	assert.Contains(t, check.Detail, "NOT RUN: taskloom (/opt/bin/taskloom)")
-	assert.Contains(t, check.Detail, "ctxloom companion show",
-		"a refusal a user cannot act on is a dead end")
-	assert.Contains(t, check.Detail, "not installed: reprise")
+	assert.Contains(t, check.Detail, "registered, not on PATH: reprise")
+	assert.Contains(t, check.Detail, "ctxloom companion remove",
+		"a missing registration a user cannot act on is a dead end")
 	assert.Contains(t, check.Detail, "probe failed: wedged (/opt/bin/wedged)")
-	assert.NotContains(t, check.Detail, "not installed: taskloom",
-		"a companion that is present and refused must never be reported as missing")
+	assert.NotContains(t, check.Detail, "registered, not on PATH: wedged",
+		"a companion that is present and failing must never be reported as missing")
 	assert.Contains(t, check.Detail, "no loadout: plain",
 		"a companion that answered it has no loadout is a fact, not a failure")
 	assert.NotContains(t, check.Detail, "plain (/opt/bin/plain)")
@@ -1069,7 +1067,7 @@ func (s probeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.
 }
 
 // withCompanionProbe returns cfg as the generation a process would hold when
-// companion discovery answers with probe — what the composition root's
+// companion probe answers with probe — what the composition root's
 // companion reader would have read.
 func withCompanionProbe(t *testing.T, cfg *config.Config, probe bundles.CompanionProber) *config.Config {
 	t.Helper()

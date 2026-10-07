@@ -121,7 +121,7 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 // carriedSources names, by the stamp their items carry, the companions whose
 // loadout probe FAILED: their content is unknown this time, so a delivery
 // keeps what they delivered before. A companion that answered it has none,
-// and one not consented to or absent contributes nothing to keep.
+// and one registered but absent contributes nothing to keep.
 func carriedSources(cands []bundles.Candidate) []string {
 	var out []string
 	for _, c := range cands {

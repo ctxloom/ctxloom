@@ -184,7 +184,7 @@ func containerBuildOptions(flags containerBuildFlagValues, cfg *config.Config, b
 var toolingPrompt = resources.MustGetPromptText("tooling")
 
 // toolingCmdLong documents `ctxloom container tooling`.
-const toolingCmdLong = `Collect every admitted companion's typed 'tooling' declaration — the
+const toolingCmdLong = `Collect every registered companion's typed 'tooling' declaration — the
 tools its content needs inside the agent container image — and emit them with
 instructions for the LLM: fold the additions into the agent image's base
 (the project devcontainer's Dockerfile; 'ctxloom container scaffold' writes one
@@ -196,7 +196,7 @@ like any other gated content, and nothing is ever applied automatically on
 pull/sync — the edit is the LLM's, gated by the user.`
 
 // runToolingListCmd is containerToolingListCmd's RunE. It emits the
-// agent-image tooling instructions plus every admitted companion's typed
+// agent-image tooling instructions plus every registered companion's typed
 // tooling declaration (bundles.InitLoadout.Tooling): the LLM runs this, reads
 // the declarations, and folds them — with
 // the user's explicit approval — into the agent image's base.
@@ -219,7 +219,7 @@ func runToolingListCmd(cmd *cobra.Command, args []string) error {
 // already types (`ctxloom container tooling`) stops working.
 var containerToolingCmd = groupNodeDefault(&cobra.Command{
 	Use:   "tooling",
-	Short: "Agent-image tooling declarations from admitted companions",
+	Short: "Agent-image tooling declarations from registered companions",
 	Long:  toolingCmdLong,
 }, "list")
 
@@ -227,7 +227,7 @@ var containerToolingCmd = groupNodeDefault(&cobra.Command{
 // every trusted bundle's declared agent-image tooling for the LLM to apply.
 var containerToolingListCmd = &cobra.Command{
 	Use:     "list",
-	Short:   "Emit admitted companions' agent-image tooling declarations for the LLM to apply",
+	Short:   "Emit registered companions' agent-image tooling declarations for the LLM to apply",
 	Example: `  ctxloom container tooling list`,
 	Args:    cobra.NoArgs,
 	RunE:    runToolingListCmd,
@@ -245,7 +245,7 @@ type toolingJSON struct {
 func renderTooling(out io.Writer, entries []operations.ToolingDeclaration) error {
 	w := errwriter.New(out)
 	if len(entries) == 0 {
-		w.Println("No admitted companion declares container tooling (a companion declares it as `tooling` in its loadout's init section).")
+		w.Println("No registered companion declares container tooling (a companion declares it as `tooling` in its loadout's init section).")
 		w.Println("A companion ctxloom may not execute, or one you rejected, declares nothing — see `ctxloom doctor`.")
 		return w.Err()
 	}

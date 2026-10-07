@@ -29,31 +29,29 @@ type CompanionLoadout struct {
 }
 
 // CompanionProber obtains the loadouts of every companion this machine's human
-// has agreed ctxloom may execute.
+// registered (ctxloom companion add).
 //
-// THE PROBER IS THE EXEC. Everything about companion discovery that decides
-// whether a foreign binary runs at all — the PATH scan, admission keyed on
-// absolute path plus binary hash, the first-party exemption,
-// the per-probe timeout — lives behind this one function, and the companion
-// reader is the only thing in the read path that calls it. That is what makes
-// the companion reader the single implementation that can prompt a human, and
-// it is deliberate: the meaningful control point for companion content is
-// EXEC (docs/trust-model.md, "Companions").
+// THE PROBER IS THE EXEC. Everything that decides whether a foreign binary
+// runs at all — which names are registered, resolving each on PATH, the
+// per-probe timeout — lives behind this one function, and the companion
+// reader is the only thing in the read path that calls it. That is
+// deliberate: the meaningful control point for companion content is EXEC,
+// not content review (docs/trust-model.md, "Companions").
 //
 // It returns an error only for a fault that produced NO loadouts at all. An
-// individual companion that is absent, wedged, unapproved or does not implement
+// individual companion that is absent, wedged or does not implement
 // the protocol never sinks the pass — never fatal, never a stalled startup —
 // and is REPORTED as a CompanionCandidate instead: it was discovered, it has an
 // identity, and saying nothing about it is what makes "found but never allowed
 // to run" indistinguishable from "not installed".
 type CompanionProber func(ctx context.Context) (CompanionProbe, error)
 
-// CompanionCandidate is one discovered companion the prober obtained NO
+// CompanionCandidate is one registered companion the prober obtained NO
 // loadout from, and why.
 //
 // It is the prober's other half, and it is a half only the prober can report:
-// by the time the reader sees loadouts, a companion that is absent, refused or
-// wedged has left no trace at all. Bin is the identity (the reader mints
+// by the time the reader sees loadouts, a companion that is absent or wedged
+// has left no trace at all. Bin is the identity (the reader mints
 // ctxloom+companion:<bin> from it) and Path is the file a remedy has to name.
 type CompanionCandidate struct {
 	Bin    string
@@ -61,12 +59,12 @@ type CompanionCandidate struct {
 	Reason CandidateReason
 }
 
-// CompanionProbe is one companion-discovery pass: the loadouts obtained, and
-// the discovered companions that yielded none.
+// CompanionProbe is one companion-probing pass: the loadouts obtained, and
+// the registered companions that yielded none.
 //
-// Both halves come from ONE pass over $PATH and the consent record. That is
+// Both halves come from ONE pass over the registered names. That is
 // the point of returning them together: a caller that wanted the second half
-// separately would have to discover a second time, and two passes can disagree.
+// separately would have to probe a second time, and two passes can disagree.
 type CompanionProbe struct {
 	Loadouts   []CompanionLoadout
 	Candidates []CompanionCandidate
@@ -85,7 +83,7 @@ type companionReader struct {
 	candidates []Candidate
 }
 
-// NewCompanionReader reads every admitted companion's loadout through probe.
+// NewCompanionReader reads every registered companion's loadout through probe.
 //
 // TrustCtxLocal, hard-coded and not a parameter: a loadout's bytes came
 // straight off the stdout of a binary on the user's PATH, with no intermediary
@@ -100,7 +98,7 @@ func NewCompanionReader(probe CompanionProber, opts ...ReaderOption) Reader {
 // ref parser to name its own content.
 const companionRefPrefix = "ctxloom:companion@"
 
-// Read reports every admitted companion's loadout, in binary-name order so a
+// Read reports every registered companion's loadout, in binary-name order so a
 // session's contributed content is stable across runs.
 //
 // A loadout whose bytes will not PARSE produced no content at all: there is

@@ -2,14 +2,12 @@ package operations
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -117,13 +115,6 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 
 	warnFallbackProjectRoot(req, workDir)
 
-	// A companion that is not allowed never ran, so what it would
-	// contribute is unknown — and every surface below would be written without
-	// it. Refuse before the first write. See notAllowedCompanionsError.
-	if err := notAllowedCompanionsError(freshCfg); err != nil {
-		return nil, err
-	}
-
 	// The ONE package, for the configured DEFAULT profiles: ApplyHooks writes
 	// the project's STATIC managed config (the `manage hooks install` path)
 	// and there is no per-run `-p` selection here. The regenerated context and
@@ -193,38 +184,6 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 	// wants the per-backend detail still has it; every current caller checks
 	// err first and warns or aborts.
 	return result, markTotalHookFailure(result)
-}
-
-// ErrCompanionNotAllowed is the refusal for a companion binary the allow
-// store does not admit: ApplyHooks refuses to write any surface while one is on
-// PATH, and forgetting a binary that was never allowed reports it too.
-var ErrCompanionNotAllowed = errors.New("companion binary not allowed")
-
-// notAllowedCompanionsError names every companion the catalog holds as present
-// but refused (not allowed, hash changed, unreadable), or returns nil when
-// there is none.
-//
-// LEAVE UNCHANGED, NOT "WRITE WITHOUT IT". The refused companion never ran, so
-// its contribution is not empty, it is UNKNOWN — and the surfaces it feeds
-// cannot be named without running it. Writing on would rewrite each of them
-// from a set missing that contribution: the user's guard rails removed by the
-// command whose report says it installed them. So the whole apply writes
-// nothing. A companion that is absent, or that ran and produced no loadout,
-// is not this case: the first contributes nothing by fact, the second is
-// reported by its own probe.
-func notAllowedCompanionsError(cfg *config.Config) error {
-	var named, fixes []string
-	for _, cand := range cfg.BundleLoader().Catalog().Candidates() {
-		if cand.Reason == bundles.CandidateUnconsented {
-			named = append(named, fmt.Sprintf("%s (%s)", companionBinOf(cand.Ref), cand.Path))
-			fixes = append(fixes, "ctxloom companion allow "+cand.Path+" --yes")
-		}
-	}
-	if len(named) == 0 {
-		return nil
-	}
-	return fmt.Errorf("apply hooks: %w: %s — its hooks, MCP servers and context are unknown, so every surface is left unchanged; allow it (%s) or take it off PATH, then re-apply",
-		ErrCompanionNotAllowed, strings.Join(named, ", "), strings.Join(fixes, "; "))
 }
 
 // warnFallbackProjectRoot is the general "not in a project" advisory: only

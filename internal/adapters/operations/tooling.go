@@ -32,9 +32,9 @@ type ToolingDeclaration struct {
 	Content string `json:"content"`
 }
 
-// CollectTooling gathers every admitted companion's typed `init.tooling`
-// declaration. Only a companion binary the user allowed (companion allow)
-// produces a loadout, so only allowed companions contribute.
+// CollectTooling gathers every registered companion's typed `init.tooling`
+// declaration. Only a companion the user registered (companion add) is run
+// for a loadout, so only registered companions contribute.
 // Fault-tolerant: a nil config or any load failure returns nil, never errors.
 // pipe is a test seam; nil uses the exposure pipeline.
 func CollectTooling(cfg *config.Config, pipe *bundles.Pipeline) []ToolingDeclaration {

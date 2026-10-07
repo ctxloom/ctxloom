@@ -403,7 +403,7 @@ type AdmittedInit struct {
 
 // InitLoadouts is the process stage for the INIT half of every companion
 // loadout the catalog read: the typed setup-time fields, in ref order. The
-// companion binary that produced them was admitted at exec (companion allow).
+// companion binary that produced them was registered (companion add).
 // Companions that declare no INIT section are skipped, not reported.
 func (p *Pipeline) InitLoadouts() []AdmittedInit {
 	var out []AdmittedInit

@@ -11,8 +11,9 @@ document the host understands, and never exit non-zero on the hook path.* It is 
 `ltk` never blocks a syscall. The failure that matters is therefore not "escaped the jail"
 but **"a deny rule the operator wrote did not fire"**.
 
-`ltk` builds and ships independently of ctxloom (it has its own `loadout.yaml` that ctxloom's
-companion discovery execs via `ltk loadout --format yaml`), and `cmd/taskloom` reuses its
+`ltk` builds and ships independently of ctxloom (it has its own `loadout.yaml` that ctxloom
+execs via `ltk loadout --format yaml` once `ltk` is registered with `ctxloom companion add`),
+and `cmd/taskloom` reuses its
 `internal/ltk/engine` install machinery.
 
 ---

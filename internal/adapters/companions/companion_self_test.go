@@ -22,8 +22,8 @@ func selfAt(path string) func() string { return func() string { return path } }
 // the path the injected resolver answers (selfexec.Path in production),
 // never a PATH lookup of "ctxloom" (a stale install earlier on PATH would
 // then speak for the running build) and never a raw os.Executable (which
-// goes stale after an in-place upgrade). No allow record is consulted: the
-// running process is already executing, so exec consent is not a question.
+// goes stale after an in-place upgrade). It is never registered: the running
+// process is already executing.
 func TestProbeCompanionLoadouts_ProbesItselfThroughSelfexec(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
@@ -39,11 +39,11 @@ func TestProbeCompanionLoadouts_ProbesItselfThroughSelfexec(t *testing.T) {
 		return envelope, nil
 	}))
 
-	probe, err := Prober{Self: selfAt("/opt/build/ctxloom")}.ProbeCompanionLoadouts(context.Background())
+	probe, err := Prober{Self: selfAt("/opt/build/ctxloom")}.ProbeCompanionLoadouts(context.Background(), firstPartyCompanions)
 	require.NoError(t, err)
 
 	require.Len(t, probe.Loadouts, 1, "only ctxloom itself answers when nothing else is installed")
-	assert.Len(t, probe.Candidates, len(FirstPartyCompanionNames()), "the first-party names are absent candidates; ctxloom is not among them")
+	assert.Len(t, probe.Candidates, len(firstPartyCompanions), "the registered names are absent candidates; ctxloom is not among them")
 	self := probe.Loadouts[0]
 	assert.Equal(t, SelfCompanion, self.Bin)
 	assert.Equal(t, "/opt/build/ctxloom", self.Path)
@@ -63,7 +63,7 @@ func TestProbeCompanionLoadouts_SelfProbeFailureIsACandidate(t *testing.T) {
 	t.Cleanup(SetLookPathForTesting(func(string) (string, error) { return "", exec.ErrNotFound }))
 	t.Cleanup(SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return nil, context.DeadlineExceeded }))
 
-	probe, err := Prober{Self: selfAt("/opt/build/ctxloom")}.ProbeCompanionLoadouts(context.Background())
+	probe, err := Prober{Self: selfAt("/opt/build/ctxloom")}.ProbeCompanionLoadouts(context.Background(), firstPartyCompanions)
 	require.NoError(t, err)
 	assert.Empty(t, probe.Loadouts)
 	assert.Contains(t, probe.Candidates, bundles.CompanionCandidate{Bin: SelfCompanion, Path: "/opt/build/ctxloom", Reason: bundles.CandidateProbeFailed})
@@ -71,14 +71,12 @@ func TestProbeCompanionLoadouts_SelfProbeFailureIsACandidate(t *testing.T) {
 
 // TestProbeCompanionLoadouts_DisabledStillProbesItself: --no-companions /
 // CTXLOOM_NO_COMPANIONS exists so a run does not depend on what the HOST has
-// installed — no discovered binary is executed. ctxloom's own loadout is not
+// installed — no registered binary is executed. ctxloom's own loadout is not
 // one of those: it is the running binary's, so it is probed regardless, and a
-// CI run keeps ctxloom's MCP server and its always-on guidance. Nothing
-// discovered is exec'd.
+// CI run keeps ctxloom's MCP server and its always-on guidance.
 func TestProbeCompanionLoadouts_DisabledStillProbesItself(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Cleanup(SetLookPathForTesting(func(bin string) (string, error) { return "/fake/" + bin, nil }))
-	t.Cleanup(AdmitEveryDiscoveredCompanionForTesting())
 	envelope := testsupport.RunLoadout("version: 1.0.0\n")
 	var execd []string
 	t.Cleanup(SetCompanionLoadoutOutputForTesting(func(path string) ([]byte, error) {
@@ -86,12 +84,12 @@ func TestProbeCompanionLoadouts_DisabledStillProbesItself(t *testing.T) {
 		return envelope, nil
 	}))
 
-	probe, err := Prober{Disabled: true, Self: selfAt("/opt/build/ctxloom")}.ProbeCompanionLoadouts(context.Background())
+	probe, err := Prober{Disabled: true, Self: selfAt("/opt/build/ctxloom")}.ProbeCompanionLoadouts(context.Background(), firstPartyCompanions)
 	require.NoError(t, err)
 	require.Len(t, probe.Loadouts, 1, "only ctxloom itself")
 	assert.True(t, probe.Loadouts[0].Self)
-	assert.Equal(t, []string{"/opt/build/ctxloom"}, execd, "no discovered companion is exec'd; the self-probe still runs")
-	assert.Empty(t, probe.Candidates, "nothing was discovered, so nothing is reported as withheld")
+	assert.Equal(t, []string{"/opt/build/ctxloom"}, execd, "no registered companion is exec'd; the self-probe still runs")
+	assert.Empty(t, probe.Candidates, "nothing registered was resolved, so nothing is reported as withheld")
 }
 
 // TestProbeCompanionLoadouts_UnarmedNeverProbesItself: a process composed
@@ -104,7 +102,7 @@ func TestProbeCompanionLoadouts_UnarmedNeverProbesItself(t *testing.T) {
 		t.Fatalf("an unarmed prober exec'd %s", path)
 		return nil, nil
 	}))
-	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background())
+	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background(), firstPartyCompanions)
 	require.NoError(t, err)
 	assert.Empty(t, probe.Loadouts)
 	for _, c := range probe.Candidates {

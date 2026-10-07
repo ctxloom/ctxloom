@@ -139,7 +139,6 @@ func TestWriteAndRecordSyncSummary_InstalledAndErrorsBothPrinted(t *testing.T) {
 }
 
 func TestReportCompanions_PresentBinariesLogVersions(t *testing.T) {
-	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
 		return "/usr/bin/" + bin, nil
 	})
@@ -150,7 +149,7 @@ func TestReportCompanions_PresentBinariesLogVersions(t *testing.T) {
 	defer restoreProbe()
 	var buf bytes.Buffer
 
-	ReportCompanions(&buf, companions.Prober{})
+	ReportCompanions(&buf, companions.Prober{}, []string{"taskloom", "ltk"})
 
 	assert.Contains(t, buf.String(), "ctxloom: companion taskloom v9.9.9")
 	assert.Contains(t, buf.String(), "ctxloom: companion ltk v9.9.9")
@@ -163,13 +162,12 @@ func TestReportCompanions_MissingBinariesStaySilent(t *testing.T) {
 	defer restoreLook()
 	var buf bytes.Buffer
 
-	ReportCompanions(&buf, companions.Prober{})
+	ReportCompanions(&buf, companions.Prober{}, []string{"taskloom", "ltk"})
 
-	assert.Empty(t, buf.String(), "install hints belong to the bundle resolvers, not the boot report")
+	assert.Empty(t, buf.String(), "a registered-but-missing companion is named by the loadout probe, not the boot report")
 }
 
 func TestReportCompanions_ProbeFailureWarnsButContinues(t *testing.T) {
-	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
 		return "/usr/bin/" + bin, nil
 	})
@@ -180,7 +178,7 @@ func TestReportCompanions_ProbeFailureWarnsButContinues(t *testing.T) {
 	defer restoreProbe()
 	var buf bytes.Buffer
 
-	ReportCompanions(&buf, companions.Prober{})
+	ReportCompanions(&buf, companions.Prober{}, []string{"taskloom", "ltk"})
 
 	assert.Contains(t, buf.String(), "ctxloom: warning: companion taskloom")
 	assert.Contains(t, buf.String(), "ctxloom: warning: companion ltk")

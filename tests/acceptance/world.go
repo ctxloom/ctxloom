@@ -304,7 +304,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ001200Steps(ctx)
 	registerJ002000Steps(ctx)
 	registerJ000900RecoverSteps(ctx)
-	registerCompanionConsentSteps(ctx)
+	registerCompanionRegistrationSteps(ctx)
 	registerSkillSteps(ctx)
 	registerRecoverSessionSteps(ctx)
 	registerContextStatusSteps(ctx)

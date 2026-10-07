@@ -9,27 +9,30 @@ This page is generated from `ctxloom companion --help`.
 
 ## ctxloom companion
 
-Inspect and decide which companion binaries ctxloom may execute
+Register which companion programs ctxloom runs
 
 ### Synopsis
 
-Inspect and decide which companion binaries ctxloom may execute.
+Register which companion programs ctxloom runs.
 
-ctxloom discovers companions on your PATH (the shipped ltk / taskloom / reprise,
-plus anything named ctxloom-companion-*) and EXECUTES each one to read the
-context it contributes. Because any program on your PATH can claim one of those
-names — including a transitive dependency in ./node_modules/.bin — a companion
-runs only when you have ALLOWED it.
+A companion is a program that CONTRIBUTES context — hooks, MCP servers,
+fragments — by answering `<binary> loadout`. ctxloom runs exactly the companions
+you registered, each resolved on your PATH by name when it is used. Nothing on
+PATH is used just because it is there: a dependency that drops a
+ctxloom-companion-* binary into ./node_modules/.bin earns nothing.
 
-An allow is a record of the binary's resolved path and the SHA-256 of its
-bytes, kept in your own ~/.ctxloom/companion_allow.yaml. A companion whose path
-has no record is skipped as not-allowed; one whose bytes changed since it was
-allowed (a rebuild, an upgrade, a swap) is skipped as hash-changed, and the
-warning names the old and new hash so you can tell which.
+A name maps to a binary: the shipped ltk, taskloom and reprise are their own
+binaries; any other name <n> is the binary ctxloom-companion-<n>.
 
-  ctxloom companion allow <path|name>          show what would be allowed
-  ctxloom companion allow <path|name> --yes    allow it
-  ctxloom companion forget <path|name> --yes   withdraw it
+The registration is the NAME only, kept in your home config
+(~/.ctxloom/config.yaml, key `companions`), never a path — so the same
+registration works wherever the binary is installed, inside an agent
+container included. A binary of a registered name placed EARLIER on PATH is
+the one that runs.
+
+  ctxloom companion add <name>           check it answers, then register it
+  ctxloom companion remove <name> --yes  unregister it
+  ctxloom companion list                 registered names, and whether each resolves
 
 ```
 ctxloom companion [flags]
@@ -42,15 +45,14 @@ ctxloom companion [flags]
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
-      --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
+      --no-companions            run no registered companion: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
       --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
 ```
 
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Assemble context for your AI coding assistant and launch it
-* [ctxloom companion allow](/reference/cli/ctxloom_companion_allow/)	 - Allow ctxloom to execute one companion binary, as its bytes are now
-* [ctxloom companion forget](/reference/cli/ctxloom_companion_forget/)	 - Withdraw the allow for one companion binary
-* [ctxloom companion list](/reference/cli/ctxloom_companion_list/)	 - Show which discovered companions ctxloom would execute, and why
-* [ctxloom companion show](/reference/cli/ctxloom_companion_show/)	 - Show whether ctxloom would execute one companion binary, and why
+* [ctxloom companion add](/reference/cli/ctxloom_companion_add/)	 - Register a companion by name, after checking it answers
+* [ctxloom companion list](/reference/cli/ctxloom_companion_list/)	 - List registered companions and whether each resolves on PATH
+* [ctxloom companion remove](/reference/cli/ctxloom_companion_remove/)	 - Unregister a companion
 

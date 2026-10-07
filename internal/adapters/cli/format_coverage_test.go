@@ -216,16 +216,16 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"plan watch":               {skip: "streaming: same shape as session transcript watch"},
 	"run":                      {skip: "streaming + spawns a real engine subprocess: not a single emit() result; run.go's RunE does call emit() on at least one branch (agent-mode payload), not independently re-verified for every branch here"},
 
-	// Read-only: it decides admission without executing anything, and in this
-	// harness finds no admitted companion — the rendering the five encodings
+	// Read-only: it resolves registered names without executing anything, and
+	// in this harness finds none registered — the rendering the five encodings
 	// must agree on.
 	"companion list": {extraArgs: noExtraArgs},
 	"auth status":    {extraArgs: noExtraArgs},
-	"companion show": {skip: "needs a real companion binary on PATH to resolve+hash; covered by companion_test.go"},
-	// Both call emit() on the preview and the --yes branch; their subject is
-	// a real binary to resolve and hash, which this harness does not plant.
-	"companion allow":  {skip: "needs a real companion binary to resolve+hash; covered by companion_test.go"},
-	"companion forget": {skip: "needs a recorded allow for a real binary; covered by companion_test.go"},
+	// Both call emit(); their subject is a real companion binary that answers
+	// the loadout probe and a home config to write, which this harness does
+	// not plant.
+	"companion add":    {skip: "needs a real companion binary on PATH that answers the loadout probe; covered by companion_test.go"},
+	"companion remove": {skip: "needs a registered companion fixture; covered by companion_test.go"},
 
 	// --- skip: destructive / interactive confirmation, no fixture built here ---
 	// Three of these ARE format debt too (bundle_hold_cli.go's hold/unhold

@@ -5,7 +5,7 @@
 // that reads it live here as the single source of truth rather than being
 // re-declared per caller.
 //
-// There are two production readers — boot-time companion discovery
+// There are two production readers — boot-time companion probe
 // (internal/adapters/companions.Prober.ProbeCompanions) and the agent image's version key
 // (internal/adapters/isolation.companionVersionKey) — and one probe. A second
 // implementation would let the two disagree about what a companion's version
@@ -73,7 +73,7 @@ func Parse(raw []byte) (string, error) {
 
 // Probe runs the version probe at path and returns the reported version. It
 // is the whole probe — exec, then decode — and the only one: internal/adapters/companions'
-// boot-time companion discovery and internal/adapters/isolation's agent-image
+// boot-time companion probe and internal/adapters/isolation's agent-image
 // version key both read a companion's version through THIS function, so the
 // two cannot disagree about what that version is.
 func Probe(path string) (string, error) {

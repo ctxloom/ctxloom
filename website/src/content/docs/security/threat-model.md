@@ -48,12 +48,12 @@ arguments of every hook and MCP server before and after (env and header values o
 fingerprint), and a diff of every changed script. A first pin lists everything the bundle
 carries.
 
-**A companion on `$PATH` is a candidate, not a program ctxloom runs.** ctxloom discovers
-companions by naming convention: its shipped companions plus any binary on `$PATH` named
-`ctxloom-companion-*` — a binary dropped into `./node_modules/.bin` included. It reads a
+**A companion on `$PATH` is not a program ctxloom runs until you register it.** ctxloom reads a
 companion's contribution by running it, so the decision is whether to execute it: a companion
-runs only when its path and content hash are on record (`ctxloom companion allow <path>`). A
-rebuilt binary at an allowed path is reported as "hash changed" until it is allowed again. The
+runs only when you registered its name (`ctxloom companion add <name>`), and nothing on `PATH`
+is run for being there — a dependency that drops `ctxloom-companion-*` into
+`./node_modules/.bin` earns nothing. The registration is a name, so a binary of a registered
+name placed earlier on `PATH` is the one that runs. The
 [`ctxloom companion`](/reference/cli/ctxloom_companion/) reference states the rule.
 
 ## What we do not defend
@@ -165,7 +165,7 @@ its next write refuses rather than overwrite your edit.
 ## The one line we hold
 
 Everything above reduces to a single invariant: **adding a git repository is the trust act.**
-Content reaches your agent only from your project, from a companion you allowed, or from a
+Content reaches your agent only from your project, from a companion you registered, or from a
 repository you added — and what a pin move would change is shown to you before it lands.
 
 We do not claim to know whether a prompt is safe. We claim to know **which repository and

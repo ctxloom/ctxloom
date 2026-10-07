@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -40,11 +39,11 @@ import (
 // downgrades fatal startup findings back to warn-and-continue.
 var degradedFlag bool
 
-// noCompanionsFlag backs the persistent --no-companions flag: skip companion
-// loadout discovery entirely. Discovery EXECUTES the companion binaries found on
-// PATH, so a run's commands/hooks/MCP/context otherwise vary with what the machine
-// has installed; this makes a run reproducible (and is what CI and hermetic tests
-// want). Env fallback: CTXLOOM_NO_COMPANIONS=1.
+// noCompanionsFlag backs the persistent --no-companions flag: run no registered
+// companion. Probing EXECUTES the registered companion binaries resolved on
+// PATH, so a run's commands/hooks/MCP/context otherwise vary with what the
+// machine has installed and registered; this makes a run reproducible (and is
+// what CI and hermetic tests want). Env fallback: CTXLOOM_NO_COMPANIONS=1.
 var noCompanionsFlag bool
 
 // sessionOwnerEnv is whether this process was started under the session-owner
@@ -399,12 +398,10 @@ func rootCommand() *cobra.Command {
 		// this stays a Set* push for now rather than churning that wiring too.
 		isolation.SetBinaryVersion(version.Version)
 
-		// A host launch puts the admitted companions first on the engine's
-		// PATH, and an agent image stages only admitted ones with an allow file
-		// for their in-image paths; admission lives in companions, which
-		// isolation does not import.
-		isolation.SetCompanionPin(pinAdmittedCompanions)
-		isolation.SetCompanionAllowFile(companions.AllowFileFor)
+		// An agent image stages the companions this machine registered, and
+		// registers them in the image's home config; the registration lives in
+		// configuration, which isolation does not read.
+		isolation.SetRegisteredCompanions(registeredCompanions)
 	})
 	resetHelpFlag(rootCmd)
 	return rootCmd
@@ -486,7 +483,7 @@ func init() {
 	// has installed. This turns that off for a reproducible run.
 	// Env fallback: CTXLOOM_NO_COMPANIONS=1.
 	rootCmd.PersistentFlags().BoolVar(&noCompanionsFlag, "no-companions", false,
-		"skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context")
+		"run no registered companion: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context")
 
 	// --config-set is the ONLY source of CLI-layer config overrides (see
 	// confload.ConfigSetFlagName's doc): a dedicated, repeatable, PERSISTENT flag

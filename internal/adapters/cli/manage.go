@@ -475,7 +475,7 @@ func runManageCheck(cmd *cobra.Command, _ []string) error {
 	// machine-readable form came to omit it entirely.
 	result.CapabilityLoss = operations.CapabilityLossByAgent(cmd.Context(), App().Engines(), cfg)
 	return emit(cmd, result, func() error {
-		printHarnessStatus(cmd.OutOrStdout(), result, result.CapabilityLoss)
+		printHarnessStatus(cmd.OutOrStdout(), result, result.CapabilityLoss, cfg.GetCompanions())
 		return nil
 	})
 }
@@ -487,7 +487,7 @@ func runManageCheck(cmd *cobra.Command, _ []string) error {
 // its "NOT carried" lines with its "wrote" lines — every wiring line here is
 // true, and a reader who sees only what ctxloom DID wire must not come away
 // with that as the whole story.
-func printHarnessStatus(w io.Writer, r *operations.HarnessStatusResult, losses []operations.AgentSurfaceLoss) {
+func printHarnessStatus(w io.Writer, r *operations.HarnessStatusResult, losses []operations.AgentSurfaceLoss, companions []string) {
 	fmt.Fprintf(w, "Project: %s\n", r.WorkDir)
 	fmt.Fprintf(w, "Statusline (HUD): %v\n\n", r.ManageStatusline)
 	for _, b := range r.Backends {
@@ -500,7 +500,7 @@ func printHarnessStatus(w io.Writer, r *operations.HarnessStatusResult, losses [
 	printSurfaceCurrencies(w, r.Surfaces)
 	renderCapabilityLosses(w, losses)
 	fmt.Fprintln(w)
-	printCompanionStatus(w)
+	printCompanionStatus(w, companions)
 }
 
 // printSurfaceCurrencies renders the DELIVERY half of the wiring report — see

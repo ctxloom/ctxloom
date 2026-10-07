@@ -16,7 +16,7 @@ The contract it owns: one published generation per process at a time, produced b
 ## Non-responsibilities
 
 - Directory discovery, the home < project layering, per-layer schema validation and the env/`--config-set` override chain — `internal/adapters/configload` (`configload.New(flags, environ, ...)`, `Sources.Read`). The reader is built ONCE at the composition root from the process's flags and environment; there is no process-global override funnel.
-- Companion discovery, admission and loadout probing — `internal/adapters/companions` (`Prober`, `Prober.ReaderSource`). The companion-side `loadout` command a companion binary embeds is `companions/loadout`, a leaf the lean binaries link without the bundle model.
+- Companion registration lookup and loadout probing — `internal/adapters/companions` (`Prober`, `Prober.ReaderSource`, which reads the registered names from `Config.GetCompanions`). The companion-side `loadout` command a companion binary embeds is `companions/loadout`, a leaf the lean binaries link without the bundle model.
 - The lockfile's pinned remote trees and the version resolver — `internal/adapters/operations` (`RemoteBundleReaders`, `BundleVersionResolver`), injected into the reader by `operations.ComposeSources`.
 - Bundle parsing and catalog resolution — `internal/core/bundles` (`bundles.Resolve`, `bundles.Loader` as a resolved-once view over a `Catalog`).
 - Composition — `operations.App` holds the one `Owner` (opened on first need) and the per-invocation switches; the CLI root installs it per invocation (`rootPersistentPreRun`), and `init` pins it to its target directory before its first read (`pinAppDir`).

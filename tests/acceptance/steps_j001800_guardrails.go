@@ -9,8 +9,8 @@
 // mechanism ctxloom itself runs. That gap is exactly what ctxloom's
 // companions (ltk, reprise) exist to close, and this journey is where their
 // loadout delivery finally gets acceptance coverage —
-// internal/core/config/companions.go's DiscoverCompanions/ProbeCompanionLoadouts
-// is thoroughly unit-tested (internal/core/config/companion_loadout_test.go) but
+// internal/adapters/companions' Prober.ProbeCompanionLoadouts is thoroughly
+// unit-tested (internal/adapters/companions/companion_loadout_test.go) but
 // had ZERO acceptance coverage before this file, in either direction (a
 // companion's content reaching the assembled surface, or its absence
 // degrading gracefully).

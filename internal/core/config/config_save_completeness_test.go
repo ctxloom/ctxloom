@@ -48,6 +48,7 @@ func fullyPopulatedFixture() Fixture {
 		IsolationBase:                "devcontainer",
 		IsolationDevcontainerService: "app",
 		IsolationEngines:             []string{"claude-code"},
+		Companions:                   []string{"acme"},
 		UI:                           UIConfig{PrefixKey: "ctrl-]", Surround: &surround},
 		SessionReapAge:               "45d",
 		SessionPurgeAge:              "180d",

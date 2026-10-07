@@ -45,7 +45,6 @@ import (
 // condition would therefore have proved nothing, which is why the observed
 // values are checked rather than merely the absence of a warning.
 func TestCompanionProbeSeams_ConcurrentProbesAreRaceFree(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
 	restoreVersion := SetCompanionVersionOutputForTesting(func(string) ([]byte, error) {
@@ -63,8 +62,8 @@ func TestCompanionProbeSeams_ConcurrentProbesAreRaceFree(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			statuses[i] = Prober{}.ProbeCompanions()
-			_, _ = Prober{}.ProbeCompanionLoadouts(context.Background())
+			statuses[i] = Prober{}.ProbeCompanions(firstPartyCompanions)
+			_, _ = Prober{}.ProbeCompanionLoadouts(context.Background(), firstPartyCompanions)
 		}(i)
 	}
 	wg.Wait()

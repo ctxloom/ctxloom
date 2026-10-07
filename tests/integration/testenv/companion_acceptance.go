@@ -9,8 +9,6 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // InstallFakeCompanion writes an executable shell script named bin (e.g.
@@ -20,8 +18,8 @@ import (
 // it would find a real companion binary on the developer's machine.
 // versionJSON/loadoutJSON are the literal stdout this fake emits for
 // `<bin> version --format json` / `<bin> loadout --format json` — the two
-// companion-loadout-protocol subcommands config.DiscoverCompanions/
-// ProbeCompanionLoadouts actually exec (see internal/core/config/companions.go).
+// companion-loadout-protocol subcommands the companion probes exec (see
+// internal/adapters/companions). The fake is then registered (RegisterCompanion).
 //
 // The PATH change is applied via storeAndSetEnv, the SAME mechanism Setup
 // uses for HOME/XDG — so TestEnvironment.Cleanup restores the original PATH
@@ -37,9 +35,31 @@ import (
 // most-recently-installed companion silently overwrote every previously
 // installed one's script into echoing ITS OWN content instead).
 func (e *TestEnvironment) InstallFakeCompanion(bin, versionJSON, loadoutDoc string) error {
+	if _, err := e.PlaceFakeCompanion(bin, versionJSON, loadoutDoc); err != nil {
+		return err
+	}
+	// REGISTRATION. A companion is executed only when its name is registered,
+	// so installing the binary is not enough to make it contribute anything.
+	// Register it the way a human does, in THIS scenario's HOME, so what these
+	// scenarios exercise is the production path rather than a bypass. A real
+	// ltk on the developer's own PATH is registered nowhere in this HOME, so
+	// it is never run — a scenario's result cannot depend on what the machine
+	// happens to have.
+	name, err := companionNameOf(bin)
+	if err != nil {
+		return err
+	}
+	return e.RegisterCompanion(name)
+}
+
+// PlaceFakeCompanion is InstallFakeCompanion without the registration: the
+// fake is on PATH and answers like a companion, and nothing registered it —
+// what a binary an npm dependency dropped on PATH looks like to ctxloom. It
+// returns the directory the fake was written to.
+func (e *TestEnvironment) PlaceFakeCompanion(bin, versionJSON, loadoutDoc string) (string, error) {
 	dir, err := os.MkdirTemp(e.Root, "fake-companion-*")
 	if err != nil {
-		return fmt.Errorf("create fake companion dir: %w", err)
+		return "", fmt.Errorf("create fake companion dir: %w", err)
 	}
 	versionVar := companionEnvVar("COMPANION_VERSION_JSON", bin)
 	loadoutVar := companionEnvVar("COMPANION_LOADOUT", bin)
@@ -52,7 +72,7 @@ esac
 `, versionVar, loadoutVar)
 	path := filepath.Join(dir, bin)
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		return fmt.Errorf("write fake companion %q: %w", bin, err)
+		return "", fmt.Errorf("write fake companion %q: %w", bin, err)
 	}
 
 	// The payloads are handed to the script via env (rather than inlined
@@ -64,40 +84,33 @@ esac
 	pathSep := string(os.PathListSeparator)
 	current := os.Getenv("PATH")
 	e.storeAndSetEnv("PATH", dir+pathSep+current)
-
-	// EXEC ADMISSION. A companion is executed only when the allow store holds
-	// a record for its path and hash, so installing the binary is not enough
-	// to make it contribute anything — it has to be allowed. Record it the way
-	// `ctxloom companion allow --yes` does, in THIS scenario's HOME, so what
-	// these scenarios exercise is the production admission path rather than a
-	// bypass.
-	//
-	// Deliberately NOT applied to companions this environment did not install:
-	// a real ltk on the developer's own PATH has no record in this scenario's
-	// HOME, so it stays refused — which is what keeps a scenario's result from
-	// depending on what the machine happens to have.
-	return e.AllowCompanion(path)
+	return dir, nil
 }
 
-// AllowCompanion records an allow for the binary at path, as its bytes are
-// now, in the scenario's HOME — so ctxloom will execute it. Exported so a
-// scenario that wants to observe the REFUSAL simply does not call it.
-//
-// The HOME store, not a project one: a scenario can hold several checkouts,
-// and a companion installed once on the machine has to be admissible in all
-// of them. HOME is the fake home this environment created and cleans up, so
-// nothing leaks to the developer's own.
-func (e *TestEnvironment) AllowCompanion(path string) error {
-	key, err := companions.ResolveCompanion(path)
+// RegisterCompanion registers name in the scenario's HOME by running
+// `ctxloom companion add <name>`: the binary must be on PATH and answer the
+// loadout probe. Exported so a scenario that wants an UNREGISTERED companion
+// on PATH simply does not call it.
+func (e *TestEnvironment) RegisterCompanion(name string) error {
+	out, err := e.Command(nil, "companion", "add", name).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("allow companion %q: %w", path, err)
-	}
-	store := companions.NewAllowStoreAt(safefs.New(),
-		filepath.Join(e.HomeDir, paths.AppDirName, paths.CompanionAllowFileName+".yaml"))
-	if _, err := store.Set(key, true); err != nil {
-		return fmt.Errorf("allow companion %q: %w", path, err)
+		return fmt.Errorf("register companion %q: %w: %s", name, err, out)
 	}
 	return nil
+}
+
+// companionNameOf is the registration name a fake companion binary answers
+// to: a first-party binary is its own name, any other is the name
+// ctxloom-companion-<name> carries.
+func companionNameOf(bin string) (string, error) {
+	if companions.BinaryName(bin) == bin {
+		return bin, nil
+	}
+	name := strings.TrimPrefix(bin, "ctxloom-companion-")
+	if companions.BinaryName(name) != bin {
+		return "", fmt.Errorf("fake companion %q is not named for any registration (want a first-party name or ctxloom-companion-<name>)", bin)
+	}
+	return name, nil
 }
 
 // companionEnvVar builds the per-bin env var name InstallFakeCompanion's fake

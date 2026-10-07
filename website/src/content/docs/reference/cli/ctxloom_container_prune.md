@@ -16,7 +16,7 @@ Remove superseded ctxloom agent images (a dry run unless --yes)
 Find the agent images ctxloom built that nothing uses any more, and — with
 --yes — remove them. Without --yes this only prints the plan.
 
-Every ctxloom commit (and every change to the admitted companion set) builds
+Every ctxloom commit (and every change to the registered companion set) builds
 a new agent image tag, and the old ones are never overwritten, so they pile
 up. Every ctxloom build also applies a one-off ownership tag (own-...) that
 no later build reuses or moves, and labels the image with it. An image is
@@ -70,7 +70,7 @@ ctxloom container prune [flags]
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
-      --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
+      --no-companions            run no registered companion: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
       --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
 ```
 

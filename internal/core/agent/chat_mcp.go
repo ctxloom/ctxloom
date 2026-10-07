@@ -13,7 +13,7 @@ import (
 // rather than through a settings-file write. The source is the one an
 // engine's MCP approach claims into its MCP registry file: bundle-shipped
 // servers (config.ResolveBundleMCPServers — the builtin
-// bundles, each discovered companion's own loadout, and the profile→bundle
+// bundles, each registered companion's own loadout, and the profile→bundle
 // cascade), so the two delivery paths cannot diverge. A name already present
 // in existing is dropped: the caller's explicit entry wins, so a
 // client-supplied session server is never duplicated. The result is

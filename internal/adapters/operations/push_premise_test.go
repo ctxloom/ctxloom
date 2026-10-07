@@ -55,7 +55,6 @@ const (
 // withholding assertion vacuously true).
 func pushPremiseCompanion(t *testing.T) {
 	t.Helper()
-	t.Cleanup(companions.AdmitEveryDiscoveredCompanionForTesting())
 
 	envelope := testsupport.RunLoadout(
 		"version: \"1.0.0\"\nfragments:\n" +
@@ -96,6 +95,7 @@ func pushPremiseConfig(t *testing.T, appDir string, defs map[string]config.Profi
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
+		Companions:   fakedCompanionNames,
 	})
 	cfg.SetRoot(safefs.NewMem(fs))
 	return cfg

@@ -15,11 +15,11 @@ Print the context, commands, hooks and MCP servers taskloom contributes to a ses
 
 loadout prints the ctxloom loadout taskloom contributes — a document with the RUN
 bundle a session consumes and the typed INIT section setup consumes — for
-ctxloom's companion discovery to seed under the source ref
-ctxloom:companion@taskloom.
+ctxloom to seed under the source ref ctxloom:companion@taskloom, once the companion
+is registered (ctxloom companion add).
 
-ctxloom's companion discovery execs `taskloom loadout --format yaml` and parses
-the document it prints.
+ctxloom execs `taskloom loadout --format yaml` and parses the document it
+prints.
 
 ```
 taskloom loadout [flags]

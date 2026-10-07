@@ -28,49 +28,11 @@ func probeWithCandidates(cands ...bundles.CompanionCandidate) bundles.CompanionP
 	}
 }
 
-// TestApplyHooks_NotAllowedCompanion_LeavesEverySurfaceUnchanged is
-// unread-spectrum: a companion on PATH that is not allowed (no record, or a
-// record for other bytes) never runs, so its hooks, MCP servers and context
-// are UNKNOWN — not empty. Writing the surfaces anyway strips its
-// contribution from them and reports success. Which surfaces it contributes to
-// is unknowable without running it, so every one is left exactly as it was,
-// and the apply says why, naming the companion and the command that allows it.
-func TestApplyHooks_NotAllowedCompanion_LeavesEverySurfaceUnchanged(t *testing.T) {
-	root, base := setupProject(t, "claude-code")
-	// A previous apply, made while ltk was allowed and ran: its contribution is
-	// on disk. Guard the guard — without it there, "unchanged" proves nothing.
-	verified := withCompanionProbe(t, base, func(context.Context) (bundles.CompanionProbe, error) {
-		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{{
-			Bin: "ltk", Path: "/opt/bin/ltk",
-			Document: []byte("run:\n  version: 1.0.0\n  mcp:\n    ltk-guard:\n      command: ltk\n      args: [mcp]\n"),
-		}}}, nil
-	})
-	applyHooksHermetically(t, verified, root, "claude-code")
-	mcp, err := os.ReadFile(filepath.Join(root, ".mcp.json"))
-	require.NoError(t, err)
-	require.Contains(t, string(mcp), "ltk-guard", "the seed apply must carry ltk's contribution")
-
-	cfg := withCompanionProbe(t, base, probeWithCandidates(
-		bundles.CompanionCandidate{Bin: "ltk", Path: "/opt/bin/ltk", Reason: bundles.CandidateUnconsented},
-	))
-	before := snapshotTree(t, afero.NewOsFs(), root)
-
-	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
-		Cfg: cfg, Backend: "claude-code", WorkDir: root, RegenerateContext: true,
-	})
-
-	assert.Equal(t, before, snapshotTree(t, afero.NewOsFs(), root), "no surface may be written while a companion's contribution is unknown")
-	require.ErrorIs(t, err, ErrCompanionNotAllowed)
-	assert.Contains(t, err.Error(), "ltk (/opt/bin/ltk)")
-	assert.Contains(t, err.Error(), "ctxloom companion allow /opt/bin/ltk --yes")
-	assert.Nil(t, result, "a refused apply reports no result a caller could mistake for an applied one")
-}
-
-// TestApplyHooks_AbsentOrProbeFailedCompanion_StillApplies is the control: a
+// TestApplyHooks_AbsentOrProbeFailedCompanion_StillApplies: a registered
 // companion that is not installed, or that answered it has no loadout,
 // contributes nothing by fact, and one whose probe failed with nothing on
-// record to carry has already been warned about by its probe. Only a
-// NOT-ALLOWED companion refuses the apply.
+// record to carry has already been warned about by its probe. None of them
+// refuses the apply.
 func TestApplyHooks_AbsentOrProbeFailedCompanion_StillApplies(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
 	t.Cleanup(selfexec.SetPathForTesting("ctxloom"))
@@ -133,7 +95,7 @@ func ltkGuardEnvelope(t *testing.T) []byte {
 }
 
 // applyWithLtkAnswering applies hooks through the REAL companion prober, with
-// ltk admitted at /opt/bin/ltk and its loadout probe answering out/err,
+// ltk registered and resolving at /opt/bin/ltk and its loadout probe answering out/err,
 // returning the apply's outcome and every warning printed.
 func applyWithLtkAnswering(t *testing.T, base *config.Config, root string, out []byte, perr error) (*ApplyHooksResult, string, error) {
 	t.Helper()
@@ -144,14 +106,13 @@ func applyWithLtkAnswering(t *testing.T, base *config.Config, root string, out [
 		}
 		return "", exec.ErrNotFound
 	}))
-	t.Cleanup(companions.AdmitEveryDiscoveredCompanionForTesting())
 	restoreProbe := companions.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return out, perr })
 	defer restoreProbe()
 	var warnings bytes.Buffer
 	restoreSink := clidiag.SetSink(&warnings)
 	defer restoreSink()
 	cfg := withCompanionProbe(t, base, func(ctx context.Context) (bundles.CompanionProbe, error) {
-		return companions.Prober{}.ProbeCompanionLoadouts(ctx)
+		return companions.Prober{}.ProbeCompanionLoadouts(ctx, []string{"ltk"})
 	})
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Cfg: cfg, Backend: "claude-code", WorkDir: root, RegenerateContext: true,

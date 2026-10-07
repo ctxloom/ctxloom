@@ -84,16 +84,12 @@ type Catalog struct {
 // CandidateReason names why a candidate has an identity but no content.
 //
 // They are different facts about the machine and imply different user
-// actions — install it, allow it, fix it, nothing — so collapsing them would be the
+// actions — install it, fix it, nothing — so collapsing them would be the
 // silent no-op this codebase's characteristic bug is made of.
 type CandidateReason string
 
 const (
-	// CandidateUnconsented: the thing that would produce the content is
-	// installed and this machine's human has not agreed ctxloom may run it.
-	// Nothing was run, so nothing was read.
-	CandidateUnconsented CandidateReason = "unconsented"
-	// CandidateProbeFailed: obtaining the content was allowed and produced
+	// CandidateProbeFailed: obtaining the content was attempted and produced
 	// nothing usable — the probe failed, timed out, or its output would not
 	// parse — and nothing earlier was on record to stand in for it.
 	CandidateProbeFailed CandidateReason = "probe-failed"
@@ -101,8 +97,8 @@ const (
 	// loadout. Unlike a failed probe this is a fact, not an unknown: it
 	// contributes nothing, and nothing needs fixing.
 	CandidateNoLoadout CandidateReason = "no-loadout"
-	// CandidateAbsent: the identity is known but nothing on this machine
-	// answers to it.
+	// CandidateAbsent: the identity is known (a registered companion) but
+	// nothing on this machine answers to it.
 	CandidateAbsent CandidateReason = "absent"
 )
 
@@ -110,18 +106,17 @@ const (
 //
 // It exists because an identity can be established more cheaply than content.
 // A companion's canonical ref is ctxloom+companion:<bin>, and <bin> comes from
-// reading directory entries on $PATH — so a companion that is present but
-// never consented to has a name, a location and a reason long before anything
-// executes it. Reporting that state is what keeps "found but not run" from
-// rendering as "not installed".
+// its registered name — so a registered companion that is missing, or whose
+// probe produced nothing, has a name and a reason without any content.
+// Reporting that state is what keeps "registered but broken" from rendering
+// as nothing at all.
 type Candidate struct {
 	// Ref is the canonical identity the content WOULD be resolvable under,
 	// were it ever obtained. It is the same key Catalog.LookupKey takes, so a
 	// caller can ask whether a candidate later became a read.
 	Ref ident.BundleKey
 	// Path is where on this machine the content would come from, or "" when
-	// nothing answers to the identity. It is what a remedy has to name — an
-	// approval keys on the file, not on the name anything may claim.
+	// nothing answers to the identity. It is what a remedy has to name.
 	Path string
 	// Reason is why there is no content.
 	Reason CandidateReason
@@ -302,8 +297,8 @@ func (c Catalog) Len() int { return len(c.reads) }
 // second discovery pass over the machine.
 //
 // Building this list EXECUTES NOTHING. Every reason it carries was established
-// by the same single pass that read the content — by looking at $PATH, at the
-// consent record, and at what an already-permitted probe returned — so asking
+// by the same single pass that read the content — by resolving the registered
+// names on $PATH and by what each probe returned — so asking
 // for it can never be the thing that runs a foreign binary.
 //
 // The copy is defensive, for the same reason Reads' is.

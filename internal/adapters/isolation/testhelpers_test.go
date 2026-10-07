@@ -139,23 +139,35 @@ func stageEngineFacts(t *testing.T, name string, mutate func(f *EngineFacts)) {
 // noCompanionsOnPath is the TestMain default: no companion resolves.
 func noCompanionsOnPath(string) (string, error) { return "", exec.ErrNotFound }
 
-// withRealCompanionLookPath restores the production companion lookup — the
-// admitted copy the injected pin provides — for one test, for the tests that
-// drive companion resolution through a real pin (SetCompanionPin) rather than
-// through the fixture. Without it TestMain's no-companions default silently
-// answers first and the pin those tests built is never consulted.
+// withRealCompanionLookPath restores the production companion lookup (the
+// host PATH) for one test. Without it TestMain's no-companions default
+// silently answers first.
 func withRealCompanionLookPath(t *testing.T) {
 	t.Helper()
 	orig := companionLookPath
-	companionLookPath = pinnedCompanionLookPath
+	companionLookPath = exec.LookPath
 	t.Cleanup(func() { companionLookPath = orig })
+}
+
+// withRegisteredCompanions registers names as this machine's companions for
+// one test (SetRegisteredCompanions).
+func withRegisteredCompanions(t *testing.T, names ...string) {
+	t.Helper()
+	orig := registeredCompanions
+	SetRegisteredCompanions(func() []string { return names })
+	t.Cleanup(func() { registeredCompanions = orig })
 }
 
 // withCompanions installs a companion fixture for one test: name -> reported
 // version, where a version of "" means the binary is PRESENT on PATH but its
-// version probe FAILS. Restored on cleanup.
+// version probe FAILS. Every name is registered. Restored on cleanup.
 func withCompanions(t *testing.T, versions map[string]string) {
 	t.Helper()
+	names := make([]string, 0, len(versions))
+	for name := range versions {
+		names = append(names, name)
+	}
+	withRegisteredCompanions(t, names...)
 	origLook, origProbe := companionLookPath, companionVersionProbe
 	paths := map[string]string{}
 	for name := range versions {

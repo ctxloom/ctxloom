@@ -203,6 +203,16 @@
       },
       "description": "Selects which engine fragments compose into the shared multi-engine agent image: each registered engine installs via its OWN official installer, in one independently-cacheable Containerfile layer. Empty/unset = every known engine (the biggest image, \"one instance runs any engine\"); an unrecognized name is dropped with a warning."
     },
+    "companions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+      },
+      "uniqueItems": true,
+      "description": "Registered companion NAMES (written by `ctxloom companion add`). Only these companions are resolved on PATH and executed: a first-party name (ltk, taskloom, reprise) resolves its own binary, any other name resolves ctxloom-companion-<name>. Names only, never a path, so one registration holds wherever the binary is installed. Nothing on PATH is used unless it is registered here."
+    },
     "agents": {
       "type": "object",
       "description": "Local-only engine\u2194profile bindings. An agent names an engine (LLM config label/backend) and the profiles composed into one assembled context. LOCAL ONLY \u2014 never shipped in a bundle or remote, and never read from anywhere but this key.",

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
@@ -213,4 +214,29 @@ func TestCatalog_CompanionRefsNamesOnlyTheCompanionReads(t *testing.T) {
 	require.NotEmpty(t, companion.DisplayName(), "guard: the fixture must carry a companion read")
 
 	assert.Equal(t, []string{companion.DisplayName()}, cat.CompanionRefs())
+}
+
+// A failure a reader filed under a bundle's canonical key answers an ask in any
+// spelling of that bundle — canonical, canonical with a version, or the URL
+// form a profile carries — so the user hears the bundle is unreadable, not
+// that it is absent.
+func TestCatalogMissing_EverySpellingReachesTheCanonicalFailure(t *testing.T) {
+	errBroken := errors.New("tree would not open")
+	const url = "https://github.com/acme/repo@bundles/kit"
+	parsed, err := remote.ParseReference(url)
+	require.NoError(t, err)
+	key, err := parsed.LockKey()
+	require.NoError(t, err)
+	br, err := ident.ParseBundleRef(string(key))
+	require.NoError(t, err)
+	versioned, err := br.WithVersion("v1.0.0")
+	require.NoError(t, err)
+	cat := Catalog{failures: map[string]error{string(key): errBroken}}
+
+	for _, ask := range []string{string(key), versioned.String(), url} {
+		err := cat.missing(ask)
+		require.ErrorIs(t, err, errs.ErrBundleUnreadable, "ask %q", ask)
+		require.ErrorIs(t, err, errBroken, "ask %q", ask)
+	}
+	require.ErrorIs(t, cat.missing("https://github.com/acme/repo@bundles/other"), errs.ErrBundleNotFound)
 }

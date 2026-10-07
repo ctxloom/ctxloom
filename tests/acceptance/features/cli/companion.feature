@@ -70,7 +70,7 @@ Feature: companion — which programs ctxloom runs alongside your session
       When I run "ctxloom companion add nowhere"
       Then the command fails
       And the output contains "ctxloom-companion-nowhere"
-      When I run "ctxloom companion list"
+      When I run "ctxloom companion list --format text"
       Then the output contains "No companions registered"
 
   Rule: remove previews by default, and applies only with --yes

@@ -43,3 +43,13 @@ func TestAwait_FormatsItsArgsOnlyOnFailure(t *testing.T) {
 	assert.Equal(t, "stdout: state", rec.fatal)
 	assert.Equal(t, 1, arg.n)
 }
+
+// A wait is bounded by its own budget, so a test that hangs spends that and
+// no more; only near the binary's deadline does the deadline bound it, early
+// enough to say which wait never ended.
+func TestWaitBudget_IsTheWaitsOwnUnlessTheDeadlineIsNearer(t *testing.T) {
+	now := time.Now()
+	assert.Equal(t, waitBudget, waitBudgetAt(now, time.Time{}, false), "no deadline: the wait's own budget")
+	assert.Equal(t, waitBudget, waitBudgetAt(now, now.Add(10*waitBudget), true), "a distant deadline is not the wait's to spend")
+	assert.Equal(t, 30*time.Second-deadlineMargin, waitBudgetAt(now, now.Add(30*time.Second), true), "a near deadline, less the margin to report in")
+}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,7 +40,7 @@ func (b *lockedBuffer) Write(p []byte) (int, error) {
 // receive that instead and assert.
 func (b *lockedBuffer) waitUntil(t *testing.T, what string, cond func(string) bool) {
 	t.Helper()
-	expired := expiry(t)
+	expired := testsupport.Expiry(t)
 	for {
 		written := b.written.wait()
 		if cond(b.String()) {
@@ -53,25 +54,13 @@ func (b *lockedBuffer) waitUntil(t *testing.T, what string, cond func(string) bo
 	}
 }
 
-// expiry bounds a wait on an event by the test binary's own deadline, less
-// enough to name the event that never came. No wait carries a deadline of its
-// own: one short enough to matter expires on an event that is merely late on
-// a loaded machine, which is a failure of the test, not of the code.
-func expiry(t *testing.T) <-chan time.Time {
-	d, ok := t.Deadline()
-	if !ok {
-		return nil
-	}
-	return time.After(time.Until(d) - 10*time.Second)
-}
-
-// await receives the event ch carries, failing only at the test's deadline.
+// await receives the event ch carries, failing when the wait runs out.
 func await[T any](t *testing.T, what string, ch <-chan T) T {
 	t.Helper()
 	select {
 	case v := <-ch:
 		return v
-	case <-expiry(t):
+	case <-testsupport.Expiry(t):
 		t.Fatalf("never received %s", what)
 		var zero T
 		return zero
@@ -126,7 +115,7 @@ func (f *stdinFeed) typeKeys(t *testing.T, s string) {
 	t.Helper()
 	select {
 	case f.chunks <- []byte(s):
-	case <-expiry(t):
+	case <-testsupport.Expiry(t):
 		t.Fatalf("the stdin reader never took %q", s)
 	}
 	await(t, "the stdin reader back for more after "+strconv.Quote(s), f.done)
@@ -324,7 +313,7 @@ func (c *armClock) waitPending(t *testing.T, n int) {
 
 func (c *armClock) waitClock(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	expired := expiry(t)
+	expired := testsupport.Expiry(t)
 	for {
 		changed := c.changed.wait()
 		if cond() {

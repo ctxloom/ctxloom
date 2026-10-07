@@ -78,17 +78,33 @@ func normalizeNumbers(v any) any {
 }
 
 // renderYAML marshals v generically via yaml.v3, using toGeneric so its
-// keys and omissions match the json: tag convention.
+// keys and omissions match the json: tag convention. It indents two spaces,
+// as every YAML file ctxloom saves does (internal/shared/yamlx.Marshal), so
+// --format yaml output and the files on disk read the same; yaml.v3's own
+// default is four. clifmt sets the indent on its own encoder rather than
+// calling yamlx, because it is a standalone leaf package that must not import
+// ctxloom internals (docs/architecture/companions/clifmt.md).
+// Its twin by shape, internal/adapters/cli's renderConfigSection, already
+// emits two-space through yamlx; the two cannot share code (this package may
+// not import yamlx, and it keys on json: tags where config keys on yaml:
+// tags), so the change here has no other copy to apply to.
+// reprise:accept-drift
 func renderYAML(w io.Writer, v any) error {
 	generic, err := toGeneric(v)
 	if err != nil {
 		return err
 	}
-	b, err := yaml.Marshal(generic)
-	if err != nil {
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(generic); err != nil {
+		_ = enc.Close()
 		return fmt.Errorf("clifmt: yaml marshal: %w", err)
 	}
-	_, err = w.Write(b)
+	if err := enc.Close(); err != nil {
+		return fmt.Errorf("clifmt: yaml marshal: %w", err)
+	}
+	_, err = w.Write(buf.Bytes())
 	return err
 }
 

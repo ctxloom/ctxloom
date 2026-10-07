@@ -330,7 +330,10 @@ Grouped by what you would have to change.
   re-resolving it. Each new pin is shown with everything it brings in. A
   reference re-pulled at the pin it already had is counted as `reinstalled`
   ("Reinstalled at their pin: N"; JSON field and item status `reinstalled`),
-  replacing `updated`.
+  replacing `updated`. A cached bundle tree checked out at a commit other
+  than its pin — a lockfile that moved through git leaves the cache behind —
+  is not installed: `deps pull` and startup sync reinstall it at the pin
+  without `--force`.
 - `session delete` actually destroys the session (it previously did not).
 - `session purge` fans out to the population that owns each destroyer.
 - `session backfill` is deleted, and nothing replaces it — see §7 for what that

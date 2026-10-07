@@ -382,3 +382,29 @@ func TestEnsureSparseWorktree_AddsTheIdentityNamedWorktreeBesideAnOldOne(t *test
 		})
 	}
 }
+
+// TestWorktreeCommit_IsTheCommitTheWorktreeHoldsAndOnlyAWorktreeAnswers. The
+// bundle cache sits inside the project's own repository, so a directory that
+// is not a linked worktree must not be answered with the enclosing
+// repository's HEAD — that would read as "at some commit" for a tree no
+// checkout produced.
+func TestWorktreeCommit_IsTheCommitTheWorktreeHoldsAndOnlyAWorktreeAnswers(t *testing.T) {
+	f := newWorktreeFixture(t)
+	f.write("bundles/v2/atelier/bundle.yaml", "version: \"1.0.0\"\n")
+	first := f.commit("one")
+	f.write("bundles/v2/atelier/bundle.yaml", "version: \"2.0.0\"\n")
+	second := f.commit("two")
+
+	wt := filepath.Join(t.TempDir(), "atelier.worktree")
+	_, err := f.cache.EnsureSparseWorktree(t.Context(), f.url, first, "bundles/v2/atelier", wt)
+	require.NoError(t, err)
+	got, err := WorktreeCommit(t.Context(), wt)
+	require.NoError(t, err)
+	assert.Equal(t, first, got, "the worktree holds the commit it was checked out at, not the clone's tip")
+
+	nested := filepath.Join(f.repo, "not-a-worktree")
+	require.NoError(t, os.MkdirAll(nested, 0o755))
+	got, err = WorktreeCommit(t.Context(), nested)
+	assert.Error(t, err, "a plain directory inside a repository is not a bundle worktree")
+	assert.NotEqual(t, second, got)
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
@@ -640,9 +641,8 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 		return item
 	}
 
-	// Skip already-installed items (unless force): lockfile entry + content
-	// retrievable from the clone cache, same probe CheckMissingDependencies
-	// uses. Nothing lives on disk in the reference-only model.
+	// Skip installed items (unless force), through the same probe
+	// CheckMissingDependencies uses: see isInstalled for what installed means.
 	if !force && isInstalled(ctx, ref, baseDir, bundles) {
 		item.Status = "skipped"
 		return item
@@ -793,16 +793,40 @@ func isInstalled(ctx context.Context, ref, baseDir string, bundles remote.Bundle
 	// tree was never written, and the resulting error told the user to run the
 	// very pull that was refusing. Measured at the flip: 16 materialized trees
 	// loaded, 25 unmaterialized ones failed, and pull called all 42 "skipped".
+	//
+	// PRESENT IS NOT INSTALLED EITHER: the tree must be checked out AT THE PIN.
+	// A committed lockfile moves through git (a branch lands, the checkout
+	// fast-forwards) without touching the gitignored cache, so a tree can sit
+	// at an old commit while the lock names a new one. Answering "the directory
+	// exists" there made pull report every such bundle skipped while the
+	// launch loaded the old trees — only --force recovered. Reinstalling at
+	// the pin never moves it; it only makes the cache match the lock.
 	if baseDir != "" {
-		tree, terr := parsedRef.LocalTreePath(baseDir)
-		if terr != nil {
-			return false
-		}
-		if _, serr := os.Stat(tree); serr != nil {
-			return false
-		}
+		return treeAtPin(ctx, parsedRef, key, baseDir, bundles)
 	}
 	return true
+}
+
+// treeAtPin reports whether ref's materialized tree exists and its worktree
+// has checked out the commit the lockfile pins.
+func treeAtPin(ctx context.Context, ref *remote.Reference, key ident.BundleKey, baseDir string, bundles remote.BundleByteSource) bool {
+	tree, err := ref.LocalTreePath(baseDir)
+	if err != nil {
+		return false
+	}
+	if _, err := os.Stat(tree); err != nil {
+		return false
+	}
+	entry, ok := bundles.LockEntryFor(key)
+	if !ok || entry.SHA == "" {
+		return false
+	}
+	worktree, err := ref.LocalWorktreePath(baseDir)
+	if err != nil {
+		return false
+	}
+	head, err := remote.WorktreeCommit(ctx, worktree)
+	return err == nil && head == entry.SHA
 }
 
 // startupCloneRefresh is the seam over the pre-probe clone refresh (test

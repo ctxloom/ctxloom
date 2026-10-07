@@ -27,7 +27,7 @@ func TestCompactedResumePreview_ShowsWhatTheHookInjects(t *testing.T) {
 
 	essence, note := compactedResumePreview("swift-amber-falcon", func(string) bool { return false })
 
-	assert.Equal(t, resumedEssenceForInjection(1, "startup", "swift-amber-falcon", resumedPartsSession), essence,
+	assert.Equal(t, resumedEssenceForInjection("startup", "swift-amber-falcon", resumedPartsSession), essence,
 		"the preview must be exactly what the SessionStart hook injects")
 	assert.Equal(t, "the decision and why", essence)
 	assert.Empty(t, note, "a current essence needs no caveat")

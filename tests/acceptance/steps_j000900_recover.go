@@ -65,11 +65,11 @@ const j000900Harp = "dana-context-exhaustion"
 // j000900SessionIDAfterClear is the session id startSessionAfter's payload
 // always carries — the NEW id claude-code's /clear reports on its
 // SessionStart. currentSessionRecoverable's gate (post rotation-lineage fix)
-// reads the session INDEX, not the transcript file: at inject-context time
-// the index still holds Dana's PRE-clear binding, because claude.go's
-// ctxloomMachineCallbacks runs inject-context BEFORE session-bind — the bind
-// that would append the rotation and re-point SessionID to this value hasn't
-// run yet. So recoverability turns on whether the index entry's CURRENT
+// reads the session INDEX, not the transcript file: at session-start time
+// the index may still hold Dana's PRE-clear binding, because claude runs a
+// SessionStart event's hooks in parallel, so session-start cannot rely on
+// session-bind — the bind that would append the rotation and re-point
+// SessionID to this value — having run yet. So recoverability turns on whether the index entry's CURRENT
 // SessionID differs from this one (a displacement about to happen), not on
 // any transcript file's content.
 const j000900SessionIDAfterClear = "vendor-session-j000900"
@@ -87,10 +87,10 @@ func startSessionAfter(w *World, source, transcript string) error {
 	if err != nil {
 		return err
 	}
-	// A context hash that resolves to nothing: this journey is about the
-	// user-facing channel, and a hook that also delivered context would let a
-	// scenario pass on the wrong half of the envelope.
-	return w.env.RunWithStdin(string(payload), "hook", "inject-context", "no-such-context")
+	// This journey is about the user-facing channel (systemMessage); the
+	// session-start hook carries no project context, and with no resume set
+	// it delivers no essence either, so nothing else is in the envelope.
+	return w.env.RunWithStdin(string(payload), "hook", "session-start")
 }
 
 // seedJ000900IndexBinding records j000900Harp bound to sessionID and points
@@ -111,7 +111,7 @@ func registerJ000900RecoverSteps(ctx *godog.ScenarioContext) {
 		// The index entry carries Dana's PRE-clear session id — a different id
 		// from the one the clear payload below will carry
 		// (j000900SessionIDAfterClear). That difference IS the recoverable
-		// signal at inject-context time (see j000900SessionIDAfterClear's doc
+		// signal at session-start time (see j000900SessionIDAfterClear's doc
 		// comment): a bound entry whose current SessionID differs from the
 		// incoming one is a displacement about to be recorded.
 		return seedJ000900IndexBinding(w, "vendor-session-j000900-preclear")

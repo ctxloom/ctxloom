@@ -80,7 +80,7 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 
 1. **`Setup` must run before `buildArgs`** — connascence of execution order. `buildArgs` reads the out-of-cwd paths off `LaunchBackend.Resolved()`, which is nil before `Setup`; `flagArgs` then contributes nothing, so the argv is *silently flagless*, not an error.
 2. **`Present` is load-bearing for argv.** `flagArgs` takes each flag's NAME from the resolved approach's own `Present(...)`, never from a constant beside it: change a declared flag and the argv changes with it.
-3. **`Path() == ""` means "emit no flag"** — the seam between delivery and argv. An approach reports `""` when it delivered nothing (empty content, or context that fell back to the injection hook), and claude must never be handed a flag naming a file that was never written.
+3. **`Path() == ""` means "emit no flag"** — the seam between delivery and argv. An approach reports `""` when it delivered nothing (empty content), and claude must never be handed a flag naming a file that was never written.
 4. **Ownership is marked by the `"ctxloom"` executable token** via `agent.IsManaged(cmd, "ctxloom")`, repeated at six call sites and deliberately verb-agnostic.
 5. **`claudeCodeHook.SCM` is `json:"-"`** because claude validates settings against a strict Zod schema (`claude.go:149`).
 6. **Writes are marker-merged or manifest-scoped, never whole-file overwrites.**

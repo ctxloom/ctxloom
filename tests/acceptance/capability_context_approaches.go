@@ -13,9 +13,10 @@
 // It cannot say WHICH delivery mechanism carried it: `run` takes the engine's
 // own default, so P0's claude cells measure the system-prompt scratch file, and
 // nothing in the suite ever exercised the other arms of the engine's
-// ApproachTable. Rows 4 and 5 of the
-// capability inventory (agent.ApproachSystemPrompt, agent.ApproachHook) were
-// claimed-but-unproven for exactly that reason. P1 holds the task, the prompt,
+// ApproachTable. Row 4 of the capability inventory
+// (agent.ApproachSystemPrompt) was claimed-but-unproven for exactly that
+// reason. (Row 5, the hook-carried approach, was retired by onectx together
+// with the approach: no hook carries context any more.) P1 holds the task, the prompt,
 // the bundle and the nonce channel constant and varies ONE line of config — the
 // agent binding's `surfaces: {context: <approach>}` preference — so a red is
 // attributable to the mechanism and to nothing else.
@@ -191,59 +192,6 @@ var approachDegradeMarkers = []approachDegradeMarker{
 	},
 }
 
-// approachHookSurfaceUndelivered reports the stderr line, if any, in which
-// production announced that it did NOT write the hook surface.
-//
-// THIS CHECK EXISTS BECAUSE ITS ABSENCE COST A FALSE FINDING. P1's first live
-// pass recorded "the codex hook finding is fixed" on the strength of
-// a green hook-pinned codex cell. The run's own stderr — captured, saved, and
-// not read — said:
-//
-//	ctxloom: warning: codex hooks and MCP servers were NOT written: codex
-//	settings/prompts/skills are delivered per-session at launch; no durable
-//	project home exists — see engine_home. ... codex's cwd-keyed AGENTS.md
-//	context is unaffected and was still written.
-//
-// There was no hook. The context arrived by AGENTS.md, which codex reads
-// natively, and the cell's entire claim was about a mechanism that had not been
-// installed. A probe that reads only stdout cannot see this: the answer is
-// correct either way.
-//
-// Matched per LINE and requiring BOTH signals, rather than on "NOT written"
-// alone: the same launch legitimately reports that other surfaces (slash-command
-// prompts, MCP) were not written, and reddening a context cell for those would
-// be a different kind of dishonesty — a red nobody can act on.
-func approachHookSurfaceUndelivered(stderr string) (string, bool) {
-	for _, line := range strings.Split(stderr, "\n") {
-		if strings.Contains(line, "NOT written") && strings.Contains(strings.ToLower(line), "hook") {
-			return strings.TrimSpace(line), true
-		}
-	}
-	return "", false
-}
-
-// approachRequiredSurfaceDelivered refuses a cell whose pinned approach depends
-// on a surface production said it did not write.
-//
-// Scoped to the hook approach because that is the only context approach that
-// rides another surface: agent.ApproachHook's own doc says it is COUPLED to the
-// settings surface (the hook travels on it), so a settings/hooks surface that
-// was never written means the pinned mechanism does not exist in that session.
-// unsafe-file and system-prompt carry themselves and are unaffected.
-func approachRequiredSurfaceDelivered(v probeVerdict, approach, stderr string) error {
-	if approach != "hook" {
-		return nil
-	}
-	line, undelivered := approachHookSurfaceUndelivered(stderr)
-	if !undelivered {
-		return nil
-	}
-	return v.fail(v.Channel.Shape,
-		fmt.Sprintf("%s — the cell pinned the %q approach, but production reported that it did NOT write the hook surface the approach rides: %q. agent.ApproachHook is coupled to the settings surface, so with no hook installed there is no hook channel, and any nonce that came back arrived some other way. Whatever this run proves, it is not about the hook.",
-			v.Channel.Shape, approach, line),
-		fmt.Sprintf("\nstderr:\n%s", stderr))
-}
-
 // approachPinHonoured is the check that separates this probe from P0: it refuses
 // a run in which production announced it was not using the pinned approach.
 //
@@ -296,9 +244,6 @@ func approachAssert(s *approachState) error {
 		return err
 	}
 	if err := approachPinHonoured(v, s.approach, s.stderr); err != nil {
-		return err
-	}
-	if err := approachRequiredSurfaceDelivered(v, s.approach, s.stderr); err != nil {
 		return err
 	}
 	got, err := v.jsonObject(trimmed)

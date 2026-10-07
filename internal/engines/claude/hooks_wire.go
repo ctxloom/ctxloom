@@ -70,11 +70,10 @@ type HookSpecificOutput struct {
 
 // --- SessionStart wire shapes ----------------------------------------------
 //
-// SessionStart is the context-injection event: Claude Code writes session
-// identity to the hook's stdin and
-// accepts an additionalContext envelope on stdout. ctxloom's hook targets
-// (`ctxloom hook inject-context`, `ctxloom hook session-bind`) sit on this
-// wire; they import these types instead of redefining them.
+// SessionStart: Claude Code writes session identity to the hook's stdin and
+// accepts an additionalContext envelope on stdout. ctxloom's SessionStart
+// hook targets sit on this wire; they import these types instead of
+// redefining them.
 
 // HookEventSessionStart is the event name carried in SessionStart decisions.
 const HookEventSessionStart = "SessionStart"
@@ -98,6 +97,12 @@ type SessionStartOutput struct {
 	// gets no recovered context but the human should know it can be pulled back.
 	SystemMessage string `json:"systemMessage,omitempty"`
 }
+
+// AdditionalContextMaxChars bounds what ctxloom puts in one hook's
+// additionalContext. Claude Code caps a single hook's additionalContext at
+// ~10,000 chars: output above that is persisted to a file and only a ~2KB
+// preview reaches the model. This keeps a safety margin under that cap.
+const AdditionalContextMaxChars = 7500
 
 // AdditionalContextOutput carries the additional context to inject. It is the
 // hookSpecificOutput of every event whose stdout becomes model-visible

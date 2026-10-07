@@ -9,9 +9,10 @@ import (
 	"github.com/spf13/afero"
 )
 
-// BaseContextProvider provides shared context management logic for backends
-// that use file-based context injection via hooks. The context file is
-// written and removed through fs.
+// BaseContextProvider writes the assembled context to its content-addressed
+// cache file for a launch, whose path reaches the engine as
+// CTXLOOM_CONTEXT_FILE, and removes it afterwards. The file is written and
+// removed through fs.
 type BaseContextProvider struct {
 	fs          afero.Fs
 	contextHash string
@@ -22,7 +23,7 @@ func NewBaseContextProvider() *BaseContextProvider {
 	return &BaseContextProvider{fs: afero.NewOsFs()}
 }
 
-// Provide writes context to a file that the session start hook will read.
+// Provide writes the context file and records its hash.
 func (c *BaseContextProvider) Provide(workDir string, fragments []*Fragment) error {
 	hash, err := WriteContextFile(workDir, fragments, WithContextFS(c.fs))
 	if err != nil {
@@ -47,11 +48,6 @@ func (c *BaseContextProvider) Clear(workDir string) error {
 	}
 	c.contextHash = ""
 	return nil
-}
-
-// GetContextHash returns the hash of the current context file.
-func (c *BaseContextProvider) GetContextHash() string {
-	return c.contextHash
 }
 
 // GetContextFilePath returns the path to the context file (for env var).

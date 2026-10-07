@@ -172,7 +172,7 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
   # in your context"), so an engine that echoes what it was sent cannot
   # produce it. It reaches the coordinator only if (a) the child process
   # really launched on that engine, (b) ctxloom really delivered the composed
-  # profile context into its first turn, (c) the engine really reasoned over
+  # profile context through the engine's context surface, (c) the engine really reasoned over
   # that context, and (d) the child really reached back through its forwarder
   # MCP server to call agent_send(to:"parent"). The assertion is on the BODY
   # BYTES that arrive in the coordinator's mailbox, never on an exit code and

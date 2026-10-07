@@ -15,13 +15,6 @@
 // surface set over an in-memory filesystem and looking at the bytes that land.
 // A test here fails the day a backend changes what an approach delivers, which
 // is the day a P1 cell would otherwise start quietly measuring something else.
-//
-// The finding below was established by reading production and is now held by
-// it:
-//
-//   - claude's ApproachHook context delivery is a documented NO-OP. Pinning it
-//     writes no context at all, which is why that cell reds — the route is not
-//     broken, it is empty by declaration.
 package acceptance
 
 import (
@@ -49,25 +42,6 @@ import (
 // reaches an engine, so it does not go through the ledger — minting here would
 // consume a cell key for a test that has no cell.
 const channelProbeHarp = "probe-structural-harp"
-
-// TestClaudeHookApproach_DeliversNothing pins the mechanism behind P1's one red.
-//
-// claude's context at ApproachHook is the shared agent.HookCarriedContext —
-// a form with no writer of its own: the context rides the settings-borne
-// inject hook plus a cache file, both of which the LAUNCH installs once it
-// sees the rider resolved. The form therefore cannot write anything, and this
-// pins that: if it ever gains a writer, the launch would double the context
-// and P1's red cell must be re-measured rather than assumed.
-func TestClaudeHookApproach_DeliversNothing(t *testing.T) {
-	form, ok := hostedDeclaration("claude-code")[agent.SurfaceContext].Construct(agent.ApproachHook, agent.SurfaceInputs{
-		Context: "The nonce for this session is " + channelProbeHarp,
-	}, safefs.NewMem(afero.NewMemMapFs()))
-	require.True(t, ok, "claude must declare its hook-carried context — the P1 cell that pins it depends on it")
-	_, writes := form.(interface {
-		Deliver(present.Start) (agent.Delivered, error)
-	})
-	require.False(t, writes, "claude's context form at ApproachHook carries no writer; one that writes would double the context")
-}
 
 // deliverContextAcrossRoots delivers engine's context the way a run does —
 // its typed approach, through the one static writer — selecting root, with
@@ -206,14 +180,4 @@ func keysOf(m map[string]string) []string {
 		out = append(out, k)
 	}
 	return out
-}
-
-// hostedDeclaration is the named engine's named-form table off the engine
-// value (agent.Hosted); empty for an engine that is not Hosted.
-func hostedDeclaration(name string) agent.Declaration {
-	h, ok := engines.Hosted(name)
-	if !ok {
-		return agent.Declaration{}
-	}
-	return h.Declaration()
 }

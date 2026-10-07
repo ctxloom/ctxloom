@@ -32,7 +32,7 @@ func TestExecToken(t *testing.T) {
 func TestIsManaged_AbsolutePathCommand(t *testing.T) {
 	for _, c := range []string{
 		"/usr/local/bin/ctxloom",
-		"/home/me/go/bin/ctxloom hook inject-context --project /work abc123",
+		"/home/me/go/bin/ctxloom hook session-start",
 		`"/Apps/My Tools/ctxloom" hook hud`,
 	} {
 		if !IsManaged(c, "ctxloom") {

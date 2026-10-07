@@ -20,8 +20,7 @@ import (
 // name-sorted for a deterministic frame.
 //
 // nil bundleMCP means no managed payload was assembled (config load failed, or
-// setup was skipped): nothing is injected, mirroring BaseLifecycle.MergeManaged's
-// no-op on a nil ManagedConfig.
+// setup was skipped): nothing is injected.
 func ComposeChatMCPServers(bundleMCP map[string]wire.MCPServer, existing []ChatMCPServer) []ChatMCPServer {
 	if bundleMCP == nil {
 		return nil

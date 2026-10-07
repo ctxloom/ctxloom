@@ -55,12 +55,10 @@ func newClaudeCode(kind Claude) *ClaudeCode {
 	b.BaseBackend = agent.NewBaseBackend(EngineName, "1.0.0")
 	b.BinaryPath = "claude"
 	// claude routes launch-time surface delivery through the surfaces × cells
-	// seam. In a SharedCell context/MCP/settings ride out-of-cwd launch flags (the
-	// SessionStart context-injection hook stays suppressed); in an isolated cell
+	// seam. In a SharedCell context/MCP/settings ride out-of-cwd launch flags; in an isolated cell
 	// they land as well-known files in the private working dir. The Build closure
 	// stashes the concrete Surfaces so buildArgs can read the flag files' paths.
 	b.InitLaunch(
-		agent.NewBaseLifecycle(EngineName),
 		agent.NewBaseContextProvider(),
 		kind.Declaration(),
 	)

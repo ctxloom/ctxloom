@@ -19,8 +19,10 @@ committing any of it, takes it back out again to see what is left behind.
 
 Each scenario below is one beat of that hour:
 
-- **Wiring in** — after one command, a fresh assistant session receives the
-  project's context automatically. Nobody copies a prompt anywhere.
+- **Wiring in** — after one command, her assistant's sessions start through
+  ctxloom's session-start hook. The project's context itself reaches a session
+  that `ctxloom run` starts, as its system prompt; nobody copies a prompt
+  anywhere.
 - **Verifying** — the tool's own report has to agree with what is on disk. A
   status command that says "wired" over a project where nothing was written is
   worse than no status command at all, because it answers exactly the question
@@ -40,7 +42,7 @@ statusline entry, what each engine's own config surfaces look like — belong to
 the `manage` command's own reference page, not to this story.
 
 That split has teeth. The reference owns the exact proofs precisely because
-they are exacting — telling the context hook apart from the statusline entry
+they are exacting — telling the session-start hook apart from the statusline entry
 needs a pattern, not a substring, since the two overlap textually. Keeping that
 rigour in one place is what lets this page stay a story without either page
 proving less.

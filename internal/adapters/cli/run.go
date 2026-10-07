@@ -199,9 +199,9 @@ func resumeFullContext(existing, harp string, entriesFn func(string) ([]agent.Se
 }
 
 // resumeCompactEnv is the compacted-resume mode's env source: the
-// CTXLOOM_RESUMED_FROM/CTXLOOM_RESUMED_PARTS pair that hook_inject_context.go's
-// resumedEssenceForInjection (SessionStart hook) and mcp_server.go's
-// sessionInstructions already know how to consume. PARTS is "session" so
+// CTXLOOM_RESUMED_FROM/CTXLOOM_RESUMED_PARTS pair that the session-start
+// hook's resumedEssenceForInjection and the MCP session instructions
+// (operations.sessionLine) consume. PARTS is "session" so
 // resumePartsIncludeSession's essence gate opens; a compacted resume restores
 // no tasks.
 //
@@ -210,8 +210,7 @@ func resumeFullContext(existing, harp string, entriesFn func(string) ([]agent.Se
 // compactor path, session_cmd.go's runSessionCompact/operations.CompactEntry/
 // memory.NewCompactor) so compact-on-demand is unit-testable without
 // shelling out. A compact failure warns rather than blocking launch; the
-// SessionStart hook's own readHarpEssence call then simply finds nothing and
-// omits the essence block.
+// session-start hook then simply finds no essence and delivers none.
 //
 // It compacts when the essence is MISSING or STALE: a harp /clear'd since its
 // last compact still has SOME essence, and resuming from it would silently
@@ -248,7 +247,7 @@ const resumedPartsSession = "session"
 // engine starts, which writes the essence and the session index. A preview
 // writes nothing, so it names what the launch would do instead of doing it.
 func compactedResumePreview(harp string, staleFn func(string) bool) (essence, note string) {
-	essence = resumedEssenceForInjection(1, "startup", harp, resumedPartsSession)
+	essence = resumedEssenceForInjection("startup", harp, resumedPartsSession)
 	switch {
 	case essence == "":
 		note = fmt.Sprintf("%s is not compacted yet; the launch compacts it on demand before the session starts", harp)
@@ -1106,7 +1105,7 @@ func printResumedEssence(payload dryRunJSON) {
 // mechanism. Full resume (--session without --compact) carries its transcript
 // as a trailing context block (resumedTranscript); it still sets CTXLOOM_RESUMED_FROM/
 // PARTS="transcript" so the session instructions surface the "resumed from"
-// note, with a PARTS value the SessionStart hook's essence injection ignores
+// note, with a PARTS value the session-start hook's essence delivery ignores
 // (the content already rode the fragment path — no double-injection).
 func (st *runState) resumeEnv() map[string]string {
 	switch {

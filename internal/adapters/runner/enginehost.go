@@ -96,8 +96,8 @@ type Runner interface {
 // delivered: the launch itself, the session bound to the engine (Instance)
 // and the exec composed over what delivery produced (Instance.Exec over
 // Presented), the MCP servers the engine was pointed at, and the first
-// turn's lead (the composed context ahead of the prompt on a fresh spawn;
-// the prompt alone on a native-key resume). A structured launch is driven
+// turn: the launch's prompt. The composed context is not part of it — it
+// reaches the engine through its delivered context surface. A structured launch is driven
 // one discrete engine process per turn (Instance.Drivers); an interactive
 // one on the runner's terminal.
 type Turn struct {

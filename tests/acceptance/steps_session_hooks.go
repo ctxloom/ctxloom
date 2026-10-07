@@ -1,7 +1,7 @@
 //go:build acceptance
 
 // The hidden machine callbacks (session_hooks.feature): `hook
-// inject-context`, `hook session-bind`, `hook stamp-plan` and `hook hud`.
+// session-start`, `hook session-bind`, `hook stamp-plan` and `hook hud`.
 //
 // Every assertion about what a hook DELIVERS reads stdout alone, never the
 // combined stream. That is not fastidiousness: stdout is the host engine's
@@ -23,7 +23,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// hookEnvelope is the SessionStart hook output shape both inject-context and
+// hookEnvelope is the SessionStart hook output shape both session-start and
 // session-bind emit. Declared here rather than imported from internal/adapters/cli so a
 // change to the wire shape shows up as a deliberate update on the test side
 // too — this is the contract with a THIRD party (the host engine), and a

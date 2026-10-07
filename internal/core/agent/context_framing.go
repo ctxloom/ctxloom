@@ -1,10 +1,8 @@
 package agent
 
-// Framing for the assembled project context delivered to an engine. ONE source
-// of truth: the SessionStart inject-context hook (cli.buildInjectContextOutput,
-// used by any chunked delivery) and claude's native
-// --append-system-prompt-file delivery (FrameProjectContext) both compose from
-// these constants, so the two delivery paths can't drift.
+// Framing for the assembled project context delivered to an engine: claude's
+// native --append-system-prompt-file delivery (FrameProjectContext) composes
+// from these constants.
 
 // ProjectContextHeader is the heading atop the assembled project context.
 const ProjectContextHeader = "# Project Context (assembled by ctxloom)"
@@ -28,9 +26,7 @@ const ProjectContextPreamble = "\n\n_The content below was assembled by ctxloom 
 // envelope (header + preamble + <ctxloom-context> block), the whole-file form
 // claude loads natively via --append-system-prompt-file. Empty content yields
 // "" so an empty context delivers nothing rather than a misleading "content
-// loaded" header. The chunked, per-segment variant used by the SessionStart
-// hook lives in cli.buildInjectContextOutput and composes from the same
-// constants; buildInjectContextOutput's single-shot output is identical to this.
+// loaded" header.
 func FrameProjectContext(content string) string {
 	if content == "" {
 		return ""

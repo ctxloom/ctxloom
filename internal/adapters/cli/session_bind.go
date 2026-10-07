@@ -51,8 +51,8 @@ func runSessionBind(cmd *cobra.Command, args []string) error {
 	// Emit the deterministic harp self-id marker as SessionStart context so
 	// the transcript carries a greppable owner tag, independent of the index,
 	// the binding, or PID bookkeeping. This is the SessionStart hook installed
-	// for every ctxloom session, so it identifies the harp even when no
-	// project context (inject-context) is configured. Best-effort: a hook must
+	// for every ctxloom session, so it identifies the harp whatever else the
+	// session starts with. Best-effort: a hook must
 	// never fail the host backend's startup, so failures past this point only
 	// skip the index bind — the marker is already on stdout.
 	emitHarpMarker(cmd.OutOrStdout(), harp)
@@ -63,7 +63,7 @@ func runSessionBind(cmd *cobra.Command, args []string) error {
 }
 
 // emitHarpMarker writes the harp self-id marker to w as a SessionStart hook
-// output (the same envelope inject-context uses), so the backend injects it into
+// output (the same envelope session-start uses), so the backend injects it into
 // the session and it lands in the transcript.
 //
 // The marker is the only index-independent statement of which harp owns a

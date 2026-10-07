@@ -20,7 +20,7 @@ func TestBaseContextProvider_ClearReportsRemovalFailureAndKeepsTheHash(t *testin
 	p := NewBaseContextProvider()
 	require.NoError(t, p.Provide(work, []*Fragment{{Content: "project rules"}}))
 
-	hash := p.GetContextHash()
+	hash := p.contextHash
 	require.NotEmpty(t, hash)
 	path := filepath.Join(work, SCMContextSubdir, hash+".md")
 	require.FileExists(t, path)
@@ -39,13 +39,13 @@ func TestBaseContextProvider_ClearReportsRemovalFailureAndKeepsTheHash(t *testin
 	err := p.Clear(work)
 	require.Error(t, err, "a cleanup that did not happen must not be reported as success")
 	assert.Contains(t, err.Error(), hash, "the error must name the file that leaked")
-	assert.Equal(t, hash, p.GetContextHash(),
+	assert.Equal(t, hash, p.contextHash,
 		"the hash is the only handle on the leaked file — clearing it makes the failure unrecoverable")
 
 	// Once the obstruction is gone the retry the preserved hash enables succeeds.
 	require.NoError(t, os.Remove(filepath.Join(path, "occupant")))
 	require.NoError(t, p.Clear(work))
-	assert.Empty(t, p.GetContextHash(), "a successful Clear releases the hash")
+	assert.Empty(t, p.contextHash, "a successful Clear releases the hash")
 }
 
 // An already-absent context file is a SUCCESSFUL clear, not a failure: Clear's
@@ -56,11 +56,11 @@ func TestBaseContextProvider_ClearIsIdempotentWhenTheFileIsAlreadyGone(t *testin
 	p := NewBaseContextProvider()
 	require.NoError(t, p.Provide(work, []*Fragment{{Content: "project rules"}}))
 
-	hash := p.GetContextHash()
+	hash := p.contextHash
 	require.NoError(t, os.Remove(filepath.Join(work, SCMContextSubdir, hash+".md")))
 
 	require.NoError(t, p.Clear(work), "an already-absent file is not a cleanup failure")
-	assert.Empty(t, p.GetContextHash())
+	assert.Empty(t, p.contextHash)
 
 	// And with no hash at all Clear is a no-op that still succeeds.
 	require.NoError(t, p.Clear(work))

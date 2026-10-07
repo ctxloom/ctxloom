@@ -1,6 +1,6 @@
 # agent — backend contract and base embeddables
 
-`internal/core/agent` is the engine-agnostic substrate: it declares what every LLM backend must implement (`Backend`, `ContextProvider`, `SettingsReader`) and supplies the embeddable state every concrete engine reuses (`BaseBackend`, `BaseLifecycle`, `BaseContextProvider`). It owns the process-launch seam (`Launcher`/`LaunchSpec`), so `os/exec` and pty handling stay outside this package. It sits at the bottom of the import graph — 26 internal packages import it and it imports only `internal/core/paths`, `internal/adapters/selfexec`, `internal/shared/{clidiag,collections,safefs,wire}`; nothing here reaches back up into config, bundles, or CLI.
+`internal/core/agent` is the engine-agnostic substrate: it declares what every LLM backend must implement (`Backend`, `ContextProvider`, `SettingsReader`) and supplies the embeddable state every concrete engine reuses (`BaseBackend`, `BaseContextProvider`). It owns the process-launch seam (`Launcher`/`LaunchSpec`), so `os/exec` and pty handling stay outside this package. It sits at the bottom of the import graph — 26 internal packages import it and it imports only `internal/core/paths`, `internal/adapters/selfexec`, `internal/shared/{clidiag,collections,safefs,wire}`; nothing here reaches back up into config, bundles, or CLI.
 
 ```mermaid
 classDiagram
@@ -35,12 +35,6 @@ classDiagram
         -workDir string
         -launcher Launcher
     }
-    class BaseLifecycle {
-        -backendName string
-        -hooks *wire.HooksConfig
-        -mcp *wire.MCPConfig
-        -bundleMCP map
-    }
     class BaseContextProvider {
         -contextHash string
     }
@@ -48,8 +42,6 @@ classDiagram
     BaseBackend --> Launcher : run() delegates
     BaseBackend --> LaunchSpec : builds
     BaseContextProvider ..|> ContextProvider
-    BaseLifecycle ..> ComposeChatMCPServers
-    BaseLifecycle ..> NewContextInjectionHooks
     BaseContextProvider ..> WriteContextFile
 
     class LaunchBackend
@@ -95,16 +87,10 @@ classDiagram
 | `BaseBackend.BuildEnv` | `internal/core/agent/base.go:128` | `os.Environ()` + backend env + request env, appended in that order. |
 | `BaseBackend.RunInteractive` / `.RunNonInteractive` | `internal/core/agent/base.go:142` / `:149` | Named entry points that call `run` with/without a pty. |
 | `BaseBackend.run` | `internal/core/agent/base.go:155` | Builds the `LaunchSpec` and calls the launcher; fails loud (exit 1) if no launcher was injected. |
-| `BaseLifecycle` | `internal/core/agent/base_lifecycle.go:12` | Folds a host-assembled `ManagedConfig` into merged hook/MCP state that `Setup` reads back. |
-| `NewBaseLifecycle` | `internal/core/agent/base_lifecycle.go:20` | Constructor; binds the backend name used by `ChatMCPServers`. |
-| `BaseLifecycle.MergeManaged` | `internal/core/agent/base_lifecycle.go:39` | Merges the payload and appends the context-injection hook. |
-| `BaseLifecycle.GetHooks` / `.GetMCP` | `internal/core/agent/base_lifecycle.go:95` / `:100` | Read half of the merge; both return nil before `MergeManaged` runs. |
-| `BaseLifecycle.ChatMCPServers` | `internal/core/agent/base_lifecycle.go:90` | Delegates to `ComposeChatMCPServers`, binding the backend name. |
-| `BaseContextProvider` | `internal/core/agent/base_context.go:10` | Hash-keyed context-file lifecycle for the hook/file engines. |
+| `BaseContextProvider` | `internal/core/agent/base_context.go:10` | Hash-keyed context-file lifecycle; the file's path reaches the launched engine as `CTXLOOM_CONTEXT_FILE`. |
 | `NewBaseContextProvider` | `internal/core/agent/base_context.go:15` | Zero-value constructor. |
 | `BaseContextProvider.Provide` | `internal/core/agent/base_context.go:20` | Writes the context file and records its hash. |
 | `BaseContextProvider.Clear` | `internal/core/agent/base_context.go:30` | Removes the context file and clears the hash. |
-| `BaseContextProvider.GetContextHash` | `internal/core/agent/base_context.go:40` | Getter satisfying `HashedContext`. |
 | `BaseContextProvider.GetContextFilePath` | `internal/core/agent/base_context.go:45` | Recomputes the relative path from the hash. |
 
 ## Cross-cutting value types
@@ -122,8 +108,7 @@ classDiagram
 - **`NewBaseBackend` is the only safe constructor.** It initializes `Args` and `Env` to non-nil (`base.go:88`). A zero-value `BaseBackend` passed to `ApplyLocalCLIConfig` panics on assignment into a nil `Env` map — real behaviour, not documented.
 - **`BaseBackend.WorkDir()` returns `"."` when unset**, so callers never see an empty work dir.
 - **`BuildEnv` appends rather than overrides.** Duplicate keys are emitted and correctness relies on `os/exec`'s last-wins semantics.
-- **`MergeManaged` must be called before `GetHooks`/`GetMCP`.** Both return nil until then. A nil `ManagedConfig` makes `MergeManaged` return silently.
-- **`Provide` must be called before `GetContextHash`/`GetContextFilePath`.** Both return `""` beforehand.
+- **`Provide` must be called before `GetContextFilePath`.** It returns `""` beforehand.
 - **`BaseContextProvider` re-derives the context-file path** as `SCMContextSubdir + hash + ".md"` (`base_context.go:32`, `:49`) rather than asking `WriteContextFile` — the naming scheme lives in two places and must be changed in both.
 - **`Clear` always returns nil and always clears `contextHash`** even when the removal failed — the `error` return is decorative and the hash needed to retry is discarded. Diverges from the `ContextProvider.Clear(workDir) error` signature's implied contract.
 - **`ExecutionMode` values are pinned to the proto enum** (`= 0`, `= 1`); the pin is not documented at the constant site.

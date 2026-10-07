@@ -5,10 +5,10 @@ engine config file invokes, never a human. Each subcommand registers itself on
 `hookCmd` from its own file's `init()`, so the namespace's membership is
 discoverable from `hookCmd.AddCommand` call sites, not from `hook.go`. Their
 shared contract is **a hook must never fail the host tool call**: every
-failure warns and returns nil, so the engine's own operation proceeds. `hook
-inject-context` is the single most load-bearing command in the package — it is
-the **only** path by which a claude session launched outside `ctxloom run`
-receives assembled project context.
+failure warns and returns nil, so the engine's own operation proceeds. No hook
+delivers the project's assembled context: that reaches claude once, as the
+system prompt of a session `ctxloom run` launches, and a claude started by hand
+gets none.
 
 ## Structure
 
@@ -16,7 +16,7 @@ receives assembled project context.
 flowchart TD
     HC["hookCmd — hook.go (hidden)"]
     HC --> HUD["hud — hook_hud.go"]
-    HC --> IC["inject-context &lt;hash&gt; — hook_inject_context.go"]
+    HC --> IC["session-start — hook_session_start.go"]
     HC --> SP["stamp-plan — hook_stamp_plan.go"]
     HC --> SB["session-bind — session_bind.go"]
     HC --> MD["mail-drain — hook_mail_drain.go"]
@@ -30,18 +30,14 @@ flowchart TD
     RHH --> CSM2["contextSample → recordContextSample"]
     RHH --> FH["formatHud → contextBar / contextBarColor"]
 
-    IC --> RWD["resolveInjectContextWorkDir<br/>--project → CTXLOOM_ROOT → git root → '.'"]
-    IC --> RCF["agent.ReadContextFile(hash)"]
-    RCF --> SEL["selectChunk (part of total)"]
-    SEL --> AT["agent.AwaitTurn — flock rendezvous, ContextRendezvousTimeout cap<br/>(only when total > 1 and the chunk is non-empty)"]
-    SEL --> BICO["buildInjectContextOutput<br/>&lt;ctxloom-context&gt; envelope"]
     IC --> REI["resumedEssenceForInjection"]
     REI --> SIRE["shouldInjectResumedEssence (source not in {clear,compact})"]
     REI --> RPIS["resumePartsIncludeSession (empty ⇒ true)"]
-    REI --> BICO
-    CRM["clearRecoveryMessage → currentSessionRecoverable"] --> BICO
-    ASN["agentSetupNudge"] --> BICO
-    BICO --> OUT["json.Encoder → stdout (HookOutput)"]
+    REI --> BSSO["buildSessionStartOutput<br/>&lt;ctxloom-resumed-session&gt; envelope, cut to AdditionalContextMaxChars"]
+    CRM["clearRecoveryMessage → currentSessionRecoverable"] --> SMSG["systemMessage (textblocks.Join)"]
+    ASN["agentSetupNudge"] --> SMSG
+    BSSO --> OUT["json.Encoder → stdout (HookOutput)"]
+    SMSG --> OUT
 
     SP --> PEP["parseEditPayload<br/>wrapped | bare shapes"]
     PEP --> MEM["memory.IsPlanFile / StampPlanFile"]
@@ -55,27 +51,30 @@ flowchart TD
     TR --> BTRO["buildToolReflectOutput"]
 ```
 
-## `hook inject-context <hash>` — the context delivery seam
+## `hook session-start` — the resumed essence and the session-start notices
 
-The generated `settings.json` for each engine bakes in a **content hash**; the
-hook reads the cached context file for that hash and emits a `HookOutput` JSON
-envelope on stdout that the engine injects as additional context. `HookOutput`
-and `HookSpecificOutput` are type aliases onto the claude engine's hook output
-types, so the wire shape has one owner.
+ctxloom's one SessionStart callback, registered unconditionally among
+ctxloom's own hooks (`managedhooks.appendManagedDynamicHooks`) with no
+arguments. It writes a `HookOutput` JSON envelope on stdout. `HookOutput` and
+`HookSpecificOutput` are type aliases onto the claude engine's hook output
+types, so the wire shape has one owner. It **never** carries the project's
+context.
 
-- `resolveInjectContextWorkDir` — `--project` flag → `CTXLOOM_ROOT` → git root
-  → `"."`.
-- `selectChunk` — picks chunk `part` of `total` when a context is split across
-  several hook registrations (`--part`, `--of`).
-- `buildInjectContextOutput` — wraps the chunk in the `<ctxloom-context>`
-  envelope; returns an empty `HookOutput` for empty content with no essence.
-- `resumedEssenceForInjection` — looks up the resumed harp's essence, driven by
-  `CTXLOOM_RESUMED_FROM` / `CTXLOOM_RESUMED_PARTS`. `shouldInjectResumedEssence`
-  is the policy: skip when the SessionStart source is `clear` or `compact`.
+- `resumedEssenceForInjection` — reads the resumed harp's essence, driven by
+  `CTXLOOM_RESUMED_FROM` / `CTXLOOM_RESUMED_PARTS` (set by `ctxloom run
+  --session <harp> --compact`). `shouldInjectResumedEssence` is the policy:
+  skip when the SessionStart source is `clear` or `compact`.
   `resumePartsIncludeSession` is CSV membership where **empty means true**.
-- `clearRecoveryMessage` — the post-`/clear` `/recover` nudge, gated by
+- `buildSessionStartOutput` — frames the essence as `additionalContext` in a
+  `<ctxloom-resumed-session>` block. Claude Code shows the model only a short
+  preview of a hook's `additionalContext` past ~10,000 characters, so the body
+  is held to `claude.AdditionalContextMaxChars` (7,500). A longer essence is
+  cut, not dropped: the model gets what fits, then a pointer to the essence
+  file (`essencePathOf`) and to `/recover`.
+- `clearRecoveryMessage` — the post-`/clear` `/recover` notice, gated by
   `currentSessionRecoverable`. `agentSetupNudge` — the "profiles but no agents"
-  nudge.
+  nudge. Both are user-facing, so they ride `systemMessage`, joined when both
+  fire.
 
 ## `hook hud` — the statusline
 
@@ -127,17 +126,12 @@ its mail is its runner's to deliver.
 ## Invariants
 
 - **A hook never fails the host tool call.** Every failure path warns via
-  `clidiag` and returns nil. `runHookInjectContext` additionally installs a
-  deferred `recover()` that prints `{}` on panic.
-- **`hook inject-context` is the sole context-delivery path for sessions not
-  launched by `ctxloom run`.** `ctxloom run` writes the context file
-  (`agent.WriteContextFile`) and the hook reads it back (`agent.ReadContextFile`)
-  — the same cache file, the same hash, both directions. A missing file is an
-  error the hook warns about, not empty context delivered silently.
-- **Chunked delivery rendezvouses.** When `total > 1` and the chunk is
-  non-empty, `agent.AwaitTurn` (a flock-based rendezvous bounded by
-  `agent.ContextRendezvousTimeout`) serialises the parts so they arrive in
-  order.
+  `clidiag` and returns nil. `runHookSessionStart` additionally installs a
+  deferred `recover()` that prints `{}` on panic and still exits non-zero, so
+  a crash is not mistaken for "nothing to deliver".
+- **No hook delivers the project's context.** The assembled context reaches a
+  claude session once, as its system prompt. `hook session-start` delivering
+  it too would double it, so it reads no context cache and takes no hash.
 - **Resume essence is suppressed for `/clear` and `/compact`**
   (`shouldInjectResumedEssence`), because those sources already carry their
   own continuation.

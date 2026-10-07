@@ -1087,9 +1087,9 @@ func TestLoadSettings_UnreadableStatusLineIsRefusedNotDropped(t *testing.T) {
 // is why claudeCodeHook carries none; the ownership record plus ctxloom's own machine
 // callbacks are the whole claim.
 //
-// The control matters: an inject-context hook in the SAME file must still be
-// reconciled away, or this test would pass just as well against a writer that
-// removed nothing at all.
+// The control matters: the install must still land (its statusLine appears),
+// or this test would pass just as well against a writer that wrote nothing at
+// all.
 func TestInstall_HandAuthoredCtxloomHookSurvives(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	w := &ClaudeCodeHookWriter{FS: fs}

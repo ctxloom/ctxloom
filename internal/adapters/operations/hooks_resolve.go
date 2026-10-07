@@ -143,8 +143,8 @@ func ResolveHooks(ctx context.Context, req ResolveHooksRequest) (*ResolveHooksRe
 	// reported as something that will fire.
 
 	// The context-injection hook is not in this report: Assemble never
-	// synthesises it — each writer appends it from a hash it is about to
-	// write down (applyHooksToBackend, BaseLifecycle.MergeManaged) — and a
+	// synthesises it — the at-rest writer (applyHooksToBackend) appends it
+	// from a hash it is about to write down — and a
 	// hook whose identity is an artefact of having asked the question is not
 	// inspection.
 	assembled := managedhooks.Assemble(cfg, req.Profiles)

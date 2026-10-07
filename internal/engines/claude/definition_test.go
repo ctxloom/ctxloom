@@ -377,7 +377,7 @@ func TestDeclaration_IsDerivedFromTheDefinition(t *testing.T) {
 		}
 		require.NotEmpty(t, decl.Names(kind), "kind %v has no runtime forms", kind)
 	}
-	require.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachSystemPrompt, agent.ApproachHook}, decl.Names(agent.SurfaceContext))
+	require.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachSystemPrompt}, decl.Names(agent.SurfaceContext))
 	def, _ := decl.Default(agent.SurfaceMCP)
 	require.Equal(t, ApproachMCPConfig, def)
 }

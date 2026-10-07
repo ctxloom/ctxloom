@@ -32,7 +32,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 )
 
 // Deps are the runner's ports, composed once per process.
@@ -322,7 +321,7 @@ func deliverAndDrive(ctx context.Context, deps Deps, l launch.Launch, inst engin
 	if err != nil {
 		return delivery.Delivered{}, fmt.Errorf("runner: deliver the launch: %w", err)
 	}
-	if err := drive(ctx, deps, l, inst, pkg, inputs, approval, delivered); err != nil {
+	if err := drive(ctx, deps, l, inst, inputs, approval, delivered); err != nil {
 		if delivered.Undo != nil {
 			if uerr := delivered.Undo(context.WithoutCancel(ctx)); uerr != nil {
 				err = errors.Join(err, fmt.Errorf("runner: reverse the delivery: %w", uerr))
@@ -335,7 +334,7 @@ func deliverAndDrive(ctx context.Context, deps Deps, l launch.Launch, inst engin
 
 // drive composes the engine's exec over what was delivered and drives the
 // first turn.
-func drive(ctx context.Context, deps Deps, l launch.Launch, inst engine.Instance, pkg composite.Package, inputs delivery.Inputs, approval *approvalSpec, delivered delivery.Delivered) error {
+func drive(ctx context.Context, deps Deps, l launch.Launch, inst engine.Instance, inputs delivery.Inputs, approval *approvalSpec, delivered delivery.Delivered) error {
 	ex, err := inst.Exec(delivered.Presented)
 	if err != nil {
 		return fmt.Errorf("runner: compose the engine's exec: %w", err)
@@ -359,7 +358,7 @@ func drive(ctx context.Context, deps Deps, l launch.Launch, inst engine.Instance
 		Exec:       ex,
 		Wake:       deps.Kind.Wake(),
 		MCPServers: agent.ComposeChatMCPServers(inputs.MCP.Servers, nil),
-		Prompt:     firstTurn(pkg, l),
+		Prompt:     l.Prompt,
 		Presented:  delivered.Presented,
 		approval:   approval,
 	}
@@ -375,16 +374,6 @@ func mcpFileOf(d delivery.Delivered) string {
 		}
 	}
 	return ""
-}
-
-// firstTurn is the first turn's lead: the composed context ahead of the
-// prompt on a fresh spawn; the prompt alone when the engine resumes its own
-// recorded session by native key.
-func firstTurn(pkg composite.Package, l launch.Launch) string {
-	if l.Resume.NativeKey != "" {
-		return l.Prompt
-	}
-	return textblocks.Join(pkg.Context.Text, l.Prompt)
 }
 
 // uncuratedEnv is every variable of this process a curated engine must not

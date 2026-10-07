@@ -16,7 +16,7 @@ import (
 // between them. If coordinator mail is already queued at standup
 // (issueStartRun's opportunistic pushMail, called immediately after
 // startRun returns), its delivery can win that race and land as the
-// child's FIRST turn, with the briefing (composed context + prompt)
+// child's FIRST turn, with the briefing (the launch's prompt)
 // arriving SECOND — every signal still reports success.
 //
 // This test forces the race directly: it registers the turn sink via

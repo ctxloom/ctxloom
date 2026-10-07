@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -132,9 +131,7 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 	applied, retracted, applyErrors, err := applyHooksToBackends(ctx, reg, hookApplyParams{
 		dryRun:       req.DryRun,
 		backendNames: backendNames,
-		freshCfg:     freshCfg,
 		workDir:      workDir,
-		contextHash:  contextHash,
 		pkg:          pkg,
 		root:         root,
 	})
@@ -399,9 +396,7 @@ func ConfiguredEngines(reg engine.Registry, cfg *config.Config) []string {
 // hookApplyParams bundles the per-backend apply inputs (shared across the loop).
 type hookApplyParams struct {
 	backendNames []string
-	freshCfg     *config.Config
 	workDir      string
-	contextHash  string
 	// pkg is the one package the surfaces are written from.
 	pkg  composite.Package
 	root safefs.Root
@@ -433,46 +428,31 @@ func applyHooksToBackends(ctx context.Context, reg engine.Registry, p hookApplyP
 	return applied, retracted, applyErrors, nil
 }
 
-// contextRidesTheHook decides, from the engine's declaration alone, how
+// contextRidesTheLaunch decides, from the engine's declaration alone, how
 // the context reaches it with ctxloom IN the loop: an engine whose context
-// approach is told on argv (a launch-time channel, nothing it opens at
-// rest) and which fires a session-start hook takes the context LIVE
-// through the injection hook; an engine that opens a context file reads
-// the file written at rest.
-func contextRidesTheHook(root engine.Base, exports engine.Exports) bool {
+// approach is told on argv (a launch-time channel, nothing it opens at rest)
+// takes the context at launch, so nothing at rest carries it; an engine that
+// opens a context file reads the file written at rest.
+func contextRidesTheLaunch(root engine.Base) bool {
 	a, ok := root.Surfaces()[present.Context]
-	return ok && a.Traits().Channel == present.ChannelArgv && exports.HookEvent["session_start"] != ""
+	return ok && a.Traits().Channel == present.ChannelArgv
 }
 
 // applyHooksToBackend delivers the package AT REST into the project root
 // for one engine — the ONE static writer over the at-rest plan, under the
-// project writer's record. The context reaches an engine that fires a
-// session-start hook through the injection hook the package now carries
-// (contextHash names the cache the hook reads), and any other engine as its
-// native file at the project root. A dry run stops before the write.
+// project writer's record. An engine that takes its context at launch gets
+// none here (a CLAUDE.md beside the system prompt would double it), and a
+// section a prior delivery claimed is withdrawn; any other engine gets its
+// native context file at the project root. A dry run stops before the write.
 func applyHooksToBackend(ctx context.Context, reg engine.Registry, backendName string, p hookApplyParams) (retracted []string, err error) {
 	kind, ok := reg.Lookup(engine.Name(backendName))
 	if !ok {
 		return nil, fmt.Errorf("failed to apply %s: no engine kind is composed for it", backendName)
 	}
 	pkg := p.pkg
-	exports, err := kind.Exports(pkg.EngineItems(kind.Root().Name))
-	if err != nil {
-		return nil, fmt.Errorf("failed to apply %s: %w", backendName, err)
-	}
-	viaHook := contextRidesTheHook(kind.Root(), exports)
-	if viaHook && p.contextHash != "" {
-		pkg.Hooks.Unified.SessionStart = append(append([]wire.Hook(nil), pkg.Hooks.Unified.SessionStart...),
-			agent.NewContextInjectionHooks(report.To(p.freshCfg.Reporter()), p.contextHash, p.workDir)...)
-	}
-	if viaHook {
-		// The context rides the hook — never a native file beside it, which
-		// would double it — so the context kind is left out of this
-		// delivery's items. A file-route engine gets the package's context
-		// whether or not the cache regenerated: the file and the cache
-		// are composed from one package, so a redelivery leaves the same
-		// bytes it found.
-		pkg.Context = composite.Context{}
+	if contextRidesTheLaunch(kind.Root()) {
+		// The context kind is built from the fragments, so leaving them out
+		// is what leaves the context out of this delivery's items.
 		pkg.Fragments, pkg.Premised = nil, nil
 	}
 	if p.dryRun {

@@ -32,8 +32,8 @@ func resetStrictness(t *testing.T) {
 // ownerIdentity is the coordinating session's identity (depth 0).
 func ownerIdentity() Identity { return Identity{Harp: "coordinator-harp", Depth: 0} }
 
-// TestAgentRun_HonorsAgentIntent pins intent honoring: the composed context
-// leads the first turn ahead of the briefing, the declared permission enum
+// TestAgentRun_HonorsAgentIntent pins intent honoring: the briefing is the
+// first turn and the composed context is not repeated in it, the declared permission enum
 // resolves, the runtime axis is reported, and the child's
 // ambient identity + coordinator reach-back trio reach the engine env — with
 // the credential present ONLY in env, never surfaced elsewhere.
@@ -58,7 +58,7 @@ func TestAgentRun_HonorsAgentIntent(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond)
 
 	first := sp.chat(0).RecordedTexts()[0]
-	assert.Contains(t, first, "FRAG-ONE", "composed context leads the first turn")
+	assert.NotContains(t, first, "FRAG-ONE", "the composed context rides the delivered surface, not the first turn")
 	assert.Contains(t, first, "find the thing", "the briefing is the first turn")
 
 	env := sp.chat(0).Env()

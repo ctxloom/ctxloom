@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -26,15 +25,6 @@ func TestMergeHooksConfig_ReportsToTheReporterItIsHanded(t *testing.T) {
 	require.Len(t, a.All(), 1, "the drop reaches the Reporter it was handed")
 	assert.Contains(t, a.All()[0].Text, "hook merge has no destination hook set")
 	assert.Empty(t, b.All(), "a Reporter nobody handed in hears nothing")
-}
-
-// A chunker fed an oversized single line reports to its Reporter.
-func TestChunkContext_OversizedLineReportsToTheReporter(t *testing.T) {
-	var found report.Collector
-	chunks := ChunkContext(report.To(&found), strings.Repeat("x", ContextChunkMaxChars+1))
-	require.NotEmpty(t, chunks)
-	require.Len(t, found.All(), 1)
-	assert.Contains(t, found.All()[0].Text, "exceeds")
 }
 
 // The managed writers report through the option the engine passes in; an

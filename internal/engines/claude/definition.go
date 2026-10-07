@@ -193,8 +193,7 @@ func (*contextApproach) Forms() agent.Presentations {
 		agent.NativeContextFile(ContextFileName)).
 		Or(ApproachSystemPrompt, func(in agent.SurfaceInputs, files safefs.Root) agent.Approach {
 			return &systemPromptContext{content: in.Context, fs: agent.GetFS(files.Fs)}
-		}).
-		Or(agent.ApproachHook, agent.HookCarriedContext)
+		})
 }
 func (a *contextApproach) DeliverContext(start present.Start, root present.RootKind, in engine.ContextInputs, fs afero.Fs) (present.Delivered, error) {
 	switch root {

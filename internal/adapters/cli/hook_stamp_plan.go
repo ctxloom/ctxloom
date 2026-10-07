@@ -36,7 +36,7 @@ func runStampPlan(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		// Machine hook: never fail the host agent's tool call over a
 		// stamping hiccup (the sibling hooks — session-bind,
-		// inject-context — follow the same warn-and-continue rule).
+		// session-start — follow the same warn-and-continue rule).
 		clidiag.Warn("ctxloom", "stamp-plan: read stdin: %v", err)
 		return nil
 	}

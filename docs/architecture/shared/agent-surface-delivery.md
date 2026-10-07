@@ -90,16 +90,14 @@ reason the set is open, and the shape follows the open-sets ruling that
 already governs roots: keyed by name; the well-known members stay well-known
 as NAMED CONSTANTS; and a name the declaration cannot construct FAILS LOUD.
 
-Exactly two names are shared constants, and only because SHARED code has to
-ask for them by name (`approach.go`):
+Exactly one name is a shared constant, and only because SHARED code has to
+ask for it by name (`approach.go`):
 
 - `ApproachUnsafeFile` — the engine's native, well-known file. The at-rest
   callers (materialize, apply, remove, currency) ask every engine for this.
   "unsafe" names itself loudly because choosing it IS the race
   acknowledgment: a well-known write into a shared live cwd cannot be locked
   against a concurrent session; into an isolated cell it is always safe.
-- `ApproachHook` — context carried by a SessionStart injection hook reading a
-  content-addressed cache file. apply and the launch fallback ask for it.
 
 An approach only one engine has is named by that engine in its own package
 (claude's `ApproachSystemPrompt`); naming it in shared code would be the enum
@@ -195,8 +193,9 @@ Generic approaches — implemented once in `approaches_generic.go`, registered
 by any engine that can use them, imposed on none — exist only where more than
 one engine already shares the mechanism: `NativeContextFile` (the native
 managed-section context file, a `Construct` factory because the writer and
-path are static facts about the engine while the content is a per-run fact)
-and `HookCarriedContext` (the shared `Rider`). The managed commands and skill
+path are static facts about the engine while the content is a per-run fact).
+The hook-carried context approach (`ApproachHook`, `HookCarriedContext`) was
+retired by onectx: no hook carries the project context. The managed commands and skill
 package deliveries are likewise shared writers an engine's approach wraps.
 
 ## Invariants and contracts

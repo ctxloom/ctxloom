@@ -85,8 +85,9 @@ func fixtureConfig(root string) *config.Config {
 // TestApplyHooks_DirectoryProfileWithBundles_WritesContextAndSessionStartHook
 // pins the apply_hooks fix: when the only profile lives in
 // .ctxloom/profiles/ and lists bundles (not inline fragment refs), apply_hooks
-// must regenerate a context file containing every fragment and inject a
-// SessionStart hook pointing at the resulting hash.
+// must regenerate a context file containing every fragment, and register
+// ctxloom's SessionStart hook — which names no context (the context reaches
+// claude through the launch's system prompt, never through the hook).
 func TestApplyHooks_DirectoryProfileWithBundles_WritesContextAndSessionStartHook(t *testing.T) {
 	ownRecordsDir(t)
 	tmpDir := t.TempDir()
@@ -118,16 +119,17 @@ func TestApplyHooks_DirectoryProfileWithBundles_WritesContextAndSessionStartHook
 	assert.Contains(t, contextStr, "BETA-TWO", "cherry-picked fragment should be present")
 	assert.NotContains(t, contextStr, "BETA-ONE", "non-cherry-picked fragment must be excluded")
 
-	// Settings file gained a SessionStart hook that calls inject-context with
-	// the right hash. We assert by substring rather than parsing JSON because
-	// the exact key path differs by backend; what matters is that all three
-	// breadcrumbs appear in the file.
+	// Settings file gained ctxloom's SessionStart hook, and that hook names
+	// no context: neither the regenerated hash nor any fragment's text rides
+	// the settings file. We assert by substring rather than parsing JSON
+	// because the exact key path differs by backend.
 	settingsBytes, err := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.json"))
 	require.NoError(t, err)
 	settingsStr := string(settingsBytes)
 	assert.Contains(t, settingsStr, "SessionStart", "SessionStart hook should be registered")
-	assert.Contains(t, settingsStr, "inject-context", "hook must invoke ctxloom inject-context")
-	assert.Contains(t, settingsStr, result.ContextHash, "hook command must reference the regenerated context hash")
+	assert.Contains(t, settingsStr, `"session-start"`, "hook must invoke ctxloom hook session-start")
+	assert.NotContains(t, settingsStr, result.ContextHash, "no hook may reference the context hash: the context is not the hook's to deliver")
+	assert.NotContains(t, settingsStr, "ALPHA-ONE", "no fragment text may ride the settings file")
 }
 
 // TestAssembleContext_DirectoryProfileWithBundles_ReturnsAllFragments pins

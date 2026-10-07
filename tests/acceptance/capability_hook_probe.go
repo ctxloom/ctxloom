@@ -69,10 +69,9 @@ import (
 //
 // It is not a guess and not a preference: it mirrors production's own declared
 // dispatch, and is true only for an engine whose ApproachTable makes the hook its
-// DEFAULT context route for agent.SurfaceContext. claude declares ApproachHook,
-// but resolves it to the shared HookCarriedContext — a form with no writer of
-// its own — so ctxloom does not deliver claude's context that way
-// and this probe must not pretend it can observe it.
+// DEFAULT context route for agent.SurfaceContext. No engine does: claude takes
+// its context as the system prompt of a launch and no hook carries it (onectx),
+// so this probe must not pretend it can observe a hook delivering it.
 //
 // Getting this wrong in the permissive direction is the expensive mistake: it
 // would red claude's cell for failing to do something ctxloom never
@@ -129,8 +128,8 @@ const hookProbeFixtureDirName = "p3-hook-probe"
 //
 // echoLine is emitted only for a stage-(b) cell, and it is the engine's own
 // hook-output protocol (the same hookSpecificOutput/additionalContext envelope
-// ctxloom's real context-injection hook emits from `ctxloom hook
-// inject-context`), so the probe rides the vendor contract production already
+// ctxloom's real SessionStart hook emits from `ctxloom hook session-start`),
+// so the probe rides the vendor contract production already
 // depends on rather than inventing a second one.
 func hookProbeScript(stampPath, echoHarp string) string {
 	var b strings.Builder

@@ -8,44 +8,36 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
-// ContextInjectionTimeout is the timeout for the context injection hook in seconds.
-const ContextInjectionTimeout = 60
+// SessionStartTimeout is the timeout, in seconds, for the session-start
+// hook. It reads the session index, one essence file and the project's
+// config; a slow one would sit between the launch and the session's first
+// prompt.
+const SessionStartTimeout = 15
 
-// NewContextInjectionHook creates the SessionStart hook that injects
-// assembled context into the agent. Like every hook ctxloom constructs for
-// itself it is EXEC form: Command is the bare ctxloom executable
-// (CtxloomCommand), Args its callback's argv, and no shell parses either. It
-// carries NO project path.
+// NewSessionStartHook creates ctxloom's SessionStart hook: the resumed
+// session's essence and the session-start notices (cli.hookSessionStartCmd).
+// It carries NO project context and no argument naming one — the assembled
+// context is the session's system prompt, and this hook delivering it too is
+// the duplication it was cut down to remove.
 //
-// INVARIANT: neither half of this command is a fact about the machine that
-// wrote it. The generated settings file is tracked, so an absolute path in it
-// is one developer's path that no other clone can satisfy — their hooks then
-// succeed at doing nothing. The project is resolved at FIRE time instead, by
-// cli.resolveInjectContextWorkDir: CTXLOOM_ROOT, else the git root containing
-// cwd. The hook's own --project flag stays available for a human invoking it
-// by hand; it is simply never emitted here.
-func NewContextInjectionHook(hash string) wire.Hook {
-	return wire.Hook{
-		Command:     CtxloomCommand(),
-		Args:        []string{"hook", "inject-context", hash},
-		Type:        "command",
-		Timeout:     ContextInjectionTimeout,
-		ContextHash: hash,
-	}
+// No arguments, for the reason NewNextStepHook gives: the installed command
+// outlives the session that wrote it, so everything the hook needs is
+// resolved from its payload and environment at fire time.
+func NewSessionStartHook() wire.Hook {
+	return ctxloomCallback(SessionStartTimeout, "session-start")
 }
 
-// NewContextInjectionChunkHook builds one of N ordered context-injection hooks.
-// Each invocation emits a single sub-cap chunk (part k of total) and uses the
-// flock rendezvous (AwaitTurn) to complete in order, so the harness — which
-// injects parallel hook output in completion order — sees the chunks in
-// sequence. See NewContextInjectionHooks for when chunking kicks in.
-func NewContextInjectionChunkHook(hash string, part, total int) wire.Hook {
+// ctxloomCallback is one of ctxloom's own hook callbacks: EXEC form, the bare
+// ctxloom executable (CtxloomCommand) running `hook <verb> <args...>`, so no
+// shell parses any of it and nothing in it is a fact about the machine that
+// wrote it. Every NewXxxHook constructor builds through it, so the shape of a
+// ctxloom callback is decided once.
+func ctxloomCallback(timeout int, verb string, args ...string) wire.Hook {
 	return wire.Hook{
-		Command:     CtxloomCommand(),
-		Args:        []string{"hook", "inject-context", "--part", strconv.Itoa(part), "--of", strconv.Itoa(total), hash},
-		Type:        "command",
-		Timeout:     ContextInjectionTimeout,
-		ContextHash: hash,
+		Command: CtxloomCommand(),
+		Args:    append([]string{"hook", verb}, args...),
+		Type:    "command",
+		Timeout: timeout,
 	}
 }
 
@@ -89,12 +81,7 @@ const ToolReflectTimeout = 5
 // the caller and interpolated here, so the threshold lives in one place rather
 // than being re-decided inside the hook.
 func NewToolReflectHook(minBytes int) wire.Hook {
-	return wire.Hook{
-		Command: CtxloomCommand(),
-		Args:    []string{"hook", "tool-reflect", "--min-output-bytes", strconv.Itoa(minBytes)},
-		Type:    "command",
-		Timeout: ToolReflectTimeout,
-	}
+	return ctxloomCallback(ToolReflectTimeout, "tool-reflect", "--min-output-bytes", strconv.Itoa(minBytes))
 }
 
 // SkillMatesTimeout is the timeout, in seconds, for the PostToolUse
@@ -115,13 +102,9 @@ const SkillMatesTimeout = 15
 // outlives the session that wrote it, so the session is resolved from the
 // environment at fire time.
 func NewSkillMatesHook() wire.Hook {
-	return wire.Hook{
-		Command: CtxloomCommand(),
-		Args:    []string{"hook", "skill-mates"},
-		Type:    "command",
-		Matcher: "Skill",
-		Timeout: SkillMatesTimeout,
-	}
+	h := ctxloomCallback(SkillMatesTimeout, "skill-mates")
+	h.Matcher = "Skill"
+	return h
 }
 
 // NextStepTimeout is the timeout, in seconds, for the TurnEnd next-step hook.
@@ -147,12 +130,7 @@ const NextStepTimeout = 15
 // the installed command is written once — by apply-hooks, into settings that
 // outlive the session that wrote them — and must serve every later session.
 func NewNextStepHook() wire.Hook {
-	return wire.Hook{
-		Command: CtxloomCommand(),
-		Args:    []string{"hook", "next-step"},
-		Type:    "command",
-		Timeout: NextStepTimeout,
-	}
+	return ctxloomCallback(NextStepTimeout, "next-step")
 }
 
 // MailDrainTimeout is the timeout, in seconds, for the turn_start mail-drain
@@ -179,42 +157,7 @@ const MailDrainTimeout = 5
 // loads it, a delegated child's included; the marker, not this declaration,
 // is what keeps the child from claiming the spool its runner reads.
 func NewMailDrainHook() wire.Hook {
-	return wire.Hook{
-		Command: CtxloomCommand(),
-		Args:    []string{"hook", "mail-drain"},
-		Type:    "command",
-		Timeout: MailDrainTimeout,
-	}
-}
-
-// NewContextInjectionHooks returns the SessionStart context-injection hook(s)
-// for the given content hash. It reads the (content-addressed, immutable)
-// context file to decide the split: content that fits in one sub-cap chunk —
-// or a missing/unreadable file — yields a single legacy whole-content hook;
-// larger content yields N ordered chunk hooks. Reading the file here and in the
-// hook with the same ChunkContext guarantees write-time and run-time agree on
-// N. Best-effort by design: any read error falls back to the single hook (the
-// runtime hook then emits nothing if the file is truly empty).
-func NewContextInjectionHooks(rep report.Reporter, hash, workDir string) []wire.Hook {
-	content, err := ReadContextFile(workDir, hash)
-	if err != nil {
-		// This was a bare `_`, so a read failure right after the
-		// content-addressed file was written (or a reaped/corrupted cache)
-		// silently collapsed N chunk hooks to one, reintroducing the exact
-		// truncation ContextChunkMaxChars exists to prevent. The best-effort
-		// single-hook fallback is still correct (the runtime hook re-reads the
-		// file itself when it fires) — only the silence was the defect.
-		rep.Warnf("context injection hook for %s: %v — falling back to a single whole-content hook", hash, err)
-	}
-	chunks := ChunkContext(rep, content)
-	if len(chunks) <= 1 {
-		return []wire.Hook{NewContextInjectionHook(hash)}
-	}
-	hooks := make([]wire.Hook, 0, len(chunks))
-	for k := 1; k <= len(chunks); k++ {
-		hooks = append(hooks, NewContextInjectionChunkHook(hash, k, len(chunks)))
-	}
-	return hooks
+	return ctxloomCallback(MailDrainTimeout, "mail-drain")
 }
 
 // MergeHooksConfig is wire.MergeHooksConfig with the drop named on this

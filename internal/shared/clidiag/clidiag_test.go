@@ -343,8 +343,8 @@ func TestWarn_FailingSinkNeverBlocksOrPanics(t *testing.T) {
 // The premise that "the value is a per-binary constant", so prog could be
 // hoisted out of the signature, is false, and this pins the callers that make it
 // false. Inside the ctxloom binary ALONE two distinct progs are in production
-// use: "ctxloom" and "ctxloom hook inject-context" (internal/adapters/cli's
-// inject-context hook names itself so a warning surfacing inside a Claude Code
+// use: "ctxloom" and "ctxloom hook session-start" (internal/adapters/cli's
+// session-start hook names itself so a warning surfacing inside a Claude Code
 // hook is attributable to the hook rather than to the CLI). And
 // internal/shared/confload — shared by ctxloom, taskloom, harp and ltk — passes
 // its caller's own Program.Name, which its doc states outright.
@@ -355,7 +355,7 @@ func TestWarn_FailingSinkNeverBlocksOrPanics(t *testing.T) {
 func TestProg_IsNotAPerBinaryConstant(t *testing.T) {
 	resetStructured(t)
 
-	progs := []string{"ctxloom", "ctxloom hook inject-context", "taskloom", "ltk", "harp"}
+	progs := []string{"ctxloom", "ctxloom hook session-start", "taskloom", "ltk", "harp"}
 
 	// (1) the rendered line carries the CALLER's prog, not one global name.
 	for _, prog := range progs {

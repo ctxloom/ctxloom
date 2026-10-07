@@ -26,7 +26,7 @@ func TestMockSettingsReader_InstallThenRemove_ReportsWhatIsWired(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	p := atrest.New(t, safefs.NewMem(fs), New(), "/proj")
 	require.NoError(t, p.Install(composite.Package{
-		Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}}}},
+		Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "ctxloom hook session-start"}}}},
 		MCP:   map[string]wire.MCPServer{"ctxloom": {Command: "ctxloom"}},
 	}))
 

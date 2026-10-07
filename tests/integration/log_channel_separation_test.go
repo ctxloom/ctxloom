@@ -29,9 +29,8 @@ import (
 // asserted where each channel's bytes actually go — logsink's own tests cover
 // the file mechanics (creates the dir, appends, rolls an oversized log aside)
 // and stop there. The separation has already been broken once in this codebase
-// in the other direction: redirecting clidiag broke the fail-loud contract that
-// TestHookApproach_MissingCacheFileInjectsNothingAndSaysSo pins. It is a
-// two-sided invariant, so both sides are asserted here.
+// in the other direction: redirecting clidiag broke a hook's fail-loud
+// contract, its human diagnostic on stderr. It is a two-sided invariant, so both sides are asserted here.
 //
 // The provocation is a home config carrying an agent bound to no engine,
 // which the load drops with a warn-level `config_engineless_agent_warning` —
@@ -61,8 +60,9 @@ func TestLogChannels_StructuredGoesToTheFileAndNeverToAHooksStderr(t *testing.T)
 	// and both the config load and the log sink resolve under this test's home.
 	cmd := env.Command(
 		[]string{"HOME=" + home, "CTXLOOM_HOME=" + home},
-		"hook", "inject-context", "--project", projectDir, "deadbeefdeadbeef",
+		"hook", "session-start",
 	)
+	cmd.Dir = projectDir
 	cmd.Stdin = strings.NewReader(`{"session_id":"log-channels","source":"startup"}`)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr

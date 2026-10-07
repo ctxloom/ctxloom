@@ -2,7 +2,6 @@ package coord
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -28,8 +27,8 @@ func startRunSpawner(t testing.TB, mk func() *scriptedChat) *fakeSpawner {
 }
 
 // TestStartRun_EchoRoundTrip pins the spawn half of acceptance C1: agent_run
-// on a migrated agent spawns the engine over StartRun (briefing + composed
-// context as the first turn, model + permission through the HarnessSpec),
+// on a migrated agent spawns the engine over StartRun (the briefing as the
+// first turn, model + permission through the HarnessSpec),
 // the engine's native session id lands on the session entry (the resume
 // handle), and the roster reaches idle at the turn boundary.
 func TestStartRun_EchoRoundTrip(t *testing.T) {
@@ -40,14 +39,14 @@ func TestStartRun_EchoRoundTrip(t *testing.T) {
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
 	require.NoError(t, err)
 
-	// The engine received the briefing with the composed context leading it
-	// (joined once coordinator-side).
+	// The engine received the briefing alone: the composed context reaches
+	// it through the delivered context surface, never again as a turn.
 	require.Eventually(t, func() bool {
 		sc := sp.chat(0)
 		return sc != nil && len(sc.RecordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond, "the StartRun path must deliver the briefing as the first turn")
 	first := sp.chat(0).RecordedTexts()[0]
-	assert.True(t, strings.HasPrefix(first, "FRAG-ONE\n\n"), "the composed context leads the first turn: %q", first)
+	assert.NotContains(t, first, "FRAG-ONE", "the composed context is not repeated in the first turn: %q", first)
 	assert.Contains(t, first, "do the thing")
 
 	// The turn the engine's driver ran carries the decoded launch.

@@ -143,8 +143,9 @@ func placeHome(l *layout, eng engine.Engine, dir string) {
 
 // repoTrust is eng's verdict on cwd's repository, read from the human's own
 // record under the host home. The repository is walked at cwd, in this
-// process's view; each directory is looked up under its host name
-// (primary.Reverse), which is how the human's answers are keyed. An engine
+// process's view; each directory is looked up under that name and under its
+// host name (primary.Reverse), since the record may have been written in
+// either view (engine.TrustQuery.Keys). An engine
 // that declares none trusts nothing; a record that cannot be read is
 // untrusted, and said so — the run goes ahead without the repository's
 // surfaces rather than not at all.

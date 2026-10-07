@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -170,4 +171,25 @@ func TestSharedStore_HostDir(t *testing.T) {
 	assert.Equal(t, filepath.Join(home, ".config", "gcloud"), SharedStore{HomeRel: ".config/gcloud"}.HostDir(home), "HomeRel is slash-separated")
 	assert.Equal(t, "", SharedStore{Var: "V"}.HostDir(home), "a keychain-backed store has no directory")
 	assert.Equal(t, "", SharedStore{Value: "/ignored"}.HostDir(home), "a Value with no Var names nothing")
+}
+
+// An answer may be recorded under a directory's own name (a claude beside
+// this process wrote it) or under its host name (the human's claude on the
+// host did): Keys names both, once each, and only what it can name.
+func TestTrustQuery_KeysNameTheViewAndTheHost(t *testing.T) {
+	prefixed := func(d string) (string, error) { return "/host" + d, nil }
+	unnamed := func(string) (string, error) { return "", errors.New("no host name") }
+	for name, tc := range map[string]struct {
+		hostPath func(string) (string, error)
+		want     []string
+	}{
+		"same paths as the host":  {want: []string{"/w"}},
+		"identity host name":      {hostPath: func(d string) (string, error) { return d, nil }, want: []string{"/w"}},
+		"named elsewhere on host": {hostPath: prefixed, want: []string{"/w", "/host/w"}},
+		"no host name":            {hostPath: unnamed, want: []string{"/w"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, TrustQuery{HostPath: tc.hostPath}.Keys("/w"))
+		})
+	}
 }

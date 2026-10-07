@@ -18,10 +18,16 @@ import (
 // runTurn drives one scripted turn and decodes what the driver relayed.
 func runTurn(t *testing.T, ex engine.Exec, prompt string) (engine.TurnResult, []agent.ChatEvent, error) {
 	t.Helper()
+	return runTurnIn(t, ex, engine.Turn{Prompt: prompt})
+}
+
+// runTurnIn is runTurn over a whole engine.Turn (a resumed one, say).
+func runTurnIn(t *testing.T, ex engine.Exec, turn engine.Turn) (engine.TurnResult, []agent.ChatEvent, error) {
+	t.Helper()
 	inst, err := New().Instance(engine.Session{Mode: engine.Structured, WorkDir: t.TempDir()})
 	require.NoError(t, err)
 	out := make(chan engine.Event, 64)
-	res, terr := inst.Drivers()[0].Turn(context.Background(), ex, engine.Turn{Prompt: prompt}, out)
+	res, terr := inst.Drivers()[0].Turn(context.Background(), ex, turn, out)
 	close(out)
 	var events []agent.ChatEvent
 	for ev := range out {
@@ -36,7 +42,8 @@ func runTurn(t *testing.T, ex engine.Exec, prompt string) (engine.TurnResult, []
 // ECHO — one assistant entry "mock chat: <text>" and a completion — relayed
 // as chat events, with the same text as the turn's answer and the mock's one
 // native key the next turn resumes by. The echoed text proves exactly what
-// was delivered to the engine (context lead blocks included).
+// was delivered to the engine; with no context surface delivered, that is
+// the prompt alone.
 func TestTurn_EchoesThePromptAsTheAssistantsAnswer(t *testing.T) {
 	res, events, err := runTurn(t, engine.Exec{Binary: "mock"}, "CTX\n\ndo the thing")
 	require.NoError(t, err)
@@ -55,6 +62,31 @@ func TestTurn_EchoesThePromptAsTheAssistantsAnswer(t *testing.T) {
 	}
 	assert.Equal(t, 1, assistant, "one assistant entry")
 	assert.Equal(t, 1, complete, "one completion, after the entries")
+}
+
+// TestTurn_OpeningTurnEchoesTheDeliveredContextOnce: the context reaches the
+// engine through its context surface (the file --context names), never in
+// the turn, so the echo proves its delivery by reading that file: the
+// session's OPENING turn echoes it ahead of the prompt, a RESUMED turn (a
+// native key) echoes the prompt alone, and a launch that delivered no
+// context echoes the prompt alone. A child whose composed profile never
+// reached it reports a turn without its guidance (j002300).
+func TestTurn_OpeningTurnEchoesTheDeliveredContextOnce(t *testing.T) {
+	file := filepath.Join(t.TempDir(), ContextFileName)
+	require.NoError(t, os.WriteFile(file, []byte("RULES\n"), 0o600))
+	ex := engine.Exec{Args: []string{contextFlag, file}}
+
+	res, _, err := runTurnIn(t, ex, engine.Turn{Prompt: "go"})
+	require.NoError(t, err)
+	assert.Equal(t, "mock chat: RULES\n\ngo", res.Answer, "the opening turn echoes the delivered context ahead of the prompt")
+
+	res, _, err = runTurnIn(t, ex, engine.Turn{Prompt: "next", Resume: sessionKey})
+	require.NoError(t, err)
+	assert.Equal(t, "mock chat: next", res.Answer, "a resumed turn echoes its prompt alone")
+
+	res, _, err = runTurnIn(t, engine.Exec{Args: []string{contextFlag, filepath.Join(t.TempDir(), "absent.md")}}, engine.Turn{Prompt: "go"})
+	require.NoError(t, err)
+	assert.Equal(t, "mock chat: go", res.Answer, "no delivered context, nothing ahead of the prompt")
 }
 
 // TestTurn_HonoursTheResponseAndFailureKnobs: CTXLOOM_MOCK_RESPONSE replaces

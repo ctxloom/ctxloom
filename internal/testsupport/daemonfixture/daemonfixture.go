@@ -14,6 +14,7 @@ package daemonfixture
 
 import (
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
@@ -33,14 +34,19 @@ func Require(t testing.TB, what string) isolation.Layer {
 // (isolation.FixtureRoot over dockergate.FixtureCandidates), so t.TempDir,
 // os.MkdirTemp and every helper over them create sources the daemon can name,
 // and returns the layer a test reverses a source through when it hands the
-// daemon one itself. A process the daemon cannot place fails; a layer with no
-// fixture root is dockergate.RequireDaemonPath's to decide.
+// daemon one itself. A process the daemon cannot place fails; a container the
+// daemon does not identify, and a layer with no fixture root, are
+// dockergate.RequireIdentifiedSelf's and dockergate.RequireDaemonPath's to
+// decide.
 func Root(t testing.TB, runtime string) isolation.Layer {
 	t.Helper()
 	l, err := isolation.DaemonLayer(runtime)
 	if err != nil {
 		t.Fatalf("this process's layer on the %s daemon: %v", runtime, err)
 	}
+	// The daemon identified this process's container exactly when its layer is
+	// not the host's: an identified self's layer is its own mounts.
+	dockergate.RequireIdentifiedSelf(t, isolation.InContainer(), !reflect.DeepEqual(l, isolation.HostLayer()), runtime)
 	root, err := isolation.FixtureRoot(l, dockergate.FixtureCandidates()...)
 	dockergate.RequireDaemonPath(t, err, "a directory this process writes ("+runtime+")")
 	if root != os.TempDir() {

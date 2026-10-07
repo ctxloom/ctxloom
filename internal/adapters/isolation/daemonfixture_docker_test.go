@@ -21,6 +21,7 @@ func daemonFixtures(t *testing.T, runtime string) Layer {
 	t.Helper()
 	l, err := DaemonLayer(runtime)
 	require.NoError(t, err, "this process's layer on the %s daemon", runtime)
+	dockergate.RequireIdentifiedSelf(t, InContainer(), !l.shared, runtime)
 	root, err := FixtureRoot(l, dockergate.FixtureCandidates()...)
 	dockergate.RequireDaemonPath(t, err, "a directory this process writes ("+runtime+")")
 	if root != os.TempDir() {

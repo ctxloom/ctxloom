@@ -105,6 +105,39 @@ func RequireDaemonPath(t testing.TB, err error, what string) {
 	Apply(t, d, msg)
 }
 
+// SelfDecision is RequireIdentifiedSelf's policy without a testing.TB.
+// containerized is whether this test process runs in a container
+// (isolation.InContainer); identified is whether runtime's daemon named that
+// container as its own, so this process's layer is that container's mounts
+// rather than the host's.
+//
+// Production keeps "a containerized process the daemon does not list is a
+// controller whose own filesystem is the root" (isolation.HostLayer): right
+// for `ctxloom run`, and a guess a test must not run on. A docker test from
+// such a container hands the daemon its own paths as host paths, so a fixture
+// reaches the container as whatever the daemon's host has there — typically a
+// blank directory it creates, never an error. Promoted like reachability.
+func SelfDecision(containerized, identified bool, runtime string) (Decision, string) {
+	if !containerized || identified {
+		return Proceed, ""
+	}
+	if required {
+		return Fail, fmt.Sprintf("this test process runs in a container the %s daemon does not identify, but %s=1 demands the docker suite: "+
+			"its fixture paths would reach the daemon as host paths and bind whatever the daemon's host has there. "+
+			"Run the suite where the daemon lists this container (it must be one of that daemon's own), or on the daemon's host, "+
+			"or unset %s to go back to skipping.", runtime, EnvRequireDocker, EnvRequireDocker)
+	}
+	return Skip, fmt.Sprintf("this test process runs in a container the %s daemon does not identify, so its fixture paths have no name there "+
+		"(set %s=1 to make this a failure instead)", runtime, EnvRequireDocker)
+}
+
+// RequireIdentifiedSelf applies SelfDecision to a testing.TB.
+func RequireIdentifiedSelf(t testing.TB, containerized, identified bool, runtime string) {
+	t.Helper()
+	d, msg := SelfDecision(containerized, identified, runtime)
+	Apply(t, d, msg)
+}
+
 // RequireRuntime gates a test on container-runtime REACHABILITY. available is
 // the caller's probe (isolation.Docker{}.Available()); what names the test in
 // the resulting message, e.g. "the container-progress integration test".

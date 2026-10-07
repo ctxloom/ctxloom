@@ -499,10 +499,36 @@ engine natively looks.
 |---|---|---|---|---|---|
 | claude-code | `CLAUDE_CONFIG_DIR` | `~/.ctxloom/sessions/<harp>/home/claude` | the same host directory, bind-mounted at `/ctxloom/home/claude` (the fixed instance root + the declared leaf), which is what the engine is told | **real `~/.claude`** | the container's fresh `$HOME/.claude` |
 
-An engine whose only relocation lever is a shared var (`XDG_CONFIG_HOME` /
-`XDG_DATA_HOME`) cannot be given an instance this way: relocating those moves
-git's, fish's and every other XDG-aware tool's config for the child too, so its
-in-tree home stays uncontrolled.
+**Every declared home var is bound.** An engine declares its home vars in
+`engine.HomeSpec.Vars`, and shared isolation binds every one of them by one
+rule, `engine.BindHome`:
+
+- `Vars[0]` names the session home ITSELF. Its `Subdir` is the home's own leaf
+  (one path segment): `launch.SessionHome` appends it on the host and the
+  container relocator appends it to the instance root.
+- Each further var names a directory BENEATH that home at its `Subdir`, a clean
+  relative slash path that may nest (`config` and `.xdg/config` are both
+  valid). `PrepareInstanceHome` creates each one owner-only before the engine
+  starts. Because each lies inside the home, a container reaches it through the
+  home's one mount, joined with `/` whatever the host. No var gets a mount of
+  its own.
+- `HomeSpec.Validate` refuses a repeated var, a further `Subdir` that is
+  absolute, escapes the home or is the home itself, and a `Subdir` that
+  overlaps `TranscriptStoreRel` (the one is created as a directory, the other
+  is linked).
+
+The bindings ride the Placement into `engine.Session.Home` in declaration
+order, and the engine's `Exec` composes each into its env. A host run with a
+curated env (`env_host: false`) keeps every declared var's name. The rule lives
+in shared code and names no engine and no variable. claude declares one var
+(`CLAUDE_CONFIG_DIR`) and is bound exactly as before; the conformance suite
+binds a session by the same `BindHome`.
+
+A shared var (`XDG_CONFIG_HOME`, `XDG_DATA_HOME`) can now be declared and is
+bound like any other, but relocating it also moves git's, gh's, fish's and every
+other XDG-aware tool's config for every process the engine spawns. An
+engine that declares one inherits that until the merged XDG tree (owned dirs
+shadowing the user's real XDG content) lands on this same declaration.
 
 The instance root resolves through one helper, `paths.HarpSessionEngineHomes` — the
 session's own `home/` member under `~/.ctxloom/sessions/<harp>/` — and each
@@ -553,7 +579,7 @@ workspace or runtime the run chose. The cell decides only how the home is
 path itself; a container cell mounts the same host directory at
 `/ctxloom/home/<leaf>` — a FIXED, well-known in-container root
 (`Container.WithInstanceHome` overrides it) plus the leaf the engine DECLARES
-(`agent.HomeVar.Subdir`, never re-derived from the host path) — and tells the
+(the first var's `engine.HomeVar.Subdir`, never re-derived from the host path) — and tells the
 engine that target (`isolation.ContainerInstanceHome` supplies the root,
 `isolation.MountEngineHome` records the mount; no credential file is mounted
 with it). A worktree's own env (`isolation.EnvWorkspace`) carries the

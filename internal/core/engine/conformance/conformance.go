@@ -207,10 +207,11 @@ func checkModeInstance(t *testing.T, eng engine.Engine, def engine.Base, m engin
 	_, err = g.ParseArgv(ex.Args)
 	require.NoError(t, err, "Exec emitted an argv the engine's own %v grammar refuses: %v", m, ex.Args)
 	require.Equal(t, m == engine.Interactive, ex.Interactive, "a pty exactly for the interactive mode")
-	for _, v := range eng.Home().Vars {
-		require.Contains(t, ex.Env, v.Name, "home var %s is declared but Exec does not set it", v.Name)
-		require.True(t, present.Under(ex.Env[v.Name], sess.Roots.SessionHome.Engine),
-			"home var %s = %q is not under the session home the engine was handed", v.Name, ex.Env[v.Name])
+	for _, h := range sess.Home {
+		require.Contains(t, ex.Env, h.Var, "home var %s is declared but Exec does not set it", h.Var)
+		require.Equal(t, h.Path, ex.Env[h.Var], "home var %s is not the path isolation bound it to", h.Var)
+		require.True(t, present.Under(ex.Env[h.Var], sess.Roots.SessionHome.Engine),
+			"home var %s = %q is not under the session home the engine was handed", h.Var, ex.Env[h.Var])
 	}
 	if m == engine.Structured {
 		require.NotEmpty(t, inst.Drivers(), "Structured is declared but the instance has no driver")
@@ -220,8 +221,9 @@ func checkModeInstance(t *testing.T, eng engine.Engine, def engine.Base, m engin
 // SessionFor builds the engine-facing Session a test hands to Instance: a
 // throwaway identity, the mode asked for, the engine's declared host
 // default posture, roots under a temp dir (the project root and the session
-// home, host side equal to engine side), and each home
-// var the engine declares bound under the session home.
+// home, host side equal to engine side), and every home var the engine
+// declares bound by the one rule isolation binds by (engine.BindHome): the
+// first at the session home itself, each further one beneath it.
 func SessionFor(t *testing.T, eng engine.Engine, mode engine.Mode) engine.Session {
 	t.Helper()
 	dir := t.TempDir()
@@ -239,9 +241,7 @@ func SessionFor(t *testing.T, eng engine.Engine, mode engine.Mode) engine.Sessio
 		WorkDir: filepath.Join(dir, "project"),
 		Prompt:  "conformance",
 	}
-	for _, v := range eng.Home().Vars {
-		s.Home = append(s.Home, engine.HomeBinding{Var: v.Name, Path: filepath.Join(home, v.Subdir)})
-	}
+	s.Home = engine.BindHome(eng.Home().Vars, s.Roots.SessionHome)
 	return s
 }
 

@@ -47,6 +47,23 @@ func TestNewRecorder_RequiresAnFs(t *testing.T) {
 	require.Error(t, err)
 }
 
+// Either half of a root alone is refused: the recorder appends through the Fs
+// and serializes through the Locks.
+func TestNewRecorder_RequiresBothHalvesOfTheRoot(t *testing.T) {
+	testsupport.Isolate(t)
+	whole := safefs.NewMem(afero.NewMemMapFs())
+	for name, root := range map[string]safefs.Root{
+		"no locks": {Fs: whole.Fs},
+		"no fs":    {Locks: whole.Locks},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec, err := NewRecorder(root, "fs-harp", "mock")
+			require.Error(t, err)
+			require.Nil(t, rec)
+		})
+	}
+}
+
 // closeCountingWriter is an io.Writer that also records Close calls, so a
 // test can see whether the recorder closed a writer it does not own.
 type closeCountingWriter struct {

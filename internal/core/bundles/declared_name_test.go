@@ -1,12 +1,15 @@
 package bundles
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -119,4 +122,25 @@ func TestNewCompanionReader_UndeclaredNameFallsBackToTheCompanionRef(t *testing.
 
 	assert.Equal(t, companionRefPrefix+"ltk", reads[0].Bundle.Name,
 		"an undeclared companion loadout still falls back to its companion ref")
+}
+
+// TestNewCompanionReader_WarnsOnlyForAnUnaddressableCompanion: a companion
+// whose binary name cannot be minted into a reference is warned about, since
+// its items will be withheld; one that can is not.
+func TestNewCompanionReader_WarnsOnlyForAnUnaddressableCompanion(t *testing.T) {
+	strictness.Reset()
+	t.Cleanup(strictness.Reset)
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	t.Cleanup(restore)
+	probe := loadoutProbe(
+		CompanionLoadout{Bin: "ltk", Document: readerLoadoutDoc},
+		CompanionLoadout{Bin: "", Document: readerLoadoutDoc},
+	)
+
+	_, err := NewCompanionReader(probe, WithReaderReporter(ledger())).Read(context.Background())
+	require.NoError(t, err)
+
+	assert.Contains(t, buf.String(), `cannot address source "`+companionRefPrefix+`"`)
+	assert.NotContains(t, buf.String(), `cannot address source "`+companionRefPrefix+`ltk"`)
 }

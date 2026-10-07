@@ -419,15 +419,17 @@ func TestRoute_DefaultBindingPlansOnlySessionHomeRoots(t *testing.T) {
 func TestDeliverCommandsAndSkills_SessionHomeLandsUnderTheEngineHome(t *testing.T) {
 	def := claudeDef(t)
 	start, project, home := hostStart(t)
-	_, err := def.Commands.DeliverCommands(start, present.RootSessionHome, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "greet", Body: []byte("say hi"), Enabled: true, Description: "greets"}}}, safefs.New())
+	d, err := def.Commands.DeliverCommands(start, present.RootSessionHome, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "greet", Body: []byte("say hi"), Enabled: true, Description: "greets"}}}, safefs.New())
 	require.NoError(t, err)
+	require.Equal(t, []string{filepath.Join(home, CommandsDirName)}, d.Wrote, "the delivery reports the directory it wrote")
 	got, err := os.ReadFile(filepath.Join(home, CommandsDirName, "greet.md"))
 	require.NoError(t, err)
 	require.Contains(t, string(got), "say hi")
 	require.NoFileExists(t, filepath.Join(project, ConfigDirName, CommandsDirName, "greet.md"))
 
-	_, err = def.Skills.DeliverSkills(start, present.RootSessionHome, engine.SkillsInputs{Skills: []engine.SkillExport{{Name: "greet", Description: "greets", Enabled: true, Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: []byte("---\nname: greet\ndescription: g\n---\nbody")}}}}}, safefs.New())
+	d, err = def.Skills.DeliverSkills(start, present.RootSessionHome, engine.SkillsInputs{Skills: []engine.SkillExport{{Name: "greet", Description: "greets", Enabled: true, Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: []byte("---\nname: greet\ndescription: g\n---\nbody")}}}}}, safefs.New())
 	require.NoError(t, err)
+	require.Equal(t, []string{filepath.Join(home, SkillsDirName)}, d.Wrote, "the delivery reports the directory it wrote")
 	require.FileExists(t, filepath.Join(home, SkillsDirName, "greet", "SKILL.md"))
 	require.NoFileExists(t, filepath.Join(project, ConfigDirName, SkillsDirName, "greet", "SKILL.md"))
 }

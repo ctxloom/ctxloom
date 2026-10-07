@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // =============================================================================
@@ -304,8 +305,7 @@ func TestSkillContent_LoadFailureIsTalliedNotLedgered(t *testing.T) {
 	t.Cleanup(clidiag.SetSink(&stderr))
 	fsys := afero.NewMemMapFs()
 	root := paths.BundlesLayoutRoot("/bundles", paths.LayoutV2)
-	require.NoError(t, afero.WriteFile(fsys, filepath.Join(root, "skill-bundle", "skills", "ghost", "SKILL.md"),
-		[]byte("no frontmatter here\n"), 0o644))
+	testsupport.WriteFileString(t, fsys, filepath.Join(root, "skill-bundle", "skills", "ghost", "SKILL.md"), "no frontmatter here\n", 0o644)
 	writeTree(t, fsys, root, "skill-bundle", "version: \"1.0\"\n")
 
 	pipe := admitAllPipe(NewLoader(NewProjectReader(fsys, []string{"/bundles"})).WithReporter(ledger()), false)

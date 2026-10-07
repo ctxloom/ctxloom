@@ -6,7 +6,7 @@
 
 Superseded.
 
-**Superseded by:** the 2026-05-27 implementation of `pin_bundle` / `unpin_bundle` MCP tools, which set a `Pinned` flag on the active `LockEntry`. See `cmd/mcp_tools_review.go`, `internal/adapters/remote/types.go::LockEntry.Pinned`, `internal/adapters/operations/lockfile_pending.go::SetBundlePin`.
+**Superseded by:** the lockfile hold — `remote.LockEntry.Held`, set by `ctxloom deps hold` and cleared by `ctxloom deps unhold` — which freezes a dependency at its locked commit so `deps upgrade` cannot advance it. The committed lockfile is for reproducibility: it pins what is delivered, and it is no longer a review surface (see [0037](0037-adding-a-git-repo-is-the-trust-act.md)).
 
 ## Context
 

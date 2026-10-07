@@ -109,13 +109,6 @@ per engine name. The boundary is now:
   the item; an engine's block may override it. ctxloom's own embedded
   commands carry their frontmatter description the same way, so the
   per-backend fan-out this ADR once kept in operations does not exist.
-- **One frozen exception, in the bundle package.** The exec trust preimage
-  (`signing.CommandPreimageContract`) fixed its bytes as a canonicalisation
-  of the claude-code block's fields; `bundles.CommandSurface.ExportsPayload`
-  still reads that one block to produce them, so every existing
-  countersignature verifies. A block for another engine rides outside that
-  preimage. Widening it is a contract bump that re-signs every bundle, and
-  a human's call.
 
 The rejected alternative above — a neutral description with per-engine
 fallback — is what landed, because the typed schema it was weighed against

@@ -77,7 +77,7 @@ func (s *syncBuf) next() (string, <-chan struct{}) {
 
 // await re-checks cond on every write until it holds, and reports false only
 // at the test's deadline.
-func (s *syncBuf) await(t *testing.T, cond func(string) bool) (string, bool) {
+func (s *syncBuf) await(t waiter, cond func(string) bool) (string, bool) {
 	t.Helper()
 	expired := expiry(t)
 	for {
@@ -111,7 +111,7 @@ func contains(sub string) func(string) bool {
 // its own: every one is for bytes crossing a real pty or a call a real
 // tea.Program makes, which a loaded machine delays by any amount, and a
 // deadline short enough to matter fails on an event that was merely late.
-func expiry(t *testing.T) <-chan time.Time {
+func expiry(t interface{ Deadline() (time.Time, bool) }) <-chan time.Time {
 	d, ok := t.Deadline()
 	if !ok {
 		return nil

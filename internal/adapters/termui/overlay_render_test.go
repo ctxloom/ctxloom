@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	pty "github.com/aymanbagabas/go-pty"
 	"github.com/stretchr/testify/assert"
@@ -18,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/vtemu"
 )
 
@@ -167,16 +170,29 @@ func emulate(s string) *vtemu.Screen {
 // with what the screen actually shows.
 func (h *renderHarness) screenWhen(what string, check func(tb, *vtemu.Screen)) *vtemu.Screen {
 	h.t.Helper()
+	return awaitScreen(h.t, h.tty, what, check)
+}
+
+// waiter is the test a wait answers to: the real one, or a fake that records
+// how the wait failed.
+type waiter interface {
+	testing.TB
+	Deadline() (time.Time, bool)
+}
+
+// awaitScreen is screenWhen on any terminal and any test.
+func awaitScreen(t waiter, tty *syncBuf, what string, check func(tb, *vtemu.Screen)) *vtemu.Screen {
+	t.Helper()
 	judged := func(t tb, e *vtemu.Screen) {
 		t.Helper()
 		require.Empty(t, e.Unhandled(), "every byte on the terminal must be understood before a frame is judged")
 		check(t, e)
 	}
-	cur, ok := h.tty.await(h.t, func(s string) bool { return accepts(judged, emulate(s)) })
+	cur, ok := tty.await(t, func(s string) bool { return accepts(judged, emulate(s)) })
 	e := emulate(cur)
-	judged(h.t, e)
+	judged(t, e)
 	if !ok {
-		h.t.Fatalf("the terminal never showed %s", what)
+		t.Fatalf("the terminal never showed %s", what)
 	}
 	return e
 }
@@ -310,4 +326,44 @@ func TestOverlayRender_OverAnAltScreenEngineTheOverlayDrawsInPlace(t *testing.T)
 			assert.Empty(t, e.Row(i-1), "the panel region is cleared for the engine's repaint:\n%s", e)
 		}
 	})
+}
+
+// failingT is a test whose failures are recorded rather than reported, and
+// whose fatal failures end the goroutine that made them.
+type failingT struct {
+	*testing.T
+	failures []string
+}
+
+func (f *failingT) Errorf(format string, args ...any) {
+	f.failures = append(f.failures, fmt.Sprintf(format, args...))
+}
+func (f *failingT) Fatalf(format string, args ...any) { f.Errorf(format, args...); f.FailNow() }
+func (f *failingT) FailNow()                          { runtime.Goexit() }
+
+// A sequence the screen model does not understand makes the frame carrying it
+// unjudgeable, and every frame after it too: each frame is the whole stream
+// replayed. Waiting on for an acceptable frame can only end at the deadline,
+// which the test binary's later tests then inherit spent. So the wait fails on
+// the first such frame, naming what it could not understand and showing the
+// frame.
+func TestAwaitScreen_FailsOnTheFirstFrameItCannotUnderstand(t *testing.T) {
+	tty := &syncBuf{}
+	_, err := tty.Write([]byte("on screen\x1b[20h"))
+	require.NoError(t, err)
+
+	f := &failingT{T: t}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		awaitScreen(f, tty, "a frame that never comes", func(t tb, e *vtemu.Screen) {
+			t.Helper()
+			require.Contains(t, e.Row(0), "a frame that never comes")
+		})
+	}()
+	testsupport.Await(t, 5*time.Second, done, "the wait outlived the first frame it could not understand")
+
+	require.NotEmpty(t, f.failures, "the wait must fail")
+	assert.Contains(t, f.failures[0], "CSI 20h", "the failure names the sequence")
+	assert.Contains(t, f.failures[0], "on screen", "the failure shows the frame")
 }

@@ -1,3 +1,5 @@
+//go:build !windows
+
 package safefs
 
 import (
@@ -9,7 +11,9 @@ import (
 )
 
 // New's RLock is the kernel's shared lock: another process's shared attempt
-// is granted beside it and its exclusive attempt is refused.
+// is granted beside it and its exclusive attempt is refused. gofrs/flock is
+// that kernel lock here; on Windows the lock byte is safefs's own
+// (locks_kernel_windows.go), so a raw gofrs handle would not contend.
 func TestNewLocks_RLockIsTheKernelsSharedLock(t *testing.T) {
 	lockPath := filepath.Join(t.TempDir(), "x.lock")
 	rl, err := New().Locks.RLock(lockPath)

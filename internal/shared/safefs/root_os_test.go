@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,7 +63,9 @@ func TestWithLock_ThroughASymlinkLocksItsTarget(t *testing.T) {
 	ran := false
 	require.NoError(t, WithLock(New().Locks, lockPath, func() error {
 		ran = true
-		locked, err := flock.New(target).TryLock()
+		probe := newKernelLock(target, true)
+		locked, err := probe.TryLock()
+		_ = probe.Close()
 		require.NoError(t, err)
 		assert.False(t, locked, "the lock taken through the link must hold its target")
 		return nil
@@ -95,11 +96,11 @@ func TestNewLocks_TryLockNeverCreatesTheParent(t *testing.T) {
 	assert.NoDirExists(t, dir)
 }
 
-// TryLock contends with a gofrs/flock holder on the same path, and is
-// granted once that holder lets go.
+// TryLock contends with another handle's kernel lock on the same path — as
+// another process's would — and is granted once that holder lets go.
 func TestNewLocks_TryLockContendsWithAFlockHolder(t *testing.T) {
 	lockPath := filepath.Join(t.TempDir(), "x.lock")
-	holder := flock.New(lockPath)
+	holder := newKernelLock(lockPath, true)
 	got, err := holder.TryLock()
 	require.NoError(t, err)
 	require.True(t, got)
@@ -139,7 +140,7 @@ func TestNewLocks_HeldIsTheKernelsAnswer(t *testing.T) {
 	assert.False(t, held, "no lock file is no holder")
 	assert.NoFileExists(t, lockPath, "a probe must not mint the lock file")
 
-	holder := flock.New(lockPath)
+	holder := newKernelLock(lockPath, true)
 	got, err := holder.TryLock()
 	require.NoError(t, err)
 	require.True(t, got)

@@ -1,8 +1,8 @@
 // Package sessionlock answers one question for every sweep that reclaims
 // per-session data: is the session that owns this harp still running?
 //
-// The signal is an EXCLUSIVE FILE LOCK (newHarpLock: flock(2) on Linux and
-// macOS, LockFileEx over a byte past the content on Windows) that the session-owning process
+// The signal is an EXCLUSIVE FILE LOCK (safefs's kernel locks: flock(2) on
+// Linux and macOS, LockFileEx over a byte past the content on Windows) that the session-owning process
 // holds on paths.HarpLockPath(harp) for as long as it runs. A sweeper tries
 // the lock:
 //
@@ -101,9 +101,6 @@ var ErrHeldElsewhere = errors.New("sessionlock: the session lock is held by anot
 // A var so a test can shorten it.
 var holdWait = 10 * time.Second
 
-// holdRetry is the TryLock polling interval inside holdWait.
-const holdRetry = 50 * time.Millisecond
-
 // lockFileMode is the lock file's permission: the content is a pid, which is
 // nobody else's business, and the sessions root is already 0700.
 const lockFileMode = 0o600
@@ -117,16 +114,17 @@ const lockFileMode = 0o600
 // release; it is not the lock.
 var (
 	heldMu sync.Mutex
-	held   = map[string]harpLock{}
+	held   = map[string]safefs.Lock{}
 )
 
-// harpLock is the one lock primitive every holder and probe of a harp lock
-// file goes through; newHarpLock builds it per OS. Close releases.
-type harpLock interface {
-	TryLock() (bool, error)
-	TryLockContext(ctx context.Context, retry time.Duration) (bool, error)
-	Close() error
-}
+// locks are the controller's own kernel locks: a harp lock file lives on the
+// disk this process runs on (paths.HarpLockPath), and the sweeper probing it
+// must contend with the same kernel the session holds it in.
+var locks = safefs.New().Locks
+
+// beforeProbeLock runs between Acquire's look at the lock file and its lock,
+// so a test can force what may happen to the file in between.
+var beforeProbeLock = func(string) {}
 
 // Hold takes harp's lock for this process and keeps it until Release (or the
 // process ends, which is the point). Idempotent per process.
@@ -165,23 +163,20 @@ func Hold(harp string) error {
 		return err
 	}
 
-	fl := newHarpLock(path, harpLockFlagCreate)
 	ctx, cancel := context.WithTimeout(context.Background(), holdWait)
 	defer cancel()
 	stop := lockwait.Watch(path)
-	got, err := fl.TryLockContext(ctx, holdRetry)
+	lk, err := locks.TryLock(ctx, path)
 	stop()
-	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
-		_ = fl.Close()
+	switch {
+	case errors.Is(err, safefs.ErrLockHeld):
+		_ = os.Remove(path)
+		return fmt.Errorf("%w: %s", ErrHeldElsewhere, path)
+	case err != nil:
 		_ = os.Remove(path)
 		return fmt.Errorf("sessionlock: lock %s: %w", path, err)
 	}
-	if !got {
-		_ = fl.Close()
-		_ = os.Remove(path)
-		return fmt.Errorf("%w: %s", ErrHeldElsewhere, path)
-	}
-	held[harp] = fl
+	held[harp] = lk
 	return nil
 }
 
@@ -213,12 +208,12 @@ func stampPID(path string) error {
 func Release(harp string) {
 	heldMu.Lock()
 	defer heldMu.Unlock()
-	fl, ok := held[harp]
+	lk, ok := held[harp]
 	if !ok {
 		return
 	}
 	delete(held, harp)
-	_ = fl.Close()
+	_ = lk.Unlock()
 }
 
 // Acquire probes harp and, on Dead, KEEPS the lock until the returned
@@ -226,8 +221,11 @@ func Release(harp string) {
 // resumed under the same harp meanwhile waits in Hold instead of racing the
 // deletion. On any other verdict the release holds nothing and is harmless.
 //
-// It never creates the lock file: a file the probe minted would be unlocked
-// and read as Dead on the next probe.
+// It never leaves a lock file it created: a file the probe minted would be
+// unlocked, carry no pid, and read as Dead on the next probe. The lock is
+// safefs's TryLock, which creates a missing file, so a file that vanished
+// between the look and the lock is caught after the fact (mintedByProbe),
+// removed under the lock, and refused.
 func Acquire(harp string) (Probe, func()) {
 	noop := func() {}
 	path, err := paths.HarpLockPath(harp)
@@ -243,23 +241,40 @@ func Acquire(harp string) (Probe, func()) {
 		return Probe{PID: readPID(path), Reason: fmt.Sprintf("%s is on a %s filesystem, whose locks cannot be trusted to prove the owner dead", path, fstype)}, noop
 	}
 
-	if _, err := os.Lstat(path); err != nil {
+	seen, err := os.Stat(path)
+	if err != nil {
 		return Probe{Reason: fmt.Sprintf("no session lock at %s — the owner cannot be proven dead", path)}, noop
 	}
+	beforeProbeLock(path)
 
-	// O_RDONLY without O_CREATE: the Lstat above already ruled out absence,
-	// and a create here would be the race that mints an unlocked file.
-	fl := newHarpLock(path, harpLockFlagExisting)
-	got, err := fl.TryLock()
-	if err != nil {
-		_ = fl.Close()
+	once, cancel := context.WithCancel(context.Background())
+	cancel()
+	lk, err := locks.TryLock(once, path)
+	switch {
+	case errors.Is(err, safefs.ErrLockHeld):
+		return Probe{Verdict: Alive, PID: readPID(path), Reason: "the session's lock is held: its owner is alive"}, noop
+	case err != nil:
 		return Probe{PID: readPID(path), Reason: fmt.Sprintf("probing the session lock %s failed: %v", path, err)}, noop
 	}
-	if !got {
-		_ = fl.Close()
-		return Probe{Verdict: Alive, PID: readPID(path), Reason: "the session's lock is held: its owner is alive"}, noop
+	if mintedByProbe(seen, lk, path) {
+		_ = os.Remove(path)
+		_ = lk.Unlock()
+		return Probe{Reason: fmt.Sprintf("the session lock at %s vanished while it was probed — the owner cannot be proven dead", path)}, noop
 	}
-	return Probe{Verdict: Dead, PID: readPID(path), Reason: "the session's lock was free: its owner has ended"}, func() { _ = fl.Close() }
+	return Probe{Verdict: Dead, PID: readPID(path), Reason: "the session's lock was free: its owner has ended"}, func() { _ = lk.Unlock() }
+}
+
+// mintedByProbe reports that the file Acquire locked is one its own lock
+// created: the file it looked at carried a pid, and the file now locked at
+// the path carries none — Hold stamps the pid before it locks, so only a
+// create leaves a locked harp file empty. Content, not inode identity: a
+// filesystem may hand a just-removed file's inode number to the next create.
+func mintedByProbe(seen os.FileInfo, lk safefs.Lock, path string) bool {
+	if !lk.Current() || seen.Size() == 0 {
+		return false
+	}
+	now, err := os.Stat(path)
+	return err == nil && now.Size() == 0
 }
 
 // Inspect is Acquire without keeping anything: the verdict, released at

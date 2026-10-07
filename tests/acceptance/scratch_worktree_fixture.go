@@ -13,14 +13,15 @@
 package acceptance
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
-
-	"github.com/gofrs/flock"
 )
 
 const (
@@ -121,7 +122,7 @@ func seedDeadSession(w *World, harp string) error {
 }
 
 // seedLiveSession makes harp read sessionlock.Alive: THIS test process takes a
-// genuine exclusive flock on the harp's lock file and holds it for the rest of
+// genuine exclusive kernel lock (safefs's, the one sessionlock takes) on the harp's lock file and holds it for the rest of
 // the scenario, so the ctxloom subprocess probing it meets a real held lock.
 //
 // It locks the path DIRECTLY rather than calling sessionlock.Hold, and that is
@@ -136,14 +137,15 @@ func seedLiveSession(w *World, harp string) error {
 	if err := os.WriteFile(path, fmt.Appendf(nil, "%d\n", os.Getpid()), 0o600); err != nil {
 		return fmt.Errorf("write live session lock for %s: %w", harp, err)
 	}
-	fl := flock.New(path)
-	locked, err := fl.TryLock()
-	if err != nil {
+	once, cancel := context.WithCancel(context.Background())
+	cancel()
+	lk, err := safefs.New().Locks.TryLock(once, path)
+	switch {
+	case errors.Is(err, safefs.ErrLockHeld):
+		return fmt.Errorf("could not take %s's session lock, so this scenario cannot make it read as live", harp)
+	case err != nil:
 		return fmt.Errorf("take %s's session lock: %w", harp, err)
 	}
-	if !locked {
-		return fmt.Errorf("could not take %s's session lock, so this scenario cannot make it read as live", harp)
-	}
-	w.heldSessionLocks = append(w.heldSessionLocks, fl)
+	w.heldSessionLocks = append(w.heldSessionLocks, lk)
 	return nil
 }

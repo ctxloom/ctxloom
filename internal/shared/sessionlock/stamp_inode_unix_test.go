@@ -44,9 +44,8 @@ func inodeOf(t *testing.T, path string) uint64 {
 // The test stamps a file that is currently locked, which Hold itself is
 // careful never to do (it stamps BEFORE locking, so no second descriptor is
 // ever opened on a locked file — see Hold's doc). That is deliberate: it is
-// the sharpest form of the invariant, and it is why this test is
-// !windows-only, since LockFileEx genuinely refuses a write through a second
-// handle and the question does not arise there.
+// the sharpest form of the invariant. The test is unix-only because it
+// compares inode numbers (inodeOf), which Windows does not expose this way.
 //
 // The control at the end is what keeps the assertion honest: the SAME stamp
 // performed with safefs's atomic default must flip the verdict to Dead. Without

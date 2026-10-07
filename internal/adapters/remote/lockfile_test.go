@@ -86,7 +86,7 @@ func TestLockfileManager_SaveAndLoad(t *testing.T) {
 
 // TestLockfileManager_SaveStampsTheCurrentVersion: Save writes
 // LockfileVersion whatever the caller constructed, because Load refuses any
-// older version (ErrLockKeyFormRetired) — a Save that left a zero version on
+// older version (schemaver.ErrTooOld) — a Save that left a zero version on
 // disk would write a lockfile the next Load cannot read.
 func TestLockfileManager_SaveStampsTheCurrentVersion(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -312,8 +312,8 @@ func TestLockfileManager_Load_NilMaps(t *testing.T) {
 // diagnostic at all.
 //
 // It is refused as what it is — a lockfile holding no document — and not as a
-// retired key form: nothing in it is keyed at all, so "keyed by the reference
-// as typed" would send the user hunting for entries that do not exist.
+// key or generation fault: nothing in it is keyed at all, so either would
+// send the user hunting for entries that do not exist.
 func TestLockfileManager_Load_DocumentlessFileIsRefusedAsEmpty(t *testing.T) {
 	for name, body := range map[string]string{
 		"0-byte":          "",
@@ -327,7 +327,7 @@ func TestLockfileManager_Load_DocumentlessFileIsRefusedAsEmpty(t *testing.T) {
 
 			_, err := NewLockfileManager("/test", WithLockfileFS(fs)).Load()
 			require.ErrorIs(t, err, errLockfileEmpty, "a documentless lockfile must be refused, not loaded as an empty one")
-			assert.NotErrorIs(t, err, ErrLockKeyFormRetired, "a file with no entries is not keyed any way at all")
+			assert.NotErrorIs(t, err, ErrLockKeyNotIdentity, "a file with no entries is not keyed any way at all")
 		})
 	}
 }
@@ -434,34 +434,3 @@ func TestLockfile_RemoveEntry_UnknownType(t *testing.T) {
 	}
 }
 
-// TestLockfileManager_Load_IgnoresTheRetiredTreeField pins the on-disk
-// contract for a lockfile written before the per-pin `tree` shape flag was
-// retired: the key is IGNORED, not refused, and the entry it sat on loads
-// intact. Unlike the retired hold key (which carries a user decision and is
-// refused by name), `tree` recorded a fact every v2 pin now has by
-// construction, so dropping it silently loses nothing.
-func TestLockfileManager_Load_IgnoresTheRetiredTreeField(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, "/test/"+paths.LockFileName+".yaml", `schema_version: 2
-locked_at: 2026-01-01T00:00:00Z
-bundles:
-  ctxloom+git://github.com/acme/tools//bundles/tools:
-    sha: abc123
-    url: https://github.com/acme/tools
-    tree: true
-    held: true
-`, 0o644)
-
-	manager := NewLockfileManager("/test", WithLockfileFS(fs))
-	lock, err := manager.Load()
-	if err != nil {
-		t.Fatalf("Load() with a retired tree key: %v — an old lockfile must still parse", err)
-	}
-	entry, ok := lock.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/acme/tools//bundles/tools")
-	if !ok {
-		t.Fatal("the entry carrying the retired key was dropped rather than loaded")
-	}
-	if entry.SHA != "abc123" || !entry.Held {
-		t.Errorf("entry = %+v; the fields beside the retired key must survive the load", entry)
-	}
-}

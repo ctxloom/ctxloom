@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/spf13/afero"
@@ -15,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // LockfileManager handles reading and writing the active lockfile (lock.yaml —
@@ -107,8 +107,11 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	}
 
 	var lockfile Lockfile
-	if err := yaml.Unmarshal(r.Data, &lockfile); err != nil {
-		return nil, fmt.Errorf("failed to parse lockfile: %w", err)
+	if err := yamlx.DecodeStrict(r.Data, &lockfile); err != nil {
+		return nil, fmt.Errorf("failed to parse lockfile %s: %w", path, err)
+	}
+	if err := checkIdentityKeys(path, lockfile.Bundles); err != nil {
+		return nil, err
 	}
 
 	// Initialize maps if nil
@@ -126,13 +129,7 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 }
 
 // upgradeLockfile brings data to lockfileKind.Current() in memory, or refuses
-// it: present but empty, a retired hold spelling, a newer version, or a
-// retired key form. A lockfile keyed the retired way spells each bundle as it
-// was typed, while every pin and hold is looked up by the bundle's identity, so
-// an entry keyed any other way is one no lookup reaches. A version below lockfileKind.Oldest (or
-// none at all) is that retired form. There is no rekeying on read: a hold is a
-// decision this read cannot carry across a key it does not trust, so the user
-// rebuilds the lock and re-applies the holds the refusal names.
+// it: present but empty, or a generation this binary does not read.
 func upgradeLockfile(path string, data []byte) (schemaver.Result, error) {
 	// A PRESENT lockfile with no document is a DIFFERENT fact from "no
 	// lockfile" (Load's not-exist case) and must not collapse into it: every
@@ -140,44 +137,17 @@ func upgradeLockfile(path string, data []byte) (schemaver.Result, error) {
 	// can only be truncation, a crash mid-write, or a hand-created stub, and
 	// loading it as a valid empty lockfile would make every pinned remote
 	// bundle vanish with no diagnostic. It is checked BEFORE the generation
-	// gate, which would read it as generation 0 and refuse it as a retired
-	// key form it does not have.
+	// gate, which would read it as generation 0.
 	if isDocumentless(data) {
 		return schemaver.Result{}, fmt.Errorf("%w: %s — this is not the same as no lockfile at all (which is fine); "+
 			"delete it and re-run `ctxloom deps pull` to rebuild it", errLockfileEmpty, path)
 	}
-
-	// REFUSE the retired hold key rather than letting yaml drop it. A lockfile
-	// written by an older ctxloom spells a hold `pinned`, which this struct no
-	// longer models — so it would load cleanly with every hold silently gone,
-	// and the next `deps upgrade` would advance a dependency the user
-	// deliberately froze while reporting success. This key carries a
-	// DECISION, so it is refused rather than migrated.
-	if entry, found := findRetiredHoldField(data); found {
-		return schemaver.Result{}, fmt.Errorf("lockfile %s spells a hold %q on entry %q; it is now %q — "+
-			"delete the lockfile and re-run `ctxloom deps pull` to rebuild it, "+
-			"then re-apply the hold with `ctxloom deps hold %s`",
-			path, retiredHoldField, entry, "held", entry)
-	}
-
 	r, err := lockfileKind.Upgrade(data)
-	if errors.Is(err, schemaver.ErrTooOld) {
-		held, _ := findRetiredKeyForm(data)
-		return schemaver.Result{}, retiredKeyFormError(path, held)
-	}
 	if err != nil {
 		return schemaver.Result{}, fmt.Errorf("lockfile %s: %w", path, err)
 	}
-	if held, found := findRetiredKeyForm(r.Data); found {
-		return schemaver.Result{}, retiredKeyFormError(path, held)
-	}
 	return r, nil
 }
-
-// retiredHoldField is the pre-rename spelling of LockEntry.Held. A hold is a
-// user DECISION, so a file still using this key is refused by name rather than
-// read with the decision dropped.
-const retiredHoldField = "pinned"
 
 // errLockfileEmpty reports a lock.yaml that is present but holds no document.
 // Every lockfile ctxloom writes records its format generation and its entries,
@@ -192,80 +162,33 @@ func isDocumentless(data []byte) bool {
 	return yaml.Unmarshal(data, &v) == nil && v == nil
 }
 
-// ErrLockKeyFormRetired reports a lockfile Load refused because it predates
-// LockfileVersion or carries a key that is not its own bundle identity.
-var ErrLockKeyFormRetired = errors.New("lockfile uses a retired key form")
+// ErrLockKeyNotIdentity reports a lockfile entry keyed by something other
+// than its own bundle identity: every pin and hold is looked up by identity,
+// so such an entry is one no lookup reaches.
+var ErrLockKeyNotIdentity = errors.New("lockfile entry is not keyed by its bundle identity")
 
-// findRetiredKeyForm reports whether data carries any key k that is not
-// ident.ParseBundleRef(k).BundleIdentity(), and the keys of the entries it
-// holds (sorted), so a refusal can list them for re-holding. The version half
-// of the retired form is lockfileKind's to judge. Unparseable input reports
-// false and leaves the loader's own decode to produce the error.
-func findRetiredKeyForm(data []byte) (held []string, found bool) {
-	var doc struct {
-		Bundles map[string]struct {
-			Held bool `yaml:"held"`
-		} `yaml:"bundles"`
+// checkIdentityKeys refuses the first (sorted) key that is not its own bundle
+// identity.
+func checkIdentityKeys(path string, bundles map[ident.BundleKey]LockEntry) error {
+	keys := make([]string, 0, len(bundles))
+	for key := range bundles {
+		keys = append(keys, string(key))
 	}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, false
-	}
-	for key, entry := range doc.Bundles {
+	sort.Strings(keys)
+	for _, key := range keys {
 		if !IsBundleIdentity(key) {
-			found = true
-		}
-		if entry.Held {
-			held = append(held, key)
+			return fmt.Errorf("%w: %s: %q; delete it and re-run `ctxloom deps pull` to rebuild it", ErrLockKeyNotIdentity, path, key)
 		}
 	}
-	sort.Strings(held)
-	return held, found
+	return nil
 }
 
 // IsBundleIdentity reports whether key is exactly the bundle identity it
-// parses to — the one test for a key written the retired way, shared by every
-// store keyed by bundle identity so they cannot disagree about what is retired.
+// parses to — the one test, shared by every store keyed by bundle identity so
+// they cannot disagree about what a key is.
 func IsBundleIdentity(key string) bool {
 	br, err := ident.ParseBundleRef(key)
 	return err == nil && string(br.BundleIdentity()) == key
-}
-
-func retiredKeyFormError(path string, held []string) error {
-	fix := "delete it and re-run `ctxloom deps pull` to rebuild it"
-	if len(held) == 0 {
-		return fmt.Errorf("%w: %s is keyed by the reference as typed, not by bundle identity; %s (it records no holds)",
-			ErrLockKeyFormRetired, path, fix)
-	}
-	return fmt.Errorf("%w: %s is keyed by the reference as typed, not by bundle identity; %s, "+
-		"then re-apply the %d hold(s) it records with `ctxloom deps hold <ref>`: %s",
-		ErrLockKeyFormRetired, path, fix, len(held), strings.Join(held, ", "))
-}
-
-// findRetiredHoldField returns the first bundle entry carrying the retired hold
-// key as a FIELD, and whether one was found. Parsing is what separates a key
-// from a URL, a bundle path or a requested version that merely contains the
-// word. Unparseable input reports false and leaves the loader's own yaml.Unmarshal to
-// produce the error.
-func findRetiredHoldField(data []byte) (string, bool) {
-	var doc struct {
-		Bundles map[string]map[string]any `yaml:"bundles"`
-	}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return "", false
-	}
-	// Sorted so a lockfile with several stale entries names the same one every
-	// run; map order would make the message differ between identical inputs.
-	names := make([]string, 0, len(doc.Bundles))
-	for name := range doc.Bundles {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		if _, ok := doc.Bundles[name][retiredHoldField]; ok {
-			return name, true
-		}
-	}
-	return "", false
 }
 
 // ErrLockfileWouldErase reports a refused write: the incoming lockfile is

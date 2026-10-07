@@ -64,31 +64,11 @@ func TestSave_RefusesOverwritingANewerLockfile(t *testing.T) {
 	assert.Equal(t, body, string(onDisk))
 }
 
-// The retired per-entry ctxloom_version key is dropped in memory and is gone
-// from disk only once something writes the lockfile.
-func TestLoad_RetiredEntryFieldIsDroppedOnTheNextSaveNotOnRead(t *testing.T) {
-	body := "schema_version: 2\nbundles:\n  " + string(schemaverLockKey) + ":\n    sha: abc123\n    ctxloom_version: v1\n"
-	lm := lockWithBody(t, body)
-	lock, err := lm.Load()
-	require.NoError(t, err)
-	onDisk, err := afero.ReadFile(lm.FS(), lm.Path())
-	require.NoError(t, err)
-	assert.Equal(t, body, string(onDisk), "a read must not write")
-
-	require.NoError(t, lm.Save(lock))
-	reloaded, err := afero.ReadFile(lm.FS(), lm.Path())
-	require.NoError(t, err)
-	assert.NotContains(t, string(reloaded), "ctxloom_version")
-	assert.Contains(t, string(reloaded), schemaver.Key+": "+strconv.Itoa(LockfileVersion))
-}
-
-// A lockfile with no version key at all predates key-by-identity: refused as
-// a retired key form, exactly like an explicit older version.
-func TestLoad_KeylessIsARetiredKeyForm(t *testing.T) {
+// A lockfile with no version key at all declares no generation: refused.
+func TestLoad_KeylessIsRefused(t *testing.T) {
 	lm := lockWithBody(t, "bundles:\n  "+string(schemaverLockKey)+":\n    sha: abc123\n    held: true\n")
 	_, err := lm.Load()
-	require.ErrorIs(t, err, ErrLockKeyFormRetired)
-	assert.Contains(t, err.Error(), string(schemaverLockKey), "the refusal lists the held entry")
+	require.ErrorIs(t, err, schemaver.ErrTooOld)
 }
 
 // A lockfile that is not YAML is reported as the parse failure it is — the

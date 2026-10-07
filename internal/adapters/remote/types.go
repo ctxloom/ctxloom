@@ -176,8 +176,7 @@ type LockEntry struct {
 	// hold`/`unhold`.
 	//
 	// Serialized `held` to match what the CLI, the DTO layer and this field
-	// all call it. The retired spelling `pinned` is REFUSED at load rather
-	// than ignored — see retiredHoldField.
+	// all call it.
 	Held bool `yaml:"held,omitempty" json:"held,omitempty"`
 }
 
@@ -190,9 +189,9 @@ type Lockfile struct {
 }
 
 // LockfileVersion is the lockfile format this build writes and the only one it
-// reads: entries keyed by bundle identity (Reference.LockKey). Load refuses
-// anything older — see ErrLockKeyFormRetired — and anything newer
-// (schemaver.ErrNewer).
+// reads: entries keyed by bundle identity (Reference.LockKey, checked by
+// ErrLockKeyNotIdentity), decoded strictly. Load refuses anything older
+// (schemaver.ErrTooOld) or newer (schemaver.ErrNewer).
 const LockfileVersion = 2
 
 // ManifestEntry represents an item in the optional manifest.yaml index.

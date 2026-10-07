@@ -1,8 +1,0 @@
-hew: 1
-
---- target.jsonc format=jsonc
-
-@@ / @@
-- // the old telemetry opt-out
-- "telemetry": false
-  "port": 8080

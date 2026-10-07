@@ -58,9 +58,6 @@ var EnvKeys = []string{
 	"CTXLOOM_COORD_URL",
 	"CTXLOOM_COORD_CRED",
 	"CTXLOOM_RUN_ID",
-	// internal/adapters/isolation/traceprobe.go's probeTraceEnv const, read via
-	// os.Getenv(probeTraceEnv) — same shape, same discovery.
-	"CTXLOOM_ISOLATION_PROBE_TRACE_DIR",
 	// The container launch-retry budget's operator overrides: read via the
 	// coord.EnvLaunch* constants (os.LookupEnv(EnvLaunchMaxAttempts), not a
 	// literal "CTXLOOM_..." string), same reason as the trio above — listed
@@ -72,11 +69,6 @@ var EnvKeys = []string{
 	// constant and forwarded by spawn.StartRunner — an ambient value would
 	// change how long every test's runner outlives its coordinator.
 	"CTXLOOM_RUNNER_OWNER_LOSS_WINDOW",
-	// procsec.EnvAllowProcessInspection, read at the top of main() to skip
-	// same-uid /proc hardening for debugging. An ambient value would leave every
-	// test process's environ peer-readable, so a test asserting the hardened
-	// state would pass or fail on the developer's shell rather than the code.
-	"CTXLOOM_ALLOW_PROCESS_INSPECTION",
 	// Not production state: a CI-only knob read by
 	// internal/testsupport/dockergate to turn "docker unreachable" from a
 	// skip into a failure. Listed because TestEnvKeysCoversProductionReads
@@ -112,16 +104,6 @@ var EnvKeys = []string{
 	"CTXLOOM_ALLOW_MISSING_GIT",
 	"GITHUB_TOKEN",
 	"GH_TOKEN",
-	// The mount-namespace shim's own protocol. mountns re-execs THIS BINARY
-	// with these set, so a test that inherited one from an ambient environment
-	// would take the shim path on startup instead of running the test —
-	// silently, and only on a machine where they happened to be exported.
-	"CTXLOOM_MOUNTNS_SHIM",
-	"CTXLOOM_MOUNTNS_BINDS",
-	"CTXLOOM_MOUNTNS_ARGV",
-	"CTXLOOM_MOUNTNS_PROBING",
-	"CTXLOOM_MOUNTNS_PROBE_WRITE",
-	"CTXLOOM_MOUNTNS_READBACK",
 	"EDITOR",
 	"VISUAL",
 	"PAGER",

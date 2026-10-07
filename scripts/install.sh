@@ -542,8 +542,7 @@ parse_args() {
 
 # install_via_brew: the --brew path. ctxloom itself is fatal on failure;
 # companions are best-effort (a cask may not exist yet — warn + continue).
-# Installs the standard build, mirroring the archive path; full-build users:
-# brew install ctxloom/tap/ctxloom-full directly.
+# Installs the same build as the archive path.
 install_via_brew() {
     if ! command_exists brew; then
         log_error "--brew given but brew is not on PATH."

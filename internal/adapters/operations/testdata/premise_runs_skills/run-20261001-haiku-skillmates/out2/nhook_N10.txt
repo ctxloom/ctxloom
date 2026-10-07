@@ -1,1 +1,0 @@
-`next: Call ctxloom recover_session MCP tool to retrieve the recovered session content`

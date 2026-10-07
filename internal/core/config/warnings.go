@@ -33,25 +33,13 @@ const (
 	// WarnKindMigrationLossy: the in-memory schema upgrade had to drop a
 	// user-set value (e.g. a compaction model with no label to attach it to).
 	WarnKindMigrationLossy WarningKind = "migration-lossy"
-	// WarnKindLayerScope: a config LAYER carries a key whose value cannot be a
-	// fact about that layer — a machine path in the committed, multi-author
-	// project file; a project-scoped privilege grant filled in from a user's
-	// home config (which does not lose the merge, it fills a gap the project
-	// left — the escalation this exists to close); a value from the ambient
-	// environment, which every child process this one spawns inherits. See
-	// internal/core/config/layerscope. The value is DROPPED, exactly like
-	// WarnKindUnknownKey and for the identical reason: a setting that looks
-	// applied and is not is the worse outcome.
-	WarnKindLayerScope WarningKind = "layer-scope"
 	// WarnKindEnginelessAgent: an `agents:` entry declares no llm and no
 	// profiles — nothing that could resolve an engine. That is not a degraded
 	// agent, it is not an agent: `run --agent` would fall through to the
 	// default binding or fail deep in launch rather than at the declaration.
 	// The entry is DROPPED from the layer before the merge, for the same
 	// reason WarnKindUnknownKey drops its key: an agent that lists as bound
-	// to nothing is the worse outcome. Dropping it at the LAYER is also what
-	// keeps a home-only `{}` out of the project file, where the next
-	// project-layer save would otherwise re-serialise it from the merged view.
+	// to nothing is the worse outcome.
 	WarnKindEnginelessAgent WarningKind = "engineless-agent"
 )
 
@@ -69,8 +57,7 @@ func (k WarningKind) Kind() report.Kind {
 
 // Remedy names the edit or command that clears a warning of this kind. The
 // finding's message already carries the config path and the error detail, so
-// this only has to say what to do about it. A warning that knows a more
-// specific fix carries it in Warning.Remedy.
+// this only has to say what to do about it.
 func (k WarningKind) Remedy() string {
 	switch k {
 	case WarnKindRead:
@@ -81,11 +68,6 @@ func (k WarningKind) Remedy() string {
 		// The message already names the key and (when known) its replacement, so
 		// the remedy only has to say where to make the edit.
 		return "remove or rename the key in config.yaml (ctxloom manage config edit)"
-	case WarnKindLayerScope:
-		// A file layer's violation carries its exact edit in Warning.Remedy
-		// (layerscope.Violation.Remedy); this is the remedy for the env/flag
-		// override route, which has no file to edit.
-		return "unset the override (the env var or --config-set entry), or set the key in a config layer that may carry it"
 	case WarnKindEnginelessAgent:
 		return "bind the agent to an llm or to profiles (ctxloom agent edit <name> --llm <label> | --profiles <p,...>), or remove it (ctxloom agent remove <name>)"
 	default: // parse / validate
@@ -93,13 +75,11 @@ func (k WarningKind) Remedy() string {
 	}
 }
 
-// Warning is one non-fatal load-time diagnostic: the degradation text, the
-// kind the startup gate keys on, and the remedy when the raise site knows one
-// more specific than its kind's (empty means Kind.Remedy()).
+// Warning is one non-fatal load-time diagnostic: the degradation text and the
+// kind the startup gate keys on.
 type Warning struct {
-	Kind   WarningKind
-	Text   string
-	Remedy string
+	Kind WarningKind
+	Text string
 }
 
 // Finding is the warning as the fail-loudly finding a sink renders and
@@ -110,11 +90,7 @@ type Warning struct {
 // The ledger still re-fires it in the next window, so an unfixed config
 // refuses the next session too.
 func (w Warning) Finding() report.Finding {
-	remedy := w.Remedy
-	if remedy == "" {
-		remedy = w.Kind.Remedy()
-	}
-	return report.FailOncef(w.Kind.Kind(), remedy, "%s", w.Text)
+	return report.FailOncef(w.Kind.Kind(), w.Kind.Remedy(), "%s", w.Text)
 }
 
 // ReportWarnings hands every warning a load produced to sink, as Findings.

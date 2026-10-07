@@ -1,1 +1,0 @@
-`next: Ask for details about the recover bug—where is the code, what's the symptom, and how should it behave?`

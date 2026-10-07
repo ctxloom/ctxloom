@@ -21,6 +21,10 @@ func (s companionSources) Read(context.Context) (*config.Config, []config.Warnin
 	return s.cfg, nil, nil
 }
 
+func (s companionSources) ReadTarget(context.Context) (*config.Config, error) {
+	return s.cfg, nil
+}
+
 func (s companionSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
 	readers := []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs()),

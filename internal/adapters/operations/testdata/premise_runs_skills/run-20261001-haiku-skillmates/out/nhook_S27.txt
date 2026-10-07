@@ -1,1 +1,0 @@
-`next: Establish the taskloom queue with taskloom list, then run pre-flight: baseline gate suite, pin base SHA, and write report header`

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"errors"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -142,17 +141,6 @@ func TestPublisherDisplayPaths_ControlBytesAreEscaped(t *testing.T) {
 			renderReconcile(&buf, operations.ReconcilePlan{
 				Gone:        []trust.BundleKey{trust.BundleKey(h)},
 				Unreachable: []operations.UncheckedRemote{{URL: h, Refs: []trust.BundleKey{trust.BundleKey(h)}, Reason: h}},
-			})
-			return buf.String()
-		}},
-		{"deps verify-corpus", func(t *testing.T) string {
-			var buf bytes.Buffer
-			reportCorpus(&buf, operations.CorpusReport{
-				RemotesConfigured: 1,
-				Violations: []operations.CorpusViolation{{
-					Bundle: operations.CorpusBundle{Remote: h, URL: h, Path: h}, Err: errors.New(h),
-				}},
-				Gaps: []operations.CorpusGap{{Remote: h, URL: h, Path: h, Err: errors.New(h)}},
 			})
 			return buf.String()
 		}},

@@ -1,9 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,7 +9,6 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	claudereader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/claude"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // The published command, end to end: each check operations.Doctor runs has
@@ -20,37 +16,6 @@ import (
 // piped caller reads), and the --deps scope has to keep the project-state
 // checks out. operations pins the report's order as a record; these pin that
 // the command renders it.
-
-// TestDoctorCmd_ReportCarriesTheLegacyIndexCheck: HOME is pointed at a
-// directory this test owns (isolateGitHostState, the same host-state
-// isolation every full-command doctor test here uses) so the fixture lands
-// where paths.HomeSessionsDir resolves for the command.
-func TestDoctorCmd_ReportCarriesTheLegacyIndexCheck(t *testing.T) {
-	root, _ := setupProject(t, "claude-code")
-	home := t.TempDir()
-	isolateGitHostState(t, home)
-	sessionsRoot, err := paths.HomeSessionsDir()
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(sessionsRoot, 0o755))
-	stale := filepath.Join(sessionsRoot, paths.IndexFileName)
-	require.NoError(t, os.WriteFile(stale, []byte("sessions: []\n"), 0o644))
-
-	out, err := execDoctor(t, root, "--format", "json")
-	require.NoError(t, err)
-	var report operations.DoctorReport
-	require.NoError(t, json.Unmarshal([]byte(out), &report))
-
-	var found *operations.DoctorCheck
-	for i := range report.Checks {
-		if report.Checks[i].Marker == "DOCTOR-CHECK-LEGACY-INDEX-y5" {
-			found = &report.Checks[i]
-		}
-	}
-	require.NotNil(t, found, "the legacy-index check is missing from the report")
-	assert.Equal(t, operations.DoctorWarn, found.Status)
-	assert.Contains(t, found.Detail, stale)
-	assert.Contains(t, found.Detail, "delete it; the sidecars are the record")
-}
 
 func TestDoctorCmd_ReportsTheMCPInvocationCheck(t *testing.T) {
 	root, _ := setupProject(t, "mock")

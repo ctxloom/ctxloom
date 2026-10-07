@@ -23,7 +23,6 @@ var allWarningKinds = []WarningKind{
 	WarnKindValidate,
 	WarnKindUnknownKey,
 	WarnKindMigrationLossy,
-	WarnKindLayerScope,
 	WarnKindEnginelessAgent,
 }
 
@@ -141,15 +140,4 @@ func TestReportWarnings_NoWarningsReportsNothing(t *testing.T) {
 	var sink report.Collector
 	ReportWarnings(&sink, nil)
 	assert.Empty(t, sink.All())
-}
-
-// A warning whose raise site knows a specific fix (a layer-scope violation's
-// exact edit) carries it to the finding; one that does not falls to its
-// kind's generic remedy.
-func TestWarning_FindingCarriesTheSpecificRemedy(t *testing.T) {
-	const specific = "Remove it from /p/config.yaml; set it in /h/config.yaml instead."
-	w := Warning{Kind: WarnKindLayerScope, Text: "dropped", Remedy: specific}
-	assert.Equal(t, specific, w.Finding().Remedy)
-	plain := Warning{Kind: WarnKindRead, Text: "unreadable"}
-	assert.Equal(t, WarnKindRead.Remedy(), plain.Finding().Remedy)
 }

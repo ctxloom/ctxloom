@@ -1,4 +1,0 @@
-[
-  { "op": "test", "path": "/servers/0/command", "value": "npx" },
-  { "op": "replace", "path": "/servers/0/command", "value": "npx-18" }
-]

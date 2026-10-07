@@ -55,6 +55,12 @@ type Sources interface {
 	// Read treats an ABSENT layer as the shipped default and refuses only a
 	// PRESENT unparsable one, so init on a machine with no config starts.
 	Read(ctx context.Context) (*Config, []Warning, error)
+	// ReadTarget reads the one file a write transaction persists to, alone:
+	// no lower layer beneath it and no override above it. Owner.Update drafts
+	// from it, so a save writes back only what that file said plus the
+	// change, never a value another layer contributed (a home config's
+	// agents, an env override).
+	ReadTarget(ctx context.Context) (*Config, error)
 	// Readers are the bundle sources a generation's Catalog is resolved from.
 	Readers(ctx context.Context, cfg *Config) ([]bundles.Reader, error)
 }
@@ -165,9 +171,9 @@ func (o *Owner) build(ctx context.Context, read *Config, warnings []Warning) (*S
 
 // Update runs fn as ONE serialized write transaction against the config file
 // the current generation was read from, then publishes the result as the
-// next generation: it takes the cross-process file lock, re-reads the sources
-// fresh under it, hands fn a Draft of that read, writes fn's changes through,
-// and reloads. fn returning an error abandons the transaction — nothing is
+// next generation: it takes the cross-process file lock, re-reads the target
+// file fresh under it (Sources.ReadTarget), hands fn a Draft of that read,
+// writes fn's changes through, and reloads. fn returning an error abandons the transaction — nothing is
 // written and the published generation is untouched.
 func (o *Owner) Update(ctx context.Context, fn func(*Draft) error) (*Snapshot, error) {
 	o.writeMu.Lock()
@@ -185,7 +191,7 @@ func (o *Owner) Update(ctx context.Context, fn func(*Draft) error) (*Snapshot, e
 
 	var next *Snapshot
 	err = withUpdateLock(cur.Config.Root().Locks, configPath, func() error {
-		fresh, _, err := o.src.Read(ctx)
+		fresh, err := o.src.ReadTarget(ctx)
 		if err != nil {
 			return fmt.Errorf("reload config for update: %w", err)
 		}

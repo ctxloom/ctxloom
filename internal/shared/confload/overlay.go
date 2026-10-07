@@ -43,11 +43,7 @@ const ConfigSetFlagName = "config-set"
 // from its cause.
 const EnvPrefixSegment = "_CONFIG_"
 
-// OverrideSource distinguishes the two override channels for a Product's
-// ScopeAllows hook. The distinction is REACH, not merely syntax: env is
-// inherited by every child process this one spawns (including a delegated
-// engine an agent drives); --config-set crosses no process boundary at all,
-// scoped to the one invocation that declared it. See Product.ScopeAllows.
+// OverrideSource names which override channel a diagnostic is about.
 type OverrideSource uint8
 
 const (
@@ -67,28 +63,9 @@ func (s OverrideSource) String() string {
 	}
 }
 
-// ScopeViolationError is what ApplyOverrides returns (joined alongside any
-// other override error) when Product.ScopeAllows answers false for a
-// resolved override path. It is a distinct type — not a bare fmt.Errorf —
-// so a caller with its own per-kind diagnostics (internal/adapters/configload's
-// (*Sources).decodeMergedLayers
-// classifies this as WarnKindLayerScope, distinctly from an ambiguous
-// override's plainer error) can tell the two apart via errors.As instead of
-// string-matching the message.
-type ScopeViolationError struct {
-	Source  OverrideSource
-	Path    []string
-	Why     string
-	Display string // the raw override's display form (env var name / --config-set entry)
-}
-
-func (e *ScopeViolationError) Error() string {
-	return fmt.Sprintf("%s: %s may not set %q — %s", e.Display, e.Source, strings.Join(e.Path, "."), e.Why)
-}
-
 // SchemaViolationError is what ApplyOverrides returns (joined alongside any
 // other override error) when Product.ValidateValue refuses a resolved
-// override's VALUE. A distinct type, like ScopeViolationError beside it, so a
+// override's VALUE. A distinct type, so a
 // caller can classify a schema fault as the schema fault it is (ctxloom maps it
 // to its validate warning kind, the same one a config FILE's schema breakage
 // gets) rather than folding it into the coarser parse bucket.
@@ -387,25 +364,11 @@ func (p Product) resolveRaw(base map[string]any, raw map[string]any, tokenize fu
 			errs = append(errs, err)
 			continue
 		}
-		if p.ScopeAllows != nil {
-			if ok, why := p.ScopeAllows(source, path); !ok {
-				// Dropped, not fatal — exactly like an ambiguous override
-				// (case 2): every OTHER override still resolves normally, and
-				// this one's target is simply absent from the returned layer.
-				// A typed error (not a bare fmt.Errorf), so a caller can
-				// classify this distinctly from every other override fault.
-				errs = append(errs, &ScopeViolationError{Source: source, Path: path, Why: why, Display: display})
-				continue
-			}
-		}
 		if warn {
 			clidiag.Warn(p.Name, "%s does not match any known config key (resolved as %s); setting it anyway",
 				display, strings.Join(path, "."))
 		}
-		// Reported and still applied — see SchemaViolationError's doc. It sits
-		// after the scope check because a value the layer may not carry at all
-		// is dropped there and never reaches the document, so validating it
-		// would only add a second complaint about a value nothing will read.
+		// Reported and still applied — see SchemaViolationError's doc.
 		if p.ValidateValue != nil {
 			if verr := p.ValidateValue(path, raw[name]); verr != nil {
 				errs = append(errs, &SchemaViolationError{Source: source, Path: path, Display: display, Err: verr})

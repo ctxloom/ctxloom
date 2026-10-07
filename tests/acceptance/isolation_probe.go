@@ -670,7 +670,7 @@ type probeResult struct {
 	// ENOENT rows for paths it looked for and did not find — the half `docker
 	// diff` (write-only) can never see. Empty on the worktree axis and on a
 	// container run whose trace could not be retrieved (surfaced as a finding).
-	Reads    []isolation.TraceRead
+	Reads    []TraceRead
 	ReadsErr string // why the trace could not be read/parsed, if it couldn't
 }
 
@@ -789,13 +789,10 @@ func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin 
 		return nil, err
 	}
 
-	// READ OBSERVATION: hand the production run path a host directory via the
-	// dedicated probe-only env var. buildRunnerSpec's traceProbeFromEnv picks it
-	// up (nil for any run that lacks this var — i.e. every production run) and
-	// marks the RunSpec's Trace, which makes renderRunSpec grant
-	// --cap-add=SYS_PTRACE, bind-mount this dir to /ctxloom-probe-trace, and wrap
-	// the in-container engine exec in strace. The strace output lands in this
-	// host dir, so it survives the container's --rm teardown with no race.
+	// READ OBSERVATION: a runtime-CLI shim ahead of PATH strace-wraps the runner
+	// container under a ptrace-permitting seccomp profile and binds this dir
+	// out, so the trace survives the container's --rm teardown with no race.
+	// See installProbeTrace; the shipped binary carries no such switch.
 	traceDir, err := os.MkdirTemp("", "ctxloom-probe-trace-*")
 	if err != nil {
 		return nil, fmt.Errorf("probe trace dir: %w", err)
@@ -804,9 +801,13 @@ func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin 
 	// World-writable so the in-container run user (remapped to the launching uid,
 	// or container-root→host-user under rootless) can create the trace file.
 	_ = os.Chmod(traceDir, 0o777)
-	probeEnv := []string{isolation.ProbeTraceEnvVar + "=" + traceDir}
+	shimDir, err := installProbeTrace(traceDir, runtimeBin)
+	if err != nil {
+		return nil, err
+	}
 
-	cmd := w.env.Command(probeEnv, "run", "--agent", "probe", "--workspace", "none", "--one-shot", probePrompt(token))
+	cmd := w.env.Command(nil, "run", "--agent", "probe", "--workspace", "none", "--one-shot", probePrompt(token))
+	cmd.Env = prependPath(cmd.Env, shimDir)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 
@@ -832,11 +833,11 @@ func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin 
 	// Parse the strace output the wrapped engine exec wrote INTO the bind-mounted
 	// host dir. Unlike the docker-diff race, this file is written from inside and
 	// mounted out, so it is simply on disk once the run returns — no polling.
-	tracePath := filepath.Join(traceDir, isolation.ProbeTraceOutFile)
+	tracePath := filepath.Join(traceDir, probeTraceOutFile)
 	if raw, rerr := os.ReadFile(tracePath); rerr != nil {
 		res.ReadsErr = fmt.Sprintf("strace trace file %s absent/unreadable after the run (%v) — strace may not be in the image, the probe seccomp profile may not have been applied, or the run never reached the engine exec", tracePath, rerr)
 	} else {
-		res.Reads = isolation.ParseStraceReads(raw)
+		res.Reads = ParseStraceReads(raw)
 		if len(res.Reads) == 0 {
 			res.ReadsErr = fmt.Sprintf("strace trace file %s was present but held no parseable file reads (%d bytes)", tracePath, len(raw))
 		}
@@ -904,7 +905,7 @@ func assertProbeContainer(res *probeResult) error {
 	// (e) READ observation — the half docker diff (write-only) cannot see. A real
 	// vendor CLI oneshot MUST open files (its own config surfaces at minimum), so
 	// an empty read-set means the strace instrument did not engage (strace absent
-	// from the image, SYS_PTRACE not granted, or the trace never made it out) —
+	// from the image, the probe seccomp profile not applied, or the trace never made it out) —
 	// the probe would be silently back to write-only. The ENOENT rows within are
 	// the point (a surface probed and not found = the silent-no-op shape), but
 	// even a single successful read proves the instrument works.
@@ -919,7 +920,7 @@ func assertProbeContainer(res *probeResult) error {
 // not required to pass (a given engine on a given box may find everything it
 // probes), but its presence is the clearest proof the probe now sees what a
 // write-only instrument never could.
-func probeReadsHasFailedResult(reads []isolation.TraceRead) bool {
+func probeReadsHasFailedResult(reads []TraceRead) bool {
 	for _, r := range reads {
 		if r.Failed() {
 			return true

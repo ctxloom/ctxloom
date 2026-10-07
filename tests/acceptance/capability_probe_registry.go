@@ -635,7 +635,7 @@ var probeRegistry = []probeSpec{
 			// different claims and only the first had evidence.
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree",
 				Status: probeLiveVerified,
-				Reason: "measured 2026-08-24: 1 scenario / 11 steps green in 59s. A real claude-code child ran in a rootless container on an isolated worktree, reported wake marker P6-WAKE-MARKER-CLAUDE-CODE-CTRWT-9d4f21ab from its own composed context, then echoed back the harp `stony-worse-muck` that the coordinator steered into its LIVE session mid-flight, with the steer on disk in the child's own spool. FIVE RUNS TO GET HERE, and the four failures are the useful part because each was a different real gap, recorded in uninvited-maternity: (1) the fixture committed before ctxloom materialized its own managed files, so agent_run refused a dirty tree — fixed with dirty_tree_handler: copy, since the default \"commit\" handler needs dirty_tree_commit_ack, a human act no automated cell can perform; (2) the image build ran opencode's installer for a claude cell and died on GitHub's rate limit — see frosted-pony, and the cell now pins isolation_engines; (3) that pin went into the PROJECT config, where a machine-scoped key is dropped with a warning rather than applied; (4) container auth mounts the host's ~/.claude/.credentials.json READ-WRITE (rotation must write back), resolves it from $HOME which is the harness's fake home, and cannot use CLAUDE_CONFIG_DIR because claudeAuthEnvVars excludes it — fixed by SYMLINKING the real credential in, verified against docker directly. container-rootful is absent rather than declared-and-skipped: no box this suite runs on has a reachable rootful daemon."},
+				Reason: "measured 2026-08-24: 1 scenario / 11 steps green in 59s. A real claude-code child ran in a rootless container on an isolated worktree, reported wake marker P6-WAKE-MARKER-CLAUDE-CODE-CTRWT-9d4f21ab from its own composed context, then echoed back the harp `stony-worse-muck` that the coordinator steered into its LIVE session mid-flight, with the steer on disk in the child's own spool. FIVE RUNS TO GET HERE, and the four failures are the useful part because each was a different real gap, recorded in uninvited-maternity: (1) the fixture committed before ctxloom materialized its own managed files, so agent_run refused a dirty tree — fixed with dirty_tree_handler: copy; (2) the image build ran opencode's installer for a claude cell and died on GitHub's rate limit — see frosted-pony, and the cell now pins isolation_engines; (3) that pin went into the PROJECT config, where a machine-scoped key was then dropped with a warning rather than applied; (4) container auth mounts the host's ~/.claude/.credentials.json READ-WRITE (rotation must write back), resolves it from $HOME which is the harness's fake home, and cannot use CLAUDE_CONFIG_DIR because claudeAuthEnvVars excludes it — fixed by SYMLINKING the real credential in, verified against docker directly. container-rootful is absent rather than declared-and-skipped: no box this suite runs on has a reachable rootful daemon."},
 			// THE TWO MIXED CORNERS. host/none and container-rootless/worktree
 			// prove the bus with both boundaries off and both on; these prove it
 			// with exactly ONE present, which is the half a combination test
@@ -869,7 +869,7 @@ func p0Cells() []probeCell {
 // cache file. A LAUNCH is not that path: the context surface is the thing that
 // would have written the cache file, and at this approach it writes nothing.
 // TestClaudeHookApproach_DeliversNothing holds that fact so this attribution
-// cannot rot the way the codex one did.
+// cannot rot.
 //
 // So the finding is sharper than "the hook route is broken": a user-selectable
 // config key elects a context delivery of ZERO BYTES, and the session launches
@@ -879,7 +879,7 @@ func p0Cells() []probeCell {
 // WHAT IT IS NOT. Not a degrade: no degrade marker appeared on stderr, so the
 // pin reached the wire (approachPinHonoured is the check that tells those
 // apart). Not an unwritten hook surface either — claude has a durable project
-// home, so unlike codex its hook IS written; approachRequiredSurfaceDelivered
+// home, so its hook IS written; approachRequiredSurfaceDelivered
 // stays silent here, correctly. Not an empty assembly: the same stderr reports
 // "context: 2 fragment(s), ~336 tokens". And not the output contract — the JSON
 // was perfect every time.

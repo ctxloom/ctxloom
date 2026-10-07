@@ -66,11 +66,8 @@ var helpArgCommands = []struct {
 	// at write time, so the no-config premise of the test holds; nor are a
 	// profile's bundle refs, so `profile create` needs only one to be accepted.
 	flags map[string]string
-	// seed prepares the project before RunE. An agent is a fact about the
-	// PROJECT (layerscope: every agents.* field is ScopeShared), so a create
-	// with no project config lands in the home layer, where the binding is
-	// dropped on load; the row that proves "help" is a NAME here needs a
-	// project config to write into.
+	// seed prepares the project before RunE: the row that proves "help" is a
+	// NAME here needs a project config to write into.
 	seed func(t *testing.T)
 }{
 	{path: []string{"bundle", "create"}, behaviour: actsOnResource, exists: bundleHelpExists},

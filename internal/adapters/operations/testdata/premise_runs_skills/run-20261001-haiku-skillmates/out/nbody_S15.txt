@@ -1,1 +1,0 @@
-`next: read MEMORY.md to check for saved context, then sweep the working directory for task logs, deferrals, or pending decisions`

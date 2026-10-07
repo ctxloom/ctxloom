@@ -417,7 +417,7 @@ func (c Cells) settleDirtyParentTree(ctx context.Context, req launch.CellRequest
 	if gitClient == nil {
 		gitClient = git.NewExec()
 	}
-	outcome, err := handleDirtyParentTree(ctx, c.cfg, gitClient, req.ProjectRoot, harp, req.DirtyTree)
+	outcome, err := handleDirtyParentTree(ctx, gitClient, req.ProjectRoot, harp, req.DirtyTree)
 	if err != nil {
 		return nil, nil, err
 	}

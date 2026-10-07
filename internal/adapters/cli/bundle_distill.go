@@ -400,27 +400,23 @@ func appendSiblingPrompts(ctx *strings.Builder, bundle *bundles.Bundle, excludeN
 	}
 }
 
-// compressionRouter is a shared router for AST/JSON compression.
+// compressionRouter is a shared router for local structural compression.
 var compressionRouter = compression.NewRouter()
 
 // distillWithModel sends content through compression and returns distilled content and model ID.
-// It first tries AST-based compression for code and JSON structure compression for JSON content.
-// For text/markdown content (or if AST compression doesn't achieve good compression), it falls back to LLM.
+// Structured content (isStructuredContent) is tried against local compression
+// first; everything else, and structured content that local compression does
+// not shrink enough, goes to the LLM.
 func distillWithModel(ctx context.Context, turn distillTurn, name, content, distillPrompt, siblingCtx string) (string, string, error) {
-	// Detect content type and try AST/JSON compression first
 	contentType := compression.DetectContentType(name, content)
 
-	// For code and JSON, try fast local compression
 	if isStructuredContent(contentType) {
 		result, err := compressionRouter.CompressWithType(ctx, contentType, content)
 		if err == nil && result.Ratio < 0.7 {
-			// Good compression achieved with AST/JSON - use it
 			return result.Content, result.ModelID, nil
 		}
-		// If compression didn't achieve good ratio or failed, fall back to LLM
 	}
 
-	// For text content or when AST compression isn't effective, use LLM
 	return distillWithLLM(ctx, turn, name, content, distillPrompt, siblingCtx)
 }
 
@@ -430,13 +426,7 @@ type distillTurn func(ctx context.Context, prompt string) (answer, model string,
 
 // isStructuredContent returns true for content types that can be compressed structurally.
 func isStructuredContent(ct compression.ContentType) bool {
-	switch ct {
-	case compression.ContentTypeGo, compression.ContentTypePython, compression.ContentTypeJavaScript,
-		compression.ContentTypeTypeScript, compression.ContentTypeRust, compression.ContentTypeJava,
-		compression.ContentTypeJSON:
-		return true
-	}
-	return false
+	return ct == compression.ContentTypeJSON
 }
 
 // buildDistillMessage assembles the user message sent to the compressor: the

@@ -1,3 +1,0 @@
-`invoke: recover`
-
-I'll call the recover_session tool from ctxloom to restore the context before the `/clear`.

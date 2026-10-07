@@ -47,14 +47,9 @@ func managerFor(t *testing.T, appDir string) *App {
 }
 
 // readAgentFromDisk re-reads appDir's config.yaml through ParseConfig (a
-// single-document parse — no layering, no layerscope policy) and returns
-// name's binding. Several fields SetAgent writes (Runtime is ScopeMachine —
-// internal/core/config/layerscope) are no longer honored by a full the config read
-// against the committed PROJECT layer this test writes to (correctly: a
-// committed project file is read by every clone, and whether THIS box has a
-// container runtime is not a fact every clone shares). What THIS helper
-// verifies is Save's own serialization fidelity — did SetAgent write the byte
-// the caller asked for — independent of that load-time policy.
+// single-document parse, no layering) and returns name's binding: it verifies
+// Save's own serialization fidelity — did SetAgent write the byte the caller
+// asked for.
 func readAgentFromDisk(t *testing.T, appDir, name string) (agents.Agent, bool) {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(appDir, "config.yaml"))
@@ -195,12 +190,8 @@ func TestSetAgent_AcceptsBackendNamesAndConfigLabels(t *testing.T) {
 
 // TestSetAgent_PersistsRuntime proves the runtime axis written by
 // `agent edit --runtime` survives the SAVE round-trip (Marshal serializes it
-// faithfully) — read back via readAgentFromDisk (ParseConfig, no layering),
-// not a full the config read: agents.*.runtime is ScopeMachine
-// (internal/core/config/layerscope), so a committed PROJECT file — every clone's
-// copy — no longer has this value take effect on a real Load; that closure is
-// covered by internal/core/config's own layerscope tests. What this test still
-// pins is that SetAgent itself writes the byte, never silently discarding it.
+// faithfully) — read back via readAgentFromDisk (ParseConfig, no layering):
+// SetAgent itself writes the byte, never silently discarding it.
 func TestSetAgent_PersistsRuntime(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 	mgr := managerFor(t, appDir)

@@ -142,17 +142,15 @@ func Load(opts ...Option) (*config.Config, error) {
 // product describes ctxloom's own config to confload: the product name and
 // dir/file names the bootstrap stage discovers, the CTXLOOM_CONFIG_ env
 // prefix, the schema-derived KnownPath / ValidateValue hooks that
-// distinguish a known override key from an unknown one, and the layer-scope
-// policy (scopeAllows) that decides whether the env and flag layers may
-// carry a given key at all.
+// distinguish a known override key from an unknown one, and the agent-binding
+// merge.
 func (s *Sources) product() confload.Product {
 	p := confload.Product{
-		Name:        "ctxloom",
-		DirName:     config.AppDirName,
-		FileName:    config.ConfigFileName,
-		EnvPrefix:   "CTXLOOM_CONFIG_",
-		ScopeAllows: scopeAllows,
-		MergeFunc:   agentBindingMergeFunc,
+		Name:      "ctxloom",
+		DirName:   config.AppDirName,
+		FileName:  config.ConfigFileName,
+		EnvPrefix: "CTXLOOM_CONFIG_",
+		MergeFunc: agentBindingMergeFunc,
 	}
 	if s.validator != nil {
 		p.KnownPath = s.validator.KnownPath
@@ -168,6 +166,20 @@ func (s *Sources) product() confload.Product {
 // configured no LLMs. An ABSENT layer is the shipped default; a PRESENT
 // layer that cannot be parsed is refused, naming the file.
 func (s *Sources) Read(ctx context.Context) (*config.Config, []config.Warning, error) {
+	return s.read(ctx, true)
+}
+
+// ReadTarget reads the target config file alone: no home layer and no env
+// or flag override. It is what a write transaction drafts from, so a save
+// persists only what that file already says plus the change, never a value
+// another layer contributed.
+func (s *Sources) ReadTarget(ctx context.Context) (*config.Config, error) {
+	cfg, _, err := s.read(ctx, false)
+	return cfg, err
+}
+
+// read is Read, with layered=false narrowing it to the target file alone.
+func (s *Sources) read(ctx context.Context, layered bool) (*config.Config, []config.Warning, error) {
 	root := s.root
 	if root.Fs == nil {
 		root = safefs.New()
@@ -185,7 +197,11 @@ func (s *Sources) Read(ctx context.Context) (*config.Config, []config.Warning, e
 			"config schema failed to compile — config validation and override-key checking are DISABLED for this process: %v", s.validatorErr)
 	}
 	projectConfigPath, homeConfigPath := resolveConfigLayerPaths(appDir, source)
-	if err := s.loadLayeredConfig(ctx, b, homeConfigPath, projectConfigPath, fs, source); err != nil {
+	overrides := s.overrides
+	if !layered {
+		homeConfigPath, overrides = "", confload.Overrides{}
+	}
+	if err := s.loadLayeredConfig(ctx, b, homeConfigPath, projectConfigPath, fs, overrides); err != nil {
 		return nil, nil, err
 	}
 	b.OverlayDefaultRegistry(s.defaultConfig)
@@ -219,8 +235,7 @@ func profileURLResolver(fs afero.Fs, appDir string) func(string) string {
 
 // target is the bootstrap stage: WHICH .ctxloom directory this read layers
 // over. A pinned appDir that IS the user home is home acting alone, not an
-// arbitrary project — the write side (Save's layer-scope filter) keys on
-// that distinction, so the read side must agree.
+// arbitrary project, so no separate home layer is read beneath it.
 func (s *Sources) target(fs afero.Fs) (string, config.ConfigSource) {
 	if s.appDir == "" {
 		return findAppDir(fs)

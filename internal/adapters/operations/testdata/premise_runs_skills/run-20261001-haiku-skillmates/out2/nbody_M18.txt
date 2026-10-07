@@ -1,1 +1,0 @@
-`next: examine the working directory for task logs, plans, design docs, and memory to find pending decisions`

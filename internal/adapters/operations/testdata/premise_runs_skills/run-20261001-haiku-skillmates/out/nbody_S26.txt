@@ -1,1 +1,0 @@
-`next: check memory for admitted queue context, establish queue source, and verify this is a git repository before beginning pre-flight`

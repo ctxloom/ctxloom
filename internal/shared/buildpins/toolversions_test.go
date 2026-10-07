@@ -6,8 +6,8 @@
 //
 // That "supposed to" is exactly what failed once already: buf.gen.yaml
 // switched to pinned `local:` plugins (commit b334605) and
-// release-completer.yml — which runs in goreleaser-cross, not the
-// devcontainer image, so it can't just inherit the pin — was never updated
+// release-completer.yml — which runs outside the devcontainer image, so it
+// can't just inherit the pin — was never updated
 // to install them. It only kept working by accident, because it still used
 // unpinned/BSR-remote plugins; the next release's codegen would have failed
 // outright. fe0e322 fixed that occurrence by hand. This package exists so the
@@ -40,11 +40,12 @@ const (
 )
 
 // releaseCompleterKeys are the tool-versions.env keys that
-// release-completer.yml must independently install (it runs in
-// goreleaser-cross, not the devcontainer image, so it can't just inherit
-// them from there). This is the exact set implicated in the historical
-// failure this package guards against.
+// release-completer.yml must independently install (it runs in the official
+// Go image, not the devcontainer image, so it can't just inherit them from
+// there): the codegen tools implicated in the historical failure this package
+// guards against, plus goreleaser itself.
 var releaseCompleterKeys = []string{
+	"GORELEASER_VERSION",
 	"BUF_VERSION",
 	"PROTOC_GEN_GO_VERSION",
 	"PROTOC_GEN_GO_GRPC_VERSION",
@@ -351,9 +352,9 @@ func TestCIWorkflowNativeJobsDeriveGoFromToolVersionsEnv(t *testing.T) {
 }
 
 // TestReleaseCompleterDerivesToolVersionsFromFile is the headline test:
-// .github/workflows/release-completer.yml runs in goreleaser-cross, not the
-// devcontainer image, and so must install buf/protoc-gen-go/protoc-gen-go-grpc/
-// versionator itself. Those installs must read tool-versions.env and reference
+// .github/workflows/release-completer.yml runs in the official Go image, not
+// the devcontainer image, and so must install goreleaser/buf/protoc-gen-go/
+// protoc-gen-go-grpc/versionator itself. Those installs must read tool-versions.env and reference
 // each tool through the shared variable name rather than a hand-copied
 // literal. This is precisely the class of drift that shipped once already (see
 // package doc comment): a hardcoded version can silently stop matching the

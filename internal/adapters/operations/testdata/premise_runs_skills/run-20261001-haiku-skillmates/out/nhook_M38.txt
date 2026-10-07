@@ -1,1 +1,0 @@
-`next: list Deferred tasks via task_list to begin the check-triggers evaluation`

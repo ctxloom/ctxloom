@@ -345,6 +345,10 @@ func (s laneSources) Read(context.Context) (*config.Config, []config.Warning, er
 	return s.cfg, nil, nil
 }
 
+func (s laneSources) ReadTarget(context.Context) (*config.Config, error) {
+	return s.cfg, nil
+}
+
 func (s laneSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
 	return []bundles.Reader{bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs())}, nil
 }

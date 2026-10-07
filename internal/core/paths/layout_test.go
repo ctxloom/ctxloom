@@ -14,14 +14,6 @@ func TestStatePath_JoinsAppPathAndStateDir(t *testing.T) {
 	}
 }
 
-func TestDirtyTreeCommitAckPath_UnderState(t *testing.T) {
-	got := DirtyTreeCommitAckPath("/proj/.ctxloom")
-	want := filepath.Join("/proj/.ctxloom", "state", "dirty_tree_commit_ack.yaml")
-	if got != want {
-		t.Errorf("DirtyTreeCommitAckPath() = %q, want %q", got, want)
-	}
-}
-
 func TestTier_String(t *testing.T) {
 	tests := []struct {
 		tier Tier

@@ -1,7 +1,0 @@
-[[plugin]]
-name = "alpha"
-enabled = true
-
-[[plugin]]
-name = "beta"
-enabled = false

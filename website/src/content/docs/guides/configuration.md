@@ -43,13 +43,12 @@ ctxloom does not read a `.ctxloom/agents/` directory. Each session's own state
 3. **Environment**: `CTXLOOM_CONFIG_<PATH>` variables
 4. **Flag**: `--config-set <dotted.path>=<value>`, for one invocation
 
-The two files are deep-merged (lists replace rather than append). Each key also
-has a scope that decides which layers may set it at all. A fact about this
-machine, such as `llm.configs.<label>.binary_path`, `editor`, the top-level
-`runtime`, or the `isolation_images`/`isolation_engines`/`isolation_devcontainer_*`
-keys, is dropped with a warning when it appears in the committed project file;
-put it in your home config. A per-project grant such as `permissions` goes the
-other way (see [Permissions](#permissions)).
+The two files are deep-merged (lists replace rather than append), and every
+layer may set every key: a higher layer wins. An agent binding is the
+exception to the deep merge: the highest layer that names an agent supplies its
+whole binding. A command that writes configuration writes only the file it
+targets, so a value from your home config or the environment is never copied
+into the project file.
 
 To see the result of that merge, run `ctxloom config show`. Give it a top-level
 section name (`ctxloom config show llm`) to print only that section; an unknown
@@ -88,9 +87,9 @@ config:
   essence_max_chars: 10000    # character budget for a distilled session essence
   sign:                       # publisher-signing defaults for `bundle push`
     default: false             # sign every push unless --no-sign (default false)
-    key: ""                    # SSH key path or SHA256:... fingerprint (default: auto-discover; home config only)
+    key: ""                    # SSH key path or SHA256:... fingerprint (default: auto-discover)
 
-# Editor (fallback: VISUAL env → EDITOR env → nano). Home config only.
+# Editor (fallback: VISUAL env → EDITOR env → nano).
 editor:
   command: "vim"
   args: []
@@ -123,13 +122,13 @@ permissions:
 
 # Isolation defaults
 workspace: none               # session workspace axis: none|worktree
-runtime: host                 # agent runtime axis: host|container-rootless|container-rootful (home config only)
+runtime: host                 # agent runtime axis: host|container-rootless|container-rootful
 
 # Container-image overrides for containerized agents
 isolation_base: devcontainer           # agent image base: ctxloom | devcontainer | <image ref> (unset: the devcontainer when present)
-isolation_devcontainer_service: app    # compose service to use as the base, if devcontainer.json declares dockerComposeFile (home config only)
-isolation_engines: [claude-code]      # trim the composed engine set (default: every known engine; home config only)
-isolation_images:             # fully user-provided images, run as-is (home config only)
+isolation_devcontainer_service: app    # compose service to use as the base, if devcontainer.json declares dockerComposeFile
+isolation_engines: [claude-code]      # trim the composed engine set (default: every known engine)
+isolation_images:             # fully user-provided images, run as-is
   claude-code: my-registry/claude-agent:latest
 
 # Sync configuration
@@ -167,7 +166,7 @@ llm:
     claude-code:
       type: claude-code
       model: "claude-opus-4-8"
-      binary_path: "/path/to/bin"   # optional; home config only
+      binary_path: "/path/to/bin"   # optional
       args: []                      # extra CLI arguments
   defaults:
     primary: claude-code
@@ -212,14 +211,8 @@ specific declares its own. A scratch repo can run `sandbox: full`; the repo
 that deploys can hold its engines to `workspace-write`; neither one learns
 anything about the other.
 
-**This key is only honored from the project's own `.ctxloom/config.yaml`.**
-The same line in your `~/.ctxloom/config.yaml`, or in
-`CTXLOOM_CONFIG_PERMISSIONS`, is dropped with a warning and never applied.
-That is the entire point of it. The grant is consent for one directory you
-chose deliberately; a home-wide or environment-wide version would silently
-re-grant every project on the machine what you meant for one of them — and an
-agent that can run `bash` can write an environment variable, which would let
-it widen its own successors.
+It layers like every other key: set in `~/.ctxloom/config.yaml` it applies to
+every project that does not declare its own.
 
 | Field | Values |
 |-------|--------|

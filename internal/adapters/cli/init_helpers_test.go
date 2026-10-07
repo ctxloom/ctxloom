@@ -6,11 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
@@ -91,12 +88,6 @@ func TestWriteInitialConfig(t *testing.T) {
 	if !strings.Contains(string(cfg), "dirty_tree_handler: copy") {
 		t.Errorf("config.yaml should carry the interview's dirty_tree_handler answer; got:\n%s", cfg)
 	}
-	if strings.Contains(string(cfg), "dirty_tree_commit_ack") {
-		t.Errorf("dirty_tree_commit_ack must never appear in config.yaml at all — it moved to its own state-store file; got:\n%s", cfg)
-	}
-	if config.DirtyTreeCommitAcknowledged(report.Reporter{}, safefs.New(), appDir) {
-		t.Error("no acknowledgement was granted (dirty-tree answer wasn't \"commit\"), so DirtyTreeCommitAcknowledged must report false")
-	}
 
 	// remotes.yaml exists and is non-empty.
 	rem, err := os.ReadFile(paths.RemotesPath(appDir))
@@ -108,11 +99,9 @@ func TestWriteInitialConfig(t *testing.T) {
 	}
 }
 
-// TestWriteInitialConfig_CommitHandlerGrantsNoAck: init writes the commit
-// handler, but the acknowledgement that lets it commit on the user's behalf
-// is never init's to grant — it stays a human act (`ctxloom manage commit
-// trust`), and it never lands in config.yaml.
-func TestWriteInitialConfig_CommitHandlerGrantsNoAck(t *testing.T) {
+// TestWriteInitialConfig_WritesTheCommitHandler: init writes the commit
+// handler into config.yaml, which is the whole authorization.
+func TestWriteInitialConfig_WritesTheCommitHandler(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	if err := writeInitialConfig(appDir, "claude-code", "commit", ""); err != nil {
 		t.Fatalf("writeInitialConfig: %v", err)
@@ -123,12 +112,6 @@ func TestWriteInitialConfig_CommitHandlerGrantsNoAck(t *testing.T) {
 	}
 	if !strings.Contains(string(cfg), "dirty_tree_handler: commit") {
 		t.Errorf("config.yaml should carry dirty_tree_handler: commit; got:\n%s", cfg)
-	}
-	if strings.Contains(string(cfg), "dirty_tree_commit_ack") {
-		t.Errorf("dirty_tree_commit_ack must never appear in config.yaml; got:\n%s", cfg)
-	}
-	if config.DirtyTreeCommitAcknowledged(report.Reporter{}, safefs.New(), appDir) {
-		t.Error("init must not record the commit acknowledgement")
 	}
 }
 

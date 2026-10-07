@@ -8,7 +8,7 @@
 import "../../build/common.justfile"
 
 # Build ltk (no CGO) to {{TOP}}/bin/ltk.
-build: (_go-build (TOP / "cmd/ltk") (TOP / "bin/ltk") "main.Version" "" "0")
+build: (_go-build (TOP / "cmd/ltk") (TOP / "bin/ltk") "main.Version")
 
 # Compress the built ltk binary with UPX.
 compress: (_compress (TOP / "bin/ltk"))

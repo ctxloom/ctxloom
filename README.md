@@ -22,7 +22,7 @@ ctxloom organizes context into reusable **bundles** that can be:
 
 ```bash
 # Install — macOS (Homebrew): ctxloom + companions (taskloom, ltk)
-brew install ctxloom/tap/{ctxloom-full,taskloom,ltk}   # ctxloom instead of ctxloom-full for the lighter build
+brew install ctxloom/tap/{ctxloom,taskloom,ltk}
 
 # Install — Linux / Windows (script): installs companions too (--no-companions to skip)
 # Note: script installs are unsigned binaries — macOS/Windows may need a trust
@@ -140,18 +140,8 @@ Opt out at install time: `--no-taskloom`, `--no-ltk`, `--no-companions`
 
 ### Building
 
-Two build variants are available:
-
-| Build | Command | Size | Description |
-|-------|---------|------|-------------|
-| **Standard** | `just build` | ~27MB | All features except tree-sitter code compression |
-| **Full** | `just build-ctxloom-full` | ~31MB | Includes tree-sitter AST compression (requires CGO) |
-
-Most users should use the standard build. The full build adds tree-sitter for AST-aware code compression when distilling fragments.
-
 ```bash
-just build          # Standard build (recommended)
-just build-ctxloom-full # Full build with tree-sitter
+just build          # Build ctxloom (pure Go, no CGO)
 just test           # Run unit + race tests (integration compiles but does NOT run — see below)
 just lint           # Lint code
 just install        # Build and install to ~/go/bin

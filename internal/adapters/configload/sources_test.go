@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
@@ -95,8 +94,6 @@ workspace: worktree
 
 // The override chain (env, then --config-set) is a CONSTRUCTOR input: one
 // flag set and one environment, captured at New, reach every Read's value.
-// The env key is a machine-scope one — env may not set a project-scoped
-// key, and that refusal is a warning on the value, not a silent drop.
 func TestSources_Read_OverridesFromFlagsAndEnv_ReachTheValue(t *testing.T) {
 	fs := hermetic(t)
 	testsupport.WriteFile(t, fs, appDir+"/config.yaml", []byte("schema_version: 7\ndefault_agent: fromfile\n"), 0o644)
@@ -112,13 +109,9 @@ func TestSources_Read_OverridesFromFlagsAndEnv_ReachTheValue(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "fromflag", got.GetDefaultAgent(), "the flag override reached the value")
-	assert.Equal(t, "7d", got.SessionReapAge(), "the machine-scope env override reached the value")
-	assert.Empty(t, got.GetWorkspace(), "env may not set a project-scope key")
-	var scopeWarned bool
-	for _, w := range warnings {
-		scopeWarned = scopeWarned || w.Kind == config.WarnKindLayerScope
-	}
-	assert.True(t, scopeWarned, "the refused env override is a layer-scope warning on the value")
+	assert.Equal(t, "7d", got.SessionReapAge(), "an env override reached the value")
+	assert.Equal(t, "worktree", got.GetWorkspace(), "a second env override reached the value")
+	assert.Empty(t, warnings)
 }
 
 // A nil environment is NO environment: the process's real variables never

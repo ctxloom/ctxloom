@@ -1208,18 +1208,7 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 
 	cfg := &Config{
 		appPaths: []string{tmpDir},
-		// source: SourceHome -- this represents a personal, single-file
-		// config with no separate project layer (the zero value would be
-		// SourceProject, and saveLocked now enforces layerscope's
-		// project-scope policy whenever source is SourceProject: see its own
-		// doc). editor.command/args are ScopeMachine (internal/core/config/
-		// layerscope) -- legitimate in a HOME file, exactly the case this
-		// represents -- but a genuine violation saveLocked now strips before
-		// ever reaching a real project's committed yaml. Using
-		// SourceHome here is what lets this test assert editor survives a
-		// save at all, and it doubles as coverage for saveLocked's
-		// skip-the-filter-when-SourceHome branch.
-		source: SourceHome,
+		source:   SourceHome,
 		lm: LMConfig{
 			Configs: map[string]LLMConfig{
 				"big":  {Type: "claude-code", Body: map[string]interface{}{"model": "opus"}},
@@ -1234,9 +1223,7 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 
 	// Round-trip through ParseConfig (a single-document parse, no layering)
 	// rather than the layered Load: ParseConfig checks Save's own
-	// serialization fidelity -- does Marshal emit every field it was given --
-	// independent of any layer-scope policy (which cfg.source above already
-	// keeps saveLocked from applying to this particular save).
+	// serialization fidelity -- does Marshal emit every field it was given.
 	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
 	require.NoError(t, err)
 	loaded, err := ParseConfig(data)

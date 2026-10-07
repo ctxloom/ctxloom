@@ -74,7 +74,6 @@ flowchart TD
     AP --> SP["StatePath<br/>state/"]
     SP --> TOP["TrustObjectsPath<br/>state/trust/objects"]
     SP --> LKD["LocksPath<br/>state/locks/"]
-    SP --> DTA["DirtyTreeCommitAckPath<br/>state/dirty_tree_commit_ack.yaml"]
 
     subgraph committed["COMMITTED · authored"]
       LP
@@ -113,7 +112,7 @@ Three vocabularies share one file; `AppDirName` and `CacheDir` cross groups.
 |---|---|
 | Home / session layout | `SessionsDir`, the session-dir member names `paths.HarpMembers` rows are built from, the output-dir leaves (`OutputDirName`, `EssenceFileName`, `NextStepFileName`, `PlanFileExt`), `LogsDir`, `TriggersDir`, `CoordDirName`, `CoordEndpointFileName` |
 | Project app-dir layout | `AppDirName`, `ConfigFileName`, `RemotesFileName`, `LockFileName`, `ProfilesDir`, `AgentsDir`, `ContentDir`, `CacheDir`, `RepoContentPrefix`, `BundlesDir`, `ReposCacheDir`, `ContextCacheDir`, `ProjectIDFileName` |
-| Local state tier | `StateDir`, `LocksDir`, `HomeLocksDirName`, `DirtyTreeCommitAckFileName`, `SessionEngineHomesDirName` |
+| Local state tier | `StateDir`, `LocksDir`, `HomeLocksDirName`, `SessionEngineHomesDirName` |
 | Trust / signing | `TrustFileName`, `TrustObjectsDir`, `AllowedSignersFileName`, `DistrustedSignersFileName`, `ApprovalsDirName` |
 
 ## Key functions
@@ -162,7 +161,6 @@ this package.
 | `TrustObjectsPath` | `<appPath>/state/trust/objects` — review snapshots | 1 |
 | `LegacyTrustObjectsPath` | `<appPath>/cache/trust/objects` — the retired location, read only by the one-time migration | 1 |
 | `LocksPath` | `<appPath>/state/locks` — advisory lock sidecars; the protected-path→lock-name mapping is `ProjectPathFor` (lockpath.go) | 1 |
-| `DirtyTreeCommitAckPath` | `<appPath>/state/dirty_tree_commit_ack.yaml` | 2 |
 | `DefaultRemotesPath` | `RemotesPath(AppDirName)` | 1 |
 
 ### Classification

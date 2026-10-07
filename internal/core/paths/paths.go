@@ -141,15 +141,6 @@ const (
 	// HomeCompanionAllowPath.
 	CompanionAllowFileName = "companion_allow"
 
-	// DirtyTreeCommitAckFileName is the name (without extension) of the
-	// per-checkout record that a human authorized ctxloom to auto-commit a
-	// dirty tree on their behalf (dirty_tree_handler: "commit") — see
-	// DirtyTreeCommitAckPath. It moved out of config.yaml: a config value the env layer or
-	// --config-set can also set is not a durable human act, and the project
-	// config file is committed and multi-author, so a value living there
-	// would ship a prior authorization to every clone.
-	DirtyTreeCommitAckFileName = "dirty_tree_commit_ack"
-
 	// ProjectIDFileName is the name of the gitignored project-identity marker
 	// at .ctxloom/project-id (ADR 0025) — the key to this project's task log,
 	// ~/.ctxloom/tasks/<project-id>.jsonl (internal/shared/tasks/paths owns
@@ -874,16 +865,6 @@ func StatePath(appPath string) string {
 // the location moves in one place if it ever moves again.
 func LocksPath(appPath string) string {
 	return filepath.Join(StatePath(appPath), LocksDir)
-}
-
-// DirtyTreeCommitAckPath returns the record that a human authorized ctxloom to
-// commit on their behalf in THIS checkout (see DirtyTreeCommitAckFileName). It
-// is an internal/shared/admission.Store file, recording "may ctxloom act here
-// without asking again". It is PROJECT-scoped (a fact about one checkout's
-// branch, not the user), so it lives under appPath/state rather than the home
-// directory.
-func DirtyTreeCommitAckPath(appPath string) string {
-	return filepath.Join(StatePath(appPath), DirtyTreeCommitAckFileName+".yaml")
 }
 
 // Tier classifies one .ctxloom path by WHAT A FRESH CLONE GETS — the question

@@ -66,7 +66,7 @@ TOP := `git rev-parse --show-toplevel`
 # recipe run, and `env_var_or_default` evaluates its backtick even when the env
 # var is set. A nonzero exit here would therefore abort recipes that never use
 # the stamp -- including `ci-git-safe-directory` and `release-install-tools`,
-# which release-completer.yml runs inside goreleaser-cross BEFORE versionator
+# which release-completer.yml runs in its Go image BEFORE versionator
 # exists. MEASURED: `just ci-git-safe-directory` with versionator off PATH
 # exits 0 as written and exits 1 with an `exit 1` there, deadlocking the recipe
 # whose whole job is to install versionator.
@@ -120,9 +120,7 @@ release-check: dev-image
     "{{just_executable()}}" --justfile "{{justfile()}}" _run release-check
 
 # Snapshot-build release artifacts for this platform into dist/ (delegates to
-# devcontainer). goreleaser NEVER runs on the host: the host lacks upx, so a
-# host snapshot emits "-upx" artifacts that are byte-identical to the
-# uncompressed ones — a silent lie about what a release contains.
+# devcontainer, which carries the pinned goreleaser).
 release-snapshot: dev-image
     "{{just_executable()}}" --justfile "{{justfile()}}" _run release-snapshot
 
@@ -149,7 +147,7 @@ build-compressed: dev-image
     "{{just_executable()}}" --justfile "{{justfile()}}" _run build-compressed
 
 # Build all four binaries UNCOMPRESSED in the devcontainer (fast-starting
-# local install; UPX is release-only).
+# local install).
 build-all-bins: dev-image
     "{{just_executable()}}" --justfile "{{justfile()}}" _run build-all-bins
 
@@ -397,7 +395,7 @@ validate-wake-claude claude=`command -v claude || true`: build
 
 # Compile-check the `-tags integration` build fence — a cheap rot gate for
 # tag-gated tests (tests/integration/*_test.go). No container needed: vet
-# doesn't touch CGO/treesitter, just the generated proto stubs (`just build`
+# doesn't touch CGO, just the generated proto stubs (`just build`
 # once in a fresh worktree first). Nothing else on the default path ever
 # type-checks this tag: golangci-lint's build-tags list carries only
 # `mutation` (see .golangci.yml for why this one is not on it), and
@@ -1565,7 +1563,7 @@ lint-arch: dev-image _require-generated
 
 # Whole-program dead-code sweep (pass "" to drop -test and find test-only code)
 deadcode *ARGS="-test":
-    go tool deadcode -tags treesitter,acceptance,integration,arch,mutation,conformance,docker_integration {{ARGS}} ./...
+    go tool deadcode -tags acceptance,integration,arch,mutation,conformance,docker_integration {{ARGS}} ./...
 
 # ===== Code complexity (lizard, in devcontainer) =====
 # lizard is a cross-platform, multi-language per-function complexity analyzer,
@@ -1597,7 +1595,7 @@ complexity-baseline-update: dev-image
     "{{just_executable()}}" --justfile "{{justfile()}}" _run complexity-baseline-update
 
 # Run the CLI locally without installing — builds ./ctxloom (host, no
-# treesitter/CGO) and execs it attached to this terminal, so interactive
+# CGO) and execs it attached to this terminal, so interactive
 # sessions get a real tty (cleaner than `go run` for pty/raw-mode smoke tests).
 # Never touches your PATH/installed ctxloom. E.g. `just run run`, `just run memory list`.
 run *ARGS:
@@ -1753,44 +1751,6 @@ init:
 # Dry run with test fragments
 dry-run PROMPT:
     ./ctxloom run -f test-fragment -f additional-context -n "{{PROMPT}}"
-
-# Run with Claude plugin (default)
-claude *ARGS:
-    ./ctxloom -P claude-code {{ARGS}}
-
-# Code review with reviewer profile
-review *ARGS:
-    ./ctxloom -p reviewer -r code-review {{ARGS}}
-
-# ===== Terraform targets =====
-
-# Initialize Terraform
-tf-init:
-    cd terraform && terraform init
-
-# Plan Terraform deployment
-tf-plan:
-    cd terraform && terraform plan
-
-# Apply Terraform deployment
-tf-apply:
-    cd terraform && terraform apply
-
-# Destroy Terraform deployment
-tf-destroy:
-    cd terraform && terraform destroy
-
-# Show Terraform outputs
-tf-output:
-    cd terraform && terraform output
-
-# Format Terraform files
-tf-fmt:
-    cd terraform && terraform fmt
-
-# Validate Terraform configuration
-tf-validate:
-    cd terraform && terraform validate
 
 # ===== Container targets =====
 
@@ -2024,25 +1984,9 @@ _run +ARGS:
             just --justfile /workspace/justfile {{ARGS}}
     fi
 
-# Build with all CGO features (static, inside devcontainer)
+# Build ctxloom (inside devcontainer)
 dev-build: dev-image
     "{{just_executable()}}" --justfile "{{justfile()}}" _run build
-
-# Build with ONNX support (static, inside devcontainer)
-dev-build-onnx: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-onnx
-
-# Build with tree-sitter (static, inside devcontainer)
-dev-build-treesitter: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-treesitter
-
-# Build with all features (static, inside devcontainer)
-dev-build-full: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-full
-
-# Run treesitter (CGO) tests inside devcontainer
-dev-test-treesitter: dev-image
-    "{{just_executable()}}" --justfile "{{justfile()}}" _run test-treesitter
 
 # Run any target inside devcontainer
 dev +ARGS: dev-image

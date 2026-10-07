@@ -52,5 +52,4 @@ ctxloom deps [flags]
 * [ctxloom deps pull](/reference/cli/ctxloom_deps_pull/)	 - Make this project's installed closure match upstream
 * [ctxloom deps unhold](/reference/cli/ctxloom_deps_unhold/)	 - Release a hold so `upgrade` can advance the dependency again
 * [ctxloom deps upgrade](/reference/cli/ctxloom_deps_upgrade/)	 - Show, then apply, the newest pins your constraints allow
-* [ctxloom deps verify-corpus](/reference/cli/ctxloom_deps_verify-corpus/)	 - Parse every bundle published by the configured remotes under the current schema
 

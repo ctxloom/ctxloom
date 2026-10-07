@@ -993,17 +993,3 @@ func TestConfig_ShowSection(t *testing.T) {
 	assert.NotContains(t, out, "use_distilled", "config show llm is scoped to the llm section")
 	assert.NotContains(t, out, "Usage:", "a cobra help dump is the false-green this test exists to catch")
 }
-
-// TestConfig_ManageSubtreeIsGone pins the product half of the same defect: the
-// removed `manage config` path must FAIL, naming the typo, rather than
-// printing manage's help and exiting 0. Any unknown subcommand of any group
-// node behaves this way — see TestCLI_UnknownSubcommandFails.
-func TestConfig_ManageSubtreeIsGone(t *testing.T) {
-	env := setupTestEnv(t)
-
-	_ = env.Run("manage", "config", "show")
-
-	assert.NotEqual(t, 0, env.LastExitCode(),
-		"a removed subcommand must fail loudly, not print help and exit 0: %s", env.LastOutput())
-	assert.Contains(t, env.LastOutput(), "config", "the error names the subcommand that does not exist")
-}

@@ -1,1 +1,0 @@
-`next: Check current directory state and establish the queue source`

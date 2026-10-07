@@ -17,7 +17,7 @@
 #     pass -buildvcs=false.
 set -eu
 
-sh "$(dirname "$0")/materialize_embeds.sh" -tags "treesitter acceptance integration"
+sh "$(dirname "$0")/materialize_embeds.sh" -tags "acceptance integration"
 
 # The build output must be a REAL file in the laboratory before `go build`
 # writes it. ./ctxloom is one of the symlinks ooze mints back to the real
@@ -37,7 +37,7 @@ rm -f ./ctxloom
 # these; the exit status stays nonzero because survivor counts (what the ratchet
 # gates on) must not move.
 : "${CTXLOOM_VERSION_LDFLAG:?set by the justfile's _mutation-driver: an unstamped ctxloom refuses to start, so every scenario would fail and score as a kill}"
-if ! CGO_ENABLED=1 go build -buildvcs=false -tags treesitter -ldflags "$CTXLOOM_VERSION_LDFLAG" -o ./ctxloom ./cmd/ctxloom; then
+if ! CGO_ENABLED=0 go build -buildvcs=false -ldflags "$CTXLOOM_VERSION_LDFLAG" -o ./ctxloom ./cmd/ctxloom; then
   echo "ooze-invalid-mutant: ./cmd/ctxloom did not compile"
   exit 1
 fi

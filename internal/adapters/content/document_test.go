@@ -121,3 +121,18 @@ func TestDocumentStore_RefusesUnusableInput(t *testing.T) {
 		t.Error("unspecified provenance accepted")
 	}
 }
+
+// Every spelling of a path that leaves the bundle root, or names the root
+// itself, is refused; names that merely contain dots are not.
+func TestValidComponentPath_RefusesEveryEscape(t *testing.T) {
+	for _, p := range []string{".", "..", "../x", "a/../../x", "a/.."} {
+		if err := validComponentPath(p); !errors.Is(err, ErrBadPath) {
+			t.Errorf("%q: err = %v, want ErrBadPath", p, err)
+		}
+	}
+	for _, p := range []string{"a..b", "a/..b", "..a/b", "scripts/run.sh"} {
+		if err := validComponentPath(p); err != nil {
+			t.Errorf("%q: refused: %v", p, err)
+		}
+	}
+}

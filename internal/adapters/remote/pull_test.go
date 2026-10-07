@@ -376,3 +376,38 @@ func TestPuller_Pull_ARePullKeepsTheHeldPin(t *testing.T) {
 	assert.Equal(t, "pinnedsha", entry.SHA, "a re-pull must not advance the pin to HEAD")
 	assert.Equal(t, "v1.0.0", entry.Version)
 }
+
+// A lock entry with no commit is no pin: a pull resolves the ref as it would
+// for a first pin, rather than checking out an empty commit.
+func TestPuller_Pull_AnEntryWithoutACommitIsResolved(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	registry, err := NewRegistry("", WithRegistryFS(fs))
+	require.NoError(t, err)
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+	lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
+
+	const ref = "https://github.com/alice/ctxloom@bundles/security"
+	seeded := &Lockfile{Version: LockfileVersion, Bundles: map[ident.BundleKey]LockEntry{}}
+	seeded.AddEntry(ItemTypeBundle, lockKeyOf(t, ref), LockEntry{URL: "https://github.com/alice/ctxloom"})
+	require.NoError(t, lm.Save(seeded))
+
+	mf := NewMockFetcher()
+	mf.Refs["main"] = "newhead"
+	var checkedOut string
+	puller := NewPuller(registry, AuthConfig{},
+		WithTreeInstaller(func(_ context.Context, _, sha, subpath, worktreeDir string) (string, error) {
+			checkedOut = sha
+			return filepath.Join(worktreeDir, filepath.FromSlash(subpath)), nil
+		}),
+		WithFetcherFactory(mockFetcherFactory(mf)),
+		WithLockfileManager(lm),
+		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{
+			".ctxloom/content/bundles/v2/security": {BundleManifestName: {Data: []byte("description: Security\n")}},
+		}, nil)),
+	)
+
+	res, err := puller.Pull(context.Background(), ref, PullOptions{LocalDir: paths.AppDirName, ItemType: ItemTypeBundle})
+	require.NoError(t, err)
+	assert.Equal(t, "newhead", res.SHA)
+	assert.Equal(t, "newhead", checkedOut)
+}

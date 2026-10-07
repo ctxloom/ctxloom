@@ -133,7 +133,7 @@ release-snapshot: dev-image
 # correct design, but it leaves a fresh checkout one `--no-verify` away from
 # never running the architectural rules at all. Building it on the path everyone
 # already takes is what keeps the gate armed by default rather than on purpose.
-build: dev-image
+build: dev-image && _trim-go-cache
     "{{just_executable()}}" --justfile "{{justfile()}}" _run build
     "{{just_executable()}}" --justfile "{{justfile()}}" _run build-archlint
 
@@ -215,7 +215,7 @@ defaults:
 # explicit per-group exit-code capture below rather than a bare dependency
 # list: every group always runs, every verdict is printed, and ANY failure
 # exits non-zero naming the group.
-test:
+test: && _trim-go-cache
     #!/usr/bin/env bash
     # No `set -e`: each group's exit code is captured and checked explicitly, so
     # a failing group cannot abort the groups after it and cannot be masked by
@@ -314,7 +314,7 @@ test-dirty:
     "$GO" test ./internal/... ./cmd/...
 
 # Run tests with coverage (excludes patterns in .coverignore)
-cover: _ensure-gotmpdir
+cover: _ensure-gotmpdir && _trim-go-cache
     #!/usr/bin/env bash
     set -e
     export GOTMPDIR="{{go_tmp}}"
@@ -540,7 +540,7 @@ check-head-builds REF="HEAD": _require-generated _ensure-gotmpdir
     rm -rf "$work"
 
 # Run integration tests (requires ctxloom binary)
-test-integration: build _ensure-gotmpdir
+test-integration: build _ensure-gotmpdir && _trim-go-cache
     GOTMPDIR="{{go_tmp}}" go test -trimpath -v -tags integration ./tests/integration/...
 
 # Run integration tests matching a -run PATTERN (requires ctxloom binary).
@@ -595,7 +595,7 @@ test-integration-run PATTERN: build _ensure-gotmpdir
 # five "budgets too tight" diagnoses, two of which were real defects the budget
 # was concealing). Re-measure on a QUIET box and compare against 179s; do not
 # infer anything from a run taken under load.
-test-acceptance: build _ensure-gotmpdir
+test-acceptance: build _ensure-gotmpdir && _trim-go-cache
     #!/usr/bin/env bash
     # No `set -e`: the exit code is captured and propagated deliberately.
     set -uo pipefail
@@ -1053,7 +1053,7 @@ plan-sentinel ENGINE POSTURE="pair": build _ensure-gotmpdir
 # this recipe is the narrow iteration loop, not `just test-acceptance`.
 # It refuses BEFORE the build below, so a wrong invocation no longer pays
 # ~13s to still run no scenarios.
-test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
+test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir && _trim-go-cache
     #!/usr/bin/env bash
     set -euo pipefail
     export GOTMPDIR="{{go_tmp}}"
@@ -1418,46 +1418,94 @@ clean:
     rm -rf bin/ man/
     go clean
 
-# Reclaim regenerable Go caches (build cache + leftover temp/aux caches)
-clean-caches:
+# Trim the Go caches by AGE: delete whole entries not used for HOURS (default 12).
+# Safe while builds run in any worktree or container, which is the point.
+#
+# WHY AGE, and why the floor is 2: Go refreshes an entry's mtime on every read
+# once it is an hour old (its mtimeInterval), so anything a live build has read
+# was touched within about the last hour. Deleting entries older than that is
+# the same mechanism Go's own trim uses, with a shorter horizon; Go's fixed
+# 5-day horizon cannot bound the churn of many worktrees. A SIZE cap, a sweep
+# of recent entries, or `go clean -cache` mid-build are NOT safe: they delete
+# entries a build is linking against, which fails as
+#     link: cannot reopen <gocache>/xx/...-d
+# and reads like a compile error in whatever you just changed.
+#
+# Only depth-2 `*-a` / `*-d` entries are judged, each by its OWN mtime. A `-d`
+# entry is a DIRECTORY (a cached `go run` / `go tool` executable) whose mtime,
+# not the binary's, is what Go refreshes; so it is removed whole and never
+# descended into. Depth-1 files (README, trim.txt, the trim stamp) and the
+# shard dirs are never touched. The module cache is not touched either.
+#
+# The temp/aux dirs hold mode-0444 module copies, so chmod -R u+w before rm.
+# Their top-level entries are removed, never the directories: Go does NOT
+# create GOTMPDIR on demand, and with it missing every go command dies with
+# "creating work dir: stat ...: no such file or directory".
+clean-caches HOURS="12":
     #!/usr/bin/env bash
-    # The build cache (~/.cache/go-build) has NO native size cap and grows large
-    # under heavy multi-agent build days (98G in one day here); Go's own 5-day
-    # trim is healthy but does not bound total size. Does NOT touch the module
-    # cache (~/go/pkg/mod) — expensive to refetch and not the problem. The aux
-    # dirs hold Go module-cache copies at mode 0444, so chmod -R u+w before rm.
     set -uo pipefail
+    hours="{{HOURS}}"
+    case "$hours" in
+        ''|*[!0-9]*) echo "clean-caches: HOURS must be a whole number, got '$hours'" >&2; exit 2 ;;
+    esac
+    if [ "$hours" -lt 2 ]; then
+        echo "clean-caches: HOURS must be at least 2, got $hours. Go refreshes a read entry's mtime only once it is an hour old, so a shorter floor deletes entries a running build is using." >&2
+        exit 2
+    fi
+    mins=$(( hours * 60 ))
     echo "before: $(df -h "$HOME" | awk 'NR==2{print $4" free, "$5" used"}')"
-    go clean -cache
-    # RECREATE after removing. ~/.cache/gotmp is this machine's configured
-    # GOTMPDIR (`go env GOTMPDIR`, persisted in ~/.config/go/env), and Go does
-    # NOT create it on demand: with the directory gone, every subsequent go
-    # invocation dies with "creating work dir: stat .../gotmp: no such file or
-    # directory". Deleting it therefore broke `just test`, `just lint` and
-    # `just test-acceptance` outright — measured, after this recipe reclaimed
-    # 145 GB and left the tree unbuildable. Emptying reclaims the same space;
-    # only the directory itself has to survive.
-    for d in "$HOME/.cache/gotmp" "$HOME/.cache/ctxloom-agent-tmp" "$HOME/.cache/goimports"; do
-        [ -d "$d" ] || continue
-        chmod -R u+w "$d" 2>/dev/null || true
-        rm -rf "$d" 2>/dev/null || echo "  (some of $d was container-owned and left in place)"
-        mkdir -p "$d" 2>/dev/null || true
+    gbc="$(go env GOCACHE 2>/dev/null || echo "$HOME/.cache/go-build")"
+    if [ -d "$gbc" ]; then
+        find "$gbc" -mindepth 2 -maxdepth 2 \( -name '*-a' -o -name '*-d' \) -mmin "+$mins" \
+            -exec rm -rf {} + 2>/dev/null || true
+    fi
+    gtmp="$(go env GOTMPDIR 2>/dev/null || true)"
+    for d in "$gtmp" "$HOME/.cache/ctxloom-agent-tmp" "$HOME/.cache/goimports"; do
+        [ -n "$d" ] && [ -d "$d" ] || continue
+        find "$d" -mindepth 1 -maxdepth 1 -mmin "+$mins" -exec chmod -R u+w {} + 2>/dev/null || true
+        find "$d" -mindepth 1 -maxdepth 1 -mmin "+$mins" -exec rm -rf {} + 2>/dev/null \
+            || echo "  (some of $d was container-owned and left in place)"
     done
     echo "after:  $(df -h "$HOME" | awk 'NR==2{print $4" free, "$5" used"}')"
 
+# Post-dependency (`&& _trim-go-cache`) of the gate recipes that compile the
+# module: runs `clean-caches` detached, at most once an hour, so the shared
+# build cache stays bounded without anyone remembering to. Any routine gate
+# firing hourly is enough, so a gate without this only delays trimming.
+#
+# It MUST exit 0 on every path: a failing post-dependency would turn a green
+# gate red. It is detached so the gate's exit code and timing are unaffected.
+#
+# Skipped under CI: the runner restores the build cache from an archive with
+# its original mtimes, so an age trim would discard the restored cache before
+# it is saved.
+#
+# The stamp lives inside GOCACHE so the rate limit follows a GOCACHE override.
+# It is touched BEFORE the trim starts so concurrent recipes do not all trim.
+[private]
+_trim-go-cache:
+    #!/usr/bin/env bash
+    [ -n "${CI:-}" ] && exit 0
+    gbc="$(go env GOCACHE 2>/dev/null)" || exit 0
+    [ -n "$gbc" ] && [ -d "$gbc" ] || exit 0
+    stamp="$gbc/ctxloom-trim.stamp"
+    if [ -e "$stamp" ] && [ -z "$(find "$stamp" -mmin +60 2>/dev/null)" ]; then exit 0; fi
+    touch "$stamp" 2>/dev/null || exit 0
+    setsid nohup "{{just_executable()}}" --justfile "{{justfile()}}" clean-caches \
+        </dev/null >>"$gbc/../ctxloom-trim.log" 2>&1 &
+    exit 0
+
 # Report Go cache sizes, and warn when the build cache is over LIMIT_GB.
-# REPORTS ONLY — nothing here evicts. Go's own build-cache trim is the only
-# bound; `go clean -cache` is how to reclaim now, and it is safe only when no
-# build is in flight in ANY worktree.
+# REPORTS ONLY — nothing here evicts. `clean-caches` is the one deleter.
 #
 # WHY IT GROWS, which is not obvious and is what decides the response: GOCACHE
 # is ONE unbounded directory shared by the host, gopls, every worktree, and
 # every `just _run` container (see the GOCACHE mount in _run — that sharing is
-# deliberate and stays). Go's trim evicts only entries unused for ~5 days, so
-# the cache is bounded by TIME, never by SIZE: five days of churn, whatever
-# that happens to weigh. On a machine running many agents it is hundreds of GB
-# with the trim working exactly as designed, so a large cache is not evidence
-# of anything being broken.
+# deliberate and stays). Go's own trim evicts only entries unused for a fixed
+# few days, so on a machine running many agents it bounds the cache by TIME and
+# cannot keep up with the churn; `_trim-go-cache` adds a much shorter age trim
+# after routine gates. A large cache means the trim has not run lately, not
+# that anything is broken.
 #
 # Worktrees would MULTIPLY it: without -trimpath the compiler embeds absolute
 # source paths, so one package built in N worktrees is N distinct cache entries.
@@ -1483,8 +1531,7 @@ cache-report LIMIT_GB="40":
     over=$(awk -v a="$(size_gb "$gbc")" -v b="$limit" 'BEGIN{print (a>b)?1:0}')
     if [ "$over" = "1" ]; then
         echo "  OVER the ${limit} GB limit. This reports only; nothing is evicted."
-        echo "  Go's own build cache trim is the bound. To reclaim now, run"
-        echo "  \`go clean -cache\` when no build is in flight in ANY worktree."
+        echo "  To reclaim now, run \`just clean-caches\` (age trim, safe while builds run)."
     fi
 
 # Prune ephemeral docker images this repo's tooling produces — per-agent-run
@@ -1545,7 +1592,7 @@ fmt:
     go fmt ./...
 
 # Lint code (delegates to devcontainer for the pinned golangci-lint)
-lint: dev-image _require-generated
+lint: dev-image _require-generated && _trim-go-cache
     "{{just_executable()}}" --justfile "{{justfile()}}" _run lint
 
 # Compile every package, and vet every test file, for windows and darwin
@@ -1951,14 +1998,16 @@ _run +ARGS:
         # safely as plain cache misses, never wrong builds.
         #
         #
-        # ONE SHARED CACHE, DELIBERATELY. Do NOT re-split it per worktree, and
-        # do NOT add anything that hand-deletes entries from it. Those two go
-        # together: concurrent builds from different trees read this cache
-        # while others write it, and deleting an entry out from under a live
-        # link fails as
+        # ONE SHARED CACHE, DELIBERATELY. Do NOT re-split it per worktree.
+        # Deleting from it is safe ONLY as an age floor of at least 2h on whole
+        # entries, because concurrent builds from different trees read this
+        # cache while others write it, and deleting an entry out from under a
+        # live link fails as
         #     link: cannot reopen /tmp/.gocache/b8/b8421...-d(_x002.o)
         # which reads exactly like a compile error in whatever you just
-        # changed, and is not. Go's own trim is safe here; a sweeper is not.
+        # changed, and is not. Sweeping recent entries, a size cap, and
+        # `go clean -cache` mid-build are not safe. `clean-caches` is the one
+        # deleter; do not add another.
         #
         # A per-worktree cache is also unreapable by construction: keyed by a
         # hash of an absolute path, it outlives the tree it belonged to, and

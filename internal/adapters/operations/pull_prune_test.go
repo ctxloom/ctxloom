@@ -60,10 +60,12 @@ func TestPull_PrunesTheCheckoutOfABundleTheLockDropped(t *testing.T) {
 func TestPull_KeepsCheckoutsWhenTheCheckoutRootIsShared(t *testing.T) {
 	p := newMovedPinProject(t, viaLocalParent)
 	tool := p.checkoutOf(t, p.toolRef)
-	root := paths.CacheBundlesPath(p.appDir)
-	shared := filepath.Join(t.TempDir(), "shared-bundles")
-	require.NoError(t, os.Rename(root, shared))
-	require.NoError(t, os.Symlink(shared, root))
+	// The whole cache, so the walk root is a real directory reached THROUGH
+	// the link: only the ownership guard stands between it and a prune.
+	cache := paths.CachePath(p.appDir)
+	shared := filepath.Join(t.TempDir(), "shared-cache")
+	require.NoError(t, os.Rename(cache, shared))
+	require.NoError(t, os.Symlink(shared, cache))
 
 	res := p.pullOnce(t)
 

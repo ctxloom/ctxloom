@@ -233,6 +233,13 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 	}
 
 	runSyncPostSteps(ctx, reg, cfg, req, result, fs)
+	// Prune only after a pull that SUCCEEDED in full: a failed item, an
+	// unconverged graph or an incomplete lock rebuild means the lock may not
+	// yet name everything the project composes. Not with an injected Puller:
+	// a test double installs nothing, so the cache is not this pull's.
+	if req.Puller == nil && converged && result.Errors == 0 && !result.Incomplete && ctx.Err() == nil {
+		result.PrunedCheckouts = pruneAfterPull(baseDir, lockManager)
+	}
 	result.ConstraintChanges = constraintChangesIn(cfg, req.Profiles, baseDir, fs)
 	result.Changes = newPinChanges(ctx, cfg, before, lockManager)
 

@@ -142,17 +142,18 @@ type reconcileUnreachableView struct {
 
 func newPullView(result *operations.SyncDependenciesResult, plan *operations.ReconcilePlan) pullView {
 	view := pullView{
-		Status:      result.Status,
-		Total:       result.Total,
-		Installed:   result.Installed,
-		Reinstalled: result.Reinstalled,
-		Errors:      result.Errors,
-		Synced:      result.Synced,
-		Skipped:     result.Skipped,
-		Removed:     result.Removed,
-		Incomplete:  result.Incomplete,
-		Unreachable: result.Unreachable,
-		Message:     result.Message,
+		Status:          result.Status,
+		Total:           result.Total,
+		Installed:       result.Installed,
+		Reinstalled:     result.Reinstalled,
+		Errors:          result.Errors,
+		Synced:          result.Synced,
+		Skipped:         result.Skipped,
+		Removed:         result.Removed,
+		PrunedCheckouts: result.PrunedCheckouts,
+		Incomplete:      result.Incomplete,
+		Unreachable:     result.Unreachable,
+		Message:         result.Message,
 
 		ConstraintChanges: result.ConstraintChanges,
 		Changes:           result.Changes,
@@ -233,6 +234,9 @@ func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 	}
 	for _, identity := range result.Removed {
 		fmt.Fprintf(w, "  Removed %s from the lockfile: nothing this project composes depends on it any more.\n", inertField(identity))
+	}
+	for _, dir := range result.PrunedCheckouts {
+		fmt.Fprintf(w, pullPrunedCheckoutFormat, inertField(dir))
 	}
 	if result.Errors > 0 {
 		fmt.Fprintf(w, "  Failed: %d\n", result.Errors)

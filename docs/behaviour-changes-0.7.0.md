@@ -358,6 +358,9 @@ Grouped by what you would have to change.
   reindented the next time ctxloom saves it. `.ctxloom/config.yaml` keeps its
   comments and key order; a file ctxloom re-renders from its own model, such
   as a bundle's `bundle.yaml`, does not keep its comments.
+- `--format yaml` command output is two-space indented too (it was four), so
+  every command prints YAML in the same layout as the files ctxloom saves. Only
+  the indentation changed; keys, values and order are as before.
 
 **Isolation**
 - The container runtime axis splits into two ownership modes,

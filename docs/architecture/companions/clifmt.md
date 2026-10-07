@@ -30,13 +30,13 @@ flowchart TD
     RE["RenderError(w, err, Format)<br/>errors.go:17"] --> R
     R -.->|"type assert — 0 production impls"| RC["Renderer.RenderCLI<br/>renderer.go:15"]
 
-    R --> RJ["renderJSON<br/>marshal.go:16"]
-    R --> RY["renderYAML<br/>marshal.go:70"]
-    R --> RT["renderTOML<br/>marshal.go:87"]
+    R --> RJ["renderJSON<br/>marshal.go:18"]
+    R --> RY["renderYAML (2-space)<br/>marshal.go:92"]
+    R --> RT["renderTOML<br/>marshal.go:115"]
     R --> RX["renderText<br/>text.go:16"]
     R --> RM["renderMarkdown<br/>markdown.go:13"]
 
-    RY & RT --> TG["toGeneric → normalizeNumbers<br/>marshal.go:29,43<br/>(round-trip through JSON so yaml/toml<br/>inherit the json: tag identity)"]
+    RY & RT --> TG["toGeneric → normalizeNumbers<br/>marshal.go:32,46<br/>(round-trip through JSON so yaml/toml<br/>inherit the json: tag identity)"]
 
     RX & RM --> BN["buildNode → *Node<br/>reflectmodel.go:49"]
     RX & RM --> BT["buildTable → *Table<br/>reflectmodel.go:136"]
@@ -56,7 +56,7 @@ flowchart TD
 indent as its depth type, markdown carries an int heading level. The blank-line rule and the
 scalars→sections→tables ordering are written once.
 
-**The second load-bearing trick:** `toGeneric` (`marshal.go:29`) round-trips through
+**The second load-bearing trick:** `toGeneric` (`marshal.go:32`) round-trips through
 `encoding/json` before handing off to yaml/toml, so all three structured formats inherit the same
 `json:` tag identity rather than needing three sets of struct tags.
 
@@ -99,7 +99,7 @@ scalars→sections→tables ordering are written once.
 
 1. **One traversal serves text and markdown.** `renderNode[D]` (`noderender.go:25`) is the
    deduplication that justifies the package.
-2. **yaml and toml inherit the `json:` tag identity** via `toGeneric` (`marshal.go:29`), so a
+2. **yaml and toml inherit the `json:` tag identity** via `toGeneric` (`marshal.go:32`), so a
    struct needs one set of tags, not three.
 3. **Map output is sorted.** `joinMap` (`reflectmodel.go:248`) sorts its `k=v` pairs — Go map order
    is random, and CLI output must be diffable.
@@ -115,6 +115,12 @@ scalars→sections→tables ordering are written once.
    whether the command is emitting text or toml.
 9. **`Render` wraps a custom-renderer error and wraps the sentinel for an unknown format**
    (`render.go:40`).
+10. **yaml output is two-space indented**, nested maps and sequences alike, the same as every
+   YAML file ctxloom saves (`internal/shared/yamlx.Marshal`). yaml.v3 defaults to four, so
+   `renderYAML` (`marshal.go:92`) sets the indent on its own `yaml.NewEncoder` rather than
+   importing yamlx, which this leaf package must not do; that direct encoder is why
+   `.golangci.yml` keeps a forbidigo exclusion for `marshal.go`. Pinned by
+   `TestRenderYAMLIndentsTwoSpaces`.
 
 **Do not hold, or are narrower than documented:**
 
@@ -138,10 +144,11 @@ scalars→sections→tables ordering are written once.
 - **`RenderError(w, nil, f)` produces a well-formed *failure* report with an empty message**
   (`errors.go:19` leaves `msg == ""`), and `render_test.go:126-134` pins the output as
   `"Error: \n"`.
-- **yaml and toml silently corrupt integers outside int64 range; json does not.**
-  `normalizeNumbers` (`marshal.go:43-52`) drops `t.Int64()`'s error at `:46` and falls through to a
-  lossy `t.Float64()` at `:49`. Measured: `uint64(18446744073709551615)` renders as
-  `1.8446744073709552e+19` in yaml and correctly in json.
+- **toml cannot carry integers above int64 range; json and yaml now can.** `normalizeNumbers`
+  (`marshal.go:46`) tries an exact `strconv.ParseUint` before the lossy `Float64`, so
+  `uint64(18446744073709551615)` renders exactly in json and yaml; TOML's integer type is int64,
+  so go-toml/v2 refuses it with an error
+  rather than writing a lossy float (pinned by `TestNormalizeNumbers_PreservesUint64BeyondInt64`).
 - **`implementsStringer` and `typeImplementsStringer` disagree.** The first tests value receivers
   only (`reflectmodel.go:284`), the second tests value **or pointer** (`:288`). A struct whose
   `String()` has a pointer receiver is classified as "stringable" for the table decision and then

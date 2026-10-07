@@ -568,8 +568,8 @@ func TestBundleRef_R5_IdentityIsInjectiveWhereThePipeJoinWasNot(t *testing.T) {
 
 	assert.NotEqual(t, refA.Identity(), refB.Identity(),
 		"two distinct references collapsed onto one store address")
-	assert.NotContains(t, refA.Identity(), "|", "an unescaped pipe reached the signature preimage")
-	assert.NotContains(t, refB.Identity(), "|", "an unescaped pipe reached the signature preimage")
+	assert.NotContains(t, refA.Identity(), "|", "an unescaped pipe reached the identity")
+	assert.NotContains(t, refB.Identity(), "|", "an unescaped pipe reached the identity")
 }
 
 func TestBundleRef_R5_IdentityCarriesSourceBundleAndItemInOneString(t *testing.T) {

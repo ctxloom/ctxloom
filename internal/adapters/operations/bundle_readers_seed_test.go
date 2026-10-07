@@ -55,7 +55,7 @@ func remoteBundleSeed(t *testing.T, cfg *config.Config) map[string]*bundles.Bund
 // left to test here.
 //
 // The invariants this test pinned split three ways:
-//   - "a bundle signed/unsigned/tampered loads correctly" — already covered,
+//   - "a bundle loads correctly" — already covered,
 //     via the LIVE mechanism, by tree_bundles_test.go's TestLoadTreeBundle_*
 //     tests (stageInstalledTree + treeBundleReader).
 //   - "a malformed bundle among several is skipped, not fatal, and the good

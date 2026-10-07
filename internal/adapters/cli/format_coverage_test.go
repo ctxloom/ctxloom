@@ -159,7 +159,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 
 	// Mutating and path-taking: it records a refusal for a real binary, which
 	// this fixture has no business minting five times over.
-	"companion deny": {skip: "wired to emit(), but mutating and needs a real binary to refuse; not exercised here"},
 
 	"bundle list": {extraArgs: noExtraArgs},
 	"bundle create": {extraArgs: func(f string) []string {
@@ -219,7 +218,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// its install/uninstall siblings it is genuinely exercisable here.
 	"manage hooks list": {extraArgs: noExtraArgs},
 	"doctor":            {extraArgs: noExtraArgs},
-	"review":            {extraArgs: func(string) []string { return []string{"--list"} }},
 	"search":            {extraArgs: func(string) []string { return []string{"--local", "smoke"} }},
 
 	// --- exercised: canonical spine leaves ---
@@ -227,20 +225,12 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"container tooling list": {extraArgs: noExtraArgs},
 
 	// --- skip: serve / long-running (structurally not a single rendered result) ---
-	"mcp":       {skip: "serve: bare `ctxloom mcp` runs the stdio MCP server"},
-	"mcp serve": {skip: "serve: runs the stdio MCP server"},
+	"mcp": {skip: "serve: bare `ctxloom mcp` runs the stdio MCP server"},
 
 	// --- skip: streaming (own text/json-only format switch, not emit()) ---
 	"session transcript watch": {skip: "streaming: renders one event at a time via its own format switch (see format.go's session/plan watch note), not a single emit() result"},
 	"plan watch":               {skip: "streaming: same shape as session transcript watch"},
 	"run":                      {skip: "streaming + spawns a real engine subprocess: not a single emit() result; run.go's RunE does call emit() on at least one branch (agent-mode payload), not independently re-verified for every branch here"},
-
-	// --- skip: needs a live ssh-agent/git signing identity (non-hermetic) ---
-	"signer untrust": {skip: "destructive; covered by signer_test.go"},
-
-	"bundle trust":  {skip: "needs a resolvable, signable ref and trust-store fixture; not exercised here"},
-	"bundle reject": {skip: "needs a resolvable ref; not exercised here"},
-	"bundle forget": {skip: "needs a resolvable ref with a decision already recorded against it; not exercised here"},
 
 	// Read-only: it decides admission without executing anything, and in this
 	// harness finds no admitted companion — the rendering the five encodings
@@ -324,10 +314,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"manage hooks install":        {skip: "installer: writes real hook files"},
 	"manage hooks uninstall":      {skip: "installer: removes real hook files"},
 	"manage hooks check":          {skip: "reads the hook files the installer above would write; not fixtured here — wired to emit() (shares runManageCheck with `manage check`); registry was stale, not debt"},
-	"mcp register":                {skip: "installer: registers ctxloom as an MCP server in editor config"},
-	"mcp unregister":              {skip: "installer: unregisters ctxloom as an MCP server"},
-	"mcp server create":           {skip: "wired to emit(); mutating, not exercised here"},
-	"mcp server remove":           {skip: "wired to emit(); mutating, not exercised here"},
 	"mcp server set":              {skip: "wired to emit(); TestMCPServerSet_EmitsTheResult drives it with --format json"},
 	"mcp server show":             {skip: "wired to emit(), but needs an existing server fixture; not exercised here"},
 	"manage statusline install":   {skip: "installer: writes real statusline config"},
@@ -519,6 +505,21 @@ func runFormatCoverageCase(t *testing.T, path string, args []string, format stri
 		var v map[string]any
 		assert.NoErrorf(t, toml.Unmarshal(out.Bytes(), &v), "invalid TOML for %q:\n%s", path, out.String())
 	default: // text, markdown: no fixed grammar to validate against, just non-panicking output
+	}
+}
+
+// TestFormatCoverage_RegistryNamesOnlyLiveCommands is the reverse of
+// AllRootCmdDescendants' "no registry entry" check: a removed or renamed
+// command must take its registry row with it. A row for a command that no
+// longer exists is never run, so nothing else would ever notice it.
+func TestFormatCoverage_RegistryNamesOnlyLiveCommands(t *testing.T) {
+	root := rootCommand()
+	for path := range formatCoverageRegistry {
+		want := strings.Fields(path)
+		cmd, rest, err := root.Find(want)
+		if err != nil || len(rest) > 0 || cmd == root || cmd.CommandPath() != root.Name()+" "+path {
+			t.Errorf("formatCoverageRegistry entry %q names no command (removed or renamed?); delete it", path)
+		}
 	}
 }
 

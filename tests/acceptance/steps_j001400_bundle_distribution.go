@@ -6,8 +6,7 @@
 //
 // The publication AND consumption halves are GREEN. `deps pull` walks the tree
 // at the pinned SHA through internal/adapters/content/remotetree and installs it
-// under the consumer's cache with the publisher's exec bit intact; the
-// installed tree is read back and verified by internal/adapters/content/attest.
+// under the consumer's cache with the publisher's exec bit intact.
 //
 // THE DELIVERY HALF IS NOW HERMETIC TOO, on the host runtime. The vehicle is
 // `profile materialize --backend mock`, over the mock backend's own context and

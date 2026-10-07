@@ -45,7 +45,7 @@ func TestRunLLMRemove_YesRemovesAndReports(t *testing.T) {
 // TestRunLLMRemove_UnknownLabelErrors_EvenBare: the bare (report-only) path
 // must still refuse a label nothing declares — a preview naming a target
 // that was never really there would be worse than the not-found error.
-// Mirrors the same guard `signer trust`/fragment/agent remove all share.
+// Mirrors the same guard fragment/agent remove share.
 func TestRunLLMRemove_UnknownLabelErrors_EvenBare(t *testing.T) {
 	agentProject(t, "schema_version: 7\n")
 	llmRemoveYes = false

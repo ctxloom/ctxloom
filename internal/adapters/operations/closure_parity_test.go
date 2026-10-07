@@ -3,10 +3,8 @@ package operations
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
@@ -241,9 +240,7 @@ func (p *shippedProfileProject) kitTree(t *testing.T) string {
 // kitTreeCommit is the commit kit's installed worktree has checked out.
 func (p *shippedProfileProject) kitTreeCommit(t *testing.T) string {
 	t.Helper()
-	out, err := exec.Command("git", "-C", p.kitTree(t), "rev-parse", "HEAD").Output()
-	require.NoError(t, err)
-	return strings.TrimSpace(string(out))
+	return taskstest.Git(t, p.kitTree(t), nil, "rev-parse", "HEAD")
 }
 
 // A pin moved underneath an installed tree (the lock arrived through git) is

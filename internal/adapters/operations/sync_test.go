@@ -58,6 +58,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -331,24 +332,38 @@ remotes:
 	}
 }
 
-// markInstalled materializes a bundle's cache tree ON REAL DISK at appDir, so
-// isInstalled's materialization check (os.Stat, hard-coded to the OS
-// filesystem rather than an injectable afero.Fs — see sync.go) can see it.
-// appDir must therefore be a REAL directory (t.TempDir()), never the package's
-// symbolic testBaseDir constant, which os.Stat can never resolve regardless of
-// what content a test wrote through an injected fs.
+// markedPin is the commit markInstalled's worktrees hold and fakeBundleSource
+// pins every readable ref at. It is deterministic because markInstalled's one
+// commit fixes everything a commit hash covers (tree, identity, dates,
+// message); markInstalled asserts it, so a drift fails there, by name.
+const markedPin = "302ed76fc844286335fafadc9f720855d67c88d6"
+
+// markInstalled materializes a bundle's cache tree ON REAL DISK at appDir —
+// a real git worktree detached at markedPin — so isInstalled can see it.
+// isInstalled reads the OS filesystem and git, not an injectable afero.Fs, so
+// appDir must be a REAL directory (t.TempDir()), never the package's symbolic
+// testBaseDir constant.
 //
-// This exists because isInstalled ALSO requires materialization now:
-// "readable in the clone" (the old reference-only model, where nothing lived
-// on disk) stopped being sufficient once the layout writes a real tree. A
-// fakeBundleSource answering readable=true is no longer enough on its own for
-// a test to claim a ref is installed — the directory must actually be there.
+// A fakeBundleSource answering readable=true is not enough on its own for a
+// test to claim a ref is installed: the tree must be materialized, and its
+// worktree must have checked out the commit the lock pins.
 func markInstalled(t *testing.T, appDir, ref string) {
 	t.Helper()
 	parsed, err := remote.ParseReference(ref)
 	require.NoError(t, err)
-	tree, terr := parsed.LocalTreePath(appDir)
-	require.NoError(t, terr)
+	worktree, err := parsed.LocalWorktreePath(appDir)
+	require.NoError(t, err)
+	tree, err := parsed.LocalTreePath(appDir)
+	require.NoError(t, err)
+
+	src := t.TempDir()
+	env := append(taskstest.GitIdentity("t", "t@example.test"),
+		"GIT_AUTHOR_DATE=2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE=2000-01-01T00:00:00Z")
+	taskstest.Git(t, src, env, "init", "-q", ".")
+	taskstest.Git(t, src, env, "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "pin")
+	require.Equal(t, markedPin, taskstest.Git(t, src, env, "rev-parse", "HEAD"), "markInstalled's commit is no longer deterministic")
+	require.NoError(t, os.MkdirAll(filepath.Dir(worktree), 0o755))
+	taskstest.Git(t, src, env, "worktree", "add", "-q", "--detach", worktree, markedPin)
 	require.NoError(t, os.MkdirAll(tree, 0o755))
 }
 
@@ -619,8 +634,13 @@ func (f fakeBundleSource) ReadBundleBytes(_ context.Context, name ident.BundleKe
 	return nil, fmt.Errorf("%w: %s", remote.ErrBundleNotInLockfile, name)
 }
 
-func (f fakeBundleSource) LockEntryFor(ident.BundleKey) (remote.LockEntry, bool) {
-	return remote.LockEntry{}, false
+// LockEntryFor pins every readable ref at markedPin, the commit markInstalled
+// checks its trees out at.
+func (f fakeBundleSource) LockEntryFor(name ident.BundleKey) (remote.LockEntry, bool) {
+	if _, err := f.ReadBundleBytes(context.Background(), name); err != nil {
+		return remote.LockEntry{}, false
+	}
+	return remote.LockEntry{SHA: markedPin}, true
 }
 
 func (f fakeBundleSource) ListBundleNames() []ident.BundleKey { return nil }

@@ -178,6 +178,45 @@ func TestPuller_Pull(t *testing.T) {
 	assert.Equal(t, "abc123def456", entry.SHA)
 }
 
+// TestPuller_Pull_SamePinsLeaveLockByteIdentical pins that the committed
+// lock.yaml records pins and nothing that moves between pulls: a second pull
+// resolving to the same commit rewrites the lock to exactly the bytes the
+// first one wrote, so a routine pull never dirties a tree.
+func TestPuller_Pull_SamePinsLeaveLockByteIdentical(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/test", 0755))
+	registry, err := NewRegistry("/test/remotes.yaml", WithRegistryFS(fs))
+	require.NoError(t, err)
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+	mf := NewMockFetcher()
+	mf.Refs["main"] = "abc123def456"
+	lm := NewLockfileManager("/test", WithLockfileFS(fs))
+	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
+		WithLockfileManager(lm),
+		WithFetcherFactory(mockFetcherFactory(mf)),
+		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{
+			".ctxloom/content/bundles/v2/security": {
+				BundleManifestName: {Data: []byte("description: Security bundle\n")},
+			},
+		}, nil)),
+	)
+
+	pull := func() []byte {
+		t.Helper()
+		_, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
+			LocalDir: "/test", ItemType: ItemTypeBundle,
+		})
+		require.NoError(t, err)
+		data, err := afero.ReadFile(fs, lm.Path())
+		require.NoError(t, err)
+		return data
+	}
+
+	first := pull()
+	assert.Equal(t, string(first), string(pull()), "a pull at unchanged pins must leave lock.yaml byte-identical")
+}
+
 // TestPuller_Pull_LockfileWriteFailureIsNotSwallowed pins that for a
 // bundle the lockfile is the ONLY on-disk record (writePulledContent is a
 // synthetic no-op — nothing else is written). installPulledItem demoted a

@@ -233,11 +233,7 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 	}
 
 	runSyncPostSteps(ctx, reg, cfg, req, result, fs)
-	// Prune only after a pull that SUCCEEDED in full: a failed item, an
-	// unconverged graph or an incomplete lock rebuild means the lock may not
-	// yet name everything the project composes. Not with an injected Puller:
-	// a test double installs nothing, so the cache is not this pull's.
-	if req.Puller == nil && converged && result.Errors == 0 && !result.Incomplete && ctx.Err() == nil {
+	if pullSucceededInFull(ctx, req, converged, result) {
 		result.PrunedCheckouts = pruneAfterPull(baseDir, lockManager)
 	}
 	result.ConstraintChanges = constraintChangesIn(cfg, req.Profiles, baseDir, fs)
@@ -245,6 +241,14 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 
 	summarizeSync(result)
 	return result, nil
+}
+
+// pullSucceededInFull reports whether a sync may prune: a failed item, an
+// unconverged graph or an incomplete lock rebuild means the lock may not yet
+// name everything the project composes. Never with an injected Puller: a test
+// double installs nothing, so the cache is not this pull's.
+func pullSucceededInFull(ctx context.Context, req SyncDependenciesRequest, converged bool, result *SyncDependenciesResult) bool {
+	return req.Puller == nil && converged && result.Errors == 0 && !result.Incomplete && ctx.Err() == nil
 }
 
 // lockBeforeSync is the lock a sync starts from, for disclosing the pins it

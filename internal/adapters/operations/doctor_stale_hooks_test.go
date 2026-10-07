@@ -223,3 +223,39 @@ func mustModTime(t *testing.T, path string) int64 {
 	require.NoError(t, err)
 	return fi.ModTime().UnixNano()
 }
+
+// Two stale entries in ONE array, a live one between them: removing the first
+// before the second would shift the second's index onto the live entry. The
+// removals run highest index first.
+func TestRemoveStaleHooks_SeveralInOneArrayKeepTheLiveOne(t *testing.T) {
+	reg, project, _ := staleHookEngine(t)
+	writeSurface(t, project, ".fake/settings.json", `{"hooks": {"SessionStart": [{"hooks": [
+  {"command": "ctxloom hook gone-a"},
+  {"command": "ctxloom hook session-start"},
+  {"command": "ctxloom hook gone-b"},
+  {"command": "ctxloom hook hud"}
+]}]}}
+`)
+
+	removed, err := removeStaleHooks(reg, project, afero.NewOsFs(), liveVerbs)
+	require.NoError(t, err)
+	require.Len(t, removed, 2)
+
+	assert.Equal(t, `{"hooks": {"SessionStart": [{"hooks": [
+  {"command": "ctxloom hook session-start"},
+  {"command": "ctxloom hook hud"}
+]}]}}
+`, readString(t, filepath.Join(project, ".fake", "settings.json")))
+}
+
+// Only the `hook` namespace is judged: a ctxloom entry running any other
+// subcommand is not a hook verb and never stale here.
+func TestDoctorCheckStaleHooks_NonHookCtxloomCommandIsQuiet(t *testing.T) {
+	reg, project, _ := staleHookEngine(t)
+	writeSurface(t, project, ".fake/settings.json",
+		`{"hooks": {"SessionStart": [{"hooks": [{"command": "ctxloom session bind"}]}]}}`)
+
+	check := doctorCheckStaleHooks(reg, project, afero.NewOsFs(), liveVerbs)
+
+	assert.Equal(t, DoctorOK, check.Status, check.Detail)
+}

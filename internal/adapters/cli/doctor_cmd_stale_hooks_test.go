@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,4 +77,23 @@ func TestDoctorCmd_StaleHookEntryIsReportedThenFixed(t *testing.T) {
 	want := strings.Replace(staleClaudeSettings,
 		"          {\"type\": \"command\", \"command\": \"ctxloom hook inject-context abc123\"},\n", "", 1)
 	assert.Equal(t, want, string(got), "the fix takes out the stale entry and nothing else")
+}
+
+// The report judges against THIS binary's command tree: an entry for every
+// subcommand registered under `hook` is live, so none is reported.
+func TestDoctorCmd_EveryRegisteredHookSubcommandIsLive(t *testing.T) {
+	root, _ := setupProject(t, "claude-code")
+	var entries []string
+	for _, c := range hookCmd.Commands() {
+		entries = append(entries, fmt.Sprintf(`{"type": "command", "command": "ctxloom hook %s"}`, c.Name()))
+	}
+	settings := filepath.Join(root, ".claude", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(settings), 0o755))
+	require.NoError(t, os.WriteFile(settings,
+		[]byte(`{"hooks": {"SessionStart": [{"hooks": [`+strings.Join(entries, ",")+`]}]}}`), 0o644))
+
+	out, err := runDoctor(t, root, "--format", "json")
+	require.NoError(t, err)
+	check := doctorCheckNamed(t, out, "DOCTOR-CHECK-STALE-HOOKS-n5")
+	assert.Equal(t, operations.DoctorOK, check.Status, check.Detail)
 }

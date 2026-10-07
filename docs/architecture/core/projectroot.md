@@ -67,7 +67,7 @@ flowchart TD
 | `EnvVar` (const) | `projectroot.go` | The `CTXLOOM_ROOT` variable name; referenced by 10+ tests via `t.Setenv`. |
 | `WorktreeInfo` | `worktree.go:24` | `{Linked bool, MainRoot string, MainRootExists bool}`. The pair `MainRoot != "" && !MainRootExists` is the *diagnosable* stale-pointer state, and both consumers use exactly that pair to build a remediation message. |
 | `resolve(fs)` | `projectroot.go:38` | Pure: reads `$CTXLOOM_ROOT`, `filepath.Abs` + `Clean`, stats it on `fs`. The three-way return is what lets `FromEnv` warn on *invalid* without warning on *unset*. Split out as a testing seam so tests avoid the process-global `warnOnce`. |
-| `FromEnv(fs)` | `projectroot.go:60` | `resolve` plus a warn-once naming the variable, the bad value and the fallback. Callers: `config/config.go:1520`, `cli/hook_inject_context.go:344`, and the two below. |
+| `FromEnv(fs)` | `projectroot.go:60` | `resolve` plus a warn-once naming the variable, the bad value and the fallback. Callers: `config/config.go:1520` and the two below. |
 | `WorkDir()` | `projectroot.go:78` | The canonical chain: `CTXLOOM_ROOT` → `gitutil.FindRoot(".")` → `os.Getwd()` → `"."`. Eight production call sites. |
 | `RootFromFallback()` | `projectroot.go:98` | Re-runs the env and git rungs to report whether `WorkDir` landed on the bare-cwd fallback; `ctxloom run` warns on it. Callers: `operations/manage.go:128`, `operations/hooks.go:100`, `cli/run.go:681`. |
 | `DetectWorktree(fs, dir)` | `worktree.go:59` | Stats `dir/.git`: a directory means not linked; a file is read, `gitdir:` parsed, a `worktrees` path segment required, `MainRoot` derived and stat'd. Callers: `config/config.go:1600`, `taskstore.go:42`. |

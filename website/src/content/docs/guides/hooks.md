@@ -4,7 +4,7 @@ title: "Hooks and Context Injection"
 
 You never paste your standards into a new session again. Start a session with `ctxloom run`, and your fragments and profile are already in the conversation before you type a word.
 
-There are two delivery paths for Claude Code. A `ctxloom run` session passes the assembled context to Claude Code as an appended system prompt file in the session's own home. A Claude Code you start directly gets context only if you ran `ctxloom manage hooks install`, which writes a **SessionStart hook** into the project that injects it when the session starts. This guide explains both and how to configure them.
+Claude Code gets the assembled context one way: a `ctxloom run` session passes it to Claude Code as an appended system prompt file in the session's own home. A Claude Code you start directly with `claude` gets no ctxloom context. `ctxloom manage hooks install` wires ctxloom's hooks into the project, including a **SessionStart hook**, but that hook never carries the project's context. It delivers a resumed session's essence and ctxloom's session-start notices. This guide explains both and how to configure them.
 
 ## How Context Injection Works
 
@@ -13,8 +13,8 @@ There are two delivery paths for Claude Code. A `ctxloom run` session passes the
 1. ctxloom assembles context from the profiles your agent composes (the default agent for a bare `ctxloom run`), their bundles, and tags
 2. Context is written to a content-addressed file in `.ctxloom/cache/context/`
 3. For a `ctxloom run` session, Claude Code reads that context as an appended system prompt; nothing is written to your project's `CLAUDE.md` or `.claude/settings.json`
-4. For an engine you launch directly after `ctxloom manage hooks install`, the SessionStart hook injects the context file when the session starts
-5. The context file is left in place. It is a cache, reused across sessions with unchanged context and, when context is too large for one hook, across the multiple ordered chunk hooks that read it
+4. The context reaches the session once. Its first turn is your prompt alone, and no hook repeats the context
+5. The context file is left in place. It is a cache, reused across sessions with unchanged context
 
 `ctxloom run --dry-run` prints the route each surface takes (context, MCP, settings, hooks, commands) and where it lands.
 
@@ -34,8 +34,9 @@ A `ctxloom run` session delivers its hooks into the session's own home, so nothi
         "hooks": [
           {
             "type": "command",
-            "command": "'ctxloom' hook inject-context <hash>",
-            "timeout": 60
+            "command": "ctxloom",
+            "args": ["hook", "session-start"],
+            "timeout": 15
           }
         ]
       }
@@ -44,7 +45,7 @@ A `ctxloom run` session delivers its hooks into the session's own home, so nothi
 }
 ```
 
-The command names the bare `ctxloom` executable and carries no project path. The settings file is usually committed, and an absolute path would be one developer's path that no other clone can satisfy. The hook resolves the project when it fires: `CTXLOOM_ROOT` if set, otherwise the git root containing the working directory.
+The command names the bare `ctxloom` executable and takes no arguments. The settings file is usually committed, and an absolute path would be one developer's path that no other clone can satisfy. Everything the hook needs comes from its input and environment when it fires.
 
 ## Manual Hook Management
 
@@ -55,7 +56,7 @@ A `ctxloom run` session carries its own hooks; you never apply them for it. `ctx
 To write ctxloom's hooks into the project tree explicitly — for an engine you launch directly rather than through `ctxloom run` — apply them yourself:
 
 ```bash
-# Write hooks and regenerate context (the engines this project configures)
+# Write hooks (the engines this project configures)
 ctxloom manage hooks install
 
 # Target one backend
@@ -122,27 +123,26 @@ If you see size warnings:
 
 ## Hook Commands
 
-### inject-context
+### session-start
 
-The primary hook command that injects context:
+ctxloom's SessionStart hook:
 
 ```bash
-'ctxloom' hook inject-context <hash>
+ctxloom hook session-start
 ```
 
-- `<hash>` - Content hash identifying the context file
-- `--project` - Optional project directory for invoking the hook by hand; generated hooks omit it and resolve the project at fire time
-- Reads from `.ctxloom/cache/context/<hash>.md`
-- Outputs context to stdout for the AI to consume
-- Does not delete the context file — it's a cache, and oversized context is split into multiple ordered hooks (`--part k --of N`) that all read it
+- Takes no arguments; reads the SessionStart payload on stdin
+- Never outputs the project's context, which a `ctxloom run` session already has as its system prompt
+- After `ctxloom run --session <name> --compact`, outputs the compacted essence of the session you resumed. An essence longer than about 7,500 characters is cut, with a pointer to the essence file and to `/recover`, because Claude Code shows the model only a short preview of longer hook output
+- After `/clear`, tells you to run `/recover` when the cleared conversation can be brought back
+- In a project with profiles but no agents, suggests setting up an agent
 
 ### Environment Variables
-
-The SessionStart hook itself takes the hash and project directory as command-line arguments, not environment variables:
 
 | Variable | Description |
 |----------|-------------|
 | `CTXLOOM_VERBOSE` | Enable verbose output for debugging |
+| `CTXLOOM_RESUMED_FROM` / `CTXLOOM_RESUMED_PARTS` | Set by `ctxloom run --session`; tell the SessionStart hook which session's essence to deliver |
 | `CTXLOOM_CONTEXT_FILE` | Path to the assembled context file, set on the launched engine's environment whenever context was assembled — not read by the SessionStart hook |
 
 ## Debugging Hooks
@@ -186,7 +186,8 @@ While ctxloom manages its own hooks, you can add custom hooks alongside ctxloom'
         "hooks": [
           {
             "type": "command",
-            "command": "'ctxloom' hook inject-context abc123"
+            "command": "ctxloom",
+            "args": ["hook", "session-start"]
           },
           {
             "type": "command",
@@ -199,7 +200,7 @@ While ctxloom manages its own hooks, you can add custom hooks alongside ctxloom'
 }
 ```
 
-**Note:** Claude Code's settings schema rejects unrecognized fields on hook entries, so ctxloom can't tag its own hooks with a marker field. Instead it keeps an ownership record of the hook commands it wrote and removes only those, plus its own callback verbs (`hook inject-context` and the other `ctxloom hook` subcommands). A custom hook of yours stays intact even when it invokes `ctxloom`.
+**Note:** Claude Code's settings schema rejects unrecognized fields on hook entries, so ctxloom can't tag its own hooks with a marker field. Instead it keeps an ownership record of the hook commands it wrote and removes only those, plus its own callback verbs (`hook session-start` and the other `ctxloom hook` subcommands). A custom hook of yours stays intact even when it invokes `ctxloom`.
 
 Hooks you author yourself belong in a profile or bundle under `hooks:` (see [Configuration → Hooks](/guides/configuration/#hooks)). ctxloom then delivers them with its own, into the session home for `ctxloom run` or into `.claude/settings.json` for `manage hooks install`.
 
@@ -207,18 +208,13 @@ Hooks you author yourself belong in a profile or bundle under `hooks:` (see [Con
 
 ### Context Not Injected
 
-1. For a `ctxloom run` session: `ctxloom run --dry-run` shows the fragments loaded, the assembled context and its delivery route
-2. For an engine you start directly: check hooks are applied with `cat .claude/settings.json` or `ctxloom manage hooks check`
-3. Verify context file exists: `ls .ctxloom/cache/context/`
-4. Run with verbose: `CTXLOOM_VERBOSE=1 ctxloom run`
+1. Start the session with `ctxloom run`. A Claude Code you start directly gets no ctxloom context
+2. `ctxloom run --dry-run` shows the fragments loaded, the assembled context and its delivery route
+3. Run with verbose: `CTXLOOM_VERBOSE=1 ctxloom run`
 
 ### Stale Context
 
-A `ctxloom run` session assembles fresh context at every launch. If context from an installed hook seems outdated, regenerate context and reapply hooks:
-
-```bash
-ctxloom manage hooks install
-```
+A `ctxloom run` session assembles fresh context at every launch, so restarting the session picks up changed profiles and fragments.
 
 ### Hook Timeout
 
@@ -238,7 +234,7 @@ select_tags:
   - best-practices
 ```
 
-When your default agent composes this profile (`agents.<name>.profiles`), every session automatically gets these bundles and tagged fragments injected.
+When your default agent composes this profile (`agents.<name>.profiles`), every `ctxloom run` session gets these bundles and tagged fragments in its context.
 
 ## Best Practices
 

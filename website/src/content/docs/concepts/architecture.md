@@ -206,16 +206,20 @@ remotes is done with the ctxloom CLI.
 
 ## Data Flow
 
-### Context Injection Flow
+### Context Delivery Flow
 
 ```mermaid
 flowchart TD
-    A["1. User starts session"] --> B["2. SessionStart hook fires"]
-    B --> C["3. Hook runs: ctxloom hook inject-context"]
-    C --> D["4. ctxloom reads .ctxloom/cache/context/hash.md"]
-    D --> E["5. Content output to stdout"]
-    E --> F["6. Engine receives context"]
+    A["1. User runs ctxloom run"] --> B["2. ctxloom assembles the agent's profiles into one context"]
+    B --> C["3. Context framed into a system prompt file in the session home"]
+    C --> D["4. Engine launched with --append-system-prompt-file"]
+    D --> E["5. Engine receives the context once; the first turn is the prompt alone"]
 ```
+
+No hook carries the project's context. ctxloom's SessionStart hook, `ctxloom
+hook session-start`, delivers only a resumed session's essence and ctxloom's
+session-start notices, so a Claude Code started directly gets no ctxloom
+context.
 
 ### Remote Pull Flow
 

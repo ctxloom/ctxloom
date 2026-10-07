@@ -4,7 +4,8 @@
 breaking *silently* is what it does not do — hence this page.
 
 One change in this release fails **silently** if you do nothing, so it is
-first.
+first. A second, §12, is silent too: it changes where claude gets its
+context.
 
 ---
 
@@ -262,7 +263,36 @@ What else follows from profiles being bundle items:
   canonical `ctxloom+git://` spelling, and an older bundle's profile refs are
   read that way.
 
-## 12. Everything else marked breaking
+## 12. claude started by hand gets no ctxloom context
+
+In 0.6, `ctxloom manage hooks install` registered a SessionStart hook,
+`ctxloom hook inject-context <hash>`, in `.claude/settings.json`. Every claude
+session in the project, including one you started yourself with plain
+`claude`, received the assembled context through it. A session that
+`ctxloom run` launched received the context twice: through the hook and
+through its system prompt.
+
+In 0.7 the context reaches claude once, as the system prompt of a session
+that `ctxloom run` launches. The hook no longer carries it:
+
+- `hook inject-context` is removed. Its replacement, `ctxloom hook
+  session-start`, takes no arguments. It delivers the compacted essence of a
+  session resumed with `ctxloom run --session <name> --compact`, the
+  "context cleared, run /recover" notice after `/clear`, and the agent-setup
+  nudge. It never delivers the project's context.
+- **A claude session you start by hand gets no ctxloom context.** Nothing
+  tells you so: the session starts normally, without your profiles'
+  guidance. Start it with `ctxloom run` instead.
+- Run `ctxloom manage hooks install` once after upgrading. It adds the
+  `session-start` hook. It removes the old `inject-context` entries only
+  where this machine's ctxloom recorded installing them. An entry written by
+  0.6, or by ctxloom on another machine and committed with the file, stays.
+  Claude runs each one at every session start, and each one fails with
+  `unknown command "inject-context"`. Delete every SessionStart entry whose
+  command contains `hook inject-context` from `.claude/settings.json` by
+  hand.
+
+## 13. Everything else marked breaking
 
 Grouped by what you would have to change.
 

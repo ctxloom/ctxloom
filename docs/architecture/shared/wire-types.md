@@ -10,7 +10,7 @@ flowchart TD
         HC["HooksConfig<br/>Unified + Plugins"]
         UH["UnifiedHooks<br/>6 event slices"]
         BH["BackendHooks<br/>map[event][]Hook"]
-        H["Hook<br/>Matcher/Command/Type/Prompt/Timeout/Async<br/>SCM · ContextHash* · PreToolFallback"]
+        H["Hook<br/>Matcher/Command/Type/Prompt/Timeout/Async<br/>SCM · PreToolFallback"]
         MS["MCPServer<br/>one of Command/Args/Env · URL/Headers · ServedBy<br/>Notes/Installation/SCM"]
         HC --> UH
         HC --> BH
@@ -31,8 +31,6 @@ flowchart TD
 
 ```
 
-`*` `Hook.ContextHash` is in-process only (`yaml:"-" json:"-"`) and is deliberately re-derived agent-side by `agent.NewContextInjectionHooks`, so its non-serialization is compensated.
-
 ## `internal/core/wire` — types
 
 ### `Hook` — `internal/core/wire/hooks.go`
@@ -49,7 +47,6 @@ One lifecycle action (shell command, prompt, or agent invocation) plus the metad
 | `Timeout int` | `hooks.go` | `timeout` | claude (`hookValue` in `internal/engines/claude`) |
 | `Async bool` | `hooks.go` | `async` | claude only (`hookValue` in `internal/engines/claude`) |
 | `SCM string` | `hooks.go` | `_ctxloom` | `managedhooks.bundleSource` (provenance attribution); claude's `hookValue` never writes it to settings |
-| `ContextHash string` | `hooks.go` | never (`yaml:"-" json:"-"`) | set by `agent.NewContextInjectionHooks`; no reader in the tree |
 | `PreToolFallback bool` | `hooks.go` | `pre_tool_fallback` | no writer reads it: every registered engine has a session-start event (see the field's own doc) |
 
 ### `wire.UnifiedHooks`

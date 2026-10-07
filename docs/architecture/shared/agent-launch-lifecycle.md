@@ -47,7 +47,7 @@ flowchart TD
 |---|---|
 | `LaunchBackend` | Embeds `BaseBackend`; holds the injected `lifecycle`, `context`, `history`, the engine's `surfaces Declaration`, the `resolved` selection of the current run, an optional `extraEnv` contributor, and the `delivered` handles. |
 | `ManagedLifecycle` | The lifecycle capability `LaunchBackend` is wired with — declares `MergeManaged`. `BaseLifecycle` implements it. |
-| `HashedContext` | `ContextProvider` plus the hash and on-disk path of the context it last provided; the hash seeds the injection hook, the path is handed to the child via the context-file env var. |
+| `HashedContext` | `ContextProvider` plus the on-disk path of the context it last provided, handed to the child via the context-file env var. |
 
 ## Functions
 
@@ -68,7 +68,6 @@ flowchart TD
 | `LaunchBackend.installContextInjectionHook` | Materializes the raw context cache file and appends the SessionStart injection hook onto the merged hooks the not-yet-delivered settings surface then writes. Reached on ONE path: a deliberately selected `ApproachHook` context. Never as a fallback from another approach's failure. |
 | `LaunchBackend.mergedState` | Capability-probes the lifecycle for the merged hooks + bundle MCP, returning `(hooks, mcp, ok)`. |
 | `LaunchBackend.Cleanup` | LIFO teardown of every recorded handle. |
-| `AwaitTurn` (`rendezvous.go`) | flock rendezvous so N chunk-injection hooks emit in order (see the context-delivery page). |
 
 ## Invariants and contracts
 

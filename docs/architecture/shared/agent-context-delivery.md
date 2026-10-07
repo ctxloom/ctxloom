@@ -1,83 +1,49 @@
-# agent — context assembly, chunking, and injection hooks
+# agent — context assembly and delivery
 
-How assembled profile context actually reaches the model. Fragments are joined and deduplicated into a hash-named cache file (`.ctxloom/cache/context/<hash>.md`), then either framed into a system prompt or split into size-bounded chunks each delivered by its own SessionStart hook. The chunking exists because engine harnesses truncate large hook output to a ~2KB preview, and the flock rendezvous (`AwaitTurn`) exists because N chunk hooks run as N independent processes that must emit in order.
+How assembled profile context actually reaches the model. Fragments are joined and deduplicated into a hash-named cache file (`.ctxloom/cache/context/<hash>.md`) and framed for the engine's context surface. claude takes it once, as the system prompt of a session `ctxloom run` launches (`--append-system-prompt-file`). No hook delivers it: ctxloom's one SessionStart callback, `hook session-start`, carries a resumed session's essence and the session-start notices, never the project's context. A claude started by hand therefore gets no ctxloom context.
 
 ```mermaid
 flowchart TD
     F["[]*Fragment"] --> ADC["AssembleContext =<br/>assembleDedupedContext<br/>(sha256 dedup + >16KB warn)"]
-    ADC --> WCF["WriteContextFile → hash<br/>contextfile.go:137"]
+    ADC --> WCF["WriteContextFile → hash<br/>contextfile.go:169"]
     WCF --> FILE[(".ctxloom/cache/context/&lt;hash&gt;.md")]
-    FILE --> RCF["ReadContextFile<br/>contextfile.go:169"]
-    RCF --> NCIH["NewContextInjectionHooks<br/>context_hooks.go:64"]
-    NCIH --> CC["ChunkContext<br/>contextchunk.go:31"]
-    CC -->|"len &lt;= 1"| H1["1 whole-content hook<br/>NewContextInjectionHook :23"]
-    CC -->|"len &gt; 1"| HN["N ordered chunk hooks<br/>NewContextInjectionChunkHook :37"]
-    HN --> AT["AwaitTurn (flock)<br/>rendezvous.go:57"]
-    AT --> INJ["cli/hook_inject_context.go"]
-    ADC --> FPC["FrameProjectContext<br/>context_framing.go:34"]
+    FILE --> ENV["CTXLOOM_CONTEXT_FILE<br/>(set for the launched engine)"]
+    ADC --> FPC["FrameProjectContext<br/>context_framing.go:30"]
     FPC --> SP["--append-system-prompt-file /<br/>the minimal form's prompt channel"]
-    MHC["MergeHooksConfig<br/>context_hooks.go:90"] --> NCIH
+    SSH["NewSessionStartHook<br/>context_hooks.go:26"] --> SS["cli/hook_session_start.go<br/>(essence + notices, no project context)"]
 ```
 
 ## Assembly and the context file
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `AssembleContext` | `internal/core/agent/base.go:169` | Joins non-empty fragment contents. No dedup, no size warning. |
-| `assembleDedupedContext` | `internal/core/agent/contextfile.go:84` | Joins fragments, deduplicates by sha256 of content, warns above 16KB. |
-| `WriteContextFile` | `internal/core/agent/contextfile.go:137` | Writes the deduped context to `.ctxloom/cache/context/<hash>.md` and returns the hash. |
-| `ReadContextFile` | `internal/core/agent/contextfile.go:169` | Reads `<hash>.md` back. |
-| `contextFileOptions` | `internal/core/agent/contextfile.go:39` | Options bag: `{fs afero.Fs, stderr io.Writer}`. |
-| `ContextFileOption` | `internal/core/agent/contextfile.go:45` | Functional-option type; threaded cross-package by `internal/adapters/operations/hooks.go`. |
-| `WithContextFS` | `internal/core/agent/contextfile.go:49` | Injects the filesystem. |
-| `WithContextStderr` | `internal/core/agent/contextfile.go:57` | Redirects the warning sink (test-only in practice). |
-| `applyContextOptions` | `internal/core/agent/contextfile.go:64` | Applies options over the `OsFs` / `os.Stderr` defaults. |
-| `FrameProjectContext` | `internal/core/agent/context_framing.go:34` | Wraps assembled context in the ctxloom envelope for system-prompt delivery. |
+| `AssembleContext` | `internal/core/agent/base.go:174` | The one assembler: `assembleDedupedContext` under its exported name. |
+| `assembleDedupedContext` | `internal/core/agent/contextfile.go:103` | Joins fragments, deduplicates by sha256 of content, warns above 16KB. |
+| `WriteContextFile` | `internal/core/agent/contextfile.go:169` | Writes the deduped context to `.ctxloom/cache/context/<hash>.md` and returns the hash. |
+| `ReadContextFile` | `internal/core/agent/contextfile.go:214` | Reads `<hash>.md` back. No production reader remains; tests use it to inspect the cache. |
+| `contextFileOptions` | `internal/core/agent/contextfile.go:44` | Options bag: `{fs afero.Fs, stderr io.Writer}`. |
+| `ContextFileOption` | `internal/core/agent/contextfile.go:50` | Functional-option type; threaded cross-package by `internal/adapters/operations/hooks.go`. |
+| `WithContextFS` | `internal/core/agent/contextfile.go:54` | Injects the filesystem. |
+| `WithContextStderr` | `internal/core/agent/contextfile.go:62` | Redirects the warning sink (test-only in practice). |
+| `applyContextOptions` | `internal/core/agent/contextfile.go:69` | Applies options over the `OsFs` / `os.Stderr` defaults. |
+| `FrameProjectContext` | `internal/core/agent/context_framing.go:30` | Wraps assembled context in the ctxloom envelope for system-prompt delivery. |
 
-## Chunking
-
-| Symbol | file:line | Purpose |
-|---|---|---|
-| `ChunkContext` | `internal/core/agent/contextchunk.go:31` | Splits context on section boundaries, each chunk under `ContextChunkMaxChars`. |
-| `splitOversizedSection` | `internal/core/agent/contextchunk.go:80` | Line-splits an over-cap section, never mid-line; warns loudly on an over-cap single line. |
-
-## Injection hooks
+## Hooks
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `NewContextInjectionHooks` | `internal/core/agent/context_hooks.go:64` | Reads the context file and decides between one whole-content hook and N ordered chunk hooks. |
-| `NewContextInjectionHook` | `internal/core/agent/context_hooks.go:23` | Builds the single whole-content SessionStart hook. |
-| `NewContextInjectionChunkHook` | `internal/core/agent/context_hooks.go:37` | Builds hook *k* of *N*. |
-| `absOrSelf` | `internal/core/agent/context_hooks.go:49` | Absolutizes a path with fallback to the input — the engine may launch from a different cwd. |
-| `MergeHooksConfig` | `internal/core/agent/context_hooks.go:90` | Appends `src`'s hook lists into `dest`. |
-| `HookRoute` | `internal/core/agent/hook_routes.go:12` | Maps one unified hook slice onto an engine-native event name, with a default matcher. |
-| `RouteUnifiedHooks` | `internal/core/agent/hook_routes.go:25` | Walks routes, applies default matchers, and emits; the hook writer of every backend that delivers hooks routes through it. |
-
-## Chunk-ordering rendezvous
-
-| Symbol | file:line | Purpose |
-|---|---|---|
-| `AwaitTurn` | `internal/core/agent/rendezvous.go:57` | flock-based rendezvous so N chunk hooks in N processes exit in order. |
-| `rendezvousDir` | `internal/core/agent/rendezvous.go:89` | Per-session tempdir path. |
-| `sweepStaleRendezvous` | `internal/core/agent/rendezvous.go:106` | GCs rendezvous dirs older than one hour. |
-| `sanitizeSessionID` | `internal/core/agent/rendezvous.go:131` | Allowlists filename-safe runes; a path-injection guard. |
-| `lockPath` | `internal/core/agent/rendezvous.go:142` | `<dir>/l<n>.lock`. |
-| `markerPath` | `internal/core/agent/rendezvous.go:146` | `<dir>/started_<n>`. |
-| `writeMarker` | `internal/core/agent/rendezvous.go:150` | Publishes the started marker. |
-| `waitFreshMarker` | `internal/core/agent/rendezvous.go:156` | Polls for a recent predecessor marker, deadline-bounded. |
-| `waitPredecessorExit` | `internal/core/agent/rendezvous.go:169` | Polls until the predecessor's lock is free. |
+| `NewSessionStartHook` | `internal/core/agent/context_hooks.go:26` | Builds ctxloom's one SessionStart hook, `ctxloom hook session-start`, with no arguments. |
+| `MergeHooksConfig` | `internal/core/agent/context_hooks.go:177` | Appends `src`'s hook lists into `dest`, warning when a nil `dest` would drop a non-empty set. |
+| `HookRoute` | `internal/core/agent/hook_routes.go:14` | Maps one unified hook slice onto an engine-native event name, with a default matcher. |
+| `RouteUnifiedHooks` | `internal/core/agent/hook_routes.go:46` | Walks routes, applies default matchers, and emits; the hook writer of every backend that delivers hooks routes through it. |
 
 ## Invariants and contracts
 
+- **The project's context reaches a session once.** claude takes it as the system prompt of a `ctxloom run` launch; at rest (`manage hooks install`) claude gets no context at all, because a `CLAUDE.md` or a hook beside the system prompt would double it (`operations.contextRidesTheLaunch`). An engine with no launch-time context channel reads a native file written at rest.
 - **`WriteContextFile` is the only writer of `.ctxloom/cache/context/<hash>.md`.** `BaseContextProvider.GetContextFilePath` independently re-derives that path from the hash rather than asking the writer, so the naming scheme exists in two places.
-- **There is exactly ONE assembler.** `agent.AssembleContext` IS `assembleDedupedContext` under the exported name: it deduplicates on `(Name, content)` and emits the oversize warning, and every path that needs "the assembled context" goes through it. This used to be two implementations that diverged — only one of them warned — so a run could deliver an oversize context in silence by taking the route that could not warn. The invariant `contextfile.go` states about itself now holds by construction rather than by inspection (U100-F13, resolved by `footless-swimming`).
-- **`WriteContextFile` returns `("", nil)` when the assembled content is empty** — a hash of `""` then means "no context" everywhere downstream, so `MergeManaged` skips the injection hook and `CTXLOOM_CONTEXT_FILE` is never set. Nothing distinguishes "no context configured" from "context assembly produced nothing".
+- **There is exactly ONE assembler.** `agent.AssembleContext` IS `assembleDedupedContext` under the exported name: it deduplicates on `(Name, content)` and emits the oversize warning, and every path that needs "the assembled context" goes through it (U100-F13, resolved by `footless-swimming`).
+- **`WriteContextFile` returns `("", nil)` when the assembled content is empty**, so `CTXLOOM_CONTEXT_FILE` is never set. Nothing distinguishes "no context configured" from "context assembly produced nothing".
 - **`ReadContextFile` maps a missing file to `("", nil)`**, so a reaped or never-written cache file is indistinguishable from "no context configured".
-- **`NewContextInjectionHooks` swallows the read error** (`content, _ := ReadContextFile(...)` at `context_hooks.go:65`). Any read failure yields `len(chunks) <= 1` and therefore a single whole-content hook — reintroducing exactly the harness truncation that chunking exists to prevent.
-- **Write-time and run-time may resolve different files.** `NewContextInjectionHooks` reads with a possibly-relative `workDir`, while the hook command it emits (`context_hooks.go:25`, `:40`) uses `absOrSelf(workDir)`.
-- **`ChunkContext` never splits mid-line** and returns `nil` for empty input; `splitOversizedSection` warns loudly rather than truncating when a single line exceeds the cap.
-- **`MergeHooksConfig` returns silently when `dest` is nil**, dropping the entire source hook set with no error — the signature gives it no way to report the loss. All five production callers pass a non-nil dest today.
+- **`hook session-start` stays under claude's additionalContext cap.** A resumed essence longer than `claude.AdditionalContextMaxChars` (7,500, under claude's ~10,000) is cut with a pointer to the essence file and to `/recover`, because past the cap the model sees only a short preview.
 - **`RouteUnifiedHooks`' `emit` callback returns nothing**, so a failed emit is invisible to the walker; a caller with zero hooks writes a hook-less settings file with no warning.
-- **`AwaitTurn` degrades to "emit now" on every failure path** — this is the stated design (fault tolerance over ordering) and each degradation is an explicit branch. A failed `writeMarker` makes the successor spin to the full 5s timeout rather than degrade fast.
-- **`heldRendezvousLocks`** (`rendezvous.go:34`) is a package-level slice appended without synchronization at `:73`. Safe only because the sole production caller, `internal/adapters/cli/hook_inject_context.go:102`, runs once per hook process — one call per process is an unenforced precondition.
-- **Context-injection hooks are exec form** (`wire.Hook.Command` is the bare `ctxloom`, `wire.Hook.Args` its argv), so no value is ever parsed by a shell. **`sanitizeSessionID` is a security boundary**, not a cosmetic: rendezvous dirs are built from a session ID.
+- **ctxloom's hooks are exec form** (`wire.Hook.Command` is the bare `ctxloom`, `wire.Hook.Args` its argv), so no value is ever parsed by a shell, and none carries a fact about the machine that wrote it.

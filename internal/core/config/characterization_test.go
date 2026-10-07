@@ -143,6 +143,8 @@ var characterizationGolden = map[string]string{
     worker:
         llm: fast
 auth: login
+companions:
+    - acme
 config:
     essence_max_chars: 4096
 default_agent: worker
@@ -194,6 +196,8 @@ workspace: worktree
     worker:
         llm: fast
 auth: login
+companions:
+    - acme
 config:
     essence_max_chars: 4096
 default_agent: worker
@@ -245,6 +249,8 @@ workspace: worktree
     worker:
         llm: fast
 auth: login
+companions:
+    - acme
 config:
     essence_max_chars: 4096
 default_agent: worker

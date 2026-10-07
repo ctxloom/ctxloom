@@ -42,6 +42,7 @@ type Fixture struct {
 	IsolationBase                string
 	IsolationDevcontainerService string
 	IsolationEngines             []string
+	Companions                   []string
 	OutputDir                    string
 	UI                           UIConfig
 	SessionReapAge               string
@@ -94,6 +95,7 @@ func (c *Config) ToFixture() Fixture {
 		IsolationBase:                d.IsolationBase,
 		IsolationDevcontainerService: d.IsolationDevcontainerService,
 		IsolationEngines:             d.IsolationEngines,
+		Companions:                   d.Companions,
 		OutputDir:                    d.OutputDir,
 		UI:                           d.UI,
 		SessionReapAge:               d.SessionReapAge,
@@ -144,6 +146,7 @@ func NewFixture(f Fixture) *Config {
 		isolationBase:                f.IsolationBase,
 		isolationDevcontainerService: f.IsolationDevcontainerService,
 		isolationEngines:             slices.Clone(f.IsolationEngines),
+		companions:                   slices.Clone(f.Companions),
 		outputDir:                    f.OutputDir,
 		ui:                           cloneUIConfig(f.UI),
 		sessionReapAge:               f.SessionReapAge,

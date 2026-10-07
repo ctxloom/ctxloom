@@ -270,6 +270,9 @@ func (c *Config) GetIsolationDevcontainerService() string { return c.isolationDe
 // shared multi-engine agent image.
 func (c *Config) GetIsolationEngines() []string { return slices.Clone(c.isolationEngines) }
 
+// GetCompanions returns a copy of the registered companion names.
+func (c *Config) GetCompanions() []string { return slices.Clone(c.companions) }
+
 // GetOutputDir returns the configured base for session output dirs, "" when
 // unset (paths.DefaultOutputBase applies).
 func (c *Config) GetOutputDir() string { return c.outputDir }

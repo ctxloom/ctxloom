@@ -185,6 +185,11 @@ type Config struct {
 	// unrecognized name is dropped with a warning, never silently promoted to
 	// "use everything".
 	isolationEngines []string
+	// companions are the REGISTERED companion names (`ctxloom companion
+	// add`): the only companions a generation resolves on PATH and executes.
+	// Names only, never a path, so one registration holds wherever the
+	// binary lives — a container's PATH included.
+	companions []string
 	// outputDir overrides the base of every session's output dir (the
 	// human root: essence, next step, plans, reports), which is otherwise
 	// <Documents>/ctxloom (paths.DefaultOutputBase). Absolute. A session
@@ -284,6 +289,7 @@ type configDoc struct {
 	IsolationBase                string                    `yaml:"isolation_base,omitempty"`
 	IsolationDevcontainerService string                    `yaml:"isolation_devcontainer_service,omitempty"`
 	IsolationEngines             []string                  `yaml:"isolation_engines,omitempty"`
+	Companions                   []string                  `yaml:"companions,omitempty"`
 	OutputDir                    string                    `yaml:"output_dir,omitempty"`
 	UI                           UIConfig                  `yaml:"ui,omitempty"`
 	SessionReapAge               string                    `yaml:"session_reap_age,omitempty"`
@@ -341,6 +347,7 @@ func (c *Config) toDoc() configDoc {
 		IsolationBase:                c.isolationBase,
 		IsolationDevcontainerService: c.isolationDevcontainerService,
 		IsolationEngines:             slices.Clone(c.isolationEngines),
+		Companions:                   slices.Clone(c.companions),
 		OutputDir:                    c.outputDir,
 		UI:                           cloneUIConfig(c.ui),
 		SessionReapAge:               c.sessionReapAge,
@@ -372,6 +379,7 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.isolationBase = doc.IsolationBase
 	c.isolationDevcontainerService = doc.IsolationDevcontainerService
 	c.isolationEngines = doc.IsolationEngines
+	c.companions = doc.Companions
 	c.outputDir = doc.OutputDir
 	c.ui = doc.UI
 	c.sessionReapAge = doc.SessionReapAge

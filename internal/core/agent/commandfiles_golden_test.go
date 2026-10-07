@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -160,11 +159,11 @@ func TestWriteManagedCommandFiles_GoldenByteIdentical(t *testing.T) {
 	newDir := "/proj/.claude/commands"
 
 	require.NoError(t, oldWriteManagedCommandFiles(oldFS, oldDir, ".ctxloom-manifest", fixtureCommands, goldenRender, WithDedupHomeDir(home)))
-	require.NoError(t, WriteManagedCommandFiles(safefs.NewMem(newFS), newDir, fixtureCommands, goldenRender, WithDedupHomeDir(home)))
+	_, err := WriteManagedCommandFiles(safefs.NewMem(newFS), newDir, fixtureCommands, goldenRender, WithDedupHomeDir(home))
+	require.NoError(t, err)
 
-	// The MARKER is deliberately different now — the pre-refactor writer wrote
-	// a per-engine ".ctxloom-manifest" of bare names, the current one writes the
-	// shared surface-typed ledger — so it is excluded here. What must NOT have
+	// The pre-refactor writer also wrote a ".ctxloom-manifest" of bare names;
+	// the current one writes no bookkeeping at all, so it is excluded here. What must NOT have
 	// changed is the delivered payload: every command file, at the same path,
 	// with the same bytes. That is what this golden capture is actually for.
 	oldTree := withoutMarkers(listTree(t, oldFS, oldDir))
@@ -180,13 +179,13 @@ func TestWriteManagedCommandFiles_GoldenByteIdentical(t *testing.T) {
 	assert.NotContains(t, oldTree, "shadowed.md", "dedup-skipped against the identical home copy")
 }
 
-// withoutMarkers drops manifest/ledger bookkeeping files from a tree listing so
-// a payload comparison is not confounded by a bookkeeping format change.
+// withoutMarkers drops the old writer's manifest from a tree listing so a
+// payload comparison is not confounded by bookkeeping.
 func withoutMarkers(tree map[string]string) map[string]string {
 	out := make(map[string]string, len(tree))
 	for k, v := range tree {
 		base := filepath.Base(k)
-		if base == ledger.Name || strings.HasPrefix(base, ".ctxloom-") {
+		if strings.HasPrefix(base, ".ctxloom-") {
 			continue
 		}
 		out[k] = v

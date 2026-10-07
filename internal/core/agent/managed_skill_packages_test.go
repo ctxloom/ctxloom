@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -19,8 +18,8 @@ import (
 // is content-agnostic, so this pins the two things that selection relies on
 // it for: a re-materialization that substitutes SKILL.md's bytes replaces the
 // file, and a file the export no longer names (the other body, which an
-// earlier export may have shipped as a plain sibling) is removed from disk
-// and from the ledger.
+// earlier export may have shipped as a plain sibling) is not delivered — so
+// the static writer's release of the earlier delivery removes it.
 func TestWriteManagedSkillPackages_SubstitutedBodyReplacesTheDescriptorAndDropsTheUnselectedOne(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/work/.claude/skills"
@@ -36,45 +35,43 @@ func TestWriteManagedSkillPackages_SubstitutedBodyReplacesTheDescriptorAndDropsT
 		require.NoError(t, err)
 		return data
 	}
-	tracked := func() []string {
+	write := func(skills []SkillExport) []string {
 		t.Helper()
-		got, err := ledger.Ledger{Root: safefs.NewMem(fs), Dir: dir}.Read(ledger.SurfaceSkills)
+		delivered, err := WriteManagedSkillPackages(safefs.NewMem(fs), dir, skills)
 		require.NoError(t, err)
-		return got
+		return delivered
 	}
+	materialized := []string{filepath.Join(dir, "humanize", "SKILL.md"), filepath.Join(dir, "humanize", "scripts", "run.sh")}
 
 	// A package written with BOTH bodies as plain files — the shape a writer
 	// fed the unselected package produces.
-	require.NoError(t, WriteManagedSkillPackages(safefs.NewMem(fs), dir, export(
+	write(export(
 		PackageFile{RelPath: "SKILL.md", Content: raw, Mode: 0644},
 		PackageFile{RelPath: "SKILL.distilled.md", Content: distilled, Mode: 0644},
 		PackageFile{RelPath: "scripts/run.sh", Content: script, Mode: 0755},
-	)))
+	))
 	require.Equal(t, raw, readSkill("SKILL.md"))
 	require.Equal(t, distilled, readSkill("SKILL.distilled.md"))
 
 	// The distilled body selected: its bytes substituted at SKILL.md, and no
 	// file for either body under its own name.
-	require.NoError(t, WriteManagedSkillPackages(safefs.NewMem(fs), dir, export(
+	delivered := write(export(
 		PackageFile{RelPath: "SKILL.md", Content: distilled, Mode: 0644},
 		PackageFile{RelPath: "scripts/run.sh", Content: script, Mode: 0755},
-	)))
+	))
 	assert.Equal(t, distilled, readSkill("SKILL.md"), "the selected body's bytes replace the descriptor")
-	gone, err := afero.Exists(fs, filepath.Join(dir, "humanize", "SKILL.distilled.md"))
-	require.NoError(t, err)
-	assert.False(t, gone, "the unselected body's earlier file is removed")
 	assert.Equal(t, script, readSkill("scripts/run.sh"))
 	info, err := fs.Stat(filepath.Join(dir, "humanize", "scripts", "run.sh"))
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0755), info.Mode().Perm())
-	assert.ElementsMatch(t, []string{"humanize/SKILL.md", "humanize/scripts/run.sh"}, tracked(),
-		"the ledger names exactly the materialized set")
+	assert.ElementsMatch(t, materialized, delivered,
+		"the delivered set is exactly the materialized one; the unselected body is not in it")
 
 	// And back to the raw body: the same path, different bytes.
-	require.NoError(t, WriteManagedSkillPackages(safefs.NewMem(fs), dir, export(
+	delivered = write(export(
 		PackageFile{RelPath: "SKILL.md", Content: raw, Mode: 0644},
 		PackageFile{RelPath: "scripts/run.sh", Content: script, Mode: 0755},
-	)))
+	))
 	assert.Equal(t, raw, readSkill("SKILL.md"))
-	assert.ElementsMatch(t, []string{"humanize/SKILL.md", "humanize/scripts/run.sh"}, tracked())
+	assert.ElementsMatch(t, materialized, delivered)
 }

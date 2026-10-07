@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
@@ -70,7 +69,8 @@ func TestWriteManagedPackageFiles_ExecBitPreserved(t *testing.T) {
 		},
 	}}
 
-	require.NoError(t, WriteManagedPackageFiles(files, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink)))
+	delivered, err := WriteManagedPackageFiles(files, dir, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink))
+	require.NoError(t, err)
 
 	skillMD, err := afero.ReadFile(fs, filepath.Join(skillDir, "SKILL.md"))
 	require.NoError(t, err)
@@ -84,16 +84,16 @@ func TestWriteManagedPackageFiles_ExecBitPreserved(t *testing.T) {
 	require.NoError(t, err)
 	fileperm.Equal(t, 0o644, info.Mode())
 
-	manifest, err := afero.ReadFile(fs, filepath.Join(dir, ledger.Name))
-	require.NoError(t, err)
-	assert.Contains(t, string(manifest), "humanize/SKILL.md")
-	assert.Contains(t, string(manifest), "humanize/scripts/run.sh")
-	assert.Contains(t, string(manifest), "humanize/assets/data.txt")
+	assert.ElementsMatch(t, []string{
+		filepath.Join(skillDir, "SKILL.md"),
+		filepath.Join(skillDir, "scripts", "run.sh"),
+		filepath.Join(skillDir, "assets", "data.txt"),
+	}, delivered, "the writer returns the host path of every file it placed")
 }
 
 // TestWriteManagedPackageFiles_ReMaterializeIsIdempotent proves writing the
-// SAME package twice produces the identical on-disk tree and manifest — no
-// duplicate entries, no drift, no leftover files from the first pass.
+// SAME package twice delivers the identical set — no duplicate entries, no
+// drift — and the exec bit still holds.
 func TestWriteManagedPackageFiles_ReMaterializeIsIdempotent(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/work/.claude/skills"
@@ -106,26 +106,24 @@ func TestWriteManagedPackageFiles_ReMaterializeIsIdempotent(t *testing.T) {
 		},
 	}}
 
-	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink)))
-	manifest1, err := afero.ReadFile(fs, filepath.Join(dir, ledger.Name))
+	delivered1, err := WriteManagedPackageFiles(safefs.NewMem(fs), dir, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink))
+	require.NoError(t, err)
+	delivered2, err := WriteManagedPackageFiles(safefs.NewMem(fs), dir, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink))
 	require.NoError(t, err)
 
-	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink)))
-	manifest2, err := afero.ReadFile(fs, filepath.Join(dir, ledger.Name))
-	require.NoError(t, err)
-
-	assert.Equal(t, string(manifest1), string(manifest2), "re-materializing an unchanged package produces the identical manifest")
+	assert.Equal(t, delivered1, delivered2, "re-materializing an unchanged package delivers the identical set")
 
 	info, err := fs.Stat(filepath.Join(dir, "humanize", "scripts", "run.sh"))
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(), "the exec bit still holds after a re-materialize")
 }
 
-// TestWriteManagedPackageFiles_CleanupPreservesForeignFiles proves cleanup
-// (re-invoking the writer with zero items) removes only the manifest-tracked
-// ctxloom-written set — a foreign, user-authored file planted in the same
-// directory survives.
-func TestWriteManagedPackageFiles_CleanupPreservesForeignFiles(t *testing.T) {
+// TestWriteManagedPackageFiles_RemovesNothing: the writer places what it
+// renders and removes nothing — not a file it placed on an earlier call and
+// does not render now, and not a user's file beside it. Removing an earlier
+// delivery's files is the static writer's release (fsstatic), which only the
+// caller's declaration can direct.
+func TestWriteManagedPackageFiles_RemovesNothing(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/work/.claude/skills"
 	foreign := filepath.Join(dir, "my-own-skill", "SKILL.md")
@@ -136,26 +134,18 @@ func TestWriteManagedPackageFiles_CleanupPreservesForeignFiles(t *testing.T) {
 		enabled: true,
 		files: []PackageFile{
 			{RelPath: "humanize/SKILL.md", Content: []byte("managed"), Mode: 0644},
-			{RelPath: "humanize/scripts/run.sh", Content: []byte("#!/bin/sh\n"), Mode: 0755},
 		},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink)))
-
-	managedExists, _ := afero.Exists(fs, filepath.Join(dir, "humanize", "SKILL.md"))
-	require.True(t, managedExists, "precondition: the managed package was written")
-
-	// Cleanup: re-invoke with no items — reverts exactly the manifest-tracked set.
-	require.NoError(t, WriteManagedPackageFiles[fakeSkillItem](safefs.NewMem(fs), dir, ledger.SurfaceSkills, nil, skillEnabled, skillName, skillRender))
-
-	managedExists, _ = afero.Exists(fs, filepath.Join(dir, "humanize", "SKILL.md"))
-	assert.False(t, managedExists, "cleanup removes the ctxloom-managed package")
-	managedDirExists, _ := afero.DirExists(fs, filepath.Join(dir, "humanize"))
-	assert.False(t, managedDirExists, "cleanup prunes the now-empty managed package directory")
-
-	foreignExists, err := afero.Exists(fs, foreign)
+	_, err := WriteManagedPackageFiles(safefs.NewMem(fs), dir, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink))
 	require.NoError(t, err)
-	assert.True(t, foreignExists, "a foreign, non-manifest-tracked file must survive cleanup")
 
+	delivered, err := WriteManagedPackageFiles[fakeSkillItem](safefs.NewMem(fs), dir, nil, skillEnabled, skillName, skillRender)
+	require.NoError(t, err)
+	assert.Empty(t, delivered, "nothing rendered, nothing delivered")
+
+	managed, err := afero.ReadFile(fs, filepath.Join(dir, "humanize", "SKILL.md"))
+	require.NoError(t, err, "the earlier call's file is left for the static writer's release")
+	assert.Equal(t, "managed", string(managed))
 	content, err := afero.ReadFile(fs, foreign)
 	require.NoError(t, err)
 	assert.Equal(t, "hand authored", string(content), "the foreign file's content is untouched")
@@ -176,7 +166,9 @@ func TestWriteManagedPackageFiles_UnsafeItemPathSkipsWholeItem(t *testing.T) {
 			{RelPath: "../escape.md", Content: []byte("evil"), Mode: 0644},
 		},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink)))
+	delivered, err := WriteManagedPackageFiles(safefs.NewMem(fs), dir, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink))
+	require.NoError(t, err)
+	assert.Empty(t, delivered)
 
 	exists, _ := afero.Exists(fs, filepath.Join(dir, "bad", "SKILL.md"))
 	assert.False(t, exists, "a package with any unsafe file path writes NONE of its files")
@@ -205,13 +197,14 @@ func TestWriteManagedPackageFiles_ChmodFailureWarns(t *testing.T) {
 			{RelPath: "humanize/scripts/run.sh", Content: []byte("#!/bin/sh\n"), Mode: 0755},
 		},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink)))
+	_, err := WriteManagedPackageFiles(safefs.NewMem(fs), dir, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink))
+	require.NoError(t, err)
 
 	assert.NotEmpty(t, buf.String(), "a chmod failure on the exec-bit re-assert must be warned about, not silently ignored")
 }
 
 // TestWriteManagedPackageFiles_DisabledItemNotWritten proves a disabled item
-// (Enabled == false) is never written and never manifest-tracked.
+// (Enabled == false) is never written and never delivered.
 func TestWriteManagedPackageFiles_DisabledItemNotWritten(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/work/.claude/skills"
@@ -222,10 +215,10 @@ func TestWriteManagedPackageFiles_DisabledItemNotWritten(t *testing.T) {
 			{RelPath: "off/SKILL.md", Content: []byte("nope"), Mode: 0644},
 		},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink)))
+	delivered, err := WriteManagedPackageFiles(safefs.NewMem(fs), dir, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink))
+	require.NoError(t, err)
+	assert.Empty(t, delivered, "a disabled item must not be delivered")
 
 	exists, _ := afero.Exists(fs, filepath.Join(dir, "off", "SKILL.md"))
 	assert.False(t, exists, "a disabled item must not be written")
-	_, err := afero.ReadFile(fs, filepath.Join(dir, ledger.Name))
-	assert.Error(t, err, "nothing written means no manifest at all")
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -51,7 +52,7 @@ func TestConvertVendorTranscript_FailurePartwayDoesNotPermanentlyMaskAsCaptured(
 
 	e := sessions.Entry{HarpName: harp, Backend: engine, TranscriptPath: claudeFixturePath, EngineVersion: stubEngineVersion}
 
-	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	assert.True(t, converted, "Convert was genuinely attempted")
 	require.Error(t, err, "a partial failure must surface as an error the first time")
 
@@ -61,7 +62,7 @@ func TestConvertVendorTranscript_FailurePartwayDoesNotPermanentlyMaskAsCaptured(
 	// A second call must genuinely retry, not silently no-op as "already
 	// captured" — confirm the same partial-then-fail signature reproduces
 	// (not "converted=false, nil" as a stale-guard no-op would give).
-	converted2, err2 := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted2, err2 := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	assert.True(t, converted2, "a prior failed attempt must not permanently block retry")
 	assert.Error(t, err2)
 }
@@ -93,7 +94,7 @@ func TestConvertVendorTranscript_ZeroLinesIsNotReportedAsConverted(t *testing.T)
 
 	e := sessions.Entry{HarpName: harp, Backend: engine, TranscriptPath: claudeFixturePath, EngineVersion: stubEngineVersion}
 
-	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), safefs.New(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.False(t, converted,
 		"a Convert that wrote zero canonical lines must not be reported as \"converted\" — nothing was actually delivered")

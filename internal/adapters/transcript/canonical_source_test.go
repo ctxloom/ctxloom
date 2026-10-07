@@ -6,13 +6,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -21,7 +21,7 @@ import (
 // transcript path, so these tests exercise the real writer/reader contract.
 func writeCanonicalFixture(t *testing.T, harp, engine, content string) {
 	t.Helper()
-	rec, err := NewRecorder(afero.NewOsFs(), harp, engine)
+	rec, err := NewRecorder(safefs.New(), harp, engine)
 	require.NoError(t, err)
 	require.NoError(t, rec.Record(agent.ChatEvent{
 		Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: content},

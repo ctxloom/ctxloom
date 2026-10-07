@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -38,7 +38,7 @@ func TestTranscriptSize_PrefersCanonicalOverLegacy(t *testing.T) {
 	require.NoError(t, os.WriteFile(legacyPath, []byte("0123456789"), 0o644)) // exactly 10 bytes
 	require.NoError(t, mgr.BindSession(entry.HarpName, "backend-uuid", legacyPath))
 
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), entry.HarpName, "claude-code")
+	rec, err := transcript.NewRecorder(safefs.New(), entry.HarpName, "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, rec.Record(agent.ChatEvent{
 		Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "canonical payload, deliberately longer than 10 bytes"},

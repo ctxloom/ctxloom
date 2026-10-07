@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -123,7 +123,7 @@ func TestCanonicalHistory_RoundTrip_RealPayload(t *testing.T) {
 
 	t.Run("two-entry oneshot", func(t *testing.T) {
 		harp := "mock-oneshot-harp"
-		require.NoError(t, RecordOneshot(afero.NewOsFs(), harp, "mock", "Reply with just: ok", "ok"))
+		require.NoError(t, RecordOneshot(safefs.New(), harp, "mock", "Reply with just: ok", "ok"))
 		h := NewCanonicalHistory("/proj/oneshot", sessions.NewMemStore())
 
 		sess, err := h.GetSession(ctx, harp)

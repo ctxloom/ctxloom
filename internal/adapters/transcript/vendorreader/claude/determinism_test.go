@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -42,7 +43,7 @@ func TestConvert_DeterministicAcrossFreshAndSharedAdapterInstances(t *testing.T)
 	convert := func(t *testing.T, a vendorreader.VendorAdapter, label string) []byte {
 		t.Helper()
 		var out bytes.Buffer
-		rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude", transcript.WithWriter(&out), transcript.WithClock(clock))
+		rec, err := transcript.NewRecorder(safefs.New(), fixtureHarp, "claude", transcript.WithWriter(&out), transcript.WithClock(clock))
 		require.NoError(t, err)
 		err = a.Convert(context.Background(), afero.NewOsFs(), rec, fixturePath(t, "transcript-fixture.jsonl"))
 		require.NoError(t, err)

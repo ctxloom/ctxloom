@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -20,7 +22,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
-	"github.com/spf13/afero"
 )
 
 // errStaleWatermark reports that a watermark no longer describes the files it
@@ -189,8 +190,9 @@ func (f *rebuildFile) Write(p []byte) (int, error) {
 // convertLive converts liveSrc onto rf from `from`, returning the watermark
 // taken at the adapter's checkpoint — nil when it offered none, which a
 // non-resumable adapter never does.
-func convertLive(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, rf *rebuildFile, liveSrc string, from resumePoint) (*transcriptWatermark, error) {
-	rec, err := transcript.NewRecorder(fsys, e.HarpName, e.Backend, transcript.WithWriter(rf),
+func convertLive(ctx context.Context, files safefs.Root, adapter vendorreader.VendorAdapter, e sessions.Entry, rf *rebuildFile, liveSrc string, from resumePoint) (*transcriptWatermark, error) {
+	fsys := files.Fs
+	rec, err := transcript.NewRecorder(files, e.HarpName, e.Backend, transcript.WithWriter(rf),
 		transcript.WithClock(vendorSourceClock(fsys, liveSrc)), transcript.WithContinuation(from.seq, from.sessionID))
 	if err != nil {
 		return nil, fmt.Errorf("open recorder for %s: %w", e.HarpName, err)

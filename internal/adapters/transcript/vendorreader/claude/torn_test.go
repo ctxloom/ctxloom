@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -74,7 +75,7 @@ func TestConvert_TornLineRecoversTheGluedRecord(t *testing.T) {
 	src := writeLines(t, "torn.jsonl", tornFragment+gluedLine+"\n")
 	lines, err := vendorreader.OpenAndReadJSONLLines(afero.NewOsFs(), "claude", src)
 	require.NoError(t, err)
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude")
+	rec, err := transcript.NewRecorder(safefs.New(), fixtureHarp, "claude")
 	require.NoError(t, err)
 	acct, err := convertLines(context.Background(), rec, lines)
 	require.NoError(t, err)

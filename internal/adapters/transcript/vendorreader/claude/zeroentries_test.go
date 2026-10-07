@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -37,7 +38,7 @@ func TestConvert_ConversationalLinesWithNoEntriesIsAnError(t *testing.T) {
 		`{"type":"user","sessionId":"s1","message":{"role":"user","content":{"unexpected":"shape"}}}`+"\n"+
 			`{"type":"assistant","sessionId":"s1","message":{"role":"assistant","content":[]}}`+"\n")
 
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude")
+	rec, err := transcript.NewRecorder(safefs.New(), fixtureHarp, "claude")
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
@@ -51,7 +52,7 @@ func TestConvert_AllLinesMalformedIsAnError(t *testing.T) {
 	testsupport.Isolate(t)
 	src := writeLines(t, "all-malformed.jsonl", "{not json\n{also not json\n")
 
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude")
+	rec, err := transcript.NewRecorder(safefs.New(), fixtureHarp, "claude")
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
@@ -67,7 +68,7 @@ func TestConvert_AdminOnlyFileIsLegitimatelyEmpty(t *testing.T) {
 	src := writeLines(t, "admin-only.jsonl",
 		`{"type":"progress","sessionId":"s1"}`+"\n"+`{"type":"ai-title","sessionId":"s1"}`+"\n")
 
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude")
+	rec, err := transcript.NewRecorder(safefs.New(), fixtureHarp, "claude")
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
@@ -91,7 +92,7 @@ func TestConvert_DroppedVendorContentIsReported(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude")
+	rec, err := transcript.NewRecorder(safefs.New(), fixtureHarp, "claude")
 	require.NoError(t, err)
 	require.NoError(t, Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, src))
 	require.NoError(t, rec.Close())
@@ -141,7 +142,7 @@ func TestConvert_DriftedUsageShapeDegradesToZeroNotError(t *testing.T) {
 			`{"type":"assistant","sessionId":"s1","message":{"role":"assistant","content":[{"type":"text","text":"hi"}],`+
 			`"usage":{"inputTokens":10,"outputTokens":5}}}`+"\n") // camelCase keys: not this struct's json tags
 
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude")
+	rec, err := transcript.NewRecorder(safefs.New(), fixtureHarp, "claude")
 	require.NoError(t, err)
 
 	require.NoError(t, Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, src),

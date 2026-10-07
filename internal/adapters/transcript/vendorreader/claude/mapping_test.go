@@ -26,6 +26,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -256,7 +257,7 @@ func TestConvert_SidechainPropagates(t *testing.T) {
 	content := `{"parentUuid":"cd204eb8-f3be-4ff3-920b-1af649ab50d3","isSidechain":true,"agentId":"a0f0c165cd7295cfd","type":"assistant","sessionId":"10d9f2b3-7e75-4794-8fea-54b4143dbf6d","message":{"model":"claude-sonnet-5","id":"msg_011CcvjsTSfkyMHnhm24XiS9","type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_01SzhJiYMoBU2crhmMSvmHyW","name":"Bash","input":{"command":"grep -rn SessionSource internal/lm/grpc/*.go"}}],"stop_reason":null,"usage":{"input_tokens":2,"cache_creation_input_tokens":8395,"cache_read_input_tokens":15168,"output_tokens":46}}}` + "\n"
 	require.NoError(t, os.WriteFile(src, []byte(content), 0o644))
 
-	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude")
+	rec, err := transcript.NewRecorder(safefs.New(), fixtureHarp, "claude")
 	require.NoError(t, err)
 	require.NoError(t, Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, src))
 	require.NoError(t, rec.Close())

@@ -193,72 +193,7 @@ headless runs (file edits go through without asking) and says so;
 **claude 2.1.283 or newer** is required: an older claude is refused at launch
 with the upgrade as its remedy.
 
-## 9. The trust model is gone: adding a git repository is the trust act
-
-> **DRAFT for the owner** — the release note for the trust removal. Review the
-> wording before 0.7.0 ships.
-
-ctxloom no longer signs, reviews or approves content. **Registering a remote is
-the one trust decision**: content resolves only through a remote you
-registered, and what it serves reaches the agent at the commit your lockfile
-pins. Why, and what survives, is
-[ADR 0037](adr/0037-adding-a-git-repo-is-the-trust-act.md).
-
-**Review your remotes.** Content now resolves only through a registered remote.
-Earlier versions registered a remote automatically whenever a profile or
-`deps pull` named a repository by its address, and those remotes are still in
-your `remotes.yaml`, where they now count exactly like ones you added yourself.
-Run `ctxloom remote list` and remove any remote you don't recognise with
-`ctxloom remote remove <name> --yes`. Anything that still needs a removed
-repository will fail with a message naming the `ctxloom remote create` that
-restores it.
-
-**What you now see before a pin moves.** `deps upgrade` previews by default and
-`--yes` applies; env and header values appear only as fingerprints. `deps pull`,
-`init` and startup sync show everything a first pin brings in and never move an
-existing pin. See §13 for the details.
-
-**Removed commands and flags.** Each is now an unknown command or flag:
-
-- `ctxloom review` and `bundle trust` / `reject` / `forget` — nothing is
-  withheld for review any more.
-- `ctxloom signer` (`trust`, `list`, `show`, `untrust`) and `bundle sign`.
-- `bundle push --sign` / `--no-sign` and `skill export --sign`.
-- The persistent `--disable-sig-check` flag and `CTXLOOM_DISABLE_SIG_CHECK`.
-- `deps pull --allow-downgrade` and `deps upgrade --allow-downgrade`: there is
-  no version floor, and nothing records or honours a publisher's retraction.
-- `manage commit trust` / `untrust`. Whether a delegated spawn auto-commits a
-  dirty tree is the `dirty_tree_handler` config key (default `commit`, which
-  warns before each commit).
-
-**Configuration.** Every config layer may set every key, in the normal
-precedence; no key is reserved to one layer. The `sign:` block under `config:`
-is gone: a config still carrying it is refused, naming
-``unknown key `config.sign` ``; under `--degraded` it loads, warns, and runs
-exactly as without it. `ctxloom doctor`'s setup check reports it. Delete the
-block.
-
-**Files ctxloom no longer reads or writes.** `allowed_signers` and
-`distrusted_signers` (project and `~/.ctxloom`), the approval stores
-(`.ctxloom/approvals`, `~/.ctxloom/approvals`), and the trust-snapshot store
-under `.ctxloom/state/trust`. Nothing reads them; delete them. Bundle
-`SHA256SUMS` manifests and `.sigs/` directories are ignored. Releases no longer ship `.sig` files
-beside their archives; `checksums.txt` remains.
-
-**Lockfiles.** An existing `lock.yaml` still loads. Its retired fields
-(`signed_version`, `publisher`, `retracted`, `retracted_reason`,
-`retraction_checked_at`) are ignored and dropped the next time ctxloom saves
-the file.
-
-**Machine-readable output.** JSON loses the `signed` and `signer` fields, and
-`deps pull` and `bundle list` lose `retracted`. `deps pull` counts a reference
-re-pulled at its existing pin as `reinstalled`, replacing `updated`.
-
-**Loadouts and doctor.** Companion loadouts are plain YAML with no signature.
-`ctxloom doctor` no longer runs the signing-key, upstream-signature or approval
-checks.
-
-## 10. Companions run only once you register them, by name
+## 9. Companions run only once you register them, by name
 
 ctxloom no longer scans PATH for companions. It runs exactly the companions
 you registered with `ctxloom companion add <name>`, which finds the binary on
@@ -279,7 +214,7 @@ If you installed companions another way, register them once:
 and `~/.ctxloom/companion_allow.yaml` is no longer read. An agent container
 image carries the registered first-party companions and their registration.
 
-## 11. A lockfile keyed by the reference as typed is refused
+## 10. A lockfile keyed by the reference as typed is refused
 
 `.ctxloom/lock.yaml` is now keyed by bundle identity (lockfile version 2). A
 lockfile keyed by the reference as it was typed — every lockfile an earlier
@@ -290,7 +225,7 @@ the file and the remedy: delete `.ctxloom/lock.yaml` and run
 the refusal lists holds, re-apply them after the pull; a lockfile with no holds
 rebuilds at the same pinned commits.
 
-## 12. Your profiles live in the project bundle
+## 11. Your profiles live in the project bundle
 
 A profile is an item of a bundle, and a project's own profiles are the items of
 its **project bundle**: the local bundle named `project`, at
@@ -320,7 +255,7 @@ What else follows from profiles being bundle items:
   canonical `ctxloom+git://` spelling, and an older bundle's profile refs are
   read that way.
 
-## 13. Everything else marked breaking
+## 12. Everything else marked breaking
 
 Grouped by what you would have to change.
 

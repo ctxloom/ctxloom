@@ -25,9 +25,20 @@ import (
 // the one that subscribes; each answered subscribe is announced on
 // subscribed, so a test knows a resubscription landed instead of polling for
 // it. refuseInit answers every initialize after the cut with 503.
+//
+// Every ping is announced on pings, naming its session and whether that is
+// the wake's, so a test counts the relay's keepalive instead of sleeping
+// through it. After holdWakePing, the first ping on the wake's session is
+// held until releaseWakePing; held announces it, and abandoned is closed if
+// the relay gave up on it while it was held.
 type sessionCutter struct {
 	proxy      *httputil.ReverseProxy
 	subscribed chan struct{}
+	pings      chan pinged
+	held       chan struct{}
+	abandoned  chan struct{}
+	release    chan struct{}
+	releaseNow func()
 
 	mu         sync.Mutex
 	wake       string
@@ -35,16 +46,29 @@ type sessionCutter struct {
 	open       map[string][]context.CancelFunc
 	cut        bool
 	refuseInit bool
+	holding    bool
+}
+
+// pinged is one ping the cutter saw: its session, and whether that session
+// holds the wake's subscription.
+type pinged struct {
+	session string
+	wake    bool
 }
 
 func newSessionCutter(t *testing.T, endpointURL string) (*sessionCutter, string) {
 	t.Helper()
 	target, err := url.Parse(endpointURL)
 	require.NoError(t, err)
-	c := &sessionCutter{subscribed: make(chan struct{}, 4), dead: map[string]bool{}, open: map[string][]context.CancelFunc{}}
+	c := &sessionCutter{
+		subscribed: make(chan struct{}, 4), pings: make(chan pinged, 64),
+		held: make(chan struct{}), abandoned: make(chan struct{}), release: make(chan struct{}),
+		dead: map[string]bool{}, open: map[string][]context.CancelFunc{},
+	}
+	c.releaseNow = sync.OnceFunc(func() { close(c.release) })
 	c.proxy = &httputil.ReverseProxy{Rewrite: func(r *httputil.ProxyRequest) { r.SetURL(&url.URL{Scheme: target.Scheme, Host: target.Host}) }, FlushInterval: -1}
 	srv := httptest.NewServer(c)
-	t.Cleanup(srv.Close)
+	t.Cleanup(func() { c.releaseNow(); srv.Close() })
 	return c, srv.URL + target.Path
 }
 
@@ -58,18 +82,11 @@ func (c *sessionCutter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	id := r.Header.Get("Mcp-Session-Id")
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	c.mu.Lock()
-	refused := c.dead[id] || (msg.Method == "initialize" && c.cut && c.refuseInit)
-	if !refused && id != "" {
-		c.open[id] = append(c.open[id], cancel)
-	}
-	c.mu.Unlock()
-	switch {
-	case c.isDead(id):
-		http.Error(w, "session not found", http.StatusNotFound)
+	if status := c.admit(id, msg.Method, cancel); status != http.StatusOK {
+		http.Error(w, http.StatusText(status), status)
 		return
-	case refused:
-		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}
+	if msg.Method == "ping" && !c.sawPing(id, r.Context()) {
 		return
 	}
 	c.proxy.ServeHTTP(w, r.WithContext(ctx))
@@ -81,11 +98,61 @@ func (c *sessionCutter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (c *sessionCutter) isDead(id string) bool {
+// admit decides a request on session id: 404 on a dead session, 503 on an
+// initialize refused after the cut, else 200, holding cancel to cut the
+// request with its session.
+func (c *sessionCutter) admit(id, method string, cancel context.CancelFunc) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.dead[id]
+	switch {
+	case c.dead[id]:
+		return http.StatusNotFound
+	case method == "initialize" && c.cut && c.refuseInit:
+		return http.StatusServiceUnavailable
+	}
+	if id != "" {
+		c.open[id] = append(c.open[id], cancel)
+	}
+	return http.StatusOK
 }
+
+// sawPing announces a ping on session id and, when it is the wake's first
+// ping after holdWakePing, holds it until releaseWakePing. It reports whether
+// the ping is still to be proxied: false when the relay abandoned it held.
+// The announcement never blocks: a test that stopped counting must not stall
+// the relay's keepalive.
+func (c *sessionCutter) sawPing(id string, req context.Context) bool {
+	c.mu.Lock()
+	wake := id != "" && id == c.wake
+	hold := wake && c.holding
+	c.holding = c.holding && !hold
+	c.mu.Unlock()
+	select {
+	case c.pings <- pinged{session: id, wake: wake}:
+	default:
+	}
+	if !hold {
+		return true
+	}
+	close(c.held)
+	select {
+	case <-c.release:
+		return true
+	case <-req.Done():
+		close(c.abandoned)
+		return false
+	}
+}
+
+// holdWakePing holds the next ping on the wake's session.
+func (c *sessionCutter) holdWakePing() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.holding = true
+}
+
+// releaseWakePing lets the held ping through; releasing twice is harmless.
+func (c *sessionCutter) releaseWakePing() { c.releaseNow() }
 
 // cutWake ends the wake's current session.
 func (c *sessionCutter) cutWake() {

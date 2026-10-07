@@ -115,10 +115,24 @@ func (l memLocks) take(path string, shared bool) (Lock, error) {
 }
 
 func (l memLocks) TryLock(ctx context.Context, path string) (Lock, error) {
-	if _, err := l.fs.Stat(filepath.Dir(path)); err != nil {
-		return nil, err
-	}
-	if err := l.prepare(path); err != nil {
+	return l.try(ctx, path, true)
+}
+
+func (l memLocks) TryLockExisting(ctx context.Context, path string) (Lock, error) {
+	return l.try(ctx, path, false)
+}
+
+// try is TryLock and TryLockExisting; create says whether a missing lock
+// file is created.
+func (l memLocks) try(ctx context.Context, path string, create bool) (Lock, error) {
+	if create {
+		if _, err := l.fs.Stat(filepath.Dir(path)); err != nil {
+			return nil, err
+		}
+		if err := l.prepare(path); err != nil {
+			return nil, err
+		}
+	} else if err := l.existing(path); err != nil {
 		return nil, err
 	}
 	s := l.slot(path)
@@ -126,6 +140,19 @@ func (l memLocks) TryLock(ctx context.Context, path string) (Lock, error) {
 		return nil, fmt.Errorf("%w: %s", ErrLockHeld, path)
 	}
 	return l.held(path, s, false)
+}
+
+// existing refuses a lock path that is missing (its stat error,
+// fs.ErrNotExist) or not a regular file.
+func (l memLocks) existing(path string) error {
+	info, err := l.fs.Stat(path)
+	switch {
+	case err != nil:
+		return fmt.Errorf("safefs: lock %s: %w", path, err)
+	case !info.Mode().IsRegular():
+		return fmt.Errorf("%w: %s is %s", ErrNotRegularFile, path, info.Mode().Type())
+	}
+	return nil
 }
 
 func (l memLocks) Held(path string) (bool, error) {

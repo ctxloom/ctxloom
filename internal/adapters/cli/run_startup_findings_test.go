@@ -44,7 +44,7 @@ func TestStartupFindings_IsTheLaunchsLead(t *testing.T) {
 	st := &runState{cfg: cleanProject(t)}
 	strictness.Record(report.KindIsolation, "", "STARTUP-FINDING-REACHES-THE-AGENT: container degraded to host")
 
-	lead := st.startupFindings()
+	lead := st.startupFindings(nil)
 
 	require.Len(t, lead, 1, "one block, after the assembled context")
 	assert.Equal(t, startupFindingsFragmentName, lead[0].Name)
@@ -64,7 +64,7 @@ func TestStartupFindings_FlagOptsOut(t *testing.T) {
 	runNoStartupFindings = true
 	t.Cleanup(func() { runNoStartupFindings = false })
 
-	assert.Empty(t, st.startupFindings())
+	assert.Empty(t, st.startupFindings(nil))
 }
 
 // TestStartupFindings_NothingToDeliverAddsNothing: a clean launch composes
@@ -73,5 +73,20 @@ func TestStartupFindings_NothingToDeliverAddsNothing(t *testing.T) {
 	strictness.Reset()
 	t.Cleanup(strictness.Reset)
 	st := &runState{cfg: cleanProject(t)}
-	assert.Empty(t, st.startupFindings())
+	assert.Empty(t, st.startupFindings(nil))
+}
+
+// TestStartupFindings_WithheldItemsReachTheLead: what the launch's package
+// withheld rides in the same block as every other finding, with nothing
+// recorded — a withhold never aborts a strict launch.
+func TestStartupFindings_WithheldItemsReachTheLead(t *testing.T) {
+	strictness.Reset()
+	t.Cleanup(strictness.Reset)
+	st := &runState{cfg: cleanProject(t)}
+
+	lead := st.startupFindings([]bundles.Withhold{{Ref: "ctxloom+local:kit#skills/reason", Reason: "WITHHELD-REASON-REACHES-THE-AGENT"}})
+
+	require.Len(t, lead, 1, "one block, after the assembled context")
+	assert.Contains(t, lead[0].Body, "skill ctxloom+local:kit#skills/reason — WITHHELD-REASON-REACHES-THE-AGENT")
+	assert.Empty(t, strictness.All(), "composing the row records nothing")
 }

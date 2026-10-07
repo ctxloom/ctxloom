@@ -2,5 +2,6 @@ description: 'Orchestrator role: the session the user drives; sequences, brainst
 parents:
     - project-base
     - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/agent-ensemble#profiles/coordinator
+    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/agent-roles#profiles/coordinator
 bundles:
     - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/unattended

@@ -184,7 +184,11 @@ func TestPipeline_LinkedItemIsWithheldWhenItsMCPMemberIsNotGranted(t *testing.T)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, errs.ErrCommandWithheld), "got %v", err)
 
-	assert.Len(t, pipe.Withheld(), 2, "a link withhold is tallied like a trust withhold")
+	got := pipe.Withheld()
+	require.Len(t, got, 2, "each linked item is tallied")
+	for _, w := range got {
+		assert.Contains(t, w.Reason, `MCP server "think", which this run was not granted`, "the tally carries why: %s", w.Ref)
+	}
 }
 
 // An item in no link group is untouched by the grant: withholding is a
@@ -248,12 +252,12 @@ func TestPipeline_NilLinkGrantWithholdsLinkedItemsOnly(t *testing.T) {
 }
 
 // An item whose ref does not parse is withheld by the pipeline's address gate
-// and tallied, and voiced only as an advisory: nothing reaches the strictness
-// ledger, which is all a launch's startup findings are built from, so an
-// agent is never told. TestWithholds_ReachStderrButNotTheAgent (operations)
-// pins the link and skill-package withholds the same way. When this withhold
-// is made to reach the agent, flip the last assertion.
-func TestPipeline_UnaddressableRefIsAnAdvisoryOnly(t *testing.T) {
+// and tallied WITH ITS REASON: the tally is what a launch carries into the
+// agent's startup findings (operations.StartupFindings), so the agent is told
+// what is missing and why. It is still never a ledgered finding — every
+// ledgered finding is fatal in strict mode, and a withhold must not abort a
+// launch.
+func TestPipeline_UnaddressableRefIsTalliedWithItsReasonAndNeverLedgered(t *testing.T) {
 	strictness.Reset()
 	t.Cleanup(strictness.Reset)
 	var stderr bytes.Buffer
@@ -263,7 +267,10 @@ func TestPipeline_UnaddressableRefIsAnAdvisoryOnly(t *testing.T) {
 	pipe := NewPipeline(l, grantOnly(), false)
 
 	require.False(t, pipe.addressable("::not a ref::"))
-	assert.Equal(t, []string{"::not a ref::"}, pipe.Withheld())
+	got := pipe.Withheld()
+	require.Len(t, got, 1)
+	assert.Equal(t, "::not a ref::", got[0].Ref)
+	assert.Contains(t, got[0].Reason, "its ref could not be parsed")
 	assert.Contains(t, stderr.String(), "withheld ::not a ref::: its ref could not be parsed")
-	assert.Empty(t, strictness.All(), "the withhold is ledgered now: it can reach a launch's startup findings")
+	assert.Empty(t, strictness.All(), "a withhold is non-fatal: it must never reach the strictness ledger")
 }

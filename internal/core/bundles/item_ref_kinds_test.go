@@ -61,7 +61,7 @@ func TestItemRefKindDirs_MatchTheIdentAuthority(t *testing.T) {
 	cmdReads, err := l.ReadCommand("kit#commands/cmd")
 	require.NoError(t, err)
 	require.Len(t, cmdReads, 1)
-	skillReads, err := l.ReadSkill("kit#skills/sk")
+	skillReads, err := l.Catalog().ReadSkill("kit#skills/sk")
 	require.NoError(t, err)
 	require.Len(t, skillReads, 1)
 

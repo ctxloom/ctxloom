@@ -42,7 +42,15 @@ type Pipeline struct {
 	preferDistilled bool
 
 	withheldMu sync.Mutex
-	withheld   map[string]struct{}
+	withheld   map[string]string // ref → the reason first recorded for it
+}
+
+// Withhold is one item a pipeline did not deliver: the ref it is addressed by
+// and why it was withheld. Refs and reasons only, never bodies, so the
+// disclosure stays content-free.
+type Withhold struct {
+	Ref    string
+	Reason string
 }
 
 // NewPipeline builds the process stage over loader. A surface that does not
@@ -66,22 +74,19 @@ func (p *Pipeline) Loader() *Loader {
 // PreferDistilled reports the form preference this pipeline serves.
 func (p *Pipeline) PreferDistilled() bool { return p != nil && p.preferDistilled }
 
-// Withheld returns the item refs this pipeline withheld over its
-// lifetime, deduplicated and sorted. Empty when nothing was
-// withheld. Callers surface the COUNT (or the refs) so the user knows content
-// was hidden; returning refs and never bodies keeps the disclosure
-// content-free.
-func (p *Pipeline) Withheld() []string {
+// Withheld returns what this pipeline withheld over its lifetime, one entry
+// per ref, sorted by ref. Empty when nothing was withheld.
+func (p *Pipeline) Withheld() []Withhold {
 	p.withheldMu.Lock()
 	defer p.withheldMu.Unlock()
 	if len(p.withheld) == 0 {
 		return nil
 	}
-	out := make([]string, 0, len(p.withheld))
-	for ref := range p.withheld {
-		out = append(out, ref)
+	out := make([]Withhold, 0, len(p.withheld))
+	for ref, reason := range p.withheld {
+		out = append(out, Withhold{Ref: ref, Reason: reason})
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool { return out[i].Ref < out[j].Ref })
 	return out
 }
 
@@ -90,21 +95,24 @@ func (p *Pipeline) Withheld() []string {
 // and not delivered.
 func (p *Pipeline) addressable(ref string) bool {
 	if _, err := ident.ParseBundleRef(ref); err != nil {
-		p.loader.cat.rep.Warnf("withheld %s: its ref could not be parsed: %v", ref, err)
-		p.recordWithheld(ref)
+		reason := fmt.Sprintf("its ref could not be parsed: %v", err)
+		p.loader.cat.rep.Warnf("withheld %s: %s", ref, reason)
+		p.recordWithheld(ref, reason)
 		return false
 	}
 	return true
 }
 
-// recordWithheld tallies a ref this pipeline did not deliver (deduplicated,
-// lazily allocated). Refs only, never bodies: the disclosure stays content-free.
-func (p *Pipeline) recordWithheld(ref string) {
+// recordWithheld tallies a ref this pipeline did not deliver, and why
+// (deduplicated by ref, the first reason kept; lazily allocated).
+func (p *Pipeline) recordWithheld(ref, reason string) {
 	p.withheldMu.Lock()
 	if p.withheld == nil {
-		p.withheld = make(map[string]struct{})
+		p.withheld = make(map[string]string)
 	}
-	p.withheld[ref] = struct{}{}
+	if _, seen := p.withheld[ref]; !seen {
+		p.withheld[ref] = reason
+	}
 	p.withheldMu.Unlock()
 }
 
@@ -115,7 +123,7 @@ func (p *Pipeline) linkWithholds(read BundleRead, tags []string) (linkID, server
 
 // withholdLinked tallies and surfaces a link withhold.
 func (p *Pipeline) withholdLinked(ref, linkID, server string) {
-	p.recordWithheld(ref)
+	p.recordWithheld(ref, linkWithheldReason(linkID, server))
 	WarnLinkWithheld(p.loader.cat.rep, ref, linkID, server)
 }
 
@@ -191,7 +199,7 @@ func (p *Pipeline) deliverSkill(ls *LoadedSkill) *LoadedSkill {
 	layout, err := content.SkillMaterialization(paths, form)
 	if err != nil {
 		p.loader.cat.rep.Warnf("skill %q withheld: %v", ls.Name, err)
-		p.recordWithheld(ls.ItemRef)
+		p.recordWithheld(ls.ItemRef, fmt.Sprintf("its files could not be laid out: %v", err))
 		return nil
 	}
 	files := make([]LoadedSkillFile, 0, len(layout))
@@ -354,7 +362,7 @@ func (p *Pipeline) ResolveFragmentVersions(ref string, commits []string) []*Load
 // all bundles) or "bundle#skills/name" — to the package that may be
 // delivered.
 func (p *Pipeline) GetSkill(name string) (*LoadedSkill, error) {
-	reads, err := p.loader.ReadSkill(name)
+	reads, err := p.catalog().ReadSkill(name)
 	if err != nil {
 		return nil, err
 	}
@@ -373,7 +381,7 @@ func (p *Pipeline) GetSkill(name string) (*LoadedSkill, error) {
 // every bundle. An exposure surface's listing must not advertise a package it
 // would then withhold, so the same admission runs here too.
 func (p *Pipeline) ListAllSkills() ([]SkillInfo, error) {
-	skills, err := p.loader.ReadAllSkills()
+	skills, err := p.catalog().ReadAllSkills()
 	if err != nil {
 		return nil, err
 	}
@@ -389,7 +397,16 @@ func (p *Pipeline) ListAllSkills() ([]SkillInfo, error) {
 // SkillsFromBundleRef returns every skill the bundle at bundleRef ships that
 // may be delivered, in the reader's deterministic (name-sorted) order.
 func (p *Pipeline) SkillsFromBundleRef(bundleRef string) []*LoadedSkill {
-	return deliverEach(p.loader.ReadBundleSkills(bundleRef), p.deliverSkill)
+	return deliverEach(p.catalog().ReadBundleSkills(bundleRef), p.deliverSkill)
+}
+
+// catalog is the read stage as this pipeline reads skills through it: the
+// loader's set with the pipeline's tally attached, so a skill the read stage
+// cannot load (Catalog.skillContent) is withheld like any other.
+func (p *Pipeline) catalog() Catalog {
+	c := p.loader.Catalog()
+	c.skillWithheld = p.recordWithheld
+	return c
 }
 
 // AdmittedInit is one companion's INIT loadout as this pipeline delivers it:

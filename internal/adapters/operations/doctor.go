@@ -1280,6 +1280,11 @@ func doctorNamedList(items []string, maxNamed int) string {
 // run recorded; the run is the only place these rows can be produced.
 const StartupFindingsMarker = "DOCTOR-CHECK-STARTUP-FINDINGS-x4"
 
+// withheldItemsMarker is the row under which a launch names what its package
+// withheld. Like StartupFindingsMarker it has no `ctxloom doctor`
+// counterpart: only the run assembled that package.
+const withheldItemsMarker = "DOCTOR-CHECK-WITHHELD-ITEMS-w2"
+
 // StartupFindings is what a started agent is told about the ground it stands
 // on, scoped to ONE launch: the findings the launch itself recorded (config
 // warnings, a degraded isolation axis, a sync or coordinator fault —
@@ -1289,11 +1294,18 @@ const StartupFindingsMarker = "DOCTOR-CHECK-STARTUP-FINDINGS-x4"
 // companion decisions, and the local-only paths a fresh clone has no way to
 // know it lacks. The rows ARE doctor's rows: same markers, same wording.
 //
+// withheld is the launch package's withheld tally
+// (composite.Attestation.Withheld). It is not a recorded finding, and that is
+// deliberate: every recorded finding is fatal in strict mode, and a withhold
+// — a server a profile vetoed, a skill that does not load — must never abort
+// a launch. It is still the agent's business, since an item it cannot see is
+// otherwise indistinguishable from one never authored.
+//
 // Only what is NOT the intended state is a finding. An ok row is omitted; an
 // info row is context, not a verdict, and is omitted too. The companions row
 // is the exception that proves the rule: doctor reports it ok even when a
 // companion was withheld, so it is selected on the decision itself.
-func StartupFindings(app *App, cfg *config.Config, home string, recorded report.Findings) DoctorReport {
+func StartupFindings(app *App, cfg *config.Config, home string, recorded report.Findings, withheld []bundles.Withhold) DoctorReport {
 	var checks []DoctorCheck
 	for _, f := range recorded {
 		checks = append(checks, DoctorCheck{
@@ -1314,5 +1326,29 @@ func StartupFindings(app *App, cfg *config.Config, home string, recorded report.
 	if !app.NoCompanions && readCompanionDecisions(cfg).withheld() {
 		checks = append(checks, doctorCheckSetupCompanions(cfg, nil, app.NoCompanions))
 	}
+	if len(withheld) > 0 {
+		checks = append(checks, withheldItemsCheck(withheld))
+	}
 	return DoctorReport{Checks: checks}
+}
+
+// withheldItemsCheck is the one row naming each withheld item: its kind, ref
+// and why.
+func withheldItemsCheck(withheld []bundles.Withhold) DoctorCheck {
+	items := make([]string, len(withheld))
+	for i, w := range withheld {
+		items[i] = withheldKind(w.Ref) + " " + w.Ref + " — " + w.Reason
+	}
+	return DoctorCheck{Marker: withheldItemsMarker, Status: DoctorWarn,
+		Detail: "withheld from this session, so not available in it: " + strings.Join(items, "; ")}
+}
+
+// withheldKind is the item kind a withheld ref names. A ref that does not
+// parse names none — being unparseable is why it was withheld.
+func withheldKind(ref string) string {
+	parsed, err := ident.ParseBundleRef(ref)
+	if err != nil || parsed.Kind == "" {
+		return "item"
+	}
+	return string(parsed.Kind)
 }

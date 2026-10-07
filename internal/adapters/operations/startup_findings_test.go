@@ -42,7 +42,7 @@ func TestStartupFindings_RecordedFindingsBecomeRows(t *testing.T) {
 		{Kind: report.KindIsolation, Text: "container runtime requested but no runtime is reachable; running on the host"},
 	}
 
-	report := StartupFindings(&App{}, cfg, isolatedHome(t), recorded)
+	report := StartupFindings(&App{}, cfg, isolatedHome(t), recorded, nil)
 
 	require.Len(t, report.Checks, 2)
 	for i, f := range recorded {
@@ -62,7 +62,7 @@ func TestStartupFindings_RecordedFindingsBecomeRows(t *testing.T) {
 // the launch attaches nothing rather than a list of green rows.
 func TestStartupFindings_CleanProjectYieldsNothing(t *testing.T) {
 	cfg := cleanProject(t)
-	report := StartupFindings(&App{}, cfg, isolatedHome(t), nil)
+	report := StartupFindings(&App{}, cfg, isolatedHome(t), nil, nil)
 	assert.Empty(t, report.Checks)
 }
 
@@ -74,7 +74,7 @@ func TestStartupFindings_AbsentLocalStateIsAFinding(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 	cfg = noCompanions(t, cfg)
 
-	report := StartupFindings(&App{}, cfg, isolatedHome(t), nil)
+	report := StartupFindings(&App{}, cfg, isolatedHome(t), nil, nil)
 
 	require.Len(t, report.Checks, 1)
 	want := doctorCheckLocalTierState(cfg, isolatedHome(t))
@@ -100,7 +100,7 @@ func TestStartupFindings_WithheldCompanionIsAFinding(t *testing.T) {
 		}, nil
 	})
 
-	report := StartupFindings(&App{}, cfg, isolatedHome(t), nil)
+	report := StartupFindings(&App{}, cfg, isolatedHome(t), nil, nil)
 
 	require.Len(t, report.Checks, 1)
 	assert.Equal(t, doctorCheckSetupCompanions(cfg, nil, false), report.Checks[0])
@@ -121,7 +121,7 @@ func TestStartupFindings_CleanCompanionsAreNotAFinding(t *testing.T) {
 		}, nil
 	})
 
-	assert.Empty(t, StartupFindings(&App{}, cfg, isolatedHome(t), nil).Checks)
+	assert.Empty(t, StartupFindings(&App{}, cfg, isolatedHome(t), nil, nil).Checks)
 }
 
 // TestCompanionDecisions_Withheld pins the discriminator the report selects
@@ -132,4 +132,27 @@ func TestCompanionDecisions_Withheld(t *testing.T) {
 	assert.False(t, companionDecisions{contributing: []string{"ltk"}}.withheld())
 	assert.True(t, companionDecisions{absent: []string{"reprise"}}.withheld())
 	assert.True(t, companionDecisions{failed: []string{"wedged (/opt/bin/wedged)"}}.withheld())
+}
+
+// TestStartupFindings_WithheldItemsAreOneRow: what the launch's package
+// withheld is one row naming each item's kind, ref and why — an item whose
+// ref does not parse has no kind to name, and is still listed. It is a warn
+// row like every other startup finding, and composing it records nothing.
+func TestStartupFindings_WithheldItemsAreOneRow(t *testing.T) {
+	cfg := cleanProject(t)
+	withheld := []bundles.Withhold{
+		{Ref: "::not a ref::", Reason: "its ref could not be parsed: bad"},
+		{Ref: "ctxloom+local:kit#skills/reason", Reason: `it is linked (ctxloom:link_id=think) to MCP server "think", which this run was not granted`},
+	}
+
+	report := StartupFindings(&App{}, cfg, isolatedHome(t), nil, withheld)
+
+	require.Len(t, report.Checks, 1)
+	row := report.Checks[0]
+	assert.Equal(t, withheldItemsMarker, row.Marker)
+	assert.Equal(t, DoctorWarn, row.Status)
+	assert.Equal(t, "withheld from this session, so not available in it: "+
+		"item ::not a ref:: — its ref could not be parsed: bad; "+
+		`skill ctxloom+local:kit#skills/reason — it is linked (ctxloom:link_id=think) to MCP server "think", which this run was not granted`,
+		row.Detail)
 }

@@ -54,7 +54,11 @@ func Assemble(ctx context.Context, cat bundles.Catalog, sel Selection, opts Opti
 
 	withheld := pipe.Withheld()
 	if len(withheld) > 0 && !opts.DropWithheld {
-		return Package{}, fmt.Errorf("%w: %s", ErrItemWithheld, strings.Join(withheld, ", "))
+		refs := make([]string, len(withheld))
+		for i, w := range withheld {
+			refs[i] = w.Ref
+		}
+		return Package{}, fmt.Errorf("%w: %s", ErrItemWithheld, strings.Join(refs, ", "))
 	}
 	text := a.ingest.join()
 	pkg := Package{

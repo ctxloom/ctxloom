@@ -359,22 +359,26 @@ func guttedProfiles(declared map[string][]string, loaded []string) []string {
 // then produces a stub and exits 0 — the agent still answers, with its whole
 // role missing — so the profile is named. It stays a WARNING rather than a
 // startup fault.
-func warnGuttedProfiles(declared map[string][]string, loaded, withheld []string) {
+func warnGuttedProfiles(declared map[string][]string, loaded []string, withheld []bundles.Withhold) {
 	warnGuttedProfilesTo(os.Stderr, declared, loaded, withheld)
 }
 
 // warnGuttedProfilesTo is warnGuttedProfiles with the sink injected.
-func warnGuttedProfilesTo(w io.Writer, declared map[string][]string, loaded, withheld []string) {
+func warnGuttedProfilesTo(w io.Writer, declared map[string][]string, loaded []string, withheld []bundles.Withhold) {
 	if len(withheld) == 0 {
 		// The profile may be empty for reasons that are not withholding (an
 		// empty bundle, an exclusion filter). Only speak to withholding.
 		return
 	}
+	refs := make([]string, len(withheld))
+	for i, item := range withheld {
+		refs[i] = item.Ref
+	}
 	for _, p := range guttedProfiles(declared, loaded) {
 		clidiag.Fwarn(w, "ctxloom",
 			"profile %q contributed NO content to this context: every fragment it declares was withheld. "+
 				"Withheld item(s): %s",
-			p, strings.Join(withheld, ", "))
+			p, strings.Join(refs, ", "))
 	}
 }
 

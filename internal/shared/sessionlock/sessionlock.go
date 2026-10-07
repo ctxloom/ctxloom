@@ -35,6 +35,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -122,8 +123,8 @@ var (
 // must contend with the same kernel the session holds it in.
 var locks = safefs.New().Locks
 
-// beforeProbeLock runs between Acquire's look at the lock file and its lock,
-// so a test can force what may happen to the file in between.
+// beforeProbeLock runs just before Acquire locks the lock file, so a test can
+// force what may happen to the file first.
 var beforeProbeLock = func(string) {}
 
 // Hold takes harp's lock for this process and keeps it until Release (or the
@@ -221,11 +222,10 @@ func Release(harp string) {
 // resumed under the same harp meanwhile waits in Hold instead of racing the
 // deletion. On any other verdict the release holds nothing and is harmless.
 //
-// It never leaves a lock file it created: a file the probe minted would be
-// unlocked, carry no pid, and read as Dead on the next probe. The lock is
-// safefs's TryLock, which creates a missing file, so a file that vanished
-// between the look and the lock is caught after the fact (mintedByProbe),
-// removed under the lock, and refused.
+// It never creates a lock file: a file the probe minted would be unlocked,
+// carry no pid, and read as Dead on the next probe. The lock is safefs's
+// TryLockExisting, so a missing file — however recently it vanished — is
+// refused as unprovable and left missing.
 func Acquire(harp string) (Probe, func()) {
 	noop := func() {}
 	path, err := paths.HarpLockPath(harp)
@@ -241,40 +241,20 @@ func Acquire(harp string) (Probe, func()) {
 		return Probe{PID: readPID(path), Reason: fmt.Sprintf("%s is on a %s filesystem, whose locks cannot be trusted to prove the owner dead", path, fstype)}, noop
 	}
 
-	seen, err := os.Stat(path)
-	if err != nil {
-		return Probe{Reason: fmt.Sprintf("no session lock at %s — the owner cannot be proven dead", path)}, noop
-	}
 	beforeProbeLock(path)
 
 	once, cancel := context.WithCancel(context.Background())
 	cancel()
-	lk, err := locks.TryLock(once, path)
+	lk, err := locks.TryLockExisting(once, path)
 	switch {
 	case errors.Is(err, safefs.ErrLockHeld):
 		return Probe{Verdict: Alive, PID: readPID(path), Reason: "the session's lock is held: its owner is alive"}, noop
+	case errors.Is(err, fs.ErrNotExist):
+		return Probe{Reason: fmt.Sprintf("no session lock at %s — the owner cannot be proven dead", path)}, noop
 	case err != nil:
 		return Probe{PID: readPID(path), Reason: fmt.Sprintf("probing the session lock %s failed: %v", path, err)}, noop
 	}
-	if mintedByProbe(seen, lk, path) {
-		_ = os.Remove(path)
-		_ = lk.Unlock()
-		return Probe{Reason: fmt.Sprintf("the session lock at %s vanished while it was probed — the owner cannot be proven dead", path)}, noop
-	}
 	return Probe{Verdict: Dead, PID: readPID(path), Reason: "the session's lock was free: its owner has ended"}, func() { _ = lk.Unlock() }
-}
-
-// mintedByProbe reports that the file Acquire locked is one its own lock
-// created: the file it looked at carried a pid, and the file now locked at
-// the path carries none — Hold stamps the pid before it locks, so only a
-// create leaves a locked harp file empty. Content, not inode identity: a
-// filesystem may hand a just-removed file's inode number to the next create.
-func mintedByProbe(seen os.FileInfo, lk safefs.Lock, path string) bool {
-	if !lk.Current() || seen.Size() == 0 {
-		return false
-	}
-	now, err := os.Stat(path)
-	return err == nil && now.Size() == 0
 }
 
 // Inspect is Acquire without keeping anything: the verdict, released at

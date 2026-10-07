@@ -119,11 +119,24 @@ func (c Catalog) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 	return out
 }
 
-// skillContent resolves one bundle skill entry into a LoadedSkill: it parses
-// the package's tree (ParseSkillPackage — the same parse authoring uses) and
-// reads every file its manifest names. A tree that cannot be resolved or
-// parsed reports nothing, loudly.
+// skillContent resolves one bundle skill entry into a LoadedSkill
+// (loadSkill). A package that cannot be loaded is withheld loudly: warned, and
+// told to the set's skillWithheld hook when one is attached.
 func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *LoadedSkill {
+	ls, err := c.loadSkill(read, name, entry)
+	if err != nil {
+		c.rep.Warnf("skill %q withheld: %v", name, err)
+		if c.skillWithheld != nil {
+			c.skillWithheld(skillWithholdRef(read, name), "its package did not load: "+err.Error())
+		}
+		return nil
+	}
+	return ls
+}
+
+// loadSkill parses the package's tree (ParseSkillPackage — the same parse
+// authoring uses) and reads every file its manifest names.
+func (c Catalog) loadSkill(read BundleRead, name string, entry BundleSkill) (*LoadedSkill, error) {
 	bundle := read.Bundle
 	// NOT filepath.Dir(bundle.Path): Path is overloaded, and for a companion-
 	// or seeded bundle Dir() of it is ".", which resolved this skill against
@@ -131,25 +144,21 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 	// the bundle's own content. FSDir refuses those values.
 	bundleDir, err := bundle.FSDir()
 	if err != nil {
-		c.rep.Warnf("skill %q withheld: %v", name, err)
-		return nil
+		return nil, err
 	}
 	dir, err := ResolveSkillDir(bundleDir, name, entry)
 	if err != nil {
-		c.rep.Warnf("skipping skill %q: %v", name, err)
-		return nil
+		return nil, err
 	}
 	pkg, err := ParseSkillPackage(c.FS(), dir, 0)
 	if err != nil {
-		c.rep.Warnf("skill %q withheld: %v", name, err)
-		return nil
+		return nil, err
 	}
 	files := make([]LoadedSkillFile, 0, len(pkg.Manifest))
 	for _, m := range pkg.Manifest {
 		data, rerr := afero.ReadFile(c.FS(), filepath.Join(dir, filepath.FromSlash(m.Path)))
 		if rerr != nil {
-			c.rep.Warnf("skipping skill %q: reading %s: %v", name, m.Path, rerr)
-			return nil
+			return nil, fmt.Errorf("reading %s: %w", m.Path, rerr)
 		}
 		mode, perr := strconv.ParseUint(m.Mode, 8, 32)
 		if perr != nil {
@@ -160,8 +169,7 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 
 	itemRef, err := ItemRefFor(read.SourceRef(), ident.KindSkill, name)
 	if err != nil {
-		c.rep.Warnf("skill %q withheld: %v", name, err)
-		return nil
+		return nil, err
 	}
 
 	return &LoadedSkill{
@@ -175,7 +183,17 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 		Tags:        itemTags(bundle.Tags, entry.Tags),
 		ItemRef:     itemRef,
 		Read:        read,
+	}, nil
+}
+
+// skillWithholdRef names a withheld skill by its item ref, or — when the
+// bundle's source mints none — by the bundle's display name, still the most
+// specific thing known about it.
+func skillWithholdRef(read BundleRead, name string) string {
+	if ref, err := ItemRefFor(read.SourceRef(), ident.KindSkill, name); err == nil {
+		return ref
 	}
+	return read.DisplayName() + "#" + ident.KindSkill.Dir() + "/" + name
 }
 
 // SkillInfo provides metadata about an Agent Skill package for listing —

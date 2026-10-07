@@ -28,25 +28,25 @@ func malformedSkillFixture(t *testing.T) *config.Config {
 	return defaultsTo(appDir, "dev")
 }
 
-// TestWithholds_ReachStderrButNotTheAgent pins where a delivery withhold is
-// voiced today. Each case runs a real assembly reporting through the
-// production sink, proves the withhold happened (its stderr warning), then
-// looks where a launched agent would see it: the startup findings a launch
-// hands the agent are built from the strictness ledger (StartupFindings), and
-// the ledger holds only fatal-class findings. These withholds are advisories,
-// so the agent gets a roster with the item missing and nothing saying why.
-//
-// When a withhold is made to reach the agent, its case here must flip.
-func TestWithholds_ReachStderrButNotTheAgent(t *testing.T) {
+// TestWithholds_ReachTheAgentsStartupFindings: a delivery withhold reaches
+// the agent. Each case runs a real assembly reporting through the production
+// sink and proves the withhold happened (its stderr warning); the package's
+// withheld tally then rides into the startup findings a launch hands the
+// agent (StartupFindings), naming the item and why. None is ledgered: every
+// ledgered finding is fatal in strict mode, and a withhold must not abort.
+func TestWithholds_ReachTheAgentsStartupFindings(t *testing.T) {
 	for _, c := range []struct {
 		name     string
 		fixture  func(*testing.T) *config.Config
 		profiles []string
 		item     string
 		stderr   string
+		why      string
 	}{
-		{"a skill linked to an MCP server the run was not granted", linkedSkillAndCommandFixture, []string{"without"}, "linked#skills/reason", "which this run was not granted"},
-		{"a skill whose package does not parse", malformedSkillFixture, []string{"dev"}, `"half"`, `skill "half" withheld`},
+		{"a skill linked to an MCP server the run was not granted (exclude_mcp)", linkedSkillAndCommandFixture, []string{"without"},
+			"linked#skills/reason", "which this run was not granted", `to MCP server "think", which this run was not granted`},
+		{"a skill whose package does not parse", malformedSkillFixture, []string{"dev"},
+			"#skills/half", `skill "half" withheld`, "its package did not load"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			strictness.Reset()
@@ -65,11 +65,24 @@ func TestWithholds_ReachStderrButNotTheAgent(t *testing.T) {
 
 			recorded := strictness.Since(strictness.Mark{})
 			for _, f := range recorded {
-				assert.NotContains(t, f.Text, c.item, "the withhold is ledgered now: flip this case")
+				assert.NotContains(t, f.Text, c.item, "a withhold is never ledgered: in strict mode that would abort the launch")
 			}
-			for _, row := range StartupFindings(&App{NoCompanions: true}, cfg, isolatedHome(t), recorded).Checks {
-				assert.NotContains(t, row.Detail, c.item, "the withhold reaches the agent's startup findings now: flip this case")
-			}
+			row := withheldRow(t, StartupFindings(&App{NoCompanions: true}, cfg, isolatedHome(t), recorded, pkg.Attestation().Withheld))
+			assert.Contains(t, row.Detail, c.item, "the agent is told WHAT was withheld")
+			assert.Contains(t, row.Detail, c.why, "the agent is told WHY")
 		})
 	}
+}
+
+// withheldRow is the one withheld-items row of a startup-findings report.
+func withheldRow(t *testing.T, report DoctorReport) DoctorCheck {
+	t.Helper()
+	var rows []DoctorCheck
+	for _, c := range report.Checks {
+		if c.Marker == withheldItemsMarker {
+			rows = append(rows, c)
+		}
+	}
+	require.Len(t, rows, 1, "every withheld item is listed in ONE row")
+	return rows[0]
 }

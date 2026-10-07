@@ -333,7 +333,7 @@ func (t skillType) Encode(s Surface) ([]Component, error) {
 			return nil, fmt.Errorf("%w: skill file path %q", ErrBadPath, f.Path)
 		}
 		full := prefix + f.Path
-		if err := validateDigestPath(full); err != nil {
+		if err := validComponentPath(full); err != nil {
 			return nil, err
 		}
 		if f.Path == skillDescriptorName {

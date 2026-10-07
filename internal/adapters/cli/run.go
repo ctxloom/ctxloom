@@ -25,7 +25,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -92,23 +91,11 @@ type dryRunJSON struct {
 	// Environment is what the preview PROBED for Resolved: the runtime the
 	// run would get and how its runner reaches home.
 	Environment *environmentJSON `json:"environment,omitempty"`
-	// SignatureCheck is whether the generation this run decides with
-	// verifies bundle signatures: signatureCheckEnforced, or
-	// signatureCheckDisabled under --disable-sig-check. Always present, so a
-	// consumer never reads an absent key as either.
-	SignatureCheck string `json:"signature_check"`
-	// EditedSignedTrees names the installed signed trees the waiver accepted
-	// although their bytes were edited after signing (bundles.EditedSignedTrees).
-	EditedSignedTrees []string `json:"edited_signed_trees,omitempty"`
-	// SessionSignatureCheck is signatureCheckDisabled when this preview runs
-	// inside a session that waives the check (a run typed in its shell)
-	// while the run itself verifies; absent otherwise.
-	SessionSignatureCheck string   `json:"session_signature_check,omitempty"`
-	LLM                   string   `json:"llm"`
-	Backend               string   `json:"backend"`
-	Profiles              []string `json:"profiles"`
-	Fragments             []string `json:"fragments"`
-	Context               string   `json:"context"`
+	LLM         string           `json:"llm"`
+	Backend     string           `json:"backend"`
+	Profiles    []string         `json:"profiles"`
+	Fragments   []string         `json:"fragments"`
+	Context     string           `json:"context"`
 	// ResumedEssence is what a --session --compact launch delivers through
 	// its SessionStart hook rather than through Context: the harp's
 	// compacted essence (compactedResumePreview). ResumedEssenceNote says
@@ -952,31 +939,6 @@ func (st *runState) refused(err error) error {
 	return err
 }
 
-// The dry run's signature_check values.
-const (
-	signatureCheckEnforced = "enforced"
-	signatureCheckDisabled = "disabled"
-)
-
-// signatureCheckOf names whether a generation built with this posture verifies
-// bundle signatures.
-func signatureCheckOf(disabled bool) string {
-	if disabled {
-		return signatureCheckDisabled
-	}
-	return signatureCheckEnforced
-}
-
-// sessionSignatureCheckOf names the posture of the session this preview runs
-// in, when it differs from the preview's own: a waived session around a run
-// that verifies.
-func sessionSignatureCheckOf(disabled, sessionWaived bool) string {
-	if sessionWaived && !disabled {
-		return signatureCheckDisabled
-	}
-	return ""
-}
-
 // emitDryRun renders the launch this invocation would resolve and stops.
 // The SAME resolver runs, over stateless ports: an in-memory session store,
 // a cell that is the project root itself. Nothing is written and nothing is
@@ -1016,23 +978,20 @@ func (st *runState) emitDryRun() error {
 		context = resumeFullContext(context, runResumeSession, operations.RecordedSessionEntries)
 	}
 	payload := dryRunJSON{
-		Agent:                 runAgent,
-		Workspace:             string(l.Declared.Workspace),
-		Runtime:               string(l.Declared.Runtime),
-		Resolved:              axesJSON{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
-		Environment:           probedEnvironment(l.Cell),
-		SignatureCheck:        signatureCheckOf(deps.Snapshot.Config.SignatureCheckDisabled()),
-		EditedSignedTrees:     bundles.EditedSignedTrees(deps.Snapshot.Catalog().Reads()),
-		SessionSignatureCheck: sessionSignatureCheckOf(deps.Snapshot.Config.SignatureCheckDisabled(), App().SessionSigCheckWaived),
-		LLM:                   l.Label.Label,
-		Backend:               string(l.Engine),
-		Profiles:              pkg.Selection.Profiles,
-		Fragments:             pkg.Loaded,
-		Context:               context,
-		Delivery:              deliveryRoutes(l.Plan),
-		EngineHome:            engineHomeRoute(l.Cell.HomeMode),
-		Tokens:                tokens.Estimate(context),
-		Prompt:                st.prompt,
+		Agent:       runAgent,
+		Workspace:   string(l.Declared.Workspace),
+		Runtime:     string(l.Declared.Runtime),
+		Resolved:    axesJSON{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
+		Environment: probedEnvironment(l.Cell),
+		LLM:         l.Label.Label,
+		Backend:     string(l.Engine),
+		Profiles:    pkg.Selection.Profiles,
+		Fragments:   pkg.Loaded,
+		Context:     context,
+		Delivery:    deliveryRoutes(l.Plan),
+		EngineHome:  engineHomeRoute(l.Cell.HomeMode),
+		Tokens:      tokens.Estimate(context),
+		Prompt:      st.prompt,
 	}
 	if runResumeSession != "" && runResumeCompact {
 		payload.ResumedEssence, payload.ResumedEssenceNote = compactedResumePreview(runResumeSession, resumeEssenceStale)
@@ -1053,7 +1012,6 @@ func (st *runState) printDryRun(l launch.Launch, payload dryRunJSON) error {
 			fmt.Printf("%s (workspace: %s, runtime: %s)\n", runAgent, l.Axes.Workspace, l.Axes.Runtime)
 		}
 		printEnvironment(os.Stdout, payload.Environment)
-		printSignatureCheck(os.Stdout, payload.SignatureCheck, payload.SessionSignatureCheck, payload.EditedSignedTrees)
 		fmt.Println("=== LLM ===")
 		fmt.Printf("%s (%s)\n", l.Label.Label, l.Engine)
 		// One labelling over both lists, so a short name is judged across
@@ -1106,26 +1064,6 @@ func probedEnvironment(cell launch.Cell) *environmentJSON {
 	d := env.Describe()
 	return &environmentJSON{Runtime: d.Runtime, Reach: d.Reach}
 }
-
-// printSignatureCheck renders the waiver as the dry run's text form. An
-// enforced check prints nothing: it is the default, and the section exists to
-// make the exception impossible to miss.
-func printSignatureCheck(w io.Writer, check, session string, edited []string) {
-	if check != signatureCheckDisabled {
-		if session == signatureCheckDisabled {
-			fmt.Fprintf(w, "=== Signature Check ===\nsession: %s\n", bundles.SessionSigCheckNotice)
-		}
-		return
-	}
-	fmt.Fprintf(w, "=== Signature Check ===\n%s: %s\n", signatureCheckDisabled, bundles.SigCheckDisabledNotice)
-	if len(edited) > 0 {
-		fmt.Fprintf(w, "%s: %s\n", editedSignedTreesLabel, strings.Join(edited, ", "))
-	}
-}
-
-// editedSignedTreesLabel heads the dry run's list of edited signed trees the
-// waiver accepted.
-const editedSignedTreesLabel = "accepted although " + bundles.EditedSignedTreeWords
 
 // printEnvironment renders the probed environment as the dry-run's text form.
 func printEnvironment(w io.Writer, e *environmentJSON) {

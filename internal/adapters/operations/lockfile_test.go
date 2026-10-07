@@ -92,7 +92,7 @@ func TestLockDependencies_UnreachableParentIsAnIncompleteEmptyLock(t *testing.T)
 	missing := filepath.Join(tmp, "no-such-repo")
 	writeLocalProfile(t, baseDir, "default", "parents:\n  - file://"+missing+"@bundles/kit#profiles/parent\n")
 	registerTestRemote(t, baseDir, "file://"+missing)
-	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
+	cfg := testConfigWithSCMPath(baseDir)
 
 	var result *LockDependenciesResult
 	captureStderr(t, func() {

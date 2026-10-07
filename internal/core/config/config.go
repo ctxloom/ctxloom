@@ -249,15 +249,6 @@ type Config struct {
 	// from the Sink the composition root gave it; the caller renders.
 	rep report.Reporter `config:"runtime"`
 
-	// trustRoot is the generation's signer trust root, bound by the Owner
-	// (bindTrustRoot) before publication; the readers verify a publisher
-	// signature against it. Nil for a fixture nobody bound, which TrustRoot
-	// answers as trust.NoSigners. Never persisted.
-	trustRoot trust.TrustRoot `config:"runtime"`
-	// sigCheckDisabled is whether this generation was built with signature
-	// verification waived (--disable-sig-check). Never persisted.
-	sigCheckDisabled bool `config:"runtime"`
-
 	// catalog and versionResolver are the generation's bundle view: the
 	// catalog resolved (once, on first use) from the Sources' readers, bound
 	// by the Owner (bindCatalog) before the Snapshot carrying this Config
@@ -1380,7 +1371,7 @@ func (c *Config) BundleReaderDirs() []string {
 func (c *Config) BundleLoader() *bundles.Loader {
 	loader := bundles.LoaderOf(c.Catalog())
 	if c.versionResolver != nil {
-		loader.WithVersionResolver(c.versionResolver, c.TrustRoot())
+		loader.WithVersionResolver(c.versionResolver)
 	}
 	return loader
 }

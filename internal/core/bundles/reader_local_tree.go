@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"time"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
@@ -52,51 +50,6 @@ func readTreeOrEnvelope(ctx context.Context, tree content.Bundle) (*Bundle, erro
 		return env, err
 	}
 	return ReadTree(ctx, tree)
-}
-
-// treeSignatureFacts establishes a locally authored tree's signature axes from
-// its ONE signature: the SHA256SUMS manifest and its .sigs/ entry, verified
-// by attest.VerifyBundle — the same verifier the pull walk uses, so the two
-// readers refuse the same things. A tree with no manifest is unsigned.
-//
-// A manifest that does not honestly cover the tree — a mutated or smuggled
-// item file, a signature over other bytes — is INVALID, not absent, because a
-// manifest that exists and does not describe the tree is a different fact
-// from no manifest at all. An invalid signature never withholds a local tree;
-// it is the diagnostic that tells the author their bytes and their manifest
-// have parted company.
-func (r *localFSReader) treeSignatureFacts(ctx context.Context, tree content.Bundle) SignatureFacts {
-	if _, err := tree.ReadFile(ctx, content.ManifestPath); err != nil {
-		return SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
-	}
-	verdict, err := attest.VerifyBundle(ctx, tree, r.trustRoot(), time.Now())
-	switch {
-	case err != nil:
-		return invalidTreeFacts("its tree could not be checked against its manifest: %v", err)
-	case verdict.Contents != nil:
-		// The item-file mutation. Reported against the manifest by name so the
-		// remedy — re-sign the tree — is the obvious next move.
-		return invalidTreeFacts("its files no longer match %s: %v", content.ManifestPath, verdict.Contents)
-	case verdict.Status == attest.StatusTampered:
-		return invalidTreeFacts("its %s is present but does not honestly cover this tree: %s", content.ManifestPath, verdict.Detail)
-	case verdict.OK():
-		return SignatureFacts{Signature: SignatureValid, Signer: SignerTrusted, Principal: verdict.Principal}
-	case verdict.UntrustedSignerFingerprint != "":
-		return SignatureFacts{Signature: SignatureValid, Signer: SignerUntrusted, Fingerprint: verdict.UntrustedSignerFingerprint}
-	}
-	return SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
-}
-
-// invalidTreeFacts is the one shape a failed tree check reports: the signature
-// axis is INVALID rather than absent, because a manifest that exists and does
-// not describe the tree is a different fact from no manifest at all, and
-// collapsing them loses which one happened.
-func invalidTreeFacts(format string, args ...any) SignatureFacts {
-	return SignatureFacts{
-		Signature: SignatureInvalid,
-		Signer:    SignerUntrusted,
-		Detail:    fmt.Sprintf(format, args...),
-	}
 }
 
 // ErrEnvelopeRead and ErrEnvelopeParse classify the two ways EnvelopeAt fails.
@@ -229,13 +182,7 @@ func (r *localFSReader) treeProvenance() (content.Provenance, error) {
 // persistEnvelopeUpgrade is --write-upgrades (schemaver.WriteUpgrades) for a
 // project tree's envelope: an envelope ParseBundle migrated in memory is
 // written back with no backup (git holds the old bytes), and the user told.
-//
-// A SIGNED tree is never rewritten. Its manifest covers the envelope's exact
-// bytes, and nothing re-signs implicitly, so writing the migration would turn
-// a valid signature into a stale one behind the author's back; they are told
-// to re-sign instead, which is the write that persists it (UpgradeEnvelopeAt).
-// Signed means the tree carries a manifest — treeSignatureFacts' rule.
-func (r *localFSReader) persistEnvelopeUpgrade(ctx context.Context, tree content.Bundle, path string) error {
+func (r *localFSReader) persistEnvelopeUpgrade(path string) error {
 	if !schemaver.WriteUpgrades() || r.provenance != ProvenanceProject {
 		return nil
 	}
@@ -250,11 +197,6 @@ func (r *localFSReader) persistEnvelopeUpgrade(ctx context.Context, tree content
 	if len(res.Applied) == 0 {
 		return nil
 	}
-	if _, err := tree.ReadFile(ctx, content.ManifestPath); err == nil {
-		r.cfg.rep.Warnf("%s is %s %d, not upgraded to %d: the tree is signed and its signature covers these bytes; %s",
-			path, schemaver.Key, res.From, res.To, resignToPersist)
-		return nil
-	}
 	if res.From < profileRefsGeneration {
 		if err := migrateProfileItems(r.fsys, filepath.Dir(path)); err != nil {
 			return err
@@ -266,31 +208,4 @@ func (r *localFSReader) persistEnvelopeUpgrade(ctx context.Context, tree content
 	r.cfg.rep.Warnf("upgraded %s to %s %d (no backup is kept: the tree is version-controlled project content)",
 		path, schemaver.Key, res.To)
 	return nil
-}
-
-// UpgradeEnvelopeAt rewrites the envelope at path in the current format when
-// it declares an older one, and reports the migration (Result.Applied is
-// empty when the file was already current and nothing was written).
-//
-// It is the write a SIGNER makes before hashing the tree: signing is the
-// moment a signed tree's envelope may change, so it is where an older one is
-// persisted, with no backup like every bundle-tree write-back.
-func UpgradeEnvelopeAt(fsys afero.Fs, path string) (schemaver.Result, error) {
-	raw, err := afero.ReadFile(fsys, path)
-	if err != nil {
-		return schemaver.Result{}, fmt.Errorf("bundles: upgrading %s: %w", path, err)
-	}
-	res, err := envelopeKind.Upgrade(raw)
-	if err != nil || len(res.Applied) == 0 {
-		return res, err
-	}
-	if res.From < profileRefsGeneration {
-		if err := migrateProfileItems(fsys, filepath.Dir(path)); err != nil {
-			return schemaver.Result{}, err
-		}
-	}
-	if err := schemaver.WriteBack(fsys, path, res, schemaver.NoBackup); err != nil {
-		return schemaver.Result{}, fmt.Errorf("bundles: upgrading %s: %w", path, err)
-	}
-	return res, nil
 }

@@ -1,10 +1,8 @@
 // Package trust owns the addressing and canonicalization primitives every
 // bundle item is identified by: the item kinds (ItemKind), the item reference
-// (Ref) and the canonical bundle-reference grammar (BundleRef). It also
-// declares the signer trust root port (TrustRoot) a publisher signature is
-// verified against, and the lockfile's retraction-record port (see ports.go).
-// It holds no persisted state of its own; nothing here fetches, hashes, or
-// signs content.
+// (Ref), the canonical bundle-reference grammar (BundleRef) and the content
+// forms an item is served in (ContentForm). It holds no persisted state of its
+// own; nothing here fetches or hashes content.
 package trust
 
 import (
@@ -12,6 +10,17 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
+)
+
+// ContentForm identifies which materialization of an item's content was
+// served: the raw authored bytes, or the distilled rewrite.
+type ContentForm string
+
+const (
+	FormRaw       ContentForm = "raw"
+	FormDistilled ContentForm = "distilled"
+	// FormNone is the absence of a form: an item that binds no content body.
+	FormNone ContentForm = ""
 )
 
 // ItemKind distinguishes the addressable item kinds.

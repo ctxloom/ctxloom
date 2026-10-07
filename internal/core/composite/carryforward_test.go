@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // TestAssemble_CarriesTheSourcesToCarryForward: the sources whose content is
@@ -16,7 +15,7 @@ import (
 func TestAssemble_CarriesTheSourcesToCarryForward(t *testing.T) {
 	cat := corpus(t)
 	withheld := []string{"bundle:ctxloom+companion:taskloom"}
-	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), trust.NoSigners{}, composite.Options{CarryForward: withheld})
+	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), composite.Options{CarryForward: withheld})
 	require.NoError(t, err)
 	require.Equal(t, withheld, pkg.CarryForward)
 

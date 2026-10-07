@@ -11,23 +11,9 @@ import (
 // Two carriers, two codecs, no overlap:
 //   - the RUNNER process receives the reach-back trio (EncodeReach);
 //   - the ENGINE process (and its hook subprocesses) receives the two
-//     identity values hooks and taskloom key on (HookEnv), from a waived
-//     generation only EnvSigCheckWaived, and for the session owner only
-//     EnvSessionOwner.
+//     identity values hooks and taskloom key on (HookEnv), and for the
+//     session owner only EnvSessionOwner.
 const (
-	// EnvSigCheckWaived carries a session's --disable-sig-check to the
-	// ENGINE's own ctxloom children (owner rulings 2026-10-02), so the whole
-	// session decides alike. The launch sets it on the engine's environment
-	// from the generation's Trust and nothing else (launch.Resolve), and only
-	// the commands that serve a session (`ctxloom hook`) honour it. A
-	// delegated agent decides with its parent's generation, so its launch
-	// sets it for the child's own hooks in turn. Every ctxloom process removes
-	// it at start, so a `ctxloom run` or `ctxloom doctor` typed in the
-	// engine's shell is a new invocation that verifies — and names the
-	// session's waiver (operations.Switches.SessionSigCheckWaived).
-	EnvSigCheckWaived = "CTXLOOM_SESSION_DISABLE_SIG_CHECK"
-	// SigCheckWaivedOn is EnvSigCheckWaived's value when set.
-	SigCheckWaivedOn = "1"
 	// EnvCoordURL is the coordinator's MCP endpoint URL
 	// (http://host:port/mcp); the gRPC RunnerChannel rides the same
 	// host:port (one h2c listener, content-type routed).

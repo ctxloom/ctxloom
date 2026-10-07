@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -58,14 +57,13 @@ func pushPremiseCompanion(t *testing.T) {
 	t.Helper()
 	t.Cleanup(companions.AdmitEveryDiscoveredCompanionForTesting())
 
-	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout(
-		"version: \"1.0.0\"\nfragments:\n"+
-			"  taskloom:\n"+
-			"    premise: \""+pushPremise+"\"\n"+
-			"    content: |\n      "+pushPremisedBody+"\n"+
-			"  taskloom-always:\n"+
-			"    content: |\n      "+pushUnpremisedBody+"\n"), nil, "")
-	require.NoError(t, err)
+	envelope := testsupport.RunLoadout(
+		"version: \"1.0.0\"\nfragments:\n" +
+			"  taskloom:\n" +
+			"    premise: \"" + pushPremise + "\"\n" +
+			"    content: |\n      " + pushPremisedBody + "\n" +
+			"  taskloom-always:\n" +
+			"    content: |\n      " + pushUnpremisedBody + "\n")
 
 	t.Cleanup(companions.SetLookPathForTesting(func(bin string) (string, error) {
 		if bin == "taskloom" {

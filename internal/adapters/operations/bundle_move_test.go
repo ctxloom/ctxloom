@@ -22,9 +22,8 @@ import (
 
 const moveBundleBody = "version: 1.0.0\nfragments:\n  a:\n    content: hi\n"
 
-// memMoveFS seeds an in-memory project with one authored bundle ("seed") and,
-// when signed, its detached .sig sibling.
-func memMoveFS(t *testing.T, _ bool) (afero.Fs, *config.Config) {
+// memMoveFS seeds an in-memory project with one authored bundle ("seed").
+func memMoveFS(t *testing.T) (afero.Fs, *config.Config) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
@@ -76,7 +75,7 @@ func (f *failWriteFs) Rename(oldname, newname string) error {
 // --- local-path destination --------------------------------------------------
 
 func TestMoveBundle_ToLocalPath_RemovesSource(t *testing.T) {
-	fs, cfg := memMoveFS(t, false)
+	fs, cfg := memMoveFS(t)
 	require.NoError(t, fs.MkdirAll("/out", 0755))
 
 	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
@@ -90,7 +89,7 @@ func TestMoveBundle_ToLocalPath_RemovesSource(t *testing.T) {
 // A ctxloom project checkout as destination: the bundle lands in that project's
 // committed content tree, never in its gitignored cache.
 func TestMoveBundle_ToProjectCheckout_LandsInContentBundles(t *testing.T) {
-	fs, cfg := memMoveFS(t, false)
+	fs, cfg := memMoveFS(t)
 	require.NoError(t, fs.MkdirAll("/other/.ctxloom", 0755))
 
 	res, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/other", FS: fs})
@@ -107,7 +106,7 @@ func TestMoveBundle_ToProjectCheckout_LandsInContentBundles(t *testing.T) {
 // THE safety invariant: a destination write that fails must leave the source
 // exactly where it was.
 func TestMoveBundle_LocalWriteFails_SourceIntact(t *testing.T) {
-	base, cfg := memMoveFS(t, true)
+	base, cfg := memMoveFS(t)
 	require.NoError(t, base.MkdirAll("/out", 0755))
 	fs := &failWriteFs{Fs: base, fail: func(name string) bool {
 		return strings.HasPrefix(filepath.ToSlash(name), "/out/")
@@ -121,21 +120,21 @@ func TestMoveBundle_LocalWriteFails_SourceIntact(t *testing.T) {
 	assert.True(t, exists, "a failed move must not remove the source")
 }
 
-func TestMoveBundle_UnsignedBundle_MovesFine(t *testing.T) {
-	fs, cfg := memMoveFS(t, false)
+func TestMoveBundle_MovesFine(t *testing.T) {
+	fs, cfg := memMoveFS(t)
 	require.NoError(t, fs.MkdirAll("/out", 0755))
 
 	res, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
 	require.NoError(t, err)
-	assert.Empty(t, res.SigDest)
-	exists, _ := afero.Exists(fs, "/out/seed.yaml.sig")
-	assert.False(t, exists)
+	assert.Equal(t, "moved", res.Status)
+	exists, _ := afero.Exists(fs, res.Dest)
+	assert.True(t, exists, "the tree lands at the reported destination")
 }
 
 // --- destination resolution --------------------------------------------------
 
 func TestMoveBundle_UnresolvableDestination_Errors(t *testing.T) {
-	fs, cfg := memMoveFS(t, false)
+	fs, cfg := memMoveFS(t)
 
 	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "not-a-remote", FS: fs})
 	require.Error(t, err)
@@ -147,7 +146,7 @@ func TestMoveBundle_UnresolvableDestination_Errors(t *testing.T) {
 }
 
 func TestMoveBundle_MissingDestination_Errors(t *testing.T) {
-	fs, cfg := memMoveFS(t, false)
+	fs, cfg := memMoveFS(t)
 
 	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", FS: fs})
 	require.Error(t, err)
@@ -157,7 +156,7 @@ func TestMoveBundle_MissingDestination_Errors(t *testing.T) {
 // A configured remote NAME wins over a same-named local directory — stated in
 // the help text, pinned here so it can never become a silent coin-flip.
 func TestResolveMoveDest_RemoteNameWinsOverSamePath(t *testing.T) {
-	fs, cfg := memMoveFS(t, false)
+	fs, cfg := memMoveFS(t)
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(cfg.GetAppPaths()[0], "remotes.yaml"), []byte(
 		"default: personal\nremotes:\n  personal:\n    url: https://github.com/example/personal\n    version: v1\n"), 0644))
 	require.NoError(t, fs.MkdirAll("personal", 0755)) // a directory of the same spelling
@@ -169,7 +168,7 @@ func TestResolveMoveDest_RemoteNameWinsOverSamePath(t *testing.T) {
 }
 
 func TestResolveMoveDest_PlainDirectory(t *testing.T) {
-	fs, cfg := memMoveFS(t, false)
+	fs, cfg := memMoveFS(t)
 	require.NoError(t, fs.MkdirAll("/somewhere/bundles", 0755))
 
 	dest, err := resolveMoveDest(cfg, fs, "/somewhere/bundles")
@@ -195,7 +194,6 @@ func TestMoveBundle_ToRemote_PublishesAndRemovesSource(t *testing.T) {
 	assert.Equal(t, "remote", res.DestKind)
 	assert.Equal(t, "personal", res.Remote)
 	assert.Equal(t, "abc1234", res.CommitSHA)
-	assert.False(t, res.Signed, "a single-file bundle carries no signature")
 
 	require.Len(t, mock.createOrUpdateCalls, 1, "the bundle, and nothing beside it")
 	assert.Equal(t, srcBytes, mock.createOrUpdateCalls[0].Content, "published bytes must be the local bytes, verbatim")

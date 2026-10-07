@@ -15,7 +15,7 @@ import (
 // per-version fetch failure).
 func versionedLoader(t *testing.T, canonicalRef string, def *Bundle, versions map[string]*Bundle) *Pipeline {
 	t.Helper()
-	resolver := func(_canonical, commit string, _ trust.TrustRoot) (*Bundle, error) {
+	resolver := func(_canonical, commit string) (*Bundle, error) {
 		b, ok := versions[commit]
 		if !ok {
 			return nil, fmt.Errorf("fake resolver: no commit %q", commit)
@@ -24,7 +24,7 @@ func versionedLoader(t *testing.T, canonicalRef string, def *Bundle, versions ma
 		return &clone, nil
 	}
 	return NewPipeline(
-		NewLoader(seedLocal(map[string]*Bundle{canonicalRef: def})).WithVersionResolver(resolver, nil),
+		NewLoader(seedLocal(map[string]*Bundle{canonicalRef: def})).WithVersionResolver(resolver),
 		LinksUnchecked(), true)
 }
 

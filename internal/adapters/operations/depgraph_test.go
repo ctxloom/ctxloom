@@ -19,7 +19,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // newTestWalker builds a depWalker whose remote reads are served by fetcher.
@@ -92,19 +91,16 @@ func TestDepWalker_WalksRemoteParentClosure(t *testing.T) {
 	// fetched, its named profile extracted, and its closure walked). One
 	// repository, because a remote profile may name only its own.
 	const urlX = "https://github.com/x/repo"
-	// The parent is a SIGNED TREE, which is the only form a bundle-profile
-	// parent can be published in: its profile is a file beside the envelope,
-	// and the walk verifies the tree before reading it.
-	signer, trustRoot, _ := bundletree.PublisherKey(t, bundletree.Publisher)
-	files := signedTreeFiles(t, "akit", &bundles.Bundle{
+	// The parent is a TREE, which is the only form a bundle-profile parent can
+	// be published in: its profile is a file beside the envelope.
+	files := treeFiles(t, "akit", &bundles.Bundle{
 		Version: "1.0.0",
 		Profiles: map[string]bundles.BundleProfile{
 			"a": {Bundles: []string{urlX + "@bundles/x@h2222222"}},
 		},
-	}, signer)
+	})
 
 	w := newTestWalker(remote.NewMockFetcher())
-	w.trustRoot = trustRoot
 	w.treeFetch = func(context.Context, remote.Fetcher, string, string, string, string, string) (map[string]remote.TreeFile, error) {
 		return files, nil
 	}

@@ -2,14 +2,11 @@ package operations
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
@@ -47,7 +44,6 @@ func TestPushBundle_EveryShape_RecordsTheDirectPushOutcome(t *testing.T) {
 			assert.Equal(t, "pushed", res.Status)
 			assert.Equal(t, "sha0001", res.CommitSHA)
 			assert.Empty(t, res.PRURL)
-			assert.False(t, res.Signed, "nothing here was signed")
 			assert.Empty(t, mock.createPRCalls)
 		})
 	}
@@ -91,30 +87,4 @@ func TestPushBundle_EveryShape_SurfacesThePublisherError(t *testing.T) {
 			require.ErrorIs(t, err, assert.AnError)
 		})
 	}
-}
-
-// A tree's signature is just more of the files the walk carries: its
-// presence is what the recorded Signed reports, and it travels in the same
-// commit as everything else.
-func TestPushBundle_TreeForm_SignedReportsTheCarriedSigStore(t *testing.T) {
-	mock := &mockPublisher{returnCommitSHA: "sha0003"}
-	cfg, _, mgr := pushTestSetup(t, mock)
-	manifest := writeDirFormBundleFixture(t, cfg, "signed-tree")
-	sigDir := filepath.Join(filepath.Dir(manifest), content.SigDirName)
-	require.NoError(t, os.MkdirAll(sigDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(sigDir, "bundle.yaml.sig"), []byte("sig"), 0o644))
-
-	res, err := PushBundle(context.Background(), cfg, PushBundleRequest{
-		Path:           manifest,
-		Remote:         "personal",
-		PublishManager: mgr,
-	})
-	require.NoError(t, err)
-	assert.True(t, res.Signed)
-	var written []string
-	for _, c := range mock.createOrUpdateCalls {
-		written = append(written, c.Path)
-	}
-	assert.Contains(t, written, repoV2("signed-tree")+"/"+content.SigDirName+"/bundle.yaml.sig",
-		"the .sigs store travels with the tree, not as a separate write")
 }

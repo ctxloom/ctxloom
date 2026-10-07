@@ -1,5 +1,5 @@
 // `ctxloom init`'s targeted system-dependency gate and its informational
-// companion probes (signing identity, git identity). See
+// companion probe (git identity). See
 // checkSystemDeps for why git is the only hard block among them.
 
 package cli
@@ -28,12 +28,9 @@ import (
 //
 // ssh-keygen and a container runtime (needed later for containerized
 // agents) are INFORMATIONAL ONLY: nothing PRIME itself does needs them yet,
-// so their absence surfaces as a warning, not a block. ssh-keygen is NOT a
-// signing dependency — an earlier version of this warning wrongly implied
-// it was; ctxloom's signing is pure Go over the ssh-agent protocol
-// (internal/adapters/signing/agentkey/agentkey.go, internal/adapters/signing/sign.go — never
-// shells out to ssh-keygen) — it is only useful, by hand, to GENERATE a new
-// key if you don't already have one (`ssh-keygen -t ed25519-sk`).
+// so their absence surfaces as a warning, not a block. ctxloom never execs
+// ssh-keygen; it is only useful, by hand, to GENERATE a new SSH key for an
+// ssh:// git remote.
 //
 // A sibling slice adds git to `ctxloom doctor`'s own comprehensive dependency
 // check on a separate, unmerged branch; the couple of lines of overlap
@@ -47,9 +44,8 @@ func checkSystemDeps() error {
 	}
 
 	if _, err := exec.LookPath("ssh-keygen"); err != nil {
-		clidiag.Warn("ctxloom", "ssh-keygen not found on PATH — recommended, not required (`ctxloom bundle sign` itself is pure Go and never execs ssh-keygen): it's the tool you'd run by hand to generate a new SSH key if you don't already have one to sign with (`ssh-keygen -t ed25519-sk`)")
+		clidiag.Warn("ctxloom", "ssh-keygen not found on PATH — recommended, not required (ctxloom never execs it): it's the tool you'd run by hand to generate a new SSH key for an ssh:// git remote")
 	}
-	warnIfNoSignKey()
 	warnIfGitIdentityMissing()
 	if !(isolation.Docker{}.Available()) && !(isolation.Podman{}.Available()) {
 		clidiag.Warn("ctxloom", "no container runtime detected (docker/podman) — you'll need one later to run containerized agents")
@@ -57,49 +53,17 @@ func checkSystemDeps() error {
 	return nil
 }
 
-// warnIfNoSignKey is checkSystemDeps' companion to the ssh-keygen PATH probe
-// above: even with ssh-keygen present, a resolvable signing IDENTITY is
-// needed to publish or sign your own content (`ctxloom sign`). It runs the
-// SAME resolver signing uses (internal/adapters/signing/agentkey.Discoverer.
-// Discover — see sign.go's runSign) and reuses
-// operations.SignKeyResolutionDetail so this warn says the exact same
-// thing `ctxloom doctor --deps`'s DOCTOR-CHECK-SIGNKEY-k1 check reports —
-// one resolver, one message, two surfaces. explicit is always "" here: a
-// brand-new init has no sign.key configured yet, so this checks the
-// zero-config chain (git config user.signingkey, then ssh-agent's sole
-// identity) exactly as `ctxloom sign` would try it today. Informational
-// only, like ssh-keygen/container-runtime above — never blocks init: a
-// project that only ever consumes content genuinely needs no key.
-func warnIfNoSignKey() {
-	discoverer, err := operations.SignerDiscoverer()
-	if err != nil {
-		clidiag.Warn("ctxloom", "%v", err)
-		return
-	}
-	ok, detail := operations.SignKeyResolutionDetail(context.Background(), discoverer, "")
-	if !ok {
-		clidiag.Warn("ctxloom", "%s", detail)
-	}
-}
-
 // warnIfGitIdentityMissing is checkSystemDeps' companion probe for git's
-// commit identity (user.name/user.email), same shape and posture as
-// warnIfNoSignKey above: informational only, reusing the SAME shared
-// operations.GitIdentityDetail and the SAME `git config --get` reader
-// (internal/adapters/signing/agentkey.Discoverer.GitConfig, defaulted by
-// operations.SignerDiscoverer()) that DOCTOR-CHECK-GITIDENT-l2 uses, so this warn
+// commit identity (user.name/user.email): informational only, reusing the SAME
+// shared operations.GitIdentityDetail and the SAME `git config --get` reader
+// (operations.GitConfigGet) that DOCTOR-CHECK-GITIDENT-l2 uses, so this warn
 // says the exact same thing `ctxloom doctor --deps` reports. Agents ctxloom
 // launches commit their own work inside isolated worktrees (isolation's
 // Worktree teardown), so an incomplete identity here can
 // surface later as a failed or mis-attributed commit deep inside a run —
 // surfacing it at init time, before that happens, beats discovering it then.
 func warnIfGitIdentityMissing() {
-	discoverer, err := operations.SignerDiscoverer()
-	if err != nil {
-		clidiag.Warn("ctxloom", "%v", err)
-		return
-	}
-	ok, detail := operations.GitIdentityDetail(context.Background(), discoverer.GitConfig)
+	ok, detail := operations.GitIdentityDetail(context.Background(), operations.GitConfigGet)
 	if !ok {
 		clidiag.Warn("ctxloom", "%s", detail)
 	}

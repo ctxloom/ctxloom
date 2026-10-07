@@ -18,9 +18,9 @@ type Remote struct {
 	// forked, typosquatted, or compromised; a URL you trusted once could serve
 	// changed bytes silently for the rest of time.
 	//
-	// Trust is now keyed to the signing IDENTITY (a publisher key in
-	// allowed_signers), verified over the bytes themselves at the exposure gate.
-	// A remote is just an address to fetch from, and carries no authority at all.
+	// Registering a remote is itself the trust act: content resolves only
+	// through a registered remote, and every pin into it is a reviewed
+	// `deps upgrade`. The remote carries no per-content authority beyond that.
 
 	// Forge is the label of the forges entry this remote binds to. Empty
 	// means resolve by URL host (configured base_url match, else built-in

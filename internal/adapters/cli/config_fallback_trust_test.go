@@ -7,41 +7,27 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
-	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/configload"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// The fallback a fault-tolerant command gets when the config cannot load
-// holds a real root that trusts no signer, and the warning says the CONFIG
-// failed — so a typo in config.yaml does not read as a trust problem.
-func TestLoadConfigOrFallback_TrustsNoSignerAndSaysTheConfigFailedToLoad(t *testing.T) {
+// The fallback a fault-tolerant command gets when the config cannot load says
+// the CONFIG failed, naming the load error.
+func TestLoadConfigOrFallback_SaysTheConfigFailedToLoad(t *testing.T) {
 	var w bytes.Buffer
 	cfg := loadConfigOrFallback(func() (*config.Config, error) {
 		return nil, errors.New("yaml: line 3: did not find expected key")
 	}, &w)
-
-	root := cfg.TrustRoot()
-	require.NotNil(t, root, "the fallback's root is a value to ask, never a nil")
-	// The embedded release key is trusted to publish by every real root, so a
-	// fallback that still read the signer files would trust it.
-	embedded := configload.EmbeddedSigners().Entries()
-	require.NotEmpty(t, embedded)
-	assert.False(t, root.TrustedForNamespace(embedded[0].PublicKey, signing.NamespacePublish, time.Now()).Trusted,
-		"the fallback trusts no signer, not even the one compiled in")
+	require.NotNil(t, cfg)
 
 	msg := w.String()
 	assert.Contains(t, msg, "failed to load config")
 	assert.Contains(t, msg, "did not find expected key", "the load error itself is named")
-	assert.Contains(t, msg, "no signer is trusted until it loads",
-		"the consequence for trust is named, so a denied companion is traced back to the config")
 }
 
 // The companion commands do not depend on the project's config: with it

@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
@@ -49,11 +48,6 @@ type localFSReader struct {
 // NewLocalFSReader(fs, dirs, provenance) would let any caller mint
 // project-labelled content out of a call site, which is a trust bypass that
 // reviews as ordinary wiring.
-//
-// Local content is trusted by LOCALITY, so a signature on it never gates:
-// the reader still establishes the signature facts, because they are what tells
-// an author their `.sig` no longer covers their bytes (see Loader's handling of
-// the local/invalid row), but under TrustCtxLocal they are diagnostics.
 func NewProjectReader(fsys afero.Fs, dirs []string, opts ...ReaderOption) Reader {
 	if fsys == nil {
 		fsys = afero.NewOsFs()
@@ -293,14 +287,13 @@ func (r *localFSReader) bundleAt(dir, path string, info os.FileInfo) (manifest s
 	return manifest, step
 }
 
-// readBundle reads the tree whose envelope is at path and establishes its
-// signature facts.
+// readBundle reads the tree whose envelope is at path.
 func (r *localFSReader) readBundle(ctx context.Context, path, name string) (BundleRead, error) {
-	tree, bundle, err := r.readLocalTree(ctx, path)
+	_, bundle, err := r.readLocalTree(ctx, path)
 	if err != nil {
 		return BundleRead{}, err
 	}
-	if err := r.persistEnvelopeUpgrade(ctx, tree, path); err != nil {
+	if err := r.persistEnvelopeUpgrade(path); err != nil {
 		return BundleRead{}, err
 	}
 	bundle.Path = path
@@ -314,14 +307,10 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 		bundle.Name = ExtractBundleName(path)
 	}
 
-	facts := r.treeSignatureFacts(ctx, tree)
-	facts.stamp(bundle)
 	// The RESOLUTION ref is the bare path-relative name: source class is never
 	// part of identity (ProvenanceClass's own doc). A collision between two
 	// sources of one name is settled where collisions belong — in
 	// Catalog.Resolve, which keeps the project's and SAYS SO. Source
 	// qualification lives only on bundle.sourceRef, the trust key.
-	return newRead(name, bundle, r.provenance, TrustCtxLocal, facts), nil
+	return newRead(name, bundle, r.provenance, TrustCtxLocal), nil
 }
-
-func (r *localFSReader) trustRoot() trust.TrustRoot { return r.cfg.root }

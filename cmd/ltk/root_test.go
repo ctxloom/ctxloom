@@ -24,8 +24,8 @@ func TestNewRootCmd(t *testing.T) {
 	}
 	// `loadout` belongs in this list as much as the others, and more urgently:
 	// it is a CROSS-PROCESS wire contract. ctxloom's companion discovery execs
-	// `ltk loadout --format json` (loadout.Subcommand/FormatFlag/
-	// FormatJSON) and a probe that finds no such subcommand contributes
+	// `ltk loadout --format yaml` (loadout.Subcommand/FormatFlag/
+	// FormatYAML) and a probe that finds no such subcommand contributes
 	// nothing, silently. loadout_test exercises the emitter, but nothing pinned
 	// that newRootCmd still REGISTERS the command the probe invokes.
 	for _, want := range []string{"evaluate", "check", "manage", "version", "loadout"} {

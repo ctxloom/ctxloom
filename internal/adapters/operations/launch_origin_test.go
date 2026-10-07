@@ -26,35 +26,12 @@ func TestMintIdentity_StampsTheSeedsOrigin(t *testing.T) {
 		{sessions.Seed{ProjectDir: "/proj", OneShot: true}, sessions.OriginOneShot},
 	} {
 		store := sessions.NewMemStore()
-		id, err := MintIdentity(store, tc.seed, false, t.TempDir())
+		id, err := MintIdentity(store, tc.seed, t.TempDir())
 		require.NoError(t, err)
 		t.Cleanup(func() { sessionlock.Release(id.Harp) })
 		got, err := store.Find(id.Harp)
 		require.NoError(t, err)
 		assert.Equal(t, tc.want, got.Origin)
-	}
-}
-
-// session.yaml records whether the run that minted the session waived
-// signature verification.
-func TestMintIdentity_StampsTheSignatureCheckPosture(t *testing.T) {
-	testsupport.Isolate(t)
-	for _, tc := range []struct {
-		name   string
-		waived bool
-	}{
-		{"enforced", false},
-		{"waived", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			store := sessions.NewMemStore()
-			id, err := MintIdentity(store, sessions.Seed{ProjectDir: "/proj"}, tc.waived, t.TempDir())
-			require.NoError(t, err)
-			t.Cleanup(func() { sessionlock.Release(id.Harp) })
-			got, err := store.Find(id.Harp)
-			require.NoError(t, err)
-			assert.Equal(t, tc.waived, got.SigCheckDisabled)
-		})
 	}
 }
 
@@ -68,14 +45,14 @@ func TestMintIdentity_InMemoryStoreTakesNoLivenessLock(t *testing.T) {
 	// Hostile fixture: the real store's mint DOES write the lock here.
 	real, err := sessions.Open(nil)
 	require.NoError(t, err)
-	rid, err := MintIdentity(real, sessions.Seed{ProjectDir: "/proj"}, false, t.TempDir())
+	rid, err := MintIdentity(real, sessions.Seed{ProjectDir: "/proj"}, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { sessionlock.Release(rid.Harp) })
 	realLock, err := paths.HarpLockPath(rid.Harp)
 	require.NoError(t, err)
 	require.FileExists(t, realLock, "the real store's mint must hold its lock, or this test measures nothing")
 
-	id, err := MintIdentity(sessions.NewMemStore(), sessions.Seed{ProjectDir: "/proj"}, false, t.TempDir())
+	id, err := MintIdentity(sessions.NewMemStore(), sessions.Seed{ProjectDir: "/proj"}, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { sessionlock.Release(id.Harp) })
 	memLock, err := paths.HarpLockPath(id.Harp)

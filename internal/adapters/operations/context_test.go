@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -674,12 +673,8 @@ func TestAssembleContext_EmptyRequest(t *testing.T) {
 // internal/core/config's TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated).
 func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
-	ltkEnvelope, err := signing.EncodeLoadoutEnvelope(
-		testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: |\n      llm-tool-killer briefing\n"), nil, "")
-	require.NoError(t, err)
-	taskloomEnvelope, err := signing.EncodeLoadoutEnvelope(
-		testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  taskloom:\n    content: |\n      taskloom briefing\n"), nil, "")
-	require.NoError(t, err)
+	ltkEnvelope := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: |\n      llm-tool-killer briefing\n")
+	taskloomEnvelope := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  taskloom:\n    content: |\n      taskloom briefing\n")
 
 	t.Run("companions present → fragments injected", func(t *testing.T) {
 		_, _ = setupContextTestFS(t)

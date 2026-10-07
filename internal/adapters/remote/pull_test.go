@@ -113,7 +113,6 @@ func TestNewPuller_WithOptions(t *testing.T) {
 	require.NoError(t, err)
 
 	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-		WithTreeVerifier(stubTreeVerifier()),
 		WithLockfileManager(lm),
 		WithFetcherFactory(ff),
 	)
@@ -146,7 +145,6 @@ func TestPuller_Pull(t *testing.T) {
 	lm := NewLockfileManager("/test", WithLockfileFS(fs))
 
 	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-		WithTreeVerifier(stubTreeVerifier()),
 		WithLockfileManager(lm),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{
@@ -203,7 +201,6 @@ func TestPuller_Pull_LockfileWriteFailureIsNotSwallowed(t *testing.T) {
 	lm := NewLockfileManager("/test", WithLockfileFS(roFS))
 
 	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-		WithTreeVerifier(stubTreeVerifier()),
 		WithLockfileManager(lm),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 	)
@@ -230,7 +227,6 @@ func TestPuller_Pull_RejectsEmptyContent(t *testing.T) {
 
 	lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-		WithTreeVerifier(stubTreeVerifier()),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 		WithLockfileManager(lm),
 	)
@@ -253,7 +249,7 @@ func TestPuller_Pull_InvalidReference(t *testing.T) {
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
 
 	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-		WithTreeVerifier(stubTreeVerifier()), WithTreeInstaller(stubTreeInstaller()), WithTreeVerifier(stubTreeVerifier()))
+		WithTreeInstaller(stubTreeInstaller()))
 
 	_, err := puller.Pull(context.Background(), "invalid", PullOptions{})
 
@@ -286,7 +282,6 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}))
 
 		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-			WithTreeVerifier(stubTreeVerifier()),
 			WithLockfileManager(lm),
 		)
 
@@ -318,7 +313,6 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}))
 
 		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-			WithTreeVerifier(stubTreeVerifier()),
 			WithLockfileManager(lm),
 		)
 
@@ -362,7 +356,6 @@ func TestPuller_Pull_ARePullKeepsTheHeldPin(t *testing.T) {
 			checkedOut = sha
 			return filepath.Join(worktreeDir, filepath.FromSlash(subpath)), nil
 		}),
-		WithTreeVerifier(stubTreeVerifier()),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 		WithLockfileManager(lm),
 		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{

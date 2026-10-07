@@ -106,7 +106,7 @@ func encodeExecItem(t SurfaceType, name string, content, meta any) ([]Component,
 	}
 	dir := t.Dir()
 	contentPath := itemPath(dir, name, ".yaml")
-	if err := validateDigestPath(contentPath); err != nil {
+	if err := validComponentPath(contentPath); err != nil {
 		return nil, err
 	}
 	body, err := marshalYAML(content)

@@ -165,7 +165,7 @@ func TestNewBundleReaderForConfig_SilentOnGoodLockfile(t *testing.T) {
 // therefore stop the move, not fall through to the local-copy branch with
 // whatever Dir happens to be set.
 func TestMoveByDest_UnrecognisedKindRefuses(t *testing.T) {
-	fs, cfg := memMoveFS(t, false)
+	fs, cfg := memMoveFS(t)
 	src := srcBundlePath(cfg)
 
 	res, err := moveByDest(context.Background(), cfg, fs, MoveBundleRequest{Name: "seed", To: "/out"},
@@ -189,7 +189,7 @@ func TestMoveByDest_UnrecognisedKindRefuses(t *testing.T) {
 // TestMoveByDest_KnownKindsStillRoute is the characterization half: both
 // recognised kinds must keep reaching their writers unchanged.
 func TestMoveByDest_KnownKindsStillRoute(t *testing.T) {
-	fs, cfg := memMoveFS(t, false)
+	fs, cfg := memMoveFS(t)
 	src := srcBundlePath(cfg)
 
 	res, err := moveByDest(context.Background(), cfg, fs, MoveBundleRequest{Name: "seed", To: "/out"},
@@ -237,7 +237,7 @@ func (f *failRemoveFs) RemoveAll(name string) error {
 // duplicate) IS the remedy, so the message must not be interchangeable with the
 // one above.
 func TestMoveBundle_UnremovableSourceYAML_ErrorSaysBothPlaces(t *testing.T) {
-	base, cfg := memMoveFS(t, false)
+	base, cfg := memMoveFS(t)
 	require.NoError(t, base.MkdirAll("/out", 0755))
 	src := srcBundlePath(cfg)
 	srcTree := filepath.Dir(src)

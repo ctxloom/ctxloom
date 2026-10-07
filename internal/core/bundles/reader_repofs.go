@@ -2,15 +2,12 @@ package bundles
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
@@ -22,33 +19,15 @@ import (
 // (content.NewAferoTreeFS) both satisfy it without an adapter.
 type TreeFS = content.TreeFS
 
-// ErrTreeBundleWithheld reports a directory-form bundle that was read and must
-// NOT be used: its signed manifest and its files disagree, or a trusted key's
-// signature does not cover the manifest at all.
-//
-// It is separate from a read failure because the two call for opposite
-// responses. A read failure is "this did not arrive"; this is "this arrived and
-// is not what the publisher signed", which is a security event and must never
-// degrade to the unsigned/review path — degrading it would let an attacker
-// downgrade a signed tree by editing one file in the cache.
-var ErrTreeBundleWithheld = errors.New("directory-form bundle withheld: its content does not match what was signed")
-
 // repoFSReader reads ONE bundle out of a tree pinned at a revision:
 // ProvenanceRemote, TrustCtxRemote.
-//
-// It is the only implementation whose signature facts are GATE INPUTS rather
-// than diagnostics, because it is the only one whose bytes crossed an
-// intermediary. It is also the only one that must be told the trust root twice
-// over: without one, no key is trusted and everything it reads is untrusted —
-// the fail-toward-less-exposure direction.
 type repoFSReader struct {
 	tree TreeFS
 	ref  string
 	cfg  readerConfig
 }
 
-// NewRepoFSReader reads the bundle identified by ref out of a pinned tree, and
-// does the signature checking.
+// NewRepoFSReader reads the bundle identified by ref out of a pinned tree.
 //
 // ref is the bundle's canonical identity (the lockfile key), not a path: one
 // lockfile entry is one bundle, and the tree handed in holds that bundle's
@@ -57,18 +36,12 @@ type repoFSReader struct {
 // asked for local-context content would be a trust bypass with a struct literal
 // for a weapon.
 //
-// A bundle is a tree whose root holds bundle.yaml alongside item directories,
-// verified through its signed manifest (attest.VerifyBundle, which checks the
-// tree against the manifest in both directions).
+// A bundle is a tree whose root holds bundle.yaml alongside item directories.
 func NewRepoFSReader(tree TreeFS, ref string, opts ...ReaderOption) Reader {
 	return &repoFSReader{tree: tree, ref: ref, cfg: newReaderConfig(opts)}
 }
 
-// Read reports the bundle this reader was pointed at, with its signature facts
-// established. It reports a TAMPERED tree as an ERROR rather than as content:
-// a tree whose files no longer match its signed manifest has not been read at
-// all — there is no honest set of bytes to report — which is a different
-// statement from withholding content that was read.
+// Read reports the bundle this reader was pointed at.
 func (r *repoFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 	if r.tree == nil {
 		return nil, fmt.Errorf("bundles: repofs reader for %q has no tree", r.ref)
@@ -158,21 +131,10 @@ func (r *repoFSReader) syntheticPath() string {
 	return remotePathSentinel + r.ref + "@" + r.cfg.revision
 }
 
-// readTreeForm reads a directory-form bundle and resolves its publisher
-// attestation.
-//
-// Verification runs over the tree AS INSTALLED, which is strictly stronger than
-// trusting the pin: attest.VerifyBundle checks the publisher's signature over
-// the manifest AND the tree against that manifest in both directions, so an
-// edit to the installed cache is caught. The pin still decides WHICH bytes were
-// installed; what changed is that integrity is checked where the bytes are
-// actually read from.
+// readTreeForm reads a directory-form bundle as installed; the pin decided
+// WHICH bytes were installed.
 func (r *repoFSReader) readTreeForm(ctx context.Context) (BundleRead, error) {
 	tree, err := r.openTreeBundle()
-	if err != nil {
-		return BundleRead{}, err
-	}
-	facts, err := r.verifyTree(ctx, tree)
 	if err != nil {
 		return BundleRead{}, err
 	}
@@ -196,8 +158,7 @@ func (r *repoFSReader) readTreeForm(ctx context.Context) (BundleRead, error) {
 	} else {
 		b.Path = r.syntheticPath()
 	}
-	facts.stamp(b)
-	return newRead(r.ref, b, ProvenanceRemote, TrustCtxRemote, facts), nil
+	return newRead(r.ref, b, ProvenanceRemote, TrustCtxRemote), nil
 }
 
 // openTreeBundle opens the tree as a content.Bundle. The store is rooted at the
@@ -215,66 +176,4 @@ func (r *repoFSReader) openTreeBundle() (content.Bundle, error) {
 		return nil, fmt.Errorf("bundles: the pinned tree for %q is not readable as bundle %q: %w", r.ref, id, err)
 	}
 	return tree, nil
-}
-
-// editedFacts are the signature facts of an installed signed tree whose bytes
-// were edited after signing (WithEditedTreesCarried): the signature does not
-// cover what is read, and the signer axis says whose key made the signature
-// the edit broke. No principal: stamp writes no publisher identity for an
-// invalid signature.
-func editedFacts(v attest.Verdict, detail string) SignatureFacts {
-	signer := SignerUntrusted
-	if v.Principal != "" {
-		signer = SignerTrusted
-	}
-	return SignatureFacts{Signature: SignatureInvalid, Signer: signer, Detail: detail, Fingerprint: v.UntrustedSignerFingerprint}
-}
-
-// tamperedCause is how a StatusTampered verdict's cause is carried. The verdict
-// holds a manifest parse failure only as text; when the manifest's own parse
-// error says it is in the retired format, that error is carried TYPED instead,
-// so a caller can tell a retired signing format from tampering and name the
-// fix. It chooses how the cause is carried, never whether anything is withheld.
-func tamperedCause(parseErr error, detail string) error {
-	if errors.Is(parseErr, content.ErrManifestSuperseded) {
-		return parseErr
-	}
-	return errors.New(detail)
-}
-
-// verifyTree resolves a directory-form bundle's attestation into the two
-// signature axes. A tree that is INTERNALLY inconsistent — signed manifest
-// present, files no longer matching it — is a state a single document cannot
-// reach, and it is an error rather than an invalid-signature fact: nothing here
-// was read as the publisher signed it.
-func (r *repoFSReader) verifyTree(ctx context.Context, tree content.Bundle) (SignatureFacts, error) {
-	verdict, err := attest.VerifyBundle(ctx, tree, r.cfg.root, time.Now())
-	if err != nil {
-		return SignatureFacts{}, fmt.Errorf("bundles: verifying the pinned tree for %q: %w", r.ref, err)
-	}
-	if verdict.Contents != nil {
-		if r.cfg.carryEdited {
-			return editedFacts(verdict.Verdict, verdict.Contents.Error()), nil
-		}
-		return SignatureFacts{}, fmt.Errorf("%w: %q — %v", ErrTreeBundleWithheld, r.ref, verdict.Contents)
-	}
-	if verdict.Status == attest.StatusTampered {
-		_, merr := tree.Manifest(ctx)
-		cause := tamperedCause(merr, verdict.Detail)
-		if r.cfg.carryEdited && !errors.Is(cause, content.ErrManifestSuperseded) {
-			return editedFacts(verdict.Verdict, cause.Error()), nil
-		}
-		return SignatureFacts{}, fmt.Errorf("%w: %q — %w", ErrTreeBundleWithheld, r.ref, cause)
-	}
-	if verdict.OK() {
-		return SignatureFacts{Signature: SignatureValid, Signer: SignerTrusted, Principal: verdict.Principal}, nil
-	}
-	// Unattested, or attested by a key this trust root does not know: unsigned
-	// to us, the ordinary case and the review path — not an error. Carry the
-	// display-only fingerprint when the verdict has one, so a human can compare
-	// it against what the publisher told them out of band.
-	if fp := verdict.UntrustedSignerFingerprint; fp != "" {
-		return SignatureFacts{Signature: SignatureValid, Signer: SignerUntrusted, Fingerprint: fp}, nil
-	}
-	return SignatureFacts{Signature: SignatureNone, Signer: SignerNone}, nil
 }

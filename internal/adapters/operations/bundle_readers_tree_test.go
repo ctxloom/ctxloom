@@ -2,10 +2,7 @@ package operations
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
@@ -15,13 +12,9 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -35,25 +28,8 @@ const (
 	treeCanonical = "ctxloom+git://github.com/acme/ctx//bundles/atelier"
 )
 
-func treeTestSigner(t *testing.T) (ssh.Signer, ssh.PublicKey) {
-	t.Helper()
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	s, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-	return s, s.PublicKey()
-}
-
-func treeTrustRoot(principal string, pub ssh.PublicKey) trust.TrustRoot {
-	return allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{principal},
-		Namespaces: []string{signing.NamespacePublish},
-		PublicKey:  pub,
-	})
-}
-
 // stageInstalledTree writes a directory-form bundle where `deps pull` installs
-// one, and returns the config reading it plus the tree store for signing.
+// one, and returns the config reading it plus the tree store.
 func stageInstalledTree(t *testing.T) (*config.Config, *content.TreeStore, content.Bundle, afero.Fs) {
 	t.Helper()
 	ctx := context.Background()
@@ -93,10 +69,10 @@ func stageInstalledTree(t *testing.T) (*config.Config, *content.TreeStore, conte
 
 // readTreeBundle drives the reader the Config builds for one lockfile tree
 // entry, and returns both halves a caller cares about: the bundle document, and
-// the read that carries what its attestation turned out to be.
-func readTreeBundle(t *testing.T, c *config.Config, ctx context.Context, canonical trust.BundleKey, entry remote.LockEntry, root trust.TrustRoot) (*bundles.Bundle, bundles.BundleRead, error) {
+// the read.
+func readTreeBundle(t *testing.T, c *config.Config, ctx context.Context, canonical trust.BundleKey, entry remote.LockEntry) (*bundles.Bundle, bundles.BundleRead, error) {
 	t.Helper()
-	reader, err := treeBundleReader(c, canonical, entry, root)
+	reader, err := treeBundleReader(c, canonical, entry)
 	if err != nil {
 		return nil, bundles.BundleRead{}, err
 	}
@@ -116,12 +92,9 @@ func treeEntry() remote.LockEntry {
 // its hooks in DECLARED order rather than the directory walk's alphabetical one.
 func TestLoadTreeBundle_ReadsTheInstalledTreeIntoABundle(t *testing.T) {
 	c, _, _, _ := stageInstalledTree(t)
-	_, pub := treeTestSigner(t)
 
-	b, read, err := readTreeBundle(t, c, context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+	b, read, err := readTreeBundle(t, c, context.Background(), treeCanonical, treeEntry())
 	require.NoError(t, err)
-	assert.Empty(t, read.Bundle.Signer(), "an unsigned tree is unsigned-to-us, not an error")
-	assert.Empty(t, read.UntrustedSignerFingerprint(), "and it names no key, because there is no signature to name one")
 	assert.Equal(t, "1.0.0", b.Version)
 	require.Contains(t, b.Fragments, "house-style")
 	assert.Equal(t, "FRAG-BODY", b.Fragments["house-style"].Content)
@@ -143,9 +116,8 @@ func TestLoadTreeBundle_ReadsTheInstalledTreeIntoABundle(t *testing.T) {
 // be loaded at all.
 func TestLoadTreeBundle_PathResolvesToTheInstalledDirectorySoSkillsCanLoad(t *testing.T) {
 	c, _, _, _ := stageInstalledTree(t)
-	_, pub := treeTestSigner(t)
 
-	b, _, err := readTreeBundle(t, c, context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+	b, _, err := readTreeBundle(t, c, context.Background(), treeCanonical, treeEntry())
 	require.NoError(t, err)
 
 	dir, err := b.FSDir()
@@ -155,85 +127,9 @@ func TestLoadTreeBundle_PathResolvesToTheInstalledDirectorySoSkillsCanLoad(t *te
 	assert.Equal(t, want, dir)
 }
 
-// A trusted publisher's manifest signature must reach the bundle as a verified
-// principal — that is what lifts its content off the review path.
-func TestLoadTreeBundle_SignedByATrustedKeyYieldsThePrincipal(t *testing.T) {
-	ctx := context.Background()
-	c, store, tree, _ := stageInstalledTree(t)
-	signer, pub := treeTestSigner(t)
-	require.NoError(t, attest.SignBundle(ctx, store, tree, treeRelease(t, tree), signer))
-
-	b, read, err := readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
-	require.NoError(t, err)
-	require.NotNil(t, b)
-	assert.Equal(t, "trent@acme.test", read.Bundle.Signer())
-	assert.Empty(t, read.UntrustedSignerFingerprint(),
-		"a VERIFIED tree has an identity to show; the display-only fingerprint is for the case that has none")
-}
-
-// The state this change exists for, on the tree path: the manifest IS signed,
-// and by a key this machine does not trust. The decision is identical to
-// unsigned — the content stays on the review path — but the DIAGNOSIS is not,
-// so the key is named, display-only, for an out-of-band comparison.
-func TestLoadTreeBundle_SignedByAnUntrustedKeyNamesTheKeyWithoutTrustingIt(t *testing.T) {
-	ctx := context.Background()
-	c, store, tree, _ := stageInstalledTree(t)
-	signer, pub := treeTestSigner(t)
-	require.NoError(t, attest.SignBundle(ctx, store, tree, treeRelease(t, tree), signer))
-
-	// A trust root that knows a DIFFERENT key: Carol signed, and nobody here
-	// trusts Carol.
-	_, strangerPub := treeTestSigner(t)
-	b, read, err := readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("someone-else@acme.test", strangerPub))
-	require.NoError(t, err, "an untrusted signature is ordinary third-party content, not an error")
-	require.NotNil(t, b)
-	assert.Empty(t, read.Bundle.Signer(), "nothing verified, so there is no publisher identity")
-	assert.Equal(t, ssh.FingerprintSHA256(pub), read.UntrustedSignerFingerprint(),
-		"the key that MADE the signature is named for comparison, and named as untrusted")
-	assert.Empty(t, b.Signer(), "and naming it must not have granted it anything")
-}
-
-// Editing one file in the installed cache after publication must WITHHOLD the
-// bundle, never degrade it to unsigned. Degrading would mean an attacker with
-// write access to the cache can turn signed content into merely-reviewable
-// content — a downgrade dressed as an ordinary review prompt.
-func TestLoadTreeBundle_EditedAfterSigningIsWithheldNotDegradedToUnsigned(t *testing.T) {
-	ctx := context.Background()
-	c, store, tree, fsys := stageInstalledTree(t)
-	signer, pub := treeTestSigner(t)
-	require.NoError(t, attest.SignBundle(ctx, store, tree, treeRelease(t, tree), signer))
-
-	dir, err := treeBundleDir(treeBase, treeCanonical)
-	require.NoError(t, err)
-	testsupport.WriteFile(t, fsys,
-		filepath.Join(dir, "fragments", "house-style.md"), []byte("SUBSTITUTED"), 0o644)
-
-	_, _, err = readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
-	require.Error(t, err)
-	assert.ErrorIs(t, err, bundles.ErrTreeBundleWithheld)
-}
-
-// A file ADDED to a signed tree is the laundering channel the manifest's
-// backwards direction exists to close: nothing enumerates it as an item, so
-// nothing would ever look at it.
-func TestLoadTreeBundle_FileAddedAfterSigningIsWithheld(t *testing.T) {
-	ctx := context.Background()
-	c, store, tree, fsys := stageInstalledTree(t)
-	signer, pub := treeTestSigner(t)
-	require.NoError(t, attest.SignBundle(ctx, store, tree, treeRelease(t, tree), signer))
-
-	dir, err := treeBundleDir(treeBase, treeCanonical)
-	require.NoError(t, err)
-	testsupport.WriteFile(t, fsys, filepath.Join(dir, "SMUGGLED.txt"), []byte("x"), 0o644)
-
-	_, _, err = readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
-	require.Error(t, err)
-	assert.ErrorIs(t, err, bundles.ErrTreeBundleWithheld)
-}
-
-// withheldFinding runs the startup report over one withheld read and returns
+// loadFailureFinding runs the startup report over one failed read and returns
 // the single finding it raised — the fix line is what the user is told to do.
-func withheldFinding(t *testing.T, err error) report.Finding {
+func loadFailureFinding(t *testing.T, err error) report.Finding {
 	t.Helper()
 	mark := strictness.Checkpoint()
 	defer strictness.Close(mark)
@@ -241,79 +137,6 @@ func withheldFinding(t *testing.T, err error) report.Finding {
 	found := strictness.Since(mark)
 	require.Len(t, found, 1)
 	return found[0]
-}
-
-// rewriteManifestMarker replaces the first line of the installed tree's signed
-// SHA256SUMS, leaving its signature exactly as the publisher filed it.
-func rewriteManifestMarker(t *testing.T, fsys afero.Fs, marker string) {
-	t.Helper()
-	dir, err := treeBundleDir(treeBase, treeCanonical)
-	require.NoError(t, err)
-	p := filepath.Join(dir, content.ManifestPath)
-	raw, err := afero.ReadFile(fsys, p)
-	require.NoError(t, err)
-	_, rest, ok := strings.Cut(string(raw), "\n")
-	require.True(t, ok)
-	testsupport.WriteFile(t, fsys, p, []byte(marker+"\n"+rest), 0o644)
-}
-
-// editInstalledFragment substitutes one item file of the installed tree after
-// it was signed.
-func editInstalledFragment(t *testing.T, fsys afero.Fs) {
-	t.Helper()
-	dir, err := treeBundleDir(treeBase, treeCanonical)
-	require.NoError(t, err)
-	testsupport.WriteFile(t, fsys, filepath.Join(dir, "fragments", "house-style.md"), []byte("SUBSTITUTED"), 0o644)
-}
-
-// A pin at a commit its publisher signed in the RETIRED format (a content
-// digest where a bundle manifest is required) is withheld exactly as before —
-// but a re-pull fetches the same commit, so the fix line must name the command
-// that moves the pin to the publisher's re-signed commit.
-func TestLoadTreeBundle_SupersededManifestFormatIsWithheldAndPointsAtUpgrade(t *testing.T) {
-	ctx := context.Background()
-	c, store, tree, fsys := stageInstalledTree(t)
-	signer, pub := treeTestSigner(t)
-	require.NoError(t, attest.SignBundle(ctx, store, tree, treeRelease(t, tree), signer))
-	rewriteManifestMarker(t, fsys, content.DigestVersionMarker)
-
-	_, _, err := readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
-	require.Error(t, err)
-	assert.ErrorIs(t, err, bundles.ErrTreeBundleWithheld, "what is withheld does not change")
-	assert.ErrorIs(t, err, content.ErrManifestSuperseded, "the withhold carries its cause, typed")
-
-	f := withheldFinding(t, err)
-	assert.Equal(t, report.KindTrust, f.Kind)
-	assert.Equal(t, supersededRemedy(t), f.Remedy)
-}
-
-// Every OTHER withheld cause keeps the tamper remedy: bytes edited after
-// signing, and a manifest marker this build does not know — the latter is a
-// NEWER format, which advancing the pin would only make more of.
-func TestLoadTreeBundle_OtherWithheldCausesKeepTheTamperRemedy(t *testing.T) {
-	cases := map[string]func(t *testing.T, fsys afero.Fs){
-		"file edited after signing": editInstalledFragment,
-		"unknown manifest marker": func(t *testing.T, fsys afero.Fs) {
-			rewriteManifestMarker(t, fsys, "# ctxloom-bundle-manifest/99")
-		},
-	}
-	for name, mutate := range cases {
-		t.Run(name, func(t *testing.T) {
-			ctx := context.Background()
-			c, store, tree, fsys := stageInstalledTree(t)
-			signer, pub := treeTestSigner(t)
-			require.NoError(t, attest.SignBundle(ctx, store, tree, treeRelease(t, tree), signer))
-			mutate(t, fsys)
-
-			_, _, err := readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
-			require.ErrorIs(t, err, bundles.ErrTreeBundleWithheld)
-			assert.NotErrorIs(t, err, content.ErrManifestSuperseded)
-
-			f := withheldFinding(t, err)
-			assert.Equal(t, report.KindTrust, f.Kind)
-			assert.Equal(t, remedyWithheldTampered, f.Remedy)
-		})
-	}
 }
 
 // A lockfile that records a tree which is not on disk must say THAT, not
@@ -324,18 +147,16 @@ func TestLoadTreeBundle_MissingTreeNamesThePathAndTheFix(t *testing.T) {
 	c := config.NewFixture(config.Fixture{AppPaths: []string{treeBase}})
 	c.SetRoot(safefs.NewMem(fsys))
 
-	_, pub := treeTestSigner(t)
-	_, _, err := readTreeBundle(t, c, context.Background(), treeCanonical, treeEntry(), treeTrustRoot("t@x", pub))
+	_, _, err := readTreeBundle(t, c, context.Background(), treeCanonical, treeEntry())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "atelier")
-	assert.Contains(t, withheldFinding(t, err).Remedy, "deps pull")
+	assert.Contains(t, loadFailureFinding(t, err).Remedy, "deps pull")
 }
 
 // treeBundleReaders must claim exactly the entries the byte reader refused for
 // being tree-shaped, and leave every other failure for the ordinary report.
 func TestTreeBundleReaders_ClaimsTreeRefusalsAndLeavesOtherFailuresAlone(t *testing.T) {
 	c, _, _, _ := stageInstalledTree(t)
-	_, pub := treeTestSigner(t)
 
 	lock := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{treeCanonical: treeEntry()}}
 	other := assert.AnError
@@ -344,7 +165,7 @@ func TestTreeBundleReaders_ClaimsTreeRefusalsAndLeavesOtherFailuresAlone(t *test
 		"https://github.com/acme/ctx@bundles/other": other,
 	}
 
-	readers := treeBundleReaders(c, lock, treeTrustRoot("trent@acme.test", pub), failures)
+	readers := treeBundleReaders(c, lock, failures)
 
 	require.Len(t, readers, 1, "the tree entry must get a reader")
 	reads, err := readers[0].Read(context.Background())
@@ -368,7 +189,6 @@ func TestTreeBundleReaders_ClaimsTreeRefusalsAndLeavesOtherFailuresAlone(t *test
 func TestTreeBundleReaders_MalformedEntryIsSkippedGoodOneStillLoads(t *testing.T) {
 	const brokenCanonical = "ctxloom+git://github.com/acme/ctx//bundles/broken"
 	c, _, _, fsys := stageInstalledTree(t)
-	_, pub := treeTestSigner(t)
 
 	brokenDir, err := treeBundleDir(treeBase, brokenCanonical)
 	require.NoError(t, err)
@@ -382,9 +202,8 @@ func TestTreeBundleReaders_MalformedEntryIsSkippedGoodOneStillLoads(t *testing.T
 		brokenCanonical: {SHA: "0123456789abcdef", URL: "https://github.com/acme/ctx"},
 	}}
 	failures := map[trust.BundleKey]error{}
-	root := treeTrustRoot("trent@acme.test", pub)
 
-	readers := treeBundleReaders(c, lock, root, failures)
+	readers := treeBundleReaders(c, lock, failures)
 	require.Len(t, readers, 2, "both entries have an installed directory, so both get a reader — "+
 		"the manifest is only parsed on Read")
 	assert.Empty(t, failures, "treeBundleReaders itself does not parse manifests, so neither entry fails yet")
@@ -429,9 +248,8 @@ func stageLoaderFormTree(t *testing.T) (*config.Config, afero.Fs, string) {
 // the tree form reads it as a bug in ctxloom rather than as work they owe.
 func TestLoadTreeBundle_RetiredLoaderDirectoryFormIsRefused(t *testing.T) {
 	c, _, _ := stageLoaderFormTree(t)
-	_, pub := treeTestSigner(t)
 
-	_, _, err := readTreeBundle(t, c, context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+	_, _, err := readTreeBundle(t, c, context.Background(), treeCanonical, treeEntry())
 	require.Error(t, err, "the retired shape must not load silently")
 	assert.Contains(t, err.Error(), "skills",
 		"the refusal must name the inline key that makes it the retired shape")

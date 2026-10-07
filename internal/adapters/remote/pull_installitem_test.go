@@ -28,7 +28,6 @@ func newInstallPuller(registry *Registry, fs afero.Fs, mf *mockFetcher, extra ..
 	opts := []PullerOption{
 		WithFetcherFactory(mockFetcherFactory(mf)),
 		WithTreeInstaller(stubTreeInstaller()),
-		WithTreeVerifier(stubTreeVerifier()),
 	}
 	opts = append(opts, extra...)
 	return NewPuller(registry, AuthConfig{}, opts...)

@@ -19,7 +19,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
@@ -179,7 +178,7 @@ func TestLoadCommandExports_CuratedForceEnablesOptOut(t *testing.T) {
 // TestLoadCommandExports_CuratedVersionPinned proves a curated prompt pinned to
 // "@<commit>" exports that historical version.
 func TestLoadCommandExports_CuratedVersionPinned(t *testing.T) {
-	resolver := func(_canonical, commit string, _ trust.TrustRoot) (*bundles.Bundle, error) {
+	resolver := func(_canonical, commit string) (*bundles.Bundle, error) {
 		if commit != "c1" {
 			t.Fatalf("unexpected commit %q", commit)
 		}

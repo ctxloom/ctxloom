@@ -585,9 +585,7 @@ func (c Catalog) Infos() []*BundleInfo {
 			CommandCount:  b.CommandCount(),
 			MCPCount:      b.MCPCount(),
 			ProfileCount:  b.ProfileCount(),
-			Signer:        b.Signer(),
 			Self:          b.Self(),
-			SelfSigned:    b.SelfSigned(),
 		})
 	}
 	return out
@@ -633,8 +631,7 @@ func ListingNames(infos []*BundleInfo) []string {
 // It holds exactly ONE rule, and that rule is not a policy about content: an
 // UNCLAIMED read — one whose axes were never populated — is not content with
 // unknown trust, it is a value nobody established anything about. Zero means
-// unset and unset means withhold, or a struct literal would read as "local,
-// unsigned, no signer".
+// unset and unset means withhold, or a struct literal would read as "local".
 //
 // It stays HERE, in the read stage, because it decides about a structurally
 // invalid VALUE: there is no honest
@@ -646,8 +643,8 @@ func ListingNames(infos []*BundleInfo) []string {
 func admit(rep report.Reporter, read BundleRead) bool {
 	if !read.Claimed() {
 		rep.Failf(report.KindTrust, "report this: a bundle reached the loader without established provenance",
-			"withholding a bundle read that established no trust facts (provenance %s, context %s, signature %s, signer %s)",
-			read.Provenance, read.trustCtx, read.signature, read.signer)
+			"withholding a bundle read that established no trust facts (provenance %s, context %s)",
+			read.Provenance, read.trustCtx)
 		return false
 	}
 	return true
@@ -655,11 +652,8 @@ func admit(rep report.Reporter, read BundleRead) bool {
 
 // FS returns the filesystem this set's local content was read from.
 //
-// A skill's trust preimage is derived from its on-disk tree
-// (BundleSkill.ContentPayload), so a caller computing that preimage for an item
-// this set resolved MUST use this same filesystem — computing it against a
-// different one produces a different hash for the same skill and silently
-// withholds it.
+// A skill's files are read from its on-disk tree, so a caller reading a skill
+// this set resolved MUST use this same filesystem.
 func (c Catalog) FS() afero.Fs {
 	if c.fs == nil {
 		return afero.NewOsFs()

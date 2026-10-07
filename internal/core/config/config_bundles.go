@@ -17,16 +17,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
-// bindTrustRoot and bindCatalog attach the generation's signer trust root and
-// resolved Catalog to the Config the Owner is about to publish, so a consumer
-// reaching this generation through its *Config sees exactly what the Snapshot
-// carries. The root is bound first because the readers the catalog resolves
-// verify against it. Called once per generation, before publication; never on
-// a published value.
-func (c *Config) bindTrustRoot(root trust.TrustRoot, sigCheckDisabled bool) {
-	c.trustRoot, c.sigCheckDisabled = root, sigCheckDisabled
-}
-
+// bindCatalog attaches the generation's resolved Catalog to the Config the
+// Owner is about to publish, so a consumer reaching this generation through its
+// *Config sees exactly what the Snapshot carries. Called once per generation,
+// before publication; never on a published value.
 func (c *Config) bindCatalog(catalog func() bundles.Catalog) { c.catalog = catalog }
 
 // Catalog returns the generation's bundle catalog. Every Config an Owner
@@ -35,35 +29,13 @@ func (c *Config) bindCatalog(catalog func() bundles.Catalog) { c.catalog = catal
 // fixture — has no generation to pin: it resolves the one reader core
 // itself can build, the project's authored bundles, on every call, and never
 // sees remote or companion content, which only the composition root's
-// Sources supply. It verifies against its TrustRoot, which for a fixture
-// nobody bound trusts no signer (trust.NoSigners): a signed bundle reads as
-// untrusted rather than as whatever the machine's signer files say.
+// Sources supply.
 func (c *Config) Catalog() bundles.Catalog {
 	if c.catalog != nil {
 		return c.catalog()
 	}
-	root := c.TrustRoot()
 	return bundles.Resolve(context.Background(), c.rep.Sink,
-		bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs(), bundles.WithTrustRoot(root), bundles.WithReaderReporter(c.rep.Sink)))
-}
-
-// TrustRoot is the generation's signer trust root (bindTrustRoot). A Config
-// no Owner published trusts no signer (trust.NoSigners).
-func (c *Config) TrustRoot() trust.TrustRoot {
-	if c == nil || c.trustRoot == nil {
-		return trust.NoSigners{}
-	}
-	return c.trustRoot
-}
-
-// SignatureCheckDisabled reports whether this generation was built with
-// signature verification waived (WithoutSignatureCheck).
-func (c *Config) SignatureCheckDisabled() bool { return c != nil && c.sigCheckDisabled }
-
-// BindTrustRootForTesting binds root and the signature-check posture to this
-// Config exactly as the Owner does before publishing a Snapshot.
-func (c *Config) BindTrustRootForTesting(root trust.TrustRoot, sigCheckDisabled bool) {
-	c.bindTrustRoot(root, sigCheckDisabled)
+		bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs(), bundles.WithReaderReporter(c.rep.Sink)))
 }
 
 // mcpNameClaims settles the MCP server-name contest at the BUNDLE-RESOLUTION

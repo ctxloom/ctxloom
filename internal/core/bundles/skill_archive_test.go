@@ -20,8 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -883,97 +881,6 @@ func testSkillSigner(t *testing.T) (ssh.Signer, ssh.PublicKey) {
 	signer, err := ssh.NewSignerFromSigner(priv)
 	require.NoError(t, err)
 	return signer, signer.PublicKey()
-}
-
-// skillPublisherRoot builds a real allowed_signers store trusting pub as
-// principal for the publish namespace only — mirrors
-// internal/adapters/signing/publisher_test.go's rootWith helper (a real store is used
-// on purpose: the namespace/role check is part of what these tests exercise).
-func skillPublisherRoot(principal string, pub ssh.PublicKey) *allowedsigners.Store {
-	return allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{principal},
-		Namespaces: []string{signing.NamespacePublish},
-		PublicKey:  pub,
-	})
-}
-
-// TestPublisherSkillSignatureVerifier_SignedManifestVerifies is the TDD "a
-// signed skill verifies" case: a manifest signed by a key the trust root
-// trusts for the publish namespace must verify with no error — the
-// production contract operations.ImportSkill relies on
-// (verifier.VerifyManifestSignature(pkg.Manifest) before it trusts the
-// import).
-func TestPublisherSkillSignatureVerifier_SignedManifestVerifies(t *testing.T) {
-	_, pkg, _ := buildValidSkillZip(t, "humanize")
-	signer, pub := testSkillSigner(t)
-
-	sig, err := signing.Sign(pkg.Manifest.Serialize(), signer, signing.NamespacePublish)
-	require.NoError(t, err)
-
-	verifier := PublisherSkillSignatureVerifier{
-		ArmoredSignature: sig,
-		Root:             skillPublisherRoot("bundles@ctxloom.dev", pub),
-	}
-	require.NoError(t, verifier.VerifyManifestSignature(pkg.Manifest))
-}
-
-// TestPublisherSkillSignatureVerifier_UntrustedPublisherWithholds is the TDD
-// "unsigned/untrusted-publisher skill" case: a perfectly valid signature by a
-// key the trust root does NOT authorize for the publish namespace must
-// withhold — mirroring the command/prompt contract that an untrusted
-// publisher's content is not trusted until a human reviews and accepts it
-// (see TestSetItemTrust_ApprovesSkillCurrentVersion in internal/adapters/operations
-// for that review+accept path).
-func TestPublisherSkillSignatureVerifier_UntrustedPublisherWithholds(t *testing.T) {
-	_, pkg, _ := buildValidSkillZip(t, "humanize")
-	signer, _ := testSkillSigner(t)
-	_, someoneElsesPub := testSkillSigner(t)
-
-	sig, err := signing.Sign(pkg.Manifest.Serialize(), signer, signing.NamespacePublish)
-	require.NoError(t, err)
-
-	// The trust root trusts a DIFFERENT key than the one that actually signed.
-	verifier := PublisherSkillSignatureVerifier{
-		ArmoredSignature: sig,
-		Root:             skillPublisherRoot("someone-else@example.com", someoneElsesPub),
-	}
-	err = verifier.VerifyManifestSignature(pkg.Manifest)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not by a publisher this machine trusts")
-}
-
-// TestPublisherSkillSignatureVerifier_NoSignatureWithholds proves an absent
-// signature is a hard stop (unlike VerifyPublisher's ordinary "unsigned is
-// not an error" contract, which applies to the review path, not this
-// production import gate).
-func TestPublisherSkillSignatureVerifier_NoSignatureWithholds(t *testing.T) {
-	_, pkg, _ := buildValidSkillZip(t, "humanize")
-	_, pub := testSkillSigner(t)
-
-	verifier := PublisherSkillSignatureVerifier{Root: skillPublisherRoot("bundles@ctxloom.dev", pub)}
-	err := verifier.VerifyManifestSignature(pkg.Manifest)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no signature present")
-}
-
-// TestPublisherSkillSignatureVerifier_TamperedSignatureRejected proves a
-// signature that does not actually cover the given manifest (e.g. corrupted,
-// or made over different bytes) is rejected outright — never silently
-// downgraded to "unsigned, please review" (signing.ErrSignatureTampered's
-// contract, reused unchanged here).
-func TestPublisherSkillSignatureVerifier_TamperedSignatureRejected(t *testing.T) {
-	_, pkg, _ := buildValidSkillZip(t, "humanize")
-	signer, pub := testSkillSigner(t)
-
-	// Sign a DIFFERENT manifest than the one actually installed.
-	otherSig, err := signing.Sign([]byte("not this package's manifest bytes"), signer, signing.NamespacePublish)
-	require.NoError(t, err)
-
-	verifier := PublisherSkillSignatureVerifier{
-		ArmoredSignature: otherSig,
-		Root:             skillPublisherRoot("bundles@ctxloom.dev", pub),
-	}
-	require.Error(t, verifier.VerifyManifestSignature(pkg.Manifest))
 }
 
 // TestImportSkillArchive_FailedValidationLeavesDestinationIntact pins the fix

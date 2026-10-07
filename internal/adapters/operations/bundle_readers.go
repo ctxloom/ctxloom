@@ -50,15 +50,13 @@ func lockfileFSOptions(cfg *config.Config) []remote.LockfileOption {
 // the map after this runs is a REAL failure — nothing else claims it.
 //
 // A tree whose directory cannot even be opened REPLACES that entry's failure
-// with its own, so the user is told what actually went wrong. A tree that opens
-// but does not match what its publisher signed is the READER's answer, not this
-// function's: it is a fact about bytes, established where the bytes are read.
-func treeBundleReaders(cfg *config.Config, lock *remote.Lockfile, root trust.TrustRoot, failures map[trust.BundleKey]error) []bundles.Reader {
+// with its own, so the user is told what actually went wrong.
+func treeBundleReaders(cfg *config.Config, lock *remote.Lockfile, failures map[trust.BundleKey]error) []bundles.Reader {
 	trees := slices.Sorted(maps.Keys(lock.Bundles)) // deterministic reader order across runs
 
 	var out []bundles.Reader
 	for _, canonical := range trees {
-		reader, err := treeBundleReader(cfg, canonical, lock.Bundles[canonical], root)
+		reader, err := treeBundleReader(cfg, canonical, lock.Bundles[canonical])
 		if err != nil {
 			failures[canonical] = err
 			continue
@@ -73,28 +71,19 @@ func treeBundleReaders(cfg *config.Config, lock *remote.Lockfile, root trust.Tru
 // checked out for one lockfile entry.
 //
 // WHY THE INSTALLED TREE AND NOT THE CLONE AT THE PINNED SHA — walking the
-// tree in the git clone at entry.SHA is the obvious alternative. Two things
-// rule it out:
-//
-//   - a bundle's SKILLS are files on disk. bundles.Bundle.FSDir has to return a
-//     real directory or a skill package is unloadable (it refuses the synthetic
-//     "<remote>:…" path outright), and the checked-out worktree is the only real
-//     directory a tree bundle has. That is what WithInstalledDir carries.
-//   - verifying the installed tree is STRICTLY STRONGER than trusting the pin.
-//     The reader checks the publisher's signature over the manifest AND the tree
-//     against that manifest in both directions, so an edit to the installed
-//     cache is caught. The pin cannot see the cache at all.
-//
-// The pin is not thereby abandoned: it is what `deps pull` fetched at, and it
-// still decides WHICH bytes were installed. What changed is that integrity is
-// now checked where the bytes are actually read from.
+// tree in the git clone at entry.SHA is the obvious alternative. A bundle's
+// SKILLS rule it out: they are files on disk, bundles.Bundle.FSDir has to
+// return a real directory or a skill package is unloadable (it refuses the
+// synthetic "<remote>:…" path outright), and the checked-out worktree is the
+// only real directory a tree bundle has. That is what WithInstalledDir
+// carries. The pin still decides WHICH bytes were installed.
 //
 // The tree is rooted at the bundle directory's PARENT: a bundle id must be a
 // single path segment (content.validateBundleID), and the rest of the bundle's
 // repository path is absorbed by the root rather than smuggled into the id.
 // That parent is inside the worktree, because a sparse checkout lays the bundle
 // out at its repository path — see Reference.LocalTreePath.
-func treeBundleReader(cfg *config.Config, canonical trust.BundleKey, entry remote.LockEntry, root trust.TrustRoot) (bundles.Reader, error) {
+func treeBundleReader(cfg *config.Config, canonical trust.BundleKey, entry remote.LockEntry) (bundles.Reader, error) {
 	if len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
@@ -113,20 +102,12 @@ func treeBundleReader(cfg *config.Config, canonical trust.BundleKey, entry remot
 	if err != nil {
 		return nil, fmt.Errorf("the tree installed for %q at %s cannot be opened: %w", canonical, dir, err)
 	}
-	opts := []bundles.ReaderOption{
-		bundles.WithTrustRoot(root),
+	return bundles.NewRepoFSReader(tree, string(canonical),
 		bundles.WithReaderReporter(cfg.Reporter()),
 		bundles.WithInstalledDir(dir),
 		bundles.WithPinnedRevision(entry.SHA),
 		bundles.WithRepoURL(entry.URL),
-	}
-	// The owner ruled that --disable-sig-check also accepts an installed signed
-	// tree edited after signing. The verifier still says so; the generation's
-	// waived gate decides, and names it.
-	if cfg.SignatureCheckDisabled() {
-		opts = append(opts, bundles.WithEditedTreesCarried())
-	}
-	return bundles.NewRepoFSReader(tree, string(canonical), opts...), nil
+	), nil
 }
 
 // treeBundleDir resolves the directory `deps pull` checked a tree bundle out
@@ -216,34 +197,12 @@ func worktreeInstalled(fsys afero.Fs, baseDir string, canonical trust.BundleKey)
 // Fatal-class in strict mode because the user PINNED these: content silently
 // missing from a session is exactly the failure fail-loudly exists to catch. It
 // warns and continues in degraded mode.
-//
-// A WITHHELD tree is reported differently, and deliberately: its bytes are on
-// disk and re-pulling would fetch the same ones, so the default fix cannot fix
-// it. It is also not a delivery problem at all — the content disagrees with what
-// its publisher signed — so it is classed as a trust failure rather than a
-// delivery one. This is the only path on which installed remote bytes can be
-// refused for disagreeing with their signature. A fix line that cannot fix the
-// thing it is attached to is worse than no fix line at all.
 func reportBundleLoadFailures(failures map[trust.BundleKey]error) {
 	for name, err := range failures {
-		if errors.Is(err, bundles.ErrTreeBundleWithheld) {
-			strictness.FailOnce(report.KindTrust, withheldRemedy(err),
-				"remote bundle %q was installed but withheld: %v", name, err)
-			continue
-		}
 		strictness.FailOnce(report.KindBundle, remedyOr(err, "ctxloom deps pull (or remove the bundle from its profiles)"),
 			"failed to load remote bundle %q from cache: %v", name, err)
 	}
 }
-
-// remedyWithheldTampered is the fix line for a withheld tree whose refusal
-// names no fix of its own. The withhold itself is decided by the reader; this
-// only chooses what to tell the user about it.
-const remedyWithheldTampered = "re-pull the bundle, or investigate the source — the installed tree does not match the manifest its publisher signed"
-
-// withheldRemedy is the fix the refusal raised (a retired-format manifest
-// names the upgrade that moves its pin), else the tamper remedy.
-func withheldRemedy(err error) string { return remedyOr(err, remedyWithheldTampered) }
 
 // remedyOr is the fix err names for its own cause (clifmt.Remedier), else
 // fallback: the error knows which command repairs it, the reporter does not.
@@ -255,8 +214,7 @@ func remedyOr(err error, fallback string) string {
 }
 
 // remoteBundleReaders builds one pinned-tree reader per lockfile-listed bundle:
-// the bytes come from the tree `deps pull` installed, and each reader does its
-// OWN signature checking over exactly those bytes.
+// the bytes come from the tree `deps pull` installed.
 //
 // Canonical refs are the sole resolution identity: profiles author canonical
 // refs and resolve straight to these readers' content, so each reader is
@@ -310,8 +268,8 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 	if lock.IsEmpty() {
 		return nil
 	}
-	withheld := map[trust.BundleKey]error{}
-	lock = registeredEntries(lock, registry, withheld)
+	unregistered := map[trust.BundleKey]error{}
+	lock = registeredEntries(lock, registry, unregistered)
 	// Auth config and the git clone cache are inherently OS-backed (the cache
 	// shells out to git), so they intentionally do not honor cfg.FS().
 	auth := remote.LoadAuth(baseDir)
@@ -323,22 +281,16 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 
 	ctx := context.Background()
 	_, failures := remote.LoadAllBytes(ctx, reader)
-	maps.Copy(failures, withheld)
-
-	// The trust root (embedded + user + project allowed_signers) is resolved once
-	// for the whole set and handed to every reader, so no two pinned bundles are
-	// judged against different roots.
-	root := cfg.TrustRoot()
+	maps.Copy(failures, unregistered)
 
 	// EVERY remote bundle is a TREE, so treeBundleReaders is the whole set.
 	//
 	// Presenting a tree's bundle.yaml as a lone document drops the items beside it — the
-	// fragments, skills and prompts that live as FILES in the tree — while
-	// checking a signature over the manifest alone rather than over the tree.
-	// That is not hypothetical: leaving the loop unguarded is exactly what made
+	// fragments, skills and prompts that live as FILES in the tree. That is not
+	// hypothetical: leaving the loop unguarded is exactly what made
 	// a published fragment stop reaching the consumer's assistant while every
 	// other surface kind still arrived.
-	return pinnedTreeReaders(cfg, lock, root, failures)
+	return pinnedTreeReaders(cfg, lock, failures)
 }
 
 // registeredEntries returns the part of lock whose repositories are
@@ -364,8 +316,8 @@ func registeredEntries(lock *remote.Lockfile, registry *remote.Registry, failure
 // bundle that could not be read, and hands those failures to the catalog
 // (unreadableTrees) so an ask for one is known to be already reported rather
 // than mistaken for a missing bundle and reported again.
-func pinnedTreeReaders(cfg *config.Config, lock *remote.Lockfile, root trust.TrustRoot, failures map[trust.BundleKey]error) []bundles.Reader {
-	out := treeBundleReaders(cfg, lock, root, failures)
+func pinnedTreeReaders(cfg *config.Config, lock *remote.Lockfile, failures map[trust.BundleKey]error) []bundles.Reader {
+	out := treeBundleReaders(cfg, lock, failures)
 	reportBundleLoadFailures(failures)
 	if len(failures) == 0 {
 		return out
@@ -393,7 +345,7 @@ func (u unreadableTrees) ReadFailures() map[string]error {
 // by the ref's SOURCE — the loader's multi-version coexistence backed end to end:
 //
 //   - remote/canonical ref → the whole pinned TREE out of the local git clone
-//     cache (bundles.ReadRemoteRef), verified before it is interpreted;
+//     cache (bundles.ReadRemoteRef);
 //   - ctxloom:local ref → the whole bundle TREE as of <commit> in the PROJECT'S
 //     OWN git history (the committed .ctxloom/content/ tree), read through
 //     readLocalTreeAt. The unversioned local path is untouched: the loader only
@@ -423,7 +375,7 @@ func BundleVersionResolver(cfg *config.Config) bundles.BundleVersionResolver {
 		registry *remote.Registry
 		regErr   error
 	)
-	return func(canonicalRef, commit string, root trust.TrustRoot) (*bundles.Bundle, error) {
+	return func(canonicalRef, commit string) (*bundles.Bundle, error) {
 		ref, err := remote.ParseReference(canonicalRef)
 		if err != nil {
 			return nil, fmt.Errorf("parse %q: %w", canonicalRef, err)
@@ -456,8 +408,7 @@ func BundleVersionResolver(cfg *config.Config) bundles.BundleVersionResolver {
 		// and skills are FILES beside its bundle.yaml, so reading the manifest
 		// alone resolved every @<commit>-pinned tree bundle to a bundle with
 		// zero items — the real product bundle, silently empty.
-		b, _, err := bundles.ReadRemoteRef(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher, root)
-		return b, err
+		return bundles.ReadRemoteRef(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher)
 	}
 }
 
@@ -469,9 +420,9 @@ func BundleVersionResolver(cfg *config.Config) bundles.BundleVersionResolver {
 //
 // The tree is walked with the same remotetree.FetchFiles the remote path uses
 // (its budgets and traversal refusal included), over a git fetcher opened on
-// the project's own repository. It is served with LOCAL provenance and is not
-// attestation-checked: project content is trusted by locality, exactly as the
-// unversioned local reader trusts it.
+// the project's own repository. It is served with LOCAL provenance: project
+// content is trusted by locality, exactly as the unversioned local reader
+// trusts it.
 func readLocalTreeAt(ctx context.Context, contentRoot string, ref *remote.Reference, rev string) (*bundles.Bundle, error) {
 	repoRoot, err := gitutil.FindRoot(contentRoot)
 	if err != nil {

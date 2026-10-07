@@ -132,10 +132,8 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 // a failed re-distill keeps its previous distillation), so a run where every
 // attempt failed has nothing to persist. Saving anyway is not a harmless
 // no-op: Store.Save re-marshals the document, which loses the author's comments
-// and key order, and the re-marshalled bytes no longer match any detached
-// publisher signature — so invalidateStaleSignature then DELETES the author's
-// signature. An offline LLM would have cost them their comments and their
-// signature, in exchange for nothing.
+// and key order. An offline LLM would have cost them their comments, in
+// exchange for nothing.
 func anyDistilled(items []DistillBundleItem) bool {
 	for _, it := range items {
 		if it.Status == DistillStatusDistilled {

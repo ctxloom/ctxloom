@@ -58,7 +58,7 @@ func TestPushBundle_GenericGitRemote_LandsTheTreeInTheBareRepository(t *testing.
 	require.NoError(t, err)
 
 	cmd, out := testCmd()
-	require.NoError(t, pushBundleCfg(cmd, cfg, nil, nil, "dir-form", "", false, "", false, true))
+	require.NoError(t, pushBundleCfg(cmd, cfg, nil, "dir-form", "", false, ""))
 
 	target := remote.PublishPath(remote.ItemTypeBundle, "dir-form")
 	assert.Equal(t, strings.TrimSpace(string(manifestBytes)),

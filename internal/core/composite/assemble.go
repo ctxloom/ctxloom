@@ -23,8 +23,7 @@ import (
 const contextSectionSeparator = "\n\n---\n\n"
 
 // Assemble is the ONE constructor from sources. It reads nothing: cat is
-// resolved and profiles loaded. root verifies the signature of a pinned
-// historical version (Options.Versions). It refuses a withheld required
+// resolved and profiles loaded. It refuses a withheld required
 // item (unless Options.DropWithheld, recorded in the
 // attestation).
 //
@@ -37,12 +36,12 @@ const contextSectionSeparator = "\n\n---\n\n"
 // bundles and the catalog's companion loadouts ship, one per item. Hooks,
 // MCP servers, the deny list and the statusline are carried as the caller
 // resolved them.
-func Assemble(ctx context.Context, cat bundles.Catalog, sel Selection, root trust.TrustRoot, opts Options) (Package, error) {
+func Assemble(ctx context.Context, cat bundles.Catalog, sel Selection, opts Options) (Package, error) {
 	pipe := opts.Pipeline
 	if pipe == nil {
 		loader := bundles.LoaderOf(cat)
 		if opts.Versions != nil {
-			loader.WithVersionResolver(opts.Versions, root)
+			loader.WithVersionResolver(opts.Versions)
 		}
 		pipe = bundles.NewPipeline(loader, bundles.ServerGrant(opts.MCP), opts.PreferDistilled)
 	}
@@ -153,10 +152,9 @@ func (a *assembly) fragment(ask FragmentAsk) {
 		return
 	}
 	item := Item[Fragment]{
-		Value:  Fragment{Name: ask.Name, Premise: lc.Premise},
-		Ref:    ask.Name,
-		Form:   lc.Form,
-		Signer: lc.Signer,
+		Value: Fragment{Name: ask.Name, Premise: lc.Premise},
+		Ref:   ask.Name,
+		Form:  lc.Form,
 	}
 	if a.holdBack(lc.Premise, ask.Name) {
 		item.Value.Body = a.substitute(ask.Name, lc.Content)
@@ -220,7 +218,7 @@ func (a *assembly) row(ref, body string) {
 func (a *assembly) commands() {
 	cc := commandCollector{a: a, seen: map[string]bool{}}
 	for _, c := range a.opts.Commands {
-		cc.add(c, c.Name, "", bundles.FormRaw)
+		cc.add(c, c.Name, bundles.FormRaw)
 	}
 	if len(a.sel.Commands) > 0 {
 		for _, ask := range a.sel.Commands {
@@ -261,14 +259,14 @@ type commandCollector struct {
 
 // add records c and its attestation row, unless its bundle item is already
 // in (a command with no item, an injected one, is always added).
-func (cc *commandCollector) add(c Command, ref, signer string, form bundles.ContentForm) {
+func (cc *commandCollector) add(c Command, ref string, form bundles.ContentForm) {
 	if c.Item != "" && cc.seen[c.Item] {
 		return
 	}
 	if c.Item != "" {
 		cc.seen[c.Item] = true
 	}
-	cc.a.commandItems = append(cc.a.commandItems, Item[Command]{Value: c, Ref: ref, Form: form, Signer: signer})
+	cc.a.commandItems = append(cc.a.commandItems, Item[Command]{Value: c, Ref: ref, Form: form})
 	cc.a.row(ref, c.Body)
 }
 
@@ -283,7 +281,7 @@ func (cc *commandCollector) fromLoaded(lc *bundles.LoadedContent, curated bool) 
 		Body:        lc.Content,
 		Exports:     blocks(lc.Exports),
 		Curated:     curated,
-	}, lc.TrustRef, lc.Signer, lc.Form)
+	}, lc.TrustRef, lc.Form)
 }
 
 // fromBundles adds every command of each bundle ref, uncurated.
@@ -353,7 +351,7 @@ func (a *assembly) skills() {
 				Exports:     blocks(ls.Exports),
 				Curated:     curated,
 			},
-			Ref: ls.TrustRef, Form: bundles.FormRaw, Signer: ls.Signer,
+			Ref: ls.TrustRef, Form: bundles.FormRaw,
 		})
 		a.rows = append(a.rows, ItemAttestation{Ref: ls.TrustRef, Hash: hex.EncodeToString(h.Sum(nil))})
 	}

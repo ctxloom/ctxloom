@@ -24,7 +24,7 @@ func hookOrderP(v int) *int { return &v }
 // those shapes is tested on the hooks themselves, under real read facts.
 func readWithHooks(t *testing.T, hooks bundles.BundleHooks) bundles.BundleRead {
 	t.Helper()
-	read := bundletree.ProjectRead(t, "fixture", &bundles.Bundle{}, bundletree.Unsigned)
+	read := bundletree.ProjectRead(t, "fixture", &bundles.Bundle{})
 	read.Bundle.Hooks = hooks
 	return read
 }
@@ -46,7 +46,7 @@ func TestExtractHooksFromBundle_OrderFieldSequencesWithinAnEvent(t *testing.T) {
 			Order:   hookOrderP((12 - i) * 100),
 		})
 	}
-	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundletree.Unsigned), mustLocalRef(t, "src"), bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}), mustLocalRef(t, "src"), bundles.LinksUnchecked())
 
 	require.Len(t, got.PreTool, 12)
 	var cmds []string
@@ -67,7 +67,7 @@ func TestExtractHooksFromBundle_NoDeclaredOrderKeepsAuthoredPosition(t *testing.
 		{Type: "command", Command: "alpha"},
 		{Type: "command", Command: "mike"},
 	}
-	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundletree.Unsigned), mustLocalRef(t, "src"), bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}), mustLocalRef(t, "src"), bundles.LinksUnchecked())
 
 	var cmds []string
 	for _, h := range got.PreTool {
@@ -107,7 +107,7 @@ func TestExtractHooksFromBundle_DeclaredOrderBeatsUndeclared(t *testing.T) {
 // against.
 func TestExtractHooksFromBundle_OrderIsConsumedAndNeverSerialized(t *testing.T) {
 	in := []bundles.BundleHook{{Type: "command", Command: "x", Order: hookOrderP(4242)}}
-	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundletree.Unsigned), mustLocalRef(t, "src"), bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}), mustLocalRef(t, "src"), bundles.LinksUnchecked())
 	require.Len(t, got.PreTool, 1)
 
 	encoded, err := json.Marshal(got.PreTool[0])

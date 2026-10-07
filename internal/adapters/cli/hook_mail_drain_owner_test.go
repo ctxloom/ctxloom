@@ -64,8 +64,6 @@ func TestSwitches_ConsumeTheSessionOwnerMarker(t *testing.T) {
 	prev := sessionOwnerEnv
 	sessionOwnerEnv = sync.OnceValue(func() bool { return consumeEnvSwitch(sessions.EnvSessionOwner) })
 	t.Cleanup(func() { sessionOwnerEnv = prev })
-	withSigCheckEnv(t, false)
-	withSessionSigCheckEnv(t, false)
 
 	_ = switches(nil)
 

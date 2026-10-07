@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -35,8 +34,7 @@ func TestProbeCompanionLoadouts_ProbesItselfThroughSelfexec(t *testing.T) {
 		return "", exec.ErrNotFound
 	}))
 	var execd []string
-	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout("version: 1.0.0\nfragments:\n  isolation-axes:\n    content: SELF\n"), nil, "")
-	require.NoError(t, err)
+	envelope := testsupport.RunLoadout("version: 1.0.0\nfragments:\n  isolation-axes:\n    content: SELF\n")
 	t.Cleanup(SetCompanionLoadoutOutputForTesting(func(path string) ([]byte, error) {
 		execd = append(execd, path)
 		return envelope, nil
@@ -82,8 +80,7 @@ func TestProbeCompanionLoadouts_DisabledStillProbesItself(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Cleanup(SetLookPathForTesting(func(bin string) (string, error) { return "/fake/" + bin, nil }))
 	t.Cleanup(AdmitEveryDiscoveredCompanionForTesting())
-	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout("version: 1.0.0\n"), nil, "")
-	require.NoError(t, err)
+	envelope := testsupport.RunLoadout("version: 1.0.0\n")
 	var execd []string
 	t.Cleanup(SetCompanionLoadoutOutputForTesting(func(path string) ([]byte, error) {
 		execd = append(execd, path)

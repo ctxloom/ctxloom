@@ -2,11 +2,9 @@ package bundles
 
 import (
 	"context"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
@@ -68,10 +66,8 @@ func (p ProvenanceClass) String() string {
 //
 // Two values, deliberately. Project, builtin and companion content are all
 // LOCAL — a builtin was compiled into this binary and a companion loadout came
-// straight off the stdout of a binary the user consented to execute — and a
-// publisher signature exists to catch an intermediary that none of those three
-// have. Remote content is the one class that must EARN trust rather than
-// inherit it.
+// straight off the stdout of a binary on the user's PATH. Remote content came
+// from a repository the user registered, and registering it was the trust act.
 type TrustCtx int
 
 // The trust contexts. Zero is UNSET and no reader emits it; anything consuming
@@ -79,11 +75,10 @@ type TrustCtx int
 const (
 	TrustCtxUnset TrustCtx = iota
 	// TrustCtxLocal is content that reached this machine without an
-	// intermediary. Signature facts on it are DIAGNOSTICS, not gates: a
-	// human with write access placed it, and that placement is the approval.
+	// intermediary: a human with write access placed it.
 	TrustCtxLocal
-	// TrustCtxRemote is content that crossed a network and a forge. Signature
-	// facts on it are the gate's inputs.
+	// TrustCtxRemote is content that crossed a network and a forge, from a
+	// registered remote.
 	TrustCtxRemote
 )
 
@@ -98,92 +93,18 @@ func (t TrustCtx) String() string {
 	}
 }
 
-// Signature is what a detached signature over these exact bytes turned out to
-// be — a fact about BYTES, saying nothing about who made it.
-type Signature int
-
-// The signature states. Zero is UNSET and no reader emits it: an unpopulated
-// BundleRead must not read as "no signature", which is a claim.
-const (
-	SignatureUnset Signature = iota
-	// SignatureNone means no signature accompanied these bytes.
-	SignatureNone
-	// SignatureInvalid means a signature exists and does not cover these bytes
-	// (or is not a signature at all, or could not be read). Tamper on remote
-	// content; on local content, usually an author who edited and did not
-	// re-sign.
-	SignatureInvalid
-	// SignatureValid means a signature cryptographically covers exactly these
-	// bytes, by whatever key made it.
-	SignatureValid
-)
-
-func (s Signature) String() string {
-	switch s {
-	case SignatureNone:
-		return "none"
-	case SignatureInvalid:
-		return "invalid"
-	case SignatureValid:
-		return "valid"
-	default:
-		return "unset"
-	}
-}
-
-// Signer is what this machine's trust root says about the KEY behind that
-// signature — a fact about IDENTITY, orthogonal to whether the signature holds.
-//
-// The two axes are separate because a merged verdict collapses "a trusted key
-// whose signature no longer covers these bytes" (someone edited and did not
-// re-sign — recurring, non-adversarial, wants "re-sign this") into the same
-// bucket as a stranger's bad blob (wants "do not trust this"). Keeping them
-// apart is what lets those be different sentences.
-type Signer int
-
-// The signer states. Zero is UNSET and no reader emits it.
-const (
-	SignerUnset Signer = iota
-	// SignerNone means there was no signature, so there is no key to speak of.
-	SignerNone
-	// SignerUntrusted means a key made this signature and this machine does
-	// not trust it to publish. Display its fingerprint; never treat it as an
-	// identity.
-	SignerUntrusted
-	// SignerTrusted means the trust root authorizes this key for the publish
-	// namespace.
-	SignerTrusted
-)
-
-func (s Signer) String() string {
-	switch s {
-	case SignerNone:
-		return "none"
-	case SignerUntrusted:
-		return "untrusted"
-	case SignerTrusted:
-		return "trusted"
-	default:
-		return "unset"
-	}
-}
-
 // BundleRead is one bundle as a reader found it: the content, the label saying
-// where it came from, and the three trust axes as FACTS.
+// where it came from, and its trust context as a FACT.
 //
-// The three axes are UNEXPORTED and settable only through newRead, which only
-// this package's readers call. That is not ceremony: an exported trustCtx would
-// let any caller anywhere mint local-context content out of a struct literal —
-// a trust bypass that reviews as data. It is the same rule, for the same
-// reason, that keeps Bundle.untrustedSignerFingerprint unexported with
-// `yaml:"-"` so a bundle file cannot forge its own signer
-// (TestParseBundle_YAMLCannotForgeUntrustedSignerFingerprint).
+// The trust context is UNEXPORTED and settable only through newRead, which only
+// this package's readers call: an exported trustCtx would let any caller
+// anywhere mint local-context content out of a struct literal.
 type BundleRead struct {
 	// Bundle is the parsed content. Never nil in a read a reader emitted.
 	Bundle *Bundle
 
 	// Init is the typed INIT loadout that arrived beside Bundle in the same
-	// signed document — set only by the companion reader, the zero value for
+	// document — set only by the companion reader, the zero value for
 	// every other source class. It is content, not a trust axis, which is
 	// why it is exported like Bundle: the facts that decide whether it may
 	// be delivered are the read's, established once for both halves.
@@ -217,20 +138,7 @@ type BundleRead struct {
 	// whose migration silently changed nothing.
 	alsoIn []paths.BundleLayout
 
-	trustCtx  TrustCtx
-	signature Signature
-	signer    Signer
-
-	// signatureDetail is the human-readable reason a signature is invalid,
-	// carried so the diagnostic can say WHAT went wrong rather than only that
-	// something did. Empty for every other state.
-	signatureDetail string
-
-	// untrustedFingerprint is the DISPLAY-ONLY fingerprint of the key that
-	// made an untrusted signature (signing.SignatureKeyFingerprint). Never an
-	// identity, never a trust input; it exists so a review surface can show a
-	// human which key they would be trusting.
-	untrustedFingerprint string
+	trustCtx TrustCtx
 }
 
 // DisplayName reports the name a listing shows for this bundle and a user may
@@ -317,21 +225,6 @@ func ItemRefFor(src trust.BundleRef, kind trust.ItemKind, item string) (string, 
 // TrustCtx reports the only axis a gate keys on.
 func (r BundleRead) TrustCtx() TrustCtx { return r.trustCtx }
 
-// Signature reports what the detached signature over these bytes turned out to be.
-func (r BundleRead) Signature() Signature { return r.signature }
-
-// Signer reports what the trust root says about the key behind that signature.
-func (r BundleRead) Signer() Signer { return r.signer }
-
-// SignatureDetail reports why a signature is invalid, for diagnostics. Empty
-// unless Signature is SignatureInvalid.
-func (r BundleRead) SignatureDetail() string { return r.signatureDetail }
-
-// UntrustedSignerFingerprint reports the display-only fingerprint of an
-// untrusted signing key, or "" when there is none. It is never a trust input;
-// see signing.SignatureKeyFingerprint.
-func (r BundleRead) UntrustedSignerFingerprint() string { return r.untrustedFingerprint }
-
 // Claimed reports whether every axis of this read was actually populated by a
 // reader.
 //
@@ -341,7 +234,7 @@ func (r BundleRead) UntrustedSignerFingerprint() string { return r.untrustedFing
 // means unset" from a comment into behaviour.
 func (r BundleRead) Claimed() bool {
 	return r.Bundle != nil && r.ref != "" && r.Provenance != ProvenanceUnset &&
-		r.trustCtx != TrustCtxUnset && r.signature != SignatureUnset && r.signer != SignerUnset
+		r.trustCtx != TrustCtxUnset
 }
 
 // newRead builds a read with its axes set. It is unexported because it is the
@@ -374,7 +267,7 @@ func (r BundleRead) Claimed() bool {
 // stick — checking sourceRef itself would be unable to tell "unmintable" from
 // "untouched" and would silently paper over the failure as a local bundle of
 // that name.
-func newRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx, facts SignatureFacts) BundleRead {
+func newRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx) BundleRead {
 	if b != nil && !b.sourceRefSet {
 		// The mint failure is not reported here: every reader stamps its
 		// own ref (and reports an unmintable one at that site). A zero ref
@@ -385,114 +278,11 @@ func newRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx, facts S
 		b.sourceRefSet = true
 	}
 	return BundleRead{
-		Bundle:               b,
-		ref:                  ref,
-		Provenance:           prov,
-		trustCtx:             tctx,
-		signature:            facts.Signature,
-		signer:               facts.Signer,
-		signatureDetail:      facts.Detail,
-		untrustedFingerprint: facts.Fingerprint,
+		Bundle:     b,
+		ref:        ref,
+		Provenance: prov,
+		trustCtx:   tctx,
 	}
-}
-
-// SignatureFacts is the (signature, signer) pair a reader established over one
-// bundle's bytes, plus the two display-only strings that go with them. A
-// reader adapter builds it and hands it to newRead; nothing else sets the
-// axes of a BundleRead, which is what lets a struct-literal BundleRead claim
-// nothing (Claimed) and be withheld.
-type SignatureFacts struct {
-	Signature Signature
-	Signer    Signer
-	// Principal is the VERIFIED publisher identity, resolved from the trust
-	// root and never from anything the artifact says about itself. It is
-	// non-empty only for valid/trusted.
-	Principal   string
-	Detail      string
-	Fingerprint string
-}
-
-// readSignatureFacts resolves both signature axes for one bundle's bytes and
-// its detached signature, against this machine's trust root.
-//
-// EVERY reader calls it, local ones included. Under TrustCtxLocal the answer is
-// a diagnostic and under TrustCtxRemote it is a gate input, but the FACT is the
-// same fact and establishing it in one function is what keeps the two from
-// drifting into different notions of "valid".
-//
-// The five reachable outcomes:
-//
-//	no signature                          -> none/none
-//	trusted key, covers these bytes       -> valid/trusted
-//	untrusted key, covers these bytes     -> valid/untrusted (+fingerprint)
-//	trusted key, does NOT cover the bytes -> invalid/trusted   (edited, not re-signed)
-//	untrusted key or unreadable blob      -> invalid/untrusted
-//
-// A blob that will not even parse is invalid/untrusted rather than none/none:
-// "there is no signature here" and "there is a signature I cannot read" are
-// different facts, and reporting the second as the first is the downgrade
-// spec §10.2 forbids.
-func readSignatureFacts(payload, armoredSig []byte, root trust.TrustRoot) SignatureFacts {
-	if len(armoredSig) == 0 {
-		return SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
-	}
-	principal, err := signing.VerifyPublisher(payload, armoredSig, root, time.Now())
-	switch {
-	case err != nil:
-		// VerifyPublisher only reaches its byte check once the key is trusted,
-		// so a tamper verdict with a readable key means trusted-key/wrong-bytes;
-		// an unreadable blob names no key at all and cannot be called trusted.
-		facts := SignatureFacts{Signature: SignatureInvalid, Detail: err.Error(), Signer: SignerUntrusted}
-		if _, fperr := signing.SignatureKeyFingerprint(armoredSig); fperr == nil {
-			facts.Signer = SignerTrusted
-		}
-		return facts
-	case principal != "":
-		return SignatureFacts{Signature: SignatureValid, Signer: SignerTrusted, Principal: principal}
-	}
-	// Unsigned TO US: a signature exists, made by a key this machine does not
-	// trust to publish. Whether it covers the bytes is still a fact worth
-	// having — a stranger's stale blob and a stranger's good blob are different
-	// diagnoses — and the fingerprint is what lets a human compare it against
-	// what the publisher told them out of band.
-	facts := SignatureFacts{Signer: SignerUntrusted}
-	if err := signing.CoversBytes(payload, armoredSig, signing.NamespacePublish); err != nil {
-		facts.Signature = SignatureInvalid
-		facts.Detail = err.Error()
-	} else {
-		facts.Signature = SignatureValid
-	}
-	if fp, fperr := signing.SignatureKeyFingerprint(armoredSig); fperr == nil {
-		facts.Fingerprint = fp
-	}
-	return facts
-}
-
-// stamp records on the bundle what the reader established about its signer, so
-// the existing consumers of Bundle.Signer()/UntrustedSignerFingerprint() keep
-// seeing exactly what they saw before the readers existed.
-//
-// Only a VALID signature by a TRUSTED key yields a signer; everything else is
-// unsigned-to-us, which is the review path, not an identity.
-func (f SignatureFacts) stamp(b *Bundle) {
-	if f.Signature == SignatureValid && f.Signer == SignerTrusted {
-		b.StampSigner(f.Principal)
-		b.StampUntrustedSignerFingerprint("")
-		return
-	}
-	b.StampSigner("")
-	b.StampUntrustedSignerFingerprint(f.Fingerprint)
-}
-
-// withoutSigner returns the facts with the verified principal withheld while
-// both axes keep their truth: the signature still reads as valid and the key
-// as trusted, but stamp will write no publisher identity onto the bundle.
-// This is the circular-self-signature case (CompanionLoadout.Self): the fact
-// is real and reportable; the identity would be a claim of trust nothing
-// independent established.
-func (f SignatureFacts) withoutSigner() SignatureFacts {
-	f.Principal = ""
-	return f
 }
 
 // ReaderOption configures a reader with something that is NEITHER its
@@ -502,34 +292,10 @@ type ReaderOption func(*readerConfig)
 
 // readerConfig is the shared configurable state of the reader implementations.
 type readerConfig struct {
-	root       trust.TrustRoot
 	installDir string
 	repoURL    string
 	revision   string
 	rep        report.Reporter // where this reader's user-facing diagnostics go
-	// carryEdited is WithEditedTreesCarried.
-	carryEdited bool
-}
-
-// WithTrustRoot supplies the trust root a reader resolves signer identity
-// against (embedded + user + project allowed_signers). Without one, no key is
-// trusted and every signature reads as untrusted — the fail-toward-less-
-// exposure direction, and never a silent claim of trust.
-func WithTrustRoot(root trust.TrustRoot) ReaderOption {
-	return func(c *readerConfig) { c.root = root }
-}
-
-// WithEditedTreesCarried makes a repofs reader carry an installed signed tree
-// whose bytes no longer match its signed manifest as a read with
-// SignatureInvalid, instead of refusing it with ErrTreeBundleWithheld. It is
-// applied ONLY from a generation whose Trust waives the signature check
-// (composite.WithoutSignatureCheck): the verifier still runs and still says the
-// bytes are not what was signed; the decision moves to that generation's gate,
-// which names it (ReasonSigCheckDisabledEditedTree) — and an enforced gate that
-// somehow met such a read would refuse it as ReasonTampered. A retired-format
-// manifest is not an edit and is still withheld.
-func WithEditedTreesCarried() ReaderOption {
-	return func(c *readerConfig) { c.carryEdited = true }
 }
 
 // WithInstalledDir tells a repofs reader the on-disk directory a pinned tree

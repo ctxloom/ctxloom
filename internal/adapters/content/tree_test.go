@@ -263,103 +263,11 @@ func TestForm_RawAndDistilledAreIndependent(t *testing.T) {
 	if got := componentPaths(distComponents); !slices.Equal(got, []string{"fragments/solid.distilled.md"}) {
 		t.Errorf("distilled components = %v", got)
 	}
-
-	rawDigest, err := raw.Content(ctx)
-	if err != nil {
-		t.Fatalf("raw.Content: %v", err)
-	}
-	distDigest, err := distilled.Content(ctx)
-	if err != nil {
-		t.Fatalf("distilled.Content: %v", err)
-	}
-	if bytes.Equal(rawDigest, distDigest) {
-		t.Fatal("raw and distilled produced the same Content digest")
-	}
-}
-
-// TestForm_ContentIsAlwaysADigestEvenAtN1 pins the uniform poly-file rule: a
-// single-file item is N=1, not a special case, so Content is the manifest and
-// never the file bytes.
-func TestForm_ContentIsAlwaysADigestEvenAtN1(t *testing.T) {
-	store := fixtureStore(t)
-	ctx := context.Background()
-	bundle, _ := store.Open(ctx, "code-quality")
-	item, err := bundle.Item(ctx, trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "tricky"})
-	if err != nil {
-		t.Fatalf("Item: %v", err)
-	}
-	form, err := item.Form(ctx, trust.FormRaw)
-	if err != nil {
-		t.Fatalf("Form: %v", err)
-	}
-	components, err := form.Components(ctx)
-	if err != nil {
-		t.Fatalf("Components: %v", err)
-	}
-	if len(components) != 1 {
-		t.Fatalf("want a single component, got %v", componentPaths(components))
-	}
-	digest, err := form.Content(ctx)
-	if err != nil {
-		t.Fatalf("Content: %v", err)
-	}
-	if bytes.Equal(digest, components[0].Bytes) {
-		t.Fatal("Content returned raw bytes at N=1 instead of a digest")
-	}
-	if !bytes.HasPrefix(digest, []byte(DigestVersionMarker)) {
-		t.Fatalf("Content is not a digest: %q", digest)
-	}
-}
-
-// TestForm_ContentIsDeterministic covers the three axes the design calls out:
-// repeated reads, on-disk write order, and a real content change.
-func TestForm_ContentIsDeterministic(t *testing.T) {
-	ctx := context.Background()
-	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "code-reviewer"}
-
-	read := func(store *TreeStore) []byte {
-		t.Helper()
-		bundle, err := store.Open(ctx, "code-quality")
-		if err != nil {
-			t.Fatalf("Open: %v", err)
-		}
-		item, err := bundle.Item(ctx, ref)
-		if err != nil {
-			t.Fatalf("Item: %v", err)
-		}
-		form, err := item.Form(ctx, trust.FormRaw)
-		if err != nil {
-			t.Fatalf("Form: %v", err)
-		}
-		digest, err := form.Content(ctx)
-		if err != nil {
-			t.Fatalf("Content: %v", err)
-		}
-		return digest
-	}
-
-	first := fixtureStore(t)
-	a, b := read(first), read(first)
-	if !bytes.Equal(a, b) {
-		t.Fatalf("repeated reads of one tree differ:\n%s\n---\n%s", a, b)
-	}
-	// A second tree with the SAME contents written in REVERSE order — the
-	// "component reorder on disk must not change the digest" requirement. Nothing
-	// in the digest may depend on creation order, directory-read order, or mtime.
-	second := reverseOrderFixtureStore(t)
-	if got := read(second); !bytes.Equal(a, got) {
-		t.Fatalf("writing the same tree in reverse order changed the digest:\n%s\n---\n%s", a, got)
-	}
-	// And any content change MUST change it.
-	writeFile(t, second.fsys, fixtureRoot+"/code-quality/skills/code-reviewer/scripts/run.sh", "#!/bin/sh\necho changed\n")
-	if got := read(second); bytes.Equal(a, got) {
-		t.Fatal("a changed component did not change the digest")
-	}
 }
 
 // ---------------------------------------------------------------- the trap
 
-// TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability is the required
+// TestSkill_DotPrefixedSidecarIsAComponentAndDeclaresExecutability is the required
 // security-trap test.
 //
 // Dotfiles are excluded by default in much glob and walk code. If the walker
@@ -369,7 +277,7 @@ func TestForm_ContentIsDeterministic(t *testing.T) {
 // verifies and everything looks green. So: the sidecar must appear in
 // Components(), it must change Content(), and its declaration must reach
 // Component.Mode.
-func TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability(t *testing.T) {
+func TestSkill_DotPrefixedSidecarIsAComponentAndDeclaresExecutability(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
 	bundle, _ := store.Open(ctx, "code-quality")
@@ -397,15 +305,6 @@ func TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability(t *testing.T) {
 		t.Fatalf("Components =\n  %s\nwant\n  %s", strings.Join(paths, "\n  "), strings.Join(want, "\n  "))
 	}
 
-	// The digest must name the sidecar.
-	digest, err := form.Content(ctx)
-	if err != nil {
-		t.Fatalf("Content: %v", err)
-	}
-	if !strings.Contains(string(digest), "skills/.code-reviewer.meta.yaml") {
-		t.Fatalf("the dot-prefixed sidecar is missing from the digest:\n%s", digest)
-	}
-
 	// The declaration must reach Component.Mode — with the FIXTURE's own file
 	// modes irrelevant, since the declaration is the source of truth.
 	byPath := map[string]ComponentMode{}
@@ -420,7 +319,7 @@ func TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability(t *testing.T) {
 	}
 
 	// Editing ONLY the sidecar — dropping the executable declaration — must
-	// change Content. If it does not, executability is unattested.
+	// drop the executable mode.
 	writeFile(t, store.fsys, fixtureRoot+"/code-quality/skills/.code-reviewer.meta.yaml",
 		"tags:\n  - review\nnotes: Wraps the house review checklist.\n")
 	item2, err := bundle.Item(ctx, ref)
@@ -430,13 +329,6 @@ func TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability(t *testing.T) {
 	form2, err := item2.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form after sidecar edit: %v", err)
-	}
-	digest2, err := form2.Content(ctx)
-	if err != nil {
-		t.Fatalf("Content after sidecar edit: %v", err)
-	}
-	if bytes.Equal(digest, digest2) {
-		t.Fatal("dropping the executable declaration did not change Content — executability is not attested")
 	}
 	components2, err := form2.Components(ctx)
 	if err != nil {
@@ -449,10 +341,10 @@ func TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability(t *testing.T) {
 	}
 }
 
-// TestMCP_SidecarIsHashedAndContentFileStaysPure covers the same trap for an
+// TestMCP_SidecarIsAComponentAndContentFileStaysPure covers the same trap for an
 // executable surface, and the property the sidecar exists for: the content file
 // carries nothing of ours.
-func TestMCP_SidecarIsHashedAndContentFileStaysPure(t *testing.T) {
+func TestMCP_SidecarIsAComponentAndContentFileStaysPure(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
 	bundle, _ := store.Open(ctx, "code-quality")
@@ -480,13 +372,6 @@ func TestMCP_SidecarIsHashedAndContentFileStaysPure(t *testing.T) {
 				t.Errorf("the mcp content file carries our key %q — it must stay pure vendor config:\n%s", ours, c.Bytes)
 			}
 		}
-	}
-	digest, err := form.Content(ctx)
-	if err != nil {
-		t.Fatalf("Content: %v", err)
-	}
-	if !strings.Contains(string(digest), "mcp/.postgres.meta.yaml") {
-		t.Fatalf("sidecar missing from the digest:\n%s", digest)
 	}
 }
 

@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -29,8 +28,7 @@ func fakeCompanions(t *testing.T, docs map[string]string) {
 	for bin, doc := range docs {
 		path := "/fake/" + bin
 		paths[bin] = path
-		env, err := signing.EncodeLoadoutEnvelope([]byte(doc), nil, "")
-		require.NoError(t, err)
+		env := []byte(doc)
 		envelopes[path] = env
 	}
 	t.Cleanup(companions.SetLookPathForTesting(func(bin string) (string, error) {

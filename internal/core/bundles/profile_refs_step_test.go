@@ -87,13 +87,16 @@ func TestReadTree_ProfileItemsFollowTheEnvelopeGeneration(t *testing.T) {
 // Persisting an envelope's migration past the step migrates the tree's
 // profile items too: a current envelope over items still in the old grammar
 // would claim a migration that never happened.
-func TestUpgradeEnvelopeAt_MigratesProfileItems(t *testing.T) {
+func TestWriteUpgrades_MigratesProfileItems(t *testing.T) {
+	withWriteUpgrades(t)
 	fs := afero.NewMemMapFs()
 	envelope := writeProfileTree(t, fs, profileRefsGeneration-1)
 
-	res, err := UpgradeEnvelopeAt(fs, envelope)
+	_, err := NewLoader(NewProjectReader(fs, []string{"/bundles"}, WithReaderReporter(ledger()))).Load("kit")
 	require.NoError(t, err)
-	assert.Equal(t, envelopeKind.Current(), res.To)
+	raw, err := afero.ReadFile(fs, envelope)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), fmt.Sprintf("%s: %d", schemaver.Key, envelopeKind.Current()))
 
 	item, err := afero.ReadFile(fs, filepath.Join(filepath.Dir(envelope), paths.ProfilesDir, "dev.yaml"))
 	require.NoError(t, err)

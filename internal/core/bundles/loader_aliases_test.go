@@ -40,7 +40,7 @@ func TestLoader_SeededCanonical_ResolvesAndLists(t *testing.T) {
 // dropped from the assembled context.
 func TestLoader_SeededCanonical_VersionCarryingRefResolves(t *testing.T) {
 	const canonical = "https://github.com/ctxloom/ctxloom-default@bundles/aspects"
-	tree := repoTree(t, "aspects", readerTreeEnvelope, readerTreeFragments, nil)
+	tree := repoTree(t, "aspects", readerTreeEnvelope, readerTreeFragments)
 	loader := NewLoader(NewRepoFSReader(tree, canonical, WithRepoURL(repoTreeURL)))
 	want, err := loader.Load(canonical)
 	require.NoError(t, err)

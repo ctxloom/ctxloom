@@ -5,11 +5,9 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 
@@ -20,7 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // fakeSources is a config.Sources whose every port is a closure, with a count
@@ -31,7 +28,6 @@ type fakeSources struct {
 	reads   atomic.Int32
 	read    func(context.Context) (*config.Config, []config.Warning, error)
 	readers func(*config.Config) []bundles.Reader
-	root    func(*config.Config) trust.TrustRoot
 }
 
 func (f *fakeSources) Read(ctx context.Context) (*config.Config, []config.Warning, error) {
@@ -44,13 +40,6 @@ func (f *fakeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.
 		return nil, nil
 	}
 	return f.readers(cfg), nil
-}
-
-func (f *fakeSources) TrustRoot(_ context.Context, cfg *config.Config) (trust.TrustRoot, error) {
-	if f.root == nil {
-		return trust.NoSigners{}, nil
-	}
-	return f.root(cfg), nil
 }
 
 // sequenceSources returns a Sources whose Read hands back the given configs
@@ -113,32 +102,6 @@ func TestOwner_Reload_NewGenerationLeavesOldSnapshotUnchanged(t *testing.T) {
 	assert.Equal(t, uint64(1), before.Generation, "the retired snapshot keeps its generation")
 	assert.Equal(t, "first", before.Config.GetDefaultAgent(), "the retired snapshot keeps its config value")
 	assert.Equal(t, int32(2), src.reads.Load(), "one Read per generation")
-}
-
-func TestOwner_Reload_TrustRootIsBuiltPerGeneration(t *testing.T) {
-	// Each generation binds the root its sources built for it, so a signer
-	// file that changes between two reloads is visible on the next one and
-	// never retroactively on the previous.
-	var gen atomic.Int32
-	roots := []trust.TrustRoot{namedRoot("gen-1"), namedRoot("gen-2")}
-	src := sequenceSources(fixtureWithDefault("a"), fixtureWithDefault("b"))
-	src.root = func(*config.Config) trust.TrustRoot { return roots[gen.Add(1)-1] }
-	owner, err := config.Open(context.Background(), src)
-	require.NoError(t, err)
-	first := owner.Current()
-	assert.Equal(t, roots[0], first.Config.TrustRoot())
-
-	second, err := owner.Reload(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, roots[1], second.Config.TrustRoot(), "generation 2 binds its own root")
-	assert.Equal(t, roots[0], first.Config.TrustRoot(), "the retired generation's root is unchanged")
-}
-
-// namedRoot is a distinguishable TrustRoot that trusts no key.
-type namedRoot string
-
-func (namedRoot) TrustedForNamespace(ssh.PublicKey, string, time.Time) trust.SignerDecision {
-	return trust.SignerDecision{}
 }
 
 func TestOwner_Reload_CatalogIsResolvedFromReaders(t *testing.T) {

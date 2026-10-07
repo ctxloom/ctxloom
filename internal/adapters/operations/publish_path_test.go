@@ -16,13 +16,13 @@ import (
 // THE REMOTE PATH IS ONE VALUE, NOT TWO AGREEING SPELLINGS.
 //
 // A push reports a destination (PushBundleResult.TargetPath, which the CLI
-// prints and which operations.moveToRemote derives SigDest from) and writes to a
+// prints and which operations.moveToRemote reports as Dest) and writes to a
 // destination (the path handed to Publisher.CreateOrUpdateFile). Those used to
 // be computed independently — PushBundle spelled one expression,
 // remote.preparePublish spelled the same one — with nothing binding them, so a
 // change to either alone would have made `bundle push` report one path and
 // publish to another, and `bundle move` would have deleted the local source
-// after recording a SigDest that named a file nobody wrote.
+// after recording a Dest that named a file nobody wrote.
 //
 // The tests below are that binding. They pass the reported path and the written
 // path through the same assertion for BOTH bundle shapes, so the two can only

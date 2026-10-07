@@ -3,8 +3,6 @@ package bundles
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"fmt"
 	"reflect"
 	"testing"
@@ -16,10 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -45,46 +40,6 @@ const readerTreeEnvelope = "version: 1.0.0\n"
 
 var readerTreeFragments = map[string]string{"keeper": "KEEPER-PAYLOAD"}
 
-// signFor signs data with a throwaway key, returning the armored signature and
-// a trust root that authorizes that key to publish as principal. Real crypto,
-// so "valid" and "trusted" are facts here rather than fixture conventions.
-func signFor(t *testing.T, data []byte, principal string) ([]byte, trust.TrustRoot, ssh.PublicKey) {
-	t.Helper()
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	sshSigner, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-	sshPub, err := ssh.NewPublicKey(pub)
-	require.NoError(t, err)
-	armored, err := signing.Sign(data, sshSigner, signing.NamespacePublish)
-	require.NoError(t, err)
-	return armored, allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{principal},
-		Namespaces: []string{signing.NamespacePublish},
-		PublicKey:  sshPub,
-	}), sshPub
-}
-
-// treeSignerFor is signFor's TREE counterpart: a throwaway key, plus the trust
-// root that authorizes it to publish as principal. It returns the SIGNER rather
-// than a detached signature because a tree is signed over its own manifest, by
-// attest.SignBundle, at staging time — there is no separate payload to sign
-// ahead of the tree existing.
-func treeSignerFor(t *testing.T, principal string) (ssh.Signer, trust.TrustRoot, ssh.PublicKey) {
-	t.Helper()
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	sshSigner, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-	sshPub, err := ssh.NewPublicKey(pub)
-	require.NoError(t, err)
-	return sshSigner, allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{principal},
-		Namespaces: []string{signing.NamespacePublish},
-		PublicKey:  sshPub,
-	}), sshPub
-}
-
 // ---------------------------------------------------------------------------
 // The axes cannot be minted, and an unpopulated read claims nothing.
 // ---------------------------------------------------------------------------
@@ -102,7 +57,7 @@ func treeSignerFor(t *testing.T, principal string) (ssh.Signer, trust.TrustRoot,
 // rather than as a violated invariant.
 func TestBundleRead_TrustAxesCannotBeMintedByACaller(t *testing.T) {
 	rt := reflect.TypeOf(BundleRead{})
-	for _, name := range []string{"trustCtx", "signature", "signer", "ref"} {
+	for _, name := range []string{"trustCtx", "ref"} {
 		field, ok := rt.FieldByName(name)
 		require.True(t, ok, "BundleRead must still carry %s", name)
 		assert.NotEmpty(t, field.PkgPath,
@@ -112,13 +67,11 @@ func TestBundleRead_TrustAxesCannotBeMintedByACaller(t *testing.T) {
 }
 
 // The zero value is the honest one: an unpopulated read claims nothing on any
-// axis, and must not read as "local, unsigned, no signer" — which is a claim.
+// axis, and must not read as "local" — which is a claim.
 func TestBundleRead_ZeroValueClaimsNothing(t *testing.T) {
 	var zero BundleRead
 
 	assert.Equal(t, TrustCtxUnset, zero.TrustCtx())
-	assert.Equal(t, SignatureUnset, zero.Signature())
-	assert.Equal(t, SignerUnset, zero.Signer())
 	assert.False(t, zero.Claimed(), "a read nobody established anything about must not pass as established")
 }
 
@@ -160,8 +113,6 @@ func TestNewProjectReader_ReportsProjectProvenanceAndLocalContext(t *testing.T) 
 	require.Len(t, reads, 1)
 	assert.Equal(t, ProvenanceProject, reads[0].Provenance)
 	assert.Equal(t, TrustCtxLocal, reads[0].TrustCtx())
-	assert.Equal(t, SignatureNone, reads[0].Signature(), "an unsigned project bundle reports none, never unset")
-	assert.Equal(t, SignerNone, reads[0].Signer())
 	assert.Equal(t, "KEEPER-PAYLOAD", reads[0].Bundle.Fragments["keeper"].Content)
 
 	wantTyped, err := trust.LocalRef("kit")
@@ -181,8 +132,6 @@ func TestNewCompanionReader_ReportsCompanionProvenanceAndLocalContext(t *testing
 	assert.Equal(t, TrustCtxLocal, reads[0].TrustCtx(),
 		"a loadout came off the stdout of a binary the user consented to execute — no intermediary")
 	assert.Equal(t, "ctxloom:companion@ltk", reads[0].DisplayName())
-	assert.Equal(t, SignatureNone, reads[0].Signature())
-	assert.Equal(t, SignerNone, reads[0].Signer())
 
 	wantTyped, err := trust.CompanionRef("ltk")
 	require.NoError(t, err)
@@ -191,7 +140,7 @@ func TestNewCompanionReader_ReportsCompanionProvenanceAndLocalContext(t *testing
 }
 
 func TestNewRepoFSReader_ReportsRemoteProvenanceAndRemoteContext(t *testing.T) {
-	tree := repoTree(t, "kit", readerTreeEnvelope, readerTreeFragments, nil)
+	tree := repoTree(t, "kit", readerTreeEnvelope, readerTreeFragments)
 
 	reads, err := NewRepoFSReader(tree, "https://example.test/repo@bundles/kit", WithRepoURL(repoTreeURL)).Read(context.Background())
 
@@ -211,97 +160,9 @@ func TestNewRepoFSReader_ReportsRemoteProvenanceAndRemoteContext(t *testing.T) {
 // Every reader reports TRUTHS on all three axes.
 // ---------------------------------------------------------------------------
 
-// The repofs reader is where the signature facts gate, so all four reachable
-// (signature, signer) pairs are pinned against real keys and real signatures.
-func TestNewRepoFSReader_SignatureFactsAreEstablishedNotAssumed(t *testing.T) {
-	const ref = "https://example.test/repo@bundles/kit"
-	signer, root, pub := treeSignerFor(t, "publisher@example.test")
-
-	t.Run("no signature is none/none", func(t *testing.T) {
-		tree := repoTree(t, "kit", readerTreeEnvelope, readerTreeFragments, nil)
-		reads, err := NewRepoFSReader(tree, ref, WithRepoURL(repoTreeURL), WithTrustRoot(root)).Read(context.Background())
-		require.NoError(t, err)
-		require.Len(t, reads, 1)
-		assert.Equal(t, SignatureNone, reads[0].Signature())
-		assert.Equal(t, SignerNone, reads[0].Signer())
-		assert.Empty(t, reads[0].Bundle.Signer())
-	})
-
-	t.Run("trusted key over these bytes is valid/trusted", func(t *testing.T) {
-		tree := repoTree(t, "kit", readerTreeEnvelope, readerTreeFragments, signer)
-		reads, err := NewRepoFSReader(tree, ref, WithRepoURL(repoTreeURL), WithTrustRoot(root)).Read(context.Background())
-		require.NoError(t, err)
-		require.Len(t, reads, 1)
-		assert.Equal(t, SignatureValid, reads[0].Signature())
-		assert.Equal(t, SignerTrusted, reads[0].Signer())
-		assert.Equal(t, "publisher@example.test", reads[0].Bundle.Signer(),
-			"the verified principal comes from the trust root, never from the artifact")
-	})
-
-	t.Run("a key nothing trusts is valid/untrusted and names the key", func(t *testing.T) {
-		tree := repoTree(t, "kit", readerTreeEnvelope, readerTreeFragments, signer)
-		reads, err := NewRepoFSReader(tree, ref, WithRepoURL(repoTreeURL)).Read(context.Background()) // no trust root
-		require.NoError(t, err)
-		require.Len(t, reads, 1)
-		assert.Equal(t, SignatureValid, reads[0].Signature(), "the signature covers the bytes; who made it is a separate fact")
-		assert.Equal(t, SignerUntrusted, reads[0].Signer())
-		assert.Equal(t, ssh.FingerprintSHA256(pub), reads[0].UntrustedSignerFingerprint(),
-			"the display-only fingerprint names the key a human would be trusting")
-		assert.Empty(t, reads[0].Bundle.Signer(), "and naming it must not have granted it anything")
-	})
-
-	// THE FOURTH PAIR IS GONE FROM THIS READER, and its absence is the point.
-	//
-	// The document form reported "a trusted key over other bytes" as CONTENT
-	// carrying SignatureInvalid, leaving it to a later stage to withhold. A
-	// tree cannot say that: attest.VerifyBundle checks the tree against its
-	// signed manifest in both directions, so bytes that moved are caught at the
-	// READ and the read fails. SignatureInvalid is therefore unreachable for a
-	// repofs read — the state is not withheld, it no longer exists here.
-	//
-	// That is strictly stronger and it is what this now pins: the same tamper,
-	// refused outright rather than reported and cleaned up afterwards.
-	t.Run("a trusted key over other bytes is refused, not reported", func(t *testing.T) {
-		tree := repoTreeTamperedAfterSigning(t, "kit", readerTreeEnvelope, readerTreeFragments, signer)
-
-		_, err := NewRepoFSReader(tree, ref, WithRepoURL(repoTreeURL), WithTrustRoot(root)).Read(context.Background())
-		require.Error(t, err, "an edited item file must never read as content")
-		assert.ErrorIs(t, err, ErrTreeBundleWithheld,
-			"the KEY is still trusted — it is the bytes that moved, and the withheld sentinel is what keeps that from degrading to unsigned")
-	})
-}
-
 // ---------------------------------------------------------------------------
 // Companion posture: reported, never withheld.
 // ---------------------------------------------------------------------------
-
-// A companion loadout whose signature does not verify is DELIVERED, with the
-// failure said out loud. Withholding it would punish the user for the
-// companion's build error; the control that catches a swapped binary is the
-// hash-keyed exec consent, not this.
-func TestNewCompanionReader_InvalidSignatureIsReportedNotWithheld(t *testing.T) {
-	signed := []byte("run:\n  version: \"1.0\"\n  fragments:\n    ltk:\n      content: OLD\n")
-	shipped := []byte("run:\n  version: \"1.0\"\n  fragments:\n    ltk:\n      content: NEW\n")
-	sig, root, _ := signFor(t, signed, "ltk@example.test")
-
-	var warnings bytes.Buffer
-	reads, err := NewCompanionReader(
-		loadoutProbe(CompanionLoadout{Bin: "ltk", Document: shipped, Signature: sig}),
-		WithTrustRoot(root),
-		captureWarnings(&warnings),
-	).Read(context.Background())
-
-	require.NoError(t, err)
-	require.Len(t, reads, 1, "a companion's content must still be delivered when its signature does not verify")
-	assert.Equal(t, "NEW", reads[0].Bundle.Fragments["ltk"].Content, "the SHIPPED bytes are delivered, not the signed ones")
-	assert.Equal(t, SignatureInvalid, reads[0].Signature())
-	assert.Empty(t, reads[0].Bundle.Signer(), "an unverifiable signature attributes nobody")
-	assert.Contains(t, warnings.String(), "does not verify over its own bytes")
-	assert.Contains(t, warnings.String(), "stale or mismatched signature",
-		"the warning must name the likely cause a companion author can act on")
-	assert.NotContains(t, warnings.String(), "tamper",
-		"this is a build-error signal, not an attack signal, and must not be phrased as tampering")
-}
 
 // A loadout whose BYTES will not parse produced no content at all: there is
 // nothing to report, so it is warned about and skipped — never fatal, never a
@@ -326,117 +187,10 @@ func TestNewCompanionReader_UnparseableLoadoutIsWarnedAndSkipped(t *testing.T) {
 // The two rows the loader itself acts on.
 // ---------------------------------------------------------------------------
 
-// remote | invalid | trusted -> WITHHOLD. A signature that fails over remote
-// bytes is tamper and must never degrade to the unsigned/review path: degrading
-// it lets an attacker downgrade signed content to merely-reviewable content by
-// corrupting a `.sig`.
-//
-// The READER refuses it against the signed manifest and raises a finding, so
-// there is no read for any later stage to deliver.
-func TestLoader_RemoteTamperedTreeIsRefusedNotDegradedToUnsigned(t *testing.T) {
-	strictness.Reset()
-	t.Cleanup(strictness.Reset)
-	const ref = "https://example.test/repo@bundles/kit"
-	signer, root, _ := treeSignerFor(t, "publisher@example.test")
-	tree := repoTreeTamperedAfterSigning(t, "kit", readerTreeEnvelope, readerTreeFragments, signer)
-
-	mark := strictness.Checkpoint()
-	l := LoaderOf(Resolve(context.Background(), ledger(), NewRepoFSReader(tree, ref, WithRepoURL(repoTreeURL), WithTrustRoot(root), WithReaderReporter(ledger()))))
-
-	// The REFUSAL moved earlier than it used to sit, and this is what changed:
-	// the document form reported a tamper as content carrying SignatureInvalid
-	// and left a later stage to withhold it. A tree is checked against its
-	// signed manifest at the READ, so there is no read at all — the attack has
-	// nowhere downstream to be mishandled.
-	assert.Empty(t, l.Reads(), "a tree whose files moved must never become content")
-
-	pipe := admitAllPipe(l, false)
-	_, ferr := pipe.GetFragment(ref + "#fragments/keeper")
-	require.Error(t, ferr, "and it must not resolve as an unsigned bundle awaiting review")
-
-	// The loud half. A refusal that nothing reported would be a silent drop
-	// wearing a security check's name, which is the failure this whole pairing
-	// exists to prevent.
-	findings := strictness.Since(mark)
-	require.NotEmpty(t, findings, "the refusal is a finding, not a silent drop")
-	var reported string
-	for _, f := range findings {
-		reported += f.Text + "\n"
-	}
-	assert.Contains(t, reported, "does not match what was signed",
-		"the finding must say the content disagrees with the signature, not merely that a read failed")
-	assert.Contains(t, reported, "fragments/keeper.md",
-		"and it must name the file that moved — a tamper report an operator cannot localise is not actionable "+
-			"(this also proves the fixture actually tampered, so the assertion above cannot pass vacuously)")
-}
-
-// local | invalid | trusted -> DELIVERED. The author edited and did not
-// re-sign: their content is theirs and still arrives.
-func TestLoader_LocalInvalidSignatureIsDelivered(t *testing.T) {
-	fsys, dir, root := stageSignedTree(t, "/bundles", "KEEPER-PAYLOAD")
-	mutateAnItemFile(t, fsys, dir)
-
-	pipe := admitAllPipe(NewLoader(NewProjectReader(fsys, []string{"/bundles"}, WithTrustRoot(root), WithReaderReporter(ledger()))).WithReporter(ledger()), false)
-
-	lc, err := pipe.GetFragment(verifyTreeName + "#fragments/house-style")
-
-	require.NoError(t, err, "a stale manifest cannot withhold local content")
-	assert.Contains(t, lc.Content, "KEEPER-PAYLOAD")
-}
-
 // captureWarnings returns a reader option that funnels a reader's diagnostics
 // into buf, so a test can read what the user was told.
 func captureWarnings(buf *bytes.Buffer) ReaderOption {
 	return WithReaderReporter(report.SinkFunc(func(f report.Finding) {
 		fmt.Fprintln(buf, f.Text)
 	}))
-}
-
-// TestNewCompanionReader_SelfLoadoutSignatureIsVerifiedButNotTrust pins the
-// circular-signature invariant for ctxloom's own loadout: the signature is
-// still verified (both facts axes report the truth — it IS valid, the key IS
-// trusted), but no publisher identity is stamped on the bundle, because the
-// trust root vouching for the key ships in the same binary as the loadout.
-// A surface reading Signer() therefore cannot present ctxloom's own content
-// as "verified by a publisher you trust", and the bundle says so itself.
-func TestNewCompanionReader_SelfLoadoutSignatureIsVerifiedButNotTrust(t *testing.T) {
-	sig, root, _ := signFor(t, readerLoadoutDoc, "releases@ctxloom.test")
-
-	reads, err := NewCompanionReader(
-		loadoutProbe(CompanionLoadout{Bin: "ctxloom", Document: readerLoadoutDoc, Signature: sig, Self: true}),
-		WithTrustRoot(root),
-	).Read(context.Background())
-	require.NoError(t, err)
-	require.Len(t, reads, 1)
-
-	read := reads[0]
-	assert.Equal(t, SignatureValid, read.Signature(), "the fact is established: the signature covers these bytes")
-	assert.Equal(t, SignerTrusted, read.Signer(), "the fact is established: the key is one the root trusts")
-	assert.Empty(t, read.Bundle.Signer(), "but no publisher identity is stamped — the verification is circular")
-	assert.True(t, read.Bundle.SelfSigned())
-	assert.Equal(t, "ctxloom+companion:ctxloom", string(read.Key()), "ctxloom's content is addressed like every companion's")
-
-	// The control: the same loadout NOT marked Self stamps the principal.
-	reads, err = NewCompanionReader(
-		loadoutProbe(CompanionLoadout{Bin: "ctxloom", Document: readerLoadoutDoc, Signature: sig}),
-		WithTrustRoot(root),
-	).Read(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, "releases@ctxloom.test", reads[0].Bundle.Signer())
-	assert.False(t, reads[0].Bundle.SelfSigned())
-}
-
-// TestNewCompanionReader_UnsignedSelfLoadoutIsNotSelfSigned: the mark means
-// "ctxloom's own signature verified, circularly" — an unsigned or stale self
-// loadout is exactly what it is (unsigned; warned about), never presented as
-// self-signed.
-func TestNewCompanionReader_UnsignedSelfLoadoutIsNotSelfSigned(t *testing.T) {
-	reads, err := NewCompanionReader(
-		loadoutProbe(CompanionLoadout{Bin: "ctxloom", Document: readerLoadoutDoc, Self: true}),
-	).Read(context.Background())
-	require.NoError(t, err)
-	require.Len(t, reads, 1)
-	assert.False(t, reads[0].Bundle.SelfSigned())
-	assert.True(t, reads[0].Bundle.Self(), "the self IDENTITY holds whatever the signature state: it is what keeps the loadout out of the installed listing")
-	assert.Equal(t, SignatureNone, reads[0].Signature())
 }

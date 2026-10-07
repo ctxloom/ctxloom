@@ -15,8 +15,7 @@ import (
 // pinned here by its json tags and by TestBundleListRow_JSONShape.
 //
 // The counts and the state flags are never omitted: a consumer asking "is
-// this held?" must read false, not a missing key. Signed is derived from
-// Signer so "unsigned" is a positive fact rather than an absent one.
+// this held?" must read false, not a missing key.
 type bundleListRow struct {
 	Name          string   `json:"name"`
 	Ref           string   `json:"ref"`
@@ -30,12 +29,7 @@ type bundleListRow struct {
 	ProfileCount  int      `json:"profile_count"`
 	// Held mirrors bundles.BundleInfo.Held; see it for what the state means
 	// and why the listing carries it.
-	Held   bool   `json:"held"`
-	Signed bool   `json:"signed"`
-	Signer string `json:"signer,omitempty"`
-	// SelfSigned: ctxloom's own loadout, whose signature verified but is
-	// circular — Signed without a Signer, and deliberately not "unsigned".
-	SelfSigned bool `json:"self_signed,omitempty"`
+	Held bool `json:"held"`
 }
 
 func newBundleListRow(info *bundles.BundleInfo) bundleListRow {
@@ -51,9 +45,6 @@ func newBundleListRow(info *bundles.BundleInfo) bundleListRow {
 		MCPCount:      info.MCPCount,
 		ProfileCount:  info.ProfileCount,
 		Held:          info.Held,
-		Signed:        info.Signer != "" || info.SelfSigned,
-		Signer:        info.Signer,
-		SelfSigned:    info.SelfSigned,
 	}
 }
 
@@ -82,9 +73,6 @@ type bundleShowView struct {
 	Tags         []string                      `json:"tags,omitempty"`
 	Notes        string                        `json:"notes,omitempty"`
 	Installation string                        `json:"installation,omitempty"`
-	Signed       bool                          `json:"signed"`
-	Signer       string                        `json:"signer,omitempty"`
-	SelfSigned   bool                          `json:"self_signed,omitempty"`
 	Fragments    map[string]bundleShowFragment `json:"fragments,omitempty"`
 	Commands     map[string]bundleShowCommand  `json:"commands,omitempty"`
 	MCP          map[string]bundleShowMCP      `json:"mcp,omitempty"`
@@ -141,9 +129,6 @@ func newBundleShowView(b *bundles.Bundle) bundleShowView {
 		Tags:         b.Tags,
 		Notes:        b.Notes,
 		Installation: b.Installation,
-		Signed:       b.Signer() != "" || b.SelfSigned(),
-		Signer:       b.Signer(),
-		SelfSigned:   b.SelfSigned(),
 		Fragments:    showFragments(b.Fragments),
 		Commands:     showCommands(b.Commands),
 		MCP:          showMCP(b.MCP),

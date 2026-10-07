@@ -23,14 +23,13 @@ import (
 // arrive here through Composition.
 type EmbeddedLoadout struct {
 	YAML []byte
-	Sig  []byte
 }
 
 func init() {
-	cmd := loadout.NewDeferredCommand(agent.CtxloomBinary, func() ([]byte, []byte) {
-		return theComposition.Loadout.YAML, theComposition.Loadout.Sig
+	cmd := loadout.NewDeferredCommand(agent.CtxloomBinary, func() []byte {
+		return theComposition.Loadout.YAML
 	})
-	// The command carries its OWN --format (yaml|json, the envelope formats)
+	// The command carries its OWN --format (yaml, the loadout document)
 	// that shadows the root's persistent one, and renders through it on
 	// every successful run — so the root's honour-guard (checkFormatWasHonored)
 	// is satisfied by construction here rather than by emit(). The companion

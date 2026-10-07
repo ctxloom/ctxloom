@@ -18,7 +18,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions/loadout"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -240,7 +239,7 @@ var companionLoadoutOutput = func(path string) ([]byte, error) {
 }
 
 // loadoutArgs is the loadout probe's argv after the binary.
-var loadoutArgs = []string{loadout.Subcommand, "--" + loadout.FormatFlag, loadout.FormatJSON}
+var loadoutArgs = []string{loadout.Subcommand, "--" + loadout.FormatFlag, loadout.FormatYAML}
 
 // SetCompanionLoadoutOutputForTesting overrides the loadout-probe exec seam
 // and returns a restore function. Companion of SetCompanionVersionOutputForTesting.
@@ -282,11 +281,10 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 		if len(cfg.GetAppPaths()) == 0 {
 			return nil
 		}
-		root := cfg.TrustRoot()
 		probe := func(ctx context.Context) (bundles.CompanionProbe, error) {
 			return p.ProbeCompanionLoadouts(ctx)
 		}
-		return []bundles.Reader{bundles.NewCompanionReader(probe, bundles.WithTrustRoot(root), bundles.WithReaderReporter(cfg.Reporter()))}
+		return []bundles.Reader{bundles.NewCompanionReader(probe, bundles.WithReaderReporter(cfg.Reporter()))}
 	}
 }
 
@@ -383,12 +381,11 @@ func probeLoadout(bin, path string) (*bundles.CompanionLoadout, *bundles.Compani
 	if err != nil {
 		return nil, failedLoadout(bin, path, classifyLoadoutProbe(err))
 	}
-	doc, sig, _, derr := signing.ParseLoadoutEnvelope(raw)
-	if derr != nil {
-		// It printed bytes that are not an envelope: it never answered.
-		return nil, failedLoadout(bin, path, fmt.Errorf("%w: unparseable loadout envelope: %w", ErrLoadoutProbeFailed, derr))
+	if len(raw) == 0 {
+		// It exited cleanly and printed nothing: it never answered.
+		return nil, failedLoadout(bin, path, fmt.Errorf("%w: it printed no loadout", ErrLoadoutProbeFailed))
 	}
-	return &bundles.CompanionLoadout{Bin: bin, Path: path, Document: doc, Signature: sig, Self: bin == SelfCompanion}, nil
+	return &bundles.CompanionLoadout{Bin: bin, Path: path, Document: raw, Self: bin == SelfCompanion}, nil
 }
 
 // collectProbes gathers the probes' loadouts, in admission order, and adds

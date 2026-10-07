@@ -46,7 +46,7 @@ func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src lau
 	if err != nil {
 		return launch.Launch{}, err
 	}
-	id, err := MintIdentity(deps.Sessions, seed, deps.Snapshot.Config.SignatureCheckDisabled(), base)
+	id, err := MintIdentity(deps.Sessions, seed, base)
 	if err != nil {
 		return launch.Launch{}, err
 	}
@@ -67,11 +67,9 @@ func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src lau
 // MintIdentity is THE mint on the host: the harp assigned in the store (its
 // directory and sidecar), the liveness lock held by this process, the
 // identity returned. The engine is not known here — Resolve decides it and
-// records it (Store.BindEngine). sigCheckDisabled is the launching
-// generation's signature-check posture, stamped beside the origin. The session's
-// output dir is recorded under outputBase (OutputBase); a session that cannot
+// records it (Store.BindEngine). The session's output dir is recorded under outputBase (OutputBase); a session that cannot
 // say where its outputs go is refused.
-func MintIdentity(store sessions.Store, seed sessions.Seed, sigCheckDisabled bool, outputBase string) (sessions.Identity, error) {
+func MintIdentity(store sessions.Store, seed sessions.Seed, outputBase string) (sessions.Identity, error) {
 	entry, err := store.AssignHarp(seed.ProjectDir, seed.Engine)
 	if err != nil {
 		return sessions.Identity{}, fmt.Errorf("session naming failed, refusing to run: %w", err)
@@ -81,7 +79,7 @@ func MintIdentity(store sessions.Store, seed sessions.Seed, sigCheckDisabled boo
 	}
 	// A failed stamp warns rather than refuses: an unstamped session reads as
 	// a human's, the reading a sweep never purges undistilled.
-	if oerr := store.StampMint(entry.HarpName, sessions.MintStamp{Origin: seed.Origin(), SigCheckDisabled: sigCheckDisabled}); oerr != nil {
+	if oerr := store.StampMint(entry.HarpName, sessions.MintStamp{Origin: seed.Origin()}); oerr != nil {
 		clidiag.Warn("ctxloom", "session %s: cannot record its origin, so a sweep will treat it as a human's session: %v", entry.HarpName, oerr)
 	}
 	// THIS PROCESS OWNS THE SESSION FROM HERE: hold its liveness lock until

@@ -27,10 +27,10 @@ import (
 // as one or renamed.
 //
 // Generation 0 is every envelope that declares no schemaver.Key — which is
-// every bundle signed before the key existed, so it must keep loading exactly
-// as it always has. ParseBundle runs the Upgrade on the raw bytes, after any
-// signature check and before the strict decode, and nothing is re-signed or
-// written back implicitly (see persistEnvelopeUpgrade and UpgradeEnvelopeAt).
+// every bundle published before the key existed, so it must keep loading
+// exactly as it always has. ParseBundle runs the Upgrade on the raw bytes,
+// before the strict decode, and nothing is written back implicitly (see
+// persistEnvelopeUpgrade).
 var envelopeKind = schemaver.Kind{
 	Name:   "bundle",
 	Oldest: 0,
@@ -134,11 +134,6 @@ func (retiredKeysStep) Apply(root *yaml.Node) bool {
 	exports := exportsKeyUpgrade{}.Apply(root)
 	return commands || exports
 }
-
-// resignToPersist is what --write-upgrades says instead of rewriting a signed
-// tree's envelope: the signature covers those bytes, and nothing re-signs
-// implicitly.
-const resignToPersist = "re-sign to persist"
 
 // commandsKeyUpgrade renames the legacy top-level `prompts:` map key to
 // `commands:`. The bundle item-kind "prompt" was renamed to "skill" and then

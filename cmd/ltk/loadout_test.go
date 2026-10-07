@@ -6,14 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions/loadout"
-	"github.com/ctxloom/ctxloom/internal/adapters/configload"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 )
@@ -39,84 +36,18 @@ func TestLoadout_YAML_IsAValidLoadout(t *testing.T) {
 
 // TestLoadout_YAMLFormat_EmitsRawBytesVerbatim proves --format yaml writes
 // the exact embedded bytes, unmodified — no re-serialization anywhere in the
-// path (spec §3.0's transport-agnostic invariant starts here: the bytes a
-// human reads with --format yaml are the SAME bytes --format json base64s
-// and, eventually, the same bytes a build-time signature would cover).
+// path: the bytes a human reads are the bytes ctxloom's companion discovery
+// parses.
 func TestLoadout_YAMLFormat_EmitsRawBytesVerbatim(t *testing.T) {
 	var buf bytes.Buffer
-	require.NoError(t, loadout.Emit(&buf, "yaml", loadoutYAML, loadoutSig))
+	require.NoError(t, loadout.Emit(&buf, loadout.FormatYAML, loadoutYAML))
 	assert.Equal(t, loadoutYAML, buf.Bytes())
-}
-
-// TestLoadout_JSONFormat_DecodesToIdenticalDocument proves the round trip a
-// real companion-discovery probe depends on: `ltk loadout --format json`'s
-// stdout, fed through signing.DecodeLoadoutEnvelope, yields byte-identical
-// loadout document and (since this build ships unsigned) an empty verified
-// signer — legal, ordinary, and routes to ctxloom's review path rather than
-// an error.
-func TestLoadout_JSONFormat_DecodesToIdenticalDocument(t *testing.T) {
-	var buf bytes.Buffer
-	require.NoError(t, loadout.Emit(&buf, "json", loadoutYAML, loadoutSig))
-
-	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), nil, time.Now())
-	require.NoError(t, err)
-	assert.Equal(t, loadoutYAML, decoded)
-	assert.Empty(t, signer, "an unsigned loadout must decode with an empty verified signer, not an error")
-
-	// The decoded bytes must themselves parse as the same bundle a direct
-	// --format yaml read would produce.
-	lo, err := bundles.ParseLoadout(decoded)
-	require.NoError(t, err)
-	b := lo.Run
-	assert.Contains(t, b.Commands, "task-runner")
-}
-
-// TestLoadout_SignedLoadoutVerifiesAsTrustedPublisher is the end-to-end proof
-// (S8 loadoutSig seam, filled) that ltk's loadout is trusted-by-construction,
-// not review-pending: the envelope `ltk loadout --format json` actually
-// emits, verified through signing.VerifyPublisher against the REAL trust
-// root ctxloom ships (configload.EmbeddedSigners(), the compiled-
-// in ctxloom release key), resolves to that key's principal. It also
-// DOUBLES as the drift gate item 2 requires — if loadout.yaml is ever edited
-// without regenerating loadout.yaml.sig (`just sign-loadouts`), the
-// committed .sig no longer covers the new bytes and this test starts
-// failing loudly, pure-Go and offline, no private key required.
-func TestLoadout_SignedLoadoutVerifiesAsTrustedPublisher(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	require.NotEmpty(t, loadoutSig, "ltk's committed loadout.yaml.sig is missing or not embedded — run `just sign-loadouts` and commit it")
-
-	var buf bytes.Buffer
-	require.NoError(t, loadout.Emit(&buf, "json", loadoutYAML, loadoutSig))
-
-	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), configload.EmbeddedSigners(), time.Now())
-	require.NoError(t, err)
-	assert.Equal(t, loadoutYAML, decoded)
-	assert.Equal(t, "ben+ctxloom@abbitt.me", signer, "ltk's loadout must verify as published by the ctxloom release key")
-}
-
-// TestLoadout_TamperedLoadoutBodyFailsVerification proves the drift gate
-// actually fires: the real committed loadoutSig, presented against loadout
-// bytes that differ from what it covers (simulating loadout.yaml having
-// changed without a re-sign), is withheld — never silently downgraded to
-// "unsigned, please review" (spec §10.2).
-func TestLoadout_TamperedLoadoutBodyFailsVerification(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	require.NotEmpty(t, loadoutSig, "ltk's committed loadout.yaml.sig is missing or not embedded — run `just sign-loadouts` and commit it")
-
-	tampered := append(append([]byte{}, loadoutYAML...), []byte("\n# drift: this byte was never signed\n")...)
-	var buf bytes.Buffer
-	require.NoError(t, loadout.Emit(&buf, "json", tampered, loadoutSig))
-
-	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), configload.EmbeddedSigners(), time.Now())
-	require.Error(t, err, "a loadout body that drifted from its signature must be withheld, not degraded to unsigned")
-	assert.Nil(t, decoded)
-	assert.Empty(t, signer)
 }
 
 // The two `--format` flags look like a coupling defect at first glance: the
 // root registers a PERSISTENT --format over clifmt's five output formats
-// (default "text"), and `loadout` registers a LOCAL one over two envelope
-// formats (default "yaml"), which shadows it. The two meanings are real. The
+// (default "text"), and `loadout` registers a LOCAL one over the one loadout
+// format (yaml), which shadows it. The two meanings are real. The
 // shadowing is not a defect but the mechanism that makes both correct, and
 // every remedy that looks obvious breaks something:
 //
@@ -124,17 +55,17 @@ func TestLoadout_TamperedLoadoutBodyFailsVerification(t *testing.T) {
 //     root default "text", which loadout cannot emit — the DEFAULT invocation
 //     would start erroring;
 //   - renaming it breaks a cross-process wire contract: ctxloom's companion
-//     discovery execs `<bin> loadout --format json`, built from
-//     loadout.Subcommand/FormatFlag/FormatJSON, and shared with
+//     discovery execs `<bin> loadout --format yaml`, built from
+//     loadout.Subcommand/FormatFlag/FormatYAML, and shared with
 //     cmd/taskloom;
-//   - unifying the vocabularies would have loadout advertise toml/markdown
-//     envelope formats that do not exist.
+//   - unifying the vocabularies would have loadout advertise formats that do
+//     not exist.
 //
 // So this pins the arrangement instead: both flag positions reach the local
 // flag, the default is the emittable one, a root-vocabulary value is refused
 // LOUDLY rather than silently mis-emitted, and check's five formats are
 // untouched by any of it.
-func TestRoot_FormatMeansTheEnvelopeFormatUnderLoadout(t *testing.T) {
+func TestRoot_FormatMeansTheLoadoutFormatUnderLoadout(t *testing.T) {
 	run := func(t *testing.T, args ...string) (string, error) {
 		t.Helper()
 		var out bytes.Buffer
@@ -148,30 +79,27 @@ func TestRoot_FormatMeansTheEnvelopeFormatUnderLoadout(t *testing.T) {
 
 	t.Run("bare loadout emits the raw bundle, not the root's text default", func(t *testing.T) {
 		out, err := run(t, "loadout")
-		require.NoError(t, err, "the DEFAULT invocation must work; the root's --format default is not an envelope format")
+		require.NoError(t, err, "the DEFAULT invocation must work; the root's --format default is not a loadout format")
 		assert.Equal(t, string(loadoutYAML), out)
 	})
 
-	t.Run("--format json after the subcommand emits the envelope", func(t *testing.T) {
-		out, err := run(t, "loadout", "--format", "json")
-		require.NoError(t, err)
-		decoded, _, err := signing.DecodeLoadoutEnvelope([]byte(out), nil, time.Now())
+	t.Run("--format yaml after the subcommand emits the document", func(t *testing.T) {
+		out, err := run(t, "loadout", "--format", "yaml")
 		require.NoError(t, err, "this is the exact argv ctxloom's companion discovery execs")
-		assert.Equal(t, loadoutYAML, decoded)
+		assert.Equal(t, string(loadoutYAML), out)
 	})
 
-	t.Run("--format json in the persistent position reaches the same flag", func(t *testing.T) {
-		out, err := run(t, "--format", "json", "loadout")
+	t.Run("--format yaml in the persistent position reaches the same flag", func(t *testing.T) {
+		out, err := run(t, "--format", "yaml", "loadout")
 		require.NoError(t, err)
-		_, _, err = signing.DecodeLoadoutEnvelope([]byte(out), nil, time.Now())
-		require.NoError(t, err, "the shadow must resolve toward the local flag, or this silently emits YAML")
+		assert.Equal(t, string(loadoutYAML), out, "the shadow must resolve toward the local flag")
 	})
 
 	t.Run("a root-vocabulary format is refused loudly", func(t *testing.T) {
-		for _, f := range []string{"text", "toml", "markdown"} {
+		for _, f := range []string{"text", "json", "toml", "markdown"} {
 			out, err := run(t, "loadout", "--format", f)
 			require.Error(t, err, "loadout must not silently accept %q", f)
-			assert.NotContains(t, out, "fragments:", "nothing may be emitted for an unsupported envelope format")
+			assert.NotContains(t, out, "fragments:", "nothing may be emitted for an unsupported loadout format")
 		}
 	})
 
@@ -188,7 +116,7 @@ func TestRoot_FormatMeansTheEnvelopeFormatUnderLoadout(t *testing.T) {
 
 func TestLoadout_UnknownFormatErrors(t *testing.T) {
 	var buf bytes.Buffer
-	err := loadout.Emit(&buf, "toml", loadoutYAML, loadoutSig)
+	err := loadout.Emit(&buf, "toml", loadoutYAML)
 	assert.Error(t, err)
 	assert.Empty(t, buf.Bytes())
 }

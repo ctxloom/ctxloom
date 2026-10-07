@@ -248,10 +248,8 @@ func TestTreeStore_ReadOnlyBackingRefusesWritesLoudly(t *testing.T) {
 	ctx := t.Context()
 	ref := trust.Ref{Bundle: "b", Kind: trust.KindMCP, Name: "redis"}
 	for name, call := range map[string]func() error{
-		"Put":                func() error { return store.Put(ctx, ref, "raw", nil) },
-		"Delete":             func() error { return store.Delete(ctx, ref) },
-		"PutManifest":        func() error { return store.PutManifest(ctx, "b", Manifest{}) },
-		"PutBundleSignature": func() error { return store.PutBundleSignature(ctx, "b", "publish", testKey(t), []byte("s")) },
+		"Put":    func() error { return store.Put(ctx, ref, "raw", nil) },
+		"Delete": func() error { return store.Delete(ctx, ref) },
 	} {
 		if err := call(); !errors.Is(err, ErrReadOnly) {
 			t.Errorf("%s on a read-only store = %v, want ErrReadOnly", name, err)

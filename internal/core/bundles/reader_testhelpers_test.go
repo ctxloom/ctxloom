@@ -2,32 +2,14 @@ package bundles
 
 import (
 	"context"
-	"path"
 	"testing"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
-	"github.com/ctxloom/ctxloom/internal/core/release"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
-
-// treeRelease is the release a publisher signs a tree under: its own id and
-// the version its bundle.yaml declares, which a reader requires to match.
-func treeRelease(t *testing.T, b content.Bundle) release.Release {
-	t.Helper()
-	raw, err := b.ReadFile(context.Background(), DirectoryFormManifest)
-	require.NoError(t, err)
-	env, err := ParseBundle(raw)
-	require.NoError(t, err)
-	v, err := semver.StrictNewVersion(env.Version)
-	require.NoError(t, err, "a signed fixture's bundle.yaml must carry a strict semver version")
-	return release.Release{Name: string(b.ID()), Version: v}
-}
 
 // repoTree stages a TREE-form bundle named leaf and returns it as the TreeFS a
 // repoFSReader reads through: a store rooted at the bundle's PARENT, so the
@@ -38,13 +20,11 @@ func treeRelease(t *testing.T, b content.Bundle) release.Release {
 // still staged a flat "<leaf>.yaml" would be asserting against a shape no
 // publisher can publish and no reader will accept.
 //
-// signer, when non-nil, writes and signs SHA256SUMS over the finished tree, so
-// "signed" is real crypto over the real manifest rather than a fixture
-// convention. The items are written with content.Writer, the same object the
+// The items are written with content.Writer, the same object the
 // publisher uses, so the tree's layout cannot drift from the product's.
-func repoTree(t *testing.T, leaf, envelope string, frags map[string]string, signer ssh.Signer) TreeFS {
+func repoTree(t *testing.T, leaf, envelope string, frags map[string]string) TreeFS {
 	t.Helper()
-	fsys, root := stageRepoTree(t, leaf, envelope, frags, signer)
+	fsys, root := stageRepoTree(t, leaf, envelope, frags)
 	return openRepoTree(t, fsys, root)
 }
 
@@ -58,9 +38,8 @@ const repoTreeRoot = "/pinned"
 // the production caller does.
 const repoTreeURL = "https://example.test/repo"
 
-// stageRepoTree writes the tree and returns the filesystem it lives on, so a
-// caller that needs to disturb the bytes AFTER signing can reach them.
-func stageRepoTree(t *testing.T, leaf, envelope string, frags map[string]string, signer ssh.Signer) (afero.Fs, string) {
+// stageRepoTree writes the tree and returns the filesystem it lives on.
+func stageRepoTree(t *testing.T, leaf, envelope string, frags map[string]string) (afero.Fs, string) {
 	t.Helper()
 	fsys := afero.NewMemMapFs()
 	require.NoError(t, fsys.MkdirAll(repoTreeRoot, 0o755))
@@ -73,11 +52,6 @@ func stageRepoTree(t *testing.T, leaf, envelope string, frags map[string]string,
 			content.Fragment{Name: name, ItemMeta: content.ItemMeta{Body: body}}))
 	}
 	require.NoError(t, st.PutRootFile(context.Background(), content.BundleID(leaf), DirectoryFormManifest, []byte(envelope)))
-	if signer != nil {
-		b, err := st.Open(context.Background(), content.BundleID(leaf))
-		require.NoError(t, err)
-		require.NoError(t, attest.SignBundle(context.Background(), st, b, treeRelease(t, b), signer))
-	}
 	return fsys, repoTreeRoot
 }
 
@@ -87,28 +61,6 @@ func openRepoTree(t *testing.T, fsys afero.Fs, root string) TreeFS {
 	tfs, err := content.NewAferoTreeFS(fsys, root)
 	require.NoError(t, err)
 	return tfs
-}
-
-// repoTreeTamperedAfterSigning stages a SIGNED tree and then edits one item
-// file, leaving the manifest and its signature untouched: the publisher's key
-// still verifies over the manifest, and the manifest no longer describes the
-// tree. That is the two-axis case — trusted key, moved bytes.
-//
-// It REQUIRES that it found a file to edit. A tamper helper that silently
-// tampered with nothing would make every assertion built on it vacuous, which
-// is the exact failure mode this package has already been bitten by.
-func repoTreeTamperedAfterSigning(t *testing.T, leaf, envelope string, frags map[string]string, signer ssh.Signer) TreeFS {
-	t.Helper()
-	fsys, root := stageRepoTree(t, leaf, envelope, frags, signer)
-	dir := path.Join(root, leaf, "fragments")
-	entries, err := afero.ReadDir(fsys, dir)
-	require.NoError(t, err)
-	require.NotEmpty(t, entries, "the fixture must have staged a fragment to tamper with")
-	target := path.Join(dir, entries[0].Name())
-	before, err := afero.ReadFile(fsys, target)
-	require.NoError(t, err)
-	require.NoError(t, afero.WriteFile(fsys, target, append(before, []byte("\nsubstituted\n")...), 0o644))
-	return openRepoTree(t, fsys, root)
 }
 
 // staticReader is the in-package seam a test uses to hand the loader content it
@@ -152,8 +104,7 @@ func seedLocal(seeded map[string]*Bundle) Reader {
 		if b.Name == "" {
 			b.Name = ref
 		}
-		reads = append(reads, newRead(ref, b, prov, tctx,
-			SignatureFacts{Signature: SignatureNone, Signer: SignerNone}))
+		reads = append(reads, newRead(ref, b, prov, tctx))
 	}
 	return staticReader{reads: reads}
 }

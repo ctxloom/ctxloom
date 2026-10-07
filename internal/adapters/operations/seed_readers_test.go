@@ -1,7 +1,6 @@
 package operations
 
 import (
-	"context"
 	"os"
 	"path"
 	"path/filepath"
@@ -13,10 +12,8 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -25,16 +22,10 @@ import (
 // seedReaders presents authored bundle VALUES as the pinned content a reader
 // reads: one reader per ref, over the bundle's own YAML bytes.
 //
-// It exists because no exported constructor lets a caller mint a provenance or
-// a signer — deliberately, since one that did would be a trust bypass wearing a
-// struct literal. So a test that wants content in a loader supplies BYTES and
-// lets the reader establish the facts, exactly as a session does.
-//
-// A seed whose bundle carries a Signer() gets a real one: a throwaway key signs
-// those exact bytes and the reader is given a trust root that authorizes that
-// key for the wanted principal. The stamp therefore survives the round trip the
-// only way it can — by being verified — which is the point of the field being
-// unexported and yaml:"-".
+// It exists because no exported constructor lets a caller mint a provenance —
+// deliberately, since one that did would be a trust bypass wearing a struct
+// literal. So a test that wants content in a loader supplies BYTES and lets the
+// reader establish the facts, exactly as a session does.
 //
 // THE SEED KEY DECIDES WHICH READER. A canonical ref is pinned REMOTE content
 // and gets the repofs reader; a bare bundle name is this project's own content
@@ -67,13 +58,8 @@ func seedReaders(t *testing.T, seed map[string]*bundles.Bundle) []bundles.Reader
 			continue
 		}
 
-		var signer ssh.Signer
 		opts := []bundles.ReaderOption{bundles.WithRepoURL(seedRepoURL(t, ref))}
-		if principal := b.Signer(); principal != "" {
-			s, root, _ := bundletree.PublisherKey(t, principal)
-			signer, opts = s, append(opts, bundles.WithTrustRoot(root))
-		}
-		fsys, root, id := stageSeedTree(t, ref, b, signer)
+		fsys, root, id := stageSeedTree(t, ref, b)
 		if len(b.Skills) > 0 {
 			// A skill is read from its package directory, so a seed carrying
 			// one is read as an INSTALLED tree: bundle.Path, and FSDir, name
@@ -115,38 +101,28 @@ func seedRepoURL(_ *testing.T, ref string) string {
 	return ref
 }
 
-// stageSeedTree writes the tree and hands back the filesystem it lives on, so a
-// caller that must disturb the bytes AFTER signing can reach them. It is the
+// stageSeedTree writes the tree and hands back the filesystem it lives on. It is the
 // OS filesystem: a seeded skill is read from its package directory through the
 // loader's filesystem, which is the OS one for pinned content.
-func stageSeedTree(t *testing.T, ref string, b *bundles.Bundle, signer ssh.Signer) (afero.Fs, string, content.BundleID) {
+func stageSeedTree(t *testing.T, ref string, b *bundles.Bundle) (afero.Fs, string, content.BundleID) {
 	t.Helper()
 	root := t.TempDir()
 	id := content.BundleID(path.Base(strings.TrimSuffix(ref, "/")))
 	fsys := afero.NewOsFs()
-	st, err := content.NewTreeStore(fsys, root, content.Provenance{IsLocal: true})
-	require.NoError(t, err)
-
 	bundletree.WriteBundle(t, fsys, root, string(id), b, seedSkillOptions(b)...)
-	if signer != nil {
-		tree, err := st.Open(context.Background(), id)
-		require.NoError(t, err)
-		require.NoError(t, attest.SignBundle(context.Background(), st, tree, treeRelease(t, tree), signer))
-	}
 	return fsys, root, id
 }
 
-// signedTreeFiles stages b as a signed tree and returns it in the shape a
+// treeFiles stages b as a tree and returns it in the shape a
 // remote.TreeFetchFunc hands back: bundle-root-relative paths to file bytes.
 //
 // It is the bridge between the two seams. Staging goes through the production
-// converter and signer, so what the walk verifies is a real signed tree; the
-// map it returns is what the fetch seam would have produced, so a test can
+// converter, so what the walk reads is a real tree; the map it returns is what the fetch seam would have produced, so a test can
 // exercise the walk without standing up a forge double that can serve a
 // directory listing.
-func signedTreeFiles(t *testing.T, id string, b *bundles.Bundle, signer ssh.Signer) map[string]remote.TreeFile {
+func treeFiles(t *testing.T, id string, b *bundles.Bundle) map[string]remote.TreeFile {
 	t.Helper()
-	fsys, root, bid := stageSeedTree(t, id, b, signer)
+	fsys, root, bid := stageSeedTree(t, id, b)
 	dir := path.Join(root, string(bid))
 	out := map[string]remote.TreeFile{}
 	require.NoError(t, afero.Walk(fsys, dir, func(p string, info os.FileInfo, err error) error {

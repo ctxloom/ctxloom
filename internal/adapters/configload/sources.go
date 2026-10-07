@@ -26,7 +26,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/schema"
 	"github.com/ctxloom/ctxloom/resources"
@@ -233,25 +232,15 @@ func (s *Sources) target(fs afero.Fs) (string, config.ConfigSource) {
 }
 
 // Readers are the bundle sources of cfg's generation, in precedence order —
-// verifying against the generation's trust root, which the Owner binds
-// (TrustRoot runs first) before it asks for them —
 // a later reader wins a name collision, so pinned remote content shadows a
 // stale extracted copy on disk and a companion's own ref, which nothing else
 // can claim, comes last.
 func (s *Sources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
-		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root), bundles.WithReaderReporter(cfg.Reporter())),
+		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithReaderReporter(cfg.Reporter())),
 	}
 	for _, source := range s.readerSources {
 		readers = append(readers, source(cfg)...)
 	}
 	return append(readers, s.extraReaders...), nil
-}
-
-// TrustRoot builds the signer trust root the generation's readers verify
-// against, read ONCE for cfg: the embedded signers minus the distrusted ones,
-// unioned with the user's and the project's allowed_signers.
-func (s *Sources) TrustRoot(_ context.Context, cfg *config.Config) (trust.TrustRoot, error) {
-	return signerFilesOf(cfg).trustStore(), nil
 }

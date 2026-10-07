@@ -39,7 +39,7 @@ func (s *treeSource) Open(relPath string) ([]byte, error) {
 		// attest bytes that are not components of the item being read.
 		return nil, fmt.Errorf("%w: %q is not a component of this item", ErrBadPath, relPath)
 	}
-	if err := validateDigestPath(relPath); err != nil {
+	if err := validComponentPath(relPath); err != nil {
 		return nil, err
 	}
 	data, err := s.tfs.ReadFile(path.Join(s.root, relPath))

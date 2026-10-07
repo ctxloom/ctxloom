@@ -203,16 +203,6 @@ func (e *charExposure) fragmentVersions(ref string, commits []string) []*LoadedC
 	return e.pipe.ResolveFragmentVersions(ref, commits)
 }
 
-// fragmentPreimage / commandPreimage exercise the preimage builders the gate's
-// hash is DEFINED by, at the same seam.
-func (e *charExposure) fragmentPreimage(f BundleFragment) (string, ContentForm) {
-	return f.EffectiveContentHash(e.prefer)
-}
-
-func (e *charExposure) commandPreimage(c BundleCommand) (string, ContentForm) {
-	return c.EffectiveContentHash(e.prefer)
-}
-
 // --- assertions (must survive any relocation of form selection UNEDITED) ----
 
 func assertExposure(t *testing.T, path string, e *charExposure, want charExpectation, got *LoadedContent, err error) {
@@ -330,31 +320,6 @@ func TestFormSelection_Characterization_ResolveFragmentVersions(t *testing.T) {
 				t.Fatalf("ResolveFragmentVersions(%s, prefer=%v) = %d items, want 1", name, prefer, len(got))
 			}
 			assertExposure(t, describe("ResolveFragmentVersions", name, prefer), e, want, got[0], nil)
-		}
-	}
-}
-
-// TestFormSelection_Characterization_Preimages pins the preimage builders
-// themselves — EffectiveContentHash is the single definition of "the bytes of
-// this item", and the gate binds to exactly its output.
-func TestFormSelection_Characterization_Preimages(t *testing.T) {
-	frags := charFragmentItems()
-	cmds := charCommandItems()
-	for _, prefer := range []bool{false, true} {
-		e := newCharExposure(prefer)
-		for name, want := range charFragments[prefer] {
-			hash, form := e.fragmentPreimage(frags[name])
-			if hash != want.hash || string(form) != want.form {
-				t.Errorf("%s: EffectiveContentHash = (%s, %s), want (%s, %s)",
-					describe("fragment preimage", name, prefer), hash, form, want.hash, want.form)
-			}
-		}
-		for name, want := range charCommands[prefer] {
-			hash, form := e.commandPreimage(cmds[name])
-			if hash != want.hash || string(form) != want.form {
-				t.Errorf("%s: EffectiveContentHash = (%s, %s), want (%s, %s)",
-					describe("command preimage", name, prefer), hash, form, want.hash, want.form)
-			}
 		}
 	}
 }

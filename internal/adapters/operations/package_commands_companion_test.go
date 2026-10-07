@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -43,8 +42,7 @@ commands:
 // restore function that undoes both.
 func fakeLtkOnPath(t *testing.T, bundleYAML string) func() {
 	t.Helper()
-	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout(bundleYAML), nil, "")
-	require.NoError(t, err)
+	envelope := testsupport.RunLoadout(bundleYAML)
 	restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
 		if bin == "ltk" {
 			return "/fake/ltk", nil

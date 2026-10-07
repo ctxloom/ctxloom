@@ -7,16 +7,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
-
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // Authored bundles belong in the COMMITTED content tree, never the gitignored
@@ -35,31 +31,6 @@ func TestCreateBundle_WritesToCommittedContentTree(t *testing.T) {
 
 	_, err = os.Stat(filepath.Join(paths.CacheBundlesPath(appDir), "authored.yaml"))
 	assert.True(t, os.IsNotExist(err), "authored bundle must not land in the gitignored cache")
-}
-
-// The publishing-repo acceptance case: a repo whose bundles live in
-// .ctxloom/content/bundles/ must be enumerable by `ctxloom bundle sign --all`.
-func TestListLocalBundleNames_FindsContentTreeBundles(t *testing.T) {
-	// Real tempdir: GetBundleDirs os.Stat-gates on the real filesystem.
-	fs := afero.NewOsFs()
-	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	content := authoredV1(appDir)
-	require.NoError(t, fs.MkdirAll(content, 0o755))
-	for _, n := range []string{"alpha", "beta", "gamma"} {
-		bundletree.Write(t, fs, content, n, "version: 1.0.0\n")
-	}
-	// A stale cache artifact must not be offered for signing: this project has
-	// no write authority over remote-pulled content.
-	cacheDir := filepath.Join(paths.CacheBundlesPath(appDir), "github.com", "acme", "repo")
-	require.NoError(t, fs.MkdirAll(cacheDir, 0o755))
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(cacheDir, "remote.yaml"),
-		[]byte("version: 1.0.0\n_source:\n  sha: deadbeef\n"), 0o644))
-
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-
-	names, err := ListLocalBundleNames(cfg, fs)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"alpha", "beta", "gamma"}, names)
 }
 
 // authoredV1 and authoredV2 both resolve to the SAME (only) format root now.
@@ -96,88 +67,4 @@ func repoV2(rel ...string) string {
 
 func authoredV2(appPath string) string {
 	return paths.LocalBundlesPathFor(appPath, paths.LayoutV2)
-}
-
-// A TREE bundle is ONE bundle, whatever it holds.
-//
-// Its items are .yaml documents indistinguishable by name from a single-file
-// bundle, so a walk that descends into the tree offers each of them as a
-// bundle of its own. That is not cosmetic: `ctxloom bundle sign --all` fed the
-// enumeration straight into resolution and died with
-//
-//	Error: bundle "agent-ensemble/profiles/coordinator" not found
-//
-// which is a repo of converted bundles being unsignable. The assertion is an
-// exact SET, not a length or a Contains: the failure ADDS names, so anything
-// weaker passes with the boundary deleted.
-func TestListLocalBundleNames_TreeBundleIsOneName(t *testing.T) {
-	fs := afero.NewOsFs()
-	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	testsupport.SeedTree(t, fs, authoredV2(appDir), map[string]string{
-		"agent-ensemble/bundle.yaml":               "version: 1.0.0\n",
-		"agent-ensemble/profiles/coordinator.yaml": "description: coordinator\n",
-		"agent-ensemble/profiles/finder.yaml":      "description: finder\n",
-		"agent-ensemble/fragments/delegation.md":   "# delegation\n",
-	})
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-
-	names, err := ListLocalBundleNames(cfg, fs)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"agent-ensemble"}, names,
-		"a tree bundle's profiles/*.yaml are its ITEMS; naming them as bundles is what makes `sign --all` die on a name that cannot resolve")
-}
-
-// Depth changes nothing: a skill package nests a directory INSIDE the tree, and
-// a walk that survives one level of descent still fails at two.
-func TestListLocalBundleNames_TreeBundleWithNestedItemsIsOneName(t *testing.T) {
-	fs := afero.NewOsFs()
-	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	testsupport.SeedTree(t, fs, authoredV2(appDir), map[string]string{
-		"humanizer/bundle.yaml":               "version: 1.0.0\n",
-		"humanizer/skills/humanize/SKILL.md":  "# humanize\n",
-		"humanizer/skills/humanize/meta.yaml": "kind: skill\n",
-		"humanizer/mcp/taskloom.yaml":         "command: taskloom\n",
-	})
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-
-	names, err := ListLocalBundleNames(cfg, fs)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"humanizer"}, names,
-		"nothing beneath a tree bundle is a bundle, at any depth")
-}
-
-// The boundary must stop the walk WITHOUT costing legitimate depth: a tree
-// authored in a subdirectory is named by its path relative to the format root,
-// and "personal/foo" is a name that resolves. A fix that simply refused to
-// descend anywhere would delete that, silently.
-func TestListLocalBundleNames_NestedTreeNamesSurvive(t *testing.T) {
-	fs := afero.NewOsFs()
-	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	testsupport.SeedTree(t, fs, authoredV1(appDir), map[string]string{
-		"top/bundle.yaml":              "version: 1.0.0\n",
-		"personal/foo/bundle.yaml":     "version: 1.0.0\n",
-		"personal/lang/go/bundle.yaml": "version: 1.0.0\n",
-	})
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-
-	names, err := ListLocalBundleNames(cfg, fs)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"personal/foo", "personal/lang/go", "top"}, names,
-		"a tree at depth keeps its path-relative name")
-}
-
-// A stray .yaml beside a tree is not a bundle: only the tree enumerates.
-func TestListLocalBundleNames_AStrayDocumentIsNotEnumerated(t *testing.T) {
-	fs := afero.NewOsFs()
-	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	testsupport.SeedTree(t, fs, authoredV2(appDir), map[string]string{
-		"legacy.yaml":                   "version: 1.0.0\n",
-		"converted/bundle.yaml":         "version: 1.0.0\n",
-		"converted/profiles/coder.yaml": "description: coder\n",
-	})
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-
-	names, err := ListLocalBundleNames(cfg, fs)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"converted"}, names)
 }

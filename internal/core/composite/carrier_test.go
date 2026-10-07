@@ -20,7 +20,7 @@ import (
 func attestedPackage() Package {
 	return Package{
 		Context:   Context{Text: "# ctx\nbody", Hash: "h1"},
-		Fragments: []Item[Fragment]{{Value: Fragment{Name: "b/f", Body: "body"}, Ref: "b/f", Form: bundles.ContentForm("dir"), Signer: "s"}},
+		Fragments: []Item[Fragment]{{Value: Fragment{Name: "b/f", Body: "body"}, Ref: "b/f", Form: bundles.ContentForm("dir")}},
 		Premised:  []Item[Fragment]{{Value: Fragment{Name: "b/p", Body: "p", Premise: "when x"}, Ref: "b/p"}},
 		Commands: []Item[Command]{{Value: Command{Name: "c", Bundle: "b", Item: "c", ExportName: "b-c", Tags: []string{"t"}, Description: "d", Body: "cmd",
 			Exports: map[string][]byte{"fixture": []byte(`{"enabled":true}`)}, Curated: true}, Ref: "b/c"}},

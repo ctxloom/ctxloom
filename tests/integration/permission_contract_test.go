@@ -34,7 +34,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
@@ -347,11 +346,7 @@ func (s laneSources) Read(context.Context) (*config.Config, []config.Warning, er
 }
 
 func (s laneSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	return []bundles.Reader{bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(cfg.TrustRoot()))}, nil
-}
-
-func (s laneSources) TrustRoot(context.Context, *config.Config) (trust.TrustRoot, error) {
-	return trust.NoSigners{}, nil
+	return []bundles.Reader{bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs())}, nil
 }
 
 // laneApp opens the process composition over the fixture.

@@ -3,14 +3,11 @@ package main
 import (
 	"bytes"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions/loadout"
-	"github.com/ctxloom/ctxloom/internal/adapters/configload"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
@@ -40,68 +37,8 @@ func TestLoadout_YAML_IsAValidLoadout(t *testing.T) {
 // the exact embedded bytes, unmodified.
 func TestLoadout_YAMLFormat_EmitsRawBytesVerbatim(t *testing.T) {
 	var buf bytes.Buffer
-	require.NoError(t, loadout.Emit(&buf, "yaml", loadoutYAML, loadoutSig))
+	require.NoError(t, loadout.Emit(&buf, loadout.FormatYAML, loadoutYAML))
 	assert.Equal(t, loadoutYAML, buf.Bytes())
-}
-
-// TestLoadout_JSONFormat_DecodesToIdenticalDocument proves the round trip a
-// real companion-discovery probe depends on.
-func TestLoadout_JSONFormat_DecodesToIdenticalDocument(t *testing.T) {
-	var buf bytes.Buffer
-	require.NoError(t, loadout.Emit(&buf, "json", loadoutYAML, loadoutSig))
-
-	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), nil, time.Now())
-	require.NoError(t, err)
-	assert.Equal(t, loadoutYAML, decoded)
-	assert.Empty(t, signer, "an unsigned loadout must decode with an empty verified signer, not an error")
-
-	lo, err := bundles.ParseLoadout(decoded)
-	require.NoError(t, err)
-	b := lo.Run
-	assert.Contains(t, b.Fragments, "taskloom")
-}
-
-// TestLoadout_SignedLoadoutVerifiesAsTrustedPublisher is the end-to-end proof
-// (S8 loadoutSig seam, filled) that taskloom's loadout is trusted-by-
-// construction, not review-pending: the envelope
-// `taskloom loadout --format json` actually emits, verified through
-// signing.VerifyPublisher against the REAL trust root ctxloom ships
-// (configload.EmbeddedSigners(), the compiled-in ctxloom release
-// key), resolves to that key's principal. It also DOUBLES as the drift gate
-// item 2 requires — if loadout.yaml is ever edited without regenerating
-// loadout.yaml.sig (`just sign-loadouts`), the committed .sig no longer
-// covers the new bytes and this test starts failing loudly, pure-Go and
-// offline, no private key required.
-func TestLoadout_SignedLoadoutVerifiesAsTrustedPublisher(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	require.NotEmpty(t, loadoutSig, "taskloom's committed loadout.yaml.sig is missing or not embedded — run `just sign-loadouts` and commit it")
-
-	var buf bytes.Buffer
-	require.NoError(t, loadout.Emit(&buf, "json", loadoutYAML, loadoutSig))
-
-	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), configload.EmbeddedSigners(), time.Now())
-	require.NoError(t, err)
-	assert.Equal(t, loadoutYAML, decoded)
-	assert.Equal(t, "ben+ctxloom@abbitt.me", signer, "taskloom's loadout must verify as published by the ctxloom release key")
-}
-
-// TestLoadout_TamperedLoadoutBodyFailsVerification proves the drift gate
-// actually fires: the real committed loadoutSig, presented against loadout
-// bytes that differ from what it covers (simulating loadout.yaml having
-// changed without a re-sign), is withheld — never silently downgraded to
-// "unsigned, please review" (spec §10.2).
-func TestLoadout_TamperedLoadoutBodyFailsVerification(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	require.NotEmpty(t, loadoutSig, "taskloom's committed loadout.yaml.sig is missing or not embedded — run `just sign-loadouts` and commit it")
-
-	tampered := append(append([]byte{}, loadoutYAML...), []byte("\n# drift: this byte was never signed\n")...)
-	var buf bytes.Buffer
-	require.NoError(t, loadout.Emit(&buf, "json", tampered, loadoutSig))
-
-	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), configload.EmbeddedSigners(), time.Now())
-	require.Error(t, err, "a loadout body that drifted from its signature must be withheld, not degraded to unsigned")
-	assert.Nil(t, decoded)
-	assert.Empty(t, signer)
 }
 
 // `loadout` is the one command on this tree that declares its own local
@@ -113,21 +50,23 @@ func TestLoadout_TamperedLoadoutBodyFailsVerification(t *testing.T) {
 // `--format markdown` errors and writes nothing, which is the acceptable
 // half.
 //
-// The --json shorthand is the other half and it was silent. --json is
-// documented as nothing but shorthand for --format json and is declared
-// persistently on the root precisely so every command can be relied on to
-// honor it; loadout read only its own local variable, so `loadout --json`
-// accepted the flag, exited 0, and emitted YAML. A caller asking for JSON
-// and being handed YAML with no diagnostic is the failure this repo names
-// silent-no-op.
-func TestLoadout_JSONShorthandIsHonored(t *testing.T) {
-	out := runLoadout(t, "--json")
+// The --json shorthand is the other half: --json is documented as shorthand
+// for --format json and is declared persistently on the root, so loadout must
+// refuse it rather than silently answer with YAML — there is no JSON loadout.
+func TestLoadout_JSONShorthandIsRefused(t *testing.T) {
+	loadout := newLoadoutCmd()
+	rootCmd.AddCommand(loadout)
+	t.Cleanup(func() { rootCmd.RemoveCommand(loadout) })
+	resetGlobalFormatFlags()
+	t.Cleanup(resetGlobalFormatFlags)
 
-	assert.NotEqual(t, string(loadoutYAML), out,
-		"--json must not fall through to the raw YAML body")
-	decoded, _, err := signing.DecodeLoadoutEnvelope([]byte(out), nil, time.Now())
-	require.NoError(t, err, "--json must emit the same envelope --format json does")
-	assert.Equal(t, loadoutYAML, decoded)
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&buf)
+	rootCmd.SetArgs([]string{"loadout", "--json"})
+	t.Cleanup(func() { rootCmd.SetArgs(nil) })
+	require.Error(t, rootCmd.Execute(), "--json must be refused, not degraded to YAML")
+	assert.NotContains(t, buf.String(), string(loadoutYAML))
 }
 
 // An explicit --format still wins over the shorthand, and the local
@@ -181,7 +120,7 @@ func runLoadout(t *testing.T, args ...string) string {
 
 func TestLoadout_UnknownFormatErrors(t *testing.T) {
 	var buf bytes.Buffer
-	err := loadout.Emit(&buf, "toml", loadoutYAML, loadoutSig)
+	err := loadout.Emit(&buf, "toml", loadoutYAML)
 	assert.Error(t, err)
 	assert.Empty(t, buf.Bytes())
 }

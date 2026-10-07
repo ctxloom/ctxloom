@@ -177,12 +177,6 @@ type Entry struct {
 	// field, or whose stamp failed, is never purged uncompacted.
 	Origin Origin `yaml:"origin,omitempty" json:"origin,omitempty"`
 
-	// SigCheckDisabled records that the run which minted this session waived
-	// bundle signature verification (--disable-sig-check), so a session that
-	// delivered unverified content can be told apart afterwards. Stamped by
-	// the mint with Origin; absent means the check was enforced.
-	SigCheckDisabled bool `yaml:"sig_check_disabled,omitempty" json:"sig_check_disabled,omitempty"`
-
 	// Rotations records every binding this harp has DISPLACED, oldest first.
 	// claude-code's /clear starts a fresh session UUID and transcript file
 	// under the same live process, firing SessionStart again; without this, a

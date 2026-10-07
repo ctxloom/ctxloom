@@ -41,13 +41,6 @@ var EnvKeys = []string{
 	"CTXLOOM_DEGRADED",
 	"CTXLOOM_VERBOSE",
 	"CTXLOOM_NO_COMPANIONS",
-	// bundles.SigCheckEnv, read through the constant — listed by hand for the
-	// same reason as the trio below. An ambient waiver would admit unsigned
-	// content in every test that asserts it is withheld.
-	"CTXLOOM_DISABLE_SIG_CHECK",
-	// sessions.EnvSigCheckWaived: the session carrier a waived launch puts on
-	// its engine, scrubbed for the same reason.
-	"CTXLOOM_SESSION_DISABLE_SIG_CHECK",
 	// sessions.EnvSessionOwner: the marker the session owner's launch puts on
 	// its engine, scrubbed so a test run from inside a real session is never
 	// mistaken for that session's owner.

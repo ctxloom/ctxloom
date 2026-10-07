@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // seedReader presents authored bundle VALUES as what they are — project
@@ -62,14 +61,9 @@ func withSeedAndCompanions(t *testing.T, cfg *config.Config, seed map[string]*bu
 func publish(t *testing.T, cfg *config.Config, src seededSources) *config.Config {
 	t.Helper()
 	src.cfg = cfg
-	// The root the fixture already carries survives publication: a test that
-	// bound one of its own meant that one.
-	root, waived := cfg.TrustRoot(), cfg.SignatureCheckDisabled()
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
-	out := owner.Current().Config
-	out.BindTrustRootForTesting(root, waived)
-	return out
+	return owner.Current().Config
 }
 
 // seededSources publishes a fixture with the project and builtin readers,
@@ -85,9 +79,8 @@ func (s seededSources) Read(context.Context) (*config.Config, []config.Warning, 
 }
 
 func (s seededSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
-		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
+		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs()),
 	}
 	if s.companions {
 		readers = append(readers, companions.Prober{}.ReaderSource()(cfg)...)
@@ -96,10 +89,6 @@ func (s seededSources) Readers(_ context.Context, cfg *config.Config) ([]bundles
 		readers = append(readers, s.extra)
 	}
 	return readers, nil
-}
-
-func (s seededSources) TrustRoot(context.Context, *config.Config) (trust.TrustRoot, error) {
-	return trust.NoSigners{}, nil
 }
 
 // withResolver returns cfg's value with the pinned-version resolver bound,
@@ -111,6 +100,5 @@ func withResolver(cfg *config.Config, r bundles.BundleVersionResolver) *config.C
 	if fs := cfg.FS(); fs != nil {
 		out.SetRoot(safefs.NewMem(fs))
 	}
-	out.BindTrustRootForTesting(cfg.TrustRoot(), cfg.SignatureCheckDisabled())
 	return out
 }

@@ -13,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // Draft is the mutable view an Owner.Update transaction hands fn: every
@@ -58,10 +57,6 @@ type Sources interface {
 	Read(ctx context.Context) (*Config, []Warning, error)
 	// Readers are the bundle sources a generation's Catalog is resolved from.
 	Readers(ctx context.Context, cfg *Config) ([]bundles.Reader, error)
-	// TrustRoot is the signer trust root the generation's readers verify a
-	// publisher signature against, built for cfg so it never outlives the
-	// generation.
-	TrustRoot(ctx context.Context, cfg *Config) (trust.TrustRoot, error)
 }
 
 // Option adjusts an Owner at Open.
@@ -82,14 +77,6 @@ func WithReporter(sink report.Sink) Option {
 	return func(o *Owner) { o.rep = report.To(sink) }
 }
 
-// WithoutSignatureCheck builds every generation with signature verification
-// waived (Config.SignatureCheckDisabled). It is an Owner option and not a
-// config value on purpose: the switch belongs to the invocation that asked
-// for it, so no file can carry it into a later run.
-func WithoutSignatureCheck() Option {
-	return func(o *Owner) { o.sigCheckDisabled = true }
-}
-
 // Owner is the one owner of the loaded configuration in a process (the
 // originator; the runner has none). Exactly one exists, constructed at the
 // composition root by Open, reaching every consumer as a *Snapshot parameter.
@@ -97,11 +84,8 @@ type Owner struct {
 	src     Sources
 	engines *engine.Registry // the engines each generation is validated against; nil = none composed
 	rep     report.Reporter  // where every generation's per-item findings go
-	// sigCheckDisabled waives signature verification for every generation
-	// (WithoutSignatureCheck).
-	sigCheckDisabled bool
-	current          atomic.Pointer[Snapshot]
-	gen              atomic.Uint64
+	current atomic.Pointer[Snapshot]
+	gen     atomic.Uint64
 	// writeMu serializes generation builds (Reload, Update): generation
 	// numbers are then monotonic with publication order, and an Update's
 	// read-modify-write cannot interleave with a concurrent Reload.
@@ -151,7 +135,7 @@ func (o *Owner) reloadLocked(ctx context.Context) (*Snapshot, error) {
 // reaches this generation through its *Config sees the same catalog
 // the Snapshot carries — and a consumer still holding an earlier
 // generation's *Config keeps that generation's. The Config the source read
-// is copied here rather than bound in place: bindTrustRoot/bindCatalog are never called
+// is copied here rather than bound in place: bindCatalog is never called
 // on a published value, and that must hold whatever the source returns (a
 // source that hands back one shared value on every read would otherwise
 // have a reload rebind a generation under a reader mid-assembly).
@@ -164,14 +148,6 @@ func (o *Owner) build(ctx context.Context, read *Config, warnings []Warning) (*S
 			warnings = append(warnings, Warning{Kind: WarnKindValidate, Text: err.Error()})
 		}
 	}
-	// The root first: the readers verify signatures against it, so it is
-	// built once and bound before they are asked for, and every reader of one
-	// generation decides against the same root.
-	root, err := o.src.TrustRoot(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("config: resolving trust root: %w", err)
-	}
-	cfg.bindTrustRoot(root, o.sigCheckDisabled)
 	readers, err := o.src.Readers(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("config: resolving bundle sources: %w", err)

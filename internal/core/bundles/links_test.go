@@ -243,22 +243,3 @@ func TestPipeline_NilLinkGrantWithholdsLinkedItemsOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "GUIDE", got.Content)
 }
-
-// Tags are outside the MCP executable preimage: linking a server changes
-// nothing an approval was granted over.
-func TestBundleMCP_TagsAreOutsideTheExecutablePreimage(t *testing.T) {
-	plain := BundleMCP{Command: "think-server", Args: []string{"--x"}}
-	linked := plain
-	linked.Tags = []string{"ctxloom:link_id=think"}
-	assert.Equal(t, mcpTrustHash(t, plain), mcpTrustHash(t, linked))
-}
-
-// Tags are outside the hook executable preimage too: hooks share
-// ExecPreimageContract with MCP, and linking a hook to its server must not
-// invalidate the approval granted over what the hook runs.
-func TestBundleHook_TagsAreOutsideTheExecutablePreimage(t *testing.T) {
-	plain := BundleHook{Matcher: "Bash", Command: "think-warmup"}
-	linked := plain
-	linked.Tags = []string{"ctxloom:link_id=think"}
-	assert.Equal(t, hookTrustHash(t, plain), hookTrustHash(t, linked))
-}

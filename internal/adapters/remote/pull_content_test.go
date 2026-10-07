@@ -23,7 +23,7 @@ func TestInstallPulledItem_ReinstalledReflectsExistingEntry(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll(baseDir, 0755))
 	lm := NewLockfileManager(baseDir, WithLockfileFS(fs))
-	p := &Puller{lockfileManager: lm, treeInstall: stubTreeInstaller(), treeVerify: stubTreeVerifier()}
+	p := &Puller{lockfileManager: lm, treeInstall: stubTreeInstaller()}
 	opts := PullOptions{ItemType: ItemTypeBundle}
 
 	// Tree-shaped: item.tree == nil is what installPulledItem now refuses

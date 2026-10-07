@@ -38,7 +38,7 @@ func TestRegisteredEntries_WithholdsAnUnregisteredRepository(t *testing.T) {
 	assert.Contains(t, lock.Bundles, trust.BundleKey(orphan), "the lockfile itself is not edited")
 	require.ErrorIs(t, failures[orphan], remote.ErrRemoteNotRegistered)
 
-	readers := pinnedTreeReaders(c, kept, trust.NoSigners{}, failures)
+	readers := pinnedTreeReaders(c, kept, failures)
 	reads := bundles.NewLoader(readers...).Reads()
 	names := make([]string, 0, len(reads))
 	for _, r := range reads {
@@ -57,7 +57,7 @@ func TestBundleVersionResolver_RefusesAnUnregisteredRepository(t *testing.T) {
 
 	resolve := BundleVersionResolver(c)
 	require.NotNil(t, resolve)
-	_, err := resolve("https://github.com/gone/away@bundles/kit", "0123456789abcdef", trust.NoSigners{})
+	_, err := resolve("https://github.com/gone/away@bundles/kit", "0123456789abcdef")
 	require.ErrorIs(t, err, remote.ErrRemoteNotRegistered)
 }
 

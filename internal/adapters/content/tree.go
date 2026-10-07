@@ -291,7 +291,7 @@ func (b *treeBundle) Item(ctx context.Context, ref trust.Ref) (Item, error) {
 	if i := strings.LastIndex(ref.Name, "/"); i >= 0 {
 		relDir, stem = relDir+"/"+ref.Name[:i], ref.Name[i+1:]
 	}
-	if err := validateDigestPath(relDir + "/" + stem); err != nil {
+	if err := validComponentPath(relDir + "/" + stem); err != nil {
 		return nil, err
 	}
 	paths, err := b.group(relDir, stem)
@@ -397,7 +397,7 @@ func (b *treeBundle) ReadFile(ctx context.Context, relPath string) ([]byte, erro
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := validateDigestPath(relPath); err != nil {
+	if err := validComponentPath(relPath); err != nil {
 		return nil, err
 	}
 	data, err := b.store.tfs.ReadFile(b.abs(relPath))
@@ -408,30 +408,6 @@ func (b *treeBundle) ReadFile(ctx context.Context, relPath string) ([]byte, erro
 		return nil, fmt.Errorf("content: reading %q: %w", relPath, err)
 	}
 	return data, nil
-}
-
-// Manifest reads and parses the bundle manifest.
-func (b *treeBundle) Manifest(ctx context.Context) (Manifest, error) {
-	raw, err := b.ReadFile(ctx, ManifestPath)
-	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return Manifest{}, fmt.Errorf("%w: %s", ErrManifestMissing, b.id)
-		}
-		return Manifest{}, err
-	}
-	m, err := ParseManifest(raw)
-	if err != nil {
-		return Manifest{}, fmt.Errorf("%s: %w", b.id, err)
-	}
-	return m, nil
-}
-
-// BundleSignatures returns the signature bytes filed against the manifest.
-func (b *treeBundle) BundleSignatures(ctx context.Context) (SigSet, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	return readSignatures(b.store.tfs, b.dir, BundleSigKey)
 }
 
 // walk groups the files under relDir into candidates and asks the type to claim
@@ -674,20 +650,6 @@ func (f *treeForm) declaredModes() (map[string]ComponentMode, error) {
 		modes[c.Path] = c.Mode
 	}
 	return modes, nil
-}
-
-func (f *treeForm) Content(ctx context.Context) ([]byte, error) {
-	components, err := f.Components(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if len(components) == 0 {
-		// A form with no components would digest to just the version marker,
-		// which would then be a stable hash shared by every empty form — an
-		// approval of one would match all of them. Refuse instead.
-		return nil, fmt.Errorf("content: %s form %q has no components", f.item.ref.Key(), f.form)
-	}
-	return Digest(components)
 }
 
 // itemPath is the bundle-relative path a name resolves to inside a kind

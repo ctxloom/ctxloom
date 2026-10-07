@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -278,18 +277,5 @@ func TestWriter_PutSkillAppliesDeclaredMode(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, skill) {
 		t.Fatalf("skill round-trip lost data:\n got %+v\nwant %+v", got, skill)
-	}
-}
-
-func TestWriter_PutBundleSignatureRefusesUnsafeNamespace(t *testing.T) {
-	ctx := context.Background()
-	store := fixtureStore(t)
-	for _, ns := range []Namespace{"", "../escape", "with/slash", "*"} {
-		if err := store.PutBundleSignature(ctx, "code-quality", ns, testKey(t), []byte("sig")); !errors.Is(err, ErrBadPath) {
-			t.Errorf("namespace %q: err = %v, want ErrBadPath", ns, err)
-		}
-	}
-	if err := store.PutBundleSignature(ctx, "code-quality", Namespace(signing.NamespacePublish), testKey(t), nil); err == nil {
-		t.Error("an empty signature was accepted")
 	}
 }

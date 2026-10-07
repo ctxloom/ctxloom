@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -20,15 +21,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/agentkey"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -53,20 +51,10 @@ var doctorDepBinariesRequired = []string{"git"}
 //   - ssh is what `git` ITSELF shells out to for an ssh:// or git@host:
 //     remote (irrelevant for the default HTTPS remote ctxloom seeds).
 //   - ssh-keygen is the tool a user without an existing SSH key would run BY
-//     HAND to make one (`ssh-keygen -t ed25519-sk` — the fix `ctxloom
-//     review` and agentkey's own messages already suggest); ctxloom never runs it
-//     for them.
+//     HAND to make one for an ssh:// git remote; ctxloom never runs it.
 //
-// NEITHER is a signing dependency (an earlier version of this comment/the
-// Detail below wrongly implied both were "for signing" — an audit caught
-// it): ctxloom's signing is pure Go over the ssh-agent protocol
-// (SSH_AUTH_SOCK — agentkey's dialAgentAt, a unix-socket or named-pipe
-// dial, never exec) and pure-Go sshsig cryptography
-// (internal/adapters/signing/sign.go's Sign/Verify, internal/adapters/signing/publisher.go's
-// VerifyPublisher — both explicitly documented "no ssh-keygen binary" in
-// their own doc comments). Their absence still warns (worth having,
-// especially ssh-keygen if you don't yet have a key to sign with) but the
-// Detail text below says what they're actually for, not "signing".
+// Their absence still warns (worth having), and the Detail text below says
+// what they are actually for.
 var doctorDepBinariesRecommended = []string{"ssh", "ssh-keygen"}
 
 // DoctorStatus is one check's verdict, and there are exactly three of them. It
@@ -112,7 +100,7 @@ type DoctorReport struct {
 type DoctorRequest struct {
 	// DepsOnly scopes the report to ONLY the machine-capability probes
 	// (DEPS-a1's git/ssh/ssh-keygen/container runtime/each configured
-	// engine's client, SIGNKEY-k1, and GITIDENT-l2) — questions that are
+	// engine's client, and GITIDENT-l2) — questions that are
 	// true-or-false regardless of whether a project has been set up yet.
 	// init's PRIME and the setup skill's phase 1 run in THIS mode: the full
 	// report on a brand-new, never-set-up project is a wall of
@@ -129,16 +117,11 @@ type DoctorRequest struct {
 // Doctor runs ctxloom's deterministic setup checks and returns their rows in
 // the fixed order every frontend renders. It prints nothing and fails on no
 // check outcome: DoctorWarn IS the fail-loud signal. The only errors are the
-// service's own preconditions (a signer discoverer that cannot be built); a
-// configuration that fails to load is a finding the checks report, not an
-// error.
+// service's own preconditions; a configuration that fails to load is a
+// finding the checks report, not an error.
 func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, error) {
 	reg := app.Engines()
 	cfg, cfgErr := app.Config(ctx)
-	discoverer, err := SignerDiscoverer()
-	if err != nil {
-		return DoctorReport{}, err
-	}
 	// ONE probe per runtime for the whole report: each is an `info` round trip
 	// to the engine (seconds for podman, up to runtimeProbeTimeout for a wedged
 	// one), and every runtime row reads the same answer.
@@ -147,23 +130,19 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 	if req.DepsOnly {
 		checks = []DoctorCheck{
 			doctorCheckDeps(reg, cfg, runtimes),
-			doctorCheckSignKey(ctx, cfg, discoverer),
-			doctorCheckGitIdentity(ctx, discoverer.GitConfig),
+			doctorCheckGitIdentity(ctx, GitConfigGet),
 		}
 	} else {
 		checks = []DoctorCheck{
 			doctorCheckSetupMarker(cfg, cfgErr),
 			doctorCheckDeps(reg, cfg, runtimes),
-			doctorCheckSignKey(ctx, cfg, discoverer),
-			doctorCheckGitIdentity(ctx, discoverer.GitConfig),
+			doctorCheckGitIdentity(ctx, GitConfigGet),
 			doctorCheckAgents(ctx, reg, cfg, cfgErr),
 			doctorCheckCapabilityLoss(ctx, reg, cfg, cfgErr),
 			doctorCheckVersion(),
 			doctorCheckTranscriptReaders(ctx, reg, cfg, app.ProbeEngineVersion),
 			doctorCheckHooksTrust(ctx, reg, cfg, cfgErr),
 			doctorCheckMCPInvocation(reg, doctorProjectDir(cfg)),
-			doctorCheckSigCheck(app.SigCheckDisabled, app.SessionSigCheckWaived, editedSignedTreesOf(cfg, cfgErr)),
-			doctorCheckUpstreamSignatures(cfg, cfgErr),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
 			doctorCheckSetupCompanions(cfg, cfgErr, app.NoCompanions),
 			doctorCheckSetupAuthPing(),
@@ -248,7 +227,7 @@ func doctorContainerRuntimeRequired(cfg *config.Config) bool {
 // pull + init/manage install's own clone) and each configured engine's native
 // client — both genuinely REQUIRED — plus ssh/ssh-keygen, which are RECOMMENDED
 // but not required (see doctorDepBinariesRecommended's doc for why: ctxloom
-// never execs either; signing is pure Go). A container runtime lands in
+// never execs either). A container runtime lands in
 // whichever bucket THIS project's configuration puts it in
 // (doctorContainerRuntimeRequired). The two buckets are reported separately so
 // "missing" never conflates an optional convenience with a real hard
@@ -269,7 +248,7 @@ func doctorCheckDeps(reg engine.Registry, cfg *config.Config, runtimes []isolati
 	}
 	if len(missingRequired) == 0 && len(missingRecommended) == 0 {
 		return DoctorCheck{Marker: marker, Status: DoctorOK,
-			Detail: "git and every configured engine's client are on PATH (required); ssh, ssh-keygen and a container runtime are also present (recommended: ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand — signing itself is pure Go and never execs either; a container runtime is required only for `runtime: container` agents)"}
+			Detail: "git and every configured engine's client are on PATH (required); ssh, ssh-keygen and a container runtime are also present (recommended: ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW key for one by hand; a container runtime is required only for `runtime: container` agents)"}
 	}
 	sort.Strings(missingRequired)
 	sort.Strings(missingRecommended)
@@ -278,7 +257,7 @@ func doctorCheckDeps(reg engine.Registry, cfg *config.Config, runtimes []isolati
 		parts = append(parts, "missing (required): "+strings.Join(missingRequired, ", "))
 	}
 	if len(missingRecommended) > 0 {
-		parts = append(parts, "missing (recommended, not required — ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand; signing itself is pure Go and never execs either): "+strings.Join(missingRecommended, ", "))
+		parts = append(parts, "missing (recommended, not required — ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW key for one by hand): "+strings.Join(missingRecommended, ", "))
 	}
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: strings.Join(parts, "; ")}
 }
@@ -379,116 +358,41 @@ func doctorMissingEngineClients(reg engine.Registry, cfg *config.Config) []strin
 	return missing
 }
 
-// doctorCheckSignKey is a machine-capability probe like DOCTOR-CHECK-DEPS-a1
-// (included in --deps scope): it asks whether a signing IDENTITY would
-// resolve right now, using the EXACT SAME resolver `ctxloom sign`/`--sign`
-// use (internal/adapters/signing/agentkey.Discoverer.Discover) rather than
-// re-deriving
-// discovery here. Read-only:
-// Discover only lists ssh-agent identities (agent.Agent.Signers/List over
-// SSH_AUTH_SOCK), it never signs or reads private key bytes.
-//
-// Absence is never a hard failure — a project that only ever consumes
-// content genuinely has no need for a key — but it is a WARN, not silent;
-// this is advisory, same posture as the ssh-keygen/container-runtime warns
-// beside it. Surfacing it here (and in init PRIME's cli.checkSystemDeps)
-// beats a user hitting agentkey.NoKeyError cold at their first real
-// `ctxloom sign`.
-func doctorCheckSignKey(ctx context.Context, cfg *config.Config, discoverer *agentkey.Discoverer) DoctorCheck {
-	const marker = "DOCTOR-CHECK-SIGNKEY-k1"
-	explicit := ""
-	if cfg != nil {
-		explicit = cfg.SignKey()
-	}
-	ok, detail := SignKeyResolutionDetail(ctx, discoverer, explicit)
-	if ok {
-		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: detail}
-	}
-	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: detail, Remedy: doctorSignKeyRemedy}
-}
-
-// SignKeyResolutionDetail runs internal/adapters/signing/agentkey's real resolution
-// chain (explicit --key/sign.key, then `git config user.signingkey`, then
-// ssh-agent's sole identity — agentkey.go's package doc) and renders the
-// outcome as a short, actionable line. Shared between doctorCheckSignKey and
-// init PRIME's cli.checkSystemDeps so both surfaces say the exact same
-// thing about the exact same resolver, rather than drifting apart.
-//
-// ok=true names the resolved key the way cli.printSignResult already
-// does ("<source> (<fingerprint>)") — the same presentation `ctxloom sign`
-// itself prints when it actually signs something.
-//
-// ok=false distinguishes the three shapes agentkey.Discover can fail with,
-// observed directly from agentkey_test.go / this package's own tests:
-//   - AmbiguousKeyError: ssh-agent holds MULTIPLE identities and nothing
-//     (git config user.signingkey, sign.key) narrowed the choice — Discover
-//     deliberately never guesses, it names every candidate instead.
-//   - AmbiguousKeyNameError: an explicit --key/sign.key NAME matched more
-//     than one agent identity's comment.
-//   - NoKeyError (or any other error, e.g. an unreadable git-configured key
-//     file): nothing resolves at all.
-//
-// In every failure shape, the WHY (approving reviewed content and
-// publishing/signing your own content both need an identity; merely
-// consuming already-trusted/embedded content does not) is stated once,
-// alongside the concrete fix.
-func SignKeyResolutionDetail(ctx context.Context, discoverer *agentkey.Discoverer, explicit string) (ok bool, detail string) {
-	discovered, err := discoverer.Discover(ctx, explicit)
-	if err == nil {
-		// A probe never signs, so the agent connection is released as soon as
-		// the identity has been described.
-		defer func() { _ = discovered.Close() }()
-		return true, fmt.Sprintf("signing key resolves via %s (%s)", discovered.Source, discovered.Fingerprint)
-	}
-
-	const why = "needed to publish or sign your own content (`ctxloom bundle sign`) — merely consuming content does not require a signing key"
-
-	var ambig *agentkey.AmbiguousKeyError
-	if errors.As(err, &ambig) {
-		names := make([]string, 0, len(ambig.Candidates))
-		for _, c := range ambig.Candidates {
-			name := c.Fingerprint
-			if c.Comment != "" {
-				name = c.Comment + " (" + c.Fingerprint + ")"
-			}
-			names = append(names, name)
-		}
-		return false, fmt.Sprintf(
-			"ambiguous: ssh-agent holds %d identities and none is picked by `git config user.signingkey` or `sign.key` — %s; disambiguate with `ctxloom config set sign.key <name>` or `git config user.signingkey <path>`: %s",
-			len(ambig.Candidates), why, strings.Join(names, ", "))
-	}
-
-	var ambigName *agentkey.AmbiguousKeyNameError
-	if errors.As(err, &ambigName) {
-		return false, fmt.Sprintf(
-			"ambiguous: sign.key %q matches %d ssh-agent identities — %s; narrow the name or use a SHA256: fingerprint instead",
-			ambigName.Name, len(ambigName.Candidates), why)
-	}
-
-	var noKey *agentkey.NoKeyError
-	if errors.As(err, &noKey) {
-		reason := ""
-		if noKey.Detail != "" {
-			reason = " (" + noKey.Detail + ")"
-		}
-		return false, fmt.Sprintf(
-			"no signing key resolves%s — %s; run `ssh-add ~/.ssh/<key>` with your intended key loaded, set `sign.key` (`ctxloom config set sign.key <name>`) or `git config user.signingkey <path>`, or generate one: `ssh-keygen -t ed25519`",
-			reason, why)
-	}
-
-	return false, fmt.Sprintf("signing key resolution failed: %s — %s", err.Error(), why)
-}
-
-// gitConfigFunc is agentkey.Discoverer.GitConfig's shape: the one existing
-// generic `git config --get <key>` reader in this codebase (internal/
-// signing/agentkey/agentkey.go's execGitConfig, defaulted by
-// SignerDiscoverer()) — already used to resolve user.signingkey.
-// doctorCheckGitIdentity reuses it verbatim for user.name/user.email rather
-// than shelling out to git a second, bespoke way.
+// gitConfigFunc is GitConfigGet's shape, a seam so a test can answer for git.
 type gitConfigFunc = func(ctx context.Context, dir, key string) (value string, ok bool, err error)
 
+// GitConfigGet is the one generic `git config --get <key>` reader in this
+// codebase, run in dir ("" = the process working directory). ok is false for
+// an unset key, which is not an error.
+func GitConfigGet(ctx context.Context, dir, key string) (value string, ok bool, err error) {
+	cmd := exec.CommandContext(ctx, "git", "config", "--get", key)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	var out, stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && stderr.Len() == 0 {
+			// `git config --get` exits 1 with no stderr when the key is
+			// simply unset — not a failure, just "not configured".
+			return "", false, nil
+		}
+		// git contributes stderr only when it actually ran. A failure on
+		// ctxloom's side of exec (unrunnable binary, bad cwd) leaves it
+		// empty, so the message must stand on its own.
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return "", false, fmt.Errorf("git config --get %s: %s: %w", key, msg, err)
+		}
+		return "", false, fmt.Errorf("git config --get %s: %w", key, err)
+	}
+	value = strings.TrimSpace(out.String())
+	return value, value != "", nil
+}
+
 // doctorCheckGitIdentity is a machine-capability probe like DOCTOR-CHECK-
-// DEPS-a1/SIGNKEY-k1 (included in --deps scope): it verifies git's commit
+// DEPS-a1 (included in --deps scope): it verifies git's commit
 // identity — BOTH user.name AND user.email — is explicitly resolvable via
 // `git config` (any scope: local/global/system; `git config --get` already
 // searches all three, so this asks nothing beyond what git itself would use
@@ -501,8 +405,7 @@ type gitConfigFunc = func(ctx context.Context, dir, key string) (value string, o
 // misattributing the work to the wrong identity is the actual danger, so
 // "something resolves" is not the bar; "explicitly set" is.
 //
-// Read-only, informational only: like DOCTOR-CHECK-SIGNKEY-k1 beside it,
-// this never blocks — a project that never runs agent worktrees at all has
+// Read-only, informational only: this never blocks — a project that never runs agent worktrees at all has
 // no immediate need, so a bare `ctxloom doctor` there must not manufacture a
 // false alarm.
 func doctorCheckGitIdentity(ctx context.Context, gitConfig gitConfigFunc) DoctorCheck {
@@ -654,9 +557,7 @@ func doctorCheckVersion() DoctorCheck {
 // session carries its own hooks and MCP in its session home, and the
 // project-side files are the explicit `manage hooks install` door's, so
 // their absence is the correct state of a project and is reported as such,
-// never as a fault (ruled 2026-09-21). Plus how many signers the trust store
-// carries (ListSigners — always includes the embedded root, so a healthy
-// store is never reported as empty).
+// never as a fault (ruled 2026-09-21).
 func doctorCheckHooksTrust(ctx context.Context, reg engine.Registry, cfg *config.Config, cfgErr error) DoctorCheck {
 	const marker = "DOCTOR-CHECK-HOOKS-TRUST-d4"
 	if cfgErr != nil {
@@ -664,11 +565,10 @@ func doctorCheckHooksTrust(ctx context.Context, reg engine.Registry, cfg *config
 	}
 	status := DoctorOK
 	hooks, hooksOK := doctorHooksWiringDetail(ctx, reg, cfg)
-	trust, trustOK := doctorTrustStoreDetail(ListSigners(cfg, nil))
-	if !hooksOK || !trustOK {
+	if !hooksOK {
 		status = DoctorWarn
 	}
-	return DoctorCheck{Marker: marker, Status: status, Detail: strings.Join([]string{hooks, trust}, "; ")}
+	return DoctorCheck{Marker: marker, Status: status, Detail: hooks}
 }
 
 // doctorHooksWiringDetail reports the delivery posture for every backend a
@@ -708,75 +608,6 @@ func doctorHooksWiringDetail(ctx context.Context, reg engine.Registry, cfg *conf
 		parts = append(parts, "hooks/MCP also registered in the project (the explicit `manage hooks install` door) for: "+strings.Join(project, ", "))
 	}
 	return strings.Join(parts, "; "), true
-}
-
-// doctorTrustStoreDetail reports how much trust the store actually grants, from
-// ListSigners' (listing, error) pair.
-//
-// An UNREADABLE row is the case worth being careful about: ListSigners is
-// deliberately tolerant, so a store it could not open, could not parse, or
-// whose lines the parser dropped comes back as SignerListing rows with
-// Unreadable set (operations/signer.go's listFromPath) — never as an error.
-// Those rows grant no trust, so counting them as active signers reports MORE
-// trust than the machine has, and reporting "ok" beside them tells the user
-// their trust store is fine when part of it was silently skipped.
-//
-// The error arm is kept because the signature carries one, but note that
-// ListSigners returns `out, nil` unconditionally today: it is defensive, not
-// reachable, and no test can drive it through this function.
-func doctorTrustStoreDetail(signers []SignerListing, err error) (detail string, ok bool) {
-	if err != nil {
-		return "trust store: " + err.Error(), false
-	}
-	active := 0
-	var unreadable []string
-	for _, s := range signers {
-		switch {
-		case s.Unreadable != "":
-			unreadable = append(unreadable, fmt.Sprintf("%s (%s)", s.Path, s.Unreadable))
-		case !s.Suppressed:
-			active++
-		}
-	}
-	grants := doctorProjectPowerGrants(signers)
-	if len(unreadable) > 0 {
-		sort.Strings(unreadable)
-		return fmt.Sprintf("trust store: %d active signer(s), and %d entr(y/ies) that could not be read and grant NO trust: %s",
-			active, len(unreadable), strings.Join(unreadable, "; ")) + grants, false
-	}
-	return fmt.Sprintf("trust store: %d active signer(s)", active) + grants, true
-}
-
-// doctorProjectPowerGrants names every principal the PROJECT store trusts to
-// approve content, or "" when it trusts none.
-//
-// The project store is committed with the repository, so whoever can land a
-// commit can add a line to it; the approve namespace is the one that turns
-// such a line into skipping review. Listing it is information, not a fault.
-func doctorProjectPowerGrants(signers []SignerListing) string {
-	powers := []struct{ ns, label string }{
-		{signing.NamespaceApprove, signing.NamespaceApprove},
-	}
-	var parts []string
-	path := ""
-	for _, p := range powers {
-		var principals []string
-		for _, s := range signers {
-			if s.Source != signerSourceProject || s.Unreadable != "" || s.Suppressed || !s.Entry.MatchesNamespace(p.ns) {
-				continue
-			}
-			path = s.Path
-			principals = append(principals, strings.Join(s.Entry.Principals, ","))
-		}
-		if len(principals) > 0 {
-			sort.Strings(principals)
-			parts = append(parts, p.label+" to "+strings.Join(principals, ", "))
-		}
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("; the committed project store %s grants %s", path, strings.Join(parts, "; and "))
 }
 
 // ===== init-as-skill Phase 6 postcondition checks (plan.md §8.2) =====
@@ -827,7 +658,6 @@ const (
 	doctorSetupMarkerRemedy  = "ctxloom init"
 	doctorNoAgentsRemedy     = "ctxloom agent create <name> --profiles <profile>"
 	doctorConfigEditRemedy   = "ctxloom config edit"
-	doctorSignKeyRemedy      = "ssh-add ~/.ssh/<key>"
 	doctorGitIdentityRemedy  = `git config --global user.name "Your Name"; git config --global user.email you@example.com`
 	doctorGitignoreRemedy    = "ctxloom manage gitignore install"
 	doctorHooksInstallRemedy = "ctxloom manage hooks install"
@@ -1125,7 +955,7 @@ func doctorCheckIngestionLimit(reg engine.Registry, cfg *config.Config) DoctorCh
 // A row's Presence decides how its absence is treated. PresenceMustExist
 // (every RootProject row, and the zero value) warns on absence exactly as
 // before RootKind/Presence existed. PresenceIfUsed (the RootHome rows added
-// by C13 — sessions, approvals, signers, trigger cache, coord, companion
+// by C13 — sessions, trigger cache, coord, companion
 // consent) never warns on absence: a home-rooted store is shared across every
 // project on the machine and created lazily by exercising a specific
 // feature, so having none of it yet is normal, not a loss. When a
@@ -1204,106 +1034,6 @@ func localTierDetail(missing, present []string) string {
 		detail = fmt.Sprintf("%s; %d home-rooted store(s) in use: %s", detail, len(present), strings.Join(present, ", "))
 	}
 	return detail
-}
-
-// doctorSigCheckMarker is the signature-check row's marker.
-const doctorSigCheckMarker = "DOCTOR-CHECK-SIG-CHECK-e2"
-
-// doctorCheckSigCheck reports whether this invocation verifies bundle
-// signatures. Waived is a WARN, never ok: content nobody signed or reviewed is
-// reaching the assistant, and doctor is where a user looks to find out why a
-// session behaved as it did.
-//
-// edited names the installed signed trees the waiver accepted although their
-// bytes were edited after signing: the owner accepted that the flag hides that
-// tampering only on condition that doctor names every tree it hid.
-//
-// session is whether the session this doctor runs inside waives the check: a
-// doctor typed in a waived session's shell verifies for itself, and names the
-// session's waiver rather than reporting a clean "enforced".
-func doctorCheckSigCheck(disabled, session bool, edited []string) DoctorCheck {
-	if !disabled && session {
-		return DoctorCheck{Marker: doctorSigCheckMarker, Status: DoctorWarn, Detail: bundles.SessionSigCheckNotice}
-	}
-	if !disabled {
-		return DoctorCheck{Marker: doctorSigCheckMarker, Status: DoctorOK, Detail: "bundle signature verification is enforced"}
-	}
-	detail := bundles.SigCheckDisabledNotice
-	if len(edited) > 0 {
-		detail += " Accepted although " + bundles.EditedSignedTreeWords + ": " + strings.Join(edited, ", ") + "."
-	}
-	return DoctorCheck{Marker: doctorSigCheckMarker, Status: DoctorWarn, Detail: detail,
-		Remedy: "drop --" + bundles.SigCheckFlag + " and unset " + bundles.SigCheckEnv + " to verify signatures again"}
-}
-
-// editedSignedTreesOf is the generation's edited signed trees, or none when
-// the config did not load.
-func editedSignedTreesOf(cfg *config.Config, cfgErr error) []string {
-	if cfgErr != nil || cfg == nil {
-		return nil
-	}
-	return bundles.EditedSignedTrees(cfg.Catalog().Reads())
-}
-
-// doctorCheckUpstreamSignatures names every revision `deps upgrade` REFUSED
-// to advance onto because the content at that commit could not be read as a
-// bundle — and the pin it kept instead.
-//
-// IT EXISTS BECAUSE THE REFUSAL FIXES THE PROBLEM AND THEREBY HIDES IT.
-// DOCTOR-CHECK-CONTENT-TRUST-n4 above asks "is any installed content withheld
-// from your assistant?", and after a refusal the honest answer is NO: the pin
-// stayed on content that reads, so it reports [ok] and is right to. The
-// thing that went wrong is not in the project at all — it is a REVISION that
-// exists upstream and was not taken. Nothing on this machine is in a bad
-// state, which is precisely why no other inspector has anything to say, and
-// why without this check the fact lives only in the transient stdout of the
-// sync that refused it.
-//
-// THE FRAMING IS THE POINT, and it is the opposite of n4's. n4 names something
-// the user can act on locally (trust a key, or ask for a signature). This one
-// must not: there is nothing to configure, no key to add, no flag to pass. The
-// publisher has to repair and republish. A message that reads as a local
-// misconfiguration would send someone editing their trust store to fix a
-// problem that is not on their machine.
-//
-// WARN RATHER THAN INFO, deliberately. DoctorInfo means "nothing to fix", and
-// something does need fixing — just not by the person reading it. It is never
-// fatal: doctor fails no process, and this check in particular reports a
-// project that is working correctly off its kept pin.
-//
-// It re-reads nothing: it reads what the upgrade round recorded, filtered by
-// LiveRefusedAdvances to those still describing the pin the lockfile
-// actually holds, so a record left over from a world that has moved on is
-// dropped rather than reported.
-func doctorCheckUpstreamSignatures(cfg *config.Config, cfgErr error) DoctorCheck {
-	const marker = "DOCTOR-CHECK-UPSTREAM-SIGNATURES-o5"
-	if cfgErr != nil {
-		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "config did not load: " + cfgErr.Error()}
-	}
-	refused, err := LiveRefusedAdvances(cfg)
-	if err != nil {
-		// Reported, never folded onto "nothing was refused": this record's one
-		// job is to keep a fact from evaporating, so reading an unreadable
-		// store as silence would reproduce the exact gap it closes.
-		return DoctorCheck{Marker: marker, Status: DoctorWarn,
-			Detail: "could not read the record of refused upgrades, so this check cannot say whether any revision was refused: " + err.Error()}
-	}
-	if len(refused) == 0 {
-		return DoctorCheck{Marker: marker, Status: DoctorOK,
-			Detail: "no upstream revision has been refused: every pin your last upgrade could advance landed on content that reads as a bundle"}
-	}
-	sort.Slice(refused, func(i, j int) bool { return refused[i].Identity < refused[j].Identity })
-	var parts []string
-	for _, r := range refused {
-		parts = append(parts, fmt.Sprintf("%s at revision %s could not be read as a bundle (%s), so the pin is being kept at %s (refused %s)",
-			r.Identity, gitutil.AbbrevSHA(r.ProposedSHA, 16), r.Detail, gitutil.AbbrevSHA(r.KeptSHA, 16), r.RefusedAt.Format("2006-01-02")))
-	}
-	return DoctorCheck{Marker: marker, Status: DoctorWarn,
-		Detail: fmt.Sprintf("%d upstream revision(s) were REFUSED: %s. "+
-			"Nothing is wrong on this machine and nothing is withheld from your assistant — it is served the content at the kept pin. "+
-			"There is nothing to configure here: the publisher must repair the bundle and republish, and `ctxloom deps upgrade` picks it up "+
-			"and clears this the next time it runs",
-			len(refused), strings.Join(parts, "; "))}
 }
 
 // ===== J001300 close-out: doctor's share of the journey's checks ====

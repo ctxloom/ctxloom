@@ -10,7 +10,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
@@ -50,9 +49,8 @@ func bundleProfileName(bundle, name string) string {
 // prepareLocalBundleWrite readies the local bundle a profile write into name
 // lands in: the project bundle is created when the project has none yet (it
 // is where a project's own profiles live, so its absence is just a project
-// with no profiles), and writing into a SIGNED local bundle says that the
-// write stales the signature — the bundle is admitted as unsigned until it is
-// re-signed. Any other missing local bundle is the writer's error to report.
+// with no profiles). Any other missing local bundle is the writer's error to
+// report.
 func prepareLocalBundleWrite(cfg *config.Config, name string) error {
 	bundle, err := localBundleTarget(name)
 	if err != nil {
@@ -62,9 +60,6 @@ func prepareLocalBundleWrite(cfg *config.Config, name string) error {
 		if err := createProjectBundle(cfg); err != nil {
 			return err
 		}
-	}
-	if read, err := cfg.BundleLoader().Read(remote.LocalBundleRef(bundle)); err == nil && read.Signature() != bundles.SignatureNone {
-		clidiag.Warn("ctxloom", "local bundle %q is signed: writing profile %q into it stales that signature, and the bundle is admitted as unsigned until re-signed (ctxloom bundle sign %s)", bundle, name, bundle)
 	}
 	return nil
 }

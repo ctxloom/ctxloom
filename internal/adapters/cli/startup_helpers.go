@@ -108,11 +108,7 @@ func loadConfigOrFallback(loader func() (*config.Config, error), w io.Writer) *c
 		// regardless, so a failed warning write has nowhere to go and is
 		// intentionally dropped (captured-but-unchecked via errwriter.Writer).
 		ew := errwriter.New(w)
-		// The fallback trusts no signer (its Trust root is trust.NoSigners), so
-		// every signed bundle reads as untrusted until the config loads.
-		// Saying so here is what stops a typo in config.yaml being chased as a
-		// trust problem.
-		clidiag.Fwarn(ew, "ctxloom", "failed to load config (%v); using a minimal default rooted at .ctxloom, and no signer is trusted until it loads (signed bundles show as untrusted) — fix the config first", err)
+		clidiag.Fwarn(ew, "ctxloom", "failed to load config (%v); using a minimal default rooted at .ctxloom — fix the config first", err)
 		return config.NewFixture(config.Fixture{AppPaths: []string{".ctxloom"}})
 	}
 	return cfg

@@ -47,14 +47,6 @@ type LoadedSkill struct {
 	// "ctxloom+<class>:...#skills/<name>") — the same honest typed-source
 	// keying LoadedContent uses. A read FACT, never a decision.
 	TrustRef string
-	// TrustPayload is the package's trust preimage: the encoded manifest of
-	// its on-disk tree. A skill is a directory, so its preimage is a manifest
-	// rather than one body blob. It comes from the same parse Files was read
-	// by, so what the process stage decides on is exactly what is delivered.
-	TrustPayload []byte
-	// Signer is the owning bundle's VERIFIED publisher identity, or "" — see
-	// LoadedContent.Signer.
-	Signer string
 
 	// Read is the owning bundle's read — the trust FACTS its reader established.
 	// See ItemRead.Read for why exporting a value whose axes are unexported is
@@ -157,12 +149,6 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 		c.rep.Warnf("skill %q withheld: %v", name, err)
 		return nil
 	}
-	payload, err := skillPayloadFor(entry.Exports, pkg.Manifest)
-	if err != nil {
-		c.rep.Warnf("skill %q withheld: encoding trust preimage: %v", name, err)
-		return nil
-	}
-
 	files := make([]LoadedSkillFile, 0, len(pkg.Manifest))
 	for _, m := range pkg.Manifest {
 		data, rerr := afero.ReadFile(c.FS(), filepath.Join(dir, filepath.FromSlash(m.Path)))
@@ -184,18 +170,16 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 	}
 
 	return &LoadedSkill{
-		Name:         bundle.Name + "/" + name,
-		Bundle:       bundle.Name,
-		Item:         name,
-		Frontmatter:  pkg.Frontmatter,
-		Body:         pkg.Body,
-		Files:        files,
-		Exports:      entry.Exports,
-		Tags:         itemTags(bundle.Tags, entry.Tags),
-		TrustRef:     trustRef,
-		TrustPayload: payload,
-		Signer:       bundle.Signer(),
-		Read:         read,
+		Name:        bundle.Name + "/" + name,
+		Bundle:      bundle.Name,
+		Item:        name,
+		Frontmatter: pkg.Frontmatter,
+		Body:        pkg.Body,
+		Files:       files,
+		Exports:     entry.Exports,
+		Tags:        itemTags(bundle.Tags, entry.Tags),
+		TrustRef:    trustRef,
+		Read:        read,
 	}
 }
 

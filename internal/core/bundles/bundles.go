@@ -6,7 +6,6 @@ package bundles
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,10 +15,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -139,123 +136,16 @@ type Bundle struct {
 	sourceRef    trust.BundleRef `yaml:"-"`
 	sourceRefSet bool            `yaml:"-"`
 
-	// signer is the VERIFIED publisher identity of this bundle's file bytes: the
-	// principal of the allowed_signers entry whose key made a valid publish
-	// signature over exactly those bytes (signing.VerifyPublisher), or the
-	// synthetic "builtin:ctxloom" for a bundle compiled into this binary. Empty
-	// means UNSIGNED — no signature, or one by a key this machine does not trust
-	// to publish — which is legal, ordinary, and takes the review path.
-	//
-	// It is unexported and yaml:"-" ON PURPOSE, and that is a security property,
-	// not a style choice. A bundle file cannot set its own signer: writing
-	// `signer: releases@ctxloom.dev` into a YAML document does exactly nothing
-	// (TestParseBundle_YAMLCannotForgeSigner). The only way this field becomes
-	// non-empty is StampSigner, called by a load path that has already VERIFIED a
-	// signature against the trust root. Anyone can write a string into a file;
-	// nobody can forge a signature. This is implementer trap #3.
-	signer string `yaml:"-"`
-
-	// untrustedSignerFingerprint is the SHA256 fingerprint of the key that made
-	// a publish signature over this bundle's bytes WHEN THIS MACHINE DOES NOT
-	// TRUST THAT KEY — the case signer above cannot describe, because
-	// signing.VerifyPublisher deliberately reports "no signature" and "signed by
-	// a key you do not trust" as the same quiet "". It is empty for a genuinely
-	// unsigned bundle and empty for a verified one (signer carries the identity
-	// there), so the pair (signer, untrustedSignerFingerprint) spells exactly
-	// three states and no more.
-	//
-	// DISPLAY ONLY, and never an identity: see
-	// signing.SignatureKeyFingerprint's doc for why a key named by the blob
-	// that carries it is a claim, not a fact. Nothing may gate exposure on
-	// this, key a trust record on it, or write it into a trust store; its one
-	// consumer is the pending-review listing, which prints it beside the words
-	// saying the key is NOT trusted, for a human to compare against what the
-	// publisher told them out of band.
-	//
-	// Unexported and yaml:"-" for the same reason signer is: a bundle file
-	// must not be able to write its own answer here
-	// (TestParseBundle_YAMLCannotForgeUntrustedSignerFingerprint).
-	untrustedSignerFingerprint string `yaml:"-"`
-
-	// self marks ctxloom's OWN companion loadout (CompanionLoadout.Self),
-	// whatever its signature state. It is INTRINSIC content: nobody
+	// self marks ctxloom's OWN companion loadout (CompanionLoadout.Self).
+	// It is INTRINSIC content: nobody
 	// installed it and nobody can remove it, so a listing of what the user
 	// installed leaves it out, while it stays addressable by its ref.
 	self bool `yaml:"-"`
-	// selfSigned marks ctxloom's OWN companion loadout whose signature
-	// VERIFIED, circularly (companionReader.read explains why): the
-	// principal is never stamped as signer, and a surface that renders
-	// signing state must say so rather than showing it as unsigned or as
-	// publisher-verified — both would be false.
-	selfSigned bool `yaml:"-"`
 }
 
 // Self reports whether this bundle is ctxloom's own companion loadout —
 // intrinsic content, never installed; see companionReader.read.
 func (b *Bundle) Self() bool { return b.self }
-
-// SelfSigned reports whether this bundle is ctxloom's own companion loadout
-// and its signature verified — circularly, so no signer is stamped; see
-// companionReader.read.
-func (b *Bundle) SelfSigned() bool { return b.selfSigned }
-
-// Signer returns the bundle's verified publisher identity, or "" when the bundle
-// is unsigned (see the signer field). A non-empty value means: a key trusted by
-// THIS machine for the publish namespace made a signature over exactly this
-// bundle's file bytes, and that signature verified. It is never an unverified
-// claim, and it never comes from the bundle's own content.
-func (b *Bundle) Signer() string {
-	if b == nil {
-		return ""
-	}
-	return b.signer
-}
-
-// StampSigner records the verified publisher identity for this bundle. Call it
-// ONLY from a load path that has actually verified a signature against the trust
-// root (or that is stamping the synthetic builtin identity). Stamping an
-// unverified string here would forge a trusted publisher, which is the whole
-// attack this design exists to prevent.
-//
-// Forgetting to call it is fail-SAFE by construction: the bundle stays unsigned,
-// and unsigned content is withheld until a human reviews it. The failure mode of
-// forgetting is "more review", never "more exposure".
-func (b *Bundle) StampSigner(signer string) {
-	if b == nil {
-		return
-	}
-	b.signer = signer
-}
-
-// UntrustedSignerFingerprint returns the display-only fingerprint of the key
-// that signed this bundle's bytes when that key is NOT trusted to publish here,
-// or "" when the bundle is unsigned or verified (see the field's doc).
-//
-// A non-empty value means strictly less than it looks like: a signature exists,
-// it names a key, and this machine does not trust that key. It is not a
-// publisher, not an endorsement, and not usable as an input to any decision —
-// only as a string for a human to compare out of band.
-func (b *Bundle) UntrustedSignerFingerprint() string {
-	if b == nil {
-		return ""
-	}
-	return b.untrustedSignerFingerprint
-}
-
-// StampUntrustedSignerFingerprint records that fingerprint. Call it ONLY from a
-// load path that has already asked the trust root and been told this key is not
-// trusted — i.e. alongside StampSigner(""), never instead of a verification.
-//
-// Unlike StampSigner, getting this WRONG cannot grant exposure: nothing reads
-// it but the review listing's wording. Getting it wrong can only mislead a
-// human, which is why the listing that prints it never presents it as an
-// identity.
-func (b *Bundle) StampUntrustedSignerFingerprint(fingerprint string) {
-	if b == nil {
-		return
-	}
-	b.untrustedSignerFingerprint = fingerprint
-}
 
 // contentSourceRef returns the bundle's honest source ref for content trust
 // gating: the canonical ref of a seeded (cloned) bundle, the CompanionRef of
@@ -343,8 +233,8 @@ type BundleHook struct {
 	Args    []string `yaml:"args,omitempty"`
 	Type    string   `yaml:"type,omitempty"`
 	Prompt  string   `yaml:"prompt,omitempty"`
-	Timeout int      `yaml:"timeout,omitempty" surface:"operational"`
-	Async   bool     `yaml:"async,omitempty" surface:"operational"`
+	Timeout int      `yaml:"timeout,omitempty"`
+	Async   bool     `yaml:"async,omitempty"`
 	// PreToolFallback (session_start only): the hook is idempotent and may
 	// fire on PreToolUse instead on an agent without a session-start event.
 	// See wire.Hook.PreToolFallback.
@@ -353,7 +243,7 @@ type BundleHook struct {
 	// group membership (links.go) rides here — so, like BundleMCP.Tags, they
 	// sit OUTSIDE the executable preimage: linking a hook to the server it
 	// drives changes nothing an approval was granted over.
-	Tags []string `yaml:"tags,omitempty" surface:"selection"`
+	Tags []string `yaml:"tags,omitempty"`
 
 	// Order sequences this hook against its siblings WITHIN its event, sparsely
 	// (see wire.HookOrderStep). It does NOT sequence against other bundles:
@@ -367,7 +257,7 @@ type BundleHook struct {
 	// ContentPayload: the executable preimage names its fields explicitly, so
 	// adding order here changes no hook's content hash and stales no approval —
 	// order is scheduling, not behaviour.
-	Order *int `yaml:"order,omitempty" surface:"operational"`
+	Order *int `yaml:"order,omitempty"`
 }
 
 // BundleHooks mirrors wire.UnifiedHooks. Same lifecycle events; backend-
@@ -535,10 +425,10 @@ type BundleMCP struct {
 	// preimage is the empty target set, which no launchable entry can share
 	// (checkMCPTargets refuses an entry with no target at all), so an
 	// approval of the declaration approves exactly nothing that runs.
-	ServedBy     string   `yaml:"served_by,omitempty" surface:"selection"`
-	Tags         []string `yaml:"tags,omitempty" surface:"selection"` // Additional tags (merged with bundle tags); host-evaluated routing, never executed
-	Notes        string   `yaml:"notes,omitempty" surface:"human"`    // Human-readable notes, not sent to AI
-	Installation string   `yaml:"installation,omitempty"`             // Setup/installation instructions; presented to the user, and inside the preimage
+	ServedBy     string   `yaml:"served_by,omitempty"`
+	Tags         []string `yaml:"tags,omitempty"`         // Additional tags (merged with bundle tags); host-evaluated routing, never executed
+	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
+	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions; presented to the user, and inside the preimage
 }
 
 // AsWire converts to the wire shape for validation. It deliberately does NOT
@@ -581,53 +471,14 @@ func (m BundleMCP) AsWire() wire.MCPServer {
 // defaulting to unsigned. The tag is what makes "not sent to AI" a checked
 // fact instead of a comment.
 type ItemBody struct {
-	Tags         []string `yaml:"tags,omitempty" surface:"selection"`     // Additional tags (merged with bundle tags); host-evaluated routing, never shown
-	Notes        string   `yaml:"notes,omitempty" surface:"human"`        // Human-readable notes, not sent to AI
-	Installation string   `yaml:"installation,omitempty" surface:"human"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
+	Tags         []string `yaml:"tags,omitempty"`         // Additional tags (merged with bundle tags); host-evaluated routing, never shown
+	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
+	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
 	Content      string   `yaml:"content"`
-	ContentHash  string   `yaml:"content_hash,omitempty" surface:"derived"` // recorded hash of Content; circular to sign
+	ContentHash  string   `yaml:"content_hash,omitempty"` // recorded hash of Content; circular to sign
 	Distilled    string   `yaml:"distilled,omitempty"`
-	DistilledBy  string   `yaml:"distilled_by,omitempty" surface:"provenance"` // which model produced Distilled
+	DistilledBy  string   `yaml:"distilled_by,omitempty"` // which model produced Distilled
 	NoDistill    bool     `yaml:"no_distill,omitempty"`
-}
-
-// surfaceTagKey is the struct tag that classifies a field as NOT presented to
-// the agent. Its value is one of the NonPresented constants; any other value,
-// and any tagged field that nonetheless moves the preimage, fails
-// TestEveryFieldIsClassified.
-const surfaceTagKey = "surface"
-
-// NonPresented names WHY a field never reaches the agent. The reason is the
-// classification: a field with no reason to be outside the surface belongs
-// inside it.
-type NonPresented string
-
-const (
-	// NonPresentedHuman: written for a person to judge — notes, installation
-	// instructions. Editing it changes nothing the agent was shown, so it
-	// must not invalidate an approval.
-	NonPresentedHuman NonPresented = "human"
-	// NonPresentedDerived: computed from presented fields; signing it would be
-	// circular, and a forged value is ignored by every trust path anyway.
-	NonPresentedDerived NonPresented = "derived"
-	// NonPresentedProvenance: records who or what produced a form, never the
-	// form itself.
-	NonPresentedProvenance NonPresented = "provenance"
-	// NonPresentedSelection: routing or location metadata the HOST evaluates
-	// to pick or find an item — tags, a skill's package path; the agent never
-	// sees it. Contrast Premise, which the AGENT evaluates and which is
-	// therefore presented.
-	NonPresentedSelection NonPresented = "selection"
-	// NonPresentedOperational: an execution knob the host applies — a hook's
-	// timeout, async flag, order — that decides when or for how long, never
-	// WHAT runs. Outside the executable preimage on purpose, so tuning one
-	// stales no approval; it is not content and the agent never sees it.
-	NonPresentedOperational NonPresented = "operational"
-)
-
-// surfaceClassifications is the closed vocabulary a `surface:` tag may carry.
-func surfaceClassifications() []NonPresented {
-	return []NonPresented{NonPresentedHuman, NonPresentedDerived, NonPresentedProvenance, NonPresentedSelection, NonPresentedOperational}
 }
 
 // BundleFragment defines a fragment within a bundle.
@@ -690,10 +541,10 @@ type BundleCommand struct {
 // classification; the reflective classification test walks this struct like
 // the text kinds.
 type BundleSkill struct {
-	Path    string       `yaml:"path,omitempty" surface:"selection"` // dir relative to bundle dir; default "skills/<name>" — where the host finds the tree, never shown
-	Tags    []string     `yaml:"tags,omitempty" surface:"selection"` // Additional tags (merged with bundle tags); host-evaluated routing, never shown
-	Notes   string       `yaml:"notes,omitempty" surface:"human"`    // Human-readable notes, not sent to AI
-	Exports EngineBlocks `yaml:"exports,omitempty"`                  // per engine name, opaque; that engine decodes its block (name/description live in SKILL.md)
+	Path    string       `yaml:"path,omitempty"`    // dir relative to bundle dir; default "skills/<name>" — where the host finds the tree, never shown
+	Tags    []string     `yaml:"tags,omitempty"`    // Additional tags (merged with bundle tags); host-evaluated routing, never shown
+	Notes   string       `yaml:"notes,omitempty"`   // Human-readable notes, not sent to AI
+	Exports EngineBlocks `yaml:"exports,omitempty"` // per engine name, opaque; that engine decodes its block (name/description live in SKILL.md)
 }
 
 // BundleProfile is the shape of a profile shipped inside a bundle. It is the
@@ -770,7 +621,7 @@ type ItemSurface struct {
 // distillation, still serves raw.
 func (f *BundleFragment) Resolve(preferDistilled bool) ItemSurface {
 	s := f.Surface(preferDistilled)
-	return ItemSurface{Body: []byte(s.Body()), Form: s.Form(), Preimage: s.Preimage()}
+	return ItemSurface{Body: []byte(s.Body()), Form: s.Form()}
 }
 
 // Resolve is the process-stage resolution of this command, built on Surface
@@ -778,7 +629,7 @@ func (f *BundleFragment) Resolve(preferDistilled bool) ItemSurface {
 // agent is served the body.
 func (p *BundleCommand) Resolve(preferDistilled bool) ItemSurface {
 	s := p.Surface(preferDistilled)
-	return ItemSurface{Body: []byte(s.Body()), Form: s.Form(), Preimage: s.Preimage()}
+	return ItemSurface{Body: []byte(s.Body()), Form: s.Form()}
 }
 
 // staleDistill is the one shared compare primitive: it reports whether a
@@ -849,42 +700,10 @@ func (s FragmentSurface) Body() string { return s.body }
 // Form reports which materialization Body is.
 func (s FragmentSurface) Form() ContentForm { return s.form }
 
-// Preimage is the bytes of this surface: signing.FragmentPreimage over exactly
-// the two presented values, opened by signing.FragmentPreimageContract.
-// Nothing else in the codebase is permitted to define "the bytes of this
-// fragment" any other way. Two definitions is the
-// bug.
-func (s FragmentSurface) Preimage() []byte {
-	return signing.FragmentPreimage(s.premise, []byte(s.body))
-}
-
 // EffectiveContent returns distilled content if available and preferred.
 // Falls back to original content if distilled is empty or NoDistill is true.
 func (f *BundleFragment) EffectiveContent(preferDistilled bool) string {
 	return f.Surface(preferDistilled).Body()
-}
-
-// ContentPayload is the SINGLE preimage builder for a fragment, the same shape
-// every other kind exposes: FragmentSurface.Preimage for the surface selected
-// by preferDistilled, and the form it was selected in. EffectiveContentHash
-// below hashes exactly this function's output.
-//
-// It is NOT the bare served bytes — it is the framed surface, premise
-// included — because a fragment has two presented values and the frame is
-// what binds them under one signature.
-func (f *BundleFragment) ContentPayload(preferDistilled bool) ([]byte, ContentForm) {
-	s := f.Surface(preferDistilled)
-	return s.Preimage(), s.Form()
-}
-
-// EffectiveContentHash hashes EXACTLY ContentPayload(preferDistilled) — the
-// framed surface whose body is what EffectiveContent returns — and reports its
-// form. It covers what is actually presented to the agent, body and premise, never a raw fallback once
-// distilled is served, and never the author-supplied ContentHash field. The form
-// is provenance so a raw-form grant cannot validate a distilled exposure.
-func (f *BundleFragment) EffectiveContentHash(preferDistilled bool) (string, ContentForm) {
-	payload, form := f.ContentPayload(preferDistilled)
-	return hashContent(payload), form
 }
 
 // ComputeContentHash computes the SHA256 hash of the raw authored content. This
@@ -938,327 +757,15 @@ func (s CommandSurface) Body() string { return s.body }
 // Form reports which materialization Body is.
 func (s CommandSurface) Form() ContentForm { return s.form }
 
-// ExportsPayload is the canonical encoding of Exports that enters the
-// preimage — the one structured part of the surface, canonicalized under the
-// exec preimage's rule: every field always emitted, in declaration order, so
-// the bytes are a function of the values alone. `enabled` carries the
-// EFFECTIVE value (absent means enabled), which is what the host acts on;
-// the tool grant is emitted as an empty list rather than null for the same
-// reason.
-//
-// This is the ONE place this package looks inside a block, and it does so
-// under the FROZEN preimage contract: signing.CommandPreimageContract fixed
-// these bytes as a canonicalisation of the claude-code block's fields.
-// Widening the preimage to every block is a contract bump, not a slice.
-func (s CommandSurface) ExportsPayload() []byte {
-	cc := preimageBlock(s.exports)
-	tools := cc.AllowedTools
-	if tools == nil {
-		tools = []string{}
-	}
-	data, err := json.Marshal(commandExportsPayload{ClaudeCode: claudeCodeExportPayload{
-		Enabled:      cc.Enabled == nil || *cc.Enabled,
-		Description:  cc.Description,
-		ArgumentHint: cc.ArgumentHint,
-		AllowedTools: tools,
-		Model:        cc.Model,
-	}})
-	if err != nil {
-		// Unreachable: the payload is strings, a bool and a string slice.
-		panic(fmt.Sprintf("encoding command exports preimage: %v", err))
-	}
-	return data
-}
-
-// preimageContractEngine names the block the frozen preimage contract
-// canonicalises. It is a contract constant, not an engine choice: the bytes
-// signing.CommandPreimageContract covers were fixed over this block.
-const preimageContractEngine = "claude-code"
-
-// preimageBlockFields are the fields of the contract block the preimage
-// canonicalises, read leniently: a block that omits one canonicalises to its
-// default, and a key the contract does not name is ignored here (the
-// engine's own decode judges it).
-type preimageBlockFields struct {
-	Enabled      *bool    `json:"enabled"`
-	Description  string   `json:"description"`
-	ArgumentHint string   `json:"argument_hint"`
-	AllowedTools []string `json:"allowed_tools"`
-	Model        string   `json:"model"`
-}
-
-func preimageBlock(blocks EngineBlocks) preimageBlockFields {
-	var fields preimageBlockFields
-	if raw, ok := blocks[preimageContractEngine]; ok {
-		// A block that does not decode as these fields canonicalises to the
-		// defaults: the preimage must be a total function of the bytes, and
-		// refusing here would make a signature unverifiable rather than an
-		// item undeliverable — the engine's decode is where a bad block is
-		// refused, naming the engine.
-		_ = json.Unmarshal(raw, &fields)
-	}
-	return fields
-}
-
-// commandExportsPayload is the canonical shape of a command's per-engine
-// export config inside its preimage (CommandSurface.ExportsPayload). Field
-// order here IS byte order; the set is part of signing.CommandPreimageContract.
-type commandExportsPayload struct {
-	ClaudeCode claudeCodeExportPayload `json:"claude-code"`
-}
-
-type claudeCodeExportPayload struct {
-	Enabled      bool     `json:"enabled"`
-	Description  string   `json:"description"`
-	ArgumentHint string   `json:"argument_hint"`
-	AllowedTools []string `json:"allowed_tools"`
-	Model        string   `json:"model"`
-}
-
-// Preimage is the bytes of this surface: signing.CommandPreimage over exactly
-// the presented values, opened by
-// signing.CommandPreimageContract. Nothing else in the codebase is permitted
-// to define "the bytes of this command" any other way.
-func (s CommandSurface) Preimage() []byte {
-	return signing.CommandPreimage(s.description, s.ExportsPayload(), []byte(s.body))
-}
-
 // EffectiveContent returns distilled content if available and preferred.
 // Falls back to original content if distilled is empty or NoDistill is true.
 func (p *BundleCommand) EffectiveContent(preferDistilled bool) string {
 	return p.Surface(preferDistilled).Body()
 }
 
-// ContentPayload is the SINGLE preimage builder for a command:
-// CommandSurface.Preimage for the surface selected by preferDistilled, and
-// the form it was selected in. See BundleFragment.ContentPayload — same
-// contract. It is NOT the bare served bytes: the description and the export
-// config are presented too, and the frame is what binds them under one
-// signature.
-func (p *BundleCommand) ContentPayload(preferDistilled bool) ([]byte, ContentForm) {
-	s := p.Surface(preferDistilled)
-	return s.Preimage(), s.Form()
-}
-
-// EffectiveContentHash hashes EXACTLY ContentPayload(preferDistilled) — the
-// framed surface whose body is what EffectiveContent returns — and reports
-// its form. See BundleFragment.EffectiveContentHash — same contract.
-func (p *BundleCommand) EffectiveContentHash(preferDistilled bool) (string, ContentForm) {
-	payload, form := p.ContentPayload(preferDistilled)
-	return hashContent(payload), form
-}
-
-// skillContentPayload is the canonical encoding BundleSkill.ContentPayload
-// shares — see mcpContentPayload below for the field-order/versioning
-// contract this mirrors exactly, under its own version
-// (signing.SkillPreimageContract). A skill has no raw bytes to sign the way a
-// fragment/command does (it is a directory tree, not a blob); its manifest —
-// every file's path, sha256, and mode, SKILL.md included — covers the whole
-// package (skill/command split plan §3.1), and its per-engine export config
-// decides whether the package is offered to that engine's agent at all. Both
-// are presented, so both are here. Editing any file in the tree, including a
-// scripts/ script, or disabling an engine, changes this payload and
-// re-triggers review/sign.
-//
-// The Manifest here is the package's own, derived from its tree (see
-// BundleSkill.PackageManifest). It is never empty: an empty manifest would
-// make every skill share one preimage, which is exactly the trust hole this
-// design closes.
-type skillContentPayload struct {
-	Preimage string              `json:"preimage"`
-	Exports  skillExportsPayload `json:"exports"`
-	Manifest SkillManifest       `json:"manifest"`
-}
-
-// skillExportsPayload is the canonical shape of a skill's per-engine export
-// config inside its preimage: the EFFECTIVE enablement (nil means enabled),
-// which is what the host acts on. Field order is byte order; the set is part
-// of signing.SkillPreimageContract.
-type skillExportsPayload struct {
-	ClaudeCode skillEngineExportPayload `json:"claude-code"`
-}
-
-type skillEngineExportPayload struct {
-	Enabled bool `json:"enabled"`
-}
-
-// PackageManifest returns the manifest this skill's trust preimage covers: the
-// per-file identity of the package directory as it is on disk. It is the
-// single answer to "which files, with which bytes and modes, is this skill?"
-//
-// It is derived from the tree every time. A skill's files ARE the skill, so
-// there is no recorded copy to consult and none to drift from it; a signed
-// bundle's SHA256SUMS already covers skills/<name>/, and local content is
-// trusted by placement.
-//
-// It fails CLOSED. A tree that cannot be resolved or parsed returns an error
-// rather than degrading to an empty manifest — an empty manifest made every
-// skill share one preimage and therefore one trust hash, so an approval bound
-// nothing. A caller that cannot compute a preimage must withhold the skill,
-// never expose it under a placeholder hash.
-func (s *BundleSkill) PackageManifest(fsys afero.Fs, bundleDir, skillName string) (SkillManifest, error) {
-	if fsys == nil {
-		return nil, fmt.Errorf("skill %q: no filesystem to read its package from", skillName)
-	}
-	dir, err := ResolveSkillDir(bundleDir, skillName, *s)
-	if err != nil {
-		return nil, err
-	}
-	pkg, err := ParseSkillPackage(fsys, dir, 0)
-	if err != nil {
-		return nil, fmt.Errorf("skill %q: deriving content manifest from %s: %w", skillName, dir, err)
-	}
-	return pkg.Manifest, nil
-}
-
-// skillPayloadFor encodes a skill's export config and a resolved manifest into
-// the canonical skill preimage. Split out so a caller that already holds the
-// effective manifest (the loader, which also verifies the tree against it)
-// builds the payload without re-walking the tree — one parse, one manifest,
-// one preimage.
-func skillPayloadFor(exports EngineBlocks, m SkillManifest) ([]byte, error) {
-	cc := preimageBlock(exports)
-	return json.Marshal(skillContentPayload{
-		Preimage: signing.SkillPreimageContract,
-		Exports:  skillExportsPayload{ClaudeCode: skillEngineExportPayload{Enabled: cc.Enabled == nil || *cc.Enabled}},
-		Manifest: m,
-	})
-}
-
-// ContentPayload returns the canonical JSON encoding of the skill's exports
-// and manifest — the SINGLE preimage builder for a skill, exactly as
-// mcpContentPayload/hookContentPayload are for MCP servers and hooks. This is
-// a canonicalization (a skill's "content" is structured per-file metadata,
-// not raw bytes), which is why it carries a versioned first field as those
-// two do: any change to this field set requires bumping
-// signing.SkillPreimageContract, turning a silent mass re-review of every
-// skill approval into an announced one.
-func (s *BundleSkill) ContentPayload(fsys afero.Fs, bundleDir, skillName string) ([]byte, error) {
-	manifest, err := s.PackageManifest(fsys, bundleDir, skillName)
-	if err != nil {
-		return nil, err
-	}
-	return skillPayloadFor(s.Exports, manifest)
-}
-
-// ComputeContentHash hashes a skill's canonical manifest payload. This is the
-// hash a skill trust grant binds to (trust.KindSkill); like MCP/hooks, a skill
-// has no distilled form, so there is one hash.
-func (s *BundleSkill) ComputeContentHash(fsys afero.Fs, bundleDir, skillName string) string {
-	data, err := s.ContentPayload(fsys, bundleDir, skillName)
-	if err != nil {
-		// REACHABLE: the preimage is derived from the tree (PackageManifest),
-		// so an unreadable/unparseable package lands here.
-		// The digest must therefore be DISTINCT per skill and per failure — a
-		// single shared error digest would be the very defect this fix closes
-		// (one constant standing in for many different skills). It can never
-		// collide with a real payload hash: no valid payload has this prefix.
-		//
-		// Callers that gate MUST use ContentPayload and withhold on its error
-		// rather than hashing through here; this exists so a hash is always a
-		// hash, not so a failure can be exposed.
-		return hashContent(fmt.Appendf(nil, "ctxloom:skill-content-hash-error:%s:%s:%v", bundleDir, skillName, err))
-	}
-	return hashContent(data)
-}
-
 // SkillNames returns sorted skill names.
 func (b *Bundle) SkillNames() []string {
 	return slices.Sorted(maps.Keys(b.Skills))
-}
-
-// mcpContentPayload is the canonical encoding shared by ContentPayload; it
-// is factored out so the "unreachable JSON error" fallback below can still
-// report a stable digest through hashContent without duplicating the struct.
-//
-// Preimage MUST stay the first field. Go's encoding/json emits struct fields
-// in declaration order, so field order here IS the byte order of the preimage,
-// and the leading version carrier is part of the public contract (spec §3.3.2
-// — "the canonical struct gains a `"preimage"` first field", carrying
-// signing.ExecPreimageContract).
-// ANY change to the field set below — adding one, removing one, renaming a tag,
-// reordering — changes the preimage and therefore invalidates every existing
-// MCP approval. That is the moment to bump signing.ExecPreimageContract, which
-// is what turns a silent mass re-review into an announced one.
-type mcpContentPayload struct {
-	Preimage     string            `json:"preimage"`
-	Command      string            `json:"command"`
-	Args         []string          `json:"args"`
-	Env          map[string]string `json:"env"`
-	URL          string            `json:"url"`
-	Headers      map[string]string `json:"headers"`
-	Installation string            `json:"installation"`
-}
-
-// ContentPayload returns the canonical JSON encoding of the MCP server's
-// executable surface: the ctxloom-exec contract version first, then every
-// field of mcpContentPayload in declaration order — the stdio target, the
-// remote target, and the installation text. Notes and tags are excluded
-// (human- and host-facing, never executed). encoding/json provides the
-// determinism: struct fields emit in declaration order and map keys are
-// sorted, so reordering Env or Headers yields identical bytes while
-// reordering Args (a slice) does not.
-//
-// This is the SINGLE preimage builder for an MCP server: its trust hash is
-// HashPayload over exactly this function's output. The hash is never
-// stored on the entry — it is derived, and every reader recomputes it. Unlike the
-// fragment/command preimage, this one IS a canonicalization — an existing,
-// already-shipped one (spec §3.3.2) — because an MCP server has no "raw bytes";
-// it is structured fields with no other faithful serialization. That is
-// precisely why it carries a version: see signing.ExecPreimageContract.
-func (m *BundleMCP) ContentPayload() ([]byte, error) {
-	canonical := mcpContentPayload{
-		Preimage:     signing.ExecPreimageContract,
-		Command:      m.Command,
-		Args:         m.Args,
-		Env:          m.Env,
-		URL:          m.URL,
-		Headers:      m.Headers,
-		Installation: m.Installation,
-	}
-	return json.Marshal(canonical)
-}
-
-// hookContentPayload is the canonical encoding shared by ContentPayload.
-//
-// Preimage MUST stay the first field, for the same reason and under the same
-// rule as mcpContentPayload above: declaration order is byte order, the leading
-// version carrier is the public contract (spec §3.3.2), and any change to this
-// field set invalidates every existing hook approval and therefore requires
-// bumping signing.ExecPreimageContract.
-type hookContentPayload struct {
-	Preimage        string `json:"preimage"`
-	Matcher         string `json:"matcher"`
-	Type            string `json:"type"`
-	Command         string `json:"command"`
-	Prompt          string `json:"prompt"`
-	PreToolFallback bool   `json:"pre_tool_fallback"`
-}
-
-// ContentPayload returns the canonical JSON encoding of the hook's executable
-// surface — the ctxloom-exec contract version, then Matcher, Type, the
-// command line (Line: Command, with Args in exec form), Prompt, and the
-// PreToolFallback flag: the fields that determine what runs and
-// how it fires. Timeout/Async (operational knobs) and the firing event are
-// excluded — the event is carried by the hook's id, and excluding it keeps the
-// content-hash denylist event-agnostic so the same malicious command is blocked
-// wherever it is wired. encoding/json provides the determinism (stable field
-// order).
-//
-// This is the SINGLE preimage builder for a hook: its trust hash is HashPayload
-// over exactly this function's output. Mirrors BundleMCP.ContentPayload — same "already-shipped
-// canonicalization, not a new one" contract, and the same versioned first field
-// (signing.ExecPreimageContract, spec §3.3.2).
-func (h *BundleHook) ContentPayload() ([]byte, error) {
-	canonical := hookContentPayload{
-		Preimage:        signing.ExecPreimageContract,
-		Matcher:         h.Matcher,
-		Type:            h.Type,
-		Command:         h.Line(),
-		Prompt:          h.Prompt,
-		PreToolFallback: h.PreToolFallback,
-	}
-	return json.Marshal(canonical)
 }
 
 // Line is the hook's command as the one shell line it runs (wire.Hook.Line):

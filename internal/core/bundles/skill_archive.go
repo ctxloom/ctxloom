@@ -17,8 +17,6 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -686,11 +684,9 @@ func normalizeExtractedMode(mode int64) os.FileMode {
 // import`): it accepts EITHER the canonical Anthropic-shaped zip or a tar.gz,
 // sanitized-extracts it (via HardenedExtract — see that function for the full
 // rejection list) into destParent/<top-level-dir-name-from-the-archive>, and
-// returns that directory, ready for ParseSkillPackage and the ordinary
-// review/sign flow.
+// returns that directory, ready for ParseSkillPackage.
 //
-// The archive is UNTRUSTED input: this function does not sign, trust, or
-// materialize anything into an engine — it only ever produces a reviewable
+// The archive is UNTRUSTED input: this function does not materialize anything into an engine — it only ever produces a reviewable
 // tree on disk. Every rejection is loud (silent-no-op is this codebase's
 // characteristic bug: an import that silently drops files instead of failing
 // would be exactly that).
@@ -802,67 +798,6 @@ func swapIntoPlace(fsys afero.Fs, stagingRoot, staged, final string) error {
 		}
 		_ = fsys.RemoveAll(stagingRoot)
 		return fmt.Errorf("skill import: moving extracted tree into place: %w", err)
-	}
-	return nil
-}
-
-// =============================================================================
-// THE B2 INSTALL SEAM
-// =============================================================================
-
-// PublisherSkillSignatureVerifier is the PRODUCTION skill-manifest signature
-// verifier (Part B2): it verifies a detached armored signature over the expected
-// manifest's canonical bytes (SkillManifest.Serialize()) using the EXACT same
-// signature envelope and trust-root machinery every other ctxloom signature
-// check uses (signing.VerifyPublisher against the publish namespace, resolved
-// through the allowed_signers TrustRoot) — no new crypto, no parallel scheme.
-//
-// Unlike VerifyPublisher's ordinary three-outcome contract (unsigned-to-you
-// is not an error — spec §10.1), an INSTALL is a production-safety gate: a
-// skill with no signature, or one by a key this machine does not trust to
-// publish, must not install silently. Both cases here return an error —
-// "withhold and tell the human", never "install anyway, unsigned". A skill
-// installed via the ordinary git-clone bundle tree (not this archive path)
-// still goes through the review/accept flow instead; this verifier only
-// gates the archive-sourced install path (skill/command split plan §3.1b).
-type PublisherSkillSignatureVerifier struct {
-	// ArmoredSignature is the detached publish-namespace signature over
-	// manifest.Serialize() (e.g. a `.sig` sidecar shipped alongside a stored
-	// skill archive/manifest, or an imported archive's ctxloom-namespaced
-	// signature entry). Empty means "no signature at all" — always rejected.
-	ArmoredSignature []byte
-	// Root resolves which keys are trusted to publish. A nil Root trusts no
-	// key — fails closed, like every other TrustRoot consumer in this
-	// codebase.
-	Root trust.TrustRoot
-	// Now is a seam for tests to pin time; nil means time.Now.
-	Now func() time.Time
-}
-
-// VerifyManifestSignature verifies v.ArmoredSignature covers
-// manifest.Serialize() exactly, signed by a key v.Root trusts for the publish
-// namespace. manifest is the one the caller computed from the extracted
-// package (ImportSkill parses the staged tree); it is never recomputed here.
-func (v PublisherSkillSignatureVerifier) VerifyManifestSignature(manifest SkillManifest) error {
-	if len(v.ArmoredSignature) == 0 {
-		return fmt.Errorf("no signature present for this skill package")
-	}
-	now := time.Now
-	if v.Now != nil {
-		now = v.Now
-	}
-	principal, err := signing.VerifyPublisher(manifest.Serialize(), v.ArmoredSignature, v.Root, now())
-	if err != nil {
-		// ErrSignatureTampered: a present signature that does not honestly
-		// cover these bytes. Never benign — propagate as-is.
-		return err
-	}
-	if principal == "" {
-		// VerifyPublisher's "unsigned to you" outcome: the signature is
-		// well-formed but by a key this machine does not trust to publish.
-		// Ordinarily that takes the review path; for an install it is a hard
-		// stop — an untrusted publisher's skill must not land on disk.
-		return fmt.Errorf("signature is not by a publisher this machine trusts for %s — withholding", signing.NamespacePublish)
 	}
 	return nil
 }

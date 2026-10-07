@@ -88,8 +88,7 @@ not a single entry in a map, so it has its own verbs:
 
   ctxloom skill create <bundle> <name>   scaffold its directory
 
-Run 'ctxloom skill --help' for the rest. Sign after editing a skill's files:
-the bundle's SHA256SUMS covers them.`,
+Run 'ctxloom skill --help' for the rest.`,
 	Example: `  ctxloom bundle edit my-bundle -d "New description"
   ctxloom bundle edit my-bundle --add-fragment coding-standards
   ctxloom bundle edit my-bundle --remove-prompt old-prompt

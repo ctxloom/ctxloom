@@ -67,10 +67,6 @@ type Puller struct {
 	// above (see TreeInstallFunc). Nil means this Puller cannot materialize a
 	// bundle at all.
 	treeInstall TreeInstallFunc
-	// treeVerify verifies a fetched tree before it is pinned (see
-	// TreeVerifyFunc). Nil means this Puller cannot establish what it would be
-	// pinning, and it refuses to install rather than pin unverified content.
-	treeVerify TreeVerifyFunc
 }
 
 // PullerOption is a functional option for configuring a Puller.
@@ -90,14 +86,6 @@ func WithTreeFetcher(tf TreeFetchFunc) PullerOption {
 func WithTreeInstaller(ti TreeInstallFunc) PullerOption {
 	return func(p *Puller) {
 		p.treeInstall = ti
-	}
-}
-
-// WithTreeVerifier supplies the verifier a fetched tree must pass before it is
-// pinned (see TreeVerifyFunc). Without it a Puller refuses to install a tree.
-func WithTreeVerifier(tv TreeVerifyFunc) PullerOption {
-	return func(p *Puller) {
-		p.treeVerify = tv
 	}
 }
 
@@ -153,7 +141,7 @@ type fetchedItem struct {
 
 // Pull downloads an item from a remote and records its pin. It is the
 // orchestrator: fetch (resolve → SHA → download), then install
-// (verify → write → lock). Each phase is a helper below so this stays readable and each
+// (write → lock). Each phase is a helper below so this stays readable and each
 // piece is independently testable.
 func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*PullResult, error) {
 	ref, err := ParseReference(refStr)
@@ -305,9 +293,6 @@ func (p *Puller) pinFor(ctx context.Context, fetcher Fetcher, owner, repo string
 // from it. The commit checked out and the commit recorded are both item.sha,
 // which pinFor took from the existing pin when there is one.
 func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts PullOptions, item *fetchedItem) (*PullResult, error) {
-	if err := p.verifyTree(ctx, item); err != nil {
-		return nil, err
-	}
 	localPath, err := p.installTree(ctx, ref, opts, item, item.sha)
 	if err != nil {
 		return nil, err
@@ -331,26 +316,12 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	}, nil
 }
 
-// verifyTree runs the wired tree verifier over the fetched tree BEFORE
-// anything is checked out or written: a tree it refuses is never pinned.
-func (p *Puller) verifyTree(ctx context.Context, item *fetchedItem) error {
-	if p.treeVerify == nil {
-		return fmt.Errorf("refusing to install %q: this puller has no tree verifier wired in, so it cannot establish what it would be pinning", item.localName)
-	}
-	if _, err := p.treeVerify(ctx, item.tree, item.treeRoot, item.sha, item.rem.URL); err != nil {
-		return fmt.Errorf("refusing to install %s at %s: %w", item.localName, item.sha, err)
-	}
-	return nil
-}
-
 // installTree materializes the pinned directory-form bundle as a git worktree
 // and returns the directory it landed in.
 //
 // NOTHING IS COPIED. The tree is checked out by git, detached at the pinned
 // commit, so the pin and the bytes are a single fact rather than two states an
-// interleaving can pull apart. The fetched tree is still what DECIDES the pull
-// — its manifest is what was verified above — it is simply not what gets
-// written.
+// interleaving can pull apart.
 func (p *Puller) installTree(ctx context.Context, ref *Reference, opts PullOptions, item *fetchedItem, sha string) (string, error) {
 	if p.treeInstall == nil {
 		return "", fmt.Errorf("refusing to install %q: this puller has no tree installer wired in, so the bundle would be pinned in the lockfile with no tree any reader could reach", item.localName)

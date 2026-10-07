@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -51,7 +50,7 @@ func (s *TreeStore) Put(ctx context.Context, ref trust.Ref, f trust.ContentForm,
 		return fmt.Errorf("content: encoding %s produced no components", ref.Key())
 	}
 	for _, c := range components {
-		if err := validateDigestPath(c.Path); err != nil {
+		if err := validComponentPath(c.Path); err != nil {
 			return err
 		}
 	}
@@ -191,39 +190,6 @@ func (s *TreeStore) Delete(ctx context.Context, ref trust.Ref) error {
 	return nil
 }
 
-// PutManifest writes a bundle's manifest.
-//
-// An empty manifest is refused rather than written: its bytes would be just the
-// version marker, a constant shared by every empty bundle, so one bundle's
-// signature over it would verify another's. Writing nothing while reporting
-// success is this project's characteristic failure and is exactly what a
-// zero-value Manifest would produce here.
-func (s *TreeStore) PutManifest(ctx context.Context, id BundleID, m Manifest) error {
-	if err := s.beginWrite(ctx); err != nil {
-		return err
-	}
-	if err := validateBundleID(id); err != nil {
-		return err
-	}
-	if m.IsZero() {
-		return fmt.Errorf("content: refusing to write an empty manifest for bundle %q", id)
-	}
-	ok, err := s.dirExists(string(id))
-	if err != nil {
-		return fmt.Errorf("content: opening bundle %q: %w", id, err)
-	}
-	if !ok {
-		return fmt.Errorf("%w: bundle %q", ErrNotFound, id)
-	}
-	target := s.osPath(path.Join(string(id), ManifestPath))
-	// No AllowEmpty: m.IsZero() is already refused above, and a non-zero
-	// Manifest's Bytes() is never empty.
-	if err := safefs.WriteFile(s.fsys, target, m.Bytes(), 0o644); err != nil {
-		return fmt.Errorf("content: writing manifest %q: %w", target, err)
-	}
-	return nil
-}
-
 // PutRootFile writes one non-item file at the bundle root.
 func (s *TreeStore) PutRootFile(ctx context.Context, id BundleID, name string, data []byte) error {
 	if err := s.beginWrite(ctx); err != nil {
@@ -264,26 +230,4 @@ func validateRootFileName(name string) error {
 		return fmt.Errorf("%w: %q is not a bundle-root file name", ErrBadPath, name)
 	}
 	return nil
-}
-
-// PutBundleSignature stores signature bytes over the bundle's manifest.
-//
-// It files them under the FIXED BundleSigKey rather than a content-derived one
-// — see BundleSigKey for why the bundle level diverges from content-keying.
-func (s *TreeStore) PutBundleSignature(ctx context.Context, id BundleID, ns Namespace, by ssh.PublicKey, sig []byte) error {
-	if err := s.beginWrite(ctx); err != nil {
-		return err
-	}
-	if err := validateBundleID(id); err != nil {
-		return err
-	}
-	bundleDir := s.osPath(string(id))
-	ok, err := s.dirExists(string(id))
-	if err != nil {
-		return fmt.Errorf("content: opening bundle %q: %w", id, err)
-	}
-	if !ok {
-		return fmt.Errorf("%w: bundle %q", ErrNotFound, id)
-	}
-	return writeSignature(s.fsys, bundleDir, BundleSigKey, ns, by, sig)
 }

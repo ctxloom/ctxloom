@@ -47,7 +47,6 @@ func TestDoctor_DepsOnly_ReportsTheMachineProbesInOrder(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"DOCTOR-CHECK-DEPS-a1",
-		"DOCTOR-CHECK-SIGNKEY-k1",
 		"DOCTOR-CHECK-GITIDENT-l2",
 	}, doctorMarkers(rep))
 }
@@ -63,7 +62,6 @@ func TestDoctor_FullReport_RunsEveryCheckInItsFixedOrder(t *testing.T) {
 	assert.Equal(t, []string{
 		"DOCTOR-CHECK-SETUP-MARKER-e5",
 		"DOCTOR-CHECK-DEPS-a1",
-		"DOCTOR-CHECK-SIGNKEY-k1",
 		"DOCTOR-CHECK-GITIDENT-l2",
 		"DOCTOR-CHECK-AGENTS-b2",
 		"DOCTOR-CHECK-CAPABILITY-LOSS-u1",
@@ -71,8 +69,6 @@ func TestDoctor_FullReport_RunsEveryCheckInItsFixedOrder(t *testing.T) {
 		"DOCTOR-CHECK-TRANSCRIPT-READER-v2",
 		"DOCTOR-CHECK-HOOKS-TRUST-d4",
 		"DOCTOR-CHECK-MCP-INVOCATION-g7",
-		"DOCTOR-CHECK-SIG-CHECK-e2",
-		"DOCTOR-CHECK-UPSTREAM-SIGNATURES-o5",
 		"DOCTOR-CHECK-SETUP-DEPS-h8",
 		"DOCTOR-CHECK-SETUP-COMPANIONS-i9",
 		"DOCTOR-CHECK-SETUP-AUTHPING-j0",

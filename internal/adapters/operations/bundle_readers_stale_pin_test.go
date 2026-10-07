@@ -20,9 +20,9 @@ func treeFailure(t *testing.T, entry remote.LockEntry, stage func(fsys afero.Fs)
 	stage(fsys)
 	c := config.NewFixture(config.Fixture{AppPaths: []string{treeBase}})
 	c.SetRoot(safefs.NewMem(fsys))
-	_, err = treeBundleReader(c, treeCanonical, entry, nil)
+	_, err = treeBundleReader(c, treeCanonical, entry)
 	require.Error(t, err)
-	f := withheldFinding(t, err)
+	f := loadFailureFinding(t, err)
 	return f.Text, f.Remedy, err
 }
 

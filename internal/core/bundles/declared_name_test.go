@@ -71,7 +71,7 @@ func TestProjectReader_UndeclaredNameFallsBackToPath(t *testing.T) {
 // the test asserts the ref is unmoved while the declared name lands.
 func TestNewRepoFSReader_DeclaredNameWinsOverTheCanonicalRef(t *testing.T) {
 	const ref = "https://example.test/repo@bundles/kit"
-	tree := repoTree(t, "kit", "version: \"1.0\"\nname: declared\n", map[string]string{"keeper": "KEEPER-PAYLOAD"}, nil)
+	tree := repoTree(t, "kit", "version: \"1.0\"\nname: declared\n", map[string]string{"keeper": "KEEPER-PAYLOAD"})
 
 	reads, err := NewRepoFSReader(tree, ref, WithRepoURL(repoTreeURL)).Read(context.Background())
 	require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestNewRepoFSReader_DeclaredNameWinsOverTheCanonicalRef(t *testing.T) {
 // nothing that declares no name changes behaviour.
 func TestNewRepoFSReader_UndeclaredNameFallsBackToTheCanonicalRef(t *testing.T) {
 	const ref = "https://example.test/repo@bundles/kit"
-	tree := repoTree(t, "kit", readerTreeEnvelope, readerTreeFragments, nil)
+	tree := repoTree(t, "kit", readerTreeEnvelope, readerTreeFragments)
 
 	reads, err := NewRepoFSReader(tree, ref, WithRepoURL(repoTreeURL)).Read(context.Background())
 	require.NoError(t, err)

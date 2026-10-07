@@ -79,7 +79,7 @@ func NewDocumentStore(bundles map[BundleID]DocumentBundle, prov Provenance) (*Do
 		}
 		sort.Strings(paths)
 		for _, p := range paths {
-			if err := validateDigestPath(p); err != nil {
+			if err := validComponentPath(p); err != nil {
 				return nil, fmt.Errorf("bundle %q: %w", id, err)
 			}
 			target := filepath.Join(root, string(id), filepath.FromSlash(p))

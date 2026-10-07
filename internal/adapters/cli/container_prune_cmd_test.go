@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

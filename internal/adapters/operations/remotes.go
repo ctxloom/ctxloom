@@ -42,9 +42,8 @@ func getRegistry(cfg *config.Config, opts ...remote.RegistryOption) (*remote.Reg
 	return remote.NewRegistry(paths.RemotesPath(baseDir), opts...)
 }
 
-// RemoteEntry represents a remote in operation results. A remote is now just an
-// address to fetch from — it carries no trust flag (spec §11); trust is a
-// property of the publisher KEY, surfaced by `ctxloom signer list`.
+// RemoteEntry represents a remote in operation results. Registering it was the
+// trust act; it carries no further trust flag.
 type RemoteEntry struct {
 	Name string `json:"name"`
 	URL  string `json:"url"`
@@ -232,11 +231,6 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 
 	valid, validErr := fetcher.ValidateRepo(ctx, owner, repo)
 
-	// A remote carries no trust on add. Its content is born pending and takes
-	// the review path until either a human reviews it or its publisher key is
-	// added to allowed_signers — adding a REMOTE (an address) and trusting a
-	// PUBLISHER (a key) are now separate acts, deliberately (spec §11).
-
 	rem, err := registry.Get(req.Name)
 	if err != nil || rem == nil {
 		rollbackAdd(registry, req.Name)
@@ -328,11 +322,8 @@ func checkEditRequest(req *EditRemoteRequest) error {
 
 // EditRemote changes a registered remote's name, URL or forge binding.
 //
-// A remote is an address and carries no authority (see remote.Remote's own
-// note), so editing one has no trust consequence: exposure is gated on a
-// signature over the bytes, not on where they came from. Installed
-// dependencies are unaffected too — each lockfile entry records its own URL
-// rather than pointing back at a remote by name.
+// Installed dependencies are unaffected by an edit — each lockfile entry records
+// its own URL rather than pointing back at a remote by name.
 func EditRemote(_ context.Context, cfg *config.Config, req EditRemoteRequest) (*EditRemoteResult, error) {
 	if err := checkEditRequest(&req); err != nil {
 		return nil, err
@@ -466,13 +457,6 @@ func defaultRemoteRegistry(cfg *config.Config, req DefaultRemoteRequest) (*remot
 	}
 	return registry, nil
 }
-
-// A REMOTE CARRIES NO TRUST, and there is no operation here that could give it
-// one (signature-envelope spec §11). Source trust — "everything this URL
-// publishes reaches the agent unreviewed" — is hash-blind: it asserts something
-// about a LOCATION while the bytes that arrive from it can change under it.
-// Trusting a publisher is `ctxloom signer trust <principal> --key …`, which
-// trusts a KEY and is verified over the bytes themselves.
 
 // DiscoverRemotesRequest contains parameters for discovering remote repositories.
 type DiscoverRemotesRequest struct {

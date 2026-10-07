@@ -71,10 +71,10 @@ func checkSkillConstraints(s agent.SkillExport) error {
 
 // acceptedSkills returns the exports claude will emit: every enabled export
 // that passes checkSkillConstraints. One that fails is refused with a warning
-// naming the skill and the constraint, and dropped from the delivery — so its
-// ledger-tracked copy from an earlier materialize is reverted exactly as a
-// disabled skill's would be, never left on claude's surface claiming to be
-// current. A DISABLED export is passed through unexamined: it was never going
+// naming the skill and the constraint, and dropped from the delivery — so it
+// is not declared, and the static writer releases its copy from an earlier
+// delivery exactly as it would a disabled skill's, never left on claude's
+// surface claiming to be current. A DISABLED export is passed through unexamined: it was never going
 // to be emitted, and a refusal warning for it would name a constraint nobody
 // is about to hit.
 //

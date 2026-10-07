@@ -651,7 +651,7 @@ func TestClaudeCodeHookWriter_MalformedHooksJSON_FailsLoud(t *testing.T) {
 // TestClaudeCodeHookWriter_ModifiesInPlaceWithoutABackupSibling replaces a test
 // that asserted a "<path>.ctxloom.bak" copy WAS created. That copy existed
 // because the writer could not tell its own hooks from the user's and rewrote
-// the file wholesale. It now knows (the sidecar ledger), so it edits its own
+// the file wholesale. It now knows (the ownership record), so it edits its own
 // content, leaves the rest alone, and copies nothing aside — and the absence is
 // asserted so a future writer cannot quietly reintroduce the debris.
 //
@@ -784,7 +784,7 @@ func TestClaudeCodeHookWriter_DenyTools_PreservesUserAllowAsk(t *testing.T) {
 // That was changed deliberately: deny entries now reconcile
 // like every other surface, so an entry ctxloom stops declaring is withdrawn
 // instead of leaking into the user's settings forever. Retraction is safe
-// BECAUSE it is keyed on the ledger — only entries ctxloom recorded writing are
+// BECAUSE it is keyed on the ownership record — only entries ctxloom recorded writing are
 // removed — and the last subtest is what holds that line.
 func TestClaudeCodeHookWriter_DenyTools_ReconcileAndRetract(t *testing.T) {
 	root := t.TempDir()
@@ -812,7 +812,7 @@ func TestClaudeCodeHookWriter_DenyTools_ReconcileAndRetract(t *testing.T) {
 // TestClaudeCodeHookWriter_DenyTools_UserAuthoredDenySurvives is the line that
 // makes retraction safe to have at all. Now that ctxloom removes deny entries,
 // the ONLY thing standing between that and deleting a user's own security
-// controls is that removal is keyed on the ledger — what ctxloom recorded
+// controls is that removal is keyed on the ownership record — what ctxloom recorded
 // writing — and never on the value.
 func TestClaudeCodeHookWriter_DenyTools_UserAuthoredDenySurvives(t *testing.T) {
 	root := t.TempDir()
@@ -1080,11 +1080,11 @@ func TestLoadSettings_UnreadableStatusLineIsRefusedNotDropped(t *testing.T) {
 }
 
 // TestInstall_HandAuthoredCtxloomHookSurvives pins that ownership of a hook
-// comes from the sidecar ledger, never from the command's EXECUTABLE TOKEN. A
+// comes from the ownership record, never from the command's EXECUTABLE TOKEN. A
 // user is equally entitled to invoke ctxloom — a wrapper, a report, their own
 // tooling — and a token-keyed reconcile would delete theirs silently, exit 0,
 // with no diff. Claude Code's strict schema forbids an in-file marker, which
-// is why claudeCodeHook carries none; the ledger plus ctxloom's own machine
+// is why claudeCodeHook carries none; the ownership record plus ctxloom's own machine
 // callbacks are the whole claim.
 //
 // The control matters: an inject-context hook in the SAME file must still be
@@ -1124,7 +1124,7 @@ func TestInstall_HandAuthoredCtxloomHookSurvives(t *testing.T) {
 // statusline at the ctxloom binary — `ctxloom hook hud --my-flags`, a wrapper,
 // anything — and ctxloom must not treat that as its own and overwrite it.
 //
-// Ownership is the ledger's record of what ctxloom last installed. The control
+// Ownership is the record of what ctxloom last installed. The control
 // is the second half: with NO prior claim and NO user statusline, ctxloom must
 // still install its own, or "did not overwrite" would be satisfied by a writer
 // that simply never writes a statusline at all.
@@ -1161,12 +1161,12 @@ func TestInstall_UserStatusLineInvokingCtxloomSurvives(t *testing.T) {
 }
 
 // TestInstall_CompanionHookIsWithdrawnWhenNoLongerDeclared is the test
-// that gives the hooks ledger its reason to exist, and it was missing: a
-// mutation that wrote the ledger EMPTY passed the whole suite, because every
+// that gives the hooks ownership record its reason to exist, and it was missing: a
+// mutation that wrote the record EMPTY passed the whole suite, because every
 // other hook test happens to use one of ctxloom's own machine callbacks, which
 // the name-based fallback reclaims with or without a record.
 //
-// A COMPANION hook (`ltk evaluate`) is the case only the ledger can handle. Its
+// A COMPANION hook (`ltk evaluate`) is the case only the ownership record can handle. Its
 // command is not ctxloom's, so no name rule will ever match it; if the claim is
 // not recorded, config dropping the hook leaves it in the user's settings
 // forever. That is the orphan this whole mechanism is for.

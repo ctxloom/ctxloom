@@ -150,8 +150,8 @@ func TestContextSurface_DeliverWritesSyspromptAndExposesPath(t *testing.T) {
 
 // ---- commands surface -------------------------------------------------------
 
-// commands Delivery writes .claude/commands/ into the target dir; Cleanup reverts
-// the manifest-tracked set.
+// commands Delivery writes .claude/commands/ into the target dir, and the
+// commands persist after the run: removal is the static writer's release.
 func TestCommandsSurface_DeliverWritesCommands(t *testing.T) {
 	dir := t.TempDir()
 	s := newSurfaces(sampleInputs(), safefs.New())
@@ -162,14 +162,14 @@ func TestCommandsSurface_DeliverWritesCommands(t *testing.T) {
 	assert.FileExists(t, filepath.Join(dir, ".claude", "commands", "review.md"))
 
 	require.NoError(t, handle.Cleanup())
-	assert.NoFileExists(t, filepath.Join(dir, ".claude", "commands", "review.md"), "cleanup reverts the command export")
+	assert.FileExists(t, filepath.Join(dir, ".claude", "commands", "review.md"), "a delivered command persists after the run (SurfacePersistsAfterExit)")
 }
 
 // ---- skills surface ----------------------------------------------------------
 
 // skills Delivery writes .claude/skills/<name>/SKILL.md (+ sibling files) into
 // the target dir with the exec bit preserved; a disabled skill is not written;
-// Cleanup reverts the manifest-tracked set. This exercises the same NewSurfaces
+// the package persists after the run. This exercises the same NewSurfaces
 // construction the LIVE launch path drives (claudecode.go's buildSurfaces
 // forwards SurfaceInputs.Skills straight into this Surfaces value).
 func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {

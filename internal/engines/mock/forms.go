@@ -52,11 +52,12 @@ func mockSkillsPath(dir string) string {
 // agent.WriteManagedSkillPackages writer, exactly as claude's newSkillsSurface
 // does. Everything that makes a skill
 // package land correctly — the per-skill directory prefix, the DECLARED mode
-// on each file, the manifest-scoped reversal — lives in that shared body, not
-// here; this function contributes a directory and a manifest name.
+// on each file — lives in that shared body, not here; this function
+// contributes a directory.
 func newMockSkillsSurface(in agent.SurfaceInputs, files safefs.Root) agent.Approach {
 	return agent.NewManagedSkillPackagesDelivery(skillsRel, in.Skills, func(dir string, skills []agent.SkillExport) error {
-		return agent.WriteManagedSkillPackages(files, mockSkillsPath(dir), skills, agent.WithWriteReporter(in.Reporter))
+		_, err := agent.WriteManagedSkillPackages(files, mockSkillsPath(dir), skills, agent.WithWriteReporter(in.Reporter))
+		return err
 	})
 }
 

@@ -42,7 +42,7 @@ func TestChunkContext_OversizedLineReportsToTheReporter(t *testing.T) {
 func TestWriteManagedPackageFiles_SkipsReportThroughWithReporter(t *testing.T) {
 	var found report.Collector
 	fs := afero.NewMemMapFs()
-	err := WriteManagedSkillPackages(safefs.NewMem(fs), "/work/skills", []SkillExport{{Name: "../escape", Enabled: true}}, WithWriteReporter(&found))
+	_, err := WriteManagedSkillPackages(safefs.NewMem(fs), "/work/skills", []SkillExport{{Name: "../escape", Enabled: true}}, WithWriteReporter(&found))
 	require.NoError(t, err)
 	require.Len(t, found.All(), 1)
 	assert.Contains(t, found.All()[0].Text, `skipping package "../escape"`)

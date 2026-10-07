@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -87,11 +86,10 @@ func ResolveHomeCommandsDir(opts ...CommandFileOption) string {
 }
 
 // SafeCommandRelPath validates name as a relative path confined to dir and
-// returns the cleaned joined path. Command/skill names and manifest lines can
-// originate in bundle content (potentially remote), so the per-agent writers
-// must never join them into their managed directory blindly: a "../x" name
-// escapes the tree on write, and a malicious manifest line deletes files
-// outside the tree on cleanup. Rejected (ok == false): empty names, absolute
+// returns the cleaned joined path. Command/skill names and the paths rendered
+// from them can originate in bundle content (potentially remote), so the
+// per-agent writers must never join them into their managed directory
+// blindly: a "../x" name escapes the tree on write. Rejected (ok == false): empty names, absolute
 // paths, any ".." path element, and any join whose result escapes dir.
 // Subdirectory names without traversal ("group/cmd") pass.
 func SafeCommandRelPath(dir, name string) (string, bool) {
@@ -143,41 +141,28 @@ func WithWriteReporter(sink report.Sink) ManagedWriteOption {
 
 // WithDedupHomeDir names a user-global command directory the agent also loads
 // alongside dir. When set and distinct from dir, a file byte-identical to the
-// same-named one already in this dir is skipped (not written, not tracked in the
-// manifest), so a "home/global wins" copy isn't duplicated into the project
+// same-named one already in this dir is skipped (not written, so not
+// delivered), so a "home/global wins" copy isn't duplicated into the project
 // scope. Only byte-identical files are skipped — a divergent file is still
 // written so version skew is never silently hidden. Empty disables the dedup.
 func WithDedupHomeDir(dir string) ManagedWriteOption {
 	return func(o *managedWriteOptions) { o.dedupHomeDir = dir }
 }
 
-// WriteManagedCommandFiles is the manifest-scoped slash-command/skill file
-// writer shared by the per-agent command writers.
-// dir is shared territory with user-authored files, so it is never wiped
-// wholesale: ctxloom tracks the files it wrote in the shared managed-content
-// ledger under the commands surface
-// and removes exactly that set before writing the current one, so the written
-// set always mirrors the enabled exports.
+// WriteManagedCommandFiles is the slash-command file writer shared by the
+// per-agent command writers: each enabled export rendered to one file under
+// dir, the host path of every file placed returned for the caller to declare.
+// It removes nothing; see WriteManagedPackageFiles, of which a command is the
+// degenerate one-file case.
 //
 // render maps one enabled export to its file: the path relative to dir plus
-// the file content. Both command names and manifest lines originate in bundle
-// content (potentially remote), so every name and rendered path is validated
-// with SafeCommandRelPath — traversal/absolute names are skipped with a
-// warning on write and never followed on cleanup.
-//
-// dir itself is only created when at least one file is written, and the
-// manifest is only (re)written when at least one file was written; with
-// nothing to write the previous manifest-tracked set and manifest are simply
-// removed.
-//
-// A command is the degenerate case of a package with exactly one file, so this
-// is now a THIN ADAPTER over WriteManagedPackageFiles (packagefiles.go) — the
-// general tree writer a skill package delivery reuses. Every command file is
-// written at mode 0644 (PackageFile{}.Mode's zero-value default), matching
-// this function's historical hardcoded mode, so existing callers see
-// byte-identical output.
-func WriteManagedCommandFiles(files safefs.Root, dir string, cmds []CommandExport, render func(CommandExport) (relPath string, content []byte, err error), opts ...ManagedWriteOption) error {
-	return WriteManagedPackageFiles(files, dir, ledger.SurfaceCommands, cmds,
+// the file content. Command names originate in bundle content (potentially
+// remote), so every name and rendered path is validated with
+// SafeCommandRelPath — traversal/absolute names are skipped with a warning.
+// Every command file is written at mode 0644 (PackageFile{}.Mode's zero-value
+// default).
+func WriteManagedCommandFiles(files safefs.Root, dir string, cmds []CommandExport, render func(CommandExport) (relPath string, content []byte, err error), opts ...ManagedWriteOption) ([]string, error) {
+	return WriteManagedPackageFiles(files, dir, cmds,
 		func(c CommandExport) bool { return c.Enabled },
 		func(c CommandExport) string { return c.Name },
 		func(c CommandExport) ([]PackageFile, error) {

@@ -19,8 +19,8 @@ const deliveryLockName = "static-delivery.lock"
 
 // lockScope is every lock one delivery or reversal takes, held from when it
 // is taken until the run has committed. A delivery reads before it writes —
-// its writer's previous files from the record, a managed dir's ledger — and
-// its writes land only at its batch's commit; a lock released in between
+// its writer's previous files from the record — and its writes land only at
+// its batch's commit; a lock released in between
 // lets another writer land in that window, and the delivery then commits
 // what it read before that writer's files existed.
 //
@@ -29,19 +29,17 @@ const deliveryLockName = "static-delivery.lock"
 //  1. the delivery lock (deliveryLockName), first, by every Deliver and
 //     Reverse;
 //  2. the locks its approaches take through the Root they are handed — a
-//     managed dir's lock with its ledger marker's nested inside it
-//     (agent.WriteManagedPackageFiles, ledger.Ledger.Write) — in the order
-//     the approaches take them;
+//     managed dir's lock (agent.WriteManagedPackageFiles) — in the order the
+//     approaches take them;
 //  3. its batch's per-file locks, in the batch's sorted order
 //     (safefs.Batch.Commit).
 //
 // A lock the run already holds is granted again without being taken, never
-// waited on: the batch writes the ledger marker whose lock step 2 holds, and
-// two approaches may share a dir.
+// waited on: two approaches may share a dir.
 //
 // Steps 2 and 3 follow no order two runs would agree on. That is safe ONLY
 // because step 1 admits one run at a time: every other taker of those locks
-// holds a single dir lock with its marker lock inside it, or a single file's
+// holds a single dir lock, or a single file's
 // lock (sessions.WithFileLock), and waits on nothing a run holds while it
 // holds one of them. A taker outside a run that holds one of these locks and
 // then waits on another breaks this order.

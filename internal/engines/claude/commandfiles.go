@@ -11,11 +11,9 @@ import (
 
 // WriteCommandFiles generates Claude Code slash command files from exported
 // prompts. Files are written directly to .claude/commands/ (e.g., save.md ->
-// /save). ctxloom tracks which files it manages via a manifest to clean up
-// stale commands. Only exports with Enabled == true are written. The
-// .claude/commands/ directory is shared with the user's own commands, so
-// cleanup is manifest-scoped rather than a wipe (see
-// agent.WriteManagedCommandFiles for the shared mechanics).
+// /save). Only exports with Enabled == true are written, and nothing is
+// removed: the .claude/commands/ directory is shared with the user's own
+// commands (see agent.WriteManagedCommandFiles for the shared mechanics).
 func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent.CommandFileOption) error {
 	files := agent.ResolveCommandRoot(opts...)
 	commandsDir := filepath.Join(workDir, ConfigDirName, CommandsDirName)
@@ -28,13 +26,15 @@ func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent
 		mwOpts = append(mwOpts, agent.WithDedupHomeDir(home))
 	}
 
-	return writeCommandDir(files, commandsDir, cmds, mwOpts...)
+	_, err := writeCommandDir(files, commandsDir, cmds, mwOpts...)
+	return err
 }
 
 // writeCommandDir writes cmds as claude slash-command files into dir — the
 // one transform both the project's .claude/commands and the session home's
-// commands directory go through.
-func writeCommandDir(files safefs.Root, dir string, cmds []agent.CommandExport, opts ...agent.ManagedWriteOption) error {
+// commands directory go through — and returns the host path of every file it
+// placed.
+func writeCommandDir(files safefs.Root, dir string, cmds []agent.CommandExport, opts ...agent.ManagedWriteOption) ([]string, error) {
 	return agent.WriteManagedCommandFiles(files, dir, cmds,
 		func(c agent.CommandExport) (string, []byte, error) {
 			// Replace path separators with dashes for nested names.

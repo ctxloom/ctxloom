@@ -4,27 +4,24 @@ import (
 	"path"
 
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file is the skills-surface analog of managed_commands.go: the shared
-// deliver/cleanup body for engines whose skill package exports are
-// reconciled TREES written by a manifest-scoped writer. Only WHICH writer, at
+// deliver body for engines whose skill package exports are
+// TREES written by the managed package writer. Only WHICH writer, at
 // WHICH path, is engine-specific; that is the injected write func. Cloned from
 // ManagedCommandsDelivery per the skill/command split plan §3.4 ("new export
 // type … ManagedSkillPackagesDelivery cloned from the ManagedCommandsDelivery
 // pattern").
 //
 // It also holds WriteManagedSkillPackages, the write half that same "only the
-// path is engine-specific" claim implies: every engine's WriteSkillFiles was a
-// verbatim copy of one WriteManagedPackageFiles call, differing ONLY in the
-// target directory and the manifest name.
+// path is engine-specific" claim implies.
 
 // ManagedSkillPackagesDelivery is the shared skills Delivery for engines whose
 // skill exports are managed package trees: on Deliver it writes every enabled
-// package, and its cleanup reverts exactly the manifest-tracked file set by
-// re-writing with no packages. Managed skill files are cwd-rooted with no
+// package. Removal is the static writer's release, never this form's. Managed
+// skill files are cwd-rooted with no
 // out-of-cwd form (no engine has an out-of-cwd flag for a skill package).
 type ManagedSkillPackagesDelivery struct {
 	rel    string // the skills dir beneath the project root, for Present
@@ -33,9 +30,8 @@ type ManagedSkillPackagesDelivery struct {
 }
 
 // NewManagedSkillPackagesDelivery builds a managed-skills Delivery from the
-// enabled exports and the engine's manifest-scoped
-// skill-package writer, bound so that write(dir, skills) materializes every
-// package under dir and write(dir, nil) reverts exactly the managed set. rel
+// enabled exports and the engine's skill-package writer, bound so that
+// write(dir, skills) materializes every package under dir. rel
 // is the skills directory the writer lands in, relative to the project root —
 // what Present declares.
 func NewManagedSkillPackagesDelivery(rel string, skills []SkillExport, write func(dir string, skills []SkillExport) error) *ManagedSkillPackagesDelivery {
@@ -49,8 +45,7 @@ func (s *ManagedSkillPackagesDelivery) Present(start present.Start) present.Pres
 }
 
 // Deliver writes the enabled skill package exports beneath the advised project
-// root via the injected writer and returns a handle whose Cleanup reverts
-// exactly the manifest-tracked set (a re-write with no packages).
+// root via the injected writer; the handle leaves them in place.
 func (s *ManagedSkillPackagesDelivery) Deliver(start present.Start) (Delivered, error) {
 	if err := s.write(start.Paths().ProjectRoot.Host, s.skills); err != nil {
 		return nil, err
@@ -60,10 +55,9 @@ func (s *ManagedSkillPackagesDelivery) Deliver(start present.Start) (Delivered, 
 
 // WriteManagedSkillPackages materializes every ENABLED skill package under
 // skillsDir — `<skillsDir>/<skill name>/SKILL.md` plus every sibling file the
-// package carries, each at the mode its export DECLARES — tracking exactly the
-// files it wrote in the shared managed-content ledger (skills surface) so a
-// later call with fewer (or
-// no) skills reverts precisely that set and nothing a user put there.
+// package carries, each at the mode its export DECLARES — and returns the host
+// path of every file it placed, for the caller to declare. It removes
+// nothing (WriteManagedPackageFiles).
 //
 // This is the ONE skill-materialization body in the tree: every engine calls
 // it, differing only in the two arguments it takes. A per-engine copy is what
@@ -76,8 +70,8 @@ func (s *ManagedSkillPackagesDelivery) Deliver(start present.Start) (Delivered, 
 // a mode bit is not portable, the package digest deliberately excludes it, and
 // the declaration is the whole of what a publisher said about executability
 // (see content.SkillFile.Mode and content.DeclaredExecutable).
-func WriteManagedSkillPackages(files safefs.Root, skillsDir string, skills []SkillExport, opts ...ManagedWriteOption) error {
-	return WriteManagedPackageFiles(files, skillsDir, ledger.SurfaceSkills, skills,
+func WriteManagedSkillPackages(files safefs.Root, skillsDir string, skills []SkillExport, opts ...ManagedWriteOption) ([]string, error) {
+	return WriteManagedPackageFiles(files, skillsDir, skills,
 		func(s SkillExport) bool { return s.Enabled },
 		func(s SkillExport) string { return s.Name },
 		func(s SkillExport) ([]PackageFile, error) {

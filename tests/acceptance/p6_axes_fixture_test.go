@@ -52,8 +52,8 @@ func TestP6Fixture_ContainerCellIsNotAHostCellWearingALabel(t *testing.T) {
 		"runtime must be indented under the agent binding, as j002200ConfigYAML's mock-container binding writes it")
 	// dirty_tree_handler: MEASURED requirement, not a preference. The first live
 	// run of this cell failed with the child never launching — agent_run refused
-	// the spawn because ctxloom's own managed files (.ctxloom-managed,
-	// .ctxloom/project-id, .claude/settings.json, .claude/commands/*) are written
+	// the spawn because ctxloom's own managed files (.ctxloom/project-id,
+	// .claude/settings.json, .claude/commands/*) are written
 	// during session startup, AFTER the fixture commits. "copy" leaves the
 	// fixture's own branch untouched, where "commit" would add a commit to it.
 	assert.Contains(t, ctr, "dirty_tree_handler: copy",

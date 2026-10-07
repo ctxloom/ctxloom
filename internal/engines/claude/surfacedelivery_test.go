@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -18,8 +17,8 @@ import (
 // placement double whose Dir() returns a fixed temp dir.
 
 // TestFileTemplateDelivery_DeliverCommands verifies the commands surface is written
-// into the injected Placement identically to WriteCommandFiles, and that Cleanup
-// reverts the manifest-tracked set while preserving user-authored commands.
+// into the injected Placement identically to WriteCommandFiles, and that its
+// handle leaves them in place: removal is the static writer's release.
 func TestFileTemplateDelivery_DeliverCommands(t *testing.T) {
 	commands := []agent.CommandExport{
 		{Name: "review", Content: "Review {{file}}", Enabled: true, Description: "Code review"},
@@ -35,7 +34,7 @@ func TestFileTemplateDelivery_DeliverCommands(t *testing.T) {
 	controlDir := t.TempDir()
 	require.NoError(t, WriteCommandFiles(controlDir, commands))
 
-	for _, rel := range []string{"review.md", "simple.md", ledger.Name} {
+	for _, rel := range []string{"review.md", "simple.md"} {
 		got, err := os.ReadFile(filepath.Join(deliverDir, ".claude", "commands", rel))
 		require.NoError(t, err, "DeliverCommands must write %s", rel)
 		want, err := os.ReadFile(filepath.Join(controlDir, ".claude", "commands", rel))
@@ -43,16 +42,9 @@ func TestFileTemplateDelivery_DeliverCommands(t *testing.T) {
 		assert.Equal(t, string(want), string(got), "DeliverCommands must match WriteCommandFiles for %s", rel)
 	}
 
-	// Seed a user-authored command that ctxloom does not track.
-	userCmd := filepath.Join(deliverDir, ".claude", "commands", "user.md")
-	require.NoError(t, os.WriteFile(userCmd, []byte("mine"), 0o644))
-
-	// Cleanup removes the manifest-tracked set (and manifest), not the user file.
 	require.NoError(t, handle.Cleanup())
-	assert.NoFileExists(t, filepath.Join(deliverDir, ".claude", "commands", "review.md"))
-	assert.NoFileExists(t, filepath.Join(deliverDir, ".claude", "commands", "simple.md"))
-	assert.NoFileExists(t, filepath.Join(deliverDir, ".claude", "commands", ledger.Name))
-	assert.FileExists(t, userCmd, "user-authored command must survive cleanup")
+	assert.FileExists(t, filepath.Join(deliverDir, ".claude", "commands", "review.md"))
+	assert.FileExists(t, filepath.Join(deliverDir, ".claude", "commands", "simple.md"))
 }
 
 // writeRenderedHomeCommand pre-seeds homeDir/.claude/commands/<name>.md with
@@ -71,8 +63,8 @@ func writeRenderedHomeCommand(t *testing.T, homeDir string, cmd agent.CommandExp
 // wiring added to close the WithDedupHomeDir gap (never called in production
 // before this fix, which left the option unwired): a project delivery skips a
 // command whose rendered bytes are byte-identical to the same-named file already
-// in the user-global ~/.claude/commands (here faked via $HOME), and the skip
-// is not manifest-tracked, while a project-unique command still lands normally.
+// in the user-global ~/.claude/commands (here faked via $HOME), while a
+// project-unique command still lands normally.
 func TestFileTemplateDelivery_DeliverCommands_DedupsIdenticalHomeCopy(t *testing.T) {
 	fakeHome := testsupport.Isolate(t)
 
@@ -89,11 +81,6 @@ func TestFileTemplateDelivery_DeliverCommands_DedupsIdenticalHomeCopy(t *testing
 	commandsDir := filepath.Join(projectDir, ".claude", "commands")
 	assert.NoFileExists(t, filepath.Join(commandsDir, "recover.md"), "identical home copy must not be duplicated into the project scope")
 	assert.FileExists(t, filepath.Join(commandsDir, "keep.md"), "a project-unique command is still written")
-
-	manifest, err := os.ReadFile(filepath.Join(commandsDir, ledger.Name))
-	require.NoError(t, err)
-	assert.NotContains(t, string(manifest), "recover.md", "a deduped command must not be manifest-tracked")
-	assert.Contains(t, string(manifest), "keep.md")
 }
 
 // TestFileTemplateDelivery_DeliverCommands_DivergentHomeCopyWritesNormally
@@ -116,45 +103,6 @@ func TestFileTemplateDelivery_DeliverCommands_DivergentHomeCopyWritesNormally(t 
 	got, err := os.ReadFile(filepath.Join(commandsDir, "recover.md"))
 	require.NoError(t, err)
 	assert.Equal(t, TransformToClaudeCommand(updated), string(got), "a divergent home copy must not suppress the project write")
-
-	manifest, err := os.ReadFile(filepath.Join(commandsDir, ledger.Name))
-	require.NoError(t, err)
-	assert.Contains(t, string(manifest), "recover.md")
-}
-
-// TestFileTemplateDelivery_DeliverCommands_DedupConvergence verifies the manifest
-// reconcile: a file a PREVIOUS run delivered (and manifest-tracked) that this
-// run's dedup now skips is not just left stale on disk — it is removed and
-// dropped from the manifest, so the project scope actually converges to
-// matching the global copy instead of leaving an orphaned duplicate.
-func TestFileTemplateDelivery_DeliverCommands_DedupConvergence(t *testing.T) {
-	fakeHome := testsupport.Isolate(t)
-	// No home copy yet for this run.
-
-	projectDir := t.TempDir()
-	cmd := agent.CommandExport{Name: "recover", Content: "Recovering context", Enabled: true}
-	d := newFileTemplateDelivery(fakePlacement{dir: projectDir}, safefs.New())
-
-	// Run 1: delivered and manifest-tracked normally (no home copy to dedup against).
-	_, err := d.DeliverCommands([]agent.CommandExport{cmd})
-	require.NoError(t, err)
-	commandsDir := filepath.Join(projectDir, ".claude", "commands")
-	require.FileExists(t, filepath.Join(commandsDir, "recover.md"), "precondition: run 1 delivered the file")
-	manifest, err := os.ReadFile(filepath.Join(commandsDir, ledger.Name))
-	require.NoError(t, err)
-	require.Contains(t, string(manifest), "recover.md", "precondition: run 1 manifest-tracked the file")
-
-	// A byte-identical home copy now appears.
-	writeRenderedHomeCommand(t, fakeHome, cmd)
-
-	// Run 2: dedup now applies -> the stale project copy must be removed and
-	// dropped from the manifest, not merely left un-rewritten.
-	_, err = d.DeliverCommands([]agent.CommandExport{cmd})
-	require.NoError(t, err)
-	assert.NoFileExists(t, filepath.Join(commandsDir, "recover.md"), "run 2 must remove the now-deduped stale project copy")
-	if manifest, err := os.ReadFile(filepath.Join(commandsDir, ledger.Name)); err == nil {
-		assert.NotContains(t, string(manifest), "recover.md", "run 2 must drop the deduped file from the manifest")
-	}
 }
 
 // TestFileTemplateDelivery_DeliverCommands_HomeScopeDeliveryDisablesDedup
@@ -175,9 +123,6 @@ func TestFileTemplateDelivery_DeliverCommands_HomeScopeDeliveryDisablesDedup(t *
 
 	commandsDir := filepath.Join(fakeHome, ".claude", "commands")
 	assert.FileExists(t, filepath.Join(commandsDir, "recover.md"), "a home-scope delivery must still write, never self-dedup")
-	manifest, err := os.ReadFile(filepath.Join(commandsDir, ledger.Name))
-	require.NoError(t, err)
-	assert.Contains(t, string(manifest), "recover.md", "a home-scope delivery must still manifest-track its write")
 }
 
 // TestFileTemplateDelivery_DeliverCommands_SelfContainedSkipsHomeDedup verifies

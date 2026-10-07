@@ -565,8 +565,7 @@ var vocabMembershipAllowed = map[string]string{
 	"internal/shared/liveness/transcript.go#txScan.line#internal/adapters/transcript.Kind":     "re-spells transcript.Kind members rather than comparing against internal/adapters/transcript's own constants, which this package already imports",
 	"internal/shared/liveness/transcript.go#txScan.tailLine#internal/adapters/transcript.Kind": "same transcript.Kind re-spelling in the tail path",
 
-	"internal/core/ident/itemref.go#ParseSelector#internal/shared/ledger.Surface": "the selector parser re-spells four ledger.Surface members. The engine-surface vocabulary is declared twice — ledger.Surface and agent.ProbeKind overlap on mcp/commands/skills/context — so there is no single owner to route through yet; consolidating those two is the fix",
-	"internal/core/ident/itemref.go#ParseSelector#internal/core/agent.ProbeKind":  "same site, matching the second declaration of the engine-surface vocabulary",
+	"internal/core/ident/itemref.go#ParseSelector#internal/core/agent.ProbeKind": "the selector parser's case labels are bundle directory names (\"commands\", \"mcp\", \"skills\", …) that happen to spell agent.ProbeKind members; it parses a content selector, not a probe kind",
 }
 
 // vocabParallelAllowed is the PARALLEL LIST rule's shrinking allowlist, keyed

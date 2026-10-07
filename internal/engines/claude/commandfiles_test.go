@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -138,48 +137,6 @@ func TestWriteCommandFiles(t *testing.T) {
 	}
 }
 
-func TestWriteCommandFilesCleanup(t *testing.T) {
-	tmpDir := t.TempDir()
-	commandsDir := filepath.Join(tmpDir, ".claude", "commands")
-	manifestPath := filepath.Join(commandsDir, ledger.Name)
-
-	_ = os.MkdirAll(commandsDir, 0755)
-	stalePath := filepath.Join(commandsDir, "stale.md")
-	_ = os.WriteFile(stalePath, []byte("stale content"), 0644)
-	_ = os.WriteFile(manifestPath, []byte("stale.md\tcommands\n"), 0644)
-
-	if err := WriteCommandFiles(tmpDir, []agent.CommandExport{{Name: "new", Content: "New content", Enabled: true}}); err != nil {
-		t.Fatalf("WriteCommandFiles failed: %v", err)
-	}
-
-	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
-		t.Error("expected stale.md to be removed")
-	}
-	newPath := filepath.Join(commandsDir, "new.md")
-	if _, err := os.Stat(newPath); os.IsNotExist(err) {
-		t.Error("expected new.md to be created")
-	}
-}
-
-func TestWriteCommandFilesEmptyPrompts(t *testing.T) {
-	tmpDir := t.TempDir()
-	commandsDir := filepath.Join(tmpDir, ".claude", "commands")
-	manifestPath := filepath.Join(commandsDir, ledger.Name)
-
-	_ = os.MkdirAll(commandsDir, 0755)
-	stalePath := filepath.Join(commandsDir, "stale.md")
-	_ = os.WriteFile(stalePath, []byte("stale content"), 0644)
-	_ = os.WriteFile(manifestPath, []byte("stale.md\tcommands\n"), 0644)
-
-	if err := WriteCommandFiles(tmpDir, nil); err != nil {
-		t.Fatalf("WriteCommandFiles failed: %v", err)
-	}
-
-	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
-		t.Error("expected stale.md to be removed")
-	}
-}
-
 // TestWriteCommandFiles_SkipsTraversalNames verifies command names from
 // bundle content (potentially remote) cannot derive paths outside
 // .claude/commands/: absolute and ".."-bearing names are skipped before any
@@ -212,35 +169,6 @@ func TestWriteCommandFiles_SkipsTraversalNames(t *testing.T) {
 		assert.NotContains(t, e.Name(), "abs")
 		assert.NotEqual(t, "a-..-..-b.md", e.Name())
 	}
-
-	manifest, err := os.ReadFile(filepath.Join(commandsDir, ledger.Name))
-	require.NoError(t, err)
-	assert.Contains(t, string(manifest), "good.md")
-	assert.Contains(t, string(manifest), "group-cmd.md")
-	assert.NotContains(t, string(manifest), "escape")
-}
-
-// TestWriteCommandFiles_ManifestTraversalLinesNotDeleted verifies the
-// pre-write manifest cleanup never follows a doctored manifest line outside
-// the commands tree, while legit stale entries are still removed.
-func TestWriteCommandFiles_ManifestTraversalLinesNotDeleted(t *testing.T) {
-	tmpDir := t.TempDir()
-	commandsDir := filepath.Join(tmpDir, ".claude", "commands")
-	require.NoError(t, os.MkdirAll(commandsDir, 0755))
-
-	victim := filepath.Join(tmpDir, "victim.txt")
-	require.NoError(t, os.WriteFile(victim, []byte("keep"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(commandsDir, "old.md"), []byte("stale"), 0644))
-	manifest := "../../victim.txt\tcommands\n" + victim + "\tcommands\nold.md\tcommands\n"
-	require.NoError(t, os.WriteFile(filepath.Join(commandsDir, ledger.Name), []byte(manifest), 0644))
-
-	cmds := []agent.CommandExport{{Name: "new", Content: "x", Enabled: true}}
-	require.NoError(t, WriteCommandFiles(tmpDir, cmds))
-
-	_, err := os.Stat(victim)
-	assert.NoError(t, err, "manifest traversal line must not delete outside the commands tree")
-	_, err = os.Stat(filepath.Join(commandsDir, "old.md"))
-	assert.True(t, os.IsNotExist(err), "legit stale manifest entry still removed")
 }
 
 func TestEscapeYAMLString(t *testing.T) {

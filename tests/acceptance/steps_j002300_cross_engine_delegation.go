@@ -155,8 +155,8 @@ const j002300PerEngineAgent = "delegate"
 //     documents that `git worktree add -b` needs a valid HEAD, so without a
 //     commit the spawn cannot carve a worktree at all.
 //   - "copy" covers everything written AFTER that commit. ctxloom materializes
-//     its own managed files during session startup — .ctxloom-managed,
-//     .ctxloom/project-id, .claude/settings.json, .claude/commands/*.md,
+//     its own managed files during session startup — .ctxloom/project-id,
+//     .claude/settings.json, .claude/commands/*.md,
 //     .ctxloom/cache/context/* and more — so a fixture that commits and stops
 //     is dirty again by the time agent_run runs.
 //

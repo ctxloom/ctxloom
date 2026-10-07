@@ -16,7 +16,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -277,10 +276,6 @@ var WorktreeArtifactPatterns = []string{
 	// refuses to remove — orphaning it permanently.
 	".mock/",
 	"MOCK_CONTEXT.md",
-	// The shared managed-content marker, in whatever directory a writer puts
-	// it. Every writer knows what it owns and edits only that, so nothing is
-	// copied aside first and no backup file needs covering.
-	ledger.Name,
 }
 
 // SupersededPatterns are the canonical spellings of the ignore rule written by

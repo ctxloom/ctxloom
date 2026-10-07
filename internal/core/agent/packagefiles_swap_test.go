@@ -2,11 +2,7 @@ package agent
 
 import (
 	"errors"
-	"fmt"
-	"os"
 	"path/filepath"
-	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -21,9 +17,11 @@ import (
 // This file pins the render-then-swap rewrite (fs-consolidation C11 /
 // taskloom humorless-factor): WriteManagedPackageFiles used to delete this
 // surface's entire previously-tracked set BEFORE rendering the replacement,
-// so a render failure — or even the ordinary happy path, to a concurrent
-// reader — left a window where a ledgered file was simply absent while the
-// call still reported success. These tests exercise that window directly.
+// so a render failure left the surface gutted while the call still reported
+// success. These tests exercise that window directly. What a concurrent
+// reader sees during a redelivery is the static writer's to guarantee — it
+// is what lands these files on disk — and is pinned in fsstatic
+// (TestDeliver_AConcurrentReaderNeverSeesARedeliveredFileMissing).
 
 // fakeItem is a second WriteManagedPackageFiles test double, alongside
 // fakeSkillItem in packagefiles_test.go: it additionally carries an
@@ -123,83 +121,6 @@ func TestWriteManagedPackageFiles_EmptyRenderGuardRefusesToGutExistingSurface(t 
 	assert.Contains(t, string(manifest), "reviewer/SKILL.md", "the ledger must be untouched by a refused call")
 }
 
-// TestWriteManagedPackageFiles_ConcurrentReaderNeverObservesMissingLedgeredFile
-// is the dutiful-water stress test: it races a writer re-materializing the
-// SAME multi-file skill package (SKILL.md + a mode-bearing scripts/run.sh,
-// the exact shape of the J20 repro row) against a reader that lists+reads the
-// surface, and fails the instant the reader observes a ledgered file
-// (previously seen present) go missing. Bounded by an iteration count, not
-// wall-clock, so it stays fast and deterministic-ish; run against a real
-// OS filesystem (not MemMapFs) because the property under test is
-// os.Rename's atomicity, which a fake filesystem does not necessarily model.
-func TestWriteManagedPackageFiles_ConcurrentReaderNeverObservesMissingLedgeredFile(t *testing.T) {
-	files := safefs.New()
-	fs := files.Fs
-	dir := t.TempDir()
-
-	const iterations = 400
-	item := []fakeItem{{
-		name:    "reviewer",
-		enabled: true,
-		files: []PackageFile{
-			{RelPath: "reviewer/SKILL.md", Content: []byte("---\nname: reviewer\n---\nBody"), Mode: 0644},
-			{RelPath: "reviewer/scripts/run.sh", Content: []byte("#!/bin/sh\necho reviewer\n"), Mode: 0755},
-		},
-	}}
-	require.NoError(t, WriteManagedPackageFiles(files, dir, ledger.SurfaceSkills, item, fakeItemEnabled, fakeItemName, fakeItemRender),
-		"seed materialize must succeed before the race begins")
-
-	skillPath := filepath.Join(dir, "reviewer", "SKILL.md")
-	scriptPath := filepath.Join(dir, "reviewer", "scripts", "run.sh")
-
-	var everSeen atomic.Bool
-	var violated atomic.Bool
-	var detail atomic.Value
-	detail.Store("")
-	done := make(chan struct{})
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		defer close(done)
-		for i := 0; i < iterations; i++ {
-			if writeErr := WriteManagedPackageFiles(files, dir, ledger.SurfaceSkills, item, fakeItemEnabled, fakeItemName, fakeItemRender); writeErr != nil {
-				violated.Store(true)
-				detail.Store(fmt.Sprintf("iteration %d: re-materialize failed: %v", i, writeErr))
-				return
-			}
-		}
-	}()
-
-	go func() {
-		defer wg.Done()
-		for {
-			select {
-			case <-done:
-				return
-			default:
-			}
-			skillExists, _ := afero.Exists(fs, skillPath)
-			scriptExists, _ := afero.Exists(fs, scriptPath)
-			if skillExists && scriptExists {
-				everSeen.Store(true)
-				continue
-			}
-			if everSeen.Load() && !violated.Load() {
-				violated.Store(true)
-				detail.Store(fmt.Sprintf("observed a ledgered file missing after previously seeing both present: SKILL.md exists=%v scripts/run.sh exists=%v", skillExists, scriptExists))
-			}
-		}
-	}()
-
-	wg.Wait()
-
-	assert.False(t, violated.Load(), "%s", detail.Load())
-	assert.True(t, everSeen.Load(), "the reader must have observed the surface present at least once, or this test proves nothing")
-}
-
 // TestWriteManagedPackageFiles_FirstDeliveryIntoWhollyNonexistentTree pins the
 // merge-gate defect found across this writer's consumer packages: on a
 // FIRST-EVER
@@ -243,99 +164,4 @@ func TestWriteManagedPackageFiles_FirstDeliveryIntoWhollyNonexistentTree(t *test
 	info, err := fs.Stat(filepath.Join(dir, "reviewer", "scripts", "run.sh"))
 	require.NoError(t, err)
 	fileperm.Equal(t, 0o755, info.Mode(), "the exec bit must survive a from-scratch delivery")
-}
-
-// withRename substitutes the swap's per-file rename (managedWriteOptions.rename).
-func withRename(fn func(fs afero.Fs, oldpath, newpath string) error) ManagedWriteOption {
-	return func(o *managedWriteOptions) { o.rename = fn }
-}
-
-// nonAtomicReplace models MoveFileEx(MOVEFILE_REPLACE_EXISTING) at its worst:
-// the destination name resolves to nothing for a moment before the source
-// takes it, which a concurrent reader on Windows can observe. observe runs in
-// exactly that gap, so the interleaving is forced rather than hoped for.
-func nonAtomicReplace(observe func()) func(fs afero.Fs, oldpath, newpath string) error {
-	return func(fs afero.Fs, oldpath, newpath string) error {
-		if err := fs.Remove(newpath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		observe()
-		return safefs.Rename(fs, oldpath, newpath)
-	}
-}
-
-// TestWriteManagedPackageFiles_RedeliveryNeverReplacesAnUnchangedLiveFile is
-// the forcing test for the Windows-only failure of
-// TestWriteManagedPackageFiles_ConcurrentReaderNeverObservesMissingLedgeredFile
-// (dodgy-hull): re-delivering a package whose rendered files are identical to
-// the live ones must not route any live file through a replace, because on
-// Windows a replace is a window in which a reader can find the file missing.
-func TestWriteManagedPackageFiles_RedeliveryNeverReplacesAnUnchangedLiveFile(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	dir := "/work/.claude/skills"
-	item := []fakeItem{{
-		name:    "reviewer",
-		enabled: true,
-		files: []PackageFile{
-			{RelPath: "reviewer/SKILL.md", Content: []byte("---\nname: reviewer\n---\nBody"), Mode: 0644},
-			{RelPath: "reviewer/scripts/run.sh", Content: []byte("#!/bin/sh\necho reviewer\n"), Mode: 0755},
-		},
-	}}
-	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, item, fakeItemEnabled, fakeItemName, fakeItemRender))
-
-	var missing []string
-	observe := func() {
-		for _, f := range item[0].files {
-			if ok, _ := afero.Exists(fs, filepath.Join(dir, f.RelPath)); !ok {
-				missing = append(missing, f.RelPath)
-			}
-		}
-	}
-	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, item, fakeItemEnabled, fakeItemName, fakeItemRender,
-		withRename(nonAtomicReplace(observe))))
-
-	assert.Empty(t, missing, "an unchanged re-delivery took a live file through a replace a concurrent reader observed as missing")
-	for _, f := range item[0].files {
-		got, err := afero.ReadFile(fs, filepath.Join(dir, f.RelPath))
-		require.NoError(t, err)
-		assert.Equal(t, f.Content, got)
-	}
-}
-
-// TestWriteManagedPackageFiles_RedeliverySwapsChangedContentAndMode pins the
-// other side of the unchanged-file skip: a file whose bytes differ, or whose
-// bytes match but whose mode differs, is still swapped in. The two SKILL.md
-// versions are the same length so a size check alone cannot tell them apart.
-func TestWriteManagedPackageFiles_RedeliverySwapsChangedContentAndMode(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	dir := "/work/.claude/skills"
-	render := func(skill string, scriptMode os.FileMode) []fakeItem {
-		return []fakeItem{{
-			name:    "reviewer",
-			enabled: true,
-			files: []PackageFile{
-				{RelPath: "reviewer/SKILL.md", Content: []byte(skill), Mode: 0644},
-				{RelPath: "reviewer/scripts/run.sh", Content: []byte("#!/bin/sh\n"), Mode: scriptMode},
-			},
-		}}
-	}
-	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, render("v1", 0644), fakeItemEnabled, fakeItemName, fakeItemRender))
-
-	var swapped []string
-	recording := func(fs afero.Fs, oldpath, newpath string) error {
-		rel, err := filepath.Rel(dir, newpath)
-		require.NoError(t, err)
-		swapped = append(swapped, filepath.ToSlash(rel))
-		return safefs.Rename(fs, oldpath, newpath)
-	}
-	require.NoError(t, WriteManagedPackageFiles(safefs.NewMem(fs), dir, ledger.SurfaceSkills, render("v2", 0755), fakeItemEnabled, fakeItemName, fakeItemRender,
-		withRename(recording)))
-
-	assert.ElementsMatch(t, []string{"reviewer/SKILL.md", "reviewer/scripts/run.sh"}, swapped)
-	got, err := afero.ReadFile(fs, filepath.Join(dir, "reviewer", "SKILL.md"))
-	require.NoError(t, err)
-	assert.Equal(t, "v2", string(got))
-	info, err := fs.Stat(filepath.Join(dir, "reviewer", "scripts", "run.sh"))
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0755), info.Mode().Perm())
 }

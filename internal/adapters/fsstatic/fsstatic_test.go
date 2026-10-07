@@ -3,8 +3,11 @@ package fsstatic_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,13 +15,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/delivery/deliverytest"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
@@ -325,4 +331,187 @@ func TestDeliver_AnApproachLocksThroughTheWritersOwnLocks(t *testing.T) {
 		delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter})
 	require.NoError(t, err)
 	require.ErrorIs(t, probe, safefs.ErrLockHeld, "the approach's Locks must be the writer's own, not the overlay's")
+}
+
+// TestDeliver_RedeliveringAnUnchangedLedgeredTreeKeepsEveryFile drives
+// claude's commands and skills — the writers built on the shared
+// ledger-backed tree writer (agent.WriteManagedPackageFiles), which the
+// mock's plain writers never exercise — through the writer repeatedly over
+// the production record, for both targets that deliver them: the project
+// (`manage hooks install`, `deps pull`, materialize) and a session's home
+// (session start). Every delivery must leave every file in place, listed in
+// its surface's ledger and claimed by the writer: a file the approach finds
+// already identical is still DELIVERED, because here a file the approach
+// does not write is a file the writer does not claim, and the release of
+// the previous delivery then removes it.
+//
+// An unchanged redelivery must also leave each live file as it stands — the
+// same file, not a replacement (os.SameFile) — because a replace is a window
+// in which a concurrent reader on Windows can find the file missing; the
+// batch, not the approach, is what writes here, and it lands no unchanged
+// file.
+func TestDeliver_RedeliveringAnUnchangedLedgeredTreeKeepsEveryFile(t *testing.T) {
+	eng, err := claude.Build()
+	require.NoError(t, err)
+	pkg := compositetest.Fixture(t, compositetest.WithCommand("go", "go now"))
+	pkg.Skills = append(pkg.Skills, composite.Item[composite.Skill]{Ref: "fixture#skill/greet", Value: composite.Skill{
+		Name: "greet", Description: "greets",
+		Files: []engine.SkillFile{
+			{Path: "SKILL.md", Bytes: []byte("---\nname: greet\ndescription: greets\n---\nhello\n"), Mode: 0o644},
+			{Path: "scripts/run.sh", Bytes: []byte("#!/bin/sh\n"), Mode: 0o755},
+		},
+	}})
+	items := pkg.EngineItems(eng.Root().Name)
+	exports, err := eng.Exports(items)
+	require.NoError(t, err)
+
+	type setup struct {
+		target   delivery.Target
+		plan     delivery.Plan
+		commands string
+		skills   string
+	}
+	for name, build := range map[string]func(t *testing.T, rec delivery.Ownership) setup{
+		"project": func(t *testing.T, rec delivery.Ownership) setup {
+			project := t.TempDir()
+			pref := delivery.Preference{Root: map[present.Kind]present.RootKind{present.Commands: present.RootProjectRoot, present.Skills: present.RootProjectRoot}}
+			plan, err := delivery.Route(items, eng.Root(), pref, present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}})
+			require.NoError(t, err)
+			return setup{
+				target: delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter},
+				plan:   plan, commands: filepath.Join(project, ".claude", "commands"), skills: filepath.Join(project, ".claude", "skills"),
+			}
+		},
+		"session": func(t *testing.T, rec delivery.Ownership) setup {
+			project, home := t.TempDir(), t.TempDir()
+			cell := present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}, SessionHome: present.Root{Host: home, Engine: home}}
+			plan, err := delivery.Route(items, eng.Root(), delivery.Preference{}, cell)
+			require.NoError(t, err)
+			return setup{
+				target: delivery.Target{Root: present.New(present.OnHost(cell)), Ownership: rec, Writer: delivery.SessionWriter("h")},
+				plan:   plan, commands: filepath.Join(home, claude.CommandsDirName), skills: filepath.Join(home, claude.SkillsDirName),
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fs := afero.NewOsFs()
+			rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
+			require.NoError(t, err)
+			su := build(t, rec)
+			static := fsstatic.New(safefs.NewMem(fs))
+			want := map[ledger.Surface]struct {
+				dir   string
+				files []string
+			}{
+				ledger.SurfaceCommands: {su.commands, []string{"go.md"}},
+				ledger.SurfaceSkills:   {su.skills, []string{"greet/SKILL.md", "greet/scripts/run.sh"}},
+			}
+			live := map[string]os.FileInfo{}
+			for run := 1; run <= 3; run++ {
+				_, err := static.Deliver(context.Background(), delivery.Loadout{Plan: su.plan, Package: pkg, Exports: exports}, eng.Root(), su.target)
+				require.NoError(t, err, "run %d", run)
+				claimed, err := rec.Targets(su.target.Writer)
+				require.NoError(t, err)
+				for surface, w := range want {
+					listed, err := ledger.Ledger{Root: safefs.NewMem(fs), Dir: w.dir}.Read(surface)
+					require.NoError(t, err)
+					require.Equal(t, w.files, listed, "run %d: the %s ledger", run, surface)
+					for _, rel := range w.files {
+						path := filepath.Join(w.dir, rel)
+						info, err := os.Stat(path)
+						require.NoError(t, err, "run %d: %s is listed in the ledger but missing", run, rel)
+						require.Contains(t, claimed, path, "run %d: %s is delivered but unclaimed, so the next delivery's release removes it", run, rel)
+						if was, ok := live[path]; ok {
+							require.True(t, os.SameFile(was, info), "run %d: an unchanged redelivery replaced %s", run, rel)
+						}
+						live[path] = info
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestDeliver_AConcurrentReaderNeverSeesARedeliveredFileMissing races a
+// reader against repeated deliveries of one unchanged claude skill package
+// (SKILL.md beside a mode-bearing scripts/run.sh) through the writer over
+// the production record on a real filesystem, and fails the instant the
+// reader finds a delivered file missing after having seen it. This is the
+// configuration every delivery runs in, so it is where the property is
+// produced: the batch lands no unchanged file, so nothing is replaced — on
+// Windows a replace is a window a reader can observe — and the approach
+// writes every file, so nothing is released out from under the reader.
+// Bounded by an iteration count, not wall-clock.
+func TestDeliver_AConcurrentReaderNeverSeesARedeliveredFileMissing(t *testing.T) {
+	fs := afero.NewOsFs()
+	project := t.TempDir()
+	rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
+	require.NoError(t, err)
+	eng, err := claude.Build()
+	require.NoError(t, err)
+	pkg := compositetest.Fixture(t)
+	pkg.Skills = append(pkg.Skills, composite.Item[composite.Skill]{Ref: "fixture#skill/reviewer", Value: composite.Skill{
+		Name: "reviewer", Description: "reviews",
+		Files: []engine.SkillFile{
+			{Path: "SKILL.md", Bytes: []byte("---\nname: reviewer\ndescription: reviews\n---\nBody\n"), Mode: 0o644},
+			{Path: "scripts/run.sh", Bytes: []byte("#!/bin/sh\necho reviewer\n"), Mode: 0o755},
+		},
+	}})
+	items := pkg.EngineItems(eng.Root().Name)
+	exports, err := eng.Exports(items)
+	require.NoError(t, err)
+	pref := delivery.Preference{Root: map[present.Kind]present.RootKind{present.Skills: present.RootProjectRoot}}
+	plan, err := delivery.Route(items, eng.Root(), pref, present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}})
+	require.NoError(t, err)
+	target := delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter}
+	static := fsstatic.New(safefs.NewMem(fs))
+	deliver := func() error {
+		_, err := static.Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, eng.Root(), target)
+		return err
+	}
+	require.NoError(t, deliver(), "the seed delivery must land before the race begins")
+
+	skill := filepath.Join(project, ".claude", "skills", "reviewer", "SKILL.md")
+	script := filepath.Join(project, ".claude", "skills", "reviewer", "scripts", "run.sh")
+	const iterations = 200
+	var seen, violated atomic.Bool
+	var detail atomic.Value
+	detail.Store("")
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		defer close(done)
+		for i := 0; i < iterations; i++ {
+			if err := deliver(); err != nil {
+				violated.Store(true)
+				detail.Store(fmt.Sprintf("redelivery %d failed: %v", i, err))
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			skillOK, _ := afero.Exists(fs, skill)
+			scriptOK, _ := afero.Exists(fs, script)
+			if skillOK && scriptOK {
+				seen.Store(true)
+				continue
+			}
+			if seen.Load() && !violated.Load() {
+				violated.Store(true)
+				detail.Store(fmt.Sprintf("a delivered file went missing: SKILL.md=%v scripts/run.sh=%v", skillOK, scriptOK))
+			}
+		}
+	}()
+	wg.Wait()
+	require.False(t, violated.Load(), "%s", detail.Load())
+	require.True(t, seen.Load(), "the reader must have seen the package present, or this proves nothing")
 }

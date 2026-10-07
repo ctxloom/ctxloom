@@ -8,8 +8,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
@@ -135,10 +133,6 @@ type ManagedWriteOption func(*managedWriteOptions)
 type managedWriteOptions struct {
 	dedupHomeDir string
 	rep          report.Reporter
-	// rename moves one rendered temp file over its live path. It is
-	// safefs.Rename outside tests; a test substitutes a non-atomic replace to
-	// force the window a concurrent reader would see on Windows.
-	rename func(fs afero.Fs, oldpath, newpath string) error
 }
 
 // WithWriteReporter names where the managed writer reports skipped items and

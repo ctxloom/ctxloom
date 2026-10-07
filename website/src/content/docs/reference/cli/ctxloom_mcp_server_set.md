@@ -26,7 +26,7 @@ A server has exactly one target: --command (with --arg), --url, or
 the same call (the last example); a set that would leave none or two is
 refused and nothing is saved.
 
-Header values land in shell history and in signed bundle content, so name a secret through an environment variable the engine expands, never as a literal.
+Header values land in shell history and in committed bundle content, so name a secret through an environment variable the engine expands, never as a literal.
 
 ```
 ctxloom mcp server set <bundle>#mcp/<name> [flags]

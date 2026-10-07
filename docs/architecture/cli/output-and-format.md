@@ -57,11 +57,6 @@ flowchart TD
   text counts, markdown included: a value stamped for one format and
   zero-valued for another is a wrong answer, not a missing one. It
   deliberately does not mark the guard — the proof is `emit` rendering.
-- `reviewWantsListing` folds an explicit `--format` (through
-  `wantsNonTextOutput`) into `review`'s *decision* (listing vs
-  interactive walk), not just its rendering: an invocation that asked for a
-  machine format must not be prompted through an approval session and only
-  afterwards fail the guard, having already written countersignatures.
 
 ## The two guards
 

@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // TestWriter_FragmentRoundTrip writes both forms of a fragment and reads them
@@ -19,7 +19,7 @@ import (
 func TestWriter_FragmentRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	store := emptyStore(t)
-	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "written", IsLocal: true}
+	ref := ident.Ref{Bundle: "code-quality", Kind: ident.KindFragment, Name: "written", IsLocal: true}
 	want := Fragment{
 		Name: "written",
 		ItemMeta: ItemMeta{
@@ -33,10 +33,10 @@ func TestWriter_FragmentRoundTrip(t *testing.T) {
 			DistilledBy:  "test-model-2",
 		},
 	}
-	if err := store.Put(ctx, ref, trust.FormRaw, want); err != nil {
+	if err := store.Put(ctx, ref, ident.FormRaw, want); err != nil {
 		t.Fatalf("Put(raw): %v", err)
 	}
-	if err := store.Put(ctx, ref, trust.FormDistilled, want); err != nil {
+	if err := store.Put(ctx, ref, ident.FormDistilled, want); err != nil {
 		t.Fatalf("Put(distilled): %v", err)
 	}
 
@@ -52,7 +52,7 @@ func TestWriter_FragmentRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Forms: %v", err)
 	}
-	if !slices.Equal(forms, []trust.ContentForm{trust.FormRaw, trust.FormDistilled}) {
+	if !slices.Equal(forms, []ident.ContentForm{ident.FormRaw, ident.FormDistilled}) {
 		t.Fatalf("Forms = %v", forms)
 	}
 	surface, err := item.Surface(ctx)
@@ -68,13 +68,13 @@ func TestWriter_FragmentRoundTrip(t *testing.T) {
 	}
 
 	// Bytes on disk must be exactly Encode's output — no re-serialization drift.
-	ft, _ := TypeForKind(trust.KindFragment)
+	ft, _ := TypeForKind(ident.KindFragment)
 	encoded, err := ft.Encode(want)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
 	byPath := map[string][]byte{}
-	for _, f := range []trust.ContentForm{trust.FormRaw, trust.FormDistilled} {
+	for _, f := range []ident.ContentForm{ident.FormRaw, ident.FormDistilled} {
 		form, err := item.Form(ctx, f)
 		if err != nil {
 			t.Fatalf("Form(%s): %v", f, err)
@@ -104,12 +104,12 @@ func TestWriter_FragmentRoundTrip(t *testing.T) {
 func TestWriter_PutOneFormLeavesTheOtherAlone(t *testing.T) {
 	ctx := context.Background()
 	store := emptyStore(t)
-	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solo"}
+	ref := ident.Ref{Bundle: "code-quality", Kind: ident.KindFragment, Name: "solo"}
 	original := Fragment{Name: "solo", ItemMeta: ItemMeta{Body: "raw body\n", Distilled: "distilled body\n"}}
-	if err := store.Put(ctx, ref, trust.FormRaw, original); err != nil {
+	if err := store.Put(ctx, ref, ident.FormRaw, original); err != nil {
 		t.Fatalf("Put(raw): %v", err)
 	}
-	if err := store.Put(ctx, ref, trust.FormDistilled, original); err != nil {
+	if err := store.Put(ctx, ref, ident.FormDistilled, original); err != nil {
 		t.Fatalf("Put(distilled): %v", err)
 	}
 	rawBefore, err := afero.ReadFile(store.fsys, fixtureRoot+"/code-quality/fragments/solo.md")
@@ -119,7 +119,7 @@ func TestWriter_PutOneFormLeavesTheOtherAlone(t *testing.T) {
 
 	revised := original
 	revised.Distilled = "a different distillation\n"
-	if err := store.Put(ctx, ref, trust.FormDistilled, revised); err != nil {
+	if err := store.Put(ctx, ref, ident.FormDistilled, revised); err != nil {
 		t.Fatalf("Put(distilled): %v", err)
 	}
 	rawAfter, err := afero.ReadFile(store.fsys, fixtureRoot+"/code-quality/fragments/solo.md")
@@ -137,7 +137,7 @@ func TestWriter_PutOneFormLeavesTheOtherAlone(t *testing.T) {
 func TestWriter_DeleteRemovesContentAndSidecar(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
-	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}
+	ref := ident.Ref{Bundle: "code-quality", Kind: ident.KindMCP, Name: "postgres"}
 	for _, p := range []string{
 		fixtureRoot + "/code-quality/mcp/postgres.yaml",
 		fixtureRoot + "/code-quality/mcp/.postgres.meta.yaml",
@@ -168,7 +168,7 @@ func TestWriter_DeleteRemovesContentAndSidecar(t *testing.T) {
 func TestWriter_DeleteSkillRemovesThePackageAndItsSidecar(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
-	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "code-reviewer"}
+	ref := ident.Ref{Bundle: "code-quality", Kind: ident.KindSkill, Name: "code-reviewer"}
 	if err := store.Delete(ctx, ref); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -188,11 +188,11 @@ func TestWriter_DeleteSkillRemovesThePackageAndItsSidecar(t *testing.T) {
 func TestWriter_DeleteKeepsSiblingHooksInTheSameEvent(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
-	if err := store.Delete(ctx, trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/guard"}); err != nil {
+	if err := store.Delete(ctx, ident.Ref{Bundle: "code-quality", Kind: ident.KindHook, Name: "pre_tool/guard"}); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	bundle, _ := store.Open(ctx, "code-quality")
-	refs, err := bundle.Refs(ctx, trust.KindHook)
+	refs, err := bundle.Refs(ctx, ident.KindHook)
 	if err != nil {
 		t.Fatalf("Refs: %v", err)
 	}
@@ -209,19 +209,19 @@ func TestWriter_PutRefusesMismatchedIdentity(t *testing.T) {
 	ctx := context.Background()
 	store := emptyStore(t)
 	for name, tc := range map[string]struct {
-		ref     trust.Ref
+		ref     ident.Ref
 		surface Surface
 	}{
 		"name disagrees with ref": {
-			trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "expected"},
+			ident.Ref{Bundle: "code-quality", Kind: ident.KindFragment, Name: "expected"},
 			Fragment{Name: "actual", ItemMeta: ItemMeta{Body: "x\n"}},
 		},
 		"kind disagrees with ref": {
-			trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "thing"},
+			ident.Ref{Bundle: "code-quality", Kind: ident.KindFragment, Name: "thing"},
 			MCP{Name: "thing", Command: "x"},
 		},
 	} {
-		if err := store.Put(ctx, tc.ref, trust.FormRaw, tc.surface); !errors.Is(err, ErrSurfaceType) {
+		if err := store.Put(ctx, tc.ref, ident.FormRaw, tc.surface); !errors.Is(err, ErrSurfaceType) {
 			t.Errorf("%s: err = %v, want ErrSurfaceType", name, err)
 		}
 	}
@@ -230,8 +230,8 @@ func TestWriter_PutRefusesMismatchedIdentity(t *testing.T) {
 func TestWriter_PutRefusesAFormTheSurfaceDoesNotCarry(t *testing.T) {
 	ctx := context.Background()
 	store := emptyStore(t)
-	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "plain"}
-	err := store.Put(ctx, ref, trust.FormDistilled, Fragment{Name: "plain", ItemMeta: ItemMeta{Body: "only raw\n"}})
+	ref := ident.Ref{Bundle: "code-quality", Kind: ident.KindFragment, Name: "plain"}
+	err := store.Put(ctx, ref, ident.FormDistilled, Fragment{Name: "plain", ItemMeta: ItemMeta{Body: "only raw\n"}})
 	if !errors.Is(err, ErrNoSuchForm) {
 		t.Fatalf("err = %v, want ErrNoSuchForm", err)
 	}
@@ -242,7 +242,7 @@ func TestWriter_PutRefusesAFormTheSurfaceDoesNotCarry(t *testing.T) {
 func TestWriter_PutSkillAppliesDeclaredMode(t *testing.T) {
 	ctx := context.Background()
 	store := emptyStore(t)
-	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "helper"}
+	ref := ident.Ref{Bundle: "code-quality", Kind: ident.KindSkill, Name: "helper"}
 	skill := Skill{
 		Name:  "helper",
 		Tags:  []string{"tools"},
@@ -252,7 +252,7 @@ func TestWriter_PutSkillAppliesDeclaredMode(t *testing.T) {
 			{Path: "scripts/go.sh", Mode: ModeExecutable, Bytes: []byte("#!/bin/sh\ntrue\n")},
 		},
 	}
-	if err := store.Put(ctx, ref, trust.FormRaw, skill); err != nil {
+	if err := store.Put(ctx, ref, ident.FormRaw, skill); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	info, err := store.fsys.Stat(fixtureRoot + "/code-quality/skills/helper/scripts/go.sh")

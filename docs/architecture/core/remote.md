@@ -5,10 +5,11 @@ content. It owns the reference grammar (how a bundle identity is spelled, parsed
 canonicalized), the registry of known remote addresses, the on-disk git clone cache, the
 selector→commit resolution rules, the `lock.yaml` pin record, and the forge adapters that
 read bytes and write publications. Its contract is: **every byte of third-party content an
-agent ever sees is fetched at a commit SHA that the lockfile pinned**, and every trust
-decision upstream keys off a canonical string produced here. It performs no trust
-evaluation of its own: tree verification and admission are injected seams
-(`WithTreeVerifier`, `WithTreeFetcher`) that callers wire in.
+agent ever sees is fetched at a commit SHA that the lockfile pinned, from a repository a
+registered remote names**; every resolution upstream keys off a canonical string produced
+here. An unregistered repository is refused with one error (`NotRegisteredError`, wrapping
+`ErrRemoteNotRegistered`) wherever it is reached. Tree fetching and installation are injected
+seams (`WithTreeFetcher`, `WithTreeInstaller`) that callers wire in.
 
 ## Responsibilities
 
@@ -35,9 +36,7 @@ evaluation of its own: tree verification and admission are injected seams
 
 ## Non-responsibilities
 
-- Signature verification and publisher trust — `internal/core/trust` and
-  `internal/adapters/signing`; see [trust.md](./trust.md).
-- Tree verification of every pinned bundle, lock rebuild/upgrade orchestration, and the
+- Lock rebuild/upgrade orchestration, and the
   `deps pull`/`sync` command flows — `internal/adapters/operations`; see
   [operations.md](./operations.md).
 - Bundle parsing, item loading and skill materialization — `internal/core/bundles`; see
@@ -128,7 +127,7 @@ flowchart TD
 | `ResolveRefString(ref, sourceURL, hash, kind) string` | `internal/adapters/remote/reference.go` | Same, string form; documented fault-tolerant — on any failure returns `ref` unchanged. |
 | `parseTypePathVersion(...)` | `internal/adapters/remote/reference.go` | `type/path[@version]` plus selector handling; rejects empty path and unknown item type. |
 | `validateItemPath(p) error` | `internal/adapters/remote/reference.go` | Traversal guard: rejects absolute paths and `.`/`..` segments. Applied to the **item path only**, not to the repo URL. |
-| `(*Reference).CanonicalString() string` | `internal/adapters/remote/reference.go` | The canonical identity string — the value all upstream trust/dedup/exclusion decisions key on. |
+| `(*Reference).CanonicalString() string` | `internal/adapters/remote/reference.go` | The canonical identity string — the value all upstream dedup/exclusion decisions key on. |
 | `(*Reference).BuildFilePath(kind) string` | `internal/adapters/remote/reference.go` | Repo-relative path under `paths.RepoContentPrefix` (`path.Join`). |
 | `(*Reference).LocalTreePath` / `LocalWorktreePath` | `internal/adapters/remote/reference.go` | Host-filesystem paths for a materialized tree and its sparse worktree. |
 | `(*Reference).LocalRemoteName() string` | `internal/adapters/remote/reference.go` | FS-safe name derived from the URL. |
@@ -146,7 +145,7 @@ flowchart TD
 | Signature | File | Contract |
 |---|---|---|
 | `DetectForge(url) (ForgeType, string, error)` | `internal/adapters/remote/detect.go` | URL → forge type + base URL; the server is compared as `refuri.CanonicalAuthority` spells it. Errors on an unparseable URL or a host refuri refuses. |
-| `ParseRepoURL(raw) (RepoURL, error)` | `internal/adapters/remote/repourl.go` | `refuri.ParseRepoURL` under this package's name: the repo-URL grammar lives in `internal/shared/refuri`, below both this package and `trust`. |
+| `ParseRepoURL(raw) (RepoURL, error)` | `internal/adapters/remote/repourl.go` | `refuri.ParseRepoURL` under this package's name: the repo-URL grammar lives in `internal/shared/refuri`, below both this package and `ident`. |
 | `NewFetcher(url, auth) (Fetcher, error)` | `internal/adapters/remote/detect.go` | `DetectForge` → GitHub adapter, explicit error for the generic adapter. |
 | `NewForgeFetcher(url, rf, auth) (Fetcher, error)` | `internal/adapters/remote/detect.go` | Build a fetcher against a `ResolvedForge`'s API URL. |
 | `ResolvedForge.Token(auth) string` | `internal/adapters/remote/detect.go` | `token_env` env lookup, else `auth.GitHub`. Reads `os.Getenv` directly. |
@@ -219,12 +218,12 @@ flowchart TD
 
 | Signature | File | Contract |
 |---|---|---|
-| `NewPuller(registry, auth, opts...)` | `internal/adapters/remote/pull.go` | Options: `WithLockfileManager`, `WithFetcherFactory`, `WithTreeFetcher`, `WithTreeVerifier`, `WithTreeInstaller`. |
+| `NewPuller(registry, auth, opts...)` | `internal/adapters/remote/pull.go` | Options: `WithLockfileManager`, `WithFetcherFactory`, `WithTreeFetcher`, `WithTreeInstaller`. |
 | `Puller.Pull(ctx, ref, opts) (*PullResult, error)` | `internal/adapters/remote/pull.go` | Orchestrate `fetchForPull` → `installPulledItem`. |
 | `Puller.fetchForPull(...)` | `internal/adapters/remote/pull.go` | resolve target → the existing pin, else constraint→SHA → fetch the tree. |
 | `Puller.resolveRemoteTarget(...)` | `internal/adapters/remote/pull.go` | ref → repo URL, registered remote, lockfile key; an unregistered repository is refused (`NotRegisteredError`). |
 | `resolveContentSHA(...)` | `internal/adapters/remote/pull.go` | Constraint expression → concrete SHA via `ResolveConstraint`. |
-| `Puller.installPulledItem(...)` | `internal/adapters/remote/pull.go` | Verify the tree, check it out, and write the lockfile entry — the only on-disk record of the pull. |
+| `Puller.installPulledItem(...)` | `internal/adapters/remote/pull.go` | Check the tree out and write the lockfile entry — the only on-disk record of the pull. |
 | `NewPublishManager(registry, auth, opts...)` | `internal/adapters/remote/publish.go` | Options: `WithPublisherFactory`, `WithPublishFetcherFactory`. |
 | `PublishManager.PublishTree(ctx, files, remoteName, opts) (*PublishResult, error)` | `internal/adapters/remote/publish.go` | Publish a bundle tree the caller already read, directly or via a pull request (`publishTreeViaPR`). This package does not decide what belongs to a bundle. |
 | `Publisher.CreateOrUpdateFiles(...)` | `internal/adapters/remote/publish.go` | Every file of a tree lands as **one** commit, so a partial publish is impossible rather than merely unlikely. |
@@ -261,9 +260,8 @@ flowchart TD
    `write` never modifies it.
 5. **The identity digest is a git commit SHA.** `Resolution.SHA` is the commit a
    selector resolved to; it changes only when the constraint is re-resolved (`upgrade`),
-   never on a relock that leaves `RequestedVersion` unchanged. Content integrity is the
-   bundle tree's signed checksum manifest, verified by the injected tree verifier, not
-   by anything in this package.
+   never on a relock that leaves `RequestedVersion` unchanged. Content integrity is git's:
+   the bytes at a commit are fixed by its SHA.
 6. **Bundle-byte cache key = `{name, sha}`** (`bundleCacheKey`). Including the SHA means
    a re-pin invalidates automatically. Failed reads are never cached
    (`CachingBundleReader.readThrough`).
@@ -314,6 +312,16 @@ flowchart TD
 20. **Tokens never appear in argv.** The REST path uses an `Authorization: Bearer` round
     tripper (`tokenTransport`) and the git path passes credentials via `GIT_CONFIG_*`
     extraheader environment variables (`RepoCache.authEnv`).
+21. **The clone is read through git objects; a bundle's worktree is a real checkout.**
+    `.ctxloom/cache/repos/<host>/<org>/<repo>` is a git CLONE, and content is read from its
+    git objects at the locked SHA (`GitCloneFetcher`), never from its working tree, so
+    editing a file there changes nothing ctxloom reads. A directory-form bundle is
+    materialized as a git worktree of that clone, detached at the pin and narrowed to the
+    bundle's path (`RepoCache.EnsureSparseWorktree`), and that checkout IS what consumers
+    read: nothing verifies it against the pin on read, so a hand edit there is read as-is
+    until the next install of that pin checks out `--force` over it. To change what a
+    consumer sees in a test, change what the pin resolves to (commit in the clone and move
+    the lockfile SHA) or inject a reader or tree.
 
 ## Boundaries
 
@@ -322,7 +330,7 @@ flowchart TD
 - `internal/adapters/operations` — owns pull/sync/lock/upgrade/publish command flows,
   constructs `Puller`, `PublishManager`, `RepoCache` and `LockfileStore`, reads every
   pinned bundle through `remoteBundleReaders` (`LoadAllBytes` over a
-  `CachingBundleReader`) and verifies each tree, and is the only other writer of
+  `CachingBundleReader`), and is the only other writer of
   `lock.yaml`.
 - `internal/adapters/configload`, `internal/adapters/content/remotetree`,
   `internal/core/bundles`, `internal/core/profiles`,
@@ -331,7 +339,7 @@ flowchart TD
   and registry/lockfile reads.
 
 **Dependencies (outbound).** `internal/shared/*` leaf packages, `internal/core/paths`,
-`internal/core/trust` (for the `BundleKey` type), and the `internal/adapters/git`
+`internal/core/ident` (for the `BundleKey` type), and the `internal/adapters/git`
 adapter. External: `go-git`, `go-github`, `afero`, `yaml.v3`, and the system `git`
 binary (git ≥ 2.31 for `GIT_CONFIG_*`). `go list -deps` on the package is the authority.
 

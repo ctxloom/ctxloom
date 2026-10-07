@@ -23,7 +23,6 @@ flowchart TD
   end
 
   CFMT["pkg/clifmt<br/>Format, Render, RenderError, EncodeWarning"]
-  SIGN["internal/adapters/signing<br/>EncodeLoadoutEnvelope"]
   YAMLX["internal/shared/yamlx<br/>MapValue, MapSet, ScalarNode"]
   SESS["internal/core/sessions<br/>session index, OutputDir"]
 
@@ -36,7 +35,6 @@ flowchart TD
   CD --> CFMT
   CE --> CFMT
   CE --> CV
-  CL --> SIGN
   PL --> CD
   PL --> SESS
   UP --> YAMLX
@@ -47,9 +45,9 @@ flowchart TD
   LOAD["unversioned loaders"] -->|"Pipeline.Run at load"| UP
   SV["internal/shared/schemaver<br/>version gate · WriteBack · --write-upgrades"] -->|"DecodeSingle · Encode · Version"| UP
   KINDS["versioned file kinds"] -->|"Kind.Upgrade at load"| SV
-  PROBE["internal/adapters/companions<br/>execs '&lt;bin&gt; version --format json'<br/>and '&lt;bin&gt; loadout --format json'"]
+  PROBE["internal/adapters/companions<br/>execs '&lt;bin&gt; version --format json'<br/>and '&lt;bin&gt; loadout --format yaml'"]
   PROBE -->|"cliversion.Probe"| CV
-  PROBE -->|"loadout.Subcommand / FormatFlag / FormatJSON"| CL
+  PROBE -->|"loadout.Subcommand / FormatFlag / FormatYAML"| CL
   ISO["internal/adapters/isolation<br/>companionVersionKey"] -->|"cliversion.Probe"| CV
   READERS["memory · runner/interaction · transcript"] -->|"SessionPlanPaths"| PL
 ```
@@ -96,16 +94,15 @@ Owns both halves of the `{name, version}` contract every family binary emits fro
 
 ## `internal/adapters/companions/loadout` — the companion `loadout` subcommand
 
-The **emitter half** of the companion-loadout wire protocol: the shared `loadout` cobra subcommand that ctxloom and its in-repo companions register, so ctxloom can exec `<bin> loadout --format json` and receive that binary's self-described loadout inside a signed JSON envelope (signature-envelope spec §4.3; the contract is stated in `docs/companion-loadout-standard.md`). It holds **dispatch only** — loadout *content* stays per-binary because `go:embed` can only embed files in the embedding package's own directory, so each binary embeds its own `loadout.yaml`/`loadout.yaml.sig` and passes the bytes in. Its only internal dependency is `internal/adapters/signing`.
+The **emitter half** of the companion-loadout wire protocol: the shared `loadout` cobra subcommand that ctxloom and its in-repo companions register, so ctxloom can exec `<bin> loadout --format yaml` and receive that binary's self-described loadout document verbatim (the contract is stated in `docs/companion-loadout-standard.md`). It holds **dispatch only** — loadout *content* stays per-binary because `go:embed` can only embed files in the embedding package's own directory, so each binary embeds its own `loadout.yaml` and passes the bytes in.
 
 | Symbol | Purpose |
 |---|---|
-| `Subcommand`, `FormatFlag`, `FormatJSON` | The probe's argv vocabulary, exported so the consumer (`companions.loadoutArgs`) builds its argv from the same constants and a one-sided rename is a compile error. |
+| `Subcommand`, `FormatFlag`, `FormatYAML` | The probe's argv vocabulary, exported so the consumer (`companions.loadoutArgs`) builds its argv from the same constants and a one-sided rename is a compile error. |
 | `NewCommand` | Builds the `loadout` command over bytes already in hand. Delegates to `NewDeferredCommand`. |
 | `NewDeferredCommand` | Same command, with the bytes supplied at run time — ctxloom's shape, where the CLI package owns the command tree but the embedded bytes live in the composition root. `--format` defaults to `yaml`. |
 | `resolveFormat` | Honours a host root's `--json` shorthand, but an explicit local `--format` wins — the reverse of `cliemit.Resolve`, because this command's vocabulary is a subset. |
-| `ReadEmbeddedSig` | Reads `loadout.yaml.sig` from an `fs.ReadFileFS`: `nil` when absent, a non-nil empty slice when present but zero bytes. Pairs with the `//go:embed loadout.yaml*` wildcard, which keeps a missing `.sig` from failing the build. |
-| `Emit` | The pure core, exported so companion tests can bypass cobra. Refuses an empty loadout and a present-but-empty signature; `"yaml"` writes the loadout **verbatim, no trailing newline**; `"json"` writes `signing.EncodeLoadoutEnvelope(loadoutYAML, sig, "")` plus a newline; anything else errors naming the valid set. |
+| `Emit` | The pure core, exported so companion tests can bypass cobra. Refuses an empty loadout; `"yaml"` writes the loadout verbatim; anything else errors naming the valid set. |
 
 ## `internal/shared/plans` — the `*.plan.md` reader
 
@@ -188,11 +185,10 @@ The load-site recipe is: `Kind.Upgrade` → decode `Result.Data` → if `len(Res
 
 ### companion loadout
 
-- The probe's argv is `Subcommand`, `FormatFlag`, `FormatJSON`, shared by emitter and consumer as constants; renaming one side alone does not compile.
-- The `"yaml"` branch writes the loadout **byte-verbatim with no trailing newline** — those exact bytes are what the detached signature covers (signature-envelope spec §3.0). Adding a newline "for consistency" invalidates every committed signature. The `"json"` branch's trailing newline is safe because the envelope, not the raw bytes, is the payload there.
+- The probe's argv is `Subcommand`, `FormatFlag`, `FormatYAML`, shared by emitter and consumer as constants; renaming one side alone does not compile.
+- The host root's `--json` reaches `Emit` as the format `"json"`, which it refuses: a flag the command accepts and ignores would be worse than one it rejects (`loadout.resolveFormat`).
 - `Emit` must write through the `io.Writer` it is given (`cmd.OutOrStdout()` from the `RunE`), never `os.Stdout`; that seam is what the package's own tests use.
-- Absent and empty signatures are different states. `ReadEmbeddedSig` returns `nil` for no `.sig` (unsigned is legal and routes to review) and a non-nil empty slice for a zero-byte `.sig`, which `Emit` refuses as a half-completed signing run. `Emit` likewise refuses an empty loadout rather than emitting a well-formed envelope that contributes nothing.
-- Each binary must embed with the wildcard `//go:embed loadout.yaml*` for `ReadEmbeddedSig` to find an optional `.sig` without a literal directive failing the build.
+- `Emit` refuses an empty loadout rather than emitting a well-formed document that contributes nothing.
 
 ### plans
 

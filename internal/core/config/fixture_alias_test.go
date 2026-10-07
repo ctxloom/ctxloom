@@ -30,8 +30,7 @@ import (
 // promise, and this is what says so.
 //
 // Funcs, chans and unsafe pointers are deliberately skipped: they are not
-// containers of user data and Config's (execGate, companionProbe) are not
-// carried on a Fixture at all.
+// containers of user data.
 func containerAliases(v reflect.Value, path string, out map[uintptr]string) {
 	switch v.Kind() {
 	case reflect.Map:

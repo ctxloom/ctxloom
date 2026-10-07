@@ -3,7 +3,7 @@
 // (Ref), the canonical bundle-reference grammar (BundleRef) and the content
 // forms an item is served in (ContentForm). It holds no persisted state of its
 // own; nothing here fetches or hashes content.
-package trust
+package ident
 
 import (
 	"fmt"
@@ -37,7 +37,7 @@ const (
 	// called "skill" before the Part A rename). Its selector directory
 	// "skills" was freed for this meaning by that rename; nothing production
 	// still resolves "#skills/<name>" to KindPrompt (see
-	// trust.ParseSelector).
+	// ident.ParseSelector).
 	KindSkill ItemKind = "skill"
 )
 
@@ -199,7 +199,7 @@ func (r Ref) bundleRefBase() (BundleRef, error) {
 }
 
 // RefFromBundleRef is AsBundleRef's mechanical inverse: it maps a BundleRef's
-// structured fields back onto the wider trust.Ref shape. br has already
+// structured fields back onto the wider ident.Ref shape. br has already
 // passed ParseBundleRef's rules (it came from ParseBundleRef itself or from a
 // minter), so this is a field mapping, not a validation — no parsing, no I/O.
 //

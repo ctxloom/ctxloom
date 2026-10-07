@@ -87,26 +87,25 @@ to an LLM is executable. That is why the decision that admits them is a delibera
 adding the repository they come from — and why `deps upgrade` shows what every hook and MCP
 server runs, before and after, before a pin moves.
 
-## What signing buys, and what it does not
+## What pinning buys, and what it does not
 
-ctxloom signs with SSH signatures only: the sshsig format that `ssh-keygen -Y sign` writes,
-verified against an `allowed_signers` file. It does not use GPG, PGP or any other scheme.
-A valid signature proves two things about the bytes that reach your agent:
+ctxloom does not sign content. What it does is pin: every dependency is locked to a git
+commit, and the bytes your agent receives are the bytes at that commit, fetched from a
+repository you registered. That proves two things:
 
-- **Provenance** — who published them.
-- **Integrity** — that they have not changed since.
+- **Which repository** — content resolves only through a remote you added.
+- **Which bytes** — a pin moves only when you run `ctxloom deps upgrade --yes`, after seeing
+  what the move brings in.
 
-That is the entire cryptographic claim. Read the following three sentences as limits, not as
-modesty:
+That is the entire claim. Read the following two sentences as limits, not as modesty:
 
 **We do not encrypt your context.** There is no confidentiality claim anywhere in this
 system. Bundles travel over git in the clear, and anyone who can read the repository can
-read the content. ctxloom proves where content came from and that it was not tampered with.
-It does not hide it.
+read the content.
 
-**A signature authenticates; it never authorizes.** A publisher can sign something harmful,
-and the signature will verify perfectly. Signed does not mean safe. A signature is not a
-badge.
+**Admitting a repository says nothing about whether its content is safe.** A repository you
+added can serve something harmful, and ctxloom will deliver it exactly as pinned. The upgrade
+diff exists so that you can see a change before it runs, not to judge it for you.
 
 ## Where to go next
 
@@ -114,4 +113,4 @@ badge.
   and what each one executes.
 - [Threat model](/security/threat-model/) — who we defend against, and what we explicitly do
   not defend.
-- [Trust](/concepts/review-and-trust/) — where ctxloom's trust decision is made.
+- [Remotes](/concepts/remotes/) — where ctxloom's trust decision is made: adding a repository.

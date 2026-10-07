@@ -32,8 +32,9 @@ admits it, and a profile shipped in a remote may name only that repository's
 bundles; composing several remotes is what a profile of your own is for.
 
 Registering a remote is the **trust decision**: content resolves only through a
-remote you registered, and what it serves reaches the agent — see
-[Trust](/concepts/review-and-trust/).
+remote you registered, and what it serves reaches the agent with no separate
+review step. Register only repositories you would run code from, and remove one
+you no longer trust with `ctxloom remote remove`.
 
 ### Add a Remote
 
@@ -220,9 +221,7 @@ my-ctxloom-repo/
 │       └── bundles/
 │           └── v2/
 │               └── my-bundle/
-│                   ├── bundle.yaml
-│                   ├── SHA256SUMS
-│                   └── .sigs/
+│                   └── bundle.yaml
 └── README.md
 ```
 

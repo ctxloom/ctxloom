@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // PullOptions configures pull behavior.
@@ -129,7 +129,7 @@ func NewPuller(registry *Registry, auth AuthConfig, opts ...PullerOption) *Pulle
 // (remote, SHA, on-the-wire content) into the install phase.
 type fetchedItem struct {
 	rem              *Remote
-	localName        trust.BundleKey // lockfile key: the bundle identity
+	localName        ident.BundleKey // lockfile key: the bundle identity
 	sha              string
 	requestedVersion string       // user-specified version, "" if they took the default
 	resolvedVersion  string       // concrete tag a semver constraint resolved to, "" otherwise
@@ -219,7 +219,7 @@ func (p *Puller) fetchItemBytes(ctx context.Context, fetcher Fetcher, owner, rep
 // resolveRemoteTarget maps a reference to its repo URL, remote, and lockfile
 // local-name. It is the fetch chokepoint's registration rule: a repository no
 // remote is registered for is refused (NotRegisteredError), never registered.
-func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remote, localName trust.BundleKey, err error) {
+func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remote, localName ident.BundleKey, err error) {
 	if !ref.IsCanonical() {
 		return "", nil, "", fmt.Errorf("not a canonical reference: %s", ref.String())
 	}
@@ -239,7 +239,7 @@ func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remot
 
 // recordedEntry is the lockfile's entry for the item; false when there is
 // none or the lockfile cannot be read.
-func (p *Puller) recordedEntry(itemType ItemType, localName trust.BundleKey) (LockEntry, bool) {
+func (p *Puller) recordedEntry(itemType ItemType, localName ident.BundleKey) (LockEntry, bool) {
 	lockfile, err := p.lockfileManager.Load()
 	if err != nil {
 		return LockEntry{}, false
@@ -273,7 +273,7 @@ func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string,
 // It is the carry-forward rule the lock rebuild applies
 // (operations.newConstraintResolver), so pull and lock agree on which commit a
 // pinned ref names.
-func (p *Puller) pinFor(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, localName trust.BundleKey, opts PullOptions) (sha, requestedVersion, resolvedVersion string, kind SelectorKind, err error) {
+func (p *Puller) pinFor(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, localName ident.BundleKey, opts PullOptions) (sha, requestedVersion, resolvedVersion string, kind SelectorKind, err error) {
 	if entry, ok := p.recordedEntry(opts.ItemType, localName); ok && entry.SHA != "" {
 		return entry.SHA, entry.RequestedVersion, entry.Version, entry.Kind, nil
 	}

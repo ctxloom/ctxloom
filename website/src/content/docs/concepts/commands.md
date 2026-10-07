@@ -36,7 +36,7 @@ commands:
 
 ## Slash Command Integration
 
-**A command is exposed as a slash command.** Commands from your project, from an allowed companion, and from the bundles your remotes serve are written out to your AI CLI. See [Trust](/concepts/review-and-trust/).
+**A command is exposed as a slash command.** Commands from your project, from an allowed companion, and from the bundles your remotes serve are written out to your AI CLI. Adding a remote is what admits its commands — see [Remotes](/concepts/remotes/).
 
 The slash command name isn't the bare command name — it's `<bundle>-<command>`, taken from the owning bundle's last path segment. A `code-review` command defined in a bundle called `my-bundle` becomes:
 

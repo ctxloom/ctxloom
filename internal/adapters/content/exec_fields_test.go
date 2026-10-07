@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // requireEveryFieldSet fails when a fixture leaves a field at its zero value,
@@ -25,11 +25,11 @@ func requireEveryFieldSet(t *testing.T, v any) {
 
 // putAndReadBack writes s at ref and decodes it back from the tree, returning
 // the decoded surface and the components the item is made of on disk.
-func putAndReadBack(t *testing.T, ref trust.Ref, s Surface) (Surface, []Component) {
+func putAndReadBack(t *testing.T, ref ident.Ref, s Surface) (Surface, []Component) {
 	t.Helper()
 	ctx := context.Background()
 	store := emptyStore(t)
-	if err := store.Put(ctx, ref, trust.FormRaw, s); err != nil {
+	if err := store.Put(ctx, ref, ident.FormRaw, s); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	bundle, err := store.Open(ctx, BundleID(ref.Bundle))
@@ -66,7 +66,7 @@ func TestWriter_MCPRoundTripsEveryField(t *testing.T) {
 		Installation: "install",
 	}
 	requireEveryFieldSet(t, want)
-	got, comps := putAndReadBack(t, trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: want.Name, IsLocal: true}, want)
+	got, comps := putAndReadBack(t, ident.Ref{Bundle: "code-quality", Kind: ident.KindMCP, Name: want.Name, IsLocal: true}, want)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("MCP did not round-trip:\n got  %#v\n want %#v", got, want)
 	}
@@ -109,7 +109,7 @@ func TestWriter_HookRoundTripsEveryField(t *testing.T) {
 		Tags:            []string{"ctxloom:link_id=pg"},
 	}
 	requireEveryFieldSet(t, want)
-	got, comps := putAndReadBack(t, trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: want.refName(), IsLocal: true}, want)
+	got, comps := putAndReadBack(t, ident.Ref{Bundle: "code-quality", Kind: ident.KindHook, Name: want.refName(), IsLocal: true}, want)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Hook did not round-trip:\n got  %#v\n want %#v", got, want)
 	}
@@ -131,12 +131,12 @@ func TestWriter_HookRoundTripsEveryField(t *testing.T) {
 func TestWriter_RePutWithEmptiedMetadataDropsTheSidecar(t *testing.T) {
 	ctx := context.Background()
 	store := emptyStore(t)
-	ref := trust.Ref{Bundle: "b", Kind: trust.KindMCP, Name: "srv", IsLocal: true}
-	if err := store.Put(ctx, ref, trust.FormRaw, MCP{Name: "srv", Command: "c", Tags: []string{"old"}}); err != nil {
+	ref := ident.Ref{Bundle: "b", Kind: ident.KindMCP, Name: "srv", IsLocal: true}
+	if err := store.Put(ctx, ref, ident.FormRaw, MCP{Name: "srv", Command: "c", Tags: []string{"old"}}); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	want := MCP{Name: "srv", Command: "c"}
-	if err := store.Put(ctx, ref, trust.FormRaw, want); err != nil {
+	if err := store.Put(ctx, ref, ident.FormRaw, want); err != nil {
 		t.Fatalf("re-Put: %v", err)
 	}
 	bundle, err := store.Open(ctx, "b")

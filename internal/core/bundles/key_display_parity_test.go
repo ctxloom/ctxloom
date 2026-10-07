@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // A read's Key() is the identity config seeds a bundle's profiles under, and a
@@ -118,9 +118,9 @@ func assertLockKeyMatchesKey(t *testing.T, read BundleRead) {
 	lock, err = lm.Load()
 	require.NoError(t, err)
 
-	itemRef, err := ItemRefFor(read.SourceRef(), trust.KindMCP, "server")
+	itemRef, err := ItemRefFor(read.SourceRef(), ident.KindMCP, "server")
 	require.NoError(t, err)
-	br, err := trust.ParseBundleRef(itemRef)
+	br, err := ident.ParseBundleRef(itemRef)
 	require.NoError(t, err)
 	entry, ok := lock.GetEntry(remote.ItemTypeBundle, br.BundleIdentity())
 	require.True(t, ok, "a pin recorded under %q is found for %q", lockKey, itemRef)

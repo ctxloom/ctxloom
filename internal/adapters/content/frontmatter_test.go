@@ -1,7 +1,7 @@
 package content
 
 import (
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"strings"
 	"testing"
 )
@@ -130,19 +130,19 @@ func TestPathHelpers(t *testing.T) {
 }
 
 func TestFormOf(t *testing.T) {
-	both := []trust.ContentForm{trust.FormRaw, trust.FormDistilled}
+	both := []ident.ContentForm{ident.FormRaw, ident.FormDistilled}
 	for _, tc := range []struct {
 		path  string
-		forms []trust.ContentForm
-		want  trust.ContentForm
+		forms []ident.ContentForm
+		want  ident.ContentForm
 	}{
-		{"fragments/solid.md", both, trust.FormRaw},
-		{"fragments/solid.distilled.md", both, trust.FormDistilled},
-		{"fragments/.solid.meta.yaml", both, trust.FormRaw},
-		{"fragments/.solid.distilled.meta.yaml", both, trust.FormDistilled},
-		{"mcp/postgres.yaml", execForms, trust.FormRaw},
-		{"mcp/.postgres.meta.yaml", execForms, trust.FormRaw},
-		{"skills/code-reviewer/SKILL.md", []trust.ContentForm{trust.FormRaw}, trust.FormRaw},
+		{"fragments/solid.md", both, ident.FormRaw},
+		{"fragments/solid.distilled.md", both, ident.FormDistilled},
+		{"fragments/.solid.meta.yaml", both, ident.FormRaw},
+		{"fragments/.solid.distilled.meta.yaml", both, ident.FormDistilled},
+		{"mcp/postgres.yaml", execForms, ident.FormRaw},
+		{"mcp/.postgres.meta.yaml", execForms, ident.FormRaw},
+		{"skills/code-reviewer/SKILL.md", []ident.ContentForm{ident.FormRaw}, ident.FormRaw},
 	} {
 		if got := formOf(tc.path, tc.forms); got != tc.want {
 			t.Errorf("formOf(%q, %v) = %q, want %q", tc.path, tc.forms, got, tc.want)

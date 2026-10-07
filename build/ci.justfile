@@ -6,7 +6,7 @@
 #
 #   1. A workflow's `run:` block is the one piece of build logic nobody can run
 #      locally. It is only ever exercised on a runner, so it is only ever
-#      debugged by pushing commits. Behind a recipe, `just version-untagged-check`
+#      debugged by pushing commits. Behind a recipe, `just version-untagged-check <base>`
 #      is a thing you type.
 #   2. Shell that exists ONLY in a workflow has no counterpart to be checked
 #      against, so it drifts silently from the recipe that does the same job.
@@ -73,17 +73,30 @@ ci-git-config-bot:
 
 # ===== Version / release gates =====
 
-# Release gate: the VERSION in this tree must not already be tagged.
+# Release gate: a change that MOVES VERSION must move it to an untagged one.
 #
-# Releases here are merge-triggered and the version is set DELIBERATELY with
-# `versionator set` — there is no auto-increment. So a change reaching main
-# carrying an already-released VERSION would either silently re-point an
-# immutable tag or produce a release nobody asked for. Failing here forces the
-# bump into the PR, where a human sees it.
-version-untagged-check:
+# The version is set DELIBERATELY with `versionator set` — there is no
+# auto-increment — and auto-release.yml tags it once the push that set it goes
+# green. So the tag exists for every later commit on the line, and only a change
+# to VERSION itself is judged: a bump to an already-tagged version would either
+# re-point an immutable tag or publish a release nobody asked for.
+#
+# BASE is what the change is measured from: a push's `before` SHA, a PR's base
+# SHA. VERSION is compared as TREES (BASE vs HEAD), so a multi-commit push and a
+# merge that brings in someone else's bump are judged by what they leave behind.
+# A BASE that cannot show VERSION untouched — empty, the all-zero SHA of a
+# branch's first push, a commit this clone lacks (force push) — fails closed:
+# the check runs.
+version-untagged-check BASE:
     #!/usr/bin/env bash
     set -euo pipefail
     {{_gha_error}}
+    base="$1"
+    if [ -n "$base" ] && git rev-parse -q --verify "$base^{commit}" >/dev/null \
+        && git diff --quiet "$base" HEAD -- VERSION; then
+        echo "VERSION unchanged since $base — nothing to guard."
+        exit 0
+    fi
     v="$(tr -d '[:space:]' < VERSION)"
     if [ -z "$v" ]; then
         gha_error "VERSION file is empty"
@@ -98,10 +111,11 @@ version-untagged-check:
 
 # Tag the VERSION in this tree and push the tag (auto-release.yml).
 #
-# Refuses an existing tag rather than skipping: a tag is immutable, so
-# "already there" means the release pipeline has lost track of what it is
-# building, and continuing would publish artifacts under a name that already
-# means something else.
+# auto-release runs this after EVERY green push, so on all but the push that
+# set VERSION the tag already exists on an ancestor: this line released it, and
+# there is nothing to do. A tag this tree does NOT contain is refused rather
+# than skipped: tags are immutable, so it names a release cut from somewhere
+# else, and publishing this tree under it would mislabel it.
 release-tag:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -113,7 +127,11 @@ release-tag:
     fi
     tag="v${v#v}"
     if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-        gha_error "Tag $tag already exists. VERSION must be bumped per release; refusing to re-point an immutable tag."
+        if git merge-base --is-ancestor "$tag" HEAD; then
+            echo "$tag is already released from this line — nothing to tag."
+            exit 0
+        fi
+        gha_error "Tag $tag exists, but this tree does not contain it. VERSION must be bumped per release; refusing to re-point an immutable tag."
         exit 1
     fi
     git tag "$tag"

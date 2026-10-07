@@ -25,11 +25,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // BundleID identifies one bundle within a Store. For the tree implementation
-// it is the bundle directory's name, which is also trust.Ref.Bundle.
+// it is the bundle directory's name, which is also ident.Ref.Bundle.
 type BundleID string
 
 // Store is the access surface, independent of where the bytes live. The tree
@@ -54,11 +54,11 @@ type Bundle interface {
 	// Refs enumerates the bundle's items, in a deterministic order. An empty
 	// kinds list means every registered kind; otherwise only the named kinds
 	// are enumerated.
-	Refs(ctx context.Context, kinds ...trust.ItemKind) ([]trust.Ref, error)
+	Refs(ctx context.Context, kinds ...ident.ItemKind) ([]ident.Ref, error)
 	// Item resolves one ref, or returns ErrNotFound. Resolution is by PATH,
 	// not by a lookup in a parsed document: ref.Kind.Dir() names the
 	// directory and ref.Name names the entry within it.
-	Item(ctx context.Context, ref trust.Ref) (Item, error)
+	Item(ctx context.Context, ref ident.Ref) (Item, error)
 
 	// Files enumerates EVERY file in the bundle, bundle-relative and sorted,
 	// including dot-prefixed files.
@@ -78,21 +78,21 @@ type Bundle interface {
 // Item is one addressable item. It carries no bytes of its own: the
 // materializable unit is (item, form), so bytes live on Form.
 type Item interface {
-	Ref() trust.Ref
+	Ref() ident.Ref
 	// Surface returns the decoded, typed representation of the WHOLE item —
 	// every form it carries. Use As to recover the concrete type.
 	Surface(ctx context.Context) (Surface, error)
 	// Forms reports exactly the LAYOUT forms this item actually has on disk. A
 	// fragment with no distilled sibling reports only FormRaw, and so does a
 	// single-form surface such as an mcp server or a hook.
-	Forms(ctx context.Context) ([]trust.ContentForm, error)
+	Forms(ctx context.Context) ([]ident.ContentForm, error)
 	// Form returns one form, or ErrNoSuchForm when the item does not carry it.
-	Form(ctx context.Context, f trust.ContentForm) (Form, error)
+	Form(ctx context.Context, f ident.ContentForm) (Form, error)
 }
 
 // Form is one materialization of an item.
 type Form interface {
-	ContentForm() trust.ContentForm
+	ContentForm() ident.ContentForm
 	// Components returns every component of this form, sorted by path, with
 	// its bytes.
 	Components(ctx context.Context) ([]Component, error)
@@ -112,10 +112,10 @@ type Writer interface {
 	// Put writes the components of s that belong to form f. A surface decoded
 	// with two forms therefore writes one form per call, and writing the
 	// distilled form never rewrites the raw file.
-	Put(ctx context.Context, ref trust.Ref, f trust.ContentForm, s Surface) error
+	Put(ctx context.Context, ref ident.Ref, f ident.ContentForm, s Surface) error
 	// Delete removes every component of the item, in every form — the content
 	// file AND its metadata sidecar.
-	Delete(ctx context.Context, ref trust.Ref) error
+	Delete(ctx context.Context, ref ident.Ref) error
 
 	// PutRootFile writes one bundle-ROOT file that is not an item: the bundle
 	// envelope, a README, a LICENSE. It is the write-side counterpart to

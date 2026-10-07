@@ -22,9 +22,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // Re-export path constants for backwards compatibility
@@ -983,21 +983,6 @@ func (c *Config) ShouldUseDistilled() bool {
 	return c.settings.ShouldUseDistilled()
 }
 
-// ShouldSignByDefault reports whether publish commands (fragment push,
-// command push) should sign unless --no-sign is given (spec §7A.3,
-// sign.default). Defaults to false.
-func (c *Config) ShouldSignByDefault() bool {
-	return c.settings.ShouldSignByDefault()
-}
-
-// SignKey returns the configured sign.key override (a --key-equivalent
-// fingerprint, public key path, or ssh-agent key name/comment), or "" when
-// unset — meaning the zero-config discovery chain (internal/adapters/signing/agentkey)
-// should be used instead.
-func (c *Config) SignKey() string {
-	return c.settings.SignKey()
-}
-
 // GetProfileLoader returns the profiles.Loader for this config: every bundle
 // profile visible to it (the project bundle's among them) seeded in, and the
 // local bundles roots a new profile item is written under.
@@ -1098,7 +1083,7 @@ func (c *Config) ProfileSeedOptions() []profiles.LoaderOption {
 // bundle YAML, so a pulled bundle's profiles are already on disk / in cache —
 // this is the step that surfaces them to the SHARED profile loader, so a bundle
 // profile resolves, lists, and runs exactly like a top-level or local profile.
-// The profile DEFINITION is never trust-gated here (there is no trust.ItemKind
+// The profile DEFINITION is never trust-gated here (there is no ident.ItemKind
 // for profiles, and nothing is baselined); its constituent fragments/commands
 // still gate at content assembly and any mcp/hooks it pulls in still gate at the
 // exec choke. Returns nil when no visible bundle ships a profile.
@@ -1126,7 +1111,7 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 			continue
 		}
 		sourceURL := bundleProfileSourceURL(src)
-		local := src.Class == trust.ClassLocal
+		local := src.Class == ident.ClassLocal
 		for _, profName := range bundle.ProfileNames() {
 			p := cloneBundleProfile(bundle.Profiles[profName])
 			key := bundleRef + refuri.ProfileSelector + profName
@@ -1189,7 +1174,7 @@ func cloneBundleProfile(bp bundles.BundleProfile) bundles.BundleProfile {
 // refuses has no typed source; it seeds under its bare name, the identity a
 // profile ref naming it verbatim resolves to. Any other read without a typed
 // source is not seeded (ok false): nothing canonical addresses it.
-func seedBundleRef(read bundles.BundleRead, src trust.BundleRef) (string, bool) {
+func seedBundleRef(read bundles.BundleRead, src ident.BundleRef) (string, bool) {
 	if src.Class != "" {
 		return string(read.Key()), true
 	}
@@ -1202,15 +1187,15 @@ func seedBundleRef(read bundles.BundleRead, src trust.BundleRef) (string, bool) 
 
 // fromRepository reports whether src is content fetched from a repository —
 // the sources a remote is registered for.
-func fromRepository(src trust.BundleRef) bool {
-	return src.Class == trust.ClassGit || src.Class == trust.ClassFile
+func fromRepository(src ident.BundleRef) bool {
+	return src.Class == ident.ClassGit || src.Class == ident.ClassFile
 }
 
 // bundleProfileSourceURL returns the source a bundle profile's short same-repo
-// refs resolve against: the bundle's fetch location (trust.BundleRef.FetchURL,
+// refs resolve against: the bundle's fetch location (ident.BundleRef.FetchURL,
 // the one reverse renderer), or the ctxloom:local token for a read with no
 // typed source.
-func bundleProfileSourceURL(src trust.BundleRef) string {
+func bundleProfileSourceURL(src ident.BundleRef) string {
 	if u := src.FetchURL(); u != "" {
 		return u
 	}
@@ -1311,10 +1296,9 @@ func (c *Config) warn(k WarningKind, format string, args ...any) {
 // GetBundleDirs returns the project's AUTHORED bundle directories — the
 // committed content tree (.ctxloom/content/bundles), NOT the gitignored cache.
 // This is the set every authored-bundle path resolves against: `bundle create`
-// writes here, `bundle list` lists it, and `sign --all` signs exactly it (a
-// publishing repo's bundles ARE this directory). The cache
-// (paths.CacheBundlesPath) holds remote-pull artifacts the project has no authority
-// to author or sign, so it is deliberately absent.
+// writes here and `bundle list` lists it (a publishing repo's bundles ARE this
+// directory). The cache (paths.CacheBundlesPath) holds remote-pull artifacts
+// the project has no authority to author, so it is deliberately absent.
 func (c *Config) GetBundleDirs() []string {
 	fs := c.getFS()
 	var dirs []string

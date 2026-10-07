@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -298,7 +298,7 @@ func fetchIntoClone(ctx context.Context, cache *remote.RepoCache, gate func(repo
 
 // lookupLockedEntry finds refStr's bundle lock entry and item type. Returns a
 // zero entry and empty type when not present.
-func lookupLockedEntry(lockfile *remote.Lockfile, key trust.BundleKey) (remote.LockEntry, remote.ItemType) {
+func lookupLockedEntry(lockfile *remote.Lockfile, key ident.BundleKey) (remote.LockEntry, remote.ItemType) {
 	if entry, ok := lockfile.GetEntry(remote.ItemTypeBundle, key); ok {
 		return entry, remote.ItemTypeBundle
 	}
@@ -345,7 +345,7 @@ func closureLock(ctx context.Context, cfg *config.Config, cfgErr error, lockfile
 	if err != nil || len(unexpanded) > 0 {
 		return lockfile
 	}
-	narrowed := &remote.Lockfile{Version: lockfile.Version, Bundles: map[trust.BundleKey]remote.LockEntry{}}
+	narrowed := &remote.Lockfile{Version: lockfile.Version, Bundles: map[ident.BundleKey]remote.LockEntry{}}
 	for _, p := range pins {
 		if e, ok := lockfile.GetEntry(p.Type, p.Identity); ok {
 			narrowed.AddEntry(p.Type, p.Identity, e)

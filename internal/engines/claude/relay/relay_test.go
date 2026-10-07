@@ -26,8 +26,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/engines/claude/relay"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -67,7 +67,7 @@ func endpointTimingOut(t *testing.T, timeout time.Duration) (string, *interactio
 		Package: composite.Package{
 			Premised: []composite.Item[composite.Fragment]{{Ref: "demo/gamma", Value: composite.Fragment{Name: "gamma", Body: "GAMMA-BODY", Premise: "when removing a worktree"}}},
 		},
-		Index:    composite.Index{Entries: []composite.IndexEntry{{Ref: "demo/gamma", Kind: trust.KindFragment, Premise: "when removing a worktree"}}},
+		Index:    composite.Index{Entries: []composite.IndexEntry{{Ref: "demo/gamma", Kind: ident.KindFragment, Premise: "when removing a worktree"}}},
 		MCP:      sessions.Endpoint{URL: "http://127.0.0.1:" + strconv.Itoa(port) + "/mcp", Credential: bearer},
 		Identity: sessions.Identity{Harp: "h", Depth: 1},
 		WorkDir:  "/work",

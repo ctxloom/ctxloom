@@ -10,7 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // Switches over ItemType used to fall through to `return nil, nil` / `return
@@ -51,8 +51,8 @@ func TestItemType_IsTheSameVocabularyAsOperations(t *testing.T) {
 	assert.Equal(t, "fragment", string(ItemTypeFragment), "the value rides in refs and in operations' kind check")
 	assert.Equal(t, "command", string(ItemTypeCommand))
 
-	assert.Equal(t, "fragments/x", trust.FormatSelector(itemKindOf(ItemTypeFragment), "x"))
-	assert.Equal(t, "commands/x", trust.FormatSelector(itemKindOf(ItemTypeCommand), "x"))
+	assert.Equal(t, "fragments/x", ident.FormatSelector(itemKindOf(ItemTypeFragment), "x"))
+	assert.Equal(t, "commands/x", ident.FormatSelector(itemKindOf(ItemTypeCommand), "x"))
 
 	// Round-trip through the operations boundary: what the CLI names and what
 	// the core validates are the same value, so no conversion can lose anything.
@@ -89,7 +89,7 @@ func TestShowItem_MissingItemStillListsWhatExists(t *testing.T) {
 // ref grammar through bundles.ParseItemAsk buys, and what it must not lose.
 //
 // The alias half is the gain: "#prompts/x" is the command kind through every
-// reader built on trust.ParseSelector, so it must be the command kind here
+// reader built on ident.ParseSelector, so it must be the command kind here
 // too. The mismatch half is the guard: a well-formed selector naming a kind
 // this command does not serve is a KIND error, not a syntax error — told
 // "invalid reference format", a user re-reads punctuation they got right —

@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
@@ -82,7 +82,7 @@ type ItemRead struct {
 
 	// TrustRef is the ref this item is addressed by: the canonical
 	// bundle-reference grammar's item selector (ItemRefFor,
-	// trust.BundleRef.WithItem), "ctxloom+<class>:...#fragments/<name>" or
+	// ident.BundleRef.WithItem), "ctxloom+<class>:...#fragments/<name>" or
 	// "...#prompts/<name>", minted from the bundle's HONEST typed source ref
 	// (BundleRead.SourceRef — canonical for a cloned bundle so its text gates
 	// like an executable, the local name for a project bundle so its text
@@ -251,14 +251,14 @@ func (c Catalog) ReadFragment(name string) ([]*ItemRead, error) {
 	if !ask.Scoped {
 		return c.searchFragment(name)
 	}
-	if ask.Kind != trust.KindFragment {
-		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, name, ask.Kind, trust.KindFragment)
+	if ask.Kind != ident.KindFragment {
+		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, name, ask.Kind, ident.KindFragment)
 	}
 	return c.fragmentFromBundle(ask.Bundle, ask.Item)
 }
 
 // ItemAsk is a parsed content ask: the bundle half, plus the selector when one
-// was written. Kind comes from trust.ParseSelector and nowhere else, so
+// was written. Kind comes from ident.ParseSelector and nowhere else, so
 // "#prompts/" and "#commands/" resolve identically through EVERY reader —
 // the single parser every Read* path below routes through, replacing the two
 // that used to disagree (bundles.splitItemRef matched only the literal
@@ -268,14 +268,14 @@ func (c Catalog) ReadFragment(name string) ([]*ItemRead, error) {
 // reference" — the same alias, two different verdicts.
 type ItemAsk struct {
 	Bundle string         // verbatim: a canonical URI or a bare name (only meaningful when Scoped)
-	Kind   trust.ItemKind // zero when Scoped is false
+	Kind   ident.ItemKind // zero when Scoped is false
 	Item   string
 	Scoped bool
 }
 
 // ParseItemAsk parses ask's "#<kind>/<name>" selector, if it has one, through
-// trust.ParseSelector's own kind vocabulary (fragments | commands | prompts |
-// mcp | hooks | skills) — the SAME parser trust.ParseBundleRef's own selector
+// ident.ParseSelector's own kind vocabulary (fragments | commands | prompts |
+// mcp | hooks | skills) — the SAME parser ident.ParseBundleRef's own selector
 // half uses, so every reader judges a selector by the kind it names rather
 // than by the mere presence of "#" or by matching one literal spelling.
 //
@@ -298,7 +298,7 @@ func ParseItemAsk(ask string) (ItemAsk, error) {
 	if !found {
 		return ItemAsk{}, nil
 	}
-	kind, item, err := trust.ParseSelector(sel)
+	kind, item, err := ident.ParseSelector(sel)
 	if err != nil {
 		return ItemAsk{}, fmt.Errorf("invalid item reference %q: %w", ask, err)
 	}
@@ -314,7 +314,7 @@ func ParseItemAsk(ask string) (ItemAsk, error) {
 // Bundle.contentSourceRef's string. That is the SAME keying hook and MCP
 // extraction uses. What differs between the kinds — a fragment's premise, a command's
 // blocks — the caller sets on the result.
-func itemRead(read BundleRead, kind trust.ItemKind, name string, body ItemBody, resolve func(bool) ItemSurface) (*ItemRead, error) {
+func itemRead(read BundleRead, kind ident.ItemKind, name string, body ItemBody, resolve func(bool) ItemSurface) (*ItemRead, error) {
 	bundle := read.Bundle
 	trustRef, err := ItemRefFor(read.SourceRef(), kind, name)
 	if err != nil {
@@ -336,7 +336,7 @@ func itemRead(read BundleRead, kind trust.ItemKind, name string, body ItemBody, 
 
 // fragmentRead is itemRead for a fragment, carrying its premise.
 func fragmentRead(read BundleRead, fragName string, frag BundleFragment) (*ItemRead, error) {
-	r, err := itemRead(read, trust.KindFragment, fragName, frag.ItemBody, frag.Resolve)
+	r, err := itemRead(read, ident.KindFragment, fragName, frag.ItemBody, frag.Resolve)
 	if err != nil {
 		return nil, err
 	}
@@ -444,18 +444,18 @@ func (c Catalog) ReadCommand(name string) ([]*ItemRead, error) {
 	if !ask.Scoped {
 		return c.searchCommand(name)
 	}
-	if ask.Kind != trust.KindPrompt {
-		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, name, ask.Kind, trust.KindPrompt)
+	if ask.Kind != ident.KindPrompt {
+		return nil, fmt.Errorf("%w: %q selects a %s, not a %s", errs.ErrBadItemRef, name, ask.Kind, ident.KindPrompt)
 	}
 	return c.commandFromBundle(ask.Bundle, ask.Item)
 }
 
 // commandRead is itemRead for a command, carrying its per-engine blocks.
-// TrustRef keeps the "prompts" kind segment (trust.KindPrompt, whose Dir()
+// TrustRef keeps the "prompts" kind segment (ident.KindPrompt, whose Dir()
 // is "prompts") even though the load selector is "#commands/", so the
 // item-kind rename does not invalidate existing trust grants.
 func commandRead(read BundleRead, promptName string, prompt BundleCommand) (*ItemRead, error) {
-	r, err := itemRead(read, trust.KindPrompt, promptName, prompt.ItemBody, prompt.Resolve)
+	r, err := itemRead(read, ident.KindPrompt, promptName, prompt.ItemBody, prompt.Resolve)
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +475,7 @@ func commandRead(read BundleRead, promptName string, prompt BundleCommand) (*Ite
 func (c Catalog) ReadBundleCommands(bundleRef string) []*ItemRead {
 	if ask, err := ParseItemAsk(bundleRef); err == nil && ask.Scoped {
 		switch ask.Kind {
-		case trust.KindPrompt:
+		case ident.KindPrompt:
 			// An explicit "#commands/" (or legacy "#prompts/") cherry-pick
 			// NAMES a command: resolve exactly that one, through the same
 			// single-item path ReadCommand's "bundle#commands/name" form
@@ -490,7 +490,7 @@ func (c Catalog) ReadBundleCommands(bundleRef string) []*ItemRead {
 				return nil
 			}
 			return reads
-		case trust.KindFragment, trust.KindMCP, trust.KindHook, trust.KindSkill:
+		case ident.KindFragment, ident.KindMCP, ident.KindHook, ident.KindSkill:
 			// A fragment/MCP/hook/skill cherry-pick legitimately ships no
 			// COMMANDS — considered, not overlooked. Fragments resolve
 			// through ExpandBundleRefs/ReadFragment, MCP/hooks through
@@ -646,12 +646,12 @@ func (l *Loader) ExpandBundleRefs(refs []string) []ExpandedRef {
 }
 
 // expandedFragmentName mints an ExpandedRef.Name from a canonical bundle ref
-// and a "<kind>/<name>" selector. The name is the one trust.ParseSelector
+// and a "<kind>/<name>" selector. The name is the one ident.ParseSelector
 // returns — normalised — never the selector text it was handed: a profile's
 // selector and a bundle-authored fragment name are both outside input, and
 // this Name is what every downstream surface prints and keys on.
 func expandedFragmentName(canonical, sel string) (string, error) {
-	kind, name, err := trust.ParseSelector(sel)
+	kind, name, err := ident.ParseSelector(sel)
 	if err != nil {
 		return "", err
 	}
@@ -744,7 +744,7 @@ func (l *Loader) expandWholeBundle(ref string) []ExpandedRef {
 	}
 	out := make([]ExpandedRef, 0, len(read.Bundle.Fragments))
 	for fragName := range read.Bundle.Fragments {
-		name, err := expandedFragmentName(canonical, trust.KindFragment.Dir()+"/"+fragName)
+		name, err := expandedFragmentName(canonical, ident.KindFragment.Dir()+"/"+fragName)
 		if err != nil {
 			l.Catalog().warnUnresolvedBundle(ref, err)
 			continue

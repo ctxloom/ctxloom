@@ -550,9 +550,9 @@ var vocabMembershipAllowed = map[string]string{
 	"internal/ltk/rules/rules.go#shellForProgram#internal/ltk/ir.Shell":       "second of the three parallel shell-vocabulary membership tests; waits on a parser in internal/ltk/ir",
 	"internal/ltk/shellenv/shellenv.go#ShellFromPath#internal/ltk/ir.Shell":   "third of the three parallel shell-vocabulary membership tests; the widest of them, and the natural place to consolidate the other two",
 
-	"internal/adapters/cli/search.go#resolveSearchTypes#internal/adapters/operations.ItemKind":    "re-spells the fragment/command item-kind vocabulary, which is DECLARED TWICE ALREADY (operations.ItemKind and operations.DistillKind are byte-identical two-member enums in one package) and a third time as trust.ItemKind. Consolidating those is the fix; this entry is the consumer that made the split visible",
+	"internal/adapters/cli/search.go#resolveSearchTypes#internal/adapters/operations.ItemKind":    "re-spells the fragment/command item-kind vocabulary, which is DECLARED TWICE ALREADY (operations.ItemKind and operations.DistillKind are byte-identical two-member enums in one package) and a third time as ident.ItemKind. Consolidating those is the fix; this entry is the consumer that made the split visible",
 	"internal/adapters/cli/search.go#resolveSearchTypes#internal/adapters/operations.DistillKind": "same site, matching operations.DistillKind — the identical twin of operations.ItemKind",
-	"internal/adapters/cli/search.go#resolveSearchTypes#internal/core/trust.ItemKind":             "same site, matching trust.ItemKind, the third declaration of the item-kind vocabulary",
+	"internal/adapters/cli/search.go#resolveSearchTypes#internal/core/ident.ItemKind":             "same site, matching ident.ItemKind, the third declaration of the item-kind vocabulary",
 
 	"internal/adapters/cli/tui/render.go#roleTag#internal/core/agent.SessionEntryType":                                      "re-spells five SessionEntryType members; the widest copy",
 	"internal/adapters/cli/tui/render.go#itemBodyLines#internal/core/agent.SessionEntryType":                                "re-spells three SessionEntryType members",
@@ -565,8 +565,8 @@ var vocabMembershipAllowed = map[string]string{
 	"internal/shared/liveness/transcript.go#txScan.line#internal/adapters/transcript.Kind":     "re-spells transcript.Kind members rather than comparing against internal/adapters/transcript's own constants, which this package already imports",
 	"internal/shared/liveness/transcript.go#txScan.tailLine#internal/adapters/transcript.Kind": "same transcript.Kind re-spelling in the tail path",
 
-	"internal/core/trust/itemref.go#ParseSelector#internal/shared/ledger.Surface": "the selector parser re-spells four ledger.Surface members. The engine-surface vocabulary is declared twice — ledger.Surface and agent.ProbeKind overlap on mcp/commands/skills/context — so there is no single owner to route through yet; consolidating those two is the fix",
-	"internal/core/trust/itemref.go#ParseSelector#internal/core/agent.ProbeKind":  "same site, matching the second declaration of the engine-surface vocabulary",
+	"internal/core/ident/itemref.go#ParseSelector#internal/shared/ledger.Surface": "the selector parser re-spells four ledger.Surface members. The engine-surface vocabulary is declared twice — ledger.Surface and agent.ProbeKind overlap on mcp/commands/skills/context — so there is no single owner to route through yet; consolidating those two is the fix",
+	"internal/core/ident/itemref.go#ParseSelector#internal/core/agent.ProbeKind":  "same site, matching the second declaration of the engine-surface vocabulary",
 }
 
 // vocabParallelAllowed is the PARALLEL LIST rule's shrinking allowlist, keyed

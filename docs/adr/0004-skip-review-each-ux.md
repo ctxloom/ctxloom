@@ -4,7 +4,7 @@
 
 ## Status
 
-Deferred.
+Superseded.
 
 ## Context
 
@@ -21,3 +21,5 @@ Don't implement the `R` flow. The existing per-name shortcuts cover the same out
 The review template stays static: same content on every blocked-tool turn until pending clears. For reviews with many bundles, the user re-reads the full list each turn — slight friction compared to a stepping flow.
 
 **Revive trigger:** a user has >5 bundles in a single review *and* reports the per-name commands as too tedious in practice.
+
+**Superseded by:** [0037](0037-adding-a-git-repo-is-the-trust-act.md). The review template this ADR shapes no longer exists: `ctxloom review` was deleted with the trust machinery, and the `deps upgrade` preview is the only review surface.

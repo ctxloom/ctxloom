@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // CachingBundleReader is the read-through cache decorator for any
@@ -29,7 +29,7 @@ type CachingBundleReader struct {
 }
 
 type bundleCacheKey struct {
-	name trust.BundleKey
+	name ident.BundleKey
 	sha  string
 }
 
@@ -44,21 +44,21 @@ func NewCachingBundleReader(src BundleByteSource) *CachingBundleReader {
 	}
 }
 
-func (c *CachingBundleReader) ListBundleNames() []trust.BundleKey {
+func (c *CachingBundleReader) ListBundleNames() []ident.BundleKey {
 	if c == nil || c.inner == nil {
 		return nil
 	}
 	return c.inner.ListBundleNames()
 }
 
-func (c *CachingBundleReader) HasBundle(name trust.BundleKey) bool {
+func (c *CachingBundleReader) HasBundle(name ident.BundleKey) bool {
 	if c == nil || c.inner == nil {
 		return false
 	}
 	return c.inner.HasBundle(name)
 }
 
-func (c *CachingBundleReader) LockEntryFor(name trust.BundleKey) (LockEntry, bool) {
+func (c *CachingBundleReader) LockEntryFor(name ident.BundleKey) (LockEntry, bool) {
 	if c == nil || c.inner == nil {
 		return LockEntry{}, false
 	}
@@ -76,7 +76,7 @@ func (c *CachingBundleReader) LockEntryFor(name trust.BundleKey) (LockEntry, boo
 // lock entry supplies only the cache KEY — with no locked SHA there is nothing
 // safe to key on, so such a read passes through uncached rather than risking a
 // stale slot.
-func (c *CachingBundleReader) ReadBundleBytes(ctx context.Context, name trust.BundleKey) ([]byte, error) {
+func (c *CachingBundleReader) ReadBundleBytes(ctx context.Context, name ident.BundleKey) ([]byte, error) {
 	if c == nil || c.inner == nil {
 		return nil, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, name)
 	}
@@ -90,8 +90,8 @@ func (c *CachingBundleReader) ReadBundleBytes(ctx context.Context, name trust.Bu
 // and memoizing the result. An entry with no locked SHA is read but never
 // stored.
 func (c *CachingBundleReader) readThrough(
-	ctx context.Context, name trust.BundleKey,
-	read func(context.Context, trust.BundleKey) ([]byte, error),
+	ctx context.Context, name ident.BundleKey,
+	read func(context.Context, ident.BundleKey) ([]byte, error),
 ) ([]byte, error) {
 	entry, pinned := c.inner.LockEntryFor(name)
 	key := bundleCacheKey{name: name, sha: entry.SHA}

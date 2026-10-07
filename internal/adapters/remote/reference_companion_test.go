@@ -74,16 +74,12 @@ func TestReference_Companion_StringRoundTrip(t *testing.T) {
 
 // TestParseReference_Companion_NotBuiltin proves a companion ref is
 // distinguishable from the retired "builtin:" source ref
-// (trust.IsRetiredBuiltinSpelling) and from ctxloom:local — they are different trust
-// classes (trusted-signer/pending vs the unconditional builtin/local
-// exemptions) and must never be confused. See internal/core/trust's
-// TestCanonicalRepoURL for the companion-source special case in
-// CanonicalRepoURL (trust cannot be tested from here: remote cannot import
-// trust, which imports remote).
+// (ident.IsRetiredBuiltinSpelling) and from ctxloom:local — they are different
+// source classes and must never be confused. refuri's TestCanonicalRepoURL
+// covers the companion-source special case in CanonicalRepoURL.
 func TestParseReference_Companion_NotBuiltin(t *testing.T) {
 	// A companion ref must be distinguishable from a "builtin:" source ref —
-	// they are different trust classes (trusted-signer/pending vs the
-	// unconditional builtin exemption) and must never be confused.
+	// they are different source classes and must never be confused.
 	ref, err := ParseReference("ctxloom:companion@ltk")
 	require.NoError(t, err)
 	assert.False(t, ref.IsLocal)

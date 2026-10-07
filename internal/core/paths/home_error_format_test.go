@@ -33,8 +33,6 @@ func TestHomeAccessorErrorsNameTheStoreAndTheExactPath(t *testing.T) {
 		{"trigger cache", TriggerCacheDir, whatTriggerCache, []string{CacheDir, TriggersDir}},
 		{"coord", HomeCoordDir, whatHomeCoord, []string{CoordDirName}},
 		{"locks", HomeLocksDir, whatHomeLocks, []string{HomeLocksDirName}},
-		{"allowed signers", HomeAllowedSignersPath, whatAllowedSigners, []string{AllowedSignersFileName}},
-		{"distrusted signers", HomeDistrustedSignersPath, whatDistrustedSigners, []string{DistrustedSignersFileName}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := tc.call()
@@ -70,8 +68,6 @@ func TestHomeStoreDescriptionsAreTheWordsWeThinkTheyAre(t *testing.T) {
 		"the trigger verdict cache":  whatTriggerCache,
 		"the coordinator state root": whatHomeCoord,
 		"the home lock directory":    whatHomeLocks,
-		"the user trust root":        whatAllowedSigners,
-		"the user distrust record":   whatDistrustedSigners,
 		"the home records directory": whatHomeRecords,
 	} {
 		require.Equal(t, name, got, "a store's description changed; update the message deliberately, not by accident")
@@ -83,7 +79,7 @@ func TestHomeStoreDescriptionsAreTheWordsWeThinkTheyAre(t *testing.T) {
 	seen := map[string]bool{}
 	for _, d := range []string{
 		whatHomeSessions, whatHomeLogs, whatTriggerCache, whatHomeCoord, whatHomeLocks,
-		whatAllowedSigners, whatDistrustedSigners, whatHomeRecords,
+		whatHomeRecords,
 	} {
 		require.False(t, seen[d], "two stores share the description %q", d)
 		seen[d] = true

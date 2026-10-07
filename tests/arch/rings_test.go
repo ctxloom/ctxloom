@@ -63,6 +63,7 @@ var movedAwayPackages = []string{
 	"internal/content/attest",
 	"internal/content/remotetree",
 	"internal/contextmetrics",
+	"internal/core/trust",
 	"internal/docsgen",
 	"internal/enginepins",
 	"internal/engineversion",

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
@@ -142,7 +142,7 @@ func TestUpgrade_GenuinelyEmptyProjectStillSucceeds(t *testing.T) {
 	// be left ALONE — re-stamping LockedAt on a lock that pins nothing records
 	// a check that had nothing to check.
 	require.NoError(t, remote.NewLockfileManager(baseDir).Save(
-		&remote.Lockfile{Version: 1, Bundles: map[trust.BundleKey]remote.LockEntry{}}))
+		&remote.Lockfile{Version: 1, Bundles: map[ident.BundleKey]remote.LockEntry{}}))
 	before, err := os.Stat(lockPath)
 	require.NoError(t, err)
 
@@ -194,7 +194,7 @@ func TestUpgrade_HonoursInjectedLockfileFS(t *testing.T) {
 
 	// Seed a REAL, populated lock.yaml directly on the OS filesystem — the
 	// wrong place for this call to touch once an FS is injected.
-	osLock := &remote.Lockfile{Version: 1, Bundles: map[trust.BundleKey]remote.LockEntry{
+	osLock := &remote.Lockfile{Version: 1, Bundles: map[ident.BundleKey]remote.LockEntry{
 		lockKeyOf(t, "https://github.com/o/r@bundles/demo"): {SHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", URL: "https://github.com/o/r"},
 	}}
 	require.NoError(t, remote.NewLockfileManager(baseDir).Save(osLock))

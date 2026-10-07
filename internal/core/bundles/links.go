@@ -8,7 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
@@ -58,7 +58,7 @@ func LinkIDs(tags []string) []string {
 
 // LinkMember names one item of a link group by kind and bare name.
 type LinkMember struct {
-	Kind trust.ItemKind
+	Kind ident.ItemKind
 	Name string
 }
 
@@ -75,7 +75,7 @@ type LinkGroup struct {
 func (g LinkGroup) MCPMembers() []string {
 	var names []string
 	for _, m := range g.Members {
-		if m.Kind == trust.KindMCP {
+		if m.Kind == ident.KindMCP {
 			names = append(names, m.Name)
 		}
 	}
@@ -94,7 +94,7 @@ func (g LinkGroup) MCPMembers() []string {
 // delivered one, and "withhold the profile" has no meaning.
 func (b *Bundle) LinkGroups() map[string]LinkGroup {
 	groups := make(map[string]LinkGroup)
-	join := func(kind trust.ItemKind, name string, itemTags []string) {
+	join := func(kind ident.ItemKind, name string, itemTags []string) {
 		for _, id := range LinkIDs(slices.Concat(b.Tags, itemTags)) {
 			g := groups[id]
 			g.ID = id
@@ -103,19 +103,19 @@ func (b *Bundle) LinkGroups() map[string]LinkGroup {
 		}
 	}
 	for name, f := range b.Fragments {
-		join(trust.KindFragment, name, f.Tags)
+		join(ident.KindFragment, name, f.Tags)
 	}
 	for name, c := range b.Commands {
-		join(trust.KindPrompt, name, c.Tags)
+		join(ident.KindPrompt, name, c.Tags)
 	}
 	for name, s := range b.Skills {
-		join(trust.KindSkill, name, s.Tags)
+		join(ident.KindSkill, name, s.Tags)
 	}
 	for name, m := range b.MCP {
-		join(trust.KindMCP, name, m.Tags)
+		join(ident.KindMCP, name, m.Tags)
 	}
 	for _, e := range b.Hooks.Entries() {
-		join(trust.KindHook, e.ID(), e.Hook.Tags)
+		join(ident.KindHook, e.ID(), e.Hook.Tags)
 	}
 	for id, g := range groups {
 		sort.Slice(g.Members, func(i, j int) bool {

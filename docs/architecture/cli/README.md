@@ -70,7 +70,6 @@ command's help text:
 | [profiles-and-agents.md](profiles-and-agents.md) | `profile *`, `agent *` |
 | [sessions-and-memory.md](sessions-and-memory.md) | `session *`, the memory MCP tools (by pointer), `plan watch` |
 | [remotes.md](remotes.md) | `remote *` and `deps *` — the dependency lifecycle |
-| [trust-signing-review.md](trust-signing-review.md) | `bundle sign`, `signer`, `bundle trust/reject/forget`, `review`, interactive trust prompts |
 | [setup-and-diagnostics.md](setup-and-diagnostics.md) | `init`, `config`, `manage`, `container`, `doctor`, `completion`, `version`, `util config-write` |
 | [hooks.md](hooks.md) | The hidden `hook` namespace |
 

@@ -375,10 +375,9 @@ func (r RepoURL) Kind() SourceKind { return r.kind }
 // Whether "host/foo.git" and "host/foo" are one repository is host-specific
 // knowledge this layer does not have — on a plain git server serving a bare
 // repo, "host/foo.git" is the real path and "host/foo" may not exist at all —
-// so folding them would merge two identities onto one trust key, letting a
-// rejection of one silently govern the other. See trust.ParseBundleRef's doc
-// for the same rule stated at the grammar, and docs/trust-model.md for what
-// the narrower ref-reject scope means for the threat model.
+// so folding them would merge two identities onto one key, letting the
+// registration, pin or hold of one silently govern the other. See
+// ident.ParseBundleRef's doc for the same rule stated at the grammar.
 func (r RepoURL) Normalized() string { return r.render() }
 
 // render is the ONE place a RepoURL becomes a string. Normalized and CloneArg

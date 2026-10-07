@@ -6,16 +6,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
 // TestLoaderReadKey_ResolvesTheExactKey proves ReadKey is Read's load-path
-// counterpart for a caller already holding a trust.BundleKey.
+// counterpart for a caller already holding an ident.BundleKey.
 func TestLoaderReadKey_ResolvesTheExactKey(t *testing.T) {
 	loader := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n"))
 
-	want, err := trust.LocalRef("kit")
+	want, err := ident.LocalRef("kit")
 	require.NoError(t, err)
 
 	read, ok := loader.ReadKey(want.BundleIdentity())
@@ -28,7 +28,7 @@ func TestLoaderReadKey_ResolvesTheExactKey(t *testing.T) {
 func TestLoaderReadKey_UnknownKeyMisses(t *testing.T) {
 	loader := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n"))
 
-	ghost, err := trust.LocalRef("no-such-bundle")
+	ghost, err := ident.LocalRef("no-such-bundle")
 	require.NoError(t, err)
 
 	_, ok := loader.ReadKey(ghost.BundleIdentity())
@@ -40,7 +40,7 @@ func TestLoaderReadKey_UnknownKeyMisses(t *testing.T) {
 func TestLoaderLoadKey_ResolvesTheBundle(t *testing.T) {
 	loader := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n"))
 
-	want, err := trust.LocalRef("kit")
+	want, err := ident.LocalRef("kit")
 	require.NoError(t, err)
 
 	b, err := loader.LoadKey(want.BundleIdentity())
@@ -56,7 +56,7 @@ func TestLoaderLoadKey_ResolvesTheBundle(t *testing.T) {
 func TestLoaderLoadKey_UnknownKeyErrorsNotFound(t *testing.T) {
 	loader := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n"))
 
-	ghost, err := trust.LocalRef("no-such-bundle")
+	ghost, err := ident.LocalRef("no-such-bundle")
 	require.NoError(t, err)
 
 	b, err := loader.LoadKey(ghost.BundleIdentity())

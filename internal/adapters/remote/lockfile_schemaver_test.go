@@ -9,11 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
-const schemaverLockKey = trust.BundleKey("ctxloom+git://example.test/repo//bundles/kit")
+const schemaverLockKey = ident.BundleKey("ctxloom+git://example.test/repo//bundles/kit")
 
 func lockBody(versionKey string, version int) string {
 	return "# kept by hand\n" + versionKey + ": " + strconv.Itoa(version) + "\n" +
@@ -83,7 +83,7 @@ func TestLoad_NewerIsRefusedNamingBothNumbers(t *testing.T) {
 func TestSave_RefusesOverwritingANewerLockfile(t *testing.T) {
 	body := lockBody(schemaver.Key, LockfileVersion+1)
 	lm := lockWithBody(t, body)
-	err := lm.Save(&Lockfile{Bundles: map[trust.BundleKey]LockEntry{schemaverLockKey: {SHA: "def456"}}})
+	err := lm.Save(&Lockfile{Bundles: map[ident.BundleKey]LockEntry{schemaverLockKey: {SHA: "def456"}}})
 	require.ErrorIs(t, err, schemaver.ErrNewer)
 	onDisk, rerr := afero.ReadFile(lm.FS(), lm.Path())
 	require.NoError(t, rerr)

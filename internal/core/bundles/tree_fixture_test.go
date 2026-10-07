@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
@@ -35,8 +35,8 @@ func writeTree(t testing.TB, fsys afero.Fs, root, name, doc string) string {
 	dir := filepath.Dir(envelope)
 	w, err := content.NewTreeStore(fsys, filepath.Dir(dir), content.Provenance{IsLocal: true})
 	require.NoError(t, err)
-	put := func(kind trust.ItemKind, item string, s content.Surface) {
-		require.NoError(t, w.Put(context.Background(), trust.Ref{Bundle: filepath.Base(dir), Kind: kind, Name: item}, trust.FormRaw, s))
+	put := func(kind ident.ItemKind, item string, s content.Surface) {
+		require.NoError(t, w.Put(context.Background(), ident.Ref{Bundle: filepath.Base(dir), Kind: kind, Name: item}, ident.FormRaw, s))
 	}
 	for _, p := range collections.SortedKeys(b.Profiles) {
 		put(content.KindProfile, p, content.Profile{Name: p, Def: b.Profiles[p]})
@@ -49,7 +49,7 @@ func writeTree(t testing.TB, fsys afero.Fs, root, name, doc string) string {
 		}
 		h.Order = &order
 		hookName := fmt.Sprintf("hook-%d", e.Index+1)
-		put(trust.KindHook, e.Event+"/"+hookName, TreeHook(e.Event, hookName, h))
+		put(ident.KindHook, e.Event+"/"+hookName, TreeHook(e.Event, hookName, h))
 	}
 	for _, name := range collections.SortedKeys(b.Skills) {
 		sk := b.Skills[name]
@@ -58,7 +58,7 @@ func writeTree(t testing.TB, fsys afero.Fs, root, name, doc string) string {
 		}
 		exports, err := TreeExports(sk.Exports)
 		require.NoError(t, err)
-		put(trust.KindSkill, name, content.Skill{Name: name, Tags: sk.Tags, Notes: sk.Notes, Exports: exports,
+		put(ident.KindSkill, name, content.Skill{Name: name, Tags: sk.Tags, Notes: sk.Notes, Exports: exports,
 			Files: stagedSkillFiles(t, fsys, filepath.Join(dir, "skills", name))})
 	}
 	return envelope

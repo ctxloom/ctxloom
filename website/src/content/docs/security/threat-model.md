@@ -20,9 +20,9 @@ fewer features.
   them as remotes, and commits that decision so Alice and Bob inherit it.
 - **Trent** — the platform or security team: the **publisher** whose repository the team
   added. Everything his repository serves reaches Alice's agent.
-- **Mallory** — the active attacker. She tampers with content after it was signed; publishes
-  a look-alike library; typosquats Trent's repo; writes `signer: trent` into her own bundle
-  YAML and hopes.
+- **Mallory** — the active attacker. She publishes a look-alike library, typosquats Trent's
+  repo, force-pushes over a commit the team already pinned, or drops a binary named like a
+  ctxloom companion somewhere on Alice's `$PATH`.
 
 **There is no Eve.** Eve is the passive eavesdropper of the classic cast, and she is absent
 on purpose. ctxloom makes **no confidentiality claim** about your context. Inventing an Eve
@@ -36,9 +36,10 @@ refused, naming the `ctxloom remote create` that would add it; nothing registers
 your behalf. A remote profile may refer only to bundles in its own repository, so a profile
 from Trent's repository cannot pull in Mallory's.
 
-**Tampering after signing.** Mallory edits a bundle tree that Trent signed. The publisher
-signature no longer covers the bytes it sits beside. This is treated as *tamper*: the tree is
-refused at install, and `deps upgrade` will not move a pin onto it.
+**Rewriting what was pinned.** A pin is a commit SHA, and content is read at that commit. A
+force-push or a rewritten branch in Trent's repository cannot change what an existing pin
+delivers; the new commit reaches Alice only through `deps upgrade --yes`, after she has been
+shown it.
 
 **Changes are shown before they land.** Only `ctxloom deps upgrade --yes` moves an existing
 pin; `deps pull`, `init` and startup create first pins and never move one. Before it applies
@@ -47,28 +48,24 @@ arguments of every hook and MCP server before and after (env and header values o
 fingerprint), and a diff of every changed script. A first pin lists everything the bundle
 carries.
 
-**A bundle naming its own publisher.** Mallory writes `signer: trent` into her bundle's YAML.
-It does nothing. The field is not deserialized from content; it can only be set by a load
-path that already verified a signature against Alice's trust root.
-
-**Companion binaries run only once registered.** ctxloom reads a companion's contribution by
-running it, so the decision is whether to execute it: a companion runs only when you registered
-its name (`ctxloom companion add <name>`), and nothing on `PATH` is run for being there — a
-dependency that drops `ctxloom-companion-*` into `node_modules/.bin` earns nothing. The
-registration is a name, so a binary of a registered name placed earlier on `PATH` is the one
-that runs.
+**A companion on `$PATH` is not a program ctxloom runs until you register it.** ctxloom reads a
+companion's contribution by running it, so the decision is whether to execute it: a companion
+runs only when you registered its name (`ctxloom companion add <name>`), and nothing on `PATH`
+is run for being there — a dependency that drops `ctxloom-companion-*` into
+`./node_modules/.bin` earns nothing. The registration is a name, so a binary of a registered
+name placed earlier on `PATH` is the one that runs. The
+[`ctxloom companion`](/reference/cli/ctxloom_companion/) reference states the rule.
 
 ## What we do not defend
 
 **We do not encrypt your context. There is no confidentiality claim.** Bundles travel over
 git in the clear. Anyone who can read the repo can read every fragment, command, hook and MCP
-declaration in it. ctxloom proves **provenance and integrity** — where content came from, and
-that it was not changed. It does not, anywhere, keep it secret.
+declaration in it. ctxloom pins **which repository and which commit** content comes from. It
+does not, anywhere, keep it secret.
 
 **Adding a repository trusts everything it serves.** Every fragment, hook and MCP server in a
-repository you added reaches your agent, and so does every update you apply. A signature says
-*who*, never *whether this is good for you*: a signed malicious fragment verifies perfectly.
-Add a repository only when you would run anything it publishes, and read what `deps upgrade`
+repository you added reaches your agent, and so does every update you apply. Nothing judges
+whether it is good for you. Add a repository only when you would run anything it publishes, and read what `deps upgrade`
 shows before `--yes`.
 
 **A writable project config is game over.** An attacker who can add a remote or edit the
@@ -76,35 +73,10 @@ lockfile decides what your agent reads. Protect `.ctxloom/` the way you protect 
 sits beside.
 
 **Local content is trusted by where it is.** A bundle in a local content directory reaches the
-agent because someone with write access to your project or home put it there. Its signature is
-still checked, and one that no longer covers the bytes earns the author a warning when they
-publish, but neither result changes whether the content reaches the agent. Anyone who can
+agent because someone with write access to your project or home put it there. Anyone who can
 write to a local content directory decides what your agents read.
 
-**Your own ssh-agent can sign as you.** If your signing key is a plain software key loaded
-into `ssh-agent`, then any process holding `SSH_AUTH_SOCK` — *including an agent ctxloom
-itself just launched* — can ask that agent to sign as you. The defenses are `ssh-add -c`
-(confirm on every use), a hardware-backed key, or running the agent in a container without
-the socket.
-
-**A repository you clone can choose which of your keys signs.** ctxloom's zero-config
-signing chain reads `git config user.signingkey`, and it runs `git config` inside the
-working repository — so git answers out of *that repository's* `.git/config`, a file that
-arrives with the clone. Cloning is therefore enough to redirect signing to a different key.
-What it cannot do is produce an attestation from a key you do not hold: the signer is always
-a live `ssh-agent` identity, and Mallory's key is not in your agent. A ctxloom signature is
-an attestation from a controlled key or identity — and so is a git signature; `git commit
--S` resolves `user.signingkey` from the same file and claims the same kind of thing. We
-accept the boundary git accepts, and we inherit git's residual with it: the signature still
-comes from an identity you control, but possibly a different one than you intended, a
-personal key where a work key was meant. That is an attribution problem, not a broken
-attestation. Restricting the lookup to `--global` would break per-repository identities,
-which are an ordinary setup; prompting would put a consent step into a flow that most often
-runs unattended in CI.
-
-**One key signs every ctxloom release surface.** A single release key signs the default
-bundles and the companion loadouts, so its compromise radius is every signed surface at once.
-The binaries carry no Apple or Windows code-signing signature; see
+**The binaries are not code-signed.** They carry no Apple or Windows code-signing signature; see
 [Trusting the Binaries](/getting-started/binary-trust/) for what that costs you.
 
 **An agent can rewrite the repository you point it at — including the parts of `.git` that
@@ -196,8 +168,8 @@ Everything above reduces to a single invariant: **adding a git repository is the
 Content reaches your agent only from your project, from a companion you registered, or from a
 repository you added — and what a pin move would change is shown to you before it lands.
 
-We do not claim to know whether a prompt is safe. We claim to know **where it came from** and
-**that it has not changed** — and to show you what changes before it reaches the machine
-holding your credentials.
+We do not claim to know whether a prompt is safe. We claim to know **which repository and
+commit it came from** — and to show you what changes before it reaches the machine holding
+your credentials.
 
-Next: [Trust](/concepts/review-and-trust/).
+Next: [Remotes](/concepts/remotes/), where that trust decision is made.

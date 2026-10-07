@@ -17,13 +17,13 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
-// widgetKind is a third-party item kind. It is a plain trust.ItemKind value whose
+// widgetKind is a third-party item kind. It is a plain ident.ItemKind value whose
 // Dir() falls through to the string itself, so registering it requires NO change to
-// the trust package and no new constant anywhere in production code.
-const widgetKind trust.ItemKind = "widgets"
+// the ident package and no new constant anywhere in production code.
+const widgetKind ident.ItemKind = "widgets"
 
 // Widget is the third-party surface. It uses a dot-prefixed sidecar for its
 // metadata, exercising the same grouping the shipped kinds rely on.
@@ -33,7 +33,7 @@ type Widget struct {
 	Owner string
 }
 
-func (Widget) Kind() trust.ItemKind { return widgetKind }
+func (Widget) Kind() ident.ItemKind { return widgetKind }
 
 type widgetType struct{}
 
@@ -77,19 +77,19 @@ func (widgetType) Detect(src content.Source) bool {
 	return ok
 }
 
-func (t widgetType) Forms(src content.Source) ([]trust.ContentForm, error) {
+func (t widgetType) Forms(src content.Source) ([]ident.ContentForm, error) {
 	if _, ok := widgetName(src); !ok {
 		return nil, fmt.Errorf("not a widget")
 	}
-	return []trust.ContentForm{trust.FormRaw}, nil
+	return []ident.ContentForm{ident.FormRaw}, nil
 }
 
-func (t widgetType) RefFor(bundle string, src content.Source) (trust.Ref, error) {
+func (t widgetType) RefFor(bundle string, src content.Source) (ident.Ref, error) {
 	name, ok := widgetName(src)
 	if !ok {
-		return trust.Ref{}, fmt.Errorf("not a widget")
+		return ident.Ref{}, fmt.Errorf("not a widget")
 	}
-	return trust.Ref{Bundle: bundle, Kind: widgetKind, Name: name}, nil
+	return ident.Ref{Bundle: bundle, Kind: widgetKind, Name: name}, nil
 }
 
 func (t widgetType) Decode(src content.Source) (content.Surface, error) {
@@ -187,11 +187,11 @@ func TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI(t *testing.T) {
 	}
 
 	// Resolution and typed decoding work, sidecar included.
-	item, err := bundle.Item(ctx, trust.Ref{Bundle: "gadgets", Kind: widgetKind, Name: "sprocket"})
+	item, err := bundle.Item(ctx, ident.Ref{Bundle: "gadgets", Kind: widgetKind, Name: "sprocket"})
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, trust.FormRaw)
+	form, err := item.Form(ctx, ident.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -218,8 +218,8 @@ func TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI(t *testing.T) {
 	}
 
 	// Writing works through the same interfaces.
-	newRef := trust.Ref{Bundle: "gadgets", Kind: widgetKind, Name: "flange"}
-	if err := store.Put(ctx, newRef, trust.FormRaw, Widget{Name: "flange", Spec: "teeth: 3\n", Owner: "me"}); err != nil {
+	newRef := ident.Ref{Bundle: "gadgets", Kind: widgetKind, Name: "flange"}
+	if err := store.Put(ctx, newRef, ident.FormRaw, Widget{Name: "flange", Spec: "teeth: 3\n", Owner: "me"}); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	if err := store.Delete(ctx, newRef); err != nil {
@@ -252,8 +252,8 @@ func TestRegistry_ShippedTypesAreDiscoverable(t *testing.T) {
 	if !slices.Equal(dirs, want) {
 		t.Fatalf("Types() dirs = %v, want %v", dirs, want)
 	}
-	for _, k := range []trust.ItemKind{
-		trust.KindFragment, trust.KindPrompt, trust.KindMCP, trust.KindHook, trust.KindSkill, content.KindProfile,
+	for _, k := range []ident.ItemKind{
+		ident.KindFragment, ident.KindPrompt, ident.KindMCP, ident.KindHook, ident.KindSkill, content.KindProfile,
 	} {
 		if _, ok := content.TypeForKind(k); !ok {
 			t.Errorf("no type registered for kind %q", k)

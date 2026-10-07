@@ -8,9 +8,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -27,7 +27,7 @@ import (
 // identity, and inventing one for it would smuggle a parse failure downstream
 // through the identity channel for a later stage to refuse. Callers withhold
 // that ONE item and keep going.
-func itemRefFor(source string, kind trust.ItemKind, item string) (string, error) {
+func itemRefFor(source string, kind ident.ItemKind, item string) (string, error) {
 	src, err := parseSourceRef(source)
 	if err != nil {
 		return "", fmt.Errorf("cannot address source %q: %w", source, err)
@@ -37,19 +37,19 @@ func itemRefFor(source string, kind trust.ItemKind, item string) (string, error)
 
 // parseSourceRef resolves a bundle-level source ref STRING — a profile's own
 // canonical origin ref (profiles.ResolvedProfile.SourceRef) — into the
-// structured trust.BundleRef bundles.ItemRefFor needs.
+// structured ident.BundleRef bundles.ItemRefFor needs.
 //
 // A canonical URI is parsed as one. Anything else is the assembly pipeline's
 // own identity spelling (remote.CanonicalBundleRef's "ctxloom:local@bundles/
 // <name>", an authored "<url>@bundles/<path>") or a bare local bundle name,
 // resolved through the reference grammar that mints those and bridged onto
-// trust.BundleRef by trust.Ref.AsBundleRef — the same bridge every other
+// ident.BundleRef by ident.Ref.AsBundleRef — the same bridge every other
 // holder of such a string uses. It lives here because this is the single
 // caller holding a plain string with no typed source to hand across; if that
 // caller acquires a typed source, this helper goes with it rather than
 // growing users.
-func parseSourceRef(source string) (trust.BundleRef, error) {
-	if br, err := trust.ParseBundleRef(source); err == nil {
+func parseSourceRef(source string) (ident.BundleRef, error) {
+	if br, err := ident.ParseBundleRef(source); err == nil {
 		return br, nil
 	}
 	parsed, err := remote.ParseReference(source)
@@ -59,18 +59,18 @@ func parseSourceRef(source string) (trust.BundleRef, error) {
 			// INTENDED as a qualified reference. Reading it as a bare local
 			// bundle name would hand it the first-party exemption an
 			// unrecognized source must never get.
-			return trust.BundleRef{}, fmt.Errorf("parse %q: %w", source, err)
+			return ident.BundleRef{}, fmt.Errorf("parse %q: %w", source, err)
 		}
-		return trust.LocalRef(source)
+		return ident.LocalRef(source)
 	}
-	br, err := trust.Ref{
+	br, err := ident.Ref{
 		RepoURL:     parsed.URL,
 		Bundle:      parsed.Path,
 		IsLocal:     parsed.IsLocal,
 		IsCompanion: parsed.IsCompanion,
 	}.AsBundleRef()
 	if err != nil {
-		return trust.BundleRef{}, fmt.Errorf("convert %q: %w", source, err)
+		return ident.BundleRef{}, fmt.Errorf("convert %q: %w", source, err)
 	}
 	return br, nil
 }
@@ -202,7 +202,7 @@ func profileRefBase(resolved *profiles.ResolvedProfile, profileName string) stri
 }
 
 // addressableProfileHooks returns the hooks of a directory-resolved profile
-// that can be addressed: each is keyed on itemRefFor(base, trust.KindHook,
+// that can be addressed: each is keyed on itemRefFor(base, ident.KindHook,
 // "<event>/<index>") (the SAME identity scheme bundle hooks use,
 // bundles.HookEntry); one nothing can address is a named load error and is
 // omitted.
@@ -210,7 +210,7 @@ func addressableProfileHooks(base string, h wire.HooksConfig) wire.HooksConfig {
 	keep := func(event string, hooks []wire.Hook) []wire.Hook {
 		var out []wire.Hook
 		for i, hook := range hooks {
-			if _, err := itemRefFor(base, trust.KindHook, event+"/"+strconv.Itoa(i)); err != nil {
+			if _, err := itemRefFor(base, ident.KindHook, event+"/"+strconv.Itoa(i)); err != nil {
 				clidiag.Warn("ctxloom", "profile hook %q withheld: %v", hook.Line(), err)
 				continue
 			}
@@ -234,7 +234,7 @@ func addressableProfileHooks(base string, h wire.HooksConfig) wire.HooksConfig {
 		},
 	}
 	// Engine-native (ext) hooks are addressed too; keyed on
-	// itemRefFor(base, trust.KindHook, "<engine>/<event>/<index>").
+	// itemRefFor(base, ident.KindHook, "<engine>/<event>/<index>").
 	if len(h.Ext) > 0 {
 		out.Ext = make(map[string]wire.BackendHooks, len(h.Ext))
 		for engine, backend := range h.Ext {

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded.
 
 ## Context
 
@@ -104,4 +104,4 @@ such a tree before it becomes a read (`bundles.ErrTreeBundleWithheld`).
   and a pin advance onto one is neither refused nor verified — there is
   nothing to verify. The publisher republishes as a tree.
 
-The normative statement of the cascade is `docs/trust-model.md`.
+**Superseded by:** [0037](0037-adding-a-git-repo-is-the-trust-act.md). The gate, the review records, the retraction records and bundle signatures this ADR decides over were all deleted: registering a remote is the trust act, and nothing withholds a registered repository's content.

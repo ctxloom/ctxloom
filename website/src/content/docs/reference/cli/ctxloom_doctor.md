@@ -16,7 +16,7 @@ Run deterministic setup checks (deps, agents, hooks, MCP, companions, trust)
 Check this project's setup and say what to fix: the .ctxloom marker and
 config, required binaries (git, each configured engine's client, a container
 runtime for container agents), whether every agent resolves, the lockfile and
-context assembly, hooks and MCP registration, trusted signers, companions,
+context assembly, hooks and MCP registration, companions,
 transcript readers for each engine's installed version, and local-only state
 a fresh clone lacks. It also states the one thing no check can confirm:
 ctxloom writes the context onto the engine's surface, but whether the engine
@@ -24,8 +24,8 @@ reads it happens in a process ctxloom does not own.
 
 The text report lists the warnings, then one line counting them and naming
 the first fix; --all lists every check. Each row starts with a DOCTOR-CHECK-*
-marker. --deps checks only what this machine needs (binaries, signing key,
-git identity), so it reads clean before a project is set up.
+marker. --deps checks only what this machine needs (binaries and git
+identity), so it reads clean before a project is set up.
 
 A warning is the signal: doctor exits 0 whatever it finds, and changes
 nothing (the container-runtime probe may create the runtime's own storage

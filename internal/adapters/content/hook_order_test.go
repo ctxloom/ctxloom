@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // intp is a local helper: Hook.Order is a POINTER so that "no order declared" is
@@ -194,7 +194,7 @@ func mustHookItem(t *testing.T, store *TreeStore, bundleID BundleID, name string
 	if err != nil {
 		t.Fatalf("Open(%s): %v", bundleID, err)
 	}
-	item, err := bundle.Item(ctx, trust.Ref{Bundle: string(bundleID), Kind: trust.KindHook, Name: name})
+	item, err := bundle.Item(ctx, ident.Ref{Bundle: string(bundleID), Kind: ident.KindHook, Name: name})
 	if err != nil {
 		t.Fatalf("Item(%s): %v", name, err)
 	}
@@ -204,7 +204,7 @@ func mustHookItem(t *testing.T, store *TreeStore, bundleID BundleID, name string
 func mustComponents(t *testing.T, item Item) []Component {
 	t.Helper()
 	ctx := context.Background()
-	form, err := item.Form(ctx, trust.FormRaw)
+	form, err := item.Form(ctx, ident.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}

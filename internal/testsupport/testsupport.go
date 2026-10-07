@@ -112,8 +112,7 @@ func PointHomeAt(t *testing.T, dir string) {
 }
 
 // WriteFile creates path's parent directory and then writes data atomically,
-// matching the MkdirAll-then-safefs sequence a production writer uses (e.g.
-// internal/adapters/operations/signer.go#appendAllowedSignersLine) — so a fixture
+// matching the MkdirAll-then-safefs sequence a production writer uses — so a fixture
 // calling this never disagrees with production about what "write a file"
 // means. It fails the test immediately on error.
 //

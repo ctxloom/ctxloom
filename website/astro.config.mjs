@@ -58,7 +58,6 @@ export default defineConfig({
 						{ label: 'Agents & Isolation', link: '/concepts/agents/' },
 						{ label: 'Agent Delegation', link: '/concepts/agent-delegation/' },
 						{ label: 'Remotes', link: '/concepts/remotes/' },
-						{ label: 'Trust', link: '/concepts/review-and-trust/' },
 						{ label: 'Sessions and Tasks', link: '/concepts/sessions-and-tasks/' },
 						{ label: 'Architecture', link: '/concepts/architecture/' },
 					],

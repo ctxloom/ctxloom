@@ -11,7 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 var (
@@ -30,9 +30,9 @@ var (
 // parseBundleMCPRef splits a `<bundle>#mcp/<name>` ref, judged by
 // bundles.ParseItemAsk, the selector parser every reader shares.
 func parseBundleMCPRef(ref string) (bundle, item string, err error) {
-	want := "<bundle>#" + trust.FormatSelector(trust.KindMCP, "<name>")
+	want := "<bundle>#" + ident.FormatSelector(ident.KindMCP, "<name>")
 	ask, perr := bundles.ParseItemAsk(ref)
-	if perr != nil || !ask.Scoped || ask.Kind != trust.KindMCP {
+	if perr != nil || !ask.Scoped || ask.Kind != ident.KindMCP {
 		return "", "", fmt.Errorf("%w: %q (expected %s); every MCP server lives in a bundle, so there is no other store to address", errNotABundleMCPRef, ref, want)
 	}
 	if ask.Bundle == "" || ask.Item == "" {
@@ -67,7 +67,7 @@ A server has exactly one target: --command (with --arg), --url, or
 the same call (the last example); a set that would leave none or two is
 refused and nothing is saved.
 
-Header values land in shell history and in signed bundle content, so name a secret through an environment variable the engine expands, never as a literal.`,
+Header values land in shell history and in committed bundle content, so name a secret through an environment variable the engine expands, never as a literal.`,
 	Example: `  ctxloom mcp server set tools#mcp/search --url https://mcp.example.com/v1 --header X-Team=core --tag search
   ctxloom mcp server set tools#mcp/search --notes "Team search index"
   ctxloom mcp server set tools#mcp/search --url "" --header "" --command search-mcp --arg=--stdio`,

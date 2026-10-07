@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -26,7 +26,7 @@ import (
 func TestBundleListRow_JSONShape(t *testing.T) {
 	info := &bundles.BundleInfo{
 		Name:          "developer",
-		Ref:           trust.BundleKey("local:developer"),
+		Ref:           ident.BundleKey("local:developer"),
 		Path:          "/proj/.ctxloom/content/bundles/developer.yaml",
 		Version:       "1.2.0",
 		Description:   "Dev context",
@@ -66,7 +66,7 @@ func TestBundleListRow_JSONShape(t *testing.T) {
 // present — a script asking "is this held?" must read false, not a missing
 // key — while the optional prose (description, tags) is omitted when empty.
 func TestBundleListRow_MinimalEntry(t *testing.T) {
-	info := &bundles.BundleInfo{Name: "bare", Ref: trust.BundleKey("local:bare"), Path: "/p/bare.yaml"}
+	info := &bundles.BundleInfo{Name: "bare", Ref: ident.BundleKey("local:bare"), Path: "/p/bare.yaml"}
 
 	b, err := json.Marshal(newBundleListRow(info))
 	require.NoError(t, err)

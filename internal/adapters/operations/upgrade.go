@@ -4,7 +4,7 @@ import (
 	"context"
 	"sort"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
@@ -152,7 +152,7 @@ func planUpgrade(ctx context.Context, cfg *config.Config) (*upgradePlan, error) 
 	round := upgradeRound{
 		plan: &upgradePlan{
 			active: active,
-			next:   &remote.Lockfile{Version: remote.LockfileVersion, Bundles: map[trust.BundleKey]remote.LockEntry{}},
+			next:   &remote.Lockfile{Version: remote.LockfileVersion, Bundles: map[ident.BundleKey]remote.LockEntry{}},
 			// A repository that could not be fetched was resolved from its
 			// stale clone, so "nothing moves" is not "everything is current"
 			// for it either. It does not widen the carry-forward below, which

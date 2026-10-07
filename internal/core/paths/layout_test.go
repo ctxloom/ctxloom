@@ -129,13 +129,11 @@ func TestLayout_HomeRowsResolveUnderHomeNeverProject(t *testing.T) {
 // instance path underneath one.
 func TestLayout_HomeRowsNameStoreRootsOnly(t *testing.T) {
 	allowedHomeRels := map[string]bool{
-		filepath.Join(AppDirName, SessionsDir):               true,
-		filepath.Join(AppDirName, AllowedSignersFileName):    true,
-		filepath.Join(AppDirName, DistrustedSignersFileName): true,
-		filepath.Join(AppDirName, CacheDir, TriggersDir):     true,
-		filepath.Join(AppDirName, CoordDirName):              true,
-		filepath.Join(AppDirName, HomeLocksDirName):          true,
-		filepath.Join(AppDirName, HomeRecordsDirName):        true,
+		filepath.Join(AppDirName, SessionsDir):           true,
+		filepath.Join(AppDirName, CacheDir, TriggersDir): true,
+		filepath.Join(AppDirName, CoordDirName):          true,
+		filepath.Join(AppDirName, HomeLocksDirName):      true,
+		filepath.Join(AppDirName, HomeRecordsDirName):    true,
 	}
 	for _, e := range Layout() {
 		if e.Root != RootHome {

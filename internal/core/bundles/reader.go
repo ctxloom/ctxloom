@@ -5,8 +5,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // Reader is the read half of the delivery seam: everything one SOURCE of
@@ -155,12 +155,12 @@ func (r BundleRead) DisplayName() string { return r.ref }
 // Catalog.LookupKey. It is location-derived, exactly as SourceRef is — it
 // never depends on which reader composed last or on any spelling a bundle
 // declares.
-func (r BundleRead) Key() trust.BundleKey {
+func (r BundleRead) Key() ident.BundleKey {
 	return r.SourceRef().BundleIdentity()
 }
 
 // SourceRef reports the source component of this bundle's content trust
-// refs — the structured trust.BundleRef a "<source>#<kind>/<name>" gate ref
+// refs — the structured ident.BundleRef a "<source>#<kind>/<name>" gate ref
 // is built from.
 //
 // It exists so the routes a bundle's content reaches a session by cannot key
@@ -176,9 +176,9 @@ func (r BundleRead) Key() trust.BundleKey {
 // The zero BundleRef means either an unclaimed read (r.Bundle == nil) or a
 // reader that has not stamped this field yet; BundleRead.Claimed does not
 // cover it.
-func (r BundleRead) SourceRef() trust.BundleRef {
+func (r BundleRead) SourceRef() ident.BundleRef {
 	if r.Bundle == nil {
-		return trust.BundleRef{}
+		return ident.BundleRef{}
 	}
 	return r.Bundle.contentSourceRef()
 }
@@ -202,13 +202,13 @@ func warnUnmintableSource(rep report.Reporter, source string, err error) {
 
 // ItemRefFor mints the canonical "<source>#<kind>/<item>" reference an item's
 // TrustRef is built from, and REFUSES a source it cannot address. The grammar
-// lives in trust.ItemRef, so every producer that mints an item ref from a
+// lives in ident.ItemRef, so every producer that mints an item ref from a
 // bundle's structured source — this package's own loaders, config's
 // executable-surface extractors, managedhooks' profile gate — cannot drift on
 // what an item ref is.
 //
 // Exported because config and managedhooks are the same kind of caller this
-// package's own loaders are: each holds a trust.BundleRef (a BundleRead's
+// package's own loaders are: each holds an ident.BundleRef (a BundleRead's
 // SourceRef, or the structured counterpart of one) and needs the identical
 // mint behavior, not a private copy of it.
 //
@@ -218,8 +218,8 @@ func warnUnmintableSource(rep report.Reporter, source string, err error) {
 // already named the string that failed, at the boundary where it failed). The
 // caller drops THAT ITEM and keeps going: one unaddressable bundle costs its
 // own items, never the rest of the assembly.
-func ItemRefFor(src trust.BundleRef, kind trust.ItemKind, item string) (string, error) {
-	return trust.ItemRef(src, kind, item)
+func ItemRefFor(src ident.BundleRef, kind ident.ItemKind, item string) (string, error) {
+	return ident.ItemRef(src, kind, item)
 }
 
 // TrustCtx reports the only axis a gate keys on.
@@ -257,7 +257,7 @@ func (r BundleRead) Claimed() bool {
 // construction, a genuinely local resolution ref — every non-local caller
 // stamps sourceRef (and sourceRefSet) itself before calling newRead, so the
 // only ones left unset here are localFSReader's project-provenance bundles.
-// The stamp below is minted with trust.LocalRef accordingly, not re-derived by
+// The stamp below is minted with ident.LocalRef accordingly, not re-derived by
 // inspecting prov/tctx: another reader that reached this fallback for a
 // non-local ref would be a bug in THAT reader, not something this function
 // could detect from its own arguments.
@@ -273,7 +273,7 @@ func newRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx) BundleR
 		// own ref (and reports an unmintable one at that site). A zero ref
 		// still sticks, so a caller that reaches this arm with a bad ref is
 		// withheld, not papered over as a local bundle of that name.
-		typed, _ := trust.LocalRef(ref)
+		typed, _ := ident.LocalRef(ref)
 		b.sourceRef = typed
 		b.sourceRefSet = true
 	}

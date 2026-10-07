@@ -11,7 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
@@ -120,13 +120,13 @@ func writeBundleViewText(w io.Writer, ref, itemPath string, content []byte) erro
 
 // renderBundleViewItem renders one item out of an already-loaded bundle,
 // dispatching on the KIND its selector names rather than on a literal
-// directory word. The kind comes from trust.ParseSelector, so every spelling
+// directory word. The kind comes from ident.ParseSelector, so every spelling
 // that parser accepts — "#commands/x" and its "#prompts/x" alias alike —
 // reaches the same arm here as it does through every other reader.
 //
 // The profiles arm is the ONE addition to that vocabulary, and it lives here
 // because `view` walks the bundle DOCUMENT: a profile is content a reader may
-// want to see, while trust.ParseSelector addresses only what can be
+// want to see, while ident.ParseSelector addresses only what can be
 // delivered, which a profile never is.
 //
 // For fragments and commands the distilled view is preferred when useDistilled
@@ -146,13 +146,13 @@ func renderBundleViewItem(out io.Writer, bundle *bundles.Bundle, itemPath string
 		return writeViewYAML(w, "Profile: "+profName, profile, "profile")
 	}
 
-	kind, itemName, err := trust.ParseSelector(itemPath)
+	kind, itemName, err := ident.ParseSelector(itemPath)
 	if err != nil {
 		return fmt.Errorf("invalid path format: %w (expected fragments, commands, mcp, skills, or profiles)", err)
 	}
 
 	switch kind {
-	case trust.KindFragment:
+	case ident.KindFragment:
 		frag, found := bundle.Fragments[itemName]
 		if !found {
 			return fmt.Errorf("fragment not found: %s", itemName)
@@ -160,7 +160,7 @@ func renderBundleViewItem(out io.Writer, bundle *bundles.Bundle, itemPath string
 		writeViewContent(w, frag.Content, frag.Distilled, useDistilled)
 		return w.Err()
 
-	case trust.KindPrompt:
+	case ident.KindPrompt:
 		command, found := bundle.Commands[itemName]
 		if !found {
 			return fmt.Errorf("command not found: %s", itemName)
@@ -168,14 +168,14 @@ func renderBundleViewItem(out io.Writer, bundle *bundles.Bundle, itemPath string
 		writeViewContent(w, command.Content, command.Distilled, useDistilled)
 		return w.Err()
 
-	case trust.KindMCP:
+	case ident.KindMCP:
 		mcp, name, found := lookupBundleMCP(bundle, itemName)
 		if !found {
 			return fmt.Errorf("mcp server not found: %s", itemName)
 		}
 		return writeViewYAML(w, "MCP Server: "+name, mcp, "MCP config")
 
-	case trust.KindSkill:
+	case ident.KindSkill:
 		skill, found := bundle.Skills[itemName]
 		if !found {
 			return fmt.Errorf("skill not found: %s", itemName)

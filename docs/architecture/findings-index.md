@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,620** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,621** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 200 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 213 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 211 |
-| `open` | no commit names this ID | **24** |
+| `open` | no commit names this ID | **23** |
 
-**Totals: 2268 findings across 162 units — 1,620 resolved, 24 still open, 624 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,621 resolved, 23 still open, 624 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -337,7 +337,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 13 | 6 | 5 |
-| MED | 999 | 627 | 16 | 117 | 98 | 141 |
+| MED | 999 | 628 | 15 | 117 | 98 | 141 |
 | LOW | 871 | 629 | 8 | 65 | 105 | 64 |
 | (unparsed) | 22 | 12 | 0 | 5 | 4 | 1 |
 
@@ -1314,7 +1314,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U049-F14 | open | `config_migrate.go:24-45` | CORRECTNESS | `migrationWarnings` is **package-global mutable state** drained by whichever load finishes first; concurrent loads (which now exist — `agentTurnCap` admits concurrent child spawns, each re-loading ... | U049.md |
 | U049-F15 | **RESOLVED** `b86f81fb` | `config_manager.go:117, :140` | NOPAY | `Manager.Update` runs the **entire** load pipeline twice per write — YAML parse, schema validation, the six-stage upgrade pipeline, bundle-profile seeding — the first time only to learn the config ... | U049.md |
 | U049-F16 | open | `config_save.go:126` | CORRECTNESS | Every write **destroys all comments and reorders every key** in the user's config.yaml, because the persist path round-trips through `map[string]interface{}` | U049.md |
-| U049-F17 | open | `config_bundles.go:671, :717` | ERRHANDLING | A hook or MCP server whose content preimage cannot be built is withheld by a bare `continue` — `perr` is captured and never reported, so a user's configured executable silently disappears from the ... | U049.md |
+| U049-F17 | **RESOLVED** `5ba64949` | `config_bundles.go:671, :717` | ERRHANDLING | A hook or MCP server whose content preimage cannot be built is withheld by a bare `continue` — `perr` is captured and never reported, so a user's configured executable silently disappears from the ... | U049.md |
 | U049-F18 | open | `config_migrate.go:322-324` | ERRHANDLING | The v3→v4 migration deletes the user-set `binary_path`, `trust_workspace` and `approval_mode` keys without a lossy-migration warning, unlike the v2→v3 migration in the same file | U049.md |
 | U049-F19 | open | `config_types.go:94` | SILENTNOOP | A null/empty YAML scalar in a `fragments:` list produces `FragmentRef{Name: ""}` — an empty-named fragment that flows through the whole resolver and yields nothing, with no error | U049.md |
 | U049-F20 | **RESOLVED** `73c86ad1` | `fixture.go:18` | DUPLICATE | Every persisted config field must be declared in **four** hand-maintained places — `Config`, `configDoc`, `Fixture`, `applyConfigSections` — and this quadruple is the demonstrated root cause of thr... | U049.md |

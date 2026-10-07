@@ -25,8 +25,6 @@ func appPathFamily() []appPathFunc {
 		{"CachePath", CachePath, "cache"},
 		{"ConfigPath", ConfigPath, "config.yaml"},
 		{"RemotesPath", RemotesPath, "remotes.yaml"},
-		{"AllowedSignersPath", AllowedSignersPath, "allowed_signers"},
-		{"DistrustedSignersPath", DistrustedSignersPath, "distrusted_signers"},
 		{"LockPath", LockPath, "lock.yaml"},
 		{"ProfilesPath", ProfilesPath, "profiles"},
 		{"AgentsPath", AgentsPath, "agents"},

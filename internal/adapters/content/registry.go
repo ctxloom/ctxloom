@@ -6,8 +6,8 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // Surface is the decoded, typed representation of one item, carrying that
@@ -15,9 +15,9 @@ import (
 // per-kind union: a Fragment has a body and distillation fields, an MCP has a
 // command and an environment, and neither pretends to be the other.
 type Surface interface {
-	// Kind identifies the surface: the matching trust.ItemKind constant, or
+	// Kind identifies the surface: the matching ident.ItemKind constant, or
 	// for a profile KindProfile, a value this package defines.
-	Kind() trust.ItemKind
+	Kind() ident.ItemKind
 }
 
 // Source is the ONE access abstraction Detect and Decode take. It is
@@ -41,7 +41,7 @@ type SurfaceType interface {
 	// Name is the kind's identity in this registry, e.g. "fragments".
 	Name() string
 	// Dir is the bundle-relative directory its items live in. It must equal
-	// trust.ItemKind.Dir() for the kind's ItemKind, because that equality is
+	// ident.ItemKind.Dir() for the kind's ItemKind, because that equality is
 	// how a ref is mapped back to a type without a second lookup table.
 	Dir() string
 	// Detect reports whether this candidate group holds one of my items. It is
@@ -57,7 +57,7 @@ type SurfaceType interface {
 	// Forms reports the forms present in this candidate group. The FIRST entry
 	// is the base form — the one that unsuffixed component filenames belong
 	// to. See formOf for the layout convention this establishes.
-	Forms(src Source) ([]trust.ContentForm, error)
+	Forms(src Source) ([]ident.ContentForm, error)
 	// Meta declares where this type keeps its ctxloom metadata — a sidecar, or
 	// inside the content file, or nowhere. See MetaStore for why residency is a
 	// per-type decision while RECOGNISING a metadata-shaped path is not.
@@ -67,20 +67,20 @@ type SurfaceType interface {
 	// "<event>/<name>", two path segments, where every other kind's is one.
 	// The caller overwrites the ref's provenance fields (RepoURL, IsLocal),
 	// so a type must not try to guess them.
-	RefFor(bundle string, src Source) (trust.Ref, error)
+	RefFor(bundle string, src Source) (ident.Ref, error)
 }
 
 // KindProfile is the item kind for a bundle-shipped profile.
 //
-// It is defined HERE, not in the trust package, on purpose: a profile is not
-// a deliverable item kind (trust.ParseSelector refuses it), so promoting it to
-// a trust.ItemKind constant would put it into that vocabulary. The string is
+// It is defined HERE, not in the ident package, on purpose: a profile is not
+// a deliverable item kind (ident.ParseSelector refuses it), so promoting it to
+// an ident.ItemKind constant would put it into that vocabulary. The string is
 // "profiles" rather than "profile" so that ItemKind.Dir()'s default branch,
 // which returns the kind verbatim, yields the right directory with no change to
-// the trust package. It is paths.ProfilesDir, the one name for the directory a
+// the ident package. It is paths.ProfilesDir, the one name for the directory a
 // bundle tree keeps its profiles in, so the loader writing a new profile item
 // and this type reading one cannot disagree about where it lives.
-const KindProfile = trust.ItemKind(paths.ProfilesDir)
+const KindProfile = ident.ItemKind(paths.ProfilesDir)
 
 var registry struct {
 	mu     sync.RWMutex
@@ -158,7 +158,7 @@ func TypeForDir(dir string) (SurfaceType, bool) {
 // TypeForKind returns the type serving an item kind. The mapping goes through
 // ItemKind.Dir(), which is why SurfaceType.Dir() must agree with it: one
 // convention, no reverse table to drift.
-func TypeForKind(k trust.ItemKind) (SurfaceType, bool) {
+func TypeForKind(k ident.ItemKind) (SurfaceType, bool) {
 	return TypeForDir(k.Dir())
 }
 

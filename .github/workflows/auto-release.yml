@@ -3,9 +3,11 @@ name: Auto Release
 # On a successful CI run for a push to the active release line, tag the version
 # in the VERSION file and push that tag, which triggers release-completer.yml.
 #
-# This does NOT bump the version — the version is set deliberately in the PR via
-# versionator, and ci.yml's version-guard ensures it is fresh. If the tag
-# already exists this job FAILS rather than silently skipping.
+# This does NOT bump the version — the version is set deliberately via
+# versionator, and ci.yml's version-guard ensures a change to it is fresh. It
+# runs after EVERY green push, so on all but the push that set VERSION the tag
+# already exists: release-tag skips a tag this commit contains and refuses one
+# it does not.
 #
 # The tag is pushed with RELEASE_TAG_TOKEN (a PAT with contents:write on this
 # repo), NOT the default GITHUB_TOKEN: tags pushed by GITHUB_TOKEN do not start
@@ -53,5 +55,5 @@ jobs:
       - name: Configure git
         run: just ci-git-config-bot
 
-      - name: Tag VERSION (fail if it already exists)
+      - name: Tag VERSION (unless this line already released it)
         run: just release-tag

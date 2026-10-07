@@ -6,18 +6,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
 // TestCatalogResolveAsk_CanonicalURIResolvesExactly proves ResolveAsk's arm 1:
-// a canonical trust.BundleRef ask is resolved EXACTLY via LookupKey, and
+// a canonical ident.BundleRef ask is resolved EXACTLY via LookupKey, and
 // nothing about a name search is involved.
 func TestCatalogResolveAsk_CanonicalURIResolvesExactly(t *testing.T) {
 	loader := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n"))
 	cat := loader.Catalog()
 
-	want, err := trust.LocalRef("kit")
+	want, err := ident.LocalRef("kit")
 	require.NoError(t, err)
 
 	got, err := cat.ResolveAsk(want.String())
@@ -32,7 +32,7 @@ func TestCatalogResolveAsk_CanonicalURIResolvesExactly(t *testing.T) {
 func TestCatalogResolveAsk_CanonicalURINotInCatalogRefusesNotFound(t *testing.T) {
 	cat := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n")).Catalog()
 
-	ghost, err := trust.LocalRef("no-such-bundle")
+	ghost, err := ident.LocalRef("no-such-bundle")
 	require.NoError(t, err)
 
 	_, err = cat.ResolveAsk(ghost.String())
@@ -70,7 +70,7 @@ func TestCatalogResolveAsk_BareNameResolvesUniquely(t *testing.T) {
 	got, err := cat.ResolveAsk("kit")
 	require.NoError(t, err)
 
-	want, err := trust.LocalRef("kit")
+	want, err := ident.LocalRef("kit")
 	require.NoError(t, err)
 	assert.Equal(t, want.BundleIdentity(), got.BundleIdentity())
 }
@@ -92,9 +92,9 @@ func TestCatalogResolveAsk_BareNameNotFoundRefuses(t *testing.T) {
 // identities, which is exactly what two source classes shipping one declared
 // name resolve to.
 func TestCatalogResolveAsk_AmbiguousBareNameRefuses(t *testing.T) {
-	localSrc, err := trust.LocalRef("isolation")
+	localSrc, err := ident.LocalRef("isolation")
 	require.NoError(t, err)
-	companionSrc, err := trust.CompanionRef("isolation")
+	companionSrc, err := ident.CompanionRef("isolation")
 	require.NoError(t, err)
 
 	localBundle := &Bundle{Name: "isolation", Version: "1.0.0"}
@@ -121,7 +121,7 @@ func TestCatalogResolveAsk_AmbiguousBareNameRefuses(t *testing.T) {
 func TestCatalogLookupKey_MatchesLookupRef(t *testing.T) {
 	cat := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n")).Catalog()
 
-	want, err := trust.LocalRef("kit")
+	want, err := ident.LocalRef("kit")
 	require.NoError(t, err)
 
 	byRef, ok := cat.LookupRef(want)
@@ -147,7 +147,7 @@ func TestBundleRead_KeyMatchesSourceRefBundleIdentity(t *testing.T) {
 func TestCatalog_Lookup_CanonicalURIResolvesExactly(t *testing.T) {
 	cat := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n")).Catalog()
 
-	local, err := trust.LocalRef("kit")
+	local, err := ident.LocalRef("kit")
 	require.NoError(t, err)
 
 	read, err := cat.Lookup(local.String())
@@ -156,7 +156,7 @@ func TestCatalog_Lookup_CanonicalURIResolvesExactly(t *testing.T) {
 
 	// The same grammar, a bundle this catalog does not hold: not found, and
 	// NOT quietly answered by the bundle that happens to share the leaf name.
-	companion, err := trust.CompanionRef("kit")
+	companion, err := ident.CompanionRef("kit")
 	require.NoError(t, err)
 	_, err = cat.Lookup(companion.String())
 	require.Error(t, err)

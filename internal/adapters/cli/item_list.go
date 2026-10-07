@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // The `fragment list` / `command list` read path: the normalized listing row
@@ -97,7 +97,7 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 			Name:        name,
 			Tags:        tags,
 			Bundle:      source,
-			Ref:         remote.NormalizeRef(source + "#" + trust.FormatSelector(itemKindOf(itemType), name)),
+			Ref:         remote.NormalizeRef(source + "#" + ident.FormatSelector(itemKindOf(itemType), name)),
 			Remote:      remoteName,
 			BundleLabel: bundleLabel,
 			SourceURL:   sourceURL,

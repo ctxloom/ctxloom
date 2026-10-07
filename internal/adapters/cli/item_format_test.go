@@ -12,7 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -56,7 +56,7 @@ func TestItemCommands_HonourFormatJSON(t *testing.T) {
 			cfg := itemFormatProject(t)
 			_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "demo"})
 			require.NoError(t, err)
-			ref := "demo#" + trust.FormatSelector(itemKindOf(tc.kind), "x")
+			ref := "demo#" + ident.FormatSelector(itemKindOf(tc.kind), "x")
 
 			cmd, out := itemFormatCmd(t, string(clifmt.FormatJSON))
 			require.NoError(t, createItem(cmd, "demo", "x", tc.kind))
@@ -109,7 +109,7 @@ func TestRemoveItem_BareReportsAndDestroysNothing(t *testing.T) {
 			require.NoError(t, err)
 			createCmd, _ := testCmd()
 			require.NoError(t, createItem(createCmd, "demo", "x", tc.kind))
-			ref := "demo#" + trust.FormatSelector(itemKindOf(tc.kind), "x")
+			ref := "demo#" + ident.FormatSelector(itemKindOf(tc.kind), "x")
 
 			cmd, buf := testCmd()
 			require.NoError(t, removeItem(cmd, ref, tc.kind, false))
@@ -144,7 +144,7 @@ func TestRemoveItem_YesDestroys(t *testing.T) {
 			require.NoError(t, err)
 			createCmd, _ := testCmd()
 			require.NoError(t, createItem(createCmd, "demo", "x", tc.kind))
-			ref := "demo#" + trust.FormatSelector(itemKindOf(tc.kind), "x")
+			ref := "demo#" + ident.FormatSelector(itemKindOf(tc.kind), "x")
 
 			cmd, _ := testCmd()
 			require.NoError(t, removeItem(cmd, ref, tc.kind, true))

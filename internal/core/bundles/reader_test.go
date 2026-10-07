@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -115,7 +115,7 @@ func TestNewProjectReader_ReportsProjectProvenanceAndLocalContext(t *testing.T) 
 	assert.Equal(t, TrustCtxLocal, reads[0].TrustCtx())
 	assert.Equal(t, "KEEPER-PAYLOAD", reads[0].Bundle.Fragments["keeper"].Content)
 
-	wantTyped, err := trust.LocalRef("kit")
+	wantTyped, err := ident.LocalRef("kit")
 	require.NoError(t, err)
 	assert.Equal(t, wantTyped, reads[0].SourceRef(),
 		"a project bundle's typed source ref is LocalRef(its bare resolution name), minted by newRead's fallback")
@@ -133,7 +133,7 @@ func TestNewCompanionReader_ReportsCompanionProvenanceAndLocalContext(t *testing
 		"a loadout came off the stdout of a binary the user consented to execute — no intermediary")
 	assert.Equal(t, "ctxloom:companion@ltk", reads[0].DisplayName())
 
-	wantTyped, err := trust.CompanionRef("ltk")
+	wantTyped, err := ident.CompanionRef("ltk")
 	require.NoError(t, err)
 	assert.Equal(t, wantTyped, reads[0].SourceRef(),
 		"a companion loadout's typed source ref is CompanionRef(its binary name)")
@@ -150,7 +150,7 @@ func TestNewRepoFSReader_ReportsRemoteProvenanceAndRemoteContext(t *testing.T) {
 	assert.Equal(t, TrustCtxRemote, reads[0].TrustCtx(), "these bytes crossed a forge; that is the whole distinction")
 	assert.Equal(t, "https://example.test/repo@bundles/kit", reads[0].DisplayName(), "canonical is the sole resolution identity")
 
-	wantTyped, err := trust.GitRef("example.test", "/repo", "kit")
+	wantTyped, err := ident.GitRef("example.test", "/repo", "kit")
 	require.NoError(t, err)
 	assert.Equal(t, wantTyped, reads[0].SourceRef(),
 		"a repofs reader's typed source ref is GitRef(host, repo path, bundle) from its own canonical ref")

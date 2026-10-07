@@ -12,8 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
@@ -194,14 +194,13 @@ func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[
 	// BundleLoader includes remote bundles from the active lockfile AND every
 	// registered companion's loadout — ctxloom's own included — read under
 	// its ctxloom:companion@<bin> ref; without them, MCP servers shipped in
-	// remote bundles (or a companion loadout) silently disappear (see
-	// docs/bundle-review-plan.md Phase 1.2).
+	// remote bundles (or a companion loadout) silently disappear.
 	bundleLoader := c.BundleLoader()
 
 	// Companion loadouts first, resolved through loadMCPFromBundleRef — the
 	// SAME path a profile-referenced bundle uses (Load -> extractMCPFromBundle)
-	// — so a companion's server is judged by ITS bundle's own source ref and
-	// verified Signer(). Sorted for a deterministic result across runs.
+	// — so a companion's server is keyed by ITS bundle's own source ref.
+	// Sorted for a deterministic result across runs.
 	// Resolving them first only fixes who is the INCUMBENT of a contested
 	// name; it grants no precedence to anyone, because a later source that
 	// declares a name a companion already claimed is refused loudly rather
@@ -351,8 +350,8 @@ func (c *Config) ResolveBundleHooksFor(set []profiles.ResolvedProfile) wire.Unif
 	bundleLoader := c.BundleLoader()
 
 	// Companion loadout hooks (ctxloom's own included): same extraction+gate
-	// path a profile-referenced bundle uses, keyed and signed by the
-	// companion's OWN bundle. Sorted for a deterministic result across runs.
+	// path a profile-referenced bundle uses, keyed by the companion's OWN
+	// bundle. Sorted for a deterministic result across runs.
 	cat := bundleLoader.Catalog()
 	for _, ref := range cat.CompanionRefs() {
 		result.Append(loadHooksFromBundleRef(c.rep, ref, cat, links))
@@ -403,7 +402,7 @@ func loadHooksFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.C
 
 // extractHooksFromBundle converts a bundle's hooks to wire.Hooks. Each hook is
 // addressed by the canonical bundle-reference grammar's item selector over
-// source (bundles.ItemRefFor(src, trust.KindHook, "<event>/<index>")); a hook
+// source (bundles.ItemRefFor(src, ident.KindHook, "<event>/<index>")); a hook
 // nothing can address is a named load error and costs only itself. The
 // identity scheme is bundles.HookEntry.ID() ("<event>/<index>").
 //
@@ -413,7 +412,7 @@ func loadHooksFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.C
 // pipeline, so this is where the group's atomicity is enforced for them. A nil
 // grant withholds every linked hook; a surface that checks no links says
 // bundles.LinksUnchecked.
-func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src trust.BundleRef, links bundles.LinkGrant) wire.UnifiedHooks {
+func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src ident.BundleRef, links bundles.LinkGrant) wire.UnifiedHooks {
 	bundle := read.Bundle
 	if !bundle.Hooks.HasAny() {
 		return wire.UnifiedHooks{}
@@ -451,7 +450,7 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src tr
 			// Key by the bundle's source ref (canonical for a remote/cloned
 			// bundle, the local name for a project bundle) — NOT bundle.Name,
 			// whose short form is ambiguous across local and cloned bundles.
-			if _, rerr := bundles.ItemRefFor(src, trust.KindHook, id); rerr != nil {
+			if _, rerr := bundles.ItemRefFor(src, ident.KindHook, id); rerr != nil {
 				// A hook nothing can address is a named load error, and one
 				// such hook costs itself, never the bundle's other hooks.
 				rep.Failf(report.KindBundle,
@@ -491,16 +490,16 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src tr
 
 // extractMCPFromBundle extracts MCP servers from a loaded bundle. Each server
 // is addressed by the canonical bundle-reference grammar's item selector over
-// source (bundles.ItemRefFor(src, trust.KindMCP, name)); a server nothing can
+// source (bundles.ItemRefFor(src, ident.KindMCP, name)); a server nothing can
 // address is a named load error and costs only itself.
-func extractMCPFromBundle(rep report.Reporter, read bundles.BundleRead, src trust.BundleRef) map[string]wire.MCPServer {
+func extractMCPFromBundle(rep report.Reporter, read bundles.BundleRead, src ident.BundleRef) map[string]wire.MCPServer {
 	bundle := read.Bundle
 	result := make(map[string]wire.MCPServer)
 
 	for name, mcp := range bundle.MCP {
 		// Key by the source ref (canonical for a cloned bundle, local name for
 		// a project bundle). See extractHooksFromBundle.
-		if _, rerr := bundles.ItemRefFor(src, trust.KindMCP, name); rerr != nil {
+		if _, rerr := bundles.ItemRefFor(src, ident.KindMCP, name); rerr != nil {
 			rep.Failf(report.KindBundle,
 				"fix or re-pull the bundle, or pass --degraded",
 				"bundle MCP server withheld: %v", rerr)

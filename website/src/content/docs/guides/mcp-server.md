@@ -90,7 +90,7 @@ mcp:
       PGPASSWORD: "${PGPASSWORD}"
 ```
 
-These MCP servers are registered when the bundle is used, subject to [review and trust](/concepts/review-and-trust/).
+These MCP servers are registered when the bundle is used. Adding the remote that serves the bundle is what admits them — see [Remotes](/concepts/remotes/).
 
 ## Security Considerations
 

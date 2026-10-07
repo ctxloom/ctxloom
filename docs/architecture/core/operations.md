@@ -5,7 +5,7 @@ tool call routes through a function here rather than touching `internal/core/bun
 `internal/core/config`, `internal/adapters/remote`, `internal/core/profiles` or `internal/lm` directly. Its
 contract is the package ABI — `f(ctx, cfg|mgr, XxxRequest) (*XxxResult, error)` with
 JSON-tagged DTOs — which is what lets one implementation back three frontends. It owns no
-storage; it owns *sequencing*: bootstrap, sync, lock, trust, assemble, apply, launch.
+storage; it owns *sequencing*: bootstrap, sync, lock, upgrade, assemble, apply, launch.
 
 The package is a flat namespace of ~90 files with no single responsibility. This page is
 organized by subsystem, not by file, and names the file for every function so a future
@@ -20,10 +20,8 @@ session can grep straight to it.
 - Bundle and item authoring, publishing, transfer, distillation
   (`bundles.go`, `items.go`, `bundle_*.go`, `skills.go`, `commands.go`, `fragments.go`).
 - Context assembly from profiles/fragments/tags (`context.go`).
-- The trust decision, gates, review enumeration and the two review mutations
-  (`trust.go`, `trust_gate.go`, `countersign_records.go`, `review.go`, `review_snapshots.go`) —
-  documented in [trust.md](./trust.md).
-- Publisher signing and trust-root management (`sign.go`, `signer.go`).
+- The pin disclosure: what each pin change brings in, rendered for `deps upgrade`, pull,
+  init and startup (`pin_change.go`, `pin_disclosure.go`).
 - Profile and agent CRUD, materialization onto native surfaces
   (`profiles.go`, `profile_transfer.go`, `profile_materialize.go`, `agents.go`).
 - Managed-harness apply: settings, MCP, context, commands, across backends
@@ -40,7 +38,7 @@ session can grep straight to it.
 
 - Rendering and output formatting — `internal/adapters/cli` (the ABI's stated rule).
 - Storage: bundle files (`internal/core/bundles`), config (`internal/core/config`), lockfile and clones
-  (`internal/adapters/remote`), profiles (`internal/core/profiles`), countersignatures (`internal/adapters/signing/countersign`).
+  (`internal/adapters/remote`), profiles (`internal/core/profiles`).
 - Path vocabulary — `internal/core/paths`; see [paths.md](./paths.md).
 - Engine process management — `internal/lm/*` (retiring) and `internal/adapters/isolation`.
 
@@ -53,7 +51,6 @@ flowchart TD
     CFG --> COLLECT["collectRemoteReferences<br/>sync.go:318<br/>(profiles + default agent)"]
     COLLECT --> SYNC["SyncDependencies<br/>sync.go:101<br/>fixed point, <= 10 passes"]
     SYNC --> PULL["Puller.Pull<br/>internal/adapters/remote"]
-    SYNC --> RETR["checkInstalledRetraction<br/>sync.go:554"]
     SYNC --> POST["runSyncPostSteps<br/>sync.go:266"]
 
     POST --> LOCKSTEP["LockDependencies<br/>lockfile.go:51"]
@@ -64,10 +61,7 @@ flowchart TD
     LOCK --> READER["NewBundleReaderForConfig<br/>bundle_reader.go:16<br/>reads bundles at the pinned SHA"]
     READER --> LOADER["bundles.Loader<br/>(config.SeededBundleLoader)"]
 
-    LOADER --> GATE["contentGate.allow<br/>trust_gate.go:56"]
-    GATE --> ET["EffectiveTrust<br/>trust.go:244"]
-    ET -->|allow| ASM["AssembleContext<br/>context.go:112"]
-    ET -->|deny| WITHHELD["withheld ledger<br/>warnWithheld trust_gate.go:301"]
+    LOADER --> ASM["AssembleContext<br/>context.go"]
 
     ASM --> APPLY["ApplyHooks<br/>hooks.go:54<br/>settings / MCP / context / commands"]
     ASM --> RUN["launch.Resolve via operations.StartRun<br/>launch.go"]
@@ -112,11 +106,10 @@ is write-if-absent.
 
 | Function | file:line | Contract |
 |---|---|---|
-| `SyncDependencies` | `sync.go:101` | Collect refs → pull → re-collect, up to `maxSyncPasses` (10), then optional lock + hook post-steps. Status is one of `installed`/`updated`/`skipped`/`retracted`/`failed` per item, `empty` for a no-ref project. |
+| `SyncDependencies` | `sync.go:101` | Collect refs → pull → re-collect, up to `maxSyncPasses` (10), then optional lock + hook post-steps. Status is one of `installed`/`updated`/`skipped`/`failed` per item, `empty` for a no-ref project. |
 | `collectRemoteReferences` / `collectProfileReferences` / `collectProfileReferencesRecursive` | `sync.go:318,371,394` | Walk every profile (plus the default agent) for remote bundle bases, following local parents depth-first. |
 | `addRemoteBundleBase` | `sync.go:438` | Strips the item selector, rejects retired and unparseable refs, warns once. |
-| `syncRefs` / `syncItem` | `sync.go:236,467` | Per-ref: validate, skip-if-installed (with a retraction re-check), else pull. |
-| `checkInstalledRetraction` | `sync.go:554` | Re-checks an installed ref against the publisher manifest and persists the verdict into `lock.yaml` via `RetractionChecker.RecordRetraction`. This is where step 2 of the trust cascade gets its data. |
+| `syncRefs` / `syncItem` | `sync.go:236,467` | Per-ref: validate, skip-if-installed, else pull. |
 | `isInstalled` | `sync.go:732` | Lockfile + content probe through a `remote.BundleByteSource`; every read error collapses to "not installed". |
 | `CheckMissingDependencies` | `sync.go:610` | The probe `SyncOnStartup` short-circuits on. |
 | `SyncOnStartup` | `sync.go:775` | Refresh referenced clones → probe → sync with `Lock: true, ApplyHooks: true` hard-coded. |
@@ -126,12 +119,12 @@ is write-if-absent.
 
 | Function | file:line | Contract |
 |---|---|---|
-| `LockDependencies` | `lockfile.go:51` | Sync → flatten the closure → carry `Pinned`/`Retracted` forward from the previous lockfile → write `lock.yaml`. An empty closure returns `"empty"` **without saving**, so the previous lockfile survives. |
+| `LockDependencies` | `lockfile.go:51` | Sync → flatten the closure → carry `Held` forward from the previous lockfile → write `lock.yaml`. An empty closure returns `"empty"` **without saving**, so the previous lockfile survives. |
 | `dropConflicted` | `lockfile.go:160` | Filters conflicted pins out in place. |
-| `SetItemPin` | `lockfile_hold.go:24` | Flips the `Pinned` hold on a canonicalized bundle entry; idempotent; persists. Callers: `cli/bundle_hold_cli.go:42,64`. |
+| `SetItemPin` | `lockfile_hold.go:24` | Flips the `Held` flag on a canonicalized bundle entry; idempotent; persists. Backs `deps hold`/`unhold`. |
 | `LoadActiveLockfile` | `lockfile_hold.go:12` | `NewLockfileManager(baseDir).Load()`. |
 | `InstallDependencies` / `CheckOutdated` / `findOutdatedEntries` / `latestWithinConstraintSHA` | `lockfile.go:196,310,397,484` | Lockfile-driven install and the outdated report. Neither entry point has a production caller. |
-| `UpgradeDependencies` | `upgrade.go:24` | Re-resolves the whole closure to the newest commits allowed by each constraint and rewrites `lock.yaml` wholesale. Caller: `cli/remote_upgrade.go:39`. |
+| `UpgradeDependencies` | `upgrade.go` | Re-resolves the whole closure to the newest commits allowed by each constraint. Compute phase first: without `Apply` it is a preview that writes nothing and moves no worktree, disclosing each move as a `PinChange`; with `Apply` it recomputes, rewrites `lock.yaml` wholesale and moves each moved bundle's worktree. The only operation that moves an existing pin. |
 
 ### `depgraph.go` — the transitive closure
 
@@ -156,25 +149,23 @@ both hits and failures per URL. Consumers: `upgrade.go`, `depgraph.go`.
 | Function | file:line | Contract |
 |---|---|---|
 | `CreateBundle` / `UpdateBundle` / `DeleteBundle` | `bundles.go:141,245,517` | Authoring CRUD over `bundles.Store`, each behind `requireSafeBundlePath`. `UpdateBundle` returns `no_changes` when nothing differs. |
-| `loadBundleForUpdate` | `bundles.go:293` | The shared precondition gate: name validation, cfg check, `store.Load`, symlink guard. Used by `items.go`, `skills.go`, `sign.go`. |
+| `loadBundleForUpdate` | `bundles.go:293` | The shared precondition gate: name validation, cfg check, `store.Load`, symlink guard. Used by `items.go` and `skills.go`. |
 | `requireSafeBundlePath` / `bundlePathUnderDir` / `checkNoSymlinkTraversal` | `bundles.go:926,942,960` | The path-confinement guard: absolute, under one of the configured dirs, no symlink component. Fail-closed default ("not under any dir" is refused). |
 | `distillFragments` / `distillPrompts` | `bundles.go:1093,1120` | Call the injected `Distiller` per name and write `Distilled`, `DistilledBy`, `ContentHash`. Warn-and-continue per item. |
-| `PushBundle` / `runPush` / `validatePushRequest` | `bundles.go:622,727,691` | Publish: validate → read → parse → **refuse a stale carried signature** → resolve registry and target path → dry-run or publish. Signing is either "sign now" (`Signer`) or "carry this detached sig" (`Signature`). |
+| `PushBundle` / `runPush` / `validatePushRequest` | `bundles.go:622,727,691` | Publish: validate → read → parse → resolve registry and target path → dry-run or publish.|
 | `ResolveBundleRemote` / `resolveRemoteForPath` | `bundles.go:777,800` | Five-step inference ladder mapping a bundle path to the remote it belongs to; ambiguity produces a candidate list plus remediation. |
 | `ReadBundle` | `bundle_read.go:31` | Loads a bundle by name plus its raw YAML. |
-| `ExportBundle` / `ImportBundle` | `bundle_transfer.go:51,200` | Verbatim copy out of / into the committed content tree, carrying the detached `.sig`; export pre-verifies the pair and refuses a stale signature before any write. |
-| `readSignature` / `writeSignature` / `staleSignatureError` | `bundle_transfer.go:143,160,129` | The `.sig` sidecar helpers; `writeSignature(nil)` is a documented no-op. |
+| `ExportBundle` / `ImportBundle` | `bundle_transfer.go:51,200` | Verbatim copy out of / into the committed content tree. |
 | `MoveBundle` | `bundle_move.go:91` | Publish-or-copy to the destination, then remove the source — destination-before-delete ordering is the contract. |
-| `DistillBundleFile` | `bundle_distill.go:73` | File-oriented distill of one bundle; reports per-item `distilled`/`skipped`/`distill_failed` and which prior approvals it invalidated. |
-| `invalidatedByDistill` | `bundle_distill.go:145` | Items whose distilled bytes changed *and* had a prior approve countersignature — the loud path after a re-distill. |
+| `DistillBundleFile` | `bundle_distill.go:73` | File-oriented distill of one bundle; reports per-item `distilled`/`skipped`/`distill_failed`. |
 | `RemoveLocalItems` / `localItemPath` | `bundle_refs.go:163,117` | `deps check --cleanup`: delete stale local copies and prune the lockfile. |
 | `GetItemContent` / `AddItem` / `DeleteItem` / `SetItemContent` / `DistillItem` | `items.go:60,104,159,212,305` | Per-item CRUD for fragments and commands; `SetItemContent` preserves tags/notes/installation/`no_distill` and regenerates the distilled form. |
 | `GetBundleMCP` / `SetBundleMCP` | `items.go:376,410` | Bundle-scoped MCP server entries. |
-| `ListSkills` / `GetSkill` / `CreateSkill` / `SyncSkill` / `ExportSkill` / `ImportSkill` | `skills.go:57,132,218,317,413,538` | Agent Skill package CRUD and interchange. `CreateSkill` validates before registering and rolls back with `RemoveAll` on all three failure paths. `SyncSkill` recomputes the per-file manifest (path/sha/mode) in `bundle.yaml` — that manifest is the skill's trust preimage. |
-| `ListFragments` / `GetFragment` | `fragments.go:46,112` | Fragment listing and reading; `GetFragment` goes through the **trust-gated** exposure loader and can return `ErrFragmentWithheld`. |
+| `ListSkills` / `GetSkill` / `CreateSkill` / `SyncSkill` / `ExportSkill` / `ImportSkill` | `skills.go:57,132,218,317,413,538` | Agent Skill package CRUD and interchange. `CreateSkill` validates before registering and rolls back with `RemoveAll` on all three failure paths. `SyncSkill` recomputes the per-file manifest (path/sha/mode) in `bundle.yaml`. |
+| `ListFragments` / `GetFragment` | `fragments.go:46,112` | Fragment listing and reading; `GetFragment` reads through the delivery pipeline (`exposurePipeline`) and can return `ErrFragmentWithheld` for an item the pipeline withholds (an unaddressable ref, an ungranted link). |
 | `ListCommands` / `GetCommand` | `commands.go:47,111` | Command listing and reading; `GetCommand` strips the leading heading and resolves an optional `@<commit>` pin through a different loader method (`getPromptVersioned`, `commands.go:166`). |
 | `ListBundles` / `listBundleInfos` | `bundles.go:319`, `bundle_list_remote.go:31` | Merges locally-authored and installed remote bundles. |
-| `bundleLoader` / `bundleStore` | `fragments.go:41`, `bundles.go:344` | The two package-wide seams. `bundleLoader` is **ungated** — authoring paths use it deliberately; exposure paths must use `exposureLoader` instead (see [trust.md](./trust.md)). |
+| `bundleLoader` / `bundleStore` | `fragments.go`, `bundles.go` | The two package-wide seams. Authoring paths read through `bundleLoader`; exposure paths read through `exposurePipeline`, which adds the link grant and the form choice. |
 
 ## Context assembly — `context.go`
 
@@ -191,7 +182,7 @@ flowchart LR
     DEDUP --> SORT["sortFragmentsByPriority :524<br/>bookend ordering"]
     SORT --> LAC["loadAssembledContext :384"]
     LAC --> LFR["loadFragmentRef :452<br/>(pinned vs unpinned)"]
-    LFR --> GATED["gated bundles.Loader"]
+    LFR --> GATED["bundles.Pipeline"]
     LAC --> SV["substituteVariables :664<br/>mustache, warn on undefined"]
     LAC --> ABF["appendBuiltinFragments :220"]
     ABF --> OUT["AssembleContextResult<br/>{Context, Fragments, ...}"]
@@ -204,7 +195,7 @@ flowchart LR
 | `resolveContextProfileNames` | `context.go:242` | Four-way arbitration between `Profile`, `Profiles`, config defaults and the empty case. Shared with `hooks.go`. |
 | `collectProfileFragments` | `context.go:288` | Resolves each profile, merges variables/LLM/fragments, records per-profile attribution. An explicitly asked-for profile that fails is a hard error; a default that fails is a `strictness.Fail` plus skip. |
 | `dedupeFragmentRefs` / `sortFragmentsByPriority` | `context.go:483,524` | Highest-priority-wins dedup with version arbitration and a stable order; bookend (negative/positive priority) ordering. |
-| `loadAssembledContext` / `loadFragmentRef` / `warnFragmentLoadFailure` | `context.go:384,452,466` | Loads each ref through the gated loader, substitutes per fragment, joins. A withheld fragment is exempt from the failure warning (trust withholding is not a load error). |
+| `loadAssembledContext` / `loadFragmentRef` / `warnFragmentLoadFailure` | `context.go:384,452,466` | Loads each ref through the delivery pipeline, substitutes per fragment, joins. A withheld fragment is exempt from the failure warning (a withhold is reported where it happens, not as a load error). |
 | `substituteVariables` / `checkTags` / `undefinedPlainVariableLiterals` | `context.go:664,769,722` | Mustache rendering; undefined plain variables are warned and re-seeded as verbatim literals so they survive rather than vanish; section names are excluded from that rule. |
 | `appendBuiltinFragments` | `context.go:220` | Appends always-on builtin fragments with the shared separator. |
 | `guttedProfiles` / `warnGuttedProfiles` | `context.go:794,840` | Detects profiles that declared refs but contributed nothing — the anti-silent-empty guard for assembly. |
@@ -216,7 +207,7 @@ flowchart LR
 
 | Function | file:line | Contract |
 |---|---|---|
-| `ApplyHooks` | `hooks.go:54` | Reloads config, runs the $HOME-collision scope guard, optionally regenerates context, builds the executable trust gate, then writes every requested backend's surfaces. Callers: `cli/manage.go:109,257`, `cli/trust.go:223`, `mcp/mcp_server.go:270`, `cli/init.go:1035`. |
+| `ApplyHooks` | `hooks.go:54` | Reloads config, runs the $HOME-collision scope guard, optionally regenerates context, then writes every requested backend's surfaces. Callers: `cli/manage.go:109,257`, `mcp/mcp_server.go:270`, `cli/init.go:1035`. |
 | `checkHookTargetScope` (+ per-engine variants) | `hooks.go:234,271,300,326` | Refuses to apply when the resolved workDir would write onto an engine's *global* settings file. |
 | `maybeRegenerateContext` / `regenerateContext` | `hooks.go` | Writes the SessionStart context cache from the fragments of the package `ApplyHooks` assembled once for the default profiles — the same package every backend is written from. |
 | `applyHooksToBackends` / `applyHooksToBackend` | `hooks.go:397,435` | Per-backend loop; each failure is recorded via `strictness.Fail` and collected, and the loop aborts on ctx cancel. |
@@ -225,7 +216,7 @@ flowchart LR
 | `HarnessStatus` | `manage.go:116` | Per-backend wiring report plus MCP/statusline/root-fallback status. |
 | `SetStatusline` | `manage.go:165` | One `Manager.Update` transaction. |
 | `ListMCPServers` / `GetMCPServer` / `AddMCPServer` / `RemoveMCPServer` / `SetMCPAutoRegister` | `mcp_servers.go:43,159,208,305,406` | MCP registry CRUD over `config.Manager`. Add and Remove are check-and-write inside one `Manager.Update` transaction; removing nothing is a loud error. |
-| `CollectTooling` | `tooling.go` | Collects every registered companion's typed `init.tooling` declaration, **trust-gated**, for container image assembly. |
+| `CollectTooling` | `tooling.go` | Collects every registered companion's typed `init.tooling` declaration for container image assembly. |
 | `ScaffoldDevcontainer` | `tooling.go` | Writes `.devcontainer/` (devcontainer.json + a Dockerfile seeded from the embedded base); `*DevcontainerExistsError` when the project already has one. |
 
 ## Profiles and agents
@@ -251,7 +242,7 @@ Every host-side launch enters through `launch.Resolve`
 |---|---|---|
 | `StartRun` | `launch.go` | The trunk: `MintIdentity` (the harp assigned in the store, the liveness lock held), then `launch.Resolve`; a refused launch ends its own session. |
 | `LaunchDepsFor` / `App.LaunchDeps` | `launch.go` | Composes the resolver's ports over one generation from the handed `LaunchFacts` (engines, per-session claim constructor, mode): the assembler, the cells adapter, the endpoint minter, the session store, the host facts. |
-| `assembler` | `launch.go` | `launch.Assembler`: `AssembleContext` for the selection, `managedhooks.Assemble` gated by the generation's executable gate for the surfaces (a withheld executable is named), the label's request-borne env. |
+| `assembler` | `launch.go` | `launch.Assembler`: `AssembleContext` for the selection, `managedhooks.Assemble` for the surfaces, the label's request-borne env. |
 | `Cells` / `PreparedCell` / `TransportOf` | `launch.go` | `launch.Cells`: the ONE place a workspace is prepared (`isolation.Prepare` along the degrade chain, the fail-loud gate typed as `launch.ErrRuntimeUnavailable`), the dirty parent tree settled for a worktree cell, the engine home bound by `HomeMode` (`BindAgentHome`); the cell carries the transport handle the plugin transport spawns from. |
 | `endpointMinter` | `launch.go` | `launch.EndpointMinter`: a reserved loopback port and a fresh bearer; carried on the launch, bound by nothing yet. |
 | `OneShotSession` (`StartOneShot`, `Turn`, `TurnWithModel`, `End`), `LazyOneShot`, `OneShot` (the builder: `Start`, `Lazy`), `InternalSource` | `oneshot.go` | An internal one-shot: one minted harp, one Launch, many turns over the cell's transport, each recorded on the session's transcript; lazy start for a caller that may never turn. |
@@ -276,32 +267,25 @@ Every host-side launch enters through `launch.Resolve`
 | `RecordedSessionEntries` / `RenderResumedTranscript` / `JoinLeadBlocks` | `resume.go:16,41,82` | Transcript replay for resume; the rendered block is tail-truncated to 32 KiB. `JoinLeadBlocks` joins non-empty lead blocks with a blank line and has six production call sites across three packages. |
 | `ConvertVendorTranscript` | `vendorreader.go` | Converts a vendor-native transcript into the canonical JSONL via the per-engine vendor-reader registry. |
 
-## Review, search and schema targets
+## Search and schema targets
 
 | Function | file:line | Contract |
 |---|---|---|
-| `PendingReview` / `reviewEnumerator.pendingItems` / `.classify` | `review.go:111,178,289` | Walks fragments → commands → mcp → hooks → skills, classifies each through `EffectiveTrust`, and returns only items whose state is pending, each with its diff base. |
-| `setReviewForms` | `review.go:269` | Fills the shown and alternate form content so a reviewer sees both raw and distilled. |
-| `renderMCPSurface` / `renderHookSurface` / `renderSkillSurface` | `review.go:380,405,430` | Deterministic renderings of executable surfaces for human review (env keys sorted; skills rendered as a per-file path/sha/mode listing). |
 | `SearchContent` and the `search*` family | `search.go:56,139,174,195,230,309` | Local content search over fragments, commands, skills, profiles and MCP servers, with relevance ranking (`name` 2, `tag` 1, else 0). |
 | `SchemaTargets` | `schematargets.go:14` | Hand-maintained list of ~62 `reflect.Type`s published as JSON Schema; consumed only by `cmd/gen-schemas/main.go:27` under the `schemagen` build tag. See [schema.md](./schema.md). |
 | `EvaluateTriggers` | `task_triggers.go:141` | Two-round cached LLM triage of Deferred tasks' revive triggers, with a whitelisted deterministic query executor (`task_triggers_query.go`) for round two. Path arguments are confined by `safeRepoPath` (`task_triggers_query.go:94`). |
-| `ResolveSignTarget` / `SignBundleFile` / `ListLocalBundleNames` | `sign.go:48,128,171` | Publisher-side signing: resolve a ref to the local bundle file, sign its exact on-disk bytes, write `<path>.sig`. |
-| `AddSigner` / `ListSigners` / `ShowSigner` / `RemoveSigner` | `signer.go:151,266,313,367` | `allowed_signers` trust-root management across three stores (embedded, user, project); removing an embedded principal records a local suppression in `distrusted_signers` instead of deleting a line. |
 
 ## Invariants
 
 1. **The package ABI is `f(ctx, cfg|mgr, XxxRequest) (*XxxResult, error)`** with JSON-tagged DTOs and
    `json:"-"` injection seams. That uniformity is what lets one CLI command, one MCP tool and one
    call share an implementation (`doc.go`).
-2. **`lock.yaml` is authoritative for three things and nothing else**: the commit SHA each bundle
-   ref resolves to, the operator's `Pinned` hold, and the recorded `Retracted` verdict. It is not a
-   content store and not a trust record — trust lives in countersignatures.
+2. **`lock.yaml` is authoritative for two things and nothing else**: the commit SHA each bundle
+   ref resolves to, and the operator's `Held` hold. It is not a content store and not a
+   trust record: registering a remote is the trust act.
 3. **`LockDependencies` and `UpgradeDependencies` are the only whole-file writers of `lock.yaml`**
-   in this package (`lockfile.go:51`, `upgrade.go:24`); `SetItemPin` (`lockfile_hold.go:24`) and
-   `RemoveLocalItems` (`bundle_refs.go:163`) perform entry-level edits, and
-   `checkInstalledRetraction` (`sync.go:554`) writes the retraction flag through
-   `RetractionChecker.RecordRetraction`. All of them go through `remote.LockfileManager.Save`,
+   in this package (`lockfile.go`, `upgrade.go`); `SetItemPin` (`lockfile_hold.go`) and
+   `RemoveLocalItems` (`bundle_refs.go`) perform entry-level edits. All of them go through `remote.LockfileManager.Save`,
    which since `fd0d87d6` **reads the current file back and can refuse**: empty-over-populated
    and any write over a corrupt lockfile. A caller that empties the lock deliberately passes
    `remote.AllowEmpty()`; there is no override for the corrupt case.
@@ -309,13 +293,14 @@ Every host-side launch enters through `launch.Resolve`
    and `remotes.yaml`.** All later config writes go through `config.Manager.Update` →
    `Config.saveLocked`; see [config.md](./config.md).
 5. **`.ctxloom/content/` is committed and authored; `.ctxloom/cache/` is derived and gitignored.**
-   Authoring operations (`CreateBundle`, `ImportBundle`, `MoveBundle`, `SignBundleFile`) write only
-   under `content/bundles`; pulled remote copies, clone caches, trust snapshots and the context cache
+   Authoring operations (`CreateBundle`, `ImportBundle`, `MoveBundle`) write only
+   under `content/bundles`; pulled remote copies, clone caches and the context cache
    live under `cache/`. `RemoveLocalItems` (`bundle_refs.go:163`) deletes only under `cache/`.
 6. **Sync converges by re-collection, not by recursion**: `SyncDependencies` re-collects references
    after each pull pass because a newly pulled bundle may name further remotes, bounded at 10 passes.
-7. **Exposure goes through `exposureLoader`, management goes through `bundleLoader`.** Any new read
-   path that hands bytes to an engine must use the gated loader.
+7. **Exposure goes through `exposurePipeline`, management goes through `bundleLoader`.** Any new
+   read path that hands bytes to an engine must use the pipeline, so its link grant and form
+   choice apply.
 8. **Every `Manager.Update` body is one transaction**: existence check and write happen inside it
    (`AddMCPServer`, `RemoveMCPServer`, `SetAgent`, `RemoveAgent`, `SetDefaultLLM`,
    `SetStatusline`, `SetMCPAutoRegister`).
@@ -336,10 +321,8 @@ Every host-side launch enters through `launch.Resolve`
   composition of `core/coord`'s Spawner port (`ResolveBackend`, `LaunchDepsFor`, `StartEngine`).
   `internal/core/coord` itself does not import `operations`.
 - **Calls:** `internal/core/bundles`, `internal/core/config`, `internal/adapters/remote`, `internal/core/profiles`,
-  `internal/core/trust`, `internal/adapters/signing`, `internal/core/agents`, `internal/core/sessions`, `internal/lm/*`,
+  `internal/core/ident`, `internal/core/agents`, `internal/core/sessions`, `internal/lm/*`,
   `internal/adapters/git`, `internal/core/paths`, `internal/adapters/projectroot`, `internal/shared/*`.
-- **Injected downward:** the content gate into `internal/core/bundles`, the executable gate into
-  `internal/core/config` — so neither domain package imports the trust decision.
 - **The live tap is a cross-process client:** `sessionfeed.go` dials a coordinator held by
   ANOTHER process over `agentcoordpb.ConsumerService` with a bare gRPC client, so it reads the
   proto's vocabulary as delivered rather than `core/coord`'s domain types; the one literal it
@@ -351,10 +334,6 @@ Every host-side launch enters through `launch.Resolve`
   `init.go:84` are direct `afero.WriteFile` calls with no merge and no existence check, while the
   seed profile at `init.go:104-105` is write-if-absent. Preservation semantics are therefore not
   uniform within one function.
-- `EffectiveTrust`'s `error` return is never non-nil, so `review.go:306`'s
-  `err != nil || res == nil` guard is unreachable.
-- `AcceptReviewItems` (`review.go:464`) documents itself as backing review's "accept all"; the
-  porcelain loops `SetItemTrust` directly at `cli/review.go:301,336-352`.
 - `distillFragments`' doc comment (`bundles.go:1090-92`) describes the create path only; on the
   `UpdateBundle` path the described precondition does not hold.
 - `BrowseRemoteRequest.ItemType` and `SearchRemotesRequest.ItemType` advertise three values;
@@ -362,8 +341,6 @@ Every host-side launch enters through `launch.Resolve`
   and return `[]ItemType{Bundle}`.
 - `AutoSyncConfig` (`sync.go:745`) documents auto-sync configuration; nothing reads it, and
   `SyncOnStartup` hard-codes `Lock: true, ApplyHooks: true`.
-- `TrustStamper` documents "no per-item file I/O" (`trust.go:1091`) but its default retraction
-  source reloads `lock.yaml` per item (`trust.go:286`).
 - `EvaluateTriggersResult`'s doc states that degraded/fallback verdicts are never cached and that
   `Degraded` is set whenever any chunk failed; round-two chunk failures do not set `Degraded`
   (`task_triggers.go:640` vs `:258`) and fallback verdicts do reach the cache.

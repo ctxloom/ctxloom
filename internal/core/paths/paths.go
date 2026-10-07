@@ -31,14 +31,6 @@ const (
 	// RemotesFileName is the name of the remotes file (without extension).
 	RemotesFileName = "remotes"
 
-	// AllowedSignersFileName is the name of the trust-root file: the set of
-	// public keys authorized to make signed assertions, in the OpenSSH
-	// `allowed_signers` format verbatim (ssh-keygen(1), ALLOWED SIGNERS).
-	// It carries no extension because it is not ctxloom's format — it is
-	// OpenSSH's, and it must stay hand-editable by anyone who already knows
-	// that format (signature-envelope spec §7).
-	AllowedSignersFileName = "allowed_signers"
-
 	// GitignoreFileName is the name of the ignore file ctxloom owns INSIDE the
 	// .ctxloom directory (internal/adapters/gitignore's EnsureNested writes it). Unlike
 	// every other generated path here it is TierCommitted on purpose: tracking
@@ -46,13 +38,6 @@ const (
 	// worktrees, which a rule living only in the superproject's root .gitignore
 	// would never reach.
 	GitignoreFileName = ".gitignore"
-
-	// DistrustedSignersFileName is the name of the LOCAL embedded-key
-	// suppression record (without extension) — see DistrustedSignersPath. A
-	// plain one-principal-per-line list, deliberately NOT the OpenSSH
-	// allowed_signers format: this store asserts no trust of its own, only a
-	// negative record the trust root (configload) subtracts from the embedded root.
-	DistrustedSignersFileName = "distrusted_signers"
 
 	// LockFileName is the name of the lock file (without extension).
 	LockFileName = "lock"
@@ -359,14 +344,12 @@ const homeUnderErrFormat = "resolve %s ~/%s/%s: %w"
 // of these errors is stated in terms of the store the caller wanted, never in
 // terms of os.UserHomeDir.
 const (
-	whatHomeSessions      = "the home sessions root"
-	whatHomeLogs          = "the home logs root"
-	whatTriggerCache      = "the trigger verdict cache"
-	whatHomeCoord         = "the coordinator state root"
-	whatHomeLocks         = "the home lock directory"
-	whatAllowedSigners    = "the user trust root"
-	whatDistrustedSigners = "the user distrust record"
-	whatHomeRecords       = "the home records directory"
+	whatHomeSessions = "the home sessions root"
+	whatHomeLogs     = "the home logs root"
+	whatTriggerCache = "the trigger verdict cache"
+	whatHomeCoord    = "the coordinator state root"
+	whatHomeLocks    = "the home lock directory"
+	whatHomeRecords  = "the home records directory"
 )
 
 // homeUnder resolves ~/<AppDirName>/<segments...>, naming what failed in the
@@ -707,42 +690,6 @@ func RemotesPath(appPath string) string {
 	return filepath.Join(appPath, RemotesFileName+".yaml")
 }
 
-// AllowedSignersPath returns the path to the trust-root file (at appPath root). Committable: a team distributes "trust
-// our lead's approve key / our org's publish key" by checking this file in,
-// which is trust-on-first-clone and strictly inside a boundary the clone
-// already crossed (spec §7.3, path A).
-func AllowedSignersPath(appPath string) string {
-	return filepath.Join(appPath, AllowedSignersFileName)
-}
-
-// HomeAllowedSignersPath returns ~/.ctxloom/allowed_signers — the user-scoped
-// trust root, which follows the developer across every project and is where an
-// enterprise MDM channel drops the org's keys (spec §7.3, path B).
-func HomeAllowedSignersPath() (string, error) {
-	return homeUnder(whatAllowedSigners, AllowedSignersFileName)
-}
-
-// DistrustedSignersPath returns the path to the LOCAL embedded-key suppression
-// record (at appPath root, next to allowed_signers): the negative counterpart
-// to it. allowed_signers is purely additive — there is no way
-// to write a "no longer trust this key" entry into it — so a distrusted
-// embedded principal is recorded HERE instead, one principal per line, and
-// the configload trust root (signerFiles.trustStore) subtracts any embedded entry matching a
-// line in this file before unioning the trust root. It never edits
-// allowed_signers itself, and it can never remove a key that isn't ctxloom's
-// own compiled-in one — `signer untrust` only writes here when the principal
-// named matches an embedded entry (see operations.RemoveSigner).
-func DistrustedSignersPath(appPath string) string {
-	return filepath.Join(appPath, DistrustedSignersFileName)
-}
-
-// HomeDistrustedSignersPath returns ~/.ctxloom/distrusted_signers — the
-// user-scoped counterpart to DistrustedSignersPath, mirroring
-// HomeAllowedSignersPath (follows the developer across every project).
-func HomeDistrustedSignersPath() (string, error) {
-	return homeUnder(whatDistrustedSigners, DistrustedSignersFileName)
-}
-
 // LockPath returns the path to the lock file (at appPath root).
 func LockPath(appPath string) string {
 	return filepath.Join(appPath, LockFileName+".yaml")
@@ -814,8 +761,7 @@ func DefaultRemotesPath() string {
 
 // StatePath returns the THIRD .ctxloom tier (under appPath/state): local-only,
 // gitignored, unrebuildable checkout state — see StateDir's doc. It holds
-// project-local residents only (locks, the dirty-tree acknowledgement, trust
-// objects); a session's members live under HarpDir.
+// project-local residents only (locks); a session's members live under HarpDir.
 func StatePath(appPath string) string {
 	return filepath.Join(appPath, StateDir)
 }
@@ -907,7 +853,7 @@ func (r RootKind) String() string {
 // missing one is a genuine loss), which is why they were never split apart
 // until a RootHome entry needed to say something different: a home-rooted
 // store is shared across every project on the machine and created lazily by
-// a specific feature (a session run anywhere, a signer trusted, ...), so a fresh install — or a long-lived one that simply
+// a specific feature (a session run anywhere, a trigger checked, ...), so a fresh install — or a long-lived one that simply
 // never exercised that feature — legitimately has none of it yet, and that
 // is not a loss doctor should report.
 type Presence uint8
@@ -973,8 +919,6 @@ func Layout() []Entry {
 		{Rel: filepath.Join(AppDirName, GitignoreFileName), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, ContentDir), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, ProfilesDir), Tier: TierCommitted},
-		{Rel: filepath.Join(AppDirName, AllowedSignersFileName), Tier: TierCommitted},
-		{Rel: filepath.Join(AppDirName, DistrustedSignersFileName), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, CacheDir, BundlesDir), Tier: TierDerived, Rebuild: "ctxloom deps pull"},
 		{Rel: filepath.Join(AppDirName, CacheDir, ReposCacheDir), Tier: TierDerived, Rebuild: "ctxloom deps pull"},
 		// The assembled context files (agent.WriteContextFile), one per content
@@ -1019,14 +963,6 @@ func Layout() []Entry {
 		{
 			Rel: filepath.Join(AppDirName, SessionsDir), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
 			Lost: "this machine's distilled record of every ctxloom session, across every project",
-		},
-		{
-			Rel: filepath.Join(AppDirName, AllowedSignersFileName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
-			Lost: "every signing key you personally trusted (ctxloom signer trust); each must be re-trusted by hand",
-		},
-		{
-			Rel: filepath.Join(AppDirName, DistrustedSignersFileName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
-			Lost: "every embedded signing key you personally distrusted (ctxloom signer untrust); each suppression must be re-recorded by hand",
 		},
 		{
 			Rel: filepath.Join(AppDirName, CacheDir, TriggersDir), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,

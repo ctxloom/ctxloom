@@ -12,7 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
 
 // unrefreshedFixture is a config rooted in a temp dir and a file:// repository
@@ -33,8 +33,8 @@ func unrefreshedFixture(t *testing.T) (*config.Config, string) {
 func TestDetectUpdates_UnrefreshedRepositoryIsUnchecked(t *testing.T) {
 	cfg, repoURL := unrefreshedFixture(t)
 	ref := repoURL + "@bundles/demo"
-	lockfile := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
-		trust.BundleKey(ref): {SHA: "abc1234"},
+	lockfile := &remote.Lockfile{Bundles: map[ident.BundleKey]remote.LockEntry{
+		ident.BundleKey(ref): {SHA: "abc1234"},
 	}}
 	fetchErr := errors.New("fetch refused")
 

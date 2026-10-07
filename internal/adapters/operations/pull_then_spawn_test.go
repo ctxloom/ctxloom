@@ -22,8 +22,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -91,13 +91,13 @@ func pull(t *testing.T, app *App) {
 }
 
 // canonicalRef renders raw, a hand-joined ctxloom+ reference, in the form
-// trust.BundleRef.String produces. An expected reference is derived through
+// ident.BundleRef.String produces. An expected reference is derived through
 // the renderer rather than spelled: String percent-encodes every component,
 // so a joined "ctxloom+file://"+dir matches it only while dir needs no
 // escaping — a temp root containing a space is enough to break it.
 func canonicalRef(t *testing.T, raw string) string {
 	t.Helper()
-	ref, err := trust.ParseBundleRef(raw)
+	ref, err := ident.ParseBundleRef(raw)
 	require.NoError(t, err)
 	return ref.String()
 }

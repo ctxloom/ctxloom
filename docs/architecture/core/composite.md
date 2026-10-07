@@ -1,12 +1,11 @@
-# internal/core/composite — the gate holder and the one composer
+# internal/core/composite — the one composer
 
-`internal/core/composite` is where a config generation's trust decides and
-where a profile set becomes ONE package. It holds the `Trust` (the gate and
-its cascade, per generation), resolves what a profile set asks for
+`internal/core/composite` is where a profile set becomes ONE package. It
+resolves what a profile set asks for
 (`composite.Select`), and assembles the one `composite.Package` every
 consumer reads (`composite.Assemble`, the one constructor). It never knows
 which engine, where files land, or the session: it imports `bundles`,
-`profiles`, `trust`, `wire` and `engine`, none of which import it.
+`profiles`, `ident`, `wire` and `engine`, none of which import it.
 
 Where the package diverges from the design it was built to is listed at the end.
 
@@ -17,9 +16,9 @@ flowchart LR
   classDef adapter fill:#eef,stroke:#228
   classDef core fill:#dfe,stroke:#282
   classDef consumer fill:#ffd,stroke:#a80
-  CFG["operations.AssemblePackage — resolves the config: the profile set (fault-tolerant on the defaults), the trust, the catalog, the builtin injections, the surfaces the config-level resolvers compose"]:::adapter
+  CFG["operations.AssemblePackage — resolves the config: the profile set (fault-tolerant on the defaults), the catalog, the builtin injections, the surfaces the config-level resolvers compose"]:::adapter
   SEL["composite.Select(resolved, cat, req) → Selection"]:::core
-  ASM["composite.Assemble(ctx, cat, sel, tr, opts) → Package — the ONE constructor"]:::core
+  ASM["composite.Assemble(ctx, cat, sel, opts) → Package — the ONE constructor"]:::core
   CTX["AssembleContext — the context half, projected (the MCP assemble tool, doctor, the CLI)"]:::consumer
   RUN["the run trunk: launch.Deps.Assembler — Assemble once, Surfaces off the same Package"]:::consumer
   REGEN["regenerateContext — the SessionStart context file"]:::consumer
@@ -61,7 +60,7 @@ profile a withheld item cost.
 flowchart TB
   classDef s fill:#eef,stroke:#228
   classDef v fill:#fdd,stroke:#a22
-  P["the process stage: bundles.NewPipeline over LoaderOf(cat), tr.Authorizer(), the link grant derived from Options.MCP, Options.PreferDistilled — or Options.Pipeline, the injected stage"]:::s
+  P["the process stage: bundles.NewPipeline over LoaderOf(cat), the link grant derived from Options.MCP, Options.PreferDistilled — or Options.Pipeline, the injected stage"]:::s
   F["fragments, in selection order: load (GetFragment / GetFragmentAtVersion) → hold back a premised one unless named or Options.Static → substitute the variables → ingest ONCE per item (identityKey on the read's trust ref + the bytes)"]:::s
   B["then Options.Builtin, through the same premise rule and the same ingest"]:::s
   C["commands: Options.Commands (injected), then the curated asks (Curated) or the bundles' set, then the catalog's companion loadouts — one per item; export names shortened, collisions sanitised"]:::s
@@ -78,7 +77,7 @@ in the context through the copy that survived). `Findings` are the
 content-free facts a surface voices — an ask that did not load, an
 undefined variable, a duplicate dropped, a curated ask that did not resolve
 — so `Assemble` itself emits nothing. The attestation has one row per
-delivered item (ref, decision, digest) and the withheld tally.
+delivered item (ref, digest) and the withheld tally.
 
 **The premise rule lives in one place** (`assembly.holdBack`): a fragment
 carrying a premise is held back from unconditional assembly unless the
@@ -90,7 +89,7 @@ did before.
 
 **The ingest rule lives in one place** (`ingest.add`): two arriving
 fragments are the same content — and the second is dropped — when they name
-the SAME item (`identityKey`: `trust.BundleRef.Identity`, source-qualified
+the SAME item (`identityKey`: `ident.BundleRef.Identity`, source-qualified
 and version-less, so two sources' items of one name stay two) AND their bytes are identical ignoring surrounding
 whitespace. The first occurrence is kept; nothing reorders.
 
@@ -136,15 +135,12 @@ resources can be served with no config owner.
   resolves them once, from the same profile set it resolved, and `Assemble`
   carries them; the link grant is derived from `Options.MCP`. Folding those
   resolvers into composite waits on the config resolvers becoming values.
-- **`composite.Gated(auth)`** wraps a gate built elsewhere: the injected-stage
-  seam, for a test holding a process stage over its own authorizer.
 - **`Attestation` has no `GateID`** — a generation's identity is the
   Snapshot's (`config.Snapshot.Generation`), not the package's.
-- **`Item[T]` carries `Ref string`** rather than `trust.Ref`: the read's
-  canonical trust ref, the same string the gate keyed on.
+- **`Item[T]` carries `Ref string`** rather than `ident.Ref`: the read's
+  canonical item ref.
 - **`engine.SkillFile` carries `Mode`** — the exec bit on a script is
   load-bearing across export; **`engine.CommandItem`/`SkillItem` carry
   `Curated`** (a profile named it; the engine exports it regardless of its
   block) and the authored `Description` (the engine's block may override).
 
-Encode/Decode/Carrier/Claim/Transport are slice 8's and are not declared.

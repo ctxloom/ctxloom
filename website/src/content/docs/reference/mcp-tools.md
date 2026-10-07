@@ -9,7 +9,7 @@ This page is generated from ctxloom's registered MCP tools and resources, as ser
 
 Reference for the tools and resources ctxloom exposes to the agent it launches — the MCP surface a session's runner serves inside `ctxloom run`. ctxloom's own companion loadout declares the server as **served by the running session's endpoint**: at session start the endpoint's URL and bearer are written into the session's own MCP registry, and the engine dials it directly. There is no `ctxloom` command that speaks this protocol and nothing is registered in the project at rest — ctxloom injects its MCP only while it is running.
 
-The MCP surface is for **working inside a session**: assembling context, searching content, session memory, and delegating to child agents. Everything that *manages* ctxloom (creating or editing bundles, profiles, fragments, and commands; pulling remotes; reviewing and approving content; trusting a publisher's signing key) is done with the ctxloom CLI, not MCP tools. Task tracking lives in the separate `taskloom` binary; its MCP server (`taskloom mcp`) serves the `task_*` tools.
+The MCP surface is for **working inside a session**: assembling context, searching content, session memory, and delegating to child agents. Everything that *manages* ctxloom (creating or editing bundles, profiles, fragments, and commands; pulling remotes; upgrading dependencies) is done with the ctxloom CLI, not MCP tools. Task tracking lives in the separate `taskloom` binary; its MCP server (`taskloom mcp`) serves the `task_*` tools.
 
 ## Tools
 

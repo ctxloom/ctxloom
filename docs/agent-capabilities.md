@@ -127,7 +127,7 @@ mode.
 
 `host` is a value on the runtime axis, not a security boundary: a host-runtime
 agent's coordinator credential is readable by any other same-uid process
-(`/proc/<pid>/environ`), and that credential is identity. Containers are the
+(it sits in the run's owner-only secrets file), and that credential is identity. Containers are the
 actual boundary — see [Isolation](architecture/engines/isolation.md) and
 [the trust model](trust-model.md).
 

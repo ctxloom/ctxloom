@@ -13,7 +13,6 @@ ctxloom's configuration lives in YAML files under the `.ctxloom/` directory.
 ├── config.yaml              # Main configuration
 ├── remotes.yaml             # Remote registry (and custom forges)
 ├── lock.yaml                # Dependency lockfile
-├── allowed_signers          # Publisher keys this project trusts
 ├── profiles/                # Profile YAML files
 │   └── developer.yaml
 ├── content/                 # Project-authored content, committed with the project
@@ -24,10 +23,6 @@ ctxloom's configuration lives in YAML files under the `.ctxloom/` directory.
 ├── state/                   # Local-only state nothing can rebuild (gitignored)
 └── sessions/                # This machine's distilled session records
 ```
-
-Every signature and approval here is an SSH signature (the sshsig format
-`ssh-keygen -Y sign` writes), checked against an OpenSSH `allowed_signers`
-file. ctxloom does not use GPG/PGP keys, keyservers or any other signing scheme.
 
 Agent bindings live under the `agents:` key of `config.yaml` and nowhere else;
 ctxloom does not read a `.ctxloom/agents/` directory. Each session's own state
@@ -85,9 +80,6 @@ config:
   use_distilled: true         # prefer distilled fragment versions (default true)
   statusline: true            # let ctxloom manage the HUD statusline
   essence_max_chars: 10000    # character budget for a distilled session essence
-  sign:                       # publisher-signing defaults for `bundle push`
-    default: false             # sign every push unless --no-sign (default false)
-    key: ""                    # SSH key path or SHA256:... fingerprint (default: auto-discover)
 
 # Editor (fallback: VISUAL env → EDITOR env → nano).
 editor:

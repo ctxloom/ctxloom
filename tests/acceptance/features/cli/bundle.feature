@@ -3,8 +3,8 @@ Feature: bundle — the container authored content lives in, and everything that
 
   Covers: `ctxloom bundle list`, `bundle show`, `bundle view` (including the
   `#path` payload read), `bundle create`, `bundle edit`, `bundle remove` (and
-  its `rm`/`del` aliases), `bundle export`, `bundle import`, `bundle push`, and
-  the bare `ctxloom bundle` form.
+  its `rm`/`del` aliases), `bundle export`, `bundle import`, `bundle push`,
+  `bundle move`, and the bare `ctxloom bundle` form.
 
   A bundle is a CONTAINER. One directory under `.ctxloom/content/bundles/v2/`
   holds fragments, commands, MCP servers, skills and profiles together — its
@@ -465,6 +465,49 @@ Feature: bundle — the container authored content lives in, and everything that
       # The bundle the remote already served is still there: a publish adds to
       # the repository's history rather than replacing it.
       And the remote "team" holds file "fragments/demo-frag.md" of bundle "demo" containing "Demo fragment content."
+
+  Rule: A move relocates the bundle, and the source goes only once the destination holds it
+
+    `bundle move --to` takes a configured remote name or an existing
+    directory, and a directory that is a ctxloom project checkout receives the
+    bundle in its own committed content tree. Both halves of a move are read
+    from DISK: "Moved …" is printed by a move that copied nothing, and a copy
+    that left the source behind is an export, not a move.
+
+    Scenario: Moving a bundle into another project lands it in that project's content tree
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And the project already has the file "other-project/.ctxloom/.keep":
+        """
+        """
+      When Alice hands her bundle over to the other project:
+        """
+        ctxloom bundle move demo --to other-project
+        """
+      Then the command succeeds
+      And the output reports "status" as "moved"
+      And the output reports "dest" as "other-project/.ctxloom/content/bundles/v2/demo"
+      And the file "other-project/.ctxloom/content/bundles/v2/demo/bundle.yaml" contains "acceptance fixture bundle"
+      And the file "other-project/.ctxloom/content/bundles/v2/demo/fragments/example.md" contains "# Example Fragment"
+      And the file "other-project/.ctxloom/content/bundles/v2/demo/prompts/example.md" contains "Example prompt content. Describe what this prompt does."
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" does not exist
+      When I run "ctxloom bundle list"
+      Then the command succeeds
+      And the output does not contain "demo"
+
+    # --to never guesses: a name that is neither a configured remote nor an
+    # existing directory is refused, and the refusal is proven by the source
+    # SURVIVING it, not by the error text alone.
+    Scenario: A destination that is neither a remote nor a directory is refused, and the source stays
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      When Alice names a destination that does not exist:
+        """
+        ctxloom bundle move demo --to nowhere
+        """
+      Then the command fails
+      And the output contains "neither a configured remote nor an existing directory"
+      And the file ".ctxloom/content/bundles/v2/demo/fragments/example.md" contains "# Example Fragment"
 
   Rule: An authored bundle is not an installed dependency
 

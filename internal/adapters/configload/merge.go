@@ -2,6 +2,7 @@ package configload
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	kmaps "github.com/knadh/koanf/maps"
@@ -9,58 +10,81 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
-// agentBindingMergeFunc is ctxloom's koanf.WithMergeFunc seam (wired in via
+// layerMergeFunc is ctxloom's koanf.WithMergeFunc seam (wired in via
 // confload.Product.MergeFunc / confload.Product.MergeLayers): every config
 // key deep-merges across layers exactly as confload.Merge documents, EXCEPT
-// "agents" — a build of this tree let a home config silently contribute
-// permissions/coordinator/runtime fields into a project's same-named agent,
-// producing a binding neither file describes: a leaf-by-leaf deep merge
-// fuses fields from different layers into one binding neither author wrote.
-//
-// Instead, whichever layer NAMES an agent defines that binding ENTIRELY: src
-// (the layer being merged in, i.e. the HIGHER-precedence side of this call)
-// replaces dest's (the lower layers' accumulated) same-named entry wholesale,
-// never fusing it field-by-field. An agent named only by a lower layer is
-// left untouched — this is not gap-filling per KEY, it is "this whole agent
-// binding came from exactly one place", matching decision 3 of the design
-// doc.
+// the keys in layerKeyMerges, each of which carries its own rule.
 //
 // Every OTHER key is merged via koanf/maps.Merge — the library's own default
 // merge, not a reimplementation — so deep-merge-for-maps,
 // replace-for-everything-else, and explicit-zero-beats-inheritance all still
-// hold for non-agent keys exactly as confload.Merge documents.
-func agentBindingMergeFunc(src, dest map[string]any) error {
-	agentsVal, hasAgents := src["agents"]
-	if !hasAgents {
-		kmaps.Merge(src, dest)
-		return nil
-	}
-
+// hold for them exactly as confload.Merge documents.
+func layerMergeFunc(src, dest map[string]any) error {
 	rest := make(map[string]any, len(src))
 	for k, v := range src {
-		if k == "agents" {
+		if merge, special := layerKeyMerges[k]; special {
+			dest[k] = merge(v, dest[k])
 			continue
 		}
 		rest[k] = v
 	}
 	kmaps.Merge(rest, dest)
+	return nil
+}
 
-	agentsMap, ok := agentsVal.(map[string]any)
+// layerKeyMerges are the keys whose layer merge is not koanf's default. Each
+// func takes the higher layer's value (src) and the lower layers' accumulated
+// one (dest, nil when absent) and returns the merged value.
+var layerKeyMerges = map[string]func(src, dest any) any{
+	"agents":     mergeAgentBindings,
+	"companions": mergeCompanionNames,
+}
+
+// mergeAgentBindings: a build of this tree let a home config silently
+// contribute permissions/coordinator/runtime fields into a project's
+// same-named agent — a leaf-by-leaf deep merge fuses fields from different
+// layers into one binding neither author wrote. Instead, whichever layer
+// NAMES an agent defines that binding ENTIRELY: src replaces dest's
+// same-named entry wholesale. An agent named only by a lower layer is left
+// untouched — this is not gap-filling per KEY, it is "this whole agent
+// binding came from exactly one place", matching decision 3 of the design
+// doc.
+func mergeAgentBindings(src, dest any) any {
+	agentsMap, ok := src.(map[string]any)
 	if !ok {
 		// Not a map -- a schema violation caught elsewhere. Replace wholesale,
 		// consistent with "anything else replaces".
-		dest["agents"] = agentsVal
-		return nil
+		return src
 	}
-	destAgents, ok := dest["agents"].(map[string]any)
+	destAgents, ok := dest.(map[string]any)
 	if !ok {
 		destAgents = map[string]any{}
 	}
 	for name, binding := range agentsMap {
 		destAgents[name] = binding
 	}
-	dest["agents"] = destAgents
-	return nil
+	return destAgents
+}
+
+// mergeCompanionNames: a project may ADD companion registrations, never
+// replace home's (owner ruling) — the companions a machine registered keep
+// running in every project, and a project list, even an empty one, cannot
+// unregister them. The result is dest's names in their order, then each name
+// only src adds, in src's order: deduplicated and stable.
+func mergeCompanionNames(src, dest any) any {
+	srcNames, ok := src.([]any)
+	if !ok {
+		// Not a list -- a schema violation caught elsewhere. Replace.
+		return src
+	}
+	destNames, _ := dest.([]any)
+	out := make([]any, 0, len(destNames)+len(srcNames))
+	for _, n := range append(slices.Clone(destNames), srcNames...) {
+		if !slices.Contains(out, n) {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // dropEnginelessAgents refuses every `agents:` entry in ONE decoded config

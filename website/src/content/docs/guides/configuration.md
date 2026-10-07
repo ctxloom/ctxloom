@@ -41,7 +41,9 @@ ctxloom does not read a `.ctxloom/agents/` directory. Each session's own state
 The two files are deep-merged (lists replace rather than append), and every
 layer may set every key: a higher layer wins. An agent binding is the
 exception to the deep merge: the highest layer that names an agent supplies its
-whole binding. A command that writes configuration writes only the file it
+whole binding. The `companions` list is the exception to "lists replace": a
+project's names are added to the ones your home config registers, and a project
+cannot remove a home registration. A command that writes configuration writes only the file it
 targets, so a value from your home config or the environment is never copied
 into the project file.
 

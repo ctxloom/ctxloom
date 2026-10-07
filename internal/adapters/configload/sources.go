@@ -142,15 +142,15 @@ func Load(opts ...Option) (*config.Config, error) {
 // product describes ctxloom's own config to confload: the product name and
 // dir/file names the bootstrap stage discovers, the CTXLOOM_CONFIG_ env
 // prefix, the schema-derived KnownPath / ValidateValue hooks that
-// distinguish a known override key from an unknown one, and the agent-binding
-// merge.
+// distinguish a known override key from an unknown one, and the per-key
+// layer merge (layerMergeFunc).
 func (s *Sources) product() confload.Product {
 	p := confload.Product{
 		Name:      "ctxloom",
 		DirName:   config.AppDirName,
 		FileName:  config.ConfigFileName,
 		EnvPrefix: "CTXLOOM_CONFIG_",
-		MergeFunc: agentBindingMergeFunc,
+		MergeFunc: layerMergeFunc,
 	}
 	if s.validator != nil {
 		p.KnownPath = s.validator.KnownPath

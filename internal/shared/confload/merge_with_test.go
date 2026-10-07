@@ -25,7 +25,7 @@ func TestMergeWith_NilFuncMatchesMergeExactly(t *testing.T) {
 }
 
 // atomicReplaceAt is a generic (non-ctxloom) koanf.WithMergeFunc-shaped
-// function standing in for ctxloom's own agentBindingMergeFunc: it makes ONE
+// function standing in for ctxloom's own layerMergeFunc: it makes ONE
 // named top-level key (topKey) replace wholesale instead of deep-merging,
 // while delegating every other key to koanf/maps.Merge — proving the
 // WithMergeFunc SEAM itself is generic (confload carries no notion of
@@ -110,7 +110,7 @@ func TestMergeWith_DoesNotMutateInputs(t *testing.T) {
 // regression test for a bug MEASURED against a running binary while building
 // this seam: ApplyOverrides used to merge the flag/env layer through
 // p.MergeLayers (the SAME atomic-replace-aware path Load's file-layer merge
-// uses). For ctxloom's own agentBindingMergeFunc, that meant a single-field
+// uses). For ctxloom's own layerMergeFunc, that meant a single-field
 // --config-set override like `--config-set agents.reviewer.permissions=bypass`
 // against a project that already declares agents.reviewer with `profiles`
 // and `engine` WIPED OUT those other fields entirely — the flag's tiny patch

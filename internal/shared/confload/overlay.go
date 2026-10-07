@@ -263,7 +263,7 @@ func (p Product) ApplyOverrides(base map[string]any, o Overrides) (map[string]an
 	// Both merge steps below use the package's plain Merge — NEVER
 	// p.MergeLayers/p.MergeFunc — deliberately: an override is a PATCH (one
 	// resolved path, one value), not a competing whole-document layer, and a
-	// product's MergeFunc (ctxloom's agentBindingMergeFunc among them) is
+	// product's MergeFunc (ctxloom's layerMergeFunc among them) is
 	// written for the "whichever FILE layer names this whole binding wins"
 	// question. Feeding a single-field flag override like `--config-set
 	// agents.reviewer.permissions=bypass` through an atomic-replace merge

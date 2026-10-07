@@ -313,7 +313,8 @@ It then layers config values, lowest precedence first:
 4. `--config-set <dotted.path>=<value>` flags
 
 The two files are deep-merged key by key. Lists replace rather than
-concatenate, and a value the project sets explicitly, including a zero value,
+concatenate, except `companions`: a project's names are added to home's, and
+a project cannot remove one home registered. A a value the project sets explicitly, including a zero value,
 beats one inherited from home. Each file is upgraded and schema-checked on its
 own, so a bad key is reported against the file that holds it. Every layer may
 set every key.

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -168,17 +169,38 @@ func (w *World) resumeSessionOwner(harp string) error {
 // deliveredConfigs is every delivered mock MCP config in the session store,
 // with when it was written.
 func deliveredConfigs(home string) (map[string]time.Time, error) {
-	want := string(filepath.Separator) + filepath.Join(mock.ConfigDirName, mockMCPFileName)
+	root := filepath.Join(home, filepath.FromSlash(harpSessionsRel))
+	return deliveredConfigsIn(os.DirFS(root), root)
+}
+
+// deliveredConfigsIn is deliveredConfigs over fsys, the session store rooted
+// at root; the paths it returns are under root.
+//
+// A config or directory that vanishes mid-walk is not delivered, and is no
+// error: the walk runs while the store is still changing under it. A killed
+// owner's runner children are SIGTERMed by their parent-death signal and
+// reverse their own deliveries as they exit, after the owner itself has, so
+// an entry a listing names can be gone by the lstat behind its Info or the
+// read that would descend into it. Both interleavings are forced by
+// TestDeliveredConfigsSurvivesADepartingSessionsTeardown.
+func deliveredConfigsIn(fsys fs.FS, root string) (map[string]time.Time, error) {
+	want := path.Join(mock.ConfigDirName, mockMCPFileName)
 	out := map[string]time.Time{}
-	err := filepath.WalkDir(filepath.Join(home, filepath.FromSlash(harpSessionsRel)), func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(p, want) {
+	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil || d.IsDir() || !strings.HasSuffix("/"+p, "/"+want) {
 			return err
 		}
 		fi, err := d.Info()
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
-		out[p] = fi.ModTime()
+		out[filepath.Join(root, filepath.FromSlash(p))] = fi.ModTime()
 		return nil
 	})
 	return out, err

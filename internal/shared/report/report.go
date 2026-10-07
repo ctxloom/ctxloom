@@ -49,9 +49,6 @@ const (
 	// bundle. Builtin (in-binary) bundle failures stay warnings.
 	KindBundle Kind = "bundle"
 
-	// KindTrust is a corrupt/unreadable trust store (the deny-all posture).
-	KindTrust Kind = "trust-store"
-
 	// KindIsolation is an EXPLICITLY-requested container runtime that cannot be
 	// satisfied AS REQUESTED: no reachable runtime, an unrecognized runtime axis
 	// value (a typo that would silently land on the host), an external plugin

@@ -33,11 +33,11 @@ type LoadedContent struct {
 	// form actually served, never re-derived (a re-derivation drops terms like
 	// no_distill and describes bytes that were never served).
 	Form ContentForm
-	// TrustRef is the read fact this delivery decision was made on, carried
-	// through so a delivered item names its own provenance. See ItemRead,
+	// ItemRef is the canonical ref of the item delivered, carried through
+	// so a delivered item names its own provenance. See ItemRead,
 	// which is where it originates.
-	TrustRef string
-	Exports  EngineBlocks // per engine name, opaque; that engine decodes its block
+	ItemRef string
+	Exports EngineBlocks // per engine name, opaque; that engine decodes its block
 	// Curated marks an item a profile named explicitly; an engine exports
 	// it even where its block opts out, because naming it is the ask.
 	Curated bool
@@ -80,14 +80,13 @@ type ItemRead struct {
 	// re-deriving "the bytes of this item" from separate fields.
 	Resolve func(preferDistilled bool) ItemSurface
 
-	// TrustRef is the ref this item is addressed by: the canonical
+	// ItemRef is the ref this item is addressed by: the canonical
 	// bundle-reference grammar's item selector (ItemRefFor,
 	// ident.BundleRef.WithItem), "ctxloom+<class>:...#fragments/<name>" or
 	// "...#prompts/<name>", minted from the bundle's HONEST typed source ref
-	// (BundleRead.SourceRef — canonical for a cloned bundle so its text gates
-	// like an executable, the local name for a project bundle so its text
-	// auto-trusts). A read FACT the reader establishes, never a decision.
-	TrustRef string
+	// (BundleRead.SourceRef — canonical for a cloned bundle, the local name
+	// for a project bundle). A read FACT the reader establishes, never a decision.
+	ItemRef string
 	// Read is the owning bundle's read — the facts its reader established.
 	//
 	// Exported, and safe to be: BundleRead's axes are unexported and settable
@@ -306,17 +305,16 @@ func ParseItemAsk(ask string) (ItemAsk, error) {
 }
 
 // itemRead builds the ItemRead every text kind shares: the item's identity
-// and the read facts the process stage decides on. TrustRef is minted from
+// and the read facts the process stage decides on. ItemRef is minted from
 // the bundle's honest TYPED source ref (BundleRead.SourceRef) — canonical
-// for a cloned bundle so its text gates like an executable, the local name
-// for a project bundle so its text auto-trusts — through the canonical
+// for a cloned bundle, the local name for a project bundle — through the canonical
 // bundle-reference grammar (ItemRefFor), not hand-concatenated from
 // Bundle.contentSourceRef's string. That is the SAME keying hook and MCP
 // extraction uses. What differs between the kinds — a fragment's premise, a command's
 // blocks — the caller sets on the result.
 func itemRead(read BundleRead, kind ident.ItemKind, name string, body ItemBody, resolve func(bool) ItemSurface) (*ItemRead, error) {
 	bundle := read.Bundle
-	trustRef, err := ItemRefFor(read.SourceRef(), kind, name)
+	itemRef, err := ItemRefFor(read.SourceRef(), kind, name)
 	if err != nil {
 		return nil, fmt.Errorf("%s %q in bundle %q: %w", kind, name, bundle.Name, err)
 	}
@@ -329,7 +327,7 @@ func itemRead(read BundleRead, kind ident.ItemKind, name string, body ItemBody, 
 		Installation: body.Installation,
 		DistilledBy:  body.DistilledBy,
 		Resolve:      resolve,
-		TrustRef:     trustRef,
+		ItemRef:      itemRef,
 		Read:         read,
 	}, nil
 }
@@ -451,7 +449,7 @@ func (c Catalog) ReadCommand(name string) ([]*ItemRead, error) {
 }
 
 // commandRead is itemRead for a command, carrying its per-engine blocks.
-// TrustRef keeps the "prompts" kind segment (ident.KindPrompt, whose Dir()
+// ItemRef keeps the "prompts" kind segment (ident.KindPrompt, whose Dir()
 // is "prompts") even though the load selector is "#commands/", so the
 // item-kind rename does not invalidate existing trust grants.
 func commandRead(read BundleRead, promptName string, prompt BundleCommand) (*ItemRead, error) {

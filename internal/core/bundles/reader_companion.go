@@ -71,7 +71,7 @@ type CompanionProbe struct {
 }
 
 // companionReader reads the loadouts companion applications advertise about
-// themselves: ProvenanceCompanion, TrustCtxLocal.
+// themselves: ProvenanceCompanion, LocalityLocal.
 type companionReader struct {
 	probe CompanionProber
 	cfg   readerConfig
@@ -85,7 +85,7 @@ type companionReader struct {
 
 // NewCompanionReader reads every registered companion's loadout through probe.
 //
-// TrustCtxLocal, hard-coded and not a parameter: a loadout's bytes came
+// LocalityLocal, hard-coded and not a parameter: a loadout's bytes came
 // straight off the stdout of a binary on the user's PATH, with no intermediary
 // in between.
 func NewCompanionReader(probe CompanionProber, opts ...ReaderOption) Reader {
@@ -195,7 +195,7 @@ func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 	b.sourceRefSet = true
 
 	b.self = lo.Self
-	read := newRead(ref, b, ProvenanceCompanion, TrustCtxLocal)
+	read := newRead(ref, b, ProvenanceCompanion, LocalityLocal)
 	read.Init = parsed.Init
 	return read, true
 }

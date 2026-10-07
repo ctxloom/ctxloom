@@ -136,7 +136,7 @@ func TestStartupGates_TileWithoutHole(t *testing.T) {
 	// anything. Under the old hand-anchored scheme this was the hole: a gate
 	// anchored when the next phase STARTED could not see it, and the tiling
 	// that closed the hole was a convention two comments described.
-	strictness.Fail(report.KindTrust, "remove or restore the trust store", "trust store unreadable: boom")
+	strictness.Fail(report.KindBundle, "fix or remove the bundle file", "bundle unreadable: boom")
 
 	// The contrast, kept because it is what makes the property non-obvious: a
 	// mark taken AFTER the gap genuinely cannot see the gap finding.
@@ -151,7 +151,7 @@ func TestStartupGates_TileWithoutHole(t *testing.T) {
 	var exitErr *ExitError
 	require.ErrorAs(t, err, &exitErr)
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
-	assert.Contains(t, out.String(), "trust store unreadable")
+	assert.Contains(t, out.String(), "bundle unreadable")
 	assert.Contains(t, out.String(), "aborting workspace",
 		"the header must name the phase that refused, not the phase before it")
 }

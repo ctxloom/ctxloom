@@ -299,7 +299,7 @@ func LoadedSkills(pkg composite.Package) []*bundles.LoadedSkill {
 			Files:       files,
 			Exports:     engineBlocks(s.Value.Exports),
 			Curated:     s.Value.Curated,
-			TrustRef:    s.Ref,
+			ItemRef:     s.Ref,
 		})
 	}
 	return out

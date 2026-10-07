@@ -37,8 +37,8 @@ func TestReadCommand_PromptsAliasReachesTheSameItem(t *testing.T) {
 		"and must reach the identical item, not 'invalid command reference'")
 	require.Len(t, viaPrompts, 1)
 
-	require.Equal(t, viaCommands[0].TrustRef, viaPrompts[0].TrustRef,
-		"both spellings must resolve to the identical item — same TrustRef")
+	require.Equal(t, viaCommands[0].ItemRef, viaPrompts[0].ItemRef,
+		"both spellings must resolve to the identical item — same ItemRef")
 	require.Equal(t, viaCommands[0].Item, viaPrompts[0].Item)
 	require.Equal(t, "deploy", viaPrompts[0].Item)
 }

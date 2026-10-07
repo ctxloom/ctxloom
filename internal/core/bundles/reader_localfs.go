@@ -42,7 +42,7 @@ type localFSReader struct {
 }
 
 // NewProjectReader reads the bundles a project authored in its own content
-// tree: ProvenanceProject, TrustCtxLocal.
+// tree: ProvenanceProject, LocalityLocal.
 //
 // Provenance and trust context are hard-coded, not parameters. A
 // NewLocalFSReader(fs, dirs, provenance) would let any caller mint
@@ -310,5 +310,5 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 	// sources of one name is settled where collisions belong — in
 	// Catalog.Resolve, which keeps the project's and SAYS SO. Source
 	// qualification lives only on bundle.sourceRef, the trust key.
-	return newRead(name, bundle, r.provenance, TrustCtxLocal), nil
+	return newRead(name, bundle, r.provenance, LocalityLocal), nil
 }

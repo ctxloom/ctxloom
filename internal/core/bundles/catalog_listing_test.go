@@ -92,8 +92,8 @@ func twoBundlesOneDisplayName(t *testing.T) Catalog {
 	companionBundle.sourceRefSet = true
 
 	return Resolve(context.Background(), nil, staticReader{reads: []BundleRead{
-		newRead("isolation", localBundle, ProvenanceProject, TrustCtxLocal),
-		newRead("isolation", companionBundle, ProvenanceCompanion, TrustCtxLocal),
+		newRead("isolation", localBundle, ProvenanceProject, LocalityLocal),
+		newRead("isolation", companionBundle, ProvenanceCompanion, LocalityLocal),
 	}})
 }
 

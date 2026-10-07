@@ -57,7 +57,7 @@ var readerTreeFragments = map[string]string{"keeper": "KEEPER-PAYLOAD"}
 // rather than as a violated invariant.
 func TestBundleRead_TrustAxesCannotBeMintedByACaller(t *testing.T) {
 	rt := reflect.TypeOf(BundleRead{})
-	for _, name := range []string{"trustCtx", "ref"} {
+	for _, name := range []string{"locality", "ref"} {
 		field, ok := rt.FieldByName(name)
 		require.True(t, ok, "BundleRead must still carry %s", name)
 		assert.NotEmpty(t, field.PkgPath,
@@ -71,7 +71,7 @@ func TestBundleRead_TrustAxesCannotBeMintedByACaller(t *testing.T) {
 func TestBundleRead_ZeroValueClaimsNothing(t *testing.T) {
 	var zero BundleRead
 
-	assert.Equal(t, TrustCtxUnset, zero.TrustCtx())
+	assert.Equal(t, LocalityUnset, zero.Locality())
 	assert.False(t, zero.Claimed(), "a read nobody established anything about must not pass as established")
 }
 
@@ -112,7 +112,7 @@ func TestNewProjectReader_ReportsProjectProvenanceAndLocalContext(t *testing.T) 
 	require.NoError(t, err)
 	require.Len(t, reads, 1)
 	assert.Equal(t, ProvenanceProject, reads[0].Provenance)
-	assert.Equal(t, TrustCtxLocal, reads[0].TrustCtx())
+	assert.Equal(t, LocalityLocal, reads[0].Locality())
 	assert.Equal(t, "KEEPER-PAYLOAD", reads[0].Bundle.Fragments["keeper"].Content)
 
 	wantTyped, err := ident.LocalRef("kit")
@@ -129,7 +129,7 @@ func TestNewCompanionReader_ReportsCompanionProvenanceAndLocalContext(t *testing
 	require.NoError(t, err)
 	require.Len(t, reads, 1)
 	assert.Equal(t, ProvenanceCompanion, reads[0].Provenance)
-	assert.Equal(t, TrustCtxLocal, reads[0].TrustCtx(),
+	assert.Equal(t, LocalityLocal, reads[0].Locality(),
 		"a loadout came off the stdout of a binary the user consented to execute — no intermediary")
 	assert.Equal(t, "ctxloom:companion@ltk", reads[0].DisplayName())
 
@@ -147,7 +147,7 @@ func TestNewRepoFSReader_ReportsRemoteProvenanceAndRemoteContext(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, reads, 1)
 	assert.Equal(t, ProvenanceRemote, reads[0].Provenance)
-	assert.Equal(t, TrustCtxRemote, reads[0].TrustCtx(), "these bytes crossed a forge; that is the whole distinction")
+	assert.Equal(t, LocalityRemote, reads[0].Locality(), "these bytes crossed a forge; that is the whole distinction")
 	assert.Equal(t, "https://example.test/repo@bundles/kit", reads[0].DisplayName(), "canonical is the sole resolution identity")
 
 	wantTyped, err := ident.GitRef("example.test", "/repo", "kit")

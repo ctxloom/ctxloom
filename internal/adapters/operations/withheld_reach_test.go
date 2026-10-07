@@ -60,7 +60,7 @@ func TestWithholds_ReachStderrButNotTheAgent(t *testing.T) {
 			require.NoError(t, err)
 			require.Contains(t, stderr.String(), c.stderr, "the withhold must have happened for this case to mean anything")
 			for _, s := range LoadedSkills(pkg) {
-				require.NotContains(t, s.TrustRef, c.item, "the skill was delivered after all")
+				require.NotContains(t, s.ItemRef, c.item, "the skill was delivered after all")
 			}
 
 			recorded := strictness.Since(strictness.Mark{})

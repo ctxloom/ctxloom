@@ -15,14 +15,14 @@ func TestRemoteRead_YieldsARemoteRead(t *testing.T) {
 	read := RemoteRead(t, "https://example.test/repo@bundles/tools", oneFragment())
 	assert.True(t, read.Claimed())
 	assert.Equal(t, bundles.ProvenanceRemote, read.Provenance)
-	assert.Equal(t, bundles.TrustCtxRemote, read.TrustCtx())
+	assert.Equal(t, bundles.LocalityRemote, read.Locality())
 }
 
 func TestProjectRead_YieldsAProjectRead(t *testing.T) {
 	read := ProjectRead(t, "kit", &bundles.Bundle{})
 	assert.True(t, read.Claimed())
 	assert.Equal(t, bundles.ProvenanceProject, read.Provenance)
-	assert.Equal(t, bundles.TrustCtxLocal, read.TrustCtx())
+	assert.Equal(t, bundles.LocalityLocal, read.Locality())
 }
 
 // oneFragment is the smallest bundle a remote tree may hold: the repofs reader

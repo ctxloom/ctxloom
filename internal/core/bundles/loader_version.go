@@ -121,20 +121,20 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	return versionRead(l.cat.rep, canonical, commit, b), nil
 }
 
-// versionRead states the trust facts of a HISTORICAL version, which no Reader
+// versionRead states the read facts of a HISTORICAL version, which no Reader
 // produced: BundleVersionResolver fetches one document's bytes at one commit
 // and parses them, and that is all it does.
 //
-// Its TrustCtx comes from the ref: a ctxloom:local pin reads the PROJECT'S OWN
+// Its Locality comes from the ref: a ctxloom:local pin reads the PROJECT'S OWN
 // git history, so it is local exactly as its unpinned twin is; anything else
 // crossed a forge and is remote.
 //
 // It is unexported and takes the resolver's own output, so it cannot be used to
 // mint a posture for anything else.
 func versionRead(rep report.Reporter, canonical, commit string, b *Bundle) BundleRead {
-	tctx, prov := TrustCtxRemote, ProvenanceRemote
+	tctx, prov := LocalityRemote, ProvenanceRemote
 	if parsed, err := remote.ParseReference(canonical); err == nil && parsed.IsLocal {
-		tctx, prov = TrustCtxLocal, ProvenanceProject
+		tctx, prov = LocalityLocal, ProvenanceProject
 	}
 	return newRead(canonical+"@"+commit, b, prov, tctx)
 }
@@ -166,7 +166,7 @@ func splitBundleVersion(bundleRef string) (canonical, version string, err error)
 // opaque revision to materialize (empty = the lockfile-pinned default,
 // identical to ReadFragment).
 //
-// Each version carries its OWN bytes under the VERSION-LESS TrustRef, so the
+// Each version carries its OWN bytes under the VERSION-LESS ItemRef, so the
 // process stage decides on each independently (a grant keyed
 // {repo, ref, content_hash} matches whichever commit produced that content). A
 // fetch/parse failure returns a resolve error, which costs only that version —
@@ -201,7 +201,7 @@ func (l *Loader) ReadFragmentAtVersion(ref, commit string) ([]*ItemRead, error) 
 
 // ReadCommandAtVersion is the command counterpart to ReadFragmentAtVersion: a
 // command from a specific commit-version of its bundle, carrying that version's
-// own bytes under the version-less TrustRef.
+// own bytes under the version-less ItemRef.
 func (l *Loader) ReadCommandAtVersion(ref, commit string) ([]*ItemRead, error) {
 	ask, err := ParseItemAsk(ref)
 	if err != nil {

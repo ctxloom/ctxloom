@@ -636,9 +636,9 @@ func ListingNames(infos []*BundleInfo) []string {
 // in between — and it costs nothing, because production can never reach it.
 func admit(rep report.Reporter, read BundleRead) bool {
 	if !read.Claimed() {
-		rep.Failf(report.KindTrust, "report this: a bundle reached the loader without established provenance",
-			"withholding a bundle read that established no trust facts (provenance %s, context %s)",
-			read.Provenance, read.trustCtx)
+		rep.Failf(report.KindBundle, "report this: a bundle reached the loader without established provenance",
+			"withholding a bundle read that established no read facts (provenance %s, locality %s)",
+			read.Provenance, read.locality)
 		return false
 	}
 	return true

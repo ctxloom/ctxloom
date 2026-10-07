@@ -90,7 +90,7 @@ func TestPackageDiff_FindsAKnownMutant(t *testing.T) {
 	trap.Dir = src
 	b, err := trap.CombinedOutput()
 	var exit *exec.ExitError
-	if err != nil && !(errors.As(err, &exit) && exit.ExitCode() == gremlinsEfficacyThresholdExit) {
+	if err != nil && (!errors.As(err, &exit) || exit.ExitCode() != gremlinsEfficacyThresholdExit) {
 		t.Fatalf("gremlins unleash ./sub --diff main: %v\n%s", err, b)
 	}
 	rep, err := os.ReadFile(out)

@@ -55,7 +55,7 @@ Then lead straight into the scan — don't recite the phase list mechanically.
 
 **Then check what ctxloom already has configured** — don't guess, enumerate:
 - `ctxloom doctor --deps` — confirm the system tools ctxloom depends on are
-  present (`git`, `ssh-keygen`, a container runtime). A fresh
+  present (`git`, a container runtime). A fresh
   `ctxloom init` already checked this up front (init needs `git` to clone),
   so this is mainly for the reconfigure path (`/ctxloom-init` in an existing
   session, which skipped init) — worth re-confirming here, cheaply, before

@@ -29,6 +29,13 @@ func run(t *testing.T, a *analysis.Analyzer, rels ...string) {
 	analysistest.Run(t, analysistest.TestData(), a, pkgs...)
 }
 
+// TestLayering_MigrationsAreLeaves runs the PRODUCTION table against a
+// migration step that imports a write library: migrations-are-leaves must
+// fire, or a step could reach any layer and nothing would say so.
+func TestLayering_MigrationsAreLeaves(t *testing.T) {
+	run(t, archlint.LayeringAnalyzer, "internal/migrations/leafplant")
+}
+
 // TestDocComment_CoversProductionAndTestFiles plants a restated doc in a
 // production file, an in-package test file and an external test package.
 func TestDocComment_CoversProductionAndTestFiles(t *testing.T) {

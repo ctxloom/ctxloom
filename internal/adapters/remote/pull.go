@@ -3,7 +3,6 @@ package remote
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 )
@@ -366,7 +365,6 @@ func (p *Puller) updateLockfile(item *fetchedItem, itemType ItemType) (hadExisti
 		RequestedVersion: item.requestedVersion,
 		Version:          item.resolvedVersion,
 		Kind:             item.kind,
-		FetchedAt:        time.Now().UTC(),
 		Held:             hadExisting && existing.Held,
 	})
 	if err := p.lockfileManager.Save(lockfile); err != nil {

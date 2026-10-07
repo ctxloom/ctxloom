@@ -66,7 +66,7 @@ func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef 
 	lm := remote.NewLockfileManager(appDir)
 	lock, err := lm.Load()
 	require.NoError(t, err)
-	entry := remote.LockEntry{SHA: sha, URL: repoURL, FetchedAt: time.Now().UTC()}
+	entry := remote.LockEntry{SHA: sha, URL: repoURL}
 	bundleRef = repoURL + "@bundles/tools"
 	// The lockfile keys on the FETCH address (bundleRef); the profile is
 	// addressed by the bundle's canonical IDENTITY, which is what the seed and

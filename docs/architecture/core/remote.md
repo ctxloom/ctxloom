@@ -92,8 +92,8 @@ flowchart TD
 |---|---|---|
 | `Reference` | `internal/adapters/remote/types.go` | Parsed content identity: `URL`, `Path`, `ItemType`, `ContentVersion`, `IsLocal`, `IsCompanion`. Methods live in `reference.go`. |
 | `ItemType` | `internal/adapters/remote/types.go` | Item-kind enum; `ItemType.DirName` is the single home of the on-disk `bundles/` convention. |
-| `LockEntry` | `internal/adapters/remote/types.go` | One pin: `SHA`, `URL`, `RequestedVersion`, `Version`, `Kind`, `FetchedAt` and `Held`. |
-| `Lockfile` | `internal/adapters/remote/types.go` | `Version`, `LockedAt`, `Bundles map[...]LockEntry` — bundles only. |
+| `LockEntry` | `internal/adapters/remote/types.go` | One pin, and whether it is held. |
+| `Lockfile` | `internal/adapters/remote/types.go` | The format generation and a `LockEntry` per bundle — bundles only. |
 | `Manifest` / `ManifestEntry` | `internal/adapters/remote/types.go` | Publisher-side manifest. |
 | `Remote` | `internal/adapters/remote/types.go` | A configured remote: `Name`, `URL`, `Forge`. Carries a load-bearing comment that a trust flag must never return to this struct. |
 | `AuthConfig` | `internal/adapters/remote/types.go` | Forge tokens (GitHub only). |
@@ -255,8 +255,11 @@ flowchart TD
    every pin. Within this package, `Save` is called by `Puller.updateLockfile`;
    outside it, the writer is `internal/adapters/operations`
    through the `LockfileStore` port.
-4. **`Save` owns the `LockedAt` timestamp.** Every save stamps `LockedAt = time.Now().UTC()`;
-   `write` never modifies it.
+4. **The lock records no time.** Nothing in it changes unless a pin, URL, kind or requested
+   version does, so a pull at unchanged pins rewrites it byte for byte
+   (`TestPuller_Pull_SamePinsLeaveLockByteIdentical`). A write time or fetch time belongs in
+   local state, never in this committed file; the step that dropped them is
+   `internal/migrations/lockfile`.
 5. **The identity digest is a git commit SHA.** `Resolution.SHA` is the commit a
    selector resolved to; it changes only when the constraint is re-resolved (`upgrade`),
    never on a relock that leaves `RequestedVersion` unchanged. Content integrity is git's:

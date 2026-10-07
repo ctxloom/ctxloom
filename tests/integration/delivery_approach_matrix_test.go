@@ -237,7 +237,7 @@ var matrixSpecs = map[string]deliverySpec{
 	// TestDeliveryApproach_ClaudeSystemPromptScratchPlacement pins the
 	// framing and the leaf shape this glob cannot express.
 	"claude-code/context/system-prompt": {wantFile: "./*", wantSlot: slotContext, underEngineHome: true},
-	"claude-code/mcp/unsafe-file": {wantFile: ".mcp.json", wantSlot: slotMCPCmd},
+	"claude-code/mcp/unsafe-file":       {wantFile: ".mcp.json", wantSlot: slotMCPCmd},
 	// The DEFAULT MCP approach, and it is private: the merged .mcp.json lands
 	// beneath the run's private root for --mcp-config, never the user's project
 	// file. An unresolved private root refuses (ErrUnrootedSessionHome) rather

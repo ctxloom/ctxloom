@@ -376,6 +376,26 @@ Grouped by what you would have to change.
   run.
 - `taskloom` and `ltk` ship as bundled companions.
 
+- Every `ctxloom hook <verb>` that reads an engine's payload now takes
+  `--engine <name>`, naming the engine that fires it, and reads and answers
+  through that engine's codec. ctxloom writes the flag itself when it
+  delivers its hooks. A hook installed by an earlier ctxloom, or written by
+  hand (`ctxloom hook stamp-plan` in your own `.claude/settings.json`), has
+  no `--engine` and is refused: `session-start` and `session-bind` exit
+  non-zero, so claude shows the hook as failed; the others say why on stderr
+  and do nothing. Re-deliver the hooks (relaunch the session, or run
+  `ctxloom manage hooks install`), or add `--engine claude-code` to a
+  hand-written one.
+- `ctxloom hook session-bind` and `hook session-start` used to exit 0 on a
+  payload they could not parse, so a session could go its whole life
+  unbound with nothing failing. They now exit non-zero.
+- `ctxloom hook stamp-plan` reads the edited file from claude's real payload
+  shape (`tool_input.file_path`, or `notebook_path`); a bare top-level
+  `file_path`, which no engine sends, is no longer read.
+- `ctxloom profile materialize` with no `--backend` writes for the
+  registry's default engine (today claude-code, as before); the flag's
+  default is now empty rather than the literal `claude-code`.
+
 ## If you ran a 0.7 development build
 
 Some things appeared after 0.6.4 and are gone again in 0.7.0. They were never

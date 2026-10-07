@@ -3,9 +3,13 @@
 `ctxloom hook *` is the machine-callback surface: the commands a *generated*
 engine config file invokes, never a human. Each subcommand registers itself on
 `hookCmd` from its own file's `init()`, so the namespace's membership is
-discoverable from `hookCmd.AddCommand` call sites, not from `hook.go`. Their
-shared contract is **a hook must never fail the host tool call**: every
-failure warns and returns nil, so the engine's own operation proceeds. No hook
+discoverable from `hookCmd.AddCommand` call sites, not from `hook.go`. No hook
+verb knows any engine's payload: each reads and answers through the codec of
+the engine that fired it ([the hook codec](#the-hook-codec)). Where a failing
+hook would cost the engine's own operation (a tool call, the human's prompt),
+the verb warns and exits 0; where the failure IS the truth (a session_start
+whose payload cannot be read, a bind that did not happen), it exits non-zero
+so the engine shows a failed hook. No hook
 delivers the project's assembled context: that reaches claude once, as the
 system prompt of a session `ctxloom run` launches, and a claude started by hand
 gets none.
@@ -33,13 +37,13 @@ flowchart TD
     IC --> REI["resumedEssenceForInjection"]
     REI --> SIRE["shouldInjectResumedEssence (source not in {clear,compact})"]
     REI --> RPIS["resumePartsIncludeSession (empty ⇒ true)"]
-    REI --> BSSO["buildSessionStartOutput<br/>&lt;ctxloom-resumed-session&gt; envelope, cut to AdditionalContextMaxChars"]
-    CRM["clearRecoveryMessage → currentSessionRecoverable"] --> SMSG["systemMessage (textblocks.Join)"]
+    REI --> BSSO["sessionStartContext<br/>&lt;ctxloom-resumed-session&gt; block, cut to codec.ContextLimit()"]
+    CRM["clearRecoveryMessage → currentSessionRecoverable"] --> SMSG["Notice (textblocks.Join)"]
     ASN["agentSetupNudge"] --> SMSG
-    BSSO --> OUT["json.Encoder → stdout (HookOutput)"]
+    BSSO --> OUT["HookResponse → codec.Encode → stdout"]
     SMSG --> OUT
 
-    SP --> PEP["parseEditPayload<br/>wrapped | bare shapes"]
+    SP --> PEP["HookEvent.Path"]
     PEP --> MEM["memory.IsPlanFile / StampPlanFile"]
 
     SB --> EHM["emitHarpMarker"]
@@ -47,34 +51,72 @@ flowchart TD
 
     MD --> DM["drainMail"]
     NS --> CNS["captureNextStep"]
-    SM --> SMO["skillMatesOutput"]
-    TR --> BTRO["buildToolReflectOutput"]
+    SM --> SMO["skillMatesOutput → skillMatesResponse"]
+    TR --> BTRO["toolReflectResponse"]
+
+    FE["firingEngine (--engine → registry)"] --> CODEC["engine.HookCodec"]
+    CODEC -.-> IC & SP & SB & MD & NS & SM & TR
 ```
+
+## The hook codec
+
+`engine.HookCodec` (`internal/core/engine/facts.go`, reached as
+`Engine.Hooks()`) is an engine's whole hook wire in the port's neutral terms:
+
+- `Decode(event, payload)` → `HookEvent{Event, NativeSession, Transcript,
+  Source, Prompt, Tool, ToolInput, ToolResponse, Skill, Path}`. A payload
+  that does not decode is an error, never an empty event.
+- `Encode(event, HookResponse{Context, Notice, Block, Reason})` → the native
+  stdout and exit status. A response the engine has no native form for on
+  that event (context where it carries none, a block it cannot make) is an
+  error.
+- `ContextLimit()` — the most context one answer carries whole (claude: 7,500
+  bytes, under its ~10,000-character preview cap; 0 = none).
+- `InvokedSkill(tool, input)` — which skill a native tool call ran, for a
+  hook payload and a transcript's tool_use record alike.
+
+claude's codec is `internal/engines/claude/hookcodec.go`; the mock's is its
+own (`internal/engines/mock/hooks.go`) and writes no other engine's shape.
+
+**How a verb knows its engine.** The engine a hook was delivered to is known
+at setup, so it is written there: every hooks approach binds the unified set
+to its engine with `agent.BindHooks`, which appends `--engine <name>` to every
+ctxloom callback (`ctxloom hook <verb> ...`). The verb resolves that name
+through the registry (`firingEngine`, `hook_codec.go`) and refuses without
+one. A hook installed before this existed carries no `--engine` and is
+refused; re-delivering the hooks (relaunching, or `ctxloom manage hooks
+install`) writes it.
+
+**Tool classes.** A hook narrowed to a kind of tool names a neutral class,
+`wire.Hook.Tool` (`shell`, `file_edit`, `skill`), never an engine's tool
+name. `agent.BindHooks` maps the class to the engine's native matcher
+(claude: `Bash`, `Edit|Write`, `Skill`; the mock's tools ARE the classes),
+and the same map gives claude's `pre_shell` / `post_file_edit` routes their
+default matchers. The skill-mates hook is narrowed this way.
 
 ## `hook session-start` — the resumed essence and the session-start notices
 
-ctxloom's one SessionStart callback, registered unconditionally among
-ctxloom's own hooks (`managedhooks.appendManagedDynamicHooks`) with no
-arguments. It writes a `HookOutput` JSON envelope on stdout. `HookOutput` and
-`HookSpecificOutput` are type aliases onto the claude engine's hook output
-types, so the wire shape has one owner. It **never** carries the project's
-context.
+ctxloom's one session_start callback, registered unconditionally among
+ctxloom's own hooks (`managedhooks.appendManagedDynamicHooks`). It answers
+with a `HookResponse`, encoded by the firing engine's codec. It **never**
+carries the project's context. A payload it cannot read fails the hook
+(non-zero exit).
 
 - `resumedEssenceForInjection` — reads the resumed harp's essence, driven by
   `CTXLOOM_RESUMED_FROM` / `CTXLOOM_RESUMED_PARTS` (set by `ctxloom run
   --session <harp> --compact`). `shouldInjectResumedEssence` is the policy:
-  skip when the SessionStart source is `clear` or `compact`.
+  skip when the session_start source (`engine.SessionSource*`) is `clear` or
+  `compact`.
   `resumePartsIncludeSession` is CSV membership where **empty means true**.
-- `buildSessionStartOutput` — frames the essence as `additionalContext` in a
-  `<ctxloom-resumed-session>` block. Claude Code shows the model only a short
-  preview of a hook's `additionalContext` past ~10,000 characters, so the body
-  is held to `claude.AdditionalContextMaxChars` (7,500). A longer essence is
-  cut, not dropped: the model gets what fits, then a pointer to the essence
-  file (`essencePathOf`) and to `/recover`.
+- `sessionStartContext` — frames the essence as the response's `Context` in a
+  `<ctxloom-resumed-session>` block, held under the firing engine's
+  `ContextLimit()`. A longer essence is cut, not dropped: the model gets what
+  fits, then a pointer to the essence file (`essencePathOf`) and to
+  `/recover`.
 - `clearRecoveryMessage` — the post-`/clear` `/recover` notice, gated by
   `currentSessionRecoverable`. `agentSetupNudge` — the "profiles but no agents"
-  nudge. Both are user-facing, so they ride `systemMessage`, joined when both
-  fire.
+  nudge. Both are user-facing, so they ride the response's `Notice` (claude's
+  `systemMessage`), joined when both fire.
 
 ## `hook hud` — the statusline
 
@@ -92,27 +134,35 @@ fault-tolerant HUD.
 
 ## `hook stamp-plan` — plan frontmatter
 
-A PostToolUse callback. `parseEditPayload` extracts the edited file path from
-the tool-input payload (wrapped or bare `file_path`), then
-`memory.IsPlanFile`/`StampPlanFile` stamp the harp into a `*.plan.md`'s
-frontmatter. Gated on a non-empty `CTXLOOM_SESSION_HARP`.
+A post_file_edit callback. The firing engine's codec names the edited file
+(`HookEvent.Path`; claude: `tool_input.file_path`, or `notebook_path` for
+NotebookEdit), then `memory.IsPlanFile`/`StampPlanFile` stamp the harp into a
+`*.plan.md`'s frontmatter. Gated on a non-empty `CTXLOOM_SESSION_HARP`;
+warn-and-continue, since a failing hook would interrupt the edit.
 
 ## `hook session-bind` — harp ↔ session id
 
-Runs at SessionStart. Two jobs: `emitHarpMarker` writes the index-independent
-harp self-id marker into the transcript via additional context, and
-`bindSessionFromPayload` decodes the engine's SessionStart payload and calls
-`operations.BindSession` so the harp and the engine's own session id are
-linked. Without that binding a later compaction cannot find the transcript.
+Runs at session_start. Two jobs: `emitHarpMarker` writes the
+index-independent harp self-id marker into the transcript as context, and
+`bindSessionFromPayload` decodes the session_start payload through the codec
+and calls `operations.BindSession` so the harp and the engine's own session id
+are linked. Without that binding a later compaction cannot find the
+transcript, so a payload that does not decode, or a bind the index refuses,
+is an error the hook exits non-zero on (the marker is already written).
 
 ## The turn-lifecycle hooks
 
 `mail-drain` hands the session owner its pending mail as the starting turn's
 context (`drainMail`); `next-step` captures what the agent was about to do
-next at TurnEnd (`captureNextStep`); `skill-mates` names a completed skill's
-link-group mates the session has not invoked (`skillMatesOutput`);
+next at turn_end (`captureNextStep`); `skill-mates` names a completed skill's
+link-group mates the session has not invoked (`skillMatesOutput`: the skill
+comes from `HookEvent.Skill`, "already invoked" from the transcript through
+`InvokedSkill`, and the delivered skill set from the FIRING engine's exports);
 `tool-reflect` prompts for a finding after a large tool result
-(`buildToolReflectOutput`). Each follows the same never-fail contract.
+(`toolReflectResponse`). Each exits 0 — a failing turn_start, turn_end or
+post_tool hook would cost the human's prompt or the tool call — and names
+every reason it did nothing on the diagnostic channel, an undecodable payload
+included.
 
 `mail-drain` claims a spool only for the session OWNER's engine: the launch
 marks that engine alone with `CTXLOOM_SESSION_OWNER` (`sessions.EnvSessionOwner`,
@@ -125,10 +175,15 @@ its mail is its runner's to deliver.
 
 ## Invariants
 
-- **A hook never fails the host tool call.** Every failure path warns via
-  `clidiag` and returns nil. `runHookSessionStart` additionally installs a
-  deferred `recover()` that prints `{}` on panic and still exits non-zero, so
-  a crash is not mistaken for "nothing to deliver".
+- **No hook verb names an engine.** Each resolves the firing engine from
+  `--engine` through the registry and speaks only through its codec;
+  `tests/arch`'s engine-identity gate holds that `internal/adapters/cli`
+  imports no engine package.
+- **A failing hook fails where the failure is the truth, and only there.**
+  The turn_start, turn_end and post_tool verbs warn via `clidiag` and exit 0;
+  session-start and session-bind exit non-zero on a payload they cannot read.
+  `runHookSessionStart`'s deferred `recover()` exits non-zero on a panic and
+  writes no answer, so a crash is not mistaken for "nothing to deliver".
 - **No hook delivers the project's context.** The assembled context reaches a
   claude session once, as its system prompt. `hook session-start` delivering
   it too would double it, so it reads no context cache and takes no hash.

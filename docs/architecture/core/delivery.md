@@ -118,8 +118,14 @@ materialized tree must be readable with ctxloom out of the loop).
 
 The mock kind delivers its hook file and its turn READS it back: a
 `pre_tool` hook delivered as a static item fires when the turn runs a tool,
-with the mock's payload on the hook's stdin, decoded by `Engine.Hooks()` —
-`TestMock_ADeliveredPreToolHookFires_WhenTheTurnRunsATool`. Claude's half
+with the mock's own payload on the hook's stdin, decoded by `Engine.Hooks()` —
+`TestMock_ADeliveredPreToolHookFires_WhenTheTurnRunsATool`. Every hooks
+approach binds the set to its engine as it delivers it (`agent.BindHooks`):
+ctxloom's callbacks gain `--engine <name>` and a hook narrowed to a neutral
+tool class gets the engine's matcher, so the verbs read the firing engine's
+wire through its codec ([hooks](../cli/hooks.md#the-hook-codec)). The mock's
+hook file leaves out the events a double declares lost
+(`TestMock_TheLossyDoublesHookFileOmitsItsDeclaredLosses`). Claude's half
 is the registration/decode round trip
 (`TestHooks_ADeliveredPreToolHook_RoundTripsThroughTheCodec`); that claude
 itself runs the registered command is claude's contract, not provable

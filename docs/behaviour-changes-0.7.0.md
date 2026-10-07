@@ -299,9 +299,12 @@ that `ctxloom run` launches. The hook no longer carries it:
   where this machine's ctxloom recorded installing them. An entry written by
   0.6, or by ctxloom on another machine and committed with the file, stays.
   Claude runs each one at every session start, and each one fails with
-  `unknown command "inject-context"`. Delete every SessionStart entry whose
-  command contains `hook inject-context` from `.claude/settings.json` by
-  hand.
+  `unknown command "inject-context"`. `ctxloom doctor` reports every such
+  entry (`DOCTOR-CHECK-STALE-HOOKS-n5`: the file, the event and the verb),
+  in the project's and in your user settings file. `ctxloom doctor --fix`
+  removes them and leaves everything else in the file as it was. The check
+  is general: it flags any hook entry that runs a `ctxloom hook` subcommand
+  this ctxloom does not have, not only `inject-context`.
 
 ## 13. Everything else marked breaking
 

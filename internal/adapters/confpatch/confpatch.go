@@ -427,9 +427,9 @@ func (r *applyRun) proveReversal(restored, after, reversal []byte) error {
 	//     permutes it, and the reversal brings the content back
 	//     without the position.
 	//  2. STYLE. hew's applier re-renders a container it edited in
-	//     its own layout rather than the document's. Observed
-	//     against claude.ClaudeCodeHookWriter.applyMCP: a member
-	//     patch under /mcpServers/<name> comes back with identical
+	//     its own layout rather than the document's. A member
+	//     patch under /mcpServers/<name> (what claude.MCPRegistrar
+	//     writes) comes back with identical
 	//     keys in identical order, collapsed from the document's
 	//     indented form onto ONE line.
 	//

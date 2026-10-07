@@ -303,9 +303,9 @@ func (w *ClaudeCodeHookWriter) desiredMCPServers(bundleMCP map[string]wire.MCPSe
 
 // applyMCPServers is the one write into a "mcpServers" table: it puts desired
 // there through store, taking back out what the store's writer put there last
-// time, and records what it wrote. Both of this package's writers — ctxloom's
-// own hook writer and taskloom's registrar — go through it, so the two never
-// disagree about how the table is patched.
+// time, and records what it wrote. Its caller is taskloom's MCPRegistrar.
+// ctxloom's own servers never come through here: they are delivery claims
+// (mcpClaims), applied by the static writer.
 //
 // owned names the servers the caller manages, so an entry the caller itself
 // wrote that no record covers is taken back out rather than replaced in place

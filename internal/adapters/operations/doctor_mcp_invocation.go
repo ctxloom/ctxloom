@@ -131,15 +131,25 @@ func scanMCPInvocations(reg engine.Registry, projectDir string) (stale, unreadab
 // engine moves its table. Only the file's ENCODING is dispatched on, which
 // is the one thing the shapes genuinely disagree about.
 func mcpSurfaceLaunchesCtxloom(rel string, data []byte) (bool, error) {
+	root, err := decodeSurface(rel, data)
+	if err != nil {
+		return false, err
+	}
+	return walkForCtxloomMCPLaunch(root), nil
+}
+
+// decodeSurface decodes an engine-native config file by the one thing its
+// shapes genuinely disagree about, the encoding its name declares.
+func decodeSurface(rel string, data []byte) (map[string]any, error) {
 	var root map[string]any
 	decode := json.Unmarshal
 	if strings.EqualFold(filepath.Ext(rel), ".toml") {
 		decode = toml.Unmarshal
 	}
 	if err := decode(data, &root); err != nil {
-		return false, err
+		return nil, err
 	}
-	return walkForCtxloomMCPLaunch(root), nil
+	return root, nil
 }
 
 // walkForCtxloomMCPLaunch descends any decoded registry looking for a server

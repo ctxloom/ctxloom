@@ -57,7 +57,7 @@ func writeManagedPackageFilesLocked[T any](
 	render func(T) ([]PackageFile, error),
 	opts ...ManagedWriteOption,
 ) error {
-	o := &managedWriteOptions{rename: safefs.Rename}
+	o := &managedWriteOptions{}
 	for _, opt := range opts {
 		opt(o)
 	}
@@ -231,11 +231,10 @@ func writeManagedPackageFilesLocked[T any](
 	// PHASE 3 — swap; see swapIntoPlace. A failure stops here WITHOUT running
 	// phase 4's stale-cleanup or writing the ledger, so the ledger never
 	// claims ownership of a state that was not actually reached.
-	if err := swapIntoPlace(o, fs, dir, tempDir, written); err != nil {
+	if err := swapIntoPlace(fs, dir, tempDir, written); err != nil {
 		return err
 	}
-	// swapIntoPlace moved every rendered file that differed from live; this
-	// RemoveAll drops the identical copies it left behind and the temp
+	// swapIntoPlace moved every rendered file; this RemoveAll drops the temp
 	// subdirectories (mirroring pruneEmptyDirs' role for dir itself). The deferred
 	// cleanup above would do the same on any earlier return; skip it here only
 	// to avoid a second, redundant walk on the success path.
@@ -281,18 +280,20 @@ func writeManagedPackageFilesLocked[T any](
 }
 
 // swapIntoPlace moves each rendered temp file into dir at its final path with
-// ONE rename — a substitution, never an unlink-then-create — EXCEPT where the
-// live file is already identical to the rendered one (see liveFileMatches),
-// which is left untouched.
+// ONE rename — a substitution, never an unlink-then-create.
 //
-// The skip is a correctness property, not an optimisation. A replace is only
-// atomic for a concurrent reader where rename(2) is: on Windows os.Rename is
-// MoveFileEx(MOVEFILE_REPLACE_EXISTING), and a reader looking the path up
-// while it runs can find it missing or be refused. Re-delivering an unchanged
-// package — every session start — therefore must not replace anything (see
-// TestWriteManagedPackageFiles_RedeliveryNeverReplacesAnUnchangedLiveFile).
-// A file whose content or mode really changed still goes through that
-// replace, so on Windows it alone carries a brief window.
+// EVERY rendered file is moved, including one whose live copy is already
+// identical. Under the static writer (fsstatic) this tree is an overlay, and
+// a file the approach writes is the ONLY way it claims that file: the writer
+// releases its previous delivery's claims and stages a claim for each file
+// written, so a file left unwritten because it already matched is released
+// and removed at commit while this surface's ledger still lists it — the
+// file then reappears on the next delivery, and vanishes on the one after.
+// The guarantee that an unchanged redelivery replaces nothing (on Windows a
+// replace is MoveFileEx(MOVEFILE_REPLACE_EXISTING), a window in which a
+// reader can find the file missing) belongs to the layer that writes to
+// disk: safefs.Batch lands no file whose bytes are unchanged. See
+// TestDeliver_RedeliveringAnUnchangedLedgeredTreeKeepsEveryFile.
 //
 // Files are swapped one by one, so between the first rename and the last a
 // reader can see a MIX of old and new versions across different files of one
@@ -300,50 +301,17 @@ func writeManagedPackageFilesLocked[T any](
 // surfaces may share one native directory, and hand-authored files can sit
 // beside managed ones — so a directory-level swap would evict both. A rename
 // failure stops the loop: what already swapped stays new, the rest stays old.
-func swapIntoPlace(o *managedWriteOptions, fs afero.Fs, dir, tempDir string, written []string) error {
+func swapIntoPlace(fs afero.Fs, dir, tempDir string, written []string) error {
 	for _, relPath := range written {
 		dst := filepath.Join(dir, relPath)
-		src := filepath.Join(tempDir, relPath)
-		if liveFileMatches(fs, src, dst) {
-			continue
-		}
 		if err := fs.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 			return fmt.Errorf("write managed package files %s: create %s: %w", dir, filepath.Dir(dst), err)
 		}
-		if err := o.rename(fs, src, dst); err != nil {
+		if err := safefs.Rename(fs, filepath.Join(tempDir, relPath), dst); err != nil {
 			return fmt.Errorf("write managed package files %s: swap %s into place: %w", dir, relPath, err)
 		}
 	}
 	return nil
-}
-
-// liveFileMatches reports whether dst is already a regular file with the same
-// mode and bytes as the rendered src. Both modes are read back from the same
-// filesystem rather than compared against the requested PackageFile.Mode, so
-// a platform that cannot represent the requested bits (Windows) still compares
-// like with like. Any error answers false: the caller then replaces, which is
-// always correct.
-func liveFileMatches(fs afero.Fs, src, dst string) bool {
-	var live os.FileInfo
-	var err error
-	if l, ok := fs.(afero.Lstater); ok {
-		live, _, err = l.LstatIfPossible(dst)
-	} else {
-		live, err = fs.Stat(dst)
-	}
-	if err != nil || !live.Mode().IsRegular() {
-		return false
-	}
-	rendered, err := fs.Stat(src)
-	if err != nil || rendered.Mode() != live.Mode() || rendered.Size() != live.Size() {
-		return false
-	}
-	want, err := afero.ReadFile(fs, src)
-	if err != nil {
-		return false
-	}
-	have, err := afero.ReadFile(fs, dst)
-	return err == nil && bytes.Equal(want, have)
 }
 
 // WriteManagedPackageFiles is the manifest-scoped TREE writer shared by every
@@ -367,8 +335,9 @@ func liveFileMatches(fs afero.Fs, src, dst string) bool {
 // and path-validated ENTIRELY OFF the live tree first (nothing under dir is
 // touched); the complete new file set is then written into a temp sibling of
 // dir and, once fully materialized there, moved into place file-by-file by
-// rename, leaving any live file that is already identical untouched (see
-// swapIntoPlace for what a concurrent reader can and cannot observe). Only after every new file is safely live are the
+// rename (see swapIntoPlace for what a concurrent reader can and cannot
+// observe, and why a live file that is already identical is moved too).
+// Only after every new file is safely live are the
 // now-unwanted previously-tracked files (an item that got disabled) removed.
 // This ordering — validate, render, swap, THEN clean up stale entries — is
 // the fix for the historical bug: the old writer deleted this surface's
@@ -376,8 +345,7 @@ func liveFileMatches(fs afero.Fs, src, dst string) bool {
 // between the two left the surface gutted while still reporting success (the
 // project's signature silent no-op), and even on the happy path a concurrent
 // reader could observe a file the ledger still claims as gone. See
-// packagefiles_race_test.go and packagefiles_swap_test.go for the tests this
-// ordering exists to pass.
+// packagefiles_swap_test.go for the tests this ordering exists to pass.
 //
 // An item's files are validated (path-safety) as a whole BEFORE any of them is
 // written, so a single unsafe path in a multi-file package skips the WHOLE

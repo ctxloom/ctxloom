@@ -77,6 +77,11 @@ type Locks interface {
 	// lock file but NEVER its directory: a directory removed under a
 	// claimant is fs.ErrNotExist, which is how the claimant learns of it.
 	TryLock(ctx context.Context, path string) (Lock, error)
+	// TryLockExisting is TryLock on a lock file that must already exist: it
+	// creates nothing, and a missing file is fs.ErrNotExist (however done
+	// ctx is), never ErrLockHeld. A prober that must not leave behind a lock
+	// file it created takes this.
+	TryLockExisting(ctx context.Context, path string) (Lock, error)
 	// Held probes whether some taker holds path's lock, shared or exclusive,
 	// without taking it for longer than the probe and without creating
 	// anything. A lock file that does not exist is not held.

@@ -81,16 +81,30 @@ func takeOSLock(path string, take func(kernelLock) error) (Lock, error) {
 }
 
 func (osLocks) TryLock(ctx context.Context, path string) (Lock, error) {
+	return tryOSLock(ctx, path, true)
+}
+
+func (osLocks) TryLockExisting(ctx context.Context, path string) (Lock, error) {
+	return tryOSLock(ctx, path, false)
+}
+
+// tryOSLock is TryLock and TryLockExisting; create says whether a missing
+// lock file is created. Only the wait running out is ErrLockHeld: a failure
+// to open or lock is returned as itself, however done ctx is.
+func tryOSLock(ctx context.Context, path string, create bool) (Lock, error) {
 	if err := refuseNonRegular(path); err != nil {
 		return nil, err
 	}
-	fl := newKernelLock(path, true)
+	fl := newKernelLock(path, create)
 	got, err := fl.TryLock()
 	if err == nil && !got && ctx.Err() == nil {
 		got, err = fl.TryLockContext(ctx, tryLockRetry)
+		if err != nil && errors.Is(err, ctx.Err()) {
+			err = nil
+		}
 	}
 	switch {
-	case err != nil && ctx.Err() == nil:
+	case err != nil:
 		_ = fl.Close()
 		return nil, fmt.Errorf("safefs: lock %s: %w", path, err)
 	case !got:
@@ -144,8 +158,9 @@ func (l osLock) Unlock() error { return l.fl.Close() }
 
 // refuseNonRegular vets a lock path before it is opened: a path that exists
 // as anything but a regular file is ErrNotRegularFile; a missing file is
-// fine (a taker creates it) but a missing DIRECTORY is its stat error,
-// fs.ErrNotExist, since nothing here creates one.
+// left to the open (TryLock creates it, TryLockExisting fails on it) but a
+// missing DIRECTORY is its stat error, fs.ErrNotExist, since nothing here
+// creates one.
 func refuseNonRegular(path string) error {
 	info, err := os.Stat(path)
 	switch {

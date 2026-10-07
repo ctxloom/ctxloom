@@ -82,10 +82,11 @@ own (`internal/engines/mock/hooks.go`) and writes no other engine's shape.
 at setup, so it is written there: every hooks approach binds the unified set
 to its engine with `agent.BindHooks`, which appends `--engine <name>` to every
 ctxloom callback (`ctxloom hook <verb> ...`). The verb resolves that name
-through the registry (`firingEngine`, `hook_codec.go`) and refuses without
-one. A hook installed before this existed carries no `--engine` and is
-refused; re-delivering the hooks (relaunching, or `ctxloom manage hooks
-install`) writes it.
+through the registry (`firingEngine`, `hook_codec.go`). An entry with no
+`--engine` — installed before this existed, or written by hand — is the
+registry's default engine (`Registry.Default`, the same setup-level default
+`profile materialize` uses), never a name written in the verb. An explicit
+`--engine` naming no registered engine is refused (`UnknownHookEngineError`).
 
 **Tool classes.** A hook narrowed to a kind of tool names a neutral class,
 `wire.Hook.Tool` (`shell`, `file_edit`, `skill`), never an engine's tool
@@ -176,7 +177,8 @@ its mail is its runner's to deliver.
 ## Invariants
 
 - **No hook verb names an engine.** Each resolves the firing engine from
-  `--engine` through the registry and speaks only through its codec;
+  `--engine` (or, absent, the registry's default) through the registry and
+  speaks only through its codec;
   `tests/arch`'s engine-identity gate holds that `internal/adapters/cli`
   imports no engine package.
 - **A failing hook fails where the failure is the truth, and only there.**

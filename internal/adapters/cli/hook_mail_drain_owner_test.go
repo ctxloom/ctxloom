@@ -74,11 +74,11 @@ func TestSwitches_ConsumeTheSessionOwnerMarker(t *testing.T) {
 	assert.True(t, sessionOwnerEnv(), "but it remembers that it was the owner's")
 }
 
-// TestHookMailDrain_WithoutAFiringEngineClaimsNothing: a mail-drain no hooks
-// approach delivered names no engine, so nothing says how to answer the turn;
-// it claims nothing (the mail waits for a hook that can deliver it) and says
-// why on the diagnostic channel, exiting 0 so the human's prompt still runs.
-func TestHookMailDrain_WithoutAFiringEngineClaimsNothing(t *testing.T) {
+// TestHookMailDrain_AnUnknownEngineClaimsNothing: a mail-drain whose
+// --engine names no registered engine cannot answer the turn, so it claims
+// nothing (the mail waits for a hook that can deliver it) and says why on the
+// diagnostic channel, exiting 0 so the human's prompt still runs.
+func TestHookMailDrain_AnUnknownEngineClaimsNothing(t *testing.T) {
 	testsupport.Isolate(t)
 	t.Setenv(sessions.EnvHarp, mailDrainOwner)
 	withSessionOwnerEnv(t, true)
@@ -87,9 +87,9 @@ func TestHookMailDrain_WithoutAFiringEngineClaimsNothing(t *testing.T) {
 	t.Cleanup(clidiag.SetSink(&diag))
 
 	var out bytes.Buffer
-	require.NoError(t, runHookMailDrain(mailDrainCmd(&out), nil))
+	require.NoError(t, runHookMailDrain(firedBy(t, mailDrainCmd(&out), "no-such-engine"), nil))
 
 	assert.Empty(t, out.String())
 	assert.Equal(t, []string{name}, spoolNames(t, spool.DirIn), "the message is still waiting")
-	assert.Contains(t, diag.String(), "--engine")
+	assert.Contains(t, diag.String(), "no-such-engine")
 }

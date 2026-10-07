@@ -379,13 +379,11 @@ Grouped by what you would have to change.
 - Every `ctxloom hook <verb>` that reads an engine's payload now takes
   `--engine <name>`, naming the engine that fires it, and reads and answers
   through that engine's codec. ctxloom writes the flag itself when it
-  delivers its hooks. A hook installed by an earlier ctxloom, or written by
-  hand (`ctxloom hook stamp-plan` in your own `.claude/settings.json`), has
-  no `--engine` and is refused: `session-start` and `session-bind` exit
-  non-zero, so claude shows the hook as failed; the others say why on stderr
-  and do nothing. Re-deliver the hooks (relaunch the session, or run
-  `ctxloom manage hooks install`), or add `--engine claude-code` to a
-  hand-written one.
+  delivers its hooks. A hook entry without it — installed by an earlier
+  ctxloom, or written by hand (`ctxloom hook stamp-plan` in your own
+  `.claude/settings.json`) — keeps working: it is read as the default
+  engine's hook (claude-code), which is what every such entry was. An
+  `--engine` naming an engine ctxloom does not know is refused.
 - `ctxloom hook session-bind` and `hook session-start` used to exit 0 on a
   payload they could not parse, so a session could go its whole life
   unbound with nothing failing. They now exit non-zero.

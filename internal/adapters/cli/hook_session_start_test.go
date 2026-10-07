@@ -14,8 +14,10 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
@@ -83,14 +85,52 @@ func TestHookSessionStart_AnUndecodablePayloadFails(t *testing.T) {
 	assert.Empty(t, out.String())
 }
 
-// TestHookSessionStart_RefusesWithoutAFiringEngine: a session-start no hooks
-// approach delivered names no engine, so nothing says whose payload it reads.
-func TestHookSessionStart_RefusesWithoutAFiringEngine(t *testing.T) {
+// TestFiringEngine_WithoutAFlagIsTheRegistryDefault: a hook entry with no
+// --engine (written by an earlier ctxloom, or by hand) reads and answers
+// through the registry's default engine's codec — here the default's own
+// payload decodes and the answer is its envelope.
+//
+// MUTATION -- refuse (or pick a non-default engine) when --engine is empty --
+// turns this red.
+func TestFiringEngine_WithoutAFlagIsTheRegistryDefault(t *testing.T) {
+	def, err := App().Engines().Default()
+	require.NoError(t, err)
+	got, err := firingEngine(&cobra.Command{})
+	require.NoError(t, err)
+	assert.Equal(t, def.Root().Name, got.Root().Name)
+
+	var diag bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&diag))
+	var out bytes.Buffer
 	cmd := &cobra.Command{}
+	cmd.SetIn(strings.NewReader("not json"))
+	cmd.SetOut(&out)
+	require.Error(t, hookSessionStartCmd.RunE(cmd, nil), "the default's codec refuses a payload that is not its wire")
+
+	out.Reset()
+	cmd = &cobra.Command{}
+	cmd.SetIn(strings.NewReader(`{"session_id":"s","hook_event_name":"SessionStart","source":"startup"}`))
+	cmd.SetOut(&out)
+	require.NoError(t, hookSessionStartCmd.RunE(cmd, nil))
+	reply, err := def.Hooks().Encode("session_start", engine.HookResponse{})
+	require.NoError(t, err)
+	assert.Equal(t, string(reply.Stdout), out.String(), "the answer is the default engine's empty envelope")
+}
+
+// TestFiringEngine_AnUnknownEngineIsRefused: an EXPLICIT --engine naming no
+// registered engine is refused with a typed error, never rounded to the
+// default.
+//
+// MUTATION -- fall back to the default for an unknown name -- turns this red.
+func TestFiringEngine_AnUnknownEngineIsRefused(t *testing.T) {
+	_, err := firingEngine(firedBy(t, &cobra.Command{}, "no-such-engine"))
+	var unknown *UnknownHookEngineError
+	require.ErrorAs(t, err, &unknown)
+	assert.Equal(t, "no-such-engine", unknown.Name)
+
+	cmd := firedBy(t, &cobra.Command{}, "no-such-engine")
 	cmd.SetIn(strings.NewReader(`{"session_id":"s"}`))
-	err := hookSessionStartCmd.RunE(cmd, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--engine")
+	require.ErrorAs(t, hookSessionStartCmd.RunE(cmd, nil), &unknown)
 }
 
 // presence conditions.

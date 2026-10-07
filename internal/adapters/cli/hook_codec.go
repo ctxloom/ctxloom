@@ -24,21 +24,35 @@ func init() {
 // firingEngine is the engine a hook verb was delivered to, resolved through
 // the registry. Every hook verb that reads a payload or answers one needs it:
 // the payload's shape is that engine's, and only its codec
-// (engine.HookCodec) knows it. A verb invoked without one was not installed
-// by a hooks approach — refused, never guessed.
+// (engine.HookCodec) knows it. A delivered hook names it explicitly
+// (agent.BindHooks writes --engine); an entry without one — written by an
+// earlier ctxloom, or by hand — is the registry's default engine
+// (Registry.Default, the same setup-level default materialize uses). An
+// explicit --engine naming no registered engine is refused
+// (UnknownHookEngineError), never rounded to the default.
 func firingEngine(cmd *cobra.Command) (engine.Engine, error) {
 	var name string
 	if f := cmd.Flag(hookEngineFlagName); f != nil {
 		name = f.Value.String()
 	}
+	reg := App().Engines()
 	if name == "" {
-		return nil, fmt.Errorf("no %s: this hook was not installed by an engine's hooks approach, so nothing says whose payload it reads (re-deliver the hooks: relaunch the session, or `ctxloom manage hooks install`)", agent.HookEngineFlag)
+		return reg.Default()
 	}
-	kind, ok := App().Engines().Lookup(engine.Name(name))
+	kind, ok := reg.Lookup(engine.Name(name))
 	if !ok {
-		return nil, fmt.Errorf("%s %q names no registered engine", agent.HookEngineFlag, name)
+		return nil, &UnknownHookEngineError{Name: name}
 	}
 	return kind, nil
+}
+
+// UnknownHookEngineError refuses a hook verb whose --engine names no
+// registered engine: whose payload it reads is unknown, and guessing would
+// decode one engine's wire with another's codec.
+type UnknownHookEngineError struct{ Name string }
+
+func (e *UnknownHookEngineError) Error() string {
+	return fmt.Sprintf("%s %q names no registered engine", agent.HookEngineFlag, e.Name)
 }
 
 // readHookEvent reads the hook payload on stdin to EOF — closing it early is

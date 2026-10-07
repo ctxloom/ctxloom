@@ -9,20 +9,12 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // SessionHarpEnv is sessions.EnvHarp under this package's established name:
 // the env var carrying ctxloom's per-session harp name. The host sets it on
 // the run env; an engine's Execute reads it to name its session.
 const SessionHarpEnv = sessions.EnvHarp
-
-// ManagedLifecycle folds a host-assembled ManagedConfig into its managed hooks +
-// MCP; the at-rest writers read the merged state (GetHooks/GetMCP) to write
-// each settings/config surface. BaseLifecycle implements it.
-type ManagedLifecycle interface {
-	MergeManaged(rep report.Reporter, m *ManagedConfig, workDir, contextHash string)
-}
 
 // HashedContext is a ContextProvider that exposes the content hash and on-disk
 // path of the context it last provided. BaseContextProvider implements it; the
@@ -35,7 +27,7 @@ type HashedContext interface {
 }
 
 // LaunchBackend is the shared core of a local-CLI launch agent (claude).
-// It owns the capability wiring (lifecycle/context) and the
+// It owns the capability wiring (context) and the
 // generic Execute tail every launch agent shares. A concrete agent embeds
 // it, calls InitLaunch with its constructed capabilities, and implements only
 // the genuinely engine-specific surface: Configure, Execute, and its config's
@@ -43,7 +35,6 @@ type HashedContext interface {
 // package through the static writer before Execute runs.
 type LaunchBackend struct {
 	BaseBackend
-	lifecycle ManagedLifecycle
 	context   HashedContext
 
 	// surfaces is the engine's static Declaration: which approaches it
@@ -66,8 +57,7 @@ type LaunchBackend struct {
 // concrete constructor once the capabilities (which usually close over the
 // concrete backend) have been built. surfaces is the engine's Declaration of
 // the approaches it delivers at launch.
-func (b *LaunchBackend) InitLaunch(lifecycle ManagedLifecycle, ctxProvider HashedContext, surfaces Declaration) {
-	b.lifecycle = lifecycle
+func (b *LaunchBackend) InitLaunch(ctxProvider HashedContext, surfaces Declaration) {
 	b.context = ctxProvider
 	b.surfaces = surfaces
 }

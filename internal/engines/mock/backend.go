@@ -72,7 +72,6 @@ func (m Mock) Backend(agent.Launcher) agent.Backend {
 	b := &Backend{kind: m}
 	b.BaseBackend = agent.NewBaseBackend(string(m.Name), "1.0.0")
 	b.InitLaunch(
-		agent.NewBaseLifecycle(string(m.Name)),
 		agent.NewBaseContextProvider(),
 		m.Declaration(),
 	)

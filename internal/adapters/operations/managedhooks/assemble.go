@@ -83,9 +83,8 @@ func parseSourceRef(source string) (ident.BundleRef, error) {
 // Both writers route through this via operations.AssemblePackage: the
 // `ctxloom run` payload (agent.ManagedConfigFor) and operations.ApplyHooks.
 // The context-injection hook is NOT assembled here: its identity is the
-// context hash only the writer knows, so each appends it itself —
-// BaseLifecycle.MergeManaged from the plugin-side hash, applyHooksToBackend
-// from the regenerated one. A hook one writer assembled and the other did not is
+// context hash only the at-rest writer knows (applyHooksToBackend appends
+// it from the regenerated one). A hook one writer assembled and the other did not is
 // withdrawn by the next delivery of the other. Keeping the full assembly here
 // guarantees both writers produce an identical, complete set.
 //

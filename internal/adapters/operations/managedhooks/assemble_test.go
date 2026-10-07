@@ -12,9 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// These cover the HOST side of the setup seam (config/profile/bundle resolution
-// into the wire-typed ManagedConfig). The agent-side fold (MergeManaged) is
-// covered in the per-agent capabilities tests.
+// These cover the setup seam: config/profile/bundle resolution into the
+// wire-typed ManagedConfig.
 
 // sessionStartCommands returns the SessionStart hook commands in order.
 func sessionStartCommands(h wire.UnifiedHooks) []string {

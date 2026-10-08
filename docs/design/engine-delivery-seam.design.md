@@ -64,7 +64,7 @@ type EngineDelivery interface {
 
 ### Why `content.Form` is the unit
 
-It is what attestation already keys on, so the thing that was signed and the
+It is what the store reads, so the thing read at the pinned commit and the
 thing that lands are the same object rather than two representations that can
 drift.
 
@@ -89,7 +89,7 @@ bytes at a pinned SHA, `MapTreeFS` synthesises directories from paths, a
 companion loadout is a document-backed `Source` over an embedded file map).
 
 But `Components()` is tied to the BUNDLE'S STORAGE LAYOUT, because that is what
-it serves: the digest and `SHA256SUMS` are bundle-relative, so a skill's
+it serves: a store's exact stored bytes, keyed by bundle-relative path, so a skill's
 components are `skills/reviewer/scripts/run.sh`. An engine wants
 `.claude/skills/reviewer/scripts/run.sh` — item-relative `scripts/run.sh` under
 its own root. Handing engines `Components()` makes every one of them strip a
@@ -98,12 +98,12 @@ of error as leaking `Ref`.
 
 | | paths | serves |
 |---|---|---|
-| `Components()` | bundle-relative | digest, SHA256SUMS, signatures |
+| `Components()` | bundle-relative | exact stored bytes, by storage path |
 | `Surface()` | item-relative, named, typed | placement |
 
 `content.SkillFile{Path: "scripts/run.sh", Mode, Bytes}` is already exactly what
 materializing a package needs, exec bit included — and `Mode` is a DECLARED
-mode, not a filesystem bit, which is what keeps the digest platform-independent
+mode, not a filesystem bit, which is what keeps executability platform-independent
 (`unfeeling-decimal` records what happens when the declaration and the
 filesystem disagree).
 
@@ -141,9 +141,9 @@ whether a form was read off disk or produced by substitution. It asks
 
 This is why substitution belongs neither in the content layer nor in the engine:
 
-- **Not content.** A store's job is to yield exactly the authored, attested
-  bytes. A store that substituted would make `Content()` disagree with the
-  digest that was signed.
+- **Not content.** A store's job is to yield exactly the authored bytes at
+  the pinned commit. A store that substituted would make `Content()` disagree
+  with the bytes the lockfile pins.
 - **Not the engine.** Substitution rules are ctxloom's and identical for every
   engine; putting them at delivery duplicates them per engine, which is the
   problem this seam exists to remove.
@@ -156,7 +156,7 @@ what is included — belongs to the process stage:
 
 | processing | where | belongs |
 |---|---|---|
-| trust gating | `bundles.Pipeline` (`deliver` → `bundles.Decide` → the `Filter`) | process ✓ |
+| linked-item gating | `bundles.Pipeline` (`LinkGrant` → withhold) | process ✓ |
 | form selection (raw vs distilled) | `bundles.Pipeline` (`ContentForms.Select`) | process ✓ |
 | profile fragment collection | `collectProfileFragments` (operations) | process ✓ |
 | dedupe | `dedupeFragmentRefs` (operations) | process ✓ |
@@ -180,19 +180,19 @@ exposure alike, and the exposure surfaces are the ones that wrap it in a gated
 pipeline. *One store serves consumers who want different forms*, because the
 form is chosen downstream of the read rather than baked into it.
 
-What the reader keeps is VERIFICATION. A publisher signature is verified at
-load, before any parse, and a skill's on-disk tree is verified against its
-manifest; the verdict travels with the content as a read fact for the process
-stage to decide on. Verification is reading. Withholding is not.
+What the reader keeps is the FACTS the read established (`ItemRef`, `Read`):
+which item, from which bundle, at which locality. They travel with the content
+for the process stage to decide on. Establishing facts is reading. Withholding
+is not.
 
 Naming the stage and giving it one boundary — profiles + stores in, resolved
 ordered forms out — is what turns the engine interface from a refactor into a
 seam.
 
-**Consequence for attestation, worth stating:** a resolved form's bytes are NOT
-the attested bytes. Verification happens on the read side, before processing;
-what reaches the engine has already been gated. A caller must never re-verify a
-resolved form against the manifest and conclude tampering.
+**Consequence worth stating:** a resolved form's bytes are NOT the stored
+bytes. Substitution happens after the read; what reaches the engine has already
+been processed. A caller must never compare a resolved form against the store
+and conclude drift.
 
 ### `targetDir`, never `ProjectDir`
 
@@ -254,7 +254,7 @@ behind J001900's B6.
 
 **Optional, not nullable.** A route that cannot be observed is structurally
 absent from a report rather than forcing every caller to remember a
-"not applicable" case, matching `content.TrustGated`. Rendering an unobservable
+"not applicable" case. Rendering an unobservable
 route as "missing" is a false alarm, and false alarms train users to ignore the
 command.
 

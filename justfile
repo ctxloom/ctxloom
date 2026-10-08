@@ -1460,7 +1460,7 @@ clean-caches HOURS="12":
             -exec rm -rf {} + 2>/dev/null || true
     fi
     gtmp="$(go env GOTMPDIR 2>/dev/null || true)"
-    for d in "$gtmp" "$HOME/.cache/ctxloom-agent-tmp" "$HOME/.cache/goimports"; do
+    for d in "$gtmp" "{{go_tmp}}" "$HOME/.cache/ctxloom-agent-tmp" "$HOME/.cache/goimports"; do
         [ -n "$d" ] && [ -d "$d" ] || continue
         find "$d" -mindepth 1 -maxdepth 1 -mmin "+$mins" -exec chmod -R u+w {} + 2>/dev/null || true
         find "$d" -mindepth 1 -maxdepth 1 -mmin "+$mins" -exec rm -rf {} + 2>/dev/null \
@@ -1999,15 +1999,9 @@ _run +ARGS:
         #
         #
         # ONE SHARED CACHE, DELIBERATELY. Do NOT re-split it per worktree.
-        # Deleting from it is safe ONLY as an age floor of at least 2h on whole
-        # entries, because concurrent builds from different trees read this
-        # cache while others write it, and deleting an entry out from under a
-        # live link fails as
-        #     link: cannot reopen /tmp/.gocache/b8/b8421...-d(_x002.o)
-        # which reads exactly like a compile error in whatever you just
-        # changed, and is not. Sweeping recent entries, a size cap, and
-        # `go clean -cache` mid-build are not safe. `clean-caches` is the one
-        # deleter; do not add another.
+        # Concurrent builds from every tree read it while others write it, so
+        # what may be deleted from it, and when, is decided in ONE place:
+        # `clean-caches`, the one deleter. Do not add another.
         #
         # A per-worktree cache is also unreapable by construction: keyed by a
         # hash of an absolute path, it outlives the tree it belonged to, and

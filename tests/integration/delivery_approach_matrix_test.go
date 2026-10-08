@@ -128,6 +128,13 @@ var declaredNames = []string{
 	"mock/settings/file",
 	"mock/skills/session-file",
 	"mock/skills/file",
+	// opencode offers only its config dir (OPENCODE_CONFIG_DIR, the session
+	// home), one name per kind.
+	"opencode/commands/commands-dir",
+	"opencode/context/agents-file",
+	"opencode/mcp/config-file",
+	"opencode/settings/config-permissions",
+	"opencode/skills/skills-dir",
 }
 
 // TestDeliveryApproach_DeclaredNamesAreExhaustive holds the DERIVED name
@@ -277,6 +284,16 @@ var deliverySpecs = func() map[string]deliverySpec {
 		"claude-code/hooks/project-root":    {wantFile: ".claude/settings.json", wantSlot: slotHookPreTool},
 		"claude-code/commands/project-root": {wantFile: ".claude/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
 		"claude-code/skills/project-root":   {wantFile: ".claude/skills/" + slotSkill + "/SKILL.md", wantSlot: slotSkill},
+		// opencode's session home is its config dir: AGENTS.md, the
+		// opencode.json that carries both the MCP table and the permissions,
+		// the bridge plugin its hooks are spliced into, and the commands and
+		// skills trees opencode loads from there. It offers no project root.
+		"opencode/context/session-home":  {wantFile: "AGENTS.md", wantSlot: slotContext},
+		"opencode/mcp/session-home":      {wantFile: "opencode.json", wantSlot: slotMCPCmd},
+		"opencode/settings/session-home": {wantFile: "opencode.json", wantSlot: slotDeny},
+		"opencode/hooks/session-home":    {wantFile: "plugins/ctxloom.js", wantSlot: slotHookPreTool},
+		"opencode/commands/session-home": {wantFile: "commands/ctxsentinelcmd.md", wantSlot: slotCommand},
+		"opencode/skills/session-home":   {wantFile: "skills/" + slotSkill + "/SKILL.md", wantSlot: slotSkill},
 	}
 	// "No skills" is the absence of a skills EXPORT, not of the surface: the
 	// double carries a skills approach and exports nothing to it, so a
@@ -422,9 +439,17 @@ func TestDeliveryApproach_HookLossesAgreeWithTheExports(t *testing.T) {
 		}
 		sawALoss = sawALoss || len(def.HookLosses) > 0
 		t.Run(name, func(t *testing.T) {
+			// The hook lands beneath a root the engine's hooks approach offers
+			// (opencode offers only its session home).
+			roots := def.Surfaces()[present.Hooks].Traits().Roots
+			require.NotEmpty(t, roots, "%s carries hooks but offers no root for them", name)
 			cell := newMatrixCell(t)
-			require.NoError(t, deliverOne(t, eng, present.Hooks, present.RootProjectRoot, cell.paths))
-			assert.NotEmpty(t, findSentinel(matrixTree(t, cell.project), slotHookPreTool), "%s carries pre_tool, so its hook must land", name)
+			require.NoError(t, deliverOne(t, eng, present.Hooks, roots[0], cell.paths))
+			at := cell.project
+			if roots[0] == present.RootSessionHome {
+				at = cell.home
+			}
+			assert.NotEmpty(t, findSentinel(matrixTree(t, at), slotHookPreTool), "%s carries pre_tool, so its hook must land", name)
 
 			exports, err := eng.Exports(matrixPackage(t).EngineItems(def.Name))
 			require.NoError(t, err)

@@ -160,9 +160,20 @@ func startExitRun(t *testing.T, runtimeName, image string, ownerLossWindow time.
 		}
 	})
 
+	requireImageInStore(t, runtimeName, bin, image)
 	out, err := c.AgentRun(context.Background(), coord.OwnerIdentity(), directAgentName, "exit-path seed", "", "")
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return len(sp.containerNames()) > 0 }, 30*time.Second, 50*time.Millisecond)
+	// A launch the spawn refuses (an image the runtime cannot run, a
+	// shared-filesystem probe that did not finish) ENDS the run with no
+	// container: done waiting the moment the run has ended, and fail naming
+	// the runtime and the coordinator's own reason, never a bare timeout.
+	waitFor(30*time.Second, func() bool {
+		return len(sp.containerNames()) > 0 || rosterState(c, out.Harp) == coord.StateEnded
+	})
+	if len(sp.containerNames()) == 0 {
+		t.Fatalf("the child's %s spawn never started a container (run %s); coordinator findings:\n%s",
+			runtimeName, rosterState(c, out.Harp), logs.String())
+	}
 	name := sp.containerNames()[0]
 	require.Eventually(t, func() bool { return len(dockergate.ContainersNamed(t, bin, name)) > 0 }, 60*time.Second, 50*time.Millisecond,
 		"the child's container must be created")
@@ -183,6 +194,21 @@ func startExitRun(t *testing.T, runtimeName, image string, ownerLossWindow time.
 	}
 	require.NotEmpty(t, dockergate.ContainersNamed(t, bin, name), "the child's container is up")
 	return exitRun{sp: sp, c: c, harp: out.Harp, container: name, bin: bin}
+}
+
+// requireImageInStore fails t, naming the image and the runtime, when the
+// image a launch will run is missing from the store that runtime reads under
+// THIS test's environment (rootless podman keys its store on the invoking
+// HOME/XDG_DATA_HOME, docker and podman never share one). Without it the
+// launch's image check or shared-filesystem probe fails inside the spawn, and
+// the test sees only a run that never produced a container.
+func requireImageInStore(t *testing.T, runtimeName, bin, image string) {
+	t.Helper()
+	out, err := exec.Command(bin, "image", "inspect", "--format", "{{.Id}}", image).CombinedOutput()
+	if err != nil {
+		t.Fatalf("image %s is not in the %s image store this test launches from (%s image inspect: %v: %s)",
+			image, runtimeName, bin, err, strings.TrimSpace(string(out)))
+	}
 }
 
 func waitFor(within time.Duration, cond func() bool) bool {

@@ -20,11 +20,12 @@ Feature: run — assembling a project's context and handing it to an engine
   A RUN IS EITHER A SESSION OR A SINGLE TURN, and `--one-shot` is how a caller
   says which. The flag names the MODE, not its output: every mode prints, and
   what actually differs is that a one-shot takes one turn and exits. Bare
-  `ctxloom run` is the session — interactive, terminal-owning, and therefore
-  not specifiable here; the pty-driven versions live in the journeys
-  (j000200_setup.feature drives a real interactive launch over a pty).
+  `ctxloom run` is the session — interactive and terminal-owning; the
+  journeys drive it over a pty (j000200_setup.feature), and so does the one
+  opencode scenario at the end, whose scripted engine records what it was
+  launched with and exits.
 
-  EVERY SCENARIO HERE DRIVES THE MOCK ENGINE, never a real one. That is not a
+  EVERY OTHER SCENARIO HERE DRIVES THE MOCK ENGINE, never a real one. That is not a
   compromise — it is what makes the full path OBSERVABLE. The mock records the
   setup payload that actually crossed the launch wire, so a scenario can assert
   what the model RECEIVED rather than that the command exited 0. `the mock
@@ -339,3 +340,19 @@ Feature: run — assembling a project's context and handing it to an engine
       And the mock recorded input contains "FRAGMENT-BODY-testing"
       And the mock recorded input does not contain "DOCTOR-CHECK-STARTUP-FINDINGS"
       And the mock recorded input does not contain "unknown key `runt1me`"
+
+  Rule: An opencode label runs opencode's own TUI on ctxloom's terminal
+
+    # A SCRIPTED opencode (the label's binary_path) stands in for the real
+    # CLI: no model, no network. It records what it was handed and exits, so
+    # the record proves the interactive launch end to end — the TUI's argv
+    # (the prompt a flag, not stdin), a terminal on both ends, the assembled
+    # guidance in the AGENTS.md delivered to its config dir, Alice's own
+    # tui.json carried in beside it (the relocated config would otherwise
+    # drop her theme), and the snapshot default a TUI's /undo needs.
+    @opencode
+    Scenario: An opencode label's run is opencode's TUI on a terminal, with the guidance and Alice's TUI preferences
+      Given Alice has an opencode label served by a scripted opencode TUI, and a fragment of guidance
+      And Alice keeps her own opencode TUI preferences
+      When Alice runs the opencode label interactively with the prompt "hello tui"
+      Then the scripted opencode TUI ran on a terminal with the prompt as a flag, the guidance and Alice's preferences in its config dir

@@ -102,7 +102,7 @@ func TestTransformToClaudeCommand(t *testing.T) {
 // project's .claude/commands — the directory the commands approach targets at
 // the project root.
 func writeProjectCommands(projectDir string, cmds []agent.CommandExport) error {
-	_, err := writeCommandDir(safefs.New(), filepath.Join(projectDir, ConfigDirName, CommandsDirName), cmds)
+	_, err := writeCommandDir(safefs.New(), filepath.Join(projectDir, ConfigDirName, CommandsDirName), cmds, nil)
 	return err
 }
 

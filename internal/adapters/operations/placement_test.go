@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -20,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -224,4 +226,24 @@ func TestDeliver_ASessionShapedPlacementUsesTheSessionHomeBranch(t *testing.T) {
 			require.NotEmpty(t, deliverytest.RelativeFiles(fs, home))
 		})
 	}
+}
+
+// TestDeliver_TheWritersSkipsAreReported (owner ruling 2026-10-07): a
+// command or skill the engine's writers skip is reported on the loadout's
+// sink, never discarded — here a skill claude's constraints refuse (no
+// description) and a command whose name escapes the commands directory.
+func TestDeliver_TheWritersSkipsAreReported(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	kind := lookupEngine(t, "claude-code")
+	pkg := compositetest.Fixture(t, compositetest.WithFragment("hello", "body"), compositetest.WithSkill("nodesc"), compositetest.WithCommand("../escape", "go"))
+	var skipped report.Findings
+	_, _, err := Deliver(context.Background(), safefs.NewMem(fs), kind, pkg, delivery.Loadout{Report: &skipped}, atRestPlacement(placeDir, kind.Root().Name, delivery.AllKinds()))
+	require.NoError(t, err)
+	var texts []string
+	for _, f := range skipped {
+		texts = append(texts, f.Text)
+	}
+	joined := strings.Join(texts, "\n")
+	require.Contains(t, joined, `"nodesc"`, "the refused skill is reported")
+	require.Contains(t, joined, "escape", "the skipped command is reported")
 }

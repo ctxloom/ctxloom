@@ -1078,9 +1078,9 @@ func TestRunSyncPostSteps_Guards(t *testing.T) {
 		lockCalls++
 		return &LockDependenciesResult{}, nil
 	}
-	syncHooksStep = func(context.Context, engine.Registry, ApplyHooksRequest) (*ApplyHooksResult, error) {
+	syncHooksStep = func(context.Context, engine.Registry, *config.Config, MaterializeRequest) (*MaterializeResult, error) {
 		hookCalls++
-		return &ApplyHooksResult{}, nil
+		return &MaterializeResult{}, nil
 	}
 
 	tests := []struct {
@@ -1291,8 +1291,8 @@ remotes:
 func TestRunSyncPostSteps_CarriesAnIncompleteLock(t *testing.T) {
 	origLock, origHooks := syncLockStep, syncHooksStep
 	t.Cleanup(func() { syncLockStep, syncHooksStep = origLock, origHooks })
-	syncHooksStep = func(context.Context, engine.Registry, ApplyHooksRequest) (*ApplyHooksResult, error) {
-		return &ApplyHooksResult{}, nil
+	syncHooksStep = func(context.Context, engine.Registry, *config.Config, MaterializeRequest) (*MaterializeResult, error) {
+		return &MaterializeResult{}, nil
 	}
 	run := func(lock *LockDependenciesResult) *SyncDependenciesResult {
 		syncLockStep = func(context.Context, *config.Config, LockDependenciesRequest) (*LockDependenciesResult, error) {

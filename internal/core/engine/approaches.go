@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -130,8 +131,16 @@ type HooksInputs struct {
 	Ext       map[string]wire.BackendHooks
 }
 
-// CommandsInputs is the command export set.
-type CommandsInputs struct{ Commands []CommandExport }
+// CommandsInputs is the command export set, and where the writer reports a
+// command it skips (an unsafe name, a failed render); nil discards.
+type CommandsInputs struct {
+	Commands []CommandExport
+	Report   report.Sink
+}
 
-// SkillsInputs is the skill export set.
-type SkillsInputs struct{ Skills []SkillExport }
+// SkillsInputs is the skill export set, and where the writer reports a
+// skill it skips or refuses; nil discards.
+type SkillsInputs struct {
+	Skills []SkillExport
+	Report report.Sink
+}

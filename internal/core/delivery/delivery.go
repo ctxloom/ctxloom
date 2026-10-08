@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -193,6 +194,10 @@ type Loadout struct {
 	// for context, the context is written into; "" = the approach's own
 	// file (engine.ContextInputs.File).
 	ContextFile string
+	// Report is where the commands and skills writers report an item they
+	// skip; nil discards. A materialize collects them into its result, a
+	// run reports them through its reporter.
+	Report report.Sink
 }
 
 // Dynamic serves the dynamic kinds on the session's ONE MCP endpoint. The
@@ -272,8 +277,8 @@ func InputsFor(lo Loadout, dynamic engine.DynamicApproach) (Inputs, error) {
 		MCP:      engine.MCPInputs{Servers: servers},
 		Settings: engine.SettingsInputs{DenyTools: pkg.DenyTools, Statusline: pkg.Statusline, ShellTimeout: pkg.ShellTimeout, Exports: lo.Exports},
 		Hooks:    engine.HooksInputs{Hooks: pkg.Hooks.Unified, HookEvent: lo.Exports.HookEvent, Ext: pkg.Hooks.Ext},
-		Commands: engine.CommandsInputs{Commands: lo.Exports.Commands},
-		Skills:   engine.SkillsInputs{Skills: lo.Exports.Skills},
+		Commands: engine.CommandsInputs{Commands: lo.Exports.Commands, Report: lo.Report},
+		Skills:   engine.SkillsInputs{Skills: lo.Exports.Skills, Report: lo.Report},
 	}, nil
 }
 

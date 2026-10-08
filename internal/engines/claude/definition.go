@@ -502,7 +502,7 @@ func (a *commandsApproach) DeliverCommands(start present.Start, root present.Roo
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	placed, err := writeCommandDir(files, p.HostPath, cmds)
+	placed, err := writeCommandDir(files, p.HostPath, cmds, in.Report)
 	if err != nil {
 		return present.Delivered{}, err
 	}
@@ -550,7 +550,11 @@ func (a *skillsApproach) DeliverSkills(start present.Start, root present.RootKin
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	placed, err := agent.WriteManagedSkillPackages(files, p.HostPath, acceptedSkills(skills))
+	var opts []agent.ManagedWriteOption
+	if in.Report != nil {
+		opts = append(opts, agent.WithWriteReporter(in.Report))
+	}
+	placed, err := agent.WriteManagedSkillPackages(files, p.HostPath, acceptedSkills(skills, in.Report), opts...)
 	if err != nil {
 		return present.Delivered{}, err
 	}

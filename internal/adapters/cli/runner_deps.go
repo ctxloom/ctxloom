@@ -47,8 +47,11 @@ func runnerDepsFor(backend agent.Backend, backendName string, host *runner.Engin
 		Locks:      operations.SessionLocks(),
 		Dynamic:    dynamic,
 		Driver:     host,
-		Unsetenv:   os.Unsetenv,
-		Environ:    os.Environ,
+		// Without it every finding the runner reports (a failed sweep, a
+		// writer's skip, materialized context in the project) is dropped.
+		Reporter: App().Reporter,
+		Unsetenv: os.Unsetenv,
+		Environ:  os.Environ,
 		EngineVersion: func(ctx context.Context) (string, error) {
 			return App().ProbeEngineVersion(ctx, backendName)
 		},

@@ -111,10 +111,11 @@ func TestMaterialize_ReleaseAndWriteFailuresSetTheStatus(t *testing.T) {
 	cfg := materializeCfg(t, "STATUS-MARK", "")
 	mem := afero.NewMemMapFs()
 	rw, ro := safefs.NewMem(mem), safefs.NewMem(afero.NewReadOnlyFs(mem))
-	req := MaterializeRequest{Target: "/t", Engines: []string{"mock"}, Surfaces: []SurfaceSpec{{Kind: present.Context}}}
+	target := t.TempDir()
+	req := MaterializeRequest{Target: target, Engines: []string{"mock"}, Surfaces: []SurfaceSpec{{Kind: present.Context}}}
 
 	req.Root = ro
-	require.NoError(t, mem.MkdirAll("/t", 0o755))
+	require.NoError(t, mem.MkdirAll(target, 0o755))
 	failed := materialize(t, cfg, req)
 	assert.Equal(t, MaterializeFailed, failed.Status, "the only engine's write failed")
 	require.Len(t, failed.Errors, 1)
@@ -135,7 +136,7 @@ func TestMaterialize_ReleaseAndWriteFailuresSetTheStatus(t *testing.T) {
 	assert.Equal(t, MaterializeReleased, released.Status)
 	assert.Equal(t, []string{"context"}, released.Engines[0].Released)
 	assert.Empty(t, released.Errors)
-	ok, err := afero.Exists(mem, filepath.Join("/t", mock.ContextFileName))
+	ok, err := afero.Exists(mem, filepath.Join(target, mock.ContextFileName))
 	require.NoError(t, err)
 	assert.False(t, ok, "the context file held only what materialize wrote")
 }
@@ -148,8 +149,9 @@ func TestMaterialize_OneEngineFailingIsPartial(t *testing.T) {
 	mem := afero.NewMemMapFs()
 	mockFile := func(name string) bool { return filepath.Base(name) == mock.ContextFileName }
 	faulty := safefs.NewMem(&failRemoveFs{Fs: &failWriteFs{Fs: mem, fail: mockFile}, fail: mockFile})
-	require.NoError(t, mem.MkdirAll("/t", 0o755))
-	req := MaterializeRequest{Target: "/t", Engines: []string{"mock", "claude-code"}, Surfaces: []SurfaceSpec{{Kind: present.Context}}, Root: faulty}
+	target := t.TempDir()
+	require.NoError(t, mem.MkdirAll(target, 0o755))
+	req := MaterializeRequest{Target: target, Engines: []string{"mock", "claude-code"}, Surfaces: []SurfaceSpec{{Kind: present.Context}}, Root: faulty}
 	partial := func(res *MaterializeResult) {
 		t.Helper()
 		assert.Equal(t, MaterializePartial, res.Status)
@@ -165,7 +167,7 @@ func TestMaterialize_OneEngineFailingIsPartial(t *testing.T) {
 	partial(written)
 	assert.Empty(t, written.Engines[0].Wrote, "the mock's write was refused")
 	assert.Equal(t, []string{"context"}, written.Engines[1].Wrote)
-	b, err := afero.ReadFile(mem, filepath.Join("/t", claude.ContextFileName))
+	b, err := afero.ReadFile(mem, filepath.Join(target, claude.ContextFileName))
 	require.NoError(t, err)
 	assert.Contains(t, string(b), "PARTIAL-MARK")
 

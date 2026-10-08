@@ -58,8 +58,8 @@ func only(plan delivery.Plan, kinds ...present.Kind) delivery.Plan {
 // land under a writer the target never releases.
 func TestDeliver_ATargetWithKindsRefusesAPlanItemOutsideThem(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	project := "/p"
-	rec, err := fsstatic.NewRecords(fs, "/records")
+	project := t.TempDir()
+	rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
 	require.NoError(t, err)
 	pkg, plan, exports, root := kindsFixture(t, project, "hello")
 	target := delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriterFor(root.Name), Kinds: []present.Kind{present.Context}}
@@ -74,8 +74,8 @@ func TestDeliver_ATargetWithKindsRefusesAPlanItemOutsideThem(t *testing.T) {
 // releases only that kind.
 func TestDeliver_PerKindWritersLeaveUnselectedKindsStanding(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	project := "/p"
-	rec, err := fsstatic.NewRecords(fs, "/records")
+	project := t.TempDir()
+	rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
 	require.NoError(t, err)
 	static := fsstatic.New(safefs.NewMem(fs))
 	pkg, plan, exports, root := kindsFixture(t, project, "first")

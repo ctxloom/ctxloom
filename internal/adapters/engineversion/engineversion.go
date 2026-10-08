@@ -85,8 +85,10 @@ type Command struct {
 	Parse func(output string) (string, error)
 }
 
-// Resolver maps an engine's registry name to the binary that would be launched
-// for it and the Command that asks that binary for its version.
+// Resolver maps an engine's registry name, and the binary a launch names for
+// it (a label's binary_path; empty for the engine's own default), to the path
+// of the binary that would be launched and the Command that asks that binary
+// for its version.
 //
 // It is a function rather than a direct import because the registry read
 // that answers it (operations) imports THIS package for Command — injecting
@@ -96,7 +98,7 @@ type Command struct {
 // determined at all; it should return a *BinaryAbsentError when the engine's
 // binary is simply not installed, since that is the one failure a caller may
 // reasonably treat as ordinary rather than alarming.
-type Resolver func(engine string) (binaryPath string, cmd Command, err error)
+type Resolver func(engine, binary string) (binaryPath string, cmd Command, err error)
 
 // BinaryAbsentError reports that the engine's own CLI could not be found, so
 // there is nothing to ask. Distinguished from the other failures because an
@@ -219,7 +221,15 @@ func NewProber(resolve Resolver) *Prober {
 // package's typed errors and every one of them means "this version could not
 // be determined" — never "here is a reasonable guess".
 func (p *Prober) Probe(ctx context.Context, engine string) (string, error) {
-	binary, cmd, err := p.resolve(engine)
+	return p.ProbeBinary(ctx, engine, "")
+}
+
+// ProbeBinary is Probe at the binary a launch will spawn: binary names it (a
+// path, or a name resolved as the launch resolves it), and empty is the
+// engine's own default, as Probe. A launch that names its binary must be
+// probed at that binary, not at whatever install of the engine PATH finds.
+func (p *Prober) ProbeBinary(ctx context.Context, engine, binary string) (string, error) {
+	binary, cmd, err := p.resolve(engine, binary)
 	if err != nil {
 		return "", err
 	}

@@ -142,6 +142,12 @@ var schemaEnumBindings = []schemaEnumBinding{
 	// $defs/hook/tool: the neutral tool classes a hook narrows by, which
 	// every engine maps to its own tool names (wire.ToolClasses).
 	{path: "$defs/hook/properties/tool", goNames: toolClassNames},
+	// An engine's own session-sharing vocabulary on its label branch, passed
+	// verbatim into the engine's config document; no ctxloom Go type owns it.
+	{
+		path:          "$defs/llmConfig/anyOf/2/properties/share",
+		excludeReason: "an engine's own session-sharing vocabulary, passed verbatim into its config; no ctxloom Go type owns it",
+	},
 	{
 		path:          "$defs/hook/properties/type",
 		excludeReason: "claude-code's own hook-handler type vocabulary, passed through verbatim; no ctxloom Go type owns it",

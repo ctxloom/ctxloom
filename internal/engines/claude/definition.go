@@ -98,6 +98,9 @@ func Build(opts ...Option) (engine.Engine, error) {
 		CLI:          cli,
 		ModelAliases: map[string]string{},
 		ExportSchema: ExportSchema,
+		// Every Claude model ctxloom drives has at least this window; a label
+		// on a larger one (a 1M-context model) declares its own.
+		ContextWindow: DefaultContextWindow,
 		// Reviewed onto StartRun, and a one-shot child resumes by asking
 		// claude to load its own prior session (Instance.Resume).
 		DelegatedChildren: engine.Provide(engine.DelegatedChildren{ResumesByKey: true}),
@@ -120,6 +123,11 @@ func Build(opts ...Option) (engine.Engine, error) {
 
 var _ engine.Engine = Claude{}
 
+// DefaultContextWindow is the context window, in tokens, a claude label has
+// when it declares no `context_window`: the smallest window of the Claude
+// models ctxloom drives.
+const DefaultContextWindow = 200_000
+
 // Declaration is agent.Hosted's: the approach names a binding may select per
 // surface kind (`agent edit --surface`), each kind's default first. A static
 // table: delivery is the typed approaches' (Build), driven by the static
@@ -136,9 +144,7 @@ func (Claude) Declaration() agent.Declaration {
 
 // Backend is agent.Hosted's: a fresh backend over the injected launcher.
 func (c Claude) Backend(launch agent.Launcher) agent.Backend {
-	b := newClaudeCode(c)
-	b.SetLauncher(launch)
-	return b
+	return kit.NewProjectedBackend(c, launch, claudeBackend)
 }
 
 // NewConfig is agent.Hosted's: the zero typed config a labeled entry's body
@@ -204,15 +210,17 @@ func (a *contextApproach) DeliverContext(start present.Start, root present.RootK
 	default:
 		return present.Delivered{}, a.ErrRoot(root)
 	}
-	s := &systemPromptContext{content: string(in.Text), fs: agent.GetFS(fs)}
-	if _, err := s.Deliver(start); err != nil {
-		return present.Delivered{}, err
-	}
-	out := present.Delivered{Presented: s.Present(start)}
-	if s.Path() != "" {
-		out.Files = []string{s.Path()}
-	}
-	return out, nil
+	return systemPrompt.Deliver(a.Approach, start, in.Text, fs)
+}
+
+// systemPrompt is the framed context as claude reads it at the session
+// home: a <hash>.sysprompt.md the context approach owns, named on
+// --append-system-prompt-file. A run without a session home is refused
+// (ErrUnrootedSessionHome), never handed CLAUDE.md instead: that is project
+// memory, a different product behaviour under a different name.
+var systemPrompt = kit.FramedFile{
+	Name:     kit.HashedName(agent.SCMFramedContextSuffix),
+	Announce: func(r present.Rooted) present.Rooted { return r.AnnounceFlag(flagAppendSystemFile) },
 }
 
 // mcpApproach is claude's MCP surface: .mcp.json under the session home
@@ -235,12 +243,11 @@ func (a *mcpApproach) DeliverMCP(start present.Start, root present.RootKind, in 
 	switch root {
 	case present.RootSessionHome:
 		p := r.AnnounceFlag(flagMCPConfig).Build()
-		claims, err := mcpClaims(in.Servers)
+		private := mcpTable
+		private.Empty = map[string]any{}
+		claims, err := private.Claims(in.Servers)
 		if err != nil {
 			return present.Delivered{}, err
-		}
-		if len(claims) == 0 {
-			claims = []present.Claim{{Pointer: present.PointerKey(mcpServersKey), Value: map[string]any{}}}
 		}
 		return present.Delivered{Presented: p, Claims: map[string][]present.Claim{p.HostPath: claims}}, nil
 	case present.RootProjectRoot:
@@ -252,7 +259,7 @@ func (a *mcpApproach) DeliverMCP(start present.Start, root present.RootKind, in 
 		if len(env) > 0 {
 			p.Env = env
 		}
-		claims, err := mcpClaims(bundle)
+		claims, err := mcpTable.Claims(bundle)
 		if err != nil {
 			return present.Delivered{}, err
 		}
@@ -261,20 +268,10 @@ func (a *mcpApproach) DeliverMCP(start present.Start, root present.RootKind, in 
 	return present.Delivered{}, a.ErrRoot(root)
 }
 
-// mcpClaims is each server as a claim on its own entry under mcpServers,
-// spelled as the chat scratch file spells it (desiredMCPServers), through the
-// bundle that shipped it (its provenance stamp, wire.MCPServer.SCM).
-func mcpClaims(servers map[string]wire.MCPServer) ([]present.Claim, error) {
-	desired, err := (&ClaudeCodeHookWriter{}).desiredMCPServers(servers)
-	if err != nil {
-		return nil, err
-	}
-	claims := make([]present.Claim, 0, len(desired))
-	for _, name := range collections.SortedKeys(desired) {
-		claims = append(claims, present.Claim{Pointer: present.PointerKey(mcpServersKey) + present.PointerKey(name), Value: desired[name], Via: servers[name].SCM})
-	}
-	return claims, nil
-}
+// mcpTable is claude's .mcp.json server table: each server as the chat
+// scratch file spells it (mcpEntry), claimed through the bundle that
+// shipped it.
+var mcpTable = kit.MCPTable{Key: mcpServersKey, Entry: mcpEntry}
 
 // deliverSettingsFile claims ctxloom's entries in claude's settings file for
 // the root — the well-known .claude/settings.json under the project root, or
@@ -479,8 +476,12 @@ func (a *commandsApproach) DeliverCommands(start present.Start, root present.Roo
 // under the session home (the user-level directory claude loads alongside a
 // project's), or .claude/skills/<name>/ under the project root when the
 // binding selects it. Only the skills claude will load are written
-// (acceptedSkills).
+// (acceptedSkills: the Agent Skills standard with claude's reserved words).
 type skillsApproach struct{ kit.Approach }
+
+// acceptedSkills is the skills claude will load: the Agent Skills standard,
+// with Anthropic's reserved words.
+var acceptedSkills = kit.AgentSkillRules(EngineName, "anthropic", "claude")
 
 func (a *skillsApproach) DeliverSkills(start present.Start, root present.RootKind, in engine.SkillsInputs, files safefs.Root) (present.Delivered, error) {
 	return kit.DeliverSkills(a.Approach, start, root, SkillsDirName, relSkills, files, in, acceptedSkills, nil)

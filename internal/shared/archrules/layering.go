@@ -63,9 +63,11 @@ var LayeringRules = []LayeringRule{
 		Forbid: []string{"internal/adapters/cli/tui"},
 	},
 	{
+		// The whole engines ring, not one engine: a literal engine path
+		// guarded only that engine, and a new one would pass unseen.
 		Name:   "shared/agent-must-not-import-engine-plugins",
 		From:   []string{"internal/core/agent"},
-		Forbid: []string{"internal/engines/claude"},
+		Forbid: []string{"internal/engines"},
 	},
 	{
 		// The coarse ancestor of the future `cli/<flow> -> operations/<flow>
@@ -81,10 +83,12 @@ var LayeringRules = []LayeringRule{
 	{
 		// operations is the ports-and-adapters core: it reads engines through
 		// engine.Registry and the port, never a concrete engine package, so
-		// backend identity cannot be branched on directly.
+		// backend identity cannot be branched on directly. The prefix is the
+		// whole engines ring (registry root, kit and every engine), so a new
+		// engine is covered with no new row.
 		Name:   "operations-must-not-import-engine-plugins",
 		From:   []string{"internal/adapters/operations"},
-		Forbid: []string{"internal/engines/claude"},
+		Forbid: []string{"internal/engines"},
 	},
 	{
 		// THE DECIDED ARCHITECTURE'S CORE RING: the packages that become
@@ -311,6 +315,7 @@ var LayeringRules = []LayeringRule{
 			"internal/engines -> internal/adapters/transcript/vendorreader/mock":                 "sanctioned: the composition root hands each kind the readers of its own store (Engine.Transcripts)",
 			"internal/engines/claude/engine -> internal/adapters/engineversion":                  "sanctioned: the reading of `claude --version` is the version adapter's parse, handed to the kind by the root (Definition.Version)",
 			"internal/engines/claude/engine -> internal/adapters/transcript/vendorreader/claude": "sanctioned: the composition root hands the kind the readers of its own store (Engine.Transcripts)",
+			"internal/engines/opencode/engine -> internal/adapters/engineversion":                "sanctioned: the reading of `opencode --version` is the version adapter's parse, handed to the kind by the root (Definition.Version)",
 			"internal/engines/claude -> internal/adapters/confpatch":                             "F6: taskloom's MCP registrar (mcp_registrar.go) keeps confpatch's record store; ctxloom's own writes are claims through delivery",
 		},
 	},

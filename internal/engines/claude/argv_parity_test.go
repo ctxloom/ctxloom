@@ -28,8 +28,8 @@ type argvLine struct {
 // here (TestBuildArgs_IsInstanceExec pins the delegation; the launch golden
 // pins the bytes). A request Exec refuses is a broken fixture, so it panics
 // rather than hand a test an empty argv to assert against.
-func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
-	ex, err := b.exec(req)
+func buildArgs(b *ClaudeCode, req *agent.ExecuteRequest) []string {
+	ex, err := b.ExecFor(req)
 	if err != nil {
 		panic(err)
 	}
@@ -72,11 +72,11 @@ func argvMatrix(t *testing.T) []argvLine {
 					req := withSession(backend, &agent.ExecuteRequest{
 						Mode:      mode,
 						Model:     model,
-						Env:       map[string]string{sessionHarpEnv: "perky-same-chevy"},
+						Env:       map[string]string{agent.SessionHarpEnv: "perky-same-chevy"},
 						Prompt:    &agent.Fragment{Content: "reply with PROMPTOK"},
 						Presented: l.presented,
 					}, named.p)
-					args := backend.buildArgs(req)
+					args := buildArgs(backend, req)
 					// ToSlash: the golden is one file for every OS, and the
 					// paths under home are joined with the host's separator.
 					for i, a := range args {

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -124,6 +125,16 @@ type CompactionConfig struct {
 	// existed. A fresh harp has no captured next step, and a compaction that
 	// invented one would steer retention by a guess.
 	TaskHint string
+	// ContextWindow reports the context window, in tokens, of the model the
+	// Run turns go to — the distiller label's neutral `context_window`, else
+	// its engine's declared default. The compaction call's transcript budget
+	// is then min(SinglePassInputTokens, window − reserve), the reserve being
+	// the prompt and the essence the model is asked to write, so a small
+	// window (a 128k LAN model) is never sent more than it holds. A func, not
+	// a number, because the distiller session is resolved lazily (on its
+	// first turn): it is asked only when a compaction call is about to be
+	// made. nil, or a window of 0, is unknown and keeps SinglePassInputTokens.
+	ContextWindow func(ctx context.Context) (int, error)
 	// PromptDir loads every prompt the compactor sends from a directory on
 	// disk (<dir>/<name>.md, see promptText) instead of the binary's embedded
 	// copies, so a
@@ -141,8 +152,8 @@ type CompactionResult struct {
 	// reduction, so a caller can tell a session that fit whole from one whose
 	// oldest content was compressed to fit — InputReduced says which.
 	TotalTokensIn int
-	// InputReduced reports that the rendered transcript exceeded
-	// SinglePassInputTokens and fitToBudget compressed its older content to
+	// InputReduced reports that the rendered transcript exceeded the
+	// compaction budget (inputBudget) and fitToBudget compressed its older content to
 	// fit. The essence is still complete in shape, but early detail was
 	// deterministically thinned before the model ever saw it.
 	InputReduced   bool
@@ -253,15 +264,18 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// is REDUCED to fit (deterministically, oldest content hardest — see
 	// fitToBudget), never split into chunks whose separate summaries are then
 	// merged by a pass that cannot see the source.
-	fitted, reduced := fitToBudget(logText, SinglePassInputTokens)
-	result.InputReduced = reduced
-	if reduced {
-		c.progressf("ctxloom: transcript exceeds the %d-token compaction budget; compressing older content to fit...\n", SinglePassInputTokens)
-	}
-
 	prompt, err := c.compactPrompt()
 	if err != nil {
 		return nil, err
+	}
+	budget, err := c.inputBudget(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+	fitted, reduced := fitToBudget(logText, budget)
+	result.InputReduced = reduced
+	if reduced {
+		c.progressf("ctxloom: transcript exceeds the %d-token compaction budget; compressing older content to fit...\n", budget)
 	}
 
 	c.progressf("ctxloom: compacting session...\n")
@@ -574,6 +588,35 @@ func assembleBody(cleanedBody string, app appendices) string {
 		body += section
 	}
 	return body
+}
+
+// ErrContextWindowTooSmall refuses a compaction whose distiller cannot hold
+// even the prompt and the essence it is asked to write: any transcript at
+// all would overflow its window.
+var ErrContextWindowTooSmall = errors.New("the distiller's context window cannot hold the compaction prompt and essence")
+
+// inputBudget is the transcript budget, in tokens, of the one compaction
+// call: SinglePassInputTokens, or less when the distiller's context window
+// (CompactionConfig.ContextWindow) cannot hold that much beside the call's
+// reserve — the prompt, and the essence it asks for (EssenceMaxChars, read
+// as bytes). An unknown window keeps SinglePassInputTokens; a window no
+// larger than the reserve is ErrContextWindowTooSmall.
+func (c *Compactor) inputBudget(ctx context.Context, prompt string) (int, error) {
+	if c.config.ContextWindow == nil {
+		return SinglePassInputTokens, nil
+	}
+	window, err := c.config.ContextWindow(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if window <= 0 {
+		return SinglePassInputTokens, nil
+	}
+	reserve := tokens.Estimate(prompt) + tokens.EstimateBytes(c.config.EssenceMaxChars)
+	if window <= reserve {
+		return 0, fmt.Errorf("%w: window %d tokens, reserve %d", ErrContextWindowTooSmall, window, reserve)
+	}
+	return min(SinglePassInputTokens, window-reserve), nil
 }
 
 // fitToBudget reduces text to at most budgetTokens, compressing the OLDEST

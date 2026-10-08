@@ -162,9 +162,16 @@ llm:
       model: "claude-opus-4-8"
       binary_path: "/path/to/bin"   # optional
       args: []                      # extra CLI arguments
+      context_window: 1000000       # optional; tokens the model holds (claude-code default: 200000)
   defaults:
     primary: claude-code
 ```
+
+`context_window` is the model's context window in tokens. Any label may set it, whatever its
+`type`. It bounds what ctxloom sends that model in one internal call: compaction hands the
+distiller at most 150,000 tokens of transcript, or less when the distiller's window minus the
+prompt and the essence it writes is smaller. Leave it out for an engine's usual models (the
+engine declares a default); set it for a model whose window differs.
 
 A config entry carries no credentials or environment. The engine reads those
 from the environment ctxloom runs in, so export them in that shell; an `env:`

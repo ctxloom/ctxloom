@@ -10,7 +10,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -23,9 +22,8 @@ import (
 // hosts: the two package transports (the claim store rooted at this
 // process's sessions root — the mounted one inside a container), the ONE
 // static writer over the home-rooted ownership record, the runner MCP
-// standup as the dynamic half, the engine's configure seam over the label
-// body the Launch carries, and the engine host as the driver.
-func runnerDepsFor(backend agent.Backend, backendName string, host *runner.EngineHost, dynamic delivery.Dynamic) (runner.Deps, error) {
+// standup as the dynamic half, and the engine host as the driver.
+func runnerDepsFor(backendName string, host *runner.EngineHost, dynamic delivery.Dynamic) (runner.Deps, error) {
 	ctxHome, err := paths.HomeConfigDir()
 	if err != nil {
 		return runner.Deps{}, fmt.Errorf("runner: sessions root: %w", err)
@@ -52,18 +50,9 @@ func runnerDepsFor(backend agent.Backend, backendName string, host *runner.Engin
 		Reporter: App().Reporter,
 		Unsetenv: os.Unsetenv,
 		Environ:  os.Environ,
-		EngineVersion: func(ctx context.Context) (string, error) {
-			return App().ProbeEngineVersion(ctx, backendName)
+		EngineVersion: func(ctx context.Context, binary string) (string, error) {
+			return App().ProbeEngineVersionAt(ctx, backendName, binary)
 		},
-	}
-	if c, ok := backend.(agent.Configurable); ok {
-		deps.Configure = func(body map[string]any) error {
-			bc, err := operations.DecodeEngineConfig(App().Engines(), backendName, body)
-			if err != nil {
-				return err
-			}
-			return c.Configure(bc)
-		}
 	}
 	return deps, nil
 }

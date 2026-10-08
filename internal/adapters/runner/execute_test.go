@@ -242,7 +242,7 @@ func TestExecute_RefusesAnEngineBelowItsVersionFloor(t *testing.T) {
 			Locks: &launchtest.Locks{},
 			Kind:  floored{mock.New()}, Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 			Static: staticWriter(t), Records: records(t), Driver: drive, Reporter: &findings,
-			EngineVersion: func(context.Context) (string, error) { return tc.installed, nil },
+			EngineVersion: func(context.Context, string) (string, error) { return tc.installed, nil },
 		}, l)
 		if !tc.refused {
 			require.NoError(t, err, tc.installed)
@@ -256,6 +256,62 @@ func TestExecute_RefusesAnEngineBelowItsVersionFloor(t *testing.T) {
 		require.Len(t, fatal, 1, "a fatal finding, not a warning: %v", findings.All())
 		require.Contains(t, fatal[0].Remedy, "2.1.283")
 	}
+}
+
+// TestExecute_ProbesTheBinaryTheLaunchSpawns: the version floor asks the
+// binary the engine's composed Exec will spawn (a label's binary_path, where
+// the engine honours one), never the engine's default name looked up on
+// PATH — a probe of some other install would pass or refuse the wrong
+// binary.
+func TestExecute_ProbesTheBinaryTheLaunchSpawns(t *testing.T) {
+	env := newDeliveryEnv(t)
+	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
+		Identity: env.mint(t, 1, "run-floor-bin"),
+		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
+	})
+	require.NoError(t, err)
+	const labelled = "/opt/engines/labelled-mock"
+	var probed []string
+	drive := &recordingDriver{}
+	_, err = runner.Execute(context.Background(), runner.Deps{
+		Locks: &launchtest.Locks{},
+		Kind:  floored{rebinaried{mock.New(), labelled}}, Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Static: staticWriter(t), Records: records(t), Driver: drive,
+		EngineVersion: func(_ context.Context, binary string) (string, error) {
+			probed = append(probed, binary)
+			return "2.1.283", nil
+		},
+	}, l)
+	require.NoError(t, err)
+	require.Equal(t, []string{labelled}, probed, "the probe asks the binary the turn spawns, once")
+	require.Len(t, drive.turns, 1)
+	require.Equal(t, labelled, drive.turns[0].Exec.Binary)
+}
+
+// rebinaried is the mock kind whose instances spawn binary, as a label's
+// binary_path makes an engine do.
+type rebinaried struct {
+	engine.Engine
+	binary string
+}
+
+func (r rebinaried) Instance(s engine.Session) (engine.Instance, error) {
+	inst, err := r.Engine.Instance(s)
+	if err != nil {
+		return nil, err
+	}
+	return rebinariedInstance{inst, r.binary}, nil
+}
+
+type rebinariedInstance struct {
+	engine.Instance
+	binary string
+}
+
+func (r rebinariedInstance) Exec(p []present.Presentation) (engine.Exec, error) {
+	ex, err := r.Instance.Exec(p)
+	ex.Binary = r.binary
+	return ex, err
 }
 
 // floored is the mock kind declaring a version floor.

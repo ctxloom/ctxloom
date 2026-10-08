@@ -24,7 +24,8 @@ An engine is two halves on one port (`internal/core/engine`):
   (`Engine.Permissions`). `Base` derives every view
   (`Surfaces`, `Carries`, `Static`), decides static-vs-dynamic delegation
   once (`Delegate`), and `Validate`s coherence in the ONE plain constructor
-  each engine package exposes (`claude.Build`, `mock.New`/`mock.Build`).
+  each engine package exposes (`claude.Build`, `opencode.Build`,
+  `mock.New`/`mock.Build`).
   `engines.Build()` composes the kinds into an `engine.Registry` value.
   `core/engine/conformance` asserts the declarative half for every kind;
   each engine package runs it against its own constructor.
@@ -36,7 +37,8 @@ An engine is two halves on one port (`internal/core/engine`):
   `Chat` are projections onto it and the launch golden
   (`engines/claude/testdata/exec_parity.golden`) pins every launch of the
   matrix byte-identical; `Instance.Drivers()` are the engine's native
-  structured drivers (claude: a per-turn stream-json driver assembled from
+  structured drivers (claude: a per-turn stream-json driver, opencode: a
+  per-turn `opencode run --format json` driver, both assembled from
   `kit.ProcessTurn`; empty means
   pty-only and a Structured launch is refused with
   `ErrUnsupported{drive}`); `Instance.Resume(key)` re-attaches a native
@@ -108,19 +110,21 @@ config dialects, renderers, failure tables) stays in each engine.
   answer (the last completion's text), denials joined across completions,
   the engine's own exit status, and `kit.ErrTurnProcessDied` for a process
   that ended with no completion and a failed exit. The engine supplies
-  `Argv`, `WritePrompt` and `NewMapper` (claude: `instance.turnArgv`, its
-  NDJSON user message, `turnStream`).
+  `Argv`, `WritePrompt`, `NewMapper` and optionally `Env`, the turn's own env
+  over the Exec's (claude: `instance.turnArgv`, its NDJSON user message,
+  `turnStream`, no `Env`; opencode: its run argv, the raw prompt, its JSON
+  event mapper, and the turn's posture as `OPENCODE_PERMISSION`).
 - **`kit.ComposeEnv`, `kit.PresentedArgs`**: the Exec composition every
   engine's `Instance.Exec` starts from: home vars at their bound paths then
   each presentation's env in delivery order; each presentation's argv in
   delivery order, with an optional per-presentation refusal (claude's
-  untrusted-repository vetoes). claude and the mock both use them.
+  untrusted-repository vetoes). claude, opencode and the mock use them.
 - **`kit.Approach`**: the name and traits every typed approach embeds, and
   the one rooting rule (`Rooted`): the session-home rel or the project-root
   rel for the root the plan selected, a root the traits do not offer refused
   naming the engine and approach, and, when `Private`, a session home that
-  was never rooted refused (`agent.SessionHomeRooted`). claude's approaches
-  are `Private`; the mock's are not.
+  was never rooted refused (`agent.SessionHomeRooted`). claude's and
+  opencode's approaches are `Private`; the mock's are not.
 - **`kit.AppendedSection`**: the context claimed as a section after a
   well-known file's own text (claude's project `CLAUDE.md`, the mock's
   `MOCK_CONTEXT.md`); the ownership record owns what is appended.
@@ -128,9 +132,32 @@ config dialects, renderers, failure tables) stays in each engine.
   under the rooted directory through the shared writers
   (`agent.WriteManagedCommandFiles`, `agent.WriteManagedSkillPackages`, which
   skip a traversal or absolute name with a warning), every placed file
-  declared. The engine supplies the command renderer (claude: frontmatter +
-  `$N`; the mock: the body verbatim), the skills it accepts (claude:
-  `acceptedSkills`; the mock: all) and an optional announce on its channel.
+  declared. The engine supplies the command renderer (claude and opencode:
+  frontmatter + `$N`; the mock: the body verbatim), the skills it accepts
+  (claude and opencode: `kit.AgentSkillRules`; the mock: all) and an optional
+  announce on its channel.
+- **`kit.FramedFile`**: the framed context (`agent.FrameProjectContext`) as
+  a whole file the approach owns under the session home, written keep-mode
+  and declared; empty context writes and presents nothing. The engine
+  supplies the leaf and the channel (claude: `kit.HashedName(".sysprompt.md")`
+  on `--append-system-prompt-file`; opencode: `kit.FixedName("AGENTS.md")`
+  on `OPENCODE_CONFIG_DIR`).
+- **`kit.MCPTable`**: one engine's MCP server table — its top-level key and a
+  per-server dialect func — claimed per server in name order through the
+  bundle that shipped it, with an optional empty table (claude's private
+  `.mcp.json` must exist; opencode's `/mcp` need not).
+- **`kit.AgentSkillRules`, `kit.CheckAgentSkill`**: the Agent Skills
+  frontmatter standard (name pattern, 64/1024 limits, required fields) with
+  the engine's reserved words as a value (claude: `anthropic`, `claude`;
+  opencode: none), refusing a failing enabled skill loudly.
+- **`kit.ExportDecoder[T]`**: an engine's export block, schema-validated
+  (compiled once) then decoded, a refusal naming the engine.
+- **`kit.ProjectedBackend`**: `agent.Backend` as a projection onto the kind
+  (every argv is `kind.Instance(session).Exec(presented)`) over
+  `agent.LaunchBackend`; the engine supplies `kit.BackendDefaults` (binary,
+  provider, home var, default policy, its typed config's binary/args).
+- **`kit.ResolveDegraded`**: a permission model's `--degraded` fallback to
+  its floor (the mock's and opencode's models).
 
 **The kit rule: a component enters `internal/engines/kit` only when two
 engines use it in the same slice.** A component with one user is that
@@ -140,8 +167,32 @@ engine's name (`tests/arch`'s no-engine-name scan treats kit as a
 non-home). Recorded exception: `kit.ProcessTurn` entered with claude as its
 only user, ahead of the opencode runner that is its second; the owner
 approved that slice (opencode-seams plan, S1) before the rule was written
-down. The mock's driver is in-process and does not spawn, so it is not a
-second user.
+down, and the opencode runner now uses it. The mock's driver is in-process
+and does not spawn, so it is not a second user.
+
+## The opencode kind
+
+`internal/engines/opencode` drives the opencode CLI against an
+OpenAI-compatible endpoint a `type: opencode` label names (opt-in,
+structured only in this release). Everything is delivered into the session
+home H, which `OPENCODE_CONFIG_DIR` names: the framed `AGENTS.md`,
+`opencode.json` claims (`/mcp/<server>`, `/permission/<tool>`, `/$schema`),
+`commands/` and `skills/`. Its home relocates every path opencode reads: the
+four XDG bases are further home vars merged with opencode's own app dir
+owned (`.xdg/data`, ...), `OPENCODE_TEST_HOME` and
+`OPENCODE_TEST_MANAGED_CONFIG_DIR` point at session dirs, and its database
+is native history at `.xdg/data/opencode`, so a resumed child (`run
+--session`) survives the disposable home. `Instance.Exec` composes
+`OPENCODE_CONFIG_CONTENT` from the label (provider, `limit.context` from the
+neutral `context_window`, timeouts, model options, snapshot/title/share) and
+names the endpoint key only by reference; the key itself
+(`CTXLOOM_OPENCODE_API_KEY`) rides the run's credentials (a secret file in a
+container). Its container story installs the pinned release tarball
+(`OPENCODE_CLI_VERSION`) for the machine and libc, checks it against a sha256
+pinned in code per asset, and runs `opencode --version` as the gate; while
+any asset's pin is unverified (empty) `Container` refuses with the reason, so
+a container binding fails at Resolve. Hooks, approvals, wake and trust are
+declared absent or unsupported, each with its reason.
 
 ## Start here
 

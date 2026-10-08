@@ -19,19 +19,25 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/engines/opencode"
+	opencodeengine "github.com/ctxloom/ctxloom/internal/engines/opencode/engine"
 )
 
 // Build composes every shipped engine kind into a Registry: the mock kind
-// with its doubles, and claude — each handed the readers of its own
+// with its doubles, claude and opencode — each handed the readers of its own
 // transcript store here, at the root, because the readers are transcript
-// adapters an engine package must not import; claude its version reading
-// for the same reason (adapters/engineversion).
+// adapters an engine package must not import; claude and opencode their
+// version reading for the same reason (adapters/engineversion).
 func Build() (engine.Registry, error) {
 	c, err := claude.Build(claude.WithTranscripts(claudeengine.Transcripts()...), claude.WithVersion(claudeengine.Version()))
 	if err != nil {
 		return engine.Registry{}, err
 	}
-	return engine.NewRegistry(append(mock.Doubles(mock.WithTranscripts(mockTranscripts()...)), c)...)
+	o, err := opencode.Build(opencode.WithVersion(opencodeengine.Version()))
+	if err != nil {
+		return engine.Registry{}, err
+	}
+	return engine.NewRegistry(append(mock.Doubles(mock.WithTranscripts(mockTranscripts()...)), c, o)...)
 }
 
 // mockTranscripts are the mock's degenerate readers as engine.TranscriptReader

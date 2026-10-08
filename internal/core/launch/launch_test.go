@@ -278,6 +278,59 @@ func TestResolve_Label_Precedence(t *testing.T) {
 	require.Equal(t, "override-model", l.Label.Model, "the caller's model override beats the label's")
 }
 
+// TestResolve_Label_BinaryPathIsTheLabelsBinary: a configured label's
+// binary_path is the Launch's label binary — the one the engine's composed
+// Exec spawns and the version probe asks — and a label naming none leaves
+// it empty, for the engine's own.
+func TestResolve_Label_BinaryPathIsTheLabelsBinary(t *testing.T) {
+	env := launchtest.Deps(t)
+	src := func(label string) launch.Source {
+		return launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Label: label, Mode: engine.Interactive, WorkDir: env.Project}
+	}
+	l, err := launch.Resolve(context.Background(), env.Deps, src("pinned"))
+	require.NoError(t, err)
+	require.Equal(t, launchtest.PinnedBinary, l.Label.Binary, "the label's binary_path is the binary the launch names")
+
+	l, err = launch.Resolve(context.Background(), env.Deps, src("primary"))
+	require.NoError(t, err)
+	require.Empty(t, l.Label.Binary, "a label naming no binary leaves the engine's own")
+}
+
+// TestResolve_Label_ArgsAreTheLabelsArgs: a configured label's args are the
+// Launch's label args — the ones the engine's composed Exec places on its
+// argv — and a label naming none leaves them empty.
+func TestResolve_Label_ArgsAreTheLabelsArgs(t *testing.T) {
+	env := launchtest.Deps(t)
+	src := func(label string) launch.Source {
+		return launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Label: label, Mode: engine.Interactive, WorkDir: env.Project}
+	}
+	l, err := launch.Resolve(context.Background(), env.Deps, src("pinned"))
+	require.NoError(t, err)
+	require.Equal(t, launchtest.PinnedArgs, l.Label.Args, "the label's args are the args the launch names")
+
+	l, err = launch.Resolve(context.Background(), env.Deps, src("primary"))
+	require.NoError(t, err)
+	require.Empty(t, l.Label.Args, "a label naming no args leaves none")
+}
+
+// TestResolve_Label_MalformedBinaryOrArgsIsRefused: a label whose
+// binary_path is not a string, or whose args are not a list of strings, is
+// refused by name — never launched as though the key were absent.
+func TestResolve_Label_MalformedBinaryOrArgsIsRefused(t *testing.T) {
+	for label, body := range map[string]map[string]any{
+		"args-string":    {"args": "--debug"},
+		"args-non-text":  {"args": []any{"--ok", 7}},
+		"binary-non-str": {"binary_path": 7},
+	} {
+		t.Run(label, func(t *testing.T) {
+			env := launchtest.Deps(t, launchtest.WithLabel(label, body))
+			_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Label: label, Mode: engine.Interactive, WorkDir: env.Project})
+			require.ErrorIs(t, err, config.ErrMalformedLabelValue)
+			require.ErrorContains(t, err, label)
+		})
+	}
+}
+
 // TestResolve_Permission_TheChain: the flag, the binding's block for the
 // engine, the label's keys, the engine's default — the first declared
 // wins. The project declares no mode: it knows no engine.

@@ -14,8 +14,12 @@
 //
 // Today it holds the per-turn process driver (ProcessTurn over a Transport),
 // the Exec composition every engine's Instance.Exec starts from (ComposeEnv,
-// PresentedArgs), and the static delivery scaffolding every typed approach
-// assembles from: its name, traits and rooting rule (Approach), the
-// appended-section context claim (AppendedSection) and the managed command
-// and skill trees (DeliverCommands, DeliverSkills).
+// PresentedArgs), the backend projected onto the kind (ProjectedBackend),
+// a permission model's --degraded fallback to its floor (ResolveDegraded),
+// and the static delivery scaffolding every typed approach assembles from:
+// its name, traits and rooting rule (Approach), the appended-section context
+// claim (AppendedSection), the framed context file (FramedFile), the MCP
+// server table (MCPTable), the managed command and skill trees
+// (DeliverCommands, DeliverSkills) with the Agent Skills rules
+// (AgentSkillRules), and the export block decoder (ExportDecoder).
 package kit

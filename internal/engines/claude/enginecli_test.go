@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines/kit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,9 +40,9 @@ type argvCase struct {
 func (c argvCase) argvFor(t *testing.T, b *ClaudeCode) []string {
 	t.Helper()
 	if c.resume == "" {
-		return b.buildArgs(c.req)
+		return buildArgs(b, c.req)
 	}
-	inst, err := b.kind.Instance(b.session(c.req))
+	inst, err := b.Kind().Instance(b.SessionFor(c.req))
 	require.NoError(t, err)
 	require.NoError(t, inst.Resume(c.resume))
 	ex, err := inst.Exec(c.req.Presented)
@@ -56,7 +57,7 @@ func (c argvCase) argvFor(t *testing.T, b *ClaudeCode) []string {
 // out-of-cwd flag fires). An untrusted session is handed them without the
 // settings file, which it refuses (errUntrustedSettingsPresented), and
 // carries the repository-source flags instead.
-// Modulo the opaque ClaudeConfig.Args passthrough, which is user-supplied
+// Modulo the opaque label args passthrough (LabelConfig.Args), which is user-supplied
 // and undeclarable by construction (left empty here).
 func buildArgsMatrix(presented []present.Presentation) []argvCase {
 	perms := []struct {
@@ -122,7 +123,7 @@ func verdictCases(perms []struct {
 					req: &agent.ExecuteRequest{
 						Mode:      mode.m,
 						Model:     matrixModel,
-						Env:       map[string]string{sessionHarpEnv: "perky-same-chevy"},
+						Env:       map[string]string{agent.SessionHarpEnv: "perky-same-chevy"},
 						Prompt:    &agent.Fragment{Content: "do the thing"},
 						Presented: presented,
 						Session:   session,
@@ -166,7 +167,7 @@ func matrixPresentations(t *testing.T) []present.Presentation {
 // starts with "-" and is not declared.
 func TestEngineCLI_BuildArgsFlagsAreDeclared(t *testing.T) {
 	b := NewClaudeCode()
-	clis := b.EngineCLIs()
+	clis := ClaudeEngineCLIs()
 
 	for _, c := range buildArgsMatrix(matrixPresentations(t)) {
 		t.Run(c.label, func(t *testing.T) {
@@ -188,7 +189,7 @@ func TestEngineCLI_BuildArgsFlagsAreDeclared(t *testing.T) {
 // in the matrix.
 func TestEngineCLI_EveryDeclaredFlagIsEmitted(t *testing.T) {
 	b := NewClaudeCode()
-	clis := b.EngineCLIs()
+	clis := ClaudeEngineCLIs()
 
 	emitted := map[agent.CLISurface]map[string]bool{}
 	for _, c := range buildArgsMatrix(matrixPresentations(t)) {
@@ -218,7 +219,7 @@ func TestEngineCLI_EveryDeclaredFlagIsEmitted(t *testing.T) {
 // would be spawned.
 func TestEngineCLI_SurfaceExclusiveFlags(t *testing.T) {
 	b := NewClaudeCode()
-	clis := b.EngineCLIs()
+	clis := ClaudeEngineCLIs()
 	oneshot, ok := agent.EngineCLIFor(clis, agent.CLISurfaceOneshot)
 	require.True(t, ok)
 	interactive, ok := agent.EngineCLIFor(clis, agent.CLISurfaceInteractive)
@@ -230,9 +231,9 @@ func TestEngineCLI_SurfaceExclusiveFlags(t *testing.T) {
 	assert.False(t, hasPrint, "--print is oneshot-only")
 
 	// The interactive line (with --name) must not parse as a oneshot line.
-	iArgs := b.buildArgs(&agent.ExecuteRequest{
+	iArgs := buildArgs(b, &agent.ExecuteRequest{
 		Mode: agent.ModeInteractive,
-		Env:  map[string]string{sessionHarpEnv: "perky-same-chevy"},
+		Env:  map[string]string{agent.SessionHarpEnv: "perky-same-chevy"},
 	})
 	_, err := oneshot.ParseArgv(iArgs)
 	var undeclared *agent.UndeclaredFlagError
@@ -246,21 +247,21 @@ func TestEngineCLI_SurfaceExclusiveFlags(t *testing.T) {
 // and the driver are asserted against each other, so neither can move alone.
 func TestEngineCLI_PromptDeliveryMatchesDriver(t *testing.T) {
 	b := NewClaudeCode()
-	clis := b.EngineCLIs()
+	clis := ClaudeEngineCLIs()
 	const task = "review this enormous diff"
 	prompt := &agent.Fragment{Content: task}
 
 	oneshot, _ := agent.EngineCLIFor(clis, agent.CLISurfaceOneshot)
 	assert.Equal(t, agent.PromptStdin, oneshot.Prompt)
-	oArgs := b.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, Prompt: prompt})
+	oArgs := buildArgs(b, &agent.ExecuteRequest{Mode: agent.ModeOneshot, Prompt: prompt})
 	oParsed, err := oneshot.ParseArgv(oArgs)
 	require.NoError(t, err)
 	assert.Empty(t, oParsed.Positionals, "oneshot declares PromptStdin, so argv carries no positional")
-	assert.NotNil(t, promptStdin(&agent.ExecuteRequest{Prompt: prompt}), "and the driver does put it on stdin")
+	assert.NotNil(t, kit.PromptStdin(&agent.ExecuteRequest{Prompt: prompt}), "and the driver does put it on stdin")
 
 	interactive, _ := agent.EngineCLIFor(clis, agent.CLISurfaceInteractive)
 	assert.Equal(t, agent.PromptPositional, interactive.Prompt)
-	iArgs := b.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive, Prompt: prompt})
+	iArgs := buildArgs(b, &agent.ExecuteRequest{Mode: agent.ModeInteractive, Prompt: prompt})
 	iParsed, err := interactive.ParseArgv(iArgs)
 	require.NoError(t, err)
 	assert.Equal(t, []string{task}, iParsed.Positionals)
@@ -271,7 +272,7 @@ func TestEngineCLI_PromptDeliveryMatchesDriver(t *testing.T) {
 // the delivered presentation.
 func TestEngineCLI_SettingsValueIsTheDeliveredPath(t *testing.T) {
 	b := NewClaudeCode()
-	clis := b.EngineCLIs()
+	clis := ClaudeEngineCLIs()
 	oneshot, _ := agent.EngineCLIFor(clis, agent.CLISurfaceOneshot)
 
 	f, ok := oneshot.LookupFlag(flagSettings)
@@ -279,7 +280,7 @@ func TestEngineCLI_SettingsValueIsTheDeliveredPath(t *testing.T) {
 	assert.Equal(t, agent.ValuePath, f.Value)
 
 	trusted := &engine.Session{Label: engine.LabelConfig{Label: EngineName}, Mode: engine.Structured, Permission: defaultPolicy(), Trust: engine.TrustTrusted}
-	args := b.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, Presented: matrixPresentations(t), Session: trusted})
+	args := buildArgs(b, &agent.ExecuteRequest{Mode: agent.ModeOneshot, Presented: matrixPresentations(t), Session: trusted})
 	parsed, err := oneshot.ParseArgv(args)
 	require.NoError(t, err)
 	v, ok := parsed.Value(flagSettings)

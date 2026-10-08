@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -45,6 +46,10 @@ type ProcessTurn struct {
 	// Argv is the per-turn argv: the Exec's args plus the engine's protocol
 	// flags and the turn's resume key.
 	Argv func(ex engine.Exec, in engine.Turn) ([]string, error)
+	// Env, when set, is the turn's own env, laid over the Exec's for this
+	// turn's process alone (a posture the engine reads from its env); nil
+	// runs every turn on the Exec's env as it is.
+	Env func(ex engine.Exec, in engine.Turn) (map[string]string, error)
 	// WritePrompt writes the turn's prompt to stdin, which is then closed.
 	WritePrompt func(w io.Writer, prompt string) error
 	// NewMapper returns a fresh LineMapper for each turn.
@@ -69,7 +74,11 @@ func (d ProcessTurn) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, o
 	if err != nil {
 		return engine.TurnResult{}, err
 	}
-	tr, err := d.open()(ctx, ex.Binary, argv, ex.Env, ex.WorkDir)
+	env, err := d.env(ex, in)
+	if err != nil {
+		return engine.TurnResult{}, err
+	}
+	tr, err := d.open()(ctx, ex.Binary, argv, env, ex.WorkDir)
 	if err != nil {
 		return engine.TurnResult{}, err
 	}
@@ -88,6 +97,24 @@ func (d ProcessTurn) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, o
 	}
 	_ = tr.Stdin.Close()
 	return d.relay(ctx, tr, events, out)
+}
+
+// env is the turn's process env: the Exec's, with the turn's own (Env) over
+// it in a copy, so the Exec stays as the next turn starts from it.
+func (d ProcessTurn) env(ex engine.Exec, in engine.Turn) (map[string]string, error) {
+	if d.Env == nil {
+		return ex.Env, nil
+	}
+	own, err := d.Env(ex, in)
+	if err != nil {
+		return nil, err
+	}
+	env := maps.Clone(ex.Env)
+	if env == nil {
+		env = map[string]string{}
+	}
+	maps.Copy(env, own)
+	return env, nil
 }
 
 func (d ProcessTurn) grace() time.Duration {

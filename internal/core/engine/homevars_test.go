@@ -83,15 +83,20 @@ func TestHomeSpec_Validate_RefusesARepeatedVar(t *testing.T) {
 	assert.ErrorContains(t, h.Validate(), "X_CACHE")
 }
 
-// A var's directory and the history store's link cannot share a path:
-// isolation creates the one as a real directory and links the other.
+// A var's directory and the history store's link cannot be one path, and a
+// var's directory cannot sit inside the store: isolation creates the one as
+// a real directory and links the other. A store strictly BELOW a var's
+// directory is fine: the var's directory is created before the history link
+// is placed inside it (an XDG data base holding the engine's own store).
 func TestHomeSpec_Validate_RefusesAVarOverlappingTheHistoryStore(t *testing.T) {
-	for _, store := range []string{"cache", "cache/history", ".xdg"} {
+	for _, store := range []string{"cache", ".xdg", ".xdg/config"} {
 		h := multiVarHome()
 		h.TranscriptStoreRel = store
 		assert.ErrorContains(t, h.Validate(), "TranscriptStoreRel", "store %q", store)
 	}
-	h := multiVarHome()
-	h.TranscriptStoreRel = "cachex"
-	require.NoError(t, h.Validate(), "a sibling that merely shares a prefix does not overlap")
+	for _, store := range []string{"cachex", "cache/history", ".xdg/config/app/db"} {
+		h := multiVarHome()
+		h.TranscriptStoreRel = store
+		require.NoError(t, h.Validate(), "store %q: a sibling sharing a prefix, or a store below a var's directory", store)
+	}
 }

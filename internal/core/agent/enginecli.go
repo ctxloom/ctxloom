@@ -468,8 +468,8 @@ func (e *ConflictingFlagsError) Error() string {
 //
 // An unrecognised token that starts with "-" is an UndeclaredFlagError — that
 // is the whole point. There is deliberately NO lenient mode: skipping unknown
-// tokens is exactly how drift would hide. A backend's opaque user-configured
-// passthrough args (claude's ClaudeConfig.Args) are undeclarable by
+// tokens is exactly how drift would hide. A label's opaque user-configured
+// passthrough args (engine.LabelConfig.Args) are undeclarable by
 // construction, so a caller validating a line must supply them empty.
 //
 // "--" is honoured as the end-of-flags separator; everything after it is a

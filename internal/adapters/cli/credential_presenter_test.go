@@ -62,6 +62,25 @@ func TestCredentialNoticeText_OverloadedNamesTheRunNotACredential(t *testing.T) 
 	}
 }
 
+// An unreachable-endpoint hold is, like an overload, one run's own backoff:
+// the notice names the run and when it resumes, and no credential; its
+// release names it too; and two runs' holds opened at one instant stay two.
+func TestCredentialNoticeText_EndpointUnreachableNamesTheRunNotACredential(t *testing.T) {
+	src := engine.Credentials{Env: map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "v"}}.Source("claude-code")
+	h := coord.CredentialHold{Engine: "claude-code", Source: src, Kind: agent.FailureEndpointUnreachable, Until: limitUntil, Harps: []string{"lan-kid"}}
+	got := credentialNoticeText([]coord.CredentialHold{h}, "")
+	for _, want := range []string{"ENDPOINT UNREACHABLE", "claude-code", "lan-kid", "on its own", limitUntil.Local().Format("15:04:05")} {
+		assert.Contains(t, got, want)
+	}
+	for _, not := range []string{"RATE LIMITED", "OVERLOADED", "CLAUDE_CODE_OAUTH_TOKEN", "waiting"} {
+		assert.NotContains(t, got, not)
+	}
+	assert.True(t, strings.HasPrefix(holdReleasedNotice(h), "ENDPOINT UNREACHABLE hold released"), holdReleasedNotice(h))
+	other := h
+	other.Harps = []string{"other-kid"}
+	assert.NotEqual(t, holdID(h), holdID(other), "each run's endpoint backoff is its own hold")
+}
+
 func refusedHold(src engine.CredentialSource, since time.Time, harps ...string) coord.CredentialHold {
 	return coord.CredentialHold{Engine: "claude-code", Source: src, Kind: agent.FailureCredentialRejected, Since: since, Harps: harps}
 }

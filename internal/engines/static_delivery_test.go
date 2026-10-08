@@ -101,6 +101,12 @@ func TestStaticDelivery_UnchangedRedeliveryKeepsEveryDeclaredFile(t *testing.T) 
 			t.Run(string(name)+"/"+targetName, func(t *testing.T) {
 				e, _ := reg.Lookup(name)
 				root := e.Root()
+				if targetName == "project" && !deliversAtTheProjectRoot(root) {
+					// A project-only target (a materialize) is one Route
+					// refuses for an engine that roots a kind under the
+					// session home alone: there is nothing to redeliver.
+					t.Skipf("%s roots a kind under the session home alone; a project-only target is refused (delivery.ErrUnrootable)", name)
+				}
 				fs := afero.NewOsFs()
 				rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
 				require.NoError(t, err)
@@ -160,6 +166,17 @@ func TestStaticDelivery_UnchangedRedeliveryKeepsEveryDeclaredFile(t *testing.T) 
 			})
 		}
 	}
+}
+
+// deliversAtTheProjectRoot reports whether every static approach root
+// carries offers the project root.
+func deliversAtTheProjectRoot(root engine.Base) bool {
+	for _, a := range root.Surfaces() {
+		if !a.Traits().Offers(present.RootProjectRoot) {
+			return false
+		}
+	}
+	return true
 }
 
 // lossTolerant is a preference accepting the loss of every static kind root

@@ -845,6 +845,99 @@ func (c *Config) ResolveLLM(label string) (backend, model string) {
 	return backend, model
 }
 
+// ContextWindowKey is the label-body key every llm.configs entry may carry,
+// whatever its type: the model's context window in tokens. It is neutral —
+// read here, never by an engine-type branch — so every engine's label has it.
+const ContextWindowKey = "context_window"
+
+// LabelContextWindow is the context window a label body declares, in tokens,
+// or 0 when it declares none (absent, non-numeric, or not positive). It reads
+// the body untyped, as ResolveLLM reads the model: a YAML load yields an int,
+// a JSON-shaped body a float64.
+func LabelContextWindow(body map[string]any) int {
+	var n int
+	switch v := body[ContextWindowKey].(type) {
+	case int:
+		n = v
+	case int64:
+		n = int(v)
+	case uint64:
+		n = int(v)
+	case float64:
+		n = int(v)
+	}
+	if n < 0 {
+		return 0
+	}
+	return n
+}
+
+// BinaryPathKey is the label-body key naming the binary a label runs (a
+// path, or a name resolved on PATH) in place of its engine's own. It is
+// neutral like ContextWindowKey — read here, never by an engine-type branch —
+// so the launch carries it as the label's binary (engine.LabelConfig.Binary)
+// for whichever engine the label configures, and the version probe asks the
+// same binary the engine's Exec spawns.
+const BinaryPathKey = "binary_path"
+
+// ErrMalformedLabelValue refuses a label-body key that is present but not
+// of its declared shape (binary_path not a string, args not a list of
+// strings): such a value is a configuration error, never read as absent.
+var ErrMalformedLabelValue = errors.New("config: a label value is malformed")
+
+// LabelBinary is the binary a label body names, or "" for the engine's own
+// (absent or null). A binary_path that is present but not a string is
+// ErrMalformedLabelValue. It reads the body untyped, as ResolveLLM reads the
+// model.
+func LabelBinary(body map[string]any) (string, error) {
+	v, ok := body[BinaryPathKey]
+	if !ok || v == nil {
+		return "", nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("%w: %s must be a string, got %T", ErrMalformedLabelValue, BinaryPathKey, v)
+	}
+	return s, nil
+}
+
+// ArgsKey is the label-body key naming the extra CLI arguments a label
+// places ahead of everything ctxloom composes on its engine's argv. Neutral
+// like BinaryPathKey: the launch carries it as the label's args
+// (engine.LabelConfig.Args) for whichever engine the label configures.
+const ArgsKey = "args"
+
+// LabelArgs are the args a label body names, or nil for none (absent, null
+// or empty). Args that are present but not a list of strings are
+// ErrMalformedLabelValue. It reads the body untyped: a YAML load yields []any,
+// a Go-built body []string.
+func LabelArgs(body map[string]any) ([]string, error) {
+	v, ok := body[ArgsKey]
+	if !ok || v == nil {
+		return nil, nil
+	}
+	var out []string
+	switch v := v.(type) {
+	case []string:
+		out = slices.Clone(v)
+	case []any:
+		out = make([]string, 0, len(v))
+		for i, a := range v {
+			s, ok := a.(string)
+			if !ok {
+				return nil, fmt.Errorf("%w: %s[%d] must be a string, got %T", ErrMalformedLabelValue, ArgsKey, i, a)
+			}
+			out = append(out, s)
+		}
+	default:
+		return nil, fmt.Errorf("%w: %s must be a list of strings, got %T", ErrMalformedLabelValue, ArgsKey, v)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
 // GetDefaultLLM returns the backend type for the primary role's label.
 func (c *Config) GetDefaultLLM() string {
 	backend, _ := c.ResolveLLM(c.PrimaryLabel())

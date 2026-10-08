@@ -57,6 +57,7 @@ type agentDecl struct {
 }
 
 type fixture struct {
+	labels    map[string]map[string]any
 	agents    map[string]agentDecl
 	available map[launch.RuntimeAxis]bool
 	// projectRuntime and projectPermissions are the project-level defaults
@@ -183,6 +184,13 @@ func NoApprovals() Option { return func(f *fixture) { f.noApprovals = true } }
 // ProjectDirtyTree sets the project's `dirty_tree_handler:` default, unparsed.
 func ProjectDirtyTree(s string) Option { return func(f *fixture) { f.projectDirtyTree = s } }
 
+// PinnedBinary is the binary_path the fixture's "pinned" label names.
+const PinnedBinary = "/opt/fixture/bin/fixture-cli"
+
+// PinnedArgs are the args the fixture's "pinned" label names (as a YAML load
+// yields them: an untyped list).
+var PinnedArgs = []string{"--fixture-debug", "-v"}
+
 // FixtureHistoryRel is where the relocating fixture keeps its native history,
 // relative to its session home.
 const FixtureHistoryRel = "history"
@@ -200,6 +208,16 @@ func WithRepoTrust(v engine.WorkspaceTrust) Option { return func(f *fixture) { f
 // SessionAuth sets the configured top-level `auth:`, the mode the human's own
 // session runs in ("" undeclared).
 func SessionAuth(m engine.AuthMode) Option { return func(f *fixture) { f.sessionAuth = m } }
+
+// WithLabel adds a configured label on the fixture engine carrying body.
+func WithLabel(name string, body map[string]any) Option {
+	return func(f *fixture) {
+		if f.labels == nil {
+			f.labels = map[string]map[string]any{}
+		}
+		f.labels[name] = body
+	}
+}
 
 // ProfileLLM makes the composed profiles declare a label.
 func ProfileLLM(label string) Option { return func(f *fixture) { f.profileLLM = label } }
@@ -224,13 +242,18 @@ func Deps(t *testing.T, opts ...Option) Env {
 	for name, d := range f.agents {
 		bindings[name] = d.binding
 	}
+	labels := map[string]config.LLMConfig{
+		"primary": {Type: string(EngineName)},
+		"fast":    {Type: string(EngineName), Body: map[string]any{"model": "fast-model"}},
+		"guarded": {Type: string(EngineName), Permissions: f.labelPermissions},
+		"pinned":  {Type: string(EngineName), Body: map[string]any{"binary_path": PinnedBinary, "args": []any{PinnedArgs[0], PinnedArgs[1]}}},
+	}
+	for name, body := range f.labels {
+		labels[name] = config.LLMConfig{Type: string(EngineName), Body: body}
+	}
 	cfg := config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
-			Configs: map[string]config.LLMConfig{
-				"primary": {Type: string(EngineName)},
-				"fast":    {Type: string(EngineName), Body: map[string]any{"model": "fast-model"}},
-				"guarded": {Type: string(EngineName), Permissions: f.labelPermissions},
-			},
+			Configs:  labels,
 			Defaults: config.RoleDefaults{Primary: "primary", Fast: "fast"},
 		},
 		Agents:           bindings,

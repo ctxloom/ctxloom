@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -349,4 +350,43 @@ func TestXDGMerge_ClaudeMergesNothing(t *testing.T) {
 	for _, v := range claudeEngine(t).Home().Vars {
 		assert.Nil(t, v.Merge, v.Name)
 	}
+}
+
+// A history store inside a merged base, within the name the engine owns
+// there (an XDG data base holding the engine's own store): the owned dir is
+// the link into the session's native history, so what the engine writes
+// through the tree survives the home, and a later run of the same session
+// reconciles the merge and re-places the link without losing a byte.
+func TestXDGMerge_AStoreWithinAnOwnedNameIsTheNativeHistoryLink(t *testing.T) {
+	home := fakeHostHome(t, "")
+	userConfig(t, home, true)
+	eng := mock.NewNamed("xdgmerge-store", mock.WithHome(engine.HomeSpec{
+		Vars: []engine.HomeVar{
+			{Name: "FIXTURE_HOME", Subdir: "fixture"},
+			{Name: "XDG_CONFIG_HOME", Subdir: ".xdg/config", Merge: &engine.XDGMerge{Owns: []string{"fixtureapp"}}},
+		},
+		Auth:               engine.Absent[engine.Auth]("the fixture authenticates against no vendor"),
+		TranscriptStoreRel: ".xdg/config/fixtureapp",
+	}))
+	require.NoError(t, eng.Home().Validate())
+	stageEngineFacts(t, string(eng.Root().Name), func(f *EngineFacts) { *f = FactsOf(eng) })
+	s := homeSpec(t, eng, home, harpA, agents.HomeModeSession)
+
+	pl, _ := placeOn(t, s, t.TempDir(), hostRelocator{})
+	tree := pl.Env["XDG_CONFIG_HOME"]
+	require.NoError(t, os.WriteFile(filepath.Join(tree, "fixtureapp", "app.db"), []byte("turn 1"), 0o600))
+	native, ok := launch.NativeHome(s.sessionDir, s.eng, s.home)
+	require.True(t, ok)
+	got, err := os.ReadFile(filepath.Join(native, ".xdg", "config", "fixtureapp", "app.db"))
+	require.NoError(t, err, "the owned dir is the link into native history")
+	assert.Equal(t, "turn 1", string(got))
+
+	pl, _ = placeOn(t, s, t.TempDir(), hostRelocator{})
+	got, err = os.ReadFile(filepath.Join(pl.Env["XDG_CONFIG_HOME"], "fixtureapp", "app.db"))
+	require.NoError(t, err, "a later run sees the history through the re-placed link")
+	assert.Equal(t, "turn 1", string(got))
+	got, err = os.ReadFile(filepath.Join(pl.Env["XDG_CONFIG_HOME"], "tool", "config"))
+	require.NoError(t, err, "the user's entries are still merged in beside it")
+	assert.Equal(t, "v1", string(got))
+	assert.Empty(t, strictness.All())
 }

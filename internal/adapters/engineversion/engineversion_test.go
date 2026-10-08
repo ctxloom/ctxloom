@@ -30,7 +30,7 @@ func fakeBinary(t *testing.T, contents string) string {
 func probeAtToken0(t *testing.T, binary string, out string, runErr error) (*Prober, *int) {
 	t.Helper()
 	runs := 0
-	p := NewProber(func(string) (string, Command, error) {
+	p := NewProber(func(string, string) (string, Command, error) {
 		return binary, Command{
 			Args:  []string{"--version"},
 			Parse: func(o string) (string, error) { return TokenAt(o, 0) },
@@ -78,7 +78,7 @@ func TestProber_CachesUntilTheBinaryChanges(t *testing.T) {
 // than being folded into "something went wrong" — but it is still a REFUSAL,
 // never a version.
 func TestProber_AbsentBinaryRefusesWithItsOwnType(t *testing.T) {
-	p := NewProber(func(engine string) (string, Command, error) {
+	p := NewProber(func(engine, _ string) (string, Command, error) {
 		return "", Command{}, &BinaryAbsentError{Engine: engine, Err: errors.New("mock-cli not found in $PATH")}
 	})
 
@@ -143,7 +143,7 @@ func TestProber_DoesNotCacheAFailure(t *testing.T) {
 	bin := fakeBinary(t, "x")
 	runs := 0
 	out, runErr := "", errors.New("exit status 1")
-	p := NewProber(func(string) (string, Command, error) {
+	p := NewProber(func(string, string) (string, Command, error) {
 		return bin, Command{Args: []string{"--version"}, Parse: func(o string) (string, error) { return TokenAt(o, 0) }}, nil
 	})
 	p.run = func(context.Context, string, []string) (string, error) {
@@ -166,7 +166,7 @@ func TestProber_DoesNotCacheAFailure(t *testing.T) {
 // it is its own type — and it still refuses.
 func TestProber_NoVersionCommandRefuses(t *testing.T) {
 	bin := fakeBinary(t, "x")
-	p := NewProber(func(string) (string, Command, error) { return bin, Command{}, nil })
+	p := NewProber(func(string, string) (string, Command, error) { return bin, Command{}, nil })
 
 	_, err := p.Probe(context.Background(), "mock")
 	var missing *NoVersionCommandError
@@ -242,7 +242,7 @@ func TestProber_AHungVersionCommandIsRefusedAtTheProbeBudget(t *testing.T) {
 // Prober comes from NewProber, and the callers this defect was found through
 // pass a context that carries no deadline of its own.
 func TestNewProber_CarriesTheProbeBudgetByDefault(t *testing.T) {
-	p := NewProber(func(string) (string, Command, error) { return "", Command{}, nil })
+	p := NewProber(func(string, string) (string, Command, error) { return "", Command{}, nil })
 	assert.Equal(t, DefaultProbeTimeout, p.timeout,
 		"a prober built the production way must bound its own exec")
 	assert.Positive(t, DefaultProbeTimeout, "and the bound must actually be a bound")
@@ -265,4 +265,35 @@ func TestProber_ATighterCallerDeadlineStillWins(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, context.DeadlineExceeded),
 		"the caller's deadline cut the probe; the prober's hour-long backstop did not override it")
+}
+
+// A launch that names its binary (a label's binary_path) is probed AT that
+// binary: the resolver is handed the name to resolve instead of the engine's
+// default, and the version command runs the binary it resolved — never the
+// engine's default install, which may be absent or another version.
+func TestProber_ProbeBinaryAsksTheNamedBinary(t *testing.T) {
+	labelled := fakeBinary(t, "labelled")
+	var asked []string
+	p := NewProber(func(engine, binary string) (string, Command, error) {
+		asked = append(asked, binary)
+		if binary == "" {
+			return "", Command{}, &BinaryAbsentError{Engine: engine, Err: os.ErrNotExist}
+		}
+		return binary, Command{Args: []string{"--version"}, Parse: func(o string) (string, error) { return TokenAt(o, 0) }}, nil
+	})
+	var ran []string
+	p.run = func(_ context.Context, binary string, _ []string) (string, error) {
+		ran = append(ran, binary)
+		return "1.18.35", nil
+	}
+
+	v, err := p.ProbeBinary(context.Background(), "opencode", labelled)
+	require.NoError(t, err)
+	assert.Equal(t, "1.18.35", v)
+	assert.Equal(t, []string{labelled}, asked, "the resolver resolves the named binary, not the engine default")
+	assert.Equal(t, []string{labelled}, ran)
+
+	_, err = p.ProbeBinary(context.Background(), "opencode", "")
+	var absent *BinaryAbsentError
+	require.ErrorAs(t, err, &absent, "an empty name is the engine's default, as Probe")
 }

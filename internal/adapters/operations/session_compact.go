@@ -91,6 +91,7 @@ func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg
 	}
 	compactor, err := memory.NewCompactor(configFS(cfg), memory.CompactionConfig{
 		Run:             distiller.Turn,
+		ContextWindow:   distiller.ContextWindow,
 		Backend:         backendName,
 		Source:          source,
 		EssenceMaxChars: cfg.GetEssenceMaxChars(),

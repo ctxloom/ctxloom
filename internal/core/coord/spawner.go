@@ -121,17 +121,20 @@ type Spawner interface {
 	// registered. See task affected-yearly: a probe sitting here left a
 	// spawn invisible for minutes, and callers reasonably double-spawned.
 	AssignSession(projectDir, backend string) (string, error)
-	// RecordEngineVersion probes the child engine's installed CLI and
-	// records its version against harp, for the reader selection that
-	// happens when this session's transcript is read back.
+	// RecordEngineVersion probes the binary the child's launch spawns —
+	// backend's at binary, the resolved Launch's label binary ("" is the
+	// engine's own install) — and records its version against harp, for the
+	// reader selection that happens when this session's transcript is read
+	// back.
 	//
-	// Called from a tracked goroutine AFTER the run is registered, and
+	// Called from a tracked goroutine AFTER the run is registered and its
+	// launch resolved (only the Launch knows the binary), and
 	// therefore explicitly NOT on the path that decides whether agent_run
 	// returns. It reports nothing: every failure here is a diagnostic that
 	// warns at its own level and costs the session nothing (see
 	// operations.RecordSessionEngineVersion), exactly like MarkSessionEnded
 	// below.
-	RecordEngineVersion(ctx context.Context, harp, backend string)
+	RecordEngineVersion(ctx context.Context, harp, backend, binary string)
 	// BindNativeSession binds the engine's native session key onto harp's
 	// session entry (sessions.Entry, the key's one record) with the store's
 	// own rule: an unbound entry takes it, a bound one keeps its key. It

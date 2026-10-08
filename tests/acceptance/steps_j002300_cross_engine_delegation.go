@@ -383,6 +383,7 @@ func j002300CopyExecutable(src, dst string) error {
 }
 
 func registerJ002300Steps(ctx *godog.ScenarioContext) {
+	registerJ002300OpencodeSteps(ctx)
 	// --- Hermetic fixture -------------------------------------------------
 
 	ctx.Step(`^Alice's coordinator can delegate to two agents, "([^"]*)" and "([^"]*)", each carrying its own distinct guidance in its own profile$`,

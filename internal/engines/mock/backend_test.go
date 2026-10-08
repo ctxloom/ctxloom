@@ -18,7 +18,6 @@ func TestNewMock(t *testing.T) {
 
 	assert.Equal(t, "mock", mock.Name())
 	assert.Equal(t, "1.0.0", mock.Version())
-	assert.NotNil(t, mock.Args)
 }
 
 // TestRecordMockInput_CapturesCwdAndConfigHome is the seam this fixes: before,

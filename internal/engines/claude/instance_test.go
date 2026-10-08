@@ -1,11 +1,14 @@
 package claude
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"maps"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -78,6 +81,42 @@ func TestInstance_ExecPinsClassicScreen(t *testing.T) {
 	}
 }
 
+// TestInstance_ExecSpawnsTheLabelsBinary: every mode's Exec spawns the
+// label's binary (a configured label's binary_path, which the launch carries
+// as LabelConfig.Binary), else claude — the binary the runner's version
+// floor and the session's recorded version both ask.
+func TestInstance_ExecSpawnsTheLabelsBinary(t *testing.T) {
+	kind, err := Build()
+	require.NoError(t, err)
+	for _, mode := range kind.Root().Modes {
+		for binary, want := range map[string]string{"/opt/claude-next/bin/claude": "/opt/claude-next/bin/claude", "": "claude"} {
+			s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName, Binary: binary}, Mode: mode, Permission: modePolicy(modeBypass), Prompt: "p"}
+			inst, err := kind.Instance(s)
+			require.NoError(t, err)
+			ex, err := inst.Exec(nil)
+			require.NoError(t, err)
+			require.Equal(t, want, ex.Binary, "%v, label binary %q", mode, binary)
+		}
+	}
+}
+
+// TestInstance_ExecLeadsWithTheLabelsArgs: every mode's Exec places the
+// label's args (a configured label's args, which the launch carries as
+// LabelConfig.Args) first on claude's argv, ahead of everything ctxloom adds.
+func TestInstance_ExecLeadsWithTheLabelsArgs(t *testing.T) {
+	kind, err := Build()
+	require.NoError(t, err)
+	for _, mode := range kind.Root().Modes {
+		s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName, Args: []string{"--debug", "--verbose"}}, Mode: mode, Permission: modePolicy(modeBypass), Prompt: "p"}
+		inst, err := kind.Instance(s)
+		require.NoError(t, err)
+		ex, err := inst.Exec(nil)
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, len(ex.Args), 2, "%v", mode)
+		require.Equal(t, []string{"--debug", "--verbose"}, ex.Args[:2], "%v: the label's args lead", mode)
+	}
+}
+
 // TestInstance_HeadlessChildDefaults: a structured (headless) run has no human
 // at the engine, so it says so to claude — --permission-prompts none: deny
 // what the posture and rules leave open instead of asking nobody — and turns
@@ -141,12 +180,33 @@ func TestInstance_ExecParsesAgainstOwnGrammar(t *testing.T) {
 // pins the delegation so a second composition cannot reappear.
 func TestBuildArgs_IsInstanceExec(t *testing.T) {
 	b := NewClaudeCode()
-	req := withSession(b, &agent.ExecuteRequest{Mode: agent.ModeInteractive, Model: "m", Env: map[string]string{sessionHarpEnv: "h"}, Prompt: &agent.Fragment{Content: "p"}}, modePolicy(modeBypass))
-	ex, err := b.exec(req)
+	req := withSession(b, &agent.ExecuteRequest{Mode: agent.ModeInteractive, Model: "m", Env: map[string]string{agent.SessionHarpEnv: "h"}, Prompt: &agent.Fragment{Content: "p"}}, modePolicy(modeBypass))
+	ex, err := b.ExecFor(req)
 	require.NoError(t, err)
-	require.Equal(t, ex.Args, b.buildArgs(req))
+	require.Equal(t, ex.Args, buildArgs(b, req))
 	b.SetExecuteEnv(func(*agent.ExecuteRequest) map[string]string { return ex.Env }) // as Execute registers it
 	merged := maps.Clone(req.Env)
 	maps.Copy(merged, ex.Env)
 	require.Equal(t, fmt.Sprint(merged), fmt.Sprint(b.ExecuteEnv(req)), "the launch env is the request's with Exec's engine-native vars over it")
+}
+
+// TestExecute_SpawnsTheComposedExecsBinary: what Execute spawns is the binary
+// the composed Exec names (the session label's binary), never one the backend
+// holds of its own — the two must not be able to disagree.
+func TestExecute_SpawnsTheComposedExecsBinary(t *testing.T) {
+	var spawned agent.LaunchSpec
+	b := NewClaudeCode()
+	b.SetLauncher(func(_ context.Context, spec agent.LaunchSpec, _ io.Reader, _, _ io.Writer, _ <-chan agent.WindowSize) (int32, error) {
+		spawned = spec
+		return 0, nil
+	})
+	req := withSession(b, &agent.ExecuteRequest{Mode: agent.ModeOneshot, Prompt: &agent.Fragment{Content: "p"}}, modePolicy(modeBypass))
+	req.Session.Label.Binary = "/composed/claude"
+	ex, err := b.ExecFor(req)
+	require.NoError(t, err)
+	require.Equal(t, "/composed/claude", ex.Binary)
+	_, err = b.Execute(context.Background(), req, io.Discard, io.Discard)
+	require.NoError(t, err)
+	assert.Equal(t, ex.Binary, spawned.BinaryPath)
+	assert.Equal(t, ex.Args, spawned.Args)
 }

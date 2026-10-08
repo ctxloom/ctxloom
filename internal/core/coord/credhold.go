@@ -78,7 +78,7 @@ const (
 // heldFailures are the turn failures a run parks itself on and its
 // credential's hold releases. The runner parks only on these (HoldsFailure):
 // a self-park on any other kind would be a pause nothing releases.
-var heldFailures = []agent.FailureKind{agent.FailureCredentialRejected, agent.FailureRateLimited, agent.FailureOverloaded}
+var heldFailures = []agent.FailureKind{agent.FailureCredentialRejected, agent.FailureRateLimited, agent.FailureOverloaded, agent.FailureEndpointUnreachable}
 
 // failureKindOf is the failure a hold's journaled kind names; false for a
 // pause's kind, or one this build does not know.
@@ -94,6 +94,14 @@ func failureKindOf(kind string) (agent.FailureKind, bool) {
 // until its credential's hold releases it.
 func HoldsFailure(kind agent.FailureKind) bool {
 	return slices.Contains(heldFailures, kind)
+}
+
+// RunScopedFailure reports whether kind is a failure of the endpoint, not of
+// the credential — an overloaded server, an unreachable one. Its hold is the
+// failed run's own short backoff (overloadBackoff): no credential is spent,
+// so no run sharing it is parked, and the next turn re-measures the endpoint.
+func RunScopedFailure(kind agent.FailureKind) bool {
+	return kind == agent.FailureOverloaded || kind == agent.FailureEndpointUnreachable
 }
 
 // The backoff policy for a hold: the engine's reset time, clamped. No jitter:
@@ -113,10 +121,11 @@ const (
 	// runs for days with nothing changing; at the cap the hold releases, and a
 	// limit still spent fails the next turn, which re-measures it.
 	rateLimitCap = 6 * time.Hour
-	// overloadBackoff: the wait after an overloaded turn. The engine already
-	// retried the overload with its own backoff before the turn gave up
-	// (claude retries 529s itself), and a 529 names no recovery time: one
-	// probe per run per period, re-measured by the next turn.
+	// overloadBackoff: the wait after an overloaded or unreachable-endpoint
+	// turn (RunScopedFailure). The engine already retried with its own
+	// backoff before the turn gave up (claude retries 529s and refused
+	// connections itself), and neither names a recovery time: one probe per
+	// run per period, re-measured by the next turn.
 	overloadBackoff = time.Minute
 )
 
@@ -126,7 +135,8 @@ func holdDeadline(now time.Time, f agent.TurnFailure) time.Time {
 	switch f.Kind {
 	case agent.FailureCredentialRejected:
 		return time.Time{}
-	case agent.FailureOverloaded:
+	}
+	if RunScopedFailure(f.Kind) {
 		return now.Add(overloadBackoff)
 	}
 	return backoffDeadline(now, f.ResetsAt)
@@ -279,10 +289,11 @@ func (c *Coordinator) harpHeld(harp string) bool {
 }
 
 // holdScopeOf is the scope of a hold for a turn that failed with kind on
-// src: the credential's, or the run's own — for an overload (the server's
-// capacity, not the credential's) and for a run that carries no credential.
+// src: the credential's, or the run's own — for an endpoint failure (the
+// server's capacity or reachability, not the credential's; RunScopedFailure)
+// and for a run that carries no credential.
 func holdScopeOf(kind agent.FailureKind, src engine.CredentialSource) holdScope {
-	if kind != agent.FailureOverloaded && src.Key != "" {
+	if !RunScopedFailure(kind) && src.Key != "" {
 		return holdScopeCredential
 	}
 	return holdScopeRun
@@ -691,6 +702,13 @@ func (c *Coordinator) raiseHoldFinding(t failedTurn, until time.Time, parked boo
 	if kind == agent.FailureOverloaded {
 		if parked {
 			c.rep.Warnf("coordinator: %s was overloaded on %s's turn; that run alone backs off until %s and resumes on its own",
+				who, harp, until.UTC().Format(time.RFC3339))
+		}
+		return
+	}
+	if kind == agent.FailureEndpointUnreachable {
+		if parked {
+			c.rep.Warnf("coordinator: %s could not reach its model endpoint on %s's turn; that run alone backs off until %s and resumes on its own — check the endpoint is up and reachable from this host",
 				who, harp, until.UTC().Format(time.RFC3339))
 		}
 		return

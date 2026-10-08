@@ -51,7 +51,7 @@ ctxloom init [flags]
 ### Options
 
 ```
-      --engine string        Pre-select AI engine (claude-code)
+      --engine string        Pre-select AI engine (claude-code, opencode)
       --forge string         Bind every --remote to this forge (github, git, or a configured forges: label) instead of resolving by URL host
       --home                 Initialize in user home directory instead of current directory
       --no-pull              Skip the dependency pull init ends with; declared dependencies stay uninstalled until 'ctxloom deps pull' runs

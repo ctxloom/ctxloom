@@ -471,3 +471,19 @@ func TestNilEmbeddedPointerSkipsOnlyItsOwnFields(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// At on a nil pointer hands its func nil, as documented, rather than a value
+// it cannot have.
+func TestAtOnANilPointerReceivesNil(t *testing.T) {
+	v := struct {
+		Inner *viewInner `json:"inner"`
+	}{}
+	var got any = "unset"
+	renderWith(t, nil, v, FormatText, At("inner", func(_ *ViewCtx, v any) (Doc, error) {
+		got = v
+		return nil, nil
+	}))
+	if got != nil {
+		t.Errorf("At(inner) on a nil pointer got %#v, want nil", got)
+	}
+}

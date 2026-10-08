@@ -70,6 +70,22 @@ func TestHomeSpec_Validate_RefusesAVarInsideAMergedBase(t *testing.T) {
 	require.NoError(t, h.Validate(), "a plain var CONTAINING a merged base is just a session dir")
 }
 
+// A history store below a merged base lies within a name the engine owns
+// there: any other top-level name of the base is the user's entry, linked in
+// before the history link would be placed.
+func TestHomeSpec_Validate_AStoreBelowAMergedBaseIsWithinAnOwnedName(t *testing.T) {
+	for _, store := range []string{".xdg/config/xapp", ".xdg/config/xtool/history"} {
+		h := mergedHome()
+		h.TranscriptStoreRel = store
+		require.NoError(t, h.Validate(), "store %q", store)
+	}
+	for _, store := range []string{".xdg/config/user-entry", ".xdg/config/xappx/db"} {
+		h := mergedHome()
+		h.TranscriptStoreRel = store
+		assert.ErrorContains(t, h.Validate(), "owns", "store %q", store)
+	}
+}
+
 // The XDG Base Directory spec: a base is its var's value when that is an
 // absolute path, else the spec's default under the user's home. A relative
 // value is invalid by the spec and is ignored.

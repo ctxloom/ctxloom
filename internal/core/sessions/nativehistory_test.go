@@ -69,3 +69,32 @@ func TestKeepHomeHistory_LeavesALinkedHistoryAlone(t *testing.T) {
 func TestKeepHomeHistory_WithoutNativeIsANoOp(t *testing.T) {
 	assert.NoError(t, KeepHomeHistory(afero.NewOsFs(), t.TempDir()))
 }
+
+// A NESTED history store (one below a further home var, e.g. an XDG data
+// base's app dir) that is the link into native/ has nothing to move: the
+// directories on the way to it are the session's own (other XDG bases, the
+// user's linked entries) and stay in the home, and native/ holds history
+// alone. Adopting the whole top-level dir would drag them into native/ and
+// try to rename the link over native's store.
+func TestKeepHomeHistory_LeavesALinkedNestedStoreAndItsSiblingsAlone(t *testing.T) {
+	sd := t.TempDir()
+	home := filepath.Join(sd, paths.SessionEngineHomesDirName, "oc")
+	native := filepath.Join(sd, paths.NativeDirName, "oc")
+	put(t, native, ".xdg/data/app/app.db", "history\n")
+	put(t, home, ".xdg/config/app/config.json", "{}")
+	put(t, home, ".xdg/data/app-cache/x", "session data\n")
+	user := t.TempDir()
+	require.NoError(t, os.Symlink(filepath.Join(native, ".xdg/data/app"), filepath.Join(home, ".xdg/data/app")))
+	require.NoError(t, os.Symlink(user, filepath.Join(home, ".xdg/data/fonts")))
+
+	require.NoError(t, KeepHomeHistory(afero.NewOsFs(), sd))
+
+	assert.Equal(t, "history\n", got(t, native, ".xdg/data/app/app.db"))
+	assert.Equal(t, "{}", got(t, home, ".xdg/config/app/config.json"), "another base stays in the home")
+	assert.Equal(t, "session data\n", got(t, home, ".xdg/data/app-cache/x"), "a sibling of the store stays in the home")
+	assert.NoDirExists(t, filepath.Join(native, ".xdg/config"), "native/ holds history alone")
+	assert.NoFileExists(t, filepath.Join(native, ".xdg/data/fonts"))
+	target, err := os.Readlink(filepath.Join(home, ".xdg/data/fonts"))
+	require.NoError(t, err)
+	assert.Equal(t, user, target, "a user entry's link is left where it is")
+}

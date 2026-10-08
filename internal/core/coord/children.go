@@ -1174,6 +1174,7 @@ func (c *Coordinator) onTurnStarted(role, runID string) error {
 		rt.idleSince = time.Time{}
 	}
 	delete(c.replacedCreds, runID)
+	delete(c.turnBeforeAdopt, runID)
 	c.mu.Unlock()
 	if rt == nil || c.runEnded(rt.runID) {
 		// A frame that was already in flight when the channel was severed is

@@ -183,9 +183,28 @@ func TestHoldRestart_AnOverloadHoldSurvivesAdoption(t *testing.T) {
 // journaled at once — but no resume is sent before a runner re-Hellos (there
 // is none to send it to); each run's owed resume goes out once its runner is
 // back, exactly once.
+//
+// The crash is forced after the worker's failed turn folded into the hold but
+// before its boundary was acked, so its runner re-sends that boundary to the
+// restarted coordinator. That failure is the one the released hold already
+// took in: re-folded, it would open a fresh hold — its reset already past, so
+// floored to a new backoff — and park the runs the release just resumed.
 func TestHoldRestart_ADeadlinePassedWhileDownReleasesOnAdopt(t *testing.T) {
-	f, clk := newRateFixture(t)
+	var armed atomic.Bool
+	atBoundary, letBoundary := make(chan struct{}), make(chan struct{})
+	var reached, released sync.Once
+	t.Cleanup(func() { released.Do(func() { close(letBoundary) }) }) // the crashed coordinator's boundary stays parked until the end
+	f, clk := newRateFixture(t, func(o *Options) {
+		o.turnIdleHook = func(string) {
+			if armed.Load() {
+				reached.Do(func() { close(atBoundary) })
+				<-letBoundary
+			}
+		}
+	})
+	armed.Store(true)
 	f.send(t, f.worker, limitHit+" do the work")
+	within(t, atBoundary, "the worker's failed turn never reached its boundary")
 	f.awaitHold(t, f.worker, f.sibling)
 	f.awaitParks(t, f.worker, f.sibling)
 
@@ -206,6 +225,9 @@ func TestHoldRestart_ADeadlinePassedWhileDownReleasesOnAdopt(t *testing.T) {
 	f.redial(t)
 	within(t, reasserted, "the worker's owed resume was never delivered")
 	within(t, reasserted, "the sibling's owed resume was never delivered")
+	f.awaitReplayed(t, 0)
+	assert.Empty(t, f.c.CredentialHolds(), "the replayed failure opens no fresh hold")
+	assert.Len(t, journaled[holdOpened](t, f.c, factHoldOpened), 1, "the replayed failure opens no fresh hold")
 	assert.Len(t, resumes, 2, "one resume per run, and none before its runner was back")
 	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), resumedHarps(t, f.c))
 	newly, err := f.c.ControlResume(human(t), humanInitiator(), f.worker)

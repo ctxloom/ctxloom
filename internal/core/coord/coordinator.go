@@ -405,6 +405,13 @@ type Coordinator struct {
 	// mu: a turn boundary such a run reports is from a turn that began before
 	// the replacement, on the credential it replaced (failedTurnOf).
 	replacedCreds map[string]bool
+	// turnBeforeAdopt are the re-adopted runs that have not started a turn
+	// since, by run id, guarded by mu: a turn boundary such a run reports
+	// ends a turn the crashed coordinator saw begin — one its runner re-sends
+	// because that coordinator never acked it — so its failure may already
+	// have been folded into a hold the adoption then released
+	// (decideTurnFailure).
+	turnBeforeAdopt map[string]bool
 	// onAskPublished, when set, is called by controlAsk between RECORDING the
 	// ask open and PUBLISHING it — the record-before-publish test seam. It
 	// fires on that side of the publish deliberately: a hook fired after it
@@ -626,6 +633,7 @@ func New(opts Options) (*Coordinator, error) {
 		refreshSecrets:     opts.RefreshSecrets,
 		secretReleases:     make(map[string]func()),
 		replacedCreds:      make(map[string]bool),
+		turnBeforeAdopt:    make(map[string]bool),
 		runners:            make(map[string]*RunnerSession),
 		runnerReady:        make(map[string]chan struct{}),
 		chans:              make(map[string]*RunChannel),

@@ -2,10 +2,12 @@ package coord
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,15 +17,70 @@ import (
 // synthesized for any run — the runners are separate processes (their own
 // session leaders on the host; a container's foreground) and keep running.
 // Close is the graceful path and kills children first; a crash does neither.
+//
+// A dying process stops everything AT ONCE, and no single order of the two
+// teardowns models that. Journals first leaves a live transport serving frames
+// against a closed journal — answered and acked as if recorded. Transport
+// first leaves live journals recording the process's REACTIONS to its own cut:
+// a pause in flight fails and drops its run from a hold, a runner stream's end
+// declares runner loss. So it stops in three steps:
+//
+//  1. every journal write STALLS (stallJournals) — the process has stopped:
+//     a frame being handled is neither recorded nor answered;
+//  2. the streams are cut, from the coordinator's side, which no more frames
+//     reach: the runner registrations are forgotten first, as a dead process
+//     runs no stream teardown (DetachRunner records no runner loss);
+//  3. the stalled writes, and every write after them, then FAIL — nothing the
+//     cut provokes is recorded.
 func crashCoordinator(c *Coordinator) {
 	c.closeOnce.Do(func() {
 		c.tracked.Seal()
-		c.closePartial() // journals and the owner lock go FIRST: nothing lands after this
-		c.cancel()
+		c.streams.Seal()
+		fail := stallJournals(c.runs, c.items, c.auditJ)
+		c.mu.Lock()
+		var cut []context.CancelFunc
+		for _, rs := range c.runners {
+			cut = append(cut, rs.cancel)
+		}
+		for _, ch := range c.chans {
+			cut = append(cut, ch.cancel)
+		}
+		clear(c.runners)
+		c.mu.Unlock()
+		for _, cancel := range cut {
+			cancel()
+		}
+		fail()
 		if t := c.takeTransport(); t != nil {
 			t.Close()
 		}
+		c.closePartial() // journals and the owner lock: nothing lands after this
+		c.cancel()
 	})
+}
+
+// stalledWrites is a journal file whose appends block until stall closes and
+// then fail: the dead process's view of its own journal.
+type stalledWrites struct {
+	afero.File
+	stall <-chan struct{}
+}
+
+func (w stalledWrites) Write([]byte) (int, error) {
+	<-w.stall
+	return 0, errors.New("the coordinator process has died")
+}
+
+// stallJournals makes every append to stores block, returning the func that
+// turns them (and every later one) into failures.
+func stallJournals(stores ...*Store) (fail func()) {
+	stall := make(chan struct{})
+	for _, s := range stores {
+		s.mu.Lock()
+		s.f = stalledWrites{File: s.f, stall: stall}
+		s.mu.Unlock()
+	}
+	return func() { close(stall) }
 }
 
 // newTestCoordinatorOver serves a coordinator over a FIXED state dir with the

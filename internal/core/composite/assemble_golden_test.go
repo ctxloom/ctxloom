@@ -165,8 +165,11 @@ func renderToday(t *testing.T, g *golden, cfg *config.Config, engine, profile, a
 func openedManaged(t *testing.T, cfg *config.Config, engineName, profile, workDir string) *agent.ManagedConfig {
 	t.Helper()
 	// Resolve refuses a launch whose engine credential the environment does
-	// not hold; the payload carries no credential, so any value serves.
+	// not hold; the payload carries no credential, so any value serves. One
+	// per registered engine that needs one (claude-code's token, opencode's
+	// endpoint key).
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "golden-placeholder")
+	t.Setenv("CTXLOOM_OPENCODE_API_KEY", "golden-placeholder")
 	ctx := context.Background()
 	deps, err := operations.LaunchDepsFor(operations.LaunchFacts{Engines: engines.Registry()}, &config.Snapshot{Config: cfg})
 	require.NoError(t, err)

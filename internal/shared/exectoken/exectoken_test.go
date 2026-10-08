@@ -71,6 +71,8 @@ func TestArgs(t *testing.T) {
 		`'/a b/ctxloom'   hook  hud`:                 {"hook", "hud"},
 		"/usr/bin/ctxloom":                           nil,
 		`"/unterminated ctxloom hook`:                nil,
+		`"" hook gone`:                               {"hook", "gone"}, // an empty quoted executable is still terminated
+		" \tctxloom hook hud":                        {"hook", "hud"},
 		"":                                           nil,
 	}
 	for in, want := range cases {

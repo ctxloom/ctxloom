@@ -163,15 +163,17 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command succeeds
       And the output contains "orphan-one"
 
-    # Only claude-code is supported today; every other backend refuses by
-    # name rather than silently scanning nothing.
-    Scenario: An unsupported backend refuses by name
+    # The session's engine decides what adopt can read: one whose transcript
+    # readers cannot say when their records were written is refused by that
+    # missing capability, naming the engine, rather than silently scanning
+    # nothing.
+    Scenario: A backend without a readable store is refused, naming it
       Given an initialized ctxloom project
       And a recorded session "amber-swift-owl" for backend "mock"
       When I run "ctxloom session adopt amber-swift-owl"
       Then the command fails
       And the output contains "mock"
-      And the output contains "not supported yet"
+      And the output contains "supplies no transcript reader that can say when its records were written"
 
   Rule: The transcript is a population of its own
 

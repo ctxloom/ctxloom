@@ -78,18 +78,29 @@ func TestMaterialize_WithNoEngineAnywhere(t *testing.T) {
 	require.ErrorContains(t, err, "exactly one names the default")
 }
 
-// TestMaterialize_NotCarriedNamesOnlySelectedKinds: an engine without an
-// approach for a kind reports the loss only when that kind was selected.
+// TestMaterialize_NotCarriedNamesOnlySelectedKinds: a loss is reported
+// only for a selected kind — a kind the engine has no approach for, and a
+// hook the engine has no event for, alike.
 func TestMaterialize_NotCarriedNamesOnlySelectedKinds(t *testing.T) {
+	lost := func(res *MaterializeResult) []string {
+		require.Len(t, res.Engines, 1)
+		var out []string
+		for _, l := range res.Engines[0].NotCarried {
+			out = append(out, l.Surface)
+		}
+		return out
+	}
 	cfg := materializeCfg(t, "X", "")
 	res := materialize(t, cfg, MaterializeRequest{Target: t.TempDir(), Engines: []string{string(mock.NameLaunch)},
 		Surfaces: []SurfaceSpec{{Kind: present.Context}, {Kind: present.Hooks}}})
-	require.Len(t, res.Engines, 1)
-	var lost []string
-	for _, l := range res.Engines[0].NotCarried {
-		lost = append(lost, l.Surface)
-	}
-	assert.Equal(t, []string{"hooks"}, lost)
+	assert.Equal(t, []string{"hooks"}, lost(res), "no approach for hooks; mcp and the rest were not selected")
+
+	hooked, target := materializeHookFixture(t)
+	lossy := MaterializeRequest{Profiles: []string{"reviewer"}, Target: target, Engines: []string{string(mock.NameLossy)}}
+	lossy.Surfaces = []SurfaceSpec{{Kind: present.Context}, {Kind: present.Hooks}}
+	assert.Equal(t, []string{"hooks"}, lost(materialize(t, hooked, lossy)), "the session_start hook has no event")
+	lossy.Surfaces = []SurfaceSpec{{Kind: present.Context}}
+	assert.Empty(t, lost(materialize(t, hooked, lossy)), "hooks were not selected: their loss is not this run's")
 }
 
 // TestMaterialize_ReleaseAndWriteFailuresSetTheStatus: a release that takes

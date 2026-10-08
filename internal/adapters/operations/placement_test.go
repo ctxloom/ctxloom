@@ -30,8 +30,6 @@ import (
 // the session-endpoint constraint), driven through Deliver and Release at a
 // Placement: the operation the CLI and the install both call.
 
-const placeDir = "/project"
-
 func lookupEngine(t *testing.T, name string) engine.Engine {
 	t.Helper()
 	kind, ok := engines.Registry().Lookup(engine.Name(name))
@@ -53,28 +51,28 @@ func everyKindPackage(t *testing.T, body string) composite.Package {
 	return pkg
 }
 
-func deliverAt(t *testing.T, fs afero.Fs, kind engine.Engine, pkg composite.Package, kinds ...present.Kind) {
+func deliverAt(t *testing.T, fs afero.Fs, dir string, kind engine.Engine, pkg composite.Package, kinds ...present.Kind) {
 	t.Helper()
-	_, _, err := Deliver(context.Background(), safefs.NewMem(fs), kind, pkg, delivery.Loadout{}, atRestPlacement(placeDir, kind.Root().Name, kinds))
+	_, _, err := Deliver(context.Background(), safefs.NewMem(fs), kind, pkg, delivery.Loadout{}, atRestPlacement(dir, kind.Root().Name, kinds))
 	require.NoError(t, err)
 }
 
-func releaseAt(t *testing.T, fs afero.Fs, kind engine.Engine, kinds ...present.Kind) {
+func releaseAt(t *testing.T, fs afero.Fs, dir string, kind engine.Engine, kinds ...present.Kind) {
 	t.Helper()
-	require.NoError(t, Release(context.Background(), safefs.NewMem(fs), kind, atRestPlacement(placeDir, kind.Root().Name, kinds)))
+	require.NoError(t, Release(context.Background(), safefs.NewMem(fs), kind, atRestPlacement(dir, kind.Root().Name, kinds)))
 }
 
-func placedString(t *testing.T, fs afero.Fs, rel string) string {
+func placedString(t *testing.T, fs afero.Fs, dir, rel string) string {
 	t.Helper()
-	b, err := afero.ReadFile(fs, filepath.Join(placeDir, filepath.FromSlash(rel)))
+	b, err := afero.ReadFile(fs, filepath.Join(dir, filepath.FromSlash(rel)))
 	require.NoError(t, err)
 	return string(b)
 }
 
-func jsonDoc(t *testing.T, fs afero.Fs, rel string) map[string]any {
+func jsonDoc(t *testing.T, fs afero.Fs, dir, rel string) map[string]any {
 	t.Helper()
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal([]byte(placedString(t, fs, rel)), &doc))
+	require.NoError(t, json.Unmarshal([]byte(placedString(t, fs, dir, rel)), &doc))
 	return doc
 }
 
@@ -86,19 +84,20 @@ var claudeSettings = filepath.ToSlash(filepath.Join(".claude", claude.SettingsFi
 // still claimed and present, and the context section appears once.
 func TestDeliver_ASubsetRedeliveryLeavesTheOtherKindsStanding(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	dir := t.TempDir()
 	kind := lookupEngine(t, "claude-code")
-	deliverAt(t, fs, kind, everyKindPackage(t, "FIRST-BODY"), delivery.AllKinds()...)
-	before := deliverytest.RelativeFiles(fs, placeDir)
+	deliverAt(t, fs, dir, kind, everyKindPackage(t, "FIRST-BODY"), delivery.AllKinds()...)
+	before := deliverytest.RelativeFiles(fs, dir)
 	require.Contains(t, before, claude.MCPFileName)
 	require.Contains(t, before, claudeSettings)
 
-	deliverAt(t, fs, kind, everyKindPackage(t, "SECOND-BODY"), present.Context)
-	require.Equal(t, before, deliverytest.RelativeFiles(fs, placeDir), "the context-only run took no other kind's file")
-	require.Contains(t, jsonDoc(t, fs, claude.MCPFileName)["mcpServers"], "tasks")
-	settings := jsonDoc(t, fs, claudeSettings)
+	deliverAt(t, fs, dir, kind, everyKindPackage(t, "SECOND-BODY"), present.Context)
+	require.Equal(t, before, deliverytest.RelativeFiles(fs, dir), "the context-only run took no other kind's file")
+	require.Contains(t, jsonDoc(t, fs, dir, claude.MCPFileName)["mcpServers"], "tasks")
+	settings := jsonDoc(t, fs, dir, claudeSettings)
 	require.Contains(t, settings, "hooks")
 	require.Contains(t, settings, "permissions")
-	ctx := placedString(t, fs, claude.ContextFileName)
+	ctx := placedString(t, fs, dir, claude.ContextFileName)
 	require.Contains(t, ctx, "SECOND-BODY")
 	require.NotContains(t, ctx, "FIRST-BODY")
 }
@@ -109,25 +108,27 @@ func TestDeliver_ASubsetRedeliveryLeavesTheOtherKindsStanding(t *testing.T) {
 // hooks.
 func TestDeliver_HooksAndSettingsShareAFileWithoutStrippingEachOther(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	dir := t.TempDir()
 	kind := lookupEngine(t, "claude-code")
 	pkg := everyKindPackage(t, "body")
-	deliverAt(t, fs, kind, pkg, delivery.AllKinds()...)
-	full := jsonDoc(t, fs, claudeSettings)
+	deliverAt(t, fs, dir, kind, pkg, delivery.AllKinds()...)
+	full := jsonDoc(t, fs, dir, claudeSettings)
 
-	deliverAt(t, fs, kind, pkg, present.Hooks)
-	require.Equal(t, full, jsonDoc(t, fs, claudeSettings), "hooks alone kept the settings kind's entries")
-	deliverAt(t, fs, kind, pkg, present.Settings)
-	require.Equal(t, full, jsonDoc(t, fs, claudeSettings), "settings alone kept the hooks")
+	deliverAt(t, fs, dir, kind, pkg, present.Hooks)
+	require.Equal(t, full, jsonDoc(t, fs, dir, claudeSettings), "hooks alone kept the settings kind's entries")
+	deliverAt(t, fs, dir, kind, pkg, present.Settings)
+	require.Equal(t, full, jsonDoc(t, fs, dir, claudeSettings), "settings alone kept the hooks")
 }
 
 // TestDeliver_ASelectedEmptyKindIsReleasedAnUnselectedOneUntouched (test 9).
 func TestDeliver_ASelectedEmptyKindIsReleasedAnUnselectedOneUntouched(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	dir := t.TempDir()
 	kind := lookupEngine(t, "mock")
-	deliverAt(t, fs, kind, everyKindPackage(t, "body"), delivery.AllKinds()...)
+	deliverAt(t, fs, dir, kind, everyKindPackage(t, "body"), delivery.AllKinds()...)
 	noExtras := compositetest.Fixture(t, compositetest.WithFragment("hello", "body"))
-	deliverAt(t, fs, kind, noExtras, present.Context, present.Skills)
-	files := deliverytest.RelativeFiles(fs, placeDir)
+	deliverAt(t, fs, dir, kind, noExtras, present.Context, present.Skills)
+	files := deliverytest.RelativeFiles(fs, dir)
 	require.NotContains(t, files, ".mock/skills/greet/SKILL.md", "skills was selected and the profile has none: released")
 	require.Contains(t, files, ".mock/commands/go.md", "commands was not selected: untouched")
 }
@@ -137,15 +138,16 @@ func TestDeliver_ASelectedEmptyKindIsReleasedAnUnselectedOneUntouched(t *testing
 // byte.
 func TestRelease_PerKindAndWhole(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	dir := t.TempDir()
 	kind := lookupEngine(t, "claude-code")
 	mine := "# My notes\n\nhand-written, keep me\n"
-	testsupport.WriteFileString(t, fs, filepath.Join(placeDir, claude.ContextFileName), mine, 0o644)
-	deliverAt(t, fs, kind, everyKindPackage(t, "OURS"), delivery.AllKinds()...)
-	require.Contains(t, placedString(t, fs, claude.ContextFileName), "OURS")
+	testsupport.WriteFileString(t, fs, filepath.Join(dir, claude.ContextFileName), mine, 0o644)
+	deliverAt(t, fs, dir, kind, everyKindPackage(t, "OURS"), delivery.AllKinds()...)
+	require.Contains(t, placedString(t, fs, dir, claude.ContextFileName), "OURS")
 
-	before := deliverytest.RelativeFiles(fs, placeDir)
-	releaseAt(t, fs, kind, present.Skills)
-	after := deliverytest.RelativeFiles(fs, placeDir)
+	before := deliverytest.RelativeFiles(fs, dir)
+	releaseAt(t, fs, dir, kind, present.Skills)
+	after := deliverytest.RelativeFiles(fs, dir)
 	require.NotEqual(t, before, after)
 	for _, f := range after {
 		require.Contains(t, before, f)
@@ -156,9 +158,9 @@ func TestRelease_PerKindAndWhole(t *testing.T) {
 		}
 	}
 
-	releaseAt(t, fs, kind, delivery.AllKinds()...)
-	require.Equal(t, mine, placedString(t, fs, claude.ContextFileName), "the user's file is restored byte for byte")
-	require.Equal(t, []string{claude.ContextFileName}, deliverytest.RelativeFiles(fs, placeDir))
+	releaseAt(t, fs, dir, kind, delivery.AllKinds()...)
+	require.Equal(t, mine, placedString(t, fs, dir, claude.ContextFileName), "the user's file is restored byte for byte")
+	require.Equal(t, []string{claude.ContextFileName}, deliverytest.RelativeFiles(fs, dir))
 }
 
 // TestDeliver_TwoEnginesCoexistInOneDirectory (tests 12 and 13): each
@@ -166,19 +168,20 @@ func TestRelease_PerKindAndWhole(t *testing.T) {
 // first's files, and releasing one leaves the other's.
 func TestDeliver_TwoEnginesCoexistInOneDirectory(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	dir := t.TempDir()
 	c, m := lookupEngine(t, "claude-code"), lookupEngine(t, "mock")
 	pkg := everyKindPackage(t, "body")
-	deliverAt(t, fs, c, pkg, delivery.AllKinds()...)
-	claudeFiles := deliverytest.RelativeFiles(fs, placeDir)
-	deliverAt(t, fs, m, pkg, delivery.AllKinds()...)
-	both := deliverytest.RelativeFiles(fs, placeDir)
+	deliverAt(t, fs, dir, c, pkg, delivery.AllKinds()...)
+	claudeFiles := deliverytest.RelativeFiles(fs, dir)
+	deliverAt(t, fs, dir, m, pkg, delivery.AllKinds()...)
+	both := deliverytest.RelativeFiles(fs, dir)
 	for _, f := range claudeFiles {
 		require.Contains(t, both, f, "the second engine kept the first's %s", f)
 	}
 	require.Contains(t, both, mock.ContextFileName)
 
-	releaseAt(t, fs, m, delivery.AllKinds()...)
-	require.Equal(t, claudeFiles, deliverytest.RelativeFiles(fs, placeDir), "releasing the mock left claude's files")
+	releaseAt(t, fs, dir, m, delivery.AllKinds()...)
+	require.Equal(t, claudeFiles, deliverytest.RelativeFiles(fs, dir), "releasing the mock left claude's files")
 }
 
 // TestDeliver_AtRestWritesNoSessionEndpoint (owner constraint 2026-10-07):
@@ -187,19 +190,20 @@ func TestDeliver_TwoEnginesCoexistInOneDirectory(t *testing.T) {
 // declared server, no MCP file at all.
 func TestDeliver_AtRestWritesNoSessionEndpoint(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	dir := t.TempDir()
 	kind := lookupEngine(t, "claude-code")
 	pkg := everyKindPackage(t, "body")
 	pkg.MCP[wire.LayerServerName] = wire.MCPServer{ServedBy: wire.ServedBySessionEndpoint}
-	deliverAt(t, fs, kind, pkg, delivery.AllKinds()...)
-	servers, _ := jsonDoc(t, fs, claude.MCPFileName)["mcpServers"].(map[string]any)
+	deliverAt(t, fs, dir, kind, pkg, delivery.AllKinds()...)
+	servers, _ := jsonDoc(t, fs, dir, claude.MCPFileName)["mcpServers"].(map[string]any)
 	require.Contains(t, servers, "tasks")
 	require.NotContains(t, servers, wire.LayerServerName, "no ctxloom endpoint entry at rest")
-	require.NotContains(t, placedString(t, fs, claude.MCPFileName), "Bearer")
+	require.NotContains(t, placedString(t, fs, dir, claude.MCPFileName), "Bearer")
 
 	fs = afero.NewMemMapFs()
 	only := compositetest.Fixture(t, compositetest.WithFragment("hello", "body"), compositetest.WithMCP(wire.LayerServerName, wire.MCPServer{ServedBy: wire.ServedBySessionEndpoint}))
-	deliverAt(t, fs, kind, only, delivery.AllKinds()...)
-	require.NotContains(t, deliverytest.RelativeFiles(fs, placeDir), claude.MCPFileName, "the endpoint alone asks for no MCP file at rest")
+	deliverAt(t, fs, dir, kind, only, delivery.AllKinds()...)
+	require.NotContains(t, deliverytest.RelativeFiles(fs, dir), claude.MCPFileName, "the endpoint alone asks for no MCP file at rest")
 }
 
 // TestDeliver_ASessionShapedPlacementUsesTheSessionHomeBranch (test 55):
@@ -211,9 +215,10 @@ func TestDeliver_ASessionShapedPlacementUsesTheSessionHomeBranch(t *testing.T) {
 	for _, name := range []string{"claude-code", "mock"} {
 		t.Run(name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
+			dir := t.TempDir()
 			kind := lookupEngine(t, name)
-			const home = "/session/home"
-			cell := present.New(present.OnHost(present.Paths{SessionHome: present.Root{Host: home, Engine: home}, ProjectRoot: present.Root{Host: placeDir, Engine: placeDir}}))
+			home := t.TempDir()
+			cell := present.New(present.OnHost(present.Paths{SessionHome: present.Root{Host: home, Engine: home}, ProjectRoot: present.Root{Host: dir, Engine: dir}}))
 			p := Placement{Start: cell, Family: delivery.SessionWriter("brisk-otter")}
 			d, plan, err := Deliver(context.Background(), safefs.NewMem(fs), kind, everyKindPackage(t, "body"), delivery.Loadout{}, p)
 			require.NoError(t, err)
@@ -222,7 +227,7 @@ func TestDeliver_ASessionShapedPlacementUsesTheSessionHomeBranch(t *testing.T) {
 				require.Equal(t, present.RootSessionHome, it.Root, "%v", it.Kind)
 			}
 			require.NotEmpty(t, d.Wrote)
-			require.Empty(t, deliverytest.RelativeFiles(fs, placeDir), "nothing in the project")
+			require.Empty(t, deliverytest.RelativeFiles(fs, dir), "nothing in the project")
 			require.NotEmpty(t, deliverytest.RelativeFiles(fs, home))
 		})
 	}
@@ -234,10 +239,11 @@ func TestDeliver_ASessionShapedPlacementUsesTheSessionHomeBranch(t *testing.T) {
 // description) and a command whose name escapes the commands directory.
 func TestDeliver_TheWritersSkipsAreReported(t *testing.T) {
 	fs := afero.NewMemMapFs()
+	dir := t.TempDir()
 	kind := lookupEngine(t, "claude-code")
 	pkg := compositetest.Fixture(t, compositetest.WithFragment("hello", "body"), compositetest.WithSkill("nodesc"), compositetest.WithCommand("../escape", "go"))
 	var skipped report.Findings
-	_, _, err := Deliver(context.Background(), safefs.NewMem(fs), kind, pkg, delivery.Loadout{Report: &skipped}, atRestPlacement(placeDir, kind.Root().Name, delivery.AllKinds()))
+	_, _, err := Deliver(context.Background(), safefs.NewMem(fs), kind, pkg, delivery.Loadout{Report: &skipped}, atRestPlacement(dir, kind.Root().Name, delivery.AllKinds()))
 	require.NoError(t, err)
 	var texts []string
 	for _, f := range skipped {

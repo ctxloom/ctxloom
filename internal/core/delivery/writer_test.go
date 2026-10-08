@@ -69,7 +69,7 @@ func TestTarget_WritersSplitPerKindOnlyWhenKindsAreNamed(t *testing.T) {
 // TestTarget_ValidateRefusesAnUnknownKind: a kind outside the vocabulary
 // would name a writer no later run ever speaks for again.
 func TestTarget_ValidateRefusesAnUnknownKind(t *testing.T) {
-	base := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: newRecord(t, afero.NewMemMapFs()), Writer: delivery.ProjectWriterFor("mock")}
+	base := delivery.Target{Root: present.ProjectOnHost(t.TempDir()), Ownership: newRecord(t, afero.NewMemMapFs()), Writer: delivery.ProjectWriterFor("mock")}
 	require.NoError(t, base.Validate())
 	ok := base
 	ok.Kinds = delivery.AllKinds()

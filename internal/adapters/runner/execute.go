@@ -153,6 +153,7 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		return Outcome{}, err
 	}
 	sweepDeparted(ctx, deps)
+	warnMaterializedContext(deps.Records, l.Cell.Paths.Paths().ProjectRoot.Host, deps.Reporter)
 	closeServed, err := serveEndpoint(ctx, deps, lo)
 	if err != nil {
 		return Outcome{}, err
@@ -165,6 +166,27 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		return Outcome{}, err
 	}
 	return Outcome{Delivered: delivered, MCPConfig: mcpFileOf(delivered), Close: closeServed}, nil
+}
+
+// warnMaterializedContext warns, once per file, when the ownership record
+// shows context an earlier `ctxloom materialize` wrote into this run's
+// project (R5): the engine may read that file as well as the context this
+// session delivers. A warning, never a refusal: --surface can leave context
+// out of a materialize, and this names how to take it back out.
+func warnMaterializedContext(records delivery.Ownership, projectRoot string, sink report.Sink) {
+	if records == nil || projectRoot == "" {
+		return
+	}
+	files, err := delivery.ProjectContextClaims(records, projectRoot)
+	if err != nil {
+		return
+	}
+	for _, f := range files {
+		report.To(sink).Report(report.Finding{
+			Text:   fmt.Sprintf("%s holds context an earlier `ctxloom materialize` wrote into this project; the engine may read it beside this session's own context", f),
+			Remedy: "ctxloom materialize --release --surface context --target " + projectRoot,
+		})
+	}
 }
 
 // prepareLaunch refuses missing deps and a foreign engine, opens a container

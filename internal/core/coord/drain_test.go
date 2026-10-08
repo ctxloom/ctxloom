@@ -214,6 +214,16 @@ func announceHeldChild(t *testing.T) (c *Coordinator, sp *fakeSpawner, harp, run
 	harp = spawnGatedChild(t, sp, c)
 	require.Empty(t, sp.NativeSession(harp), "precondition: the announce is still held in the engine")
 	c.runs.View(func() { runID = c.runsF.currentRun(harp).RunID })
+	// The turn reaching the engine says nothing about the run channel: the
+	// first turn rides StartRun on the RUNNER channel, and the run channel
+	// dials unordered against it. No channel, nothing on the wire to drain —
+	// terminateRun rightly skips the drain, and the claim below is never
+	// exercised. So the drain's own precondition is established, not assumed.
+	require.Eventually(t, func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return c.runChanLocked(harp, runID) != nil
+	}, conformanceWait, 5*time.Millisecond, "precondition: the child's run channel is attached, so there is a channel to drain")
 
 	fired := false
 	c.drainHook = func(role string) {

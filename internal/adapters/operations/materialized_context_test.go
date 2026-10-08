@@ -42,3 +42,16 @@ func TestMaterializedContextFindings(t *testing.T) {
 	require.Contains(t, got[0].Text, "/p/docs/AGENTS.md")
 	require.Contains(t, got[0].Remedy, "ctxloom materialize --release --surface context")
 }
+
+// TestMaterializedContextFindings_NoRecordOrNoProjectIsNoFinding: with no
+// ownership record, or no project root, there is nothing to warn about and
+// nothing is read.
+func TestMaterializedContextFindings_NoRecordOrNoProjectIsNoFinding(t *testing.T) {
+	require.Empty(t, MaterializedContextFindings(nil, "/p"), "no record")
+
+	fs := afero.NewMemMapFs()
+	rec, err := fsstatic.NewRecords(fs, "/records")
+	require.NoError(t, err)
+	claimIn(t, fs, rec, "/p/AGENTS.md", delivery.ProjectWriterFor("mock").Of(present.Context))
+	require.Empty(t, MaterializedContextFindings(rec, ""), "no project root")
+}

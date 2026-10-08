@@ -20,6 +20,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
@@ -244,4 +246,41 @@ func TestRunSyncPostSteps_MaterializesAtTheProjectRootItNames(t *testing.T) {
 	runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, SyncDependenciesRequest{ApplyHooks: true}, &SyncDependenciesResult{Total: 1}, afero.NewMemMapFs())
 	require.Len(t, got, 1)
 	assert.Equal(t, MaterializeRequest{Target: projectroot.WorkDir()}, got[0])
+}
+
+// TestSyncMaterializeStep_AWholesaleFailureIsAnApplyFinding: the post-sync
+// apply records an apply-class finding when Materialize errors or reports
+// that no engine could be materialized (its errors named); a run that
+// applied, partly or wholly, or materialized nothing, records none.
+func TestSyncMaterializeStep_AWholesaleFailureIsAnApplyFinding(t *testing.T) {
+	testsupport.Isolate(t)
+	orig := syncHooksStep
+	t.Cleanup(func() { syncHooksStep = orig })
+	step := func(res *MaterializeResult, err error) report.Findings {
+		syncHooksStep = func(context.Context, engine.Registry, *config.Config, MaterializeRequest) (*MaterializeResult, error) {
+			return res, err
+		}
+		mark := strictness.Checkpoint()
+		syncMaterializeStep(context.Background(), engines.Registry(), &config.Config{})
+		return strictness.Since(mark)
+	}
+
+	for name, res := range map[string]*MaterializeResult{
+		"applied":    {Status: MaterializeApplied},
+		"partial":    {Status: MaterializePartial, Errors: []string{"mock: disk full"}},
+		"no result":  nil,
+		"no engines": {Status: MaterializeNothing},
+	} {
+		require.Empty(t, step(res, nil), name)
+	}
+
+	failed := step(&MaterializeResult{Status: MaterializeFailed, Errors: []string{"mock: disk full", "claude-code: read-only"}}, nil)
+	require.Len(t, failed, 1)
+	assert.Equal(t, report.KindApply, failed[0].Kind)
+	assert.Contains(t, failed[0].Text, "no engine could be materialized: mock: disk full; claude-code: read-only")
+
+	errored := step(&MaterializeResult{Status: MaterializeFailed, Errors: []string{"mock: disk full"}}, errors.New("config generation gone"))
+	require.Len(t, errored, 1)
+	assert.Contains(t, errored[0].Text, "config generation gone", "the call's own error is what is reported")
+	assert.NotContains(t, errored[0].Text, "no engine could be materialized")
 }

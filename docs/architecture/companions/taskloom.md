@@ -190,7 +190,7 @@ one that dies with the worktree.
 | Symbol | Notes |
 |---|---|
 | `showCmd` / `renderTaskDetail` | Shows one or more tasks in full, including Done, in argument order. Every id must resolve: any unknown id fails the call, naming all of them, and nothing is printed |
-| `versionCmd` | Text prints the bare version; the structured form is `cliversion.Info` via `cliemit.EmitVersion`. **`{name, version}` is a wire contract** — ctxloom's companion probe parses it |
+| `versionCmd` | Text prints the bare version; the structured form is `cobrafmt.VersionInfo` via `cobrafmt.EmitVersion`. **`{name, version}` is a wire contract** — ctxloom's companion probe parses it |
 | `watchCmd` / `watchEvent` | Hidden, long-lived JSONL change stream for GUI subscribers over `internal/shared/watch.Stream`, debounced by `watchDebounce`. Emits once immediately so a subscriber renders current state without an initial-query race. `checkWatchFormat` refuses a `--format` it cannot produce |
 | `runCmd` / `launchTaskAgent` / `pickTask` | Picks or matches a task, then execs `ctxloom run` |
 | `repairCmd` | Re-introduces any task displaced by an unresolved harp-id collision under a fresh harp, without rewriting history |
@@ -211,8 +211,10 @@ one that dies with the worktree.
 7. **`ResolveMode` cannot return an empty mode without an error.**
 8. **`engine.Get` refuses prefix matching** — a typo must error rather than silently pick an engine.
 9. **`watch` emits once before any change** so a subscriber has no initial-query race.
-10. **A structured `--format` flips `clidiag.SetStructured`** in `rootPersistentPreRun`, so
-    diagnostics do not corrupt machine-readable output.
+10. **A structured `--format` flips `clidiag.SetStructured`** (`cobrafmt.ApplyDiagnostics` in the
+    root's `PersistentPreRun`), so diagnostics do not corrupt machine-readable output. A failure is
+    reported by `cobrafmt.Execute` as `taskloom: <msg>`, or an envelope under an explicit structured
+    `--format`.
 11. **One list pipeline.** The CLI and MCP list paths both go through `listTasksScoped`, so tag-query
     error wrapping (`wrapTagQueryError`) and limits apply identically.
 

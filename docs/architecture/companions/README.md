@@ -22,7 +22,7 @@ its own documentation.
 | [hostpty.md](hostpty.md) | `internal/adapters/hostpty` + `internal/adapters/attach` | The pty the originator holds around `ctxloom runner`: a host process (hostpty) or `docker run -i -t … ctxloom runner` as a container's foreground (attach) |
 | [docsgen.md](docsgen.md) | `internal/shared/docsgen` | Deterministic generation of man pages, per-command markdown, an MCP tool page, and a config page from a product's live cobra tree, live MCP registrations, and tracked JSON Schema |
 | [selfexec.md](selfexec.md) | `internal/adapters/selfexec` | Resolving the path of the running ctxloom binary, so a materialized engine surface names the binary that materialized it |
-| [clifmt.md](clifmt.md) | `pkg/clifmt` | Rendering an arbitrary Go value to json / yaml / toml / text / markdown for first-party CLI commands |
+| [clifmt.md](clifmt.md) | `pkg/clifmt` (+ `cobrafmt`, `clidiag`) | The CLI output library: one data contract rendered as json / yaml / toml / text / markdown, custom views as options, and the cobra adapter for `--format` and the process tail |
 
 ## How these fit together
 

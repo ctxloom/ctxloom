@@ -362,8 +362,27 @@ Grouped by what you would have to change.
   comments and key order; a file ctxloom re-renders from its own model, such
   as a bundle's `bundle.yaml`, does not keep its comments.
 - `--format yaml` command output is two-space indented too (it was four), so
-  every command prints YAML in the same layout as the files ctxloom saves. Only
-  the indentation changed; keys, values and order are as before.
+  every command prints YAML in the same layout as the files ctxloom saves.
+- `--format yaml` command output lists keys in the same order as `--format
+  json` (each struct's field order) instead of alphabetically. Keys and values
+  are unchanged. `--format toml` stays alphabetical: TOML output has no
+  ordered form.
+- In `--format text` and `--format markdown`, a map in a command's result
+  renders as a section with one line per key instead of one `k=v, k=v` line,
+  and a map of records (`bundle show`'s fragments, commands, MCP servers,
+  skills and env) renders one sub-section per entry instead of Go struct
+  syntax. A list of maps that share their keys and hold plain values renders
+  as a table.
+- `taskloom` reports a failure as `taskloom: <message>` (plus a `fix:` line
+  when there is one) instead of `Error: <message>`, under `--format text` and
+  `markdown` alike; `ltk` and `harp` keep their `ltk:`/`harp:` prefix and gain
+  the `fix:` line. Under an explicit `--format json|yaml|toml`, `harp` now
+  reports a failure as an `{"error": …}` envelope on stderr like the other
+  binaries, and `ltk`'s and `harp`'s warnings become JSON Lines.
+- `harp --help` states `--format`'s real default (text on a terminal, json
+  when output is piped or redirected) instead of a fixed `text`. A pipe already
+  got json; only the help was wrong. `harp`, `ltk` and `taskloom` complete
+  `--format` values in the shell.
 
 **Isolation**
 - The container runtime axis splits into two ownership modes,

@@ -200,7 +200,7 @@ Feature: The archaeologist — what did we decide in March?
   Scenario: The SessionStart hook delivers the essence for a --compact resume
     Given the environment variable "CTXLOOM_RESUMED_FROM" is set to "amber-quiet-heron"
     And the environment variable "CTXLOOM_RESUMED_PARTS" is set to "session"
-    When I run "ctxloom hook session-start" with input:
+    When I run "ctxloom hook session-start --engine claude-code" with input:
       """
       {"session_id":"vendor-session-1","hook_event_name":"SessionStart"}
       """

@@ -104,6 +104,12 @@ type DoctorRequest struct {
 	// establishes rather than a read of this service's own; "" when it could
 	// not be, in which case the home-rooted local-state rows are skipped.
 	Home string
+	// HookVerbs is every `ctxloom hook` subcommand this build has, read off
+	// the CLI's own command tree by the frontend. A settings hook entry
+	// naming any other verb is a previous ctxloom's leftover
+	// (DOCTOR-CHECK-STALE-HOOKS-n5); with none supplied that check reports
+	// that it could not judge rather than calling every entry stale.
+	HookVerbs []string
 }
 
 // Doctor runs ctxloom's deterministic setup checks and returns their rows in
@@ -135,6 +141,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckTranscriptReaders(ctx, reg, cfg, app.ProbeEngineVersion),
 			doctorCheckHooksMCP(ctx, reg, cfg, cfgErr),
 			doctorCheckMCPInvocation(reg, doctorProjectDir(cfg)),
+			doctorCheckStaleHooks(reg, doctorProjectDir(cfg), configFS(cfg), req.HookVerbs),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
 			doctorCheckSetupCompanions(cfg, cfgErr, app.NoCompanions),
 			doctorCheckSetupAuthPing(),

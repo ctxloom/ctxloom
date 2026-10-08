@@ -28,7 +28,7 @@ Feature: The TurnEnd hook captures what the agent was about to do next, and the 
       """
       Next I will run the lint gate and then merge the branch.
       """
-    When I run "ctxloom hook next-step" with input:
+    When I run "ctxloom hook next-step --engine claude-code" with input:
       """
       {"session_id":"vendor-session-1","hook_event_name":"Stop","transcript_path":"$PROJECT_DIR/turn.jsonl"}
       """
@@ -53,11 +53,11 @@ Feature: The TurnEnd hook captures what the agent was about to do next, and the 
       """
       Now I will fix the off-by-one in the paginator.
       """
-    When I run "ctxloom hook next-step" with input:
+    When I run "ctxloom hook next-step --engine claude-code" with input:
       """
       {"session_id":"vendor-session-1","hook_event_name":"Stop","transcript_path":"$PROJECT_DIR/turn-one.jsonl"}
       """
-    And I run "ctxloom hook next-step" with input:
+    And I run "ctxloom hook next-step --engine claude-code" with input:
       """
       {"session_id":"vendor-session-1","hook_event_name":"Stop","transcript_path":"$PROJECT_DIR/turn-two.jsonl"}
       """
@@ -75,7 +75,7 @@ Feature: The TurnEnd hook captures what the agent was about to do next, and the 
     Given the session harp is "brisk-copper-moth"
     And the session index records harp "brisk-copper-moth" on engine "claude-code"
     And a "claude-code" transcript at "long.jsonl" whose turn ends with a closing text longer than the next-step bound
-    When I run "ctxloom hook next-step" with input:
+    When I run "ctxloom hook next-step --engine claude-code" with input:
       """
       {"session_id":"vendor-session-1","hook_event_name":"Stop","transcript_path":"$PROJECT_DIR/long.jsonl"}
       """
@@ -94,11 +94,11 @@ Feature: The TurnEnd hook captures what the agent was about to do next, and the 
       Then I will bisect the regression.
       """
     And a "claude-code" transcript at "blank.jsonl" whose turn ends with only whitespace
-    When I run "ctxloom hook next-step" with input:
+    When I run "ctxloom hook next-step --engine claude-code" with input:
       """
       {"session_id":"vendor-session-1","hook_event_name":"Stop","transcript_path":"$PROJECT_DIR/turn-one.jsonl"}
       """
-    And I run "ctxloom hook next-step" with input:
+    And I run "ctxloom hook next-step --engine claude-code" with input:
       """
       {"session_id":"vendor-session-1","hook_event_name":"Stop","transcript_path":"$PROJECT_DIR/blank.jsonl"}
       """
@@ -121,7 +121,7 @@ Feature: The TurnEnd hook captures what the agent was about to do next, and the 
       """
       Next I will wire the mock reader's next step through.
       """
-    When I run "ctxloom hook next-step" with input:
+    When I run "ctxloom hook next-step --engine claude-code" with input:
       """
       {"session_id":"vendor-session-1","hook_event_name":"Stop","transcript_path":"$PROJECT_DIR/turn.jsonl"}
       """
@@ -148,12 +148,12 @@ Feature: The TurnEnd hook captures what the agent was about to do next, and the 
       """
       This must never be stored: nobody knows which reader to use.
       """
-    When I run "ctxloom hook next-step" with input:
+    When I run "ctxloom hook next-step --engine claude-code" with input:
       """
       {"session_id":"vendor-session-1","hook_event_name":"Stop","transcript_path":"$PROJECT_DIR/turn-one.jsonl"}
       """
     Given the session index records harp "brisk-copper-moth" on engine "claude-code" with no engine version
-    When I run "ctxloom hook next-step" with input:
+    When I run "ctxloom hook next-step --engine claude-code" with input:
       """
       {"session_id":"vendor-session-1","hook_event_name":"Stop","transcript_path":"$PROJECT_DIR/turn-two.jsonl"}
       """

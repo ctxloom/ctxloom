@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -89,6 +90,21 @@ func writeFile(fs afero.Fs, p present.Presentation, bytes []byte, mode os.FileMo
 
 // writeWhole writes p's file and declares it: the delivery of a kind that is
 // one file the mock owns whole.
+// deliverJSON writes v, indented, as the whole file at rel under the root the
+// plan selected, announcing it on flag: the shape every JSON surface of the
+// mock shares.
+func (s *surface) deliverJSON(start present.Start, root present.RootKind, rel, flag string, v any, mode os.FileMode, fs afero.Fs) (present.Delivered, error) {
+	r, err := s.rooted(start, root, rel)
+	if err != nil {
+		return present.Delivered{}, err
+	}
+	bytes, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return present.Delivered{}, err
+	}
+	return writeWhole(fs, r.AnnounceFlag(flag).Build(), append(bytes, '\n'), mode)
+}
+
 func writeWhole(fs afero.Fs, p present.Presentation, bytes []byte, mode os.FileMode) (present.Delivered, error) {
 	path, err := writeFile(fs, p, bytes, mode)
 	if err != nil {
@@ -116,16 +132,8 @@ func (a *contextFile) DeliverContext(start present.Start, root present.RootKind,
 type mcpFile struct{ surface }
 
 func (a *mcpFile) DeliverMCP(start present.Start, root present.RootKind, in engine.MCPInputs, fs afero.Fs) (present.Delivered, error) {
-	r, err := a.rooted(start, root, mcpRel)
-	if err != nil {
-		return present.Delivered{}, err
-	}
-	bytes, err := json.MarshalIndent(map[string]any{"mcpServers": in.Servers}, "", "  ")
-	if err != nil {
-		return present.Delivered{}, err
-	}
 	// Owner-only: the session endpoint's bearer rides in this file.
-	return writeWhole(fs, r.AnnounceFlag(mcpFlag).Build(), append(bytes, '\n'), 0o600)
+	return a.deliverJSON(start, root, mcpRel, mcpFlag, map[string]any{"mcpServers": in.Servers}, 0o600, fs)
 }
 
 // settingsFile writes the settings inputs it is handed: the deny list, the
@@ -134,32 +142,31 @@ func (a *mcpFile) DeliverMCP(start present.Start, root present.RootKind, in engi
 type settingsFile struct{ surface }
 
 func (a *settingsFile) DeliverSettings(start present.Start, root present.RootKind, in engine.SettingsInputs, fs afero.Fs) (present.Delivered, error) {
-	r, err := a.rooted(start, root, settingsRel)
-	if err != nil {
-		return present.Delivered{}, err
-	}
 	shell := map[string]int64{"defaultMs": in.ShellTimeout.Default.Milliseconds(), "maxMs": in.ShellTimeout.Max.Milliseconds()}
-	bytes, err := json.MarshalIndent(map[string]any{"denyTools": in.DenyTools, "statusline": in.Statusline, "shellTimeout": shell}, "", "  ")
-	if err != nil {
-		return present.Delivered{}, err
-	}
-	return writeWhole(fs, r.AnnounceFlag(settingsFlag).Build(), append(bytes, '\n'), 0o644)
+	return a.deliverJSON(start, root, settingsRel, settingsFlag, map[string]any{"denyTools": in.DenyTools, "statusline": in.Statusline, "shellTimeout": shell}, 0o644, fs)
 }
 
-// hooksFile writes the unified hook set as the mock's native hook file and
-// announces it on --hooks; the mock's turn reads it back to fire them.
-type hooksFile struct{ surface }
+// hooksFile writes the unified hook set, bound to this engine
+// (agent.BindHooks: ctxloom's callbacks name it, tool classes become its
+// matchers), as the mock's native hook file and announces it on --hooks; the
+// mock's turn reads it back to fire them. An event the kind declares lost
+// (Definition.HookLosses) is left out of the file: the mock fires no hook for
+// it, so a file that still carried one would disagree with the loss report.
+type hooksFile struct {
+	surface
+	engine engine.Name
+	lost   map[string]string
+}
 
 func (a *hooksFile) DeliverHooks(start present.Start, root present.RootKind, in engine.HooksInputs, fs afero.Fs) (present.Delivered, error) {
-	r, err := a.rooted(start, root, hooksRel)
+	bound, err := agent.BindHooks(in.Hooks, string(a.engine), toolMatcher)
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	bytes, err := json.MarshalIndent(in.Hooks, "", "  ")
-	if err != nil {
-		return present.Delivered{}, err
+	for event := range a.lost {
+		bound.SetEvent(event, nil)
 	}
-	return writeWhole(fs, r.AnnounceFlag(HooksFlag).Build(), append(bytes, '\n'), 0o644)
+	return a.deliverJSON(start, root, hooksRel, HooksFlag, bound, 0o644, fs)
 }
 
 // commandsDir writes each enabled command as <name>.md under the commands

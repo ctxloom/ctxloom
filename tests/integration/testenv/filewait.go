@@ -10,10 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/watch"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // AwaitFileContaining blocks until a file named name anywhere under root
-// contains want, or TestExpiry(t) fires. It returns the path that matched.
+// contains want, or testsupport.Expiry(t) fires. It returns the path that matched.
 //
 // It wakes on filesystem events, never on a timer: the watch is armed before
 // the first look, so a write that lands between the two is still seen — by
@@ -24,7 +25,7 @@ func AwaitFileContaining(t *testing.T, root, name, want string) (string, bool) {
 	require.NoError(t, err, "watch %s", root)
 	defer func() { _ = w.Close() }()
 
-	expired := TestExpiry(t)
+	expired := testsupport.Expiry(t)
 	for {
 		if path, ok := fileContaining(root, name, want); ok {
 			return path, true

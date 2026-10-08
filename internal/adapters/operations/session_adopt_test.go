@@ -2,6 +2,8 @@ package operations
 
 import (
 	"encoding/json"
+	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -80,7 +81,7 @@ func TestScanAdoptCandidates_OrdersByInternalTimestampNeverMtime(t *testing.T) {
 	oldMtime := time.Unix(0, 0)
 	writeClaudeVendorFile(t, dir, "id-mid", midStart, midEnd, &oldMtime) // internally MIDDLE, mtime OLDEST
 
-	scan, err := ScanAdoptCandidates(afero.NewOsFs(), harp)
+	scan, err := ScanAdoptCandidates(afero.NewOsFs(), engines.Registry(), harp)
 	require.NoError(t, err)
 	// id-early, id-mid (both adopted) plus id-live itself — the live
 	// binding's OWN vendor file sits in the same scanned directory, and is
@@ -131,7 +132,7 @@ func TestScanAdoptCandidates_SkipsOverlappingSpan(t *testing.T) {
 		time.Date(2026, 2, 1, 0, 30, 0, 0, time.UTC),
 		time.Date(2026, 2, 1, 2, 0, 0, 0, time.UTC), nil)
 
-	scan, err := ScanAdoptCandidates(afero.NewOsFs(), harp)
+	scan, err := ScanAdoptCandidates(afero.NewOsFs(), engines.Registry(), harp)
 	require.NoError(t, err)
 	// id-concurrent (overlap skip) plus id-live itself, re-discovered and
 	// skipped as already-in-lineage (see the ordering test's comment).
@@ -179,7 +180,7 @@ func TestScanAdoptCandidates_SkipsAlreadyKnownAndAnotherHarp(t *testing.T) {
 		time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC), nil)
 	require.NoError(t, mgr.BindSession(other.HarpName, "id-other-harp", otherPath))
 
-	scan, err := ScanAdoptCandidates(afero.NewOsFs(), harp)
+	scan, err := ScanAdoptCandidates(afero.NewOsFs(), engines.Registry(), harp)
 	require.NoError(t, err)
 	// id-live (this harp's own current binding), id-rotated (already in
 	// Rotations) and id-other-harp (bound elsewhere) — all three resolve via
@@ -203,27 +204,29 @@ func TestScanAdoptCandidates_SkipsAlreadyKnownAndAnotherHarp(t *testing.T) {
 	assert.Contains(t, byID["id-other-harp"].Reason, other.HarpName)
 }
 
-// TestScanAdoptCandidates_UnsupportedBackendErrors pins the fail-loud backend
-// scope: a non-claude-code harp errors clearly, naming the backend, rather
-// than silently scanning nothing.
+// TestScanAdoptCandidates_UnsupportedBackendErrors pins the fail-loud
+// capability scope: a harp whose engine supplies no reader that can say when
+// its records were written errors clearly, naming the engine and the missing
+// capability, rather than silently scanning nothing. The capability decides,
+// never the engine's name.
 func TestScanAdoptCandidates_UnsupportedBackendErrors(t *testing.T) {
 	mgr := newAdoptManager(t)
 	// A REGISTERED backend that adopt does not support — not an unknown name,
 	// which is a different refusal on a different path.
-	entry, err := mgr.AssignHarp("/proj", config.BackendMock)
+	entry, err := mgr.AssignHarp("/proj", string(mock.Name))
 	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(entry.HarpName, "id-1", "/tmp/does-not-matter.jsonl"))
 
-	_, err = ScanAdoptCandidates(afero.NewOsFs(), entry.HarpName)
+	_, err = ScanAdoptCandidates(afero.NewOsFs(), engines.Registry(), entry.HarpName)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), config.BackendMock)
-	assert.Contains(t, err.Error(), "not supported yet")
+	assert.Contains(t, err.Error(), string(mock.Name))
+	assert.Contains(t, err.Error(), "supplies no transcript reader that can say when its records were written")
 }
 
 // TestScanAdoptCandidates_UnknownHarpErrors pins the harp-not-found error.
 func TestScanAdoptCandidates_UnknownHarpErrors(t *testing.T) {
 	testsupport.Isolate(t)
-	_, err := ScanAdoptCandidates(afero.NewOsFs(), "no-such-harp")
+	_, err := ScanAdoptCandidates(afero.NewOsFs(), engines.Registry(), "no-such-harp")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no-such-harp")
 }
@@ -236,37 +239,7 @@ func TestScanAdoptCandidates_NoTranscriptPathErrors(t *testing.T) {
 	mgr := newAdoptManager(t)
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
-	_, err = ScanAdoptCandidates(afero.NewOsFs(), entry.HarpName)
+	_, err = ScanAdoptCandidates(afero.NewOsFs(), engines.Registry(), entry.HarpName)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), entry.HarpName)
-}
-
-func TestClaudeRecordSpan(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "x.jsonl")
-	content := `{"type":"summary"}
-{"type":"user","timestamp":"2026-01-01T00:00:00Z"}
-not json at all
-{"type":"assistant","timestamp":"2026-01-01T02:00:00.500Z"}
-`
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
-	start, end, n, err := claudeRecordSpan(afero.NewOsFs(), path)
-	require.NoError(t, err)
-	assert.Equal(t, 2, n)
-	assert.True(t, start.Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))
-	assert.True(t, end.Equal(time.Date(2026, 1, 1, 2, 0, 0, 500000000, time.UTC)))
-}
-
-func TestClaudeRecordSpan_NoTimestampsIsNotAnError(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "x.jsonl")
-	require.NoError(t, os.WriteFile(path, []byte(`{"type":"summary"}`+"\n"), 0o644))
-	_, _, n, err := claudeRecordSpan(afero.NewOsFs(), path)
-	require.NoError(t, err)
-	assert.Equal(t, 0, n)
-}
-
-func TestClaudeRecordSpan_MissingFileErrors(t *testing.T) {
-	_, _, _, err := claudeRecordSpan(afero.NewOsFs(), filepath.Join(t.TempDir(), "does-not-exist.jsonl"))
-	require.Error(t, err)
 }

@@ -71,8 +71,11 @@ by the engine's permission model), `EngineBinary` (the interactive
 grammar's binary), `EngineAvailability`/`EngineAvailable` (resolved on PATH
 or the login-shell PATH), `ProbeEngineVersion` (the shared cached prober
 over `Definition.Version`), `DecodeEngineConfig`. None
-branches on an engine's name: `tests/arch`'s `no-engine-name-in-core` gate
-holds that.
+branches on an engine's name: `tests/arch`'s engine-identity gate
+(`TestArch_EngineIdentity_OnlyInitialSetupNamesAnEngine`) holds that for all
+production code outside initial setup. A default is the registry's
+(`Registry.Default`, `DefaultEngineName`), never a literal: `profile
+materialize` with no `--backend` writes for it.
 
 ## The doubles
 

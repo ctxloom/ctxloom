@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -94,7 +95,11 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	require.NoError(t, err)
 	codec, ok := mock.New().Approvals().Get()
 	require.True(t, ok)
-	hostHooks.Append(codec.Hooks(child.Permission.ApprovalTimeout))
+	// Delivered as the mock's hooks approach binds them: naming the engine
+	// that fires them (agent.BindHooks).
+	approval, err := agent.BindHooks(codec.Hooks(child.Permission.ApprovalTimeout), string(mock.Name), noToolClasses)
+	require.NoError(t, err)
+	hostHooks.Append(approval)
 	require.Equal(t, hostHooks, childHooks, "the delegated run's hooks are the host's plus the approval hooks")
 	delete(hostSet, hooksRel)
 	delete(childSet, hooksRel)

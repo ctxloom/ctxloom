@@ -25,8 +25,9 @@ import (
 // flow proceed.
 type ClaudeCode struct{}
 
-// Name returns the engine identifier.
-func (ClaudeCode) Name() string { return "claude-code" }
+// Name returns the engine identifier: claude's one registered name, never a
+// copy of it.
+func (ClaudeCode) Name() string { return claudecli.EngineName }
 
 // Decode extracts the command from a PreToolUse payload and resolves the shell
 // from the tool name. The tool the LLM chose is the authoritative shell signal:

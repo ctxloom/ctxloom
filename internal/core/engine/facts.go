@@ -306,17 +306,89 @@ type TranscriptReader interface {
 	Versions() (min, max string)
 }
 
-// HookCodec decodes the engine's native hook payloads into the unified
-// event. An engine that fires no hooks returns a codec whose Decode refuses
-// with ErrUnsupported — unreachable, since no payload arrives.
+// HookCodec is the engine's hook wire, both directions, in the port's
+// neutral terms. ctxloom's hook verbs (`ctxloom hook <verb> --engine <name>`)
+// never read or write an engine's native payload themselves: the hooks
+// approach that delivered the hook named the firing engine in its args, the
+// verb resolves that engine's codec through the registry, and the codec is
+// the only code that knows the native shape. An engine that fires no hooks
+// returns a codec whose Decode and Encode refuse with ErrUnsupported —
+// unreachable, since no payload arrives.
 type HookCodec interface {
+	// Decode parses one native hook payload. event is the unified event the
+	// hook was registered under (the native payload's own event name, when it
+	// carries one, wins). A payload that does not parse is an error: a hook
+	// that silently treats it as empty is the failure this seam exists to
+	// end.
 	Decode(event string, payload []byte) (HookEvent, error)
+	// Encode renders a neutral response as the native answer to a hook
+	// registered under the unified event: the bytes for stdout and the
+	// process exit status the engine reads. A response the engine has no
+	// native form for on that event (context on an event that carries none,
+	// a block where the engine cannot block) is an error, never a guess.
+	Encode(event string, r HookResponse) (HookReply, error)
+	// ContextLimit is the most context, in bytes, one hook answer may carry
+	// before the engine stops delivering it whole. 0 declares no limit.
+	ContextLimit() int
+	// InvokedSkill reports the skill a native tool call invoked: the engine's
+	// own tool and input shape say whether a call ran a skill and which. It
+	// answers for a hook payload's tool and for a transcript's tool_use
+	// record alike, since both carry the native tool name and input.
+	InvokedSkill(tool string, input []byte) (string, bool)
 }
 
-// HookEvent is one native hook payload, decoded: the unified event name,
-// the engine's own session key and the transcript path it named.
+// HookEvent is one native hook payload, decoded into the port's terms. A
+// field the event does not carry is zero.
 type HookEvent struct {
-	Event         string
+	// Event is the unified event name.
+	Event string
+	// NativeSession is the engine's own session key.
 	NativeSession string
-	Transcript    string
+	// Transcript is the path of the engine's own transcript of the session.
+	Transcript string
+	// Source is why a session_start fired (SessionSource*).
+	Source string
+	// Prompt is the submitted prompt, on turn_start.
+	Prompt string
+	// Tool is the native name of the tool a tool event is about.
+	Tool string
+	// ToolInput and ToolResponse are the tool call's native input and
+	// response, raw: their shape is per tool.
+	ToolInput    []byte
+	ToolResponse []byte
+	// Skill is the skill the tool call invoked (InvokedSkill), "" for none.
+	Skill string
+	// Path is the file a file-editing tool targeted, "" for none.
+	Path string
+}
+
+// The reasons a session_start fires, in the port's vocabulary. An engine's
+// codec maps its native reasons onto these; one it cannot map is carried
+// verbatim.
+const (
+	SessionSourceStartup = "startup"
+	SessionSourceResume  = "resume"
+	SessionSourceClear   = "clear"
+	SessionSourceCompact = "compact"
+)
+
+// HookResponse is what a hook verb answers, in the port's terms.
+type HookResponse struct {
+	// Context is model-visible context added at the event.
+	Context string
+	// Notice is shown to the user, not the model.
+	Notice string
+	// Block stops what the event was about to do; Reason says why.
+	Block  bool
+	Reason string
+}
+
+// Empty reports a response that says nothing.
+func (r HookResponse) Empty() bool { return r == HookResponse{} }
+
+// HookReply is a response rendered for one engine: what the hook process
+// writes to stdout and the status it exits with.
+type HookReply struct {
+	Stdout []byte
+	Exit   int
 }

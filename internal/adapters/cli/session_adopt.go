@@ -28,8 +28,8 @@ var sessionAdoptYes bool
 var sessionAdoptCmd = &cobra.Command{
 	Use:   "adopt <session-name>",
 	Short: "Re-index orphaned vendor transcripts into a session's rotation lineage",
-	Long: `Scans the same claude-code project directory as the session's current
-transcript for vendor .jsonl files no rotation the index ever recorded left
+	Long: `Scans the directory of the session's current transcript for transcripts of
+the session's engine that no rotation the index ever recorded left
 reachable — chiefly pre-rotation-lineage-fix '/clear's — and reports which
 ones belong in this session's lineage.
 
@@ -48,8 +48,9 @@ through the session store, oldest first — never a hand edit of the record —
 and prints the next step (compact or recover) to actually materialize the
 recovered history; it does not run that step itself.
 
-Only claude-code sessions are supported today; every other backend refuses by
-name rather than silently scanning nothing.`,
+The session's engine decides what is a transcript of it, and when each one's
+records were written. An engine whose transcript readers cannot say that is
+refused, naming the engine, rather than silently scanning nothing.`,
 	Example: `  ctxloom session adopt amber-swift-owl        # report the plan
   ctxloom session adopt amber-swift-owl --yes`,
 	Args: cobra.ExactArgs(1),
@@ -122,7 +123,7 @@ type sessionAdoptResult struct {
 
 func runSessionAdopt(cmd *cobra.Command, args []string) error {
 	harp := args[0]
-	scan, err := operations.ScanAdoptCandidates(afero.NewOsFs(), harp)
+	scan, err := operations.ScanAdoptCandidates(afero.NewOsFs(), App().Engines(), harp)
 	if err != nil {
 		return err
 	}

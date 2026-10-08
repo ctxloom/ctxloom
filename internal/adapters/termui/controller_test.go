@@ -54,7 +54,8 @@ func (b *lockedBuffer) waitUntil(t *testing.T, what string, cond func(string) bo
 	}
 }
 
-// await receives the event ch carries, failing when the wait runs out.
+// await receives the event ch carries, failing only at the test binary's
+// deadline (testsupport.Expiry).
 func await[T any](t *testing.T, what string, ch <-chan T) T {
 	t.Helper()
 	select {

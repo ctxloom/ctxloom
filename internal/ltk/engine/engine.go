@@ -190,6 +190,14 @@ func All() []Engine {
 	return engines()
 }
 
+// Default is the engine ltk adapts when none is named: the first registered
+// (the order engines() already gives Detect ties). The installed hook's
+// --engine defaults to it, and an unknown --engine with no detectable payload
+// fails closed in its format.
+func Default() Engine {
+	return engines()[0]
+}
+
 // Get returns the engine registered under exactly name. There is no alias,
 // case or prefix matching — a typo must error rather than silently pick an
 // engine.

@@ -34,31 +34,43 @@ func Within[T any](t testing.TB, d time.Duration, f func() T, format string, arg
 	return Await(t, d, got, format, args...)
 }
 
-// waitBudget is the longest one wait may take. It is the wait's own, not a
-// share of the test binary's deadline: every test in a binary draws on that
-// one deadline in turn, so a wait bounded only by it leaves the tests after a
-// hang nothing, and they fail at once, blamed for the hang they followed. The
-// budget is minutes because the waits it bounds are for bytes crossing a
-// real pty or a call a real program makes, which a loaded machine delays, and
-// a budget short enough to matter fails on an event that was merely late.
-const waitBudget = 2 * time.Minute
-
-// deadlineMargin is how far ahead of the binary's deadline a wait gives up,
-// so its failure, naming what never came, is reported before the binary's
-// timeout panics.
+// deadlineMargin is how far ahead of the test binary's deadline BudgetUntil
+// ends: room for the failing assertion to print what the wait saw before go
+// test's own timeout panics over it.
 const deadlineMargin = 10 * time.Second
 
-// Expiry fires when a wait starting now has run out: after waitBudget, or
-// deadlineMargin before t's deadline if that comes first.
-func Expiry(t interface{ Deadline() (time.Time, bool) }) <-chan time.Time {
-	deadline, ok := t.Deadline()
-	return time.After(waitBudgetAt(time.Now(), deadline, ok))
+// noDeadline stands in for a bound when there is no deadline to honour: longer
+// than any run, yet short enough that a callee converting it to milliseconds
+// and back to nanoseconds (a poll(2) timeout) does not overflow.
+const noDeadline = 100 * 365 * 24 * time.Hour
+
+// BudgetUntil is how long a wait on an event may take when the only bound is
+// deadline (ok reports whether there is one): until deadlineMargin before it,
+// or noDeadline without one. A wait for bytes crossing a real pty, a call a
+// real program makes, or a real process exiting carries no limit of its own:
+// a loaded machine delays those by any amount, and a limit short enough to
+// matter fails on an event that was merely late.
+//
+// Every wait in a test binary draws on that binary's one deadline, so a wait
+// that hangs leaves the tests after it an already-spent budget, and they fail
+// at once, blamed for the hang they followed. What keeps that from happening
+// is the invariant every caller owes: a wait ends as soon as what it waits for
+// can no longer arrive, not only when it does. A wait whose condition can go
+// permanently false (a screen model that has met a sequence it cannot replay,
+// a process that has already exited) checks for that and fails at once.
+func BudgetUntil(deadline time.Time, ok bool) time.Duration {
+	if !ok {
+		return noDeadline
+	}
+	return time.Until(deadline) - deadlineMargin
 }
 
-// waitBudgetAt is Expiry's duration for a wait starting at now.
-func waitBudgetAt(now, deadline time.Time, ok bool) time.Duration {
-	if !ok {
-		return waitBudget
-	}
-	return min(waitBudget, deadline.Sub(now)-deadlineMargin)
+// Budget is BudgetUntil t's deadline, for a wait that takes a duration.
+func Budget(t interface{ Deadline() (time.Time, bool) }) time.Duration {
+	return BudgetUntil(t.Deadline())
+}
+
+// Expiry is Budget as a channel that fires when it runs out.
+func Expiry(t interface{ Deadline() (time.Time, bool) }) <-chan time.Time {
+	return time.After(Budget(t))
 }

@@ -1,7 +1,6 @@
 package coord
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -98,19 +97,19 @@ func awaitEvent(t *testing.T, ch <-chan QueueEvent, kind QueueEventKind) QueueEv
 	}
 }
 
+// readFacts parses every complete fact in the journal at path. The journal may
+// be live (journaled reads a running coordinator's runs.jsonl), so an append
+// still in flight is not read (completeJournalLines).
 func readFacts(t *testing.T, path string) []Fact {
 	t.Helper()
-	f, err := os.Open(path)
+	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
-	defer func() { _ = f.Close() }()
 	var out []Fact
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
+	for _, line := range completeJournalLines(raw) {
 		var fact Fact
-		require.NoError(t, json.Unmarshal(sc.Bytes(), &fact))
+		require.NoError(t, json.Unmarshal(line, &fact))
 		out = append(out, fact)
 	}
-	require.NoError(t, sc.Err())
 	return out
 }
 

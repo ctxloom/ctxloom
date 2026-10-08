@@ -221,7 +221,7 @@ func TestDeliverHooks_ClaimsTheHookInTheGroupItsMatcherSelects(t *testing.T) {
 	d, err := def.Hooks.DeliverHooks(start, present.RootProjectRoot, engine.HooksInputs{Hooks: hooks}, nil)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []present.Claim{
-		{Pointer: "/hooks/SessionStart/matcher=/hooks/-", Value: map[string]any{"type": "command", "command": "ctxloom", "args": []any{"hook", "session-bind"}}},
+		{Pointer: "/hooks/SessionStart/matcher=/hooks/-", Value: map[string]any{"type": "command", "command": "ctxloom", "args": []any{"hook", "session-bind", agent.HookEngineFlag, EngineName}}},
 		{Pointer: "/hooks/PreToolUse/matcher=Bash/hooks/-", Value: map[string]any{"type": "command", "command": "ltk", "args": []any{"evaluate"}}},
 	}, settingsClaimsIn(t, d, project), "one claim per distinct hook, the shell hook in the Bash group")
 	_, err = os.Stat(filepath.Join(project, ConfigDirName, SettingsFileName))

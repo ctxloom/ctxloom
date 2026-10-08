@@ -21,7 +21,7 @@ Feature: The PostToolUse callbacks — a nudge after the tool call that earns on
     # with the SAME flag value: a hook that fired on everything, or on
     # nothing, fails one of the two.
     Scenario: A tool result at the threshold earns the reminder
-      When I run "ctxloom hook tool-reflect --min-output-bytes 16" with input:
+      When I run "ctxloom hook tool-reflect --min-output-bytes 16 --engine claude-code" with input:
         """
         {"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{},"tool_response":"a result comfortably past sixteen bytes"}
         """
@@ -29,7 +29,7 @@ Feature: The PostToolUse callbacks — a nudge after the tool call that earns on
       And the hook's additionalContext contains "That tool result was large."
 
     Scenario: A tool result under the threshold is passed over in silence
-      When I run "ctxloom hook tool-reflect --min-output-bytes 4096" with input:
+      When I run "ctxloom hook tool-reflect --min-output-bytes 4096 --engine claude-code" with input:
         """
         {"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{},"tool_response":"short"}
         """
@@ -80,7 +80,7 @@ Feature: The PostToolUse callbacks — a nudge after the tool call that earns on
         """
         The queue is admitted.
         """
-      When I run "ctxloom hook skill-mates" with input:
+      When I run "ctxloom hook skill-mates --engine claude-code" with input:
         """
         {"session_id":"s","hook_event_name":"PostToolUse","transcript_path":"$PROJECT_DIR/turn.jsonl","cwd":"/repo","tool_name":"Skill","tool_input":{"skill":"admit","args":""},"tool_response":"ok"}
         """
@@ -90,7 +90,7 @@ Feature: The PostToolUse callbacks — a nudge after the tool call that earns on
     # Every other tool is answered before any session, transcript or config
     # is touched — and answered with silence, not with an error.
     Scenario: A tool call that is not a skill is passed over in silence
-      When I run "ctxloom hook skill-mates" with input:
+      When I run "ctxloom hook skill-mates --engine claude-code" with input:
         """
         {"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":"ok"}
         """

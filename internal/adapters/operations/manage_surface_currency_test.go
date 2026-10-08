@@ -248,7 +248,7 @@ func TestApplyHooks_Claude_DeliversOneContextFreeSessionStartHook(t *testing.T) 
 		}
 	}
 	require.Len(t, family, 1, "exactly one SessionStart hook of ctxloom's context family; got %q", family)
-	assert.Equal(t, []string{"ctxloom", "hook", "session-start"}, family[0], "the one hook is session-start, carrying no argument that names a context")
+	assert.Equal(t, []string{"ctxloom", "hook", "session-start", agent.HookEngineFlag, "claude-code"}, family[0], "the one hook is session-start, naming only the engine that fires it — no argument that names a context")
 	if res.ContextHash != "" {
 		assert.NotContains(t, string(raw), res.ContextHash, "no hook names the regenerated context cache")
 	}

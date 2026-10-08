@@ -251,10 +251,11 @@ func TestRuntime_Interactive_FailSentinelExitsNonzero(t *testing.T) {
 	}
 }
 
-// turnStartPayload is the part of the mock's hook payload these tests read.
+// turnStartPayload is the part of the mock's hook payload these tests read,
+// as the mock's own codec decodes it.
 type turnStartPayload struct {
-	Event  string `json:"hook_event_name"`
-	Prompt string `json:"prompt"`
+	Event  string
+	Prompt string
 }
 
 // turnStartSession starts an interactive session whose delivered hooks
@@ -291,11 +292,11 @@ func (s *interactiveRun) quitAndReadTurnStarts(t *testing.T, marker string) []tu
 	}
 	var payloads []turnStartPayload
 	for _, line := range strings.Split(strings.TrimSpace(string(got)), "\n") {
-		var p turnStartPayload
-		if err := json.Unmarshal([]byte(line), &p); err != nil {
+		ev, err := mock.New().Hooks().Decode("turn_start", []byte(line))
+		if err != nil {
 			t.Fatalf("payload %q: %v", line, err)
 		}
-		payloads = append(payloads, p)
+		payloads = append(payloads, turnStartPayload{Event: ev.Event, Prompt: ev.Prompt})
 	}
 	return payloads
 }

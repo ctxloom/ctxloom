@@ -169,7 +169,7 @@ func TestScanAdoptCandidates_ScansTheVendorDirInTheGivenFs(t *testing.T) {
 	seedMem(t, mem, path.Join(memVendorRoot, "id-orphan.jsonl"), []byte(line("id-orphan", at.Add(-48*time.Hour))+line("id-orphan", at.Add(-47*time.Hour))))
 	require.NoError(t, mgr.BindSession(entry.HarpName, "id-live", live))
 
-	scan, err := ScanAdoptCandidates(mem, entry.HarpName)
+	scan, err := ScanAdoptCandidates(mem, engines.Registry(), entry.HarpName)
 	require.NoError(t, err)
 	var orphan *AdoptCandidate
 	for i := range scan.Candidates {

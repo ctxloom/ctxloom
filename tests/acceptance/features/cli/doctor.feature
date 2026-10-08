@@ -193,6 +193,73 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
       Then the command succeeds
       And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-MCP-INVOCATION-g7" and whose "status" is "ok"
 
+  Rule: A hook entry an older ctxloom left behind is found, and --fix removes only it
+
+    `manage hooks install` takes out only the entries this machine's ctxloom
+    recorded writing. An entry an older release wrote, or one committed with
+    the file from another machine, stays, and the engine runs it at every
+    session start, where it fails: this ctxloom has no such subcommand. The
+    rule is general rather than a list of retired names: any entry running a
+    `ctxloom hook` subcommand the binary does not have is ctxloom's own
+    leftover, in the project's settings and in the user's.
+
+    Scenario: Doctor names a stale ctxloom hook entry and --fix removes exactly it
+      Given an initialized ctxloom project
+      And the project already has the file ".claude/settings.json":
+        """
+        {
+          "permissions": {"allow": ["Bash(ls)"]},
+          "hooks": {
+            "SessionStart": [
+              {"matcher": "", "hooks": [
+                {"type": "command", "command": "'ctxloom' hook inject-context --part 1 --of 2 abc123"},
+                {"type": "command", "command": "ctxloom hook session-start"}
+              ]}
+            ],
+            "Stop": [
+              {"hooks": [{"type": "command", "command": "my-tool hook inject-context"}]}
+            ]
+          }
+        }
+        """
+      And the home already has the file ".claude/settings.json":
+        """
+        {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "ctxloom hook inject-context abc123"}]}]}}
+        """
+      When Alice checks a project whose engine still runs a hook this ctxloom removed:
+        """
+        ctxloom doctor
+        """
+      Then the command succeeds
+      And the output contains "DOCTOR-CHECK-STALE-HOOKS-n5"
+      And the output contains "SessionStart runs `ctxloom hook inject-context`"
+      And the output contains "ctxloom doctor --fix"
+      When I run "ctxloom doctor --fix"
+      Then the command succeeds
+      And the file ".claude/settings.json" registers no SessionStart hook whose command contains "inject-context"
+      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook session-start"
+      And the file ".claude/settings.json" contains "my-tool hook inject-context" exactly 1 times
+      And the file ".claude/settings.json" contains "Bash(ls)" exactly 1 times
+      And the home file ".claude/settings.json" does not contain "inject-context"
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-STALE-HOOKS-n5" and whose "status" is "ok"
+
+    # The paired negative: a live subcommand, and a foreign program that merely
+    # spells the same words, are not ctxloom's leftovers.
+    Scenario: A live ctxloom hook and a foreign command keep the check quiet
+      Given an initialized ctxloom project
+      And the project already has the file ".claude/settings.json":
+        """
+        {"hooks": {"SessionStart": [{"hooks": [
+          {"type": "command", "command": "ctxloom hook session-start"},
+          {"type": "command", "command": "my-tool hook inject-context"}
+        ]}]}}
+        """
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-STALE-HOOKS-n5" and whose "status" is "ok"
+
   Rule: The report ends on a stated limit rather than going quiet
 
     Every check above can be green — the context assembled, the surface

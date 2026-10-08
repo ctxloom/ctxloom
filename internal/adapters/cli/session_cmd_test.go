@@ -64,10 +64,9 @@ func TestRenderSessionRows_EmptyShowsPlaceholder(t *testing.T) {
 func TestEmitHarpMarker(t *testing.T) {
 	t.Run("emits valid SessionStart marker", func(t *testing.T) {
 		var buf bytes.Buffer
-		emitHarpMarker(&buf, "plump-loose-sash")
+		emitHarpMarker(&buf, claudeCodec(t), "plump-loose-sash")
 
-		var out HookOutput
-		require.NoError(t, json.Unmarshal(buf.Bytes(), &out))
+		out := decodeClaudeAnswer(t, buf.Bytes())
 		require.NotNil(t, out.HookSpecificOutput)
 		assert.Equal(t, "SessionStart", out.HookSpecificOutput.HookEventName)
 		assert.Equal(t, harpmarker.Format("plump-loose-sash"), out.HookSpecificOutput.AdditionalContext)
@@ -77,7 +76,7 @@ func TestEmitHarpMarker(t *testing.T) {
 
 	t.Run("no harp emits nothing", func(t *testing.T) {
 		var buf bytes.Buffer
-		emitHarpMarker(&buf, "")
+		emitHarpMarker(&buf, claudeCodec(t), "")
 		assert.Empty(t, buf.Bytes())
 	})
 }
@@ -94,7 +93,7 @@ func TestEmitHarpMarker_FailureIsReported(t *testing.T) {
 		t.Cleanup(restore)
 
 		var buf bytes.Buffer
-		emitHarpMarker(&buf, "")
+		emitHarpMarker(&buf, claudeCodec(t), "")
 
 		assert.Empty(t, buf.Bytes(), "stdout carries hook output only — never a diagnostic")
 		assert.Contains(t, diag.String(), "CTXLOOM_SESSION_HARP",
@@ -106,7 +105,7 @@ func TestEmitHarpMarker_FailureIsReported(t *testing.T) {
 		restore := clidiag.SetSink(&diag)
 		t.Cleanup(restore)
 
-		emitHarpMarker(&failingWriter{err: errors.New("stdout broke")}, "plump-loose-sash")
+		emitHarpMarker(&failingWriter{err: errors.New("stdout broke")}, claudeCodec(t), "plump-loose-sash")
 
 		assert.Contains(t, diag.String(), "stdout broke",
 			"a marker that could not be written must be reported, not swallowed into an exit-0 no-op")
@@ -138,7 +137,7 @@ func TestBindSessionFromPayload(t *testing.T) {
 		mgr, entry := seedHomeSession(t)
 
 		payload := `{"session_id":"abc-123","transcript_path":"/t/session.jsonl","hook_event_name":"SessionStart"}`
-		require.NoError(t, bindSessionFromPayload(strings.NewReader(payload), entry.HarpName))
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(payload), claudeCodec(t), entry.HarpName))
 
 		got, err := mgr.Find(entry.HarpName)
 		require.NoError(t, err)
@@ -151,7 +150,7 @@ func TestBindSessionFromPayload(t *testing.T) {
 		mgr, entry := seedHomeSession(t)
 
 		payload := `{"session_id":"explicit-id","hook_event_name":"SessionStart"}`
-		require.NoError(t, bindSessionFromPayload(strings.NewReader(payload), entry.HarpName))
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(payload), claudeCodec(t), entry.HarpName))
 
 		got, err := mgr.Find(entry.HarpName)
 		require.NoError(t, err)
@@ -161,42 +160,37 @@ func TestBindSessionFromPayload(t *testing.T) {
 
 	t.Run("empty_harp_is_noop", func(t *testing.T) {
 		testsupport.Isolate(t)
-		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"x"}`), "")
+		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"x"}`), claudeCodec(t), "")
 		assert.NoError(t, err, "no harp means we're not in a ctxloom session — silently succeed")
 	})
 
 	t.Run("missing_session_id_is_noop", func(t *testing.T) {
 		mgr, entry := seedHomeSession(t)
-		require.NoError(t, bindSessionFromPayload(strings.NewReader(`{"transcript_path":"/t/x"}`), entry.HarpName))
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(`{"transcript_path":"/t/x"}`), claudeCodec(t), entry.HarpName))
 		got, _ := mgr.Find(entry.HarpName)
 		assert.Empty(t, got.SessionID, "no session_id in payload → no bind")
 	})
 
-	t.Run("malformed_json_is_noop", func(t *testing.T) {
+	t.Run("malformed_json_is_an_error", func(t *testing.T) {
 		mgr, entry := seedHomeSession(t)
-		// A malformed SessionStart hook payload used to silently skip the
-		// harp->session_id bind with NOTHING reported anywhere — not even the
-		// caller's own warning, since bindSessionFromPayload returned nil (no
-		// error to warn about). This is one of the two live-reproducible
-		// causes of "no canonical transcript captured": a harp can go its
-		// entire life with SessionID never bound, and an operator has no way
-		// to learn why. bindSessionFromPayload must never FAIL the host's
-		// tool call over this (still asserted below via require.NoError), but
-		// it must warn.
-		var buf bytes.Buffer
-		restore := clidiag.SetSink(&buf)
-		defer restore()
-
-		require.NoError(t, bindSessionFromPayload(strings.NewReader(`not json`), entry.HarpName))
+		// A malformed session_start payload used to skip the harp->session
+		// bind with only a warning, and the hook exited 0: a harp could go
+		// its entire life with SessionID never bound, and nothing failed.
+		// The bind not happening is now an ERROR naming the harp, which the
+		// process exits non-zero on.
+		//
+		// MUTATION -- return nil when the codec's Decode fails -- turns this
+		// red.
+		err := bindSessionFromPayload(strings.NewReader(`not json`), claudeCodec(t), entry.HarpName)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), entry.HarpName)
 		got, _ := mgr.Find(entry.HarpName)
-		assert.Empty(t, got.SessionID, "hook must never fail the host backend over a bad message")
-		assert.Contains(t, buf.String(), entry.HarpName,
-			"a malformed hook payload must warn (naming the harp), not vanish with zero diagnostic")
+		assert.Empty(t, got.SessionID)
 	})
 
 	t.Run("unknown_harp_is_noop", func(t *testing.T) {
 		testsupport.Isolate(t)
-		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"x"}`), "no-such-harp")
+		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"x"}`), claudeCodec(t), "no-such-harp")
 		assert.NoError(t, err, "stale CTXLOOM_SESSION_HARP env shouldn't crash the hook")
 	})
 
@@ -206,7 +200,7 @@ func TestBindSessionFromPayload(t *testing.T) {
 
 		// A payload carrying an id but NO transcript_path cannot establish
 		// that the engine rotated, so it must not displace a live binding.
-		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"second-id"}`), entry.HarpName)
+		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"second-id"}`), claudeCodec(t), entry.HarpName)
 		require.NoError(t, err)
 		got, _ := mgr.Find(entry.HarpName)
 		assert.Equal(t, "first-id", got.SessionID, "an id-only payload never re-points")
@@ -222,10 +216,10 @@ func TestBindSessionFromPayload(t *testing.T) {
 		mgr, entry := seedHomeSession(t)
 
 		first := `{"session_id":"pre-clear-uuid","transcript_path":"/t/pre-clear.jsonl","hook_event_name":"SessionStart"}`
-		require.NoError(t, bindSessionFromPayload(strings.NewReader(first), entry.HarpName))
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(first), claudeCodec(t), entry.HarpName))
 
 		second := `{"session_id":"post-clear-uuid","transcript_path":"/t/post-clear.jsonl","hook_event_name":"SessionStart"}`
-		require.NoError(t, bindSessionFromPayload(strings.NewReader(second), entry.HarpName))
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(second), claudeCodec(t), entry.HarpName))
 
 		got, err := mgr.Find(entry.HarpName)
 		require.NoError(t, err)
@@ -240,8 +234,8 @@ func TestBindSessionFromPayload(t *testing.T) {
 		mgr, entry := seedHomeSession(t)
 
 		payload := `{"session_id":"same-uuid","transcript_path":"/t/same.jsonl","hook_event_name":"SessionStart"}`
-		require.NoError(t, bindSessionFromPayload(strings.NewReader(payload), entry.HarpName))
-		require.NoError(t, bindSessionFromPayload(strings.NewReader(payload), entry.HarpName))
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(payload), claudeCodec(t), entry.HarpName))
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(payload), claudeCodec(t), entry.HarpName))
 
 		got, _ := mgr.Find(entry.HarpName)
 		assert.Equal(t, "same-uuid", got.SessionID)
@@ -253,7 +247,7 @@ func TestBindSessionFromPayload(t *testing.T) {
 // path. errReader always errors on Read; the helper should surface that
 // as a wrapped error rather than panicking (before any index access).
 func TestBindSessionFromPayload_StdinReaderError(t *testing.T) {
-	err := bindSessionFromPayload(&errReader{}, "anything")
+	err := bindSessionFromPayload(&errReader{}, claudeCodec(t), "anything")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "read payload")
 }

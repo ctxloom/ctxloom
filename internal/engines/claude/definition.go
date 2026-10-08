@@ -455,12 +455,19 @@ func (a *settingsApproach) DeliverSettings(start present.Start, root present.Roo
 
 // hooksApproach is claude's hooks surface: the hook registrations, claimed
 // in the hooks section of the same settings.json the settings approach
-// claims into — the native form (deliverSettingsFile).
+// claims into — the native form (deliverSettingsFile). The unified set is
+// first bound to claude (agent.BindHooks): ctxloom's callbacks name claude as
+// the engine that fires them, and a hook narrowed to a tool class is narrowed
+// to claude's tool for it (toolMatcher).
 type hooksApproach struct{ traits }
 
 func (*hooksApproach) Name() string { return "settings-hooks" }
 func (a *hooksApproach) DeliverHooks(start present.Start, root present.RootKind, in engine.HooksInputs, _ afero.Fs) (present.Delivered, error) {
-	return deliverSettingsFile(a.Name(), start, root, func(string) ([]present.Claim, error) { return hookClaims(in.Hooks, in.Ext[EngineName]) })
+	bound, err := agent.BindHooks(in.Hooks, EngineName, toolMatcher)
+	if err != nil {
+		return present.Delivered{}, err
+	}
+	return deliverSettingsFile(a.Name(), start, root, func(string) ([]present.Claim, error) { return hookClaims(bound, in.Ext[EngineName]) })
 }
 
 // commandsApproach is claude's commands surface: <config dir>/commands/

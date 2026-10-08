@@ -19,10 +19,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// DefaultMaterializeBackend is the backend whose native on-disk agent surface a
-// profile materializes to by default.
-const DefaultMaterializeBackend = "claude-code"
-
 // MaterializeProfileRequest asks to write a profile's assembled context to an
 // external target directory as a backend's NATIVE agent surface — the inverse of
 // runtime injection — so an externally-launched agent on that backend inherits
@@ -30,7 +26,7 @@ const DefaultMaterializeBackend = "claude-code"
 type MaterializeProfileRequest struct {
 	Profiles []string    `json:"profiles"`
 	Target   string      `json:"target"`
-	Backend  string      `json:"backend,omitempty"` // "" or "claude" → claude-code
+	Backend  string      `json:"backend,omitempty"` // "" → the registry's default engine (Registry.Default)
 	Root     safefs.Root `json:"-"`                 // zero = safefs.New()
 }
 
@@ -93,9 +89,9 @@ type PremiseWithhold struct {
 }
 
 // resolveMaterializeTarget validates the request and resolves the backend whose
-// native surfaces will be written, canonicalizing the requested name. "" means
-// the default; anything unregistered is an error, as is a missing config,
-// target or profile set.
+// native surfaces will be written. "" means the registry's default engine
+// (engine.Registry.Default: the one engine shipped by default); anything
+// unregistered is an error, as is a missing config, target or profile set.
 func resolveMaterializeTarget(reg engine.Registry, cfg *config.Config, req MaterializeProfileRequest) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("config is required")
@@ -107,7 +103,11 @@ func resolveMaterializeTarget(reg engine.Registry, cfg *config.Config, req Mater
 		return "", fmt.Errorf("at least one profile is required")
 	}
 	if req.Backend == "" {
-		return registeredBackend(reg, DefaultMaterializeBackend)
+		def, err := reg.Default()
+		if err != nil {
+			return "", err
+		}
+		return string(def.Root().Name), nil
 	}
 	return registeredBackend(reg, req.Backend)
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"io"
 	"os"
 	"testing"
@@ -86,8 +87,8 @@ func TestDecodeBackendConfigForType_PrimaryOfOtherTypeFallsBack(t *testing.T) {
 // backend must never surface in a user-facing engine list, and nothing else
 // should be caught by the same check.
 func TestIsTestOnlyBackend(t *testing.T) {
-	assert.True(t, isTestOnlyBackend(config.BackendMock))
-	assert.True(t, isTestOnlyBackend(config.BackendMockLossy),
+	assert.True(t, isTestOnlyBackend(string(mock.Name)))
+	assert.True(t, isTestOnlyBackend(string(mock.NameLossy)),
 		"a SECOND double must be hidden too — that is the whole reason this asks the registry instead of matching a name")
 	assert.False(t, isTestOnlyBackend("claude-code"))
 	assert.False(t, isTestOnlyBackend(""), "an unknown name is not test-only: a typo must not read as a hidden engine")

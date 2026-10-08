@@ -265,7 +265,7 @@ func Build(name engine.Name, opts ...Option) (engine.Engine, error) {
 		Context:      &contextFile{surface{"context-file", file}},
 		MCP:          &mcpFile{surface{"mcp-config", file}},
 		Settings:     &settingsFile{surface{"settings", file}},
-		Hooks:        &hooksFile{surface{"hooks-file", file}},
+		Hooks:        &hooksFile{surface: surface{"hooks-file", file}, engine: name},
 		Commands:     &commandsDir{surface{"commands-dir", file}},
 		Skills:       &skillsDir{surface{"skills-dir", file}},
 		CLI: []engine.CLIGrammar{
@@ -282,6 +282,12 @@ func Build(name engine.Name, opts ...Option) (engine.Engine, error) {
 	}
 	for _, o := range opts {
 		o(&m)
+	}
+	// The hook file carries only what this kind fires: an event it declares
+	// lost (WithoutHookEvents) is written nowhere, so the file agrees with
+	// the loss report.
+	if hf, ok := m.Definition.Hooks.(*hooksFile); ok {
+		hf.lost = m.HookLosses
 	}
 	if err := m.Validate(); err != nil {
 		return nil, err

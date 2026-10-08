@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,6 @@ import (
 
 	mockreader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/mock"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
@@ -91,7 +91,7 @@ func execRootCmdBoth(t *testing.T, args ...string) (stdout, stderr string, err e
 func pinnedEngineVersion(t *testing.T, backend string) (string, bool) {
 	t.Helper()
 	switch backend {
-	case config.BackendMock:
+	case string(mock.Name):
 		require.NotEmpty(t, mockreader.VersionedAdapters, "mock declares no versioned adapter")
 		return mockreader.VersionedAdapters[0].ValidatedVersion, true
 	case "claude-code":

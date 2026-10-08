@@ -1,20 +1,20 @@
 package cli
 
 import (
-	"encoding/json"
-	"github.com/spf13/afero"
-	"io"
 	"os"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
-// stampPlanCmd reads a PostToolUse file-edit hook payload on stdin
-// (Claude Code's Edit|Write shape) and, when the edited file
+// stampPlanCmd reads a post_file_edit hook payload on stdin, through the
+// codec of the engine --engine names (engine.HookEvent.Path is the edited
+// file), and, when the edited file
 // matches the plan-file pattern, stamps the active session's harp name
 // into the file's YAML frontmatter. No-op when CTXLOOM_SESSION_HARP is
 // unset or the edited file isn't a plan file.
@@ -32,32 +32,27 @@ func runStampPlan(cmd *cobra.Command, args []string) error {
 		// install before Phase 3's session naming ships.
 		return nil
 	}
-	raw, err := io.ReadAll(cmd.InOrStdin())
+	// Machine hook: never fail the host agent's tool call over a stamping
+	// hiccup. Every reason nothing was stamped is reported on the
+	// warn-and-continue channel rather than vanishing.
+	kind, err := firingEngine(cmd)
 	if err != nil {
-		// Machine hook: never fail the host agent's tool call over a
-		// stamping hiccup (the sibling hooks — session-bind,
-		// session-start — follow the same warn-and-continue rule).
-		clidiag.Warn("ctxloom", "stamp-plan: read stdin: %v", err)
+		clidiag.Warn("ctxloom", "stamp-plan: %v", err)
 		return nil
 	}
-	path, err := parseEditPayload(raw)
+	ev, err := readHookEvent(cmd, kind.Hooks(), wire.HookEventPostFileEdit)
 	if err != nil {
-		// A payload this hook cannot decode is a contract break with the
-		// host engine (every supported shape is JSON), so it is reported
-		// on the same warn-and-continue channel as the stdin-read failure
-		// above rather than vanishing. A payload that decodes but names no
-		// file (a non-edit tool call) is an ordinary event and stays
-		// silent, so this never becomes per-tool-call noise.
-		clidiag.Warn("ctxloom", "stamp-plan: parse hook payload: %v", err)
+		// A payload the firing engine's codec cannot decode is a contract
+		// break with that engine. A payload that decodes but names no file
+		// (a non-edit tool call) is an ordinary event and stays silent, so
+		// this never becomes per-tool-call noise.
+		clidiag.Warn("ctxloom", "stamp-plan: %v", err)
 		return nil
 	}
-	if path == "" {
-		return nil // no file_path — not a file edit, nothing to stamp
-	}
-	if !memory.IsPlanFile(path) {
+	if ev.Path == "" || !memory.IsPlanFile(ev.Path) {
 		return nil
 	}
-	if err := memory.StampPlanFile(afero.NewOsFs(), path, harp); err != nil {
+	if err := memory.StampPlanFile(afero.NewOsFs(), ev.Path, harp); err != nil {
 		clidiag.Warn("ctxloom", "stamp-plan: %v", err)
 	}
 	return nil
@@ -67,27 +62,4 @@ func init() {
 	// stamp-plan is a machine callback (PostFileEdit hook target), so it lives
 	// under the hidden `hook` namespace.
 	hookCmd.AddCommand(stampPlanCmd)
-}
-
-// parseEditPayload extracts the edited file's path from a file-edit hook
-// payload: Claude Code's tool_input.file_path (wrapped or bare).
-func parseEditPayload(raw []byte) (string, error) {
-	type input struct {
-		FilePath string `json:"file_path"`
-	}
-	type wrapper struct {
-		ToolInput *input `json:"tool_input"`
-		input
-	}
-	var w wrapper
-	if err := json.Unmarshal(raw, &w); err != nil {
-		return "", err
-	}
-	if w.ToolInput != nil && w.ToolInput.FilePath != "" {
-		return w.ToolInput.FilePath, nil
-	}
-	if w.FilePath != "" {
-		return w.FilePath, nil
-	}
-	return "", nil
 }

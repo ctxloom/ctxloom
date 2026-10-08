@@ -299,9 +299,12 @@ that `ctxloom run` launches. The hook no longer carries it:
   where this machine's ctxloom recorded installing them. An entry written by
   0.6, or by ctxloom on another machine and committed with the file, stays.
   Claude runs each one at every session start, and each one fails with
-  `unknown command "inject-context"`. Delete every SessionStart entry whose
-  command contains `hook inject-context` from `.claude/settings.json` by
-  hand.
+  `unknown command "inject-context"`. `ctxloom doctor` reports every such
+  entry (`DOCTOR-CHECK-STALE-HOOKS-n5`: the file, the event and the verb),
+  in the project's and in your user settings file. `ctxloom doctor --fix`
+  removes them and leaves everything else in the file as it was. The check
+  is general: it flags any hook entry that runs a `ctxloom hook` subcommand
+  this ctxloom does not have, not only `inject-context`.
 
 ## 13. Everything else marked breaking
 
@@ -378,6 +381,24 @@ Grouped by what you would have to change.
   `unknown LLM backend type "<type>"` where it would be used; the entry cannot
   run.
 - `taskloom` and `ltk` ship as bundled companions.
+
+- Every `ctxloom hook <verb>` that reads an engine's payload now takes
+  `--engine <name>`, naming the engine that fires it, and reads and answers
+  through that engine's codec. ctxloom writes the flag itself when it
+  delivers its hooks. A hook entry without it — installed by an earlier
+  ctxloom, or written by hand (`ctxloom hook stamp-plan` in your own
+  `.claude/settings.json`) — keeps working: it is read as the default
+  engine's hook (claude-code), which is what every such entry was. An
+  `--engine` naming an engine ctxloom does not know is refused.
+- `ctxloom hook session-bind` and `hook session-start` used to exit 0 on a
+  payload they could not parse, so a session could go its whole life
+  unbound with nothing failing. They now exit non-zero.
+- `ctxloom hook stamp-plan` reads the edited file from claude's real payload
+  shape (`tool_input.file_path`, or `notebook_path`); a bare top-level
+  `file_path`, which no engine sends, is no longer read.
+- `ctxloom profile materialize` with no `--backend` writes for the
+  registry's default engine (today claude-code, as before); the flag's
+  default is now empty rather than the literal `claude-code`.
 
 ## If you ran a 0.7 development build
 

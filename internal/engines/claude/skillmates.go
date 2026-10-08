@@ -1,40 +1,29 @@
 package claude
 
-import (
-	"encoding/json"
-	"strings"
+import "encoding/json"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
-)
+// The skill half of claude's hook wire: claude runs every skill through one
+// tool, whose input names the skill. The hook codec answers "which skill did
+// this call run" from it (hookCodec.InvokedSkill), for a PostToolUse payload
+// and for a transcript's tool_use record alike; the skill-mates decision that
+// uses the answer is engine-neutral and lives with the hook verb.
 
-// A link group's skills deliver together, but the model invokes them one at a
-// time -- and the measured misses are all CONSEQUENT pairs: the second skill's
-// condition is false when the human speaks and turns true only once the first
-// skill has run, which the listing text cannot say. This file is the
-// owner-session binding of the one ctxloom-owned step that closes that gap: at
-// a skill's completion, name its link-group mates the session has not invoked
-// yet. The membership comes from the group (bundles.UninvokedSkillMates, joined
-// to these pieces by the hook verb in internal/adapters/cli -- this package must not
-// link the bundle model, the lean binaries reach it); the moment comes from
-// the engine's PostToolUse event; "not yet invoked" comes from the engine's
-// own transcript, so no state is persisted anywhere.
-
-// SkillToolName is the tool claude-code runs a skill through. Its input carries
-// the invoked skill's name under `skill` (skillToolInput).
-const SkillToolName = "Skill"
+// skillToolName is the tool claude-code runs a skill through. Its input
+// carries the invoked skill's name under `skill` (skillToolInput).
+const skillToolName = "Skill"
 
 // skillToolInput is the Skill tool's input as claude-code sends it, reduced to
-// the one field this binding reads.
+// the one field read here.
 type skillToolInput struct {
 	Skill string `json:"skill"`
 }
 
-// InvokedSkill reports the skill one tool call invoked, and whether the call
+// invokedSkill reports the skill one tool call invoked, and whether the call
 // was a skill invocation at all. Only the Skill tool counts: another tool whose
 // input happens to carry a `skill` key is not one. An undecodable or empty
 // input is no invocation.
-func InvokedSkill(toolName string, input json.RawMessage) (string, bool) {
-	if toolName != SkillToolName {
+func invokedSkill(toolName string, input []byte) (string, bool) {
+	if toolName != skillToolName {
 		return "", false
 	}
 	var in skillToolInput
@@ -42,36 +31,4 @@ func InvokedSkill(toolName string, input json.RawMessage) (string, bool) {
 		return "", false
 	}
 	return in.Skill, true
-}
-
-// SkillsInvoked derives "already invoked this session" from the transcript's
-// own Skill tool_use records, so nothing has to be persisted to answer it.
-//
-// Main thread only. A subagent's invocation is written to the same transcript
-// as a sidechain entry, but the owner session never saw that skill's body --
-// so for the owner it is exactly as uninvoked as if it had never fired, and
-// counting it would silence the line on the very miss this binding closes.
-func SkillsInvoked(evs []agent.ChatEvent) func(string) bool {
-	seen := make(map[string]bool)
-	for _, ev := range evs {
-		e := ev.Entry
-		if e == nil || e.Type != agent.EntryTypeToolUse || e.Sidechain {
-			continue
-		}
-		if name, ok := InvokedSkill(e.ToolName, e.ToolInput); ok {
-			seen[name] = true
-		}
-	}
-	return func(name string) bool { return seen[name] }
-}
-
-// SkillMatesContext renders the one line the hook injects: the completed skill
-// and the mates it leaves uninvoked. Names only -- prompt wording is the
-// human's voice. Empty when there are no mates, so the hook stays silent
-// rather than attaching an empty statement.
-func SkillMatesContext(completed string, mates []string) string {
-	if len(mates) == 0 {
-		return ""
-	}
-	return "Skill " + completed + " completed; linked skills not yet invoked this session: " + strings.Join(mates, ", ")
 }

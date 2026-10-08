@@ -46,8 +46,11 @@ An engine is two halves on one port (`internal/core/engine`):
   the session home, each further one a directory beneath it; `Auth` names the env
   var the engine reads its long-lived token from), `Container()` (a spec or a refusal),
   `Transcripts()` (readers the composition root hands in — they are
-  transcript adapters an engine must not import) and `Hooks()` (the native
-  payload codec). `adapters/isolation` reads those facts off the engine
+  transcript adapters an engine must not import) and `Hooks()` (the
+  engine's hook wire, `engine.HookCodec`: `Decode` a native payload into a
+  neutral `HookEvent`, `Encode` a neutral `HookResponse` into the native
+  stdout and exit status, `ContextLimit`, and `InvokedSkill` — see
+  [hooks](../cli/hooks.md#the-hook-codec)). `adapters/isolation` reads those facts off the engine
   (`isolation.FactsOf`), and `adapters/runner.Execute` binds the Instance
   before delivering. `core/engine/conformance` asserts both halves
   for every kind.
@@ -68,9 +71,25 @@ An engine is two halves on one port (`internal/core/engine`):
   runner's launcher (`runner.RunLaunchSpec`, a plain pty via
   `ptyrunner.RunInteractive`). The managed-hooks assembly is `operations/managedhooks`.
 
-Core code reads an engine's facts off the Definition (through the
-registry) and never branches on its name: `tests/arch`'s
-`no-engine-name-in-core` gate holds that, with a shrinking allowlist.
+Outside INITIAL SETUP nothing names or chooses an engine: engine-specific
+behaviour is reached only through the Definition, its approaches and its
+declared capabilities, through the registry. Initial setup is defined by
+structure, not by a list: the registry root (the package `internal/engines`,
+the composition root) and each engine's own tree `internal/engines/<id>/**`
+for a registered engine ID — so a shared package beside the engines, the
+engine kit `internal/engines/kit`, is not setup and names no engine — every
+`package main` (a binary's composition root), an
+engine's family package (one whose last path element is a registered
+engine's ID, such as `transcript/vendorreader/claude`), and a lean binary's
+own engine registry (`internal/<bin>/engine`). `tests/arch`'s
+`TestArch_EngineIdentity_OnlyInitialSetupNamesAnEngine`
+(`engine_identity_arch_test.go`) holds it with no allowlist: outside that
+set no production file imports a concrete engine package or spells a
+registered engine name or ID, as a literal or as any constant expression
+the gate can fold. A roster of engines is therefore always a DERIVED view
+over the registry, filtered by what each Definition declares. The gate's
+residual gaps (an identity built at run time; an identity check dressed as
+a capability) are stated in its file doc.
 
 ## Shared engine components: `internal/engines/kit`
 

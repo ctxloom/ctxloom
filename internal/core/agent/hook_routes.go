@@ -1,6 +1,10 @@
 package agent
 
 import (
+	"errors"
+	"fmt"
+	"slices"
+
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -59,4 +63,55 @@ func RouteUnifiedHooks(rep report.Reporter, engine string, routes []HookRoute, e
 			emit(r.Event, h)
 		}
 	}
+}
+
+// HookEngineFlag is the flag every ctxloom hook verb takes naming the engine
+// that fires it. The hooks approach that delivers a ctxloom callback writes it
+// (BindHooks): which engine a hook was delivered to is known at setup, so the
+// verb never has to guess the payload's shape at fire time.
+const HookEngineFlag = "--engine"
+
+// BindHooks is a hooks approach's delivery-time binding of a unified set to
+// its engine, written once here so no approach re-implements it:
+//
+//   - every ctxloom callback (CtxloomCommand running `hook <verb> ...`) gains
+//     HookEngineFlag naming engine, so the verb decodes and answers through
+//     that engine's codec (engine.HookCodec);
+//   - every hook narrowed to a tool class (wire.Hook.Tool) and carrying no
+//     native matcher of its own gets tools(class) as its matcher; the class is
+//     then spent. A class the engine has no tool for is an error naming both:
+//     a hook delivered unnarrowed would fire on every tool.
+//
+// The caller's set is not mutated.
+func BindHooks(u wire.UnifiedHooks, engine string, tools func(wire.ToolClass) (string, bool)) (wire.UnifiedHooks, error) {
+	var failed error
+	for _, event := range wire.HookEvents() {
+		hooks := slices.Clone(u.Event(event))
+		for i, h := range hooks {
+			h.Args = slices.Clone(h.Args)
+			if isCtxloomCallback(h) && !slices.Contains(h.Args, HookEngineFlag) {
+				h.Args = append(h.Args, HookEngineFlag, engine)
+			}
+			if h.Tool != "" {
+				if h.Matcher == "" {
+					m, ok := tools(h.Tool)
+					if !ok {
+						failed = errors.Join(failed, fmt.Errorf("%s has no %q tool, so the %s hook %q cannot be narrowed to it", engine, h.Tool, event, h.Line()))
+						continue
+					}
+					h.Matcher = m
+				}
+				h.Tool = ""
+			}
+			hooks[i] = h
+		}
+		u.SetEvent(event, hooks)
+	}
+	return u, failed
+}
+
+// isCtxloomCallback reports one of ctxloom's own hook verbs: the ctxloom
+// executable running `hook <verb>`, in exec form.
+func isCtxloomCallback(h wire.Hook) bool {
+	return h.Command == CtxloomCommand() && len(h.Args) > 0 && h.Args[0] == "hook"
 }

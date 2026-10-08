@@ -46,5 +46,5 @@ func TestHooks_ADeliveredPreToolHook_RoundTripsThroughTheCodec(t *testing.T) {
 	require.NoError(t, err)
 	ev, err := eng.Hooks().Decode(nativeEvent, payload)
 	require.NoError(t, err)
-	require.Equal(t, engine.HookEvent{Event: "pre_tool", NativeSession: "s-1"}, ev)
+	require.Equal(t, engine.HookEvent{Event: "pre_tool", NativeSession: "s-1", Tool: "Bash", ToolInput: []byte(`{}`)}, ev)
 }

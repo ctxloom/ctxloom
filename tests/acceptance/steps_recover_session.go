@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
@@ -229,8 +229,8 @@ func seedClearedHarpLineage(w *World, harp string, writeSidecar func(*World, str
 	rotatedAt := time.Date(2026, 3, 14, 1, 0, 0, 0, time.UTC).Format(time.RFC3339)
 	if err := writeSidecar(w, harp, sessionSeed{
 		SessionID:      bareRecoverPostclearID,
-		Backend:        config.BackendMock,
-		EngineVersion:  j001000SeededEngineVersion(config.BackendMock),
+		Backend:        string(mock.Name),
+		EngineVersion:  j001000SeededEngineVersion(string(mock.Name)),
 		StartedAt:      "2026-03-14T00:00:00Z",
 		TranscriptPath: postclearVendorAbs,
 		Rotations: []sessionSeedEntry{{

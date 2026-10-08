@@ -34,7 +34,7 @@ Feature: Compaction is steered by the next step the session captured, and only b
       """
       NEXT-STEP-HINT-REACHES-COMPACTOR: re-run the ETag revalidation test before merging.
       """
-    When I run "ctxloom hook next-step" with input:
+    When I run "ctxloom hook next-step --engine claude-code" with input:
       """
       {"session_id":"seeded-quiet-ember-forge","hook_event_name":"Stop","transcript_path":"$PROJECT_DIR/turn.jsonl"}
       """

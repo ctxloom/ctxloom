@@ -40,7 +40,7 @@ import (
 
 //
 // Every wait is for an event (bytes the pty delivers, the process exiting)
-// and is bounded only by the test binary's deadline (testenv.TestExpiry): the
+// and is bounded only by the test binary's deadline (testsupport.Expiry): the
 // plugin subprocess spawn and the engine behind it run at whatever pace a
 // loaded machine allows, so no fixed cap separates late from broken.
 

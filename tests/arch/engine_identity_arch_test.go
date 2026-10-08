@@ -1,57 +1,83 @@
 //go:build arch
 
-// T12: engine identity is enumerated in several purpose-scoped rosters with
-// different memberships (see the rosters TestArch_EngineIdentityRosters_
-// MembersAreRegisteredBackends checks), and internal/adapters/operations (the
-// ADR-0026 core) once imported concrete engine plugin packages directly to branch
-// on backend identity (hooks.go's checkHookTargetScope, delegate.go's
-// resolveChatModel), a literal violation of the ports-and-adapters boundary
-// docs/adr/0026-ports-and-adapters.md and docs/adr/0020-operations-llm-
-// boundary.md already name: operations may depend only on the injected,
-// polymorphic engine registry, never on a concrete engine package.
+// T12, tightened: "no special casing or if/then between engines, except at
+// initial setup." Engine-specific behaviour is reached ONLY through the
+// engine.Definition / approach / capability seams; outside initial setup no
+// production code may name or choose a specific engine.
 //
-// Both defects are gated here, deliberately kept apart because they are
-// different SHAPES of drift:
+// TestArch_EngineIdentity_OnlyInitialSetupNamesAnEngine is the gate. Its
+// contract, over every production (non-_test.go) Go file of the module:
 //
-//   - TestArch_Operations_DoesNotImportEnginePlugins is the layering gate: it
-//     re-catches the confirmed violation the moment a future change
-//     reintroduces a direct internal/adapters/operations -> engine-plugin import
-//     edge (the packages enginePluginImportPaths names), by parsing
-//     production (non-_test.go) imports only, so a test double importing an
-//     engine package for fixture purposes never trips it.
-//   - TestArch_EngineIdentityRosters_MembersAreRegisteredBackends is the
-//     roster gate: each roster is a legitimately DIFFERENT
-//     purpose-scoped subset of engines (which backend has a vendor-native
-//     transcript to import from;
-//     which backend has a known official container installer; which backend
-//     has a generic host-credential seed spec) — collapsing them into one
-//     flat list would be wrong, not a fix. What must never happen instead is
-//     a roster naming a backend that ISN'T (or no longer is) a real,
-//     registered composed engine name — a typo, or a stale entry left
-//     behind when a backend was renamed or removed from the canonical
-//     registry. This check names no engine (it reads operations.EngineNames()
-//     live), so a new,
-//     correctly-registered backend never requires an edit here — only a
-//     roster member that has drifted out of registration does.
+//   - NO IMPORT of a concrete engine package (a package under
+//     internal/engines/<x>). The registry root itself, internal/engines, is the
+//     port's composition and stays importable.
+//   - NO STRING CONSTANT EQUAL TO AN ENGINE'S IDENTITY: a registered engine
+//     name (operations.EngineNames over the composed registry) or an engine ID
+//     (the Go package a registered kind is declared in — "claude", "mock").
+//     Both sets are read LIVE from the registry, so a new engine needs no edit
+//     here. The comparison is case-insensitive, and it is made against every
+//     string literal AND every constant expression the gate can fold — a
+//     concatenation, a parenthesised or converted operand, a reference to a
+//     constant of the same package — so renaming a literal into a constant,
+//     splitting it into pieces, or converting it to engine.Name moves the
+//     violation, it does not hide it. A literal roster of engines is a set of
+//     such constants, so it fails here too: a roster must be a DERIVED VIEW
+//     over the registry (see the roster tests below).
 //
-// The floor gate alone does not force every roster to contain every
-// registered backend, and for a roster kept as a LITERAL TABLE it cannot: an
-// engine legitimately absent (no vendor-native transcript store, say) and an
-// engine somebody forgot to add are byte-identical there, and the miss is
-// silent at the read site. A roster that is instead a DERIVED VIEW over the
-// registry — the engine's own descriptor declares the fact, and the roster
-// is the registry filtered by that declaration — makes the absence a stated
-// value with a reason, and for those TestArch_DerivedEngineRosters_
-// CoverEveryRegisteredBackend gates the reverse direction too: every
-// registered backend is a member or says why it is not.
+// INITIAL SETUP — the only code exempt — is defined by structure, never by a
+// list of files:
+//
+//   - the composition root, the package internal/engines itself
+//     (engines.Build, the registry wiring), and each engine's own tree,
+//     internal/engines/<id>/** for a registered engine ID. A shared package
+//     beside the engines — the engine kit, internal/engines/kit, or any
+//     other that is no engine's — is NOT setup and names no engine;
+//   - every `package main`: a binary's own composition root (config `type` →
+//     engine selection reaches the registry from there);
+//   - an engine's FAMILY: a package whose last path element is a registered
+//     engine's ID (internal/adapters/transcript/vendorreader/<id>), the
+//     engine-specific adapter the composition root hands that engine;
+//   - a lean binary's own engine registry, internal/<bin>/engine for a binary
+//     cmd/<bin>: ltk and taskloom cannot link ctxloom's registry, so each
+//     composes its own there (and holds its own engine adapters).
+//
+// Test code is exempt: _test.go files, tests/, internal/testsupport/ and the
+// Go-convention test-double packages (a last path element ending in "test").
+//
+// RESIDUAL GAPS — stated, not hidden. The gate is syntactic plus constant
+// folding; it cannot see:
+//
+//   - an identity built at RUN time (strings.Join, fmt.Sprintf, a []byte or
+//     rune literal, a value read from a file or the environment) and then
+//     compared;
+//   - a constant of ANOTHER package that is itself folded from pieces: it is
+//     caught where it is DEFINED, not where it is used, so the report names
+//     the definition;
+//   - an identity check dressed as a capability: a Definition field that only
+//     one engine sets, branched on as though it were a capability. Whether a
+//     declared fact is a real capability is a review judgement, not a parse;
+//   - a native wire shape decoded outside the engine (a struct whose json tags
+//     spell one engine's payload): it names no engine. The hook verbs read
+//     payloads through engine.HookCodec for exactly this reason.
+//
+// The roster tests below remain: they hold every DERIVED roster to the
+// registry in both directions.
 package arch
 
 import (
 	"encoding/json"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -60,47 +86,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines"
 )
-
-// enginePluginImportPaths are the concrete, engine-identity-branching plugin
-// packages ADR-0020/0026 reserve for the engine registry (and each plugin's
-// own family). Nothing else in the module's core may import them directly;
-// internal/adapters/operations doing so was T12's confirmed violation.
-var enginePluginImportPaths = []string{
-	modulePath + "/internal/engines/claude",
-}
-
-// TestArch_Operations_DoesNotImportEnginePlugins is the layering half of
-// T12's fix: internal/adapters/operations (the ADR-0026 core) must depend only on the
-// composed engine registry (engines.Registry, agent.Hosted) for anything
-// engine-identity-shaped, never construct or branch on a concrete engine
-// package itself. Scans production (non-_test.go) source only, via this
-// package's own scan() (see arch_test.go) — a test fixture importing an
-// engine package for setup purposes is not a layering violation.
-func TestArch_Operations_DoesNotImportEnginePlugins(t *testing.T) {
-	pkgs := scan(t)
-
-	dirs := make([]string, 0, len(pkgs))
-	for dir := range pkgs {
-		if dir == "internal/adapters/operations" || strings.HasPrefix(dir, "internal/adapters/operations/") {
-			dirs = append(dirs, dir)
-		}
-	}
-	sort.Strings(dirs)
-	if len(dirs) == 0 {
-		t.Fatal("the scan found no internal/adapters/operations package(s) — the gate is looking at the wrong tree")
-	}
-
-	for _, dir := range dirs {
-		for _, ip := range pkgs[dir].imports {
-			if slices.Contains(enginePluginImportPaths, ip) {
-				t.Errorf("package %s imports %s directly — internal/adapters/operations is the ADR-0026 core and may "+
-					"only reach engine-identity-branching behavior through the composed engine registry "+
-					"(engines.Registry, the port and agent.Hosted), never by importing a concrete engine "+
-					"plugin package itself", dir, ip)
-			}
-		}
-	}
-}
 
 // rosterCheck is one of T12's four engine-identity rosters: a named source
 // (for error messages) and the backend names it currently lists.
@@ -291,5 +276,303 @@ func TestArch_TranscriptSchemaEngineEnum_EqualsBackendRegistry(t *testing.T) {
 			"backends: a member nothing registers admits fixtures no writer produces, and a registered "+
 			"backend missing from it makes a real transcript fail validation",
 			transcriptSchemaRelPath, enum, registered)
+	}
+}
+
+// engineIdentities is every spelling the gate refuses outside initial setup,
+// lower-cased: each registered engine's name and each registered kind's ID
+// (the last element of the Go package the kind's type is declared in). Read
+// live from the composed registry, so a new engine needs no edit here.
+func engineIdentities(t *testing.T) (identities map[string]bool, ids map[string]bool) {
+	t.Helper()
+	reg := engines.Registry()
+	names := operations.EngineNames(reg)
+	if len(names) == 0 {
+		t.Fatal("operations.EngineNames() returned nothing — the canonical registry did not populate; the gate has nothing to refuse")
+	}
+	identities, ids = map[string]bool{}, map[string]bool{}
+	for _, n := range names {
+		identities[strings.ToLower(n)] = true
+		kind, ok := reg.Lookup(engine.Name(n))
+		if !ok {
+			t.Fatalf("registered name %q does not look up", n)
+		}
+		pkgPath := reflect.TypeOf(kind).PkgPath()
+		if pkgPath == "" {
+			t.Fatalf("engine %q is not a named type; its ID cannot be derived", n)
+		}
+		id := strings.ToLower(path.Base(pkgPath))
+		identities[id] = true
+		ids[id] = true
+	}
+	return identities, ids
+}
+
+// identityFile is one parsed production file and the package it belongs to.
+type identityFile struct {
+	rel  string // module-relative file path
+	dir  string // module-relative package directory
+	file *ast.File
+}
+
+// parseProductionFiles parses every non-test Go file of the module.
+func parseProductionFiles(t *testing.T, fset *token.FileSet) []identityFile {
+	t.Helper()
+	root := moduleRoot(t)
+	var out []identityFile
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if p != root && skippedDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !isNonTestGoFile(d.Name()) {
+			return nil
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		f, perr := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
+		if perr != nil {
+			t.Errorf("parse %s: %v", rel, perr)
+			return nil
+		}
+		out = append(out, identityFile{rel: rel, dir: path.Dir(rel), file: f})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk module: %v", err)
+	}
+	if len(out) == 0 {
+		t.Fatal("the scan parsed no production file — the gate is looking at the wrong tree")
+	}
+	return out
+}
+
+// isTestCodeDir reports a directory that holds test code only: tests/, the
+// testsupport tree, and the Go-convention test-double packages.
+func isTestCodeDir(dir string) bool {
+	return dir == "tests" || strings.HasPrefix(dir, "tests/") ||
+		strings.Contains("/"+dir+"/", "/testsupport/") ||
+		strings.HasSuffix(path.Base(dir), "test")
+}
+
+// isInitialSetup reports a package that may name an engine: the registry
+// root or an engine's own tree under it, a binary's main package, an
+// engine's family package, or a lean binary's own engine registry (see the
+// file doc).
+func isInitialSetup(dir, pkgName string, ids map[string]bool, binaries map[string]bool) bool {
+	switch {
+	case dir == "internal/engines":
+		return true
+	case strings.HasPrefix(dir, "internal/engines/"):
+		// Only an engine's OWN tree: internal/engines/<id>/**. A shared
+		// package beside the engines (the engine kit) is not an engine and
+		// names none.
+		return ids[strings.ToLower(strings.SplitN(strings.TrimPrefix(dir, "internal/engines/"), "/", 2)[0])]
+	case pkgName == "main":
+		return true
+	case ids[strings.ToLower(path.Base(dir))]:
+		return true
+	}
+	parts := strings.Split(dir, "/")
+	return len(parts) == 3 && parts[0] == "internal" && parts[2] == "engine" && binaries[parts[1]]
+}
+
+// binaryNames are the binaries the module builds: cmd/<bin>.
+func binaryNames(t *testing.T) map[string]bool {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(moduleRoot(t), "cmd"))
+	if err != nil {
+		t.Fatalf("read cmd/: %v", err)
+	}
+	out := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() {
+			out[e.Name()] = true
+		}
+	}
+	return out
+}
+
+// packageConsts maps each package directory to its constants' defining
+// expressions, by name, for the fold.
+func packageConsts(files []identityFile) map[string]map[string]ast.Expr {
+	out := map[string]map[string]ast.Expr{}
+	for _, f := range files {
+		m := out[f.dir]
+		if m == nil {
+			m = map[string]ast.Expr{}
+			out[f.dir] = m
+		}
+		ast.Inspect(f.file, func(n ast.Node) bool {
+			gd, ok := n.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				return true
+			}
+			for _, spec := range gd.Specs {
+				vs := spec.(*ast.ValueSpec)
+				for i, name := range vs.Names {
+					if i < len(vs.Values) {
+						m[name.Name] = vs.Values[i]
+					}
+				}
+			}
+			return true
+		})
+	}
+	return out
+}
+
+// foldString folds a constant string expression: a literal, a concatenation,
+// a parenthesis, a one-argument conversion, or a reference to a constant of
+// the same package. ok is false for anything that is not foldable here.
+func foldString(e ast.Expr, consts map[string]ast.Expr, depth int) (string, bool) {
+	if depth > 16 {
+		return "", false
+	}
+	switch x := e.(type) {
+	case *ast.BasicLit:
+		return unquoteString(x)
+	case *ast.ParenExpr:
+		return foldString(x.X, consts, depth+1)
+	case *ast.BinaryExpr:
+		return foldConcat(x, consts, depth)
+	case *ast.CallExpr:
+		if len(x.Args) == 1 {
+			return foldString(x.Args[0], consts, depth+1)
+		}
+	case *ast.Ident:
+		if def, ok := consts[x.Name]; ok {
+			return foldString(def, consts, depth+1)
+		}
+	}
+	return "", false
+}
+
+// unquoteString is a string literal's value.
+func unquoteString(x *ast.BasicLit) (string, bool) {
+	if x.Kind != token.STRING {
+		return "", false
+	}
+	v, err := strconv.Unquote(x.Value)
+	return v, err == nil
+}
+
+// foldConcat folds a + of two foldable operands.
+func foldConcat(x *ast.BinaryExpr, consts map[string]ast.Expr, depth int) (string, bool) {
+	if x.Op != token.ADD {
+		return "", false
+	}
+	l, lok := foldString(x.X, consts, depth+1)
+	r, rok := foldString(x.Y, consts, depth+1)
+	return l + r, lok && rok
+}
+
+// identityViolations reports, for one file outside initial setup, every
+// concrete-engine import and every literal or folded constant expression
+// spelling an engine identity.
+func identityViolations(fset *token.FileSet, f identityFile, consts map[string]ast.Expr, identities map[string]bool) []string {
+	var out []string
+	for _, spec := range f.file.Imports {
+		ip, err := strconv.Unquote(spec.Path.Value)
+		if err == nil && strings.HasPrefix(ip, modulePath+"/internal/engines/") {
+			out = append(out, fmt.Sprintf("%s imports the concrete engine package %s", fset.Position(spec.Pos()), ip))
+		}
+	}
+	skip := map[ast.Node]bool{}
+	for _, spec := range f.file.Imports {
+		skip[spec.Path] = true
+	}
+	ast.Inspect(f.file, func(n ast.Node) bool {
+		if n == nil || skip[n] {
+			return false
+		}
+		switch x := n.(type) {
+		case *ast.Field:
+			if x.Tag != nil {
+				skip[x.Tag] = true
+			}
+		case *ast.BasicLit, *ast.BinaryExpr:
+			if v, ok := foldString(x.(ast.Expr), consts, 0); ok && identities[strings.ToLower(v)] {
+				out = append(out, fmt.Sprintf("%s spells the engine identity %q", fset.Position(x.Pos()), v))
+				return false
+			}
+		}
+		return true
+	})
+	return out
+}
+
+// TestArch_EngineIdentity_OnlyInitialSetupNamesAnEngine is the gate the file
+// doc describes: outside initial setup, no production code imports a
+// concrete engine package or spells an engine's name or ID.
+func TestArch_EngineIdentity_OnlyInitialSetupNamesAnEngine(t *testing.T) {
+	identities, ids := engineIdentities(t)
+	binaries := binaryNames(t)
+	fset := token.NewFileSet()
+	files := parseProductionFiles(t, fset)
+	consts := packageConsts(files)
+
+	checked := 0
+	for _, f := range files {
+		if isTestCodeDir(f.dir) || isInitialSetup(f.dir, f.file.Name.Name, ids, binaries) {
+			continue
+		}
+		checked++
+		for _, v := range identityViolations(fset, f, consts[f.dir], identities) {
+			t.Errorf("%s — outside initial setup an engine is reached only through the engine.Definition / "+
+				"approach / capability seams (the registry, Engine.Hooks(), Engine.Transcripts(), ...), never by name", v)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("every production file was classified as initial setup or test code — the gate checked nothing")
+	}
+}
+
+// TestArch_EngineIdentity_GateSeesWhatItRefuses proves the detector on
+// synthetic source: each shape a violation can take is reported, and the
+// shapes that are not violations are not.
+func TestArch_EngineIdentity_GateSeesWhatItRefuses(t *testing.T) {
+	identities, _ := engineIdentities(t)
+	var name string
+	for n := range identities {
+		if len(n) > 2 {
+			name = n
+			break
+		}
+	}
+	half := len(name) / 2
+	cases := []struct {
+		label, src string
+		want       bool
+	}{
+		{"a literal", fmt.Sprintf("package p\nfunc f(s string) bool { return s == %q }\n", name), true},
+		{"an upper-cased literal", fmt.Sprintf("package p\nvar x = %q\n", strings.ToUpper(name)), true},
+		{"a split constant", fmt.Sprintf("package p\nconst a = %q\nconst b = a + %q\n", name[:half], name[half:]), true},
+		{"a converted literal", fmt.Sprintf("package p\ntype N string\nvar x = N(%q)\n", name), true},
+		{"a roster", fmt.Sprintf("package p\nvar roster = []string{%q}\n", name), true},
+		{"a concrete engine import", "package p\nimport _ \"" + modulePath + "/internal/engines/x\"\n", true},
+		{"a struct tag", fmt.Sprintf("package p\ntype T struct{ F int `json:%q` }\n", name), false},
+		{"a longer string", fmt.Sprintf("package p\nvar x = %q\n", name+" is mentioned"), false},
+		{"the registry root import", "package p\nimport _ \"" + modulePath + "/internal/engines\"\n", false},
+	}
+	for _, c := range cases {
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, "p.go", c.src, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("%s: %v", c.label, err)
+		}
+		files := []identityFile{{rel: "p.go", dir: "p", file: f}}
+		got := identityViolations(fset, files[0], packageConsts(files)["p"], identities)
+		if (len(got) > 0) != c.want {
+			t.Errorf("%s: violations %v, want reported=%v", c.label, got, c.want)
+		}
 	}
 }

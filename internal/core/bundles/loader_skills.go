@@ -294,7 +294,7 @@ func (c Catalog) skillFromBundle(bundleName, skillName string) ([]*LoadedSkill, 
 // searchSkill scans every bundle for a skill with the given name and reports
 // EVERY package it could resolve, in List order — searchFragment's skill twin.
 // Reporting all of them is what lets the process stage keep scanning past one
-// it withholds: a trusted copy in another bundle still wins.
+// it withholds: a usable copy in another bundle still wins.
 func (c Catalog) searchSkill(name string) ([]*LoadedSkill, error) {
 	var out []*LoadedSkill
 	for _, read := range c.Reads() {

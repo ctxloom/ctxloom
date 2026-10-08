@@ -242,12 +242,12 @@ func probeMCPWorkspaceRel(workspaceDir string, f probeMCPFixture) (relBinary, re
 // bundles only; ctxloom's own ships as a builtin"): there is no `mcp:` key in
 // config.yaml and none on a profile. An MCP server is declared in a bundle and
 // COMPOSING that bundle is what registers it. So the choice above is no longer
-// available, and the trust gate is now part of what any real user traverses —
-// which makes routing through it correct rather than merely tolerable.
+// available, and the bundle path is what any real user traverses — which makes
+// routing through it correct rather than merely tolerable. (The executable
+// trust gate the old comment avoided has since been deleted.)
 //
-// A red that is really a trust decision is still the hazard the old comment
-// named. It is now DISTINGUISHABLE rather than avoided: a withheld server never
-// starts, so the call log is ABSENT rather than empty, and probeMCPCallLog
+// A server that never starts is DISTINGUISHABLE from one that ran and was not
+// called: its call log is ABSENT rather than empty, and probeMCPCallLog
 // reports those as different findings.
 func probeMCPBundleBlock(binaryPath, fixtureDir string) string {
 	var b strings.Builder

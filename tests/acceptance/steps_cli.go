@@ -492,7 +492,7 @@ func jsonStepInto(cur any, seg, walked string) (any, error) {
 	// A "[field=value]" segment SELECTS the array element that carries
 	// that value, so an assertion can name the object it means instead of
 	// its index. A list's position is an implementation detail; which
-	// bundle was signed, or which store an entry came from, is the claim.
+	// agent binding it is, or which store an entry came from, is the claim.
 	if field, want, ok := jsonPathPredicate(seg); ok {
 		return jsonSelectAt(cur, seg, walked, field, want)
 	}
@@ -555,7 +555,7 @@ func lastOutputJSONDoc(w *World) (any, error) {
 
 // jsonPathSegments splits a dotted path into segments, breaking a
 // "[field=value]" predicate out as its own segment whether or not a dot
-// precedes it — so "signed[bundle=x].signed_by" reads the way a jq user would
+// precedes it — so "agents[name=developer].llm" reads the way a jq user would
 // write it — and keeping the predicate whole even though the field inside it
 // may itself be dotted.
 func jsonPathSegments(path string) []string {

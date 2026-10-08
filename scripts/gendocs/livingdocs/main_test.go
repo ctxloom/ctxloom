@@ -14,7 +14,7 @@ func TestSlug(t *testing.T) {
 	cases := map[string]string{
 		"tests/acceptance/features/j000200_setup.feature":               "j000200-setup.md",
 		"tests/acceptance/features/j000700_team_authoring.feature":      "j000700-team-authoring.md",
-		"tests/acceptance/features/j001500_corporate_signed.feature":    "j001500-corporate-signed.md",
+		"tests/acceptance/features/j001500_corporate_bundles.feature":   "j001500-corporate-bundles.md",
 		"tests/acceptance/features/j000300_source_augmentation.feature": "j000300-source-augmentation.md",
 		"tests/acceptance/features/j000800_onboarding.feature":          "j000800-onboarding.md",
 	}

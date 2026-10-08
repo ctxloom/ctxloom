@@ -2,8 +2,8 @@
 
 // J001800: "Guardrails — when the assistant does not listen" (j001800_guardrails.feature).
 //
-// ctxloom's own promise stops at DELIVERY: the right fragments, signed,
-// trusted, reach the assembled context. What a fragment can never do is
+// ctxloom's own promise stops at DELIVERY: the right fragments reach the
+// assembled context. What a fragment can never do is
 // ENFORCE — an LLM agent that reaches for the raw tool out of habit, or
 // writes a fourth copy of a helper that already exists, has not violated any
 // mechanism ctxloom itself runs. That gap is exactly what ctxloom's

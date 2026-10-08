@@ -119,7 +119,7 @@ func TestFailOnFindings_ContainerIsolationDegradeIsFatalUnlessDegraded(t *testin
 // The run path has TWO findings gates: gate 1 after config/sync/assembly
 // (anchored at startupMark) and gate 2 after isolation.Prepare. Gate 2 must be
 // anchored at a checkpoint captured IMMEDIATELY after gate 1 passes so the two
-// windows tile: a finding recorded in the gap between them (trust gate, session
+// windows tile: a finding recorded in the gap between them (session
 // accounting, hook work on the way to the launch) is still fatal. This pins the
 // tiling contract run.go wires (postStartupMark); the old anchoring — a
 // checkpoint taken just before Prepare — left the gap ungated.

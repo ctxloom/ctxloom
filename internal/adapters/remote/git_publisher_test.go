@@ -289,7 +289,7 @@ func TestGitPublisher_RefusesEmptyContentAndEscapingPaths(t *testing.T) {
 // material and NO host-key policy: the git binary resolves ~/.ssh/config,
 // ssh-agent, credential helpers and known_hosts. A HostKeyCallback is the
 // easy-to-get-quietly-wrong part, and getting it wrong is a silent MITM on the
-// one path that pushes signed content.
+// one path that publishes content other projects load.
 //
 // This is a STRUCTURAL pin rather than a behavioural one because the property
 // belongs to the source, not to any output: ssh auth added tomorrow would pass

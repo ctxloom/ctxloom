@@ -1344,8 +1344,7 @@ func withheldItemsCheck(withheld []bundles.Withhold) DoctorCheck {
 }
 
 // withheldKind is the user-facing kind (ItemKind.Noun) a withheld ref names.
-// A ref that does not parse names none — being unparseable is why it was
-// withheld.
+// A ref that names no item kind, or does not parse, is listed as an "item".
 func withheldKind(ref string) string {
 	parsed, err := ident.ParseBundleRef(ref)
 	if err != nil || parsed.Kind == "" {

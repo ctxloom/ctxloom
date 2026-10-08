@@ -904,7 +904,7 @@ func TestLoadMCPFromBundleRef_InvalidRef(t *testing.T) {
 func TestLoadMCPFromBundleRef_SeededRemoteBundle(t *testing.T) {
 	// The canonical ref, as operations.bundle_readers hands the repofs reader:
 	// an uncanonical one gives the read no addressable source, and every
-	// executable in it is withheld as unaddressable by any real gate.
+	// executable in it is dropped because no item ref can be minted for it.
 	const ref = "https://example.test/repo@bundles/sequential-thinking"
 	// Pinned remote content reaches the loader through a repofs reader over the
 	// bytes at its pinned revision — the same path the lockfile takes — so the

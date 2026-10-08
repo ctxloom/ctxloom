@@ -129,9 +129,9 @@ func TestConformance_Base_DelegatesPrefaceToDynamic_OnlyWhenProvided(t *testing.
 // Trust is the one name allowed, and only as engine.WorkspaceTrust: that is
 // the engine's OWN repository verdict (Engine.Trust) handed back to its
 // instance, which shapes the argv and the trust answer per session. What the
-// projection must never carry is delivery's content trust gate, which is
-// consumed before the engine is fed — so the field's type is pinned, and
-// Gate stays forbidden outright.
+// projection must never carry is delivery's own content decision (what is
+// withheld, and why), which is consumed before the engine is fed — so the
+// field's type is pinned, and Gate stays forbidden outright.
 func TestConformance_SessionCarriesNoCredentialNoPackageNoAxes(t *testing.T) {
 	typ := reflect.TypeOf(engine.Session{})
 	for _, forbidden := range []string{"Credential", "Package", "Axes", "Runtime", "Workspace", "ReachBack", "Plan", "Gate"} {

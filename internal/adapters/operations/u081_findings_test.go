@@ -225,10 +225,6 @@ func TestDistillPrompts_TruncatedResultRejected(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// A stat error on the .sig silently downgrades a signed bundle.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // ImportBundle "validates a bundle file" but validates almost
 // nothing.
 // ---------------------------------------------------------------------------

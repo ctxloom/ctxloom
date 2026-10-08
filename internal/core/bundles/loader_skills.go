@@ -211,7 +211,7 @@ type SkillInfo struct {
 // across every bundle, in deterministic (bundle, then name) order. A package
 // whose source tree fails to resolve or parse is omitted (skillContent
 // already warns) — the reader does not have it. Nothing is dropped on policy
-// grounds; see Pipeline.ListAllSkills for the gated listing.
+// grounds; Pipeline.deliverSkill is where a link withhold applies.
 func (c Catalog) ReadAllSkills() ([]*LoadedSkill, error) {
 	var out []*LoadedSkill
 	for _, read := range c.Reads() {

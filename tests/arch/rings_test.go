@@ -39,6 +39,9 @@ var ringPrefixes = []string{
 // of. Each is asserted absent so that none quietly regrows at its old path —
 // most would also trip the ring gate below, but the ones that sat under
 // internal/shared/ are inside a ring prefix and only this list catches them.
+// Some entries name packages that were later deleted outright from their ring
+// home (internal/signing/* and internal/trust: the signing machinery is gone);
+// they stay listed so that none is re-created at its old path.
 var movedAwayPackages = []string{
 	"internal/agentcoord",
 	"internal/agentcoord/coord",

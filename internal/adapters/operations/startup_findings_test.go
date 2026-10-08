@@ -137,15 +137,15 @@ func TestCompanionDecisions_Withheld(t *testing.T) {
 }
 
 // TestStartupFindings_WithheldItemsAreOneRow: what the launch's package
-// withheld is one row naming each item's kind, ref and why — an item whose
-// ref does not parse has no kind to name, and is still listed. The kind is the
+// withheld is one row naming each item's kind, ref and why — a ref that names
+// no item kind has no kind to name, and is still listed. The kind is the
 // name a user knows it by: a slash command is a "command", never the internal
 // "prompt" its ref is stored under. It is a warn
 // row like every other startup finding, and composing it records nothing.
 func TestStartupFindings_WithheldItemsAreOneRow(t *testing.T) {
 	cfg := cleanProject(t)
 	withheld := []bundles.Withhold{
-		{Ref: "::not a ref::", Reason: "its ref could not be parsed: bad"},
+		{Ref: "ctxloom+local:kit", Reason: "its files could not be laid out: bad"},
 		{Ref: "ctxloom+local:kit#prompts/plan", Reason: `it is linked (ctxloom:link_id=think) to MCP server "think", which this run was not granted`},
 		{Ref: "ctxloom+local:kit#skills/reason", Reason: `it is linked (ctxloom:link_id=think) to MCP server "think", which this run was not granted`},
 	}
@@ -157,7 +157,7 @@ func TestStartupFindings_WithheldItemsAreOneRow(t *testing.T) {
 	assert.Equal(t, withheldItemsMarker, row.Marker)
 	assert.Equal(t, DoctorWarn, row.Status)
 	assert.Equal(t, "withheld from this session, so not available in it: "+
-		"item ::not a ref:: — its ref could not be parsed: bad; "+
+		"item ctxloom+local:kit — its files could not be laid out: bad; "+
 		`command ctxloom+local:kit#prompts/plan — it is linked (ctxloom:link_id=think) to MCP server "think", which this run was not granted; `+
 		`skill ctxloom+local:kit#skills/reason — it is linked (ctxloom:link_id=think) to MCP server "think", which this run was not granted`,
 		row.Detail)

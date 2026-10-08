@@ -176,7 +176,7 @@ type Git interface {
 	// known_hosts exactly as it does for every other repository on the
 	// machine. ctxloom holds no key material and installs no host-key policy:
 	// a HostKeyCallback is the easy-to-get-quietly-wrong part, and getting it
-	// wrong means a silent MITM on a path that pushes SIGNED content.
+	// wrong means a silent MITM on a path that publishes content others load.
 	Clone(ctx context.Context, url, dir, branch string) error
 
 	// HeadSHA returns dir's current HEAD commit.

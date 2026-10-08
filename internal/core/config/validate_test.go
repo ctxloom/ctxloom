@@ -115,7 +115,7 @@ func TestConfig_Validate_ChecksEveryConfiguredEngineNameAgainstTheRegistry(t *te
 	assert.ErrorContains(t, cfg.Validate(noDefault), "ship by default", "a registry with no default engine cannot resolve an untyped entry")
 }
 
-// stubSources serves one parsed config with no bundles and no trust gate.
+// stubSources serves one parsed config with no bundles.
 type stubSources struct{ yaml string }
 
 func (s stubSources) Read(context.Context) (*config.Config, []config.Warning, error) {

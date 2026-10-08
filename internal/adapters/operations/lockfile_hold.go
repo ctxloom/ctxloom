@@ -10,7 +10,7 @@ import (
 
 // activeLockfileManager builds the lockfile manager for cfg's active lockfile
 // over cfg's OWN filesystem. The FS must be threaded (as lockfile.go and
-// trust.go do): without it the manager falls back to the real OS filesystem and
+// sync.go do): without it the manager falls back to the real OS filesystem and
 // reads/writes a DIFFERENT lock.yaml than the rest of the run resolves against.
 func activeLockfileManager(cfg *config.Config) *remote.LockfileManager {
 	baseDir := ProjectAppDir(cfg)

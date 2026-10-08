@@ -15,9 +15,9 @@ package wire
 //     They are the problem, not a fix.
 //   - FRACTIONAL keys (100.5, 100.25…) never exhaust, but a float has more than
 //     one canonical spelling in YAML (100.5 / 100.50 / 1.005e2) and repeated
-//     halving accumulates binary-fraction error. These bytes are SIGNED; a
-//     representation whose round-trip depends on an encoder's float formatting is
-//     a signature that stops verifying for no visible reason.
+//     halving accumulates binary-fraction error. These bytes are committed and
+//     compared; a representation whose round-trip depends on an encoder's float
+//     formatting is a diff that appears for no visible reason.
 //   - LEXICOGRAPHIC keys (LexoRank-style base62) never exhaust either and compare
 //     as strings, but they are not hand-computable. These files are authored by
 //     humans in a text editor, and a scheme where inserting between "aaa" and

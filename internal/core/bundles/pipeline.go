@@ -90,19 +90,6 @@ func (p *Pipeline) Withheld() []Withhold {
 	return out
 }
 
-// addressable reports whether ref parses in the canonical bundle-reference
-// grammar. An item nothing can address is a load error: it is named, tallied,
-// and not delivered.
-func (p *Pipeline) addressable(ref string) bool {
-	if _, err := ident.ParseBundleRef(ref); err != nil {
-		reason := fmt.Sprintf("its ref could not be parsed: %v", err)
-		p.loader.cat.rep.Warnf("withheld %s: %s", ref, reason)
-		p.recordWithheld(ref, reason)
-		return false
-	}
-	return true
-}
-
 // recordWithheld tallies a ref this pipeline did not deliver, and why
 // (deduplicated by ref, the first reason kept; lazily allocated).
 func (p *Pipeline) recordWithheld(ref, reason string) {
@@ -128,16 +115,16 @@ func (p *Pipeline) withholdLinked(ref, linkID, server string) {
 }
 
 // deliver is the process stage in one function: RESOLVE a form from everything
-// the read reported, then withhold it if it is unaddressable or linked to an
-// ungranted server. Returns nil when it is withheld.
+// the read reported, then withhold it if it is linked to an ungranted server.
+// Returns nil when it is withheld. An item's ItemRef needs no check here: the
+// read stage mints it through ItemRefFor, which drops an item it cannot
+// address, and the minted string is the canonical rendering of a reference
+// that already parsed.
 func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 	if r == nil {
 		return nil
 	}
 	s := r.Resolve(p.preferDistilled)
-	if !p.addressable(r.ItemRef) {
-		return nil
-	}
 	if id, server, withheld := p.linkWithholds(r.Read, r.Tags); withheld {
 		p.withholdLinked(r.ItemRef, id, server)
 		return nil
@@ -163,15 +150,9 @@ func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 	}
 }
 
-// admitSkill reports whether a resolved skill package may be delivered: it
-// exists and its ref is addressable.
-func (p *Pipeline) admitSkill(ls *LoadedSkill) bool {
-	return ls != nil && p.addressable(ls.ItemRef)
-}
-
-// deliverSkill is the process stage for a skill package: ADMIT the package,
-// then SELECT the body an engine receives. Returns nil when the package may
-// not be delivered.
+// deliverSkill is the process stage for a skill package: withhold it if it is
+// linked to an ungranted server, then SELECT the body an engine receives.
+// Returns nil when the package may not be delivered.
 //
 // Selection only PREFERS, like BundleFragment.Resolve: a package with no
 // distilled body serves raw. What it never does is deliver both bodies or an
@@ -181,7 +162,7 @@ func (p *Pipeline) admitSkill(ls *LoadedSkill) bool {
 // body. A materialization failure withholds the package loudly rather than
 // delivering an empty or two-bodied one.
 func (p *Pipeline) deliverSkill(ls *LoadedSkill) *LoadedSkill {
-	if !p.admitSkill(ls) {
+	if ls == nil {
 		return nil
 	}
 	if id, server, withheld := p.linkWithholds(ls.Read, ls.Tags); withheld {
@@ -375,23 +356,6 @@ func (p *Pipeline) GetSkill(name string) (*LoadedSkill, error) {
 		return nil, fmt.Errorf("%w: %s", errs.ErrSkillWithheld, name)
 	}
 	return nil, fmt.Errorf("%w: %s", errs.ErrSkillNotFound, name)
-}
-
-// ListAllSkills lists every Agent Skill package that may be delivered, across
-// every bundle. An exposure surface's listing must not advertise a package it
-// would then withhold, so the same admission runs here too.
-func (p *Pipeline) ListAllSkills() ([]SkillInfo, error) {
-	skills, err := p.catalog().ReadAllSkills()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]SkillInfo, 0, len(skills))
-	for _, ls := range skills {
-		if p.admitSkill(ls) {
-			out = append(out, skillInfoFor(ls))
-		}
-	}
-	return out, nil
 }
 
 // SkillsFromBundleRef returns every skill the bundle at bundleRef ships that

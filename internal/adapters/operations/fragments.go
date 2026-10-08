@@ -138,7 +138,7 @@ func GetFragment(ctx context.Context, cfg *config.Config, req GetFragmentRequest
 	if pipe == nil {
 		// Exposure surface (ctxloom://fragments/{name}, saved-prompt runs): read
 		// through the delivery pipeline. A fragment it withholds (an
-		// unaddressable ref, an ungranted link) surfaces as
+		// ungranted link) surfaces as
 		// errs.ErrFragmentWithheld so the resource omits it.
 		pipe = exposurePipeline(cfg)
 	}

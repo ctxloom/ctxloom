@@ -24,6 +24,16 @@ func Emptied() {
 	_ = os.Link("x", "y")            // want `Emptied calls os.Link directly`
 }
 
+// Reshaped creates, removes and re-permissions paths outside the write
+// library: directory and removal ops are writes too.
+func Reshaped() {
+	_ = os.MkdirAll("d/e", 0o700) // want `Reshaped calls os.MkdirAll directly`
+	_ = os.Mkdir("d", 0o700)      // want `Reshaped calls os.Mkdir directly`
+	_ = os.Remove("x")            // want `Reshaped calls os.Remove directly`
+	_ = os.RemoveAll("d")         // want `Reshaped calls os.RemoveAll directly`
+	_ = os.Chmod("x", 0o600)      // want `Reshaped calls os.Chmod directly`
+}
+
 // Renamed resolves the qualifier through its import, not its spelling.
 func Renamed() {
 	_ = xos.WriteFile("x", nil, 0o600) // want `Renamed calls os.WriteFile directly`

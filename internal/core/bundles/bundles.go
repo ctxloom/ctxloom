@@ -118,9 +118,9 @@ type Bundle struct {
 	// BundleRef is therefore a REACHABLE, meaningful value — a mint that
 	// failed (an unfoldable repo-URL spelling — see Ref.AsBundleRef's doc) —
 	// not merely "unset"; BundleRead.SourceRef reports it as-is rather than
-	// guessing, and a producer minting an item ref from it must degrade to a
-	// stable, well-formed address rather than withhold silently (see
-	// operations.CountersignRef's identical fallback).
+	// guessing, and a producer minting an item ref from it gets ItemRefFor's
+	// error and drops that item (warnUnmintableSource has already named the
+	// spelling that failed) rather than inventing a stand-in address.
 	//
 	// Because the zero value is reachable and meaningful, "has a reader
 	// already stamped this" cannot be read off sourceRef itself — a failed

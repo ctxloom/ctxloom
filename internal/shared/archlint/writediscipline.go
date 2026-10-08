@@ -24,8 +24,13 @@ var writeDisciplineExemptDirs = []string{
 }
 
 // forbiddenOSCalls are the raw-fs-write entry points forbidden outside the
-// exempt set: each creates, replaces or empties a file's content or name.
-// os.OpenFile is handled separately: only its write-mode calls count.
+// exempt set: each creates, replaces or empties a file's content or name, or
+// creates, removes or re-permissions a path. os.OpenFile is handled
+// separately: only its write-mode calls count.
+//
+// The directory and removal ops have no afero-side entry here: a package-level
+// afero.* twin does not exist, and the same method on an afero.Fs routes
+// through the fs and its decorators, which is the sanctioned spelling.
 var forbiddenOSCalls = map[string]bool{
 	"WriteFile":  true,
 	"Create":     true,
@@ -34,6 +39,11 @@ var forbiddenOSCalls = map[string]bool{
 	"Symlink":    true,
 	"Link":       true,
 	"Truncate":   true,
+	"Mkdir":      true,
+	"MkdirAll":   true,
+	"Remove":     true,
+	"RemoveAll":  true,
+	"Chmod":      true,
 }
 
 // writeFlagConstants are the os.O_* names whose presence in an os.OpenFile
@@ -120,7 +130,8 @@ var (
 		allowName: "archrules.WriteDisciplineAllowed",
 		remedy: "route through internal/shared/safefs (safefs.WriteFile, or safefs.NewAtomicFile for a " +
 			"stream), whose writes pass the empty-write guard (safefs.NewGuardFs) and, with safefs.Durable(), " +
-			"the durability decorator (safefs.NewDurableFs)",
+			"the durability decorator (safefs.NewDurableFs); a directory, removal or chmod op goes through " +
+			"the afero.Fs the caller is handed",
 	}
 	testWriteArm = writeArm{
 		aferoOnly: true,

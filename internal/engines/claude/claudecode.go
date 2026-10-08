@@ -18,9 +18,9 @@ type ClaudeConfig struct {
 	// is read untyped from the same YAML body via config.ResolveLLM
 	// (entry.Body["model"].(string)) — mapstructure would silently accept an
 	// unknown "model" key even without a matching field, so a typed field
-	// here would just be a second, dead reader of the same key.
-	BinaryPath string   `mapstructure:"binary_path"`
-	Args       []string `mapstructure:"args"`
+	// here would just be a second, dead reader of the same key. binary_path
+	// and args are likewise read untyped, as the launch's label binary and
+	// args (config.LabelBinary, config.LabelArgs).
 }
 
 // BackendType identifies the backend this config drives.
@@ -46,13 +46,6 @@ var claudeBackend = kit.BackendDefaults{
 	Provider: "anthropic",
 	HomeVar:  ConfigDirEnv,
 	Policy:   defaultPolicy,
-	Local: func(cfg agent.BackendConfig) ([]string, error) {
-		c, ok := cfg.(*ClaudeConfig)
-		if !ok {
-			return nil, kit.ErrConfigType(EngineName, cfg)
-		}
-		return c.Args, nil
-	},
 }
 
 // permissionArgs is a HEADLESS launch's posture on claude's argv: only what

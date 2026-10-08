@@ -270,29 +270,23 @@ func TestFacts(t *testing.T) {
 	require.True(t, errors.As(err, &unsupported))
 }
 
-// The backend: the projection onto this kind, configured from the typed
-// config; another engine's config is refused.
+// The hosted surface: the backend is the projection onto this kind, the
+// typed config is this engine's.
 func TestBackend(t *testing.T) {
 	e, err := Build()
 	require.NoError(t, err)
 	h := e.(agent.Hosted)
-	b := h.Backend(nil)
+	b, ok := h.Backend(nil).(*kit.ProjectedBackend)
+	require.True(t, ok)
+	assert.Equal(t, e, b.Kind())
 	cfg := h.NewConfig().(*Config)
-	cfg.Args = []string{"--print-logs"}
-	require.NoError(t, b.(agent.Configurable).Configure(cfg))
-	assert.Equal(t, []string{"--print-logs"}, b.(*kit.ProjectedBackend).Args)
-	require.ErrorIs(t, b.(agent.Configurable).Configure(otherConfig{}), agent.ErrBackendConfigType)
 	assert.Equal(t, string(EngineName), cfg.BackendType())
-	_, ok := h.HookGlobalScope()
+	_, ok = h.HookGlobalScope()
 	assert.False(t, ok)
 	st, err := h.SettingsReader(agent.SettingsOptions{}).Status(t.TempDir())
 	require.NoError(t, err)
 	assert.False(t, st.Wired())
 }
-
-type otherConfig struct{}
-
-func (otherConfig) BackendType() string { return "other" }
 
 // The context file is written through the fs handed in (the static
 // writer's).

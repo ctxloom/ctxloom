@@ -2,7 +2,6 @@ package kit
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"strings"
 
@@ -25,9 +24,6 @@ type BackendDefaults struct {
 	// Policy is the permission policy of a session projected from a request
 	// that carries none.
 	Policy func() engine.PermissionPolicy
-	// Local reads the label's typed config (agent.Hosted.NewConfig's type)
-	// for its args; a config of another type is agent.ErrBackendConfigType.
-	Local func(agent.BackendConfig) (args []string, err error)
 }
 
 // ProjectedBackend is agent.Backend as a projection onto the engine kind:
@@ -58,34 +54,20 @@ func NewProjectedBackend(kind engine.Engine, launch agent.Launcher, d BackendDef
 // Kind is the engine kind the backend projects onto.
 func (b *ProjectedBackend) Kind() engine.Engine { return b.kind }
 
-// Configure applies the label's typed config: its args.
-func (b *ProjectedBackend) Configure(cfg agent.BackendConfig) error {
-	args, err := b.d.Local(cfg)
-	if err != nil {
-		return err
-	}
-	agent.ApplyLocalCLIConfig(&b.BaseBackend, args)
-	return nil
-}
-
-// ErrConfigType is the refusal of a typed config another engine's NewConfig
-// made: the Local an engine's defaults carry returns it.
-func ErrConfigType(eng string, cfg agent.BackendConfig) error {
-	return fmt.Errorf("%w: %s got %T", agent.ErrBackendConfigType, eng, cfg)
-}
-
 // SessionFor is the engine-facing Session the instance is bound to: the
 // runner's projection when the request carries one, else one projected from
-// the request — the harp the run env carries, the label's args,
-// the model, the mode, the engine's default policy, the prompt, the working
-// directory and the home the run env names.
+// the request — the harp the run env carries, the model, the mode, the
+// engine's default policy, the prompt, the working directory and the home the
+// run env names. Every production request carries the runner's session (its
+// terminal builds the only one); the projection serves request-driven tests,
+// and names no binary or args, so its Exec runs the engine's own CLI bare.
 func (b *ProjectedBackend) SessionFor(req *agent.ExecuteRequest) engine.Session {
 	if req.Session != nil {
 		return *req.Session
 	}
 	s := engine.Session{
 		Identity:   sessions.Identity{Harp: req.Env[agent.SessionHarpEnv]},
-		Label:      engine.LabelConfig{Label: b.d.Engine, Model: req.Model, Args: b.Args},
+		Label:      engine.LabelConfig{Label: b.d.Engine, Model: req.Model},
 		Mode:       req.Mode,
 		Permission: b.d.Policy(),
 		Prompt:     agent.GetPromptContent(req.Prompt),

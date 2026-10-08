@@ -53,7 +53,6 @@ type Launcher func(ctx context.Context, spec LaunchSpec, stdin io.Reader, stdout
 type BaseBackend struct {
 	name     string
 	version  string
-	Args     []string
 	workDir  string
 	launcher Launcher
 }
@@ -69,7 +68,6 @@ func NewBaseBackend(name, version string) BaseBackend {
 	return BaseBackend{
 		name:    name,
 		version: version,
-		Args:    []string{},
 	}
 }
 

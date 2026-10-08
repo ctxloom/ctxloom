@@ -57,7 +57,7 @@ func (c argvCase) argvFor(t *testing.T, b *ClaudeCode) []string {
 // out-of-cwd flag fires). An untrusted session is handed them without the
 // settings file, which it refuses (errUntrustedSettingsPresented), and
 // carries the repository-source flags instead.
-// Modulo the opaque ClaudeConfig.Args passthrough, which is user-supplied
+// Modulo the opaque label args passthrough (LabelConfig.Args), which is user-supplied
 // and undeclarable by construction (left empty here).
 func buildArgsMatrix(presented []present.Presentation) []argvCase {
 	perms := []struct {

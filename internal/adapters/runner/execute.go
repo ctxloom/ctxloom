@@ -62,10 +62,6 @@ type Deps struct {
 	// Reporter receives the diagnostics delivering the launch raises; the
 	// runner's composition chooses the sink. Nil discards.
 	Reporter report.Sink
-	// Configure applies the label's own body to the hosted engine before
-	// anything is delivered or driven; nil when the engine takes no
-	// configuration.
-	Configure func(body map[string]any) error
 	// Driver drives the engine once the launch is delivered.
 	Driver Driver
 	// EngineVersion asks binary — the one the engine's composed Exec will
@@ -137,9 +133,6 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	}
 	pkg, err := composite.Open(ctx, deps.Inline, deps.ClaimCheck, l.Package)
 	if err != nil {
-		return Outcome{}, err
-	}
-	if err := configureLabel(deps, l); err != nil {
 		return Outcome{}, err
 	}
 	lo := l.Loadout(pkg)
@@ -237,18 +230,6 @@ func checkVersionFloor(ctx context.Context, deps Deps, binary string) error {
 	}
 	report.To(deps.Reporter).Report(report.Finding{Kind: report.KindConfig, Text: err.Error(), Remedy: remedy})
 	return fmt.Errorf("runner: %w", err)
-}
-
-// configureLabel hands the label's body to the composed Configure, when both
-// exist.
-func configureLabel(deps Deps, l launch.Launch) error {
-	if deps.Configure == nil || l.Label.Body == nil {
-		return nil
-	}
-	if err := deps.Configure(l.Label.Body); err != nil {
-		return fmt.Errorf("runner: configure %s from label %q: %w", l.Engine, l.Label.Label, err)
-	}
-	return nil
 }
 
 // serveEndpoint serves the session's endpoint when a dynamic server is

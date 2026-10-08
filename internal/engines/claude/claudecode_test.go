@@ -17,13 +17,12 @@ import (
 // =============================================================================
 
 // TestNewClaudeCode_DefaultValues verifies that a new Claude Code backend
-// is created with sensible defaults: its name, version and no label args.
+// is created with its name and version.
 func TestNewClaudeCode_DefaultValues(t *testing.T) {
 	backend := NewClaudeCode()
 
 	assert.Equal(t, "claude-code", backend.Name())
 	assert.Equal(t, "1.0.0", backend.Version())
-	assert.Empty(t, backend.Args)
 }
 
 // TestNewClaudeCode_SupportedModes verifies that Claude Code supports both
@@ -35,59 +34,6 @@ func TestNewClaudeCode_SupportedModes(t *testing.T) {
 	assert.Len(t, modes, 2)
 	assert.Contains(t, modes, agent.ModeInteractive)
 	assert.Contains(t, modes, agent.ModeOneshot)
-}
-
-// =============================================================================
-// ClaudeCode Configuration Tests
-//
-// Configure applies user plugin settings to customize the backend behavior.
-// =============================================================================
-
-// TestClaudeCode_Configure_Args verifies that custom arguments are applied
-// to the backend configuration.
-func TestClaudeCode_Configure_Args(t *testing.T) {
-	backend := NewClaudeCode()
-
-	cfg := &ClaudeConfig{
-		Args: []string{"--no-telemetry", "--config", "/custom/config"},
-	}
-	require.NoError(t, backend.Configure(cfg))
-
-	assert.Equal(t, []string{"--no-telemetry", "--config", "/custom/config"}, backend.Args)
-}
-
-// wrongConfig is a BackendConfig that is not this engine's.
-type wrongConfig struct{}
-
-func (wrongConfig) BackendType() string { return "other" }
-
-// TestClaudeCode_Configure_RefusesAnotherEnginesConfig: a config that is not
-// a *ClaudeConfig is refused loudly, never applied as a silent no-op that
-// leaves the args at their defaults.
-func TestClaudeCode_Configure_RefusesAnotherEnginesConfig(t *testing.T) {
-	backend := NewClaudeCode()
-
-	for name, cfg := range map[string]agent.BackendConfig{"another engine's": wrongConfig{}, "nil": nil} {
-		t.Run(name, func(t *testing.T) {
-			err := backend.Configure(cfg)
-			require.ErrorIs(t, err, agent.ErrBackendConfigType)
-			assert.Empty(t, backend.Args)
-		})
-	}
-}
-
-// TestClaudeCode_Configure_EmptyFields verifies that empty config fields
-// preserve existing values rather than clearing them.
-func TestClaudeCode_Configure_EmptyFields(t *testing.T) {
-	backend := NewClaudeCode()
-
-	cfg := &ClaudeConfig{
-		// BinaryPath, Args, Env all empty
-	}
-	require.NoError(t, backend.Configure(cfg))
-
-	// Original default should be preserved
-	assert.Empty(t, backend.Args)
 }
 
 // =============================================================================
@@ -295,13 +241,13 @@ func TestClaudeCode_BuildArgs_NoPrompt(t *testing.T) {
 // combined correctly into the argument list.
 func TestClaudeCode_BuildArgs_Combined(t *testing.T) {
 	backend := NewClaudeCode()
-	backend.Args = []string{"--existing-arg"}
 
 	req := withSession(backend, &agent.ExecuteRequest{
 		Model:  "opus",
 		Mode:   agent.ModeOneshot,
 		Prompt: &agent.Fragment{Content: "Test prompt"},
 	}, modePolicy(modeBypass))
+	req.Session.Label.Args = []string{"--existing-arg"}
 	args := buildArgs(backend, req)
 
 	assert.Contains(t, args, "--existing-arg")

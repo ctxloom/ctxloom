@@ -18,8 +18,6 @@ import (
 // carries, read here because opencode cannot discover it and never compacts
 // without it.
 type Config struct {
-	BinaryPath    string         `mapstructure:"binary_path"`
-	Args          []string       `mapstructure:"args"`
 	ContextWindow int            `mapstructure:"context_window"`
 	Provider      ProviderConfig `mapstructure:"provider"`
 	// ModelOptions is passed verbatim as the model's options, which the

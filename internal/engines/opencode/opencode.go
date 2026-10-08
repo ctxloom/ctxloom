@@ -226,13 +226,6 @@ var backendDefaults = kit.BackendDefaults{
 	Provider: "openai-compatible",
 	HomeVar:  envConfigDir,
 	Policy:   defaultPolicy,
-	Local: func(cfg agent.BackendConfig) ([]string, error) {
-		c, ok := cfg.(*Config)
-		if !ok {
-			return nil, kit.ErrConfigType(string(EngineName), cfg)
-		}
-		return c.Args, nil
-	},
 }
 
 // NewConfig is agent.Hosted's: the zero typed config a label decodes into.

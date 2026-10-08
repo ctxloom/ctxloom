@@ -1557,10 +1557,11 @@ func (c *Coordinator) endRun(runID, cause, detail string, drainTail bool) {
 	c.releaseRunSecrets(runID)
 	c.sampleExecGauge() // the terminal is also a (possible) StateExecuting exit — see setState's sibling call
 	c.audit("run_terminal", rec.Harp, map[string]string{"run_id": runID, "cause": cause})
-	// Plane-2 request idempotency records are role-scoped and reconnect-
-	// surviving (runchannel.go); drop this harp's at terminal so they don't
-	// accumulate across the process's lifetime.
-	c.clearReqTrack(rec.Harp)
+	// Plane-2 request idempotency records are reconnect-surviving
+	// (runchannel.go); drop this run's at terminal so they don't accumulate
+	// across the process's lifetime — this run's only: a resumed successor's
+	// are tracked under the same harp.
+	c.clearReqTrack(rec.Harp, runID)
 	// Nobody is left to act on a decision: withdraw what the run parked.
 	c.approvals.cancelFrom(rec.Harp, runID)
 	// Drain BEFORE anything below that can tear the RunChannel's underlying

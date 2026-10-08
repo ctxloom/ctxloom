@@ -516,6 +516,10 @@ type reqKey struct {
 // live one times out to a deny).
 type inflightReq struct {
 	reply *AgentReply
+	// runID is the run whose channel the request arrived on: its records are
+	// that run's to drop at its terminal (clearReqTrack), never a resumed
+	// successor's under the same harp.
+	runID string
 }
 
 // HandleRequest serves one plane-2 request. request_id is the
@@ -550,7 +554,7 @@ func (c *Coordinator) HandleRequest(ch *RunChannel, req AgentRequest) {
 		// then-current channel — do NOT start a second dispatch.
 		return
 	}
-	tr := &inflightReq{}
+	tr := &inflightReq{runID: ch.id.RunID}
 	c.reqTrack[key] = tr
 	c.mu.Unlock()
 	if ar, ok := req.Kind.(ApprovalRequest); ok {
@@ -655,14 +659,15 @@ func (c *Coordinator) respondRole(role string, reply AgentReply) {
 	c.respond(ch, reply)
 }
 
-// clearReqTrack drops a role's plane-2 idempotency records at the terminal
-// seam (terminateRun). A resumed harp
-// gets a fresh run and re-dispatches cleanly; the records must not accumulate
-// across the process's lifetime.
-func (c *Coordinator) clearReqTrack(role string) {
+// clearReqTrack drops runID's plane-2 idempotency records at its terminal
+// seam (terminateRun), so they do not accumulate across the process's
+// lifetime. Scoped to the RUN, not the role: the run's end is journaled
+// before this teardown, so a resume can mint the harp a fresh run whose
+// requests are tracked under the same role by the time it runs.
+func (c *Coordinator) clearReqTrack(role, runID string) {
 	c.mu.Lock()
-	for k := range c.reqTrack {
-		if k.role == role {
+	for k, tr := range c.reqTrack {
+		if k.role == role && tr.runID == runID {
 			delete(c.reqTrack, k)
 		}
 	}

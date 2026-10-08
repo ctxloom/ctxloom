@@ -222,8 +222,12 @@ func (b *Bundle) FSDir() (string, error) {
 // operations boundary, not hand-authored). The conversion to wire.Hook lives in
 // config.ResolveBundleHooks.
 type BundleHook struct {
-	Matcher string `yaml:"matcher,omitempty"`
-	Command string `yaml:"command,omitempty"`
+	// Tool narrows a tool event to one neutral tool class (wire.ToolClass —
+	// shell, file_edit, skill). It is the ONLY narrowing a bundle declares:
+	// an engine-native matcher would name one engine's tools, so each
+	// engine's hooks approach maps the class to its own (agent.BindHooks).
+	Tool    wire.ToolClass `yaml:"tool,omitempty"`
+	Command string         `yaml:"command,omitempty"`
 	// Args, when set, runs the hook in exec form: Command is the executable,
 	// spawned with these arguments and no shell (wire.Hook.Args).
 	Args    []string `yaml:"args,omitempty"`
@@ -304,6 +308,19 @@ var hookEventOrder = []string{
 	HookEventPreTool, HookEventPostTool, HookEventSessionStart,
 	HookEventSessionEnd, HookEventPreShell, HookEventPostFileEdit,
 	HookEventTurnEnd, HookEventTurnStart,
+}
+
+// checkHookTools refuses a hook narrowed to a tool class outside the neutral
+// vocabulary (wire.ToolClasses), naming the hook and the classes it may use.
+func (h BundleHooks) checkHookTools() error {
+	for _, event := range hookEventOrder {
+		for i, hook := range h.eventHooks(event) {
+			if hook.Tool != "" && !hook.Tool.Known() {
+				return fmt.Errorf("hooks.%s[%d]: tool %q is not a tool class; use one of %s", event, i, hook.Tool, wire.ToolClassList())
+			}
+		}
+	}
+	return nil
 }
 
 // eventHooks returns the hook slice for an event (nil for an unknown event).
@@ -795,6 +812,12 @@ func ParseBundle(raw []byte) (*Bundle, error) {
 	// a malformed entry that loads cleanly reaches an engine writer as a server that cannot be launched or dialed, and the failure
 	// surfaces far from the typo that caused it.
 	if err := bundle.checkMCPTargets(); err != nil {
+		return nil, err
+	}
+
+	// A tool class no engine maps would fail every engine's hook binding at
+	// delivery, far from the typo. Refused here for the same reason.
+	if err := bundle.Hooks.checkHookTools(); err != nil {
 		return nil, err
 	}
 

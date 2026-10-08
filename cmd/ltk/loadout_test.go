@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions/loadout"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 )
 
@@ -30,8 +31,18 @@ func TestLoadout_YAML_IsAValidLoadout(t *testing.T) {
 	require.Contains(t, b.Commands, "task-runner", "loadout must carry the task-runner command")
 	assert.NotEmpty(t, b.Commands["task-runner"].Content)
 
-	require.Len(t, b.Hooks.PreTool, 1, "loadout must carry the pre-tool hook that wires ltk in")
-	assert.Contains(t, b.Hooks.PreTool[0].Command, "ltk evaluate")
+	// The guard is declared in the neutral tool vocabulary — one hook per
+	// class ltk gates (command rules for shells, path rules for file edits) —
+	// and each engine maps the class to its own tools at delivery, so ltk
+	// guards under any engine, not only the one whose tool names it once
+	// spelled.
+	var classes []wire.ToolClass
+	for _, h := range b.Hooks.PreTool {
+		assert.Contains(t, h.Command, "ltk evaluate")
+		classes = append(classes, h.Tool)
+	}
+	assert.ElementsMatch(t, []wire.ToolClass{wire.ToolShell, wire.ToolFileEdit}, classes,
+		"loadout must narrow ltk's pre-tool hook to the shell and file-edit tool classes")
 }
 
 // TestLoadout_YAMLFormat_EmitsRawBytesVerbatim proves --format yaml writes

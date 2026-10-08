@@ -207,6 +207,26 @@ const (
 // ToolClasses is every class, in a stable order.
 var ToolClasses = []ToolClass{ToolShell, ToolFileEdit, ToolSkill}
 
+// Known reports whether c is one of ToolClasses.
+func (c ToolClass) Known() bool {
+	for _, k := range ToolClasses {
+		if c == k {
+			return true
+		}
+	}
+	return false
+}
+
+// ToolClassList is ToolClasses as one comma-separated phrase, for a refusal
+// naming the vocabulary.
+func ToolClassList() string {
+	names := make([]string, len(ToolClasses))
+	for i, c := range ToolClasses {
+		names[i] = string(c)
+	}
+	return strings.Join(names, ", ")
+}
+
 // Line is the hook's command as ONE shell command line: Command itself in
 // shell form; in exec form, Command and each of Args single-quoted, so a
 // shell handed the line runs exactly the argv. It is the hook's command

@@ -73,10 +73,10 @@ run:
         type: command
         pre_tool_fallback: true
     post_file_edit:
-      # Matcher intentionally omitted — defaults to Edit|Write per
-      # internal/lm/backends/hooks.go::PostFileEdit translation. Plan-file
-      # filtering happens inside stamp-plan via memory.IsPlanFile so the
-      # hook is cheap to install on every Edit/Write call.
+      # No tool class: post_file_edit is already post_tool narrowed to the
+      # file_edit class, which each engine maps to its own file-editing
+      # tools. Plan-file filtering happens inside stamp-plan via
+      # memory.IsPlanFile so the hook is cheap to install on every edit.
       - command: ctxloom
         args: [hook, stamp-plan]
         type: command

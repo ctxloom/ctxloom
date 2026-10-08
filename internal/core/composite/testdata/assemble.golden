@@ -192,14 +192,14 @@
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "async": true,
           "command": "audit-log record",
-          "matcher": "Write",
+          "tool": "file_edit",
           "type": "command"
         },
         {
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "command": "ltk guard",
-          "matcher": "Bash",
           "timeout": 30,
+          "tool": "shell",
           "type": "command"
         }
       ],
@@ -476,14 +476,14 @@
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "async": true,
           "command": "audit-log record",
-          "matcher": "Write",
+          "tool": "file_edit",
           "type": "command"
         },
         {
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "command": "ltk guard",
-          "matcher": "Bash",
           "timeout": 30,
+          "tool": "shell",
           "type": "command"
         }
       ],
@@ -750,14 +750,14 @@
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "async": true,
           "command": "audit-log record",
-          "matcher": "Write",
+          "tool": "file_edit",
           "type": "command"
         },
         {
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "command": "ltk guard",
-          "matcher": "Bash",
           "timeout": 30,
+          "tool": "shell",
           "type": "command"
         }
       ],
@@ -1031,14 +1031,14 @@
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "async": true,
           "command": "audit-log record",
-          "matcher": "Write",
+          "tool": "file_edit",
           "type": "command"
         },
         {
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "command": "ltk guard",
-          "matcher": "Bash",
           "timeout": 30,
+          "tool": "shell",
           "type": "command"
         }
       ],
@@ -1305,14 +1305,14 @@
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "async": true,
           "command": "audit-log record",
-          "matcher": "Write",
+          "tool": "file_edit",
           "type": "command"
         },
         {
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "command": "ltk guard",
-          "matcher": "Bash",
           "timeout": 30,
+          "tool": "shell",
           "type": "command"
         }
       ],
@@ -1586,14 +1586,14 @@
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "async": true,
           "command": "audit-log record",
-          "matcher": "Write",
+          "tool": "file_edit",
           "type": "command"
         },
         {
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "command": "ltk guard",
-          "matcher": "Bash",
           "timeout": 30,
+          "tool": "shell",
           "type": "command"
         }
       ],
@@ -1860,14 +1860,14 @@
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "async": true,
           "command": "audit-log record",
-          "matcher": "Write",
+          "tool": "file_edit",
           "type": "command"
         },
         {
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "command": "ltk guard",
-          "matcher": "Bash",
           "timeout": 30,
+          "tool": "shell",
           "type": "command"
         }
       ],
@@ -2141,14 +2141,14 @@
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "async": true,
           "command": "audit-log record",
-          "matcher": "Write",
+          "tool": "file_edit",
           "type": "command"
         },
         {
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "command": "ltk guard",
-          "matcher": "Bash",
           "timeout": 30,
+          "tool": "shell",
           "type": "command"
         }
       ],
@@ -2392,14 +2392,14 @@
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "async": true,
           "command": "audit-log record",
-          "matcher": "Write",
+          "tool": "file_edit",
           "type": "command"
         },
         {
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "command": "ltk guard",
-          "matcher": "Bash",
           "timeout": 30,
+          "tool": "shell",
           "type": "command"
         }
       ],
@@ -2627,14 +2627,14 @@
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "async": true,
           "command": "audit-log record",
-          "matcher": "Write",
+          "tool": "file_edit",
           "type": "command"
         },
         {
           "_ctxloom": "bundle:ctxloom+local:code-quality",
           "command": "ltk guard",
-          "matcher": "Bash",
           "timeout": 30,
+          "tool": "shell",
           "type": "command"
         }
       ],

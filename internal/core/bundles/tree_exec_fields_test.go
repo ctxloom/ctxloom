@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
@@ -50,7 +51,7 @@ func TestTreeMCP_RoundTripsEveryField(t *testing.T) {
 func TestTreeHook_RoundTripsEveryField(t *testing.T) {
 	order := 7
 	want := BundleHook{
-		Matcher:         "Bash",
+		Tool:            wire.ToolShell,
 		Command:         "ctxloom",
 		Args:            []string{"hook", "session-bind"},
 		Type:            "command",

@@ -155,11 +155,14 @@ func (hookCodec) InvokedSkill(tool string, input []byte) (string, bool) {
 	return invokedSkill(tool, input)
 }
 
-// toolMatchers is claude's native matcher for each neutral tool class: the
-// tool names claude runs a shell command, a file edit and a skill through.
+// toolMatchers is claude's native matcher for each neutral tool class: EVERY
+// tool claude runs a shell command, a file edit and a skill through. A class
+// is what a hook means by it, so leaving a tool of the class out (PowerShell,
+// MultiEdit, NotebookEdit) would let a guard narrowed to the class miss it —
+// the codec already decodes each of them (ToolInput).
 var toolMatchers = map[wire.ToolClass]string{
-	wire.ToolShell:    "Bash",
-	wire.ToolFileEdit: "Edit|Write",
+	wire.ToolShell:    "Bash|PowerShell",
+	wire.ToolFileEdit: "Edit|Write|MultiEdit|NotebookEdit",
 	wire.ToolSkill:    skillToolName,
 }
 

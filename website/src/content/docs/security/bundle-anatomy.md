@@ -35,7 +35,7 @@ The tier-1 surface. Each hook may declare:
 |---|---|
 | `command` | **A shell command string. The harness executes it.** With `args`, the executable to run. |
 | `args` | Exec form: `command` is spawned directly with these arguments, and no shell parses either |
-| `matcher` | Regex over tool names — which tool calls it fires on |
+| `tool` | The tool class it narrows to — `shell`, `file_edit` or `skill`. Each harness maps the class to its own tool names, so a bundle never spells one harness's tools |
 | `type` | `command`, `prompt`, or `agent` |
 | `prompt` | Prompt text, for the non-command types |
 | `timeout` | Seconds |

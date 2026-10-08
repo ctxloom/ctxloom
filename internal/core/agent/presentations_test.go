@@ -11,31 +11,31 @@ import (
 // they are spelled on disk. A FAKE table stands in for a real engine's, so a
 // change to claude's declaration does not turn this seam's tests red.
 const (
-	fakeUnsafeFileName   = "unsafe-file"
+	fakeFileName         = "file"
 	fakeSystemPromptName = "system-prompt"
 	fakeHookName         = "hook"
 )
 
 func fakeContextPresentations() Presentations {
-	return Presents(fakeUnsafeFileName, fakeSystemPromptName, fakeHookName)
+	return Presents(fakeFileName, fakeSystemPromptName, fakeHookName)
 }
 
 // TestPresentations_NamesAreSortedAndCarryTheDefault: Names is every declared
 // name, sorted — order carries no meaning, the default is a named field — and
 // the default is always one of them.
 func TestPresentations_NamesAreSortedAndCarryTheDefault(t *testing.T) {
-	p := Presents(fakeSystemPromptName, fakeUnsafeFileName, fakeHookName)
-	assert.Equal(t, []string{fakeHookName, fakeSystemPromptName, fakeUnsafeFileName}, p.Names())
+	p := Presents(fakeSystemPromptName, fakeFileName, fakeHookName)
+	assert.Equal(t, []string{fakeFileName, fakeHookName, fakeSystemPromptName}, p.Names())
 	assert.Equal(t, fakeSystemPromptName, p.Default(), "the default is the named first argument, not the first sorted name")
-	assert.Equal(t, []string{fakeUnsafeFileName}, Presents(fakeUnsafeFileName).Names(), "a default alone is a complete declaration")
+	assert.Equal(t, []string{fakeFileName}, Presents(fakeFileName).Names(), "a default alone is a complete declaration")
 }
 
 // TestPresentations_ADefaultRepeatedAmongTheOthersIsDeclaredOnce: a table
 // that also lists its default among the alternatives declares each name once,
 // so a completion list never offers a name twice.
 func TestPresentations_ADefaultRepeatedAmongTheOthersIsDeclaredOnce(t *testing.T) {
-	p := Presents(fakeUnsafeFileName, fakeHookName, fakeUnsafeFileName)
-	assert.Equal(t, []string{fakeHookName, fakeUnsafeFileName}, p.Names())
+	p := Presents(fakeFileName, fakeHookName, fakeFileName)
+	assert.Equal(t, []string{fakeFileName, fakeHookName}, p.Names())
 }
 
 // TestPresentations_NamesIsTheCallersOwn: a caller that edits the slice Names
@@ -59,14 +59,14 @@ func TestDeclaration_AnAbsentKindHasNoNamesAndNoDefault(t *testing.T) {
 
 	def, ok := d.Default(SurfaceContext)
 	assert.True(t, ok)
-	assert.Equal(t, fakeUnsafeFileName, def)
+	assert.Equal(t, fakeFileName, def)
 }
 
 // TestApproachNames_IsTheUnionAcrossKindsAndDeclarations: what a CLI can offer
 // as "names that exist at all" before an engine is chosen.
 func TestApproachNames_IsTheUnionAcrossKindsAndDeclarations(t *testing.T) {
-	a := Declaration{SurfaceContext: Presents(fakeUnsafeFileName, fakeSystemPromptName)}
-	b := Declaration{SurfaceMCP: Presents("mcp-config", fakeUnsafeFileName)}
-	assert.Equal(t, []string{"mcp-config", fakeSystemPromptName, fakeUnsafeFileName}, ApproachNames(a, b))
-	assert.Equal(t, []string{fakeSystemPromptName, fakeUnsafeFileName}, a.AllNames())
+	a := Declaration{SurfaceContext: Presents(fakeFileName, fakeSystemPromptName)}
+	b := Declaration{SurfaceMCP: Presents("mcp-config", fakeFileName)}
+	assert.Equal(t, []string{fakeFileName, "mcp-config", fakeSystemPromptName}, ApproachNames(a, b))
+	assert.Equal(t, []string{fakeFileName, fakeSystemPromptName}, a.AllNames())
 }

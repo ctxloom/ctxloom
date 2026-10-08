@@ -26,7 +26,7 @@ import (
 )
 
 // TestDeliveryApproach_ClaudeProjectMCPNeverHoldsTheBearerAcrossSessions:
-// claude's unsafe-file MCP form, delivered by the ONE static writer over the
+// claude's file MCP form, delivered by the ONE static writer over the
 // production record into a project whose .mcp.json the user already wrote.
 // Session A delivers, is swept the way a departed session is
 // (Static.Reverse), and session B delivers into the same file. At every step
@@ -86,7 +86,7 @@ func TestDeliveryApproach_ClaudeProjectMCPNeverHoldsTheBearerAcrossSessions(t *t
 // sharedMCPFile is one project whose .mcp.json the user wrote, delivered into
 // by BOTH of claude's writers of that file: the at-rest hooks install
 // (operations.DeliverProject, the project writer — what applyHooksToBackend
-// runs) and a run's unsafe-file delivery (a session writer), over the one
+// runs) and a run's file delivery (a session writer), over the one
 // production record store, so each step is where one writer's release could
 // take out the other's entry.
 type sharedMCPFile struct {
@@ -125,7 +125,7 @@ func (s *sharedMCPFile) atRest() {
 	require.NoError(s.t, err, "the at-rest delivery")
 }
 
-// run is a session's unsafe-file delivery; it returns the run's teardown.
+// run is a session's file delivery; it returns the run's teardown.
 func (s *sharedMCPFile) run(harp, bearer string) func() {
 	s.t.Helper()
 	root := s.kind.Root()

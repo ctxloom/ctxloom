@@ -79,7 +79,7 @@ func TestApproachAssert_RefusesARunThatDegradedOffThePin(t *testing.T) {
 	// The real warning lines production emits, so the substrings are matched
 	// against the shape they actually appear in rather than against themselves.
 	lines := map[string]string{
-		"default delivery":                         "ctxloom: warning: agent \"hello\": surfaces context=hook: claude-code does not support it (supports: unsafe-file) — using claude-code's default delivery\n",
+		"default delivery":                         "ctxloom: warning: agent \"hello\": surfaces context=hook: claude-code does not support it (supports: file) — using claude-code's default delivery\n",
 		"launching without managed hooks/commands": "ctxloom: warning: config load failed; launching without managed hooks/commands: open .ctxloom/config.yaml: no such file or directory\n",
 	}
 
@@ -215,7 +215,7 @@ func TestApproachConfigYAML_ActuallyPinsTheApproach(t *testing.T) {
 	a := liveAgents["claude"]
 	require.NotEmpty(t, a.config, "the live registry's claude row must carry a config, or this parses nothing")
 
-	for _, approach := range []string{"unsafe-file", "system-prompt", "hook"} {
+	for _, approach := range []string{"file", "system-prompt", "hook"} {
 		t.Run(approach, func(t *testing.T) {
 			rendered := approachConfigYAML(a, "claude", "host", approach)
 
@@ -360,7 +360,7 @@ func TestApproachPinAcceptedByEngine_AgreesWithTheEnginesOwnTable(t *testing.T) 
 // Given step enforces on every cell before it spends a turn.
 func TestApproachVariantNamesItsApproach(t *testing.T) {
 	require.NoError(t, approachVariantNamesItsApproach("hook", "hook"))
-	require.NoError(t, approachVariantNamesItsApproach("unsafe-file-shared", "unsafe-file"),
+	require.NoError(t, approachVariantNamesItsApproach("file-shared", "file"),
 		"a qualified variant is allowed: the qualifier says WHERE the approach was observed")
 
 	err := approachVariantNamesItsApproach("hook", "system-prompt")
@@ -424,7 +424,7 @@ func TestP1_FeatureAndRegistryAgreeOnEveryVariant(t *testing.T) {
 func approachOfVariant(t *testing.T, variant string) string {
 	t.Helper()
 	require.NotEmpty(t, variant, "every P1 cell must carry a variant: it is what distinguishes cells sharing an engine and both axes")
-	for _, a := range []string{"system-prompt", "unsafe-file", "hook"} {
+	for _, a := range []string{"system-prompt", "file", "hook"} {
 		if strings.HasPrefix(variant, a) {
 			return a
 		}

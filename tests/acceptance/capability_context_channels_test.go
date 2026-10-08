@@ -127,7 +127,7 @@ func deliverContextAcrossRoots(t *testing.T, engineName string, root present.Roo
 // can be argued side-channel-controlled:
 //
 //	claude  context/system-prompt -> lands beneath the run's PRIVATE root, never the project
-//	claude  context/unsafe-file   -> the project file: the caller asked for CLAUDE.md
+//	claude  context/file   -> the project file: the caller asked for CLAUDE.md
 //	claude  context/hook          -> writes nothing: it is a no-op anyway
 //
 // BOTH halves of the system-prompt claim are asserted. The negative alone —
@@ -158,12 +158,12 @@ func TestSharedCwdDelivery_OnlyClaudeSystemPromptStaysOutOfTheWorkspace(t *testi
 	assert.Empty(t, inProject,
 		"claude's system-prompt approach must leave the project root untouched: it is the ONE context delivery in the ladder that puts no nonce bytes in the workspace, and P1's side-channel argument for that cell rests entirely on it. Leaked: %v", keysOf(inProject))
 
-	// THE CONTRAST: unsafe-file is the caller's explicit request for the native
+	// THE CONTRAST: file is the caller's explicit request for the native
 	// in-workspace write. If it stopped landing in the project root the two
 	// claude cells would be measuring the same thing.
 	unsafeInProject, _ := deliverContextAcrossRoots(t, "claude-code", present.RootProjectRoot)
 	require.NotEmpty(t, unsafeInProject,
-		"unsafe-file must write its context INTO the project root — that is the whole of what the caller asked for, and the contrast that makes the system-prompt cell meaningful")
+		"file must write its context INTO the project root — that is the whole of what the caller asked for, and the contrast that makes the system-prompt cell meaningful")
 	var wroteNonce bool
 	for _, content := range unsafeInProject {
 		if strings.Contains(content, channelProbeHarp) {
@@ -171,7 +171,7 @@ func TestSharedCwdDelivery_OnlyClaudeSystemPromptStaysOutOfTheWorkspace(t *testi
 		}
 	}
 	assert.True(t, wroteNonce,
-		"unsafe-file's in-workspace file must carry the nonce, or it is not the reachable side channel this cell is contrasted against: wrote %v", keysOf(unsafeInProject))
+		"file's in-workspace file must carry the nonce, or it is not the reachable side channel this cell is contrasted against: wrote %v", keysOf(unsafeInProject))
 }
 
 func keysOf(m map[string]string) []string {

@@ -81,11 +81,11 @@ func TestContextSurface_DeliverWritesSyspromptAndExposesPath(t *testing.T) {
 // a shared launch derives the system prompt instead, which is a preference, not
 // a declaration.
 func TestSurfaces_DeclaresContextTwoWaysMCPTwoAndTheRestOnce(t *testing.T) {
-	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachSystemPrompt},
+	assert.ElementsMatch(t, []string{agent.ApproachFile, ApproachSystemPrompt},
 		testDeclaration().Names(agent.SurfaceContext))
-	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachMCPConfig}, testDeclaration().Names(agent.SurfaceMCP))
+	assert.ElementsMatch(t, []string{agent.ApproachFile, ApproachMCPConfig}, testDeclaration().Names(agent.SurfaceMCP))
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
-		assert.Equal(t, []string{agent.ApproachUnsafeFile}, testDeclaration().Names(kind), "%s", kind)
+		assert.Equal(t, []string{agent.ApproachFile}, testDeclaration().Names(kind), "%s", kind)
 	}
 
 	mcpDef, ok := testDeclaration().Default(agent.SurfaceMCP)
@@ -95,7 +95,7 @@ func TestSurfaces_DeclaresContextTwoWaysMCPTwoAndTheRestOnce(t *testing.T) {
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
 		def, ok := testDeclaration().Default(kind)
 		require.True(t, ok, "%s has a default approach", kind)
-		assert.Equal(t, agent.ApproachUnsafeFile, def)
+		assert.Equal(t, agent.ApproachFile, def)
 	}
 }
 

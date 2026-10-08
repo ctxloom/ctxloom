@@ -47,7 +47,7 @@ Selecting it is refused at binding time like any other undeclared name.
 The set of names is OPEN: an engine declares whatever it supports, in its own
 package (claude's `ApproachSystemPrompt`, `ApproachMCPConfig`; the mock's
 `MockSessionFile`). Exactly one name is a shared constant —
-`ApproachUnsafeFile`, the native well-known file — because every engine
+`ApproachFile`, the native well-known file — because every engine
 declares it and a binding's value must mean one thing whichever engine it
 names. Why not a shared enum: a vocabulary defined by its consumers is the
 first engine's shape with every later engine mapped onto it.

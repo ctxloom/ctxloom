@@ -263,7 +263,7 @@
           },
           "surfaces": {
             "type": "object",
-            "description": "Delivery preference for this binding: which approach each surface kind is delivered by. Keys are surface kinds (context, mcp, settings, commands, skills); values are approaches (unsafe-file, system-prompt, hook). Omitted takes the engine's own default. Validated against the bound engine when written \u2014 an approach the bound engine does not declare is refused rather than quietly downgraded.",
+            "description": "Delivery preference for this binding: which approach each surface kind is delivered by. Keys are surface kinds (context, mcp, settings, commands, skills); values are approaches (file, system-prompt, hook). Omitted takes the engine's own default. Validated against the bound engine when written \u2014 an approach the bound engine does not declare is refused rather than quietly downgraded.",
             "additionalProperties": {
               "type": "string"
             }

@@ -52,7 +52,7 @@ const (
 // ParseSurfaceKind is SurfaceKind.String's inverse, and lives beside it so the
 // two cannot drift: a kind renamed for a user's eyes is renamed for their
 // keyboard in the same edit. It exists because the vocabulary is now typed by
-// humans (`agent create --surface context=unsafe-file`), not only
+// humans (`agent create --surface context=file`), not only
 // rendered to them.
 //
 // An unrecognised name is an ERROR rather than a zero value. SurfaceContext is

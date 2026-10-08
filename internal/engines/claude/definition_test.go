@@ -384,7 +384,7 @@ func TestDeclaration_NamesEveryKindTheDefinitionDelivers(t *testing.T) {
 	for kind := range decl {
 		require.True(t, def.Carries(kind), "the table names %v, which the Definition does not deliver", kind)
 	}
-	require.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachSystemPrompt}, decl.Names(agent.SurfaceContext))
+	require.ElementsMatch(t, []string{agent.ApproachFile, ApproachSystemPrompt}, decl.Names(agent.SurfaceContext))
 	mcpDef, _ := decl.Default(agent.SurfaceMCP)
 	require.Equal(t, ApproachMCPConfig, mcpDef)
 }

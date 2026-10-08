@@ -314,7 +314,7 @@ func TestRun_ClaudeTokenAgentWithNoTokenExportedIsRefused(t *testing.T) {
 // behaviour, now by selection.
 //
 // With no engine home to deliver beneath, the MCP servers go to the
-// project's own .mcp.json (the unsafe-file approach), which claude loads
+// project's own .mcp.json (the file approach), which claude loads
 // only for a repository the human trusted — so the project is trusted in
 // the fake human's ~/.claude.json. That file is one teams commit: the
 // relay bearer claude received is on disk nowhere ctxloom writes, the

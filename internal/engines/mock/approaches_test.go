@@ -37,7 +37,7 @@ func TestMockDeclaration_DeclaresEveryKind(t *testing.T) {
 	m := New().(Mock)
 	decl := m.Declaration()
 	for _, kind := range everyKind {
-		assert.Equal(t, []string{MockSessionFile, agent.ApproachUnsafeFile}, decl.Names(kind), "kind %v", kind)
+		assert.Equal(t, []string{agent.ApproachFile, MockSessionFile}, decl.Names(kind), "kind %v", kind)
 		def, ok := decl.Default(kind)
 		require.True(t, ok, "%v must have a default", kind)
 		assert.Equal(t, MockSessionFile, def, "kind %v defaults to the session form (ruled 2026-09-21)", kind)

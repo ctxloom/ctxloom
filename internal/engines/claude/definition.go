@@ -126,11 +126,11 @@ var _ engine.Engine = Claude{}
 // writer, and nothing is constructed from a name.
 func (Claude) Declaration() agent.Declaration {
 	return agent.Declaration{
-		agent.SurfaceContext:  agent.Presents(agent.ApproachUnsafeFile, ApproachSystemPrompt),
-		agent.SurfaceMCP:      agent.Presents(ApproachMCPConfig, agent.ApproachUnsafeFile),
-		agent.SurfaceSettings: agent.Presents(agent.ApproachUnsafeFile),
-		agent.SurfaceCommands: agent.Presents(agent.ApproachUnsafeFile),
-		agent.SurfaceSkills:   agent.Presents(agent.ApproachUnsafeFile),
+		agent.SurfaceContext:  agent.Presents(agent.ApproachFile, ApproachSystemPrompt),
+		agent.SurfaceMCP:      agent.Presents(ApproachMCPConfig, agent.ApproachFile),
+		agent.SurfaceSettings: agent.Presents(agent.ApproachFile),
+		agent.SurfaceCommands: agent.Presents(agent.ApproachFile),
+		agent.SurfaceSkills:   agent.Presents(agent.ApproachFile),
 	}
 }
 

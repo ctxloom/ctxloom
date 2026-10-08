@@ -163,9 +163,10 @@ it is not inferred from scattered call sites:
 | `handleAgentRequest` / `respond` / `respondRole` | reqTrack idempotency, dispatch on its own goroutine, respond on the role's *current* channel |
 | `serveAgentRequest` and the `serve*` verbs | plane-2 verb implementations; unknown kind → `UNIMPLEMENTED` |
 | `serveCustom` | host-relay tool dispatch under a 4 MiB watch; unknown tool → `UNIMPLEMENTED`, oversize → `ResourceExhausted` with a fix-it, empty result → `Internal` |
-| `severChan` / `drainTerminalTail` / `clearReqTrack` | tear a role's channel down and un-reserve synchronously; bounded wait for a flushed `run_completed`; drop idempotency records at the terminal |
+| `severChan` / `drainTerminalTail` / `clearReqTrack` | tear the ENDED RUN's channel down and un-reserve synchronously, and bounded-wait for its flushed `run_completed` — both look the channel up by run (`runChanLocked`), never by harp alone, so a late teardown leaves a resumed successor's freshly attached channel alone; drop the ENDED RUN's idempotency records at the terminal — each `inflightReq` carries the run whose channel it arrived on, so a late teardown spares a resumed successor's requests tracked under the same role |
 | `okStatus` / `statusErr` / `statusFromErr` | the status vocabulary (19, 27 and 5 uses) |
 | `bufferItem` / `flushItems` | append plane-1 item facts, group-fsync at a boundary or a full buffer, then advance the Ack watermark |
+| `HandleEvent` / `withholdAck` | a custom, summary or artifact event whose record fails (journal write, hold fold, state fact) is not acked: `withholdAck` drops the watermark back below it and everything after it is refused unprocessed until the runner re-sends (go-back-N), so the re-send replays the tail in its original order. A refusal that would repeat on every re-send (`ErrRevoked`) is acked |
 
 `runchannel.go` holds two responsibilities: stream/frame plumbing and the plane-2 verb
 bodies, which duplicate coordinator verbs reachable from the other transport
@@ -236,7 +237,7 @@ and the engine.
 | T1 | Consumer credentials are refused on every `CoordinatorService` method | `grpcserver.go` |
 | T2 | A `RunChannel` Hello's claimed run id must match the credential's; a mismatch is `PermissionDenied` on both the wire and the RPC status | `runchannel.go` |
 | T3 | Plane-2 requests are idempotent across a reconnect via `reqTrack[(role, request_id)]`; an empty `request_id` is `INVALID_ARGUMENT` | `runchannel.go` |
-| T4 | The event-plane Ack watermark advances only over durably journaled seqs | `runchannel.go`, `items.go` |
+| T4 | The event-plane Ack watermark advances only over durably journaled seqs, and never past an event whose record failed | `runchannel.go`, `items.go` |
 | T5 | `Store.Exec`'s fsync happens before the fact is applied, so an Ack certifies durability | `journal.go` |
 | T6 | A dead runner's runs are terminated by loss synthesis, not left executing | `grpcserver.go`, `runchannel.go` defer |
 | T7 | One writer per stream: `sendMu` on the runner side, a single writer pump on the coordinator side | `runnerlink.go`, `runchannel.go` |

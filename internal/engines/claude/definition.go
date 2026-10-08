@@ -194,8 +194,15 @@ func (*contextApproach) Name() string { return ApproachSystemPrompt }
 func (a *contextApproach) DeliverContext(start present.Start, root present.RootKind, in engine.ContextInputs, fs afero.Fs) (present.Delivered, error) {
 	switch root {
 	case present.RootProjectRoot:
-		return appendContextFile(start.UnderProjectRoot(ContextFileName).Build(), in.Text), nil
+		name := ContextFileName
+		if in.File != "" {
+			name = in.File
+		}
+		return appendContextFile(start.UnderProjectRoot(name).Build(), in.Text), nil
 	case present.RootSessionHome:
+		if in.File != "" {
+			return present.Delivered{}, fmt.Errorf("%w: %s at %v is the system prompt, not a file", engine.ErrContextFileUnsupported, a.Name(), root)
+		}
 	default:
 		return present.Delivered{}, errRoot(a.Name(), root)
 	}

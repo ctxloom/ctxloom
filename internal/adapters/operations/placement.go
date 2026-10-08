@@ -24,6 +24,12 @@ type Placement struct {
 	Family delivery.Writer                   // the writer family base
 	Kinds  []present.Kind                    // nil = one writer for every kind
 	Roots  map[present.Kind]present.RootKind // nil = each approach's first offered root
+	// ContextFile is the slash path, relative to the root the plan selects
+	// for context, the context lands in; "" = the approach's own file. An
+	// approach that cannot write a named file at that root refuses
+	// (engine.ErrContextFileUnsupported). Resolve a user's path with
+	// ResolveContextFile first.
+	ContextFile string
 }
 
 // atRestPlacement is the at-rest placement into dir for one engine: the
@@ -61,7 +67,7 @@ func Deliver(ctx context.Context, fsRoot safefs.Root, kind engine.Engine, pkg co
 		return delivery.Delivered{}, delivery.Plan{}, err
 	}
 	lo := extra
-	lo.Plan, lo.Package, lo.Exports = plan, pkg, exports
+	lo.Plan, lo.Package, lo.Exports, lo.ContextFile = plan, pkg, exports, p.ContextFile
 	if lo.WorkDir == "" {
 		lo.WorkDir = paths.ProjectRoot.Host
 	}

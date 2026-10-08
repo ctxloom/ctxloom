@@ -189,6 +189,10 @@ type Loadout struct {
 	// it (present.Paths.SessionHome's host side); "" when the run has none —
 	// a binding on the host's own engine home.
 	SessionHome string
+	// ContextFile is the slash path, relative to the root the plan selected
+	// for context, the context is written into; "" = the approach's own
+	// file (engine.ContextInputs.File).
+	ContextFile string
 }
 
 // Dynamic serves the dynamic kinds on the session's ONE MCP endpoint. The
@@ -264,7 +268,7 @@ func InputsFor(lo Loadout, dynamic engine.DynamicApproach) (Inputs, error) {
 		servers[name] = srv
 	}
 	return Inputs{
-		Context:  engine.ContextInputs{Text: []byte(pkg.Context.Text), Hash: pkg.Context.Hash},
+		Context:  engine.ContextInputs{Text: []byte(pkg.Context.Text), Hash: pkg.Context.Hash, File: lo.ContextFile},
 		MCP:      engine.MCPInputs{Servers: servers},
 		Settings: engine.SettingsInputs{DenyTools: pkg.DenyTools, Statusline: pkg.Statusline, ShellTimeout: pkg.ShellTimeout, Exports: lo.Exports},
 		Hooks:    engine.HooksInputs{Hooks: pkg.Hooks.Unified, HookEvent: lo.Exports.HookEvent, Ext: pkg.Hooks.Ext},

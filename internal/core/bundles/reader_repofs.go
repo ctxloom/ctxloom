@@ -78,11 +78,11 @@ func (r *repoFSReader) sourceRefTyped() ident.BundleRef {
 // carries the same identity as its unpinned twin (loader_version.go).
 //
 // It returns the ERROR rather than the zero BundleRef alone, and that return is
-// load-bearing. A caller that cannot mint here degrades to an unaddressable ref,
-// and an unaddressable ref is WITHHELD from delivery — so a swallowed failure
-// here is not a missing field, it is content silently vanishing. Callers must
-// report what could not be minted; warnUnmintableSource is the shared way to
-// do it.
+// load-bearing. A caller that cannot mint here degrades to an unaddressable
+// ref, and every item under an unaddressable ref is DROPPED by ItemRefFor — so
+// a swallowed failure here is not a missing field, it is content silently
+// vanishing. Callers must report what could not be minted;
+// warnUnmintableSource is the shared way to do it.
 func sourceBundleRef(ref string) (ident.BundleRef, error) {
 	parsed, err := remote.ParseReference(ref)
 	if err != nil {

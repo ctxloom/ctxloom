@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
@@ -32,4 +33,31 @@ func TestEffectivePosture(t *testing.T) {
 	assert.Equal(t, "plan mode", EffectivePosture(reg, "claude-code", agents.Permissions{}, label).Label,
 		"the posture carries its engine's display name, which the roster shows")
 	assert.Empty(t, EffectivePosture(reg, "nope", agents.Permissions{}, label).Label)
+}
+
+// EngineBinary is the binary an engine's own grammar launches: its
+// interactive grammar's, and for an engine that declares no interactive
+// mode, the grammar it does declare — a structured-only engine still has a
+// binary to probe and to find on PATH.
+func TestEngineBinary_IsTheDeclaredGrammarsBinary(t *testing.T) {
+	reg := engines.Registry()
+	structuredOnly := 0
+	for _, n := range reg.Names(nil) {
+		e, _ := reg.Lookup(n)
+		cli := e.Root().CLI
+		if len(cli) == 0 {
+			assert.Empty(t, EngineBinary(reg, string(n)), n)
+			continue
+		}
+		want := cli[0].Binary
+		if g, ok := engine.CLIFor(cli, engine.Interactive); ok {
+			want = g.Binary
+		} else {
+			structuredOnly++
+		}
+		assert.Equal(t, want, EngineBinary(reg, string(n)), n)
+		assert.NotEmpty(t, EngineBinary(reg, string(n)), n)
+	}
+	assert.Positive(t, structuredOnly, "fixture sanity: no registered engine declares a structured grammar alone, so the fallback is unexercised")
+	assert.Empty(t, EngineBinary(reg, "no-such-engine"))
 }

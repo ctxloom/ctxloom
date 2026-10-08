@@ -66,6 +66,27 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
   # only in this scenario's Gherkin text, so its appearance in the child's
   # next reported turn cannot be anything but that specific agent_send
   # having reached that specific child session.
+  # The opencode cell: a child delegated to an agent on a `type: opencode`
+  # label runs through the opencode engine's own runner (session-home
+  # delivery, Exec, the per-turn driver, opencode's JSON event codec) against
+  # a SCRIPTED opencode named by the label's binary_path — no model, no real
+  # CLI. The script answers with the guidance it finds in the AGENTS.md
+  # ctxloom delivered to its config dir, so the child's own transcript proves
+  # the composed context reached opencode; its record proves the protocol
+  # argv, the relocated home and that the endpoint key rode the environment
+  # alone.
+  @opencode
+  Scenario: A child delegated to an opencode label runs on opencode's runner and reports what its delivered context says
+    Given Alice's coordinator can delegate to "qwen-worker", an agent on an opencode label served by a scripted opencode, carrying its own guidance
+    And a session owner is standing with the opencode endpoint key exported
+    When the agent calls tool "agent_run" with:
+      | role         | qwen-worker |
+      | input.prompt | go          |
+    Then the tool call succeeds
+    And "qwen-worker"'s session harp is remembered
+    And "qwen-worker"'s reported turn carries the guidance opencode read from its delivered context
+    And the scripted opencode ran the structured protocol in the session home, with the key only in its environment
+
   @reach-back @R1
   Scenario: A message the coordinator sends via agent_send reaches its child, verified in the child's own next reported turn
     Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile

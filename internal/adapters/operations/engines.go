@@ -126,19 +126,23 @@ func PostureNames(reg engine.Registry) []string {
 	return slices.Sorted(maps.Keys(seen))
 }
 
-// EngineBinary is the native client binary the named engine's interactive
-// grammar launches, "" for an engine with no declared grammar for it (a
-// double, or an unregistered name).
+// EngineBinary is the native client binary the named engine's grammar
+// launches — its interactive grammar's, else (an engine with no interactive
+// mode) the first grammar it declares — "" for an engine that declares none
+// or an unregistered name.
 func EngineBinary(reg engine.Registry, name string) string {
 	e, ok := reg.Lookup(engine.Name(name))
 	if !ok {
 		return ""
 	}
-	g, ok := engine.CLIFor(e.Root().CLI, engine.Interactive)
-	if !ok {
-		return ""
+	cli := e.Root().CLI
+	if g, ok := engine.CLIFor(cli, engine.Interactive); ok {
+		return g.Binary
 	}
-	return g.Binary
+	if len(cli) > 0 {
+		return cli[0].Binary
+	}
+	return ""
 }
 
 // EngineAvailability resolves the named engine's binary and reports where it

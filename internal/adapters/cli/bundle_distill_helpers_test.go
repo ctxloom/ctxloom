@@ -19,6 +19,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/ident"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
@@ -276,10 +278,8 @@ func TestRunBundleDistill_TextPathReportsWriteFailuresAndUsesCommandWriters(t *t
 // run reported success.
 //
 // The two legitimate answers are pinned here (absence → the embedded default;
-// a configured command → that command). The refusal arm (ErrCommandWithheld →
-// exit 2) has no test today: under the exposure pipeline's unchecked link
-// grant, the only way a configured `distill` command is withheld is an item
-// ref that does not parse.
+// a configured command → that command); the refusal arm is
+// TestLoadDistillPrompt_WithheldConfiguredPromptRefusesWithExit2.
 func TestLoadDistillPrompt_AlwaysYieldsAUsablePrompt(t *testing.T) {
 	require.NotEmpty(t, defaultDistillPrompt, "the embedded fallback is the whole reason absence needs no error")
 
@@ -304,6 +304,62 @@ func TestLoadDistillPrompt_AlwaysYieldsAUsablePrompt(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, distillCommandBody, got)
 	})
+}
+
+// TestLoadDistillPrompt_WithheldConfiguredPromptRefusesWithExit2 pins the
+// refusal arm: a configured `distill` command the delivery pipeline WITHHOLDS
+// is refused — errs.ErrCommandWithheld, then exit 2 with the reason on stderr
+// — and never answered with ctxloom's built-in default.
+//
+// Under the exposure pipeline (unchecked link grant) the one way to withhold a
+// configured command is an item ref that does not parse, and no bundle name
+// reaches that: every name the local grammar mints round-trips. So the
+// pipeline here is stated instead — a nil link grant, which withholds every
+// linked item — and the command is linked through its bundle's tags. The
+// sentinel and the refusal it maps to are the same either way.
+func TestLoadDistillPrompt_WithheldConfiguredPromptRefusesWithExit2(t *testing.T) {
+	agentProject(t, "schema_version: 7\n")
+	cfg, err := GetConfig()
+	require.NoError(t, err)
+	cfg = seedDistillCommand(t, cfg)
+	linkBundle(t, cfg, "distiller", "ctxloom:link_id=think")
+	cfg = reloaded(t)
+
+	pipe := bundles.NewPipeline(cfg.BundleLoader(), nil, true)
+	got, err := distillPromptFrom(cfg, pipe)
+	require.Error(t, err, "a withheld configured prompt is a refusal, not a fallback")
+	assert.ErrorIs(t, err, errs.ErrCommandWithheld)
+	assert.Empty(t, got)
+	assert.NotEqual(t, defaultDistillPrompt, got, "the default must never stand in for a withheld configured prompt")
+	require.NotEmpty(t, pipe.Withheld(), "precondition: the pipeline really withheld the command")
+
+	var errBuf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetErr(&errBuf)
+	refusal := refuseWithheldDistillPrompt(cmd, err)
+	var exit *ExitError
+	require.ErrorAs(t, refusal, &exit)
+	assert.Equal(t, exitCodeRefused, exit.Code)
+	assert.Equal(t, 2, exit.Code, "a refusal is exit 2 (docs/cli-ux-principles.md §7)")
+	assert.Contains(t, errBuf.String(), "REFUSED:")
+	assert.Contains(t, errBuf.String(), "`distill` prompt could not be delivered")
+}
+
+// linkBundle adds bundle-level tags to the named project bundle's manifest,
+// so every item it ships carries them as effective tags.
+func linkBundle(t *testing.T, cfg *config.Config, bundle string, tags ...string) {
+	t.Helper()
+	dir := paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV2)
+	path := filepath.Join(dir, bundle, bundles.DirectoryFormManifest)
+	body, err := os.ReadFile(path)
+	require.NoError(t, err, "precondition: bundle %q was written at %s", bundle, path)
+	require.NotContains(t, string(body), "\ntags:", "precondition: the manifest has no bundle-level tags to collide with")
+	var add strings.Builder
+	add.WriteString("tags:\n")
+	for _, tag := range tags {
+		add.WriteString("  - " + tag + "\n")
+	}
+	require.NoError(t, os.WriteFile(path, append(body, []byte(add.String())...), 0o644))
 }
 
 // distillCommandBody is the project-configured distill prompt these tests seed.

@@ -38,14 +38,16 @@ func start(t *testing.T) (present.Start, string, string) {
 	})), project, home
 }
 
-// The declaration: an opt-in, structured-only engine whose every kind lands
-// in the session home and nowhere else, carrying no hooks, resuming by key.
+// The declaration: an opt-in engine, the TUI and the runner, whose every kind lands
+// in the session home and nowhere else, hooks as the bridge plugin, resuming by key.
 func TestBuild_Declaration(t *testing.T) {
 	d := def(t)
 	assert.Equal(t, EngineName, d.Name)
 	assert.Equal(t, engine.DistributionOptIn, d.Distribution)
-	assert.Equal(t, []engine.Mode{engine.Structured}, d.Modes)
-	assert.Nil(t, d.Hooks)
+	assert.Equal(t, []engine.Mode{engine.Interactive, engine.Structured}, d.Modes)
+	require.NotNil(t, d.Hooks)
+	assert.Equal(t, ApproachBridge, d.Hooks.Name())
+	assert.Equal(t, hookLosses, d.HookLosses, "the events opencode gives a plugin no point for")
 	for kind, a := range d.Surfaces() {
 		assert.Equal(t, []present.RootKind{present.RootSessionHome}, a.Traits().Roots, "%v", kind)
 	}
@@ -242,14 +244,17 @@ func TestExports(t *testing.T) {
 	assert.False(t, out.Commands[1].Enabled)
 	assert.True(t, out.Commands[2].Enabled, "a curated command exports regardless")
 	assert.False(t, out.Skills[0].Enabled)
-	assert.Empty(t, out.HookEvent, "opencode fires no hook event")
+	assert.Equal(t, map[string]string{
+		"pre_tool": "tool.execute.before", "post_tool": "tool.execute.after", "session_start": "session.created",
+		"turn_start": "chat.message", "turn_end": "session.idle",
+	}, out.HookEvent, "the bridge plugin's hook points")
 
 	_, err = e.Exports(engine.Items{Commands: []engine.CommandItem{{Ref: "b/bad", Exports: []byte(`{"argument_hint":"x"}`)}}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "opencode: export block")
 }
 
-// The engine facts it declares absent, and the hook codec that refuses.
+// The engine facts it declares absent, and those the bridge plugin provides.
 func TestFacts(t *testing.T) {
 	e, err := Build()
 	require.NoError(t, err)
@@ -259,15 +264,13 @@ func TestFacts(t *testing.T) {
 	_, approvals := e.Approvals().Get()
 	assert.True(t, e.Approvals().Decided())
 	assert.False(t, approvals, "approvals are declared absent")
-	_, wake := e.Wake().Get()
-	assert.False(t, wake)
+	spec, ok := e.Wake().Get()
+	require.True(t, ok)
+	assert.Equal(t, wake, spec, "the bridge plugin's socket")
 	_, trust := e.Trust().Get()
 	assert.False(t, trust)
-	assert.Empty(t, e.Transcripts())
-	_, err = e.TranscriptSession("x.jsonl")
-	require.True(t, errors.As(err, &unsupported))
-	_, err = e.Hooks().Decode("pre_tool", []byte(`{}`))
-	require.True(t, errors.As(err, &unsupported))
+	assert.Empty(t, e.Transcripts(), "readers are the composition root's to hand in")
+	assert.IsType(t, kit.NativeHookCodec{}, e.Hooks(), "the bridge plugin's wire is ctxloom's own")
 }
 
 // The hosted surface: the backend is the projection onto this kind, the
@@ -298,4 +301,18 @@ func TestDeliverContext_ThroughTheGivenFs(t *testing.T) {
 	b, err := afero.ReadFile(mem, filepath.Join(home, "AGENTS.md"))
 	require.NoError(t, err)
 	assert.True(t, strings.Contains(string(b), "x"))
+}
+
+// A bridge transcript names its session by its stem; any other file is
+// refused.
+func TestTranscriptSession_IsTheBridgeFileStem(t *testing.T) {
+	e, err := Build()
+	require.NoError(t, err)
+	got, err := e.TranscriptSession("/h/native/ctxloom/ses_abc.jsonl")
+	require.NoError(t, err)
+	assert.Equal(t, "ses_abc", got)
+	for _, bad := range []string{"/h/native/ses_abc.jsonl", "/h/native/ctxloom/ses_abc.json", "/h/native/ctxloom/.jsonl"} {
+		_, err := e.TranscriptSession(bad)
+		assert.Error(t, err, bad)
+	}
 }

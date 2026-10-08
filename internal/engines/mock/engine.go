@@ -1,7 +1,6 @@
 package mock
 
 import (
-	"path/filepath"
 	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -332,11 +331,11 @@ func (m Mock) TranscriptSession(string) (string, error) {
 
 // Hooks decodes the payload the mock's own turn writes to a hook's stdin
 // (hooks.go).
-func (m Mock) Hooks() engine.HookCodec { return hookCodec{m.Name} }
+func (m Mock) Hooks() engine.HookCodec { return hookCodec(m.Name) }
 
 // Wake is the mock's own socket (EnvWakeSocket).
 func (m Mock) Wake() engine.Declared[engine.WakeSpec] {
-	return engine.Provide[engine.WakeSpec](socketWake{})
+	return engine.Provide[engine.WakeSpec](wake)
 }
 
 // Instance is where REQUIREDNESS is checked, loudly: the mock cannot run a
@@ -364,10 +363,10 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 		return engine.Exec{}, err
 	}
 	interactive := i.s.Mode == engine.Interactive
-	if root := i.s.Roots.SessionHome.Engine; interactive && root != "" {
+	if path := wake.Path(i.s); path != "" {
 		// The session owner's wake: the interactive echo listens here, and
 		// the runner binds the mock's wake from this same env.
-		env[EnvWakeSocket] = filepath.Join(root, wakeSocketName)
+		env[EnvWakeSocket] = path
 	}
 	return engine.Exec{Binary: "mock", Args: args, Env: env, WorkDir: i.s.WorkDir, Interactive: interactive}, nil
 }

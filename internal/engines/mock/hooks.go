@@ -14,6 +14,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines/kit"
 )
 
 // The mock IMPLEMENTS AND USES hooks: a hook delivered through its hooks
@@ -127,56 +128,22 @@ func toolCallIn(prompt string) (string, bool) {
 // keeps no session state to key.
 const sessionKey = "mock-session"
 
-// hookPayload is the JSON the mock writes to a hook's stdin: the mock's own
-// field names, decoded by its own codec alone.
-type hookPayload struct {
-	Event   string `json:"event"`
-	Session string `json:"session"`
-	Tool    string `json:"tool,omitempty"`
-	Cwd     string `json:"cwd,omitempty"`
-	// Prompt is the submitted prompt on turn_start (the mail-drain hook
-	// redeems a wake from it).
-	Prompt string `json:"prompt,omitempty"`
+// hookPayload is the JSON the mock writes to a hook's stdin: ctxloom's own
+// hook wire (kit.NativeHookPayload), since the mock is an engine ctxloom
+// itself fires hooks for.
+type hookPayload = kit.NativeHookPayload
+
+// hookCodec is the mock's hook wire (engine.HookCodec): ctxloom's own, its
+// events the unified ones, every answer carried. The mock reads no hook's
+// answer back (a turn's context is its own prompt), so Encode is the codec's
+// half of a round trip the tests read.
+func hookCodec(name engine.Name) engine.HookCodec {
+	return kit.NativeHookCodec{Engine: name, Skill: invokedSkill}
 }
 
-// hookAnswer is the JSON the mock's codec renders a hook's response as. The
-// mock reads no hook's answer back (a turn's context is its own prompt), so
-// it is the codec's half of a round trip the tests read.
-type hookAnswer struct {
-	Context string `json:"context,omitempty"`
-	Notice  string `json:"notice,omitempty"`
-	Block   bool   `json:"block,omitempty"`
-	Reason  string `json:"reason,omitempty"`
-}
-
-// hookCodec is the mock's hook wire (engine.HookCodec).
-type hookCodec struct{ name engine.Name }
-
-func (c hookCodec) Decode(event string, payload []byte) (engine.HookEvent, error) {
-	var p hookPayload
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return engine.HookEvent{}, fmt.Errorf("%s hook payload: %w", c.name, err)
-	}
-	if p.Event == "" {
-		p.Event = event
-	}
-	return engine.HookEvent{Event: p.Event, NativeSession: p.Session, Tool: p.Tool, Prompt: p.Prompt}, nil
-}
-
-func (c hookCodec) Encode(_ string, r engine.HookResponse) (engine.HookReply, error) {
-	b, err := json.Marshal(hookAnswer(r))
-	if err != nil {
-		return engine.HookReply{}, err
-	}
-	return engine.HookReply{Stdout: append(b, '\n')}, nil
-}
-
-// ContextLimit: the mock bounds nothing.
-func (hookCodec) ContextLimit() int { return 0 }
-
-// InvokedSkill: the mock's skill tool (wire.ToolSkill) carries the skill's
+// invokedSkill: the mock's skill tool (wire.ToolSkill) carries the skill's
 // name as its input, a JSON string.
-func (hookCodec) InvokedSkill(tool string, input []byte) (string, bool) {
+func invokedSkill(tool string, input []byte) (string, bool) {
 	var name string
 	if tool != string(wire.ToolSkill) || json.Unmarshal(input, &name) != nil || name == "" {
 		return "", false
@@ -219,32 +186,6 @@ func DeliveredHooksFile(file string) (wire.UnifiedHooks, error) {
 	return hooks, nil
 }
 
-// registered is the hook file's slice for one unified event: the mock's
-// native event IS the unified one, so the file's own key names it.
-func registered(hooks wire.UnifiedHooks, event string) []wire.Hook {
-	switch event {
-	case "session_start":
-		return hooks.SessionStart
-	case "pre_shell":
-		return hooks.PreShell
-	case "pre_tool":
-		return hooks.PreTool
-	case "post_tool":
-		return hooks.PostTool
-	case "post_file_edit":
-		return hooks.PostFileEdit
-	case "turn_end":
-		return hooks.TurnEnd
-	case "session_end":
-		return hooks.SessionEnd
-	case "turn_start":
-		return hooks.TurnStart
-	case "permission_ask":
-		return hooks.PermissionAsk
-	}
-	return nil
-}
-
 // fireHooks runs every command hook the delivered set registers for event
 // whose matcher admits tool, with the mock's payload on stdin, in the turn's
 // working directory and environment.
@@ -262,7 +203,7 @@ func FireHooks(ctx context.Context, hooks wire.UnifiedHooks, event, tool, prompt
 		return err
 	}
 	var errs []error
-	for _, h := range registered(hooks, event) {
+	for _, h := range hooks.Event(event) {
 		if h.Type != "" && h.Type != "command" {
 			continue
 		}

@@ -30,6 +30,10 @@ const (
 	flagModel    = "--model"
 	flagSession  = "--session"
 	flagAuto     = "--auto"
+	// The TUI's own: the newest session of the session home's private
+	// store, and the first prompt, submitted once the model is ready.
+	flagContinue = "--continue"
+	flagPrompt   = "--prompt"
 )
 
 // structuredGrammar is the argv grammar Exec's output parses against (the
@@ -46,6 +50,20 @@ var structuredGrammar = engine.CLIGrammar{
 		{Name: flagAuto},
 	},
 	Positional: 1, // the run subcommand; the prompt rides stdin
+}
+
+// interactiveGrammar is the TUI's: bare `opencode` on ctxloom's pty, the
+// working directory its project (no positional), the prompt a flag value.
+var interactiveGrammar = engine.CLIGrammar{
+	Mode:   engine.Interactive,
+	Binary: defaultBinary,
+	Flags: []engine.Flag{
+		{Name: flagModel, HasValue: true},
+		{Name: flagSession, HasValue: true},
+		{Name: flagContinue},
+		{Name: flagPrompt, HasValue: true},
+		{Name: flagAuto},
+	},
 }
 
 // The env opencode reads beyond its home vars: ctxloom's composed config,
@@ -91,20 +109,27 @@ type instance struct {
 
 // Exec composes the process: the label's binary (the launch carries the
 // label's binary_path as LabelConfig.Binary), else opencode, the label's args
-// (LabelConfig.Args), `run --format json
-// --thinking`, the model, the resumed session, --auto at the auto posture;
-// the prompt on stdin. Env holds only opencode's own variables: the home
-// vars, every presentation's env, the composed config, the posture and the
-// isolation switches. The key is never in it: the run's credentials carry
-// it, and the config names it by reference.
+// (LabelConfig.Args), then — for a structured session — `run --format json
+// --thinking` with the prompt on stdin, or — for an interactive one — the
+// bare TUI on a pty with the prompt as --prompt; the model, the resumed
+// session (resumeArgs), and --auto at the auto posture. Env, identical in
+// both modes, holds only opencode's own variables: the home vars, every
+// presentation's env, the composed config, the posture and the isolation
+// switches. The key is never in it: the run's credentials carry it, and the
+// config names it by reference.
 func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
+	interactive := i.s.Mode == engine.Interactive
 	args := slices.Clone(i.s.Label.Args)
-	args = append(args, cmdRun, flagFormat, "json", flagThinking)
+	if !interactive {
+		args = append(args, cmdRun, flagFormat, "json", flagThinking)
+	}
 	if m := i.s.Label.Model; m != "" {
 		args = append(args, flagModel, providerID+"/"+m)
 	}
-	if i.key != "" {
-		args = append(args, flagSession, i.key)
+	args = append(args, i.resumeArgs()...)
+	if interactive && i.s.Prompt != "" {
+		// Inline, so a prompt that starts with "-" stays the flag's value.
+		args = append(args, flagPrompt+"="+i.s.Prompt)
 	}
 	if i.pos.mode == modeAuto {
 		args = append(args, flagAuto)
@@ -113,11 +138,31 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 	if err != nil {
 		return engine.Exec{}, err
 	}
-	ex := engine.Exec{Binary: i.binary(), Args: args, Env: env, WorkDir: i.s.WorkDir}
-	if i.s.Prompt != "" {
+	ex := engine.Exec{Binary: i.binary(), Args: args, Env: env, WorkDir: i.s.WorkDir, Interactive: interactive}
+	if !interactive && i.s.Prompt != "" {
 		ex.StdinPrompt = []byte(i.s.Prompt)
 	}
 	return ex, nil
+}
+
+// resumeArgs names the native session the Exec continues: the key Resume
+// set; for the TUI, else the key the launch resumes; else, for the TUI
+// relaunching a ctxloom session (the same session home, whose private store
+// holds only this session's conversations), its newest one (--continue).
+// A structured turn's key arrives per turn instead (turnArgv).
+func (i *instance) resumeArgs() []string {
+	key := i.key
+	interactive := i.s.Mode == engine.Interactive
+	if key == "" && interactive {
+		key = i.s.Resume.NativeKey
+	}
+	switch {
+	case key != "":
+		return []string{flagSession, key}
+	case interactive && i.s.Resume.Harp != "":
+		return []string{flagContinue}
+	}
+	return nil
 }
 
 func (i *instance) binary() string {
@@ -147,6 +192,9 @@ func (i *instance) execEnv(presented []present.Presentation) (map[string]string,
 	}
 	if untrusted {
 		env[envDisableProjectConfig] = "1"
+	}
+	if path := wake.Path(i.s); path != "" {
+		env[wake.EnvVar] = path
 	}
 	return env, nil
 }

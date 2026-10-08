@@ -224,7 +224,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 
 #### opencode
 
-The opencode CLI driven against an OpenAI-compatible endpoint (e.g. a LAN llama-server). Structured runs only (children and internal one-shots). The endpoint key is never written here: export CTXLOOM_OPENCODE_API_KEY.
+The opencode CLI driven against an OpenAI-compatible endpoint (e.g. a LAN llama-server). Runs its TUI interactively on ctxloom's terminal, and structured (children and internal one-shots). The endpoint key is never written here: export CTXLOOM_OPENCODE_API_KEY.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -237,7 +237,7 @@ The opencode CLI driven against an OpenAI-compatible endpoint (e.g. a LAN llama-
 | `provider` | object | **Required.** The OpenAI-compatible endpoint opencode talks to. |
 | `role` | string | Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime. Allowed values: `primary`, `fast`. |
 | `share` | string | opencode's session sharing. Absent: disabled. Allowed values: `manual`, `auto`, `disabled`. |
-| `snapshot` | boolean | Whether opencode keeps a snapshot of the work tree per step (what undo reverts). Absent: off for a structured run. |
+| `snapshot` | boolean | Whether opencode keeps a snapshot of the work tree per step (what undo reverts). Absent: on for an interactive run (the TUI's /undo), off for a structured run. |
 | `title_generation` | boolean | Whether opencode asks the model for a session title (an extra request at every new session). Absent: off. |
 | `type` | string | **Required.** Must be `opencode`. |
 

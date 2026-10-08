@@ -88,7 +88,7 @@ func TestHooks_DecodesUserPromptSubmitAsTurnStart(t *testing.T) {
 	ev, err := codec.Decode("UserPromptSubmit", []byte(`{"session_id":"s1","hook_event_name":"UserPromptSubmit","transcript_path":"/t/s1.jsonl"}`))
 	require.NoError(t, err)
 	assert.Equal(t, engine.HookEvent{Event: "turn_start", NativeSession: "s1", Transcript: "/t/s1.jsonl"}, ev)
-	assert.Equal(t, "UserPromptSubmit", hookEventMap()["turn_start"], "Exports names the native event turn_start registers under")
+	assert.Equal(t, "UserPromptSubmit", nativeHookEvents.Map()["turn_start"], "Exports names the native event turn_start registers under")
 }
 
 // TestClaudeCodeHookWriter_ApprovalHookReachesPermissionRequest: the

@@ -1,7 +1,8 @@
 // Package opencodeengine holds the adapters the composition root hands the
-// opencode kind: here, the reading of `opencode --version`, which is the
-// version adapter's parse (adapters/engineversion), so the kind itself never
-// imports an adapter.
+// opencode kind: the reading of `opencode --version`, which is the version
+// adapter's parse (adapters/engineversion), and the reader of the bridge
+// plugin's transcripts (transcripts.go), a VendorAdapter, so the kind itself
+// never imports an adapter.
 package opencodeengine
 
 import (

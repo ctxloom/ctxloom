@@ -1,18 +1,20 @@
 // Package opencode is the opencode engine KIND: the opencode CLI driven
-// against an OpenAI-compatible endpoint the label names (a LAN model server),
-// one `opencode run --format json` process per structured turn, resumed by
-// its native session key. It is ASSEMBLED from internal/engines/kit — the
+// against an OpenAI-compatible endpoint the label names (a LAN model server):
+// interactively, the TUI on ctxloom's pty; structured, one `opencode run
+// --format json` process per turn; either resumed by its native session key. It is ASSEMBLED from internal/engines/kit — the
 // per-turn process driver, the Exec composition, the approach rooting, the
 // framed context file, the MCP table, the managed command and skill trees,
 // the export decoder and the projected backend — plus opencode's own content:
-// its argv, its JSONL line codec and failure table, its config dialect
+// its argv, its JSONL line codec and failure table, its bridge plugin, its config dialect
 // (opencode.json claims, OPENCODE_CONFIG_CONTENT), its permission postures
 // and its one-variable auth.
 //
 // Everything is delivered into the session home H, the directory
 // OPENCODE_CONFIG_DIR names (opencode's highest-precedence config dir): the
-// framed AGENTS.md, opencode.json (MCP servers, denied tools), commands/ and
-// skills/. Every XDG base is relocated beneath H as a merged tree whose
+// framed AGENTS.md, opencode.json (MCP servers, denied tools), commands/,
+// skills/ and plugins/ctxloom.js, the generated bridge plugin that fires
+// ctxloom's hooks, takes the owner's wake and writes the transcript ctxloom
+// reads back (hooks.go, transcript.go). Every XDG base is relocated beneath H as a merged tree whose
 // opencode app dirs are the session's own, so nothing of the user's real
 // opencode state is read, and opencode's database (its native history) lives
 // in the data base's app dir, linked into the session's native/ so a resumed
@@ -37,8 +39,9 @@ const EngineName engine.Name = "opencode"
 // driver's seams (a turn run against in-memory pipes, a fixed clock).
 type Opencode struct {
 	engine.Base
-	open kit.TransportFunc
-	now  func() time.Time
+	open        kit.TransportFunc
+	now         func() time.Time
+	transcripts []engine.TranscriptReader
 }
 
 // Option adjusts the kind before Validate.
@@ -63,6 +66,7 @@ const (
 	ApproachConfigPolicy = "config-permissions"
 	ApproachCommandsDir  = "commands-dir"
 	ApproachSkillsDir    = "skills-dir"
+	ApproachBridge       = "bridge-plugin"
 	ApproachEndpoint     = "session-endpoint"
 )
 
@@ -76,18 +80,20 @@ func Build(opts ...Option) (engine.Engine, error) {
 		Name: EngineName,
 		// Opt-in: a label must name `type: opencode`; never the default.
 		Distribution: engine.DistributionOptIn,
-		// The structured runner; the TUI is a later slice.
-		Modes:    []engine.Mode{engine.Structured},
+		// The TUI on ctxloom's pty, and the structured runner.
+		Modes:    []engine.Mode{engine.Interactive, engine.Structured},
 		Context:  &contextApproach{approach(ApproachAgentsFile, file)},
 		MCP:      &mcpApproach{approach(ApproachConfigFile, file)},
 		Settings: &settingsApproach{approach(ApproachConfigPolicy, present.Traits{Roots: home, Channel: present.ChannelFile})},
 		Commands: &commandsApproach{approach(ApproachCommandsDir, file)},
 		Skills:   &skillsApproach{approach(ApproachSkillsDir, file)},
-		// No hooks approach: opencode has no external hook-command protocol,
-		// only in-process plugins (a generated bridge plugin is a later
-		// slice). A structured child gets its mail as turns.
+		// opencode runs no hook command, only in-process plugins: ctxloom's
+		// hooks, the owner's wake and the transcript ride one generated
+		// bridge plugin (hooks.go).
+		Hooks:        &hooksApproach{approach(ApproachBridge, file)},
+		HookLosses:   hookLosses,
 		Dynamic:      &sessionEndpoint{approach(ApproachEndpoint, present.Traits{Roots: home, Channel: present.ChannelFile})},
-		CLI:          []engine.CLIGrammar{structuredGrammar},
+		CLI:          []engine.CLIGrammar{interactiveGrammar, structuredGrammar},
 		ModelAliases: map[string]string{},
 		ExportSchema: ExportSchema,
 		// A one-shot child resumes by naming its own session (--session).
@@ -137,8 +143,9 @@ const (
 )
 
 // Home declares the relocation (Q-B, Q-L FINAL): see the vars above. Auth is
-// one required variable (opencodeAuth). No instance config is generated:
-// ctxloom's provider and policy reach opencode in OPENCODE_CONFIG_CONTENT.
+// one required variable (opencodeAuth). The instance config is only the
+// user's TUI preferences carried in (tuiConfigCarry): ctxloom's provider and
+// policy reach opencode in OPENCODE_CONFIG_CONTENT.
 func (o Opencode) Home() engine.HomeSpec {
 	owns := func() *engine.XDGMerge { return &engine.XDGMerge{Owns: []string{appDir}} }
 	return engine.HomeSpec{
@@ -152,6 +159,7 @@ func (o Opencode) Home() engine.HomeSpec {
 			{Name: envManagedConfig, Subdir: "managed"},
 		},
 		Auth:               engine.Provide[engine.Auth](opencodeAuth{}),
+		InstanceConfig:     tuiConfigCarry{},
 		TranscriptStoreRel: dataBase + "/" + appDir,
 	}
 }
@@ -176,23 +184,16 @@ func containerSpec(name engine.Name, version string, pins map[string]string) (en
 	return engine.ContainerSpec{Install: install, ValidateCommand: defaultBinary + " --version"}, nil
 }
 
-// Transcripts: none. A structured run's transcript is the runner's own tee
-// of the driver's events; opencode's database is not read.
-func (Opencode) Transcripts() []engine.TranscriptReader { return nil }
+// Hooks is the bridge plugin's wire (hookCodec).
+func (Opencode) Hooks() engine.HookCodec { return hookCodec }
 
-// TranscriptSession refuses: no transcript of opencode's own is read.
-func (o Opencode) TranscriptSession(string) (string, error) {
-	return "", engine.ErrUnsupported{Engine: o.Name, Capability: "transcript session"}
-}
+// wake is the TUI owner's wake: a unix socket the bridge plugin listens on,
+// which prompts the current root session with the wake text (queued behind a
+// busy turn). An idle structured run is woken by its next turn.
+var wake = kit.SocketWake{EnvVar: "CTXLOOM_OPENCODE_WAKE_SOCKET"}
 
-// Hooks is a codec that refuses: opencode fires no ctxloom hook command, so
-// no payload ever arrives.
-func (o Opencode) Hooks() engine.HookCodec { return noHooks{o.Name} }
-
-// Wake: no interactive owner to wake in this release.
-func (Opencode) Wake() engine.Declared[engine.WakeSpec] {
-	return engine.Absent[engine.WakeSpec]("opencode runs structured only; an idle structured run is woken by its next turn")
-}
+// Wake is the bridge plugin's socket.
+func (Opencode) Wake() engine.Declared[engine.WakeSpec] { return engine.Provide[engine.WakeSpec](wake) }
 
 // Approvals: none can be routed.
 func (Opencode) Approvals() engine.Declared[engine.ApprovalCodec] {
@@ -245,17 +246,3 @@ func (Opencode) HookGlobalScope() (agent.HookGlobalScope, bool) {
 type unwired struct{}
 
 func (unwired) Status(string) (agent.SettingsStatus, error) { return agent.SettingsStatus{}, nil }
-
-// noHooks is the refusing codec.
-type noHooks struct{ name engine.Name }
-
-func (c noHooks) Decode(string, []byte) (engine.HookEvent, error) {
-	return engine.HookEvent{}, engine.ErrUnsupported{Engine: c.name, Capability: "hooks"}
-}
-
-func (c noHooks) Encode(string, engine.HookResponse) (engine.HookReply, error) {
-	return engine.HookReply{}, engine.ErrUnsupported{Engine: c.name, Capability: "hooks"}
-}
-
-func (noHooks) ContextLimit() int                          { return 0 }
-func (noHooks) InvokedSkill(string, []byte) (string, bool) { return "", false }

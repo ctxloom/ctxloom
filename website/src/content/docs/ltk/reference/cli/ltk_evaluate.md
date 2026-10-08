@@ -36,7 +36,7 @@ ltk evaluate [flags]
 
 ```
       --config string   path to rules YAML (default: search cwd)
-      --engine string   hook engine adapter (default "claude-code")
+      --engine string   hook engine adapter (default: the engine whose payload this is, else claude-code)
   -h, --help            help for evaluate
       --shell string    force a shell dialect, overriding the engine's tool-derived shell
 ```

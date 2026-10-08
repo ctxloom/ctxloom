@@ -43,7 +43,7 @@ func (hookCodec) Decode(event string, payload []byte) (engine.HookEvent, error) 
 		native = event
 	}
 	out := engine.HookEvent{
-		Event:         unifiedHookEvent(native),
+		Event:         nativeHookEvents.Unified(native),
 		NativeSession: p.SessionID,
 		Transcript:    p.TranscriptPath,
 		Source:        p.Source,
@@ -55,17 +55,6 @@ func (hookCodec) Decode(event string, payload []byte) (engine.HookEvent, error) 
 	}
 	out.Skill, _ = invokedSkill(p.ToolName, p.ToolInput)
 	return out, nil
-}
-
-// unifiedHookEvent maps a native or unified event name to the unified one;
-// a name claude does not fire is carried verbatim.
-func unifiedHookEvent(name string) string {
-	for _, e := range nativeHookEvents {
-		if e.native == name || e.unified == name {
-			return e.unified
-		}
-	}
-	return name
 }
 
 // editedPath is the file a file-editing tool targeted: file_path for

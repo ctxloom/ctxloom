@@ -223,28 +223,30 @@ func pruneLine(v isolation.ImageVerdict, apply bool, failed map[string]string) C
 // prune`: it plans every runtime present and reports how many superseded
 // agent images each holds and their unique-layer bytes. It removes nothing.
 func doctorCheckSupersededImages(ctx context.Context, runtimes []isolation.Runtime, plan func(context.Context, isolation.Runtime) (isolation.ImagePrunePlan, error)) DoctorCheck {
-	const marker = "DOCTOR-CHECK-SUPERSEDED-IMAGES-x4"
-	if len(runtimes) == 0 {
-		return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: "no container runtime on this host; nothing to check"}
-	}
+	return doctorRuntimeCheck(ctx, "DOCTOR-CHECK-SUPERSEDED-IMAGES-x4", runtimes, plan, judgeSupersededImages)
+}
+
+// judgeSupersededImages totals every runtime's superseded images; the first
+// runtime that could not be planned is the whole row, since a partial total
+// would understate what prune would reclaim.
+func judgeSupersededImages(answers []runtimeAnswer[isolation.ImagePrunePlan]) DoctorCheck {
 	var found []string
 	var total int
 	var bytes int64
-	for _, rt := range runtimes {
-		p, err := plan(ctx, rt)
-		if err != nil {
-			return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: fmt.Sprintf("could not list %s images: %v", rt.Name(), err)}
+	for _, a := range answers {
+		if a.err != nil {
+			return DoctorCheck{Status: DoctorWarn, Detail: fmt.Sprintf("could not list %s images: %v", a.rt.Name(), a.err)}
 		}
-		if n := len(p.Superseded()); n > 0 {
+		if n := len(a.val.Superseded()); n > 0 {
 			total += n
-			bytes += p.Reclaimable()
-			found = append(found, fmt.Sprintf("%d %s", n, rt.Name()))
+			bytes += a.val.Reclaimable()
+			found = append(found, fmt.Sprintf("%d %s", n, a.rt.Name()))
 		}
 	}
 	if total == 0 {
-		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "no superseded agent images"}
+		return DoctorCheck{Status: DoctorOK, Detail: "no superseded agent images"}
 	}
-	return DoctorCheck{Marker: marker, Status: DoctorWarn, Remedy: containerPruneApplyCommand, Detail: fmt.Sprintf(
+	return DoctorCheck{Status: DoctorWarn, Remedy: containerPruneApplyCommand, Detail: fmt.Sprintf(
 		"%d superseded agent image(s) (%s), %s reclaimable",
 		total, strings.Join(found, ", "), FormatImageBytes(bytes))}
 }

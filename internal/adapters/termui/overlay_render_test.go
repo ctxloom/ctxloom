@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -298,20 +299,79 @@ func TestOverlayRender_QuickPanelIsReadableAndReleaseRestoresTheEngine(t *testin
 // Full screen draws the whole drawable area, and leaving it — straight from
 // full screen, the case that used to erase the engine's bottom rows —
 // restores the engine's screen exactly.
+//
+// In full screen the overlay is on an alternate screen of its own, and
+// bubbletea leaves it whenever the program ends (quit, kill or panic), which
+// already returns the terminal to the engine's screen and cursor: the
+// controller's own leave is then a no-op, and a release that left nothing
+// passed this test. So the release is also judged after an overlay that ends
+// still on its alternate screen — the controller's leave is the restore its
+// takeover promises (takeScreen), whatever screen the overlay ends on.
 func TestOverlayRender_FullScreenIsReadableAndReleaseRestoresTheEngine(t *testing.T) {
-	h := newRenderHarness(t)
-	h.paintEngineRows("engine")
+	for _, tc := range []struct {
+		name          string
+		overlayLeaves bool
+	}{
+		{"the overlay leaves its alternate screen", true},
+		{"the overlay ends on its alternate screen", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stayed *stayOnAltScreen
+			var opts []func(*termui.Options)
+			if !tc.overlayLeaves {
+				opts = append(opts, func(o *termui.Options) {
+					inner := o.NewOverlay
+					o.NewOverlay = func(start termui.OverlayStart) termui.Overlay {
+						stayed = &stayOnAltScreen{Overlay: inner(start)}
+						return stayed
+					}
+				})
+			}
+			h := newRenderHarness(t, opts...)
+			h.paintEngineRows("engine")
 
-	h.key(string([]byte{compPrefix}) + "f")
-	awaitWatch(t, h.watches, renderHarps[0])
-	h.screenWhen("full screen", func(t tb, e *vtemu.Screen) {
-		assert.True(t, e.OnAltScreen(), "full screen draws on the alternate screen")
-		assertPanel(t, e, 0, renderRows-2)
-	})
+			h.key(string([]byte{compPrefix}) + "f")
+			awaitWatch(t, h.watches, renderHarps[0])
+			h.screenWhen("full screen", func(t tb, e *vtemu.Screen) {
+				assert.True(t, e.OnAltScreen(), "full screen draws on the alternate screen")
+				assertPanel(t, e, 0, renderRows-2)
+			})
 
-	h.key("q")
-	judge(t, h.released(), engineBack("engine"))
+			h.key("q")
+			e := h.released()
+			if stayed != nil {
+				require.Positive(t, stayed.withheld.Load(), "the overlay's own leave was withheld, so the release alone restores")
+			}
+			judge(t, e, engineBack("engine"))
+		})
+	}
 }
+
+// stayOnAltScreen is an overlay whose writes never leave the alternate
+// screen: the overlay bubbletea runs, with its exit's leave withheld.
+type stayOnAltScreen struct {
+	termui.Overlay
+	withheld atomic.Int32
+}
+
+const leaveAltScreen = "\x1b[?1049l"
+
+func (s *stayOnAltScreen) Run(input io.Reader, tty io.Writer, geo termui.OverlayGeometry) error {
+	return s.Overlay.Run(input, writerFunc(func(p []byte) (int, error) {
+		if n := strings.Count(string(p), leaveAltScreen); n > 0 {
+			s.withheld.Add(int32(n))
+			if _, err := io.WriteString(tty, strings.ReplaceAll(string(p), leaveAltScreen, "")); err != nil {
+				return 0, err
+			}
+			return len(p), nil
+		}
+		return tty.Write(p)
+	}), geo)
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
 // An engine that is itself on the alternate screen is drawn over in place:
 // the panel is as readable, full screen is refused with a note the footer

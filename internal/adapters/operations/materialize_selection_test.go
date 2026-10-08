@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -137,4 +138,42 @@ func TestMaterialize_ReleaseAndWriteFailuresSetTheStatus(t *testing.T) {
 	ok, err := afero.Exists(mem, filepath.Join("/t", mock.ContextFileName))
 	require.NoError(t, err)
 	assert.False(t, ok, "the context file held only what materialize wrote")
+}
+
+// TestMaterialize_OneEngineFailingIsPartial: with two engines and a disk that
+// refuses only the mock's context file, a write and a release alike are
+// partial: the one error is the mock's, and claude-code's kind lands.
+func TestMaterialize_OneEngineFailingIsPartial(t *testing.T) {
+	cfg := materializeCfg(t, "PARTIAL-MARK", "")
+	mem := afero.NewMemMapFs()
+	mockFile := func(name string) bool { return filepath.Base(name) == mock.ContextFileName }
+	faulty := safefs.NewMem(&failRemoveFs{Fs: &failWriteFs{Fs: mem, fail: mockFile}, fail: mockFile})
+	require.NoError(t, mem.MkdirAll("/t", 0o755))
+	req := MaterializeRequest{Target: "/t", Engines: []string{"mock", "claude-code"}, Surfaces: []SurfaceSpec{{Kind: present.Context}}, Root: faulty}
+	partial := func(res *MaterializeResult) {
+		t.Helper()
+		assert.Equal(t, MaterializePartial, res.Status)
+		require.Len(t, res.Errors, 1)
+		assert.Regexp(t, "^mock: ", res.Errors[0])
+		require.Len(t, res.Engines, 2)
+		assert.Equal(t, "mock", res.Engines[0].Engine)
+		assert.NotEmpty(t, res.Engines[0].Warnings)
+		assert.Empty(t, res.Engines[1].Warnings)
+	}
+
+	written := materialize(t, cfg, req)
+	partial(written)
+	assert.Empty(t, written.Engines[0].Wrote, "the mock's write was refused")
+	assert.Equal(t, []string{"context"}, written.Engines[1].Wrote)
+	b, err := afero.ReadFile(mem, filepath.Join("/t", claude.ContextFileName))
+	require.NoError(t, err)
+	assert.Contains(t, string(b), "PARTIAL-MARK")
+
+	req.Root = safefs.NewMem(mem)
+	require.Equal(t, MaterializeApplied, materialize(t, cfg, req).Status)
+	req.Release, req.Root = true, faulty
+	released := materialize(t, cfg, req)
+	partial(released)
+	assert.Empty(t, released.Engines[0].Released, "the mock's release was refused")
+	assert.Equal(t, []string{"context"}, released.Engines[1].Released)
 }

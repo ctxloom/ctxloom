@@ -61,7 +61,7 @@ func (p *Project) Install(pkg composite.Package) error {
 	if err != nil {
 		return err
 	}
-	lo := delivery.Loadout{Plan: plan, Package: pkg, Exports: exports, WorkDir: p.Dir}
+	lo := delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}
 	_, err = fsstatic.New(p.root).Deliver(context.Background(), lo, root, p.target())
 	return err
 }
@@ -69,7 +69,7 @@ func (p *Project) Install(pkg composite.Package) error {
 // Uninstall delivers the empty plan: the record's account of what the
 // project writers put there, and only that, is removed.
 func (p *Project) Uninstall() error {
-	_, err := fsstatic.New(p.root).Deliver(context.Background(), delivery.Loadout{WorkDir: p.Dir}, p.Kind.Root(), p.target())
+	_, err := fsstatic.New(p.root).Deliver(context.Background(), delivery.Loadout{}, p.Kind.Root(), p.target())
 	return err
 }
 

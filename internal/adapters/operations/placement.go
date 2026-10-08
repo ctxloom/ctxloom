@@ -68,9 +68,6 @@ func Deliver(ctx context.Context, fsRoot safefs.Root, kind engine.Engine, pkg co
 	}
 	lo := extra
 	lo.Plan, lo.Package, lo.Exports, lo.ContextFile = plan, pkg, exports, p.ContextFile
-	if lo.WorkDir == "" {
-		lo.WorkDir = paths.ProjectRoot.Host
-	}
 	d, err := fsstatic.New(fsRoot).Deliver(ctx, lo, root, delivery.TargetFor(p.Start, records, p.Family, p.Kinds))
 	return d, plan, err
 }
@@ -82,7 +79,6 @@ func Release(ctx context.Context, fsRoot safefs.Root, kind engine.Engine, p Plac
 	if err != nil {
 		return err
 	}
-	lo := delivery.Loadout{WorkDir: p.Start.Paths().ProjectRoot.Host}
-	_, err = fsstatic.New(fsRoot).Deliver(ctx, lo, kind.Root(), delivery.TargetFor(p.Start, records, p.Family, p.Kinds))
+	_, err = fsstatic.New(fsRoot).Deliver(ctx, delivery.Loadout{}, kind.Root(), delivery.TargetFor(p.Start, records, p.Family, p.Kinds))
 	return err
 }

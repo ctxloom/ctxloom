@@ -42,3 +42,24 @@ func firstToken(command string) string {
 	}
 	return command
 }
+
+// Args returns the whitespace-separated words that follow command's executable
+// token — the subcommand path a callback names ("hook", "session-start", ...).
+// Words are split on blanks only: a verb never carries a quote, and an
+// argument that does is returned as its raw words. An unterminated quoted
+// executable has no words after it.
+func Args(command string) []string {
+	command = strings.TrimLeft(command, " \t")
+	if command == "" {
+		return nil
+	}
+	rest := ""
+	if q := command[0]; q == '"' || q == '\'' {
+		if end := strings.IndexByte(command[1:], q); end >= 0 {
+			rest = command[2+end:]
+		}
+	} else if i := strings.IndexAny(command, " \t"); i >= 0 {
+		rest = command[i:]
+	}
+	return strings.Fields(rest)
+}

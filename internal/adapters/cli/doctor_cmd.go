@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +18,10 @@ var doctorDepsOnlyFlag bool
 // doctorAllFlag backs --all: the text report lists every check rather than
 // the warnings alone. Structured output always carries every check.
 var doctorAllFlag bool
+
+// doctorFixFlag backs --fix: remove what the fixable checks find before
+// reporting (operations.DoctorFix).
+var doctorFixFlag bool
 
 const (
 	// doctorAllClearLine closes a text report that found nothing to fix.
@@ -52,12 +57,20 @@ the first fix; --all lists every check. Each row starts with a DOCTOR-CHECK-*
 marker. --deps checks only what this machine needs (binaries and git
 identity), so it reads clean before a project is set up.
 
-A warning is the signal: doctor exits 0 whatever it finds, and changes
-nothing (the container-runtime probe may create the runtime's own storage
-directories). A usage error, such as an unknown --format, still fails.`,
+A warning is the signal: doctor exits 0 whatever it finds, and without
+--fix changes nothing (the container-runtime probe may create the runtime's
+own storage directories). A usage error, such as an unknown --format, still
+fails.
+
+--fix changes one thing before reporting: it removes every hook entry in an
+engine's project or user settings file that runs a ` + "`ctxloom hook`" + ` subcommand
+this ctxloom does not have (left by an older ctxloom; the engine runs it at
+its event and it fails every time). Only those entries leave the file; each
+removal is listed on stderr.`,
 	Example: `  ctxloom doctor                      # the warnings, and the first fix
   ctxloom doctor --all                # every check
-  ctxloom doctor --deps               # only what this machine needs`,
+  ctxloom doctor --deps               # only what this machine needs
+  ctxloom doctor --fix                # remove stale ctxloom hook entries, then report`,
 	Args: cobra.NoArgs,
 	RunE: runDoctorCmd,
 }
@@ -69,9 +82,16 @@ directories). A usage error, such as an unknown --format, still fails.`,
 // service the home it stands in for the composition root on, and renders.
 func runDoctorCmd(cmd *cobra.Command, args []string) error {
 	_, _ = GetConfig()
+	verbs := hookVerbsOf(hookCmd)
+	if doctorFixFlag {
+		if err := runDoctorFix(cmd, verbs); err != nil {
+			return err
+		}
+	}
 	report, err := operations.Doctor(cmd.Context(), App(), operations.DoctorRequest{
-		DepsOnly: doctorDepsOnlyFlag,
-		Home:     doctorHome(),
+		DepsOnly:  doctorDepsOnlyFlag,
+		Home:      doctorHome(),
+		HookVerbs: verbs,
 	})
 	if err != nil {
 		return err
@@ -82,6 +102,34 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 		}
 		return renderDoctorSummary(cmd.OutOrStdout(), report)
 	})
+}
+
+// runDoctorFix applies the fixes and lists each removal on stderr, so the
+// report on stdout keeps its format.
+func runDoctorFix(cmd *cobra.Command, verbs []string) error {
+	res, err := operations.DoctorFix(cmd.Context(), App(), operations.DoctorFixRequest{HookVerbs: verbs})
+	w := errwriter.New(cmd.ErrOrStderr())
+	for _, e := range res.Removed {
+		w.Println("removed stale hook entry: " + e.String())
+	}
+	if err != nil {
+		return fmt.Errorf("doctor --fix: %w", err)
+	}
+	return w.Err()
+}
+
+// hookVerbsOf is every subcommand name and alias directly under hook, read
+// off the command tree at run time — never a hand list, so a renamed hook
+// subcommand makes the old spelling's settings entries stale with no other
+// edit. Sorted for a stable report.
+func hookVerbsOf(hook *cobra.Command) []string {
+	var verbs []string
+	for _, c := range hook.Commands() {
+		verbs = append(verbs, c.Name())
+		verbs = append(verbs, c.Aliases...)
+	}
+	sort.Strings(verbs)
+	return verbs
 }
 
 // doctorHome is the user's home as the doctor's home-rooted checks see it —
@@ -138,5 +186,7 @@ func init() {
 		"list every check in the text report, not only the warnings")
 	doctorCmd.Flags().BoolVar(&doctorDepsOnlyFlag, "deps", false,
 		"check ONLY machine-capability dependencies (git/ssh/container runtime/configured engines' clients/git identity) — skips agents/profiles/hooks/MCP, for use before a project has been set up")
+	doctorCmd.Flags().BoolVar(&doctorFixFlag, "fix", false,
+		"remove settings hook entries that run a 'ctxloom hook' subcommand this ctxloom does not have, then report")
 	rootCmd.AddCommand(doctorCmd)
 }

@@ -68,11 +68,12 @@ type Deps struct {
 	Configure func(body map[string]any) error
 	// Driver drives the engine once the launch is delivered.
 	Driver Driver
-	// EngineVersion asks the hosted engine's installed binary its version,
-	// checked against the floor the engine declares (Definition.Version)
-	// before anything is delivered. nil asks nothing: a composition with no
-	// binary to ask (a double).
-	EngineVersion func(ctx context.Context) (string, error)
+	// EngineVersion asks binary — the one the engine's composed Exec will
+	// spawn, a label's binary_path where the engine honours one — its
+	// version, checked against the floor the engine declares
+	// (Definition.Version) before the engine is driven. nil asks nothing: a
+	// composition with no binary to ask (a double).
+	EngineVersion func(ctx context.Context, binary string) (string, error)
 	// Unsetenv removes a variable from this process's environment, which
 	// every engine spawn starts from: how a launch's Cell.Unset is honoured.
 	// Injected like MainDeps.Unsetenv, so the refusal is testable; nil
@@ -123,14 +124,12 @@ var (
 // refusal; a Structured launch needs a driver) → Redeem → Decode →
 // Configure → Serve (the session's endpoint, under the launch's identity)
 // → Deliver (Static.Deliver over the Launch's Loadout, under the session's
-// writer) → Drive. There is no Execute that skips delivery and no way to
+// writer) → Exec → the version floor (at the Exec's binary) → Drive. There
+// is no Execute that skips delivery and no way to
 // hold a Launch that Resolve did not make.
 func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	l, inst, err := prepareLaunch(deps, l)
 	if err != nil {
-		return Outcome{}, err
-	}
-	if err := checkVersionFloor(ctx, deps); err != nil {
 		return Outcome{}, err
 	}
 	if err := scrubEngineEnv(deps, l.Cell.Placement); err != nil {
@@ -212,16 +211,19 @@ func prepareLaunch(deps Deps, l launch.Launch) (launch.Launch, engine.Instance, 
 
 // checkVersionFloor refuses an installed engine below the floor its
 // definition declares — a fatal finding carrying the remedy, reported before
-// anything is delivered, rather than a run that fails later on a surface the
+// the engine is driven, rather than a run that fails later on a surface the
 // old release does not have. A version that cannot be read is refused the
-// same way: it cannot be shown to be new enough.
-func checkVersionFloor(ctx context.Context, deps Deps) error {
+// same way: it cannot be shown to be new enough. It asks binary, the one
+// the composed Exec spawns: only the Exec knows which binary a label made
+// the engine launch, so the check runs once that is composed, and the
+// refusal reverses the delivery as any failed drive does.
+func checkVersionFloor(ctx context.Context, deps Deps, binary string) error {
 	cmd := deps.Kind.Root().Version
 	if deps.EngineVersion == nil || cmd.Floor == "" {
 		return nil
 	}
 	name := string(deps.Kind.Root().Name)
-	version, err := deps.EngineVersion(ctx)
+	version, err := deps.EngineVersion(ctx, binary)
 	if err == nil {
 		err = cmd.CheckFloor(name, version)
 	}
@@ -338,6 +340,9 @@ func drive(ctx context.Context, deps Deps, l launch.Launch, inst engine.Instance
 	ex, err := inst.Exec(delivered.Presented)
 	if err != nil {
 		return fmt.Errorf("runner: compose the engine's exec: %w", err)
+	}
+	if err := checkVersionFloor(ctx, deps, ex.Binary); err != nil {
+		return err
 	}
 	// The exec's env holds ONLY the engine-native variables; the launch's
 	// engine env — the identity carriers, the label's env, the caller's

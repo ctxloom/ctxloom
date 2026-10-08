@@ -110,10 +110,9 @@ agents:
 
 	ctx.Step(`^a session owner is standing with the opencode endpoint key exported$`, func(c context.Context) error {
 		w := worldFrom(c)
-		// The version probe finds the engine's binary on PATH; the label's
-		// binary_path names the same script for the turns.
-		path := filepath.Dir(j002300OpencodeRecord(w)) + string(os.PathListSeparator) + os.Getenv("PATH")
-		return w.standSessionOwner(w.env.AppBinary, "CTXLOOM_OPENCODE_API_KEY="+j002300OpencodeKey, "PATH="+path)
+		// No opencode on PATH: the version probe asks the label's binary_path,
+		// the script the turns spawn.
+		return w.standSessionOwner(w.env.AppBinary, "CTXLOOM_OPENCODE_API_KEY="+j002300OpencodeKey)
 	})
 
 	ctx.Step(`^"([^"]*)"'s reported turn carries the guidance opencode read from its delivered context$`,

@@ -169,18 +169,23 @@ func EngineAvailable(reg engine.Registry, name string) bool {
 // newEngineVersionProber is the probe cache over reg. The App holds one
 // (App.ProbeEngineVersion), so the fingerprint cache is shared across
 // everything in a `ctxloom run` that might ask; per-call Probers would each
-// re-exec the engine. It pairs the engine's resolved binary
-// (EngineAvailability) with the version command its Definition declares
+// re-exec the engine. It pairs the binary a launch names (resolved as the
+// launcher resolves it), else the engine's own (EngineAvailability), with the version command its Definition declares
 // (engine.Definition.Version). An unresolvable binary is
 // *engineversion.BinaryAbsentError so a caller can tell "not installed"
 // (ordinary) from "installed and misbehaved" (worth saying out loud).
 func newEngineVersionProber(reg engine.Registry) *engineversion.Prober {
-	return engineversion.NewProber(func(name string) (string, engineversion.Command, error) {
+	return engineversion.NewProber(func(name, binary string) (string, engineversion.Command, error) {
 		e, ok := reg.Lookup(engine.Name(name))
 		if !ok || !e.Root().Version.Declared() {
 			return "", engineversion.Command{}, &engineversion.NoVersionCommandError{Engine: name}
 		}
-		binary, err := EngineAvailability(reg, name)
+		var err error
+		if binary == "" {
+			binary, err = EngineAvailability(reg, name)
+		} else {
+			binary, err = shellenv.Resolve(binary)
+		}
 		if err != nil {
 			return "", engineversion.Command{}, &engineversion.BinaryAbsentError{Engine: name, Err: err}
 		}
@@ -193,6 +198,13 @@ func newEngineVersionProber(reg engine.Registry) *engineversion.Prober {
 // says it is, through this App's shared cached prober. Every error is one of
 // engineversion's typed refusals; there is no fallback value.
 func (a *App) ProbeEngineVersion(ctx context.Context, name string) (string, error) {
+	return a.ProbeEngineVersionAt(ctx, name, "")
+}
+
+// ProbeEngineVersionAt is ProbeEngineVersion at the binary a launch will
+// spawn (its Exec's binary: a label's binary_path, where the engine honours
+// one); empty is the engine's own binary.
+func (a *App) ProbeEngineVersionAt(ctx context.Context, name, binary string) (string, error) {
 	a.proberOnce.Do(func() { a.prober = newEngineVersionProber(a.engines) })
-	return a.prober.Probe(ctx, name)
+	return a.prober.ProbeBinary(ctx, name, binary)
 }

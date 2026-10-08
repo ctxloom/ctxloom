@@ -49,8 +49,8 @@ func runnerDepsFor(backend agent.Backend, backendName string, host *runner.Engin
 		Driver:     host,
 		Unsetenv:   os.Unsetenv,
 		Environ:    os.Environ,
-		EngineVersion: func(ctx context.Context) (string, error) {
-			return App().ProbeEngineVersion(ctx, backendName)
+		EngineVersion: func(ctx context.Context, binary string) (string, error) {
+			return App().ProbeEngineVersionAt(ctx, backendName, binary)
 		},
 	}
 	if c, ok := backend.(agent.Configurable); ok {

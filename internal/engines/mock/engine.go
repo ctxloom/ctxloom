@@ -275,6 +275,9 @@ func Build(name engine.Name, opts ...Option) (engine.Engine, error) {
 		ModelAliases:      map[string]string{},
 		ExportSchema:      []byte(`{"type":"object"}`),
 		DelegatedChildren: engine.Absent[engine.DelegatedChildren]("a test double is admitted to delegation only where the binary hosts it (WithDelegation)"),
+		// mock delivers every surface, so a mock-backed worktree is left
+		// holding its config dir and its context file.
+		ProjectArtifacts: []string{ConfigDirName + "/", ContextFileName},
 	}
 	m := Mock{Base: engine.Base{Definition: d}, fires: map[string]bool{}}
 	for _, e := range hookEvents {

@@ -281,7 +281,9 @@ type Hook struct {
 	// could not tell them apart.
 	Order *int
 
-	Matcher         string
+	// Tool narrows a tool event to one neutral tool class; a tree hook, like
+	// every bundle hook, never names an engine's own tools.
+	Tool            wire.ToolClass
 	Type            string
 	Command         string
 	Args            []string
@@ -325,14 +327,19 @@ func (h Hook) refName() string { return h.Event + "/" + h.Name }
 // bookkeeping, and keeping both out of the content file keeps the vendor
 // config pure.
 type hookContent struct {
-	Matcher         string   `yaml:"matcher,omitempty"`
-	Type            string   `yaml:"type,omitempty"`
-	Command         string   `yaml:"command,omitempty"`
-	Args            []string `yaml:"args,omitempty"`
-	Prompt          string   `yaml:"prompt,omitempty"`
-	Timeout         int      `yaml:"timeout,omitempty"`
-	Async           bool     `yaml:"async,omitempty"`
-	PreToolFallback bool     `yaml:"pre_tool_fallback,omitempty"`
+	Tool            wire.ToolClass `yaml:"tool,omitempty"`
+	Type            string         `yaml:"type,omitempty"`
+	Command         string         `yaml:"command,omitempty"`
+	Args            []string       `yaml:"args,omitempty"`
+	Prompt          string         `yaml:"prompt,omitempty"`
+	Timeout         int            `yaml:"timeout,omitempty"`
+	Async           bool           `yaml:"async,omitempty"`
+	PreToolFallback bool           `yaml:"pre_tool_fallback,omitempty"`
+
+	// RefusedMatcher catches an engine-native `matcher:` so Decode can refuse
+	// it: this file decodes leniently, and a dropped matcher would leave the
+	// hook firing on EVERY tool with nothing said. Never written.
+	RefusedMatcher string `yaml:"matcher,omitempty"`
 }
 
 // hookMeta is the sidecar's shape: our keys only.
@@ -387,11 +394,17 @@ func (t hookType) Decode(src Source) (Surface, error) {
 		return nil, err
 	}
 	event, hookName, _ := strings.Cut(name, "/")
+	if content.RefusedMatcher != "" {
+		return nil, fmt.Errorf("%w: hook %s: matcher %q names an engine's own tools; narrow the hook with `tool:` (one of %s) instead", ErrSurfaceType, name, content.RefusedMatcher, wire.ToolClassList())
+	}
+	if content.Tool != "" && !content.Tool.Known() {
+		return nil, fmt.Errorf("%w: hook %s: tool %q is not a tool class; use one of %s", ErrSurfaceType, name, content.Tool, wire.ToolClassList())
+	}
 	return Hook{
 		Event:           event,
 		Name:            hookName,
 		Order:           meta.Order,
-		Matcher:         content.Matcher,
+		Tool:            content.Tool,
 		Type:            content.Type,
 		Command:         content.Command,
 		Args:            content.Args,
@@ -416,7 +429,7 @@ func (t hookType) Encode(s Surface) ([]Component, error) {
 	}
 	return encodeExecItem(t, h.refName(),
 		hookContent{
-			Matcher:         h.Matcher,
+			Tool:            h.Tool,
 			Type:            h.Type,
 			Command:         h.Command,
 			Args:            h.Args,

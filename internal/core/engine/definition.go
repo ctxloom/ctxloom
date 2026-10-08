@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -62,6 +63,13 @@ type Definition struct {
 	// whether a one-shot child resumes by native key. Validate refuses it
 	// undecided, so a new engine is reviewed onto delegation explicitly.
 	DelegatedChildren Declared[DelegatedChildren]
+	// ProjectArtifacts are the paths, relative to a session's working tree,
+	// the engine's delivery writes there (its config dir, its MCP file, its
+	// context file), in gitignore pattern syntax: a directory ends in "/".
+	// They are the engine's share of what a per-agent worktree must keep out
+	// of a merge-back; consumers read them through the registry, never as
+	// copies of the engine's constants.
+	ProjectArtifacts []string
 }
 
 // DelegatedChildren is how delegated children run on an engine that admits
@@ -258,6 +266,11 @@ func (d Base) validateHeader() error {
 	}
 	if d.Dynamic != nil && d.MCP == nil {
 		return fmt.Errorf("%w: %s: a dynamic approach needs an MCP approach to name the endpoint", ErrDefinition, d.Name)
+	}
+	for _, p := range d.ProjectArtifacts {
+		if p == "" || strings.HasPrefix(p, "/") || slices.Contains(strings.Split(strings.TrimSuffix(p, "/"), "/"), "..") {
+			return fmt.Errorf("%w: %s: project artifact %q must be a non-empty path relative to the working tree, inside it", ErrDefinition, d.Name, p)
+		}
 	}
 	return nil
 }

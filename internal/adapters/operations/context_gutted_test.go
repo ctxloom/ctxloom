@@ -9,12 +9,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
-// A profile whose content the review gate withholds ENTIRELY
-// assembled to a stub and exited 0. The per-item withheld advisory names items
-// but never the PROFILE, so `run -p coordinator` on a virgin machine emitted a
-// generic pending-review line and produced a context with the coordinator's
-// whole role missing — the agent still answers, just lobotomized. Silent
-// context degradation is the worst case for a trust gate.
+// A profile that declared fragments and contributed NONE of them (each one
+// withheld or missing) must be named as gutted. The per-item withheld advisory
+// names items but never the PROFILE, so without this a run assembles a context
+// with that profile's whole role missing and exits 0 — the agent still
+// answers, just lobotomized. Silent context degradation is the worst case.
 func TestGuttedProfiles(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

@@ -120,6 +120,6 @@ the cell's transport, its answer recorded on the session's own transcript).
 from its cache mints nothing. The session compactor (`session compact`, the MCP
 compactor), the bundle distiller (`bundle distill`), the trigger triage and init's auth probe are
 one-shots; they receive the managed surfaces the generation composes for
-their label (the default profiles' MCP servers, hooks, commands and skills,
-gated by the generation's executable trust gate) — the surfaces a
+their label (the default profiles' MCP servers, hooks, commands and skills)
+— the surfaces a
 `LaunchFormMinimal` run used to declare away.

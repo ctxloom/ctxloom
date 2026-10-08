@@ -49,7 +49,7 @@ type LoadedContent struct {
 }
 
 // ItemRead is what a READ reports for one fragment or command: every form the
-// store holds, the item's metadata, and the trust FACTS the reader established
+// store holds, the item's metadata, and the read FACTS the reader established
 // while reading it. It carries no selected body and no verdict — selecting a
 // form and deciding admissibility are both PROCESS-stage work
 // (docs/design/engine-delivery-seam.design.md, "ALL processing lives in the
@@ -231,7 +231,7 @@ func (c Catalog) ListAllCommands() []ContentInfo {
 }
 
 // ReadFragment reports every fragment this reader holds under name, with the
-// trust facts attached and NOTHING dropped on policy grounds. Name can be
+// read facts attached and NOTHING dropped on policy grounds. Name can be
 // "fragment-name" (searches all bundles, so several bundles may each answer)
 // or "bundle#fragments/name" (at most one). The process stage decides which of
 // them — if any — may be delivered; see Pipeline.GetFragment.

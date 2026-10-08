@@ -17,7 +17,7 @@ import (
 // for the failure that caused the U3b-2 revert.
 //
 // A source ref the grammar cannot convert degrades to the zero BundleRef, which
-// degrades to an unaddressable item ref, which the trust gate WITHHOLDS. That
+// mints no item ref, so every item under it is WITHHELD. That
 // chain is fail-CLOSED and stays, but it used to be fail-SILENT: every mint site
 // wrote `if typed, err := mint(...); err == nil` and dropped the error, so 402
 // items vanished from delivery and the only evidence was a %#v of an all-empty

@@ -50,11 +50,9 @@ func captureStderr(t *testing.T, fn func()) string {
 	return <-done
 }
 
-// TestSyncDependencies_FirstInstallLandsActive pins the post-demolition model:
-// a profile-referenced bundle from an UNTRUSTED remote installs straight into
-// the ACTIVE lockfile — the pin moves freely, with no pending-review split.
-// Withholding its content from the agent is the content trust gate's job
-// (per-item, at exposure), not the lockfile's.
+// TestSyncDependencies_FirstInstallLandsActive pins that a profile-referenced
+// bundle from a remote installs straight into the ACTIVE lockfile — there is no
+// pending-review split. Adding the repository is the act of trusting it.
 func TestSyncDependencies_FirstInstallLandsActive(t *testing.T) {
 	baseDir, ref, identity, c1 := setupUpgrade(t)
 	cfg := testConfigWithSCMPath(baseDir)

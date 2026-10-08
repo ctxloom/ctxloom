@@ -45,25 +45,24 @@ var readerTreeFragments = map[string]string{"keeper": "KEEPER-PAYLOAD"}
 // The axes cannot be minted, and an unpopulated read claims nothing.
 // ---------------------------------------------------------------------------
 
-// TestBundleRead_TrustAxesCannotBeMintedByACaller is the structural half of the
-// rule: the three axes are unexported, so no caller anywhere — in this module or
-// out of it — can write "local" into a struct literal and have the loader
-// believe it. This is the same property, for the same reason, that
-// TestParseBundle_YAMLCannotForgeUntrustedSignerFingerprint pins for a bundle
-// file's claim about its own signer.
+// TestBundleRead_LocalityAndRefCannotBeSetByACaller is the structural half of
+// the rule: a read's locality and resolution ref are unexported, so no caller
+// anywhere — in this module or out of it — can write "local" or a resolution
+// identity into a struct literal and have the loader believe it. Only a reader
+// sets them (newRead).
 //
 // It is asserted by REFLECTION rather than by "it does not compile", because a
 // compile-time proof cannot be written as a test that fails when the field is
 // exported — the file simply stops building, which reads as a broken test
 // rather than as a violated invariant.
-func TestBundleRead_TrustAxesCannotBeMintedByACaller(t *testing.T) {
+func TestBundleRead_LocalityAndRefCannotBeSetByACaller(t *testing.T) {
 	rt := reflect.TypeOf(BundleRead{})
 	for _, name := range []string{"locality", "ref"} {
 		field, ok := rt.FieldByName(name)
 		require.True(t, ok, "BundleRead must still carry %s", name)
 		assert.NotEmpty(t, field.PkgPath,
-			"BundleRead.%s must stay UNEXPORTED: an exported one lets any caller mint trust facts "+
-				"out of a struct literal, which is a trust bypass that reviews as data", name)
+			"BundleRead.%s must stay UNEXPORTED: an exported one lets any caller mint read facts "+
+				"out of a struct literal, which forges where content came from and reviews as data", name)
 	}
 }
 
@@ -77,7 +76,7 @@ func TestBundleRead_ZeroValueClaimsNothing(t *testing.T) {
 }
 
 // And the loader ACTS on that: an unclaimed read is withheld rather than
-// admitted as unsigned local content, and the withhold is recorded as a
+// admitted as local content, and the withhold is recorded as a
 // fatal-class finding rather than being silent.
 func TestLoader_WithholdsAnUnclaimedRead(t *testing.T) {
 	strictness.Reset()
@@ -87,14 +86,14 @@ func TestLoader_WithholdsAnUnclaimedRead(t *testing.T) {
 	forged := BundleRead{Bundle: &Bundle{Name: "forged", Version: "1.0"}, Provenance: ProvenanceProject}
 	l := LoaderOf(Resolve(context.Background(), ledger(), staticReader{reads: []BundleRead{forged}}))
 
-	assert.Empty(t, l.Reads(), "a read with no established trust facts must not become addressable content")
+	assert.Empty(t, l.Reads(), "a read with no established read facts must not become addressable content")
 	_, err := l.Load("forged")
 	assert.Error(t, err)
 	assert.NotEmpty(t, strictness.Since(mark), "withholding it must be recorded, not silent")
 }
 
 // ---------------------------------------------------------------------------
-// Each constructor hard-codes its own provenance and trust context.
+// Each constructor hard-codes its own provenance and locality.
 // ---------------------------------------------------------------------------
 
 // readerRoot is where a tree must be written for the reader to

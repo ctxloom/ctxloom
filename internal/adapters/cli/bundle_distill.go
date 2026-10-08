@@ -284,11 +284,19 @@ var defaultDistillPrompt = resources.MustGetPromptText("distill-default")
 // bundles the run is using. A nil cfg has no bundles to consult and yields
 // the default.
 func loadDistillPrompt(cfg *config.Config) (string, error) {
+	return distillPromptFrom(cfg, nil)
+}
+
+// distillPromptFrom is loadDistillPrompt over a stated delivery pipeline; nil
+// means the exposure pipeline operations.GetCommand builds for itself. The
+// pipeline is a parameter so the withheld arm can be driven by a pipeline that
+// really withholds, rather than asserted about.
+func distillPromptFrom(cfg *config.Config, pipe *bundles.Pipeline) (string, error) {
 	if cfg == nil {
 		return defaultDistillPrompt, nil
 	}
 
-	prompt, err := operations.GetCommand(context.Background(), cfg, operations.GetCommandRequest{Name: "distill"})
+	prompt, err := operations.GetCommand(context.Background(), cfg, operations.GetCommandRequest{Name: "distill", Pipeline: pipe})
 	switch {
 	case err == nil && prompt.Content != "":
 		return strings.TrimSpace(prompt.Content), nil

@@ -12,12 +12,12 @@ import (
 	"testing"
 )
 
-// TestNoBuiltinSourceRefLiteralSurvives is S3's literal sweep, made
-// mechanical: trust.BuiltinSourcePrefix is gone, so the only way a builtin
-// source ref can be MINTED is through trust.BuiltinRef — a producer that
-// falls back to hand-spelling "builtin:<name>" would silently reopen the
-// two-identity gate bypass S1a closed (crispy-scoop) without the compiler
-// ever noticing, because a string literal is not a call to BuiltinRef.
+// TestNoBuiltinSourceRefLiteralSurvives keeps the retired "builtin:" source
+// class retired. Every bundle source ref is minted by an ident constructor
+// (LocalRef, GitRef, FileRef, CompanionRef), and none of them mints a
+// "builtin:" ref, so a producer that hand-spells "builtin:<name>" would key a
+// bundle under a second identity no constructor produces — and the compiler
+// would never notice, because a string literal is not a constructor call.
 //
 // Scoped to the three packages that mint or consume a bundle-shipped
 // executable's SCM/source ref — internal/core/bundles, internal/core/config,
@@ -66,7 +66,7 @@ func TestNoBuiltinSourceRefLiteralSurvives(t *testing.T) {
 	}
 
 	if len(offenders) > 0 {
-		t.Fatalf("a bundle source ref must be MINTED through trust.BuiltinRef, never hand-spelled — "+
+		t.Fatalf("a bundle source ref must be MINTED by an ident constructor, never hand-spelled — "+
 			"found %d raw \"builtin:\" string literal(s) in producer code:\n%s",
 			len(offenders), strings.Join(offenders, "\n"))
 	}

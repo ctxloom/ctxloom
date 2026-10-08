@@ -692,7 +692,7 @@ func (c Catalog) read(ask string) (BundleRead, error) {
 }
 
 // Read resolves an ask to the READ that answers for it — the content plus the
-// trust facts its reader established.
+// read facts its reader established.
 //
 // It exists because the executable surfaces resolve a bundle by ref without
 // ever going through a Pipeline. Load remains for callers that

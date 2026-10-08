@@ -11,7 +11,7 @@ import (
 )
 
 // TestLockfileManager_ConcurrentSaveNoTornFile pins jolly-unworried-twitter: the
-// lockfile is the sole on-disk trust/provenance record, so a torn write would
+// lockfile is the sole on-disk record of what is pinned, so a torn write would
 // corrupt it. Save writes to a unique temp file and renames into place, which is
 // atomic on one filesystem — so concurrent writers and readers must never
 // observe a partial/empty/corrupt lock.yaml, only a complete one.

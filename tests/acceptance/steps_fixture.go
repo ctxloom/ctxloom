@@ -147,7 +147,7 @@ func fixtureCommandBody(name string) string {
 //
 // Commands live under "prompts/", not "commands/" — the same kind/directory
 // split steps_j001400_bundle_distribution.go's j001400AuthoredTree documents
-// (trust.KindPrompt, a residue of the skill->command rename).
+// (ident.KindPrompt, a residue of the skill->command rename).
 func fixtureDemoTreeFiles(version, description, fragName, fragContent string, includeCommand bool) map[string]string {
 	root := treeBundlePath("demo")
 	files := map[string]string{

@@ -28,7 +28,7 @@ const (
 	alphaStyle = alphaRef + "#fragments/style"
 	alphaMaybe = alphaRef + "#fragments/maybe"
 	betaTagged = betaRef + "#fragments/tagged"
-	// A command's trust ref keeps the "prompts" kind segment (trust.KindPrompt)
+	// A command's item ref keeps the "prompts" kind segment (ident.KindPrompt)
 	// even though the load selector is "#commands/", so grants survive the
 	// item-kind rename.
 	alphaReview  = alphaRef + "#prompts/review"

@@ -145,7 +145,7 @@ type BundleRead struct {
 //
 // It is a LABEL, not an identity. Two bundles read from different sources may
 // share one, and neither displaces the other; what tells them apart is Key.
-// Anything that must address exactly one bundle — a trust ref, a resolution,
+// Anything that must address exactly one bundle — a resolution,
 // a "<source>#<kind>/<name>" gate ref — wants Key or SourceRef below.
 func (r BundleRead) DisplayName() string { return r.ref }
 

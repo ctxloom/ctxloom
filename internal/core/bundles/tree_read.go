@@ -140,8 +140,8 @@ type reader struct {
 // The type switch is exhaustive over the registered kinds and its default arm
 // FAILS. A new surface type that nobody taught this function about would
 // otherwise be silently dropped: the tree would enumerate it, the manifest
-// would cover it, the signature would verify, and the item simply would not
-// exist in the bundle anyone reads.
+// would cover it, and the item simply would not exist in the bundle anyone
+// reads.
 func (r *reader) add(ref ident.Ref, s content.Surface) error {
 	switch v := s.(type) {
 	case content.Fragment:

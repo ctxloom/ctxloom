@@ -306,7 +306,7 @@ that `ctxloom run` launches. The hook no longer carries it:
   is general: it flags any hook entry that runs a `ctxloom hook` subcommand
   this ctxloom does not have, not only `inject-context`.
 
-## 13. `ctxloom materialize` is the at-rest delivery, and `unsafe-file` is `file`
+## 13. `ctxloom materialize` is the at-rest delivery, and the native-file approach is `file`
 
 `ctxloom materialize [<profile>...]` writes the assembled profiles into a
 directory as each engine's native files. With no profiles it writes the

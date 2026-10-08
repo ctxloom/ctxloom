@@ -68,15 +68,15 @@ func RemoveHooks(ctx context.Context, reg engine.Registry, _ *config.Config, req
 	return &RemoveHooksResult{Status: status, Backends: removed, Errors: errs}, nil
 }
 
-// removeBackendHarness delivers the EMPTY plan against the project target:
-// the project writer's record says what ctxloom put there and only that is
-// removed — the user's own hooks, servers, commands and context stay.
+// removeBackendHarness releases every kind of the engine's at-rest
+// placement in workDir: its per-kind project writers' record says what
+// ctxloom put there and only that is removed — the user's own hooks, servers, commands and context stay.
 func removeBackendHarness(ctx context.Context, reg engine.Registry, name, workDir string, root safefs.Root) error {
 	kind, ok := reg.Lookup(engine.Name(name))
 	if !ok {
 		return fmt.Errorf("failed to remove %s: no engine kind is composed for it", name)
 	}
-	if err := RemoveProject(ctx, root, kind, workDir); err != nil {
+	if err := Release(ctx, root, kind, atRestPlacement(workDir, kind.Root().Name, delivery.AllKinds())); err != nil {
 		return fmt.Errorf("failed to remove %s: %w", name, err)
 	}
 	return nil

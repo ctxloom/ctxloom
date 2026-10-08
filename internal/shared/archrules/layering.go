@@ -168,7 +168,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/configload -> internal/adapters/projectroot":        "slice 7: launch.HostFacts carries the project root from cmd/*",
 			"internal/adapters/operations -> internal/adapters/configload":         "slice 7: the process is composed at cmd/*; operations.App receives the Sources",
 			"internal/adapters/operations -> internal/adapters/companions":         "slice 7: the process is composed at cmd/*; the companion Prober is injected",
-			"internal/adapters/operations -> internal/adapters/fsstatic":           "slice 14a: the composition root hands operations the static writer; until then operations composes the at-rest delivery itself (DeliverProject, RemoveProject)",
+			"internal/adapters/operations -> internal/adapters/fsstatic":           "slice 14a: the composition root hands operations the static writer; until then operations composes the at-rest delivery itself (the placement core: Deliver, Release)",
 			"internal/adapters/fsstatic -> internal/adapters/confpatch":            "sanctioned: the ownership record diffs its structured reversals through confpatch's hew machinery; the record lives beside the static writer because the lean companions link confpatch and must not link the package model delivery carries",
 			"internal/adapters/cli -> internal/adapters/fsstatic":                  "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and composes the runner's static writer",
 			"internal/adapters/cli -> internal/adapters/fsstore":                   "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and roots the runner's claim store",

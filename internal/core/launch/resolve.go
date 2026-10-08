@@ -271,8 +271,8 @@ func markOwner(env map[string]string, id sessions.Identity, mode engine.Mode) {
 	delete(env, sessions.EnvSessionOwner)
 }
 
-// deliverLaunch fills l's delivery over its prepared cell: Exports, Route
-// (over the cell's roots), the endpoint once per harp (bound on the session
+// deliverLaunch fills l's delivery over its prepared cell: Exports, the
+// plan (delivery.PlanFor over the cell's roots), the endpoint once per harp (bound on the session
 // record), the catalog index, and the package encoded and carried by size;
 // a run that plans first must have an approval route over that endpoint
 // (requireApprovalRoute). The caller discards the cell on error.
@@ -282,11 +282,7 @@ func deliverLaunch(ctx context.Context, deps Deps, src Source, eng engine.Engine
 	if err != nil {
 		return fmt.Errorf("%s exports: %w", def.Name, err)
 	}
-	pref, err := preference(def, roots)
-	if err != nil {
-		return err
-	}
-	plan, err := delivery.Route(itemsOf(pkg, def.Name), def, pref, l.Cell.Paths.Paths())
+	plan, err := planLaunch(def, pkg, roots, l.Cell.Paths.Paths())
 	if err != nil {
 		return err
 	}
@@ -526,31 +522,37 @@ func carry(ctx context.Context, deps Deps, enc composite.Encoded) (composite.Car
 	return deps.ClaimCheck.Carry(ctx, enc)
 }
 
-// preference is the binding's delivery preference as Route reads it: the
-// root the binding selects per kind (validated when the binding was
-// written; a label that no longer parses is refused here by name), and the
-// losses it accepts. No binding records a loss acceptance yet, so every
-// kind the Definition does not carry is accepted: a run that delivers the
-// rest is better than none until a binding can say otherwise.
-func preference(def engine.Base, roots map[string]string) (delivery.Preference, error) {
-	pref := delivery.Preference{Root: map[present.Kind]present.RootKind{}, AcceptLoss: map[present.Kind]bool{}}
+// planLaunch is the launch's plan over the cell's roots: the placement
+// core's one planner (delivery.PlanFor) with the root the binding selects
+// per kind, every kind, and the session endpoint served.
+func planLaunch(def engine.Base, pkg composite.Package, roots map[string]string, paths present.Paths) (delivery.Plan, error) {
+	selected, err := bindingRoots(roots)
+	if err != nil {
+		return delivery.Plan{}, err
+	}
+	return delivery.PlanFor(def, itemsOf(pkg, def.Name), paths, selected, nil, true)
+}
+
+// bindingRoots is the root the binding selects per kind (validated when the
+// binding was written; a label that no longer parses is refused here by
+// name). The losses a launch accepts are PlanFor's: no binding records a
+// loss acceptance yet, so every kind the Definition does not carry is
+// accepted — a run that delivers the rest is better than none until a
+// binding can say otherwise.
+func bindingRoots(roots map[string]string) (map[present.Kind]present.RootKind, error) {
+	out := map[present.Kind]present.RootKind{}
 	for name, label := range roots {
 		k, ok := present.ParseKind(name)
 		if !ok {
-			return delivery.Preference{}, fmt.Errorf("%w: the binding selects a root for %q, which is not a surface kind", ErrBindingRoots, name)
+			return nil, fmt.Errorf("%w: the binding selects a root for %q, which is not a surface kind", ErrBindingRoots, name)
 		}
 		r, ok := present.ParseRootKind(label)
 		if !ok {
-			return delivery.Preference{}, fmt.Errorf("%w: the binding selects root %q for %s, which is not a root", ErrBindingRoots, label, name)
+			return nil, fmt.Errorf("%w: the binding selects root %q for %s, which is not a root", ErrBindingRoots, label, name)
 		}
-		pref.Root[k] = r
+		out[k] = r
 	}
-	for _, k := range []present.Kind{present.Context, present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills} {
-		if !def.Carries(k) {
-			pref.AcceptLoss[k] = true
-		}
-	}
-	return pref, nil
+	return out, nil
 }
 
 // endpoint mints a fresh MCP endpoint for THIS launch, a resume included, and

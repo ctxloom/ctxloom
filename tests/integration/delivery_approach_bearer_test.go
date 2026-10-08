@@ -85,8 +85,8 @@ func TestDeliveryApproach_ClaudeProjectMCPNeverHoldsTheBearerAcrossSessions(t *t
 
 // sharedMCPFile is one project whose .mcp.json the user wrote, delivered into
 // by BOTH of claude's writers of that file: the at-rest hooks install
-// (operations.DeliverProject, the project writer — what applyHooksToBackend
-// runs) and a run's file delivery (a session writer), over the one
+// (operations.Deliver at the project root, the per-kind project writers —
+// what applyHooksToBackend runs) and a run's file delivery (a session writer), over the one
 // production record store, so each step is where one writer's release could
 // take out the other's entry.
 type sharedMCPFile struct {
@@ -121,7 +121,7 @@ func newSharedMCPFile(t *testing.T) *sharedMCPFile {
 // atRest is the hooks install's delivery into the project.
 func (s *sharedMCPFile) atRest() {
 	s.t.Helper()
-	_, _, err := operations.DeliverProject(context.Background(), safefs.New(), s.kind, s.pkg, s.project)
+	_, _, err := operations.Deliver(context.Background(), safefs.New(), s.kind, s.pkg, delivery.Loadout{}, atRestAt(s.project, s.kind))
 	require.NoError(s.t, err, "the at-rest delivery")
 }
 
@@ -183,7 +183,7 @@ func TestDeliveryApproach_AtRestThenARunShareTheProjectMCPFile(t *testing.T) {
 	s.expect("3 the run tore down", bearer, true, false)
 	s.atRest()
 	s.expect("4 at rest again", bearer, true, false)
-	require.NoError(t, operations.RemoveProject(context.Background(), safefs.New(), s.kind, s.project))
+	require.NoError(t, operations.Release(context.Background(), safefs.New(), s.kind, atRestAt(s.project, s.kind)))
 	s.expect("5 uninstalled", bearer, false, false)
 }
 
@@ -200,6 +200,6 @@ func TestDeliveryApproach_AnAtRestApplyMidRunKeepsTheRunsEntry(t *testing.T) {
 	s.expect("2 at rest mid-run", bearer, true, true)
 	teardown()
 	s.expect("3 the run tore down", bearer, true, false)
-	require.NoError(t, operations.RemoveProject(context.Background(), safefs.New(), s.kind, s.project))
+	require.NoError(t, operations.Release(context.Background(), safefs.New(), s.kind, atRestAt(s.project, s.kind)))
 	s.expect("4 uninstalled", bearer, false, false)
 }

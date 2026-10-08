@@ -366,7 +366,7 @@ func (l Launch) Loadout(pkg composite.Package) delivery.Loadout {
 // Target is where this launch's static items land: the cell's advised
 // roots, under the session's own writer tag, recorded in records.
 func (l Launch) Target(records delivery.Ownership) delivery.Target {
-	return delivery.Target{Root: present.New(l.Cell.Paths), Ownership: records, Writer: delivery.SessionWriter(l.Identity.Harp)}
+	return delivery.TargetFor(present.New(l.Cell.Paths), records, delivery.SessionWriter(l.Identity.Harp), nil)
 }
 
 // EngineEnv is the environment the engine process is started with: the

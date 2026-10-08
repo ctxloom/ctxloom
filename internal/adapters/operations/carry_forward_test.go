@@ -9,18 +9,19 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
-// TestDeliverProject_ACompanionWhoseProbeFailedKeepsItsEntries: a verified
+// TestDeliver_AtRest_ACompanionWhoseProbeFailedKeepsItsEntries: a verified
 // companion whose loadout probe failed contributes nothing this time, and
 // what it contributes is UNKNOWN — so its entries stay as the record says it
 // left them. A later delivery whose probe succeeds and no longer names it
 // takes them out.
-func TestDeliverProject_ACompanionWhoseProbeFailedKeepsItsEntries(t *testing.T) {
+func TestDeliver_AtRest_ACompanionWhoseProbeFailedKeepsItsEntries(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	const dir = "/project"
 	kind, ok := engines.Registry().Lookup(engine.Name("claude-code"))
@@ -29,7 +30,7 @@ func TestDeliverProject_ACompanionWhoseProbeFailedKeepsItsEntries(t *testing.T) 
 	own := wire.MCPServer{Command: "own-mcp"}
 	deliver := func(pkg composite.Package) map[string]any {
 		t.Helper()
-		_, _, err := DeliverProject(context.Background(), safefs.NewMem(fs), kind, pkg, dir)
+		_, _, err := Deliver(context.Background(), safefs.NewMem(fs), kind, pkg, delivery.Loadout{}, atRestPlacement(dir, kind.Root().Name, delivery.AllKinds()))
 		require.NoError(t, err)
 		return mcpServersIn(t, fs, dir)
 	}

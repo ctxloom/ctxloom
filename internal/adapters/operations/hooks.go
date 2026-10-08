@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -439,8 +440,8 @@ func contextRidesTheLaunch(root engine.Base) bool {
 }
 
 // applyHooksToBackend delivers the package AT REST into the project root
-// for one engine — the ONE static writer over the at-rest plan, under the
-// project writer's record. An engine that takes its context at launch gets
+// for one engine — the placement core (Deliver) at the project root, under
+// the engine's per-kind project writers, every kind. An engine that takes its context at launch gets
 // none here (a CLAUDE.md beside the system prompt would double it), and a
 // section a prior delivery claimed is withdrawn; any other engine gets its
 // native context file at the project root. A dry run stops before the write.
@@ -458,7 +459,7 @@ func applyHooksToBackend(ctx context.Context, reg engine.Registry, backendName s
 	if p.dryRun {
 		return nil, nil
 	}
-	if _, _, err := DeliverProject(ctx, p.root, kind, pkg, p.workDir); err != nil {
+	if _, _, err := Deliver(ctx, p.root, kind, pkg, delivery.Loadout{}, atRestPlacement(p.workDir, kind.Root().Name, delivery.AllKinds())); err != nil {
 		return nil, fmt.Errorf("failed to apply %s: %w", backendName, err)
 	}
 	return nil, nil

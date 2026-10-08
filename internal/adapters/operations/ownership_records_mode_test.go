@@ -15,18 +15,19 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir: the claims record
+// TestDeliver_AtRest_ClaudesMCPRecordOverALooseRecordDir: the claims record
 // for claude's .mcp.json holds every value ctxloom put there, so a records
 // directory an older binary left 0755 must be owner-only before the record
 // lands in it; the process establishes it at startup
 // (paths.EnsureHomeRoots), before any delivery can run.
-func TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir(t *testing.T) {
+func TestDeliver_AtRest_ClaudesMCPRecordOverALooseRecordDir(t *testing.T) {
 	testsupport.Isolate(t)
 	recordsDir, err := paths.HomeRecordsDir()
 	require.NoError(t, err)
@@ -39,7 +40,7 @@ func TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir(t *testing.T) {
 	pkg := compositetest.Fixture(t, compositetest.WithMCP("tasks", wire.MCPServer{Command: "tasks"}))
 	dir := t.TempDir()
 
-	_, _, err = DeliverProject(context.Background(), safefs.New(), kind, pkg, dir)
+	_, _, err = Deliver(context.Background(), safefs.New(), kind, pkg, delivery.Loadout{}, atRestPlacement(dir, kind.Root().Name, delivery.AllKinds()))
 	require.NoError(t, err)
 
 	require.NotEmpty(t, claimsRecordsIn(t, recordsDir), "the delivery must have written its claims record into the directory under test")
@@ -68,13 +69,13 @@ func TestDeliver_CreatesAMissingRecordDirOwnerOnly(t *testing.T) {
 	dir := t.TempDir()
 	root := kind.Root()
 	items := pkg.EngineItems(root.Name)
-	plan, err := delivery.ProjectPlan(root, items, dir)
+	plan, err := delivery.PlanFor(root, items, present.ProjectOnHost(dir).Paths(), nil, nil, false)
 	require.NoError(t, err)
 	exports, err := kind.Exports(items)
 	require.NoError(t, err)
 
 	lo := delivery.Loadout{Plan: plan, Package: pkg, Exports: exports, WorkDir: dir}
-	_, err = fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), lo, root, delivery.ProjectTarget(dir, records))
+	_, err = fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), lo, root, delivery.TargetFor(present.ProjectOnHost(dir), records, delivery.ProjectWriterFor(root.Name), delivery.AllKinds()))
 	require.NoError(t, err)
 
 	require.NotEmpty(t, claimsRecordsIn(t, recordsDir), "the delivery must have written its claims record into the directory under test")

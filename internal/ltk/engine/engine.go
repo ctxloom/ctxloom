@@ -210,6 +210,33 @@ func Get(name string) (Engine, error) {
 	return nil, fmt.Errorf("unknown engine %q", name)
 }
 
+// runtimeOnly are the adapters evaluate decodes payloads with but `manage`
+// cannot install into: hosts whose hook someone else delivers (opencode's,
+// fired by the bridge plugin ctxloom generates; opencode has no hook
+// settings).
+func runtimeOnly() []Adapter { return []Adapter{Opencode{}} }
+
+// Adapters is every adapter evaluate can decode with: each engine's, in
+// engines() order, then the runtime-only ones.
+func Adapters() []Adapter {
+	var out []Adapter
+	for _, e := range engines() {
+		out = append(out, e)
+	}
+	return append(out, runtimeOnly()...)
+}
+
+// AdapterFor returns the adapter registered under exactly name, an engine's
+// or a runtime-only one — no alias, case or prefix matching, as Get.
+func AdapterFor(name string) (Adapter, error) {
+	for _, a := range Adapters() {
+		if a.Name() == name {
+			return a, nil
+		}
+	}
+	return nil, fmt.Errorf("unknown engine %q", name)
+}
+
 // Detect returns the most relevant engine for the project at dir, or ok=false
 // if none is detected there.
 func Detect(dir string) (Engine, bool) {

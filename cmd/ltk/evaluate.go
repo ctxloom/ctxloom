@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -46,7 +47,7 @@ by hand.`,
 	}
 	c.Flags().StringVar(&f.cfgPath, "config", "", "path to rules YAML (default: search cwd)")
 	c.Flags().StringVar(&f.shellName, "shell", "", "force a shell dialect, overriding the engine's tool-derived shell")
-	c.Flags().StringVar(&f.engineName, "engine", engine.Default().Name(), "hook engine adapter")
+	c.Flags().StringVar(&f.engineName, "engine", "", "hook engine adapter (default: the engine whose payload this is, else "+engine.Default().Name()+")")
 	return c
 }
 
@@ -96,9 +97,23 @@ func emitDecision(out engine.Output, stdout, stderr io.Writer) error {
 
 // evaluate runs the full decision path — decode the hook payload, parse the
 // command, match the rules, encode the engine's wire output — with no process
-// concerns, so it is testable end to end.
+// concerns, so it is testable end to end. An empty engineName is the engine
+// whose payload this is (detectEngineFromPayload), else the default: a hook
+// command shared by every engine (a bundle's `ltk evaluate`) names none.
 func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) (engine.Output, error) {
-	adapter, err := engine.Get(engineName)
+	if engineName == "" {
+		input, err := io.ReadAll(stdin)
+		if err != nil {
+			return failClosed(engine.Default(), fmt.Sprintf(
+				"%s could not read the hook payload and is denying this action: %v", progName, err))
+		}
+		var detected engine.Adapter = engine.Default()
+		if a := detectEngineFromPayload(input); a != nil {
+			detected = a
+		}
+		engineName, stdin = detected.Name(), bytes.NewReader(input)
+	}
+	adapter, err := engine.AdapterFor(engineName)
 	if err != nil {
 		return denyUnknownEngine(engineName, err, stdin)
 	}
@@ -170,8 +185,7 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 // engine's own Decode against the payload actually received; the first one
 // that decodes something meaningful (a tool name, command, or file path) is
 // presumably the real host, so fail closed in ITS wire format instead of
-// guessing. Only one engine is registered today, but the loop stays general
-// for whichever second host arrives next.
+// guessing.
 //
 // lookupErr is returned unchanged in the one case with nothing to deny with.
 func denyUnknownEngine(engineName string, lookupErr error, stdin io.Reader) (engine.Output, error) {
@@ -206,24 +220,31 @@ func noteWhenNothingIsGated(out engine.Output, resolvedConfig string) engine.Out
 }
 
 // detectEngineFromPayload tries every registered engine's Decode against
-// input and returns the first whose result looks like a genuine decode — a
-// recognized tool name or a populated Command/FilePath — never a blind guess.
+// input and returns the first that RECOGNISES the payload's tool (a gated
+// tool, not ToolUngated), else the first whose result merely looks like a
+// genuine decode — a tool name or a populated Command/FilePath — never a blind
+// guess. Recognition comes first because two engines' payloads can share a
+// field name (a tool's input `command`) while only one knows the tool.
 // nil means no engine's Decode produced anything meaningful for
 // this payload, so the caller falls back to the default engine.
-func detectEngineFromPayload(input []byte) engine.Engine {
+func detectEngineFromPayload(input []byte) engine.Adapter {
 	if len(input) == 0 {
 		return nil
 	}
-	for _, e := range engine.All() {
+	var plausible engine.Adapter
+	for _, e := range engine.Adapters() {
 		req, err := e.Decode(input)
 		if err != nil {
 			continue
 		}
-		if req.ToolName != "" || req.Command != "" || req.FilePath != "" {
+		if !req.ToolUngated && req.ToolName != "" {
 			return e
 		}
+		if plausible == nil && (req.ToolName != "" || req.Command != "" || req.FilePath != "") {
+			plausible = e
+		}
 	}
-	return nil
+	return plausible
 }
 
 // ungatedToolDenyReason explains a deny for a payload whose tool name the

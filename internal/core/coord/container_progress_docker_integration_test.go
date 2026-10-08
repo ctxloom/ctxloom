@@ -139,7 +139,7 @@ func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*coord.S
 }
 
 func (s *progressSpawner) AssignSession(projectDir, backend string) (string, error) {
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, backend, filepath.Join(projectDir, ".test-output"))
+	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, backend, "", filepath.Join(projectDir, ".test-output"))
 	if err != nil {
 		return "", err
 	}
@@ -237,8 +237,8 @@ func (s *progressSpawner) record(name string, kill func()) {
 	s.cleanups = append(s.cleanups, kill)
 }
 
-func (s *progressSpawner) ResumeHistory(context.Context, string) string        { return "" }
-func (s *progressSpawner) RecordEngineVersion(context.Context, string, string) {}
+func (s *progressSpawner) ResumeHistory(context.Context, string) string                { return "" }
+func (s *progressSpawner) RecordEngineVersion(context.Context, string, string, string) {}
 
 func (s *progressSpawner) MarkSessionEnded(string)          {}
 func (s *progressSpawner) BindNativeSession(string, string) {}

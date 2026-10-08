@@ -28,8 +28,8 @@ type NopSpawner struct{}
 func (NopSpawner) Resolve(context.Context, string) (*coord.SpawnPlan, error) {
 	return nil, context.Canceled
 }
-func (NopSpawner) AssignSession(_, _ string) (string, error)           { return "", context.Canceled }
-func (NopSpawner) RecordEngineVersion(context.Context, string, string) {}
+func (NopSpawner) AssignSession(_, _ string) (string, error)                   { return "", context.Canceled }
+func (NopSpawner) RecordEngineVersion(context.Context, string, string, string) {}
 func (NopSpawner) ResolveLaunch(context.Context, *coord.SpawnPlan, coord.SpawnStart) (coord.Resolved, error) {
 	return coord.Resolved{}, context.Canceled
 }

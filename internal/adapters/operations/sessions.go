@@ -180,10 +180,11 @@ func ForgetSession(harp string) error {
 // probeEngineVersion is the seam AssignSession probes through. A package var
 // so tests can drive both outcomes without an engine binary installed — the
 // production value execs the real CLI through the shared cached prober.
-var probeEngineVersion = (*App).ProbeEngineVersion
+var probeEngineVersion = (*App).ProbeEngineVersionAt
 
 // AssignSession mints a fresh harp for a new run in projectDir under backend,
-// records the engine's version against it, and returns the pending index entry
+// records the version of the binary the run spawns (binary, the launch's
+// label binary; "" is the engine's own install) against it, and returns the pending index entry
 // (SessionID unbound until the spawned LLM initializes). The pre-launch naming
 // step in `ctxloom run` and in the ACP session opener.
 //
@@ -198,12 +199,12 @@ var probeEngineVersion = (*App).ProbeEngineVersion
 // ctx bounds the probe. It used to be discarded outright in favour of
 // context.Background(), which meant a wedged `--version` had no deadline at
 // all on any path.
-func (a *App) AssignSession(ctx context.Context, projectDir, backend, outputBase string) (sessions.Entry, error) {
+func (a *App) AssignSession(ctx context.Context, projectDir, backend, binary, outputBase string) (sessions.Entry, error) {
 	entry, err := AssignSessionHarp(projectDir, backend, outputBase)
 	if err != nil {
 		return sessions.Entry{}, err
 	}
-	if version, ok := a.RecordSessionEngineVersion(ctx, entry.HarpName, backend); ok {
+	if version, ok := a.RecordSessionEngineVersion(ctx, entry.HarpName, backend, binary); ok {
 		entry.EngineVersion = version
 	}
 	return entry, nil
@@ -270,9 +271,13 @@ func AssignSessionHarp(projectDir, backend, outputBase string) (sessions.Entry, 
 	return entry, nil
 }
 
-// RecordSessionEngineVersion probes backend's installed CLI and records what
-// it says against harp, reporting the recorded version and whether anything
-// was recorded.
+// RecordSessionEngineVersion probes the binary the session launched —
+// backend's at binary (the launch's label binary, a label's binary_path; ""
+// is the engine's own install), resolved as the launcher resolves it
+// (ProbeEngineVersionAt) — and records what it says against harp, reporting
+// the recorded version and whether anything was recorded. Probing the
+// engine's default install instead would record the version of a binary the
+// session never ran, and select the wrong transcript reader for it.
 //
 // WHY AT SESSION START (task wrought-spearman): this is the only moment at
 // which "what is installed" and "what will write this session's transcript"
@@ -290,8 +295,8 @@ func AssignSessionHarp(projectDir, backend, outputBase string) (sessions.Entry, 
 // ctx bounds the probe on top of the prober's own budget
 // (engineversion.DefaultProbeTimeout); neither is optional, because this is
 // the step that exec's somebody else's binary.
-func (a *App) RecordSessionEngineVersion(ctx context.Context, harp, backend string) (string, bool) {
-	version, perr := probeEngineVersion(a, ctx, backend)
+func (a *App) RecordSessionEngineVersion(ctx context.Context, harp, backend, binary string) (string, bool) {
+	version, perr := probeEngineVersion(a, ctx, backend, binary)
 	if perr != nil {
 		// An engine that declares no version command at all (mock, the
 		// generic acp backend — neither has one binary whose version would

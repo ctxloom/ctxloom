@@ -124,6 +124,9 @@ type fakeSpawner struct {
 	// order — the SLOW, post-registration half of session start (the real
 	// one execs a vendor CLI).
 	versionProbes []string
+	// versionBinaries records each RecordEngineVersion call's engine and
+	// binary ("engine binary"), in call order: what the probe is asked.
+	versionBinaries []string
 	// versionProbeEntered, when non-nil, receives the harp the moment
 	// RecordEngineVersion is entered, and versionProbeGate then holds it
 	// there until the test closes the gate. Together they are the seam the
@@ -188,6 +191,9 @@ type fakeAgent struct {
 	// tests drive the mechanism the real Resolve() only starts returning once
 	// piece 5 deletes that blanket gate for resume-capable backends.
 	oneshot bool
+	// binary is the label binary this agent's launch resolves to
+	// (Launch.Label.Binary: a label's binary_path); "" is the engine's own.
+	binary string
 }
 
 // newFakeSpawner builds the fake for t, and ends every runner half it starts
@@ -294,6 +300,7 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 	ep := sessions.Endpoint{URL: fmt.Sprintf("http://127.0.0.1:%d/mcp", 40000+s.endpointSeq), Credential: fmt.Sprintf("bearer-%d", s.endpointSeq)}
 	workDir := s.engineWorkDir
 	engineEnv := s.engineEnv
+	binary := s.agents[plan.AgentName].binary
 	s.mu.Unlock()
 	if workDir == "" {
 		workDir = "/work"
@@ -315,7 +322,7 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 	l := launch.Launch{
 		Identity:   start.Identity,
 		Engine:     engine.Name(plan.Backend),
-		Label:      engine.LabelConfig{Label: plan.Label, Model: "test-model"},
+		Label:      engine.LabelConfig{Label: plan.Label, Model: "test-model", Binary: binary},
 		Mode:       engine.Structured,
 		Permission: engine.PermissionPolicy{Posture: engine.Posture{Engine: engine.Name(plan.Backend), Document: map[string]any{"mode": perm}}, Sandbox: engine.SandboxFull},
 		Axes:       launch.Axes{Workspace: plan.Workspace, Runtime: plan.Runtime},
@@ -608,9 +615,10 @@ func (s *fakeSpawner) awaitResolveGate(ctx context.Context, agentName string) {
 	}
 }
 
-func (s *fakeSpawner) RecordEngineVersion(ctx context.Context, harp, _ string) {
+func (s *fakeSpawner) RecordEngineVersion(ctx context.Context, harp, backend, binary string) {
 	s.mu.Lock()
 	s.versionProbes = append(s.versionProbes, harp)
+	s.versionBinaries = append(s.versionBinaries, backend+" "+binary)
 	entered, gate := s.versionProbeEntered, s.versionProbeGate
 	s.mu.Unlock()
 	if entered != nil {
@@ -632,6 +640,13 @@ func (s *fakeSpawner) probedVersions() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.versionProbes...)
+}
+
+// probedBinaries returns each RecordEngineVersion call's "engine binary".
+func (s *fakeSpawner) probedBinaries() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.versionBinaries...)
 }
 
 // MarkSessionEnded records the harps whose session accounting was ended —

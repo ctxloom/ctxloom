@@ -1,7 +1,7 @@
 // Package atrest delivers a package into a project AT REST through the one
-// static writer, under the project writer's claims record: what `manage hooks
-// install` and `manage uninstall` run (operations.DeliverProject and
-// RemoveProject). It exists for the engine packages' tests, which operations
+// static writer, under the engine's per-kind project writers: what the
+// at-rest install and uninstall run (operations.Deliver and Release at the
+// project root, every kind). It exists for the engine packages' tests, which operations
 // imports and which therefore cannot import operations back.
 package atrest
 
@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -42,7 +43,13 @@ func New(t testing.TB, root safefs.Root, kind engine.Engine, dir string) *Projec
 	return &Project{FS: root.Fs, root: root, Dir: dir, Kind: kind, Records: rec}
 }
 
-// Install delivers pkg into the project as the project writer.
+// target is the project root under the engine's project writer family,
+// split per kind over every kind.
+func (p *Project) target() delivery.Target {
+	return delivery.TargetFor(present.ProjectOnHost(p.Dir), p.Records, delivery.ProjectWriterFor(p.Kind.Root().Name), delivery.AllKinds())
+}
+
+// Install delivers pkg into the project as the engine's project writers.
 func (p *Project) Install(pkg composite.Package) error {
 	root := p.Kind.Root()
 	items := pkg.EngineItems(root.Name)
@@ -50,19 +57,19 @@ func (p *Project) Install(pkg composite.Package) error {
 	if err != nil {
 		return err
 	}
-	plan, err := delivery.ProjectPlan(root, items, p.Dir)
+	plan, err := delivery.PlanFor(root, items, present.ProjectOnHost(p.Dir).Paths(), nil, delivery.AllKinds(), false)
 	if err != nil {
 		return err
 	}
 	lo := delivery.Loadout{Plan: plan, Package: pkg, Exports: exports, WorkDir: p.Dir}
-	_, err = fsstatic.New(p.root).Deliver(context.Background(), lo, root, delivery.ProjectTarget(p.Dir, p.Records))
+	_, err = fsstatic.New(p.root).Deliver(context.Background(), lo, root, p.target())
 	return err
 }
 
 // Uninstall delivers the empty plan: the record's account of what the
-// project writer put there, and only that, is removed.
+// project writers put there, and only that, is removed.
 func (p *Project) Uninstall() error {
-	_, err := fsstatic.New(p.root).Deliver(context.Background(), delivery.Loadout{WorkDir: p.Dir}, p.Kind.Root(), delivery.ProjectTarget(p.Dir, p.Records))
+	_, err := fsstatic.New(p.root).Deliver(context.Background(), delivery.Loadout{WorkDir: p.Dir}, p.Kind.Root(), p.target())
 	return err
 }
 

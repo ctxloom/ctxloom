@@ -143,12 +143,11 @@ Feature: Context-approach sweep — the same task, delivered by each mechanism t
       | claude-code | container-rootless | worktree  | system-prompt | system-prompt |
 
     # claude's native-file route (CLAUDE.md marker-merge), on the WORKTREE axis.
-    # The axis is the point: "unsafe" in ApproachUnsafeFile names a shared-cwd
-    # race, and an isolated cell is the conversion that makes the same write
+    # The axis is the point: ApproachFile into a shared cwd is a race, and an isolated cell is the conversion that makes the same write
     # safe — claude is the one engine with a race-safe shared-cwd realization to
     # convert away from (claude.NewSurfaces' SharedRealization), so this is
     # where the native write is worth measuring.
-    @claude-code @host @ws-worktree @var-unsafe-file-shared
+    @claude-code @host @ws-worktree @var-file-shared
     Examples:
       | engine      | runtime | workspace | approach    | variant            |
-      | claude-code | host    | worktree  | unsafe-file | unsafe-file-shared |
+      | claude-code | host    | worktree  | file | file-shared |

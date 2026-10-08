@@ -16,9 +16,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // worktreeBaseRef is the ref each per-agent worktree's branch starts from:
@@ -258,7 +258,7 @@ func (w Worktree) excludeConfigFromMerge(ctx context.Context, projectDir string)
 		return
 	}
 	exclude := filepath.Join(info, "exclude")
-	if err := gitignore.EnsureFile(exclude, gitignore.WorktreeComment, gitignore.WorktreeArtifactPatterns...); err != nil {
+	if err := gitignore.EnsureFile(exclude, gitignore.WorktreeComment, WorktreeArtifactPatterns()...); err != nil {
 		clidiag.Warn("ctxloom", "worktree: cannot write config excludes to %q: %v", exclude, err)
 	}
 }
@@ -271,7 +271,7 @@ func (w Worktree) excludeConfigFromMerge(ctx context.Context, projectDir string)
 // warns and continues — the run still proceeds (the bit only matters for a
 // merge-back, which fan-out members do not perform in this phase).
 func (w Worktree) skipTrackedConfig(ctx context.Context, wtPath string) {
-	tracked, err := w.git.ListTracked(ctx, wtPath, gitignore.WorktreeArtifactPatterns...)
+	tracked, err := w.git.ListTracked(ctx, wtPath, WorktreeArtifactPatterns()...)
 	if err != nil {
 		clidiag.Warn("ctxloom", "worktree: cannot list tracked config for skip-worktree: %v", err)
 		return
@@ -505,7 +505,7 @@ func unsafeToRemove(ctx context.Context, g git.Git, dir string) (unsafe bool, re
 }
 
 // retireConfigExcludeIfUnused removes the shared config-exclude block
-// (§3.1, gitignore.WorktreeArtifactPatterns under gitignore.WorktreeComment)
+// (§3.1, WorktreeArtifactPatterns under gitignore.WorktreeComment)
 // from the repo's common-dir info/exclude, but ONLY once no worktree other
 // than the main one remains — the block lives in the repo's ONE
 // shared common-dir file (git has no per-worktree info/exclude), so removing

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"time"
 
 	"github.com/spf13/afero"
@@ -8,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -83,11 +85,21 @@ type Surfaces map[present.Kind]present.Approach
 
 // The per-kind inputs, built by delivery from the decoded package.
 
-// ContextInputs is the assembled context text and its content hash.
+// ContextInputs is the assembled context text and its content hash, and
+// File: the slash path, relative to the root the plan selected for context,
+// of the file to write it into ("" = the approach's own file). An approach
+// either honours File at that root — the context lands there and Presented
+// names it — or refuses with ErrContextFileUnsupported; it never ignores it.
 type ContextInputs struct {
 	Text []byte
 	Hash string
+	File string
 }
+
+// ErrContextFileUnsupported: a context approach cannot honour
+// ContextInputs.File at the root it was handed. It refuses; it never writes
+// its own file instead.
+var ErrContextFileUnsupported = errors.New("engine: this context approach cannot write a named context file at this root")
 
 // MCPInputs is the MCP server set keyed by the name the engine's file
 // registers each under, the session's own endpoint included as a URL entry.
@@ -119,8 +131,16 @@ type HooksInputs struct {
 	Ext       map[string]wire.BackendHooks
 }
 
-// CommandsInputs is the command export set.
-type CommandsInputs struct{ Commands []CommandExport }
+// CommandsInputs is the command export set, and where the writer reports a
+// command it skips (an unsafe name, a failed render); nil discards.
+type CommandsInputs struct {
+	Commands []CommandExport
+	Report   report.Sink
+}
 
-// SkillsInputs is the skill export set.
-type SkillsInputs struct{ Skills []SkillExport }
+// SkillsInputs is the skill export set, and where the writer reports a
+// skill it skips or refuses; nil discards.
+type SkillsInputs struct {
+	Skills []SkillExport
+	Report report.Sink
+}

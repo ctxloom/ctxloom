@@ -772,15 +772,14 @@ const hookBundleYAML = `
 version: "1.0"
 hooks:
   pre_tool:
-    - matcher: Bash
+    - tool: shell
       command: echo pre-tool
       type: command
   session_start:
     - command: echo session-start
       type: command
   post_file_edit:
-    - matcher: '.*\.md$'
-      command: echo post-edit
+    - command: echo post-edit
       type: command
 `
 
@@ -943,12 +942,11 @@ func TestLoadHooksFromBundleRef_LocalBundle(t *testing.T) {
 version: "1.0"
 hooks:
   post_tool:
-    - matcher: TodoWrite
+    - tool: skill
       command: echo recorded
       type: command
   post_file_edit:
-    - matcher: ".*-plan\\.md$"
-      command: ctxloom hook stamp-plan
+    - command: ctxloom hook stamp-plan
       type: command
 `
 	v2Dir := paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2)
@@ -959,12 +957,13 @@ hooks:
 	result, _ := loadHooksFromBundleRef(report.Reporter{}, "with-hooks", loader.Catalog(), bundles.LinksUnchecked())
 
 	require.Len(t, result.PostTool, 1)
-	assert.Equal(t, "TodoWrite", result.PostTool[0].Matcher)
+	assert.Equal(t, wire.ToolSkill, result.PostTool[0].Tool, "a bundle hook's tool class reaches the wire hook the engine binds")
+	assert.Empty(t, result.PostTool[0].Matcher, "a bundle never carries an engine-native matcher")
 	assert.Equal(t, "echo recorded", result.PostTool[0].Command)
 	assert.Equal(t, "bundle:ctxloom+local:with-hooks", result.PostTool[0].SCM, "bundle-shipped hooks must be tagged with their origin")
 
 	require.Len(t, result.PostFileEdit, 1)
-	assert.Contains(t, result.PostFileEdit[0].Matcher, "plan")
+	assert.Equal(t, "ctxloom hook stamp-plan", result.PostFileEdit[0].Command)
 }
 
 func TestLoadHooksFromBundleRef_NoHooksField(t *testing.T) {

@@ -154,34 +154,41 @@ func j001800ScrubFromPath(w *World, bin string) error {
 // hand-written list is the only thing that fails when the shipped matcher
 // shrinks.
 //
-// Ordered shell-first, then the file-editing tools, mirroring ltk's own
-// installer (cmd/ltk/loadout.yaml's hooks.pre_tool comment). Membership is a
-// SUPERSET check: ltk gaining a new tool class is fine, losing one is not.
+// The loadout declares tool CLASSES (shell, file_edit) and claude maps each to
+// its tools at delivery, so this list is claude's tools of those two classes:
+// the union of every delivered "ltk evaluate" registration's matcher must
+// cover it. Membership is a SUPERSET check: ltk gaining a new tool is fine,
+// losing one is not.
 var j001800LtkGuardedTools = []string{"Bash", "PowerShell", "Edit", "Write", "MultiEdit", "NotebookEdit"}
 
-// j001800LtkShippedPreToolMatcher returns the pre_tool matcher from ltk's real
-// committed loadout, so the generated settings can be held to carrying the
-// companion's own value through verbatim. It is the SECOND half of the
-// assertion, never the whole of it (see j001800LtkGuardedTools): a matcher that
-// merely agrees with a mutated loadout.yaml proves only that delivery is
-// faithful, not that what was delivered still guards anything.
-func j001800LtkShippedPreToolMatcher() (string, error) {
+// j001800LtkShippedToolClasses returns the tool classes ltk's real committed
+// loadout narrows its "ltk evaluate" pre_tool hooks to, one per hook, so the
+// generated settings can be held to delivering each declared class as its
+// own registration. It is the SECOND half of the assertion, never the whole
+// of it (see j001800LtkGuardedTools): delivery agreeing with a mutated
+// loadout.yaml proves only that delivery is faithful, not that what was
+// delivered still guards anything.
+func j001800LtkShippedToolClasses() ([]string, error) {
 	raw, err := j001800LtkLoadoutYAML()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	// The canonical parser, not a hand-shaped unmarshal: the loadout is a
-	// document (run: + init:), and the hook lives in its RUN bundle.
+	// document (run: + init:), and the hooks live in its RUN bundle.
 	lo, err := bundles.ParseLoadout([]byte(raw))
 	if err != nil {
-		return "", fmt.Errorf("parse ltk's loadout.yaml: %w", err)
+		return nil, fmt.Errorf("parse ltk's loadout.yaml: %w", err)
 	}
+	var classes []string
 	for _, h := range lo.Run.Hooks.PreTool {
 		if h.Command == "ltk evaluate" {
-			return h.Matcher, nil
+			classes = append(classes, string(h.Tool))
 		}
 	}
-	return "", fmt.Errorf("ltk's committed loadout.yaml declares no pre_tool hook running \"ltk evaluate\"")
+	if len(classes) == 0 {
+		return nil, fmt.Errorf("ltk's committed loadout.yaml declares no pre_tool hook running \"ltk evaluate\"")
+	}
+	return classes, nil
 }
 
 // j001800ClaudeSettings is the minimal shape this journey needs to parse out of
@@ -274,18 +281,18 @@ func registerJ001800Steps(ctx *godog.ScenarioContext) {
 		if err := json.Unmarshal([]byte(raw), &settings); err != nil {
 			return fmt.Errorf("parse generated %s: %w", rel, err)
 		}
-		matcher := ""
-		found := false
+		var matchers []string
 		for _, entry := range settings.Hooks.PreToolUse {
 			for _, h := range entry.Hooks {
 				if h.Command == "ltk evaluate" {
-					matcher, found = entry.Matcher, true
+					matchers = append(matchers, entry.Matcher)
 				}
 			}
 		}
-		if !found {
+		if len(matchers) == 0 {
 			return fmt.Errorf("generated %s has no PreToolUse hook running \"ltk evaluate\" at all; content:\n%s", rel, raw)
 		}
+		matcher := strings.Join(matchers, "|")
 		covered := map[string]bool{}
 		for _, tool := range strings.Split(matcher, "|") {
 			covered[strings.TrimSpace(tool)] = true
@@ -299,14 +306,14 @@ func registerJ001800Steps(ctx *godog.ScenarioContext) {
 		if len(missing) > 0 {
 			return fmt.Errorf("the ltk PreToolUse matcher %q does not cover %v — this scenario promises the guardrail runs on every shell command AND FILE EDIT, so every one of %v must be matched; generated %s:\n%s", matcher, missing, j001800LtkGuardedTools, rel, raw)
 		}
-		shipped, err := j001800LtkShippedPreToolMatcher()
+		shipped, err := j001800LtkShippedToolClasses()
 		if err != nil {
 			return err
 		}
-		if matcher != shipped {
-			return fmt.Errorf("ctxloom generated the ltk PreToolUse matcher as %q, but ltk's committed loadout ships %q — delivery must carry the companion's own matcher through verbatim, neither widening nor narrowing it", matcher, shipped)
+		if len(matchers) != len(shipped) {
+			return fmt.Errorf("ctxloom generated %d ltk PreToolUse registrations (%q), but ltk's committed loadout declares %d tool classes (%v) — delivery must register each declared class once, neither adding nor dropping one", len(matchers), matchers, len(shipped), shipped)
 		}
-		w.docStepMaterialized = fmt.Sprintf("%s:\nPreToolUse matcher %q -> \"ltk evaluate\"\n(covers %v; identical to ltk's own cmd/ltk/loadout.yaml)", rel, matcher, j001800LtkGuardedTools)
+		w.docStepMaterialized = fmt.Sprintf("%s:\nPreToolUse matchers %q -> \"ltk evaluate\"\n(covers %v; one per tool class %v in ltk's own cmd/ltk/loadout.yaml)", rel, matchers, j001800LtkGuardedTools, shipped)
 		return nil
 	})
 

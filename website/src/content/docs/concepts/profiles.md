@@ -144,13 +144,27 @@ ctxloom profile create my-profile       # Create new profile
 ctxloom profile edit developer          # Edit in configured editor
 ctxloom profile remove old-profile --yes # Remove profile
 ctxloom agent default dev               # Set/show the default agent (the default context)
-ctxloom profile materialize developer --target ./out  # Write the assembled agent surface
+ctxloom materialize developer --target ./out  # Write the assembled agent surface
 ```
 
-`profile materialize` writes a profile's assembled surface (context, MCP
-config, hooks, commands) into a target directory as a backend's native on-disk
-layout, so an externally-launched agent inherits the profile without ctxloom in
-the loop.
+`ctxloom materialize` writes the assembled profiles (context, MCP config,
+settings and hooks, commands, skills) into a directory as each engine's native
+on-disk layout, so an externally-launched agent inherits them without ctxloom
+in the loop. `--surface` writes only the kinds you name, and `--release` takes
+back what an earlier run wrote.
+
+:::caution[Writing the project directory is the unsafe door]
+With no `--target`, `ctxloom materialize` would write the project directory
+itself, shared by every session and every person using the checkout. It
+refuses unless you pass `--yes`; `--dry-run` shows what it would do. Make
+`--target DIR` the habit.
+:::
+
+:::note[Don't commit a materialized file]
+The record of what ctxloom wrote lives in your home directory, not in the
+project. On another machine a committed copy looks like your own text, and the
+next materialize there appends a second copy beside it.
+:::
 
 Remote profiles ship inside bundles. To consume one, author a local profile
 that inherits from it, then pull:

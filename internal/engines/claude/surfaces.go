@@ -15,7 +15,7 @@ import (
 // This file holds the pieces of claude's delivery its typed approaches
 // (definition.go) share: the approach names a binding selects
 // (ApproachSystemPrompt, ApproachMCPConfig — claude's own, declared here and
-// nowhere shared), the private-root seam every session-home approach reads,
+// nowhere shared), the private-root seam the framed system prompt reads,
 // the framed system-prompt writer the context approach drives, and the relay
 // bearer's by-reference rewrite for a project .mcp.json.
 
@@ -41,31 +41,26 @@ type dirPlacement struct{ dir string }
 // Dir returns the fixed directory this placement wraps.
 func (p dirPlacement) Dir() string { return p.dir }
 
-// privateRoot is the ONE place claude decides which advised root a run's
-// CONFIGURATION lands under — the framed system prompt and the default
-// .mcp.json, neither of which may be written into the shared live cwd.
-// Every such approach reads it rather than naming a root itself, so the
-// choice is made once and cannot drift between two surfaces that are supposed
-// to obey one rule.
-//
-// It is the run's SESSION HOME, the relocated engine home: configuration is a
-// property of the run, mounted into the container and inited against, and
-// the home is resolved off the agent binding alone — orthogonal to the cell,
-// so every cell kind reaches the same root.
+// privateRoot is where the framed system prompt lands: the run's SESSION
+// HOME, the relocated engine home. Configuration is a property of the run,
+// mounted into the container and inited against, and the home is resolved off
+// the agent binding alone — orthogonal to the cell, so every cell kind reaches
+// the same root. Every other session-home approach roots through
+// kit.Approach.Rooted (Private: true), which places and guards in one call;
+// this seam serves the one approach whose leaf is known only after the write
+// (systemPromptContext), so its placement and its guard are separate calls.
 //
 // Only a binding that relocates the home (engine_home: session) advises this
-// root at all. A run without one is REFUSED by every approach beneath it
-// (privateRooted) rather than served from the user's real home, which is
-// shared across every session and exactly the file these approaches exist to
-// stay out of.
+// root at all. A run without one is REFUSED (privateRooted) rather than served
+// from the user's real home, which is shared across every session and exactly
+// the file this approach exists to stay out of.
 func privateRoot(start present.Start) present.Root { return start.Paths().SessionHome }
 
 // underPrivateRoot roots a PRESENTATION at rel beneath the same root
 // privateRoot names. It sits here, adjacent to privateRoot and nowhere else,
 // because the two must move together: the presenter states where the bytes go
 // and Deliver puts them there, so a flip that changed one and not the other
-// would announce a path nothing was written to. They are checked against each
-// other by TestSurfaces_PresentedPathIsWhereTheApproachWrites.
+// would announce a path nothing was written to.
 func underPrivateRoot(start present.Start, rel string) present.Rooted {
 	return start.UnderSessionHome(rel)
 }

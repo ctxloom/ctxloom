@@ -71,8 +71,17 @@ func (req AssembleContextRequest) packageRequest() PackageRequest {
 // kind.
 type ContextConsumer struct {
 	materialized bool
+	noSkills     bool
 	backend      string
 	engines      engine.Registry
+}
+
+// WithoutSkills is c for a materialization that does not deliver skills:
+// a premised fragment cannot be handed over as a skill package there, so it
+// is written into the context (static reports true).
+func (c ContextConsumer) WithoutSkills() ContextConsumer {
+	c.noSkills = true
+	return c
 }
 
 // MaterializedFor names an OUT-OF-THE-LOOP surface: backend's native context
@@ -99,6 +108,9 @@ func MaterializedFor(reg engine.Registry, backend string) ContextConsumer {
 func (c ContextConsumer) static() (bool, error) {
 	if !c.materialized {
 		return false, nil
+	}
+	if c.noSkills {
+		return true, nil
 	}
 	eng, ok := c.engines.Lookup(engine.Name(c.backend))
 	if !ok {

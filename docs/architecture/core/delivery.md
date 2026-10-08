@@ -23,7 +23,7 @@ flowchart TB
     STATIC["fsstatic.Static.Deliver(lo, surfaces, target): per static item the engine's typed Deliver runs over an OVERLAY of the target fs and DECLARES what it owns (present.Delivered: Files owned whole, Claims on a place in a file, a section, an array element) → ONE safefs.Batch: release the writer's claims under the target's roots except on a declared file it did not rewrite → stage every declaration → Commit writes each changed file once"]:::consume
     REC[("fsstatic.Records — ONE claims record per target file, home-rooted: per place, the writers that put a value there (a session's value over the project's; the latest among sessions); a place leaves the file with its last writer; a user's value is never claimed, and ctxloom's own drifted value is refused")]:::store
     DYN["Dynamic.Serve(lo, ServePolicy) — the runner's MCP package BINDS Launch.MCP"]:::consume
-    EMPTY["the EMPTY plan = uninstall for that writer: only what the record names under the target's roots is removed (manage uninstall / hooks uninstall → operations.RemoveProject)"]:::consume
+    EMPTY["the EMPTY plan = uninstall for that writer: only what the record names under the target's roots is removed (ctxloom materialize --release, manage uninstall → operations.Release)"]:::consume
 
     PKG --> ROUTE
     PREF --> ROUTE
@@ -79,11 +79,24 @@ ctxloom never mints or stores one. See
 | Caller | Target | Writer | Symbol |
 | --- | --- | --- | --- |
 | a delegated run (the runner tail) | the cell's advised roots: the session home, and the project root where the binding selected it | `delivery.SessionWriter(harp)` | `runner.Execute` → `Static.Deliver(l.Loadout(pkg), kind.Root().Surfaces(), l.Target(records))` |
-| `profile materialize` | the `--target` directory (absolute) | `delivery.ProjectWriter` | `operations.MaterializeProfile` → `operations.DeliverProject` |
-| `manage hooks install` (explicit), the MCP server's startup apply, the post-sync and trust-change refreshes | the project root | `delivery.ProjectWriter` | `operations.ApplyHooks` → `applyHooksToBackend` → `operations.DeliverProject` (`manage install` and `init` no longer call it) |
-| `manage uninstall` / `manage hooks uninstall` | the project root | `delivery.ProjectWriter` | `operations.RemoveHooks` → `operations.RemoveProject` (the empty plan) |
+| `ctxloom materialize` | `--target` (any directory, symlink-resolved) or, with `--yes`, the project root | `project:<engine>:<kind>`, one per selected kind | `operations.Materialize` → `operations.Deliver` / `operations.Release` |
+| the post-sync refresh | the project root (`projectroot.WorkDir()`, named explicitly) | `project:<engine>:<kind>` | `operations.syncMaterializeStep` → `operations.Materialize` |
+| `profile materialize`, `manage hooks install`, `manage uninstall` / `manage hooks uninstall` (still shipped; to be removed in favour of `ctxloom materialize`) | the `--target` directory / the project root | `project:<engine>:<kind>`, every kind | `operations.MaterializeProfile` / `ApplyHooks` / `RemoveHooks` → `operations.Deliver` / `operations.Release` |
 
-The record store is owner-only before any delivery writes through it, and
+**Per-kind release.** An at-rest delivery for one engine is still ONE
+`Static.Deliver` (so settings and hooks fold into one write of
+`settings.json`), but its target names the kinds it speaks for
+(`delivery.Target.Kinds`): each kind's claims are staged under its own tag
+(`delivery.Target.WriterOf`), and only those tags are released or undone
+(`Target.Writers`). A kind the run did not select has a writer the run never
+releases, so `--surface context` re-delivers the context and leaves the
+commands, skills, MCP entries and settings standing; and one engine's
+delivery never releases another engine's files in the same directory. A
+selected kind with nothing to deliver is released. A target with `Kinds`
+nil (a session) is one writer for every kind, as before. Records under the
+old bare `project` tag are left alone; nothing releases them.
+
+The record store is owner-onlyThe record store is owner-only before any delivery writes through it, and
 that is a security invariant: a claims record keeps every value ctxloom put
 into the file it describes. The store lives under `paths.HomeRecordsDir`, one
 of the home roots every ctxloom process establishes owner-only at startup
@@ -91,7 +104,7 @@ of the home roots every ctxloom process establishes owner-only at startup
 an owner-only DACL on Windows), and every directory a delivery creates beneath
 it is created `safefs.PrivateDirMode`; opening the store applies nothing
 (`TestDeliver_CreatesAMissingRecordDirOwnerOnly`,
-`TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir`).
+`TestDeliver_AtRest_ClaudesMCPRecordOverALooseRecordDir`).
 
 Two writers meet on one project-root file (a session whose binding selected
 the shared root, and a materialize): each keeps its own claims in the one
@@ -100,19 +113,38 @@ record and each release leaves what the other still claims —
 `TestClaimsASharedEntrySurvivesEitherWritersRelease` and
 `TestClaimsAnAtRestApplyMidRunKeepsTheRunsEntry`.
 
-## The at-rest plan
+## The placement core, and the at-rest plan
 
-`operations.ProjectPlan` selects the project root for every kind the
-engine's approach offers there; a kind the engine does not carry is an
-accepted loss the report names (`MaterializeProfileResult.NotCarried`); a
-carried kind offering no root the project target has is `Unrootable`,
-refused with the remedy, never rerouted. Whether the CONTEXT is a file at
-the project root at all is derived from the declaration alone
-(`operations.contextRidesTheLaunch`): an engine whose context approach is
-told on argv (claude's system prompt) takes it at launch, so `manage hooks
-install` writes it nowhere — a copy at rest would double it; an engine that
-opens a context file reads the file. `profile materialize` always writes the file (a
-materialized tree must be readable with ctxloom out of the loop).
+The planning and targeting every static delivery shares is one pair of
+constructors: `delivery.PlanFor` (every kind the Definition does not carry
+is an accepted loss; the binding's roots, or each approach's first offered
+root the cell has; `Route`; then a kinds filter) and `delivery.TargetFor`
+(the roots, under a writer family, split per kind when kinds are named).
+The launch plans and targets through them (`launch.planLaunch`,
+`Launch.Target`); an at-rest delivery reaches them through
+`operations.Deliver` at an `operations.Placement` — the start roots, the
+writer family, the kinds, the root preference and the context file — which
+assembles nothing and reads no config. Root and writer family are its
+parameters, so a session home could be prepared through the same core; it
+is not yet: a session keeps its own assembly (`launch.Resolve`, which may
+run in another process than the runner) and its own lifecycle (Undo on a
+failed drive, the sweep of departed sessions).
+
+At rest every kind the engine's approach offers at the project root lands
+there; a kind the engine does not carry is reported as not carried
+(`EngineOutcome.NotCarried`); a carried kind offering no root the target
+has is `Unrootable`, refused with the remedy, never rerouted. By default
+the context is delivered for every engine, including one whose in-the-loop
+context rides argv: a materialized tree must be readable with ctxloom out
+of the loop. `--surface context=file:PATH` names the file
+(`engine.ContextInputs.File`), which an approach honours at a root or
+refuses with `engine.ErrContextFileUnsupported`, never ignores.
+
+ctxloom's own MCP endpoint is session-scoped and never written at rest:
+`PlanFor` plans no MCP route that exists only for the session-endpoint
+declaration unless the placement serves an endpoint (a session), and
+`InputsFor` renders that declaration only from an endpoint the loadout
+carries.
 
 ## Hooks are a delivered surface the engine fires
 

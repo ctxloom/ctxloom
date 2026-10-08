@@ -148,7 +148,7 @@ promise:
 - For **Claude Code**, ctxloom by default does not write your project `.mcp.json`. It writes
   its own servers to a private file under the session's directory, passes that file with
   `--mcp-config`, and deliberately omits `--strict-mcp-config` so the engine *layers* ctxloom's
-  set on top of yours instead of replacing it. The exception is the `unsafe-file` MCP approach,
+  set on top of yours instead of replacing it. The exception is the `file` MCP approach,
   which writes the project `.mcp.json` directly; it runs only when selected by name.
 
 Two limits follow, and neither is hypothetical. **The approval gate belongs to the engine, not

@@ -86,7 +86,7 @@ func TestRenderError_FillsRemedyInJSON(t *testing.T) {
 	}
 }
 
-// TestRenderError_TextFixMatchesFixLine binds the reflective `label:"fix"`
+// TestRenderError_TextFixMatchesFixLine binds the reflective `clifmt:"label=fix"`
 // text line to FixLine, the one human form every listing uses.
 func TestRenderError_TextFixMatchesFixLine(t *testing.T) {
 	var buf bytes.Buffer

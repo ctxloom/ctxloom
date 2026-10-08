@@ -51,8 +51,9 @@ func PremisedFragmentSkills(frags []PremisedFragment) ([]agent.SkillExport, erro
 		}
 		seen[name] = f.Ref
 		out = append(out, agent.SkillExport{
-			Name:    name,
-			Enabled: true,
+			Name:        name,
+			Description: skillDescription(f.Premise),
+			Enabled:     true,
 			Files: []agent.PackageFile{{
 				RelPath: "SKILL.md",
 				Content: []byte(skillMarkdown(name, f.Premise, f.Content)),
@@ -65,9 +66,10 @@ func PremisedFragmentSkills(frags []PremisedFragment) ([]agent.SkillExport, erro
 
 // skillMarkdown renders the package's SKILL.md.
 //
-// The premise goes in the FRONTMATTER, not merely on SkillExport.Description:
-// that struct field is write-only — no engine reads it — and the description an
-// engine actually acts on travels inside these bytes. The frontmatter `name`
+// The premise goes in the FRONTMATTER as well as on SkillExport.Description:
+// the description an engine acts on travels inside these bytes, and an
+// engine's own checks read the export's field (claude refuses a skill whose
+// Description is empty), so the two must say the same thing. The frontmatter `name`
 // is what an engine materializes the package under, so it comes from the same
 // skillNameForRef as the package directory — one identity, not two.
 func skillMarkdown(name, premise, body string) string {
@@ -75,11 +77,16 @@ func skillMarkdown(name, premise, body string) string {
 	b.WriteString("---\nname: ")
 	b.WriteString(name)
 	b.WriteString("\ndescription: ")
-	b.WriteString(strings.ReplaceAll(strings.TrimSpace(premise), "\n", " "))
+	b.WriteString(skillDescription(premise))
 	b.WriteString("\n---\n\n")
 	b.WriteString(strings.TrimSpace(body))
 	b.WriteString("\n")
 	return b.String()
+}
+
+// skillDescription is the premise as one line: the skill's description.
+func skillDescription(premise string) string {
+	return strings.ReplaceAll(strings.TrimSpace(premise), "\n", " ")
 }
 
 var skillNameUnsafe = regexp.MustCompile(`[^A-Za-z0-9]+`)

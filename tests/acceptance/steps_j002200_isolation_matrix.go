@@ -1142,7 +1142,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// The unsafe-file MCP approach on a repository Alice never trusted:
+	// The file MCP approach on a repository Alice never trusted:
 	// strict MCP mode would ignore the project's .mcp.json and launch claude
 	// without ctxloom's servers, so the run is refused, by the typed refusal,
 	// before the engine starts.

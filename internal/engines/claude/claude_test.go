@@ -246,30 +246,30 @@ func TestClaudeCodeHookWriter_UnifiedToBackendMapping(t *testing.T) {
 
 	hooks := settings["hooks"].(map[string]interface{})
 
-	// PreShell maps to PreToolUse with Bash matcher
+	// PreShell maps to PreToolUse with the shell-class matcher
 	preToolUse := hooks["PreToolUse"].([]interface{})
 	foundBashMatcher := false
 	for _, m := range preToolUse {
 		matcher := m.(map[string]interface{})
-		if matcher["matcher"] == "Bash" {
+		if matcher["matcher"] == "Bash|PowerShell" {
 			foundBashMatcher = true
 		}
 	}
 	if !foundBashMatcher {
-		t.Error("PreShell should map to PreToolUse with Bash matcher")
+		t.Error("PreShell should map to PreToolUse with the Bash|PowerShell matcher")
 	}
 
-	// PostFileEdit maps to PostToolUse with Edit|Write matcher
+	// PostFileEdit maps to PostToolUse with the file-edit-class matcher
 	postToolUse := hooks["PostToolUse"].([]interface{})
 	foundEditMatcher := false
 	for _, m := range postToolUse {
 		matcher := m.(map[string]interface{})
-		if matcher["matcher"] == "Edit|Write" {
+		if matcher["matcher"] == "Edit|Write|MultiEdit|NotebookEdit" {
 			foundEditMatcher = true
 		}
 	}
 	if !foundEditMatcher {
-		t.Error("PostFileEdit should map to PostToolUse with Edit|Write matcher")
+		t.Error("PostFileEdit should map to PostToolUse with the Edit|Write|MultiEdit|NotebookEdit matcher")
 	}
 
 	// SessionStart and SessionEnd should be present

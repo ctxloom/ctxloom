@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // malformedSkillFixture is one profile over a bundle declaring a skill whose

@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -166,7 +167,7 @@ func TestContextFileCurrency_ReadsOnlyWhatTheRecordOwns(t *testing.T) {
 	kind, ok := engines.Registry().Lookup(engine.Name("mock"))
 	require.True(t, ok)
 	pkg := composite.Package{Context: composite.Context{Text: "COMPOSED"}, Fragments: []composite.Item[composite.Fragment]{{Ref: "t#fragment/f", Value: composite.Fragment{Name: "f", Body: "COMPOSED"}}}}
-	_, _, err = DeliverProject(context.Background(), safefs.NewMem(fs), kind, pkg, dir)
+	_, _, err = Deliver(context.Background(), safefs.NewMem(fs), kind, pkg, delivery.Loadout{}, atRestPlacement(dir, kind.Root().Name, delivery.AllKinds()))
 	require.NoError(t, err)
 	rel, ok := contextFileOf(kind)
 	require.True(t, ok)

@@ -65,7 +65,7 @@ type capabilityRow struct {
 var capabilityInventory = []capabilityRow{
 	{1, "agent.Backend.Execute — one-shot launch round trip (ctxloom run --one-shot)"},
 	{2, "engine.StructuredDriver.Turn — the structured per-turn drive (Instance.Drivers)"},
-	{3, "agent.ApproachUnsafeFile — native context file (CLAUDE.md / AGENTS.md / steering / instructions[])"},
+	{3, "agent.ApproachFile — native context file (CLAUDE.md / AGENTS.md / steering / instructions[])"},
 	{4, "agent.ApproachSystemPrompt — --append-system-prompt-file (claude only)"},
 	{5, "agent.ApproachHook (retired by onectx) — context carried by a SessionStart hook"},
 	{6, "engine.HooksApproach / fsstatic claims — settings+hooks CARRIAGE"},
@@ -332,7 +332,7 @@ var probeRegistry = []probeSpec{
 				Status: probeLiveVerified, Reason: "measured 2026-08-25: 1 scenario / 3 steps green in 71s, nonce harp \"soft-grand-trout\" echoed back exactly, no degrade warning. ANSWERS WHAT P0 CANNOT: P0 proves DEFAULT composed context survives this axis; this proves the PINNED system-prompt route does. That was genuinely open, because appendFlagDelivery writes an OUT-OF-CWD scratch file consumed via --append-system-prompt-file rather than a file in the mounted tree — had it been written host-side the cell would have red as a CONTEXT-DELIVERY failure. Delivery reaches into the container correctly."},
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree", Variant: "system-prompt",
 				Status: probeLiveVerified, Reason: "measured 2026-08-25: 1 scenario / 3 steps green in 71s, nonce harp \"weird-idle-punch\" echoed back exactly, no degrade warning. THE MIXED CORNER, and it was run because P6 measured what skipping one costs — its host/worktree cell failed where both-off and both-on passed, since the axes resolve credentials by DIFFERENT mechanisms (a container bind-mounts, a worktree seeds via credentialSeedSpecs). Here both boundaries hold together: the system-prompt scratch file survives a container whose workspace is also an isolated checkout."},
-			{Engine: "claude-code", Runtime: "host", Workspace: "worktree", Variant: "unsafe-file-shared",
+			{Engine: "claude-code", Runtime: "host", Workspace: "worktree", Variant: "file-shared",
 				Status: probeLiveVerified, Reason: "the SharedRealization out-of-cwd writers (claude.NewSurfaces) are the one race-safe shared-cwd conversion, and the worktree axis is where that matters. Measured 2026-08-13: 1 scenario / 3 steps green in 5.5s, harp \"snug-void-rebel\", no degrade warning. CLAUDE.md into an isolated checkout delivers."},
 		},
 	},

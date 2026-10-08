@@ -13,7 +13,7 @@ import (
 	kmaps "github.com/knadh/koanf/maps"
 	kenv "github.com/knadh/koanf/providers/env/v2"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // ConfigSetFlagName is the repeatable persistent flag every CLI-override goes

@@ -27,9 +27,16 @@ the first fix; --all lists every check. Each row starts with a DOCTOR-CHECK-*
 marker. --deps checks only what this machine needs (binaries and git
 identity), so it reads clean before a project is set up.
 
-A warning is the signal: doctor exits 0 whatever it finds, and changes
-nothing (the container-runtime probe may create the runtime's own storage
-directories). A usage error, such as an unknown --format, still fails.
+A warning is the signal: doctor exits 0 whatever it finds, and without
+--fix changes nothing (the container-runtime probe may create the runtime's
+own storage directories). A usage error, such as an unknown --format, still
+fails.
+
+--fix changes one thing before reporting: it removes every hook entry in an
+engine's project or user settings file that runs a `ctxloom hook` subcommand
+this ctxloom does not have (left by an older ctxloom; the engine runs it at
+its event and it fails every time). Only those entries leave the file; each
+removal is listed on stderr.
 
 ```
 ctxloom doctor [flags]
@@ -41,6 +48,7 @@ ctxloom doctor [flags]
   ctxloom doctor                      # the warnings, and the first fix
   ctxloom doctor --all                # every check
   ctxloom doctor --deps               # only what this machine needs
+  ctxloom doctor --fix                # remove stale ctxloom hook entries, then report
 ```
 
 ### Options
@@ -48,6 +56,7 @@ ctxloom doctor [flags]
 ```
       --all    list every check in the text report, not only the warnings
       --deps   check ONLY machine-capability dependencies (git/ssh/container runtime/configured engines' clients/git identity) — skips agents/profiles/hooks/MCP, for use before a project has been set up
+      --fix    remove settings hook entries that run a 'ctxloom hook' subcommand this ctxloom does not have, then report
 ```
 
 ### Options inherited from parent commands

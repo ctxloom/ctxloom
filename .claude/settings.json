@@ -3,22 +3,16 @@
     "PostToolUse": [
       {
         "hooks": [
-          {
-            "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
-            "timeout": 5,
-            "type": "command"
-          }
+          { "args": ["hook", "tool-reflect", "--min-output-bytes", "2048"], "command": "ctxloom", "timeout": 5, "type": "command" }
         ]
       },
       {
         "hooks": [
-          {
-            "command": "ctxloom hook stamp-plan",
-            "type": "command"
-          }
+          { "args": ["hook", "stamp-plan"], "command": "ctxloom", "type": "command" }
         ],
         "matcher": "Edit|Write"
-      }
+      },
+      { "hooks": [{ "args": ["hook", "skill-mates"], "command": "ctxloom", "timeout": 15, "type": "command" }], "matcher": "Skill" }
     ],
     "PreToolUse": [
       {
@@ -34,64 +28,19 @@
     "SessionStart": [
       {
         "hooks": [
-          {
-            "command": "ctxloom hook session-bind",
-            "type": "command"
-          },
-          {
-            "command": "'ctxloom' hook inject-context --part 1 --of 8 612491ef586fd5c8",
-            "timeout": 60,
-            "type": "command"
-          },
-          {
-            "command": "'ctxloom' hook inject-context --part 2 --of 8 612491ef586fd5c8",
-            "timeout": 60,
-            "type": "command"
-          },
-          {
-            "command": "'ctxloom' hook inject-context --part 3 --of 8 612491ef586fd5c8",
-            "timeout": 60,
-            "type": "command"
-          },
-          {
-            "command": "'ctxloom' hook inject-context --part 4 --of 8 612491ef586fd5c8",
-            "timeout": 60,
-            "type": "command"
-          },
-          {
-            "command": "'ctxloom' hook inject-context --part 5 --of 8 612491ef586fd5c8",
-            "timeout": 60,
-            "type": "command"
-          },
-          {
-            "command": "'ctxloom' hook inject-context --part 6 --of 8 612491ef586fd5c8",
-            "timeout": 60,
-            "type": "command"
-          },
-          {
-            "command": "'ctxloom' hook inject-context --part 7 --of 8 612491ef586fd5c8",
-            "timeout": 60,
-            "type": "command"
-          },
-          {
-            "command": "'ctxloom' hook inject-context --part 8 --of 8 612491ef586fd5c8",
-            "timeout": 60,
-            "type": "command"
-          }
+          { "args": ["hook", "session-bind"], "command": "ctxloom", "type": "command" },
+          { "args": ["hook", "session-start"], "command": "ctxloom", "timeout": 15, "type": "command" }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          {
-            "command": "'ctxloom' hook next-step",
-            "timeout": 15,
-            "type": "command"
-          }
+          { "args": ["hook", "next-step"], "command": "ctxloom", "timeout": 15, "type": "command" }
         ]
       }
-    ]
+    ],
+    "UserPromptSubmit": [{ "hooks": [{ "args": ["hook", "mail-drain"], "command": "ctxloom", "timeout": 5, "type": "command" }] }]
   },
   "statusLine": {
     "command": "ctxloom hook hud",
@@ -99,5 +48,6 @@
   },
   "worktree": {
     "baseRef": "head"
-  }
+  },
+  "env": { "BASH_DEFAULT_TIMEOUT_MS": "600000", "BASH_MAX_TIMEOUT_MS": "3600000" }
 }

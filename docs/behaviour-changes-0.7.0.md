@@ -293,17 +293,63 @@ that `ctxloom run` launches. The hook no longer carries it:
 - The `hook` context approach (`surfaces: {context: hook}` on a claude agent
   binding) is removed, because no hook delivers context any more. A binding
   that names it is refused, with the approaches claude supports:
-  `system-prompt` (the default) and `unsafe-file`.
+  `system-prompt` (the default) and `file`.
 - Run `ctxloom manage hooks install` once after upgrading. It adds the
   `session-start` hook. It removes the old `inject-context` entries only
   where this machine's ctxloom recorded installing them. An entry written by
   0.6, or by ctxloom on another machine and committed with the file, stays.
   Claude runs each one at every session start, and each one fails with
-  `unknown command "inject-context"`. Delete every SessionStart entry whose
-  command contains `hook inject-context` from `.claude/settings.json` by
-  hand.
+  `unknown command "inject-context"`. `ctxloom doctor` reports every such
+  entry (`DOCTOR-CHECK-STALE-HOOKS-n5`: the file, the event and the verb),
+  in the project's and in your user settings file. `ctxloom doctor --fix`
+  removes them and leaves everything else in the file as it was. The check
+  is general: it flags any hook entry that runs a `ctxloom hook` subcommand
+  this ctxloom does not have, not only `inject-context`.
 
-## 13. Everything else marked breaking
+## 13. `ctxloom materialize` is the at-rest delivery, and the native-file approach is `file`
+
+`ctxloom materialize [<profile>...]` writes the assembled profiles into a
+directory as each engine's native files. With no profiles it writes the
+default agent's; with no `--backend`, the project's configured engines.
+
+- **`--target DIR`** takes any directory, created if missing. It need not be
+  a project: profiles and config come from the project you run it in.
+- **With no `--target`** the target is the project directory, and the
+  command refuses to write (or release) there unless you pass `--yes`.
+  `--dry-run` shows what it would do. `--force` is still the separate
+  override for a target that is an engine's user-global scope.
+- **By default it writes every kind, context included, for every engine** —
+  including claude, whose context `manage hooks install` never wrote at
+  rest. `--surface KIND[=file][:DEST]` writes only the named kinds and
+  leaves the others as they were; `--surface context=file:PATH` writes the
+  context into `PATH` inside the target.
+- **`--release`** takes out what an earlier materialize wrote, for the
+  selected kinds (default all). `--diff FILE` compares instead of writing.
+- **What ctxloom wrote is now owned per engine and per kind.** Delivering
+  one kind or one engine no longer takes another's files out of the same
+  directory. Claims an earlier 0.7 build recorded under the single
+  `project` writer are left alone: a re-install does not take them out, so
+  a section it appended may appear twice until you remove the old one.
+- **The post-sync refresh** now runs `ctxloom materialize` into the project
+  root, so it writes claude's context file there too.
+- **A `ctxloom run` warns** when the project holds context materialized into
+  it, naming the file and `ctxloom materialize --release --surface
+  context`.
+- **Do not commit a materialized file.** The record of what ctxloom wrote
+  lives in your home directory; on another machine a committed copy reads
+  as your own text, and the next materialize appends a second copy.
+- `profile materialize`, `manage hooks install` and `manage hooks uninstall`
+  still work in this build and will be removed in favour of `ctxloom
+  materialize` (`--release` replaces uninstall).
+- The native-file delivery approach is renamed **`file`** (it was spelled
+  with an `unsafe-` prefix): in `agent set --surface`, an agent binding's
+  `surfaces:`, and the config schema. The old spelling is refused as an
+  unknown approach; there is no alias.
+- A premised fragment delivered to claude as a skill now carries its
+  premise as the skill's description. Before, claude refused every such
+  skill while the materialize report said it was delivered.
+
+## 14. Everything else marked breaking
 
 Grouped by what you would have to change.
 
@@ -359,8 +405,27 @@ Grouped by what you would have to change.
   comments and key order; a file ctxloom re-renders from its own model, such
   as a bundle's `bundle.yaml`, does not keep its comments.
 - `--format yaml` command output is two-space indented too (it was four), so
-  every command prints YAML in the same layout as the files ctxloom saves. Only
-  the indentation changed; keys, values and order are as before.
+  every command prints YAML in the same layout as the files ctxloom saves.
+- `--format yaml` command output lists keys in the same order as `--format
+  json` (each struct's field order) instead of alphabetically. Keys and values
+  are unchanged. `--format toml` stays alphabetical: TOML output has no
+  ordered form.
+- In `--format text` and `--format markdown`, a map in a command's result
+  renders as a section with one line per key instead of one `k=v, k=v` line,
+  and a map of records (`bundle show`'s fragments, commands, MCP servers,
+  skills and env) renders one sub-section per entry instead of Go struct
+  syntax. A list of maps that share their keys and hold plain values renders
+  as a table.
+- `taskloom` reports a failure as `taskloom: <message>` (plus a `fix:` line
+  when there is one) instead of `Error: <message>`, under `--format text` and
+  `markdown` alike; `ltk` and `harp` keep their `ltk:`/`harp:` prefix and gain
+  the `fix:` line. Under an explicit `--format json|yaml|toml`, `harp` now
+  reports a failure as an `{"error": …}` envelope on stderr like the other
+  binaries, and `ltk`'s and `harp`'s warnings become JSON Lines.
+- `harp --help` states `--format`'s real default (text on a terminal, json
+  when output is piped or redirected) instead of a fixed `text`. A pipe already
+  got json; only the help was wrong. `harp`, `ltk` and `taskloom` complete
+  `--format` values in the shell.
 
 **Isolation**
 - The container runtime axis splits into two ownership modes,

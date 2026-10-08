@@ -17,14 +17,14 @@ flowchart TD
     FLAG["--format (persistent)"]
     PRE["rootPersistentPreRunE → resetFormatGuard · refuseUnsupportedFormat"]
     PRE --> RUNE["command RunE"] --> EMIT["emit(cmd, data, textFn)<br/>format.go — marks formatWasHonored"]
-    EMIT --> CE["cliemit.Emit<br/>internal/shared/cliemit"]
+    EMIT --> CE["cobrafmt.Emit<br/>pkg/clifmt/cobrafmt"]
     CE --> Q{"format == text?"}
     Q -->|yes| TXT["textFn() — the human closure<br/>(nil ⇒ clifmt reflective text render)"]
     Q -->|no| REN["clifmt.Render(data, format)"]
     FLAG -.-> CE
     RUNE --> POST["rootPersistentPostRunE → checkFormatWasHonored"]
 
-    OF["streamFormat(cmd) — cliemit.Resolve, also marks formatWasHonored"]
+    OF["streamFormat(cmd) — cobrafmt.Resolve, also marks formatWasHonored"]
     WNT["wantsNonTextOutput(cmd) — a decision AROUND rendering; does not mark"]
 
     subgraph streaming["streaming commands — own text/json-only switch"]
@@ -44,12 +44,12 @@ flowchart TD
 - `formatText` / `formatJSON` are the *second*, narrower format vocabulary,
   used by the streaming commands that render one event at a time and
   structurally cannot hand `clifmt` a single result value. `unknownFormatError`
-  is their rejection; `emit()` has its own, wider one via `cliemit.Resolve`.
+  is their rejection; `emit()` has its own, wider one via `cobrafmt.Resolve`.
 - `emit` is the package's `--format` chokepoint. It delegates to the
-  cross-binary `cliemit` filter (shared with `cmd/taskloom` and `cmd/ltk`) so
+  cross-binary `cobrafmt` adapter (shared with `cmd/taskloom` and `cmd/ltk`) so
   the emit/resolve pair is defined once. Calling it at all is the invocation's
   proof that the command read the resolved format, whichever branch it took.
-- `streamFormat` resolves the flag through the same `cliemit.Resolve` as
+- `streamFormat` resolves the flag through the same `cobrafmt.Resolve` as
   `emit`, and is the streaming commands' half of the same proof.
 - `wantsNonTextOutput` is the one predicate for a decision made *around*
   rendering — stamping a field the human view does not show, or withholding a
@@ -113,5 +113,5 @@ to have no output assertions in their tests.
 `clidiag`'s structured channel is flipped on in the root's `PersistentPreRun`
 when the resolved format is structured, so warnings ride the JSON/YAML
 envelope instead of `<prog>: warning: <msg>` on stderr. An invalid `--format`
-is reported by the command's own `emit`/`cliemit.Resolve` call, not here — this
+is reported by the command's own `emit`/`cobrafmt.Resolve` call, not here — this
 just falls back to the plain default rather than erroring twice.

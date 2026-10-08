@@ -569,7 +569,7 @@ func j002500ToolDetail(w *World, toolName string) (*mcp.Tool, error) {
 // task ..." (a single one), which previously duplicated this verbatim.
 //
 // `taskloom add` is never asked for a format at these call sites, and
-// taskloom shares ctxloom's cliemit.Resolve, so off a terminal (this harness,
+// taskloom shares ctxloom's cobrafmt.Resolve, so off a terminal (this harness,
 // always) its stdout is the JSON tasks.Task object, not the tab-separated
 // text line this used to parse. That text-only shape is gone now, not just
 // no-longer-default: reverting to a TSV-first parse would break exactly as

@@ -36,6 +36,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
@@ -132,7 +133,7 @@ func TestApplyHooksRequest_RootField(t *testing.T) {
 }
 
 // deliverManagedSettings delivers a backend's settings, hooks and MCP servers
-// into dir at rest, through the one static writer (DeliverProject).
+// into dir at rest, through the placement core (Deliver) at the project root.
 func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, manageStatusline bool, dir string, fs afero.Fs) {
 	t.Helper()
 	kind, ok := engines.Registry().Lookup(engine.Name(backend))
@@ -141,7 +142,7 @@ func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfi
 	if hooks != nil {
 		pkg.Hooks = *hooks
 	}
-	_, _, err := DeliverProject(context.Background(), safefs.NewMem(fs), kind, pkg, dir)
+	_, _, err := Deliver(context.Background(), safefs.NewMem(fs), kind, pkg, delivery.Loadout{}, atRestPlacement(dir, kind.Root().Name, delivery.AllKinds()))
 	require.NoError(t, err)
 }
 

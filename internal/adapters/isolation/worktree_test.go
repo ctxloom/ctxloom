@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
-	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -506,13 +505,13 @@ func TestNestedUnder_MatchesRealpathResolvedPaths(t *testing.T) {
 // having written zero bytes when handed an empty pattern list", because
 // gitignore.EnsureFile returns nil before opening the file when len(patterns)
 // is zero. That early return is real, but this call site can never reach it:
-// the argument is gitignore.WorktreeArtifactPatterns, a package-level literal,
-// and no caller can substitute one. What is pinned here is therefore the
+// the argument is WorktreeArtifactPatterns(), which always carries ctxloom's
+// own artifacts whatever the registry holds. What is pinned here is therefore the
 // PAYLOAD -- the exclude block that hides per-agent config from a merge-back
 // actually lands, pattern for pattern -- so the claimed silent no-op becomes a
 // red test the moment the pattern set could ever be empty.
 func TestWorktree_ExcludeConfigFromMerge_WritesEveryPattern(t *testing.T) {
-	require.NotEmpty(t, gitignore.WorktreeArtifactPatterns,
+	require.NotEmpty(t, WorktreeArtifactPatterns(),
 		"an empty pattern set is what would make EnsureFile a silent no-op here")
 
 	common := t.TempDir()
@@ -527,7 +526,7 @@ func TestWorktree_ExcludeConfigFromMerge_WritesEveryPattern(t *testing.T) {
 	for _, line := range strings.Split(string(raw), "\n") {
 		written[strings.TrimSpace(line)] = true
 	}
-	for _, pat := range gitignore.WorktreeArtifactPatterns {
+	for _, pat := range WorktreeArtifactPatterns() {
 		assert.True(t, written[pat], "the exclude block carries %q", pat)
 	}
 }

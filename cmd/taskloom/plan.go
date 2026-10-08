@@ -5,13 +5,13 @@ import (
 	"io"
 	"sort"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 	"github.com/spf13/cobra"
 )
 
@@ -72,7 +72,7 @@ func runPlanList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	format, err := cliemit.Resolve(cmd)
+	format, err := cobrafmt.Resolve(cmd)
 	if err != nil {
 		return err
 	}
@@ -192,7 +192,7 @@ func sortPlans(list []plans.Plan) {
 }
 
 // renderOrEmit writes the listing in the requested format: the bespoke human
-// table for text, clifmt for everything else. It mirrors cliemit.Emit but takes
+// table for text, clifmt for everything else. It mirrors cobrafmt.Emit but takes
 // an already-resolved format and an explicit writer, since the body is driven
 // without cobra in tests.
 func renderOrEmit(out io.Writer, list []plans.Plan, format clifmt.Format) error {

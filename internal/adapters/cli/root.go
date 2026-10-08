@@ -22,8 +22,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -31,6 +29,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // degradedFlag backs the persistent --degraded flag: the fail-loudly escape
@@ -365,9 +365,9 @@ func rootPersistentPreRun(cmd *cobra.Command, args []string) {
 	// Flip clidiag's structured-diagnostics channel on for json/yaml/toml
 	// --format, off (today's plain "<prog>: warning: <msg>" stderr) for
 	// text/markdown or an unresolvable value — an invalid --format is
-	// reported by the command's own emit()/cliemit.Resolve call, not here, so
+	// reported by the command's own emit()/cobrafmt.Resolve call, not here, so
 	// this just falls back to the safe default rather than erroring twice.
-	format, ferr := cliemit.Resolve(cmd)
+	format, ferr := cobrafmt.Resolve(cmd)
 	clidiag.SetStructured(ferr == nil && format.Structured())
 }
 
@@ -484,7 +484,7 @@ func run(comp Composition, args []string, stdout io.Writer) int {
 	// production never does); there is no further fallback if it did. A
 	// --format value that will not parse falls back to text in there, so
 	// the ORIGINAL failure is always what gets reported.
-	_ = cliemit.EmitError(os.Stderr, rootCmd, err)
+	_ = cobrafmt.EmitError(os.Stderr, rootCmd, err)
 	return errorExitCode(err)
 }
 

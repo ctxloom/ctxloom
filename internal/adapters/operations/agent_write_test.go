@@ -624,7 +624,7 @@ func TestSetAgent_UnsupportedSurfaceApproachIsRefused(t *testing.T) {
 		Surfaces: map[string]string{"settings": "hew-record"},
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), agent.ApproachUnsafeFile)
+	assert.Contains(t, err.Error(), agent.ApproachFile)
 
 	reloaded, rerr := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, rerr)

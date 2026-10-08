@@ -1,0 +1,16 @@
+{
+  "engines": [
+    {
+      "engine": "mock",
+      "released": [
+        "skills"
+      ],
+      "wrote": [
+        "hooks"
+      ]
+    }
+  ],
+  "profiles": ["<default>"],
+  "status": "applied",
+  "target": "<target>"
+}

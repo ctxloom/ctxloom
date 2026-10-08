@@ -9,8 +9,7 @@ import (
 )
 
 // allOmitEmpty is a struct whose every field is omitted from its generic
-// (json/toGeneric) form — the exact shape U154-F02 names: Render used to
-// write ZERO bytes for it under text/markdown/toml, indistinguishable from a
+// (json/toGeneric) form: Render used to write ZERO bytes for it under text/markdown/toml, indistinguishable from a
 // writer that silently failed, while json/yaml render the same value as
 // `{}`/`null`.
 type allOmitEmpty struct {
@@ -18,8 +17,8 @@ type allOmitEmpty struct {
 	Note string `json:"note,omitempty"`
 }
 
-// TestRender_EmptyResults_NeverWriteZeroBytes pins U154-F02 across all four
-// named locations (text.go, markdown.go via the shared noderender.go, and
+// TestRender_EmptyResults_NeverWriteZeroBytes pins the empty-result marker
+// across all four locations (text.go, markdown.go via the shared noderender.go, and
 // marshal.go's TOML path): "nothing to render" must be VISIBLE output, not
 // silence indistinguishable from "the writer never ran". json is the
 // negative control — it already renders these values distinctly

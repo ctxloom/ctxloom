@@ -143,18 +143,18 @@ func absUnder(base, p string) string {
 
 // errUntrustedSettingsPresented refuses an untrusted session whose
 // presentations name a settings file on --settings: a flag source is one
-// --setting-sources does not filter, so the named file — the unsafe-file
+// --setting-sources does not filter, so the named file — the file
 // settings form names the repository's own .claude/settings.json — would
 // load the repository's hooks into the session the verdict keeps them out
 // of.
 var errUntrustedSettingsPresented = errors.New("claude: an untrusted repository's session takes no presented --settings (the file would load whatever the repository committed into it) — deliver settings to the session home instead")
 
 // ErrUntrustedProjectMCP refuses an untrusted session whose presentations
-// include the project's own .mcp.json (the unsafe-file MCP approach, which
+// include the project's own .mcp.json (the file MCP approach, which
 // names no flag): --strict-mcp-config makes claude ignore that file, so the
 // session would launch without ctxloom's servers, and loading it would load
 // whatever servers the repository committed beside them.
-var ErrUntrustedProjectMCP = errors.New("claude: an untrusted repository's session loads no project .mcp.json (--strict-mcp-config), so the unsafe-file MCP approach would launch it without ctxloom's servers — use the default MCP approach, which names its file on --mcp-config")
+var ErrUntrustedProjectMCP = errors.New("claude: an untrusted repository's session loads no project .mcp.json (--strict-mcp-config), so the file MCP approach would launch it without ctxloom's servers — use the default MCP approach, which names its file on --mcp-config")
 
 // repoSourceArgs keeps an untrusted repository's own surfaces out of a
 // launch: settings from the user source alone (the session home, where

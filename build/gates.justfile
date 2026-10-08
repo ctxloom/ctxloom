@@ -58,8 +58,12 @@ docker_integration_pkgs := "./internal/adapters/attach/... ./internal/adapters/i
 # "(cached) ok" until this was added. These tests are environment-dependent by
 # definition; caching their verdict is wrong regardless of which variable
 # changed.
+# -timeout 30m: these packages iterate EVERY reachable runtime (docker, then
+# podman), so wall time scales with what the host has installed. With both
+# present internal/core/coord alone ran past go test's implicit 10m alarm,
+# which panics mid-subtest instead of reporting which test failed.
 test-docker-integration: _require-generated _check-docker-integration-pkgs _check-docker-skip-gate
-    go test -trimpath -v -count=1 -tags docker_integration {{docker_integration_pkgs}}
+    go test -trimpath -v -count=1 -timeout 30m -tags docker_integration {{docker_integration_pkgs}}
 
 # Drift gate for docker_integration_pkgs: every file carrying the
 # `//go:build docker_integration` constraint must live under a package the

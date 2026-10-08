@@ -317,7 +317,9 @@ func reportSweep(deps Deps, what string, err error) {
 // returns: the caller gets no Outcome to tear down. The caller tears the
 // served endpoint down on error.
 func deliverAndDrive(ctx context.Context, deps Deps, l launch.Launch, inst engine.Instance, pkg composite.Package, inputs delivery.Inputs, approval *approvalSpec) (delivery.Delivered, error) {
-	delivered, err := deps.Static.Deliver(ctx, l.Loadout(pkg), deps.Kind.Root(), l.Target(deps.Records))
+	lo := l.Loadout(pkg)
+	lo.Report = deps.Reporter // a command or skill the writers skip is reported, not dropped
+	delivered, err := deps.Static.Deliver(ctx, lo, deps.Kind.Root(), l.Target(deps.Records))
 	if err != nil {
 		return delivery.Delivered{}, fmt.Errorf("runner: deliver the launch: %w", err)
 	}

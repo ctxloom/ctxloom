@@ -3,12 +3,13 @@ package gitignore
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -136,64 +137,47 @@ func TestPrivateStatePatterns_MatchExpectedSet(t *testing.T) {
 	}, PrivateStatePatterns)
 }
 
-// TestWorktreeArtifactPatterns_MatchExpectedSet pins that this is the set
-// whose incompleteness has twice been implicated in destroying agent work: a
-// ctxloom-written file missing from it stays visible to `git status` inside a
-// per-agent worktree, which false-dirties the worktree and makes teardown
-// (correctly) refuse to remove it — orphaning it permanently — or, in the
-// mirror case, rides an agent's merge-back. PrivateStatePatterns, whose worst
-// failure is a noisy diff, had an exact-membership pin; this one had two spot
-// checks. Membership is the invariant, so membership is what is pinned.
-func TestWorktreeArtifactPatterns_MatchExpectedSet(t *testing.T) {
+// TestCtxloomWorktreePatterns_MatchExpectedSet pins ctxloom's own half of the
+// per-agent worktree exclude set — the set whose incompleteness has twice
+// been implicated in destroying agent work: a ctxloom-written file missing
+// from it stays visible to `git status` inside a per-agent worktree, which
+// false-dirties the worktree and makes teardown (correctly) refuse to remove
+// it — orphaning it permanently — or, in the mirror case, rides an agent's
+// merge-back. Membership is the invariant, so membership is what is pinned.
+// Each engine's half is its own declaration
+// (engine.Definition.ProjectArtifacts), pinned by that engine and unioned in
+// by isolation.WorktreeArtifactPatterns: this package names no engine's path.
+func TestCtxloomWorktreePatterns_MatchExpectedSet(t *testing.T) {
 	assert.ElementsMatch(t, []string{
-		".mcp.json",
-		".claude/",
 		".ctxloom/cache/",
 		".ctxloom/project-id",
-		"CLAUDE.md",
-		".mock/",
-		"MOCK_CONTEXT.md",
-	}, WorktreeArtifactPatterns)
+	}, CtxloomWorktreePatterns)
 }
 
-// TestWorktreeArtifactPatterns_CoverTheProjectIDMarker pins the one
+// TestCtxloomWorktreePatterns_CoverTheProjectIDMarker pins the one
 // artifact ctxloom writes into a linked worktree BEFORE any engine runs:
 // resolveProject mints <worktree>/.ctxloom/project-id on first contact, and
 // the marker is private state (PrivateStatePatterns) so a checkout never
 // carries one. In a repository whose committed .gitignore predates the nested
 // rule, the mint shows up untracked, and the dirty-tree gate refuses to
 // delegate over ctxloom's own artifact.
-func TestWorktreeArtifactPatterns_CoverTheProjectIDMarker(t *testing.T) {
-	assert.Contains(t, WorktreeArtifactPatterns, ".ctxloom/project-id")
+func TestCtxloomWorktreePatterns_CoverTheProjectIDMarker(t *testing.T) {
+	assert.Contains(t, CtxloomWorktreePatterns, ".ctxloom/project-id")
 	assert.Contains(t, PrivateStatePatterns, ".ctxloom/project-id",
 		"the worktree exclude and the project's own nested .gitignore must agree the marker is private")
 }
 
-// TestPatternSets_AreNonEmpty pins against a pattern list arriving empty. Every production call site of
-// EnsureFile passes one of these package-level sets verbatim, so an empty list
-// is not something a caller can construct — but if one of these sets were ever
-// emptied, the failure would be silent twice over: EnsureFile returns nil for
-// an empty list ("ensured" nothing), and git.ListTracked treats an empty
-// pathspec list as "match nothing", so isolation's skip-worktree merge-isolation
-// pass (which passes WorktreeArtifactPatterns as its pathspecs) would quietly
-// become a no-op rather than failing.
+// TestPatternSets_AreNonEmpty pins against a pattern list arriving empty. If
+// one of these sets were ever emptied, the failure would be silent twice
+// over: EnsureFile returns nil for an empty list ("ensured" nothing), and
+// git.ListTracked treats an empty pathspec list as "match nothing", so
+// isolation's skip-worktree merge-isolation pass (whose pathspecs start from
+// CtxloomWorktreePatterns) would quietly become a no-op rather than failing.
 func TestPatternSets_AreNonEmpty(t *testing.T) {
 	assert.NotEmpty(t, PrivateStatePatterns)
-	assert.NotEmpty(t, WorktreeArtifactPatterns,
-		"isolation passes this as git.ListTracked's pathspec list, where empty means MATCH NOTHING")
+	assert.NotEmpty(t, CtxloomWorktreePatterns,
+		"isolation passes this (plus the engines' declared paths) as git.ListTracked's pathspec list, where empty means MATCH NOTHING")
 	assert.NotEmpty(t, SupersededPatterns)
-}
-
-// TestArtifactPatterns_GranularityRule pins that the file-granular vs
-// directory-granular choice is made per entry. Broadening an entry to its whole
-// directory is irreversible in one direction: it un-tracks whatever the project
-// had committed there, silently. A directory ctxloom owns outright may be named
-// wholesale; one holding a user's own files alongside ctxloom's writes may not.
-func TestArtifactPatterns_GranularityRule(t *testing.T) {
-	assert.Contains(t, WorktreeArtifactPatterns, ".claude/",
-		"a directory ctxloom owns outright is named wholesale")
-	assert.Contains(t, WorktreeArtifactPatterns, "CLAUDE.md",
-		"a single owned file is named as a file, not by sweeping its directory")
 }
 
 // TestEnsureNested_InitBehavior_CommitsContentIgnoresPrivateState mirrors the
@@ -551,17 +535,18 @@ func TestRetireSuperseded_MissingFile(t *testing.T) {
 func TestRetireWorktreeConfigBlock_RemovesHeaderAndPatterns(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "exclude")
-	content := "*.log\n\n" + WorktreeComment + "\n" + strings.Join(WorktreeArtifactPatterns, "\n") + "\n"
+	patterns := append(slices.Clone(CtxloomWorktreePatterns), ".engine-dir/", "ENGINE.md")
+	content := "*.log\n\n" + WorktreeComment + "\n" + strings.Join(patterns, "\n") + "\n"
 	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 
-	changed, err := RetireWorktreeConfigBlock(afero.NewOsFs(), path)
+	changed, err := RetireWorktreeConfigBlock(afero.NewOsFs(), path, patterns)
 	require.NoError(t, err)
 	assert.True(t, changed)
 
 	got := readPlainFile(t, path)
 	assert.Contains(t, got, "*.log", "unrelated pre-existing content survives")
 	assert.NotContains(t, got, WorktreeComment)
-	for _, p := range WorktreeArtifactPatterns {
+	for _, p := range patterns {
 		assert.NotContains(t, got, p)
 	}
 }
@@ -569,7 +554,7 @@ func TestRetireWorktreeConfigBlock_RemovesHeaderAndPatterns(t *testing.T) {
 // TestRetireWorktreeConfigBlock_MissingFile mirrors
 // TestRetireSuperseded_MissingFile: an absent file is a no-op, not an error.
 func TestRetireWorktreeConfigBlock_MissingFile(t *testing.T) {
-	changed, err := RetireWorktreeConfigBlock(afero.NewOsFs(), filepath.Join(t.TempDir(), "exclude"))
+	changed, err := RetireWorktreeConfigBlock(afero.NewOsFs(), filepath.Join(t.TempDir(), "exclude"), CtxloomWorktreePatterns)
 	require.NoError(t, err)
 	assert.False(t, changed)
 }

@@ -35,21 +35,21 @@ func (t sessionTime) MarshalJSON() ([]byte, error) {
 // essence file's path, but never the essence BODY itself (that stays
 // `session show`'s job, or `--full`'s — see session_full.go). Projected from
 // operations.SessionView, the one read model, never from the store's entry.
-// The label/col tags drive clifmt's text/markdown table headers (see
+// The clifmt label/col hints drive clifmt's text/markdown table headers (see
 // renderSessionRows).
 type SessionRow struct {
-	Harp        string       `json:"harp" label:"Harp" col:"HARP"`
-	Summary     string       `json:"summary" label:"Summary" col:"SUMMARY"`
-	Start       sessionTime  `json:"start" label:"Start" col:"START"`
-	End         *sessionTime `json:"end,omitempty" label:"End" col:"END"`
-	EssencePath string       `json:"essence_path,omitempty" label:"Essence Path" col:"ESSENCE PATH"`
+	Harp        string       `json:"harp" clifmt:"label=Harp,col=HARP"`
+	Summary     string       `json:"summary" clifmt:"label=Summary,col=SUMMARY"`
+	Start       sessionTime  `json:"start" clifmt:"label=Start,col=START"`
+	End         *sessionTime `json:"end,omitempty" clifmt:"label=End,col=END"`
+	EssencePath string       `json:"essence_path,omitempty" clifmt:"label=Essence Path,col=ESSENCE PATH"`
 	// Purged mirrors SessionView.Purged: `ctxloom session purge` destroyed
 	// this row's machine-written bulk. Structured consumers (a script
 	// filtering `--format json`) get a plain boolean; the same fact also
 	// rides the Summary badge below so it is visible in TEXT output too — a
 	// purged session must never read, in a table a human is actually looking
 	// at, as indistinguishable from one that was never purged.
-	Purged bool `json:"purged,omitempty" label:"Purged" col:"PURGED"`
+	Purged bool `json:"purged,omitempty" clifmt:"label=Purged,col=PURGED"`
 }
 
 // newSessionRow projects the read model down to a SessionRow. Summary falls

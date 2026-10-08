@@ -90,3 +90,11 @@ func TestTestSupport_ImportAndReachability(t *testing.T) {
 func TestSessionBind_UnadmittedCaller(t *testing.T) {
 	run(t, archlint.SessionBindAnalyzer, "internal/bindplant")
 }
+
+// TestJSONTags_EverySinkIsWatched hands an untagged struct to cobrafmt.Emit,
+// clifmt.Render and the (*clifmt.Printer).Render method — each must report —
+// and to a clifmt function that is not a sink, which must not. It is what
+// fails when a sink package moves and the rule's keys are left behind.
+func TestJSONTags_EverySinkIsWatched(t *testing.T) {
+	run(t, archlint.JSONTagsAnalyzer, "internal/jsonsinkplant")
+}

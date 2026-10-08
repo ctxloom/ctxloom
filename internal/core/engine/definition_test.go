@@ -145,3 +145,19 @@ func TestBase_Validate_RefusesAnUndecidedDistributionOrDelegatedChildrenAndAnUpp
 	b.Name = "X"
 	require.ErrorContains(t, b.Validate(), "lowercase")
 }
+
+// A declared project artifact is a path inside the working tree: an absolute
+// path or one climbing out of the tree would put a stranger's file in every
+// worktree's exclude set.
+func TestBase_Validate_RefusesAProjectArtifactOutsideTheWorkingTree(t *testing.T) {
+	b := engine.Base{Definition: engine.Definition{
+		Name: "x", Modes: []engine.Mode{engine.Interactive}, CLI: []engine.CLIGrammar{{Mode: engine.Interactive, Binary: "x"}},
+		Distribution: engine.DistributionTestOnly, DelegatedChildren: engine.Absent[engine.DelegatedChildren]("n/a"),
+	}}
+	b.ProjectArtifacts = []string{".x/", "X.md", "nested/dir/"}
+	require.NoError(t, b.Validate())
+	for _, bad := range []string{"", "/etc/x", "../sibling", "a/../../b/"} {
+		b.ProjectArtifacts = []string{bad}
+		require.ErrorIs(t, b.Validate(), engine.ErrDefinition, "%q", bad)
+	}
+}

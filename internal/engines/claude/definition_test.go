@@ -37,6 +37,15 @@ func claudeDef(t *testing.T) engine.Base {
 	return e.Root()
 }
 
+// claude declares what its delivery leaves in a working tree, each at the
+// granularity it owns: .claude/ wholesale (ctxloom owns the directory
+// outright), the MCP file and CLAUDE.md as single files — sweeping a
+// directory a user shares with ctxloom would silently un-track their own
+// files. A per-agent worktree's exclude set reads this declaration.
+func TestBuild_DeclaresTheProjectArtifactsItWrites(t *testing.T) {
+	require.ElementsMatch(t, []string{ConfigDirName + "/", MCPFileName, ContextFileName}, claudeDef(t).ProjectArtifacts)
+}
+
 func TestBuild_DeclaresEverySurface_HooksIncluded_AndBothHalves(t *testing.T) {
 	def := claudeDef(t)
 	require.Equal(t, engine.Name(EngineName), def.Name)
@@ -222,8 +231,8 @@ func TestDeliverHooks_ClaimsTheHookInTheGroupItsMatcherSelects(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, []present.Claim{
 		{Pointer: "/hooks/SessionStart/matcher=/hooks/-", Value: map[string]any{"type": "command", "command": "ctxloom", "args": []any{"hook", "session-bind", agent.HookEngineFlag, EngineName}}},
-		{Pointer: "/hooks/PreToolUse/matcher=Bash/hooks/-", Value: map[string]any{"type": "command", "command": "ltk", "args": []any{"evaluate"}}},
-	}, settingsClaimsIn(t, d, project), "one claim per distinct hook, the shell hook in the Bash group")
+		{Pointer: "/hooks/PreToolUse/matcher=Bash|PowerShell/hooks/-", Value: map[string]any{"type": "command", "command": "ltk", "args": []any{"evaluate"}}},
+	}, settingsClaimsIn(t, d, project), "one claim per distinct hook, the shell hook in the shell-class group")
 	_, err = os.Stat(filepath.Join(project, ConfigDirName, SettingsFileName))
 	require.True(t, os.IsNotExist(err), "the approach writes nothing")
 }
@@ -384,7 +393,7 @@ func TestDeclaration_NamesEveryKindTheDefinitionDelivers(t *testing.T) {
 	for kind := range decl {
 		require.True(t, def.Carries(kind), "the table names %v, which the Definition does not deliver", kind)
 	}
-	require.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachSystemPrompt}, decl.Names(agent.SurfaceContext))
+	require.ElementsMatch(t, []string{agent.ApproachFile, ApproachSystemPrompt}, decl.Names(agent.SurfaceContext))
 	mcpDef, _ := decl.Default(agent.SurfaceMCP)
 	require.Equal(t, ApproachMCPConfig, mcpDef)
 }

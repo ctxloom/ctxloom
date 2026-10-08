@@ -81,7 +81,7 @@ prints.`, binName, binName, binName),
 // rejects: --json is passed through as "json", which Emit refuses.
 //
 // An explicitly given --format is the more specific request and wins. That
-// differs from cliemit.Resolve, where --json is unconditional; a companion
+// differs from cobrafmt.Resolve, where --json is unconditional; a companion
 // whose local vocabulary is a SUBSET must be able to say which member of it
 // it wants without a shorthand for a sibling format overriding it. When the
 // host declares no --json at all (ltk, or NewCommand driven without a root)

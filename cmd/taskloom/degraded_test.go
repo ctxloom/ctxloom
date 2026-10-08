@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // storeBytes reads the raw bytes of the current project's task log under the
@@ -35,7 +35,7 @@ func storeBytes(t *testing.T) string {
 // the real cobra tree — the persistent --degraded flag included — against
 // the isolated store, returning the error and everything the command wrote
 // to its out/err streams. The format is pinned to text because a
-// non-terminal stdout otherwise resolves to JSON (cliemit.Resolve), which
+// non-terminal stdout otherwise resolves to JSON (cobrafmt.Resolve), which
 // would turn the diagnostic lines these tests read into JSON envelopes. The package-global rootCmd is reset on cleanup exactly as
 // executeFailingUnderFormat does, plus the --degraded flag this test family
 // introduces (a Changed --degraded leaking into the next test would turn its

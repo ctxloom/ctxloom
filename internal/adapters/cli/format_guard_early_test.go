@@ -64,7 +64,7 @@ func TestFormatGuard_RefusesBeforeTheCommandDoesAnything(t *testing.T) {
 // TestFormatGuard_TextAndImplicitFormatsStillRun guards the other direction.
 // A refusal that fires too eagerly would break every ordinary invocation, and
 // that failure is far worse than the one being fixed: text is the default, and
-// off a terminal cliemit.Resolve defaults to JSON without the caller asking for
+// off a terminal cobrafmt.Resolve defaults to JSON without the caller asking for
 // it. Neither may be refused.
 func TestFormatGuard_TextAndImplicitFormatsStillRun(t *testing.T) {
 	testsupport.ProjectDir(t)

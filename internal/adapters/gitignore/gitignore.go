@@ -15,8 +15,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // PrivateStatePatterns are the .ctxloom paths that are rebuildable or purely
@@ -243,25 +243,22 @@ func RedundantRootPatterns(fsys afero.Fs, projectDir string) ([]string, error) {
 // is grouped in .git/info/exclude.
 const WorktreeComment = "# ctxloom per-agent worktree config (isolation; NEVER merge back)"
 
-// WorktreeArtifactPatterns is the BROADENED set of per-agent config artifacts a
-// fan-out member materializes into its isolated worktree cwd — the FULL written
-// set across all engines. Unlike TransientArtifactPatterns (which deliberately
-// leaves .mcp.json/.claude/commands as the project's choice), this set must keep
-// EVERY ctxloom-written config out of a developer member's merge-back, so it
-// covers .mcp.json and .claude/ wholesale plus the cache. It is written to
-// .git/info/exclude (untracked, common-dir) — NOT the tracked .gitignore, which
-// would itself merge back. Safe: excludes only affect UNTRACKED files, so a repo
-// that genuinely tracks .mcp.json is unaffected.
+// CtxloomWorktreePatterns are ctxloom's OWN per-agent artifacts a fan-out
+// member leaves in its isolated worktree cwd — the half of the per-agent
+// worktree exclude set no engine declares. The other half is each engine's:
+// the paths its delivery writes into a working tree (its config dir, its MCP
+// file, its context file — engine.Definition.ProjectArtifacts), which
+// isolation.WorktreeArtifactPatterns unions with these through the registry.
+// This package names no engine's paths: an engine's layout is its own
+// declaration, and a copy here would drift from it.
 //
-// CLAUDE.md belongs here too: it is a TRACKED per-agent context surface that
-// ctxloom mutates (its context is claimed as a section appended to the file).
-// Without this entry the Worktree's skipTrackedConfig cannot hide that
-// mutation: a per-agent run's materialize step turns a repo's committed
-// CLAUDE.md into a tracked change that no skip-worktree bit covers, so teardown's WIP-safety check (correctly) reads the worktree as
-// dirty and refuses `git worktree remove`, permanently orphaning it.
-var WorktreeArtifactPatterns = []string{
-	".mcp.json",
-	".claude/",
+// The whole set must keep EVERY ctxloom-written config out of a developer
+// member's merge-back. It is written to .git/info/exclude (untracked,
+// common-dir) — NOT the tracked .gitignore, which would itself merge back.
+// Safe: excludes only affect UNTRACKED files, so a repo that genuinely tracks
+// one of these paths is unaffected (and the worktree skip-worktrees it
+// instead).
+var CtxloomWorktreePatterns = []string{
 	".ctxloom/cache/",
 	// Minted by resolveProject on first contact with the worktree, before any
 	// engine runs. It is private state (PrivateStatePatterns), so no checkout
@@ -269,13 +266,6 @@ var WorktreeArtifactPatterns = []string{
 	// nested rule the mint is untracked, and the dirty-tree gate would refuse
 	// to delegate over ctxloom's own artifact.
 	".ctxloom/project-id",
-	"CLAUDE.md",
-	// mock's own written set. It is here for the same reason claude's is: mock
-	// delivers every surface, so a mock-backed worktree leaves these behind,
-	// and an uncovered artifact reads as a DIRTY worktree that teardown then
-	// refuses to remove — orphaning it permanently.
-	".mock/",
-	"MOCK_CONTEXT.md",
 }
 
 // SupersededPatterns are the canonical spellings of the ignore rule written by
@@ -377,8 +367,9 @@ func RetireSupersededFile(fsys afero.Fs, path string) (bool, error) {
 	return retireBlock(fsys, path, supersededComments, isSupersededBlanket)
 }
 
-// RetireWorktreeConfigBlock removes the WorktreeComment header and any
-// WorktreeArtifactPatterns lines from the file at path — a git common-dir
+// RetireWorktreeConfigBlock removes the WorktreeComment header and any line
+// equal to one of patterns (the worktree exclude set,
+// isolation.WorktreeArtifactPatterns) from the file at path — a git common-dir
 // info/exclude. Worktree teardown calls this once no linked worktree remains
 // that still needs the shared exclude block: the block is
 // written into the repo's ONE shared common-dir file (git has no per-
@@ -388,8 +379,8 @@ func RetireSupersededFile(fsys afero.Fs, path string) (bool, error) {
 // removed once nothing else is relying on it, or it silently reappears as
 // dirty/untracked noise for every OTHER worktree (including the developer's
 // own main checkout) the moment it is gone.
-func RetireWorktreeConfigBlock(fsys afero.Fs, path string) (bool, error) {
-	return retireBlock(fsys, path, []string{WorktreeComment}, exactlyOneOf(WorktreeArtifactPatterns))
+func RetireWorktreeConfigBlock(fsys afero.Fs, path string, patterns []string) (bool, error) {
+	return retireBlock(fsys, path, []string{WorktreeComment}, exactlyOneOf(patterns))
 }
 
 // retireBlock is RetireSupersededFile's mechanism, generalized: remove every

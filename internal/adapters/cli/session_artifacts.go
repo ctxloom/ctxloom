@@ -44,10 +44,10 @@ var sessionArtifactsListAll bool
 // sessionArtifactRow is the listing's rendering projection — never the domain
 // type, matching cli.SessionRow's convention (see session_row.go).
 type sessionArtifactRow struct {
-	Harp      string `json:"harp"           label:"Harp"      col:"HARP"`
-	Compacted bool   `json:"compacted"      label:"Compacted" col:"COMPACTED"`
-	Bytes     int64  `json:"bytes"          label:"Bytes"     col:"BYTES"`
-	Path      string `json:"path,omitempty" label:"Path"      col:"PATH"`
+	Harp      string `json:"harp"           clifmt:"label=Harp,col=HARP"`
+	Compacted bool   `json:"compacted"      clifmt:"label=Compacted,col=COMPACTED"`
+	Bytes     int64  `json:"bytes"          clifmt:"label=Bytes,col=BYTES"`
+	Path      string `json:"path,omitempty" clifmt:"label=Path,col=PATH"`
 }
 
 // sessionArtifactReport is `session artifacts list`'s payload.

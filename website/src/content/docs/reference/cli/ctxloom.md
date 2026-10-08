@@ -71,6 +71,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom llm](/reference/cli/ctxloom_llm/)	 - Manage LLM backends
 * [ctxloom loadout](/reference/cli/ctxloom_loadout/)	 - Print the context, commands, hooks and MCP servers ctxloom contributes to a session
 * [ctxloom manage](/reference/cli/ctxloom_manage/)	 - Install and manage ctxloom's project harness
+* [ctxloom materialize](/reference/cli/ctxloom_materialize/)	 - Write the assembled profiles into a directory as each engine's native files
 * [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - List the MCP servers this project registers
 * [ctxloom profile](/reference/cli/ctxloom_profile/)	 - Manage profiles (named fragment collections)
 * [ctxloom remote](/reference/cli/ctxloom_remote/)	 - Register and browse the sources content comes from

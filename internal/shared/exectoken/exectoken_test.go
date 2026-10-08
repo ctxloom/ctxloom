@@ -63,3 +63,26 @@ func TestIsManaged(t *testing.T) {
 		t.Error("ltk must not manage ctxloom's command")
 	}
 }
+
+func TestArgs(t *testing.T) {
+	cases := map[string][]string{
+		"ctxloom hook inject-context abc":            {"hook", "inject-context", "abc"},
+		`"/opt/my tools/ctxloom" hook session-start`: {"hook", "session-start"},
+		`'/a b/ctxloom'   hook  hud`:                 {"hook", "hud"},
+		"/usr/bin/ctxloom":                           nil,
+		`"/unterminated ctxloom hook`:                nil,
+		"":                                           nil,
+	}
+	for in, want := range cases {
+		got := Args(in)
+		if len(got) != len(want) {
+			t.Errorf("Args(%q) = %q; want %q", in, got, want)
+			continue
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("Args(%q) = %q; want %q", in, got, want)
+			}
+		}
+	}
+}

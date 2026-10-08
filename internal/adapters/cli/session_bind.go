@@ -12,8 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/harpmarker"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // The `ctxloom hook session-bind` machinery: a machine callback fired by an

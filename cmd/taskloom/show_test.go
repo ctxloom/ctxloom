@@ -22,7 +22,7 @@ func showForTest(t *testing.T, format string, args ...string) (string, error) {
 	t.Helper()
 	cmd := &cobra.Command{Use: "show", RunE: runShow}
 	cmd.Flags().String("format", "", "")
-	// Set, not defaulted: cliemit.Resolve honours only an EXPLICIT --format
+	// Set, not defaulted: cobrafmt.Resolve honours only an EXPLICIT --format
 	// and otherwise derives one from stdout not being a terminal, which under
 	// `go test` would turn every "text" call into JSON.
 	require.NoError(t, cmd.Flags().Set("format", format))

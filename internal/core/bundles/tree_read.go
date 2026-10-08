@@ -260,7 +260,7 @@ func (r *reader) finishHooks() {
 		content.SortHooks(hooks)
 		for _, h := range hooks {
 			r.appendHook(event, BundleHook{
-				Matcher:         h.Matcher,
+				Tool:            h.Tool,
 				Command:         h.Command,
 				Args:            h.Args,
 				Type:            h.Type,

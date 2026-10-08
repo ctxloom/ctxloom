@@ -13,10 +13,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/runner/interaction"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/parentwatch"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // runnerCmd is the runner process: `ctxloom runner <engine>` is what

@@ -182,7 +182,7 @@ type holdLocal struct {
 	parked chan struct{}
 }
 
-// Steps a test can hold at (Coordinator.holdStep).
+// Steps a test can hold at (Options.holdStep).
 const (
 	holdStepParkSibling = "park-sibling" // before a sibling's pause is sent
 	holdStepReleaseWait = "release-wait" // a release, before it waits for the hold's parking

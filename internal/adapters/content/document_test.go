@@ -14,7 +14,7 @@ import (
 func companionLoadout() map[BundleID]DocumentBundle {
 	return map[BundleID]DocumentBundle{
 		"ltk": {
-			"hooks/pre_tool/guardrail.yaml": []byte("matcher: Bash\ntype: command\ncommand: ltk hook\n"),
+			"hooks/pre_tool/guardrail.yaml": []byte("tool: shell\ntype: command\ncommand: ltk hook\n"),
 			"mcp/ltk.yaml":                  []byte("command: ltk\nargs:\n  - mcp\n"),
 			"mcp/.ltk.meta.yaml":            []byte("notes: shipped by the ltk companion\n"),
 			"fragments/tool-discipline.md":  []byte("---\ntags:\n  - tools\n---\nUse the narrowest tool.\n"),

@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/triggers"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 	"github.com/spf13/afero"
 )
 

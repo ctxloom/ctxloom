@@ -18,7 +18,7 @@ Feature: version — the one question a build must always be able to answer
     # the CLI is stamped by ldflags at build time and the test process is not —
     # so the assertion is the strongest one that IS available: the printed
     # string is version-SHAPED, and every row agrees with `ctxloom --version`,
-    # which never goes through cliemit.Resolve and so is the fixed point.
+    # which never goes through cobrafmt.Resolve and so is the fixed point.
     #
     # This replaces `the output matches "."` — one arbitrary character, which
     # the literal "MUTATION-not-the-version" satisfies exactly as well as the
@@ -27,7 +27,7 @@ Feature: version — the one question a build must always be able to answer
     #
     # The no-flag row is the important one: off a terminal (which this harness
     # always is) `ctxloom version` now resolves to the SAME JSON the
-    # `--format json` row gets, per cliemit.Resolve's derived default. Only an
+    # `--format json` row gets, per cobrafmt.Resolve's derived default. Only an
     # explicit `--format text` still gets the prose rendering.
     Scenario Outline: The version reads the same however it is asked for
       Given an initialized ctxloom project

@@ -1,17 +1,20 @@
-# `pkg/clifmt` — CLI output rendering
+# `pkg/clifmt` — CLI output library
 
-**What it is.** A leaf package that renders an arbitrary Go value to one of five encodings —
-`json`, `yaml`, `toml`, `text`, `markdown` — so a first-party CLI command can hand over a result
-struct and get correct output in every format without writing per-command rendering code.
+**What it is.** A library that renders a command's result for a CLI in one of five formats —
+`json`, `yaml`, `toml`, `text`, `markdown` — from one data contract, so a command hands over a
+value and gets correct output in every format without writing per-command rendering code.
 
-**The contract it owns.** *Given a value and an already-parsed `Format`, write the rendered bytes.*
-It has **no flag plumbing at all** — `internal/shared/cliemit` is the cobra glue that reads
-`--format`, calls `ParseFormat`, and dispatches to `Render`. `internal/shared/clidiag` uses only
-the warning envelope.
+It is three packages, importable from inside the ctxloom module and importing nothing of ctxloom:
 
-Six internal consumers: `cmd/harp`, `cmd/ltk`, `cmd/taskloom`, `internal/adapters/cli`,
-`internal/shared/clidiag`, `internal/shared/cliemit`. `pkg/clifmt` is the **only** package under
-`pkg/`, and there is no consumer outside the module.
+| Package | Imports | Owns |
+|---|---|---|
+| `pkg/clifmt` | stdlib, yaml.v3, go-toml/v2 | rendering, the `Doc` view model and its options, the hint tag, `Map`, format resolution, exit status, error and warning envelopes |
+| `pkg/clifmt/clidiag` | `pkg/clifmt` | the process-wide stderr warning channel (`<prog>: warning: <msg>`, or JSON Lines) |
+| `pkg/clifmt/cobrafmt` | cobra, x/term, the two above | the cobra adapter: one `--format` flag on a tree, `Emit`, the process tail |
+
+Status: **v0, unstable**, until the semantic-role work (taskloom `lively-revision`) lands. It
+stays in the ctxloom module for now and moves to its own repository when an outside consumer
+appears (owner ruling, 2026-10-07).
 
 ---
 
@@ -19,169 +22,209 @@ Six internal consumers: `cmd/harp`, `cmd/ltk`, `cmd/taskloom`, `internal/adapter
 
 ```mermaid
 flowchart TD
-    subgraph boundary[callers]
-        CE["internal/shared/cliemit.Emit"]
-        CD["internal/shared/clidiag"]
+    subgraph binaries[family binaries]
+        H[cmd/harp]
+        L[cmd/ltk]
+        T[cmd/taskloom]
+        C[internal/adapters/cli]
     end
-
-    CE --> R["Render(w, v, Format)<br/>render.go:17"]
-    CE --> PF["ParseFormat(string)<br/>format.go:57"]
-    CD --> EW["EncodeWarning(w, WarningEnvelope)<br/>warnings.go:30"]
-    RE["RenderError(w, err, Format)<br/>errors.go:17"] --> R
-    R -.->|"type assert — 0 production impls"| RC["Renderer.RenderCLI<br/>renderer.go:15"]
-
-    R --> RJ["renderJSON<br/>marshal.go:18"]
-    R --> RY["renderYAML (2-space)<br/>marshal.go:92"]
-    R --> RT["renderTOML<br/>marshal.go:115"]
-    R --> RX["renderText<br/>text.go:16"]
-    R --> RM["renderMarkdown<br/>markdown.go:13"]
-
-    RY & RT --> TG["toGeneric → normalizeNumbers<br/>marshal.go:32,46<br/>(round-trip through JSON so yaml/toml<br/>inherit the json: tag identity)"]
-
-    RX & RM --> BN["buildNode → *Node<br/>reflectmodel.go:49"]
-    RX & RM --> BT["buildTable → *Table<br/>reflectmodel.go:136"]
-    BN --> CF["classifyField<br/>reflectmodel.go:113"]
-    BN & BT --> TAGS["parseJSONTag · resolveLabel ·<br/>resolveCol · humanize · isEmptyValue<br/>tags.go:20,41,54,65,103"]
-    CF --> SS["scalarString → joinSlice / joinMap<br/>reflectmodel.go:206,237,248"]
-
-    BN --> RN["renderNode[D]<br/>noderender.go:25"]
-    RN --> TNF["textNodeFormat (D = string indent)<br/>text.go:60"]
-    RN --> MNF["markdownNodeFormat (D = int level)<br/>markdown.go:56"]
-    TNF --> WTT["writeTextTable (tabwriter)<br/>text.go:79"]
-    MNF --> WMT["writeMarkdownTable + mdEscapeCell<br/>markdown.go:81,104"]
+    binaries --> CF["cobrafmt<br/>AddFlag · Resolve · Emit · EmitError<br/>EmitVersion · ApplyDiagnostics · Execute"]
+    CF --> P["clifmt.Printer.Render(w, v, Format, opts…)"]
+    CF --> RF["clifmt.ResolveFormat(requested, explicit, terminal)"]
+    CF --> D["clidiag.SetStructured"]
+    P -->|json · yaml · toml| M["json contract<br/>(json tags, json.Marshaler)"]
+    P -->|text · markdown| V["view layers<br/>WithWriter → At → ViewFor → derive"]
+    V --> DOC["Doc → writeDoc<br/>(one traversal, text and markdown)"]
 ```
 
-**The design's best idea:** the generic `nodeFormat[D]` / `renderNode[D]` pair
-(`noderender.go:12`, `:25`) is **one traversal with two instantiations** — text carries a string
-indent as its depth type, markdown carries an int heading level. The blank-line rule and the
-scalars→sections→tables ordering are written once.
-
-**The second load-bearing trick:** `toGeneric` (`marshal.go:32`) round-trips through
-`encoding/json` before handing off to yaml/toml, so all three structured formats inherit the same
-`json:` tag identity rather than needing three sets of struct tags.
+**The design's best idea:** the human views are derived from the same contract that sets the
+machine shape. `json` tags decide the field names for all three structured formats, and text and
+markdown are built from those fields too, tuned by one hint tag. A command that needs something
+else passes an option; it never forks the contract.
 
 ---
 
-## 2. Surface
+## 2. The input model
 
-| Symbol | file:line | Notes |
-|---|---|---|
-| `Format` | `format.go:9` | String-kinded enum; constants at `:11-17`. Methods `Valid` (`:25`), `String` (`:34`), `Structured` (`:44`) |
-| `Format.Structured` | `format.go:44` | json/yaml/toml vs text/markdown — used to gate the diagnostics channel (`internal/adapters/cli/root.go:118`, `cmd/taskloom/root.go:47`) |
-| `ParseFormat` | `format.go:57` | Case/space-insensitive, with `yml`/`txt`/`md` aliases. Wraps `ErrUnsupportedFormat` and includes the offending input |
-| `ErrUnsupportedFormat` | `format.go:22` | |
-| `Render` | `render.go:17` | The public entry: `Renderer` hook, then a five-way dispatch. **12 production call sites repo-wide** |
-| `RenderError` | `errors.go:17` | Wraps an error in `ErrorEnvelope` and delegates to `Render`. One caller: `internal/adapters/cli/root.go:187`, which discards the result |
-| `ErrorEnvelope` | `errors.go:9` | `{Error string}` — the `{"error": "..."}` shape |
-| `WarningEnvelope` | `warnings.go:14` | `{Prog, Warning}` — a JSON-Lines record. **The only type here with a genuine cross-package contract**: `clidiag` encodes it and `clidiag`'s tests decode it |
-| `EncodeWarning` | `warnings.go:30` | One compact JSON object + newline. **Deliberately bypasses the whole `Format` machinery** (rationale at `warnings.go:19-29`) — a warning is a line on a stream, not a rendered document |
-| `Renderer` | `renderer.go:14` | Escape-hatch interface (`RenderCLI`) a result type can implement to take over rendering for a subset of formats |
-| `Node` / `ScalarField` / `SectionField` / `TableField` | `reflectmodel.go:15`,`:22`,`:28`,`:34` | The intermediate model text and markdown share: a struct's fields bucketed into scalar lines, nested sections, and tables. Written only by `buildNode`, read only by `renderNode` |
-| `Table` | `reflectmodel.go:41` | `{Columns []string, Rows [][]string}` |
-| `nodeFormat[D]` | `noderender.go:12` | The per-format vtable: `writeScalar`, `writeSectionHeading`, `writeTableHeading`, `writeTable`, `childDepth` |
-| `fieldKind` | `reflectmodel.go:100` | The three-valued classification `classifyField` returns |
-| `derefValue` / `derefType` | `reflectmodel.go:265`, `:275` | Unwrap pointers/interfaces; nil → an invalid `reflect.Value`, which is the whole nil-safety strategy |
-| `implementsStringer` / `typeImplementsStringer` | `reflectmodel.go:284`, `:288` | |
+### 2.1 The contract
 
-### The tag convention
+A result is a Go value, normally a struct or a slice of structs.
 
-`json:"name,omitempty"` supplies the wire name and the omitempty rule (`parseJSONTag`,
-`tags.go:20`); `label:"..."` overrides the human label, else the json name is humanized
-(`resolveLabel`, `tags.go:41` → `humanize`, `:65`, which preserves acronym runs via `isAllUpper`,
-`:85`); `col:"..."` overrides a table column header, else the label (`resolveCol`, `tags.go:54`).
-`isEmptyValue` (`tags.go:103`) mirrors `encoding/json`'s omitempty semantics.
+- **`json` tags set the machine shape** — names, `-`, `omitempty`, embedding — for json, yaml and
+  toml alike (yaml and toml are produced by round-tripping through `encoding/json`).
+- **A type customises its machine shape with stdlib `json.Marshaler`.** clifmt adds no machine-side
+  override of its own.
+- **Lists are `[]`, never `null`.** A nil slice anywhere in the value renders as an empty list, so
+  a `jq` pipeline does not break on the empty case. There is no option to turn this off.
+
+### 2.2 The hint tag
+
+Display hints live in one namespaced tag. Bare `label:`/`col:` tags are not read, and a test-arch
+gate fails on any left in production code.
+
+```go
+type SessionRow struct {
+    Harp  string `json:"harp"  clifmt:"label=Harp,col=HARP,role=id"`
+    Debug string `json:"debug" clifmt:"-"` // structured output only
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `label=` | heading or line label (default: the humanized json name) |
+| `col=` | table column header (default: the label) |
+| `role=id\|primary\|status\|detail` | semantic role. The grammar is reserved; no view acts on a role yet |
+| `-` | hide the field from text and markdown; json, yaml and toml keep it |
+
+A value may not contain `,` or `=`. **A malformed tag is a `Render` error** naming the type and
+field, never ignored.
+
+### 2.3 Dynamic data
+
+Plain Go maps and slices are first-class. The one extra type is **`clifmt.Map`**, a string-keyed
+map that keeps insertion order (`NewMap`, `Set`, `Get`, `Keys`, `Len`; it marshals as a JSON
+object in insertion order). Use it where the order of dynamic keys means something.
+
+How a value renders in text and markdown:
+
+| Value | Renders as |
+|---|---|
+| struct | `Label: value` lines, then sections, then tables |
+| map or `*Map` (field or top level) | a section, entries in key order: sorted for a Go map, insertion order for `*Map`. Keys render verbatim, never humanized |
+| `[]struct` | a table |
+| `[]map` / `[]*Map` whose elements share one key set of scalar values | a table |
+| any other `[]map` | sections titled `[1]`, `[2]`, … |
+| `[]scalar` | comma-joined on a field; one line per item at top level |
+| a nested value inside a table cell | compact inline `k=v, k=v`, never Go syntax |
+| a view that comes out empty (an all-omitempty struct, an empty map or scalar list, a view that hid everything) | `(none)` |
+
+Block order within a node is always scalars, then sections, then tables.
+
+### 2.4 Key order in structured output
+
+json and **yaml** follow the contract's order: struct field order, and insertion order for `*Map`.
+Plain Go maps are sorted. **toml is key-sorted** throughout — go-toml/v2 has no ordered generic
+form — so toml cannot follow the contract's order.
 
 ---
 
-## 3. Invariants
+## 3. Custom views
 
-**Hold, and are load-bearing:**
+### 3.1 The `Doc` view model
 
-1. **One traversal serves text and markdown.** `renderNode[D]` (`noderender.go:25`) is the
-   deduplication that justifies the package.
-2. **yaml and toml inherit the `json:` tag identity** via `toGeneric` (`marshal.go:32`), so a
-   struct needs one set of tags, not three.
-3. **Map output is sorted.** `joinMap` (`reflectmodel.go:248`) sorts its `k=v` pairs — Go map order
-   is random, and CLI output must be diffable.
-4. **The reflective walker is nil-safe by construction.** `derefValue` maps nil to an invalid
-   `reflect.Value` and every reader checks `IsValid`.
-5. **`writeTextTable` returns `tw.Flush()`'s error** (`text.go:79`) rather than discarding it, and
-   every `Fprintf` in `renderNode`, `writeMarkdownTable` and `renderMarkdown` is checked.
-6. **Markdown heading depth is capped at 6** (`nextLevel`, `markdown.go:72`).
-7. **Markdown table *cells* are pipe-escaped and newline-collapsed** (`mdEscapeCell`,
-   `markdown.go:104`).
-8. **`EncodeWarning` deliberately does not go through `Render`** — the JSON-Lines contract is
-   independent of the caller's chosen format, which is correct: a warning must be parseable
-   whether the command is emitting text or toml.
-9. **`Render` wraps a custom-renderer error and wraps the sentinel for an unknown format**
-   (`render.go:40`).
-10. **yaml output is two-space indented**, nested maps and sequences alike, the same as every
-   YAML file ctxloom saves (`internal/shared/yamlx.Marshal`). yaml.v3 defaults to four, so
-   `renderYAML` (`marshal.go:92`) sets the indent on its own `yaml.NewEncoder` rather than
-   importing yamlx, which this leaf package must not do; that direct encoder is why
-   `.golangci.yml` keeps a forbidigo exclusion for `marshal.go`. Pinned by
-   `TestRenderYAMLIndentsTwoSpaces`.
+Every human view is a `Doc`: an ordered list of sealed blocks.
 
-**Do not hold, or are narrower than documented:**
+```go
+type Doc []Block
+type Field   struct{ Label, Value string }                   // "Label: value" / "**Label:** value"
+type Section struct{ Title string; Body Doc }                // heading + nested body
+type Table   struct{ Title string; Columns []string; Rows [][]string }
+type List    struct{ Title string; Items []string }
+type Para    string                                          // verbatim line(s)
+```
 
-- **Four inputs render zero bytes and return nil**, and the set is format-dependent, so no
-  exit-code or json-shaped test can see it:
+Derivation produces a `Doc`, and so does every custom view, so one function covers text **and**
+markdown, can nest inside a derived parent, and can decorate the derived view.
 
-  | Input | Format | Bytes | Error |
-  |---|---|---|---|
-  | all-`omitempty` struct, zero value | text | **0** | nil |
-  | same | markdown | **0** | nil |
-  | same | json | 3 (`{}`) | nil |
-  | `[]string{}` | text | **0** | nil |
-  | `[]struct{…}{}` | text | 5 (header row) | nil |
-  | `nil` | toml | **0** | nil |
-  | `nil` | json | 5 (`null`) | nil |
+### 3.2 Options
 
-  Reachable in production: `cmd/harp/root.go:105` renders
-  `names := make([]string, 0, max(opts.count, 0))`, so `harp --count 0` prints nothing and exits 0.
-  Note the internal inconsistency — an empty **struct** slice *does* emit a header row, because
-  `buildTable` derives columns from the element type (`reflectmodel.go:146`).
-- **`RenderError(w, nil, f)` produces a well-formed *failure* report with an empty message**
-  (`errors.go:19` leaves `msg == ""`), and `render_test.go:126-134` pins the output as
-  `"Error: \n"`.
-- **toml cannot carry integers above int64 range; json and yaml now can.** `normalizeNumbers`
-  (`marshal.go:46`) tries an exact `strconv.ParseUint` before the lossy `Float64`, so
-  `uint64(18446744073709551615)` renders exactly in json and yaml; TOML's integer type is int64,
-  so go-toml/v2 refuses it with an error
-  rather than writing a lossy float (pinned by `TestNormalizeNumbers_PreservesUint64BeyondInt64`).
-- **`implementsStringer` and `typeImplementsStringer` disagree.** The first tests value receivers
-  only (`reflectmodel.go:284`), the second tests value **or pointer** (`:288`). A struct whose
-  `String()` has a pointer receiver is classified as "stringable" for the table decision and then
-  as "not stringable" for the actual stringification, so raw Go struct syntax (`{x y}`) leaks into
-  user-facing output.
-- **Markdown table *headers* are not escaped** (`markdown.go:82` vs `:95`), so a `col:"a|b"` tag
-  emits a structurally broken table (3 header columns over a 1-column separator).
-- **The five-format vocabulary is enumerated four independent times** — the const block
-  (`format.go:11-17`), `Valid`'s switch (`:26`), `ParseFormat`'s switch (`:58`), and `Render`'s
-  switch (`render.go:28`) — plus the literal `"(supported: json, yaml, toml, text, markdown)"`
-  written out at `format.go:70`, `render.go:40`, **and** `cmd/ltk/check.go:75`. A format present in
-  the first three but missing from `Render`'s switch would parse and validate fine and fail only
-  at render time.
-- **`Renderer` has no production implementation.** `rg 'RenderCLI'` returns five hits, all inside
-  `pkg/clifmt`: the interface declaration, the assertion in `Render`, and two test fixtures. It
-  costs a type assertion on every `Render` call.
-- **`colInfo.omitempty` is populated (`reflectmodel.go:163`) and never read** — `buildTable` has no
-  omitempty handling, unlike `buildNode` (`:75`), so the tag convention's omitempty silently does
-  not apply to table columns.
-- **`buildTable` drops `FieldByIndexErr`'s error with a bare `continue`** (`reflectmodel.go:176`),
-  leaving a silently empty cell; its sibling at `buildNode:63-67` swallows the same error *with* a
-  justifying comment (a nil embedded pointer along the path).
-- **The `pkg/` placement has no consumer.** Every importer is inside module
-  `github.com/ctxloom/ctxloom`, and seven exported identifiers — `Node`, `ScalarField`,
-  `SectionField`, `TableField`, `Table`, `ErrorEnvelope`, `Renderer` — have **zero references
-  outside this package**. No exported function accepts or returns the four `reflectmodel` types,
-  so they are not even reachable through the public API.
-- **The package doc points at documentation that does not exist** — `render.go:4` says "see the
-  package README for the full tag convention and a worked example"; there is no README in
-  `pkg/clifmt`.
-- **Silently-ignored `--format` flags do not originate here.** `clifmt` receives an already-parsed
-  `Format` and always renders; there are only 12 `Render`/`RenderError` call sites repo-wide, far
-  fewer than the number of `--format`-bearing commands, so the broken commands simply never call
-  it. The gap is at the cobra layer (`internal/shared/cliemit`, `internal/adapters/cli`), where
-  `internal/adapters/cli/format.go:11-19` additionally documents a **fourth** format vocabulary — a
-  text/json-only pair used by the streaming commands.
+```go
+func Render(w io.Writer, v any, f Format, opts ...Option) error
+func New(opts ...Option) (*Printer, error)                       // options for every call
+func (p *Printer) Render(w io.Writer, v any, f Format, opts ...Option) error
+
+func WithWriter(f Format, fn func(w io.Writer) error) Option     // raw bytes for one format, per call
+func At(path string, fn func(c *ViewCtx, v any) (Doc, error)) Option
+func ViewFor[T any](fn func(c *ViewCtx, v T) (Doc, error)) Option
+```
+
+- **`WithWriter(f, fn)`** pre-empts everything for format `f` and has no derived view to decorate.
+  It may target json, yaml or toml, per call only.
+- **`At(path, fn)`** replaces or decorates one node. Paths are dotted json names, `[]` for any
+  element, a map key as a segment, `""` for the root. **Paths are checked against the static type**
+  before rendering, so a path naming no field is an error rather than a silently orphaned override.
+- **`ViewFor[T](fn)`** applies wherever type `T` appears. Pointers and values match; interfaces do
+  not.
+
+Precedence, most specific first: `WithWriter` for the call's format, call-scope `At`, call-scope
+`ViewFor`, `Printer`-scope `ViewFor`, then derivation. Inside a view, `c.Derived()` returns the next
+lower layer's view of the node, so decorators chain and a replacement stops the chain. Returning
+`nil` hides the node. Two registrations at the same layer for the same path or type are an
+error, from `New` or `Render`.
+
+**Views never touch structured output.** `At` and `ViewFor` apply to text and markdown only, so a
+human-view override cannot drift the json contract.
+
+---
+
+## 4. Formats, exit status and errors (core, no cobra)
+
+| Symbol | Contract |
+|---|---|
+| `ParseFormat(s)` | case- and space-insensitive, with `yml`/`txt`/`md` aliases; wraps `ErrUnsupportedFormat` |
+| `SupportedFormats()` | the five formats, in help order |
+| `ResolveFormat(requested, explicit, terminal)` | not explicit: text on a terminal, json otherwise. Explicit `""`: text. Else `ParseFormat` |
+| `FormatUsage()` | the one `--format` help string, derived from `SupportedFormats` |
+| `ExitCoder`, `ExitCodeOf(err)` | nil → 0; the first `ExitCode()` in the `%w` chain (joined errors included); else 1 |
+| `ExitStatus{Code}` | an error meaning "exit with Code and report nothing" — a wrapped process's own status |
+| `RenderError(w, err, f)` | `ErrorEnvelope` (`{"error": …, "remedy": …}`) in a structured format; `Error: <msg>` plus a `fix:` line in text |
+| `Remedier`, `RemedyOf`, `FixLine` | read a fix off an error chain and print it as `fix: …` |
+| `EncodeWarning(w, WarningEnvelope)` | one compact JSON object per line, whatever the command's format |
+
+The core takes the terminal answer as a bool, so `golang.org/x/term` stays out of it. A test-arch
+gate (`TestArch_ClifmtCoreDoesNotLinkCobra`) runs `go list -deps` on `pkg/clifmt` and
+`pkg/clifmt/clidiag` and fails if cobra, pflag or x/term appears; while clifmt shares ctxloom's
+`go.mod`, an outside importer still gets ctxloom's module graph.
+
+---
+
+## 5. The cobra adapter: `pkg/clifmt/cobrafmt`
+
+| Function | Contract |
+|---|---|
+| `AddFlag(root)` | the persistent `--format`: empty default, usage `FormatUsage()`, completion from `SupportedFormats` |
+| `Resolve(cmd)` | flag lookup (a set `--json` counts as `--format json`) → `ResolveFormat` against whether stdout is a terminal. A command with no `--format` reads as text; a `--format` of the wrong flag type is an error |
+| `Explicit(cmd)` | whether the user actually asked for a format, as opposed to one derived from a pipe |
+| `Emit(cmd, data, opts…)` | render `data` to `cmd.OutOrStdout()` in the resolved format, through the tree's `Printer` |
+| `EmitError(w, cmd, err)` | `RenderError` in the resolved format, but **only when the format is explicit**; a derived format never restructures stderr |
+| `EmitVersion(cmd, name, version)` | the `{name, version}` payload (`VersionInfo`); text prints the bare version |
+| `ApplyDiagnostics(cmd)` | `clidiag.SetStructured` on for json/yaml/toml, off otherwise. Call from the root's `PersistentPreRun` |
+| `Execute(root, prog, stderr) int` | run the tree and **return** the exit status (never `os.Exit`, so the caller can flush first). Reports nothing for nil or an `ExitStatus`; an envelope under an explicit structured format; otherwise `<prog>: <msg>` plus the fix line |
+| `WithPrinter(root, p)` | the `Printer` `Emit` uses for this tree, carried on the root's context (install it after anything that replaces that context) |
+| `OverrideTerminal(bool)` | test seam for the terminal check |
+
+`clidiag`'s structured switch is process-wide state. `ApplyDiagnostics` is the one call that sets
+it, so making it a per-tree value later changes only the adapter.
+
+### Who uses what
+
+- **harp, ltk, taskloom** use `AddFlag`, `ApplyDiagnostics` and `Execute`. Each runs
+  `internal/testsupport/formatparity.Check` against its own root, so the flag help, completion,
+  derived default, human error line and structured envelope cannot drift between them.
+- **ctxloom** (`internal/adapters/cli`) uses `Resolve`, `Emit` (through its own `emit`, which turns
+  a text closure into `WithWriter`) and `EmitError`, but still registers its own `--format`, sets
+  diagnostics in its own `PersistentPreRun`, and runs its own process tail (`Error: <msg>`, with
+  `ExitError`/`errorExitCode` choosing the status). Moving it onto `AddFlag`/`Execute` is pending:
+  its tail runs a post-execution check (`dispatch`) that `Execute` cannot host.
+
+`internal/shared/archlint`'s json-tags rule treats `cobrafmt.Emit`, `clifmt.Render` and
+`(*clifmt.Printer).Render` as structured-output sinks: every struct reachable from their payload
+must json-tag each exported field.
+
+---
+
+## 6. Invariants
+
+1. **One traversal serves text and markdown.** Both formats derive the same `Doc` and write it with
+   one generic walker.
+2. **json, yaml and toml share the json contract**, so a struct needs one set of tags.
+3. **Human views never alter structured output.**
+4. **An empty result never writes zero bytes** in text, markdown or toml: an empty view renders
+   `(none)` (`# (none)` in toml), so "nothing to show" is distinguishable from "nothing was
+   written".
+5. **yaml is two-space indented**, nested maps and sequences alike; yaml.v3 defaults to four.
+6. **Markdown heading depth caps at 6**, and table cells are pipe-escaped and newline-collapsed.
+7. **A malformed hint tag, an unknown `At` path and a duplicate registration are errors**, never
+   silently ignored.
+8. **`EncodeWarning` does not go through `Render`**: a warning must be parseable whatever format the
+   command is emitting.

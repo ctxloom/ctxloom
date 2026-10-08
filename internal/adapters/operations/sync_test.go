@@ -55,11 +55,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // syncMockPuller is a test puller that records calls for sync tests.
@@ -1078,9 +1078,9 @@ func TestRunSyncPostSteps_Guards(t *testing.T) {
 		lockCalls++
 		return &LockDependenciesResult{}, nil
 	}
-	syncHooksStep = func(context.Context, engine.Registry, ApplyHooksRequest) (*ApplyHooksResult, error) {
+	syncHooksStep = func(context.Context, engine.Registry, *config.Config, MaterializeRequest) (*MaterializeResult, error) {
 		hookCalls++
-		return &ApplyHooksResult{}, nil
+		return &MaterializeResult{}, nil
 	}
 
 	tests := []struct {
@@ -1291,8 +1291,8 @@ remotes:
 func TestRunSyncPostSteps_CarriesAnIncompleteLock(t *testing.T) {
 	origLock, origHooks := syncLockStep, syncHooksStep
 	t.Cleanup(func() { syncLockStep, syncHooksStep = origLock, origHooks })
-	syncHooksStep = func(context.Context, engine.Registry, ApplyHooksRequest) (*ApplyHooksResult, error) {
-		return &ApplyHooksResult{}, nil
+	syncHooksStep = func(context.Context, engine.Registry, *config.Config, MaterializeRequest) (*MaterializeResult, error) {
+		return &MaterializeResult{}, nil
 	}
 	run := func(lock *LockDependenciesResult) *SyncDependenciesResult {
 		syncLockStep = func(context.Context, *config.Config, LockDependenciesRequest) (*LockDependenciesResult, error) {

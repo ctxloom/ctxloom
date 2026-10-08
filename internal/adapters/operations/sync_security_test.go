@@ -17,7 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // freshWarnOnce empties clidiag's process-wide warn-once memory for this test
@@ -253,7 +253,7 @@ func TestRunSyncPostSteps_FailuresWarnOnStderr(t *testing.T) {
 	syncLockStep = func(context.Context, *config.Config, LockDependenciesRequest) (*LockDependenciesResult, error) {
 		return nil, fmt.Errorf("lock boom")
 	}
-	syncHooksStep = func(context.Context, engine.Registry, ApplyHooksRequest) (*ApplyHooksResult, error) {
+	syncHooksStep = func(context.Context, engine.Registry, *config.Config, MaterializeRequest) (*MaterializeResult, error) {
 		return nil, fmt.Errorf("hooks boom")
 	}
 

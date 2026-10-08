@@ -389,7 +389,7 @@ func formatOnCommandLine(w *World) (clifmt.Format, bool) {
 	return clifmt.Format(""), false
 }
 
-// derivedNonTerminalFormat is what cliemit.Resolve settles on when stdout is
+// derivedNonTerminalFormat is what cobrafmt.Resolve settles on when stdout is
 // not a terminal and no format was asked for. Naming it once keeps every
 // no-flag Examples row asserting the same rule.
 const derivedNonTerminalFormat = clifmt.FormatJSON

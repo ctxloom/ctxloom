@@ -119,7 +119,7 @@ func TestContainerCheckConfigGap(t *testing.T) {
 
 // TestDiagnosticCommandsDoNotPromiseAnUnconditionalZeroExit pins that
 // `container check` and `doctor` both advertised "always exits 0", yet both
-// end in `return emit(...)`, which propagates cliemit.Resolve's error for an
+// end in `return emit(...)`, which propagates cobrafmt.Resolve's error for an
 // unrenderable --format (pinned by TestEmit_UnknownFormat_WrapsErrUnsupported
 // Format in format_test.go), and `container check` also rejects an unknown
 // backend argument. A promise of exit 0 invites `ctxloom doctor || exit 1`

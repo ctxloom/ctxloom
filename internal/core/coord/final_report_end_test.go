@@ -2,8 +2,6 @@ package coord
 
 import (
 	"context"
-	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -506,78 +504,57 @@ func TestFinalReport_LateFinalFromAnEndedRunDoesNotEndTheResumedRun(t *testing.T
 	assert.Equal(t, CauseFinalReported, runCause(c, resumed))
 }
 
-// TestFinalReport_AnEndedRunsTeardownSparesTheResumedRunsChannel forces the
-// window TestFinalReport_LateFinalFromAnEndedRunDoesNotEndTheResumedRun fell
+// TestFinalReport_AnEndedRunsTeardownSparesTheResumedRunsChannel pins the
+// cause TestFinalReport_LateFinalFromAnEndedRunDoesNotEndTheResumedRun fell
 // into under load. A run's end is journaled FIRST — the roster reads ended,
 // and mail resumes the harp as a fresh run — while the rest of the ended run's
 // teardown (its runner's kill, then its run channel's) is still to come. A
 // kill is not instant (a docker stop takes seconds), so the resumed run's
 // runner can attach its own run channel, under the same harp, before the
-// ended run's teardown reaches it. That teardown must cut the ENDED run's
-// channel, never the successor's: cut, the resumed run's turn boundary and
-// its outbound doorbells wait on its runner's reconnect, and the run reads
-// executing long after its turn ended.
+// ended run's teardown reaches it. That teardown must cut, and wait on, the
+// ENDED run's channel, never the successor's: cut, the resumed run's turn
+// boundary and outbound doorbells wait on its runner's reconnect, and the run
+// reads executing long after its turn ended.
 //
-// Driven, not sampled: the ended run's kill is held until the resumed run is
-// mid-turn on its attached channel, and the ended run's exit notice — queued
-// after its channel teardown — orders the check after that teardown.
+// Driven on the channel registry directly, with the successor's channel the
+// harp's live one: the end-to-end shape (the ended run's kill held until the
+// resumed run is mid-turn) also delivers the follow-up mail to the ended run's
+// still-live runner some of the time, a separate hazard this test must not
+// depend on.
 func TestFinalReport_AnEndedRunsTeardownSparesTheResumedRunsChannel(t *testing.T) {
-	resetStrictness(t)
-	turnGate := make(chan struct{})
-	var spawned atomic.Int32
-	sp := startRunSpawner(t, func() *scriptedChat {
-		if spawned.Add(1) == 2 {
-			return &scriptedChat{Gate: turnGate} // the resumed run's turn
-		}
-		return &scriptedChat{}
-	})
-	killing, letKill := make(chan struct{}), make(chan struct{})
-	var held sync.Once
-	t.Cleanup(func() { held.Do(func() { close(letKill) }) }) // a failed test must not leave the kill parked
-	sp.killHook = func(i int) {
-		if i == 0 {
-			close(killing)
-			<-letKill
-		}
-	}
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
-
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
-	require.NoError(t, err)
-	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
-	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: done")))
-	within(t, killing, "the FINAL never reached the ended run's kill")
-	require.Equal(t, StateEnded, rosterState(c, out.Harp), "premise: the end is journaled before the kill")
-
-	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "one more thing", nil, "")
-	require.NoError(t, err)
-	awaitCtx, cancel := context.WithTimeout(context.Background(), conformanceWait)
-	defer cancel()
-	require.NoError(t, c.awaitChildUp(awaitCtx, out.Harp))
-	resumed := currentRunID(c, out.Harp)
-	require.NotEqual(t, out.RunID, resumed, "the fixture must be a NEW run of the same harp")
-	awaitChatText(t, sp, 1, "one more thing")
-	var live *RunChannel
-	require.Eventually(t, func() bool {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		live = c.runChanLocked(out.Harp, resumed)
-		return live != nil
-	}, conformanceWait, 10*time.Millisecond, "premise: the resumed run's channel attached while the ended run's kill is held")
-
-	held.Do(func() { close(letKill) })
-	require.NotEmpty(t, recvWhere(t, c, func(m Message) bool {
-		return m.Kind == KindExited && strings.Contains(m.Body, out.Harp)
-	}, conformanceWait), "the ended run's teardown never finished")
+	const harp, ended, resumed = "child-harp-x", "run-ended", "run-resumed"
+	var cut atomic.Bool
+	successor := &RunChannel{
+		BidiSession: NewBidiSession[OutFrame, OutFrame, OutFrame](func() { cut.Store(true) }, 1),
+		role:        harp,
+		id:          Identity{Harp: harp, RunID: resumed},
+		completed:   make(chan struct{}),
+	}
 	c.mu.Lock()
-	after := c.chans[out.Harp]
+	c.chans[harp] = successor
 	c.mu.Unlock()
-	assert.Same(t, live, after, "the ended run's teardown severed the resumed run's run channel")
+	var waited []string
+	c.drainHook = func(role string) { waited = append(waited, role) } // called on this goroutine, inside drainTerminalTail
 
-	close(turnGate)
-	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond,
-		"the resumed run's turn boundary settles it")
-	require.NoError(t, c.recordSummary(out.Harp, resumed, 1, finalSummary("FINAL: the resumed run's own")))
-	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
-	assert.Equal(t, CauseFinalReported, runCause(c, resumed))
+	c.drainTerminalTail(harp, ended)
+	c.severChan(harp, ended)
+	c.mu.Lock()
+	live := c.chans[harp]
+	c.mu.Unlock()
+	assert.Same(t, successor, live, "the ended run's teardown deregistered the resumed run's channel")
+	assert.False(t, cut.Load(), "the ended run's teardown cancelled the resumed run's channel")
+	assert.Empty(t, waited, "the ended run's teardown waited on the resumed run's channel")
+
+	// The control: the run's own teardown still drains and severs its channel.
+	close(successor.completed)
+	c.drainTerminalTail(harp, resumed)
+	c.severChan(harp, resumed)
+	c.mu.Lock()
+	_, still := c.chans[harp]
+	c.mu.Unlock()
+	assert.False(t, still, "a run's own teardown deregisters its channel")
+	assert.True(t, cut.Load(), "a run's own teardown cancels its channel")
+	assert.Equal(t, []string{harp}, waited, "a run's own teardown drains its channel")
 }

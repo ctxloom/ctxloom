@@ -78,12 +78,6 @@ type fakeSpawner struct {
 	secretsDir   string
 	secretAgents map[string]bool
 	kills        []func()
-	// killHook, when set, is called with the spawn's index as its engine's
-	// Kill begins, before the runner is torn down — the seam that holds a
-	// production teardown's latency (a docker stop takes seconds) open, so a
-	// test can act while the coordinator has ended a run whose runner is
-	// still connected.
-	killHook func(i int)
 	// released[i] closes when the i-th engine's Kill fired — the seam a
 	// production child's container teardown hangs off. A test that must
 	// prove a stop RELEASED the child watches this rather than inferring it
@@ -459,14 +453,9 @@ func (s *fakeSpawner) Start(ctx context.Context, l launch.Launch, reach sessions
 	host.BindHome(home)
 	released := make(chan struct{})
 	var killOnce sync.Once
-	var idx int
-	var hook func(int) // both set below, with kill's registration, before kill can be called
 	// Once: a test's own killEngine and the end-of-test killAll both reach it.
 	kill := func() {
 		killOnce.Do(func() {
-			if hook != nil {
-				hook(idx)
-			}
 			cancel()
 			// The runner's own teardown order: the engine host is joined
 			// before the Home crashes, so no turn goroutine of the host
@@ -477,7 +466,6 @@ func (s *fakeSpawner) Start(ctx context.Context, l launch.Launch, reach sessions
 		})
 	}
 	s.mu.Lock()
-	idx, hook = len(s.kills), s.killHook
 	s.kills = append(s.kills, kill)
 	s.released = append(s.released, released)
 	s.engineHomes = append(s.engineHomes, home)

@@ -28,8 +28,9 @@ type Config struct {
 	// knob.
 	ModelOptions map[string]any `mapstructure:"model_options"`
 	// Snapshot, TitleGeneration and Share are opencode's own per-label
-	// switches (Q-F). Unset: snapshots follow the mode (off for a structured
-	// run, which never undoes), title generation off (an extra model request
+	// switches (Q-F). Unset: snapshots follow the mode (on for the TUI,
+	// whose /undo needs them; off for a structured run, which never undoes),
+	// title generation off (an extra model request
 	// at every new session), sharing disabled.
 	Snapshot        *bool  `mapstructure:"snapshot"`
 	TitleGeneration *bool  `mapstructure:"title_generation"`

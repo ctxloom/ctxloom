@@ -543,7 +543,7 @@
         },
         {
           "title": "opencode",
-          "description": "The opencode CLI driven against an OpenAI-compatible endpoint (e.g. a LAN llama-server). Structured runs only (children and internal one-shots). The endpoint key is never written here: export CTXLOOM_OPENCODE_API_KEY.",
+          "description": "The opencode CLI driven against an OpenAI-compatible endpoint (e.g. a LAN llama-server). Runs its TUI interactively on ctxloom's terminal, and structured (children and internal one-shots). The endpoint key is never written here: export CTXLOOM_OPENCODE_API_KEY.",
           "properties": {
             "type": {
               "const": "opencode"
@@ -627,7 +627,7 @@
             },
             "snapshot": {
               "type": "boolean",
-              "description": "Whether opencode keeps a snapshot of the work tree per step (what undo reverts). Absent: off for a structured run."
+              "description": "Whether opencode keeps a snapshot of the work tree per step (what undo reverts). Absent: on for an interactive run (the TUI's /undo), off for a structured run."
             },
             "title_generation": {
               "type": "boolean",

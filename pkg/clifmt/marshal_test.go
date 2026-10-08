@@ -170,3 +170,21 @@ func TestRenderYAMLIndentsTwoSpaces(t *testing.T) {
 		t.Errorf("got:\n%s\nwant:\n%s", buf.String(), want)
 	}
 }
+
+// A number that is not an unsigned integer (negative, fractional) reaches
+// yaml and toml as a number, not a quoted string.
+func TestNonUintNumbersStayNumbers(t *testing.T) {
+	v := struct {
+		F float64 `json:"f"`
+		G int64   `json:"g"`
+	}{F: -1.5, G: -3}
+	for f, want := range map[Format]string{FormatYAML: "f: -1.5\ng: -3\n", FormatTOML: "f = -1.5\ng = -3\n"} {
+		var buf strings.Builder
+		if err := Render(&buf, v, f); err != nil {
+			t.Fatal(err)
+		}
+		if buf.String() != want {
+			t.Errorf("%s: got %q, want %q", f, buf.String(), want)
+		}
+	}
+}

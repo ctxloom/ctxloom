@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -258,4 +259,205 @@ func TestDoctorCheckStaleHooks_NonHookCtxloomCommandIsQuiet(t *testing.T) {
 	check := doctorCheckStaleHooks(reg, project, afero.NewOsFs(), liveVerbs)
 
 	assert.Equal(t, DoctorOK, check.Status, check.Detail)
+}
+
+// staleHookPath is the fake engine's settings file under root.
+func staleHookPath(root string) string { return filepath.Join(root, ".fake", "settings.json") }
+
+// An unreadable settings file does not hide the stale entries the next file
+// holds, and the row names both: the stale entries and the file it could not
+// read.
+func TestDoctorCheckStaleHooks_UnreadableFileBesideAStaleOne(t *testing.T) {
+	reg, project, home := staleHookEngine(t)
+	writeSurface(t, project, ".fake/settings.json", `{not json`)
+	writeSurface(t, home, ".fake/settings.json", staleHookFixture)
+
+	check := doctorCheckStaleHooks(reg, project, afero.NewOsFs(), liveVerbs)
+
+	assert.Equal(t, DoctorWarn, check.Status)
+	assert.Equal(t, doctorFixRemedy, check.Remedy)
+	assert.Contains(t, check.Detail, staleHookPath(home)+": SessionStart runs `ctxloom hook inject-context`",
+		"the file read after the unreadable one is still scanned")
+	assert.Contains(t, check.Detail, "; could not read: "+staleHookPath(project)+" (")
+}
+
+// Stale entries and nothing unreadable: the row does not claim a file it
+// failed to read.
+func TestDoctorCheckStaleHooks_StaleOnlyClaimsNoUnreadableFile(t *testing.T) {
+	reg, project, _ := staleHookEngine(t)
+	writeSurface(t, project, ".fake/settings.json", staleHookFixture)
+
+	check := doctorCheckStaleHooks(reg, project, afero.NewOsFs(), liveVerbs)
+
+	assert.Equal(t, DoctorWarn, check.Status)
+	assert.NotContains(t, check.Detail, "could not read")
+}
+
+// Nothing stale but a file that could not be read: a warning that the
+// entries are unverified, with no fix to offer (--fix cannot read it either).
+func TestDoctorCheckStaleHooks_UnreadableOnlyIsUnverifiedNotClean(t *testing.T) {
+	reg, project, _ := staleHookEngine(t)
+	writeSurface(t, project, ".fake/settings.json", `{not json`)
+
+	check := doctorCheckStaleHooks(reg, project, afero.NewOsFs(), liveVerbs)
+
+	assert.Equal(t, DoctorWarn, check.Status)
+	assert.Empty(t, check.Remedy)
+	assert.Contains(t, check.Detail, "1 settings file(s) could not be read")
+	assert.Contains(t, check.Detail, staleHookPath(project))
+	assert.NotContains(t, check.Detail, "invoke a `ctxloom hook` subcommand")
+}
+
+// When the project IS the home, the engine's two settings paths are one
+// file: it is scanned once, so each stale entry is counted once.
+func TestDoctorCheckStaleHooks_ProjectThatIsTheHomeIsScannedOnce(t *testing.T) {
+	_, project, _ := staleHookEngine(t)
+	reg := enginefixture.RegistryOf(enginefixture.Kind("stale-hook-fake", mock.WithHookGlobalScope(agent.HookGlobalScope{
+		Paths: func(workDir string) (string, string, error) {
+			return staleHookPath(workDir), staleHookPath(project), nil
+		},
+	})))
+	writeSurface(t, project, ".fake/settings.json", staleHookFixture)
+
+	check := doctorCheckStaleHooks(reg, project, afero.NewOsFs(), liveVerbs)
+
+	assert.Equal(t, DoctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "2 settings hook entr(y/ies)", check.Detail)
+}
+
+// unhostedEngine is an engine with no agent.Hosted surface at all.
+type unhostedEngine struct{ engine.Engine }
+
+// An engine that is not hosted, or hosted with no settings scope, or with a
+// scope that resolves no paths, has no settings file for the check to read —
+// and the engines registered after it are still read.
+func TestStaleHooks_EnginesWithoutSettingsAreSkippedNotFatal(t *testing.T) {
+	reg0, project, home := staleHookEngine(t)
+	fake, ok := reg0.Lookup("stale-hook-fake")
+	require.True(t, ok)
+	reg := enginefixture.RegistryOf(
+		unhostedEngine{enginefixture.Kind("a-unhosted")},
+		enginefixture.Kind("b-no-scope"),
+		enginefixture.Kind("c-nil-paths", mock.WithHookGlobalScope(agent.HookGlobalScope{Label: "no paths"})),
+		fake,
+	)
+	writeSurface(t, home, ".fake/settings.json", staleHookFixture)
+
+	check := doctorCheckStaleHooks(reg, project, afero.NewOsFs(), liveVerbs)
+	assert.Equal(t, DoctorWarn, check.Status)
+	assert.Contains(t, check.Detail, staleHookPath(home))
+
+	removed, err := removeStaleHooks(reg, project, afero.NewOsFs(), liveVerbs)
+	require.NoError(t, err)
+	assert.Len(t, removed, 2)
+	assert.Equal(t, staleHookFixtureFixed, readString(t, staleHookPath(home)))
+}
+
+// A real settings file opens with a "$schema" scalar, which sorts before
+// "hooks": a scalar sibling neither ends the walk nor hides the table after
+// it.
+func TestStaleHooks_ScalarKeyBeforeTheHookTableIsWalkedPast(t *testing.T) {
+	reg, project, _ := staleHookEngine(t)
+	writeSurface(t, project, ".fake/settings.json",
+		`{"$schema": "https://example.invalid/s.json", "hooks": {"Stop": [{"hooks": [{"command": "ctxloom hook gone"}]}]}}`)
+
+	check := doctorCheckStaleHooks(reg, project, afero.NewOsFs(), liveVerbs)
+
+	assert.Equal(t, DoctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "Stop runs `ctxloom hook gone`")
+}
+
+// The event named is the key below the first "hooks" segment wherever the
+// table sits; an entry that IS the "hooks" value is named by its first
+// segment.
+func TestDoctorCheckStaleHooks_EventIsTheKeyBelowHooks(t *testing.T) {
+	cases := map[string]struct{ body, event string }{
+		"nested table":             {`{"wrapper": {"hooks": {"Stop": [{"command": "ctxloom hook gone"}]}}}`, "Stop"},
+		"entry is the hooks value": {`{"hooks": {"command": "ctxloom hook gone"}}`, "hooks"},
+		"escaped key":              {`{"hooks": {"a/b~c": [{"command": "ctxloom hook gone"}]}}`, "a/b~c"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			reg, project, _ := staleHookEngine(t)
+			writeSurface(t, project, ".fake/settings.json", tc.body)
+
+			check := doctorCheckStaleHooks(reg, project, afero.NewOsFs(), liveVerbs)
+
+			assert.Contains(t, check.Detail, staleHookPath(project)+": "+tc.event+" runs `ctxloom hook gone`")
+		})
+	}
+}
+
+// failWritesUnder is an OS filesystem that refuses to open any file under dir
+// for writing — which is how the atomic writer creates its temp file.
+type failWritesUnder struct {
+	afero.Fs
+	dir string
+}
+
+func (f failWritesUnder) refused(name string) bool {
+	rel, err := filepath.Rel(f.dir, name)
+	return err == nil && !strings.HasPrefix(rel, "..")
+}
+
+func (f failWritesUnder) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
+	if f.refused(name) && flag&(os.O_WRONLY|os.O_RDWR|os.O_CREATE) != 0 {
+		return nil, os.ErrPermission
+	}
+	return f.Fs.OpenFile(name, flag, perm)
+}
+
+// --fix reports a file it could not read or could not write, and goes on to
+// fix the next one: one bad file never leaves the others' stale entries in
+// place.
+func TestRemoveStaleHooks_AFailedFileDoesNotStopTheNext(t *testing.T) {
+	t.Run("unreadable", func(t *testing.T) {
+		reg, project, home := staleHookEngine(t)
+		writeSurface(t, project, ".fake/settings.json", `{not json`)
+		writeSurface(t, home, ".fake/settings.json", staleHookFixture)
+
+		removed, err := removeStaleHooks(reg, project, afero.NewOsFs(), liveVerbs)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), staleHookPath(project))
+		assert.Len(t, removed, 2)
+		assert.Equal(t, staleHookFixtureFixed, readString(t, staleHookPath(home)))
+	})
+	t.Run("unwritable", func(t *testing.T) {
+		reg, project, home := staleHookEngine(t)
+		writeSurface(t, project, ".fake/settings.json", staleHookFixture)
+		writeSurface(t, home, ".fake/settings.json", staleHookFixture)
+
+		removed, err := removeStaleHooks(reg, project, failWritesUnder{afero.NewOsFs(), project}, liveVerbs)
+
+		require.Error(t, err)
+		require.Len(t, removed, 2, "only the file actually rewritten counts as removed")
+		assert.Equal(t, staleHookPath(home), removed[0].File)
+		assert.Equal(t, staleHookFixture, readString(t, staleHookPath(project)))
+		assert.Equal(t, staleHookFixtureFixed, readString(t, staleHookPath(home)))
+	})
+	t.Run("clean first file", func(t *testing.T) {
+		reg, project, home := staleHookEngine(t)
+		writeSurface(t, project, ".fake/settings.json", staleHookFixtureFixed)
+		writeSurface(t, home, ".fake/settings.json", staleHookFixture)
+
+		removed, err := removeStaleHooks(reg, project, afero.NewOsFs(), liveVerbs)
+
+		require.NoError(t, err)
+		assert.Len(t, removed, 2, "a file with nothing to remove does not end the pass")
+		assert.Equal(t, staleHookFixtureFixed, readString(t, staleHookPath(home)))
+	})
+}
+
+// A path the engine fails to resolve is an error from --fix, never a silent
+// skip.
+func TestRemoveStaleHooks_UnresolvedPathIsAnError(t *testing.T) {
+	reg := enginefixture.RegistryOf(enginefixture.Kind("broken", mock.WithHookGlobalScope(agent.HookGlobalScope{
+		Paths: func(string) (string, string, error) { return "", "", os.ErrNotExist },
+	})))
+
+	_, err := removeStaleHooks(reg, t.TempDir(), afero.NewOsFs(), liveVerbs)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "broken settings")
 }

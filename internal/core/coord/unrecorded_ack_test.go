@@ -3,12 +3,16 @@ package coord
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // failingWrites is a journal file whose appends fail the way a full or broken
@@ -132,4 +136,61 @@ func TestHandleEvent_AnIdleBoundaryThatFailsToJournalIsNotAcked(t *testing.T) {
 	acked, _ = drainAcks(ch)
 	assert.Equal(t, uint64(2), acked)
 	assert.Equal(t, StateIdle, rosterState(c, out.Harp), "the re-sent boundary must fold the run idle")
+}
+
+// TestHandleEvent_ManifestWarningAndReplayAtTheWatermark: the operator hears
+// about an artifact manifest that failed to journal — and only about that one,
+// never a recorded manifest — and a replay AT the acked watermark (the runner
+// missed the ack and re-sent) is a duplicate: re-acked, never recorded twice.
+func TestHandleEvent_ManifestWarningAndReplayAtTheWatermark(t *testing.T) {
+	var mu sync.Mutex
+	var warned []string
+	sp := newFakeSpawner(t, nil, nil)
+	c := newTestCoordinatorWith(t, sp, func(o *Options) {
+		o.Reporter = report.SinkFunc(func(f report.Finding) {
+			mu.Lock()
+			defer mu.Unlock()
+			warned = append(warned, f.Text)
+		})
+	})
+	manifestWarnings := func() (n int) {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, w := range warned {
+			if strings.Contains(w, "journal artifact manifest for child-a") {
+				n++
+			}
+		}
+		return n
+	}
+	ch := &RunChannel{
+		role:        "child-a",
+		id:          Identity{Harp: "child-a", RunID: "run-a"},
+		BidiSession: NewBidiSession[OutFrame, OutFrame, OutFrame](func() {}, 64),
+		completed:   make(chan struct{}),
+	}
+	manifest := func(id string, seq uint64) Event {
+		return Event{RunID: "run-a", Seq: seq, Payload: ArtifactProduced{ArtifactID: id, Name: id, SHA256: []byte(id)}}
+	}
+
+	c.HandleEvent(ch, manifest("first", 1))
+	acked, _ := drainAcks(ch)
+	require.Equal(t, uint64(1), acked)
+	assert.Zero(t, manifestWarnings(), "a recorded manifest is not reported as unrecorded")
+
+	c.HandleEvent(ch, manifest("first-again", 1))
+	acked, any := drainAcks(ch)
+	assert.True(t, any, "a replay is re-acked: the runner may have missed the first ack")
+	assert.Equal(t, uint64(1), acked)
+
+	restore := breakAppends(c.runs)
+	c.HandleEvent(ch, manifest("second", 2))
+	restore()
+	assert.Equal(t, 1, manifestWarnings(), "a manifest that failed to journal is named")
+
+	ids := []string{}
+	for _, a := range c.Artifacts("child-a") {
+		ids = append(ids, a.ArtifactID)
+	}
+	assert.Equal(t, []string{"first"}, ids, "the replay at the watermark was not recorded")
 }

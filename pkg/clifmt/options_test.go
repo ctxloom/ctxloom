@@ -402,3 +402,88 @@ func TestEmptyRootViewRendersNone(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// A ViewFor on a list's element type turns its rows into blocks just as an
+// At("rows[]") does — whether the view was given to the call or to the
+// Printer.
+func TestElementTypeViewRendersRowsAsBlocks(t *testing.T) {
+	v := struct {
+		Rows []viewRow `json:"rows"`
+	}{Rows: []viewRow{{ID: "a"}, {ID: "b"}}}
+	view := ViewFor(func(c *ViewCtx, r viewRow) (Doc, error) {
+		return Doc{Field{Label: c.Label(), Value: r.ID}}, nil
+	})
+	want := "Rows:\n  [1]: a\n  [2]: b\n"
+
+	if got := renderWith(t, nil, v, FormatText, view); got != want {
+		t.Errorf("per-call view: got %q, want %q", got, want)
+	}
+	p, err := New(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := renderWith(t, p, v, FormatText); got != want {
+		t.Errorf("printer view: got %q, want %q", got, want)
+	}
+}
+
+// A path is resolved past an unexported field: only exported fields carry
+// segments, and one that is not exported does not end the search.
+func TestAtResolvesAFieldAfterAnUnexportedOne(t *testing.T) {
+	v := struct {
+		hidden string
+		Shown  string `json:"shown"`
+	}{hidden: "h", Shown: "s"}
+	got := renderWith(t, nil, v, FormatText, At("shown", para("over")))
+	if !strings.Contains(got, "over") {
+		t.Errorf("the view at shown never fired: %q", got)
+	}
+}
+
+// A type with several malformed clifmt tags is refused naming the FIRST.
+func TestBadHintTagNamesTheFirstOffender(t *testing.T) {
+	v := struct {
+		A string `json:"a" clifmt:"bogus=1"`
+		B string `json:"b" clifmt:"nope=1"`
+	}{}
+	err := Render(io.Discard, v, FormatText)
+	if err == nil {
+		t.Fatal("a malformed tag was accepted")
+	}
+	if !strings.Contains(err.Error(), ".A: bad clifmt tag") || strings.Contains(err.Error(), ".B:") {
+		t.Errorf("err = %v; want the first malformed field named", err)
+	}
+}
+
+type viewEmbedded struct {
+	Inner string `json:"inner"`
+}
+
+// A nil embedded pointer contributes nothing, and the fields declared after
+// it still render.
+func TestNilEmbeddedPointerSkipsOnlyItsOwnFields(t *testing.T) {
+	v := struct {
+		*viewEmbedded
+		After string `json:"after"`
+	}{After: "kept"}
+	got := renderWith(t, nil, v, FormatText)
+	if got != "After: kept\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+// At on a nil pointer hands its func nil, as documented, rather than a value
+// it cannot have.
+func TestAtOnANilPointerReceivesNil(t *testing.T) {
+	v := struct {
+		Inner *viewInner `json:"inner"`
+	}{}
+	var got any = "unset"
+	renderWith(t, nil, v, FormatText, At("inner", func(_ *ViewCtx, v any) (Doc, error) {
+		got = v
+		return nil, nil
+	}))
+	if got != nil {
+		t.Errorf("At(inner) on a nil pointer got %#v, want nil", got)
+	}
+}

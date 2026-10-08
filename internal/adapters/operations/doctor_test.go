@@ -1156,6 +1156,17 @@ func TestDoctorCheckOrphanContainers_ReportsOnEveryRuntimePresent(t *testing.T) 
 	unasked := doctorCheckOrphanContainers(context.Background(), both, find(nil, map[string]error{"docker": errors.New("daemon unreachable")}))
 	assert.Equal(t, DoctorWarn, unasked.Status, "a runtime that could not list its containers has not shown it holds none")
 	assert.Contains(t, unasked.Detail, "docker")
+
+	// A runtime that failed is named BESIDE the orphans the next one
+	// reported, never in place of them: a failure ends that runtime's
+	// answer, not the listing.
+	mixed := doctorCheckOrphanContainers(context.Background(), both, find(
+		map[string][]string{"podman": {"ctxloom-iso-c-3"}},
+		map[string]error{"docker": errors.New("daemon unreachable")}))
+	assert.Equal(t, DoctorWarn, mixed.Status)
+	assert.Contains(t, mixed.Detail, "docker (daemon unreachable)")
+	assert.Contains(t, mixed.Detail, "podman ctxloom-iso-c-3")
+	assert.Equal(t, "podman rm -f ctxloom-iso-c-3", mixed.Remedy)
 }
 
 // DOCTOR-CHECK-SECRETS-STORAGE-k1: with a per-user tmpfs the secrets never

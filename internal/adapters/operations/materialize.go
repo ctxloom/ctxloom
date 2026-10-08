@@ -520,3 +520,16 @@ func symlinkResolver(fs afero.Fs) func(string) (string, error) {
 	}
 	return func(p string) (string, error) { return p, nil }
 }
+
+// ErrProjectTargetUnconfirmed is the CLI's project-directory refusal (R14):
+// no --target was given, so the target defaults to the project directory,
+// and --yes was not given. Internal callers pass their root explicitly and
+// never see it.
+var ErrProjectTargetUnconfirmed = errors.New("materialize: refusing to write the project directory without --target or --yes")
+
+// MaterializeEngines is the engine set req resolves to (named, configured,
+// or the explicit-target default), without delivering: what the CLI's
+// project-directory warning names.
+func MaterializeEngines(reg engine.Registry, cfg *config.Config, req MaterializeRequest) ([]string, error) {
+	return materializeEngines(reg, cfg, req)
+}

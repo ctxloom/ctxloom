@@ -58,9 +58,10 @@ var _ remote.TreeInstallFunc = WorktreeInstaller(nil)
 //
 // A file the publisher committed EXECUTABLE but did not DECLARE executable is
 // installed non-executable and reported, exactly as it was when the installer
-// wrote the bytes itself. That divergence is otherwise invisible: the file lands
-// runnable, the manifest the tree generates says it is not, and verification
-// fails somewhere that cannot name the missing declaration.
+// wrote the bytes itself. That divergence is otherwise invisible: left alone,
+// the file would be runnable in one checkout and not in another while the
+// package's declaration says it is not executable at all, and whatever then
+// fails cannot name the missing declaration.
 func applyDeclaredModesOnDisk(dir, repoPath string) error {
 	files, err := readTreeBytes(dir)
 	if err != nil {
@@ -130,11 +131,11 @@ func readTreeBytes(dir string) (map[string][]byte, error) {
 //
 // It names the repository path, the declaration that is missing, and the
 // consequence, because downstream everything is consistent and quiet: the file
-// is installed 0644, the manifest agrees, verification passes, and the model is
-// handed a script it cannot run.
+// is installed 0644, the skill manifest built from the tree agrees, and the
+// model is handed a script it cannot run.
 func warnUndeclaredExecutable(repoPath string) {
 	clidiag.Warn("ctxloom", "%s is committed executable upstream but the package does not declare it executable, "+
 		"so it was installed DECLARED NON-EXECUTABLE (mode 0644) and will not run. "+
-		"A mode bit is not portable and is not covered by the signature, so the declaration is what travels: "+
-		"add it to the executable: list in the package's .meta.yaml sidecar and re-publish.", repoPath)
+		"A git mode bit does not survive every checkout, archive and platform, so ctxloom installs by the declaration alone: "+
+		"add it to the executable: list in the package's .meta.yaml sidecar and push the change upstream.", repoPath)
 }

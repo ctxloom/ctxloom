@@ -45,26 +45,8 @@ repo-homed store ignores both pins: the repository is its identity. Agents reach
 Tasks carry (namespace:)key(=value) tags: apply them with ` + "`taskloom tag`" + ` (or ` + "`add --tag`" + `), see the
 vocabulary in use with ` + "`taskloom tags`" + `, and filter with ` + "`taskloom list --tag-query`" + `.`,
 	SilenceUsage: true,
-	// cobra's own error print knows nothing about --format, so it would emit a
-	// human "Error: <msg>" line into a stream the caller asked to be json/yaml/
-	// toml. main's tail (reportExecuteError) reports the failure through the
-	// shared format filter instead; without this the two would BOTH print.
-	SilenceErrors: true,
-	// Flip clidiag's structured-diagnostics channel on for json/yaml/toml
-	// --format, off for text/markdown or an unresolvable value — mirroring
-	// cmd/ctxloom, so a machine-readable listing carries machine-readable
-	// warnings too. An invalid --format is reported by the command's own
-	// emit()/resolveFormat call, not here, so this just falls back to the safe
-	// default rather than erroring twice.
-	PersistentPreRun: rootPersistentPreRun,
-}
-
-func rootPersistentPreRun(cmd *cobra.Command, _ []string) {
-	// Applied only when the flag was given, mirroring cmd/ctxloom's root:
-	// the mode is process-global and a bare invocation must not reset a mode
-	// something earlier in the process set (tests drive this tree repeatedly).
-	format, ferr := cobrafmt.Resolve(cmd)
-	clidiag.SetStructured(ferr == nil && format.Structured())
+	// A machine-readable listing carries machine-readable warnings too.
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) { cobrafmt.ApplyDiagnostics(cmd) },
 }
 
 // degradedFlagName is the persistent --degraded flag, taskloom's entry into
@@ -90,6 +72,11 @@ var tasksProject string
 var tasksHoming string
 
 func init() {
+	cobrafmt.AddFlag(rootCmd)
+	// --json is nothing but shorthand for --format json (cobrafmt.Resolve
+	// honours it wherever it is set), so it is declared at the same scope as
+	// the flag it abbreviates.
+	rootCmd.PersistentFlags().Bool("json", false, "shorthand for --format json (for jq)")
 	rootCmd.PersistentFlags().BoolVar(&degradedFlag, degradedFlagName, false,
 		"degrade instead of failing: a write carrying a tag the tag_schema refuses lands WITHOUT that tag (the refusal is still printed) instead of being refused outright; a refused tag is never written")
 	rootCmd.PersistentFlags().StringVar(&tasksProject, "project", "", "Project id to act on (overrides the session's CTXLOOM_PROJECT_ID pin and cwd resolution)")

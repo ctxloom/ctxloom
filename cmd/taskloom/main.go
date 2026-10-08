@@ -5,7 +5,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -13,19 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
-
-// reportExecuteError writes a terminal error in the format the invocation
-// selected, so a caller reading a --format json/yaml/toml stream gets a
-// parseable envelope for the failure instead of a human line that ends its
-// parse. cobra's own error print is silenced on the root (see root.go) so this
-// is the only tail; text keeps cobra's exact "Error: <msg>" wording.
-//
-// It takes the writer rather than reaching for os.Stderr so the wiring itself
-// is testable, and discards EmitError's result because the only way it fails is
-// a failing w — and w is the sole channel that failure could be reported on.
-func reportExecuteError(w io.Writer, err error) {
-	_ = cobrafmt.EmitError(w, rootCmd, err)
-}
 
 func main() {
 	// Before anything can log: without it zap.L() is the no-op global and a
@@ -46,13 +32,11 @@ func main() {
 	// convention) so registration has no hidden ordering dependency.
 	rootCmd.AddCommand(newLoadoutCmd())
 
-	err := rootCmd.Execute()
-	if err != nil {
-		reportExecuteError(os.Stderr, err)
-	}
+	// Execute reports a failure in the family's form ("taskloom: <msg>", or
+	// an envelope under an explicit structured --format) and returns the
+	// status; it never exits, so the flush below still runs.
+	code := cobrafmt.Execute(rootCmd, progName, os.Stderr)
 	// Flushed as a plain statement before the exit; see logboot.Install.
 	flush()
-	if err != nil {
-		os.Exit(1)
-	}
+	os.Exit(code)
 }

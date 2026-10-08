@@ -16,18 +16,14 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // executeFailingUnderFormat drives the REAL rootCmd — the tree the binary ships
-// — through a command that fails, with --format set to format, and returns
-// every byte the invocation put on the error stream: cobra's own tail and
-// main's tail both.
-//
-// It has to run the whole Execute path rather than call the emitter directly
-// because the defect this file pins lives in the seam between the two. cobra
-// prints a terminal error itself unless SilenceErrors is set, so a binary that
-// adds a structured tail without silencing cobra emits BOTH — a stream that is
-// worse than either, and one that no test of the emitter alone can see.
+// — through a command that fails, with --format set to format, via the same
+// cobrafmt.Execute main uses, and returns every byte the invocation put on the
+// error stream: cobra's own and the family tail's both, so a doubled report
+// (cobra's "Error:" line left on beside the tail's) shows up here.
 func executeFailingUnderFormat(t *testing.T, format string) string {
 	t.Helper()
 	fail := &cobra.Command{
@@ -56,9 +52,8 @@ func executeFailingUnderFormat(t *testing.T, format string) string {
 		clidiag.SetStructured(false)
 	})
 
-	err := rootCmd.Execute()
-	require.Error(t, err, "the fixture command must fail; with no error there is no error path to pin")
-	reportExecuteError(&buf, err)
+	code := cobrafmt.Execute(rootCmd, progName, &buf)
+	require.Equal(t, 1, code, "the fixture command must fail; with no error there is no error path to pin")
 	return buf.String()
 }
 
@@ -108,22 +103,17 @@ func TestExecuteError_IsParseableUnderStructuredFormats(t *testing.T) {
 	assert.Equal(t, "boom", envelope.Error, "the envelope must carry the original failure")
 }
 
-// TestExecuteError_HumanTextIsUnchanged is the other half: the fix must not be
-// visible to anyone who did not ask for a machine format. "Error: <msg>" on
-// stderr is exactly what cobra printed before this binary took the tail over,
-// so this is a byte-for-byte preservation pin, not a description of a new
-// behaviour.
-func TestExecuteError_HumanTextIsUnchanged(t *testing.T) {
-	assert.Equal(t, "Error: boom\n", executeFailingUnderFormat(t, "text"))
+// TestExecuteError_HumanTextIsTheFamilyLine is the other half: anyone who did
+// not ask for a machine format gets the family's human line, "<prog>: <msg>",
+// the form every binary in the family reports a failure in.
+func TestExecuteError_HumanTextIsTheFamilyLine(t *testing.T) {
+	assert.Equal(t, "taskloom: boom\n", executeFailingUnderFormat(t, "text"))
 }
 
-// TestExecuteError_MarkdownUsesTheMarkdownErrorLine records the one output that
-// this change does move. Under --format markdown cobra used to print the plain
-// text line, because cobra has never known what --format is; routing the tail
-// through the shared filter gives markdown its own rendering, the same one
-// cmd/ctxloom has emitted since the filter's error half landed.
-func TestExecuteError_MarkdownUsesTheMarkdownErrorLine(t *testing.T) {
-	assert.Equal(t, "**Error:** boom\n", executeFailingUnderFormat(t, "markdown"))
+// TestExecuteError_MarkdownIsTheFamilyLine: markdown is a human format, so a
+// failure under it is the same human line as text.
+func TestExecuteError_MarkdownIsTheFamilyLine(t *testing.T) {
+	assert.Equal(t, "taskloom: boom\n", executeFailingUnderFormat(t, "markdown"))
 }
 
 // ---------------------------------------------------------------------------
@@ -133,7 +123,7 @@ func TestExecuteError_MarkdownUsesTheMarkdownErrorLine(t *testing.T) {
 // exitPinArgvEnv turns this test binary into taskloom. When it is set, TestMain
 // runs the REAL main() with the variable's value as argv instead of running
 // tests, so the pin below observes main's own os.Exit — the one thing an
-// in-process test of reportExecuteError structurally cannot see, because
+// in-process test of the tail structurally cannot see, because
 // os.Exit would take the test binary down with it.
 const exitPinArgvEnv = "TASKLOOM_EXIT_PIN_ARGV"
 
@@ -141,10 +131,7 @@ func TestMain(m *testing.M) {
 	if argv, ok := os.LookupEnv(exitPinArgvEnv); ok {
 		os.Args = append([]string{"taskloom"}, strings.Fields(argv)...)
 		main()
-		// Reached only when Execute returned nil, which is exactly when the
-		// real binary falls off the end of main and the process exits 0.
-		// Mirroring that keeps a success indistinguishable from the real thing,
-		// so a pin expecting 1 fails loudly instead of hanging.
+		// main always exits with Execute's status; this is never reached.
 		os.Exit(0)
 	}
 	// SandboxedMain, not m.Run: it installs a temp HOME and a temp working
@@ -204,9 +191,9 @@ func TestExecuteError_ExitStatusIsUnchanged(t *testing.T) {
 
 // TestExecuteError_StructuredStreamIsParseableInTheRealProcess re-checks the
 // json envelope in the actual process rather than against an in-memory buffer.
-// The in-process test calls reportExecuteError directly; only this one proves
+// The in-process test drives cobrafmt.Execute itself; only this one proves
 // that main WIRES it, and that cobra's own "Error:" line really is silenced —
-// if SilenceErrors were dropped, both lines would land here and the stream
+// if cobra's own report were not silenced, both lines would land here and the stream
 // would stop being parseable even though the in-process test still passed.
 func TestExecuteError_StructuredStreamIsParseableInTheRealProcess(t *testing.T) {
 	status, stderr := runMainForExitStatus(t, "show --format json")
@@ -221,13 +208,13 @@ func TestExecuteError_StructuredStreamIsParseableInTheRealProcess(t *testing.T) 
 		"the envelope parsed but carries no error text, so the failure reached the caller as an empty success-shaped object")
 }
 
-// TestExecuteError_HumanStreamIsUnchangedInTheRealProcess is the same check for
-// the default format: a terminal user must see the byte-identical "Error: ..."
-// line cobra printed before this binary took the tail over.
-func TestExecuteError_HumanStreamIsUnchangedInTheRealProcess(t *testing.T) {
+// TestExecuteError_HumanStreamIsTheFamilyLineInTheRealProcess is the same check
+// for the default format: off a terminal the format derives to json, which is
+// not a request, so stderr keeps the human "taskloom: ..." line.
+func TestExecuteError_HumanStreamIsTheFamilyLineInTheRealProcess(t *testing.T) {
 	status, stderr := runMainForExitStatus(t, "show")
 	require.Equal(t, 1, status)
-	assert.True(t, strings.HasPrefix(stderr, "Error: "),
-		"stderr %q must still open with %q", stderr, "Error: ")
+	assert.True(t, strings.HasPrefix(stderr, "taskloom: "),
+		"stderr %q must open with %q", stderr, "taskloom: ")
 	assert.NotContains(t, stderr, "{", "the default format leaked a structured envelope")
 }

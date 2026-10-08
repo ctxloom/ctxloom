@@ -182,8 +182,8 @@
             "skill-mates"
           ],
           "command": "ctxloom",
-          "matcher": "Skill",
           "timeout": 15,
+          "tool": "skill",
           "type": "command"
         }
       ],
@@ -461,8 +461,8 @@
             "skill-mates"
           ],
           "command": "ctxloom",
-          "matcher": "Skill",
           "timeout": 15,
+          "tool": "skill",
           "type": "command"
         }
       ],
@@ -740,8 +740,8 @@
             "skill-mates"
           ],
           "command": "ctxloom",
-          "matcher": "Skill",
           "timeout": 15,
+          "tool": "skill",
           "type": "command"
         }
       ],
@@ -1016,8 +1016,8 @@
             "skill-mates"
           ],
           "command": "ctxloom",
-          "matcher": "Skill",
           "timeout": 15,
+          "tool": "skill",
           "type": "command"
         }
       ],
@@ -1295,8 +1295,8 @@
             "skill-mates"
           ],
           "command": "ctxloom",
-          "matcher": "Skill",
           "timeout": 15,
+          "tool": "skill",
           "type": "command"
         }
       ],
@@ -1571,8 +1571,8 @@
             "skill-mates"
           ],
           "command": "ctxloom",
-          "matcher": "Skill",
           "timeout": 15,
+          "tool": "skill",
           "type": "command"
         }
       ],
@@ -1850,8 +1850,8 @@
             "skill-mates"
           ],
           "command": "ctxloom",
-          "matcher": "Skill",
           "timeout": 15,
+          "tool": "skill",
           "type": "command"
         }
       ],
@@ -2126,8 +2126,8 @@
             "skill-mates"
           ],
           "command": "ctxloom",
-          "matcher": "Skill",
           "timeout": 15,
+          "tool": "skill",
           "type": "command"
         }
       ],
@@ -2382,8 +2382,8 @@
             "skill-mates"
           ],
           "command": "ctxloom",
-          "matcher": "Skill",
           "timeout": 15,
+          "tool": "skill",
           "type": "command"
         }
       ],
@@ -2612,8 +2612,8 @@
             "skill-mates"
           ],
           "command": "ctxloom",
-          "matcher": "Skill",
           "timeout": 15,
+          "tool": "skill",
           "type": "command"
         }
       ],

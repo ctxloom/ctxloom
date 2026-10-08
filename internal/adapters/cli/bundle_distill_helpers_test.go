@@ -341,11 +341,10 @@ func reloaded(t *testing.T) *config.Config {
 	return cfg
 }
 
-// isolatedHome points $HOME at a fresh temp dir for one test. The USER
-// countersignature store is resolved from $HOME (paths.HomeApprovalsPath), so a
-// test that records a rejection writes into the developer's real ~/.ctxloom and
-// leaks that decision into every later test in the package unless HOME moves
-// first.
+// isolatedHome points $HOME at a fresh temp dir for one test, so anything the
+// command resolves from $HOME reads and writes a throwaway ~/.ctxloom rather
+// than the developer's real one, and nothing one test leaves there reaches a
+// later test in the package.
 func isolatedHome(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())

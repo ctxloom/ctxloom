@@ -159,9 +159,8 @@ func TestRefFromBundleRef_CompanionCarriesCanonicalURLToken(t *testing.T) {
 }
 
 // TestRefDisplayRef_RendersGrammarA pins DisplayRef's normal path: it mints
-// through AsBundleRef and renders String() (WITH any version), the same
-// operation CountersignRef uses but rendering Identity's version-carrying
-// sibling instead.
+// through AsBundleRef and renders String() (WITH any version), the
+// version-carrying sibling of BundleRef.Identity.
 func TestRefDisplayRef_RendersGrammarA(t *testing.T) {
 	ref := Ref{IsLocal: true, Bundle: "lang/go", Kind: KindFragment, Name: "solid"}
 	got, err := ref.DisplayRef()

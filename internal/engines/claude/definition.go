@@ -204,15 +204,17 @@ func (a *contextApproach) DeliverContext(start present.Start, root present.RootK
 	default:
 		return present.Delivered{}, a.ErrRoot(root)
 	}
-	s := &systemPromptContext{content: string(in.Text), fs: agent.GetFS(fs)}
-	if _, err := s.Deliver(start); err != nil {
-		return present.Delivered{}, err
-	}
-	out := present.Delivered{Presented: s.Present(start)}
-	if s.Path() != "" {
-		out.Files = []string{s.Path()}
-	}
-	return out, nil
+	return systemPrompt.Deliver(a.Approach, start, in.Text, fs)
+}
+
+// systemPrompt is the framed context as claude reads it at the session
+// home: a <hash>.sysprompt.md the context approach owns, named on
+// --append-system-prompt-file. A run without a session home is refused
+// (ErrUnrootedSessionHome), never handed CLAUDE.md instead: that is project
+// memory, a different product behaviour under a different name.
+var systemPrompt = kit.FramedFile{
+	Name:     kit.HashedName(agent.SCMFramedContextSuffix),
+	Announce: func(r present.Rooted) present.Rooted { return r.AnnounceFlag(flagAppendSystemFile) },
 }
 
 // mcpApproach is claude's MCP surface: .mcp.json under the session home

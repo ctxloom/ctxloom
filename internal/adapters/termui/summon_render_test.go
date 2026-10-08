@@ -92,8 +92,7 @@ func TestSummonRender_MainScreenEngineGetsItsScreenBack(t *testing.T) {
 
 	since := len(h.tty.String())
 	m.Abort()
-	h.repainted(since)
-	h.screenWhen("the engine's screen back", engineBack("engine"))
+	engineBack("engine")(t, h.repainted(since))
 }
 
 // Over a real full-screen engine the modal draws on the engine's own
@@ -111,8 +110,7 @@ func TestSummonRender_AltScreenEngineRepaintsOnTheNudge(t *testing.T) {
 
 	since := len(h.tty.String())
 	m.Abort()
-	h.repainted(since)
-	h.screenWhen("the engine's repainted screen", fullscreenBack)
+	fullscreenBack(t, h.repainted(since))
 }
 
 // Engine output held while the modal is up is replayed onto the screen it
@@ -126,8 +124,7 @@ func TestSummonRender_HeldOutputIsReplayedOntoTheEnginesScreen(t *testing.T) {
 	h.screenWhen("the modal over held output", func(t tb, e *vtemu.Screen) { assertModalOwnsTheScreen(t, e) })
 
 	m.Abort()
-	h.released()
-	h.screenWhen("the replay on the engine's screen", func(t tb, e *vtemu.Screen) {
+	judge(t, h.released(), func(t tb, e *vtemu.Screen) {
 		assert.False(t, e.OnAltScreen())
 		assert.Equal(t, "changed behind the modal", e.Row(4), "the held write landed on the engine's screen:\n%s", e)
 		assert.Equal(t, "engine row 04", e.Row(3))
@@ -148,8 +145,7 @@ func TestSummonRender_OverflowClearsWithANoticeAndPrintsNoFragment(t *testing.T)
 	h.engine("1mTORN-TAIL")
 
 	m.Abort()
-	h.released()
-	h.screenWhen("the overflow notice on a cleared screen", func(t tb, e *vtemu.Screen) {
+	judge(t, h.released(), func(t tb, e *vtemu.Screen) {
 		assert.False(t, e.OnAltScreen())
 		assert.True(t, strings.HasPrefix(e.Row(0), "ctxloom: engine output overflowed while the overlay"), "the loss is said, on one row:\n%s", e)
 		for r := 1; r < renderRows-1; r++ {

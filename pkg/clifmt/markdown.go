@@ -3,92 +3,34 @@ package clifmt
 import (
 	"fmt"
 	"io"
-	"reflect"
 	"strings"
 )
 
-// renderMarkdown mirrors renderText's classification of the top-level value
-// but emits GFM markdown: bold "**Label:** value" lines, "##"-and-deeper
-// headings for sections/tables, and pipe tables for slices of struct.
-func renderMarkdown(w io.Writer, v any) error {
-	rv := derefValue(reflect.ValueOf(v))
-	if !rv.IsValid() {
-		_, err := fmt.Fprintln(w, "(nil)")
-		return err
-	}
-
-	switch rv.Kind() {
-	case reflect.Struct:
-		if implementsStringer(rv) {
-			_, err := fmt.Fprintln(w, scalarString(rv))
-			return err
-		}
-		node, err := buildNode(rv)
-		if err != nil {
-			return err
-		}
-		if node.Empty() {
-			// An all-omitempty struct would otherwise render zero bytes
-			// here — indistinguishable from "the command produced no output
-			// at all" (json/yaml render the same value as `{}`/`null`).
-			_, err := fmt.Fprintln(w, "(none)")
-			return err
-		}
-		return renderNode(w, node, 2, markdownNodeFormat)
-	case reflect.Slice, reflect.Array:
-		elemType := derefType(rv.Type().Elem())
-		if elemType.Kind() == reflect.Struct && !typeImplementsStringer(elemType) {
-			tbl, err := buildTable(rv)
-			if err != nil {
-				return err
-			}
-			return writeMarkdownTable(w, tbl)
-		}
-		if rv.Len() == 0 {
-			// An empty SCALAR slice has no columns to derive a header row
-			// from (unlike the struct-slice branch above, which stays
-			// self-evidencing via buildTable's header even with zero rows),
-			// so without this marker it would render zero bytes.
-			_, err := fmt.Fprintln(w, "(none)")
-			return err
-		}
-		for i := 0; i < rv.Len(); i++ {
-			if _, err := fmt.Fprintf(w, "- %s\n", scalarString(rv.Index(i))); err != nil {
-				return err
-			}
-		}
-		return nil
-	default:
-		_, err := fmt.Fprintln(w, scalarString(rv))
-		return err
-	}
+// writeMarkdownDoc writes doc as GFM markdown. Top-level headings are "##".
+func writeMarkdownDoc(w io.Writer, doc Doc) error {
+	return writeDoc(w, doc, 2, markdownDocFormat)
 }
 
-// markdownNodeFormat is the markdown instantiation of renderNode's shared
-// traversal (see noderender.go): depth is a heading level (capped at 6,
-// markdown's max), scalars render as bold "**Label:** value" lines, and
-// both sections and tables get a "#"-heading at the current level.
-var markdownNodeFormat = nodeFormat[int]{
-	writeScalar: func(w io.Writer, label, value string, _ int) error {
+// markdownDocFormat is the markdown instantiation of writeDoc's traversal
+// (see doc.go): depth is a heading level (capped at 6, markdown's max),
+// fields render as bold "**Label:** value" lines, list items as "- item",
+// and tables as GFM pipe tables.
+var markdownDocFormat = docFormat[int]{
+	field: func(w io.Writer, label, value string, _ int) error {
 		_, err := fmt.Fprintf(w, "**%s:** %s\n", label, value)
 		return err
 	},
-	writeSectionHeading: writeHeading,
-	writeTableHeading:   writeHeading,
-	writeTable:          writeMarkdownTable,
-	childDepth:          nextLevel,
-}
-
-func writeHeading(w io.Writer, label string, level int) error {
-	_, err := fmt.Fprintf(w, "%s %s\n\n", strings.Repeat("#", level), label)
-	return err
-}
-
-func nextLevel(level int) int {
-	if level >= 6 {
-		return 6
-	}
-	return level + 1
+	heading: writeHeading,
+	table:   writeMarkdownTable,
+	listItem: func(w io.Writer, item string, _ int) error {
+		_, err := fmt.Fprintf(w, "- %s\n", item)
+		return err
+	},
+	para: func(w io.Writer, text string, _ int) error {
+		_, err := fmt.Fprintln(w, text)
+		return err
+	},
+	child: nextLevel,
 }
 
 // writeMarkdownTable renders a Table as a GFM pipe table. Header and cell
@@ -96,7 +38,7 @@ func nextLevel(level int) int {
 // structure: a header carrying an unescaped pipe declares more columns than
 // the separator row below it, and GFM then stops treating the block as a
 // table at all.
-func writeMarkdownTable(w io.Writer, tbl *Table) error {
+func writeMarkdownTable(w io.Writer, tbl Table) error {
 	headers := make([]string, len(tbl.Columns))
 	for i, c := range tbl.Columns {
 		headers[i] = mdEscapeCell(c)
@@ -127,4 +69,16 @@ func mdEscapeCell(s string) string {
 	s = strings.ReplaceAll(s, "|", "\\|")
 	s = strings.ReplaceAll(s, "\n", "<br>")
 	return s
+}
+
+func writeHeading(w io.Writer, label string, level int) error {
+	_, err := fmt.Fprintf(w, "%s %s\n\n", strings.Repeat("#", level), label)
+	return err
+}
+
+func nextLevel(level int) int {
+	if level >= 6 {
+		return 6
+	}
+	return level + 1
 }

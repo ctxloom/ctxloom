@@ -31,25 +31,21 @@ func TestRenderUnsupportedFormat(t *testing.T) {
 	}
 }
 
-// escapeHatchFixture overrides only markdown rendering; every other format
-// must still go through the reflective default.
+// escapeHatchFixture is rendered with a WithWriter for markdown only; every
+// other format must still go through the default path.
 type escapeHatchFixture struct {
 	Name string `json:"name"`
 }
 
-func (f escapeHatchFixture) RenderCLI(w io.Writer, format Format) (bool, error) {
-	if format != FormatMarkdown {
-		return false, nil
-	}
-	_, err := w.Write([]byte("# custom render for " + f.Name + "\n"))
-	return true, err
-}
-
-func TestRendererEscapeHatchOverridesOnlyDeclaredFormat(t *testing.T) {
+func TestWithWriterOverridesOnlyItsFormat(t *testing.T) {
 	v := escapeHatchFixture{Name: "widget"}
+	custom := func(w io.Writer) error {
+		_, err := w.Write([]byte("# custom render for " + v.Name + "\n"))
+		return err
+	}
 
 	var mdBuf bytes.Buffer
-	if err := Render(&mdBuf, v, FormatMarkdown); err != nil {
+	if err := Render(&mdBuf, v, FormatMarkdown, WithWriter(FormatMarkdown, custom)); err != nil {
 		t.Fatalf("Render markdown: %v", err)
 	}
 	if mdBuf.String() != "# custom render for widget\n" {
@@ -57,7 +53,7 @@ func TestRendererEscapeHatchOverridesOnlyDeclaredFormat(t *testing.T) {
 	}
 
 	var textBuf bytes.Buffer
-	if err := Render(&textBuf, v, FormatText); err != nil {
+	if err := Render(&textBuf, v, FormatText, WithWriter(FormatMarkdown, custom)); err != nil {
 		t.Fatalf("Render text: %v", err)
 	}
 	if textBuf.String() != "Name: widget\n" {
@@ -65,7 +61,7 @@ func TestRendererEscapeHatchOverridesOnlyDeclaredFormat(t *testing.T) {
 	}
 
 	var jsonBuf bytes.Buffer
-	if err := Render(&jsonBuf, v, FormatJSON); err != nil {
+	if err := Render(&jsonBuf, v, FormatJSON, WithWriter(FormatMarkdown, custom)); err != nil {
 		t.Fatalf("Render json: %v", err)
 	}
 	if jsonBuf.String() != "{\n  \"name\": \"widget\"\n}\n" {
@@ -73,18 +69,11 @@ func TestRendererEscapeHatchOverridesOnlyDeclaredFormat(t *testing.T) {
 	}
 }
 
-func TestRendererEscapeHatchErrorPropagates(t *testing.T) {
+func TestWithWriterErrorPropagates(t *testing.T) {
 	boom := errors.New("boom")
-	v := failingRenderer{err: boom}
 	var buf bytes.Buffer
-	err := Render(&buf, v, FormatText)
+	err := Render(&buf, escapeHatchFixture{}, FormatText, WithWriter(FormatText, func(io.Writer) error { return boom }))
 	if !errors.Is(err, boom) {
 		t.Fatalf("Render error = %v, want wrapping %v", err, boom)
 	}
-}
-
-type failingRenderer struct{ err error }
-
-func (f failingRenderer) RenderCLI(w io.Writer, format Format) (bool, error) {
-	return true, f.err
 }

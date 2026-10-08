@@ -3,7 +3,6 @@ package clifmt
 import (
 	"bytes"
 	"errors"
-	"reflect"
 	"testing"
 )
 
@@ -18,7 +17,7 @@ type embedFixture struct {
 	Name string `json:"name"`
 }
 
-func TestBuildNodeFlattensEmbeddedStruct(t *testing.T) {
+func TestDeriveFlattensEmbeddedStruct(t *testing.T) {
 	v := embedFixture{base: base{ID: "b1"}, Name: "x"}
 	var buf bytes.Buffer
 	if err := renderText(&buf, v); err != nil {
@@ -37,27 +36,18 @@ type withSliceAndMapFixture struct {
 	Attrs map[string]int `json:"attrs"`
 }
 
-func TestBuildNodeSliceOfScalarsJoined(t *testing.T) {
-	v := withSliceAndMapFixture{Tags: []string{"a", "b", "c"}}
-	node, err := buildNode(reflect.ValueOf(v))
-	if err != nil {
-		t.Fatalf("buildNode: %v", err)
-	}
-	if len(node.Scalars) < 1 || node.Scalars[0].Value != "a, b, c" {
-		t.Errorf("scalars = %+v, want Tags joined as \"a, b, c\"", node.Scalars)
+func TestDeriveSliceOfScalarsJoined(t *testing.T) {
+	doc := derive(t, withSliceAndMapFixture{Tags: []string{"a", "b", "c"}})
+	if len(doc) < 1 || doc[0] != (Field{Label: "Tags", Value: "a, b, c"}) {
+		t.Errorf("doc = %#v, want Tags joined as \"a, b, c\"", doc)
 	}
 }
 
-func TestBuildNodeMapJoinedSorted(t *testing.T) {
-	v := withSliceAndMapFixture{Attrs: map[string]int{"z": 1, "a": 2}}
-	node, err := buildNode(reflect.ValueOf(v))
-	if err != nil {
-		t.Fatalf("buildNode: %v", err)
-	}
+func TestDeriveMapJoinedSorted(t *testing.T) {
 	var got string
-	for _, s := range node.Scalars {
-		if s.Label == "Attrs" {
-			got = s.Value
+	for _, b := range derive(t, withSliceAndMapFixture{Attrs: map[string]int{"z": 1, "a": 2}}) {
+		if f, ok := b.(Field); ok && f.Label == "Attrs" {
+			got = f.Value
 		}
 	}
 	if got != "a=2, z=1" {
@@ -117,10 +107,7 @@ func TestRenderTOMLErrorOnUnsupportedType(t *testing.T) {
 	}
 }
 
-// --- Render propagates a struct-classification error for a bad buildTable
-// call reached via a slice of a non-struct, non-scalar-friendly type is not
-// reachable through the public surface, so this instead exercises the nil-err
-// edge case: a caller passing nil must neither panic nor be handed an empty
+// --- the nil-err edge case: a caller passing nil must neither panic nor be handed an empty
 // failure report. See TestRenderErrorRejectsNilError in errors_test.go for the
 // payload half of that contract. ---
 

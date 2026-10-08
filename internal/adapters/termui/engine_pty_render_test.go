@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,22 +33,47 @@ import (
 // labelled line, leaving its cursor where the last row's text ends, and
 // repaints on every SIGWINCH, counting each one in $WINCHLOG. With $ALT set it
 // runs on the alternate screen, as a full-screen engine does. It exits once
-// $STOP exists. The trap is installed before the first paint, so a test that
-// waits for that paint has ordered every later resize after it.
+// $STOP exists, never with a repaint still owed. The trap is installed before
+// the first paint, so a test that waits for that paint has ordered every later
+// resize after it.
+//
+// The trap only marks a repaint owed; the main loop paints. A trap that
+// painted itself could run nested inside a paint that had already read the
+// size (dash runs a trap at the next command boundary, even inside another
+// trap's), and that outer paint then finished at the stale size after the
+// nested one: the nudge's shrink repaint outliving its restore, leaving the
+// engine's last paint a row short
+// (TestPTYEngineScript_ASIGWINCHMidRepaintNeverLeavesAStaleSizeLast).
+// $PAINTHOOK runs between a paint's size read and its rows, with the size in
+// $1; it is empty except where a test holds a paint there.
+//
+// A paint that ends with no repaint owed is followed by a fence, an inert
+// DECRQM query numbered paintFenceBase plus the rows it painted: the engine's
+// own word that the screen is as it will leave it at that size (see painted).
 const ptyEngineScript = `paint() {
-  set -- $(stty size); i=1
+  set -- $(stty size); eval "$PAINTHOOK"; i=1
   while [ "$i" -le "$1" ]; do printf '\033[%d;1H%s row %02d' "$i" "$LABEL" "$i"; i=$((i+1)); done
+  [ -z "$owed" ] && printf '\033[?%d$p' $((9000 + $1))
 }
-trap 'echo w >> "$WINCHLOG"; paint' WINCH
+trap 'echo w >> "$WINCHLOG"; owed=1' WINCH
 [ -n "$ALT" ] && printf '\033[?1049h'
-paint
-while [ ! -e "$STOP" ]; do sleep 0.02; done`
+owed=1
+while :; do
+  if [ -n "$owed" ]; then owed=; paint
+  elif [ -e "$STOP" ]; then break
+  else sleep 0.02; fi
+done`
+
+// paintFenceBase numbers ptyEngineScript's paint fences; it must match the
+// script's literal.
+const paintFenceBase = 9000
 
 type ptyEngineHarness struct {
 	*renderHarness
 	label    string
 	winchLog string
 	stop     string
+	first    *vtemu.Screen // the screen as of the engine's first full paint
 	done     chan struct{}
 	code     int32
 	err      error
@@ -93,7 +120,7 @@ func newPTYEngineHarness(t *testing.T, label string, alt bool, opts ...func(*ter
 		stop:          filepath.Join(dir, "stop"),
 		done:          make(chan struct{}),
 	}
-	env := append(os.Environ(), "LABEL="+label, "WINCHLOG="+h.winchLog, "STOP="+h.stop)
+	env := append(os.Environ(), "PAINTHOOK=", "LABEL="+label, "WINCHLOG="+h.winchLog, "STOP="+h.stop)
 	if alt {
 		env = append(env, "ALT=1")
 	}
@@ -104,21 +131,37 @@ func newPTYEngineHarness(t *testing.T, label string, alt bool, opts ...func(*ter
 	}()
 	t.Cleanup(h.end)
 
-	tty.waitUntil(t, "the engine's first paint", contains(fmt.Sprintf("%s row %02d", label, renderRows-1)))
+	h.first = h.painted("the engine's first paint", 0)
 	return h
 }
 
-// repainted waits for the engine's repaint at its full size in what arrived
-// after since, and requires the SIGWINCH behind it. The script logs a
-// SIGWINCH before it repaints, and nothing else paints the engine's last row
-// after a release, so the repaint arriving orders the log entry before it.
-func (h *ptyEngineHarness) repainted(since int) {
+// painted waits for the engine's fence for a paint at its full size in what
+// arrived after since, and returns the screen as of that fence. The engine
+// fences only a paint that ended with no repaint owed, and resizes reach its
+// pty in order, so once it has painted at the size the window has now with
+// nothing owed, every byte it wrote is behind that fence: the screen there is
+// the one it leaves. Judging that one frame, rather than waiting for a frame a
+// check accepts, means a wrong screen fails at once with what it shows, not at
+// the test binary's deadline after a wait for a frame that can no longer come
+// (which left every test after it no budget; testsupport.BudgetUntil).
+func (h *ptyEngineHarness) painted(what string, since int) *vtemu.Screen {
 	h.t.Helper()
-	last := fmt.Sprintf("%s row %02d", h.label, renderRows-1)
-	h.tty.waitUntil(h.t, "the engine's repaint on the nudge", func(s string) bool {
-		return len(s) > since && strings.Contains(s[since:], last)
+	fence := fmt.Sprintf("\x1b[?%d$p", paintFenceBase+renderRows-1)
+	h.tty.waitUntil(h.t, what, func(s string) bool {
+		return len(s) > since && strings.Contains(s[since:], fence)
 	})
+	return frameThrough(h.t, h.tty.String(), since, fence)
+}
+
+// repainted is painted for the repaint on the nudge, and requires the
+// SIGWINCH behind it. The script logs a SIGWINCH before it repaints, and
+// nothing resizes the engine between since and the nudge, so the repaint's
+// fence orders the log entry before it.
+func (h *ptyEngineHarness) repainted(since int) *vtemu.Screen {
+	h.t.Helper()
+	e := h.painted("the engine's repaint on the nudge", since)
 	require.Positive(h.t, h.winches(), "the nudge reached the engine as a SIGWINCH")
+	return e
 }
 
 // winches is how many SIGWINCHes the engine has handled.
@@ -147,7 +190,7 @@ func (h *ptyEngineHarness) end() {
 // repaint nudge reaches the engine as a real SIGWINCH.
 func TestEnginePTYRender_OverlayOverARealEngineReleasesToItsScreen(t *testing.T) {
 	h := newPTYEngineHarness(t, "engine", false)
-	h.screenWhen("the engine's screen", engineBack("engine"))
+	engineBack("engine")(t, h.first)
 	require.Zero(t, h.winches(), "nothing has resized the engine yet")
 
 	h.key(string([]byte{compPrefix}))
@@ -156,8 +199,7 @@ func TestEnginePTYRender_OverlayOverARealEngineReleasesToItsScreen(t *testing.T)
 
 	since := len(h.tty.String())
 	h.key("q")
-	h.repainted(since)
-	h.screenWhen("the engine's screen back", engineBack("engine"))
+	engineBack("engine")(t, h.repainted(since))
 }
 
 // A full-screen engine is drawn over in place, and what the panel covered is
@@ -176,8 +218,7 @@ func TestEnginePTYRender_AltScreenEngineRepaintsUnderThePanelOnTheNudge(t *testi
 
 	since := len(h.tty.String())
 	h.key("q")
-	h.repainted(since)
-	h.screenWhen("the engine's repainted screen", fullscreenBack)
+	fullscreenBack(t, h.repainted(since))
 }
 
 // fullscreenBack is a screenWhen check: a full-screen engine has its own
@@ -189,4 +230,83 @@ func fullscreenBack(t tb, e *vtemu.Screen) {
 		assert.Equal(t, fmt.Sprintf("fullscreen row %02d", i), e.Row(i-1), "row %d is the engine's again, and nothing of the overlay survives:\n%s", i, e)
 	}
 	assert.Contains(t, e.Row(renderRows-1), "viewer", "the bar is back on the reserved row")
+}
+
+// A SIGWINCH that lands while the engine is mid-repaint — its size already
+// read, its rows not yet painted — must still leave the engine's last paint at
+// the size the window has now. The nudge's wiggle makes exactly this window:
+// the shrink's repaint reads the shrunk size, and the restore's SIGWINCH can
+// arrive before that repaint has drawn a row. PAINTHOOK holds the shrink's
+// repaint right after its size read until the restore has been applied (a
+// TIOCSWINSZ queues its SIGWINCH before it returns), so the interleaving is
+// forced, not hoped for.
+func TestPTYEngineScript_ASIGWINCHMidRepaintNeverLeavesAStaleSizeLast(t *testing.T) {
+	p, slave, tty := newComposedPTY(t)
+	full := renderRows - 1
+	require.NoError(t, p.Resize(renderCols, full))
+	dir := t.TempDir()
+	reached, gate := filepath.Join(dir, "reached"), filepath.Join(dir, "gate")
+	require.NoError(t, syscall.Mkfifo(reached, 0o600))
+	require.NoError(t, syscall.Mkfifo(gate, 0o600))
+	stop := filepath.Join(dir, "stop")
+	hook := fmt.Sprintf(`[ "$1" -lt %d ] && { echo > "$REACHED"; cat "$GATE" > /dev/null; }`, full)
+
+	cmd := exec.Command("/bin/sh", "-c", ptyEngineScript)
+	cmd.Env = append(os.Environ(), "LABEL=engine", "WINCHLOG="+filepath.Join(dir, "winch.log"), "STOP="+stop,
+		"PAINTHOOK="+hook, "REACHED="+reached, "GATE="+gate)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
+	require.NoError(t, cmd.Start())
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) })
+	tty.waitUntil(t, "the first paint", contains(fmt.Sprintf("engine row %02d", full)))
+
+	// The shrink: its repaint reads the shrunk size and stops in the hook.
+	require.NoError(t, p.Resize(renderCols, full-1))
+	await(t, "the shrink's repaint holding after its size read", fifoDrained(reached))
+	// The restore, applied while that repaint holds: its SIGWINCH is queued
+	// before Resize returns.
+	require.NoError(t, p.Resize(renderCols, full))
+	await(t, "the held repaint released", fifoFed(gate))
+	require.NoError(t, os.WriteFile(stop, nil, 0o600))
+	require.NoError(t, await(t, "the engine's exit", exited))
+
+	// A fence written behind the engine's last byte orders all of it first.
+	fence := "\x1b[?7799$p"
+	_, err := io.WriteString(slave, fence)
+	require.NoError(t, err)
+	tty.waitUntil(t, "the fence behind the engine", contains(fence))
+
+	e := emulate(tty.String())
+	r, c := e.Cursor()
+	assert.Equal(t, [2]int{full - 1, len("engine row 23")}, [2]int{r, c},
+		"the engine's last paint is at the window's current size, its cursor after row %d:\n%s", full, e)
+}
+
+// fifoDrained opens the fifo at path for reading and reports once its writer
+// has opened, written and closed it.
+func fifoDrained(path string) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		if f, err := os.Open(path); err == nil {
+			_, _ = io.Copy(io.Discard, f)
+			_ = f.Close()
+		}
+		close(done)
+	}()
+	return done
+}
+
+// fifoFed opens the fifo at path for writing and closes it at once, reporting
+// once its reader has opened it (and so will see EOF).
+func fifoFed(path string) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		if f, err := os.OpenFile(path, os.O_WRONLY, 0); err == nil {
+			_ = f.Close()
+		}
+		close(done)
+	}()
+	return done
 }

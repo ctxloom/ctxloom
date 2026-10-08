@@ -112,11 +112,16 @@ func (h *renderHarness) key(s string) {
 	require.NoError(h.t, err)
 }
 
-// released waits out a release: its nudge is sent once the release's write to
-// the terminal has returned, and a fence behind that write orders all of it
-// before anything is judged — a cleared row or an absent fragment is only
-// evidence once nothing of the release is still in the pty.
-func (h *renderHarness) released() {
+// released waits out a release and returns the screen as of a fence behind
+// it: the release's nudge is sent once its write to the terminal has
+// returned, and the fence written after that orders all of it first — a
+// cleared row or an absent fragment is only evidence once nothing of the
+// release is still in the pty. Nothing writes engine bytes here but the test,
+// so that frame is the one the release leaves, and it is judged once: a wrong
+// one fails at once with what it shows, instead of a wait for a frame that can
+// no longer come spending the binary's deadline every later test shares
+// (testsupport.BudgetUntil).
+func (h *renderHarness) released() *vtemu.Screen {
 	h.t.Helper()
 	await(h.t, "the repaint nudge", h.nudges)
 	h.fences++
@@ -126,6 +131,21 @@ func (h *renderHarness) released() {
 	_, err := io.WriteString(h.slave, f)
 	require.NoError(h.t, err)
 	h.tty.waitUntil(h.t, "the fence behind the release", contains(f))
+	return frameThrough(h.t, h.tty.String(), 0, f)
+}
+
+// frameThrough is the screen the bytes in s paint up to and including the
+// first fence at or after since, which must be there. A sequence the screen
+// model does not understand fails t, since no frame from it on can be judged.
+func frameThrough(t require.TestingT, s string, since int, fence string) *vtemu.Screen {
+	if h, ok := t.(interface{ Helper() }); ok {
+		h.Helper()
+	}
+	i := strings.Index(s[since:], fence)
+	require.GreaterOrEqual(t, i, 0, "the fence %q has arrived", fence)
+	e := emulate(s[:since+i+len(fence)])
+	require.Empty(t, e.Unhandled(), "the terminal wrote what the screen model does not understand; the frame:\n%s", e)
+	return e
 }
 
 // tb is what a screen check reports to: the test, or a probe judging a frame
@@ -272,8 +292,7 @@ func TestOverlayRender_QuickPanelIsReadableAndReleaseRestoresTheEngine(t *testin
 	})
 
 	h.key("q")
-	h.released()
-	h.screenWhen("the engine's screen back", engineBack("engine"))
+	judge(t, h.released(), engineBack("engine"))
 }
 
 // Full screen draws the whole drawable area, and leaving it — straight from
@@ -291,8 +310,7 @@ func TestOverlayRender_FullScreenIsReadableAndReleaseRestoresTheEngine(t *testin
 	})
 
 	h.key("q")
-	h.released()
-	h.screenWhen("the engine's screen back", engineBack("engine"))
+	judge(t, h.released(), engineBack("engine"))
 }
 
 // An engine that is itself on the alternate screen is drawn over in place:
@@ -321,8 +339,7 @@ func TestOverlayRender_OverAnAltScreenEngineTheOverlayDrawsInPlace(t *testing.T)
 	})
 
 	h.key("q")
-	h.released()
-	h.screenWhen("the cleared panel region", func(t tb, e *vtemu.Screen) {
+	judge(t, h.released(), func(t tb, e *vtemu.Screen) {
 		assert.True(t, e.OnAltScreen(), "release must not take the engine off its own screen")
 		for i := 1; i <= 15; i++ {
 			assert.Equal(t, fmt.Sprintf("fullscreen row %02d", i), e.Row(i-1), "row %d:\n%s", i, e)
@@ -371,4 +388,10 @@ func TestAwaitScreen_FailsOnTheFirstFrameItCannotUnderstand(t *testing.T) {
 	require.NotEmpty(t, f.failures, "the wait must fail")
 	assert.Contains(t, f.failures[0], "CSI 20h", "the failure names the sequence")
 	assert.Contains(t, f.failures[0], "on screen", "the failure shows the frame")
+}
+
+// judge runs a screen check once against the test, on a frame known final.
+func judge(t *testing.T, e *vtemu.Screen, check func(tb, *vtemu.Screen)) {
+	t.Helper()
+	check(t, e)
 }

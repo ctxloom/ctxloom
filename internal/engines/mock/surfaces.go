@@ -2,17 +2,15 @@ package mock
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
-	"path"
 	"path/filepath"
-	"slices"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/engines/kit"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -55,25 +53,20 @@ const (
 	skillsFlag   = "--skills"
 )
 
-// surface is the shared half of every mock approach: its name and traits.
-type surface struct {
-	name   string
-	traits present.Traits
-}
+// surface is the shared half of every mock approach: its name and traits
+// (kit.Approach), with rel the same file under either root. It is not
+// Private: a double's session-home form is served from whatever session home
+// the start names, rooted or not.
+type surface struct{ kit.Approach }
 
-func (s *surface) Name() string           { return s.name }
-func (s *surface) Traits() present.Traits { return s.traits }
+func newSurface(name string, t present.Traits) surface {
+	return surface{kit.Approach{Engine: Name, ApproachName: name, T: t}}
+}
 
 // rooted composes rel under the root the plan selected; the approach
 // offers exactly the roots its traits list, so any other is a refusal.
 func (s *surface) rooted(start present.Start, root present.RootKind, rel string) (present.Rooted, error) {
-	if !s.traits.Offers(root) {
-		return present.Rooted{}, fmt.Errorf("mock/%s: root %v is not one this approach offers", s.name, root)
-	}
-	if root == present.RootProjectRoot {
-		return start.UnderProjectRoot(rel), nil
-	}
-	return start.UnderSessionHome(rel), nil
+	return s.Rooted(start, root, rel, rel)
 }
 
 // writeFile writes bytes at the composed presentation's host path and
@@ -123,9 +116,7 @@ func (a *contextFile) DeliverContext(start present.Start, root present.RootKind,
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	p := r.AnnounceFlag(contextFlag).Build()
-	return present.Delivered{Presented: p,
-		Claims: map[string][]present.Claim{p.HostPath: {{Pointer: present.AppendedSection, Value: slices.Clone(in.Text)}}}}, nil
+	return kit.AppendedSection(r.AnnounceFlag(contextFlag).Build(), in.Text), nil
 }
 
 // mcpFile writes the server set as {"mcpServers": {...}}.
@@ -170,57 +161,29 @@ func (a *hooksFile) DeliverHooks(start present.Start, root present.RootKind, in 
 }
 
 // commandsDir writes each enabled command as <name>.md under the commands
-// dir, the body verbatim.
+// dir, the body verbatim, through the shared managed writer (a traversal or
+// absolute name is skipped with a warning).
 type commandsDir struct{ surface }
 
 func (a *commandsDir) DeliverCommands(start present.Start, root present.RootKind, in engine.CommandsInputs, files safefs.Root) (present.Delivered, error) {
-	r, err := a.rooted(start, root, commandsRel)
-	if err != nil {
-		return present.Delivered{}, err
-	}
-	dir := r.AnnounceFlag(commandsFlag).Build()
-	out := present.Delivered{Presented: dir}
-	for _, c := range in.Commands {
-		if !c.Enabled {
-			continue
-		}
-		p := dir.Beneath(c.Name + ".md")
-		path, err := writeFile(files.Fs, p, c.Body, 0o644)
-		if err != nil {
-			return present.Delivered{}, err
-		}
-		out.Files = append(out.Files, path)
-	}
-	return out, nil
+	return kit.DeliverCommands(a.Approach, start, root, commandsRel, commandsRel, files, in, verbatimCommand, announce(commandsFlag))
+}
+
+// verbatimCommand is the mock's command file: <name>.md, the body as given.
+func verbatimCommand(c agent.CommandExport) (string, []byte, error) {
+	return c.Name + ".md", []byte(c.Content), nil
 }
 
 // skillsDir writes each enabled skill package under <skills>/<name>/, each
-// file with its recorded mode so an exec bit survives.
+// file with its recorded mode so an exec bit survives, through the shared
+// managed writer. The mock loads every skill it is handed: no constraints.
 type skillsDir struct{ surface }
 
 func (a *skillsDir) DeliverSkills(start present.Start, root present.RootKind, in engine.SkillsInputs, files safefs.Root) (present.Delivered, error) {
-	r, err := a.rooted(start, root, skillsRel)
-	if err != nil {
-		return present.Delivered{}, err
-	}
-	dir := r.AnnounceFlag(skillsFlag).Build()
-	out := present.Delivered{Presented: dir}
-	for _, s := range in.Skills {
-		if !s.Enabled {
-			continue
-		}
-		for _, f := range s.Files {
-			p := dir.Beneath(path.Join(s.Name, f.Path))
-			mode := os.FileMode(f.Mode)
-			if mode == 0 {
-				mode = 0o644
-			}
-			path, err := writeFile(files.Fs, p, f.Bytes, mode)
-			if err != nil {
-				return present.Delivered{}, err
-			}
-			out.Files = append(out.Files, path)
-		}
-	}
-	return out, nil
+	return kit.DeliverSkills(a.Approach, start, root, skillsRel, skillsRel, files, in, nil, announce(skillsFlag))
+}
+
+// announce names a managed tree's directory on flag.
+func announce(flag string) func(present.Rooted) present.Rooted {
+	return func(r present.Rooted) present.Rooted { return r.AnnounceFlag(flag) }
 }

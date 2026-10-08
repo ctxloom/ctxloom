@@ -115,6 +115,22 @@ config dialects, renderers, failure tables) stays in each engine.
   each presentation's env in delivery order; each presentation's argv in
   delivery order, with an optional per-presentation refusal (claude's
   untrusted-repository vetoes). claude and the mock both use them.
+- **`kit.Approach`**: the name and traits every typed approach embeds, and
+  the one rooting rule (`Rooted`): the session-home rel or the project-root
+  rel for the root the plan selected, a root the traits do not offer refused
+  naming the engine and approach, and, when `Private`, a session home that
+  was never rooted refused (`agent.SessionHomeRooted`). claude's approaches
+  are `Private`; the mock's are not.
+- **`kit.AppendedSection`**: the context claimed as a section after a
+  well-known file's own text (claude's project `CLAUDE.md`, the mock's
+  `MOCK_CONTEXT.md`); the ownership record owns what is appended.
+- **`kit.DeliverCommands`, `kit.DeliverSkills`**: the managed trees, written
+  under the rooted directory through the shared writers
+  (`agent.WriteManagedCommandFiles`, `agent.WriteManagedSkillPackages`, which
+  skip a traversal or absolute name with a warning), every placed file
+  declared. The engine supplies the command renderer (claude: frontmatter +
+  `$N`; the mock: the body verbatim), the skills it accepts (claude:
+  `acceptedSkills`; the mock: all) and an optional announce on its channel.
 
 **The kit rule: a component enters `internal/engines/kit` only when two
 engines use it in the same slice.** A component with one user is that

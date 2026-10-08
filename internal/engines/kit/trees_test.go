@@ -90,3 +90,27 @@ func TestDeliverSkills_AcceptedPackagesAtTheirDeclaredModes(t *testing.T) {
 	}
 	assert.NoDirExists(t, filepath.Join(dir, "drop"))
 }
+
+// TestDeliverSkills_ASkippedPackageIsReportedOnTheInputsSink: a package the
+// writer refuses (a traversal name from bundle content) is not written, and
+// the refusal reaches the sink the inputs carry — the operator learns a skill
+// they enabled never arrived.
+func TestDeliverSkills_ASkippedPackageIsReportedOnTheInputsSink(t *testing.T) {
+	start, _, project := bothStart(t)
+	a := Approach{ApproachName: "skills", T: bothRoots}
+	var got []string
+	in := engine.SkillsInputs{
+		Skills: []engine.SkillExport{
+			{Name: "../escape", Enabled: true, Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: []byte("X")}}},
+		},
+		Report: report.SinkFunc(func(f report.Finding) { got = append(got, f.Text) }),
+	}
+
+	d, err := DeliverSkills(a, start, present.RootProjectRoot, "skills", "p/skills", safefs.New(), in, nil, nil)
+
+	require.NoError(t, err)
+	assert.Empty(t, d.Files)
+	assert.NoFileExists(t, filepath.Join(project, "p", "escape", "SKILL.md"))
+	require.Len(t, got, 1)
+	assert.Contains(t, got[0], `skipping package "../escape"`)
+}

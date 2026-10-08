@@ -85,7 +85,7 @@ func oldWriteManagedCommandFiles(fs afero.Fs, dir, manifestName string, cmds []C
 
 // goldenRender is the fixture renderer both algorithms run through: a
 // dash-flattened nested name plus ".md", content verbatim — matching the shape
-// claude's writeCommandDir renderer uses in production.
+// claude's renderCommand uses in production.
 func goldenRender(c CommandExport) (string, []byte, error) {
 	filename := strings.ReplaceAll(c.Name, "/", "-") + ".md"
 	return filename, []byte(c.Content), nil

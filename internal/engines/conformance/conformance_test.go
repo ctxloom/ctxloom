@@ -51,6 +51,12 @@ type agentCase struct {
 // (or once each assertion gains the same per-agent escape hatch
 // backsUpCorruptFile already models for the one divergence that already had
 // one) — a new agent here inherits the WHOLE equity suite unconditionally.
+//
+// opencode is DELIBERATELY absent: it delivers nothing at rest. Every one of
+// its surfaces, its hooks (the bridge plugin) included, lands in the session
+// home and nowhere in a project, and its settings reader is unwired, so no
+// assertion here has a project file to hold. Its hook reach is asserted where
+// the bridge is built (internal/engines/opencode, hooks_test.go).
 func agentCases() []agentCase {
 	return []agentCase{
 		{"claude-code", func(t *testing.T) engine.Engine {

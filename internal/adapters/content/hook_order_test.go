@@ -95,8 +95,9 @@ func TestHookOrder_TiesBreakByName(t *testing.T) {
 // TestHook_OrderLivesInTheSidecarNotTheContentFile pins residency. `order` is
 // OURS, not the hook's behavioural configuration, and encodeExecItem's rule is
 // that our keys never pollute a content file. Equally load-bearing: the sidecar
-// is a COMPONENT, so it is hashed — an order change stales that hook's own
-// countersignature, which is correct, rather than riding along unattested.
+// is a COMPONENT of that hook's own form, so an order change is a change to
+// that hook's files (disclosed as such by the `deps upgrade` diff) and to no
+// other hook's.
 func TestHook_OrderLivesInTheSidecarNotTheContentFile(t *testing.T) {
 	comps := encodeHook(t, Hook{
 		Event: "pre_tool", Name: "guard", Type: "command", Command: "echo hi", Order: intp(300),
@@ -217,8 +218,9 @@ func mustComponents(t *testing.T, item Item) []Component {
 
 // TestHook_InsertingAHookLeavesItsNeighboursBytesUntouched is the property the
 // whole change exists for. Under the retired `<NN>-<slug>` scheme, inserting a
-// hook renumbered every hook below it: their FILENAMES changed, their bytes moved,
-// and their countersignatures staled for a change they did not make.
+// hook renumbered every hook below it: their FILENAMES changed and their bytes
+// moved, so every neighbour showed up as changed (in git history and in the
+// `deps upgrade` diff) for a change it did not make.
 //
 // With order as data and SPARSE spacing, an insert writes exactly one new file and
 // one new sidecar. Nothing else in the event is touched.

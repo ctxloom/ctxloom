@@ -146,6 +146,7 @@ Registered LLM backends:
 | Backend | CLI | Description |
 |---------|-----|-------------|
 | `claude-code` | [Claude Code](https://claude.ai/code) | Anthropic's Claude (default) |
+| `opencode` | [opencode](https://opencode.ai) | opencode against an OpenAI-compatible endpoint (e.g. a LAN llama-server) |
 
 Each backend launches the vendor's own CLI as a child process — ctxloom holds no model API
 client of its own, so the backend's binary must be installed and on `PATH` before you can run
@@ -172,6 +173,45 @@ llm:
 distiller at most 150,000 tokens of transcript, or less when the distiller's window minus the
 prompt and the essence it writes is smaller. Leave it out for an engine's usual models (the
 engine declares a default); set it for a model whose window differs.
+
+`binary_path` and `args` are neutral too: any label may carry them. `binary_path` is the binary
+the launch spawns in place of the engine's own (`claude`, `opencode`), and the one whose version
+ctxloom checks against the engine's floor and records on the session. `args` are placed ahead of
+everything ctxloom composes on that engine's command line. Both are checked when the label is
+launched: a `binary_path` that is not a string, or `args` that is not a list of strings, refuses
+the launch naming the label (`label "big": config: a label value is malformed: args must be a
+list of strings, got string`). It is never read as absent, so a typo cannot quietly launch the
+stock binary with no arguments. Loading the config only warns about such a value; the launch is
+where it fails.
+
+An `opencode` label drives the opencode CLI against an OpenAI-compatible endpoint. It
+requires `model`, `context_window` (opencode cannot discover the window and never compacts
+without it) and `provider`:
+
+```yaml
+llm:
+  configs:
+    local:
+      type: opencode
+      model: "qwen3.8-27b"          # the id the endpoint serves (llama-server's --alias)
+      context_window: 131072        # llama-server: --ctx-size divided by --parallel
+      provider:
+        base_url: "http://192.168.1.20:8081/v1"
+        output_limit: 8192          # reserved out of context_window when opencode decides to compact
+        header_timeout_ms: 0        # optional; 0 disables it (a single-slot server queues requests)
+        chunk_timeout_ms: 300000    # optional
+      model_options:                # optional; passed verbatim into every request body
+        chat_template_kwargs: {enable_thinking: false}
+      snapshot: true                # optional; default on interactive (the TUI's /undo), off structured
+      title_generation: false       # optional; default off
+      share: disabled               # optional; manual | auto | disabled (default)
+      permissions:
+        mode: build                 # build | plan | auto
+        approver: none              # required: opencode run rejects every ask itself
+```
+
+The endpoint's key never goes in the config: export `CTXLOOM_OPENCODE_API_KEY` and the run's
+credentials carry it. See the [config reference](/reference/config/) for every key.
 
 A config entry carries no credentials or environment. The engine reads those
 from the environment ctxloom runs in, so export them in that shell; an `env:`

@@ -482,9 +482,15 @@ in a tagged release, so this only matters if you ran a build from `main`.
 
 - ACP is removed: the `ctxloom acp` commands and the ACP agent transport no
   longer exist.
-- The `kiro`, `opencode` and `antigravity` backends are removed. A config
-  entry typed one of them fails the same way as `gemini` above. The config
-  schema no longer has `codex` or `opencode` branches.
+- The `kiro` and `antigravity` backends are removed. A config entry typed
+  one of them fails the same way as `gemini` above. The config schema no
+  longer has a `codex` branch.
+- The development build's `opencode` backend is replaced by a new one with a
+  different label shape: it drives opencode against an OpenAI-compatible
+  endpoint and requires `model`, `context_window` and `provider` (`base_url`,
+  `output_limit`); the key comes from `CTXLOOM_OPENCODE_API_KEY`. An entry in
+  the old shape does not validate against the new branch (it has no
+  `provider`). See Configuration → LLMs.
 - The `thinking` key under a backend config is removed. It was accepted and
   had no effect; a config still setting it now draws an unknown-key warning.
 - A second `ctxloom run` in a project that already had one open was refused.

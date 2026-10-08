@@ -142,7 +142,8 @@ On the `mock` engine, a prompt containing `mock:overloaded` ends its turn overlo
 ## When the model endpoint is unreachable
 
 An engine that cannot reach its model endpoint at all (connection refused, a name that does not
-resolve, no HTTP response; claude reports it as an API error with no HTTP status) is handled like
+resolve, no HTTP response; claude reports it as an API error with no HTTP status, opencode as a
+connection error with no HTTP status) is handled like
 an overload: the credential is not at fault, so only the child whose turn failed backs off, after
 the engine's own retries gave up.
 
@@ -151,6 +152,10 @@ the engine's own retries gave up.
 - The run is held on its own for the same short backoff, then resumes by itself; if the endpoint
   is still down, its next turn backs off again.
 - `roster` shows the `hold` with `kind` `endpoint_unreachable`.
+
+An endpoint that answers but takes too long to start its response is not unreachable. opencode's
+header timeout (`provider.header_timeout_ms`) is what a single-slot server queueing the request
+looks like, so it is treated as an overload.
 
 ## Pausing a child
 

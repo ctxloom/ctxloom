@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"regexp"
 	"slices"
@@ -34,14 +35,16 @@ type ocLine struct {
 }
 
 type ocPart struct {
-	Text   string       `json:"text"`
-	Time   *ocTime      `json:"time"`
-	CallID string       `json:"callID"`
-	Tool   string       `json:"tool"`
-	State  *ocToolState `json:"state"`
-	Reason string       `json:"reason"`
-	Cost   float64      `json:"cost"`
-	Tokens *ocTokens    `json:"tokens"`
+	Type    string       `json:"type"`
+	Text    string       `json:"text"`
+	Ignored bool         `json:"ignored"`
+	Time    *ocTime      `json:"time"`
+	CallID  string       `json:"callID"`
+	Tool    string       `json:"tool"`
+	State   *ocToolState `json:"state"`
+	Reason  string       `json:"reason"`
+	Cost    float64      `json:"cost"`
+	Tokens  *ocTokens    `json:"tokens"`
 }
 
 type ocTime struct {
@@ -159,10 +162,8 @@ func (m *turnStream) event(l ocLine) []agent.ChatEvent {
 		return nil
 	}
 	switch l.Type {
-	case "text":
-		return []agent.ChatEvent{entry(agent.EntryTypeAssistant, l.Part)}
-	case "reasoning":
-		return []agent.ChatEvent{entry(agent.EntryTypeThinking, l.Part)}
+	case "text", "reasoning":
+		return partEvents(l.Part)
 	case "tool_use":
 		return m.tool(l.Part)
 	case "step_finish":
@@ -170,6 +171,60 @@ func (m *turnStream) event(l ocLine) []agent.ChatEvent {
 	}
 	return nil
 }
+
+// partEvents maps one finished part of an assistant message, as the live
+// stream and the bridge transcript (MessageEvents) both carry it: text and
+// reasoning as entries, a tool call as its use and result.
+func partEvents(p *ocPart) []agent.ChatEvent {
+	switch p.Type {
+	case "text":
+		return []agent.ChatEvent{entry(agent.EntryTypeAssistant, p)}
+	case "reasoning":
+		return []agent.ChatEvent{entry(agent.EntryTypeThinking, p)}
+	case "tool":
+		return toolEvents(p)
+	}
+	return nil
+}
+
+// ocMessage is one message as opencode's API holds it, a line of the bridge
+// transcript.
+type ocMessage struct {
+	Info struct {
+		Role string `json:"role"`
+		Time struct {
+			Created int64 `json:"created"`
+		} `json:"time"`
+	} `json:"info"`
+	Parts []ocPart `json:"parts"`
+}
+
+// MessageEvents maps one message as opencode's API holds it ({info, parts},
+// a bridge transcript line) to entries: a user message's text, an assistant
+// message's parts (partEvents). A line that is not a message is an error.
+func MessageEvents(raw []byte) ([]agent.ChatEvent, error) {
+	var m ocMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	if m.Info.Role == "" {
+		return nil, errNotAMessage
+	}
+	var out []agent.ChatEvent
+	for i := range m.Parts {
+		p := &m.Parts[i]
+		if m.Info.Role != "user" {
+			out = append(out, partEvents(p)...)
+			continue
+		}
+		if p.Type == "text" && !p.Ignored && p.Text != "" {
+			out = append(out, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: p.Text, Timestamp: time.UnixMilli(m.Info.Time.Created)}})
+		}
+	}
+	return out, nil
+}
+
+var errNotAMessage = errors.New("not an opencode message: no info.role")
 
 // tool is a finished tool call, each refusal in it kept for the turn's
 // completions.

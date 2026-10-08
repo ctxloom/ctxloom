@@ -316,6 +316,8 @@ var LayeringRules = []LayeringRule{
 			"internal/engines/claude/engine -> internal/adapters/engineversion":                  "sanctioned: the reading of `claude --version` is the version adapter's parse, handed to the kind by the root (Definition.Version)",
 			"internal/engines/claude/engine -> internal/adapters/transcript/vendorreader/claude": "sanctioned: the composition root hands the kind the readers of its own store (Engine.Transcripts)",
 			"internal/engines/opencode/engine -> internal/adapters/engineversion":                "sanctioned: the reading of `opencode --version` is the version adapter's parse, handed to the kind by the root (Definition.Version)",
+			"internal/engines/opencode/engine -> internal/adapters/transcript":                   "sanctioned: the reader of the bridge plugin's transcript records through the canonical Recorder (Engine.Transcripts)",
+			"internal/engines/opencode/engine -> internal/adapters/transcript/vendorreader":      "sanctioned: the reader of the bridge plugin's transcript is a VendorAdapter over the shared JSONL driver, sharing opencode's part mapping with the live stream (Engine.Transcripts)",
 			"internal/engines/claude -> internal/adapters/confpatch":                             "F6: taskloom's MCP registrar (mcp_registrar.go) keeps confpatch's record store; ctxloom's own writes are claims through delivery",
 		},
 	},

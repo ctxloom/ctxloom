@@ -308,3 +308,17 @@ func TestDeliverContext_ThroughTheGivenFs(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, strings.Contains(string(b), "x"))
 }
+
+// A bridge transcript names its session by its stem; any other file is
+// refused.
+func TestTranscriptSession_IsTheBridgeFileStem(t *testing.T) {
+	e, err := Build()
+	require.NoError(t, err)
+	got, err := e.TranscriptSession("/h/native/ctxloom/ses_abc.jsonl")
+	require.NoError(t, err)
+	assert.Equal(t, "ses_abc", got)
+	for _, bad := range []string{"/h/native/ses_abc.jsonl", "/h/native/ctxloom/ses_abc.json", "/h/native/ctxloom/.jsonl"} {
+		_, err := e.TranscriptSession(bad)
+		assert.Error(t, err, bad)
+	}
+}

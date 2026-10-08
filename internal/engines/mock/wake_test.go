@@ -14,4 +14,3 @@ func TestWake_TheMockDeclaresItsOwnSocketWake(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, kit.SocketWake{EnvVar: EnvWakeSocket}, spec, "the mock's wake is kit's socket wake on its own variable")
 }
-

@@ -65,7 +65,7 @@ async function fire(point, fields) {
 // ascending time prefix, as opencode's own).
 let counter = 0
 function partID() {
-  const t = (BigInt(Date.now()) * 0x1000n + BigInt(++counter % 0x1000)).toString(16).padStart(12, "0")
+  const t = ((BigInt(Date.now()) * 0x1000n + BigInt(++counter % 0x1000)) % (1n << 48n)).toString(16).padStart(12, "0")
   return "prt_" + t + Math.random().toString(36).slice(2, 16).padEnd(14, "0")
 }
 
@@ -108,14 +108,24 @@ export const CtxloomBridge = async ({ client }) => {
   }
 
   // wake prompts the current root session (one is created if there is
-  // none); opencode queues the prompt behind a busy turn.
+  // none) with the wake text; opencode queues it behind a busy turn. Its
+  // turn_start hooks fire HERE, before the prompt exists: a wake they block
+  // (a stale one, whose mail a typed turn already took) is never sent, so it
+  // costs no turn and shows nothing; their context rides the prompt itself.
+  const prefired = new Set()
   async function wake(text) {
     if (!current) {
       const res = await client.session.create({ body: {} }).catch(() => undefined)
       if (!res || !res.data) return
       current = res.data.id
+      await start(current, "startup")
     }
-    await client.session.promptAsync({ path: { id: current }, body: { parts: [{ type: "text", text }] } }).catch(() => {})
+    const a = await fire("chat.message", { session: current, prompt: text })
+    notify(a.notice)
+    if (a.block) return
+    const parts = [{ type: "text", text }, ...a.context.map((c) => ({ type: "text", text: c, synthetic: true }))]
+    prefired.add(text)
+    await client.session.promptAsync({ path: { id: current }, body: { parts } }).catch(() => prefired.delete(text))
   }
 
   let server
@@ -140,8 +150,10 @@ export const CtxloomBridge = async ({ client }) => {
         current = p.info.id
         await start(p.info.id, "startup")
       } else if (event.type === "session.idle" && !children.has(p.sessionID)) {
-        notify((await fire("session.idle", { session: p.sessionID, transcript: transcriptPath(p.sessionID) })).notice)
+        // The transcript first: a turn_end hook reads it, and `opencode run`
+        // exits at idle without waiting on this handler.
         await record(p.sessionID).catch(() => {})
+        notify((await fire("session.idle", { session: p.sessionID, transcript: transcriptPath(p.sessionID) })).notice)
       }
     },
     "chat.message": async (input, output) => {
@@ -150,6 +162,7 @@ export const CtxloomBridge = async ({ client }) => {
       current = sid
       await start(sid, "resume")
       const prompt = output.parts.filter((x) => x.type === "text" && !x.synthetic).map((x) => x.text).join("\n")
+      if (prefired.delete(prompt)) return // a wake: its hooks already fired
       const a = await fire("chat.message", { session: sid, prompt })
       notify(a.notice)
       if (a.block) throw new Error(a.reason)

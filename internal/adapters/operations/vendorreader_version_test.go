@@ -92,6 +92,7 @@ func TestVendorReaderRanges_ContainThePinnedTestedVersion(t *testing.T) {
 	pins := enginePins(t)
 	byEngine := map[string]string{
 		"claude-code": "CLAUDE_CODE_CLI_VERSION",
+		"opencode":    "OPENCODE_CLI_VERSION",
 	}
 
 	for engine, key := range byEngine {

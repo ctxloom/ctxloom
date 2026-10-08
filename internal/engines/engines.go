@@ -33,7 +33,7 @@ func Build() (engine.Registry, error) {
 	if err != nil {
 		return engine.Registry{}, err
 	}
-	o, err := opencode.Build(opencode.WithVersion(opencodeengine.Version()))
+	o, err := opencode.Build(opencode.WithTranscripts(opencodeengine.Transcripts()...), opencode.WithVersion(opencodeengine.Version()))
 	if err != nil {
 		return engine.Registry{}, err
 	}

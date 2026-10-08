@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/delivery/deliverytest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
@@ -226,4 +227,64 @@ func TestMaterializeCmd_DiffComposesThroughTheWritersConsumer(t *testing.T) {
 	var doc map[string]any
 	require.NoError(t, json.Unmarshal([]byte(out), &doc), out)
 	assert.Equal(t, true, doc["identical"], out)
+}
+
+// TestMaterializeCmd_DiffShowsWhatDiffers: against a file holding text the
+// materialized context does not, --diff reports a difference as a unified
+// diff from the file to the default agent's context.
+func TestMaterializeCmd_DiffShowsWhatDiffers(t *testing.T) {
+	matProject(t)
+	theirs := filepath.Join(t.TempDir(), "CONTEXT.md")
+	testsupport.WriteFileString(t, afero.NewOsFs(), theirs, "LOCAL-ONLY-LINE\n", 0o644)
+	out, err := runCLIErr(t, "materialize", "--backend", "mock", "--diff", theirs, "--format", "json")
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &doc), out)
+	assert.Equal(t, false, doc["identical"], out)
+	diff, _ := doc["diff"].(string)
+	assert.Contains(t, diff, "--- "+theirs)
+	assert.Contains(t, diff, "+++ the default agent (materialized here)")
+	assert.Contains(t, diff, "-LOCAL-ONLY-LINE")
+}
+
+// TestRenderMaterialize_TheTextReport: the heading's verb follows the
+// status (an applied run reads "Materialized"); profiles, the context file
+// and a premise withhold's carrying surface appear only when there is one.
+func TestRenderMaterialize_TheTextReport(t *testing.T) {
+	render := func(res *operations.MaterializeResult) string {
+		var b strings.Builder
+		require.NoError(t, renderMaterialize(&b, res))
+		return b.String()
+	}
+	full := render(&operations.MaterializeResult{
+		Target: "/out", Status: operations.MaterializeApplied, Created: true, Profiles: []string{"go-dev", "review"},
+		Engines: []operations.EngineOutcome{{
+			Engine: "mock", Wrote: []string{"context"}, Released: []string{"mcp"}, ContextFile: "/out/docs/AGENTS.md",
+			NotCarried: []agent.SurfaceLoss{{Surface: "hooks", Reason: "mock has no hook mechanism"}},
+			WithheldByPremise: []operations.PremiseWithhold{
+				{Name: "b/f/release", Premise: "cutting a release", Delivered: "skills"},
+				{Name: "b/f/deploy", Premise: "deploying"},
+			},
+			Skipped: []string{"bad name"}, Warnings: []string{"slow disk"},
+		}},
+		Warnings: []string{"heads up"},
+	})
+	assert.Equal(t, `Materialized → /out (applied)
+  created /out
+  profiles: go-dev, review
+mock
+  wrote context
+  released mcp
+  context file /out/docs/AGENTS.md
+  NOT carried: hooks — mock has no hook mechanism
+  withheld by premise: b/f/release (cutting a release) → skills
+  withheld by premise: b/f/deploy (deploying)
+  skipped: bad name
+  warning: slow disk
+warning: heads up
+`, full)
+
+	bare := render(&operations.MaterializeResult{Target: "/out", Status: operations.MaterializeReleased, Engines: []operations.EngineOutcome{{Engine: "mock"}}})
+	assert.Equal(t, "Released → /out (released)\nmock\n", bare, "no profiles, no context file: no lines for them")
+	assert.True(t, strings.HasPrefix(render(&operations.MaterializeResult{Target: "/out", Status: operations.MaterializePlanned}), "Would materialize → /out"))
 }

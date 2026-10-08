@@ -68,22 +68,26 @@ func TestExec_ArgvIsTheStructuredProtocol(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// The binary is the session's, else the label's binary_path, else
-// opencode; the label's args lead.
+// The binary is the label's (the launch fills LabelConfig.Binary from the
+// label's binary_path), else opencode; the label's args (LabelConfig.Args)
+// lead. The decoded body is not a second source: a body naming them that
+// the launch did not carry spawns opencode, with no args.
 func TestExec_BinaryAndLabelArgs(t *testing.T) {
-	body := qwenBody()
-	body["binary_path"] = "/opt/opencode/bin/opencode"
-	body["args"] = []any{"--print-logs"}
-	ex, err := bind(t, session(t, body)).Exec(nil)
+	s := session(t, qwenBody())
+	s.Label.Binary = "/opt/opencode/bin/opencode"
+	s.Label.Args = []string{"--print-logs"}
+	ex, err := bind(t, s).Exec(nil)
 	require.NoError(t, err)
 	assert.Equal(t, "/opt/opencode/bin/opencode", ex.Binary)
 	assert.Equal(t, "--print-logs", ex.Args[0])
 
-	s := session(t, body)
-	s.Label.Binary = "/runner/opencode"
-	ex, err = bind(t, s).Exec(nil)
+	body := qwenBody()
+	body["binary_path"] = "/body/opencode"
+	body["args"] = []any{"--body-arg"}
+	ex, err = bind(t, session(t, body)).Exec(nil)
 	require.NoError(t, err)
-	assert.Equal(t, "/runner/opencode", ex.Binary)
+	assert.Equal(t, "opencode", ex.Binary, "the body is not read for the binary")
+	assert.Equal(t, cmdRun, ex.Args[0], "the body is not read for args")
 }
 
 // The env: every home var at its bound path, the isolation switches, the

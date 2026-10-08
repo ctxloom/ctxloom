@@ -89,8 +89,9 @@ type instance struct {
 	totals sessionTotals
 }
 
-// Exec composes the process: the binary (the session's, else the label's
-// binary_path, else opencode), the label's args, `run --format json
+// Exec composes the process: the label's binary (the launch carries the
+// label's binary_path as LabelConfig.Binary), else opencode, the label's args
+// (LabelConfig.Args), `run --format json
 // --thinking`, the model, the resumed session, --auto at the auto posture;
 // the prompt on stdin. Env holds only opencode's own variables: the home
 // vars, every presentation's env, the composed config, the posture and the
@@ -98,9 +99,6 @@ type instance struct {
 // it, and the config names it by reference.
 func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 	args := slices.Clone(i.s.Label.Args)
-	if len(args) == 0 {
-		args = slices.Clone(i.cfg.Args)
-	}
 	args = append(args, cmdRun, flagFormat, "json", flagThinking)
 	if m := i.s.Label.Model; m != "" {
 		args = append(args, flagModel, providerID+"/"+m)
@@ -123,11 +121,8 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 }
 
 func (i *instance) binary() string {
-	switch {
-	case i.s.Label.Binary != "":
+	if i.s.Label.Binary != "" {
 		return i.s.Label.Binary
-	case i.cfg.BinaryPath != "":
-		return i.cfg.BinaryPath
 	}
 	return defaultBinary
 }

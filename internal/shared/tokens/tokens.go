@@ -29,7 +29,17 @@ const BytesPerToken = 4
 // also the safer direction for an estimate feeding a budget — it can never
 // under-report.
 func Estimate(text string) int {
-	return (len(text) + BytesPerToken - 1) / BytesPerToken
+	return EstimateBytes(len(text))
+}
+
+// EstimateBytes is Estimate for text known only by its size in bytes (a
+// budget not yet written, such as the output a prompt asks for). It rounds
+// up the same way; a non-positive size estimates at zero.
+func EstimateBytes(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	return (n + BytesPerToken - 1) / BytesPerToken
 }
 
 // Budget returns the rough size in BYTES of text that would estimate at

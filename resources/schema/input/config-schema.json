@@ -479,6 +479,15 @@
                 "haiku"
               ]
             },
+            "context_window": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model.",
+              "examples": [
+                200000,
+                131072
+              ]
+            },
             "binary_path": {
               "type": "string",
               "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode."
@@ -512,6 +521,15 @@
             },
             "model": {
               "type": "string"
+            },
+            "context_window": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model.",
+              "examples": [
+                200000,
+                131072
+              ]
             },
             "mock_control": {
               "type": "object",

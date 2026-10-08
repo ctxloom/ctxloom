@@ -101,6 +101,9 @@ func Build(opts ...Option) (engine.Engine, error) {
 		CLI:          cli,
 		ModelAliases: map[string]string{},
 		ExportSchema: ExportSchema,
+		// Every Claude model ctxloom drives has at least this window; a label
+		// on a larger one (a 1M-context model) declares its own.
+		ContextWindow: DefaultContextWindow,
 		// Reviewed onto StartRun, and a one-shot child resumes by asking
 		// claude to load its own prior session (Instance.Resume).
 		DelegatedChildren: engine.Provide(engine.DelegatedChildren{ResumesByKey: true}),
@@ -119,6 +122,11 @@ func Build(opts ...Option) (engine.Engine, error) {
 }
 
 var _ engine.Engine = Claude{}
+
+// DefaultContextWindow is the context window, in tokens, a claude label has
+// when it declares no `context_window`: the smallest window of the Claude
+// models ctxloom drives.
+const DefaultContextWindow = 200_000
 
 // Declaration is agent.Hosted's: the approach names a binding may select per
 // surface kind (`agent edit --surface`), each kind's default first. A static

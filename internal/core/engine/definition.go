@@ -56,6 +56,11 @@ type Definition struct {
 	// Version is how to ask the engine's binary for its version. The zero
 	// value means the engine has no binary to ask (a double).
 	Version VersionCommand
+	// ContextWindow is the context window, in tokens, a label of this engine
+	// has when the label declares none (its neutral `context_window` key).
+	// 0 declares none: a consumer budgeting against the window (the
+	// compactor) keeps its own default. A label's own value always wins.
+	ContextWindow int
 	// DelegatedChildren is whether delegated children (agent_run) may run on this
 	// engine — PROVIDED once the engine has been reviewed onto the runner's
 	// StartRun path, ABSENT with the reason otherwise — and, when provided,

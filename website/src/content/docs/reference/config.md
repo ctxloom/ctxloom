@@ -204,6 +204,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 |-------|------|-------------|
 | `args` | string[] |  |
 | `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
+| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model. Examples: `200000`, `131072`. |
 | `model` | string | Examples: `opus`, `sonnet`, `haiku`. |
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
 | `role` | string | Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime. Allowed values: `primary`, `fast`. |
@@ -213,6 +214,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model. Examples: `200000`, `131072`. |
 | `mock_control` | map → string | The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment. |
 | `model` | string |  |
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |

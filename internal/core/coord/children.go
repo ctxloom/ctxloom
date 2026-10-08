@@ -1554,7 +1554,7 @@ func (c *Coordinator) endRun(runID, cause, detail string, drainTail bool) {
 	// ClientConn, which multiplexes RunChannel too, so calling it first can
 	// win the very race the drain exists to close.
 	if drainTail {
-		c.drainTerminalTail(rec.Harp)
+		c.drainTerminalTail(rec.Harp, runID)
 	}
 
 	rt, closeFn, launchCancel, runFailure := c.detachRun(runID, rec.CredHash)
@@ -1572,7 +1572,7 @@ func (c *Coordinator) endRun(runID, cause, detail string, drainTail bool) {
 	// Revocation severs the credential's live run channel (the channel
 	// teardown un-reserves tentative deliveries so the leftover-mail check
 	// below sees them).
-	c.severChan(rec.Harp)
+	c.severChan(rec.Harp, runID)
 	// Both cuts above (closeFn's kill of the runner's connection, and
 	// severChan) can discard a ring the runner already SENT. A stop loses that
 	// race every time its answer wins: the runner writes the interrupted

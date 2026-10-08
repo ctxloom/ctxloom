@@ -414,9 +414,9 @@ const terminalDrainWindow = 500 * time.Millisecond
 // together, so nothing more can arrive. Nor does a terminal decided in-band
 // by a frame of the run's own channel (drainAtBoundary): it runs on the recv
 // goroutine this wait depends on.
-func (c *Coordinator) drainTerminalTail(role string) {
+func (c *Coordinator) drainTerminalTail(role, runID string) {
 	c.mu.Lock()
-	ch := c.chans[role]
+	ch := c.runChanLocked(role, runID)
 	c.mu.Unlock()
 	if ch == nil {
 		return
@@ -430,12 +430,12 @@ func (c *Coordinator) drainTerminalTail(role string) {
 	}
 }
 
-// severChan tears a role's live run channel down (credential revocation /
-// terminal path); the stream's own deferred cleanup then finds itself
+// severChan tears runID's run channel down at its terminal (the credential is
+// revoked with it); the stream's own deferred cleanup then finds itself
 // unregistered and skips.
-func (c *Coordinator) severChan(role string) {
+func (c *Coordinator) severChan(role, runID string) {
 	c.mu.Lock()
-	ch := c.chans[role]
+	ch := c.runChanLocked(role, runID)
 	if ch != nil {
 		delete(c.chans, role)
 	}
@@ -443,6 +443,20 @@ func (c *Coordinator) severChan(role string) {
 	if ch != nil {
 		ch.cancel()
 	}
+}
+
+// runChanLocked is role's live run channel if it is runID's, else nil. The
+// terminal path is keyed by the RUN it ends, never by the harp alone: the
+// run's end is journaled first, so a resume of the same harp can mint a
+// fresh run whose runner attaches its own channel under the same role while
+// the ended run's teardown is still running (a slow kill — a docker stop —
+// is enough). That channel is the successor's; the ended run's teardown must
+// neither sever it nor wait on it. Caller holds c.mu.
+func (c *Coordinator) runChanLocked(role, runID string) *RunChannel {
+	if ch := c.chans[role]; ch != nil && ch.id.RunID == runID {
+		return ch
+	}
+	return nil
 }
 
 // reqKey identifies a plane-2 request for idempotency that must SURVIVE a

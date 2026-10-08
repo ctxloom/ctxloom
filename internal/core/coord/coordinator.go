@@ -215,6 +215,12 @@ type Options struct {
 	// yet attached; parking here makes that window a fact a test can hold
 	// open.
 	attachRunHook func(harp string)
+	// endRecordedHook runs synchronously in endRun with the run's id once its
+	// end is JOURNALED — the roster reads ended and mail resumes the harp as a
+	// fresh run — and before any of its teardown (the runner's kill, the run
+	// channel's sever). That span is where an ended run's runner is still
+	// alive; parking here holds it open.
+	endRecordedHook func(runID string)
 }
 
 // Coordinator is the runtime coordinator: durable CQRS stores + credential
@@ -419,6 +425,11 @@ type Coordinator struct {
 	// have been folded into a hold the adoption then released
 	// (decideTurnFailure).
 	turnBeforeAdopt map[string]bool
+	// ending counts, by run id, the terminals under way for a run (endRun:
+	// from before its end is recorded until its teardown is done), guarded by
+	// mu. An ending run's channel is rung no doorbell and its runner sent no
+	// resume (endfence.go).
+	ending map[string]int
 	// onAskPublished, when set, is called by controlAsk between RECORDING the
 	// ask open and PUBLISHING it — the record-before-publish test seam. It
 	// fires on that side of the publish deliberately: a hook fired after it
@@ -560,6 +571,9 @@ type Coordinator struct {
 	// Options.runnerHelloHook (test seams; nil in production).
 	turnIdleHook    func(harp string)
 	runnerHelloHook func(credHash string)
+	// endRecordedHook is Options.endRecordedHook (a test seam; nil in
+	// production).
+	endRecordedHook func(runID string)
 
 	closeOnce sync.Once
 	// closed is set at the START of Close, before it looks for listeners to
@@ -632,11 +646,13 @@ func New(opts Options) (*Coordinator, error) {
 		turnIdleHook:       opts.turnIdleHook,
 		runnerHelloHook:    opts.runnerHelloHook,
 		attachRunHook:      opts.attachRunHook,
+		endRecordedHook:    opts.endRecordedHook,
 		lookupEnv:          t.lookupEnv,
 		refreshSecrets:     opts.RefreshSecrets,
 		secretReleases:     make(map[string]func()),
 		replacedCreds:      make(map[string]bool),
 		turnBeforeAdopt:    make(map[string]bool),
+		ending:             make(map[string]int),
 		runners:            make(map[string]*RunnerSession),
 		runnerReady:        make(map[string]chan struct{}),
 		chans:              make(map[string]*RunChannel),

@@ -772,6 +772,12 @@ message KillRunResult {}
 // Mail is unaffected and that is deliberate: under the spool it stays in the
 // run's in/ directory, undelivered and therefore unconsumed, so a paused run
 // that is relaunched finds its mail exactly where it left it.
+//
+// It is also the END FENCE: the coordinator pauses a run it is about to end,
+// before it records the end, and sends no ResumeRun after — so a follow-up for
+// the harp, which resumes it as a fresh run the moment the end is recorded, is
+// left in in/ for that run rather than consumed by the ending run's still-live
+// runner. A runner needs nothing beyond PauseRun's own contract to honour it.
 message PauseRun {
   string run_id = 1;
   string reason = 2;  // recorded in the coordinator's audit journal

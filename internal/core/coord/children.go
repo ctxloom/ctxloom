@@ -1544,15 +1544,29 @@ func (c *Coordinator) releaseSlotIntent(rt *childRt) {
 // doc; a terminal decided in-band, on that channel's own recv goroutine, goes
 // through endRun instead.
 func (c *Coordinator) terminateRun(runID, cause, detail string) {
-	c.endRun(runID, cause, detail, cause == CauseRunnerExit || cause == CauseStopped)
+	c.endRun(runID, cause, detail, cause == CauseRunnerExit || cause == CauseStopped, fencesRunner(cause))
 }
 
 // endRun is terminateRun's body; drainTail says whether the run's channel is
-// drained before anything can sever it.
-func (c *Coordinator) endRun(runID, cause, detail string, drainTail bool) {
+// drained before anything can sever it, and fence whether the run's runner is
+// told its run is over before the end is recorded (endfence.go). From the
+// mark below to the end of the teardown the run is ENDING: no doorbell rings
+// on its channel and no resume reaches its runner.
+func (c *Coordinator) endRun(runID, cause, detail string, drainTail, fence bool) {
+	c.markEnding(runID)
+	var fenced *RunRecord
+	if fence {
+		fenced = c.fenceRunner(runID, cause)
+	}
 	rec, won := c.claimRunTerminal(runID, cause, detail)
 	if !won {
+		c.unmarkEnding(runID)
+		c.unfenceLive(fenced)
 		return
+	}
+	defer c.unmarkEnding(runID)
+	if hook := c.endRecordedHook; hook != nil {
+		hook(runID)
 	}
 	c.releaseRunSecrets(runID)
 	c.sampleExecGauge() // the terminal is also a (possible) StateExecuting exit — see setState's sibling call

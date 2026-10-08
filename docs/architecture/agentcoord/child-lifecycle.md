@@ -88,7 +88,7 @@ credentials live in the folds, and `childRt` is rebuilt from them.
 | `ReportTurnResult` | `adapters/runner/spoolturnresult.go` | the runner half of the automatic turn report: writes the turn's FINAL-channel output into the run's `out/` spool as kind `result`, correlated to the message that started the turn; a no-op for the session owner's own run, and skipped for a turn in which the run already sent its parent a message addressed `to_role: "parent"` (`coord.ParentAddress`; `Home.noteSelfReported`, set by `sendPeerViaSpool`). A send to one of its own children does not skip it, and nor does a send to the parent by harp, which the runner cannot recognise: that turn's parent gets a duplicate, never a silence |
 | `onTurnIdle` | `children.go` | honours a pending `exitRequested` at the boundary (`drainAtBoundary`); otherwise stamps `idleSince` for the reaper, marks the run idle and yields its slot. The turn's ENGINE process ended at this boundary on the runner (`EngineHost.runTurn`); the runner itself stays, its endpoint bound |
 | `Turn` / `reapIdleRuns` / `readopt` | `lifetime.go` | the one-shot turn injection to a LIVE runner (`Coordinator.Turn`, `operations.RunHost`); the idle reaper (`Options.IdleTimeout`, `CauseIdleReaped`); re-adoption of a run that outlived the previous coordinator, entered from whichever of `RunnerHello` and `AttachRun` arrives first (the two channels redial unordered) |
-| `terminateRun` | `children.go` | the exactly-once terminal: claim the fact, drain the RunChannel tail (`CauseRunnerExit` only), sever the runner stream, slot release, close, cancel the launch context, credential sever, parent notice (skipped for a `TopLevel()` run and for `CauseIdleReaped`), session-ended stamp, relaunch check, reap |
+| `terminateRun` | `children.go` | the exactly-once terminal: mark the run ENDING and, when the coordinator decided the end, fence its runner (`PauseRun`, see [End fence](#end-fence)), claim the fact, drain the RunChannel tail (`CauseRunnerExit` / `CauseStopped`), sever the runner stream, slot release, close, cancel the launch context, credential sever, parent notice (skipped for a `TopLevel()` run and for `CauseIdleReaped`), session-ended stamp, relaunch check, reap |
 | `failChild` | `children.go` | warn, count the failure, terminate with `CauseLaunchFailed`, mark attached |
 | `resumeChild` | `children.go` | backoff, re-check the stop flag and drain, **claim** (the harp's current run is ended, is the run this attempt was armed for, and is not `TopLevel()` — a top-level run is not a child of itself and is never resumed here), resolve, enqueue as a **fresh run**, acquire a slot, `runChildViaStartRun` with the journaled resume key |
 | `reapEndedRuns` | `children.go` | bounds live ended-run records by tail + age; re-asserts "not the harp's current run" **inside** the writer window |
@@ -151,6 +151,38 @@ consequences.
 | `CauseIdleReaped` | the idle reaper's terminal: no turn for `delegation.idle_timeout`; no parent notice, the harp stays resumable |
 | `CauseDrained` / `CauseDrainInterrupted` | the coordinator's drain ended the child with no work cut short, or forced it down at the drain bound mid-turn |
 | `CauseFinalReported` | the child filed its SCOPE_FINAL report (`endOnFinalReport`); the parent's notice is still queued |
+
+## End fence
+
+A run's end is journaled FIRST and torn down after: once `factRunEnded` is
+claimed the roster reads ended and mail resumes the harp as a fresh run, while
+the ended run's runner — its kill and its channel's sever still to come — is
+alive and still reads the harp's `in/` spool. Unfenced, its sweep (a doorbell, or
+its own timer) handed a follow-up meant for the resumed run to its own idle
+engine, which consumed the file. `endRun` (`endfence.go`) closes that window:
+
+1. **Mark ENDING** (`Coordinator.ending`, counted per run, from before the
+   claim to the end of the teardown).
+2. **Fence**: before the claim, the run's runner is sent the runner channel's
+   existing `PauseRun` and the answer is awaited (`endFenceBound`). A paused run
+   takes no new turn and a turn held at the gate leaves its mail UNCONSUMED in
+   `in/` (the runner acks a delivery only once the engine took the turn), so
+   the resumed run's runner finds it on attach. Skipped where the runner
+   reported the end (`RunExited`: answered on the runner channel's own recv
+   goroutine, which the request would wait on), where it is gone (runner
+   loss), and where the run never started on it (a launch failure). A refusal
+   or a missed bound is warned and the end goes ahead.
+3. **No resume** reaches an ending run's runner (`sendRunnerControl`): any
+   `ResumeRun` — a hold's release among them — would lift the fence.
+4. **No doorbell** rings on an ending run's still-registered channel
+   (`ringSpool`), the defence in depth for a runner the fence could not reach.
+
+A claim that fails because the journal refused it lifts the mark and resumes
+the still-live run (`unfenceLive`); one lost to a concurrent terminal leaves
+both to that terminal's teardown. Forced by
+`TestEndFence_MailForAnEndedRunWaitsForTheResumedRun` (`endRecordedHook` holds
+the end open; the ended runner's sweep is forced; the resumed launch is held
+until it settles).
 
 ## One-shot driving
 

@@ -386,12 +386,8 @@ func (c *Coordinator) runnerControl(ctx context.Context, by ControlInitiator, re
 // depends on which one you asked.
 func (c *Coordinator) sendRunnerControl(ctx context.Context, rec *RunRecord, verb, reason string, accepted ...func()) (RunnerResponse, error) {
 	harp := rec.Harp
-	if !c.spoolDeliverTo(harp) {
-		return RunnerResponse{}, fmt.Errorf("%s: %q is not a run this coordinator tracks, so no runner request can reach it: %w",
-			verb, harp, ErrCapabilityUnavailable)
-	}
-	if rec.CredHash == "" {
-		return RunnerResponse{}, fmt.Errorf("%s: %q has no runner credential, so no runner request can reach it: %w", verb, harp, ErrCapabilityUnavailable)
+	if err := c.runnerControlRefusal(rec, verb); err != nil {
+		return RunnerResponse{}, err
 	}
 	for _, f := range accepted {
 		f()
@@ -422,6 +418,25 @@ func (c *Coordinator) sendRunnerControl(ctx context.Context, rec *RunRecord, ver
 		return RunnerResponse{}, fmt.Errorf("%s %s refused: %w", verb, harp, resp.Err)
 	}
 	return resp, nil
+}
+
+// runnerControlRefusal is why no pause/resume may be sent to rec's runner,
+// nil when one may.
+func (c *Coordinator) runnerControlRefusal(rec *RunRecord, verb string) error {
+	harp := rec.Harp
+	switch {
+	case !c.spoolDeliverTo(harp):
+		return fmt.Errorf("%s: %q is not a run this coordinator tracks, so no runner request can reach it: %w",
+			verb, harp, ErrCapabilityUnavailable)
+	case rec.CredHash == "":
+		return fmt.Errorf("%s: %q has no runner credential, so no runner request can reach it: %w", verb, harp, ErrCapabilityUnavailable)
+	case verb == "resume" && c.isEnding(rec.RunID):
+		// The run's end paused it (endfence.go); lifting that pause would let
+		// its runner deliver mail meant for the run that resumes the harp.
+		return fmt.Errorf("resume %q: its run %s is ending, and an ending run takes no further turn: %w",
+			harp, rec.RunID, ErrCapabilityUnavailable)
+	}
+	return nil
 }
 
 // currentRunRecord is a copy of harp's current run record, nil when none.

@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
 // TestRequestRunner_RoundTrip pins the RunnerChannel's coordinator-initiated
@@ -88,46 +87,52 @@ func TestRequestRunner_NoConnectedRunner(t *testing.T) {
 }
 
 // TestAwaitRunner_WakesOnRegistration pins awaitRunner's ordering: a caller
-// that starts waiting BEFORE the runner dials in still gets woken, and a
+// that starts waiting BEFORE the runner registers still gets woken, and a
 // caller that starts AFTER returns immediately.
+//
+// Driven on the runner registry directly, under a credential no spawn waits
+// on. Dialing a real runner link for a spawned run raced the spawn itself: its
+// own awaitRunner woke on the same registration and sent StartRun to a link
+// that cannot host it, the launch failed, the session dropped, and the "later"
+// caller then waited on the link's redial — past its deadline on a loaded box.
+// The waiter's own entry in runnerReady is the latch that it is waiting: only
+// it creates one for this credential.
 func TestAwaitRunner_WakesOnRegistration(t *testing.T) {
-	resetStrictness(t)
-	gate := make(chan struct{})
-	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{Gate: gate} })
-	c := newTestCoordinator(t, sp, nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
+	const credHash = "cred-hash-await"
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
-	require.NoError(t, err)
-	env := waitForChildEnv(t, c, out.RunID)
-	credHash := hashToken(env[EnvCoordCred])
-
-	waited := make(chan error, 1)
+	type woke struct {
+		rs  *RunnerSession
+		err error
+	}
+	waited := make(chan woke, 1)
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
-		defer cancel()
-		_, werr := c.awaitRunner(ctx, credHash)
-		waited <- werr
+		rs, err := c.awaitRunner(context.Background(), credHash)
+		waited <- woke{rs, err}
 	}()
+	waiting := func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		_, ok := c.runnerReady[credHash]
+		return ok
+	}
+	require.Eventually(t, waiting, conformanceWait, time.Millisecond, "the waiter never registered")
 
-	// Give the waiter a moment to register before the runner dials in.
-	time.Sleep(20 * time.Millisecond)
-
-	link, err := runnerHooks.DialRunner(context.Background(), termSink(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
-	require.NoError(t, err)
-	t.Cleanup(link.Abort)
-
+	rs := c.AttachRunner(Identity{Harp: "child-await", RunID: "run-await"}, credHash, func() {})
+	var got woke
 	select {
-	case werr := <-waited:
-		require.NoError(t, werr)
-	case <-time.After(conformanceWait):
+	case got = <-waited:
+	case <-time.After(conformanceWait): // a failure report, not a pass condition
 		t.Fatal("awaitRunner never woke on registration")
 	}
+	require.NoError(t, got.err)
+	assert.Same(t, rs, got.rs, "the early waiter is woken with the session that registered")
 
-	// A second, later caller finds it already connected.
-	ctx2, cancel2 := context.WithTimeout(context.Background(), time.Second)
-	defer cancel2()
-	rs, err := c.awaitRunner(ctx2, credHash)
+	// A second, later caller finds it already connected — without waiting:
+	// its context is already done.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	again, err := c.awaitRunner(ctx, credHash)
 	require.NoError(t, err)
-	require.NotNil(t, rs)
+	assert.Same(t, rs, again)
 }

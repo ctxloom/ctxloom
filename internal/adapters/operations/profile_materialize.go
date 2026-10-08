@@ -226,7 +226,7 @@ func MaterializeProfile(ctx context.Context, reg engine.Registry, cfg *config.Co
 // fatal-class strictness finding and a warning on res, not an error: the
 // choke owner decides, and --degraded keeps the partial target.
 func deliverMaterialized(ctx context.Context, root safefs.Root, cfg *config.Config, kind engine.Engine, pkg composite.Package, res *MaterializeProfileResult) {
-	delivered, plan, err := DeliverProject(ctx, root, kind, pkg, res.Target)
+	delivered, plan, err := Deliver(ctx, root, kind, pkg, delivery.Loadout{}, atRestPlacement(res.Target, kind.Root().Name, delivery.AllKinds()))
 	if err != nil {
 		strictness.Fail(report.KindApply,
 			"fix the write failure, then re-run (ctxloom profile materialize)",

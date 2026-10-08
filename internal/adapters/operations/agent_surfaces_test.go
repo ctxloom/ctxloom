@@ -75,7 +75,7 @@ func TestResolveAgentSurfaces_EmptyIsNotAPreference(t *testing.T) {
 func TestResolveAgentSurfaces_RefusesAnUnsupportedApproachNamingTheSupported(t *testing.T) {
 	_, err := ResolveAgentSurfaces(engines.Registry(), "claude-code", map[string]string{"settings": "hew-record"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), agent.ApproachUnsafeFile)
+	assert.Contains(t, err.Error(), agent.ApproachFile)
 }
 
 // TestResolveAgentSurfaces_ClaudeRefusesTheRetiredHookApproach: no hook
@@ -87,5 +87,20 @@ func TestResolveAgentSurfaces_ClaudeRefusesTheRetiredHookApproach(t *testing.T) 
 	got, err := ResolveAgentSurfaces(engines.Registry(), "claude-code", map[string]string{"context": "hook"})
 	require.Error(t, err, "claude declares no hook-carried context")
 	assert.Nil(t, got)
-	assert.Contains(t, err.Error(), "supports: system-prompt, unsafe-file")
+	assert.Contains(t, err.Error(), "supports: file, system-prompt")
+}
+
+// TestResolveAgentSurfaces_TheNativeFileApproachIsNamedFile: `file` is the
+// native-file approach on every kind claude declares it for (R4), and the
+// retired name is refused as unknown with the supported list in the error:
+// there is no alias.
+func TestResolveAgentSurfaces_TheNativeFileApproachIsNamedFile(t *testing.T) {
+	got, err := ResolveAgentSurfaces(engines.Registry(), "claude-code", map[string]string{"context": "file"})
+	require.NoError(t, err)
+	assert.NotNil(t, got)
+	assert.Equal(t, "file", agent.ApproachFile)
+
+	_, err = ResolveAgentSurfaces(engines.Registry(), "claude-code", map[string]string{"context": "unsafe-" + "file"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "supports: file, system-prompt")
 }

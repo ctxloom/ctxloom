@@ -333,3 +333,13 @@ func TestArch_ConfigSchema_ShippedConfigsValidate(t *testing.T) {
 		})
 	}
 }
+
+// TestConfigSchema_SurfacesNameTheFileApproach: the binding's surfaces
+// preference names the native-file approach as `file` (R4) and never by its
+// retired name, which is refused as an unknown approach with no alias.
+func TestConfigSchema_SurfacesNameTheFileApproach(t *testing.T) {
+	raw, err := resources.GetConfigSchema()
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "values are approaches (file,")
+	assert.NotContains(t, string(raw), "unsafe-"+"file")
+}

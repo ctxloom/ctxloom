@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -53,7 +54,7 @@ func TestHarnessStatus_MCPPresentIsWhatTheProjectWriterInstalled(t *testing.T) {
 
 	kind, ok := engines.Registry().Lookup(engine.Name("claude-code"))
 	require.True(t, ok)
-	require.NoError(t, RemoveProject(context.Background(), safefs.NewMem(fs), kind, dir))
+	require.NoError(t, Release(context.Background(), safefs.NewMem(fs), kind, atRestPlacement(dir, kind.Root().Name, delivery.AllKinds())))
 	require.False(t, mcpPresent(t, fs, dir), "an uninstall ends the install")
 }
 
@@ -67,12 +68,11 @@ func TestHarnessStatus_ASessionsEntryIsNotTheProjectsInstall(t *testing.T) {
 	root := kind.Root()
 	pkg := composite.Package{MCP: installedServer}
 	items := pkg.EngineItems(root.Name)
-	plan, err := delivery.ProjectPlan(root, items, dir)
+	plan, err := delivery.PlanFor(root, items, present.ProjectOnHost(dir).Paths(), nil, nil, false)
 	require.NoError(t, err)
 	records, err := OwnershipRecordsOn(fs)
 	require.NoError(t, err)
-	target := delivery.ProjectTarget(dir, records)
-	target.Writer = delivery.SessionWriter("brisk-otter")
+	target := delivery.TargetFor(present.ProjectOnHost(dir), records, delivery.SessionWriter("brisk-otter"), nil)
 	_, err = fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, WorkDir: dir}, root, target)
 	require.NoError(t, err)
 	require.False(t, mcpPresent(t, fs, dir))
@@ -109,6 +109,6 @@ func TestHarnessStatus_AnUninstallOverAPreChangeInstallIsNotAnInstall(t *testing
 
 	kind, ok := engines.Registry().Lookup(engine.Name("claude-code"))
 	require.True(t, ok)
-	require.NoError(t, RemoveProject(context.Background(), safefs.NewMem(fs), kind, dir))
+	require.NoError(t, Release(context.Background(), safefs.NewMem(fs), kind, atRestPlacement(dir, kind.Root().Name, delivery.AllKinds())))
 	require.False(t, mcpPresent(t, fs, dir), "status reports MCP present after an uninstall")
 }

@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
+	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -434,14 +435,14 @@ var (
 	syncLockStep func(context.Context, *config.Config, LockDependenciesRequest) (*LockDependenciesResult, error)
 	// syncHooksStep applies from the generation runSyncPostSteps holds — the
 	// one reloaded after the last pull.
-	syncHooksStep func(context.Context, engine.Registry, ApplyHooksRequest) (*ApplyHooksResult, error)
+	syncHooksStep func(context.Context, engine.Registry, *config.Config, MaterializeRequest) (*MaterializeResult, error)
 )
 
 // Bound in init (not at declaration) to avoid an initialization cycle: the real
 // steps transitively reference runSyncPostSteps, which reads these vars.
 func init() {
 	syncLockStep = LockDependencies
-	syncHooksStep = ApplyHooks
+	syncHooksStep = Materialize
 }
 
 // runSyncPostSteps runs the optional lockfile + hooks regeneration after a sync.
@@ -462,20 +463,28 @@ func runSyncPostSteps(ctx context.Context, reg engine.Registry, cfg *config.Conf
 		}
 	}
 
-	// Apply hooks whenever there were remote references, so MCP servers from
+	// Materialize whenever there were remote references, so MCP servers from
 	// bundles get registered even if every dependency was already installed.
-	// A wholesale apply failure is fatal-class in strict mode (hook/MCP/
-	// settings apply — per-backend partial failures are already instrumented
-	// inside ApplyHooks); degraded mode warns and continues.
 	if req.ApplyHooks && result.Total > 0 {
-		if _, err := syncHooksStep(ctx, reg, ApplyHooksRequest{
-			Cfg:               cfg,
-			RegenerateContext: true,
-		}); err != nil {
-			strictness.Fail(report.KindApply, "fix the failure, then re-apply (ctxloom manage hooks install)",
-				"failed to apply hooks after sync: %v", err)
-			zap.L().Warn("failed to apply hooks", zap.Error(err))
-		}
+		syncMaterializeStep(ctx, reg, cfg)
+	}
+}
+
+// syncMaterializeStep is the post-sync at-rest delivery with every default
+// but the target, which this internal caller names itself (the project
+// root) — the CLI's project-directory guard is the CLI's, not this step's. A
+// wholesale failure is fatal-class in strict mode (per-engine partial
+// failures are already instrumented inside Materialize); degraded mode warns
+// and continues.
+func syncMaterializeStep(ctx context.Context, reg engine.Registry, cfg *config.Config) {
+	res, err := syncHooksStep(ctx, reg, cfg, MaterializeRequest{Target: projectroot.WorkDir()})
+	if err == nil && res != nil && res.Status == MaterializeFailed {
+		err = fmt.Errorf("no engine could be materialized: %s", strings.Join(res.Errors, "; "))
+	}
+	if err != nil {
+		strictness.Fail(report.KindApply, "fix the failure, then re-apply (ctxloom materialize --yes)",
+			"failed to apply hooks after sync: %v", err)
+		zap.L().Warn("failed to apply hooks", zap.Error(err))
 	}
 }
 

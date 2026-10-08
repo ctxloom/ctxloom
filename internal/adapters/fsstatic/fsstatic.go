@@ -42,6 +42,11 @@ import (
 // (safefs.WriteFile and the helpers built on it).
 var ErrInPlaceWrite = errors.New("an approach may not change an existing file in place; write it to a temp file and rename it into place (safefs.WriteFile)")
 
+// ErrKindNotTargeted refuses a plan item of a kind the target does not speak
+// for (delivery.Target.Kinds): its claims would land under a writer this
+// target never releases.
+var ErrKindNotTargeted = errors.New("fsstatic: the plan routes a kind the target does not speak for")
+
 // The refusals of a delivery whose declaration (present.Delivered's Files and
 // Claims) does not match what its approach did. Each fails the delivery,
 // naming the approach and the path: the writer claims exactly what is
@@ -90,6 +95,11 @@ func (s *Static) Deliver(_ context.Context, lo delivery.Loadout, root engine.Bas
 	if err := target.Validate(); err != nil {
 		return delivery.Delivered{}, err
 	}
+	for _, it := range lo.Plan.Static {
+		if !target.Speaks(it.Kind) {
+			return delivery.Delivered{}, fmt.Errorf("%w: %v (the target speaks for %v)", ErrKindNotTargeted, it.Kind, target.Kinds)
+		}
+	}
 	if err := planRootable(lo.Plan.Static, root.Surfaces(), target.Root.Paths()); err != nil {
 		return delivery.Delivered{}, err
 	}
@@ -111,7 +121,7 @@ func (s *Static) Deliver(_ context.Context, lo delivery.Loadout, root engine.Bas
 func (s *Static) deliver(sc *lockScope, lo delivery.Loadout, root engine.Base, target delivery.Target) (delivery.Delivered, error) {
 	paths := target.Root.Paths()
 	within := func(path string) bool { return underARoot(paths, path) }
-	out := delivery.Delivered{Undo: func(context.Context) error { return s.reverse(target.Ownership, within, target.Writer) }}
+	out := delivery.Delivered{Undo: func(context.Context) error { return s.reverse(target.Ownership, within, target.Writers()...) }}
 	runs, err := s.runAll(sc, lo, root, target)
 	if err != nil {
 		return delivery.Delivered{}, err
@@ -127,7 +137,7 @@ func (s *Static) deliver(sc *lockScope, lo delivery.Loadout, root engine.Base, t
 	b := s.batch(sc)
 	st := target.Ownership.In(b)
 	released := func(path string) bool { return within(path) && !retained[path] }
-	if err := releaseWriters(st, target.Ownership, released, carried(lo.Package.CarryForward), target.Writer); err != nil {
+	if err := releaseWriters(st, target.Ownership, released, carried(lo.Package.CarryForward), target.Writers()...); err != nil {
 		return delivery.Delivered{}, err
 	}
 	modes := map[string]os.FileMode{}
@@ -288,7 +298,7 @@ func (s *Static) retain(runs []ran, target delivery.Target) (map[string]bool, er
 			if written[path] || retained[path] {
 				continue
 			}
-			if err := s.retainable(target, path); err != nil {
+			if err := s.retainable(target.WriterOf(r.kind), target.Ownership, path); err != nil {
 				return nil, r.refuse(path, err)
 			}
 			retained[path] = true
@@ -297,15 +307,15 @@ func (s *Static) retain(runs []ran, target delivery.Target) (map[string]bool, er
 	return retained, nil
 }
 
-// retainable is nil when the record holds target's writer's claim on path
-// whole and the file stands.
-func (s *Static) retainable(target delivery.Target, path string) error {
-	states, err := target.Ownership.Paths(s.fs, path)
+// retainable is nil when the record holds writer's claim on path whole and
+// the file stands.
+func (s *Static) retainable(writer delivery.Writer, ownership delivery.Ownership, path string) error {
+	states, err := ownership.Paths(s.fs, path)
 	if err != nil {
 		return err
 	}
 	if !slices.ContainsFunc(states, func(st delivery.PathState) bool {
-		return st.Pointer == "" && slices.Contains(st.Writers, target.Writer)
+		return st.Pointer == "" && slices.Contains(st.Writers, writer)
 	}) {
 		return ErrDeclaredUnclaimed
 	}
@@ -334,13 +344,15 @@ func (s *Static) writeOwnState(r ran) error {
 	return nil
 }
 
-// stage stages r's declaration under the target's writer: its claims as
+// stage stages r's declaration under the target's writer for r's kind
+// (Target.WriterOf): its claims as
 // given, and each file it wrote under a root as a claim on the whole file,
 // noting the mode it wrote it with. A retained file is staged nothing: the
 // release passed over it, so its earlier claim stands as it was.
 func (r ran) stage(st delivery.Staging, target delivery.Target, modes map[string]os.FileMode) error {
+	writer := target.WriterOf(r.kind)
 	for _, path := range slices.Sorted(maps.Keys(r.d.Claims)) {
-		if err := st.Stage(path, target.Writer, r.d.Claims[path]); err != nil {
+		if err := st.Stage(path, writer, r.d.Claims[path]); err != nil {
 			return fmt.Errorf("fsstatic: stage %v's claims on %s: %w", r.kind, path, err)
 		}
 	}
@@ -349,8 +361,8 @@ func (r ran) stage(st delivery.Staging, target delivery.Target, modes map[string
 		if err != nil {
 			return err
 		}
-		if err := st.Stage(path, target.Writer, []present.Claim{{Value: bytes}}); err != nil {
-			return fmt.Errorf("fsstatic: stage %s for %s: %w", path, target.Writer, err)
+		if err := st.Stage(path, writer, []present.Claim{{Value: bytes}}); err != nil {
+			return fmt.Errorf("fsstatic: stage %s for %s: %w", path, writer, err)
 		}
 		modes[path] = info.Mode().Perm()
 	}

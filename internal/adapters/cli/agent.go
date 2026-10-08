@@ -450,23 +450,23 @@ func envHostFlags(cmd *cobra.Command, req *operations.SetAgentRequest) {
 	}
 }
 
-// surfacesFromFlag is the --surface pairs as typed, trimmed, keyed by kind.
-// Whether a kind or an approach exists is SetAgent's question, answered
-// against the engine this write results in (operations.ResolveAgentSurfaces)
-// — which is how a retired name gets its typed refusal naming the
-// replacement. The one fault only the command line can see is a kind named
-// two different ways: a map keeps the last, so passing it on would deliver
-// something the command line does not say.
+// surfacesFromFlag is the --surface pairs as typed, trimmed, keyed by kind,
+// split by the one --surface parser (operations.SplitSurfaceSpecs). Whether a
+// kind or an approach exists is SetAgent's question, answered against the
+// engine this write results in (operations.ResolveAgentSurfaces) — which is
+// how a retired name gets its typed refusal naming the replacement. A
+// binding names an approach, never a destination, so a DEST is refused.
 func surfacesFromFlag(pairs []string) (map[string]string, error) {
-	out := make(map[string]string, len(pairs))
-	for _, p := range pairs {
-		kind, approach, _ := strings.Cut(p, "=")
-		kind, approach = strings.TrimSpace(kind), strings.TrimSpace(approach)
-		if prev, dup := out[kind]; dup && prev != approach {
-			return nil, fmt.Errorf("--surface names %s twice, as %s and %s; a surface is delivered one way",
-				kind, prev, approach)
+	specs, err := operations.SplitSurfaceSpecs(pairs)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(specs))
+	for _, s := range specs {
+		if s.Dest != "" {
+			return nil, fmt.Errorf("--surface %s=%s:%s: an agent binding takes no destination (ctxloom materialize --surface context=file:PATH does)", s.Kind, s.Mechanism, s.Dest)
 		}
-		out[kind] = approach
+		out[s.Kind] = s.Mechanism
 	}
 	return out, nil
 }

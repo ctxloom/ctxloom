@@ -68,15 +68,15 @@ func RemoveHooks(ctx context.Context, reg engine.Registry, _ *config.Config, req
 	return &RemoveHooksResult{Status: status, Backends: removed, Errors: errs}, nil
 }
 
-// removeBackendHarness delivers the EMPTY plan against the project target:
-// the project writer's record says what ctxloom put there and only that is
-// removed — the user's own hooks, servers, commands and context stay.
+// removeBackendHarness releases every kind of the engine's at-rest
+// placement in workDir: its per-kind project writers' record says what
+// ctxloom put there and only that is removed — the user's own hooks, servers, commands and context stay.
 func removeBackendHarness(ctx context.Context, reg engine.Registry, name, workDir string, root safefs.Root) error {
 	kind, ok := reg.Lookup(engine.Name(name))
 	if !ok {
 		return fmt.Errorf("failed to remove %s: no engine kind is composed for it", name)
 	}
-	if err := RemoveProject(ctx, root, kind, workDir); err != nil {
+	if err := Release(ctx, root, kind, atRestPlacement(workDir, kind.Root().Name, delivery.AllKinds())); err != nil {
 		return fmt.Errorf("failed to remove %s: %w", name, err)
 	}
 	return nil
@@ -276,14 +276,14 @@ func intendedContextFile(ctx context.Context, reg engine.Registry, cfg *config.C
 	return materialized.Context, nil
 }
 
-// contextFileCurrency is the verdict on one context file the project
-// writer's record owns: delivered when it carries the composed context,
+// contextFileCurrency is the verdict on one context file a project
+// writer's record owns (any Writer.Project tag): delivered when it carries the composed context,
 // stale when it does not, missing when it is gone. owned is false when the
 // record does not own it, and the verdict is then nobody's business.
 func contextFileCurrency(fs afero.Fs, records delivery.Ownership, workDir, rel, intended string) (cur agent.Currency, owned bool, err error) {
 	path := filepath.Join(workDir, filepath.FromSlash(rel))
 	places, err := records.Paths(fs, path)
-	if err != nil || !slices.ContainsFunc(places, func(p delivery.PathState) bool { return slices.Contains(p.Writers, delivery.ProjectWriter) }) {
+	if err != nil || !slices.ContainsFunc(places, func(p delivery.PathState) bool { return slices.ContainsFunc(p.Writers, delivery.Writer.Project) }) {
 		return agent.Currency{}, false, err
 	}
 	raw, err := afero.ReadFile(fs, path)

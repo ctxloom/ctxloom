@@ -8,11 +8,12 @@ package agent
 // approach only one engine has (claude's system prompt) is named by that
 // engine, in its own package; naming it here would be the enum growing back.
 const (
-	// ApproachUnsafeFile writes the engine's native, well-known file the engine
+	// ApproachFile writes the engine's native, well-known file the engine
 	// reads directly (CLAUDE.md, .mcp.json, settings, command/skill dirs…).
-	// "unsafe" names itself LOUDLY because choosing it IS the race
-	// acknowledgment: a well-known write into a SHARED live cwd cannot be
-	// locked against a concurrent session using those exact files. Into an
-	// isolated (private) cell it is always safe — isolation IS the conversion.
-	ApproachUnsafeFile = "unsafe-file"
+	// Choosing it into a SHARED live cwd is a race acknowledgment: a
+	// well-known write there cannot be locked against a concurrent session
+	// using those exact files. Into an isolated (private) cell it is always
+	// safe — isolation IS the conversion. The retired `unsafe-` spelling has
+	// no alias.
+	ApproachFile = "file"
 )

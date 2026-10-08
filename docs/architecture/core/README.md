@@ -69,7 +69,7 @@ flowchart TD
     ASM --> DELIVER{"delivery.Route -> Plan<br/>(see delivery.md)"}
     DELIVER --> STATIC["delivery.Static.Deliver<br/>fsstatic over the engine's typed approaches<br/>ONE ownership record per target file, writer-tagged"]
     STATIC --> RUN["a run: the runner tail, under the session writer<br/>runner.Execute"]
-    STATIC --> MAT["at rest: materialize / manage install, under the project writer<br/>operations.DeliverProject; uninstall = the empty plan"]
+    STATIC --> MAT["at rest: ctxloom materialize (and the older install/uninstall), under per-engine, per-kind project writers<br/>operations.Deliver at a Placement; release = the empty plan for the selected kinds"]
     DELIVER --> DYN["delivery.Dynamic.Serve<br/>the runner's MCP endpoint"]
 
 ```

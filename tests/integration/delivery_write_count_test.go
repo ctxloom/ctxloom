@@ -14,6 +14,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -66,14 +69,33 @@ func TestDelivery_TheAtRestInstallWritesEachFileOnce(t *testing.T) {
 	fs := &renameCounter{Fs: afero.NewOsFs(), n: map[string]int{}}
 	root := safefs.New()
 	root.Fs = fs
-	_, _, err = operations.DeliverProject(context.Background(), root, kind, pkg, project)
+	_, _, err = operations.Deliver(context.Background(), root, kind, pkg, delivery.Loadout{}, atRestAt(project, kind))
 	require.NoError(t, err)
 	require.Equal(t, 1, fs.count(mcpPath), ".mcp.json is written once")
 	require.Equal(t, 1, fs.count(settingsPath), "settings.json is written once, for both the settings and the hooks items")
 
 	fs.n = map[string]int{}
-	_, _, err = operations.DeliverProject(context.Background(), root, kind, pkg, project)
+	_, _, err = operations.Deliver(context.Background(), root, kind, pkg, delivery.Loadout{}, atRestAt(project, kind))
 	require.NoError(t, err)
 	require.Zero(t, fs.count(mcpPath), "a redelivery of the same package does not rewrite .mcp.json")
 	require.Zero(t, fs.count(settingsPath), "nor settings.json")
+
+	// A settings+hooks subset with a changed deny list: both kinds' items
+	// still fold into ONE write of settings.json, and .mcp.json, which the
+	// subset does not speak for, is not touched.
+	pkg.DenyTools = []string{"Task", "WebFetch"}
+	subset := atRestAt(project, kind)
+	subset.Kinds = []present.Kind{present.Settings, present.Hooks}
+	fs.n = map[string]int{}
+	_, _, err = operations.Deliver(context.Background(), root, kind, pkg, delivery.Loadout{}, subset)
+	require.NoError(t, err)
+	require.Equal(t, 1, fs.count(settingsPath), "a settings+hooks subset writes settings.json once")
+	require.Zero(t, fs.count(mcpPath), "and leaves .mcp.json alone")
+}
+
+// atRestAt is the at-rest placement the install and materialize deliver at:
+// dir as the project root, under kind's per-kind project writers, every
+// kind.
+func atRestAt(dir string, kind engine.Engine) operations.Placement {
+	return operations.Placement{Start: present.ProjectOnHost(dir), Family: delivery.ProjectWriterFor(kind.Root().Name), Kinds: delivery.AllKinds()}
 }

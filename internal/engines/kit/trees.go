@@ -6,13 +6,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // The managed trees: a commands or skills kind delivered as files under one
 // directory the approach owns, through the shared writers
 // (agent.WriteManagedCommandFiles, agent.WriteManagedSkillPackages), which
-// skip a traversal or absolute name with a warning. The engine supplies only
+// skip a traversal or absolute name, reporting it on the kind's inputs'
+// Report (engine.CommandsInputs/SkillsInputs; nil discards). The engine supplies only
 // its content: a command's file form (render) and which skills it accepts.
 
 // DeliverCommands writes each enabled command, rendered by the engine, under
@@ -33,7 +35,7 @@ func DeliverCommands(a Approach, start present.Start, root present.RootKind, hom
 			Description: c.Description, ArgumentHint: c.ArgumentHint, AllowedTools: c.AllowedTools, Model: c.Model,
 		})
 	}
-	placed, err := agent.WriteManagedCommandFiles(files, p.HostPath, cmds, render)
+	placed, err := agent.WriteManagedCommandFiles(files, p.HostPath, cmds, render, reportTo(in.Report)...)
 	if err != nil {
 		return present.Delivered{}, err
 	}
@@ -44,9 +46,11 @@ func DeliverCommands(a Approach, start present.Start, root present.RootKind, hom
 // <dir>/<name>/… under the managed skills directory of the root the plan
 // selected, each file at its declared mode (0644 when undeclared), and
 // declares every file placed. accept, when set, filters the exports to those
-// the engine will load (AgentSkillRules-style constraints); nil accepts all.
+// the engine will load (AgentSkillRules-style constraints), reporting each it
+// refuses on the sink it is handed (in.Report; nil means its own default);
+// nil accepts all.
 func DeliverSkills(a Approach, start present.Start, root present.RootKind, homeRel, projectRel string,
-	files safefs.Root, in engine.SkillsInputs, accept func([]agent.SkillExport) []agent.SkillExport,
+	files safefs.Root, in engine.SkillsInputs, accept func([]agent.SkillExport, report.Sink) []agent.SkillExport,
 	announce func(present.Rooted) present.Rooted) (present.Delivered, error) {
 	p, err := managedDir(a, start, root, homeRel, projectRel, announce)
 	if err != nil {
@@ -65,13 +69,22 @@ func DeliverSkills(a Approach, start present.Start, root present.RootKind, homeR
 		skills = append(skills, e)
 	}
 	if accept != nil {
-		skills = accept(skills)
+		skills = accept(skills, in.Report)
 	}
-	placed, err := agent.WriteManagedSkillPackages(files, p.HostPath, skills)
+	placed, err := agent.WriteManagedSkillPackages(files, p.HostPath, skills, reportTo(in.Report)...)
 	if err != nil {
 		return present.Delivered{}, err
 	}
 	return present.Delivered{Presented: p, Files: placed}, nil
+}
+
+// reportTo is the writer option that reports a skipped item on sink (the
+// kind's inputs' Report); none when sink is nil, so the writer discards.
+func reportTo(sink report.Sink) []agent.ManagedWriteOption {
+	if sink == nil {
+		return nil
+	}
+	return []agent.ManagedWriteOption{agent.WithWriteReporter(sink)}
 }
 
 // managedDir is the managed tree's directory under the selected root,

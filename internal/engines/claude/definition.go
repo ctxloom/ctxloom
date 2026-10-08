@@ -126,11 +126,11 @@ var _ engine.Engine = Claude{}
 // writer, and nothing is constructed from a name.
 func (Claude) Declaration() agent.Declaration {
 	return agent.Declaration{
-		agent.SurfaceContext:  agent.Presents(agent.ApproachUnsafeFile, ApproachSystemPrompt),
-		agent.SurfaceMCP:      agent.Presents(ApproachMCPConfig, agent.ApproachUnsafeFile),
-		agent.SurfaceSettings: agent.Presents(agent.ApproachUnsafeFile),
-		agent.SurfaceCommands: agent.Presents(agent.ApproachUnsafeFile),
-		agent.SurfaceSkills:   agent.Presents(agent.ApproachUnsafeFile),
+		agent.SurfaceContext:  agent.Presents(agent.ApproachFile, ApproachSystemPrompt),
+		agent.SurfaceMCP:      agent.Presents(ApproachMCPConfig, agent.ApproachFile),
+		agent.SurfaceSettings: agent.Presents(agent.ApproachFile),
+		agent.SurfaceCommands: agent.Presents(agent.ApproachFile),
+		agent.SurfaceSkills:   agent.Presents(agent.ApproachFile),
 	}
 }
 
@@ -190,9 +190,17 @@ type contextApproach struct{ kit.Approach }
 func (a *contextApproach) DeliverContext(start present.Start, root present.RootKind, in engine.ContextInputs, fs afero.Fs) (present.Delivered, error) {
 	switch root {
 	case present.RootProjectRoot:
-		// The user's CLAUDE.md is theirs; the record owns what is appended.
-		return kit.AppendedSection(start.UnderProjectRoot(ContextFileName).Build(), in.Text), nil
+		// The user's file is theirs; the record owns what is appended. A named
+		// context file (ContextInputs.File) replaces CLAUDE.md as the target.
+		name := ContextFileName
+		if in.File != "" {
+			name = in.File
+		}
+		return kit.AppendedSection(start.UnderProjectRoot(name).Build(), in.Text), nil
 	case present.RootSessionHome:
+		if in.File != "" {
+			return present.Delivered{}, fmt.Errorf("%w: %s at %v is the system prompt, not a file", engine.ErrContextFileUnsupported, a.Name(), root)
+		}
 	default:
 		return present.Delivered{}, a.ErrRoot(root)
 	}

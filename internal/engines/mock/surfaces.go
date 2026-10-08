@@ -2,6 +2,7 @@ package mock
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -112,7 +113,14 @@ func writeWhole(fs afero.Fs, p present.Presentation, bytes []byte, mode os.FileM
 type contextFile struct{ surface }
 
 func (a *contextFile) DeliverContext(start present.Start, root present.RootKind, in engine.ContextInputs, _ afero.Fs) (present.Delivered, error) {
-	r, err := a.rooted(start, root, ContextFileName)
+	name := ContextFileName
+	if in.File != "" {
+		if root != present.RootProjectRoot {
+			return present.Delivered{}, fmt.Errorf("%w: mock/%s at %v", engine.ErrContextFileUnsupported, a.Name(), root)
+		}
+		name = in.File
+	}
+	r, err := a.rooted(start, root, name)
 	if err != nil {
 		return present.Delivered{}, err
 	}

@@ -81,8 +81,8 @@ type approachState struct {
 	engine    string // backend type, as written in the Examples table
 	runtime   string // host | container-rootless | container-rootful
 	workspace string // none | worktree
-	variant   string // the registry cell's variant ("system-prompt", "unsafe-file-shared")
-	approach  string // the pinned approach name a binding selects ("system-prompt", "unsafe-file")
+	variant   string // the registry cell's variant ("system-prompt", "file-shared")
+	approach  string // the pinned approach name a binding selects ("system-prompt", "file")
 	nonce     string
 	stdout    string
 	stderr    string
@@ -147,7 +147,7 @@ func approachPinAcceptedByEngine(engine, approach string) error {
 // approachVariantNamesItsApproach keeps the two Examples columns honest about
 // each other. The variant is the registry's name for the cell and the approach
 // is what gets written into config; they are separate columns because a cell may
-// qualify its variant ("unsafe-file-shared" is the unsafe-file approach observed
+// qualify its variant ("file-shared" is the file approach observed
 // on the worktree axis), and separate columns are two places to make a typo.
 //
 // The rule is a prefix rule, which is exactly as strong as it needs to be: a

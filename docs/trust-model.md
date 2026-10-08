@@ -236,7 +236,7 @@ needs on first launch.
     isolated from each other on the host runtime (gap 2); the container
     runtime is the boundary. Ruled and accepted: the token stays in the
     environment.
-5. **The `unsafe-file` MCP approach writes ctxloom's session entry into the
+5. **The `file` MCP approach writes ctxloom's session entry into the
     project's `.mcp.json`.** Selecting the project root for the MCP surface
     (`mcpApproach.DeliverMCP`, `internal/engines/claude/definition.go`) writes ctxloom's
     session-endpoint entry into the project's own `.mcp.json`, a file teams

@@ -88,7 +88,7 @@ func TestLaunch_TrustedRepoKeepsDefaultSources(t *testing.T) {
 }
 
 // A --settings flag is a source --setting-sources does not filter, so a
-// presentation naming a settings file (the unsafe-file settings form names
+// presentation naming a settings file (the file settings form names
 // <project>/.claude/settings.json, which the repository commits) would load
 // the repository's own hooks into an untrusted session. It is refused on
 // every launch path rather than run with the repository's hooks or without
@@ -101,7 +101,7 @@ func TestLaunch_UntrustedRefusesAPresentedSettingsFile(t *testing.T) {
 	}
 }
 
-// The unsafe-file MCP approach writes ctxloom's servers into the project's
+// The file MCP approach writes ctxloom's servers into the project's
 // own .mcp.json and names no flag. --strict-mcp-config makes claude ignore
 // that file, so an untrusted session would launch without ctxloom's
 // endpoint, silently; loading it instead would load the servers the

@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -65,7 +66,7 @@ func TestDeliverSkills_AcceptedPackagesAtTheirDeclaredModes(t *testing.T) {
 		{Name: "drop", Enabled: true, Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: []byte("D")}}},
 	}}
 	var seen []string
-	accept := func(s []agent.SkillExport) []agent.SkillExport {
+	accept := func(s []agent.SkillExport, _ report.Sink) []agent.SkillExport {
 		var out []agent.SkillExport
 		for _, e := range s {
 			seen = append(seen, e.Name)

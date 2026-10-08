@@ -23,9 +23,9 @@ func TestBuildSetAgentRequest_CarriesEveryTypedFlag(t *testing.T) {
 	}
 
 	t.Run("valid surfaces", func(t *testing.T) {
-		req, err := buildSetAgentRequest(parse(t, "--surface", "context=unsafe-file", "--surface", "skills=hook"), "dev")
+		req, err := buildSetAgentRequest(parse(t, "--surface", "context=file", "--surface", "skills=hook"), "dev")
 		require.NoError(t, err)
-		assert.Equal(t, map[string]string{"context": "unsafe-file", "skills": "hook"}, req.Surfaces)
+		assert.Equal(t, map[string]string{"context": "file", "skills": "hook"}, req.Surfaces)
 	})
 	t.Run("a retired approach is carried to SetAgent, which refuses it typed", func(t *testing.T) {
 		req, err := buildSetAgentRequest(parse(t, "--surface", "settings=hew-record"), "dev")
@@ -34,9 +34,9 @@ func TestBuildSetAgentRequest_CarriesEveryTypedFlag(t *testing.T) {
 	})
 	t.Run("a kind named two different ways is refused", func(t *testing.T) {
 		// A map keeps the last pair, so passing this through would make
-		// `--surface context=hook --surface context=unsafe-file` do something
+		// `--surface context=hook --surface context=file` do something
 		// the command line does not say.
-		_, err := buildSetAgentRequest(parse(t, "--surface", "context=hook", "--surface", "context=unsafe-file"), "dev")
+		_, err := buildSetAgentRequest(parse(t, "--surface", "context=hook", "--surface", "context=file"), "dev")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "context twice")
 	})

@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -81,12 +82,16 @@ func checkSkillConstraints(s agent.SkillExport) error {
 // This runs BEFORE the shared writer's own path-safety pass on purpose: that
 // pass also rejects an empty name, but as a path problem, and a skill missing
 // its `name` field must be reported as the vendor constraint it is.
-func acceptedSkills(skills []agent.SkillExport) []agent.SkillExport {
+func acceptedSkills(skills []agent.SkillExport, rep report.Sink) []agent.SkillExport {
 	out := make([]agent.SkillExport, 0, len(skills))
 	for _, s := range skills {
 		if s.Enabled {
 			if err := checkSkillConstraints(s); err != nil {
-				clidiag.Warn("ctxloom", "refusing skill %q for claude: %v", s.Name, err)
+				if rep != nil {
+					report.To(rep).Warnf("refusing skill %q for claude: %v", s.Name, err)
+				} else {
+					clidiag.Warn("ctxloom", "refusing skill %q for claude: %v", s.Name, err)
+				}
 				continue
 			}
 		}

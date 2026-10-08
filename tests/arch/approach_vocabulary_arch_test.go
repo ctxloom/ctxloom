@@ -37,7 +37,7 @@ func TestArch_SharedAgent_NamesNoEngineOnlyApproach(t *testing.T) {
 		t.Fatal("operations.EngineNames() returned nothing — the registry did not populate")
 	}
 	// Names shared code owns outright: it implements them, so it may name them.
-	sharedOwned := map[string]bool{agent.ApproachUnsafeFile: true}
+	sharedOwned := map[string]bool{agent.ApproachFile: true}
 	engineOnly := engineOnlyApproaches(approachDeclarers(t, names), sharedOwned)
 	if len(engineOnly) == 0 {
 		t.Skip("no registered engine declares an approach of its own; nothing for this gate to sweep")

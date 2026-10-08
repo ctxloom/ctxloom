@@ -819,6 +819,17 @@ func TestFailurePreamble_OverloadedSaysThisRunAloneWaits(t *testing.T) {
 	assert.NotContains(t, got, "credential")
 }
 
+// TestFailurePreamble_EndpointUnreachableSaysThisRunAloneWaits: a turn whose
+// engine could not reach its endpoint reports the work NOT done and to be
+// resent, and that THIS run alone waits and resumes on its own.
+func TestFailurePreamble_EndpointUnreachableSaysThisRunAloneWaits(t *testing.T) {
+	got := failurePreamble(&agent.TurnFailure{Kind: agent.FailureEndpointUnreachable})
+	assert.True(t, strings.HasPrefix(got, "ENDPOINT UNREACHABLE:"), got)
+	assert.Contains(t, got, "resend")
+	assert.Contains(t, got, "on its own")
+	assert.NotContains(t, got, "credential")
+}
+
 // TestFailurePreamble_CredentialRefusedSaysAHumanMustReauthenticate: a
 // refused turn's report says the work was NOT done and must be resent, that
 // every run on the credential is parked, and that nothing but the human's

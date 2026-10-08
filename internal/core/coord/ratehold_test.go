@@ -29,6 +29,10 @@ const (
 	// overloadHit: a turn the engine turns away because its server is at
 	// capacity (claude's 529) — no reset time, nothing about the credential.
 	overloadHit = "server-overloaded"
+	// unreachableHit: a turn the engine turns away because it could not
+	// reach its model endpoint at all — no reset time, nothing about the
+	// credential.
+	unreachableHit = "endpoint-unreachable"
 	// credRefused: a turn the engine turns away because its credential was
 	// refused (claude's authentication_failed).
 	credRefused = "cred-refused"
@@ -65,6 +69,8 @@ func rateFailure(ex engine.Exec, prompt string) *agent.TurnFailure {
 		return &agent.TurnFailure{Kind: agent.FailureCredentialRejected}
 	case strings.Contains(prompt, overloadHit):
 		return &agent.TurnFailure{Kind: agent.FailureOverloaded}
+	case strings.Contains(prompt, unreachableHit):
+		return &agent.TurnFailure{Kind: agent.FailureEndpointUnreachable}
 	case strings.Contains(prompt, limitHitLate):
 		return &agent.TurnFailure{Kind: agent.FailureRateLimited, ResetsAt: limitResetsLate}
 	case strings.Contains(prompt, limitHitNoReset):

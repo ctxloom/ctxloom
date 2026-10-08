@@ -45,6 +45,9 @@ type sjEvent struct {
 	// it runs under (null on the turn's own messages).
 	Error           string  `json:"error"`
 	ParentToolUseID *string `json:"parent_tool_use_id"`
+	// result field: the HTTP status of the API error that ended the turn;
+	// null when no HTTP response came back at all (unreachableError).
+	APIErrorStatus *int `json:"api_error_status"`
 	// rate_limit_event fields (SDKRateLimitEvent)
 	RateLimitInfo *sjRateLimitInfo `json:"rate_limit_info"`
 }
@@ -87,6 +90,16 @@ var turnFailures = map[string]agent.FailureKind{
 	"overloaded":            agent.FailureOverloaded,
 }
 
+// unreachableError is the SDKAssistantMessageError claude ends a turn on
+// when it could not reach its API at all — together with a result frame
+// whose api_error_status is null (no HTTP response came back). Measured on
+// claude 2.1.292 against a refused port: ten api_retry frames with
+// error_status null, then an assistant frame with error "server_error" and
+// the text "API Error: Connection refused ... (ECONNREFUSED)", then a result
+// with api_error_status null. A server_error WITH a status is the server
+// answering badly, not an unreachable endpoint, and fails nothing.
+const unreachableError = "server_error"
+
 // failure is the turn failure an assistant frame reports: only the turn's own
 // message (no parent tool call) speaks for the turn.
 func (e *sjEvent) failure() []agent.ChatEvent {
@@ -98,14 +111,20 @@ func (e *sjEvent) failure() []agent.ChatEvent {
 }
 
 // turnStream maps one turn's stream-json frames. Each frame maps on its own,
-// with ONE join across frames: the reset time of a rejected rate_limit_event
+// with TWO joins across frames. The reset time of a rejected rate_limit_event
 // rides the turn's rate-limit failure, in whichever order claude sends them —
 // the event names when the limit lifts, but only the turn's own error says the
-// turn ended on it (claude retries temporary 429s itself). One per turn
+// turn ended on it (claude retries temporary 429s itself). And a turn whose
+// own message ended on unreachableError fails endpoint_unreachable when its
+// result frame then reports no HTTP status. One per turn
 // process, so nothing carries from one turn to the next.
 type turnStream struct {
 	resetsAt time.Time
 	limited  bool
+	// serverError: the turn's own message ended on unreachableError; the
+	// result frame's api_error_status then says whether any HTTP response
+	// came back.
+	serverError bool
 }
 
 // Map normalizes one stream-json line into 0..N ChatEvents. An assistant
@@ -132,7 +151,20 @@ func (s *turnStream) Map(raw []byte) []agent.ChatEvent {
 			ev.Failed.ResetsAt = s.resetsAt
 		}
 	}
-	return evs
+	return append(s.unreachable(&e), evs...)
+}
+
+// unreachable is the endpoint_unreachable join: it notes a turn's own
+// message ending on unreachableError, and fails the turn when its result
+// frame then reports no HTTP status. nil for every other frame.
+func (s *turnStream) unreachable(e *sjEvent) []agent.ChatEvent {
+	switch {
+	case e.Type == "assistant" && e.Error == unreachableError && e.ParentToolUseID == nil:
+		s.serverError = true
+	case e.Type == "result" && s.serverError && e.APIErrorStatus == nil:
+		return []agent.ChatEvent{{Failed: &agent.TurnFailure{Kind: agent.FailureEndpointUnreachable}}}
+	}
+	return nil
 }
 
 // End adds nothing: claude's result frame says how the turn ended, and the

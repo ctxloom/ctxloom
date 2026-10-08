@@ -51,11 +51,11 @@ type credentialPresenter struct {
 }
 
 // holdID tells holds apart across polls: one hold opens at one instant (an
-// upgraded hold keeps the instant it opened as a limit), and an overload's is
-// one run's own.
+// upgraded hold keeps the instant it opened as a limit), and an endpoint
+// failure's (coord.RunScopedFailure) is one run's own.
 func holdID(h coord.CredentialHold) string {
 	id := h.Source.Key + "@" + h.Since.UTC().Format(time.RFC3339Nano)
-	if h.Kind == agent.FailureOverloaded && len(h.Harps) > 0 {
+	if coord.RunScopedFailure(h.Kind) && len(h.Harps) > 0 {
 		id += "/" + h.Harps[0]
 	}
 	return id
@@ -162,6 +162,9 @@ func holdNotice(h coord.CredentialHold, session string) string {
 	case agent.FailureOverloaded:
 		// An overload hold is one run's own backoff: no credential is spent.
 		return fmt.Sprintf("OVERLOADED: %s: %s backs off — it resumes on its own at %s", who, strings.Join(h.Harps, ", "), at)
+	case agent.FailureEndpointUnreachable:
+		// Likewise one run's own backoff: the endpoint, not the credential.
+		return fmt.Sprintf("ENDPOINT UNREACHABLE: %s: %s backs off — it resumes on its own at %s", who, strings.Join(h.Harps, ", "), at)
 	}
 	return fmt.Sprintf("RATE LIMITED: %s (%s): %d waiting — they resume on their own at %s", who, h.Source.Carrier(), len(h.Harps), at)
 }
@@ -174,6 +177,8 @@ func holdReleasedNotice(h coord.CredentialHold) string {
 		label = "CREDENTIAL REFUSED"
 	case agent.FailureOverloaded:
 		label = "OVERLOADED"
+	case agent.FailureEndpointUnreachable:
+		label = "ENDPOINT UNREACHABLE"
 	}
 	return fmt.Sprintf("%s hold released: %s (%s): %s resume", label, cmp.Or(string(h.Engine), "the engine"),
 		cmp.Or(h.Source.Carrier(), "no credential"), strings.Join(h.Harps, ", "))

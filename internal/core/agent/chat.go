@@ -140,6 +140,13 @@ const FailureRateLimited FailureKind = "rate_limited"
 // on the same run can succeed once the server recovers, with no human action.
 const FailureOverloaded FailureKind = "overloaded"
 
+// FailureEndpointUnreachable: the engine could not reach its model endpoint
+// at all (connection refused, DNS, no HTTP response), past the engine's own
+// retries. Like an overload it says nothing about the credential: a turn on
+// the same run can succeed once the endpoint is back (a LAN model server
+// restarted, a network restored), with no human action on ctxloom's side.
+const FailureEndpointUnreachable FailureKind = "endpoint_unreachable"
+
 // TurnFailure is a turn the engine could not do at all — distinct from a
 // PermissionDenial, where the engine worked and refused one call.
 type TurnFailure struct {

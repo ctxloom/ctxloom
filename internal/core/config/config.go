@@ -888,6 +888,37 @@ func LabelBinary(body map[string]any) string {
 	return s
 }
 
+// ArgsKey is the label-body key naming the extra CLI arguments a label
+// places ahead of everything ctxloom composes on its engine's argv. Neutral
+// like BinaryPathKey: the launch carries it as the label's args
+// (engine.LabelConfig.Args) for whichever engine the label configures.
+const ArgsKey = "args"
+
+// LabelArgs are the args a label body names, or nil for none (absent, empty,
+// not a list, or holding anything but strings). It reads the body untyped: a
+// YAML load yields []any, a Go-built body []string.
+func LabelArgs(body map[string]any) []string {
+	switch v := body[ArgsKey].(type) {
+	case []string:
+		if len(v) > 0 {
+			return slices.Clone(v)
+		}
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, a := range v {
+			s, ok := a.(string)
+			if !ok {
+				return nil
+			}
+			out = append(out, s)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return nil
+}
+
 // GetDefaultLLM returns the backend type for the primary role's label.
 func (c *Config) GetDefaultLLM() string {
 	backend, _ := c.ResolveLLM(c.PrimaryLabel())

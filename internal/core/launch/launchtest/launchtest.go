@@ -186,6 +186,10 @@ func ProjectDirtyTree(s string) Option { return func(f *fixture) { f.projectDirt
 // PinnedBinary is the binary_path the fixture's "pinned" label names.
 const PinnedBinary = "/opt/fixture/bin/fixture-cli"
 
+// PinnedArgs are the args the fixture's "pinned" label names (as a YAML load
+// yields them: an untyped list).
+var PinnedArgs = []string{"--fixture-debug", "-v"}
+
 // FixtureHistoryRel is where the relocating fixture keeps its native history,
 // relative to its session home.
 const FixtureHistoryRel = "history"
@@ -233,7 +237,7 @@ func Deps(t *testing.T, opts ...Option) Env {
 				"primary": {Type: string(EngineName)},
 				"fast":    {Type: string(EngineName), Body: map[string]any{"model": "fast-model"}},
 				"guarded": {Type: string(EngineName), Permissions: f.labelPermissions},
-				"pinned":  {Type: string(EngineName), Body: map[string]any{"binary_path": PinnedBinary}},
+				"pinned":  {Type: string(EngineName), Body: map[string]any{"binary_path": PinnedBinary, "args": []any{PinnedArgs[0], PinnedArgs[1]}}},
 			},
 			Defaults: config.RoleDefaults{Primary: "primary", Fast: "fast"},
 		},

@@ -296,6 +296,23 @@ func TestResolve_Label_BinaryPathIsTheLabelsBinary(t *testing.T) {
 	require.Empty(t, l.Label.Binary, "a label naming no binary leaves the engine's own")
 }
 
+// TestResolve_Label_ArgsAreTheLabelsArgs: a configured label's args are the
+// Launch's label args — the ones the engine's composed Exec places on its
+// argv — and a label naming none leaves them empty.
+func TestResolve_Label_ArgsAreTheLabelsArgs(t *testing.T) {
+	env := launchtest.Deps(t)
+	src := func(label string) launch.Source {
+		return launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Label: label, Mode: engine.Interactive, WorkDir: env.Project}
+	}
+	l, err := launch.Resolve(context.Background(), env.Deps, src("pinned"))
+	require.NoError(t, err)
+	require.Equal(t, launchtest.PinnedArgs, l.Label.Args, "the label's args are the args the launch names")
+
+	l, err = launch.Resolve(context.Background(), env.Deps, src("primary"))
+	require.NoError(t, err)
+	require.Empty(t, l.Label.Args, "a label naming no args leaves none")
+}
+
 // TestResolve_Permission_TheChain: the flag, the binding's block for the
 // engine, the label's keys, the engine's default — the first declared
 // wins. The project declares no mode: it knows no engine.

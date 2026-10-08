@@ -97,6 +97,23 @@ func TestInstance_ExecSpawnsTheLabelsBinary(t *testing.T) {
 	}
 }
 
+// TestInstance_ExecLeadsWithTheLabelsArgs: every mode's Exec places the
+// label's args (a configured label's args, which the launch carries as
+// LabelConfig.Args) first on claude's argv, ahead of everything ctxloom adds.
+func TestInstance_ExecLeadsWithTheLabelsArgs(t *testing.T) {
+	kind, err := Build()
+	require.NoError(t, err)
+	for _, mode := range kind.Root().Modes {
+		s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName, Args: []string{"--debug", "--verbose"}}, Mode: mode, Permission: modePolicy(modeBypass), Prompt: "p"}
+		inst, err := kind.Instance(s)
+		require.NoError(t, err)
+		ex, err := inst.Exec(nil)
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, len(ex.Args), 2, "%v", mode)
+		require.Equal(t, []string{"--debug", "--verbose"}, ex.Args[:2], "%v: the label's args lead", mode)
+	}
+}
+
 // TestInstance_HeadlessChildDefaults: a structured (headless) run has no human
 // at the engine, so it says so to claude — --permission-prompts none: deny
 // what the posture and rules leave open instead of asking nobody — and turns

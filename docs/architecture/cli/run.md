@@ -61,10 +61,20 @@ drives it.
 The runner delivers the launch into the SESSION's home — the engine's
 settings, hooks, MCP registry, context, commands and skills — never into the
 project (ruled 2026-09-21: sessions carry their surfaces; the project is
-written only by the explicit `manage hooks install`). ctxloom's own MCP
+written only by an explicit `ctxloom materialize`, or the older `manage
+hooks install`). ctxloom's own MCP
 server reaches the engine as the session's endpoint (URL + bearer in the
 session's registry), rendered from the companion loadout's declaration by
 `delivery.InputsFor`; see `docs/architecture/cli/mcp.md`.
+
+Before the engine spawns, right after the start banner, `ctxloom run` warns
+once per file in its project that holds context an earlier `ctxloom
+materialize` wrote (`operations.MaterializedContextFindings` over the
+home-rooted record: any `project:<engine>:context` claim under the project
+root), naming the file and `ctxloom materialize --release --surface
+context`. It is advisory: the engine may read that file beside the
+session's own context. It is reported by the originator, not the runner,
+whose stderr reaches the user only when a run fails.
 
 ## Invariants
 

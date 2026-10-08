@@ -306,7 +306,50 @@ that `ctxloom run` launches. The hook no longer carries it:
   is general: it flags any hook entry that runs a `ctxloom hook` subcommand
   this ctxloom does not have, not only `inject-context`.
 
-## 13. Everything else marked breaking
+## 13. `ctxloom materialize` is the at-rest delivery, and `unsafe-file` is `file`
+
+`ctxloom materialize [<profile>...]` writes the assembled profiles into a
+directory as each engine's native files. With no profiles it writes the
+default agent's; with no `--backend`, the project's configured engines.
+
+- **`--target DIR`** takes any directory, created if missing. It need not be
+  a project: profiles and config come from the project you run it in.
+- **With no `--target`** the target is the project directory, and the
+  command refuses to write (or release) there unless you pass `--yes`.
+  `--dry-run` shows what it would do. `--force` is still the separate
+  override for a target that is an engine's user-global scope.
+- **By default it writes every kind, context included, for every engine** —
+  including claude, whose context `manage hooks install` never wrote at
+  rest. `--surface KIND[=file][:DEST]` writes only the named kinds and
+  leaves the others as they were; `--surface context=file:PATH` writes the
+  context into `PATH` inside the target.
+- **`--release`** takes out what an earlier materialize wrote, for the
+  selected kinds (default all). `--diff FILE` compares instead of writing.
+- **What ctxloom wrote is now owned per engine and per kind.** Delivering
+  one kind or one engine no longer takes another's files out of the same
+  directory. Claims an earlier 0.7 build recorded under the single
+  `project` writer are left alone: a re-install does not take them out, so
+  a section it appended may appear twice until you remove the old one.
+- **The post-sync refresh** now runs `ctxloom materialize` into the project
+  root, so it writes claude's context file there too.
+- **A `ctxloom run` warns** when the project holds context materialized into
+  it, naming the file and `ctxloom materialize --release --surface
+  context`.
+- **Do not commit a materialized file.** The record of what ctxloom wrote
+  lives in your home directory; on another machine a committed copy reads
+  as your own text, and the next materialize appends a second copy.
+- `profile materialize`, `manage hooks install` and `manage hooks uninstall`
+  still work in this build and will be removed in favour of `ctxloom
+  materialize` (`--release` replaces uninstall).
+- The native-file delivery approach is renamed **`file`** (it was spelled
+  with an `unsafe-` prefix): in `agent set --surface`, an agent binding's
+  `surfaces:`, and the config schema. The old spelling is refused as an
+  unknown approach; there is no alias.
+- A premised fragment delivered to claude as a skill now carries its
+  premise as the skill's description. Before, claude refused every such
+  skill while the materialize report said it was delivered.
+
+## 14. Everything else marked breaking
 
 Grouped by what you would have to change.
 

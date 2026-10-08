@@ -19,3 +19,7 @@ func runIdentity() (uid, gid int) { return os.Getuid(), os.Getgid() }
 // this host's loopback (podman-machine-init(1): user-mode networking is
 // always on outside WSL).
 const machineVMIsWSL = false
+
+// linksFiles is that hostOS.LinkDir may link a non-directory: on POSIX it is
+// a symbolic link, which names a file as well as a directory.
+const linksFiles = true

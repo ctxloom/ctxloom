@@ -22,3 +22,7 @@ func runIdentity() (uid, gid int) { return imageUserID, imageUserID }
 // rather than this host. A runtime that ships its own host proxy is
 // unaffected; one that relies on the VM's network reads this.
 const machineVMIsWSL = true
+
+// linksFiles is false: hostOS.LinkDir makes a junction, which joins
+// directories only.
+const linksFiles = false

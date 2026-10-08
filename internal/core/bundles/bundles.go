@@ -281,7 +281,7 @@ func (h BundleHooks) HasAny() bool {
 }
 
 // Hook event names. They double as the stable event component of a bundle
-// hook's trust identity ("<bundle>#hooks/<event>/<index>") and as the canonical
+// hook's identity ("<bundle>#hooks/<event>/<index>") and as the canonical
 // iteration order below, and match the BundleHooks YAML field tags.
 const (
 	HookEventPreTool      = wire.HookEventPreTool
@@ -291,18 +291,18 @@ const (
 	HookEventPreShell     = wire.HookEventPreShell
 	HookEventPostFileEdit = wire.HookEventPostFileEdit
 	// HookEventTurnEnd and HookEventTurnStart are APPENDED to hookEventOrder
-	// rather than slotted in beside their siblings: that order is a hook's
-	// trust identity ("<bundle>#hooks/<event>/<index>" is per-event, but
+	// rather than slotted in beside their siblings: that order is part of a
+	// hook's identity ("<bundle>#hooks/<event>/<index>" is per-event, but
 	// Entries() walks this slice), and inserting an event mid-list would
-	// renumber nothing while still reordering every hook report against a
-	// baselined one. TestBundleHooks_TrustIdentityIsStableUnderVocabularyGrowth
+	// renumber nothing while still reordering every hook report against the
+	// previous one. TestBundleHooks_IdentityIsStableUnderVocabularyGrowth
 	// holds the baseline.
 	HookEventTurnEnd   = wire.HookEventTurnEnd
 	HookEventTurnStart = wire.HookEventTurnStart
 )
 
 // hookEventOrder is the canonical event order for hook identity + enumeration.
-// Entries() and hook extraction both walk it so a baselined hook's ref matches
+// Entries() and hook extraction both walk it so a reported hook's ref matches
 // the one extraction addresses. A new event goes LAST.
 var hookEventOrder = []string{
 	HookEventPreTool, HookEventPostTool, HookEventSessionStart,
@@ -346,7 +346,7 @@ func (h BundleHooks) eventHooks(event string) []BundleHook {
 	return nil
 }
 
-// HookEntry is one bundle hook paired with its stable trust identity: the event
+// HookEntry is one bundle hook paired with its stable identity: the event
 // it fires on and its index within that event's list. Bundle hooks are an
 // ordered list with no author-given name, so (event, index) is the addressable
 // identity a hook is addressed by.
@@ -357,15 +357,15 @@ type HookEntry struct {
 }
 
 // ID returns the stable per-hook identity "<event>/<index>", the <id> in the
-// trust ref "<bundle>#hooks/<id>". The index is the hook's authored position in
+// ref "<bundle>#hooks/<id>". The index is the hook's authored position in
 // its event list.
 func (e HookEntry) ID() string {
 	return e.Event + "/" + strconv.Itoa(e.Index)
 }
 
 // Entries returns every bundle hook with its identity, in canonical event order
-// then authored index. Hook extraction (config.extractHooksFromBundle) and the
-// migration baseline both enumerate hooks through this scheme so the refs agree.
+// then authored index. Every hook report (bundle listing, pin-change diffs,
+// links) enumerates hooks through this scheme so the refs agree.
 func (h BundleHooks) Entries() []HookEntry {
 	var out []HookEntry
 	for _, event := range hookEventOrder {
@@ -377,8 +377,8 @@ func (h BundleHooks) Entries() []HookEntry {
 }
 
 // EntryByID resolves a hook identity ("<event>/<index>") back to its entry. It
-// reports ok=false for a malformed id or an out-of-range index — fail-closed: an
-// unresolvable hook hashes to nothing and gates.
+// reports ok=false for a malformed id or an out-of-range index rather than
+// guessing at a neighbouring hook.
 func (h BundleHooks) EntryByID(id string) (HookEntry, bool) {
 	event, idxStr, found := strings.Cut(id, "/")
 	if !found {

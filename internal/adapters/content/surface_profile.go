@@ -40,7 +40,7 @@ func (t profileType) Detect(src Source) bool {
 
 // Forms reports FormRaw. A profile is an authored document with exactly one
 // materialization; FormNone would claim it binds no content at all, which is
-// false — its bytes are hashed and covered like every other component's.
+// false — its bytes are a component like every other.
 func (t profileType) Forms(src Source) ([]ident.ContentForm, error) {
 	if _, ok := detectSingleYAML(t.Dir(), src, 0); !ok {
 		return nil, fmt.Errorf("%w: not a profile", ErrUnrecognized)

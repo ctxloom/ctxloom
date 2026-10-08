@@ -18,9 +18,8 @@ mcp:
 
 `wire.MCPServer.ServedBy` (`wire.ServedBySessionEndpoint`) is the third
 exclusive target beside `command` and `url` (`wire.MCPServer.Validate`); on
-`bundles.BundleMCP` it is host-evaluated routing (`surface:"selection"`),
-outside the executable preimage, because the entry's executable surface is
-the empty target set — no bundle contributes anything that runs.
+`bundles.BundleMCP` it is host-evaluated routing: the entry's executable
+target set is empty — no bundle contributes anything that runs.
 
 `delivery.InputsFor(lo, root.Dynamic)` is the one mechanism that renders the
 declaration: inside a session the engine's provided dynamic approach

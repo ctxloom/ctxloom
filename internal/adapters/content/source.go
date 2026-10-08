@@ -36,7 +36,7 @@ func (s *treeSource) Open(relPath string) ([]byte, error) {
 	if !slices.Contains(s.paths, relPath) {
 		// Refusing an ungrouped path is what keeps a Source scoped to its own
 		// item: a decoder cannot reach a sibling item's bytes, so it cannot
-		// attest bytes that are not components of the item being read.
+		// read bytes that are not components of the item being read.
 		return nil, fmt.Errorf("%w: %q is not a component of this item", ErrBadPath, relPath)
 	}
 	if err := validComponentPath(relPath); err != nil {

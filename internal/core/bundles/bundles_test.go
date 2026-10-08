@@ -1760,7 +1760,7 @@ func TestBundleAccessorTier_Characterization(t *testing.T) {
 // HookEvent* const, hookEventOrder, eventHooks, and (*reader).appendHook. A
 // field added to BundleHooks and missed in any of them fails NOTHING at compile
 // time — the bundle parses, the hook decodes, and it is silently never
-// enumerated, never given a trust identity, and never installed. Reflection
+// enumerated, never given an identity, and never installed. Reflection
 // over the struct is the only enumeration that cannot itself go stale.
 func TestBundleHooks_EveryEventIsWiredEndToEnd(t *testing.T) {
 	typ := reflect.TypeOf(BundleHooks{})

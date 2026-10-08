@@ -26,7 +26,7 @@ type Surface interface {
 // decoded from a single byte slice.
 //
 // Paths are bundle-relative with forward slashes — the same path space as
-// Component.Path and the digest. A SurfaceType strips its own Dir() prefix when
+// Component.Path. A SurfaceType strips its own Dir() prefix when
 // it needs the name within its kind directory.
 type Source interface {
 	// List returns every path in this candidate group, sorted.

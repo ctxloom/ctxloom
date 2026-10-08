@@ -11,8 +11,8 @@ import (
 )
 
 // The scp spelling ("git@host:path") and the https spelling of one repository
-// name one bundle, so they render one canonical identity — the one trust
-// records, signatures and seeded profiles key on — and neither needs the
+// name one bundle, so they render one canonical identity — the one remotes,
+// version pins and seeded profiles key on — and neither needs the
 // fetch-address fallback to get there.
 func TestCanonicalString_SSHAndHTTPSSpellingsOfOneRepoAreOneIdentity(t *testing.T) {
 	var diag bytes.Buffer

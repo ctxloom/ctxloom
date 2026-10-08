@@ -47,9 +47,10 @@ func TestNew_AnswersIdenticallyToALocalTree(t *testing.T) {
 	}
 }
 
-// TestNew_StampsRemoteProvenance: a pinned remote is neither local nor builtin,
-// and the distinction decides whether content takes the auto-allow trust path.
-// A backend that stamped IsLocal would launder remote content into local trust.
+// TestNew_StampsRemoteProvenance: a pinned remote is neither local nor builtin.
+// The distinction decides where a ref is versioned and read from — the project's
+// own git history for a local ref, the remote clone cache otherwise — so a
+// backend that stamped IsLocal would send remote refs to the wrong source.
 func TestNew_StampsRemoteProvenance(t *testing.T) {
 	store, err := remotetree.New(t.Context(), mockOf(fixtureFiles(t), "content"), spec("content"))
 	if err != nil {
@@ -75,8 +76,8 @@ func TestNew_StampsRemoteProvenance(t *testing.T) {
 }
 
 // TestNew_RefusesAnUnpinnedRef is the reason this backend takes a SHA and not a
-// ref: a branch or a tag can be repointed between the enumeration that produced
-// a digest and the fetch that produced the bytes, so the tree a signature covers
+// ref: a branch or a tag can be repointed between the enumeration that listed
+// the tree and the fetch that produced the bytes, so the tree that was listed
 // need not be the tree that was served. Resolving a ref to a SHA is the caller's
 // job (Fetcher.ResolveRef); accepting one here would hide the moment the pin
 // stopped being a pin.
@@ -202,7 +203,7 @@ func TestNew_EnforcesADepthBudget(t *testing.T) {
 
 // TestNew_FetchesAtThePinnedSHAAndNowhereElse: every read must carry the pin. A
 // single call that omitted it would read the default branch, so the store would
-// mix two trees and the digest would cover neither.
+// mix two trees and the result would be neither.
 func TestNew_FetchesAtThePinnedSHAAndNowhereElse(t *testing.T) {
 	m := mockOf(fixtureFiles(t), "content")
 	if _, err := remotetree.New(t.Context(), m, spec("content")); err != nil {
@@ -418,7 +419,7 @@ func sum(data []byte) string {
 //
 // The mode a tree's generated manifest claims comes from the sidecar's
 // `executable:` list, so that is the mode a file has to land at. git's 100755
-// is transport detail no signature covers, and installing at it is what made a
+// is transport detail the package never declared, and installing at it is what made a
 // committed-but-undeclared script arrive as a package the consumer refused.
 // Both facts travel — the declaration to decide, the committed bit to diagnose.
 func TestFetchFiles_ResolvesTheDeclarationRatherThanGitsBlobMode(t *testing.T) {

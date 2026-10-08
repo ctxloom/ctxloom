@@ -125,7 +125,7 @@ func TestHook_OrderLivesInTheSidecarNotTheContentFile(t *testing.T) {
 
 // TestHook_NoOrderWritesNoSidecar: absence must be represented by the ABSENCE of a
 // file, not by a sidecar saying nothing. An empty `{}` sidecar per hook would be
-// bytes in the digest that mean nothing, and would make "authored before the
+// component bytes that mean nothing, and would make "authored before the
 // field" indistinguishable from "deliberately unordered".
 func TestHook_NoOrderWritesNoSidecar(t *testing.T) {
 	comps := encodeHook(t, Hook{Event: "pre_tool", Name: "guard", Type: "command", Command: "x"})
@@ -157,7 +157,7 @@ func TestHook_OrderRoundTripsThroughTheTree(t *testing.T) {
 	}
 
 	// And the sidecar must be a COMPONENT of the item, or its bytes are in the
-	// tree, outside the digest, explained by nothing.
+	// tree, outside the item, explained by nothing.
 	comps := mustComponents(t, item)
 	if _, meta := splitHookComponents(comps); meta == nil {
 		t.Fatalf("components = %v, want the order sidecar among them", componentPaths(comps))
@@ -265,8 +265,7 @@ func TestHook_InsertingAHookLeavesItsNeighboursBytesUntouched(t *testing.T) {
 
 // TestHook_ExecArgsRoundTripThroughTheTree: an exec-form hook's argument
 // list survives encode → filesystem → walk → decode, and a shell-form hook's
-// content file carries no args key, so its bytes (and digest) are what they
-// were.
+// content file carries no args key, so its bytes are what they were.
 func TestHook_ExecArgsRoundTripThroughTheTree(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)

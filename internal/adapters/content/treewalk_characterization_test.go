@@ -16,9 +16,9 @@ import (
 // The walker is shipped, tested and about to be refactored onto a storage seam.
 // The unit tests around it each pin one property; none of them pins the WHOLE
 // answer, so a refactor could preserve every asserted property and still change
-// which files group together, which items are enumerated, or what a form
-// digests to. This snapshot pins the whole answer at once: every bundle, every
-// file, every ref, every form, every component and every digest, rendered as
+// which files group together, which items are enumerated, or which components a
+// form carries. This snapshot pins the whole answer at once: every bundle, every
+// file, every ref, every form and every component, rendered as
 // text and compared against a golden file.
 //
 // It is deliberately a golden file rather than inline expectations. The point

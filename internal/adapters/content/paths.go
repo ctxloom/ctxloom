@@ -42,7 +42,7 @@ func MetaPath(contentPath string) string {
 // produce "hooks/.pre_tool/guard.meta.yaml" — a HIDDEN DIRECTORY holding a file
 // that IsMetaPath does not recognise, so the walker would neither group it into
 // the item nor refuse it. That is the shape in which bytes ride along a tree
-// unattested, which is exactly what sidecar recognition exists to prevent.
+// outside any item, which is exactly what sidecar recognition exists to prevent.
 func MetaPathForName(dir, name string) string {
 	parent, base := path.Split(name)
 	return dir + "/" + parent + "." + base + MetaSuffix

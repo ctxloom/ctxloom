@@ -64,7 +64,7 @@ The backend-agnostic seven-event bundle. All seven are `[]Hook` and are only eve
 | `PostFileEdit` | `post_file_edit` |
 | `TurnStart` | `turn_start` |
 
-`TurnEnd` and `TurnStart` are APPENDED to `bundles.hookEventOrder`, not slotted in beside their siblings: that slice is the enumeration order a bundle hook's trust identity is reported in, and reordering it would move every hook report against a baselined one (`TestBundleHooks_TrustIdentityIsStableUnderVocabularyGrowth` pins the baseline). A new event is wired at every site the reflective hook tests enumerate; those tests, not this table, are the checklist.
+`TurnEnd` and `TurnStart` are APPENDED to `bundles.hookEventOrder`, not slotted in beside their siblings: that slice is the enumeration order a bundle hook's identity is reported in, and reordering it would move every hook report against the previous one (`TestBundleHooks_IdentityIsStableUnderVocabularyGrowth` pins the baseline). A new event is wired at every site the reflective hook tests enumerate; those tests, not this table, are the checklist.
 
 ### `HooksConfig` — `internal/core/wire/hooks.go`
 

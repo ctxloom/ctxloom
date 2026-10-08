@@ -50,9 +50,8 @@ func TestCatalog_AmbiguousFragmentIsAOnceFinding(t *testing.T) {
 // TestLoader_WarnWriterReceivesTheWarnerDiagnostics pins the fix below.
 //
 // WithWarnWriter's contract is "redirects THIS loader/store's user-facing
-// diagnostics (the clidiag 'ctxloom: warning:' lines)". It did not: only
-// fsStore.Save's signature warning honoured it, while the loader's two other
-// user-facing warnings — an unresolved bundle ref and an ambiguous bare
+// diagnostics (the clidiag 'ctxloom: warning:' lines)". It did not: the
+// loader's user-facing warnings — an unresolved bundle ref and an ambiguous bare
 // fragment ask — went to a process-global sink hardwired to os.Stderr.
 //
 // So a caller that redirected diagnostics still got them on stderr (a real

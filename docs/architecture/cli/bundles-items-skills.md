@@ -5,7 +5,8 @@ commands (formerly "prompts"), skills, MCP server declarations, hooks and
 profiles. `ctxloom bundle *` is its CRUD; `ctxloom fragment *` and
 `ctxloom command *` are two instantiations of one generic item surface
 (`item_crud.go`, `item_list.go`, `item_kind.go`); `ctxloom skill *` is a
-separate, package-shaped item kind with its own archive/signature story.
+separate, package-shaped item kind with its own archive (`.zip`/`.tar.gz`)
+import and export.
 Distillation (LLM or structural compression of an item's content) and
 `ctxloom search` (unified local + remote content search) sit alongside because
 both are cross-item operations.

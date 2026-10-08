@@ -8,14 +8,13 @@ import (
 )
 
 // EmbeddedLoadout is ctxloom's own loadout as the composition root hands it
-// to the CLI: the loadout document bytes and the OPTIONAL detached publish
-// signature over them, both embedded beside cmd/ctxloom's main.
+// to the CLI: the loadout document bytes, embedded beside cmd/ctxloom's main.
 //
 // ctxloom is its own companion. Everything it delivers into an engine on its
 // own behalf — its MCP server entry, its always-on guidance — is declared in
 // that loadout and reaches a session by the same probe, reader and gate every
 // companion's content does (companions.Prober's self-probe), so a profile can
-// exclude it and a human can reject it like any other companion content.
+// exclude it like any other companion content.
 //
 // The CLI owns the COMMAND (so the documented tree carries `loadout` without
 // a composition) and the composition root owns the CONTENT: go:embed cannot

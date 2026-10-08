@@ -32,9 +32,9 @@ func remoteBundleSeed(t *testing.T, cfg *config.Config) map[string]*bundles.Bund
 		return nil
 	}
 	// Through a LOADER, not the readers directly: what a session can address is
-	// the loader's answer, and the withholds that matter (a remote signature
-	// that does not cover its bytes) are applied there. Reading the readers raw
-	// would assert on facts nobody consumes.
+	// the loader's answer, and the withholds that matter (a bundle or skill that
+	// cannot be loaded) are applied there. Reading the readers raw would assert
+	// on facts nobody consumes.
 	out := map[string]*bundles.Bundle{}
 	for _, read := range bundles.NewLoader(readers...).Reads() {
 		out[read.DisplayName()] = read.Bundle

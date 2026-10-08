@@ -231,7 +231,7 @@ func (pm *PublishManager) resolveTarget(remoteName string) (rt *resolvedTarget, 
 		return nil, fmt.Errorf("failed to create publisher: %w", err)
 	}
 	// Everything a caller does after this can still fail — branch resolution,
-	// signing, the existing-file probe, the write itself — and a publisher
+	// the existing-file probe, the write itself — and a publisher
 	// that has already made a working clone would leak it. The caller closes
 	// the one that reaches a write; this closes the one that never does.
 	defer func() {
@@ -324,8 +324,8 @@ func (pm *PublishManager) PublishTree(ctx context.Context, files map[string][]by
 
 // publishTreeViaPR is PublishTree's PR strategy: a feature branch, one commit
 // with every file, then a pull request — mirroring publishViaPR, but writing
-// the whole file set in the ONE CreateOrUpdateFiles call rather than a
-// content commit plus a sibling signature commit.
+// the whole file set in the ONE CreateOrUpdateFiles call, so the branch never
+// holds a partial tree.
 func (pm *PublishManager) publishTreeViaPR(ctx context.Context, rt *resolvedTarget, baseBranch string, files map[string][]byte, title, body, message string, opts PublishOptions, itemName string) (*PublishResult, error) {
 	if r, ok := rt.publisher.(pullRequestRefuser); ok {
 		if err := r.pullRequestSupport(); err != nil {

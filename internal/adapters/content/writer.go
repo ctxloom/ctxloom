@@ -130,10 +130,6 @@ func fileMode(m ComponentMode) os.FileMode {
 
 // Delete removes every component of an item, in every form: content files, form
 // siblings, dot-prefixed metadata sidecars, and a same-named package directory.
-//
-// Stored signatures are deliberately left alone. They are keyed by content hash
-// precisely so that they outlive the file, and a rejection that a file deletion
-// could remove would mean you could un-blacklist content by deleting it.
 func (s *TreeStore) Delete(ctx context.Context, ref ident.Ref) error {
 	if err := s.beginWrite(ctx); err != nil {
 		return err
@@ -203,7 +199,7 @@ func (s *TreeStore) PutRootFile(ctx context.Context, id BundleID, name string, d
 	}
 	if len(data) == 0 {
 		// A zero-byte envelope parses as a valid empty bundle and a zero-byte
-		// README is noise the manifest then attests. Neither is ever intended.
+		// README is noise that ships with the bundle. Neither is ever intended.
 		return fmt.Errorf("content: refusing to write an empty %q for bundle %q", name, id)
 	}
 	ok, err := s.dirExists(string(id))
@@ -223,8 +219,7 @@ func (s *TreeStore) PutRootFile(ctx context.Context, id BundleID, name string, d
 
 // validateRootFileName refuses anything that is not a single bare filename.
 // A directory component would place the file inside a kind directory (where an
-// item must go through Put so its surface type encodes it) or inside the
-// signature store (which PutBundleSignature owns).
+// item must go through Put so its surface type encodes it).
 func validateRootFileName(name string) error {
 	if name == "" || name == "." || name == ".." || path.Base(name) != name {
 		return fmt.Errorf("%w: %q is not a bundle-root file name", ErrBadPath, name)

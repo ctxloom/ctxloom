@@ -70,7 +70,7 @@ Every production write goes through an `afero.Fs`; safefs is what sits on it. Th
 - `Root.Private.Ensure` creates a directory owner-only (a mode on unix, a protected owner-only DACL on Windows) and restricts an existing one only when `Check` finds it exposed, since a Windows restriction propagates to every child. Each process establishes the named private home roots with it at startup (`paths.EnsureHomeRoots`); below them, writers only create directories `safefs.PrivateDirMode`.
 - `errwriter.Writer` is the errors-are-values writer the CLI renderers use.
 
-The write-discipline gate (`archlint.WriteDisciplineAnalyzer`) refuses a raw `os` or `afero` write anywhere else.
+The write-discipline gate (`archlint.WriteDisciplineAnalyzer`, run by `just lint-arch`) refuses a raw `os` or `afero` write anywhere else under `internal/` and `cmd/`. A raw write is any call in `forbiddenOSCalls` — one that creates, replaces or empties a file's content or name (`WriteFile`, `Create`, `CreateTemp`, `Rename`, `Symlink`, `Link`, `Truncate`) or creates, removes or re-permissions a path (`Mkdir`, `MkdirAll`, `Remove`, `RemoveAll`, `Chmod`) — plus a write-mode `os.OpenFile`. A directory, removal or chmod op goes through the `afero.Fs` the caller is handed: the same method on an `afero.Fs` routes through the fs and its decorators, so only the `os.*` spelling is refused. The sites that predate a rule are a symbol-keyed baseline (`archrules.WriteDisciplineAllowed`), each with its reason; the analyzer fails an entry it no longer finds, so the baseline only shrinks.
 
 ## Advisory locking (`safefs.Locks` + `internal/core/paths`)
 

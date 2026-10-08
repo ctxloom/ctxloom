@@ -1,9 +1,7 @@
 // Directory-profile inline hooks/mcp parity tests verify that a directory profile
 // (.ctxloom/profiles/<name>.yaml) carrying inline hooks:/mcp: declarations reaches
-// the SAME managed-hooks/MCP resolution as an inline profile — and that, because a
-// directory profile may be remote-sourced, its directly-declared executables pass
-// the SAME per-item executable trust gate as bundle hooks/MCP (a withheld one is
-// dropped). The directory path reaches Assemble / Config.ResolveBundleMCPServersFor
+// the SAME managed-hooks/MCP resolution as an inline profile. The directory path
+// reaches Assemble / Config.ResolveBundleMCPServersFor
 // through the loader fallback (profiles.ResolvedProfile.Hooks/MCP), not the inline
 // config map.
 package managedhooks

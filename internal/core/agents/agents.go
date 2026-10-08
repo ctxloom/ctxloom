@@ -16,7 +16,7 @@
 // with the project, not with shippable content.
 //
 // The agent DEFINITION is plain orchestration/config: there is no
-// trust.ItemKind for agents, so the binding itself is not an addressable item.
+// ident.ItemKind for agents, so the binding itself is not an addressable item.
 //
 // This package owns only the entity type and its value vocabulary. Resolution
 // (composing the profiles into one context and applying the engine override)

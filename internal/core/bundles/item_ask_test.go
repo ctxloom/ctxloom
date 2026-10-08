@@ -13,8 +13,8 @@ import (
 )
 
 // TestReadCommand_PromptsAliasReachesTheSameItem pins the fix for task
-// stubborn-wow: trust.ParseSelector treats "commands" and "prompts" as
-// aliases for the same trust.KindPrompt, but the old bundles.splitItemRef
+// stubborn-wow: ident.ParseSelector treats "commands" and "prompts" as
+// aliases for the same ident.KindPrompt, but the old bundles.splitItemRef
 // matched only the literal "commands", so "bundle#prompts/name" resolved
 // through anything built on ParseSelector but failed through ReadCommand with
 // "invalid command reference". ParseItemAsk routes ReadCommand through
@@ -33,7 +33,7 @@ func TestReadCommand_PromptsAliasReachesTheSameItem(t *testing.T) {
 	require.Len(t, viaCommands, 1)
 
 	viaPrompts, err := l.ReadCommand("kit#prompts/deploy")
-	require.NoError(t, err, "the legacy 'prompts' spelling is an alias for the same trust.KindPrompt "+
+	require.NoError(t, err, "the legacy 'prompts' spelling is an alias for the same ident.KindPrompt "+
 		"and must reach the identical item, not 'invalid command reference'")
 	require.Len(t, viaPrompts, 1)
 

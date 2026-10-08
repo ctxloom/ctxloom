@@ -48,7 +48,7 @@ type LoadedSkill struct {
 	// keying LoadedContent uses. A read FACT, never a decision.
 	ItemRef string
 
-	// Read is the owning bundle's read — the trust FACTS its reader established.
+	// Read is the owning bundle's read — the read FACTS its reader established.
 	// See ItemRead.Read for why exporting a value whose axes are unexported is
 	// safe.
 	Read BundleRead

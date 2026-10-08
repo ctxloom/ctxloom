@@ -216,9 +216,9 @@ func TestRefIngest_CleanRefsAreUntouched(t *testing.T) {
 // full C0 range 0x00-0x1F, plus DEL 0x7F) must be stripped, and every OTHER
 // byte in 0x00-0xFF — printable ASCII, the C1 range 0x80-0x9F, and the rest of
 // the Latin-1 byte range — must survive untouched. This is the parity claim
-// the audit exists to pin: trust.isRefControlRune uses the identical formula
-// (r < 0x20 || r == 0x7f), so a test that nails this range down for
-// NormalizeRef nails it down for both.
+// the audit exists to pin: refuri.isRefControlRune (refuri.Parse's control
+// -byte refusal) uses the identical formula (r < 0x20 || r == 0x7f), so a test
+// that nails this range down for NormalizeRef nails it down for both.
 //
 // It is asserted through NormalizeRef because that is now the only door onto
 // the strip: deleting a control character is the INGEST answer, and no display

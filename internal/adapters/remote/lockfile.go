@@ -321,7 +321,7 @@ func (m *LockfileManager) write(lockfile *Lockfile) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// The lockfile is the sole on-disk trust/provenance record; a torn write
+	// The lockfile is the sole on-disk record of what is pinned; a torn write
 	// would corrupt it, so replace atomically.
 	if err := safefs.WriteFile(m.fs, m.Path(), data, 0644); err != nil {
 		return fmt.Errorf("failed to write lockfile: %w", err)

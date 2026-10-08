@@ -71,7 +71,7 @@ func TestProjectReader_UndeclaredNameFallsBackToPath(t *testing.T) {
 
 // TestNewRepoFSReader_DeclaredNameWinsOverTheCanonicalRef applies the same rule
 // to pinned remote content. The canonical ref stays the SOLE resolution
-// identity — it is what a profile authors and what sourceRef keys trust by — so
+// identity — it is what a profile authors and what the source identity is minted from — so
 // the test asserts the ref is unmoved while the declared name lands.
 func TestNewRepoFSReader_DeclaredNameWinsOverTheCanonicalRef(t *testing.T) {
 	const ref = "https://example.test/repo@bundles/kit"

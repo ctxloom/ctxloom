@@ -162,9 +162,9 @@ func (b *Bundle) Self() bool { return b.self }
 // That last sentence is measured, not assumed, and it is why NO test can be
 // written that dies to restoring the fallback here on its own: with newRead
 // stamping, the fallback is unreachable. Its removal is trap removal — the
-// stamp is the load-bearing half. The test that died when the stamp went
-// (operations' declared_name_trust_test.go) was deleted with the trust gate,
-// so today nothing pins the stamp end to end.
+// stamp is the load-bearing half, and it is pinned end to end through the
+// public readers by declared_name_test.go
+// (TestProjectReader_SourceIdentityIsTheLocationNotTheDeclaredName).
 func (b *Bundle) contentSourceRef() ident.BundleRef {
 	if b == nil {
 		return ident.BundleRef{}

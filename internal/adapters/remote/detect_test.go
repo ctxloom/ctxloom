@@ -182,8 +182,8 @@ func TestStoredRepoURL(t *testing.T) {
 // first clause, that a
 // host-qualified path ("gitlab.com/owner/repo") is stolen by the shorthand arm
 // above and prefixed onto github.com; that half is escalated separately because
-// the same grammar feeds refuri.CanonicalRepoURL, so changing it changes which
-// trust namespace a repository is consulted under.
+// the same grammar feeds refuri.CanonicalRepoURL, so changing it changes the
+// canonical URL — the source identity — a repository is keyed under.
 //
 // If someone later "removes the unreachable fallback", this goes red.
 func TestStoredRepoURL_FinalHTTPSFallbackIsReachable(t *testing.T) {

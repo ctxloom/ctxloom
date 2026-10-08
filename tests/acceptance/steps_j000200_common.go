@@ -65,7 +65,7 @@ func runOK(w *World, args ...string) error {
 
 // j000200ItemTreePath is the path, relative to a tree bundle's own root, one
 // (kind, item) source's file lands at — "fragments/" for a fragment,
-// "prompts/" for a command (trust.KindPrompt; a residue of the
+// "prompts/" for a command (ident.KindPrompt; a residue of the
 // skill->command rename — see steps_fixture.go's fixtureDemoTreeFiles for
 // the same split spelled out).
 func j000200ItemTreePath(kind, item string) (string, error) {

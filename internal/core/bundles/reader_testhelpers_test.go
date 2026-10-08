@@ -81,7 +81,7 @@ func (r staticReader) Read(context.Context) ([]BundleRead, error) { return r.rea
 //
 // Local, not remote, deliberately: a test that wants REMOTE content should go
 // through NewRepoFSReader over real bytes, because the remote rows are the ones
-// where the signature facts decide anything.
+// where provenance and locality differ from a project bundle's.
 func seedLocal(seeded map[string]*Bundle) Reader {
 	const (
 		prov = ProvenanceProject

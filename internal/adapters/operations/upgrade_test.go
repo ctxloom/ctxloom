@@ -40,10 +40,9 @@ func setupUpgrade(t *testing.T) (cfgBase string, ref, identity, c1 string) {
 	return baseDir, ref, identity, c1
 }
 
-// TestUpgrade_AdvancesActiveLock pins the new model: an upgrade re-resolves the
-// closure and writes the new SHA straight to the ACTIVE lock — there is no
-// pending-review split. Whether the new content ever reaches the agent is
-// decided per item at exposure by the content trust gate, not here.
+// TestUpgrade_AdvancesActiveLock pins that an upgrade re-resolves the closure
+// and writes the new SHA straight to the ACTIVE lock — there is no
+// pending-review split, and the new content is what the next assembly reads.
 func TestUpgrade_AdvancesActiveLock(t *testing.T) {
 	baseDir, ref, identity, c1 := setupUpgrade(t)
 	cfg := testConfigWithSCMPath(baseDir)

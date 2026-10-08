@@ -19,9 +19,9 @@ import (
 // It carries NO policy — no form preference and no link grant. Both are
 // PROCESS-stage decisions (docs/design/engine-delivery-seam.design.md, "ALL
 // processing lives in the middle") and both live on Pipeline. What the loader
-// keeps is the trust FACTS its readers established: a publisher signature is
-// verified at read, before any parse, and what that turned out to be travels
-// with the content for the process stage to decide on.
+// keeps is the read FACTS its readers established — where each bundle was
+// found (its source identity), its provenance and its locality — and they
+// travel with the content for the process stage to decide on.
 //
 // A Loader never re-reads the world: it is built from readers resolved ONCE,
 // or over a Catalog someone else resolved (the config Owner's generation).
@@ -105,7 +105,7 @@ func isSyntheticPath(path string) bool {
 func (l *Loader) Reads() []BundleRead { return l.Catalog().Reads() }
 
 // Read resolves a bundle by name to the READ a reader produced for it — the
-// content plus the trust facts that reader established.
+// content plus the read facts that reader established.
 //
 // It exists because the executable surfaces resolve a bundle by ref without
 // ever going through a Pipeline: config.loadMCPFromBundleRef and

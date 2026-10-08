@@ -367,7 +367,7 @@ func TestRenderBundleMCPEntry_NotesAndInstallationRenderAsBodies(t *testing.T) {
 // TestRenderBundleViewItem_CommandAliasResolvesLikeEveryOtherReader pins the
 // consequence of judging the selector by KIND rather than by a literal
 // directory word: "#prompts/x" and "#commands/x" are the same ask here, as
-// they already were through every reader built on trust.ParseSelector. Before
+// they already were through every reader built on ident.ParseSelector. Before
 // this, `bundle view b#prompts/x` was the one surface that said "unknown item
 // type" for an alias the rest of the system accepts.
 func TestRenderBundleViewItem_CommandAliasResolvesLikeEveryOtherReader(t *testing.T) {
@@ -384,8 +384,8 @@ func TestRenderBundleViewItem_CommandAliasResolvesLikeEveryOtherReader(t *testin
 }
 
 // TestRenderBundleViewItem_ProfilesStayViewable pins the one selector `view`
-// accepts beyond the addressable item kinds. A profile carries no trust state
-// and trust.ParseSelector has no arm for it, but `view` walks the bundle
+// accepts beyond the addressable item kinds. A profile is not an addressable
+// item and ident.ParseSelector has no arm for it, but `view` walks the bundle
 // DOCUMENT and a profile is part of that document.
 func TestRenderBundleViewItem_ProfilesStayViewable(t *testing.T) {
 	b := &bundles.Bundle{Profiles: map[string]bundles.BundleProfile{"cr": {Tags: []string{"security"}}}}

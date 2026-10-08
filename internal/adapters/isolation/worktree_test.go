@@ -808,3 +808,25 @@ func TestGitAtLeast_Boundaries(t *testing.T) {
 		assert.Equal(t, tc.want, gitAtLeast(tc.version, relativeWorktreeGit), "gitAtLeast(%q, 2.48)", tc.version)
 	}
 }
+
+// TestWorktree_ExcludeConfigFromMerge_WarnsOnlyWhenTheWriteFails: the write is
+// best-effort, so a failure is a warning naming the exclude file — and a
+// write that landed says nothing.
+func TestWorktree_ExcludeConfigFromMerge_WarnsOnlyWhenTheWriteFails(t *testing.T) {
+	t.Run("written", func(t *testing.T) {
+		warned := captureWarnings(t)
+		sessionWorktree(t, &git.Fake{CommonDirValue: t.TempDir()}).excludeConfigFromMerge(context.Background(), "/proj")
+		assert.Empty(t, warned.String())
+	})
+	t.Run("unwritable", func(t *testing.T) {
+		warned := captureWarnings(t)
+		common := t.TempDir()
+		exclude := filepath.Join(common, "info", "exclude")
+		require.NoError(t, os.MkdirAll(exclude, 0o755), "a directory where the exclude file goes")
+
+		sessionWorktree(t, &git.Fake{CommonDirValue: common}).excludeConfigFromMerge(context.Background(), "/proj")
+
+		assert.Contains(t, warned.String(), "cannot write config excludes to")
+		assert.Contains(t, warned.String(), exclude)
+	})
+}

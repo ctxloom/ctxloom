@@ -68,7 +68,7 @@
     },
     "hooks": {
       "type": "object",
-      "description": "Hooks this profile declares. They pass the executable trust gate, since a profile may be bundle-shipped."
+      "description": "Hooks this profile declares (unified events, plus ext for engine-native ones)."
     },
     "exclude_fragments": {
       "type": "array",

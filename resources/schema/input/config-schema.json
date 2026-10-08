@@ -531,7 +531,12 @@
       "properties": {
         "matcher": {
           "type": "string",
-          "description": "Regex pattern to filter when hook fires (by tool name, event source, etc.)"
+          "description": "Regex pattern to filter when hook fires (by tool name, event source, etc.). Engine-native: it names one engine's tools. A bundle hook may not declare it; it narrows with tool instead."
+        },
+        "tool": {
+          "type": "string",
+          "description": "Narrows a tool event to one class of tool, in a vocabulary every engine maps to its own tool names at delivery: shell, file_edit or skill. The only narrowing a bundle hook may declare. When matcher is also set, matcher is already the native filter and wins.",
+          "enum": ["shell", "file_edit", "skill"]
         },
         "command": {
           "type": "string",

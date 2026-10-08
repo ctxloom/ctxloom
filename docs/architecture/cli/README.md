@@ -29,7 +29,7 @@ flowchart TD
         ROOT --> FMT["format.go — emit() chokepoint + the two --format guards"]
         ROOT --> SH["startup_helpers.go — phaseGates"]
         ROOT --> CMDS["one init() per command family, each file registering its own verbs"]
-        CMDS --> THIN["thin frontends:<br/>bundle · fragment · command · skill · profile<br/>agent · remote · deps · signer · session · config"]
+        CMDS --> THIN["thin frontends:<br/>bundle · fragment · command · skill · profile<br/>materialize · agent · remote · deps · session · config"]
         CMDS --> THICK["real logic:<br/>run.go (runState) · run_owned.go<br/>init.go · coord_*.go · util_config_write.go"]
     end
 
@@ -54,7 +54,7 @@ command's help text:
 | `run_owned.go` | Coordinator-driven transport with its own event renderer. |
 | `init.go` | Bootstrap, an interactive interview, dependency probes, and a pty engine launch. |
 | `util_config_write.go` | The guarded merge-writer for foreign config files, with its own verify step and `hew` application record. |
-| `startup_helpers.go` | The phase gates that `run` and `profile materialize` close before spawning. |
+| `startup_helpers.go` | The phase gates that `run`, `materialize` and `profile materialize` close before spawning. |
 
 ## Page index
 
@@ -67,7 +67,7 @@ command's help text:
 | [mcp.md](mcp.md) | `ctxloom mcp *`, the companion's session-endpoint declaration, and the one MCP surface |
 | [llm-runners.md](llm-runners.md) | `ctxloom llm` (engine labels) and `ctxloom runner`, the one runner process |
 | [bundles-items-skills.md](bundles-items-skills.md) | `bundle`, `fragment`, `command`, `skill`, distillation, `search` |
-| [profiles-and-agents.md](profiles-and-agents.md) | `profile *`, `agent *` |
+| [profiles-and-agents.md](profiles-and-agents.md) | `profile *`, `materialize`, `agent *` |
 | [sessions-and-memory.md](sessions-and-memory.md) | `session *`, the memory MCP tools (by pointer), `plan watch` |
 | [remotes.md](remotes.md) | `remote *` and `deps *` — the dependency lifecycle |
 | [setup-and-diagnostics.md](setup-and-diagnostics.md) | `init`, `config`, `manage`, `container`, `doctor`, `completion`, `version`, `util config-write` |
@@ -84,7 +84,7 @@ the rule lives.
 | I2 | **One buffered reader over stdin.** `stdinReader` is the single `bufio.Reader` over `os.Stdin`; every interactive prompt goes through `promptLine`. A fresh `bufio.Reader` per prompt would discard bytes a previous reader buffered past its line. | `prompt.go` |
 | I3 | **`--format` is a presentation choice, never a branch in business logic.** Commands build one result value and hand both it and a text closure to `emit()`. `refuseUnsupportedFormat` (pre-run) and `checkFormatWasHonored` (post-run) make an ignored `--format` a loud error. See [output-and-format.md](output-and-format.md). | `format.go` |
 | I4 | **Process-wide flags are applied once, in the root's persistent pre-run** (`rootPersistentPreRunE`): `--degraded`, `--no-companions`, the config-override funnel, and `clidiag`'s structured-diagnostics mode. This depends on no subcommand defining its own persistent hook (cobra runs only the closest one); `TestNoSubcommandDefinesPersistentHooks` fails if one does. | `root.go`, `root_test.go` |
-| I5 | **Process-owning entry points close a phase gate before spawning.** Any command that spawns an engine opens `phaseGates` and closes the startup phase, which aborts with `strictness.ExitCodeFatalFindings` on an actionable finding. Honoured by `run` (`runState.gateStartup`) and `profile materialize`; the root's `refuseUnstampedBuild` closes one of its own. | `startup_helpers.go` |
+| I5 | **Process-owning entry points close a phase gate before spawning.** Any command that spawns an engine opens `phaseGates` and closes the startup phase, which aborts with `strictness.ExitCodeFatalFindings` on an actionable finding. Honoured by `run` (`runState.gateStartup`), `materialize` and `profile materialize`; the root's `refuseUnstampedBuild` closes one of its own. | `startup_helpers.go` |
 | I6 | **The runner is the one credential holder.** `runner.Main` decodes the reach-back once and unsets it before the engine spawns; the session host keeps only the owner's credential (`mcp.HostCoordinatorForSession`) and stamps nothing on its own environment. | `internal/adapters/runner` |
 | I7 | **Relayed MCP handlers derive identity from the caller, not from process env.** `mcp.HostApp.Serve` binds each relayed call to the caller's credential-derived `coord.Identity`; `ctxServer.projectDir` is that identity's project with no cwd fallback (`TestArch_EnvLiteralsOnce` holds the env-key discipline). | `internal/adapters/mcp` |
 | I8 | **Exit codes travel as `ExitError`,** not `os.Exit`, so deferred cleanup runs. `run` unwraps it with `errors.As` (`exitCodeFor`); `strictness.ExitCodeFatalFindings` is reserved for a phase-gate abort. | `root.go` |

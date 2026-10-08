@@ -65,7 +65,7 @@ ctxloom profile show default
 
 Your context reaches the engine on its own in every `ctxloom run` session.
 An engine you start directly
-gets it only after `ctxloom manage hooks install`. When
+gets it only from what `ctxloom materialize` wrote into the project. When
 it does not, the troubleshooting section below is where to look. For specific
 tasks:
 

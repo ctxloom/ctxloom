@@ -164,10 +164,11 @@ A hook definition
 | `args` | string[] | Exec form: command is the executable, spawned directly with these arguments — no shell parses either, so a space, quote or $ in an argument reaches the program verbatim. Absent: command is one shell command line. |
 | `async` | boolean | Run hook in background (command hooks only) Default: `false`. |
 | `command` | string | Shell command to execute; with args, the executable to run |
-| `matcher` | string | Regex pattern to filter when hook fires (by tool name, event source, etc.) |
+| `matcher` | string | Regex pattern to filter when hook fires (by tool name, event source, etc.). Engine-native: it names one engine's tools. A bundle hook may not declare it; it narrows with tool instead. |
 | `pre_tool_fallback` | boolean | Declares a session_start hook safe to fire on PreToolUse instead (first tool call and every one after) on agents whose harness has no session-start event. Only meaningful for idempotent hooks — the author opts in because the hook may run many times per session rather than once. Writers for agents with a working session-start event ignore it. Default: `false`. |
 | `prompt` | string | Prompt text for prompt/agent hook types |
 | `timeout` | integer | Execution timeout in seconds. Unset means no timeout is applied (omitted from the emitted backend settings entirely) — there is no implicit default. |
+| `tool` | string | Narrows a tool event to one class of tool, in a vocabulary every engine maps to its own tool names at delivery: shell, file_edit or skill. The only narrowing a bundle hook may declare. When matcher is also set, matcher is already the native filter and wins. Allowed values: `shell`, `file_edit`, `skill`. |
 | `type` | string | Hook handler type Allowed values: `command`, `prompt`, `agent`. Default: `command`. |
 
 ### hookArray

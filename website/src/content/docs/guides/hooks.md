@@ -4,7 +4,7 @@ title: "Hooks and Context Injection"
 
 You never paste your standards into a new session again. Start a session with `ctxloom run`, and your fragments and profile are already in the conversation before you type a word.
 
-Claude Code gets the assembled context one way: a `ctxloom run` session passes it to Claude Code as an appended system prompt file in the session's own home. A Claude Code you start directly with `claude` gets no ctxloom context. `ctxloom manage hooks install` wires ctxloom's hooks into the project, including a **SessionStart hook**, but that hook never carries the project's context. It delivers a resumed session's essence and ctxloom's session-start notices. This guide explains both and how to configure them.
+Claude Code gets the assembled context one way: a `ctxloom run` session passes it to Claude Code as an appended system prompt file in the session's own home. A Claude Code you start directly with `claude` gets no ctxloom context from a hook; it reads only what `ctxloom materialize` wrote into the project at rest (see [Profiles](/concepts/profiles)). `ctxloom manage hooks install` wires ctxloom's hooks into the project, including a **SessionStart hook**, but that hook never carries the project's context. It delivers a resumed session's essence and ctxloom's session-start notices. This guide explains both and how to configure them.
 
 ## How Context Injection Works
 
@@ -65,6 +65,13 @@ ctxloom manage hooks install --backend claude-code
 # Take them back out
 ctxloom manage uninstall
 ```
+
+These commands still work, and will be removed in favour of `ctxloom
+materialize`, which writes the same files per kind: `ctxloom materialize --yes
+--surface hooks` writes only the hooks into the project, and `--release` takes
+out what it wrote. With no `--surface`, `ctxloom materialize` writes every kind,
+including claude's context into `CLAUDE.md`, which `manage hooks install` never
+did.
 
 Applying hooks also writes the command files exported from commands, the MCP servers your bundles declare, and the HUD statusline (honoring `config.statusline`). ctxloom's own MCP server is not among them: it is served by a running `ctxloom run` session and registered only for that session, so nothing ctxloom-owned is left executable at rest. There is no MCP tool for this; hook management is CLI-only.
 
@@ -202,13 +209,13 @@ While ctxloom manages its own hooks, you can add custom hooks alongside ctxloom'
 
 **Note:** Claude Code's settings schema rejects unrecognized fields on hook entries, so ctxloom can't tag its own hooks with a marker field. Instead it keeps an ownership record of the hook commands it wrote and removes only those, plus its own callback verbs (`hook session-start` and the other `ctxloom hook` subcommands). A custom hook of yours stays intact even when it invokes `ctxloom`.
 
-Hooks you author yourself belong in a profile or bundle under `hooks:` (see [Configuration → Hooks](/guides/configuration/#hooks)). ctxloom then delivers them with its own, into the session home for `ctxloom run` or into `.claude/settings.json` for `manage hooks install`.
+Hooks you author yourself belong in a profile or bundle under `hooks:` (see [Configuration → Hooks](/guides/configuration/#hooks)). ctxloom then delivers them with its own, into the session home for `ctxloom run` or into `.claude/settings.json` for `ctxloom materialize` and `manage hooks install`.
 
 ## Troubleshooting
 
 ### Context Not Injected
 
-1. Start the session with `ctxloom run`. A Claude Code you start directly gets no ctxloom context
+1. Start the session with `ctxloom run`. A Claude Code you start directly gets no ctxloom context unless `ctxloom materialize` wrote it into the project
 2. `ctxloom run --dry-run` shows the fragments loaded, the assembled context and its delivery route
 3. Run with verbose: `CTXLOOM_VERBOSE=1 ctxloom run`
 

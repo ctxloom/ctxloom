@@ -54,7 +54,8 @@ flowchart TD
     end
 
     subgraph doctor["doctor_cmd.go"]
-        DC["doctor (--deps, --all)"] --> OD[["operations.Doctor(ctx, app, DoctorRequest{DepsOnly, Home}) → DoctorReport"]]
+        DC["doctor (--deps, --all, --fix)"] --> OD[["operations.Doctor(ctx, app, DoctorRequest{DepsOnly, Home, HookVerbs}) → DoctorReport"]]
+        DC -->|"--fix, first"| ODF[["operations.DoctorFix(ctx, app, DoctorFixRequest{HookVerbs}) → DoctorFixResult"]]
         OD -->|"text, default"| RDS["renderDoctorSummary — warn rows + the first fix"]
         OD -->|"text, --all"| RDR[["operations.WriteDoctorReport"]]
         ISD["init_systemdeps.go: checkSystemDeps"] --> SKRD[["operations.SignKeyResolutionDetail / GitIdentityDetail"]]
@@ -133,7 +134,21 @@ resolution.
 
 The checks are `operations.Doctor`'s: `--deps` selects the machine-capability
 subset (`DoctorRequest.DepsOnly`), the CLI hands in the home it stands in for
-the composition root on (`DoctorRequest.Home`). Text output is
+the composition root on (`DoctorRequest.Home`) and the live `hook` verbs, read
+off its own `hook` command tree, names and aliases (`hookVerbsOf`,
+`DoctorRequest.HookVerbs`). Those verbs are what `DOCTOR-CHECK-STALE-HOOKS-n5`
+judges each registered engine's project and user-global settings against
+(reached through `agent.Hosted.HookGlobalScope`, naming no engine): an entry
+running `ctxloom hook <verb>` for a verb this binary lacks is a leftover, and
+an empty verb set judges nothing (an `info` row; `--fix` refuses it) rather than
+flagging every entry. `--fix` runs
+`operations.DoctorFix` BEFORE the report, so the report shows what remains; it
+removes exactly those entries, plus a hook group or event left holding nothing
+else, byte-preservingly through hew, and lists each removal on stderr so stdout
+keeps its format. The container-runtime rows read the probe the composition
+handed in (`operations.Handed.ContainerRuntimes`, via `App.containerRuntimes`;
+nil means the real probe), so a test composition can answer without
+exec'ing docker or podman. Text output is
 `renderDoctorSummary` — the warn rows and the first fix — unless `--all` asks for
 `operations.WriteDoctorReport`'s every row; structured formats carry every row. Each row is an
 `operations.DoctorCheck{Marker, Status, Detail, Remedy}`, `Remedy` being the one-line

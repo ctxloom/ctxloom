@@ -272,8 +272,8 @@ the merged order and where each hook came from.
 # .ctxloom/content/bundles/v2/project/profiles/developer.yaml
 hooks:
   unified:
-    session_start:
-      - matcher: ".*"           # Regex pattern
+    pre_tool:
+      - tool: shell             # tool class: shell, file_edit or skill
         command: "echo hello"   # Shell command
         type: "command"         # command, prompt, or agent
         timeout: 30             # Seconds
@@ -283,13 +283,21 @@ hooks:
       EventName: []
 ```
 
+`tool:` narrows a tool event to a class of tool, which each engine maps to its
+own tool names (claude: `shell` is `Bash|PowerShell`, `file_edit` is
+`Edit|Write|MultiEdit|NotebookEdit`). A profile hook may instead give
+`matcher:`, a regex over one engine's native tool names, which wins when both
+are set; a bundle hook may only use `tool:`, and a `matcher:` in a bundle is
+refused when the bundle is read.
+
 ## Claude Code Integration
 
 A `ctxloom run` session hands the assembled context to Claude Code as an appended
 system prompt file inside the session's own home, so neither `CLAUDE.md` nor
-`.claude/settings.json` in your project is touched. For a Claude Code you start
-directly, `ctxloom manage hooks install` writes a SessionStart hook that reads
-`.ctxloom/cache/context/[hash].md`. See
+`.claude/settings.json` in your project is touched. A Claude Code you start
+directly gets ctxloom's context only from files `ctxloom materialize` wrote into
+the project (its context section in `CLAUDE.md`); `ctxloom manage hooks install`
+writes ctxloom's hooks, and its SessionStart hook never carries the context. See
 [Hooks and Context Injection](/guides/hooks) for both paths.
 
 ## Sync Configuration

@@ -270,7 +270,7 @@ What else follows from profiles being bundle items:
   canonical `ctxloom+git://` spelling, and an older bundle's profile refs are
   read that way.
 
-## 12. claude started by hand gets no ctxloom context
+## 12. claude started by hand gets no ctxloom context from a hook
 
 In 0.6, `ctxloom manage hooks install` registered a SessionStart hook,
 `ctxloom hook inject-context <hash>`, in `.claude/settings.json`. Every claude
@@ -287,7 +287,10 @@ that `ctxloom run` launches. The hook no longer carries it:
   session resumed with `ctxloom run --session <name> --compact`, the
   "context cleared, run /recover" notice after `/clear`, and the agent-setup
   nudge. It never delivers the project's context.
-- **A claude session you start by hand gets no ctxloom context.** Nothing
+- **A claude session you start by hand gets no ctxloom context from any
+  hook.** It reads only what was materialized into the project at rest
+  (§13): by `ctxloom materialize --yes`, or by the refresh that runs after
+  `deps pull` or a startup sync installs a remote bundle. Otherwise nothing
   tells you so: the session starts normally, without your profiles'
   guidance. Start it with `ctxloom run` instead.
 - The `hook` context approach (`surfaces: {context: hook}` on a claude agent
@@ -394,6 +397,16 @@ Grouped by what you would have to change.
 - `select_tags` (selects content) is split from `tags` (descriptive only). A
   profile relying on `tags` to select content selects nothing until updated.
 - `Hook.Order` and the hook sidecar are dropped.
+- A bundle hook narrows to a kind of tool with `tool:` — `shell`, `file_edit`
+  or `skill` — which each engine maps to its own tool names. `matcher:` in a
+  bundle hook (it named one engine's tools) is refused when the bundle is
+  read, as is a `tool:` outside those three; there is no alias, so replace
+  `matcher: Bash` with `tool: shell` and `matcher: Edit|Write` with
+  `tool: file_edit`. A profile's own hooks may still give `matcher:`.
+- Under claude a class names every tool of that kind: `shell` is
+  `Bash|PowerShell` and `file_edit` is `Edit|Write|MultiEdit|NotebookEdit`.
+  So the `pre_shell` and `post_file_edit` events, and any hook narrowed by
+  class, now also fire on PowerShell, MultiEdit and NotebookEdit.
 - `subagent` is renamed to `agent` across config, CLI, API and prompts.
 - Every profile file is validated against the profile schema when it loads. A
   key the schema does not have (a `name:` key, for one) or a value of the wrong

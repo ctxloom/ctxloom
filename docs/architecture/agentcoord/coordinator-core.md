@@ -81,6 +81,11 @@ whose carriers now resolve to a different credential digest (`adoptRefusedHold`,
 host runner ends with the process that started it, and its harp relaunches)
 (`readoptHold`) — re-sends a held run's pause or a released run's owed resume. Both are
 idempotent at the runner, whose pause gate is process memory that outlives a redial. A
+failed turn that began before this coordinator adopted its run (`turnBeforeAdopt`,
+cleared at the run's next turn start or its end) may join a hold in force but opens
+none, as a turn on a replaced credential (`replacedCreds`) does: the runner re-sends an
+unacked failed boundary the crashed coordinator may already have folded, and folding it
+again must not open a fresh hold over a release adoption just made. A
 member whose run ends stays in the hold by **harp**: no relaunch path resumes a held
 harp, and the release relaunches it if mail waits — unless an `agent_stop` takes the harp
 out first (`dropStoppedHarp`). A run that starts on a credential (or harp) with a hold in force is

@@ -48,6 +48,8 @@ func announce(r present.Rooted) present.Rooted { return r.AnnounceEnv(envConfigD
 // contextApproach is the framed context as H/AGENTS.md, a whole file the
 // approach owns. Empty context writes nothing; OPENCODE_DISABLE_CLAUDE_CODE
 // (Exec) keeps opencode from falling back to the user's ~/.claude/CLAUDE.md.
+// A named context file (ContextInputs.File) is refused: opencode reads its
+// context only as AGENTS.md in its config dir, under no other name.
 type contextApproach struct{ kit.Approach }
 
 var agentsFile = kit.FramedFile{Name: kit.FixedName(ContextFileName), Announce: announce}
@@ -55,6 +57,9 @@ var agentsFile = kit.FramedFile{Name: kit.FixedName(ContextFileName), Announce: 
 func (a *contextApproach) DeliverContext(start present.Start, root present.RootKind, in engine.ContextInputs, fs afero.Fs) (present.Delivered, error) {
 	if root != present.RootSessionHome {
 		return present.Delivered{}, a.ErrRoot(root)
+	}
+	if in.File != "" {
+		return present.Delivered{}, fmt.Errorf("%w: %s at %v reads only %s", engine.ErrContextFileUnsupported, a.Name(), root, ContextFileName)
 	}
 	return agentsFile.Deliver(a.Approach, start, in.Text, fs)
 }

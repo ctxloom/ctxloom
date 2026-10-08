@@ -303,6 +303,19 @@ func TestDeliverContext_ThroughTheGivenFs(t *testing.T) {
 	assert.True(t, strings.Contains(string(b), "x"))
 }
 
+// A named context file is refused, not ignored: opencode reads its context
+// only as H/AGENTS.md, so writing AGENTS.md for a File would deliver the
+// context under a name nobody asked for.
+func TestDeliverContext_NamedFileIsRefused(t *testing.T) {
+	st, _, home := start(t)
+	mem := afero.NewMemMapFs()
+	_, err := def(t).Context.DeliverContext(st, present.RootSessionHome, engine.ContextInputs{Text: []byte("x"), File: "docs/AGENTS.md"}, mem)
+	require.ErrorIs(t, err, engine.ErrContextFileUnsupported)
+	exists, err := afero.Exists(mem, filepath.Join(home, "AGENTS.md"))
+	require.NoError(t, err)
+	assert.False(t, exists, "a refusal writes nothing")
+}
+
 // A bridge transcript names its session by its stem; any other file is
 // refused.
 func TestTranscriptSession_IsTheBridgeFileStem(t *testing.T) {

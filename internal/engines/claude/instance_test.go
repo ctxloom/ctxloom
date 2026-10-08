@@ -141,10 +141,10 @@ func TestInstance_ExecParsesAgainstOwnGrammar(t *testing.T) {
 // pins the delegation so a second composition cannot reappear.
 func TestBuildArgs_IsInstanceExec(t *testing.T) {
 	b := NewClaudeCode()
-	req := withSession(b, &agent.ExecuteRequest{Mode: agent.ModeInteractive, Model: "m", Env: map[string]string{sessionHarpEnv: "h"}, Prompt: &agent.Fragment{Content: "p"}}, modePolicy(modeBypass))
-	ex, err := b.exec(req)
+	req := withSession(b, &agent.ExecuteRequest{Mode: agent.ModeInteractive, Model: "m", Env: map[string]string{agent.SessionHarpEnv: "h"}, Prompt: &agent.Fragment{Content: "p"}}, modePolicy(modeBypass))
+	ex, err := b.ExecFor(req)
 	require.NoError(t, err)
-	require.Equal(t, ex.Args, b.buildArgs(req))
+	require.Equal(t, ex.Args, buildArgs(b, req))
 	b.SetExecuteEnv(func(*agent.ExecuteRequest) map[string]string { return ex.Env }) // as Execute registers it
 	merged := maps.Clone(req.Env)
 	maps.Copy(merged, ex.Env)

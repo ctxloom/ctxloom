@@ -144,9 +144,7 @@ func (Claude) Declaration() agent.Declaration {
 
 // Backend is agent.Hosted's: a fresh backend over the injected launcher.
 func (c Claude) Backend(launch agent.Launcher) agent.Backend {
-	b := newClaudeCode(c)
-	b.SetLauncher(launch)
-	return b
+	return kit.NewProjectedBackend(c, launch, claudeBackend)
 }
 
 // NewConfig is agent.Hosted's: the zero typed config a labeled entry's body

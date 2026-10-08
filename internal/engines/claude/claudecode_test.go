@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/engines/kit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -115,7 +116,7 @@ func TestClaudeCode_BuildArgs_AutoApprove(t *testing.T) {
 	backend := NewClaudeCode()
 
 	req := withSession(backend, &agent.ExecuteRequest{}, modePolicy(modeBypass))
-	args := backend.buildArgs(req)
+	args := buildArgs(backend, req)
 
 	assert.Contains(t, args, "--dangerously-skip-permissions")
 }
@@ -134,7 +135,7 @@ func TestClaudeCode_BuildArgs_PermissionModes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.perm, func(t *testing.T) {
-			args := backend.buildArgs(withSession(backend, &agent.ExecuteRequest{}, modePolicy(tc.perm)))
+			args := buildArgs(backend, withSession(backend, &agent.ExecuteRequest{}, modePolicy(tc.perm)))
 			assert.NotContains(t, args, "--dangerously-skip-permissions")
 			if tc.wantFlag == "" {
 				assert.NotContains(t, args, "--permission-mode")
@@ -151,12 +152,12 @@ func TestClaudeCode_BuildArgs_PermissionModes(t *testing.T) {
 // buildArgs comment), while every other posture is untouched by it.
 func TestClaudeCode_BuildArgs_PlanAddsConservativeDisallowedTools(t *testing.T) {
 	backend := NewClaudeCode()
-	args := backend.buildArgs(withSession(backend, &agent.ExecuteRequest{}, modePolicy(modePlan)))
+	args := buildArgs(backend, withSession(backend, &agent.ExecuteRequest{}, modePolicy(modePlan)))
 	assert.Subset(t, args, []string{"--disallowedTools", "Bash,Edit,Write,NotebookEdit"})
 
 	for _, perm := range []string{modeDefault, modeAcceptEdits, modeBypass} {
 		t.Run(perm, func(t *testing.T) {
-			args := backend.buildArgs(withSession(backend, &agent.ExecuteRequest{}, modePolicy(perm)))
+			args := buildArgs(backend, withSession(backend, &agent.ExecuteRequest{}, modePolicy(perm)))
 			assert.NotContains(t, args, "--disallowedTools")
 		})
 	}
@@ -170,7 +171,7 @@ func TestClaudeCode_BuildArgs_Model(t *testing.T) {
 	req := &agent.ExecuteRequest{
 		Model: "claude-3-sonnet",
 	}
-	args := backend.buildArgs(req)
+	args := buildArgs(backend, req)
 
 	found := false
 	for i, arg := range args {
@@ -190,7 +191,7 @@ func TestClaudeCode_BuildArgs_OneshotMode(t *testing.T) {
 	req := &agent.ExecuteRequest{
 		Mode: agent.ModeOneshot,
 	}
-	args := backend.buildArgs(req)
+	args := buildArgs(backend, req)
 
 	assert.Contains(t, args, "--print")
 }
@@ -204,11 +205,11 @@ func TestClaudeCode_BuildArgs_OneshotPromptOffArgv(t *testing.T) {
 	const task = "review this enormous diff please"
 	prompt := &agent.Fragment{Content: task}
 
-	oneshot := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, Prompt: prompt})
+	oneshot := buildArgs(backend, &agent.ExecuteRequest{Mode: agent.ModeOneshot, Prompt: prompt})
 	assert.NotContains(t, oneshot, task, "oneshot must keep the task off argv (it rides stdin)")
-	require.NotNil(t, promptStdin(&agent.ExecuteRequest{Prompt: prompt}), "promptStdin must carry the task")
+	require.NotNil(t, kit.PromptStdin(&agent.ExecuteRequest{Prompt: prompt}), "promptStdin must carry the task")
 
-	interactive := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive, Prompt: prompt})
+	interactive := buildArgs(backend, &agent.ExecuteRequest{Mode: agent.ModeInteractive, Prompt: prompt})
 	assert.Contains(t, interactive, task, "interactive still passes the initial prompt as a positional arg")
 }
 
@@ -216,7 +217,7 @@ func TestClaudeCode_BuildArgs_OneshotPromptOffArgv(t *testing.T) {
 // stdin reader, so a no-prompt oneshot leaves the child's stdin nil (null device)
 // rather than an empty pipe.
 func TestClaudeCode_PromptStdin_NilWhenNoPrompt(t *testing.T) {
-	assert.Nil(t, promptStdin(&agent.ExecuteRequest{}), "no prompt → nil stdin")
+	assert.Nil(t, kit.PromptStdin(&agent.ExecuteRequest{}), "no prompt → nil stdin")
 }
 
 // TestClaudeCode_BuildArgs_OrdinaryOneshotNoJSON verifies that an ordinary
@@ -229,7 +230,7 @@ func TestClaudeCode_BuildArgs_OrdinaryOneshotNoJSON(t *testing.T) {
 	req := &agent.ExecuteRequest{
 		Mode: agent.ModeOneshot,
 	}
-	args := backend.buildArgs(req)
+	args := buildArgs(backend, req)
 
 	assert.Contains(t, args, "--print")
 	assert.NotContains(t, args, "--output-format")
@@ -243,7 +244,7 @@ func TestClaudeCode_BuildArgs_InteractiveMode(t *testing.T) {
 	req := &agent.ExecuteRequest{
 		Mode: agent.ModeInteractive,
 	}
-	args := backend.buildArgs(req)
+	args := buildArgs(backend, req)
 
 	assert.NotContains(t, args, "--print")
 }
@@ -256,9 +257,9 @@ func TestClaudeCode_BuildArgs_InteractiveNamesSession(t *testing.T) {
 
 	req := &agent.ExecuteRequest{
 		Mode: agent.ModeInteractive,
-		Env:  map[string]string{sessionHarpEnv: "fair-pushy-cable"},
+		Env:  map[string]string{agent.SessionHarpEnv: "fair-pushy-cable"},
 	}
-	args := backend.buildArgs(req)
+	args := buildArgs(backend, req)
 
 	assert.True(t, argPair(args, "--name", "fair-pushy-cable"),
 		"interactive session should be named after the harp")
@@ -269,7 +270,7 @@ func TestClaudeCode_BuildArgs_InteractiveNamesSession(t *testing.T) {
 func TestClaudeCode_BuildArgs_NoHarpNoName(t *testing.T) {
 	backend := NewClaudeCode()
 
-	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive})
+	args := buildArgs(backend, &agent.ExecuteRequest{Mode: agent.ModeInteractive})
 
 	assert.NotContains(t, args, "--name",
 		"absent harp must not produce a --name flag")
@@ -283,7 +284,7 @@ func TestClaudeCode_BuildArgs_Prompt(t *testing.T) {
 	req := &agent.ExecuteRequest{
 		Prompt: &agent.Fragment{Content: "Review this code"},
 	}
-	args := backend.buildArgs(req)
+	args := buildArgs(backend, req)
 
 	assert.Contains(t, args, "Review this code")
 }
@@ -296,7 +297,7 @@ func TestClaudeCode_BuildArgs_NoPrompt(t *testing.T) {
 	req := &agent.ExecuteRequest{
 		Prompt: nil,
 	}
-	args := backend.buildArgs(req)
+	args := buildArgs(backend, req)
 
 	// Should not contain empty string
 	for _, arg := range args {
@@ -315,7 +316,7 @@ func TestClaudeCode_BuildArgs_Combined(t *testing.T) {
 		Mode:   agent.ModeOneshot,
 		Prompt: &agent.Fragment{Content: "Test prompt"},
 	}, modePolicy(modeBypass))
-	args := backend.buildArgs(req)
+	args := buildArgs(backend, req)
 
 	assert.Contains(t, args, "--existing-arg")
 	assert.Contains(t, args, "--dangerously-skip-permissions")
@@ -323,7 +324,7 @@ func TestClaudeCode_BuildArgs_Combined(t *testing.T) {
 	// The oneshot task is delivered on stdin, not argv (see promptStdin), so a
 	// large prompt can't blow the argv length limit.
 	assert.NotContains(t, args, "Test prompt")
-	require.NotNil(t, promptStdin(req))
+	require.NotNil(t, kit.PromptStdin(req))
 }
 
 // --- the prompt positional must survive a variadic flag ---------------------
@@ -347,7 +348,7 @@ func TestClaudeCode_BuildArgs_PromptIsTerminated(t *testing.T) {
 	backend := NewClaudeCode()
 	const task = "Reply with exactly: PROMPTOK"
 
-	args := backend.buildArgs(withSession(backend, &agent.ExecuteRequest{
+	args := buildArgs(backend, withSession(backend, &agent.ExecuteRequest{
 		Mode:   agent.ModeInteractive,
 		Prompt: &agent.Fragment{Content: task},
 	}, modePolicy(modePlan)))
@@ -367,7 +368,7 @@ func TestClaudeCode_BuildArgs_NoTerminatorWithoutPrompt(t *testing.T) {
 		{Mode: agent.ModeInteractive},
 		{Mode: agent.ModeOneshot, Prompt: &agent.Fragment{Content: "off argv"}},
 	} {
-		assert.NotContains(t, backend.buildArgs(req), "--",
+		assert.NotContains(t, buildArgs(backend, req), "--",
 			"no prompt positional means no terminator")
 	}
 }
@@ -382,7 +383,7 @@ func TestClaudeCode_BuildArgs_EveryPromptShapeIsTerminated(t *testing.T) {
 
 	for _, perm := range []string{modeDefault, modeBypass, modeAcceptEdits, modePlan} {
 		for _, model := range []string{"", "sonnet"} {
-			args := backend.buildArgs(withSession(backend, &agent.ExecuteRequest{
+			args := buildArgs(backend, withSession(backend, &agent.ExecuteRequest{
 				Mode:   agent.ModeInteractive,
 				Model:  model,
 				Prompt: &agent.Fragment{Content: task},

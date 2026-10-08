@@ -1,16 +1,13 @@
 package claude
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"slices"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines/kit"
 )
 
 // ClaudeConfig is claude-code's typed LLM config: the fields a claude-code
@@ -29,16 +26,9 @@ type ClaudeConfig struct {
 // BackendType identifies the backend this config drives.
 func (ClaudeConfig) BackendType() string { return EngineName }
 
-// ClaudeCode implements the Backend interface for Claude Code CLI. The shared
-// launch core (capability wiring, accessors, the Execute tail) lives in the
-// embedded agent.LaunchBackend; ClaudeCode adds only the Claude-specific
-// Configure/Execute.
-type ClaudeCode struct {
-	agent.LaunchBackend
-	// kind is the engine KIND this backend projects requests onto: every
-	// argv this backend runs is kind.Instance(session).Exec(presented).
-	kind engine.Engine
-}
+// ClaudeCode is claude's agent.Backend: the shared projection onto the kind
+// (kit.ProjectedBackend) with claude's defaults (claudeBackend).
+type ClaudeCode = kit.ProjectedBackend
 
 // NewClaudeCode creates a new Claude Code backend with default settings.
 func NewClaudeCode() *ClaudeCode {
@@ -46,104 +36,25 @@ func NewClaudeCode() *ClaudeCode {
 	if err != nil {
 		panic(err) // the Definition literal is constant; conformance holds it valid
 	}
-	return newClaudeCode(kind.(Claude))
+	return kit.NewProjectedBackend(kind, nil, claudeBackend)
 }
 
-// newClaudeCode is the backend over one kind value (Claude.Backend).
-func newClaudeCode(kind Claude) *ClaudeCode {
-	b := &ClaudeCode{kind: kind}
-	b.BaseBackend = agent.NewBaseBackend(EngineName, "1.0.0")
-	b.BinaryPath = "claude"
-	// claude routes launch-time surface delivery through the surfaces × cells
-	// seam. In a SharedCell context/MCP/settings ride out-of-cwd launch flags; in an isolated cell
-	// they land as well-known files in the private working dir. The Build closure
-	// stashes the concrete Surfaces so buildArgs can read the flag files' paths.
-	b.InitLaunch(agent.NewBaseContextProvider())
-	// The run's CLAUDE_CONFIG_DIR is the engine home the record-backed
-	// settings write (surfaces_hewrecord.go) lands beneath; a run without one
-	// advises no engine home and that write refuses.
-	b.SetEngineHomeVar(ConfigDirEnv)
-	return b
+// claudeBackend is what claude's projected backend needs beyond the kind.
+// The run's CLAUDE_CONFIG_DIR is the engine home a request names.
+var claudeBackend = kit.BackendDefaults{
+	Engine:   EngineName,
+	Binary:   "claude",
+	Provider: "anthropic",
+	HomeVar:  ConfigDirEnv,
+	Policy:   defaultPolicy,
+	Local: func(cfg agent.BackendConfig) (string, []string, error) {
+		c, ok := cfg.(*ClaudeConfig)
+		if !ok {
+			return "", nil, kit.ErrConfigType(EngineName, cfg)
+		}
+		return c.BinaryPath, c.Args, nil
+	},
 }
-
-// Configure applies a decoded claude-code config to this backend.
-func (b *ClaudeCode) Configure(cfg agent.BackendConfig) error {
-	c, ok := cfg.(*ClaudeConfig)
-	if !ok {
-		return fmt.Errorf("%w: %s got %T", agent.ErrBackendConfigType, EngineName, cfg)
-	}
-	agent.ApplyLocalCLIConfig(&b.BaseBackend, c.BinaryPath, c.Args)
-	return nil
-}
-
-// session is the engine-facing Session the instance is bound to: the
-// runner's projection when the request carries one, else one projected from
-// the request — the harp the run env carries, the label's binary and args,
-// the model, the mode and posture, the prompt, the working directory and the
-// relocated home the run env names.
-func (b *ClaudeCode) session(req *agent.ExecuteRequest) engine.Session {
-	if req.Session != nil {
-		return *req.Session
-	}
-	s := engine.Session{
-		Identity:   sessions.Identity{Harp: req.Env[sessionHarpEnv]},
-		Label:      engine.LabelConfig{Label: EngineName, Model: req.Model, Binary: b.BinaryPath, Args: b.Args},
-		Mode:       req.Mode,
-		Permission: defaultPolicy(),
-		Prompt:     agent.GetPromptContent(req.Prompt),
-		WorkDir:    b.WorkDir(),
-	}
-	if home := req.Env[ConfigDirEnv]; home != "" {
-		s.Home = []engine.HomeBinding{{Var: ConfigDirEnv, Path: home}}
-	}
-	return s
-}
-
-// exec is the request's Exec: the instance bound to the request's session,
-// over what the runner delivered (req.Presented).
-func (b *ClaudeCode) exec(req *agent.ExecuteRequest) (engine.Exec, error) {
-	inst, err := b.kind.Instance(b.session(req))
-	if err != nil {
-		return engine.Exec{}, err
-	}
-	return inst.Exec(req.Presented)
-}
-
-// Execute runs the backend with the given request.
-func (b *ClaudeCode) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
-	// Best-effort model identity. In minimal mode this is overwritten below with
-	// the real id the CLI reports; otherwise it is the requested model, falling
-	// back to the backend name rather than a fabricated version.
-	modelName := req.Model
-	if modelName == "" {
-		modelName = b.Name()
-	}
-	modelInfo := &agent.ModelInfo{
-		ModelName: modelName,
-		Provider:  "anthropic",
-	}
-
-	ex, err := b.exec(req)
-	if err != nil {
-		return nil, err
-	}
-	b.SetExecuteEnv(func(*agent.ExecuteRequest) map[string]string { return ex.Env })
-	args := ex.Args
-
-	// Oneshot pipes the task on stdin (buildArgs left it off the argv); interactive
-	// carries the prompt in argv and its stdin is the frontend's (req.Stdin).
-	var oneshotStdin io.Reader
-	if req.Mode == agent.ModeOneshot {
-		oneshotStdin = promptStdin(req)
-	}
-	return b.ExecuteCLI(ctx, req, args, oneshotStdin, modelInfo, stdout, stderr)
-}
-
-// sessionHarpEnv is the env var carrying ctxloom's per-session harp name (e.g.
-// "fair-pushy-cable"). The host sets it on the run env; the backend reads it to
-// name the launched claude session. Aliases the shared const in the agent
-// substrate so the two can't drift.
-const sessionHarpEnv = agent.SessionHarpEnv
 
 // permissionArgs is a HEADLESS launch's posture on claude's argv: only what
 // never changes between turns. bypass is the blanket skip; plain plan (no
@@ -322,14 +233,4 @@ func turnSettings(p posture, mcpServers []string, t engine.TurnPosture) (string,
 		doc.Allow = append(doc.Allow, agent.QualifyMCPServers(mcpServers)...)
 	}
 	return settingsDocument(doc, p.sandboxDoc())
-}
-
-// promptStdin returns the oneshot task as a stdin reader for claude -p, or nil
-// when there is no prompt. Delivering the task on stdin instead of argv keeps a
-// large prompt off the command line, which the OS length-limits (E2BIG).
-func promptStdin(req *agent.ExecuteRequest) io.Reader {
-	if prompt := agent.GetPromptContent(req.Prompt); prompt != "" {
-		return strings.NewReader(prompt)
-	}
-	return nil
 }

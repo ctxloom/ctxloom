@@ -198,7 +198,7 @@ const classicScreenEnv = "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN"
 // (run_in_background, auto-backgrounding) for a structured run.
 const disableBackgroundTasksEnv = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
 
-// EngineCLIs declares claude's oneshot and interactive process surfaces.
+// ClaudeEngineCLIs declares claude's oneshot and interactive process surfaces.
 //
 // The two differ in these ways, all of them load-bearing:
 //
@@ -209,12 +209,9 @@ const disableBackgroundTasksEnv = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
 //	the prompt        oneshot pipes it on STDIN (argv delivery hit E2BIG on
 //	                  `ctxloom weave` synthesis); interactive passes it as the
 //	                  trailing argv positional.
-func (b *ClaudeCode) EngineCLIs() []agent.EngineCLI {
-	return ClaudeEngineCLIs()
-}
-
-// ClaudeEngineCLIs returns claude's surface declarations. Exposed as a function
-// (not a package var) so no consumer can mutate the shared declaration.
+//
+// Exposed as a function (not a package var) so no consumer can mutate the
+// shared declaration.
 func ClaudeEngineCLIs() []agent.EngineCLI {
 	oneshot := agent.EngineCLI{
 		Engine:  EngineName,
@@ -248,6 +245,3 @@ func ClaudeEngineCLIs() []agent.EngineCLI {
 	}
 	return []agent.EngineCLI{oneshot, interactive}
 }
-
-// Compile-time contract: claude declares its native CLI surfaces.
-var _ agent.EngineCLIProvider = (*ClaudeCode)(nil)

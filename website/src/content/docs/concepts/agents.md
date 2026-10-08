@@ -180,7 +180,7 @@ Left unset, the project's devcontainer is used when one exists, and ctxloom's ow
 
 ### Tooling declarations
 
-Companions (ltk, taskloom and the like) declare the tools their content needs inside the agent image, as a typed `tooling` entry in their loadout. `ctxloom container tooling` collects the declarations from **admitted** companions and emits them with instructions for your AI: propose the additions to the base as a diff, get your explicit approval per change, then rebuild. A rejected companion's declaration is withheld, and nothing is applied automatically on pull or sync.
+Companions (ltk, taskloom and the like) declare the tools their content needs inside the agent image, as a typed `tooling` entry in their loadout. `ctxloom container tooling` collects the declarations from the companions you **registered** (`ctxloom companion add`) and emits them with instructions for your AI: propose the additions to the base as a diff, get your explicit approval per change, then rebuild. An unregistered companion is never run, so it declares nothing, and nothing is applied automatically on pull or sync.
 
 ## Agents vs profiles
 

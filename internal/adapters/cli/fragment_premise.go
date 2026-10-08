@@ -192,8 +192,7 @@ func proposePremise(ctx context.Context, cfg *config.Config, label, ref string, 
 }
 
 // decideAndWritePremise shows the proposal, takes the human's decision, and
-// writes an accepted or edited premise, noting when it stales the item's
-// approvals (the premise is signed; notes are not).
+// writes an accepted or edited premise (with its notes).
 func decideAndWritePremise(ctx context.Context, cmd *cobra.Command, cfg *config.Config, bundleName, itemName, currentPremise string, p *premiseProposal) error {
 	renderPremiseProposal(cmd.OutOrStdout(), p)
 	if err := decidePremise(cfg, p); err != nil {

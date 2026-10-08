@@ -239,7 +239,7 @@ func TestList_UnreadableBundlesDirIsLoud(t *testing.T) {
 // sentinel for pinned remote content. skillContent took filepath.Dir of it
 // unconditionally, and filepath.Dir("") is ".", so a companion bundle's skills
 // resolved against the PROCESS WORKING DIRECTORY — arbitrary project-local
-// files loaded, trusted and materialized as that companion's skill package.
+// files loaded and materialized as that companion's skill package.
 //
 // The test builds exactly that: a bundle with an empty Path declaring a skill,
 // and a "skills/<name>" tree at the filesystem root that is NOT the bundle's.

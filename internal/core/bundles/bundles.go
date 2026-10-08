@@ -192,7 +192,7 @@ var nonFilesystemPathPrefixes = []string{remotePathSentinel, "<remote-version>:"
 //   - filepath.Dir("") is ".", and so is filepath.Dir("<seeded>:some-bundle")
 //     (no separator in it). A companion or seeded bundle's files therefore
 //     resolved against the PROCESS WORKING DIRECTORY — whatever happened to sit
-//     at ./skills/<name> was loaded, trust-gated and materialized AS that
+//     at ./skills/<name> was loaded and materialized AS that
 //     bundle's content. Arbitrary project-local files, adopted under a
 //     bundle's identity.
 //   - filepath.Dir("<remote>:some/bundle@sha") is "<remote>:some", a garbage

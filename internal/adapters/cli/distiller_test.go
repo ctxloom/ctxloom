@@ -60,8 +60,9 @@ func TestNewLLMDistiller_ResolvableLabelIsSilent(t *testing.T) {
 // TestLoadDistillPrompt_AbsentSourcesYieldTheDefault pins the arm that is
 // legitimately a fallback: nothing configured anywhere (here, no config at
 // all) is an ABSENCE, and an absence gets the embedded default with no error.
-// Its counterpart — a configured prompt the trust gate WITHHELD, which is a
-// decision and not an absence — is TestBundleDistill_WithheldPromptRefuses.
+// Its counterpart — a configured prompt the delivery pipeline WITHHELD
+// (errs.ErrCommandWithheld), which is a decision and not an absence — is
+// refused by loadDistillPrompt instead.
 func TestLoadDistillPrompt_AbsentSourcesYieldTheDefault(t *testing.T) {
 	got, err := loadDistillPrompt(nil)
 	require.NoError(t, err)

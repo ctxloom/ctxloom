@@ -1766,7 +1766,7 @@ func TestBundleHooks_EveryEventIsWiredEndToEnd(t *testing.T) {
 	typ := reflect.TypeOf(BundleHooks{})
 
 	// Every field's yaml tag must be an event in hookEventOrder, and vice
-	// versa — the order slice IS the trust-identity and enumeration vocabulary.
+	// versa — the order slice IS the hook-event identity and enumeration vocabulary.
 	var tags []string
 	for i := 0; i < typ.NumField(); i++ {
 		tags = append(tags, strings.Split(typ.Field(i).Tag.Get("yaml"), ",")[0])

@@ -9,7 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
-// Multi-version coexistence (trust rework, TR5)
+// Multi-version coexistence
 //
 // The default loader materializes ONE version of a bundle — the lockfile-pinned
 // SHA (via the seeded-bundle map) or the on-disk copy. These methods add the
@@ -17,11 +17,10 @@ import (
 // each materialized by its own commit.
 //
 // Addressing follows the plan: a logical ref "<bundle>#fragments/<name>" plus an
-// opaque "@<commit>" revision. The version-less ref is the trust identity — a
-// grant keyed {repo, ref, content_hash} matches whichever commit produced that
-// content — so two commits with identical content dedup to one item, while a
-// trusted version and a blacklisted version of the same ref coexist with only
-// the trusted one surviving.
+// opaque "@<commit>" revision. The version-less ref is the source identity:
+// every version of an item is addressed by the SAME item ref, and
+// Pipeline.ResolveFragmentVersions collapses versions whose delivered bytes are
+// identical to one item.
 //
 // Load / ReadFragment / ReadCommand are deliberately UNTOUCHED: the
 // lockfile-pinned default path is unchanged, and per-version resolution is
@@ -76,9 +75,9 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	if b == nil {
 		return BundleRead{}, fmt.Errorf("resolve %s@%s: resolver returned nil bundle", canonical, commit)
 	}
-	// The version-less canonical ref is the trust/identity key: a historical
-	// version is gated by its own content_hash under the SAME ref, so grants
-	// keyed {repo, ref, content_hash} match regardless of the serving commit.
+	// The version-less canonical ref is the source identity: a historical
+	// version is addressed under the SAME ref as the lockfile-pinned one,
+	// whichever commit served it.
 	//
 	// sourceRef carries it, because sourceRef is what contentSourceRef reads
 	// and therefore what items are addressed by. Stamping it HERE — rather
@@ -90,10 +89,10 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	// about itself.
 	//
 	// Name is stamped too, for the resolution/display identity it names. It is
-	// no longer load-bearing for trust, and that matters: Name is declared in
-	// a bundle's own YAML, so a version path that keyed trust off it would let
-	// a declared name steer which grants apply to a historical version
-	// (outdated-recoil).
+	// not the source identity, and that matters: Name is declared in a
+	// bundle's own YAML, so a version path that keyed identity off it would
+	// let a declared name steer which item a historical version is addressed
+	// as (outdated-recoil).
 	//
 	// sourceRefTyped is stamped alongside sourceRef, through the SAME
 	// sourceBundleRef bridge repoFSReader.sourceRefTyped uses on a
@@ -142,7 +141,7 @@ func versionRead(rep report.Reporter, canonical, commit string, b *Bundle) Bundl
 // splitBundleVersion separates a bundle reference's version-less canonical form
 // from any trailing "@<commit>" content version. A BARE NAME (a plain local
 // bundle) is returned canonicalized with an empty version. The version-less
-// canonical form is the loader/trust identity key, which is why a ref that
+// canonical form is the source identity the loader keys on, which is why a ref that
 // names a source and does not parse errors instead: an unparseable source
 // canonicalized as a local name would key its content under an identity the
 // project owns.
@@ -167,8 +166,7 @@ func splitBundleVersion(bundleRef string) (canonical, version string, err error)
 // identical to ReadFragment).
 //
 // Each version carries its OWN bytes under the VERSION-LESS ItemRef, so the
-// process stage decides on each independently (a grant keyed
-// {repo, ref, content_hash} matches whichever commit produced that content). A
+// process stage decides on each independently. A
 // fetch/parse failure returns a resolve error, which costs only that version —
 // the reader never falls back to a different one. A bare-name ref (no "#") has
 // no bundle to pin a version against and resolves via the ordinary search

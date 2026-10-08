@@ -232,7 +232,7 @@ func TestMultiVersion_NoResolverFailsClosed(t *testing.T) {
 // with only a warn line to show for it. bundleAtVersion must stamp
 // sourceRefTyped through the SAME canonicalBundleRefTyped bridge
 // repoFSReader.sourceRefTyped uses on a ref of this identical canonical
-// shape, so a historical version keys under the SAME trust identity as its
+// shape, so a historical version keys under the SAME source identity as its
 // unpinned twin.
 func TestMultiVersion_TypedSourceRefIsStamped(t *testing.T) {
 	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {

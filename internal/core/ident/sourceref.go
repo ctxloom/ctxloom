@@ -2,13 +2,12 @@ package ident
 
 import "fmt"
 
-// ItemRef mints the canonical "<source>#<kind>/<item>" reference an item's
-// trust key is built from, given the bundle-level ref its reader already
-// stamped.
+// ItemRef mints the canonical "<source>#<kind>/<item>" reference an item is
+// identified by, given the bundle-level source ref its reader already stamped.
 //
 // A source that cannot be addressed yields an ERROR and no string. There is no
 // placeholder identity: a reference is either the canonical address of an item
-// a grant can key on, or it does not exist. Minting a stand-in would push a
+// or it does not exist. Minting a stand-in would push a
 // parse failure through the IDENTITY channel and leave a later stage to refuse
 // it, which splits one validation across two layers and keys the refusal on a
 // string no human can act on.

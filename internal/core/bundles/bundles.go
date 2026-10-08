@@ -55,9 +55,9 @@ type Bundle struct {
 	// Addressed by "<bundle>#profiles/<name>" (refuri.ProfileSelector) and seeded
 	// into the shared profile loader so a bundle profile resolves/runs exactly
 	// like a top-level or local profile (config bundle-profile seed). The profile
-	// DEFINITION is never trust-gated (no ident.ItemKind for profiles, never
-	// baselined); its constituent fragments/commands still gate at content
-	// assembly and any mcp/hooks it pulls in still gate at the exec choke.
+	// DEFINITION is not an item (no ident.ItemKind for profiles), so the
+	// delivery pipeline never withholds it; its constituent fragments/commands
+	// still pass through that pipeline at assembly.
 	Profiles map[string]BundleProfile `yaml:"profiles,omitempty"`
 
 	// Hooks shipped with this bundle (e.g. PostFileEdit plan-stamping).
@@ -86,21 +86,21 @@ type Bundle struct {
 	// silently yielding "." (see FSDir's doc for what that cost).
 	Path string `yaml:"-"` // File path for saving; see FSDir before using as one
 	// sourceRef is the bundle's LOCATION-DERIVED canonical ref, and it is the
-	// sole input to contentSourceRef — the content trust key. Every shape it
+	// sole input to contentSourceRef — the bundle's source identity. Every shape it
 	// takes is decided by WHERE the bundle was found, never by what it says
 	// about itself: the class-appropriate minter's BundleRef for a remote
 	// (cloned) source, a companion loadout (ident.CompanionRef), and the
 	// path-relative resolution
-	// name for a bundle in the project's own tree (ident.LocalRef) — the
-	// last of those is what lets project content auto-trust.
+	// name for a bundle in the project's own tree (ident.LocalRef).
 	//
 	// newRead stamps the resolution ref here whenever a reader left it empty,
 	// so it is never empty on a read a reader emitted. That backstop is a
 	// SECURITY property, not tidiness: Bundle.Name is declared in the bundle's
 	// own YAML (`name:`), so falling back to it would let the content being
-	// judged choose its own trust key — a project bundle declaring
-	// `name: ctxloom:companion@ltk` would claim the companion's trust identity, and
-	// a bundle that renamed itself would move off its own recorded decisions.
+	// addressed choose its own source identity — a project bundle declaring
+	// `name: ctxloom:companion@ltk` would claim the companion's identity (its
+	// item refs and its MCP server linkage), and a bundle that renamed itself
+	// would move off its own lockfile entry.
 	// The declared name is CONTENT, and therefore never an input to the
 	// identity it is keyed under.
 	//
@@ -143,29 +143,28 @@ type Bundle struct {
 // intrinsic content, never installed; see companionReader.read.
 func (b *Bundle) Self() bool { return b.self }
 
-// contentSourceRef returns the bundle's honest source ref for content trust
-// gating: the canonical ref of a seeded (cloned) bundle, the CompanionRef of
-// a companion loadout, or the LocalRef of a project (fs) bundle. Locality
-// flows from this into the trust cascade, so a clone's TEXT gates like its
-// executables, a companion's TEXT carries the SAME identity whether it was
-// selected by ref or delivered unconditionally (two identities for one item
-// is how a rejection via one route fails to withhold the other), and a
-// project bundle's bare token keys IsLocal and auto-trusts. "Text to an LLM
-// is executable."
+// contentSourceRef returns the bundle's canonical source ref — its source
+// identity: the canonical ref of a seeded (cloned) bundle, the CompanionRef of
+// a companion loadout, or the LocalRef of a project (fs) bundle. Every item
+// ref the bundle's content is addressed by is built from it, so a companion's
+// TEXT carries the SAME identity whether it was selected by ref or delivered
+// unconditionally (two identities for one item is how one route's item stops
+// matching the other's).
 //
 // It reads sourceRef and NOTHING ELSE. In particular it must never fall back
 // to Bundle.Name: Name is DECLARED in the bundle's own YAML, so a fallback
-// would make the content being judged an input to its own trust key — a
-// project bundle declaring `name: ctxloom:companion@ltk` would key as the companion
-// and inherit its grants. newRead stamps the location-derived resolution ref
+// would make the content being addressed an input to its own source identity
+// — a project bundle declaring `name: ctxloom:companion@ltk` would key as the
+// companion and inherit its MCP server linkage. newRead stamps the location-derived resolution ref
 // into sourceRef for every read a reader emits, so there is nothing for a
 // fallback to do but reopen that hole (outdated-recoil).
 //
 // That last sentence is measured, not assumed, and it is why NO test can be
 // written that dies to restoring the fallback here on its own: with newRead
 // stamping, the fallback is unreachable. Its removal is trap removal — the
-// stamp is the load-bearing half, and the tests that die are the ones that die
-// when the stamp goes (internal/adapters/operations/declared_name_trust_test.go).
+// stamp is the load-bearing half. The test that died when the stamp went
+// (operations' declared_name_trust_test.go) was deleted with the trust gate,
+// so today nothing pins the stamp end to end.
 func (b *Bundle) contentSourceRef() ident.BundleRef {
 	if b == nil {
 		return ident.BundleRef{}

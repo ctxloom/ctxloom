@@ -13,8 +13,8 @@ import (
 // class, the "//" repository/bundle split, percent-encoding and dot-segment
 // resolution — lives in internal/shared/refuri, below both this package and
 // internal/adapters/remote. This package adds what refuri deliberately does not know:
-// that the "#" fragment names a trust ITEM KIND, and that a parsed reference
-// is an identity a grant keys on.
+// that the "#" fragment names an ITEM KIND, and that a parsed reference is a
+// source identity.
 //
 // The class names are re-exported rather than re-declared so a caller reading
 // ident.ClassGit and a caller reading refuri.ClassGit cannot come to hold two
@@ -204,11 +204,11 @@ func (r BundleRef) render(withVersion bool) string {
 // Refusing is the right answer and folding is not, because identity here
 // derives from the FILESYSTEM. Filenames are case-sensitive on Linux and
 // case-INSENSITIVE on macOS and Windows, so one repository can yield an item
-// called "Isolation" on one machine and "isolation" on another — two trust
-// keys for one item, on machines that share trust records through git. Folding
-// instead would merge genuinely DISTINCT items: "README" and "readme" are both
-// legal keys, and collapsing them would let a rejection of one silently apply
-// to the other. Refusing costs nothing real, because a repository holding both
+// called "Isolation" on one machine and "isolation" on another — two source
+// identities for one item, on machines that share a lockfile through git.
+// Folding instead would merge genuinely DISTINCT items: "README" and "readme"
+// are both legal keys, and collapsing them would let a reference to one
+// silently resolve to the other. Refusing costs nothing real, because a repository holding both
 // spellings cannot be checked out on macOS at all.
 //
 // The comparison is scoped to one source — class, host and repository path

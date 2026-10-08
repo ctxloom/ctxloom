@@ -39,7 +39,7 @@ func Run(t *testing.T, eng engine.Engine) {
 	require.Equal(t, def.Name, eng.Root().Name, "the Definition is a value, equal on every call")
 	require.Equal(t, def.Modes, eng.Root().Modes)
 	checkDerivedViews(t, def)
-	checkContainerArgv(t, def)
+	checkContainerPaths(t, def)
 
 	// The instance half.
 	checkEngineFacts(t, eng, def)
@@ -110,12 +110,14 @@ func checkDerivedViews(t *testing.T, def engine.Base) {
 	}
 }
 
-// checkContainerArgv delivers every kind at its default root into a cell
+// checkContainerPaths delivers every kind at its default root into a cell
 // whose roots are relocated, as a container relocates them, and requires
-// every path the engine is told on argv to be the ENGINE side: a host path
-// there names a directory the engine cannot open. It is not vacuous — some
-// argv value must name a relocated root, or the check proved nothing.
-func checkContainerArgv(t *testing.T, def engine.Base) {
+// every path the engine is told — on argv OR in the environment — to be the
+// ENGINE side: a host path there names a directory the engine cannot open.
+// An engine that announces its config dir through an env var is held to the
+// same rule as one that passes it as a flag. It is not vacuous — some
+// announced value must name a relocated root, or the check proved nothing.
+func checkContainerPaths(t *testing.T, def engine.Base) {
 	t.Helper()
 	dir := t.TempDir()
 	host := present.Paths{
@@ -136,18 +138,41 @@ func checkContainerArgv(t *testing.T, def engine.Base) {
 		a := def.Surfaces()[k]
 		d, err := deliverMinimal(def, k, start, a.Traits().Roots[0], files)
 		require.NoError(t, err, "deliver %v through %s", k, a.Name())
-		for _, arg := range d.Presented.Args {
+		for _, v := range presentedValues(d.Presented) {
 			for _, r := range []present.Root{host.ProjectRoot, host.SessionHome} {
-				require.False(t, present.Under(arg, r.Host), "%v announces the HOST path %q on argv; the engine opens the engine side", k, arg)
+				require.False(t, present.Under(v.value, r.Host), "%v announces the HOST path %q on %s; the engine opens the engine side", k, v.value, v.channel)
 			}
 			for _, r := range []present.Root{mapped.Paths().ProjectRoot, mapped.Paths().SessionHome} {
-				if present.Under(arg, r.Engine) {
+				if present.Under(v.value, r.Engine) {
 					engineSide++
 				}
 			}
 		}
 	}
-	require.Positive(t, engineSide, "no argv value names a relocated root, so this check proved nothing")
+	require.Positive(t, engineSide, "no argv or env value names a relocated root, so this check proved nothing")
+}
+
+// announced is one value a presentation hands the engine, and the channel
+// that carries it (for the failure message).
+type announced struct{ channel, value string }
+
+// presentedValues is every value a presentation announces to the engine:
+// each argv element, then each env value in key order (deterministic, so a
+// failure names the same variable on every run).
+func presentedValues(p present.Presentation) []announced {
+	out := make([]announced, 0, len(p.Args)+len(p.Env))
+	for _, a := range p.Args {
+		out = append(out, announced{channel: "argv", value: a})
+	}
+	keys := make([]string, 0, len(p.Env))
+	for k := range p.Env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		out = append(out, announced{channel: "env " + k, value: p.Env[k]})
+	}
+	return out
 }
 
 // checkEngineFacts asserts the engine-level instance facts: Home validates,

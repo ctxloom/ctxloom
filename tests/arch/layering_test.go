@@ -17,6 +17,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/ctxloom/ctxloom/internal/shared/archrules"
 )
 
@@ -77,6 +79,36 @@ func TestArch_LayeringAllowlist_IsLive(t *testing.T) {
 			if _, ok := pkgs[from]; !ok {
 				t.Errorf("rule %q allows %q, but %q is not a package in this module — delete the entry", rule.Name, key, from)
 			}
+		}
+	}
+}
+
+// TestArch_EnginePluginRules_ForbidEveryEngine: the rules keeping core/agent
+// and operations off concrete engines forbid the WHOLE engines ring — every
+// engine package the scan finds, plus kit and the registry root — not one
+// engine by name. A rule spelling a single engine's path guards only that
+// engine, and a newly added engine would be imported unseen.
+func TestArch_EnginePluginRules_ForbidEveryEngine(t *testing.T) {
+	pkgs := scan(t)
+	var engines []string
+	for dir := range pkgs {
+		if archrules.UnderAny(dir, []string{"internal/engines"}) {
+			engines = append(engines, dir)
+		}
+	}
+	sort.Strings(engines)
+	require.Contains(t, engines, "internal/engines/mock", "the scan must see more than one engine for this test to mean anything")
+
+	for _, name := range []string{"shared/agent-must-not-import-engine-plugins", "operations-must-not-import-engine-plugins"} {
+		var rule *archrules.LayeringRule
+		for i := range archrules.LayeringRules {
+			if archrules.LayeringRules[i].Name == name {
+				rule = &archrules.LayeringRules[i]
+			}
+		}
+		require.NotNil(t, rule, "layering rule %q is gone", name)
+		for _, dir := range engines {
+			require.True(t, rule.Violates(dir), "rule %q does not forbid %s", name, dir)
 		}
 	}
 }

@@ -138,6 +138,12 @@ var schemaEnumBindings = []schemaEnumBinding{
 	// through verbatim (ClaudeCodeHookWriter.addHook defaults it to
 	// "command" and otherwise copies wire.Hook.Type as-is); no ctxloom Go
 	// type owns it.
+	// An engine's own session-sharing vocabulary on its label branch, passed
+	// verbatim into the engine's config document; no ctxloom Go type owns it.
+	{
+		path:          "$defs/llmConfig/anyOf/2/properties/share",
+		excludeReason: "an engine's own session-sharing vocabulary, passed verbatim into its config; no ctxloom Go type owns it",
+	},
 	{
 		path:          "$defs/hook/properties/type",
 		excludeReason: "claude-code's own hook-handler type vocabulary, passed through verbatim; no ctxloom Go type owns it",

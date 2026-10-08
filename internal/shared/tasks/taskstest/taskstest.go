@@ -153,6 +153,17 @@ var EnvKeys = []string{
 	"GCLOUD_PROJECT",
 	"GOOGLE_APPLICATION_CREDENTIALS",
 	"GOOGLE_CLOUD_PROJECT",
+	// The XDG base directories an engine relocates as merged trees: a host
+	// session's own would point a test's engine at the developer's real
+	// config and data.
+	"XDG_CONFIG_HOME",
+	"XDG_DATA_HOME",
+	"XDG_STATE_HOME",
+	"XDG_CACHE_HOME",
+	"OPENCODE_CONFIG_DIR",
+	"OPENCODE_TEST_HOME",
+	"OPENCODE_TEST_MANAGED_CONFIG_DIR",
+	"CTXLOOM_OPENCODE_API_KEY",
 }
 
 // Isolate roots HOME at a fresh temp dir and unsets every EnvKeys variable for

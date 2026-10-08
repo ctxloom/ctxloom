@@ -12,13 +12,17 @@
 # version-detect table (self-healing-engine-pipeline plan, Stage 1 / the
 # Grounding table):
 #   claude-code  -> npm view @anthropic-ai/claude-code version
+#   opencode     -> the latest GitHub release tag of anomalyco/opencode, v stripped
 set -euo pipefail
 
-engine="${1:?usage: detect-engine-version.sh <claude-code>}"
+engine="${1:?usage: detect-engine-version.sh <claude-code|opencode>}"
 
 case "$engine" in
 claude-code)
   npm view @anthropic-ai/claude-code version
+  ;;
+opencode)
+  gh release view --repo anomalyco/opencode --json tagName --jq '.tagName | ltrimstr("v")'
   ;;
 *)
   echo "detect-engine-version.sh: unknown engine '$engine'" >&2

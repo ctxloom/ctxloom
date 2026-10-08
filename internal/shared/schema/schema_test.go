@@ -56,12 +56,39 @@ config:
 	// A backend type with no $defs/llmConfig branch is refused, not accepted
 	// as free-form: config must not be able to name an engine no build of
 	// ctxloom can run.
-	for _, removed := range []string{"codex", "opencode"} {
-		t.Run("unregistered backend type "+removed+" is refused", func(t *testing.T) {
-			err := v.ValidateBytes([]byte("schema_version: 7\nllm:\n  configs:\n    big: { type: " + removed + " }\n"))
-			assert.Error(t, err)
-		})
-	}
+	t.Run("unregistered backend type codex is refused", func(t *testing.T) {
+		err := v.ValidateBytes([]byte("schema_version: 7\nllm:\n  configs:\n    big: { type: codex }\n"))
+		assert.Error(t, err)
+	})
+
+	// opencode has a branch: a label naming its endpoint, output limit and
+	// window is accepted; one missing any of them, carrying an unknown key or
+	// a negative header timeout, is refused. header_timeout_ms 0 is legal: it
+	// disables the timeout.
+	t.Run("opencode label", func(t *testing.T) {
+		label := func(body string) []byte {
+			return []byte("schema_version: 7\nllm:\n  configs:\n    qwen:\n      type: opencode\n" + body)
+		}
+		const full = "      model: qwen3.8-27b\n      context_window: 131072\n      provider: { base_url: http://192.168.1.20:8081/v1, output_limit: 8192, header_timeout_ms: 0, chunk_timeout_ms: 300000 }\n      model_options: { chat_template_kwargs: { enable_thinking: false }, temperature: 0.7 }\n      snapshot: false\n      title_generation: false\n      share: disabled\n      permissions: { approver: none, mode: build }\n"
+		require.NoError(t, v.ValidateBytes(label(full)))
+		for name, body := range map[string]string{
+			"no type":              "      model: m\n      context_window: 1\n      provider: { base_url: http://h/v1, output_limit: 1, header_timeout_ms: 0 }\n      share: disabled\n",
+			"no context_window":    "      model: m\n      provider: { base_url: http://h/v1, output_limit: 1 }\n",
+			"no provider":          "      model: m\n      context_window: 1\n",
+			"no output_limit":      "      model: m\n      context_window: 1\n      provider: { base_url: http://h/v1 }\n",
+			"a non-http base_url":  "      model: m\n      context_window: 1\n      provider: { base_url: ftp://h, output_limit: 1 }\n",
+			"a negative timeout":   "      model: m\n      context_window: 1\n      provider: { base_url: http://h/v1, output_limit: 1, header_timeout_ms: -1 }\n",
+			"an unknown share":     "      model: m\n      context_window: 1\n      provider: { base_url: http://h/v1, output_limit: 1 }\n      share: public\n",
+			"an api key in config": "      model: m\n      context_window: 1\n      provider: { base_url: http://h/v1, output_limit: 1, api_key: secret }\n",
+			"an unknown top-level": "      model: m\n      context_window: 1\n      provider: { base_url: http://h/v1, output_limit: 1 }\n      mock_control: {}\n",
+		} {
+			raw := label(body)
+			if name == "no type" {
+				raw = []byte("schema_version: 7\nllm:\n  configs:\n    qwen:\n" + body)
+			}
+			assert.Error(t, v.ValidateBytes(raw), name)
+		}
+	})
 
 	t.Run("invalid YAML", func(t *testing.T) {
 		yaml := `invalid: yaml: [[`

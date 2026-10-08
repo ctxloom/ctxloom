@@ -275,27 +275,6 @@ func (w *ClaudeCodeHookWriter) corruptSettings(path string, data []byte, what st
 	return agent.RefuseCorrupt(w.getFS(), path, data, what, cause, consequence)
 }
 
-// desiredMCPServers is the set of servers ctxloom wants present, as generic
-// values — the user's own servers are never part of it. Each entry is spelled
-// by the shared agent.ChatMCPConfigEntryOf, so a remote server lands here as
-// type/url/headers exactly as the chat scratch file spells it, and a
-// targetless one is refused by name.
-//
-// The JSON round trip is what honours the entry's json tags, including
-// omitempty: hew encodes whatever Go value it is handed, and handing it the
-// struct directly would spell the keys by their Go field names.
-func (w *ClaudeCodeHookWriter) desiredMCPServers(bundleMCP map[string]wire.MCPServer) (map[string]any, error) {
-	out := make(map[string]any, len(bundleMCP))
-	for name, server := range bundleMCP {
-		entry, err := mcpEntry(name, server)
-		if err != nil {
-			return nil, err
-		}
-		out[name] = entry
-	}
-	return out, nil
-}
-
 // applyMCPServers is the one write into a "mcpServers" table: it puts desired
 // there through store, taking back out what the store's writer put there last
 // time, and records what it wrote. Its caller is taskloom's MCPRegistrar.
@@ -402,7 +381,11 @@ const AppMCPServerName = agent.MCPServerName
 // invariant), and no rewrite happens here. The ctxloom entry alone gets a
 // cwd, so it runs in the project directory where findAppDir works — the one
 // field no bundle can express, and .mcp.json (not settings.json) is where
-// ${CLAUDE_PROJECT_DIR} expands, see MCPConfigPath.
+// ${CLAUDE_PROJECT_DIR} expands, see MCPConfigPath. The entry is spelled by
+// the shared agent.ChatMCPConfigEntryOf (a remote server as type/url/headers,
+// exactly as the chat scratch file spells it; a targetless one refused by
+// name) and handed over as generic values (agent.GenericMCPEntry), so the
+// entry's json tags, omitempty included, decide the keys hew writes.
 func mcpEntry(name string, server wire.MCPServer) (any, error) {
 	if err := server.Validate(); err != nil {
 		return nil, fmt.Errorf("mcp server %q: %w", name, err)

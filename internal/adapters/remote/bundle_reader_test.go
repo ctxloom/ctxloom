@@ -261,5 +261,3 @@ func TestLoadAllBytes(t *testing.T) {
 		}
 	})
 }
-
-// --- detached publisher signatures (spec §4.1) --------------------------------

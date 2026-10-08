@@ -11,10 +11,10 @@ import (
 // package DECLARES about its executability, and what git happened to record.
 //
 // The two mode fields are separate because they answer different questions and
-// only one of them is authoritative. A POSIX mode is not portable and a bundle
-// tree's digest deliberately excludes mode bits, so what a publisher SAID —
-// the `executable:` list inside the hashed, signed sidecar — is the whole of
-// what travels. git's 100755 is transport detail that no signature covers.
+// only one of them is authoritative. A POSIX mode is not portable and is not
+// part of a bundle tree's content, so what a publisher SAID — the
+// `executable:` list inside the item's sidecar — is the whole of what travels.
+// git's 100755 is transport detail the package never declared.
 //
 // An exec bit is carried at all — rather than dropped, which is what a
 // map[string][]byte does — because a skill package ships scripts the model runs

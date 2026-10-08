@@ -192,9 +192,8 @@ func TestPublishManager_PublishTree(t *testing.T) {
 }
 
 // TestPublishManager_PublishTree_ViaPR: a feature branch, ONE
-// CreateOrUpdateFiles call carrying every file, then a pull request — never a
-// content commit plus a separate signature commit, since a tree has no
-// separate signature artifact to write.
+// CreateOrUpdateFiles call carrying every file, then a pull request — never one
+// commit per file, which would leave the branch holding a partial tree.
 func TestPublishManager_PublishTree_ViaPR(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	registry, _ := NewRegistry("", WithRegistryFS(fs))

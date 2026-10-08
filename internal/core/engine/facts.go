@@ -211,6 +211,15 @@ func (h HomeSpec) validateMerge(i int, v HomeVar) error {
 	if _, ok := xdgBaseDefaults[v.Name]; !ok {
 		return fmt.Errorf("HomeSpec: Vars[%d] (%s) is merged, but it is not an XDG base directory var; only those have a user directory the spec resolves", i, v.Name)
 	}
+	if err := validateOwns(i, v); err != nil {
+		return err
+	}
+	return h.validateMergedTreeClear(i, v)
+}
+
+// validateOwns requires each name a merged var owns to be one path segment,
+// owned once.
+func validateOwns(i int, v HomeVar) error {
 	owned := map[string]bool{}
 	for _, o := range v.Merge.Owns {
 		if o == "" || o == "." || o == ".." || strings.ContainsAny(o, `/\`) {
@@ -221,6 +230,12 @@ func (h HomeSpec) validateMerge(i int, v HomeVar) error {
 		}
 		owned[o] = true
 	}
+	return nil
+}
+
+// validateMergedTreeClear requires no further var's directory to lie inside
+// the merged var Vars[i]'s tree.
+func (h HomeSpec) validateMergedTreeClear(i int, v HomeVar) error {
 	for j, other := range h.Vars {
 		if j != 0 && j != i && pathWithin(other.Subdir, v.Subdir) {
 			return fmt.Errorf("HomeSpec: Vars[%d].Subdir %q lies inside the merged base %s (%q); its top level holds the user's entries and the owned dirs alone", j, other.Subdir, v.Name, v.Subdir)

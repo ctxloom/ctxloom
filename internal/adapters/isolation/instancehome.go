@@ -125,22 +125,13 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 	if err := ensureHomeDirs(req, f.Home.Vars); err != nil {
 		return rep, err
 	}
-	skipped, err := mergeXDGBases(req, f.Home.Vars, hostOS)
-	for _, w := range skipped {
-		clidiag.WarnOnce("ctxloom", "%s session home: %s", req.Engine, w)
-	}
+	skipped, err := mergeXDGBasesWarning(req, f.Home.Vars)
 	rep.Warnings = append(rep.Warnings, skipped...)
 	if err != nil {
 		return rep, err
 	}
-	if req.NativeHome != "" && f.Home.TranscriptStoreRel != "" {
-		place := linkNativeHistory
-		if req.HistoryInHome {
-			place = restoreNativeHistory
-		}
-		if err := place(req.InstanceHome, req.NativeHome, f.Home.TranscriptStoreRel); err != nil {
-			return rep, fmt.Errorf("instance home for %s: %w", req.Engine, err)
-		}
+	if err := placeNativeHistory(req, f.Home.TranscriptStoreRel); err != nil {
+		return rep, err
 	}
 	if f.Home.InstanceConfig == nil {
 		return rep, nil
@@ -148,6 +139,35 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 	written, err := writeInstanceConfig(req, f.Home.InstanceConfig)
 	written.Warnings = append(rep.Warnings, written.Warnings...)
 	return written, err
+}
+
+// mergeXDGBasesWarning merges the user's XDG bases into the session home
+// (mergeXDGBases), warning once on stderr for each base it skipped; it
+// returns those skips for the report.
+func mergeXDGBasesWarning(req InstanceHomeRequest, vars []engine.HomeVar) ([]string, error) {
+	skipped, err := mergeXDGBases(req, vars, hostOS)
+	for _, w := range skipped {
+		clidiag.WarnOnce("ctxloom", "%s session home: %s", req.Engine, w)
+	}
+	return skipped, err
+}
+
+// placeNativeHistory puts the engine's native transcript store at storeRel
+// in the session home: restored into it when the history lives in the home,
+// else linked to the native one. It does nothing without a native home or a
+// store.
+func placeNativeHistory(req InstanceHomeRequest, storeRel string) error {
+	if req.NativeHome == "" || storeRel == "" {
+		return nil
+	}
+	place := linkNativeHistory
+	if req.HistoryInHome {
+		place = restoreNativeHistory
+	}
+	if err := place(req.InstanceHome, req.NativeHome, storeRel); err != nil {
+		return fmt.Errorf("instance home for %s: %w", req.Engine, err)
+	}
+	return nil
 }
 
 // ensureHomeDirs makes the session home owner-only, then creates, owner-only,

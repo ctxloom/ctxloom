@@ -49,7 +49,7 @@ func DeliverProject(ctx context.Context, fsRoot safefs.Root, kind engine.Engine,
 	if err != nil {
 		return delivery.Delivered{}, delivery.Plan{}, err
 	}
-	lo := delivery.Loadout{Plan: plan, Package: pkg, Exports: exports, WorkDir: dir}
+	lo := delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}
 	d, err := fsstatic.New(fsRoot).Deliver(ctx, lo, root, delivery.ProjectTarget(dir, records))
 	return d, plan, err
 }
@@ -61,6 +61,6 @@ func RemoveProject(ctx context.Context, fsRoot safefs.Root, kind engine.Engine, 
 	if err != nil {
 		return err
 	}
-	_, err = fsstatic.New(fsRoot).Deliver(ctx, delivery.Loadout{WorkDir: dir}, kind.Root(), delivery.ProjectTarget(dir, records))
+	_, err = fsstatic.New(fsRoot).Deliver(ctx, delivery.Loadout{}, kind.Root(), delivery.ProjectTarget(dir, records))
 	return err
 }

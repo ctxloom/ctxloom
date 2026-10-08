@@ -95,23 +95,13 @@ func (c Claude) Wake() engine.Declared[engine.WakeSpec] {
 // unified events (pre_shell, post_file_edit) are claude's PreToolUse and
 // PostToolUse narrowed by a matcher, so decoding a native event yields the
 // broad unified event, never the narrowed one.
-var nativeHookEvents = []struct{ unified, native string }{
-	{"pre_tool", hookEventPreToolUse},
-	{"post_tool", "PostToolUse"},
-	{"session_start", HookEventSessionStart},
-	{"session_end", "SessionEnd"},
-	{"turn_end", "Stop"},
-	{"turn_start", HookEventUserPromptSubmit},
-}
-
-// hookEventMap is the unified→native event table as Exports carries it:
-// the events claude fires, by the name it registers each under.
-func hookEventMap() map[string]string {
-	out := make(map[string]string, len(nativeHookEvents))
-	for _, e := range nativeHookEvents {
-		out[e.unified] = e.native
-	}
-	return out
+var nativeHookEvents = kit.HookEvents{
+	{Unified: "pre_tool", Native: hookEventPreToolUse},
+	{Unified: "post_tool", Native: "PostToolUse"},
+	{Unified: "session_start", Native: HookEventSessionStart},
+	{Unified: "session_end", Native: "SessionEnd"},
+	{Unified: "turn_end", Native: "Stop"},
+	{Unified: "turn_start", Native: HookEventUserPromptSubmit},
 }
 
 // instance is one claude kind bound to one session. key is the native

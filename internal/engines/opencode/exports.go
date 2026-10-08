@@ -38,9 +38,9 @@ var decodeExportBlock = kit.ExportDecoder[ExportBlock](EngineName, ExportSchema)
 // Exports decodes each item's opencode block: a command is exported unless
 // its block opts out (a profile-curated one regardless), described by its
 // block or else its authored description; a skill package is offered unless
-// its block opts out. opencode fires no hook event ctxloom registers.
+// its block opts out. The hook events are the bridge plugin's (hookEvents).
 func (o Opencode) Exports(items engine.Items) (engine.Exports, error) {
-	out := engine.Exports{HookEvent: map[string]string{}}
+	out := engine.Exports{HookEvent: hookEvents.Map()}
 	for _, item := range items.Commands {
 		block, err := decodeExportBlock(item.Exports)
 		if err != nil {

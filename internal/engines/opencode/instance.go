@@ -198,6 +198,9 @@ func (i *instance) execEnv(presented []present.Presentation) (map[string]string,
 	if untrusted {
 		env[envDisableProjectConfig] = "1"
 	}
+	if path := wake.Path(i.s); path != "" {
+		env[wake.EnvVar] = path
+	}
 	return env, nil
 }
 

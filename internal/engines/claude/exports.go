@@ -55,7 +55,7 @@ var DecodeExportBlock = kit.ExportDecoder[ExportBlock](EngineName, ExportSchema)
 // its block opts out. A block the schema refuses is an error naming the
 // engine and the item — nothing is exported on a guess.
 func (c Claude) Exports(items engine.Items) (engine.Exports, error) {
-	out := engine.Exports{HookEvent: hookEventMap()}
+	out := engine.Exports{HookEvent: nativeHookEvents.Map()}
 	for _, item := range items.Commands {
 		block, err := DecodeExportBlock(item.Exports)
 		if err != nil {

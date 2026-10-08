@@ -52,7 +52,7 @@ func TestExec_AnInteractiveSessionNamesItsWakeSocket(t *testing.T) {
 	require.NoError(t, err)
 	ex, err := inst.Exec(nil)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(owner.Roots.SessionHome.Engine, wakeSocketName), ex.Env[EnvWakeSocket], "one socket per session, in its own root")
+	assert.Equal(t, filepath.Join(owner.Roots.SessionHome.Engine, "wake.sock"), ex.Env[EnvWakeSocket], "one socket per session, in its own root")
 
 	s := ownerSession(t, "child-harp")
 	s.Mode = engine.Structured

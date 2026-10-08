@@ -46,7 +46,8 @@ func TestExec_InteractiveArgvIsTheTUI(t *testing.T) {
 }
 
 // The TUI runs over the structured run's env; only the snapshot default
-// follows the mode (Q-J: on, for /undo), and the label's value still wins.
+// follows the mode (Q-J: on, for /undo), the label's value still wins, and
+// the TUI alone names the wake socket the bridge plugin listens on.
 func TestExec_InteractiveEnvIsTheStructuredEnv(t *testing.T) {
 	s := tuiSession(t)
 	tui := mustExec(t, bind(t, s))
@@ -56,6 +57,9 @@ func TestExec_InteractiveEnvIsTheStructuredEnv(t *testing.T) {
 	assert.Equal(t, false, configDoc(t, structured)["snapshot"])
 	delete(tui.Env, envConfigContent)
 	delete(structured.Env, envConfigContent)
+	assert.Equal(t, filepath.Join(s.Roots.SessionHome.Engine, "wake.sock"), tui.Env[wake.EnvVar], "the owner's wake, in its own root")
+	assert.NotContains(t, structured.Env, wake.EnvVar, "a structured run has nobody to wake")
+	delete(tui.Env, wake.EnvVar)
 	assert.Equal(t, structured.Env, tui.Env)
 
 	body := qwenBody()

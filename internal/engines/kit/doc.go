@@ -21,5 +21,8 @@
 // claim (AppendedSection), the framed context file (FramedFile), the MCP
 // server table (MCPTable), the managed command and skill trees
 // (DeliverCommands, DeliverSkills) with the Agent Skills rules
-// (AgentSkillRules), and the export block decoder (ExportDecoder).
+// (AgentSkillRules), the export block decoder (ExportDecoder), and the
+// interactive parts: the unified⇄native hook event table (HookEvents),
+// ctxloom's own hook wire for an engine whose hooks ctxloom fires itself
+// (NativeHookCodec), and the unix-socket wake (SocketWake).
 package kit

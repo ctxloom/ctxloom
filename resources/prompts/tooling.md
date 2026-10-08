@@ -25,7 +25,8 @@ show the exact diff before writing anything.**
    approval, not a blanket yes. If the user declines a bundle's tooling, skip
    it — its content still works, just without in-image tools.
 4. **Apply approved edits, then rebuild:** `ctxloom container build`. The
-   default auto-build also picks the file up on the next containerized run.
+   default auto-build also picks the file up on the next containerized run
+   when `isolation_base` is unset or `devcontainer`.
 
 ## Never
 

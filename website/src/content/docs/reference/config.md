@@ -203,7 +203,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | Field | Type | Description |
 |-------|------|-------------|
 | `args` | string[] |  |
-| `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
+| `binary_path` | string | Overrides the engine's own CLI binary (a path, or a name resolved on PATH). Neutral: the launch carries it as the label's binary (engine.LabelConfig.Binary), the one the engine is spawned from and its version probe asks; the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
 | `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model. Examples: `200000`, `131072`. |
 | `model` | string | Examples: `opus`, `sonnet`, `haiku`. |
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |

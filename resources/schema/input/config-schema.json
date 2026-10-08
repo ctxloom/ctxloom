@@ -490,7 +490,7 @@
             },
             "binary_path": {
               "type": "string",
-              "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode."
+              "description": "Overrides the engine's own CLI binary (a path, or a name resolved on PATH). Neutral: the launch carries it as the label's binary (engine.LabelConfig.Binary), the one the engine is spawned from and its version probe asks; the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode."
             },
             "args": {
               "type": "array",

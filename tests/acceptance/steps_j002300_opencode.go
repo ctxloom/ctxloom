@@ -152,27 +152,32 @@ agents:
 					fields[k] = v
 				}
 			}
-			wantArgv := "run --format json --thinking --model ctxloom/stub-model"
-			switch {
-			case fields["argv"] != wantArgv:
-				return fmt.Errorf("argv = %q, want %q", fields["argv"], wantArgv)
-			case strings.Contains(rec, j002300OpencodeKey):
-				return fmt.Errorf("the endpoint key's VALUE appears in what opencode was handed outside its credential env:\n%s", rec)
-			case fields["key"] != "exported":
-				return fmt.Errorf("CTXLOOM_OPENCODE_API_KEY did not reach opencode's env:\n%s", rec)
-			case !strings.Contains(fields["config_dir"], filepath.Join(".ctxloom", "sessions")):
-				return fmt.Errorf("OPENCODE_CONFIG_DIR = %q, not a session home under the isolated ctxloom home", fields["config_dir"])
-			case fields["data_home"] != filepath.Join(fields["config_dir"], ".xdg", "data"):
-				return fmt.Errorf("XDG_DATA_HOME = %q, want the session home's merged data base", fields["data_home"])
-			case fields["test_home"] != filepath.Join(fields["config_dir"], "home"):
-				return fmt.Errorf("OPENCODE_TEST_HOME = %q, want a directory of the session home", fields["test_home"])
-			case fields["project_config_disabled"] != "1":
-				return fmt.Errorf("an untrusted repository's opencode config is not disabled:\n%s", rec)
-			case !strings.Contains(fields["content"], `"baseURL":"http://127.0.0.1:9/v1"`) || !strings.Contains(fields["content"], `"headerTimeout":false`) || !strings.Contains(fields["content"], `"context":32768`):
-				return fmt.Errorf("OPENCODE_CONFIG_CONTENT does not carry the label's endpoint, window and disabled header timeout:\n%s", fields["content"])
-			case fields["stdin"] != "go":
-				return fmt.Errorf("stdin = %q, want the prompt", fields["stdin"])
-			}
-			return nil
+			return j002300CheckOpencodeRecord(rec, fields)
 		})
+}
+
+// j002300CheckOpencodeRecord holds the scripted opencode's record to what
+// ctxloom must have handed it; the first unmet check is the failure.
+func j002300CheckOpencodeRecord(rec string, f map[string]string) error {
+	content := f["content"]
+	for _, c := range []struct {
+		ok   bool
+		fail string
+	}{
+		{f["argv"] == "run --format json --thinking --model ctxloom/stub-model", "argv is not the structured protocol"},
+		{!strings.Contains(rec, j002300OpencodeKey), "the endpoint key's VALUE appears in what opencode was handed outside its credential env"},
+		{f["key"] == "exported", "CTXLOOM_OPENCODE_API_KEY did not reach opencode's env"},
+		{strings.Contains(f["config_dir"], filepath.Join(".ctxloom", "sessions")), "OPENCODE_CONFIG_DIR is not a session home under the isolated ctxloom home"},
+		{f["data_home"] == filepath.Join(f["config_dir"], ".xdg", "data"), "XDG_DATA_HOME is not the session home's merged data base"},
+		{f["test_home"] == filepath.Join(f["config_dir"], "home"), "OPENCODE_TEST_HOME is not a directory of the session home"},
+		{f["project_config_disabled"] == "1", "an untrusted repository's opencode config is not disabled"},
+		{strings.Contains(content, `"baseURL":"http://127.0.0.1:9/v1"`) && strings.Contains(content, `"headerTimeout":false`) && strings.Contains(content, `"context":32768`),
+			"OPENCODE_CONFIG_CONTENT does not carry the label's endpoint, window and disabled header timeout"},
+		{f["stdin"] == "go", "stdin is not the prompt"},
+	} {
+		if !c.ok {
+			return fmt.Errorf("%s; the scripted opencode recorded:\n%s", c.fail, rec)
+		}
+	}
+	return nil
 }

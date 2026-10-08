@@ -136,8 +136,9 @@ const (
 )
 
 // Home declares the relocation (Q-B, Q-L FINAL): see the vars above. Auth is
-// one required variable (opencodeAuth). No instance config is generated:
-// ctxloom's provider and policy reach opencode in OPENCODE_CONFIG_CONTENT.
+// one required variable (opencodeAuth). The instance config is only the
+// user's TUI preferences carried in (tuiConfigCarry): ctxloom's provider and
+// policy reach opencode in OPENCODE_CONFIG_CONTENT.
 func (o Opencode) Home() engine.HomeSpec {
 	owns := func() *engine.XDGMerge { return &engine.XDGMerge{Owns: []string{appDir}} }
 	return engine.HomeSpec{
@@ -151,6 +152,7 @@ func (o Opencode) Home() engine.HomeSpec {
 			{Name: envManagedConfig, Subdir: "managed"},
 		},
 		Auth:               engine.Provide[engine.Auth](opencodeAuth{}),
+		InstanceConfig:     tuiConfigCarry{},
 		TranscriptStoreRel: dataBase + "/" + appDir,
 	}
 }

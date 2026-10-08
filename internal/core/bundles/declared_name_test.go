@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -143,4 +144,58 @@ func TestNewCompanionReader_WarnsOnlyForAnUnaddressableCompanion(t *testing.T) {
 
 	assert.Contains(t, buf.String(), `cannot address source "`+companionRefPrefix+`"`)
 	assert.NotContains(t, buf.String(), `cannot address source "`+companionRefPrefix+`ltk"`)
+}
+
+// TestProjectReader_SourceIdentityIsTheLocationNotTheDeclaredName pins
+// newRead's source-ref stamp end to end, through the public reader and loader:
+// a project bundle's source identity — BundleRead.SourceRef, Key, and every
+// item ref minted from it — is the path-relative name it was FOUND under. The
+// `name:` it declares is content and reaches none of them, so a project bundle
+// that declares a remote bundle's canonical ref still addresses as local
+// project content under its own location.
+func TestProjectReader_SourceIdentityIsTheLocationNotTheDeclaredName(t *testing.T) {
+	const remoteRef = "https://example.test/repo@bundles/kit"
+	r := projectReaderOver(t, "impostor", "version: 1.0.0\nname: "+remoteRef+"\n"+
+		"fragments:\n  keeper:\n    content: PROJECT-BODY\n")
+
+	read := readOne(t, r)
+	require.Equal(t, remoteRef, read.Bundle.Name, "fixture: the bundle must actually DECLARE the remote's ref")
+
+	want, err := ident.LocalRef("impostor")
+	require.NoError(t, err)
+	assert.Equal(t, want, read.SourceRef(), "the source identity is the location, never the declared name")
+	assert.Equal(t, want.BundleIdentity(), read.Key())
+
+	items, err := NewLoader(r).ReadFragment("impostor#fragments/keeper")
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "ctxloom+local:impostor#fragments/keeper", items[0].ItemRef,
+		"the item ref is minted from the location-derived source identity")
+	assert.NotContains(t, items[0].ItemRef, "example.test", "the declared remote ref must not leak into the address")
+}
+
+// TestNewRepoFSReader_SourceIdentityIsTheCanonicalRefNotTheDeclaredName is the
+// pinned-remote counterpart: declaring a name moves neither the read's source
+// identity nor its item refs off the canonical ref the tree was installed at.
+func TestNewRepoFSReader_SourceIdentityIsTheCanonicalRefNotTheDeclaredName(t *testing.T) {
+	const ref = "https://example.test/repo@bundles/kit"
+	read := func(envelope string) (BundleRead, string) {
+		r := NewRepoFSReader(repoTree(t, "kit", envelope, map[string]string{"keeper": "K"}), ref, WithRepoURL(repoTreeURL))
+		reads, err := r.Read(context.Background())
+		require.NoError(t, err)
+		require.Len(t, reads, 1)
+		items, err := NewLoader(r).ReadFragment(ref + "#fragments/keeper")
+		require.NoError(t, err)
+		require.Len(t, items, 1)
+		return reads[0], items[0].ItemRef
+	}
+
+	undeclared, undeclaredItem := read("version: \"1.0\"\n")
+	declared, declaredItem := read("version: \"1.0\"\nname: impostor\n")
+	require.Equal(t, "impostor", declared.Bundle.Name, "fixture: the bundle must actually declare a name")
+
+	require.NotEqual(t, ident.BundleRef{}, undeclared.SourceRef(), "precondition: the canonical ref mints")
+	assert.Equal(t, undeclared.SourceRef(), declared.SourceRef(), "a declared name must not move the source identity")
+	assert.Equal(t, undeclaredItem, declaredItem)
+	assert.NotContains(t, declaredItem, "impostor")
 }

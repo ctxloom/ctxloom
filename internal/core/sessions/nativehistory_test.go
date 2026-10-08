@@ -98,3 +98,32 @@ func TestKeepHomeHistory_LeavesALinkedNestedStoreAndItsSiblingsAlone(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, user, target, "a user entry's link is left where it is")
 }
+
+// CHARACTERIZATION (a known limit, not the goal): a NESTED history store that
+// is a real directory — a container run on a host whose directory links do
+// not resolve in containers (Windows junctions), where the home starts from
+// native/'s copy — has no link below it to tell the store's path from its
+// siblings', so the top-level directory is adopted whole. Nothing is lost:
+// the grown history and the new session reach native/. But the session's
+// other content beside the store (another XDG base, a sibling app dir) moves
+// into native/ too, where nothing reads it and nothing deletes it. Telling
+// them apart needs the engine's TranscriptStoreRel at the caller (session
+// reap, coordinator close), which neither carries today.
+func TestKeepHomeHistory_ARealNestedStoreAdoptsItsTopLevelWhole(t *testing.T) {
+	sd := t.TempDir()
+	home := filepath.Join(sd, paths.SessionEngineHomesDirName, "oc")
+	native := filepath.Join(sd, paths.NativeDirName, "oc")
+	put(t, native, ".xdg/data/app/app.db", "history\n")
+	put(t, home, ".xdg/data/app/app.db", "history\ngrown\n")
+	put(t, home, ".xdg/data/app/storage/s2.json", "new session\n")
+	put(t, home, ".xdg/config/app/config.json", "{}")
+	put(t, home, ".xdg/data/app-cache/x", "session data\n")
+
+	require.NoError(t, KeepHomeHistory(afero.NewOsFs(), sd))
+
+	assert.Equal(t, "history\ngrown\n", got(t, native, ".xdg/data/app/app.db"), "the grown history is kept")
+	assert.Equal(t, "new session\n", got(t, native, ".xdg/data/app/storage/s2.json"), "the run's new session is kept")
+	assert.NoDirExists(t, filepath.Join(home, ".xdg"), "the top-level dir moved whole")
+	assert.Equal(t, "{}", got(t, native, ".xdg/config/app/config.json"), "KNOWN LIMIT: another base rides along into native/")
+	assert.Equal(t, "session data\n", got(t, native, ".xdg/data/app-cache/x"), "KNOWN LIMIT: a sibling of the store rides along into native/")
+}

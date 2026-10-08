@@ -154,7 +154,7 @@ func TestMockApproaches_ContainerizedProjectRoot_EnginePathDivergesFromHostPath(
 // reviewerSkill is the fixture package: SKILL.md plus an executable script,
 // the shape J001400's delivery matrix asserts. The modes are the export's
 // DECLARATION — on the real path they arrive from the package sidecar's
-// `executable:` list through the signed manifest, never from a stat — so the
+// `executable:` list, never from a stat — so the
 // assertions below are on the declaration reaching disk.
 func reviewerSkill() engine.SkillExport {
 	return engine.SkillExport{

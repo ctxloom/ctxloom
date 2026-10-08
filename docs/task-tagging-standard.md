@@ -89,8 +89,8 @@ for, and having them scored too would count the same fact twice.
 The consequence is unrecoverable or crosses a boundary that is supposed to hold.
 
 - Data destroyed or corrupted with no recovery path.
-- A trust gate admits content it should withhold, or a rejection is dropped so
-  the item is re-admitted on a publisher signature.
+- Delivery admits content it should withhold — an item linked to an MCP server
+  the run was not granted, or a server a profile vetoed.
 - A credential becomes readable where it was not, or a workspace confinement is
   escaped.
 

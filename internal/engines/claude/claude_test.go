@@ -1241,8 +1241,8 @@ func TestClaudeCodeHookWriter_TurnEndReachesStop(t *testing.T) {
 // carries — the one ctxloom's own companion loadout declares — with no Go
 // rewrite of command or args in between. The bundle says what is written;
 // the only field the writer adds is cwd, which no bundle can express. A
-// rewrite here would let the written surface diverge from the signed content
-// a user reviewed.
+// rewrite here would let the written surface diverge from the bundle content
+// the user added.
 func TestClaudeCodeHookWriter_WritesTheDeclaredCtxloomEntryVerbatim(t *testing.T) {
 	tmpDir := t.TempDir()
 	declared := map[string]wire.MCPServer{

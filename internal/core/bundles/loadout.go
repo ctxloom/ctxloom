@@ -8,7 +8,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
-// Loadout is what a companion binary advertises about itself: ONE signed
+// Loadout is what a companion binary advertises about itself: ONE
 // document carrying TWO loadouts with different lifecycles.
 //
 // Run is consumed every session — the bundle of fragments, commands, skills,

@@ -26,8 +26,8 @@ import (
 // material, discovers no keys, negotiates with no agent and installs no
 // host-key policy — there is deliberately not one line of ssh code here.
 // A HostKeyCallback is the easy-to-get-quietly-wrong part of speaking ssh, and
-// getting it wrong means a silent MITM on the one path that pushes SIGNED
-// content. The credentials the user has already configured, and already trusts
+// getting it wrong means a silent MITM on the one path that publishes content
+// other projects load. The credentials the user has already configured, and already trusts
 // for every other repo, are the ones that publish.
 //
 // The accepted cost is that generic publish needs a git binary on PATH, and

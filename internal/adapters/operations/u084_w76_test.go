@@ -185,8 +185,7 @@ func TestNewRepoCache_MissingRemotesRegistryStaysSilent(t *testing.T) {
 // no-op: exit 0, a success-shaped message, zero bytes on disk.
 //
 // Total failure is now Status "failed" plus a non-nil error, which every
-// caller already routes (manage.go returns it, trust.go and mcp_server.go
-// warn). Partial success — at least one backend took — is deliberately
+// caller already routes (manage.go returns it). Partial success — at least one backend took — is deliberately
 // untouched and still a nil error; the control below pins that.
 func TestApplyHooks_TotalFailureIsNotReportedAsPartialSuccess(t *testing.T) {
 	readOnly := afero.NewReadOnlyFs(afero.NewMemMapFs())

@@ -352,14 +352,12 @@ var probeRegistry = []probeSpec{
 		// delivery working, not a file we wrote being read back.
 		//
 		// IT WAS config.yaml's `mcp.servers`, chosen because it was ungated where a
-		// bundle's MCP block passes the executable trust gate — a withheld server
-		// would red as an MCP-delivery failure that is really a trust decision.
-		// c5228d46 DELETED that key on 2026-08-19, so the choice is gone and every
-		// row measured before that date measured a path that no longer exists. The
-		// trust gate is now simply part of what a real user traverses, and the
-		// hazard it posed is DISTINGUISHABLE rather than avoided: a withheld server
-		// never starts, so the call log is ABSENT rather than empty, and those are
-		// different findings in the verdict.
+		// bundle's MCP block then passed an executable trust gate. c5228d46 DELETED
+		// that key on 2026-08-19, so every row measured before that date measured a
+		// path that no longer exists; the trust gate has since been deleted too, so
+		// composing the bundle is simply what a real user traverses. A server that
+		// never starts is still DISTINGUISHABLE: its call log is ABSENT rather than
+		// empty, and those are different findings in the verdict.
 		Cells: []probeCell{
 			hostCell("claude-code", probeLiveVerified,
 				"RE-MEASURED 2026-08-26 on the BUNDLE surface after c5228d46 deleted config.yaml's mcp.servers key: 1 scenario / 3 steps green, harp \"tidy-jaded-cusp\", call log carrying the whole round trip — start / initialize / notifications/initialized / tools/list / tools/call / tool_call. This row proves the migrated registration path works end to end, and it doubles as the CONTROL for the container rows below, which share this fixture. Prior measurement 2026-08-13 on the now-deleted config surface: 1 scenario / 3 steps green in 9.9s, harp \"messy-plump-exit\", served only by the fixture server's get_nonce tool and echoed back exactly. Path: config mcp.servers → ManagedConfig.MCP → claude's --mcp-config scratch file (shared cell; layered rather than strict, so a user's own .mcp.json still loads). FIRST proof anywhere that a non-forwarder MCP server reaches a real engine through ctxloom and gets called."),

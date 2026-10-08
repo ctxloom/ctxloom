@@ -72,9 +72,8 @@ func j000400TargetFor(engine string) string {
 
 // j000400TeamBundleYAML renders the shared "team" bundle: one fragment, one command,
 // one MCP server, one hook — all first-party (authored directly in the
-// project, not pulled from a remote), so the executable trust gate exempts
-// them (operations/trust.go:265's LOCAL rule) and no signing ceremony is
-// needed to prove materialization.
+// project, not pulled from a remote), so materialization is proven without a
+// remote repository.
 func j000400TeamBundleYAML() string {
 	return fmt.Sprintf(`version: "1.0.0"
 description: J000400 shared team bundle

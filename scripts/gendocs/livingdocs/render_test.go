@@ -316,7 +316,7 @@ func TestHasEvidence_IsAPresenceCheckNotAQualityJudgement(t *testing.T) {
 		"materialized":    {Materialized: "exit=0"},
 		"all three":       {CLIOutput: "a", MockRecorded: "b", Materialized: "c"},
 		"single space":    {CLIOutput: " "},
-		"terse but real":  {Materialized: "signature_state: trusted"},
+		"terse but real":  {Materialized: "state: ok"},
 		"multiline usual": {CLIOutput: "exit=0\nhello\n"},
 	} {
 		assert.Truef(t, hasEvidence(step), "%s must satisfy the evidence gate", name)

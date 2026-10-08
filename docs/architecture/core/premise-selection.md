@@ -138,9 +138,8 @@ Three reasons the in-loop default is MCP, none of them taste:
 - **The selection instruction we measured is ours.** The properties above were established
   against ctxloom's own index prompt. A vendor's skill heuristic is opaque and has not been
   measured here.
-- **Freshness.** A materialized skill package is a COPY, gated when it was written. MCP
-  reads live content through the pipeline, so an edited fragment — or a signature revoked
-  after materialization — takes effect at once.
+- **Freshness.** A materialized skill package is a COPY, taken when it was written. MCP
+  reads live content through the pipeline, so an edited fragment takes effect at once.
 - **Observability.** ctxloom can see which fragments a session asked for. It cannot see
   which skills an engine chose to load, which costs the distillation loop its input.
 

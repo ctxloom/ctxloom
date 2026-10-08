@@ -21,8 +21,8 @@ import (
 // cannot prove the seam works, it can only prove its own copy does.
 //
 // A file's MODE comes from PackageFile.Mode — the export's declaration, which
-// travelled from the package sidecar's `executable:` list through the signed
-// manifest. It is never read off the filesystem here or anywhere below:
+// travelled from the package sidecar's `executable:` list
+// (content.DeclaredExecutable). It is never read off the filesystem here or anywhere below:
 // a mode bit is not portable, the package digest deliberately excludes it, and
 // the declaration is the whole of what a publisher said about executability
 // (see content.SkillFile.Mode and content.DeclaredExecutable).

@@ -10,7 +10,7 @@ import (
 )
 
 // TestParseLoadout_RunAndInitAreTyped pins the loadout document's shape: ONE
-// signed document carrying TWO loadouts with different lifecycles. `run:` is
+// document carrying TWO loadouts with different lifecycles. `run:` is
 // the bundle a session consumes every time (fragments, commands, hooks, MCP
 // servers); `init:` is consumed once at setup, and its fields are TYPED —
 // setup guidance, tooling, where the companion's pre-existing context lives,

@@ -30,7 +30,7 @@ name. Home uses the same rule under its own app directory.
   profiles with their real file path and their refs as authored, a remote bundle's with the
   read-only `SeededProfilePathPrefix` sentinel path and their short refs resolved against the
   bundle's source.
-- Creating the project bundle, the signed-bundle warning, and profile CRUD *operations* —
+- Creating the project bundle and profile CRUD *operations* —
   `internal/adapters/operations` (`CreateProfile`, `ImportProfile`, `prepareLocalBundleWrite`);
   see [operations.md](./operations.md).
 - Turning a resolved profile into delivered text — `operations.AssembleContext`.

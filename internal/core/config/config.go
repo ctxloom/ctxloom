@@ -845,6 +845,33 @@ func (c *Config) ResolveLLM(label string) (backend, model string) {
 	return backend, model
 }
 
+// ContextWindowKey is the label-body key every llm.configs entry may carry,
+// whatever its type: the model's context window in tokens. It is neutral —
+// read here, never by an engine-type branch — so every engine's label has it.
+const ContextWindowKey = "context_window"
+
+// LabelContextWindow is the context window a label body declares, in tokens,
+// or 0 when it declares none (absent, non-numeric, or not positive). It reads
+// the body untyped, as ResolveLLM reads the model: a YAML load yields an int,
+// a JSON-shaped body a float64.
+func LabelContextWindow(body map[string]any) int {
+	var n int
+	switch v := body[ContextWindowKey].(type) {
+	case int:
+		n = v
+	case int64:
+		n = int(v)
+	case uint64:
+		n = int(v)
+	case float64:
+		n = int(v)
+	}
+	if n < 0 {
+		return 0
+	}
+	return n
+}
+
 // GetDefaultLLM returns the backend type for the primary role's label.
 func (c *Config) GetDefaultLLM() string {
 	backend, _ := c.ResolveLLM(c.PrimaryLabel())

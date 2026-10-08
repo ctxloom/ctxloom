@@ -243,6 +243,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		}
 		compactor, cerr := memory.NewCompactor(afero.NewOsFs(), memory.CompactionConfig{
 			Run:             distiller.Turn,
+			ContextWindow:   distiller.ContextWindow,
 			Backend:         backend,
 			Source:          source,
 			EssenceMaxChars: s.cfg.GetEssenceMaxChars(),
@@ -1113,6 +1114,7 @@ func (s *ctxServer) compactSessionOnce(ctx context.Context, sessionID, backendNa
 	}
 	compactor, err := makeCompactor(memory.CompactionConfig{
 		Run:             distiller.Turn,
+		ContextWindow:   distiller.ContextWindow,
 		Backend:         backendName,
 		Source:          source,
 		EssenceMaxChars: s.cfg.GetEssenceMaxChars(),

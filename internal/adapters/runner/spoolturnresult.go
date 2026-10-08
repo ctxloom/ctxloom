@@ -144,6 +144,10 @@ func failurePreamble(f *agent.TurnFailure) string {
 		return "OVERLOADED: this run's engine was at capacity, so the turn did no work and its prompt was NOT done — resend it. " +
 			"This run alone is parked for a short backoff and resumes on its own; anything sent to it meanwhile waits and runs then."
 	}
+	if f.Kind == agent.FailureEndpointUnreachable {
+		return "ENDPOINT UNREACHABLE: this run's engine could not reach its model endpoint, so the turn did no work and its prompt was NOT done — resend it. " +
+			"This run alone is parked for a short backoff and resumes on its own; anything sent to it meanwhile waits and runs then."
+	}
 	return fmt.Sprintf("TURN FAILED (%s): the turn did no work, and the run is parked until it is resumed.", f.Kind)
 }
 

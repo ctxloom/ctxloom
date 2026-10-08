@@ -106,10 +106,10 @@ type BundleRef struct {
 // function's doc for the normalization rules and for why canonicalizing at the
 // parse boundary is a security property rather than tidiness. What this
 // function adds is the fragment's MEANING: refuri carries "#<kind>/<item>" as
-// opaque text, and ParseSelector turns it into the trust item kind a grant
-// keys on. A reference whose selector names no known kind is refused here even
-// though its URI is well formed — an item nobody can name is an item nobody
-// can approve.
+// opaque text, and ParseSelector turns it into an item kind. A reference whose
+// selector names no known kind is refused here even though its URI is well
+// formed, at the parse boundary, rather than carried on as an address nothing
+// can resolve.
 func ParseBundleRef(raw string) (BundleRef, error) {
 	return fromParts(refuri.Parse(raw))
 }

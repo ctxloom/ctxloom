@@ -190,9 +190,8 @@ func TestItem_FormsReportExactlyWhatExists(t *testing.T) {
 // its own: an executable surface has exactly ONE materialization, carried by an
 // unsuffixed filename, so it reports the BASE layout form and nothing else.
 //
-// The ROLE that distinguishes it from a fragment lives in the composite
-// attestation form the trust layer derives from the item's kind, NOT in this
-// axis — so an mcp server reporting the same layout form a never-distilled
+// The ROLE that distinguishes it from a fragment lives in the item's kind
+// (ident.ItemKind), NOT in this axis — so an mcp server reporting the same layout form a never-distilled
 // document reports is correct, and a distilled form it does not have is still
 // refused.
 func TestItem_ExecutableSurfacesCarryOnlyTheBaseForm(t *testing.T) {

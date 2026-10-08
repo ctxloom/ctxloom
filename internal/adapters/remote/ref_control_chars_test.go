@@ -75,7 +75,8 @@ func TestNormalizeRef_WarnsOnlyWhenSomethingWasStripped(t *testing.T) {
 
 // TestRefIngestPointsStripControlChars covers every ref-producing entry point
 // this package exposes. A newline is used because it is the character that
-// breaks the countersign frame; the strip itself is class-wide.
+// lets a ref forge the lines after it in line-delimited text (canonical
+// strings, lockfile keys, terminal output); the strip itself is class-wide.
 func TestRefIngestPointsStripControlChars(t *testing.T) {
 	const nl = "\n"
 

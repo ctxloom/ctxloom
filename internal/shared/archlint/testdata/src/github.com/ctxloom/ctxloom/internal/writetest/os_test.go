@@ -11,4 +11,5 @@ func realFS() {
 	var fsys store
 	_ = fsys.Create("x")
 	_ = os.WriteFile("x", nil, 0o600)
+	_ = os.RemoveAll("x")
 }

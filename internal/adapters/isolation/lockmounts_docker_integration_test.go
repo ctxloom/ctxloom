@@ -24,10 +24,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
-// The host's own lock files (the countersign trust index's, another session's
-// file's — anything paths.HomePathFor resolves on the host) must be neither
-// visible to nor removable by a container child, and the child must not be
-// able to plant anything where the host will next open a lock. The mount set
+// The host's own lock files (another session's file's — anything
+// paths.HomePathFor resolves on the host) must be neither visible to nor
+// removable by a container child, and the child must not be able to plant
+// anything where the host will next open a lock. The mount set
 // is the REAL one a run gets (prepareWorkspace), not a hand-picked subset.
 func TestContainerLockMounts_HostLocksUnreachableFromChild(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the container lock-mount isolation test")

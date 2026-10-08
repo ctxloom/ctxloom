@@ -224,9 +224,10 @@ func TestBundleRef_R1_PipeAndControlCharactersNeverPassThrough(t *testing.T) {
 	})
 
 	t.Run("control characters are refused, not stripped", func(t *testing.T) {
-		// A newline is the one that forges the countersign frame: it closes
-		// the "ref:" line early and lets the rest of the ref write the header
-		// lines that follow.
+		// A ref is interpolated into line-delimited text (canonical strings,
+		// lockfile keys, terminal output): a newline closes its line early and
+		// lets the rest of the ref forge the lines that follow, and CR, DEL and
+		// the rest of C0 let it repaint the terminal (refuri's normalize.go).
 		for _, in := range []string{
 			"ctxloom+local:tool\ning#fragments/a",
 			"ctxloom+local:tooling#fragments/a\rb",

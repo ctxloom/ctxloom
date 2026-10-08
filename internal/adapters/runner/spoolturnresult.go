@@ -184,7 +184,9 @@ func blockedPreamble(calls []coord.BlockedCall) string {
 }
 
 // noteSelfReported records that this run sent its parent a message during the
-// current turn, so the automatic report does not repeat it.
+// current turn, so the automatic report does not repeat it. Its one caller
+// (sendPeerViaSpool) calls it only for a send addressed to the parent; a send
+// to a child is not a report.
 //
 // It is set at the SEND, not at the turn boundary, because that is the only
 // place the fact exists: by the boundary the send is indistinguishable from

@@ -524,11 +524,40 @@ in shared code and names no engine and no variable. claude declares one var
 (`CLAUDE_CONFIG_DIR`) and is bound exactly as before; the conformance suite
 binds a session by the same `BindHome`.
 
-A shared var (`XDG_CONFIG_HOME`, `XDG_DATA_HOME`) can now be declared and is
-bound like any other, but relocating it also moves git's, gh's, fish's and every
-other XDG-aware tool's config for every process the engine spawns. An
-engine that declares one inherits that until the merged XDG tree (owned dirs
-shadowing the user's real XDG content) lands on this same declaration.
+**A shared XDG base is a merged tree.** Relocating an XDG base var
+(`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`) also
+moves git's, gh's and every other XDG-aware tool's config for every process
+the engine spawns. So a further var that names one may carry
+`engine.HomeVar.Merge{Owns}`, the top-level app dirs the engine owns there, and
+its directory becomes a MERGED tree that the engine and its tools share:
+
+- each owned name is a directory of the session's own, created owner-only,
+  whatever the user keeps under that name;
+- on a HOST run, every other top-level entry of the user's own base is linked
+  in, by the same platform directory links that join the native history store
+  (`platform.DirLinker`). The user's base is resolved per the XDG Base Directory
+  spec (`engine.UserXDGBase`): the var's value when it is absolute, else the
+  spec default under the home. The entries are snapshotted when the run starts,
+  and their contents stay live. A host run is unsandboxed, so this exposes
+  nothing it could not already read;
+- in a CONTAINER, nothing more is added. No container mount is sourced from a
+  user XDG base (the mounts are the project, the session home, native history,
+  the scoped `~/.ctxloom` session state, the task log, the locks, the git dirs
+  and the secrets scratch). So a container's tree holds the owned dirs alone,
+  inside the home's one mount, and an XDG-aware tool in a container sees no
+  user config, as in any container run.
+
+The top level of a merged tree belongs to the merge. On every start, a link
+there that is not the link to the user's current entry of that name is removed;
+it is unlinked, never followed. A container start therefore removes every link
+a host run of the same session left, so the container does not even see the
+names of the user's entries. The merge skips three things, reporting each: a
+name the session already holds for itself, a user base that is missing or
+overlaps the tree, and a file entry on a platform whose links join only
+directories (a Windows junction). `HomeSpec.Validate` refuses a merge on
+`Vars[0]` (the session home itself), on a var that is not an XDG base, an owned
+name that is not one segment or is repeated, and any other var inside a merged
+tree.
 
 The instance root resolves through one helper, `paths.HarpSessionEngineHomes` — the
 session's own `home/` member under `~/.ctxloom/sessions/<harp>/` — and each

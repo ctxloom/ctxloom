@@ -27,7 +27,7 @@ func TestDurable_SetsConfigFlag(t *testing.T) {
 
 // TestWriteFileAtomicFs_Durable_DirSyncFailureFailsTheWrite pins that a
 // caller who asked for Durable() and did not get it is TOLD, exactly the
-// countersign/artifactstore reasoning: a receipt asserting a guarantee that
+// coordinator artifact store's reasoning: a receipt asserting a guarantee that
 // was not actually bought is worse than an error, because nothing about the
 // caller's later behavior would ever reveal the gap. The rename has already
 // landed by the time the sync runs, so the earlier bytes are still replaced —

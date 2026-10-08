@@ -117,7 +117,7 @@ profiles:
 hooks:
   post_file_edit:
     - command: echo hi
-      matcher: "*.go"
+      tool: file_edit
 `)
 
 	b, err := ParseBundle(doc)

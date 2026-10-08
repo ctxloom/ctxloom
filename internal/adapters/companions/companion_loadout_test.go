@@ -171,7 +171,7 @@ fragments:
 hooks:
   pre_tool:
     - command: ltk evaluate
-      matcher: Bash
+      tool: shell
       type: command
 mcp:
   ltk-server:

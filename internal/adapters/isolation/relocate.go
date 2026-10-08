@@ -90,7 +90,7 @@ func stageLayout(s Spec, r relocator, cwd string, env map[string]string, stores 
 	if inHome {
 		clidiag.WarnOnce("ctxloom", "%s", historyInHomeNotice)
 	}
-	req := InstanceHomeRequest{InstanceHome: dir, NativeHome: native, HistoryInHome: inHome, WorkDir: engineCwd, Trust: l.trust, Auth: s.creds.Mode}
+	req := InstanceHomeRequest{InstanceHome: dir, NativeHome: native, HistoryInHome: inHome, ShareUserXDG: !inContainer, WorkDir: engineCwd, Trust: l.trust, Auth: s.creds.Mode}
 	if !prepareSessionHome(s.eng, req) {
 		return l
 	}

@@ -26,7 +26,7 @@ run:
   notes: |
     This bundle ships one pre-tool hook and one command:
 
-      PreTool matcher=shell+edit tools → ltk evaluate
+      PreTool tool=shell, tool=file_edit → ltk evaluate
         ltk parses the real command (resolving variables, unwrapping trivial
         wrappers) and matches it against .ltk/config.yaml. The first matching
         deny returns a message/suggestion telling the agent what to run
@@ -56,11 +56,16 @@ run:
 
   hooks:
     pre_tool:
-      # Matches ltk's own claude-code installer: the shell-bound tools (command
-      # rules) plus the file-editing tools (path rules). ltk decodes the hook
-      # payload itself; deny → JSON decision on stdout, allow → pass-through.
+      # One hook per tool class ltk gates: shell tools (command rules) and
+      # file-editing tools (path rules). Each engine maps a class to its own
+      # tool names at delivery, so ltk guards under any engine. ltk decodes
+      # the hook payload itself; deny → JSON decision on stdout, allow →
+      # pass-through.
       - command: ltk evaluate
-        matcher: Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit
+        tool: shell
+        type: command
+      - command: ltk evaluate
+        tool: file_edit
         type: command
 
   fragments:

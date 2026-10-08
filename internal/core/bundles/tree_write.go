@@ -59,7 +59,7 @@ func TreeHook(event, name string, h BundleHook) content.Hook {
 		Event:           event,
 		Name:            name,
 		Order:           h.Order,
-		Matcher:         h.Matcher,
+		Tool:            h.Tool,
 		Type:            h.Type,
 		Command:         h.Command,
 		Args:            h.Args,

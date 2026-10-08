@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -68,6 +69,57 @@ type HomeSpec struct {
 type HomeVar struct {
 	Name   string
 	Subdir string
+	// Merge, set on a further var that names an XDG base directory, makes
+	// its directory a MERGED tree: the user's own content for that base with
+	// the app dirs the engine owns shadowed by the session's own. nil is a
+	// directory of the session's alone.
+	Merge *XDGMerge
+}
+
+// XDGMerge declares a further home var as an XDG base the session shares
+// with the user (HomeVar.Merge). The engine and every tool it spawns then
+// see one tree, under the var's Subdir, made of:
+//   - each name in Owns: a directory of the session's own, created
+//     owner-only, whatever the user keeps under that name;
+//   - on a host run, every other top-level entry of the user's base
+//     (UserXDGBase) linked in by shared isolation: the entries as they
+//     stood when the run started, their contents live. A host run is
+//     unsandboxed, so this exposes nothing it could not already read;
+//   - in a container, nothing more: a container is given none of the
+//     user's XDG content, so its tree holds the owned dirs alone.
+type XDGMerge struct {
+	// Owns are the top-level names under the base the engine keeps for
+	// itself, each one path segment.
+	Owns []string
+}
+
+// xdgBaseDefaults is the XDG Base Directory spec's default for each base
+// directory var, as slash path segments under the user's home. Only these
+// can be merged: no other var has a default to resolve the user's base by.
+var xdgBaseDefaults = map[string][]string{
+	"XDG_CONFIG_HOME": {".config"},
+	"XDG_DATA_HOME":   {".local", "share"},
+	"XDG_STATE_HOME":  {".local", "state"},
+	"XDG_CACHE_HOME":  {".cache"},
+}
+
+// UserXDGBase resolves the user's own directory for the XDG base var name,
+// per the XDG Base Directory spec: the var's value (getenv) when it is an
+// absolute path, else the spec's default under home. A relative value is
+// invalid by the spec and ignored. ok is false for a var the spec gives no
+// default, or when the default is needed and home is "".
+func UserXDGBase(name string, getenv func(string) string, home string) (string, bool) {
+	def, ok := xdgBaseDefaults[name]
+	if !ok {
+		return "", false
+	}
+	if v := getenv(name); filepath.IsAbs(v) {
+		return filepath.Clean(v), true
+	}
+	if home == "" {
+		return "", false
+	}
+	return filepath.Join(append([]string{home}, def...)...), true
 }
 
 // BindHome resolves vars against the session home as the engine sees
@@ -138,6 +190,40 @@ func (h HomeSpec) validateVars() error {
 		seen[v.Name] = true
 		if err := h.validateVarPath(i, v.Subdir); err != nil {
 			return err
+		}
+		if err := h.validateMerge(i, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateMerge checks a merged var (HomeVar.Merge): a further var naming
+// an XDG base, owning one-segment names once each, with no other var's
+// directory inside its tree (it would collide with a user entry there).
+func (h HomeSpec) validateMerge(i int, v HomeVar) error {
+	if v.Merge == nil {
+		return nil
+	}
+	if i == 0 {
+		return fmt.Errorf("HomeSpec: Vars[0] (%s) is merged, but it names the session home itself; declare the XDG base as a further var beneath it", v.Name)
+	}
+	if _, ok := xdgBaseDefaults[v.Name]; !ok {
+		return fmt.Errorf("HomeSpec: Vars[%d] (%s) is merged, but it is not an XDG base directory var; only those have a user directory the spec resolves", i, v.Name)
+	}
+	owned := map[string]bool{}
+	for _, o := range v.Merge.Owns {
+		if o == "" || o == "." || o == ".." || strings.ContainsAny(o, `/\`) {
+			return fmt.Errorf("HomeSpec: Vars[%d] (%s) Owns %q, which is not one path segment; an owned name is a top-level entry of the base", i, v.Name, o)
+		}
+		if owned[o] {
+			return fmt.Errorf("HomeSpec: Vars[%d] (%s) Owns %q twice", i, v.Name, o)
+		}
+		owned[o] = true
+	}
+	for j, other := range h.Vars {
+		if j != 0 && j != i && pathWithin(other.Subdir, v.Subdir) {
+			return fmt.Errorf("HomeSpec: Vars[%d].Subdir %q lies inside the merged base %s (%q); its top level holds the user's entries and the owned dirs alone", j, other.Subdir, v.Name, v.Subdir)
 		}
 	}
 	return nil

@@ -27,9 +27,13 @@ func TestParseReference_Companion(t *testing.T) {
 			ref, err := ParseReference(tt.ref)
 			require.NoError(t, err)
 			assert.True(t, ref.IsCompanion, "IsCompanion")
-			// A companion loadout is THIRD-PARTY content, not project-authored:
-			// it must never carry IsLocal, or it would silently bypass the trust
-			// gate at EffectiveTrust step 2.
+			// A companion loadout is emitted live by a binary on PATH, not
+			// read from the project's committed .ctxloom/content/: it must
+			// never carry IsLocal, or it would take the project-authored
+			// branches instead: read from the project's own git history,
+			// skipping the registered-remote check that refuses unregistered
+			// content (operations' bundle readers), and given a local
+			// profile's licence to compose several repositories.
 			assert.False(t, ref.IsLocal, "a companion ref must never be IsLocal")
 			assert.Equal(t, CompanionSource, ref.URL)
 			assert.Equal(t, tt.wantPath, ref.Path)

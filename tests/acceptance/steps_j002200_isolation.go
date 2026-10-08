@@ -384,7 +384,7 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 		if status == "" {
 			return nil
 		}
-		for _, pattern := range gitignore.WorktreeArtifactPatterns {
+		for _, pattern := range isolation.WorktreeArtifactPatterns() {
 			bare := strings.TrimSuffix(pattern, "/")
 			if strings.Contains(status, bare) {
 				return fmt.Errorf("project git status unexpectedly carries the per-agent worktree artifact %q:\n%s", pattern, status)
@@ -405,7 +405,7 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 		if !strings.Contains(content, gitignore.WorktreeComment) {
 			return fmt.Errorf("%q does not carry the ctxloom worktree-config comment %q; content:\n%s", path, gitignore.WorktreeComment, content)
 		}
-		for _, pattern := range gitignore.WorktreeArtifactPatterns {
+		for _, pattern := range isolation.WorktreeArtifactPatterns() {
 			if !strings.Contains(content, pattern) {
 				return fmt.Errorf("%q does not carry the worktree-artifact pattern %q; content:\n%s", path, pattern, content)
 			}

@@ -46,9 +46,11 @@ func TestRefKey_StripsControlCharacters(t *testing.T) {
 	}
 }
 
-// TestRefCanonicalURL_StripsControlCharacters covers the other half of the
-// countersign ref (CanonicalURL + "|" + Key): a repo URL routes through
-// refuri.NormalizeURL, which normalises at its own entry.
+// TestRefCanonicalURL_StripsControlCharacters covers the repository half of a
+// ref's rendering (Key covers the item half): a repo URL routes through
+// refuri.NormalizeURL, which normalises at its own entry, so a control
+// character cannot reach the line-delimited text a canonical URL is written
+// into (lockfile keys, terminal output).
 func TestRefCanonicalURL_StripsControlCharacters(t *testing.T) {
 	r := Ref{RepoURL: "https://github.com/acme/repo\nevil", Bundle: "b", Kind: KindFragment, Name: "n"}
 	assert.NotContains(t, r.CanonicalURL(), "\n")

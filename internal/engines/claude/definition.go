@@ -4,9 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"slices"
 	"strconv"
 	"time"
 
@@ -89,21 +86,24 @@ func Build(opts ...Option) (engine.Engine, error) {
 		Name:         EngineName,
 		Distribution: engine.DistributionDefault,
 		Modes:        []engine.Mode{engine.Interactive, engine.Structured},
-		Context:      &contextApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelArgv}}},
-		MCP:          &mcpApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}}},
-		Settings:     &settingsApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile}}},
-		Hooks:        &hooksApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile}}},
-		Commands:     &commandsApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}}},
-		Skills:       &skillsApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}}},
+		Context:      &contextApproach{approach(ApproachSystemPrompt, present.Traits{Roots: shared, Channel: present.ChannelArgv})},
+		MCP:          &mcpApproach{approach(ApproachMCPConfig, present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true})},
+		Settings:     &settingsApproach{approach("settings", present.Traits{Roots: shared, Channel: present.ChannelFile})},
+		Hooks:        &hooksApproach{approach("settings-hooks", present.Traits{Roots: shared, Channel: present.ChannelFile})},
+		Commands:     &commandsApproach{approach("commands-dir", present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true})},
+		Skills:       &skillsApproach{approach("skills-dir", present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true})},
 		// The dynamic half, PROVIDED: the session endpoint as an entry in the
 		// MCP file.
-		Dynamic:      &sessionEndpoint{traits{present.Traits{Roots: home, Channel: present.ChannelFile}}},
+		Dynamic:      &sessionEndpoint{approach("session-endpoint", present.Traits{Roots: home, Channel: present.ChannelFile})},
 		CLI:          cli,
 		ModelAliases: map[string]string{},
 		ExportSchema: ExportSchema,
 		// Reviewed onto StartRun, and a one-shot child resumes by asking
 		// claude to load its own prior session (Instance.Resume).
 		DelegatedChildren: engine.Provide(engine.DelegatedChildren{ResumesByKey: true}),
+		// What delivery writes into the working tree: the settings, commands
+		// and skills dir, the MCP file, and the context file.
+		ProjectArtifacts: []string{ConfigDirName + "/", MCPFileName, ContextFileName},
 	}
 	c := Claude{Base: engine.Base{Definition: d}}
 	for _, o := range opts {
@@ -171,15 +171,12 @@ var (
 	_ agent.EngineCLIProvider = Claude{}
 )
 
-// traits is the declared facts every typed approach here carries.
-type traits struct{ t present.Traits }
-
-func (a traits) Traits() present.Traits { return a.t }
-
-// errRoot is the refusal for a root the approach does not offer: the plan
-// selected one outside Traits().Roots.
-func errRoot(name string, root present.RootKind) error {
-	return fmt.Errorf("claude/%s: root %v is not one this approach offers", name, root)
+// approach is the name and traits every typed approach here carries
+// (kit.Approach), private: whatever lands under the session home needs that
+// home rooted, and a run without one is refused rather than served from the
+// user's real home (agent.SessionHomeRooted).
+func approach(name string, t present.Traits) kit.Approach {
+	return kit.Approach{Engine: EngineName, ApproachName: name, T: t, Private: true}
 }
 
 // contextApproach is claude's context surface: the framed system prompt,
@@ -188,16 +185,16 @@ func errRoot(name string, root present.RootKind) error {
 // the well-known CLAUDE.md, the assembled context appended to whatever the
 // file already holds. The ownership record owns the write and restores the
 // prior bytes on removal — there is no marker section to parse.
-type contextApproach struct{ traits }
+type contextApproach struct{ kit.Approach }
 
-func (*contextApproach) Name() string { return ApproachSystemPrompt }
 func (a *contextApproach) DeliverContext(start present.Start, root present.RootKind, in engine.ContextInputs, fs afero.Fs) (present.Delivered, error) {
 	switch root {
 	case present.RootProjectRoot:
-		return appendContextFile(start.UnderProjectRoot(ContextFileName).Build(), in.Text), nil
+		// The user's CLAUDE.md is theirs; the record owns what is appended.
+		return kit.AppendedSection(start.UnderProjectRoot(ContextFileName).Build(), in.Text), nil
 	case present.RootSessionHome:
 	default:
-		return present.Delivered{}, errRoot(a.Name(), root)
+		return present.Delivered{}, a.ErrRoot(root)
 	}
 	s := &systemPromptContext{content: string(in.Text), fs: agent.GetFS(fs)}
 	if _, err := s.Deliver(start); err != nil {
@@ -210,19 +207,10 @@ func (a *contextApproach) DeliverContext(start present.Start, root present.RootK
 	return out, nil
 }
 
-// appendContextFile claims the context as a section after the file's own
-// text: the user's CLAUDE.md is theirs, and the record owns what is appended.
-func appendContextFile(p present.Presentation, text []byte) present.Delivered {
-	return present.Delivered{Presented: p,
-		Claims: map[string][]present.Claim{p.HostPath: {{Pointer: present.AppendedSection, Value: slices.Clone(text)}}}}
-}
-
 // mcpApproach is claude's MCP surface: .mcp.json under the session home
 // (announced on --mcp-config) or, when the plan selects the shared root, the
 // project's own well-known .mcp.json.
-type mcpApproach struct{ traits }
-
-func (*mcpApproach) Name() string { return ApproachMCPConfig }
+type mcpApproach struct{ kit.Approach }
 
 // DeliverMCP claims each server's entry in the .mcp.json under the root: the
 // private session-home file announced on --mcp-config, or the project's own
@@ -232,12 +220,13 @@ func (*mcpApproach) Name() string { return ApproachMCPConfig }
 // refuses to start against a path that does not exist. The project file is
 // the user's and is never conjured.
 func (a *mcpApproach) DeliverMCP(start present.Start, root present.RootKind, in engine.MCPInputs, _ afero.Fs) (present.Delivered, error) {
+	r, err := a.Rooted(start, root, MCPFileName, MCPFileName)
+	if err != nil {
+		return present.Delivered{}, err
+	}
 	switch root {
 	case present.RootSessionHome:
-		if err := privateRooted(start); err != nil {
-			return present.Delivered{}, err
-		}
-		p := underPrivateRoot(start, MCPFileName).AnnounceFlag(flagMCPConfig).Build()
+		p := r.AnnounceFlag(flagMCPConfig).Build()
 		claims, err := mcpClaims(in.Servers)
 		if err != nil {
 			return present.Delivered{}, err
@@ -251,7 +240,7 @@ func (a *mcpApproach) DeliverMCP(start present.Start, root present.RootKind, in 
 		if err != nil {
 			return present.Delivered{}, err
 		}
-		p := start.UnderProjectRoot(MCPFileName).Build()
+		p := r.Build()
 		if len(env) > 0 {
 			p.Env = env
 		}
@@ -261,7 +250,7 @@ func (a *mcpApproach) DeliverMCP(start present.Start, root present.RootKind, in 
 		}
 		return present.Delivered{Presented: p, Claims: map[string][]present.Claim{p.HostPath: claims}}, nil
 	}
-	return present.Delivered{}, errRoot(a.Name(), root)
+	return present.Delivered{}, a.ErrRoot(root)
 }
 
 // mcpClaims is each server as a claim on its own entry under mcpServers,
@@ -284,19 +273,12 @@ func mcpClaims(servers map[string]wire.MCPServer) ([]present.Claim, error) {
 // settings.json under the session home. The settings and hooks kinds both
 // claim into this one file, because claude keeps both there; the static
 // writer folds their claims into one write, and each writer's leave with it.
-func deliverSettingsFile(name string, start present.Start, root present.RootKind, claims func(path string) ([]present.Claim, error)) (present.Delivered, error) {
-	var p present.Presentation
-	switch root {
-	case present.RootProjectRoot:
-		p = start.UnderProjectRoot(filepath.Join(ConfigDirName, SettingsFileName)).Build()
-	case present.RootSessionHome:
-		if err := agent.SessionHomeRooted(start); err != nil {
-			return present.Delivered{}, err
-		}
-		p = start.UnderSessionHome(SettingsFileName).Build()
-	default:
-		return present.Delivered{}, errRoot(name, root)
+func deliverSettingsFile(a kit.Approach, start present.Start, root present.RootKind, claims func(path string) ([]present.Claim, error)) (present.Delivered, error) {
+	r, err := a.Rooted(start, root, SettingsFileName, relSettings)
+	if err != nil {
+		return present.Delivered{}, err
 	}
+	p := r.Build()
 	cs, err := claims(p.HostPath)
 	if err != nil {
 		return present.Delivered{}, err
@@ -444,11 +426,10 @@ func hookValue(h wire.Hook) (map[string]any, error) {
 
 // settingsApproach is claude's settings surface: ctxloom's own keys in
 // .claude/settings.json (settingsClaims).
-type settingsApproach struct{ traits }
+type settingsApproach struct{ kit.Approach }
 
-func (*settingsApproach) Name() string { return "settings" }
 func (a *settingsApproach) DeliverSettings(start present.Start, root present.RootKind, in engine.SettingsInputs, fs afero.Fs) (present.Delivered, error) {
-	return deliverSettingsFile(a.Name(), start, root, func(path string) ([]present.Claim, error) {
+	return deliverSettingsFile(a.Approach, start, root, func(path string) ([]present.Claim, error) {
 		return settingsClaims(agent.GetFS(fs), path, in)
 	})
 }
@@ -459,15 +440,14 @@ func (a *settingsApproach) DeliverSettings(start present.Start, root present.Roo
 // first bound to claude (agent.BindHooks): ctxloom's callbacks name claude as
 // the engine that fires them, and a hook narrowed to a tool class is narrowed
 // to claude's tool for it (toolMatcher).
-type hooksApproach struct{ traits }
+type hooksApproach struct{ kit.Approach }
 
-func (*hooksApproach) Name() string { return "settings-hooks" }
 func (a *hooksApproach) DeliverHooks(start present.Start, root present.RootKind, in engine.HooksInputs, _ afero.Fs) (present.Delivered, error) {
 	bound, err := agent.BindHooks(in.Hooks, EngineName, toolMatcher)
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	return deliverSettingsFile(a.Name(), start, root, func(string) ([]present.Claim, error) { return hookClaims(bound, in.Ext[EngineName]) })
+	return deliverSettingsFile(a.Approach, start, root, func(string) ([]present.Claim, error) { return hookClaims(bound, in.Ext[EngineName]) })
 }
 
 // commandsApproach is claude's commands surface: <config dir>/commands/
@@ -475,79 +455,27 @@ func (a *hooksApproach) DeliverHooks(start present.Start, root present.RootKind,
 // project's), or .claude/commands/ under the project root when the binding
 // selects it; a command's help text and metadata arrive already decoded
 // from its block (Claude.Exports) and become the slash-command frontmatter.
-type commandsApproach struct{ traits }
+type commandsApproach struct{ kit.Approach }
 
-func (*commandsApproach) Name() string { return "commands-dir" }
+// DeliverCommands writes the commands as claude slash-command files
+// (renderCommand). The session's config dir is its own instance:
+// nothing in the user's real ~/.claude/commands is deduped against. At the
+// project root the plan's commands land as given too: a copy in the
+// materializing host's own ~/.claude/commands is no reason to withhold one
+// from a tree that will be read elsewhere.
 func (a *commandsApproach) DeliverCommands(start present.Start, root present.RootKind, in engine.CommandsInputs, files safefs.Root) (present.Delivered, error) {
-	cmds := make([]agent.CommandExport, 0, len(in.Commands))
-	for _, c := range in.Commands {
-		cmds = append(cmds, agent.CommandExport{
-			Name: c.Name, Content: string(c.Body), Enabled: c.Enabled,
-			Description: c.Description, ArgumentHint: c.ArgumentHint, AllowedTools: c.AllowedTools, Model: c.Model,
-		})
-	}
-	// The session's config dir is its own instance: nothing in the user's
-	// real ~/.claude/commands is deduped against. At the project root the
-	// plan's commands land as given too: a copy in the materializing host's
-	// own ~/.claude/commands is no reason to withhold one from a tree that
-	// will be read elsewhere.
-	p, err := managedDir(a.Name(), start, root, CommandsDirName, relCommands)
-	if err != nil {
-		return present.Delivered{}, err
-	}
-	placed, err := writeCommandDir(files, p.HostPath, cmds)
-	if err != nil {
-		return present.Delivered{}, err
-	}
-	return present.Delivered{Presented: p, Files: placed}, nil
-}
-
-// managedDir is the directory a managed-tree approach delivers into: rel
-// beneath the session home (a run with no engine home advised is refused
-// rather than served from the user's own), or projectRel beneath the project
-// root.
-func managedDir(name string, start present.Start, root present.RootKind, rel, projectRel string) (present.Presentation, error) {
-	switch root {
-	case present.RootSessionHome:
-		if err := privateRooted(start); err != nil {
-			return present.Presentation{}, err
-		}
-		return underPrivateRoot(start, rel).Build(), nil
-	case present.RootProjectRoot:
-		return start.UnderProjectRoot(projectRel).Build(), nil
-	}
-	return present.Presentation{}, errRoot(name, root)
+	return kit.DeliverCommands(a.Approach, start, root, CommandsDirName, relCommands, files, in, renderCommand, nil)
 }
 
 // skillsApproach is claude's skills surface: <config dir>/skills/<name>/
 // under the session home (the user-level directory claude loads alongside a
 // project's), or .claude/skills/<name>/ under the project root when the
-// binding selects it.
-type skillsApproach struct{ traits }
+// binding selects it. Only the skills claude will load are written
+// (acceptedSkills).
+type skillsApproach struct{ kit.Approach }
 
-func (*skillsApproach) Name() string { return "skills-dir" }
 func (a *skillsApproach) DeliverSkills(start present.Start, root present.RootKind, in engine.SkillsInputs, files safefs.Root) (present.Delivered, error) {
-	skills := make([]agent.SkillExport, 0, len(in.Skills))
-	for _, s := range in.Skills {
-		e := agent.SkillExport{Name: s.Name, Description: s.Description, Enabled: s.Enabled}
-		for _, f := range s.Files {
-			mode := os.FileMode(f.Mode)
-			if mode == 0 {
-				mode = 0o644
-			}
-			e.Files = append(e.Files, agent.PackageFile{RelPath: f.Path, Content: f.Bytes, Mode: mode})
-		}
-		skills = append(skills, e)
-	}
-	p, err := managedDir(a.Name(), start, root, SkillsDirName, relSkills)
-	if err != nil {
-		return present.Delivered{}, err
-	}
-	placed, err := agent.WriteManagedSkillPackages(files, p.HostPath, acceptedSkills(skills))
-	if err != nil {
-		return present.Delivered{}, err
-	}
-	return present.Delivered{Presented: p, Files: placed}, nil
+	return kit.DeliverSkills(a.Approach, start, root, SkillsDirName, relSkills, files, in, acceptedSkills, nil)
 }
 
 // RelayCommand is the hidden ctxloom subcommand claude spawns as its ctxloom
@@ -565,9 +493,8 @@ const (
 // endpoint reached through claude's own relay, a stdio entry whose env names
 // the endpoint and its bearer. Only claude renders this entry; no other engine
 // spawns the relay.
-type sessionEndpoint struct{ traits }
+type sessionEndpoint struct{ kit.Approach }
 
-func (*sessionEndpoint) Name() string { return "session-endpoint" }
 func (*sessionEndpoint) Endpoint(ep sessions.Endpoint) wire.MCPServer {
 	return wire.MCPServer{
 		Command: agent.CtxloomCommand(),

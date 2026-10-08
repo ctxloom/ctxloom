@@ -126,8 +126,8 @@ func repoURLCases() []repoURLCase {
 			identity: "https://user:pw@github.com/owner/repo", transport: "https://user:pw@github.com/owner/repo",
 			cacheDir: "/base/github.com/owner/repo", kind: SourceKindRemote},
 		// Query and fragment survive here and are dropped by
-		// trust.CanonicalRepoURL: a clone argument may legitimately need them,
-		// a trust key never may.
+		// refuri.CanonicalRepoURL: a clone argument may legitimately need them,
+		// an identity key (lockfile entry, registered-remote match) never may.
 		{name: "https with query and fragment", in: "https://github.com/owner/repo?ref=x#frag",
 			identity: "https://github.com/owner/repo?ref=x#frag", transport: "https://github.com/owner/repo?ref=x#frag",
 			cacheDir: "/base/github.com/owner/repo", kind: SourceKindRemote},
@@ -150,10 +150,11 @@ func repoURLCases() []repoURLCase {
 			cacheDir: "/base/github.com/owner/repo", kind: SourceKindRemote, scpTransportDiffers: true},
 		// Git's scp syntax is "[user@]host:path" for ANY user, not just "git".
 		// gitolite and gerrit conventionally use their own, and classifying
-		// those as an opaque local path is fail-open at the trust gate: local
-		// is the auto-trusted classification, so an untrusted remote would be
-		// admitted without a trust decision. They must reach SourceKindRemote
-		// and produce a real cache dir, exactly as the "git" user does.
+		// those as an opaque path leaves a real remote unclonable (an opaque
+		// form has no cache dir) and keeps its identity from folding onto the
+		// https spelling the same repository has under the "git" user. They
+		// must reach SourceKindRemote and produce a real cache dir, exactly as
+		// the "git" user does.
 		{name: "scp non-git user", in: "forge@gitlab.example.com:group/repo.git",
 			identity: "https://gitlab.example.com/group/repo.git", transport: "forge@gitlab.example.com:group/repo.git",
 			cacheDir: "/base/gitlab.example.com/group/repo", kind: SourceKindRemote, scpTransportDiffers: true},
@@ -162,10 +163,10 @@ func repoURLCases() []repoURLCase {
 			cacheDir: "/base/review.example.org/platform/core", kind: SourceKindRemote, scpTransportDiffers: true},
 
 		// --- non-http transports: byte-preserved ------------------------------
-		// These name repositories that REALLY EXIST, so their trust keys must
-		// not move: a moved key drops any REJECTION recorded under the old
-		// spelling, and EffectiveTrust step 5 can then allow the item on its
-		// publisher signature. The ".git" is a real path component here (a bare
+		// These name repositories that REALLY EXIST, so their identity keys
+		// must not move: a moved key stops matching the lockfile entry and the
+		// registered remote recorded under the original spelling. The ".git" is
+		// a real path component here (a bare
 		// repository is literally named "<name>.git"), not a forge cosmetic —
 		// normalizeCloneURL used to strip it and hand git a path that does not
 		// exist.
@@ -190,7 +191,7 @@ func repoURLCases() []repoURLCase {
 
 		// --- sentinels --------------------------------------------------------
 		// Not URLs. NormalizeURL used to mangle them into "https://ctxloom:local",
-		// which trust.CanonicalRepoURL had to intercept with early returns
+		// which refuri.CanonicalRepoURL had to intercept with early returns
 		// before ever calling it.
 		{name: "local sentinel", in: LocalSource,
 			identity: LocalSource, transport: LocalSource, cacheDir: "", kind: SourceKindLocal},
@@ -275,8 +276,8 @@ func TestRepoURL_IdentityAndTransportAgree(t *testing.T) {
 }
 
 // TestRepoURL_ScpDiffersOnlyInTransport pins the one legitimate divergence, so
-// that it stays deliberate. Identity folds scp onto https (one repo, one trust
-// key, whatever transport you cloned it over); transport keeps scp, because
+// that it stays deliberate. Identity folds scp onto https (one repo, one
+// identity key, whatever transport you cloned it over); transport keeps scp, because
 // rewriting it to https would silently discard the user's ssh credentials.
 func TestRepoURL_ScpDiffersOnlyInTransport(t *testing.T) {
 	parsed, err := ParseRepoURL("git@github.com:owner/repo.git")
@@ -301,22 +302,19 @@ func TestRepoURL_ScpDiffersOnlyInTransport(t *testing.T) {
 // rather than a surprise in a support thread.
 //
 // A forge's clone url ends ".git"; the url in the browser bar does not. Under
-// byte-exact identity those are two addresses, so a user who approved content
-// under one and later pastes the other is prompted again. That is the trade:
-// whether the two reach one repository is host-specific knowledge ctxloom does
-// not have, and a wrong guess is not a duplicate prompt but a merged trust key,
-// where a rejection of one silently governs the other. A duplicate prompt is
-// recoverable; a merged key is not.
-//
-// The cross-address case that MATTERS is still covered, one layer up: a
-// content-reject is signed with the ref omitted, so it follows the bytes.
+// byte-exact identity those are two addresses, so a user who registered one
+// and later pastes the other must register and pin it separately. That is the
+// trade: whether the two reach one repository is host-specific knowledge
+// ctxloom does not have, and a wrong guess is not a duplicate registration but
+// a merged identity key, where the registration and pin of one silently govern
+// the other. A duplicate registration is recoverable; a merged key is not.
 func TestRepoURL_CloneAndBrowserSpellingsAreDifferentIdentities(t *testing.T) {
 	clone, err := ParseRepoURL("https://github.com/owner/repo.git")
 	require.NoError(t, err)
 	browser, err := ParseRepoURL("https://github.com/owner/repo")
 	require.NoError(t, err)
 	assert.NotEqual(t, clone.Normalized(), browser.Normalized(),
-		"two spellings collapsed onto one identity — that is a merged trust key, not a convenience")
+		"two spellings collapsed onto one identity — that is a merged identity key, not a convenience")
 
 	// They still share ONE clone directory: the filesystem question is "which
 	// bytes are on disk", and there the two are the same repository.
@@ -327,14 +325,14 @@ func TestRepoURL_CloneAndBrowserSpellingsAreDifferentIdentities(t *testing.T) {
 	assert.Equal(t, browserDir, cloneDir, "one repository must not be cloned twice")
 }
 
-// TestRepoURL_NonHTTPPathsAreBytePreserved is the fail-open guard. A file://,
-// ssh:// or git:// URL names a repository that really exists, so its trust key
-// must survive this refactor byte-for-byte: a moved key is a countersignature
-// store MISS, and a miss on a REJECTION does not fail closed — EffectiveTrust
-// step 1 stops matching and step 5 can allow the item on its publisher
-// signature instead.
+// TestRepoURL_NonHTTPPathsAreBytePreserved is the byte-preservation guard. A file://,
+// ssh:// or git:// URL names a repository that really exists, so the spelling a
+// remote is stored and fetched under must be the one the user wrote: folding it
+// hands git a path that may not exist on the far side, and moves the identity
+// key off the lockfile entry and registered-remote match recorded under the
+// original spelling.
 //
-// Only http(s) may be folded, and only in ways trust.CanonicalRepoURL already
+// Only http(s) may be folded, and only in ways refuri.CanonicalRepoURL already
 // performs downstream (so the key does not move).
 func TestRepoURL_NonHTTPPathsAreBytePreserved(t *testing.T) {
 	for _, in := range []string{
@@ -349,7 +347,7 @@ func TestRepoURL_NonHTTPPathsAreBytePreserved(t *testing.T) {
 		"git://github.com/owner/repo.git",
 	} {
 		assert.Equal(t, in, storedRepoURL(in),
-			"%q names a real repository: folding it would move its trust key and drop any rejection recorded under the old spelling", in)
+			"%q names a real repository: folding it would move its identity key off the pin and registration recorded under the original spelling", in)
 		assert.Equal(t, in, normalizeCloneURL(in),
 			"%q is a path on the far side, not a forge URL: git must receive it as written", in)
 	}

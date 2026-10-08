@@ -12,7 +12,10 @@
 //   - a component enters kit only when two engines use it in the same slice
 //     (docs/architecture/engines/README.md, DECISIONS.md).
 //
-// Today it holds the per-turn process driver (ProcessTurn over a Transport)
-// and the Exec composition every engine's Instance.Exec starts from
-// (ComposeEnv, PresentedArgs).
+// Today it holds the per-turn process driver (ProcessTurn over a Transport),
+// the Exec composition every engine's Instance.Exec starts from (ComposeEnv,
+// PresentedArgs), and the static delivery scaffolding every typed approach
+// assembles from: its name, traits and rooting rule (Approach), the
+// appended-section context claim (AppendedSection) and the managed command
+// and skill trees (DeliverCommands, DeliverSkills).
 package kit

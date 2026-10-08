@@ -10,18 +10,16 @@ import (
 // default arm is LOAD-BEARING, not an unchecked fallthrough.
 //
 // ItemKinds() documents the vocabulary as CLOSED at this package's core and
-// OPEN at the surface-type registry: a kind may be declared outside package
-// trust, and internal/adapters/content.KindProfile ("profiles") is a live instance —
+// OPEN at the surface-type registry: a kind may be declared outside this
+// package, and internal/adapters/content.KindProfile ("profiles") is a live instance —
 // its surface type names its own directory as KindProfile.Dir(). Removing the
 // passthrough, so an unregistered kind resolved to an error or an empty
 // segment, would take the registry's extension point with it.
 //
-// The reason that is safe rather than lax is that Dir() only ADDRESSES. A kind
-// this binary's countersignature derivation does not know is inert: it can be
-// neither approved nor rejected by content, which is what
-// operations' TestAttestationFormFor_AnUnregisteredKindIsInert pins for the
-// same set of kinds, empty string included. Addressing is open; attestation is
-// closed.
+// The passthrough is safe rather than lax because Dir() only ADDRESSES: it
+// names where an item of the kind lives, and decides nothing else. Entry from
+// a runtime string into the closed core stays closed (ParseItemKind refuses a
+// spelling outside ItemKinds). Addressing is open; parsing is closed.
 func TestItemKindDir_RegistryDeclaredKindsPassThrough(t *testing.T) {
 	// The closed core, each with its own directory segment.
 	core := map[ItemKind]string{

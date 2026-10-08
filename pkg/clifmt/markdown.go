@@ -28,7 +28,7 @@ func renderMarkdown(w io.Writer, v any) error {
 			return err
 		}
 		if node.Empty() {
-			// U154-F02: an all-omitempty struct used to render zero bytes
+			// An all-omitempty struct would otherwise render zero bytes
 			// here — indistinguishable from "the command produced no output
 			// at all" (json/yaml render the same value as `{}`/`null`).
 			_, err := fmt.Fprintln(w, "(none)")
@@ -45,10 +45,10 @@ func renderMarkdown(w io.Writer, v any) error {
 			return writeMarkdownTable(w, tbl)
 		}
 		if rv.Len() == 0 {
-			// U154-F02: an empty SCALAR slice has no columns to derive a
-			// header row from (unlike the struct-slice branch above, which
-			// stays self-evidencing via buildTable's header even with zero
-			// rows) — it used to render zero bytes here.
+			// An empty SCALAR slice has no columns to derive a header row
+			// from (unlike the struct-slice branch above, which stays
+			// self-evidencing via buildTable's header even with zero rows),
+			// so without this marker it would render zero bytes.
 			_, err := fmt.Fprintln(w, "(none)")
 			return err
 		}

@@ -79,15 +79,8 @@ func normalizeNumbers(v any) any {
 
 // renderYAML marshals v generically via yaml.v3, using toGeneric so its
 // keys and omissions match the json: tag convention. It indents two spaces,
-// as every YAML file ctxloom saves does (internal/shared/yamlx.Marshal), so
-// --format yaml output and the files on disk read the same; yaml.v3's own
-// default is four. clifmt sets the indent on its own encoder rather than
-// calling yamlx, because it is a standalone leaf package that must not import
-// ctxloom internals (docs/architecture/companions/clifmt.md).
-// Its twin by shape, internal/adapters/cli's renderConfigSection, already
-// emits two-space through yamlx; the two cannot share code (this package may
-// not import yamlx, and it keys on json: tags where config keys on yaml:
-// tags), so the change here has no other copy to apply to.
+// the common convention for hand-edited YAML; yaml.v3's own default is four,
+// so the indent is set on the encoder rather than inherited.
 // reprise:accept-drift
 func renderYAML(w io.Writer, v any) error {
 	generic, err := toGeneric(v)
@@ -122,7 +115,7 @@ func renderTOML(w io.Writer, v any) error {
 		root = map[string]any{"items": generic}
 	}
 	if tomlRootIsEmpty(root) {
-		// U154-F02: TOML has no way to represent a bare null/empty value at
+		// TOML has no way to represent a bare null/empty value at
 		// the document root (unlike JSON's `null`/`{}` or YAML's `null`) —
 		// go-toml/v2 silently DROPS a nil map value (confirmed: Marshal(map[
 		// string]any{"items": nil}) and Marshal(map[string]any{}) both

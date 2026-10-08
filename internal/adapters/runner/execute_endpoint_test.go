@@ -194,7 +194,15 @@ func TestExecute_AHumanApprovedRunIsWiredForTheApprovalRoute(t *testing.T) {
 			require.NoError(t, err)
 			codec, ok := mock.New().Approvals().Get()
 			require.True(t, ok)
-			assert.Equal(t, codec.Hooks(l.Permission.ApprovalTimeout).PermissionAsk, delivered.PermissionAsk)
+			// Delivered as the mock's hooks approach binds them: naming the
+			// engine that fires them (agent.BindHooks).
+			want, err := agent.BindHooks(codec.Hooks(l.Permission.ApprovalTimeout), string(mock.Name), noToolClasses)
+			require.NoError(t, err)
+			assert.Equal(t, want.PermissionAsk, delivered.PermissionAsk)
 		})
 	}
 }
+
+// noToolClasses maps no tool class: the approval hooks narrow by none, so
+// binding them only names the engine that fires them.
+func noToolClasses(wire.ToolClass) (string, bool) { return "", false }

@@ -34,29 +34,50 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
-// exitSpawner is directBusSpawner on a NAMED runtime, launching on a
-// container axis (so the runner is handed the container-reachable listener,
-// not the coordinator's own loopback), with the run's identity (so the
-// runner's reach-back names its run) and its composed first turn on the
+// exitLeg is what one runtime's leg resolves ONCE and every launch in it
+// reuses: the runtime, its CLI, the container axis it serves and the image.
+// Resolving the axis is a live `<runtime> info` pair (containerAxes), seconds
+// apiece on a loaded rootless podman; re-resolving it on the launch path
+// spent the child's whole start window on probes before any container ran.
+type exitLeg struct {
+	runtime string
+	bin     string
+	axes    launch.Axes
+	image   string
+}
+
+// newExitLeg resolves runtimeName's leg, failing loudly when the runtime
+// serves neither container ownership (no launch could select it).
+func newExitLeg(t *testing.T, runtimeName, image string) exitLeg {
+	t.Helper()
+	axes := containerAxes(runtimeName)
+	if got := isolation.SelectRuntime(runtimeName, axes.Runtime).Name(); got != runtimeName {
+		t.Fatalf("%s serves no container ownership on this host (a %s launch selects %q)", runtimeName, axes.Runtime, got)
+	}
+	return exitLeg{runtime: runtimeName, bin: isolation.ProbeRuntime(runtimeName).Binary(), axes: axes, image: image}
+}
+
+// exitSpawner is directBusSpawner on its leg's runtime, launching on the
+// leg's container axis (so the runner is handed the container-reachable
+// listener, not the coordinator's own loopback), with the run's identity (so
+// the runner's reach-back names its run) and its composed first turn on the
 // launch.
 type exitSpawner struct {
 	directBusSpawner
-	runtime string
-	killed  atomic.Bool
+	leg    exitLeg
+	killed atomic.Bool
 }
 
-func (s *exitSpawner) Resolve(ctx context.Context, agentName string) (*coord.SpawnPlan, error) {
-	plan, err := s.directBusSpawner.Resolve(ctx, agentName)
-	if err != nil {
-		return nil, err
+func (s *exitSpawner) Resolve(_ context.Context, agentName string) (*coord.SpawnPlan, error) {
+	if agentName != directAgentName {
+		return nil, assertUnknownAgent(agentName)
 	}
-	plan.Runtime = containerAxes(s.runtime).Runtime
-	return plan, nil
+	return &coord.SpawnPlan{AgentName: agentName, Backend: "mock", Label: "fast", Runtime: s.leg.axes.Runtime, Permission: "bypass"}, nil
 }
 
 func (s *exitSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
 	env := sessions.HookEnv(start.Identity)
-	cenv, err := preparedContainer(ctx, s.runtime, coord.ContainerStoryBackend(plan), s.image, s.projectDir, isolation.SessionState{Harp: start.Identity.Harp, ProjectID: start.Identity.Project})
+	cenv, err := preparedContainerOn(ctx, s.leg.axes, s.leg.runtime, coord.ContainerStoryBackend(plan), s.image, s.projectDir, isolation.SessionState{Harp: start.Identity.Harp, ProjectID: start.Identity.Project})
 	if err != nil {
 		return coord.Resolved{}, err
 	}
@@ -71,7 +92,7 @@ func (s *exitSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, 
 	l.Prompt = start.Prompt
 	l.Cell.Env = env
 	l.Cell.Listen = cenv.Listen()
-	l.Axes.Runtime = containerAxes(s.runtime).Runtime
+	l.Axes.Runtime = s.leg.axes.Runtime
 	l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "child-itest-bearer"}
 	plan.Launch = l
 	return coord.Resolved{Launch: l}, nil
@@ -132,14 +153,14 @@ type exitRun struct {
 // ownerLossWindow, when non-zero, is the operator's override the runner is
 // launched under (sessions.EnvRunnerOwnerLossWindow) — set AFTER the test's
 // environment is isolated, which clears every CTXLOOM_* variable.
-func startExitRun(t *testing.T, runtimeName, image string, ownerLossWindow time.Duration) exitRun {
+func startExitRun(t *testing.T, leg exitLeg, ownerLossWindow time.Duration) exitRun {
 	t.Helper()
 	coord.ResetStrictness(t)
 	projectDir := testsupport.ProjectDir(t)
 	if ownerLossWindow > 0 {
 		t.Setenv(sessions.EnvRunnerOwnerLossWindow, ownerLossWindow.String())
 	}
-	sp := &exitSpawner{directBusSpawner: directBusSpawner{image: image, projectDir: projectDir}, runtime: runtimeName}
+	sp := &exitSpawner{directBusSpawner: directBusSpawner{image: leg.image, projectDir: projectDir}, leg: leg}
 	coord.TeeHome(t)
 	var logs syncBuffer
 	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "exit-itest", Spawner: sp, OwnerHarp: coord.OwnerIdentity().Harp,
@@ -148,7 +169,7 @@ func startExitRun(t *testing.T, runtimeName, image string, ownerLossWindow time.
 	require.NoError(t, coordgrpc.Serve(c))
 	t.Cleanup(c.Close)
 
-	bin := isolation.ProbeRuntime(runtimeName).Binary()
+	bin := leg.bin
 	// The runner's log is followed from the moment the container exists: a
 	// container --rm has already taken has no log left to ask for.
 	t.Cleanup(func() {
@@ -160,7 +181,7 @@ func startExitRun(t *testing.T, runtimeName, image string, ownerLossWindow time.
 		}
 	})
 
-	requireImageInStore(t, runtimeName, bin, image)
+	requireImageInStore(t, leg.runtime, bin, leg.image)
 	out, err := c.AgentRun(context.Background(), coord.OwnerIdentity(), directAgentName, "exit-path seed", "", "")
 	require.NoError(t, err)
 	// A launch the spawn refuses (an image the runtime cannot run, a
@@ -172,7 +193,7 @@ func startExitRun(t *testing.T, runtimeName, image string, ownerLossWindow time.
 	})
 	if len(sp.containerNames()) == 0 {
 		t.Fatalf("the child's %s spawn never started a container (run %s); coordinator findings:\n%s",
-			runtimeName, rosterState(c, out.Harp), logs.String())
+			leg.runtime, rosterState(c, out.Harp), logs.String())
 	}
 	name := sp.containerNames()[0]
 	require.Eventually(t, func() bool { return len(dockergate.ContainersNamed(t, bin, name)) > 0 }, 60*time.Second, 50*time.Millisecond,
@@ -325,7 +346,7 @@ func TestRunnerExitPaths(t *testing.T) {
 			// built here would be missing from the store each launch reads.
 			// One store for the whole leg: this binary's sandbox home.
 			t.Setenv("XDG_DATA_HOME", filepath.Join(os.Getenv("HOME"), ".local", "share"))
-			image := buildIntegrationImageFor(t, rtc.name)
+			leg := newExitLeg(t, rtc.name, buildIntegrationImageFor(t, rtc.name))
 
 			// OWNER LOSS: the coordinator dies without tearing its child down
 			// (SIGKILL, OOM, a closed terminal). Nothing on the host removes the
@@ -334,7 +355,7 @@ func TestRunnerExitPaths(t *testing.T) {
 				// The operator's override, set where ctxloom runs: proof it
 				// reaches a container runner, and a test that does not wait
 				// out the two-minute default.
-				r := startExitRun(t, rtc.name, image, exitPathOwnerLossWindow)
+				r := startExitRun(t, leg, exitPathOwnerLossWindow)
 				persistent := r.persistentMembers(t)
 				coord.CrashCoordinator(r.c)
 				r.requireContainerGone(t, exitPathOwnerLossWindow+removalSlack,
@@ -345,7 +366,7 @@ func TestRunnerExitPaths(t *testing.T) {
 			// AGENT STOP: the coordinator's own teardown door (terminateRun ->
 			// the spawn's Kill -> remove by name).
 			t.Run("agent-stop", func(t *testing.T) {
-				r := startExitRun(t, rtc.name, image, 0)
+				r := startExitRun(t, leg, 0)
 				persistent := r.persistentMembers(t)
 				_, err := r.c.AgentStop(coord.OwnerIdentity(), r.harp, "exit-path test", 0)
 				require.NoError(t, err)
@@ -358,7 +379,7 @@ func TestRunnerExitPaths(t *testing.T) {
 			// RUNTIME STOP: SIGTERM through the init to the runner, which
 			// returns from Main and exits; --rm takes the container.
 			t.Run("runtime-stop", func(t *testing.T) {
-				r := startExitRun(t, rtc.name, image, 0)
+				r := startExitRun(t, leg, 0)
 				persistent := r.persistentMembers(t)
 				out, err := exec.Command(r.bin, "stop", "-t", "20", r.container).CombinedOutput()
 				require.NoError(t, err, "%s stop: %s", r.bin, out)
@@ -371,7 +392,7 @@ func TestRunnerExitPaths(t *testing.T) {
 			// RUNTIME KILL: SIGKILL; nothing in the container runs, --rm still
 			// takes it, and the coordinator synthesizes the loss from the drop.
 			t.Run("runtime-kill", func(t *testing.T) {
-				r := startExitRun(t, rtc.name, image, 0)
+				r := startExitRun(t, leg, 0)
 				persistent := r.persistentMembers(t)
 				out, err := exec.Command(r.bin, "kill", r.container).CombinedOutput()
 				require.NoError(t, err, "%s kill: %s", r.bin, out)
@@ -388,7 +409,7 @@ func TestRunnerExitPaths(t *testing.T) {
 			// exits with its child and the kernel takes the rest, so no
 			// surviving process can hold the container open.
 			t.Run("runner-crash", func(t *testing.T) {
-				r := startExitRun(t, rtc.name, image, 0)
+				r := startExitRun(t, leg, 0)
 				persistent := r.persistentMembers(t)
 				out, err := exec.Command(r.bin, "exec", "-d", r.container, "sleep", "600").CombinedOutput()
 				require.NoError(t, err, "%s exec -d sleep: %s", r.bin, out)

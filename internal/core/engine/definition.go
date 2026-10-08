@@ -250,7 +250,8 @@ func (d Base) Validate() error {
 }
 
 // validateHeader checks the identity and policy fields: a lowercase name,
-// modes, a decided Distribution, and MCP beside any dynamic approach.
+// modes, a decided Distribution, MCP beside any dynamic approach, and
+// project artifacts inside the working tree.
 func (d Base) validateHeader() error {
 	if d.Name == "" || len(d.Modes) == 0 {
 		return fmt.Errorf("%w: name and modes are required", ErrDefinition)
@@ -267,6 +268,12 @@ func (d Base) validateHeader() error {
 	if d.Dynamic != nil && d.MCP == nil {
 		return fmt.Errorf("%w: %s: a dynamic approach needs an MCP approach to name the endpoint", ErrDefinition, d.Name)
 	}
+	return d.validateProjectArtifacts()
+}
+
+// validateProjectArtifacts requires every declared project artifact to be a
+// non-empty path relative to the working tree that stays inside it.
+func (d Base) validateProjectArtifacts() error {
 	for _, p := range d.ProjectArtifacts {
 		if p == "" || strings.HasPrefix(p, "/") || slices.Contains(strings.Split(strings.TrimSuffix(p, "/"), "/"), "..") {
 			return fmt.Errorf("%w: %s: project artifact %q must be a non-empty path relative to the working tree, inside it", ErrDefinition, d.Name, p)

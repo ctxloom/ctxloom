@@ -20,7 +20,7 @@ Feature: container — the images isolated agents run in, and the questions you 
   scenario here drives it; the containerized run path is exercised by
   j002400_container.feature, behind a tag the default suite skips.
   What IS specifiable without a runtime is everything around it: the read-only
-  diagnosis, the file scaffold, the trust-gated collection, and the namespace's
+  diagnosis, the file scaffold, the registered-companion collection, and the namespace's
   own dispatch.
 
   Rule: The namespace answers what it holds, and refuses what it does not
@@ -303,27 +303,23 @@ Feature: container — the images isolated agents run in, and the questions you 
 
     # Adjusted under the loadout contract v2 (ugly-yodel): a bundle no longer
     # declares tooling — the well-known `tooling` command is gone. A companion
-    # declares it, typed, in its loadout; "untrusted" is therefore a companion
-    # on PATH that this machine never registered, which is never executed and
-    # so declares nothing at all.
+    # declares it, typed, in its loadout; the excluded case is therefore a
+    # companion on PATH that this machine never registered, which is never
+    # executed and so declares nothing at all.
     #
     # ABSENCE SATISFIED ABSENCE. With nothing declared anywhere, "none
-    # reported" was equally consistent with the trust gate working and with
-    # collection being broken outright — a render that dropped EVERY
-    # declaration, trusted or not, left this green. So the fixture declares
+    # reported" was equally consistent with registration scoping working and
+    # with collection being broken outright — a render that dropped EVERY
+    # declaration, registered or not, left this green. So the fixture declares
     # tooling twice: once from a companion nobody registered (must be
     # withheld, and the summary line is then a fact about REGISTRATION), and
     # once from a registered companion (must come through — the positive
     # control that makes "none reported" mean something).
     #
-    # WITHHELD CONTENT IS NAMED BY REF, NEVER BY BODY. A ref is a
-    # ctxloom-controlled identifier; the declaration body is publisher-authored,
-    # attacker-controlled text, and rendering it to an operator's terminal is a
-    # hazard. Today CollectTooling surfaces a gate-withheld item only through
-    # warnWithheld's per-ref warning on stderr; the command's own output names
-    # nothing withheld. The "does not contain TOOLING-DECL-SHADY" assertions
-    # are what pin that no route — output or warning — carries the body.
-    Scenario Outline: An untrusted declaration is withheld, and a trusted one comes through
+    # The unregistered companion's body must appear on no route: it is
+    # publisher-authored text from a binary nothing ran. The "does not contain
+    # TOOLING-DECL-SHADY" assertions pin that.
+    Scenario Outline: An unregistered companion contributes nothing, and a registered one comes through
       Given an initialized ctxloom project
       And a companion "shady" declaring container tooling "TOOLING-DECL-SHADY", on PATH but not registered
       When Alice collects what her installed content needs in the image:
@@ -334,7 +330,7 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the output reports "declarations" as empty, saying "No registered companion declares container tooling"
       And the output does not contain "TOOLING-DECL-SHADY"
       Given a companion "tooled" declaring container tooling "TOOLING-DECL-TOOLED"
-      When Alice collects again now that a trusted bundle declares tooling:
+      When Alice collects again now that a registered companion declares tooling:
         """
         ctxloom container tooling list <flags>
         """

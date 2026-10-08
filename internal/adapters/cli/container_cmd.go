@@ -191,9 +191,10 @@ instructions for the LLM: fold the additions into the agent image's base
 when the project has none) as a diff, get the user's explicit approval per
 change, then rebuild ('ctxloom container build').
 
-Collection is TRUST-GATED: a rejected companion's declaration is withheld
-like any other gated content, and nothing is ever applied automatically on
-pull/sync — the edit is the LLM's, gated by the user.`
+Only companions you registered ('ctxloom companion add') contribute: an
+unregistered companion on PATH is never run, so it declares nothing, and
+project or remote bundles carry no tooling declaration at all. Nothing is ever
+applied automatically on pull/sync — the edit is the LLM's, gated by the user.`
 
 // runToolingListCmd is containerToolingListCmd's RunE. It emits the
 // agent-image tooling instructions plus every registered companion's typed
@@ -224,7 +225,8 @@ var containerToolingCmd = groupNodeDefault(&cobra.Command{
 }, "list")
 
 // containerToolingListCmd is the tooling sub-noun's `list` domain verb: emit
-// every trusted bundle's declared agent-image tooling for the LLM to apply.
+// every registered companion's declared agent-image tooling for the LLM to
+// apply.
 var containerToolingListCmd = &cobra.Command{
 	Use:     "list",
 	Short:   "Emit registered companions' agent-image tooling declarations for the LLM to apply",
@@ -246,7 +248,7 @@ func renderTooling(out io.Writer, entries []operations.ToolingDeclaration) error
 	w := errwriter.New(out)
 	if len(entries) == 0 {
 		w.Println("No registered companion declares container tooling (a companion declares it as `tooling` in its loadout's init section).")
-		w.Println("A companion ctxloom may not execute, or one you rejected, declares nothing — see `ctxloom doctor`.")
+		w.Println("An unregistered companion is never run, so it declares nothing — register one with `ctxloom companion add`.")
 		return w.Err()
 	}
 	w.Println(toolingPrompt)

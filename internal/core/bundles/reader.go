@@ -158,16 +158,15 @@ func (r BundleRead) Key() ident.BundleKey {
 	return r.SourceRef().BundleIdentity()
 }
 
-// SourceRef reports the source component of this bundle's content trust
-// refs — the structured ident.BundleRef a "<source>#<kind>/<name>" gate ref
-// is built from.
+// SourceRef reports this bundle's source identity — the canonical
+// ident.BundleRef every "<source>#<kind>/<name>" item ref is built from.
 //
 // It exists so the routes a bundle's content reaches a session by cannot key
 // differently. The loader-resolved route builds its ref from
-// Bundle.contentSourceRef(); the hooks/MCP resolvers read the trust key HERE
-// rather than reconstructing one from a display name. Two constructions of
-// one identity is exactly how a rejection recorded against one route stops
-// withholding the other.
+// Bundle.contentSourceRef(); the hooks/MCP resolvers read the source identity
+// HERE rather than reconstructing one from a display name. Two constructions
+// of one identity is exactly how an item reached by one route stops matching
+// the same item reached by the other.
 //
 // Location-derived without exception: the readers stamp it, nothing a bundle
 // DECLARES reaches it (outdated-recoil).

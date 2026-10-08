@@ -24,7 +24,7 @@ import (
 // of .ctxloom/profiles/<name>.yaml was not extracted from a bundle, so a
 // hand-typed marker claiming otherwise must change nothing: the hook is still
 // reported as belonging to that directory profile. If provenance could be typed,
-// a profile could dress its own executables up as a trusted bundle's in every
+// a profile could dress its own executables up as another bundle's in every
 // surface that renders where a hook came from.
 func TestResolveHooks_DirectoryProfileHookCannotForgeItsProvenance(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())

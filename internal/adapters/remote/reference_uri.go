@@ -13,9 +13,9 @@ import (
 // The URI syntax is refuri's, not a second copy of it. That is the whole point
 // of the arm: a reference written in the canonical grammar and a reference
 // written in the pre-canonical one must reach the SAME Reference, or the same
-// bundle would carry two identities depending on how it was spelled — and two
-// identities is two trust keys, where a rejection recorded against one does
-// not withhold the other.
+// bundle would carry two source identities depending on how it was spelled —
+// two lockfile keys, where a pin recorded under one does not apply to the
+// other.
 //
 // The URL it carries is the repository's FETCH location, rendered by the one
 // reverse renderer (refuri.Parts.FetchURL), so it reads back — through

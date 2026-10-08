@@ -1,4 +1,4 @@
-// Package trust owns the addressing and canonicalization primitives every
+// Package ident owns the addressing and canonicalization primitives every
 // bundle item is identified by: the item kinds (ItemKind), the item reference
 // (Ref), the canonical bundle-reference grammar (BundleRef) and the content
 // forms an item is served in (ContentForm). It holds no persisted state of its

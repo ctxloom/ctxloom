@@ -18,7 +18,7 @@ import (
 // TestCollectTooling_CollectsCompanionToolingDeclarations proves collection
 // reads every registered companion's TYPED `init.tooling` field, attributes it
 // to the companion's source ref, and skips companions that declare none. The
-// nil pipe exercises the real trust-gated exposure path.
+// nil pipe exercises the real exposure pipeline.
 func TestCollectTooling_CollectsCompanionToolingDeclarations(t *testing.T) {
 	testsupport.Isolate(t)
 	fakeCompanions(t, map[string]string{

@@ -345,7 +345,7 @@ func buildSiblingContext(bundle *bundles.Bundle, excludeName string) string {
 // hasSiblingsOfType reports whether a bundle has sibling items of a kind worth
 // listing: more than one of that kind, or exactly one that isn't the excluded
 // (currently-distilling) item. It takes the item KIND, not a spelled-out
-// prefix, so the selector grammar lives only in trust (FormatSelector /
+// prefix, so the selector grammar lives only in ident (FormatSelector /
 // ParseSelector).
 func hasSiblingsOfType(count int, excludeName string, kind ItemType) bool {
 	excludedKind, _, err := ident.ParseSelector(excludeName)

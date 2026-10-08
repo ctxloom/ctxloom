@@ -52,14 +52,16 @@ func TestRenderContainerCheck(t *testing.T) {
 	})
 }
 
-// TestRenderTooling covers both shapes: no declarations (the hint
-// about trust review) and collected declarations attributed to their bundles
-// under the instruction preamble.
+// TestRenderTooling covers both shapes: no declarations (the hint that only
+// registered companions contribute) and collected declarations attributed to
+// their bundles under the instruction preamble.
 func TestRenderTooling(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		var buf bytes.Buffer
 		assert.NoError(t, renderTooling(&buf, nil))
 		assert.Contains(t, buf.String(), "No registered companion declares container tooling")
+		assert.Contains(t, buf.String(), "ctxloom companion add", "the hint names how a companion gets registered")
+		assert.NotContains(t, buf.String(), "rejected", "nothing is rejected: registration is the only filter")
 	})
 
 	t.Run("declarations", func(t *testing.T) {

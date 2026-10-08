@@ -998,10 +998,10 @@ func (c *Config) ProfileSeedOptions() []profiles.LoaderOption {
 // bundle YAML, so a pulled bundle's profiles are already on disk / in cache —
 // this is the step that surfaces them to the SHARED profile loader, so a bundle
 // profile resolves, lists, and runs exactly like a top-level or local profile.
-// The profile DEFINITION is never trust-gated here (there is no ident.ItemKind
-// for profiles, and nothing is baselined); its constituent fragments/commands
-// still gate at content assembly and any mcp/hooks it pulls in still gate at the
-// exec choke. Returns nil when no visible bundle ships a profile.
+// The profile DEFINITION is not an item (there is no ident.ItemKind for
+// profiles), so the delivery pipeline never withholds it; its constituent
+// fragments/commands still pass through that pipeline at assembly. Returns nil
+// when no visible bundle ships a profile.
 func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 	if len(c.appPaths) == 0 {
 		return nil

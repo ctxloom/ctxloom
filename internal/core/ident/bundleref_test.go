@@ -307,7 +307,7 @@ func TestBundleRef_R2_RepoPathCase(t *testing.T) {
 	t.Run("uppercase is PRESERVED on a case-folding forge, not refused and not rewritten", func(t *testing.T) {
 		// A forge that serves "Foo/Bar" and "foo/bar" as one repository is
 		// host-specific knowledge this grammar does not have. Folding on it
-		// merges two identities onto one trust key; refusing makes a real
+		// merges two identities onto one source identity; refusing makes a real
 		// repository unaddressable. Neither: the spelling is preserved.
 		for _, host := range []string{"github.com", "gitlab.com", "bitbucket.org"} {
 			in := "ctxloom+git://" + host + "/Acme/Repo//bundles/x"
@@ -325,7 +325,7 @@ func TestBundleRef_R2_RepoPathCase(t *testing.T) {
 		lower, err := ParseBundleRef("ctxloom+git://github.com/acme/repo//bundles/x")
 		require.NoError(t, err)
 		assert.NotEqual(t, upper.Identity(), lower.Identity(),
-			"two spellings collapsed onto one trust key")
+			"two spellings collapsed onto one source identity")
 	})
 
 	t.Run("case is PRESERVED on a case-sensitive git server", func(t *testing.T) {

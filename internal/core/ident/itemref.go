@@ -34,7 +34,7 @@ func IsRetiredAtEntry(ask string) bool {
 // that ParseSelector reads back to exactly (kind, name): the ONE selector
 // renderer, so minting cannot drift from parsing. A command is written
 // under its current spelling, "commands/"; ItemKind.Dir stays the STORED
-// directory ("prompts") that persisted trust keys use, and is not a
+// directory ("prompts") that persisted item refs use, and is not a
 // selector spelling.
 func FormatSelector(kind ItemKind, name string) string {
 	dir := kind.Dir()

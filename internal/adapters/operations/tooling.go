@@ -1,8 +1,9 @@
 // This file is the companion-loadout → agent-image tooling pipeline. A
 // companion whose content needs tools inside the agent container (linters,
 // language runtimes, build helpers) declares them in the typed `init.tooling`
-// field of its loadout (bundles.InitLoadout); `ctxloom tooling` collects those
-// texts THROUGH THE TRUST GATE and emits them with instructions for the LLM to
+// field of its loadout (bundles.InitLoadout); `ctxloom container tooling`
+// collects those texts from REGISTERED companions only (an unregistered one is
+// never run) and emits them with instructions for the LLM to
 // fold — with explicit per-change user permission — into the agent image's
 // base: the project devcontainer's Dockerfile, which an unset isolation_base
 // builds every locally-built agent image on. Nothing here runs on pull/sync:

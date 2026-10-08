@@ -451,7 +451,7 @@ func (c Catalog) ReadCommand(name string) ([]*ItemRead, error) {
 // commandRead is itemRead for a command, carrying its per-engine blocks.
 // ItemRef keeps the "prompts" kind segment (ident.KindPrompt, whose Dir()
 // is "prompts") even though the load selector is "#commands/", so the
-// item-kind rename does not invalidate existing trust grants.
+// item-kind rename does not move any existing command's item ref.
 func commandRead(read BundleRead, promptName string, prompt BundleCommand) (*ItemRead, error) {
 	r, err := itemRead(read, ident.KindPrompt, promptName, prompt.ItemBody, prompt.Resolve)
 	if err != nil {

@@ -34,7 +34,7 @@ const pulledBundleBody = "version: 1.0.0\ndescription: remote tools bundle\nmcp:
 //
 // The source repository's path is FORCED to carry a space and a literal '%'
 // rather than left to whatever t.TempDir happens to return: those are the
-// characters a lockfile key and a trust key have spelled differently (one
+// characters a lockfile key and a canonical source ref have spelled differently (one
 // raw, one percent-encoded), and "a%41b" is chosen so that any layer that
 // DECODES a raw path names a different directory ("aAb") instead of failing.
 // repoURL is the file URL a user has to type for that path — percent-encoded,
@@ -71,8 +71,8 @@ func pulledProject(t *testing.T) (appDir, repoURL string) {
 }
 
 // pulledApp is the PRODUCTION composition over the project — the real
-// reader, the real remote readers and the real executable trust gate — so
-// the gate below is the gate a spawn decides with, not a fixture's.
+// reader, the real remote readers and the real MCP server resolution — so
+// the delivery asserted below is what a spawn sees, not a fixture's.
 func pulledApp(t *testing.T, appDir string) *App {
 	t.Helper()
 	src, err := ComposeSources(Compose{NoCompanions: true, Options: []configload.Option{configload.WithAppDir(appDir)}})

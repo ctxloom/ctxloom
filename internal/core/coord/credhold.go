@@ -363,11 +363,11 @@ type failedTurn struct {
 // A run already parked by ANOTHER failure's hold (a sibling's limit reached
 // it mid-turn, and that turn then ended overloaded) stays in that hold: its
 // release resumes the run, and a second hold would resume it early.
-func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
+func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) error {
 	defer c.step(holdStepTurnFolded)
 	t, ok := c.failedTurnOf(role, runID, f)
 	if !ok {
-		return
+		return nil
 	}
 	d, local, err := c.foldTurnFailure(t)
 	switch {
@@ -383,6 +383,7 @@ func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
 	case d.parkedNothing:
 		c.raiseHoldFinding(t, time.Time{}, false)
 	}
+	return err
 }
 
 // failedTurnOf reads what runID's turned-away turn is decided from: the

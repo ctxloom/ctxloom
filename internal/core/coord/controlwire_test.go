@@ -161,7 +161,7 @@ func TestControlRun_SteerFromTheOwnerReachesTheChild(t *testing.T) {
 	c.mu.Lock()
 	c.afterMailWritten = func(to string) {
 		if to == out.Harp {
-			c.onTurnStarted(out.Harp, out.RunID) // the child took it before anyone looked
+			_ = c.onTurnStarted(out.Harp, out.RunID) // the child took it before anyone looked
 		}
 	}
 	c.mu.Unlock()

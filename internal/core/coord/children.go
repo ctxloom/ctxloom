@@ -1120,9 +1120,9 @@ func (c *Coordinator) bindNativeSession(harp, key string) {
 // one-shot resume gate's live half (one-shot-resume plan, Slice 4 / Fork 3).
 // Idempotent on an unchanged value; only ever recorded true (a false is the
 // zero value already, and a later true must not be silently ignored).
-func (c *Coordinator) recordResumable(runID string, resumable bool) {
+func (c *Coordinator) recordResumable(runID string, resumable bool) error {
 	if !resumable {
-		return
+		return nil
 	}
 	if err := c.runs.Exec(func() ([]Fact, error) {
 		r := c.runsF.run(runID)
@@ -1132,7 +1132,9 @@ func (c *Coordinator) recordResumable(runID string, resumable bool) {
 		return []Fact{factAt(factRunResumable, c.now(), runResumable{RunID: runID, Resumable: resumable})}, nil
 	}); err != nil {
 		c.rep.Warnf("coordinator: record run resumable: %v", err)
+		return err
 	}
+	return nil
 }
 
 // runtimeForLocked resolves the runtime a run-channel frame speaks for: the run
@@ -1165,7 +1167,7 @@ func (c *Coordinator) runtimeForLocked(role, runID string) *childRt {
 // tryAcquire rolls the claim back via releaseSlotIntent, and a successful
 // one is committed via commitSlotClaim rather than left at
 // slotClaimed forever.
-func (c *Coordinator) onTurnStarted(role, runID string) {
+func (c *Coordinator) onTurnStarted(role, runID string) error {
 	c.mu.Lock()
 	rt := c.runtimeForLocked(role, runID)
 	if rt != nil {
@@ -1183,7 +1185,7 @@ func (c *Coordinator) onTurnStarted(role, runID string) {
 		// everything it held — and nothing would ever give that slot back,
 		// shrinking the execution cap for the rest of the process's life. releaseSlot
 		// is guarded the same way, on rt.slot, as is onTurnIdle's bridge.
-		return
+		return nil
 	}
 	if c.claimSlotIntent(rt) {
 		if !c.slots.TryAcquire(1) {
@@ -1195,7 +1197,7 @@ func (c *Coordinator) onTurnStarted(role, runID string) {
 			c.slots.Release(1)
 		}
 	}
-	c.setState(rt, StateExecuting)
+	return c.journalState(rt, StateExecuting)
 }
 
 // captureRunFailure records a FAILED RunCompleted's reason on the child's
@@ -1240,7 +1242,10 @@ func (c *Coordinator) captureRunFailure(role, runID string, ev Event) {
 // next boundary" — the runner-side driver also queues internally; this push
 // covers mail that arrived while no channel push was possible). failed is the
 // turn's held failure (nil for none), folded into its credential's hold.
-func (c *Coordinator) onTurnIdle(role, runID string, failed *agent.TurnFailure) {
+//
+// A non-nil error is a fold that failed to journal; the boundary is then not
+// acked, and its re-send folds it again (both folds are idempotent).
+func (c *Coordinator) onTurnIdle(role, runID string, failed *agent.TurnFailure) error {
 	c.mu.Lock()
 	rt := c.runtimeForLocked(role, runID)
 	c.mu.Unlock()
@@ -1248,14 +1253,14 @@ func (c *Coordinator) onTurnIdle(role, runID string, failed *agent.TurnFailure) 
 		// A turn boundary that lands after the run's terminal (see
 		// onTurnStarted) changes nothing: setState and releaseSlot below are
 		// inert for an ended run.
-		return
+		return nil
 	}
 	// DRAINING: the boundary is where a drain's exit request is honoured
 	// (drain.go). Checked before the one-shot teardown so the terminal says
 	// drained (or stopped) rather than resumable — nothing resumes it here.
 	if p := c.exitRequested(rt); p != nil {
 		c.drainAtBoundary(rt, p)
-		return
+		return nil
 	}
 	// A one-shot child's ENGINE process ended at this boundary, on the runner
 	// — the runner itself stays, parked, its endpoint bound; the run is idle
@@ -1267,8 +1272,9 @@ func (c *Coordinator) onTurnIdle(role, runID string, failed *agent.TurnFailure) 
 	// resume releases the hold and the failure then opens a stray one. A run
 	// that ended, or ends here, folds nothing (pinned by
 	// TestRateHold_ADrainingRunsLimitOpensNoHold).
+	var foldErr error
 	if failed != nil {
-		c.onTurnFailed(role, runID, *failed)
+		foldErr = c.onTurnFailed(role, runID, *failed)
 	}
 	if hook := c.turnIdleHook; hook != nil {
 		hook(rt.harp)
@@ -1276,8 +1282,9 @@ func (c *Coordinator) onTurnIdle(role, runID string, failed *agent.TurnFailure) 
 	c.mu.Lock()
 	rt.idleSince = c.now()
 	c.mu.Unlock()
-	c.setState(rt, StateIdle)
+	stateErr := c.journalState(rt, StateIdle)
 	c.releaseSlot(rt)
+	return errors.Join(foldErr, stateErr)
 }
 
 // failChild reports a launch failure to the parent's mailbox — the spawn verb
@@ -1324,6 +1331,11 @@ func launchFailureDetail(err error) string {
 // setState journals a §6a state transition (the folds are the single owner
 // of roster/queue state; the runtime only mirrors slot bookkeeping).
 func (c *Coordinator) setState(rt *childRt, state string) {
+	_ = c.journalState(rt, state)
+}
+
+// journalState is setState reporting the journal failure it warned about.
+func (c *Coordinator) journalState(rt *childRt, state string) error {
 	if err := c.runs.Exec(func() ([]Fact, error) {
 		r := c.runsF.run(rt.runID)
 		if r == nil || r.Ended {
@@ -1332,10 +1344,11 @@ func (c *Coordinator) setState(rt *childRt, state string) {
 		return []Fact{factAt(factRunState, c.now(), runState{RunID: rt.runID, State: state})}, nil
 	}); err != nil {
 		c.rep.Warnf("agent %s: journal state %s: %v", rt.harp, state, err)
-		return
+		return err
 	}
 	c.sampleExecGauge()
 	c.drainWake() // a state change can settle a drain waiting on this child
+	return nil
 }
 
 // sampleExecGauge reports the current fold-authoritative count of runs in

@@ -19,8 +19,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// The bundle document every reader test reads, and its exact bytes — a
-// signature covers BYTES, so the fixture has to hand out the same ones it wrote.
+// The bundle document every reader test reads, and its exact bytes — readers
+// hand back the bytes they read, so the fixture has to hand out the same ones it
+// wrote.
 var readerBundleYAML = []byte("version: \"1.0\"\nfragments:\n  keeper:\n    content: KEEPER-PAYLOAD\n")
 
 // readerLoadoutDoc is readerBundleYAML as a companion's loadout DOCUMENT —

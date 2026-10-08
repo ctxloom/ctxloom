@@ -70,10 +70,10 @@ var (
 //
 // This is the one place a bundle document is turned into a *Bundle from a PATH.
 // Every caller needs the same two things together and for the same reason: the
-// envelope to judge the bundle by, and the bytes it was judged from. A
-// publisher signature covers those exact bytes (spec §3.1), so a caller handed
-// just one of the two goes back to the filesystem for the other — and then the file
-// on disk has been read twice, with nothing making the two reads agree.
+// envelope to judge the bundle by, and the bytes it was judged from (an import
+// or move writes those exact bytes, not a re-emission). A caller handed just one
+// of the two goes back to the filesystem for the other — and then the file on
+// disk has been read twice, with nothing making the two reads agree.
 //
 // It is deliberately NOT a Reader. A Reader enumerates everything one SOURCE
 // holds; this answers for a single document at a path the user named, which may

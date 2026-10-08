@@ -408,7 +408,7 @@ func (c Catalog) ResolveFragmentAsk(name string) string {
 // searchFragment scans every bundle for a fragment with the given name and
 // reports EVERY match, in List order (bundle-name sorted, so the order is
 // deterministic). Reporting all of them is what lets the process stage keep
-// scanning past one it withholds — a trusted copy in another bundle still wins
+// scanning past one it withholds — a usable copy in another bundle still wins
 // — a decision the reader is in no position to make.
 func (c Catalog) searchFragment(name string) ([]*ItemRead, error) {
 	var out []*ItemRead

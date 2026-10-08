@@ -36,6 +36,14 @@ func containerAxes(runtimeName string) launch.Axes {
 // Selection probes docker before podman; a podman caller must have made
 // docker unreachable for its own duration first (withPodmanSelected).
 func preparedContainer(ctx context.Context, runtimeName, backend, image, projectDir string, state isolation.SessionState) (isolation.Environment, error) {
+	return preparedContainerOn(ctx, containerAxes(runtimeName), runtimeName, backend, image, projectDir, state)
+}
+
+// preparedContainerOn is preparedContainer on axes the caller already
+// resolved (containerAxes), so a launch path pays for no engine probe of its
+// own beyond Prepare's: each containerAxes is a live `<runtime> info` pair,
+// seconds apiece on a loaded rootless podman.
+func preparedContainerOn(ctx context.Context, axes launch.Axes, runtimeName, backend, image, projectDir string, state isolation.SessionState) (isolation.Environment, error) {
 	eng, ok := engines.Registry().Lookup(engine.Name(backend))
 	if !ok {
 		return nil, fmt.Errorf("engine %q is not registered", backend)
@@ -44,7 +52,7 @@ func preparedContainer(ctx context.Context, runtimeName, backend, image, project
 	if err != nil {
 		return nil, err
 	}
-	spec, err := isolation.NewSpec(containerAxes(runtimeName), eng).
+	spec, err := isolation.NewSpec(axes, eng).
 		Project(projectDir).
 		Session(sessionDir, state).
 		Image(isolation.ImageConfig{Image: image}).

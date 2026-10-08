@@ -409,9 +409,8 @@ func TestGitHubFetcher_ResolveRef(t *testing.T) {
 	// Only a 404 establishes that a ref is absent. A 5xx, a 403 or a
 	// transport error says the forge could not be asked — and reporting that as
 	// ErrRemoteContentNotFound is load-bearing, because callers treat
-	// ErrRemoteContentNotFound as "this content legitimately does not exist"
-	// (an absent .sig is how an unsigned bundle is signalled), so a transient
-	// blip became a factual claim about the remote.
+	// ErrRemoteContentNotFound as "this content legitimately does not exist",
+	// so a transient blip became a factual claim about the remote.
 	for _, tc := range []struct {
 		name string
 		resp *github.Response

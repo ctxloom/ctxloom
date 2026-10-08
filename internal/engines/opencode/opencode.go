@@ -1,7 +1,7 @@
 // Package opencode is the opencode engine KIND: the opencode CLI driven
-// against an OpenAI-compatible endpoint the label names (a LAN model server),
-// one `opencode run --format json` process per structured turn, resumed by
-// its native session key. It is ASSEMBLED from internal/engines/kit — the
+// against an OpenAI-compatible endpoint the label names (a LAN model server):
+// interactively, the TUI on ctxloom's pty; structured, one `opencode run
+// --format json` process per turn; either resumed by its native session key. It is ASSEMBLED from internal/engines/kit — the
 // per-turn process driver, the Exec composition, the approach rooting, the
 // framed context file, the MCP table, the managed command and skill trees,
 // the export decoder and the projected backend — plus opencode's own content:
@@ -75,8 +75,8 @@ func Build(opts ...Option) (engine.Engine, error) {
 		Name: EngineName,
 		// Opt-in: a label must name `type: opencode`; never the default.
 		Distribution: engine.DistributionOptIn,
-		// The structured runner; the TUI is a later slice.
-		Modes:    []engine.Mode{engine.Structured},
+		// The TUI on ctxloom's pty, and the structured runner.
+		Modes:    []engine.Mode{engine.Interactive, engine.Structured},
 		Context:  &contextApproach{approach(ApproachAgentsFile, file)},
 		MCP:      &mcpApproach{approach(ApproachConfigFile, file)},
 		Settings: &settingsApproach{approach(ApproachConfigPolicy, present.Traits{Roots: home, Channel: present.ChannelFile})},
@@ -86,7 +86,7 @@ func Build(opts ...Option) (engine.Engine, error) {
 		// only in-process plugins (a generated bridge plugin is a later
 		// slice). A structured child gets its mail as turns.
 		Dynamic:      &sessionEndpoint{approach(ApproachEndpoint, present.Traits{Roots: home, Channel: present.ChannelFile})},
-		CLI:          []engine.CLIGrammar{structuredGrammar},
+		CLI:          []engine.CLIGrammar{interactiveGrammar, structuredGrammar},
 		ModelAliases: map[string]string{},
 		ExportSchema: ExportSchema,
 		// A one-shot child resumes by naming its own session (--session).
@@ -161,7 +161,9 @@ func (o Opencode) Container() (engine.ContainerSpec, error) {
 }
 
 // Transcripts: none. A structured run's transcript is the runner's own tee
-// of the driver's events; opencode's database is not read.
+// of the driver's events; opencode's database is not read, so an
+// interactive session leaves no transcript ctxloom reads (no memory of it)
+// until the bridge plugin writes one.
 func (Opencode) Transcripts() []engine.TranscriptReader { return nil }
 
 // TranscriptSession refuses: no transcript of opencode's own is read.
@@ -173,9 +175,10 @@ func (o Opencode) TranscriptSession(string) (string, error) {
 // no payload ever arrives.
 func (o Opencode) Hooks() engine.HookCodec { return noHooks{o.Name} }
 
-// Wake: no interactive owner to wake in this release.
+// Wake: absent until the bridge plugin, which a live TUI's mail and wake
+// ride, is generated.
 func (Opencode) Wake() engine.Declared[engine.WakeSpec] {
-	return engine.Absent[engine.WakeSpec]("opencode runs structured only; an idle structured run is woken by its next turn")
+	return engine.Absent[engine.WakeSpec]("opencode fires no turn-start hook ctxloom can deliver through; the TUI's mail and wake ride a bridge plugin not generated yet, and an idle structured run is woken by its next turn")
 }
 
 // Approvals: none can be routed.

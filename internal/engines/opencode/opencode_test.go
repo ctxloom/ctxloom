@@ -38,13 +38,13 @@ func start(t *testing.T) (present.Start, string, string) {
 	})), project, home
 }
 
-// The declaration: an opt-in, structured-only engine whose every kind lands
+// The declaration: an opt-in engine, the TUI and the runner, whose every kind lands
 // in the session home and nowhere else, carrying no hooks, resuming by key.
 func TestBuild_Declaration(t *testing.T) {
 	d := def(t)
 	assert.Equal(t, EngineName, d.Name)
 	assert.Equal(t, engine.DistributionOptIn, d.Distribution)
-	assert.Equal(t, []engine.Mode{engine.Structured}, d.Modes)
+	assert.Equal(t, []engine.Mode{engine.Interactive, engine.Structured}, d.Modes)
 	assert.Nil(t, d.Hooks)
 	for kind, a := range d.Surfaces() {
 		assert.Equal(t, []present.RootKind{present.RootSessionHome}, a.Traits().Roots, "%v", kind)

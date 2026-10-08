@@ -68,11 +68,12 @@ func variantFor(sh ir.Shell) syntax.LangVariant {
 // missing a rule, and with a stack trace as the agent's only feedback. Neither
 // half of the lowering is panic-free by construction: the walk is hand-written
 // over an AST shape we do not control, and the expander is third-party
-// (mvdan.cc/sh v3.13.1 nil-derefs on an empty parameter name, `${}`, under the
-// POSIX variant — see testdata/fuzz/FuzzParse). So a panic is converted into an
-// ordinary parse error and the caller's on_parse_error policy decides, exactly
-// as it would for malformed syntax. App.Decide holds the outer backstop for
-// everything downstream of here.
+// (mvdan.cc/sh v3.13.1 nil-dereffed on an empty parameter name, `${}`, which
+// only the zsh variant's parser accepts — see testdata/fuzz/FuzzParse; fixed
+// upstream in v3.14.0, where that input now takes the literal fallback). So a
+// panic is converted into an ordinary parse error and the caller's
+// on_parse_error policy decides, exactly as it would for malformed syntax.
+// App.Decide holds the outer backstop for everything downstream of here.
 func (f *Frontend) Parse(_ context.Context, shell ir.Shell, src string) (script *ir.Script, err error) {
 	defer func() {
 		if r := recover(); r != nil {

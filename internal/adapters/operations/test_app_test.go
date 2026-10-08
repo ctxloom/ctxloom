@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engines"
@@ -24,8 +25,15 @@ func testApp(t *testing.T, opts ...configload.Option) *App {
 	require.NoError(t, err)
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
-	return OpenedApp(owner, Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
+	return OpenedApp(owner, Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims, ContainerRuntimes: noExecRuntimes})
 }
+
+// noExecRuntimes is the runtime probe a test App is handed: one present
+// runtime that execs nothing (Host enumerates no containers and lists no
+// images). The real probe (doctorRuntimes) runs `docker info` / `podman
+// info`; under a throwaway XDG_RUNTIME_DIR a rootless podman starts a
+// `catatonit -P` pause process that outlives the test.
+func noExecRuntimes() []isolation.Runtime { return []isolation.Runtime{isolation.Host{}} }
 
 // fixtureSources is a config.Sources whose every Read is the same fixture
 // value, with the reader set ComposeSources wires: project, the lockfile's
@@ -72,7 +80,7 @@ func fixtureAppWith(t *testing.T, cfg *config.Config, loadouts []bundles.Compani
 	t.Helper()
 	owner, err := config.Open(context.Background(), fixtureSources{cfg: cfg, loadouts: loadouts})
 	require.NoError(t, err)
-	return OpenedApp(owner, Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
+	return OpenedApp(owner, Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims, ContainerRuntimes: noExecRuntimes})
 }
 
 // published returns the fixture as the generation the process would hold:

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -98,12 +99,10 @@ func TestDoctor_FullReport_RunsEveryCheckInItsFixedOrder(t *testing.T) {
 // call and log it; a reachable runtime is then probed exactly once.
 func TestDoctor_ProbesEachRuntimeOnce(t *testing.T) {
 	app, home := doctorApp(t)
-	dir := t.TempDir()
-	for _, bin := range []string{"docker", "podman"} {
-		script := "#!/bin/sh\necho \"$*\" >> " + filepath.Join(dir, bin+".calls") + "\n"
-		require.NoError(t, os.WriteFile(filepath.Join(dir, bin), []byte(script), 0o755))
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// The REAL probe (doctorRuntimes), not the test App's no-exec one: only
+	// the fake docker/podman below are on its PATH.
+	app.runtimes = nil
+	dir := fakeRuntimeCLIs(t)
 
 	_, err := Doctor(context.Background(), app, DoctorRequest{Home: home})
 	require.NoError(t, err)
@@ -118,5 +117,39 @@ func TestDoctor_ProbesEachRuntimeOnce(t *testing.T) {
 			}
 		}
 		assert.Equal(t, 1, probes, "%s's reachability probes:\n%s", bin, raw)
+	}
+}
+
+// fakeRuntimeCLIs puts docker and podman scripts that log each invocation's
+// args to <dir>/<bin>.calls at the front of PATH, and returns dir.
+func fakeRuntimeCLIs(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, bin := range []string{"docker", "podman"} {
+		script := "#!/bin/sh\necho \"$*\" >> " + filepath.Join(dir, bin+".calls") + "\n"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, bin), []byte(script), 0o755))
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return dir
+}
+
+// TestDoctor_AsksOnlyTheHandedRuntimeProbe: a composition that hands
+// ContainerRuntimes is the ONLY runtime source the report reads — consulted
+// once, and no docker/podman is ever exec'd. This is what keeps the unit
+// suites off the host's container engines: a real rootless `podman info`
+// under a test's throwaway XDG_RUNTIME_DIR starts a `catatonit -P` pause
+// process that outlives the test (one leaked per run of the doctor tests).
+func TestDoctor_AsksOnlyTheHandedRuntimeProbe(t *testing.T) {
+	app, home := doctorApp(t)
+	asked := 0
+	app.runtimes = func() []isolation.Runtime { asked++; return noExecRuntimes() }
+	dir := fakeRuntimeCLIs(t)
+
+	_, err := Doctor(context.Background(), app, DoctorRequest{Home: home})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, asked, "the handed probe answers the whole report, once")
+	for _, bin := range []string{"docker", "podman"} {
+		assert.NoFileExists(t, filepath.Join(dir, bin+".calls"), "%s was exec'd despite a handed runtime probe", bin)
 	}
 }

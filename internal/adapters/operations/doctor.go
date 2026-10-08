@@ -123,7 +123,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 	// ONE probe per runtime for the whole report: each is an `info` round trip
 	// to the engine (seconds for podman, up to runtimeProbeTimeout for a wedged
 	// one), and every runtime row reads the same answer.
-	runtimes := doctorRuntimes()
+	runtimes := app.containerRuntimes()
 	var checks []DoctorCheck
 	if req.DepsOnly {
 		checks = []DoctorCheck{
@@ -276,6 +276,15 @@ func doctorRuntimes() []isolation.Runtime {
 		}
 	}
 	return out
+}
+
+// containerRuntimes is the runtime probe this App was handed, or the real
+// one (doctorRuntimes) when none was.
+func (a *App) containerRuntimes() []isolation.Runtime {
+	if a.runtimes != nil {
+		return a.runtimes()
+	}
+	return doctorRuntimes()
 }
 
 // doctorCheckOrphanContainers REPORTS runner containers that outlived their

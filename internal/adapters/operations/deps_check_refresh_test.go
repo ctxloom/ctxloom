@@ -26,7 +26,8 @@ import (
 // url.Parse also refuses — but a control character is no longer a durable way
 // to make a string unparseable: references are normalised on ingest now
 // (remote.NormalizeRef strips control characters, because a ref carrying one
-// forges the countersign frame and can repaint a reviewer's terminal). Once the
+// can forge lines in line-delimited text such as lockfile keys and terminal
+// output, and can repaint the terminal). Once the
 // lockfile key below started being cleaned, this URL became the perfectly valid
 // "https://github.com/o/repo", DetectForge succeeded, and the test attempted a
 // real clone — which escaped t.TempDir() and wrote into the source tree. An

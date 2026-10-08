@@ -56,6 +56,9 @@ func TestMain(m *testing.M) {
 	// default fixture is therefore "none installed"; the tests that exercise
 	// the companion half install their own (withCompanions).
 	companionLookPath = noCompanionsOnPath
+	// Likewise no container runtime: the launch survey would otherwise exec
+	// `docker info` / `podman info` on the host (installHermeticRuntimes).
+	installHermeticRuntimes()
 	// Most container fixtures set a harp and mint no session, so nothing
 	// records an output dir for them; give each one under the sandbox. The
 	// real refusal is pinned by TestContainer_ARunWithNoRecordedOutputDirIsRefused.

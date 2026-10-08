@@ -108,7 +108,7 @@ func stubEngine(t *testing.T, a *engineAnswers) {
 // candidateNamed is the PRODUCTION candidate for bin (read before any stub).
 func candidateNamed(t *testing.T, bin string) runtimeCandidate {
 	t.Helper()
-	for _, c := range runtimeCandidates() {
+	for _, c := range productionRuntimeCandidates() {
 		if c.name == bin {
 			return c
 		}

@@ -705,8 +705,14 @@ type runtimeCandidate struct {
 // A package var, and a func rather than a slice literal, so tests drive
 // selection — including the ownership filter — hermetically: the real probes
 // exec `docker info` / `podman info` against live daemons, which a unit test
-// must never depend on. Mirrors the engineInfo / sharedFSCheck seams.
-var runtimeCandidates = func() []runtimeCandidate {
+// must never depend on. Mirrors the engineInfo / sharedFSCheck seams. The
+// package's TestMain installs a no-runtime table here, so a unit test reaches
+// productionRuntimeCandidates only by asking for it by name.
+var runtimeCandidates = productionRuntimeCandidates
+
+// productionRuntimeCandidates is the real candidate table: each probe execs
+// the runtime's CLI.
+func productionRuntimeCandidates() []runtimeCandidate {
 	return []runtimeCandidate{
 		{Docker{}.Name(), func() (Runtime, RuntimeAxis) { return newDockerRuntime(runtimeReachable) }},
 		{Podman{}.Name(), func() (Runtime, RuntimeAxis) { return newPodmanRuntime(runtimeReachable) }},

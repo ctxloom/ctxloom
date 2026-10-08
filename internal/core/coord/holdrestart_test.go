@@ -5,6 +5,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -54,27 +55,27 @@ func stepSignal(step string, ch chan struct{}) func(string) {
 // asserted between the two is what adoption alone rebuilt.
 func (f *holdFixture) restart(t *testing.T, was *fakeclock.Clock, down time.Duration, steps func(string)) *fakeclock.Clock {
 	t.Helper()
-	return f.restartTuned(t, was, down, func(c *Coordinator) {
-		if steps != nil {
-			c.holdStep = steps
-		}
-	})
+	return f.restartTuned(t, was, down, func(o *Options) { o.holdStep = steps })
 }
 
-// restartTuned is restart with the restarted coordinator adjusted by tune
-// before it serves.
-func (f *holdFixture) restartTuned(t *testing.T, was *fakeclock.Clock, down time.Duration, tune func(*Coordinator)) *fakeclock.Clock {
+// restartTuned is restart with the restarted coordinator's Options adjusted
+// by tune before New: its seams start with none of the crashed one's, and
+// o.Reporter is the fresh collector f.findings reads, which tune may wrap.
+// Never a field set on the coordinator New returned — New already runs the
+// adoption and the goroutines that read every seam.
+func (f *holdFixture) restartTuned(t *testing.T, was *fakeclock.Clock, down time.Duration, tune func(*Options)) *fakeclock.Clock {
 	t.Helper()
 	crashCoordinator(f.c)
 	clk := fakeclock.New()
 	clk.Advance(was.Now().Sub(fakeclock.Epoch) + down)
 	o := f.opts
 	o.Clock, o.AfterFunc = clk.Now, clk.AfterFunc
+	o.holdStep, o.turnIdleHook, o.runnerHelloHook = nil, nil, nil
 	var findings report.Collector
 	o.Reporter = &findings
+	tune(&o)
 	c, err := New(o)
 	require.NoError(t, err)
-	tune(c)
 	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 	f.c, f.findings = c, &findings
@@ -240,8 +241,8 @@ func TestHoldRestart_AnOwedResumeIsDeliveredAfterARestart(t *testing.T) {
 	atResume, letGo := make(chan struct{}), make(chan struct{})
 	var once, release sync.Once
 	t.Cleanup(func() { release.Do(func() { close(letGo) }) }) // the crashed coordinator's resume must not stay stuck at the seam
-	f, clk := newRateFixture(t, func(c *Coordinator) {
-		c.holdStep = func(s string) {
+	f, clk := newRateFixture(t, func(o *Options) {
+		o.holdStep = func(s string) {
 			if s == holdStepResume {
 				once.Do(func() { close(atResume) })
 				<-letGo
@@ -275,8 +276,8 @@ func TestHoldRestart_ACrashBetweenParkAndPauseReassertsThePause(t *testing.T) {
 	parking, letPark := make(chan struct{}), make(chan struct{})
 	var once, park sync.Once
 	t.Cleanup(func() { park.Do(func() { close(letPark) }) })
-	f, clk := newRateFixture(t, func(c *Coordinator) {
-		c.holdStep = func(s string) {
+	f, clk := newRateFixture(t, func(o *Options) {
+		o.holdStep = func(s string) {
 			if s == holdStepParkSibling {
 				once.Do(func() { close(parking) })
 				<-letPark
@@ -352,8 +353,8 @@ func TestHoldRestart_ABoundaryReplayedBeforeItsRunnersHelloStillSettlesTheRun(t 
 	atBoundary, letBoundary := make(chan struct{}), make(chan struct{})
 	var reached, released sync.Once
 	t.Cleanup(func() { released.Do(func() { close(letBoundary) }) }) // the crashed coordinator's boundary stays parked until the end
-	f, clk := newRateFixture(t, func(c *Coordinator) {
-		c.turnIdleHook = func(harp string) {
+	f, clk := newRateFixture(t, func(o *Options) {
+		o.turnIdleHook = func(harp string) {
 			if armed.Load() {
 				reached.Do(func() { close(atBoundary) })
 				<-letBoundary
@@ -367,8 +368,8 @@ func TestHoldRestart_ABoundaryReplayedBeforeItsRunnersHelloStillSettlesTheRun(t 
 	letHello := make(chan struct{})
 	var helloed sync.Once
 	t.Cleanup(func() { helloed.Do(func() { close(letHello) }) })
-	_ = f.restartTuned(t, clk, 0, func(c *Coordinator) {
-		c.runnerHelloHook = func(string) { <-letHello }
+	_ = f.restartTuned(t, clk, 0, func(o *Options) {
+		o.runnerHelloHook = func(string) { <-letHello }
 	})
 	for i := range f.sp.chatCount() {
 		f.sp.engineHome(i).Redial()
@@ -459,9 +460,9 @@ func TestHoldRestart_ANoDeadlineHoldHasNoTimerAcrossRestart(t *testing.T) {
 // both wait, and the hold's release relaunches the harp with its mail.
 func TestHoldRestart_AHeldHarpIsNotRelaunchedUntilItsHoldReleases(t *testing.T) {
 	deferred := make(chan struct{}, 8)
-	f, clk := newRateFixture(t, func(c *Coordinator) {
-		inner := c.holdStep
-		c.holdStep = func(s string) {
+	f, clk := newRateFixture(t, func(o *Options) {
+		inner := o.holdStep
+		o.holdStep = func(s string) {
 			inner(s)
 			if s == holdStepRelaunchHeld {
 				deferred <- struct{}{}
@@ -695,8 +696,8 @@ func TestHoldRestart_ARestartRewritesAReadoptedRunsSecretsSoItsNextTurnUsesTheFr
 // newSecretsFixture is the hold fixture on a manual clock with worker and
 // sibling container-shaped — each runner reads its credential from a secrets
 // file at every turn — and stranger host-shaped; tune, when set, adjusts the
-// coordinator before any child is spawned.
-func newSecretsFixture(t *testing.T, tune func(*Coordinator)) (*holdFixture, *fakeclock.Clock) {
+// Options before any child is spawned.
+func newSecretsFixture(t *testing.T, tune func(*Options)) (*holdFixture, *fakeclock.Clock) {
 	t.Helper()
 	secrets := t.TempDir()
 	clk := fakeclock.New()
@@ -704,7 +705,10 @@ func newSecretsFixture(t *testing.T, tune func(*Coordinator)) (*holdFixture, *fa
 		o.Clock, o.AfterFunc = clk.Now, clk.AfterFunc
 		sp := o.Spawner.(*fakeSpawner)
 		sp.secretsDir, sp.secretAgents = secrets, map[string]bool{"worker": true, "sibling": true}
-	}, tune)
+		if tune != nil {
+			tune(o)
+		}
+	})
 	return f, clk
 }
 
@@ -721,8 +725,8 @@ func TestHoldRestart_ARefusalReplayedAfterAReauthRestartOpensNoHold(t *testing.T
 	atBoundary, letBoundary := make(chan struct{}), make(chan struct{})
 	var reached, released sync.Once
 	t.Cleanup(func() { released.Do(func() { close(letBoundary) }) }) // the crashed coordinator's boundary stays parked until the end
-	f, clk := newSecretsFixture(t, func(c *Coordinator) {
-		c.turnIdleHook = func(string) {
+	f, clk := newSecretsFixture(t, func(o *Options) {
+		o.turnIdleHook = func(string) {
 			if armed.Load() {
 				reached.Do(func() { close(atBoundary) })
 				<-letBoundary
@@ -773,8 +777,8 @@ func TestHoldRestart_ARefusalOfTheReplacingCredentialStillHolds(t *testing.T) {
 	folded := make(chan struct{}, 64) // beyond this test's failures: a full buffer would stall the coordinator
 	letFinding := make(chan struct{})
 	var let sync.Once
-	f.restartTuned(t, clk, 0, func(c *Coordinator) {
-		c.holdStep = func(step string) {
+	f.restartTuned(t, clk, 0, func(o *Options) {
+		o.holdStep = func(step string) {
 			switch step {
 			case holdStepReasserted:
 				reasserted <- struct{}{}
@@ -782,13 +786,13 @@ func TestHoldRestart_ARefusalOfTheReplacingCredentialStillHolds(t *testing.T) {
 				folded <- struct{}{}
 			}
 		}
-		prev := c.rep
-		c.rep = report.To(report.SinkFunc(func(x report.Finding) {
+		prev := o.Reporter
+		o.Reporter = report.SinkFunc(func(x report.Finding) {
 			if strings.Contains(x.Text, refusedLead) {
 				<-letFinding
 			}
 			prev.Report(x)
-		}))
+		})
 	})
 	t.Cleanup(func() { let.Do(func() { close(letFinding) }) }) // runs before the coordinator's Close
 	require.Empty(t, f.c.CredentialHolds(), "premise: a different credential released the hold at adoption")
@@ -844,9 +848,9 @@ func TestHoldRestart_AnAdoptionReleaseRelaunchesAnEndedMemberWithMail(t *testing
 	} {
 		t.Run(name, func(t *testing.T) {
 			deferred := make(chan struct{}, 8)
-			f, clk := newRateFixture(t, func(c *Coordinator) {
-				inner := c.holdStep
-				c.holdStep = func(s string) {
+			f, clk := newRateFixture(t, func(o *Options) {
+				inner := o.holdStep
+				o.holdStep = func(s string) {
 					inner(s)
 					if s == holdStepRelaunchHeld {
 						deferred <- struct{}{}
@@ -870,4 +874,35 @@ func TestHoldRestart_AnAdoptionReleaseRelaunchesAnEndedMemberWithMail(t *testing
 			awaitChatText(t, f.sp, 3, "held work")
 		})
 	}
+}
+
+// TestHoldRestart_TheRestartedCoordinatorsSeamsSeeWhatNewDoes: New does work
+// before it returns — it re-arms adopted holds, re-tells the human of each one
+// still in force, and starts the goroutines that sweep the spool and reap idle
+// runs. A test seam installed after New returns is too late for all of it and
+// is written while those goroutines already read it, so the restarted
+// coordinator's hold-step hook and reporter come in through its Options. The
+// adoption's own finding is the proof: raised inside New, it reaches a
+// reporter only if that reporter was in place before New began.
+func TestHoldRestart_TheRestartedCoordinatorsSeamsSeeWhatNewDoes(t *testing.T) {
+	f, clk := newRateFixture(t)
+	f.send(t, f.worker, limitHit+" do the work")
+	f.awaitHold(t, f.worker, f.sibling)
+	f.awaitParks(t, f.worker, f.sibling)
+
+	var mu sync.Mutex
+	var seen []string
+	f.restartTuned(t, clk, 0, func(o *Options) {
+		prev := o.Reporter
+		o.Reporter = report.SinkFunc(func(x report.Finding) {
+			mu.Lock()
+			seen = append(seen, x.Text)
+			mu.Unlock()
+			prev.Report(x)
+		})
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	assert.True(t, slices.ContainsFunc(seen, func(s string) bool { return strings.Contains(s, "still in force after a restart") }),
+		"the adoption's finding, raised inside New, must reach the restarted coordinator's reporter: %v", seen)
 }

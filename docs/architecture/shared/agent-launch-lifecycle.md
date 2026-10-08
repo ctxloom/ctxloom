@@ -51,6 +51,9 @@ flowchart TD
   reach that Exec only as the session label's binary and args
   (`config.LabelBinary` / `config.LabelArgs`, read by launch's
   `selectEngine`); a label naming no binary gets the engine's own CLI, which
-  each engine's Exec defaults. The version floor probes the same binary
+  each engine's Exec defaults. A `binary_path` that is not a string, or
+  `args` that are not a list of strings, refuses the launch by label name
+  (`config.ErrMalformedLabelValue`) rather than reading as absent: the
+  config schema types both, but schema validation at load only warns. The version floor probes the same binary
   (`runner.Deps.EngineVersion`), so the probed and the spawned binary cannot
   diverge.

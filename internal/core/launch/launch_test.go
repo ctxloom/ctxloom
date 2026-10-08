@@ -313,6 +313,24 @@ func TestResolve_Label_ArgsAreTheLabelsArgs(t *testing.T) {
 	require.Empty(t, l.Label.Args, "a label naming no args leaves none")
 }
 
+// TestResolve_Label_MalformedBinaryOrArgsIsRefused: a label whose
+// binary_path is not a string, or whose args are not a list of strings, is
+// refused by name — never launched as though the key were absent.
+func TestResolve_Label_MalformedBinaryOrArgsIsRefused(t *testing.T) {
+	for label, body := range map[string]map[string]any{
+		"args-string":    {"args": "--debug"},
+		"args-non-text":  {"args": []any{"--ok", 7}},
+		"binary-non-str": {"binary_path": 7},
+	} {
+		t.Run(label, func(t *testing.T) {
+			env := launchtest.Deps(t, launchtest.WithLabel(label, body))
+			_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Label: label, Mode: engine.Interactive, WorkDir: env.Project})
+			require.ErrorIs(t, err, config.ErrMalformedLabelValue)
+			require.ErrorContains(t, err, label)
+		})
+	}
+}
+
 // TestResolve_Permission_TheChain: the flag, the binding's block for the
 // engine, the label's keys, the engine's default — the first declared
 // wins. The project declares no mode: it knows no engine.

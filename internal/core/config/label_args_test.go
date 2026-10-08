@@ -9,7 +9,8 @@ import (
 // TestLabelArgs_ReadsTheNeutralKey: a label's args are read untyped from its
 // body's args, the one key every engine whose label carries extra CLI
 // arguments declares them under. A YAML load yields []any, a Go-built body
-// []string; anything absent, not a list, or holding a non-string names none.
+// []string; absent, null or empty names none, and anything not a list of
+// strings is ErrMalformedLabelValue.
 func TestLabelArgs_ReadsTheNeutralKey(t *testing.T) {
 	for name, tc := range map[string]struct {
 		body map[string]any
@@ -20,11 +21,19 @@ func TestLabelArgs_ReadsTheNeutralKey(t *testing.T) {
 		"empty":       {map[string]any{"args": []any{}}, nil},
 		"absent":      {map[string]any{"model": "x"}, nil},
 		"nil body":    {nil, nil},
-		"not a list":  {map[string]any{"args": "--debug"}, nil},
-		"not text":    {map[string]any{"args": []any{"--ok", 7}}, nil},
+		"null":        {map[string]any{"args": nil}, nil},
 	} {
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tc.want, LabelArgs(tc.body))
+			got, err := LabelArgs(tc.body)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+	for name, v := range map[string]any{"not a list": "--debug", "not text": []any{"--ok", 7}, "a map": map[string]any{"a": "b"}} {
+		t.Run(name, func(t *testing.T) {
+			_, err := LabelArgs(map[string]any{"args": v})
+			require.ErrorIs(t, err, ErrMalformedLabelValue, "args that are not a list of strings are refused, not read as none")
+			require.ErrorContains(t, err, "args")
 		})
 	}
 }

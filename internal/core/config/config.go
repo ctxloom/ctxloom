@@ -880,12 +880,25 @@ func LabelContextWindow(body map[string]any) int {
 // same binary the engine's Exec spawns.
 const BinaryPathKey = "binary_path"
 
+// ErrMalformedLabelValue refuses a label-body key that is present but not
+// of its declared shape (binary_path not a string, args not a list of
+// strings): such a value is a configuration error, never read as absent.
+var ErrMalformedLabelValue = errors.New("config: a label value is malformed")
+
 // LabelBinary is the binary a label body names, or "" for the engine's own
-// (absent, or not a string). It reads the body untyped, as ResolveLLM reads
-// the model.
-func LabelBinary(body map[string]any) string {
-	s, _ := body[BinaryPathKey].(string)
-	return s
+// (absent or null). A binary_path that is present but not a string is
+// ErrMalformedLabelValue. It reads the body untyped, as ResolveLLM reads the
+// model.
+func LabelBinary(body map[string]any) (string, error) {
+	v, ok := body[BinaryPathKey]
+	if !ok || v == nil {
+		return "", nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("%w: %s must be a string, got %T", ErrMalformedLabelValue, BinaryPathKey, v)
+	}
+	return s, nil
 }
 
 // ArgsKey is the label-body key naming the extra CLI arguments a label
@@ -894,29 +907,35 @@ func LabelBinary(body map[string]any) string {
 // (engine.LabelConfig.Args) for whichever engine the label configures.
 const ArgsKey = "args"
 
-// LabelArgs are the args a label body names, or nil for none (absent, empty,
-// not a list, or holding anything but strings). It reads the body untyped: a
-// YAML load yields []any, a Go-built body []string.
-func LabelArgs(body map[string]any) []string {
-	switch v := body[ArgsKey].(type) {
+// LabelArgs are the args a label body names, or nil for none (absent, null
+// or empty). Args that are present but not a list of strings are
+// ErrMalformedLabelValue. It reads the body untyped: a YAML load yields []any,
+// a Go-built body []string.
+func LabelArgs(body map[string]any) ([]string, error) {
+	v, ok := body[ArgsKey]
+	if !ok || v == nil {
+		return nil, nil
+	}
+	var out []string
+	switch v := v.(type) {
 	case []string:
-		if len(v) > 0 {
-			return slices.Clone(v)
-		}
+		out = slices.Clone(v)
 	case []any:
-		out := make([]string, 0, len(v))
-		for _, a := range v {
+		out = make([]string, 0, len(v))
+		for i, a := range v {
 			s, ok := a.(string)
 			if !ok {
-				return nil
+				return nil, fmt.Errorf("%w: %s[%d] must be a string, got %T", ErrMalformedLabelValue, ArgsKey, i, a)
 			}
 			out = append(out, s)
 		}
-		if len(out) > 0 {
-			return out
-		}
+	default:
+		return nil, fmt.Errorf("%w: %s must be a list of strings, got %T", ErrMalformedLabelValue, ArgsKey, v)
 	}
-	return nil
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
 }
 
 // GetDefaultLLM returns the backend type for the primary role's label.

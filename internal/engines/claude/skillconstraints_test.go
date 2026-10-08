@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/engines/kit"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
@@ -54,11 +55,11 @@ func TestDeliverSkills_VendorInvalidSkillIsRefusedNamingTheConstraint(t *testing
 		constraint string
 	}{
 		{"missing name", skillExport("", "d"), "`name`"},
-		{"name too long", skillExport(strings.Repeat("a", SkillNameMaxLen+1), "d"), strconv.Itoa(SkillNameMaxLen)},
+		{"name too long", skillExport(strings.Repeat("a", kit.SkillNameMaxLen+1), "d"), strconv.Itoa(kit.SkillNameMaxLen)},
 		{"name not lowercase-hyphen", skillExport("Bad_Name", "d"), "lowercase"},
 		{"name carries a reserved word", skillExport("claude-helper", "d"), "reserved"},
 		{"missing description", skillExport("nodesc", ""), "`description`"},
-		{"description too long", skillExport("longdesc", strings.Repeat("d", SkillDescriptionMaxLen+1)), strconv.Itoa(SkillDescriptionMaxLen)},
+		{"description too long", skillExport("longdesc", strings.Repeat("d", kit.SkillDescriptionMaxLen+1)), strconv.Itoa(kit.SkillDescriptionMaxLen)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.label, func(t *testing.T) {
@@ -96,13 +97,13 @@ func TestDeliverSkills_RefusedSkillIsNotDeclared(t *testing.T) {
 	warnings := captureWarnings(t)
 	d, err := def.Skills.DeliverSkills(start, present.RootSessionHome, engine.SkillsInputs{Skills: []engine.SkillExport{
 		skill("fine", "fine"),
-		skill("humanize", strings.Repeat("d", SkillDescriptionMaxLen+1)),
+		skill("humanize", strings.Repeat("d", kit.SkillDescriptionMaxLen+1)),
 	}}, safefs.New())
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{filepath.Join(home, SkillsDirName, "fine", "SKILL.md")}, d.Files,
 		"a refused skill is not declared, so its earlier copy is released")
-	assert.Contains(t, warnings.String(), strconv.Itoa(SkillDescriptionMaxLen))
+	assert.Contains(t, warnings.String(), strconv.Itoa(kit.SkillDescriptionMaxLen))
 }
 
 // TestDeliverSkills_DisabledInvalidSkillIsNotRefused pins that a disabled
@@ -124,50 +125,11 @@ func TestDeliverSkills_DisabledInvalidSkillIsNotRefused(t *testing.T) {
 func TestDeliverSkills_ValidSkillPassesWithoutWarning(t *testing.T) {
 	dir := t.TempDir()
 	warnings := captureWarnings(t)
-	name := strings.Repeat("a", SkillNameMaxLen)
+	name := strings.Repeat("a", kit.SkillNameMaxLen)
 
-	require.NoError(t, deliverProjectSkills(t, dir, []agent.SkillExport{skillExport(name, strings.Repeat("d", SkillDescriptionMaxLen))}))
+	require.NoError(t, deliverProjectSkills(t, dir, []agent.SkillExport{skillExport(name, strings.Repeat("d", kit.SkillDescriptionMaxLen))}))
 
 	_, err := os.Stat(filepath.Join(dir, ConfigDirName, SkillsDirName, name, "SKILL.md"))
 	require.NoError(t, err)
 	assert.Empty(t, warnings.String())
-}
-
-// checkSkillConstraints boundary tests — pin the EXACT `>` limits so a
-// CONDITIONALS_BOUNDARY mutant (`>` becoming `>=`) is caught: a name or
-// description exactly AT the limit is accepted, one character over is not.
-
-func TestCheckSkillConstraints_NameLengthBoundary(t *testing.T) {
-	exact := strings.Repeat("a", SkillNameMaxLen)
-	assert.NoError(t, checkSkillConstraints(skillExport(exact, "d")),
-		"a name exactly at the %d char limit must be accepted", SkillNameMaxLen)
-
-	over := strings.Repeat("a", SkillNameMaxLen+1)
-	err := checkSkillConstraints(skillExport(over, "d"))
-	require.Error(t, err, "a name one char OVER the limit must be refused")
-	assert.Contains(t, err.Error(), strconv.Itoa(SkillNameMaxLen))
-}
-
-func TestCheckSkillConstraints_DescriptionLengthBoundary(t *testing.T) {
-	exact := strings.Repeat("d", SkillDescriptionMaxLen)
-	assert.NoError(t, checkSkillConstraints(skillExport("validname", exact)),
-		"a description exactly at the %d char limit must be accepted", SkillDescriptionMaxLen)
-
-	over := strings.Repeat("d", SkillDescriptionMaxLen+1)
-	err := checkSkillConstraints(skillExport("validname", over))
-	require.Error(t, err, "a description one char OVER the limit must be refused")
-	assert.Contains(t, err.Error(), strconv.Itoa(SkillDescriptionMaxLen))
-}
-
-// TestCheckSkillConstraints_ReservedWordIsASubstringMatch pins that the
-// reserved-word rule matches anywhere in the name, not only as a whole
-// hyphenated segment, and that a near-miss passes.
-func TestCheckSkillConstraints_ReservedWordIsASubstringMatch(t *testing.T) {
-	for _, name := range []string{"my-anthropic-tool", "helper-for-claude", "xclaudex"} {
-		err := checkSkillConstraints(skillExport(name, "d"))
-		require.Error(t, err, name)
-		assert.Contains(t, err.Error(), "reserved")
-	}
-	assert.NoError(t, checkSkillConstraints(skillExport("clause-parser", "d")),
-		"a near-miss that does not contain the reserved word must pass")
 }

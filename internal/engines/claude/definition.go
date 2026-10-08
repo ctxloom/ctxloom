@@ -235,12 +235,11 @@ func (a *mcpApproach) DeliverMCP(start present.Start, root present.RootKind, in 
 	switch root {
 	case present.RootSessionHome:
 		p := r.AnnounceFlag(flagMCPConfig).Build()
-		claims, err := mcpClaims(in.Servers)
+		private := mcpTable
+		private.Empty = map[string]any{}
+		claims, err := private.Claims(in.Servers)
 		if err != nil {
 			return present.Delivered{}, err
-		}
-		if len(claims) == 0 {
-			claims = []present.Claim{{Pointer: present.PointerKey(mcpServersKey), Value: map[string]any{}}}
 		}
 		return present.Delivered{Presented: p, Claims: map[string][]present.Claim{p.HostPath: claims}}, nil
 	case present.RootProjectRoot:
@@ -252,7 +251,7 @@ func (a *mcpApproach) DeliverMCP(start present.Start, root present.RootKind, in 
 		if len(env) > 0 {
 			p.Env = env
 		}
-		claims, err := mcpClaims(bundle)
+		claims, err := mcpTable.Claims(bundle)
 		if err != nil {
 			return present.Delivered{}, err
 		}
@@ -261,20 +260,10 @@ func (a *mcpApproach) DeliverMCP(start present.Start, root present.RootKind, in 
 	return present.Delivered{}, a.ErrRoot(root)
 }
 
-// mcpClaims is each server as a claim on its own entry under mcpServers,
-// spelled as the chat scratch file spells it (desiredMCPServers), through the
-// bundle that shipped it (its provenance stamp, wire.MCPServer.SCM).
-func mcpClaims(servers map[string]wire.MCPServer) ([]present.Claim, error) {
-	desired, err := (&ClaudeCodeHookWriter{}).desiredMCPServers(servers)
-	if err != nil {
-		return nil, err
-	}
-	claims := make([]present.Claim, 0, len(desired))
-	for _, name := range collections.SortedKeys(desired) {
-		claims = append(claims, present.Claim{Pointer: present.PointerKey(mcpServersKey) + present.PointerKey(name), Value: desired[name], Via: servers[name].SCM})
-	}
-	return claims, nil
-}
+// mcpTable is claude's .mcp.json server table: each server as the chat
+// scratch file spells it (mcpEntry), claimed through the bundle that
+// shipped it.
+var mcpTable = kit.MCPTable{Key: mcpServersKey, Entry: mcpEntry}
 
 // deliverSettingsFile claims ctxloom's entries in claude's settings file for
 // the root — the well-known .claude/settings.json under the project root, or
@@ -479,8 +468,12 @@ func (a *commandsApproach) DeliverCommands(start present.Start, root present.Roo
 // under the session home (the user-level directory claude loads alongside a
 // project's), or .claude/skills/<name>/ under the project root when the
 // binding selects it. Only the skills claude will load are written
-// (acceptedSkills).
+// (acceptedSkills: the Agent Skills standard with claude's reserved words).
 type skillsApproach struct{ kit.Approach }
+
+// acceptedSkills is the skills claude will load: the Agent Skills standard,
+// with Anthropic's reserved words.
+var acceptedSkills = kit.AgentSkillRules(EngineName, "anthropic", "claude")
 
 func (a *skillsApproach) DeliverSkills(start present.Start, root present.RootKind, in engine.SkillsInputs, files safefs.Root) (present.Delivered, error) {
 	return kit.DeliverSkills(a.Approach, start, root, SkillsDirName, relSkills, files, in, acceptedSkills, nil)

@@ -367,7 +367,7 @@ func TestStopChildren_BoundaryTerminalDoesNotDrainItsOwnChannel(t *testing.T) {
 	drained := false
 	c.drainHook = func(string) { drained = true }
 	c.requestExit(runID, stopPolicy(ownerIdentity().Harp, "abandoning this line", 0))
-	c.onTurnIdle(harp, runID, nil)
+	require.NoError(t, c.onTurnIdle(harp, runID, nil))
 
 	assert.Equal(t, StateEnded, rosterState(c, harp), "the marked child ends at its boundary")
 	assert.Equal(t, CauseStopped, runCause(c, runID))

@@ -353,6 +353,9 @@ type failedTurn struct {
 	key        string
 	scope      holdScope
 	candidates []heldRun // every other attached run with the same key
+	// beforeAdopt: the turn began before this coordinator adopted the run
+	// (turnBeforeAdopt).
+	beforeAdopt bool
 }
 
 // onTurnFailed folds a run's turned-away turn into its hold (holdKey): the
@@ -363,11 +366,11 @@ type failedTurn struct {
 // A run already parked by ANOTHER failure's hold (a sibling's limit reached
 // it mid-turn, and that turn then ended overloaded) stays in that hold: its
 // release resumes the run, and a second hold would resume it early.
-func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
+func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) error {
 	defer c.step(holdStepTurnFolded)
 	t, ok := c.failedTurnOf(role, runID, f)
 	if !ok {
-		return
+		return nil
 	}
 	d, local, err := c.foldTurnFailure(t)
 	switch {
@@ -383,6 +386,7 @@ func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
 	case d.parkedNothing:
 		c.raiseHoldFinding(t, time.Time{}, false)
 	}
+	return err
 }
 
 // failedTurnOf reads what runID's turned-away turn is decided from: the
@@ -402,7 +406,7 @@ func (c *Coordinator) failedTurnOf(role, runID string, f agent.TurnFailure) (fai
 		return failedTurn{}, false
 	}
 	replaced := c.replacedCreds[runID]
-	t := failedTurn{f: f, own: heldRun{runID, rt.harp}}
+	t := failedTurn{f: f, own: heldRun{runID, rt.harp}, beforeAdopt: c.turnBeforeAdopt[runID]}
 	attached := make([]heldRun, 0, len(c.attach))
 	for id, srt := range c.attach {
 		if id != runID {
@@ -481,6 +485,17 @@ func (c *Coordinator) decideTurnFailure(t failedTurn, now time.Time, local *hold
 	}
 	if local == nil {
 		return turnFold{}, nil // unreachable: holds come into force only under holdMu
+	}
+	// A turn that began before the adoption opens no hold. Its runner re-sends
+	// the boundary the crashed coordinator never acked, which that coordinator
+	// may already have folded into a hold the adoption has since released (its
+	// deadline passed while down): re-folded, the stale failure would open a
+	// fresh hold — its reset already past, so floored to a new backoff — and
+	// park the runs the release just resumed. A failure that was never folded
+	// costs one more failed turn at most: the run's next turn meets the limit
+	// afresh, and that one holds.
+	if t.beforeAdopt {
+		return turnFold{}, nil
 	}
 	return c.openHold(t, now, local.id, ownPark)
 }
@@ -1090,6 +1105,7 @@ func (c *Coordinator) releaseRunSecrets(runID string) {
 	release := c.secretReleases[runID]
 	delete(c.secretReleases, runID)
 	delete(c.replacedCreds, runID)
+	delete(c.turnBeforeAdopt, runID)
 	c.mu.Unlock()
 	if release != nil {
 		release()

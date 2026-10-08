@@ -139,6 +139,12 @@ type RunChannel struct {
 	flushedSeq uint64
 	items      []Fact
 
+	// redoSeq is the seq of an event whose RECORD failed (0: none). Its ack
+	// is withheld, so the runner still holds it and re-sends it; until it
+	// does, everything after it is refused unprocessed and unacked too
+	// (go-back-N), so the re-send replays the tail in its original order.
+	redoSeq uint64
+
 	// completed closes exactly once, the moment this channel's run_completed
 	// item has been FLUSHED (durably journaled) — drainTerminalTail waits on
 	// it before severing the channel.
@@ -241,6 +247,10 @@ func (c *Coordinator) ConfirmAttach(ch *RunChannel) {
 // which survives a channel reattach). Every NEW (non-duplicate) event is
 // also teed live, full payload, to the watch hub — independent of the
 // durable/counts-only journal path below.
+//
+// An ack follows a successful RECORD only: an event whose record fails to
+// journal is withheld (withholdAck), so the runner — which drops what is acked
+// and re-sends what is not — sends it again.
 func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
 	if !c.admitEventSeq(ch, ev.Seq) {
 		return
@@ -257,22 +267,42 @@ func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
 	}
 	c.watch.broadcast(ev)
 
+	var err error
 	switch payload := ev.Payload.(type) {
 	case CustomEvent:
-		c.handleCustomEvent(ch, payload)
-		c.flushItems(ch)
+		err = c.handleCustomEvent(ch, payload)
 	case Summary:
-		c.warnSummaryErr(ch, c.recordSummary(ch.role, ch.id.RunID, ev.Seq, payload))
-		c.flushItems(ch)
-	case ArtifactProduced:
-		if err := c.recordArtifact(ch.role, payload); err != nil {
-			c.rep.Warnf("coordinator: journal artifact manifest for %s: %v — the manifest is LOST, "+
-				"so any bytes already uploaded for it are unreachable through the log", ch.role, err)
+		err = c.recordSummary(ch.role, ch.id.RunID, ev.Seq, payload)
+		c.warnSummaryErr(ch, err)
+		if errors.Is(err, ErrRevoked) {
+			err = nil // refused for good: a re-send would be refused again
 		}
-		c.flushItems(ch)
+	case ArtifactProduced:
+		if err = c.recordArtifact(ch.role, payload); err != nil {
+			c.rep.Warnf("coordinator: journal artifact manifest for %s: %v (unacked; the runner re-emits)", ch.role, err)
+		}
 	default:
 		c.handleItemEvent(ch, ev)
+		return
 	}
+	if err != nil {
+		c.withholdAck(ch, ev.Seq)
+	}
+	c.flushItems(ch)
+}
+
+// withholdAck un-processes seq after its record failed: the watermark drops
+// back below it before the flush that follows can ack it, and redoSeq makes
+// admitEventSeq take its re-send as new. An unsequenced event (seq 0) is never
+// acked by seq, so there is nothing to withhold.
+func (c *Coordinator) withholdAck(ch *RunChannel, seq uint64) {
+	if seq == 0 {
+		return
+	}
+	c.mu.Lock()
+	ch.ackSeq = seq - 1
+	ch.redoSeq = seq
+	c.mu.Unlock()
 }
 
 // admitEventSeq records a sequenced event's seq on the channel, reporting
@@ -280,7 +310,10 @@ func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
 // the durable watermark instead, since the runner may have missed it.
 func (c *Coordinator) admitEventSeq(ch *RunChannel, seq uint64) bool {
 	c.mu.Lock()
-	if seq != 0 && seq <= ch.ackSeq {
+	// seq <= ackSeq is a duplicate; so is anything past an event whose record
+	// failed (redoSeq) — refused until that event is re-sent, it comes again
+	// behind it.
+	if seq != 0 && (seq <= ch.ackSeq || (ch.redoSeq != 0 && seq > ch.redoSeq)) {
 		flushed := ch.flushedSeq
 		c.mu.Unlock()
 		c.ackThrough(ch, flushed)
@@ -288,19 +321,21 @@ func (c *Coordinator) admitEventSeq(ch *RunChannel, seq uint64) bool {
 	}
 	if seq != 0 {
 		ch.ackSeq = seq
+		if seq == ch.redoSeq {
+			ch.redoSeq = 0
+		}
 	}
 	c.mu.Unlock()
 	return true
 }
 
-// warnSummaryErr reports a summary the coordinator could not keep: LOST when
-// the journal write failed (the runner's ack has already advanced past it),
-// refused otherwise.
+// warnSummaryErr reports a summary the coordinator could not keep: unrecorded
+// when the journal write failed (its ack is withheld, so the runner re-sends
+// it), refused otherwise.
 func (c *Coordinator) warnSummaryErr(ch *RunChannel, err error) {
 	switch {
 	case errors.Is(err, ErrReportNotJournaled):
-		c.rep.Warnf("coordinator: journal report for %s: %v — the report is LOST "+
-			"(the runner's ack has already advanced past it and nothing re-sends it)", ch.role, err)
+		c.rep.Warnf("coordinator: journal report for %s: %v (unacked; the runner re-emits)", ch.role, err)
 	case err != nil:
 		c.rep.Warnf("coordinator: refusing a report on %s's run channel: %v", ch.role, err)
 	}
@@ -337,8 +372,9 @@ func (c *Coordinator) ackThrough(ch *RunChannel, seq uint64) {
 	}
 }
 
-// handleCustomEvent serves the ctxloom/* custom event vocabulary.
-func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent) {
+// handleCustomEvent serves the ctxloom/* custom event vocabulary. A non-nil
+// error is a record that failed to journal: the event is not acked.
+func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent) error {
 	switch ev.Name {
 	case CustomHarnessSession:
 		sid, _ := ev.Value["session_id"].(string)
@@ -351,16 +387,16 @@ func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent) {
 			// nothing says why.
 			c.rep.Warnf("coordinator: %s from %s carried no session_id; run %s has no resume handle, so it cannot be resumed by native session key",
 				CustomHarnessSession, ch.role, ch.id.RunID)
-			return
+			return nil
 		}
 		c.bindNativeSession(ch.id.Harp, sid)
 		// The engine's live loadSession capability (the one-shot gate's
 		// live half) rides the SAME custom event as the session id.
 		if v, ok := ev.Value["resumable"].(bool); ok {
-			c.recordResumable(ch.id.RunID, v)
+			return c.recordResumable(ch.id.RunID, v)
 		}
 	case CustomTurnStarted:
-		c.onTurnStarted(ch.role, ch.id.RunID)
+		return c.onTurnStarted(ch.role, ch.id.RunID)
 	case CustomTurnIdle:
 		// Keyed by the channel's run: a late boundary from an ended run's
 		// channel must not drop what the harp's next run asks.
@@ -368,8 +404,9 @@ func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent) {
 		// A turn the engine turned away on a held failure: the runner has
 		// parked the run already; the hold parks the rest that share its
 		// credential.
-		c.onTurnIdle(ch.role, ch.id.RunID, turnFailureOf(ev.Value))
+		return c.onTurnIdle(ch.role, ch.id.RunID, turnFailureOf(ev.Value))
 	}
+	return nil
 }
 
 // ReleaseRun is the run channel's teardown: deregister the channel and
@@ -479,6 +516,10 @@ type reqKey struct {
 // live one times out to a deny).
 type inflightReq struct {
 	reply *AgentReply
+	// runID is the run whose channel the request arrived on: its records are
+	// that run's to drop at its terminal (clearReqTrack), never a resumed
+	// successor's under the same harp.
+	runID string
 }
 
 // HandleRequest serves one plane-2 request. request_id is the
@@ -513,7 +554,7 @@ func (c *Coordinator) HandleRequest(ch *RunChannel, req AgentRequest) {
 		// then-current channel — do NOT start a second dispatch.
 		return
 	}
-	tr := &inflightReq{}
+	tr := &inflightReq{runID: ch.id.RunID}
 	c.reqTrack[key] = tr
 	c.mu.Unlock()
 	if ar, ok := req.Kind.(ApprovalRequest); ok {
@@ -618,14 +659,15 @@ func (c *Coordinator) respondRole(role string, reply AgentReply) {
 	c.respond(ch, reply)
 }
 
-// clearReqTrack drops a role's plane-2 idempotency records at the terminal
-// seam (terminateRun). A resumed harp
-// gets a fresh run and re-dispatches cleanly; the records must not accumulate
-// across the process's lifetime.
-func (c *Coordinator) clearReqTrack(role string) {
+// clearReqTrack drops runID's plane-2 idempotency records at its terminal
+// seam (terminateRun), so they do not accumulate across the process's
+// lifetime. Scoped to the RUN, not the role: the run's end is journaled
+// before this teardown, so a resume can mint the harp a fresh run whose
+// requests are tracked under the same role by the time it runs.
+func (c *Coordinator) clearReqTrack(role, runID string) {
 	c.mu.Lock()
-	for k := range c.reqTrack {
-		if k.role == role {
+	for k, tr := range c.reqTrack {
+		if k.role == role && tr.runID == runID {
 			delete(c.reqTrack, k)
 		}
 	}

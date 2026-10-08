@@ -103,7 +103,7 @@ type fakeSpawner struct {
 	engineHomes []TestHome
 	// attachWaiting, when set, is signalled by awaitCutoverChild as it begins
 	// waiting for the child's run channel to attach — the seam that lets a
-	// test holding the attach (Coordinator.attachRunHook) release it only once
+	// test holding the attach (Options.attachRunHook) release it only once
 	// the fixture is committed to waiting for it.
 	attachWaiting chan struct{}
 	// engineStderrTail, when set, is threaded onto each EngineSpawn.StderrTail

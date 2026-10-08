@@ -263,13 +263,11 @@ func TestSpoolDoorbell_CutoverChildReturnsWithItsRunChannelAttached(t *testing.T
 	teeHome(t)
 	sp := cutoverSpawner(t, 0)
 	sp.attachWaiting = make(chan struct{}, 1)
-	c := newCutoverCoordinator(t, sp, 0)
-
 	release := make(chan struct{})
 	var releaseOnce sync.Once
 	unhold := func() { releaseOnce.Do(func() { close(release) }) }
-	t.Cleanup(unhold)
-	c.attachRunHook = func(string) { <-release }
+	c := newCutoverCoordinator(t, sp, 0, func(o *Options) { o.attachRunHook = func(string) { <-release } })
+	t.Cleanup(unhold) // registered after the coordinator's Close, so it runs first: a held attach must not stall Close
 
 	returned := make(chan struct{})
 	var ch *RunChannel

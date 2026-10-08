@@ -558,3 +558,37 @@ func TestFinalReport_AnEndedRunsTeardownSparesTheResumedRunsChannel(t *testing.T
 	assert.True(t, cut.Load(), "a run's own teardown cancels its channel")
 	assert.Equal(t, []string{harp}, waited, "a run's own teardown drains its channel")
 }
+
+// TestFinalReport_AnEndedRunsTeardownSparesTheResumedRunsRequests: the same
+// late teardown, on plane-2 request idempotency. Those records outlive a
+// channel (a reconnect reissues an outstanding request under its original id)
+// and are dropped at the run's terminal; dropped by harp, an ended run's
+// teardown that ran late wiped the RESUMED run's records too — and a reissue
+// of one still in flight (an approval waiting on the human) would then be
+// dispatched a second time.
+func TestFinalReport_AnEndedRunsTeardownSparesTheResumedRunsRequests(t *testing.T) {
+	sp := startRunSpawner(t, nil)
+	c := newTestCoordinator(t, sp, nil)
+	const harp, ended, resumed = "child-harp-x", "run-ended", "run-resumed"
+	successor := &RunChannel{
+		BidiSession: NewBidiSession[OutFrame, OutFrame, OutFrame](func() {}, 4),
+		role:        harp,
+		id:          Identity{Harp: harp, RunID: resumed},
+		completed:   make(chan struct{}),
+	}
+	c.HandleRequest(successor, AgentRequest{RequestID: "req-resumed", Kind: RosterRequest{}})
+	tracked := func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		_, ok := c.reqTrack[reqKey{role: harp, reqID: "req-resumed"}]
+		return ok
+	}
+	require.True(t, tracked(), "precondition: the resumed run's request is tracked")
+
+	c.clearReqTrack(harp, ended)
+	assert.True(t, tracked(), "the ended run's teardown dropped the resumed run's request record")
+
+	// The control: the run's own teardown still drops it.
+	c.clearReqTrack(harp, resumed)
+	assert.False(t, tracked(), "a run's own teardown drops its request records")
+}

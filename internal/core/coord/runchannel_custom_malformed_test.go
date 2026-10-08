@@ -33,7 +33,7 @@ func TestHandleCustomEvent_MalformedEventsAreReported(t *testing.T) {
 		var buf bytes.Buffer
 		restore := clidiag.SetSink(&buf)
 		defer restore()
-		c.handleCustomEvent(ch, CustomEvent{Name: name, Value: value})
+		_ = c.handleCustomEvent(ch, CustomEvent{Name: name, Value: value})
 		return buf.String(), c, role
 	}
 

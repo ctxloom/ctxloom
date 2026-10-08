@@ -217,20 +217,18 @@ func (f *reportsFold) nextRevision(harp, artifactID, sha string) (uint32, bool) 
 }
 
 // ErrReportNotJournaled wraps a journal failure while recording a report: the
-// report is not durable, and nothing re-sends it, so the filer must be told
-// rather than led to believe it was recorded.
+// report is not durable, so the filer must be told rather than led to believe
+// it was recorded (an agent_report caller gets it back; a run channel withholds
+// the event's ack, so its runner re-sends it).
 var ErrReportNotJournaled = errors.New("agent_report: the report could not be journaled and was not recorded")
 
 // recordSummary journals one filed report (plane-1 Summary event → durable
 // fact).
 //
-// A JOURNAL FAILURE LOSES THE REPORT. The runner's Ack advances on the event
-// regardless (HandleEvent raises ch.ackSeq before dispatching here, and
-// the flush that follows acks through it), so the runner will not re-emit it and
-// nothing else re-sends it — there is no retry buffer on this path, unlike the
-// item path's flushItems, which restores its facts and holds the watermark
-// back. So the failure is returned (ErrReportNotJournaled) — to agent_report's
-// caller, or to the run channel, which has no caller and warns — and everything downstream that would ASSERT the
+// A JOURNAL FAILURE RECORDS NOTHING. The failure is returned
+// (ErrReportNotJournaled) — to agent_report's caller, or to the run channel,
+// which warns and withholds the event's Ack (withholdAck) so the runner
+// re-sends it — and everything downstream that would ASSERT the
 // report exists is skipped: no audit interaction (the interaction log would
 // otherwise record a report the reports journal does not contain) and no
 // checkpoint snapshot (whose contract is that the report it compacts to is
@@ -342,8 +340,8 @@ func (c *Coordinator) notifyParentOfFinalReport(harp string, s Summary) {
 
 // recordArtifact journals one artifact manifest, assigning the monotonic
 // revision inside the journal's serialized window (the producer sends 0; an
-// unchanged sha256 is not a new revision). A failure means the manifest is
-// LOST, so any bytes already stored for it are unreachable through the log.
+// unchanged sha256 is not a new revision). A failure records nothing: on the
+// run channel the event's Ack is withheld, so the runner re-sends it.
 func (c *Coordinator) recordArtifact(harp string, a ArtifactProduced) error {
 	sha := hex.EncodeToString(a.SHA256)
 	return c.runs.Exec(func() ([]Fact, error) {

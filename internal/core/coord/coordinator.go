@@ -208,6 +208,13 @@ type Options struct {
 	// run channel, dialing unordered against it, may already be delivering
 	// events.
 	runnerHelloHook func(credHash string)
+	// attachRunHook runs synchronously in AttachRun once the Hello is
+	// verified and BEFORE the channel is registered in c.chans. The run
+	// channel dials on its own goroutine, unordered against the runner
+	// channel StartRun rides, so a child can be "up" with its run channel not
+	// yet attached; parking here makes that window a fact a test can hold
+	// open.
+	attachRunHook func(harp string)
 }
 
 // Coordinator is the runtime coordinator: durable CQRS stores + credential
@@ -405,6 +412,13 @@ type Coordinator struct {
 	// mu: a turn boundary such a run reports is from a turn that began before
 	// the replacement, on the credential it replaced (failedTurnOf).
 	replacedCreds map[string]bool
+	// turnBeforeAdopt are the re-adopted runs that have not started a turn
+	// since, by run id, guarded by mu: a turn boundary such a run reports
+	// ends a turn the crashed coordinator saw begin — one its runner re-sends
+	// because that coordinator never acked it — so its failure may already
+	// have been folded into a hold the adoption then released
+	// (decideTurnFailure).
+	turnBeforeAdopt map[string]bool
 	// onAskPublished, when set, is called by controlAsk between RECORDING the
 	// ask open and PUBLISHING it — the record-before-publish test seam. It
 	// fires on that side of the publish deliberately: a hook fired after it
@@ -540,12 +554,7 @@ type Coordinator struct {
 	// stop's own terminal: the seam that lets the runner's RunExited land
 	// first, the interleaving pendingStops exists for. Nil in production.
 	stopAnsweredHook func(runID string)
-	// attachRunHook, if set (tests only, same package), runs synchronously in
-	// AttachRun once the Hello is verified and BEFORE the channel is
-	// registered in c.chans. The run channel dials on its own goroutine,
-	// unordered against the runner channel StartRun rides, so a child can be
-	// "up" with its run channel not yet attached; parking here makes that
-	// window a fact a test can hold open. Nil in production.
+	// attachRunHook is Options.attachRunHook (a test seam; nil in production).
 	attachRunHook func(harp string)
 	// turnIdleHook and runnerHelloHook are Options.turnIdleHook and
 	// Options.runnerHelloHook (test seams; nil in production).
@@ -622,10 +631,12 @@ func New(opts Options) (*Coordinator, error) {
 		holdStep:           opts.holdStep,
 		turnIdleHook:       opts.turnIdleHook,
 		runnerHelloHook:    opts.runnerHelloHook,
+		attachRunHook:      opts.attachRunHook,
 		lookupEnv:          t.lookupEnv,
 		refreshSecrets:     opts.RefreshSecrets,
 		secretReleases:     make(map[string]func()),
 		replacedCreds:      make(map[string]bool),
+		turnBeforeAdopt:    make(map[string]bool),
 		runners:            make(map[string]*RunnerSession),
 		runnerReady:        make(map[string]chan struct{}),
 		chans:              make(map[string]*RunChannel),

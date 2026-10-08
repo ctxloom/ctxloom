@@ -184,6 +184,7 @@ func (c *Coordinator) readopt(runID string) {
 	}
 	c.attach[runID] = rt
 	c.byHarp[rec.Harp] = rt
+	c.turnBeforeAdopt[runID] = true
 	c.mu.Unlock()
 	close(rt.attached)
 

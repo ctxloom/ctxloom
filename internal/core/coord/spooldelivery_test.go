@@ -35,10 +35,10 @@ import (
 // production cadence precisely so that it can never be what made the test
 // pass. A test that got its delivery from a fast timer instead of the
 // doorbell would be reporting the doorbell works when it does not.
-func newCutoverCoordinator(t *testing.T, sp Spawner, sweep time.Duration) *Coordinator {
+func newCutoverCoordinator(t *testing.T, sp Spawner, sweep time.Duration, tune ...func(*Options)) *Coordinator {
 	t.Helper()
 	teeHome(t)
-	c, err := New(Options{
+	o := Options{
 		ProjectDir: t.TempDir(),
 		StateDir:   t.TempDir(),
 		Spawner:    sp,
@@ -46,7 +46,11 @@ func newCutoverCoordinator(t *testing.T, sp Spawner, sweep time.Duration) *Coord
 		OwnerHarp:          ownerIdentity().Harp,
 		SpoolSweepInterval: sweep,
 		Engines:            mockEngines(t),
-	})
+	}
+	for _, f := range tune {
+		f(&o) // seams are Options, set before New starts the goroutines that read them
+	}
+	c, err := New(o)
 	require.NoError(t, err, "new cutover coordinator")
 	require.NoError(t, runnerHooks.Serve(c), "serve cutover coordinator")
 	t.Cleanup(c.Close)

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -290,25 +291,89 @@ func (w Writer) SessionHarp() (harp string, ok bool) {
 	return harp, ok && harp != ""
 }
 
-// ProjectWriter is the writer tag of a human materialize into the project
-// root.
+// ProjectWriter is the bare writer tag of an at-rest delivery into the
+// project root, one tag for every engine and kind (ProjectTarget's). The
+// per-(engine, kind) family (ProjectWriterFor, Writer.Of) supersedes it;
+// Writer.Project recognises both.
 const ProjectWriter Writer = "project"
 
-// Target is where a plan lands and who owns what it writes.
+// ProjectWriterFor is the writer FAMILY of an at-rest delivery for one
+// engine: "project:<engine>". A Target carrying it with Kinds set speaks
+// for each kind under its own tag (Writer.Of), so delivering one kind or
+// one engine never releases another's claims.
+func ProjectWriterFor(eng engine.Name) Writer {
+	return Writer(string(ProjectWriter) + ":" + string(eng))
+}
+
+// Of is w's tag for one kind: "<w>:<kind>".
+func (w Writer) Of(k present.Kind) Writer { return Writer(string(w) + ":" + k.String()) }
+
+// Project reports whether w is an at-rest project writer: the legacy bare
+// "project" tag or any tag in the "project:..." family.
+func (w Writer) Project() bool {
+	return w == ProjectWriter || strings.HasPrefix(string(w), string(ProjectWriter)+":")
+}
+
+// AllKinds is every surface kind, in the order the at-rest planner walks
+// them.
+func AllKinds() []present.Kind {
+	return []present.Kind{present.Context, present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills}
+}
+
+// Target is where a plan lands and who owns what it writes. Kinds nil is
+// ONE writer for every kind (a session); Kinds set splits Writer per kind
+// (Writer.Of): the target speaks for exactly those kinds — it stages each
+// kind's claims under that kind's tag, releases only those tags, and
+// refuses a plan item of any other kind.
 type Target struct {
 	Root      present.Start
 	Ownership Ownership
 	Writer    Writer
+	Kinds     []present.Kind
+}
+
+// WriterOf is the tag a kind's claims are staged under: Writer when Kinds
+// is nil, else Writer.Of(k).
+func (t Target) WriterOf(k present.Kind) Writer {
+	if t.Kinds == nil {
+		return t.Writer
+	}
+	return t.Writer.Of(k)
+}
+
+// Writers is every tag this target speaks for, and so releases: [Writer]
+// when Kinds is nil, else Writer.Of(k) per kind.
+func (t Target) Writers() []Writer {
+	if t.Kinds == nil {
+		return []Writer{t.Writer}
+	}
+	out := make([]Writer, 0, len(t.Kinds))
+	for _, k := range t.Kinds {
+		out = append(out, t.Writer.Of(k))
+	}
+	return out
+}
+
+// Speaks reports whether the target speaks for kind k: every kind when
+// Kinds is nil.
+func (t Target) Speaks(k present.Kind) bool {
+	return t.Kinds == nil || slices.Contains(t.Kinds, k)
 }
 
 // Validate refuses the zero value: a target needs a root with a session
 // home or a project root, an ownership record, and a writer. A root is an
 // ABSOLUTE host path: the record keys a file by its path, so a relative
-// root would record nothing anyone could find again.
+// root would record nothing anyone could find again. A kind outside the
+// vocabulary is refused: it would name a writer no run speaks for again.
 func (t Target) Validate() error {
 	p := t.Root.Paths()
 	if (p.SessionHome.Host == "" && p.ProjectRoot.Host == "") || t.Ownership == nil || t.Writer == "" {
 		return ErrNoRoot
+	}
+	for _, k := range t.Kinds {
+		if !slices.Contains(AllKinds(), k) {
+			return fmt.Errorf("%w: kind %v is not a surface kind", ErrNoRoot, k)
+		}
 	}
 	for _, root := range []string{p.SessionHome.Host, p.ProjectRoot.Host} {
 		if root != "" && !filepath.IsAbs(root) {
@@ -321,7 +386,8 @@ func (t Target) Validate() error {
 // Static delivers the static items under the target's roots with ONE
 // ownership record per target file. The same implementation serves a
 // session (root = session home, writer = the harp) and a human materialize
-// (root = project root, writer = project); they differ only in the Target.
+// (root = project root, writer = the project family per kind); they differ
+// only in the Target.
 // A Plan with no Static items is UNINSTALL for that writer: the record says
 // what to remove and nothing else is touched. Deliver validates the Target
 // (ErrNoRoot) and re-checks each item's planned root against the target it

@@ -97,7 +97,7 @@ func newMemFsWithRoot(t *testing.T) afero.Fs {
 }
 
 // reverseOrderFixtureStore populates a store with the same fixture contents but
-// writes the files in reverse path order, so a digest that depended on creation
+// writes the files in reverse path order, so a walk that depended on creation
 // or directory-read order would disagree with fixtureStore's.
 func reverseOrderFixtureStore(t *testing.T) *TreeStore {
 	t.Helper()

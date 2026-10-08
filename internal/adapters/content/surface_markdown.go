@@ -66,9 +66,9 @@ func detectMarkdownItem(dir string, src Source) (string, bool) {
 // FormRaw is always FIRST because it is the BASE form: an unsuffixed filename
 // belongs to it and "<stem>.distilled.md" belongs to FormDistilled. Both are
 // PUBLISHED content — distilled/distilled_by are published bundle fields, not a
-// local cache derivative — so both live in the content tree, both are hashed, and
-// both are separately attestable. Reporting a form that has no file would hand a
-// caller an empty Form to sign.
+// local cache derivative — so both live in the content tree and both are
+// separately deliverable. Reporting a form that has no file would hand a caller
+// an empty Form.
 func markdownForms(dir string, src Source) ([]ident.ContentForm, error) {
 	stem, ok := detectMarkdownItem(dir, src)
 	if !ok {
@@ -103,8 +103,8 @@ type markdownParts struct {
 // A metadata SIDECAR in a .md kind directory is refused rather than ignored: the
 // residency rule for these kinds is front-matter, so a sidecar here is either a
 // mistake or content smuggled past the decoder. It is grouped into the item (and
-// therefore into the digest) by the walker, so silently ignoring it would mean
-// bytes are attested that nothing can explain.
+// therefore into its components) by the walker, so silently ignoring it would
+// mean bytes are delivered that nothing can explain.
 func readMarkdownItem(t SurfaceType, src Source) (markdownParts, error) {
 	dir := t.Dir()
 	var out markdownParts

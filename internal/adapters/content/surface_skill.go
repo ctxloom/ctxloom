@@ -15,11 +15,11 @@ import (
 // It is used for recognition and for LAYOUT: it is the file an engine reads,
 // so it is where Materialize places the selected body, and its form siblings
 // (skillBodyName) are the package's other bodies. It is emphatically not a
-// primary component: nothing designates it as "the" content of a skill for
-// TRUST purposes, the digest covers every file of a form equally, and there is
-// no Primary/Main/Descriptor concept anywhere in this package. Designating one
-// file for identity would bake a naming convention into what is signed — the
-// day a descriptor is renamed, what is signed would change silently.
+// primary component: nothing designates it as "the" content of a skill, every
+// file of a form is a component equally, and there is no Primary/Main/Descriptor
+// concept anywhere in this package. Designating one file for identity would bake
+// a naming convention into what an item is — the day a descriptor is renamed,
+// the item would change silently.
 const skillDescriptorName = "SKILL.md"
 
 // skillBodyName is the package-relative file carrying a skill's body in form f:
@@ -132,8 +132,8 @@ type SkillFile struct {
 	// Path is relative to the package directory, e.g. "scripts/run.sh".
 	Path string
 	// Mode is the DECLARED mode. It comes from the sidecar's executable list,
-	// not from the filesystem: a mode bit is not portable, so attesting a
-	// declaration is what keeps the digest platform-independent.
+	// not from the filesystem: a mode bit is not portable, so carrying a
+	// declaration is what keeps a package's content platform-independent.
 	Mode  ComponentMode
 	Bytes []byte
 }
@@ -146,8 +146,8 @@ type skillMeta struct {
 	Notes   string        `yaml:"notes,omitempty"`
 	Exports EngineExports `yaml:"exports,omitempty"`
 	// Executable lists the package-relative paths whose exec bit is
-	// load-bearing. This declaration is inside a hashed component, so
-	// executability is ATTESTED — which is exactly the property that silently
+	// load-bearing. This declaration is inside a component, so executability
+	// TRAVELS WITH the package — which is exactly the property that silently
 	// disappears if a walker skips the dot-prefixed sidecar.
 	Executable []string `yaml:"executable,omitempty"`
 }
@@ -158,11 +158,11 @@ type skillMeta struct {
 // It exists for the one caller that holds a tree's bytes but cannot decode it
 // as items: an INSTALLER. Writing a fetched tree to disk has to pick a POSIX
 // mode per file, and the only legitimate answer is the declaration — a mode bit
-// is not portable and the digest deliberately excludes it (see Digest), so the
-// `executable:` list inside the hashed, signed sidecar is the whole of what a
-// publisher said about executability. Taking the mode from the transport
+// is not portable and is not part of an item's components, so the
+// `executable:` list inside the sidecar is the whole of what a publisher said
+// about executability. Taking the mode from the transport
 // instead (git's 100755) produces a file whose mode disagrees with the manifest
-// the same tree generates, which reads downstream as tampering.
+// the same tree generates, and the consumer refuses the package.
 //
 // Keys are paths in the SAME space as the input map, and recognition is
 // prefix-agnostic: a sidecar is any metadata path whose immediate parent

@@ -65,7 +65,7 @@ type TreeFS interface {
 // an entry, and fs.DirEntry would oblige every backend to synthesise an
 // fs.FileInfo — a size, a mode and a modification time — that nothing here
 // reads and that a remote tree listing does not have. Modes in this package are
-// DECLARED metadata read from signed bytes, never filesystem bits (see
+// DECLARED metadata read from component bytes, never filesystem bits (see
 // ComponentMode), so a seam that carried a mode would be offering the walker a
 // fact it must not use.
 type TreeEntry struct {

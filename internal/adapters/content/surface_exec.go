@@ -97,8 +97,8 @@ func readExecItem(t SurfaceType, src Source, depth int, content, meta any) (stri
 // it — many JSON/YAML consumers reject unknown keys, and polluting a foreign
 // contract to store our bookkeeping is how a format stops being directly usable
 // by the tool that owns its schema. Our keys go in the sidecar, which is a
-// component of the item and therefore hashed: changing metadata changes Content
-// and invalidates the signature, exactly as changing the content file does.
+// component of the item: changing metadata changes the item's Content and
+// travels with it, exactly as changing the content file does.
 func encodeExecItem(t SurfaceType, name string, content, meta any) ([]Component, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: surface has no name", ErrSurfaceType)
@@ -353,9 +353,9 @@ func (hookType) Name() string { return ident.KindHook.Dir() }
 func (hookType) Dir() string  { return ident.KindHook.Dir() }
 
 // Meta: a sidecar, so hooks/<event>/<name>.yaml stays pure hook configuration.
-// The sidecar is a COMPONENT and therefore hashed — changing a hook's order
-// invalidates that hook's signature, exactly as changing its command does, rather
-// than order riding along unattested.
+// The sidecar is a COMPONENT of the hook — changing a hook's order changes the
+// hook's content and is delivered with it, exactly as changing its command does,
+// rather than order riding along outside the item.
 func (hookType) Meta() MetaStore { return SidecarMeta{} }
 
 func (t hookType) Detect(src Source) bool {
@@ -427,7 +427,7 @@ func (t hookType) Encode(s Surface) ([]Component, error) {
 		// marshalYAML renders an all-omitempty struct as nothing, so a hook that
 		// declares neither order nor tags writes NO sidecar — absence is
 		// represented by the absence of a file, not by an empty one. An empty
-		// `{}` per hook would be bytes in the digest that mean nothing, and would
+		// `{}` per hook would be component bytes that mean nothing, and would
 		// make "authored before the field existed" indistinguishable from
 		// "deliberately unordered".
 		hookMeta{Order: h.Order, Tags: h.Tags})

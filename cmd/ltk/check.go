@@ -11,8 +11,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // checkResult is the machine-readable verdict from `ltk check`: a structured
@@ -75,7 +75,7 @@ broken/unreadable config rather than failing closed.`,
 }
 
 func (f *checkFlags) run(cmd *cobra.Command, _ []string) error {
-	format, err := cliemit.Resolve(cmd)
+	format, err := cobrafmt.Resolve(cmd)
 	if err != nil {
 		return err
 	}
@@ -93,7 +93,7 @@ func (f *checkFlags) run(cmd *cobra.Command, _ []string) error {
 // structured payload's shape is unchanged for the tools that parse it.
 func runCheck(w, diag io.Writer, command, cfgPath string, forceShell ir.Shell, format clifmt.Format) error {
 	// Unreachable from the CLI — newCheckCmd's RunE resolves the format
-	// through cliemit.Resolve, which already rejects anything clifmt cannot
+	// through cobrafmt.Resolve, which already rejects anything clifmt cannot
 	// parse. It survives as the seam for direct in-package calls (see
 	// check_test.go's "unknown format errors").
 	if !format.Valid() {

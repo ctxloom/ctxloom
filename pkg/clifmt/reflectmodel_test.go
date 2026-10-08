@@ -19,7 +19,7 @@ type nestedFixture struct {
 }
 
 type tableRowFixture struct {
-	ID   string `json:"id" col:"ID"`
+	ID   string `json:"id" clifmt:"col=ID"`
 	Name string `json:"name"`
 }
 
@@ -37,55 +37,35 @@ type withPointerFixture struct {
 	Name *string `json:"name"`
 }
 
-func TestBuildNodeScalars(t *testing.T) {
-	v := simpleFixture{Name: "widget", Count: 3}
-	node, err := buildNode(reflect.ValueOf(v))
-	if err != nil {
-		t.Fatalf("buildNode: %v", err)
-	}
-	if len(node.Scalars) != 2 {
-		t.Fatalf("expected 2 scalars, got %d: %+v", len(node.Scalars), node.Scalars)
-	}
-	if node.Scalars[0].Label != "Name" || node.Scalars[0].Value != "widget" {
-		t.Errorf("scalar 0 = %+v", node.Scalars[0])
-	}
-	if node.Scalars[1].Label != "Count" || node.Scalars[1].Value != "3" {
-		t.Errorf("scalar 1 = %+v", node.Scalars[1])
+func TestDeriveScalars(t *testing.T) {
+	got := derive(t, simpleFixture{Name: "widget", Count: 3})
+	want := Doc{Field{Label: "Name", Value: "widget"}, Field{Label: "Count", Value: "3"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("derive = %#v, want %#v", got, want)
 	}
 }
 
-func TestBuildNodeSkipsJSONDash(t *testing.T) {
+func TestDeriveSkipsJSONDash(t *testing.T) {
 	v := nestedFixture{Title: "t", Owner: simpleFixture{Name: "n", Count: 1}, Skipped: "hidden"}
-	node, err := buildNode(reflect.ValueOf(v))
-	if err != nil {
-		t.Fatalf("buildNode: %v", err)
-	}
-	for _, s := range node.Scalars {
-		if s.Label == "Skipped" || s.Value == "hidden" {
-			t.Fatalf("json:\"-\" field leaked into scalars: %+v", node.Scalars)
+	for _, b := range derive(t, v) {
+		if f, ok := b.(Field); ok && (f.Label == "Skipped" || f.Value == "hidden") {
+			t.Fatalf("json:\"-\" field leaked into the view: %#v", b)
 		}
 	}
 }
 
-func TestBuildNodeNestedStructIsSection(t *testing.T) {
-	v := nestedFixture{Title: "t", Owner: simpleFixture{Name: "n", Count: 1}}
-	node, err := buildNode(reflect.ValueOf(v))
-	if err != nil {
-		t.Fatalf("buildNode: %v", err)
+func TestDeriveNestedStructIsSection(t *testing.T) {
+	got := derive(t, nestedFixture{Title: "t", Owner: simpleFixture{Name: "n", Count: 1}})
+	want := Doc{
+		Field{Label: "Title", Value: "t"},
+		Section{Title: "Owner", Body: Doc{Field{Label: "Name", Value: "n"}, Field{Label: "Count", Value: "1"}}},
 	}
-	if len(node.Sections) != 1 {
-		t.Fatalf("expected 1 section, got %d", len(node.Sections))
-	}
-	sec := node.Sections[0]
-	if sec.Label != "Owner" {
-		t.Errorf("section label = %q, want Owner", sec.Label)
-	}
-	if len(sec.Node.Scalars) != 2 || sec.Node.Scalars[0].Value != "n" {
-		t.Errorf("section node scalars = %+v", sec.Node.Scalars)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("derive = %#v, want %#v", got, want)
 	}
 }
 
-func TestBuildNodeSliceOfStructIsTable(t *testing.T) {
+func TestDeriveSliceOfStructIsTable(t *testing.T) {
 	v := withTableFixture{
 		Summary: "two items",
 		Items: []tableRowFixture{
@@ -93,28 +73,33 @@ func TestBuildNodeSliceOfStructIsTable(t *testing.T) {
 			{ID: "2", Name: "b"},
 		},
 	}
-	node, err := buildNode(reflect.ValueOf(v))
-	if err != nil {
-		t.Fatalf("buildNode: %v", err)
+	got := derive(t, v)
+	want := Doc{
+		Field{Label: "Summary", Value: "two items"},
+		Table{Title: "Items", Columns: []string{"ID", "Name"}, Rows: [][]string{{"1", "a"}, {"2", "b"}}},
 	}
-	if len(node.Tables) != 1 {
-		t.Fatalf("expected 1 table field, got %d", len(node.Tables))
-	}
-	tbl := node.Tables[0].Table
-	if !reflect.DeepEqual(tbl.Columns, []string{"ID", "Name"}) {
-		t.Errorf("columns = %v", tbl.Columns)
-	}
-	want := [][]string{{"1", "a"}, {"2", "b"}}
-	if !reflect.DeepEqual(tbl.Rows, want) {
-		t.Errorf("rows = %v, want %v", tbl.Rows, want)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("derive = %#v, want %#v", got, want)
 	}
 }
 
-func TestBuildTableFromTopLevelSlice(t *testing.T) {
-	v := []tableRowFixture{{ID: "1", Name: "a"}, {ID: "2", Name: "b"}}
-	tbl, err := buildTable(reflect.ValueOf(v))
-	if err != nil {
-		t.Fatalf("buildTable: %v", err)
+// tableOf returns the one Table a top-level slice derives to.
+func tableOf(t *testing.T, doc Doc) Table {
+	t.Helper()
+	if len(doc) != 1 {
+		t.Fatalf("doc = %#v, want one Table", doc)
+	}
+	tbl, ok := doc[0].(Table)
+	if !ok {
+		t.Fatalf("doc[0] = %#v, want a Table", doc[0])
+	}
+	return tbl
+}
+
+func TestDeriveTableFromTopLevelSlice(t *testing.T) {
+	tbl := tableOf(t, derive(t, []tableRowFixture{{ID: "1", Name: "a"}, {ID: "2", Name: "b"}}))
+	if tbl.Title != "" {
+		t.Errorf("a top-level table has no title, got %q", tbl.Title)
 	}
 	if !reflect.DeepEqual(tbl.Columns, []string{"ID", "Name"}) {
 		t.Errorf("columns = %v", tbl.Columns)
@@ -124,12 +109,8 @@ func TestBuildTableFromTopLevelSlice(t *testing.T) {
 	}
 }
 
-func TestBuildTableEmptySliceStillHasColumns(t *testing.T) {
-	v := []tableRowFixture{}
-	tbl, err := buildTable(reflect.ValueOf(v))
-	if err != nil {
-		t.Fatalf("buildTable: %v", err)
-	}
+func TestDeriveTableEmptySliceStillHasColumns(t *testing.T) {
+	tbl := tableOf(t, derive(t, []tableRowFixture{}))
 	if !reflect.DeepEqual(tbl.Columns, []string{"ID", "Name"}) {
 		t.Errorf("columns = %v, want [ID Name] even for an empty slice", tbl.Columns)
 	}
@@ -138,45 +119,26 @@ func TestBuildTableEmptySliceStillHasColumns(t *testing.T) {
 	}
 }
 
-func TestBuildNodeOmitemptySkipsZeroValue(t *testing.T) {
-	v := withOmitFixture{Kept: "k", Omitted: ""}
-	node, err := buildNode(reflect.ValueOf(v))
-	if err != nil {
-		t.Fatalf("buildNode: %v", err)
+func TestDeriveOmitemptySkipsZeroValue(t *testing.T) {
+	got := derive(t, withOmitFixture{Kept: "k", Omitted: ""})
+	if want := (Doc{Field{Label: "Kept", Value: "k"}}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("derive = %#v, want only Kept", got)
 	}
-	if len(node.Scalars) != 1 || node.Scalars[0].Label != "Kept" {
-		t.Fatalf("expected only Kept scalar, got %+v", node.Scalars)
-	}
-
-	v2 := withOmitFixture{Kept: "k", Omitted: "here"}
-	node2, err := buildNode(reflect.ValueOf(v2))
-	if err != nil {
-		t.Fatalf("buildNode: %v", err)
-	}
-	if len(node2.Scalars) != 2 {
-		t.Fatalf("expected 2 scalars when Omitted is set, got %+v", node2.Scalars)
+	if got := derive(t, withOmitFixture{Kept: "k", Omitted: "here"}); len(got) != 2 {
+		t.Fatalf("expected 2 fields when Omitted is set, got %#v", got)
 	}
 }
 
-func TestBuildNodeNilPointerRendersEmpty(t *testing.T) {
-	v := withPointerFixture{Name: nil}
-	node, err := buildNode(reflect.ValueOf(v))
-	if err != nil {
-		t.Fatalf("buildNode: %v", err)
-	}
-	if len(node.Scalars) != 1 || node.Scalars[0].Value != "" {
-		t.Fatalf("expected empty scalar value for nil pointer, got %+v", node.Scalars)
+func TestDeriveNilPointerRendersEmpty(t *testing.T) {
+	got := derive(t, withPointerFixture{Name: nil})
+	if want := (Doc{Field{Label: "Name", Value: ""}}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected an empty value for a nil pointer, got %#v", got)
 	}
 }
 
-func TestBuildNodePointerToStructDereferenced(t *testing.T) {
-	v := &simpleFixture{Name: "widget", Count: 3}
-	node, err := buildNode(reflect.ValueOf(v))
-	if err != nil {
-		t.Fatalf("buildNode: %v", err)
-	}
-	if len(node.Scalars) != 2 {
-		t.Fatalf("expected 2 scalars from dereferenced pointer struct, got %+v", node.Scalars)
+func TestDerivePointerToStructDereferenced(t *testing.T) {
+	if got := derive(t, &simpleFixture{Name: "widget", Count: 3}); len(got) != 2 {
+		t.Fatalf("expected 2 fields from a dereferenced pointer struct, got %#v", got)
 	}
 }
 
@@ -256,21 +218,18 @@ type embeddingRow struct {
 	Top string `json:"top"`
 }
 
-// TestBuildTableNilEmbeddedPointerRendersEmptyCell pins the invariant
-// buildTable's FieldByIndexErr swallow encodes: a nil embedded pointer along a
+// TestDeriveTableNilEmbeddedPointerRendersEmptyCell pins the invariant
+// tableBlocks' FieldByIndexErr swallow encodes: a nil embedded pointer along a
 // promoted field's index path is "nothing to show" for that ONE cell, not an
 // error and not a lost column. The column must still appear in the header, the
 // cell must be empty, and sibling fields on the same row must be unaffected.
 // Without this pin the swallow is indistinguishable from a dropped error.
-func TestBuildTableNilEmbeddedPointerRendersEmptyCell(t *testing.T) {
+func TestDeriveTableNilEmbeddedPointerRendersEmptyCell(t *testing.T) {
 	rows := []embeddingRow{
 		{embeddedInner: &embeddedInner{Deep: "present"}, Top: "one"},
 		{embeddedInner: nil, Top: "two"},
 	}
-	tbl, err := buildTable(reflect.ValueOf(rows))
-	if err != nil {
-		t.Fatalf("buildTable: %v", err)
-	}
+	tbl := tableOf(t, derive(t, rows))
 	deep := -1
 	for i, c := range tbl.Columns {
 		if c == "Deep" {
@@ -291,18 +250,15 @@ func TestBuildTableNilEmbeddedPointerRendersEmptyCell(t *testing.T) {
 	}
 }
 
-// TestBuildTableNilRowElement characterizes both arms of buildTable's
+// TestDeriveTableNilRowElement characterizes both arms of tableBlocks'
 // row-validity guard: a nil element of a slice-of-pointer yields a row of the
 // right WIDTH with every cell empty (it is still appended, so row indexes keep
 // matching the caller's slice indexes), and a valid element is unaffected.
 // The guard depends only on the row, never on the column, so this pins the
 // behaviour across moving it out of the per-column loop.
-func TestBuildTableNilRowElement(t *testing.T) {
+func TestDeriveTableNilRowElement(t *testing.T) {
 	rows := []*simpleFixture{nil, {Name: "n", Count: 2}}
-	tbl, err := buildTable(reflect.ValueOf(rows))
-	if err != nil {
-		t.Fatalf("buildTable: %v", err)
-	}
+	tbl := tableOf(t, derive(t, rows))
 	if len(tbl.Rows) != 2 {
 		t.Fatalf("got %d rows, want 2 (a nil element must still occupy a row)", len(tbl.Rows))
 	}

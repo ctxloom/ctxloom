@@ -63,7 +63,7 @@ func TestFormatIsValid(t *testing.T) {
 
 // TestUnsupportedFormatErrorParity pins the shared behaviour of the three
 // producers of clifmt's "unknown format" error — ParseFormat, Render, and any
-// first-party CLI validating a Format it was handed (cmd/ltk's runCheck) —
+// CLI validating a Format it was handed —
 // before they were collapsed onto one constructor. All three wrapped
 // ErrUnsupportedFormat and all three spelled the supported list out by hand in
 // a literal duplicated three times, once outside this package. The three

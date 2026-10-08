@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // groupNode marks cmd as a pure GROUP node — a namespace whose only job is to
@@ -113,7 +113,7 @@ func groupNodeDefault(cmd *cobra.Command, primary string) *cobra.Command {
 // emitting a text table under a zero exit status. Cobra merges a command's
 // persistent-flag inheritance inside ParseFlags, which only the dispatched
 // command runs; the child's own Flags() therefore has no "format" entry at
-// all, and cliemit.Resolve reads that absence as "text". InheritedFlags()
+// all, and cobrafmt.Resolve reads that absence as "text". InheritedFlags()
 // performs the same merge, and the merged flags are the very same *pflag.Flag
 // values the namespace already parsed — so the child reads what the caller
 // actually typed rather than a fresh set of defaults.
@@ -183,7 +183,7 @@ func groupNodeDefaultChild(cmd *cobra.Command) (string, bool) {
 // lets it pass; a namespace never calls emit(), so nothing else would, and it
 // would exit 0 having ignored the flag twice over.
 func groupNodeFormatRefusal(cmd *cobra.Command) error {
-	format, err := cliemit.Resolve(cmd)
+	format, err := cobrafmt.Resolve(cmd)
 	if err != nil {
 		return fmt.Errorf("%s: %w", cmd.CommandPath(), err)
 	}
@@ -194,7 +194,7 @@ func groupNodeFormatRefusal(cmd *cobra.Command) error {
 	// Resolve derives json, and a namespace that prints help has nothing to
 	// encode either way — refusing then would tell the caller to drop a flag
 	// they never passed, and would break every scripted bare-namespace call.
-	if !cliemit.Explicit(cmd) {
+	if !cobrafmt.Explicit(cmd) {
 		return nil
 	}
 	return fmt.Errorf("%s: --format %s cannot be honored by a command group: %s prints help, and help is not a payload any encoding can carry — name a subcommand that produces one (see '%s --help')",

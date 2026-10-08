@@ -10,8 +10,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // readSessionPlans reads a harp's own *.plan.md documents straight from its

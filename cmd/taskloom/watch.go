@@ -12,10 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/watch"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // errNoProjectYet is watch's refusal in a directory with no project
@@ -43,7 +43,7 @@ const watchDebounce = 100 * time.Millisecond
 // rendering of it at all. Answering those with JSONL anyway is a confident
 // wrong answer; naming the mismatch is the only honest option.
 func checkWatchFormat(cmd *cobra.Command) error {
-	format, err := cliemit.Resolve(cmd)
+	format, err := cobrafmt.Resolve(cmd)
 	if err != nil {
 		return err
 	}

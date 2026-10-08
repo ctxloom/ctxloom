@@ -10,10 +10,11 @@ import (
 
 	tagma "github.com/benjaminabbitt/tagma/ports/go"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 var showCmd = &cobra.Command{
@@ -100,9 +101,9 @@ func runShow(cmd *cobra.Command, args []string) error {
 	if len(args) == 1 {
 		payload = selected[0]
 	}
-	return cliemit.Emit(cmd, payload, func() error {
-		return renderTaskDetails(cmd.OutOrStdout(), selected, r.Global, cfg)
-	})
+	return cobrafmt.Emit(cmd, payload, clifmt.WithWriter(clifmt.FormatText, func(out io.Writer) error {
+		return renderTaskDetails(out, selected, r.Global, cfg)
+	}))
 }
 
 // ambiguousHarp is a requested harp id found in more than one project's store.

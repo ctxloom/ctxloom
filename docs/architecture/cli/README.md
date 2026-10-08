@@ -39,7 +39,7 @@ flowchart TD
     THICK --> COORD[["internal/core/coord"]]
     THICK --> TTY[["internal/adapters/hostpty · termui"]]
     OPS --> DOM[["domain: bundles · config · memory · remote · signing · transcript"]]
-    FMT --> CE[["shared/cliemit → pkg/clifmt"]]
+    FMT --> CE[["pkg/clifmt/cobrafmt → pkg/clifmt"]]
     SH --> STR[["shared/strictness"]]
 ```
 
@@ -88,4 +88,4 @@ the rule lives.
 | I6 | **The runner is the one credential holder.** `runner.Main` decodes the reach-back once and unsets it before the engine spawns; the session host keeps only the owner's credential (`mcp.HostCoordinatorForSession`) and stamps nothing on its own environment. | `internal/adapters/runner` |
 | I7 | **Relayed MCP handlers derive identity from the caller, not from process env.** `mcp.HostApp.Serve` binds each relayed call to the caller's credential-derived `coord.Identity`; `ctxServer.projectDir` is that identity's project with no cwd fallback (`TestArch_EnvLiteralsOnce` holds the env-key discipline). | `internal/adapters/mcp` |
 | I8 | **Exit codes travel as `ExitError`,** not `os.Exit`, so deferred cleanup runs. `run` unwraps it with `errors.As` (`exitCodeFor`); `strictness.ExitCodeFatalFindings` is reserved for a phase-gate abort. | `root.go` |
-| I9 | **`emit()` renders; the text closure runs only for `--format text`.** A not-found check placed *inside* the text closure therefore does not fire for structured formats. | `internal/shared/cliemit` |
+| I9 | **`emit()` renders; the text closure runs only for `--format text`.** A not-found check placed *inside* the text closure therefore does not fire for structured formats. | `pkg/clifmt/cobrafmt` |

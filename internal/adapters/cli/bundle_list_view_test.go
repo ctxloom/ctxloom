@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"reflect"
@@ -13,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // =============================================================================
@@ -154,6 +156,27 @@ func showViewBundle() *bundles.Bundle {
 		},
 	}
 	return b
+}
+
+// TestBundleShowView_MarkdownRendersItemsAsSections pins the human side of
+// the same contract: each item kind is a section with one sub-section per
+// item, never a Go struct dump inside a "k=v" line.
+func TestBundleShowView_MarkdownRendersItemsAsSections(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, clifmt.Render(&buf, newBundleShowView(showViewBundle()), clifmt.FormatMarkdown))
+	out := buf.String()
+	for _, want := range []string{
+		"## Fragments\n\n### plain\n\n**Preview:** padded first line\n",
+		"### styles\n\n**Tags:** docs\n",
+		"## Mcp\n\n### fs\n\n**Command:** mcp-fs\n",
+		"#### Env\n\n**DEBUG:** 1\n",
+		"## Skills\n\n### deploy\n\n",
+	} {
+		assert.Contains(t, out, want)
+	}
+	for _, goSyntax := range []string{"map[", "{[", "{true", "{false"} {
+		assert.NotContains(t, out, goSyntax, "Go value syntax leaked into the markdown view")
+	}
 }
 
 // TestBundleShowView_JSONShape pins `bundle show`'s wire shape: the header,

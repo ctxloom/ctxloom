@@ -144,8 +144,8 @@ func TestNormalizeNumbers_PreservesUint64BeyondInt64(t *testing.T) {
 	}
 }
 
-// --format yaml is 2-space, nested maps and sequences alike, matching every
-// file ctxloom saves (internal/shared/yamlx). yaml.v3's own default is 4, so
+// --format yaml is 2-space, nested maps and sequences alike. yaml.v3's own
+// default is 4, so
 // this pins that clifmt sets the indent on its encoder rather than inheriting
 // the library default.
 func TestRenderYAMLIndentsTwoSpaces(t *testing.T) {

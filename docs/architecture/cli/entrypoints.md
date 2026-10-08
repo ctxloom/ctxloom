@@ -38,7 +38,7 @@ flowchart TD
     RUNE --> POST["rootPersistentPostRunE → closeInternalCoordinator · checkFormatWasHonored"]
     POST --> ERR{"error?"}
     ERR -->|"*ExitError"| CODE["exitCodeFor → that code"]
-    ERR -->|other| REP["cliemit.EmitError → exit 1"]
+    ERR -->|other| REP["cobrafmt.EmitError → exit 1"]
     ERR -->|nil| OK["exit 0"]
 ```
 
@@ -126,4 +126,4 @@ minimal `.ctxloom`-rooted fixture instead of aborting.
   session.
 - **Exit codes travel as `ExitError`.** `strictness.ExitCodeFatalFindings` is
   reserved for a phase-gate abort; any other error renders through
-  `cliemit.EmitError` and exits 1.
+  `cobrafmt.EmitError` and exits 1.

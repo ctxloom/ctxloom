@@ -12,11 +12,12 @@ import (
 
 // jsonOutputSinks are the functions whose second argument is rendered as the
 // CLI's structured (--format json/yaml/toml) output. Keyed by
-// "<import path>.<func name>".
+// "<import path>.<func name>"; a method keys the same way, so clifmt.Render
+// also covers the (*clifmt.Printer).Render method.
 var jsonOutputSinks = map[string]bool{
-	"github.com/ctxloom/ctxloom/internal/adapters/cli.emit":   true,
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit.Emit": true,
-	"github.com/ctxloom/ctxloom/pkg/clifmt.Render":            true,
+	"github.com/ctxloom/ctxloom/internal/adapters/cli.emit": true,
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt.Emit":   true,
+	"github.com/ctxloom/ctxloom/pkg/clifmt.Render":          true,
 }
 
 // JSONTagsAnalyzer enforces that every struct reachable from a value handed to

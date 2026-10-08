@@ -12,8 +12,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // worktreeReapTimeout bounds each candidate's git probing/removal during a

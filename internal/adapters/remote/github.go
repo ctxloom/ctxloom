@@ -12,8 +12,8 @@ import (
 	"github.com/google/go-github/v60/github"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // GitHubFetcher implements Fetcher for GitHub repositories.

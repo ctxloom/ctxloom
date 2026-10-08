@@ -458,3 +458,21 @@ func TestSummary_ReturnsPerStatusCounts(t *testing.T) {
 	assert.Contains(t, out.String(), tasks.StatusToDo,
 		"summary asks for the summary; without it there is nothing to count")
 }
+
+// The Counts map renders through clifmt's map rule: a section with one line
+// per status, not one "k=v, k=v" line.
+func TestSummary_MarkdownCountsAreASection(t *testing.T) {
+	taskstest.ProjectDir(t)
+	tc, err := taskContextSingle()
+	require.NoError(t, err)
+	_, err = operations.AddTask(tc, "one", tasks.StatusToDo, "")
+	require.NoError(t, err)
+
+	c := &cobra.Command{}
+	c.Flags().String("format", "text", "")
+	require.NoError(t, c.Flags().Set("format", "markdown"))
+	var out bytes.Buffer
+	c.SetOut(&out)
+	require.NoError(t, summaryCmd.RunE(c, nil))
+	assert.Contains(t, out.String(), "## Counts\n\n**"+tasks.StatusToDo+":** 1\n")
+}

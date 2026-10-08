@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"strconv"
 	"strings"
 	"testing"
@@ -40,11 +41,7 @@ func TestNewRootCmd_Flags(t *testing.T) {
 		}
 	}
 
-	if f := root.PersistentFlags().Lookup("format"); f == nil {
-		t.Fatal(`persistent flag "format" not registered`)
-	} else if f.DefValue != "text" {
-		t.Errorf(`"format" default = %q, want "text"`, f.DefValue)
-	}
+	// --format is the family's; TestFormatParity pins it.
 }
 
 // runHarp executes the root command with args, capturing stdout.
@@ -64,7 +61,7 @@ func runHarp(t *testing.T, args ...string) string {
 // TestRunGenerate_DefaultTextOneName pins the zero-flag behavior: one name,
 // default 3 components (2 separators), newline-terminated.
 func TestRunGenerate_DefaultTextOneName(t *testing.T) {
-	// --format text is REQUESTED, not assumed. cliemit.Resolve derives the
+	// --format text is REQUESTED, not assumed. cobrafmt.Resolve derives the
 	// format from stdout when the flag was never set, and a test binary's stdout
 	// is never a terminal — so an unset flag reads as json and this test's
 	// subject, the TEXT rendering, would never run. The sibling cases below
@@ -294,7 +291,7 @@ func TestRunGenerate_RejectsAdvertisedRangeViolations(t *testing.T) {
 			root := newRootCmd()
 			var out bytes.Buffer
 			root.SetOut(&out)
-			root.SetErr(&out)
+			root.SetErr(io.Discard) // the failure is the error value; out is stdout alone
 			root.SetArgs(tc.args)
 
 			err := root.Execute()
@@ -344,7 +341,7 @@ func TestRunGenerate_RejectsAnEmptySeparator(t *testing.T) {
 	root := newRootCmd()
 	var out bytes.Buffer
 	root.SetOut(&out)
-	root.SetErr(&out)
+	root.SetErr(io.Discard) // the failure is the error value; out is stdout alone
 	root.SetArgs([]string{"-s", ""})
 
 	err := root.Execute()

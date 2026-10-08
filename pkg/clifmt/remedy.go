@@ -35,7 +35,7 @@ func RemedyOf(err error) (string, bool) {
 // FixLine is the ONE human text form of a remedy: "" when remedy is "",
 // otherwise "\n"+indent+"fix: "+remedy. Every text listing appends it after
 // the line it remedies, so the fix always reads the same wherever it shows.
-// ErrorEnvelope's `label:"fix"` renders the identical line through the
+// ErrorEnvelope's `clifmt:"label=fix"` renders the identical line through the
 // reflective text path; TestRenderError_TextFixMatchesFixLine binds the two.
 func FixLine(indent, remedy string) string {
 	if remedy == "" {

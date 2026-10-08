@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 
@@ -10,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // runStatuses drives the real statusesCmd's RunE with a throwaway parent
@@ -119,15 +120,15 @@ func TestFormatBranchParity_HandRolledSitesAgreeWithEmit(t *testing.T) {
 		c.SetOut(&out)
 
 		humanClosureRan := false
-		require.NoError(t, cliemit.Emit(c, []string{"row"}, func() error {
+		require.NoError(t, cobrafmt.Emit(c, []string{"row"}, clifmt.WithWriter(clifmt.FormatText, func(out io.Writer) error {
 			humanClosureRan = true
 			return nil
-		}))
+		})))
 
 		handRolledTakesHuman := format == clifmt.FormatText
 		assert.Equal(t, handRolledTakesHuman, humanClosureRan,
 			"the hand-rolled `format == clifmt.FormatText` branch must select the human "+
-				"renderer exactly when cliemit.Emit runs its text closure (format %q)", format)
+				"renderer exactly when cobrafmt.Emit runs its text closure (format %q)", format)
 	}
 }
 
@@ -139,7 +140,7 @@ func TestFormatBranchParity_HandRolledSitesAgreeWithEmit(t *testing.T) {
 // "unknown flag" while `taskloom list --json` worked — the same shorthand
 // working or failing depending on which subcommand you typed.
 //
-// cliemit.Resolve reads --json off cmd.Flags(), which cobra populates with a
+// cobrafmt.Resolve reads --json off cmd.Flags(), which cobra populates with a
 // parent's persistent flags, so availability here is exactly what the resolver
 // can see.
 func TestJSONShorthand_IsAvailableOnEveryCommand(t *testing.T) {

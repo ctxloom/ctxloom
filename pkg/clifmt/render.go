@@ -1,34 +1,22 @@
-// Package clifmt is a shared, reflective output filter for first-party Go
-// CLIs. A command hands over a struct (or slice of structs) and a Format;
-// clifmt renders it — writing almost no per-command rendering code. The tag
-// convention (json names and gates fields; label/col tune display) is
-// documented on parseJSONTag, resolveLabel and resolveCol in tags.go.
+// Package clifmt renders a command's result for a CLI. A command hands over
+// a value, normally a struct or a slice of structs (its data contract), and a
+// Format; clifmt renders it with almost no per-command rendering code.
+//
+// The json tags set the machine shape (json, yaml and toml all follow them);
+// the text and markdown views are derived from the same contract, tuned by
+// one `clifmt:"…"` hint tag (see hint in hints.go). A command that wants a
+// view of its own passes an Option: a per-type or per-path view returning a
+// Doc (ViewFor, At), or raw bytes for one format (WithWriter). Options that
+// apply to every call live on a Printer.
 package clifmt
 
-import (
-	"fmt"
-	"io"
-)
+import "io"
 
-// Render writes v to w in the given format. json/yaml/toml marshal v
-// generically; text/markdown derive their output from struct reflection
-// (see tags.go for the json:/label:/col: tag convention). If v implements
-// Renderer, it is consulted first and can take over any subset of formats.
-// An unrecognized Format returns an error wrapping ErrUnsupportedFormat.
-func Render(w io.Writer, v any, f Format) error {
-	if r, ok := v.(Renderer); ok {
-		handled, err := r.RenderCLI(w, f)
-		if err != nil {
-			return fmt.Errorf("clifmt: custom renderer: %w", err)
-		}
-		if handled {
-			return nil
-		}
-	}
-
-	spec, ok := specFor(f)
-	if !ok {
-		return UnsupportedFormatError(string(f))
-	}
-	return spec.render(w, v)
+// Render writes v to w in format f. json/yaml/toml marshal v through its json
+// contract; text/markdown write the Doc derived from v, with any custom views
+// in opts applied. An unrecognized Format returns an error wrapping
+// ErrUnsupportedFormat.
+func Render(w io.Writer, v any, f Format, opts ...Option) error {
+	var p Printer
+	return p.Render(w, v, f, opts...)
 }

@@ -398,3 +398,41 @@ func TestProcessTurn_GraceDefaults(t *testing.T) {
 	assert.Equal(t, DefaultInterruptGrace, ProcessTurn{}.grace())
 	assert.Equal(t, time.Second, ProcessTurn{Grace: time.Second}.grace())
 }
+
+// The turn's own env (ProcessTurn.Env) lands over the Exec's env for that
+// turn's process alone: the Exec is not mutated, so the next turn starts
+// from the Exec again, and a key the turn sets wins over the Exec's.
+func TestProcessTurn_EnvIsPerTurnOverTheExec(t *testing.T) {
+	var got []map[string]string
+	open := func(_ context.Context, _ string, _ []string, env map[string]string, _ string) (*Transport, error) {
+		got = append(got, env)
+		return fixed(lines(t, agent.ChatEvent{Complete: &agent.TurnMeta{}}), nil)(context.Background(), "", nil, nil, "")
+	}
+	d := testTurn(open)
+	d.Env = func(_ engine.Exec, in engine.Turn) (map[string]string, error) {
+		return map[string]string{"TURN": in.Prompt, "SHARED": "turn"}, nil
+	}
+	ex := engine.Exec{Binary: "eng", Env: map[string]string{"EXEC": "1", "SHARED": "exec"}}
+	for _, p := range []string{"one", "two"} {
+		_, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: p}, nil)
+		require.NoError(t, err)
+	}
+	require.Len(t, got, 2)
+	assert.Equal(t, map[string]string{"EXEC": "1", "SHARED": "turn", "TURN": "one"}, got[0])
+	assert.Equal(t, map[string]string{"EXEC": "1", "SHARED": "turn", "TURN": "two"}, got[1])
+	assert.Equal(t, map[string]string{"EXEC": "1", "SHARED": "exec"}, ex.Env, "the Exec's own env is not mutated")
+}
+
+// A turn whose env cannot be composed spawns nothing.
+func TestProcessTurn_EnvErrorSpawnsNothing(t *testing.T) {
+	opened := false
+	d := testTurn(func(context.Context, string, []string, map[string]string, string) (*Transport, error) {
+		opened = true
+		return nil, errors.New("unreachable")
+	})
+	boom := errors.New("no env")
+	d.Env = func(engine.Exec, engine.Turn) (map[string]string, error) { return nil, boom }
+	_, err := d.Turn(context.Background(), engine.Exec{}, engine.Turn{}, nil)
+	require.ErrorIs(t, err, boom)
+	assert.False(t, opened)
+}

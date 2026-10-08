@@ -89,7 +89,7 @@ func (g LinkGroup) MCPMembers() []string {
 // group seen here is the group the pipeline sees on a delivered item.
 //
 // The members are the deliverable item kinds. A hook has no author-given
-// name, so it joins under its trust identity, HookEntry.ID(). Profiles are
+// name, so it joins under its identity, HookEntry.ID(). Profiles are
 // deliberately not members: a profile is a selector over items, not a
 // delivered one, and "withhold the profile" has no meaning.
 func (b *Bundle) LinkGroups() map[string]LinkGroup {

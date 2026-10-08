@@ -74,7 +74,7 @@ func TestBundle_LinkGroups_GroupsEveryKindByEffectiveTags(t *testing.T) {
 		{Kind: ident.KindHook, Name: "session_start/0"},
 		{Kind: ident.KindMCP, Name: "think"},
 		{Kind: ident.KindPrompt, Name: "plan"},
-	}, groups["think"].Members, "a hook joins by its trust identity, <event>/<index>: hooks have no author-given name")
+	}, groups["think"].Members, "a hook joins by its identity, <event>/<index>: hooks have no author-given name")
 	assert.Equal(t, []string{"think"}, groups["think"].MCPMembers())
 
 	whole := &Bundle{

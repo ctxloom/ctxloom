@@ -236,12 +236,12 @@ func (t mcpType) Encode(s Surface) ([]Component, error) {
 
 // -------------------------------------------------------------------- hooks
 
-// Hook is one lifecycle hook. Its trust identity is "<event>/<name>" — the NAME,
+// Hook is one lifecycle hook. Its identity is "<event>/<name>" — the NAME,
 // never an ordinal position.
 //
 // The old identity was the hook's INDEX within its event, which is connascence of
 // position: inserting a hook at the top of an event silently changed the identity
-// of every hook below it, invalidating approvals for items that had not changed.
+// of every hook below it, so items that had not changed read as changed.
 //
 // # Order IS a field, and here is why the earlier retraction no longer holds
 //

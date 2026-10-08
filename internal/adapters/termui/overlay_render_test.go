@@ -165,9 +165,9 @@ func emulate(s string) *vtemu.Screen {
 // screenWhen waits until the terminal shows a frame check accepts, judged
 // again on every write that arrives, and returns it. A frame is the
 // tea.Program's to finish in its own time; this waits for the frame the test
-// expects rather than for a quiet spell that a loaded machine can fake. When
-// the wait runs out check runs against the test, so a frame that never came
-// fails with what the screen actually shows.
+// expects rather than for a quiet spell that a loaded machine can fake. At
+// the deadline check runs against the test, so a frame that never came fails
+// with what the screen actually shows.
 func (h *renderHarness) screenWhen(what string, check func(tb, *vtemu.Screen)) *vtemu.Screen {
 	h.t.Helper()
 	return awaitScreen(h.t, h.tty, what, check)
@@ -183,7 +183,10 @@ type waiter interface {
 // awaitScreen is screenWhen on any terminal and any test. A frame carrying a
 // sequence the screen model does not understand ends the wait at once: the
 // model replays the whole stream, so that frame and every one after it is
-// unjudgeable, and waiting on could only spend the wait's whole budget.
+// unjudgeable, and waiting on could only spend the test binary's deadline,
+// which every later test in the binary shares. This early end is the
+// invariant that keeps a wait bounded only by that deadline from leaving the
+// tests after it an already-spent budget (testsupport.BudgetUntil).
 func awaitScreen(t waiter, tty *syncBuf, what string, check func(tb, *vtemu.Screen)) *vtemu.Screen {
 	t.Helper()
 	cur, ok := tty.await(t, func(s string) bool {
@@ -345,9 +348,10 @@ func (f *failingT) FailNow()                          { runtime.Goexit() }
 
 // A sequence the screen model does not understand makes the frame carrying it
 // unjudgeable, and every frame after it too: each frame is the whole stream
-// replayed. Waiting on for an acceptable frame can only end when the wait
-// runs out, minutes later. So the wait fails on the first such frame, naming
-// what it could not understand and showing the frame.
+// replayed. Waiting on for an acceptable frame can only end at the test
+// binary's deadline, which the binary's later tests then inherit spent and
+// fail in 0.00s. So the wait fails on the first such frame, naming what it
+// could not understand and showing the frame.
 func TestAwaitScreen_FailsOnTheFirstFrameItCannotUnderstand(t *testing.T) {
 	tty := &syncBuf{}
 	_, err := tty.Write([]byte("on screen\x1b[20h"))

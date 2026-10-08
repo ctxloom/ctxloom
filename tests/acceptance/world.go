@@ -13,6 +13,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -25,10 +26,10 @@ var suiteDeadline struct {
 }
 
 // eventBudget bounds a wait on a pty write or a process exit by the suite's
-// deadline (testenv.BudgetUntil) rather than a fixed cap, which a loaded
+// deadline (testsupport.BudgetUntil) rather than a fixed cap, which a loaded
 // machine outruns without a defect.
 func eventBudget() time.Duration {
-	return testenv.BudgetUntil(suiteDeadline.at, suiteDeadline.ok)
+	return testsupport.BudgetUntil(suiteDeadline.at, suiteDeadline.ok)
 }
 
 // World is the per-scenario state binding all three evaluation axes. It is

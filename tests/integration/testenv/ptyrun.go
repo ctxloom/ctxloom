@@ -11,6 +11,8 @@ import (
 	"time"
 
 	pty "github.com/aymanbagabas/go-pty"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // ptyGracefulShutdown bounds how long Close waits after SIGTERM before
@@ -19,40 +21,6 @@ import (
 // (already off the happy path) case of closing a session that didn't exit on
 // its own.
 const ptyGracefulShutdown = 2 * time.Second
-
-// deadlineMargin is how far ahead of the test binary's deadline BudgetUntil
-// ends: room for the failing assertion to print what the wait saw before go
-// test's own timeout panics over it.
-const deadlineMargin = 10 * time.Second
-
-// noDeadline stands in for a bound when there is no deadline to honour: longer
-// than any run, yet short enough that a callee converting it to milliseconds
-// and back to nanoseconds (a poll(2) timeout) does not overflow.
-const noDeadline = 100 * 365 * 24 * time.Hour
-
-// BudgetUntil is how long a wait on a pty or process event may take when the
-// only bound is deadline (ok reports whether there is one): until
-// deadlineMargin before it, or noDeadline without one. A wait for bytes
-// crossing a real pty, or for a real process to exit, carries no deadline of
-// its own: a loaded machine delays those by any amount, and a deadline short
-// enough to matter fails on an event that was merely late.
-func BudgetUntil(deadline time.Time, ok bool) time.Duration {
-	if !ok {
-		return noDeadline
-	}
-	return time.Until(deadline) - deadlineMargin
-}
-
-// TestBudget is BudgetUntil the test binary's own deadline, for a wait that
-// takes a duration.
-func TestBudget(t *testing.T) time.Duration {
-	return BudgetUntil(t.Deadline())
-}
-
-// TestExpiry is TestBudget as a channel that fires when it runs out.
-func TestExpiry(t *testing.T) <-chan time.Time {
-	return time.After(TestBudget(t))
-}
 
 // ptyCapture is a goroutine-safe accumulator for everything read off a pty's
 // master side: the pty's own io.Copy-draining goroutine writes into it while
@@ -210,10 +178,10 @@ func (s *PTYSession) PID() int {
 }
 
 // AwaitOutput re-checks cond against the accumulated output on every byte the
-// pty delivers, until it holds or TestExpiry(t) fires. It returns the output
+// pty delivers, until it holds or testsupport.Expiry(t) fires. It returns the output
 // it decided on, so a failure can show the screen it waited for.
 func (s *PTYSession) AwaitOutput(t *testing.T, cond func(output string) bool) (string, bool) {
-	return s.out.await(TestExpiry(t), cond)
+	return s.out.await(testsupport.Expiry(t), cond)
 }
 
 // WaitForOutput is AwaitOutput bounded by timeout instead of the test's
@@ -223,10 +191,10 @@ func (s *PTYSession) WaitForOutput(timeout time.Duration, cond func(output strin
 	return ok
 }
 
-// AwaitExit blocks for the process to exit, or until TestExpiry(t) fires.
+// AwaitExit blocks for the process to exit, or until testsupport.Expiry(t) fires.
 // exited reports whether it did; err is its Wait error (nil for a clean exit).
 func (s *PTYSession) AwaitExit(t *testing.T) (exited bool, err error) {
-	return s.waitExit(TestExpiry(t))
+	return s.waitExit(testsupport.Expiry(t))
 }
 
 // Wait is AwaitExit bounded by timeout instead of the test's deadline.

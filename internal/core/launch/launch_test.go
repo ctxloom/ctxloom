@@ -278,6 +278,24 @@ func TestResolve_Label_Precedence(t *testing.T) {
 	require.Equal(t, "override-model", l.Label.Model, "the caller's model override beats the label's")
 }
 
+// TestResolve_Label_BinaryPathIsTheLabelsBinary: a configured label's
+// binary_path is the Launch's label binary — the one the engine's composed
+// Exec spawns and the version probe asks — and a label naming none leaves
+// it empty, for the engine's own.
+func TestResolve_Label_BinaryPathIsTheLabelsBinary(t *testing.T) {
+	env := launchtest.Deps(t)
+	src := func(label string) launch.Source {
+		return launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Label: label, Mode: engine.Interactive, WorkDir: env.Project}
+	}
+	l, err := launch.Resolve(context.Background(), env.Deps, src("pinned"))
+	require.NoError(t, err)
+	require.Equal(t, launchtest.PinnedBinary, l.Label.Binary, "the label's binary_path is the binary the launch names")
+
+	l, err = launch.Resolve(context.Background(), env.Deps, src("primary"))
+	require.NoError(t, err)
+	require.Empty(t, l.Label.Binary, "a label naming no binary leaves the engine's own")
+}
+
 // TestResolve_Permission_TheChain: the flag, the binding's block for the
 // engine, the label's keys, the engine's default — the first declared
 // wins. The project declares no mode: it knows no engine.

@@ -407,7 +407,9 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 // type, or a bare registered name (the ad-hoc `--llm <engine>` form). A label
 // that names neither is refused by name, listing what would have resolved;
 // an empty label is the registry's default engine. The third result is the
-// label's declared permissions block, one rung of the policy.
+// label's declared permissions block, one rung of the policy. A configured
+// label's binary_path is its binary (config.LabelBinary): the one the
+// engine's composed Exec spawns.
 func selectEngine(deps Deps, cfg *config.Config, label string) (engine.Engine, engine.LabelConfig, agents.LabelPermissions, error) {
 	if label == "" {
 		eng, err := deps.Engines.Default()
@@ -428,7 +430,7 @@ func selectEngine(deps Deps, cfg *config.Config, label string) (engine.Engine, e
 		known := slices.Sorted(maps.Keys(cfg.GetLMConfig().Configs))
 		return nil, engine.LabelConfig{}, agents.LabelPermissions{}, fmt.Errorf("%w: %q (configured labels: %s; engines: %v)", ErrNoEngine, label, strings.Join(known, ", "), deps.Engines.Names(nil))
 	}
-	return eng, engine.LabelConfig{Label: label, Model: model, Body: entry.Body}, entry.Permissions, nil
+	return eng, engine.LabelConfig{Label: label, Model: model, Binary: config.LabelBinary(entry.Body), Body: entry.Body}, entry.Permissions, nil
 }
 
 // resolveAxes settles the two isolation axes and keeps what was declared

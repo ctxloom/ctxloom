@@ -78,6 +78,25 @@ func TestInstance_ExecPinsClassicScreen(t *testing.T) {
 	}
 }
 
+// TestInstance_ExecSpawnsTheLabelsBinary: every mode's Exec spawns the
+// label's binary (a configured label's binary_path, which the launch carries
+// as LabelConfig.Binary), else claude — the binary the runner's version
+// floor and the session's recorded version both ask.
+func TestInstance_ExecSpawnsTheLabelsBinary(t *testing.T) {
+	kind, err := Build()
+	require.NoError(t, err)
+	for _, mode := range kind.Root().Modes {
+		for binary, want := range map[string]string{"/opt/claude-next/bin/claude": "/opt/claude-next/bin/claude", "": "claude"} {
+			s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName, Binary: binary}, Mode: mode, Permission: modePolicy(modeBypass), Prompt: "p"}
+			inst, err := kind.Instance(s)
+			require.NoError(t, err)
+			ex, err := inst.Exec(nil)
+			require.NoError(t, err)
+			require.Equal(t, want, ex.Binary, "%v, label binary %q", mode, binary)
+		}
+	}
+}
+
 // TestInstance_HeadlessChildDefaults: a structured (headless) run has no human
 // at the engine, so it says so to claude — --permission-prompts none: deny
 // what the posture and rules leave open instead of asking nobody — and turns

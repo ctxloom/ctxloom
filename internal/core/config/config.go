@@ -872,6 +872,22 @@ func LabelContextWindow(body map[string]any) int {
 	return n
 }
 
+// BinaryPathKey is the label-body key naming the binary a label runs (a
+// path, or a name resolved on PATH) in place of its engine's own. It is
+// neutral like ContextWindowKey — read here, never by an engine-type branch —
+// so the launch carries it as the label's binary (engine.LabelConfig.Binary)
+// for whichever engine the label configures, and the version probe asks the
+// same binary the engine's Exec spawns.
+const BinaryPathKey = "binary_path"
+
+// LabelBinary is the binary a label body names, or "" for the engine's own
+// (absent, or not a string). It reads the body untyped, as ResolveLLM reads
+// the model.
+func LabelBinary(body map[string]any) string {
+	s, _ := body[BinaryPathKey].(string)
+	return s
+}
+
 // GetDefaultLLM returns the backend type for the primary role's label.
 func (c *Config) GetDefaultLLM() string {
 	backend, _ := c.ResolveLLM(c.PrimaryLabel())

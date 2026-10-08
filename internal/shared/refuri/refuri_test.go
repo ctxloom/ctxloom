@@ -29,10 +29,10 @@ func TestIsRefControlRune_ExhaustiveC0AndDEL(t *testing.T) {
 // The direction of the failure is what makes this worth pinning: HasScheme is
 // what a guard consults to decide whether a string is a REFERENCE at all, so a
 // class it does not know is not "unparsed", it is read as a BARE NAME — and a
-// bare name is first-party by construction and takes the local exemption. A
-// missing class therefore fails OPEN. Driving the table off Classes() rather
-// than a literal list is what makes a class added to the grammar without a
-// recogniser arm fail here instead of at a trust gate.
+// bare name resolves as a project-local bundle. A missing class therefore
+// fails OPEN. Driving the table off Classes() rather than a literal list is
+// what makes a class added to the grammar without a recogniser arm fail here
+// instead of as a silent lookup in the wrong place.
 func TestHasScheme_KnowsEveryClass(t *testing.T) {
 	// The five names are spelled out rather than read back from Classes(),
 	// because a table driven ENTIRELY off the thing under test cannot notice a
@@ -106,8 +106,8 @@ func TestParse_RoundTripsEveryClass(t *testing.T) {
 // TestHasScheme_AdmitsUnknownClassesSoParseCanRefuseThem pins the width of the
 // recogniser against the narrowness of the parser. A reference naming a class
 // this build does not implement must reach Parse and be REFUSED there; read as
-// a bare name instead, it would take the first-party local exemption — a
-// newer grammar's reference silently granted more trust than an older one's.
+// a bare name instead, it would be resolved as a project-local bundle — a
+// newer grammar's reference silently reinterpreted rather than refused.
 func TestHasScheme_AdmitsUnknownClassesSoParseCanRefuseThem(t *testing.T) {
 	for _, raw := range []string{
 		"ctxloom+registry:dev",
@@ -121,9 +121,9 @@ func TestHasScheme_AdmitsUnknownClassesSoParseCanRefuseThem(t *testing.T) {
 }
 
 // TestBuilders_RenderCanonicalStrings pins what each class-builder produces, as
-// literals. These are the strings a trust grant is keyed on once a layer above
-// adds an item selector, so they are asserted byte-exact rather than
-// round-tripped.
+// literals. These are the identity strings a layer above keys on once it adds
+// an item selector (context dedup, lockfile keys), so they are asserted
+// byte-exact rather than round-tripped.
 func TestBuilders_RenderCanonicalStrings(t *testing.T) {
 	cases := []struct {
 		name string

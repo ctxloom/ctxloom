@@ -270,12 +270,11 @@ func TestForm_RawAndDistilledAreIndependent(t *testing.T) {
 // security-trap test.
 //
 // Dotfiles are excluded by default in much glob and walk code. If the walker
-// misses ".code-reviewer.meta.yaml", it never enters the digest, and because
-// executability is DECLARED in that sidecar rather than read from a mode bit,
-// executability silently stops being attested — while every signature still
-// verifies and everything looks green. So: the sidecar must appear in
-// Components(), it must change Content(), and its declaration must reach
-// Component.Mode.
+// misses ".code-reviewer.meta.yaml", it never becomes part of the item, and
+// because executability is DECLARED in that sidecar rather than read from a
+// mode bit, the skill's scripts silently stop being executable while
+// everything looks green. So: the sidecar must appear in Components(), and its
+// declaration must reach Component.Mode.
 func TestSkill_DotPrefixedSidecarIsAComponentAndDeclaresExecutability(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)

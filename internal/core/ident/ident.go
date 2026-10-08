@@ -96,8 +96,10 @@ func (k ItemKind) Noun() string {
 // item kind, and the item name.
 type Ref struct {
 	// RepoURL is the source repository URL (empty for local items). It is
-	// canonicalized via CanonicalRepoURL before keying so URL variants
-	// (scheme, .git, case, git@ vs https) name one repository.
+	// canonicalized via CanonicalRepoURL before keying so transport variants
+	// (scheme, git@ vs https, credentials, host case, default port) name one
+	// repository; a ".git" suffix and repository-path case are identity and
+	// are preserved (see refuri.Parse).
 	RepoURL string
 
 	// Bundle is the repo-relative bundle path, e.g. "code-quality" — NOT the

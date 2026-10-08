@@ -11,8 +11,9 @@
 package main
 
 import (
-	"fmt"
 	"os"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // Version is set at build time via ldflags (package main), e.g.
@@ -24,8 +25,5 @@ import (
 var Version = "dev"
 
 func main() {
-	if err := newRootCmd().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, progName+":", err)
-		os.Exit(1)
-	}
+	os.Exit(cobrafmt.Execute(newRootCmd(), progName, os.Stderr))
 }

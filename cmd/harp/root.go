@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
-	"github.com/ctxloom/ctxloom/pkg/clifmt"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
@@ -51,10 +50,11 @@ Examples:
   harp -g long                  # draw from the long-word group
   harp -s _ --max-len 5         # short_hawk style
   harp -n 3 --format json       # ["a-b-c", "d-e-f", "g-h-i"]`,
-		Version:       Version,
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE:          opts.run,
+		Version:      Version,
+		SilenceUsage: true,
+		RunE:         opts.run,
+		// A machine-readable run carries machine-readable warnings too.
+		PersistentPreRun: func(cmd *cobra.Command, _ []string) { cobrafmt.ApplyDiagnostics(cmd) },
 	}
 
 	root.Flags().IntVarP(&opts.components, "components", "c", 3,
@@ -63,8 +63,7 @@ Examples:
 	root.Flags().IntVar(&opts.maxLen, "max-len", 0, "max characters per word (0 = no cap)")
 	root.Flags().IntVarP(&opts.count, "number", "n", 1, "how many names to generate")
 	root.Flags().StringVarP(&opts.group, "group", "g", harp.DefaultGroup, groupsHelp())
-	root.PersistentFlags().String("format", string(clifmt.FormatText),
-		"output format: json, yaml, toml, text, or markdown")
+	cobrafmt.AddFlag(root)
 
 	root.AddCommand(newVersionCmd())
 	return root
@@ -87,7 +86,7 @@ func groupsHelp() string {
 	return fmt.Sprintf("word-list group (%s)", strings.Join(g, ", "))
 }
 
-// runGenerate produces opts.count names and renders them through clifmt.
+// runGenerate produces opts.count names and emits them (cobrafmt.Emit).
 // The result is handed to clifmt as a bare []string (not wrapped in a
 // result struct): clifmt renders a top-level slice of scalars as a single
 // JSON array (json), a native YAML/TOML list, one line per name (text), or
@@ -125,11 +124,6 @@ func runGenerate(cmd *cobra.Command, opts generateOpts) error {
 		return fmt.Errorf("--separator must not be empty (the generator would substitute %q)", "-")
 	}
 
-	format, err := resolveFormat(cmd)
-	if err != nil {
-		return err
-	}
-
 	genOpts := harp.Options{
 		Components:       opts.components,
 		MaxElementLength: opts.maxLen,
@@ -141,17 +135,5 @@ func runGenerate(cmd *cobra.Command, opts generateOpts) error {
 		names = append(names, harp.GenerateNameWithOptions(genOpts))
 	}
 
-	return clifmt.Render(cmd.OutOrStdout(), names, format)
-}
-
-// resolveFormat reads the --format flag (a persistent flag, so it resolves
-// through cobra's inherited-flag machinery on subcommands too) via the
-// family-wide resolver.
-//
-// A private re-implementation (GetString + clifmt.ParseFormat) drifts: it
-// rejects an empty --format as unsupported, so `harp --format ""` fails where
-// every other binary in the family renders text. One reader, one behavior; the
-// parity test in format_parity_test.go pins it.
-func resolveFormat(cmd *cobra.Command) (clifmt.Format, error) {
-	return cobrafmt.Resolve(cmd)
+	return cobrafmt.Emit(cmd, names)
 }

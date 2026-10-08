@@ -1,69 +1,65 @@
 package main
 
 import (
+	"bytes"
+	"errors"
+	"io"
+	"os"
+	"os/exec"
+	"strings"
 	"testing"
 
-	"github.com/spf13/cobra"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/pkg/clifmt"
-	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
+	"github.com/ctxloom/ctxloom/internal/testsupport/formatparity"
 )
 
-// harp's --format reader must agree with the family-wide cobrafmt.Resolve on
-// every input. A private copy drifts silently: an empty --format has to render
-// text, as it does for every other binary in the family, not fail as an
-// unsupported format. This is the pin that harp never re-grows one.
-func TestResolveFormat_MatchesSharedResolver(t *testing.T) {
-	cases := []struct {
-		name string
-		// set reports whether --format is passed at all; raw is its value.
-		set bool
-		raw string
-		// wrongType registers --format as an int flag instead of a string.
-		// harp used to read it with `raw, _ := GetString(...)`, which
-		// discards the only error the lookup can produce and degrades to
-		// "unsupported format: \"\"" — a message describing a value the user
-		// never typed. The shared resolver reports the wiring bug instead.
-		wrongType bool
-	}{
-		{name: "unset", set: false},
-		{name: "empty", set: true, raw: ""},
-		{name: "text", set: true, raw: "text"},
-		{name: "json", set: true, raw: "json"},
-		{name: "yaml", set: true, raw: "yaml"},
-		{name: "toml", set: true, raw: "toml"},
-		{name: "markdown", set: true, raw: "markdown"},
-		{name: "bogus", set: true, raw: "xml"},
-		{name: "wrong type", wrongType: true},
+// exitPinArgvEnv turns this test binary into harp: when it is set, TestMain
+// runs the REAL main() with the variable's value as argv, so a test observes
+// main's own stderr and exit status.
+const exitPinArgvEnv = "HARP_EXIT_PIN_ARGV"
+
+func TestMain(m *testing.M) {
+	if argv, ok := os.LookupEnv(exitPinArgvEnv); ok {
+		os.Args = append([]string{progName}, strings.Fields(argv)...)
+		main()
+		os.Exit(0)
 	}
+	os.Exit(m.Run())
+}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			newCmd := func() *cobra.Command {
-				cmd := &cobra.Command{Use: "x", RunE: func(*cobra.Command, []string) error { return nil }}
-				if tc.wrongType {
-					cmd.Flags().Int("format", 0, "")
-					return cmd
-				}
-				cmd.Flags().String("format", string(clifmt.FormatText), "")
-				if tc.set {
-					require.NoError(t, cmd.Flags().Set("format", tc.raw))
-				}
-				return cmd
-			}
-
-			gotFormat, gotErr := resolveFormat(newCmd())
-			wantFormat, wantErr := cobrafmt.Resolve(newCmd())
-
-			if wantErr != nil {
-				require.Error(t, gotErr, "shared resolver errored; harp must too")
-				assert.Equal(t, wantErr.Error(), gotErr.Error())
-				return
-			}
-			require.NoError(t, gotErr)
-			assert.Equal(t, wantFormat, gotFormat)
-		})
+// runMainForExitStatus re-executes this test binary as harp and reports the
+// process exit status together with everything it wrote to stderr.
+func runMainForExitStatus(t *testing.T, args ...string) (int, string) {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("locating the test binary to re-exec: %v", err)
 	}
+	cmd := exec.Command(exe)
+	cmd.Env = append(os.Environ(), exitPinArgvEnv+"="+strings.Join(args, " "))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	cmd.Stdout = io.Discard
+	err = cmd.Run()
+	var ee *exec.ExitError
+	switch {
+	case err == nil:
+		return 0, stderr.String()
+	case errors.As(err, &ee):
+		return ee.ExitCode(), stderr.String()
+	default:
+		t.Fatalf("re-executing the test binary as %s: %v", progName, err)
+		return -1, ""
+	}
+}
+
+// harp's --format plumbing is the family's: the same help, completion,
+// default and error tail as every other binary (formatparity.Check).
+func TestFormatParity(t *testing.T) {
+	formatparity.Check(t, formatparity.Binary{
+		Prog: progName,
+		Root: newRootCmd,
+		Run:  runMainForExitStatus,
+		// A generator asked for no names refuses before generating anything.
+		FailingArgs: []string{"-n", "0"},
+	})
 }

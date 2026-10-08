@@ -21,9 +21,7 @@ import (
 // CLI's gate turns into exit 3 — under --degraded too — and plans nothing.
 func TestContainerPrune_NoRuntimeIsANonDegradableIsolationFinding(t *testing.T) {
 	app, _ := doctorApp(t)
-	orig := pruneAvailableRuntimes
-	pruneAvailableRuntimes = func() []isolation.Runtime { return nil }
-	t.Cleanup(func() { pruneAvailableRuntimes = orig })
+	app.runtimes = func() []isolation.Runtime { return nil }
 
 	mark := strictness.Checkpoint()
 	rep, err := ContainerPrune(context.Background(), app, ContainerPruneRequest{})
@@ -47,9 +45,7 @@ func TestContainerPrune_UnknownRuntimeIsAUsageError(t *testing.T) {
 // empty section and no failure — nothing is probed or removed.
 func TestContainerPrune_HostPlansNothing(t *testing.T) {
 	app, _ := doctorApp(t)
-	orig := pruneAvailableRuntimes
-	pruneAvailableRuntimes = func() []isolation.Runtime { return []isolation.Runtime{isolation.Host{}} }
-	t.Cleanup(func() { pruneAvailableRuntimes = orig })
+	app.runtimes = func() []isolation.Runtime { return []isolation.Runtime{isolation.Host{}} }
 	rep, err := ContainerPrune(context.Background(), app, ContainerPruneRequest{Apply: true})
 	require.NoError(t, err)
 	require.Len(t, rep.Runtimes, 1)

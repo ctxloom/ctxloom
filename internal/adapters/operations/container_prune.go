@@ -114,7 +114,7 @@ func ContainerPrune(ctx context.Context, app *App, req ContainerPruneRequest) (C
 	if cfgErr != nil && req.Apply {
 		return rep, fmt.Errorf("refusing to prune: the config did not load (%w), so this project's current agent images cannot be protected — fix the config, or run without --yes to see the plan", cfgErr)
 	}
-	runtimes := pruneRuntimes(pruneAvailableRuntimes(), req.Runtime)
+	runtimes := pruneRuntimes(app.containerRuntimes(), req.Runtime)
 	if len(runtimes) == 0 {
 		strictness.FailAlways(report.KindIsolation, noPruneRuntimeRemedy,
 			"container prune: no container runtime is available to prune")
@@ -127,10 +127,6 @@ func ContainerPrune(ctx context.Context, app *App, req ContainerPruneRequest) (C
 	}
 	return rep, nil
 }
-
-// pruneAvailableRuntimes is the runtimes present (doctor's probe); a var so
-// the no-runtime refusal is testable on a host that has one.
-var pruneAvailableRuntimes = doctorRuntimes
 
 // knownRuntime rejects a --runtime naming no runtime ctxloom knows ("" is
 // every one), so a typo is a usage error rather than "no runtime available".

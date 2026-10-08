@@ -265,9 +265,9 @@ func ociRuntimes() []isolation.Runtime {
 }
 
 // doctorRuntimes is every OCI runtime available on this host — the one probe
-// doctor's runtime rows share. It is doctor's alone: a host run never asks,
-// because the first `podman info` a user ever runs creates rootless storage
-// under their home.
+// doctor's runtime rows and `container prune` share, both through
+// App.containerRuntimes. A host run never asks, because the first
+// `podman info` a user ever runs creates rootless storage under their home.
 func doctorRuntimes() []isolation.Runtime {
 	var out []isolation.Runtime
 	for _, rt := range ociRuntimes() {

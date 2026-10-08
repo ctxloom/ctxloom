@@ -256,11 +256,19 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 		return spoolSendErr(codes.Internal, fmt.Sprintf("agent_send: %v", err)), true
 	}
 	h.spoolDeliveryCount.Delivered.Add(1)
-	// NO DOUBLE DELIVERY (spoolturnresult.go): this run has now reported to its
-	// parent in its own words, so the automatic turn report must not repeat the
-	// same turn. Marked HERE, at the one place an accepted send exists, which
-	// is the runner-side twin of the coordinator's noteChildReported.
-	h.noteSelfReported()
+	// NO DOUBLE DELIVERY (spoolturnresult.go): a send to the PARENT is this run
+	// reporting in its own words, so the automatic turn report must not repeat
+	// the same turn. Marked HERE, at the one place an accepted send exists,
+	// which is the runner-side twin of the coordinator's noteChildReported.
+	// A send to one of this run's own children tells the parent nothing and
+	// must leave the turn's report in place.
+	//
+	// Only the ParentAddress alias is recognised: the runner is never told its
+	// parent's harp, so a send addressed to the parent by harp is still
+	// followed by the automatic report — a duplicate, never a silence.
+	if sr.To == coord.ParentAddress {
+		h.noteSelfReported()
+	}
 	return &agentcoordpb.CoordinatorResponse{
 		RequestId: req.GetRequestId(),
 		Status:    coordgrpc.OKStatus("written to this session's outbound spool"),

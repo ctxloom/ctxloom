@@ -27,10 +27,10 @@ import (
 // Deleting is the INGEST answer and is confined to it. Nothing here is
 // exported for a display path to borrow: a string on its way to a terminal is
 // core/displaysafe's business, and displaysafe ESCAPES rather than deletes so the
-// human reading a trust line can see that a publisher put a control byte
-// there. Deletion on a display surface is lossy AND silent — two refs
-// differing only by a control character render identically — which is exactly
-// the forgery the trust surface exists to prevent.
+// human reading the output can see that a publisher put a control byte there.
+// Deletion on a display surface is lossy AND silent — two refs differing only
+// by a control character render identically — which is exactly the forged
+// line, and the repainted terminal, this stripping exists to prevent.
 func isRefControlChar(r rune) bool {
 	return r < 0x20 || r == 0x7f
 }

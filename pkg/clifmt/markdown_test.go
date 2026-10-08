@@ -112,3 +112,39 @@ func TestMarkdownTableEscapesHeaders(t *testing.T) {
 		t.Errorf("header has %d structural pipes, separator has %d:\nheader:    %q\nseparator: %q", got, want, lines[0], lines[1])
 	}
 }
+
+// Markdown has six heading levels: sections nested deeper than that stay at
+// the sixth rather than emitting a "#######" no renderer reads as a heading.
+func TestMarkdownHeadingsStopAtTheSixthLevel(t *testing.T) {
+	type l7 struct {
+		V string `json:"v"`
+	}
+	type l6 struct {
+		N l7 `json:"n7"`
+	}
+	type l5 struct {
+		N l6 `json:"n6"`
+	}
+	type l4 struct {
+		N l5 `json:"n5"`
+	}
+	type l3 struct {
+		N l4 `json:"n4"`
+	}
+	type l2 struct {
+		N l3 `json:"n3"`
+	}
+	type l1 struct {
+		N l2 `json:"n2"`
+	}
+	var buf strings.Builder
+	if err := renderMarkdown(&buf, struct {
+		N l1 `json:"n1"`
+	}{}); err != nil {
+		t.Fatal(err)
+	}
+	want := "## N1\n\n### N2\n\n#### N3\n\n##### N4\n\n###### N5\n\n###### N6\n\n###### N7\n\n**V:** \n"
+	if buf.String() != want {
+		t.Errorf("got %q, want %q", buf.String(), want)
+	}
+}

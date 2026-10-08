@@ -20,6 +20,7 @@
 package opencode
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -155,9 +156,24 @@ func (o Opencode) Home() engine.HomeSpec {
 	}
 }
 
-// Container refuses: the pinned release-tarball image is a later slice.
+// Container is the image story: opencode installed from its pinned release
+// tarball (installFragment), validated by running it. It refuses while a
+// tarball's sha256 pin is unverified, so a container binding fails at
+// Resolve rather than build an image from an unchecked download. No overlay
+// dirs or in-place files: nothing is delivered into the project root. The
+// endpoint key needs nothing here: it is a Credentials.Env value, which a
+// container run receives as a secret file.
 func (o Opencode) Container() (engine.ContainerSpec, error) {
-	return engine.ContainerSpec{}, engine.ErrUnsupported{Engine: o.Name, Capability: "container"}
+	return containerSpec(o.Name, releaseVersion, releaseSHA256)
+}
+
+// containerSpec is Container over a version and its pins.
+func containerSpec(name engine.Name, version string, pins map[string]string) (engine.ContainerSpec, error) {
+	install, err := installFragment(version, pins)
+	if err != nil {
+		return engine.ContainerSpec{}, fmt.Errorf("%w: %w", engine.ErrUnsupported{Engine: name, Capability: "container"}, err)
+	}
+	return engine.ContainerSpec{Install: install, ValidateCommand: defaultBinary + " --version"}, nil
 }
 
 // Transcripts: none. A structured run's transcript is the runner's own tee

@@ -186,9 +186,13 @@ is native history at `.xdg/data/opencode`, so a resumed child (`run
 `OPENCODE_CONFIG_CONTENT` from the label (provider, `limit.context` from the
 neutral `context_window`, timeouts, model options, snapshot/title/share) and
 names the endpoint key only by reference; the key itself
-(`CTXLOOM_OPENCODE_API_KEY`) rides the run's credentials. Hooks, approvals,
-wake, trust and containers are declared absent or unsupported, each with its
-reason.
+(`CTXLOOM_OPENCODE_API_KEY`) rides the run's credentials (a secret file in a
+container). Its container story installs the pinned release tarball
+(`OPENCODE_CLI_VERSION`) for the machine and libc, checks it against a sha256
+pinned in code per asset, and runs `opencode --version` as the gate; while
+any asset's pin is unverified (empty) `Container` refuses with the reason, so
+a container binding fails at Resolve. Hooks, approvals, wake and trust are
+declared absent or unsupported, each with its reason.
 
 ## Start here
 

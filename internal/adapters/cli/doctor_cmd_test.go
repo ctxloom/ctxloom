@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
@@ -396,6 +397,23 @@ func TestDoctorCmd_DepsFlag_WorksBeforeAnySetup(t *testing.T) {
 	assert.Contains(t, out, "DOCTOR-CHECK-DEPS-a1")
 	assert.Contains(t, out, "DOCTOR-CHECK-GITIDENT-l2")
 	assert.NotContains(t, out, "DOCTOR-CHECK-SETUP-MARKER-e5")
+}
+
+// TestDoctorCmd_ReadsRuntimesOnlyThroughTheComposition: the composition's
+// ContainerRuntimes reaches the App every command composes, so `doctor` asks
+// it and never the real docker/podman probe. That threading is what keeps
+// this package's doctor tests off the host's container engines — a rootless
+// `podman info` under runDoctorClean's throwaway XDG_RUNTIME_DIR leaked a
+// `catatonit -P` pause process per run before it existed.
+func TestDoctorCmd_ReadsRuntimesOnlyThroughTheComposition(t *testing.T) {
+	asked := 0
+	prev := theComposition.ContainerRuntimes
+	theComposition.ContainerRuntimes = func() []isolation.Runtime { asked++; return prev() }
+	t.Cleanup(func() { theComposition.ContainerRuntimes = prev })
+
+	_, err := runDoctor(t, t.TempDir(), "--deps")
+	require.NoError(t, err)
+	assert.Equal(t, 1, asked, "doctor's runtime rows read the composition's probe, once")
 }
 
 func TestDoctorCmd_DepsFlag_JSONShapeIsDepsAndGitIdentity(t *testing.T) {

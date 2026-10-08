@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -34,6 +35,12 @@ func testComposition() Composition {
 		NewCoordinator: func(_ *operations.App, opts coord.Options) (*coord.Coordinator, error) { return coord.New(opts) },
 		Engines:        engines.Registry(),
 		SessionClaims:  fsstore.SessionClaims,
+		// One present runtime that execs nothing (Host enumerates no
+		// containers and lists no images). The real probe runs `podman
+		// info`, and under a test's throwaway XDG_RUNTIME_DIR (runDoctorClean)
+		// a rootless podman starts a `catatonit -P` pause process bound to
+		// that dir which outlives the test — one leaked process per run.
+		ContainerRuntimes: func() []isolation.Runtime { return []isolation.Runtime{isolation.Host{}} },
 	}
 }
 
@@ -50,7 +57,7 @@ func testApp(t *testing.T, opts ...configload.Option) *operations.App {
 	require.NoError(t, err)
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
-	app := operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
+	app := operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims, ContainerRuntimes: testComposition().ContainerRuntimes})
 	t.Cleanup(SetAppForTesting(app))
 	return app
 }

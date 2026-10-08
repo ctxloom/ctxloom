@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -44,6 +45,8 @@ type App struct {
 	open    ConfigOpener
 	engines engine.Registry
 	claims  launch.SessionClaims
+	// runtimes is Handed.ContainerRuntimes; see containerRuntimes.
+	runtimes func() []isolation.Runtime
 
 	proberOnce sync.Once
 	prober     *engineversion.Prober
@@ -104,6 +107,13 @@ type Handed struct {
 	Engines       engine.Registry
 	SessionClaims launch.SessionClaims
 	Root          safefs.Root
+	// ContainerRuntimes answers which OCI runtimes this host offers — the
+	// probe doctor's runtime rows share. nil is the real probe
+	// (doctorRuntimes), which execs `docker info` / `podman info`; a test
+	// composition hands a fake, because a rootless `podman info` under a
+	// test's throwaway XDG_RUNTIME_DIR starts a pause process that outlives
+	// the test.
+	ContainerRuntimes func() []isolation.Runtime
 }
 
 // Switches are the per-invocation process switches an App is composed with.
@@ -116,13 +126,13 @@ type Switches struct {
 // Owner/Snapshot/Config call, so a command that never reads configuration
 // never reads the files either.
 func NewApp(src config.Sources, sw Switches, selfLoadout func() string, mode strictness.Mode, h Handed) *App {
-	return &App{NoCompanions: sw.NoCompanions, SelfLoadout: selfLoadout, Strictness: mode, Reporter: h.Reporter, Root: h.Root, src: src, open: h.Open, engines: h.Engines, claims: h.SessionClaims}
+	return &App{NoCompanions: sw.NoCompanions, SelfLoadout: selfLoadout, Strictness: mode, Reporter: h.Reporter, Root: h.Root, src: src, open: h.Open, engines: h.Engines, claims: h.SessionClaims, runtimes: h.ContainerRuntimes}
 }
 
 // OpenedApp wraps an owner a test already opened, with what a composition
 // root would have handed it.
 func OpenedApp(owner *config.Owner, h Handed) *App {
-	a := &App{owner: owner, opened: true, Reporter: h.Reporter, Root: h.Root, open: h.Open, engines: h.Engines, claims: h.SessionClaims}
+	a := &App{owner: owner, opened: true, Reporter: h.Reporter, Root: h.Root, open: h.Open, engines: h.Engines, claims: h.SessionClaims, runtimes: h.ContainerRuntimes}
 	a.once.Do(func() {})
 	return a
 }

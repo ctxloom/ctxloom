@@ -115,6 +115,10 @@ type Composition struct {
 	// root composes them from the engine packages, which the cli does not
 	// import.
 	EngineCommands []*cobra.Command
+	// ContainerRuntimes is handed to the App as Handed.ContainerRuntimes:
+	// nil (production) is the real docker/podman probe; a test composition
+	// supplies a fake so no unit test execs a container runtime.
+	ContainerRuntimes func() []isolation.Runtime
 }
 
 // theComposition is the root's Composition for this process; theApp is the
@@ -175,6 +179,8 @@ func installApp(flags *pflag.FlagSet, environ []string, sw operations.Switches, 
 		Engines:       theComposition.Engines,
 		SessionClaims: theComposition.SessionClaims,
 		Root:          theComposition.Root,
+		// The runtime probe doctor shares (nil: the real one).
+		ContainerRuntimes: theComposition.ContainerRuntimes,
 	})
 }
 

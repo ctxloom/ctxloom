@@ -158,6 +158,13 @@ With no `--target`, `ctxloom materialize` would write the project directory
 itself, shared by every session and every person using the checkout. It
 refuses unless you pass `--yes`; `--dry-run` shows what it would do. Make
 `--target DIR` the habit.
+
+One path writes the project directory without asking: after `ctxloom deps
+pull`, or a startup sync, installs a remote bundle, ctxloom refreshes what is
+materialized in the project root, every kind and every configured engine,
+claude's context section in `CLAUDE.md` included. `ctxloom run` then warns
+about that context file; `ctxloom materialize --release --surface context`
+takes it out.
 :::
 
 :::note[Don't commit a materialized file]

@@ -1,4 +1,4 @@
-# `ctxloom profile` and `ctxloom agent`
+# `ctxloom profile`, `ctxloom materialize` and `ctxloom agent`
 
 A **profile** is a named, inheritable composition of fragments, commands, skills,
 MCP servers and hooks — the unit `ctxloom run -p` and every agent binding
@@ -22,6 +22,13 @@ flowchart TD
         PX["profile export / import"]
         PMAT["profile materialize &lt;profile&gt;..."] --> GATES["newPhaseGates(App().Strictness)"] --> MP[["operations.MaterializeProfile"]] --> CLOSE["gates.close(PhaseStartup) → exit 3 on a fatal finding"]
         PMAT -->|"--diff"| PMD["runProfileMaterializeDiff"]
+    end
+
+    subgraph mat["materialize.go"]
+        MAT["materialize [&lt;profile&gt;...]"] --> PSS[["operations.ParseSurfaceSpecs(--surface)"]] --> CMF["checkMaterializeFlags"]
+        CMF -->|"--diff"| RMD["runMaterializeDiff"]
+        CMF -->|"no --target"| GPT["guardProjectTarget → operations.ErrProjectTargetUnconfirmed without --yes"]
+        CMF --> MG["newPhaseGates"] --> OM[["operations.Materialize → MaterializeResult"]] --> MCL["gates.close(PhaseStartup)"] --> RM["renderMaterialize"]
     end
 
     subgraph agent["agent.go"]
@@ -62,6 +69,21 @@ gates its own startup findings), and renders through an `errwriter.Writer`.
 `operations.MaterializeProfile` rejects empty `Profiles` or `Target`, and cobra
 enforces `MinimumNArgs(1)` — so there is no path to a silent zero-payload
 materialize. `--diff` compares instead of writing.
+
+`ctxloom materialize` (`materialize.go`) is the at-rest delivery that replaces
+`profile materialize` and `manage hooks install`/`uninstall`, which still ship.
+It parses `--surface KIND[=file][:DEST]` into `operations.SurfaceSpec`s, refuses
+incoherent flag sets before resolving anything (`checkMaterializeFlags`:
+`--release` with profiles or `--diff`; `--diff` with more than one `--backend`
+or with a `--surface` list lacking context), and with no `--target` takes the
+project directory only under `--yes` (`guardProjectTarget` prints the engines
+and kinds it would touch and returns `operations.ErrProjectTargetUnconfirmed`;
+`--dry-run` prints it and proceeds to plan). With no profiles it delivers the
+default agent's. It is gated like `profile materialize` (`newPhaseGates`, exit
+3 on a fatal finding), and a writer's per-kind failures are warnings after the
+report (`MaterializeResult.Errors`). The placement, the per-kind writers and
+`--release` are `operations.Materialize`'s; see
+[core/delivery](../core/delivery.md).
 
 `renderProfileList`, `renderProfileShow` and `writeBulletList` are pure,
 testable writers.

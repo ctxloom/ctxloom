@@ -1,6 +1,6 @@
 # agent — context assembly and delivery
 
-How assembled profile context actually reaches the model. Fragments are joined and deduplicated into a hash-named cache file (`.ctxloom/cache/context/<hash>.md`) and framed for the engine's context surface. claude takes it once, as the system prompt of a session `ctxloom run` launches (`--append-system-prompt-file`). No hook delivers it: ctxloom's one SessionStart callback, `hook session-start`, carries a resumed session's essence and the session-start notices, never the project's context. A claude started by hand therefore gets no ctxloom context.
+How assembled profile context actually reaches the model. Fragments are joined and deduplicated into a hash-named cache file (`.ctxloom/cache/context/<hash>.md`) and framed for the engine's context surface. claude takes it once, as the system prompt of a session `ctxloom run` launches (`--append-system-prompt-file`). No hook delivers it: ctxloom's one SessionStart callback, `hook session-start`, carries a resumed session's essence and the session-start notices, never the project's context. A claude started by hand therefore gets no ctxloom context from a hook; it reads only a context section `ctxloom materialize` wrote at rest (`kit.AppendedSection` in `CLAUDE.md`; see [core/delivery](../core/delivery.md)).
 
 ```mermaid
 flowchart TD

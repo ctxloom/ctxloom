@@ -248,7 +248,7 @@ func renderTooling(out io.Writer, entries []operations.ToolingDeclaration) error
 	w := errwriter.New(out)
 	if len(entries) == 0 {
 		w.Println("No registered companion declares container tooling (a companion declares it as `tooling` in its loadout's init section).")
-		w.Println("A companion ctxloom may not execute, or one you rejected, declares nothing — see `ctxloom doctor`.")
+		w.Println("An unregistered companion is never run, so it declares nothing — register one with `ctxloom companion add`.")
 		return w.Err()
 	}
 	w.Println(toolingPrompt)

@@ -110,8 +110,9 @@ the item's siblings, so a fragment is compressed knowing what else is in its
 bundle. `buildDistillMessage` assembles prompt + sibling context + tagged
 content. `loadDistillPrompt` prefers the bundle's own `distill` command body
 over the built-in prompt; `refuseWithheldDistillPrompt` is the one error
-`newLLMDistiller` returns — a configured `distill` prompt the trust gate
-withheld is a refusal, not a warn-and-continue, because a run that silently
+`newLLMDistiller` returns — a configured `distill` prompt the delivery
+pipeline withheld (`errs.ErrCommandWithheld`; under the exposure pipeline's
+unchecked link grant, only an unparseable item ref) is a refusal, not a warn-and-continue, because a run that silently
 proceeded on the built-in prompt would be indistinguishable from working.
 
 ## Invariants

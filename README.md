@@ -80,7 +80,7 @@ Learn more: [Concepts](https://ctxloom.dev/concepts/bundles)
 | `ctxloom mcp` | List configured MCP servers (`ctxloom mcp serve` runs ctxloom as one) |
 | `ctxloom manage` | Install and manage ctxloom's project harness |
 | `ctxloom container` | Manage agent container images |
-| `ctxloom container tooling` | Agent-image tooling declarations from trusted bundles |
+| `ctxloom container tooling` | Agent-image tooling declarations from registered companions |
 | `ctxloom llm` | Manage LLM backends |
 | `ctxloom version` | Print the version number |
 

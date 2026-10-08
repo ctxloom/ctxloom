@@ -104,6 +104,9 @@ func Build(opts ...Option) (engine.Engine, error) {
 		// Reviewed onto StartRun, and a one-shot child resumes by asking
 		// claude to load its own prior session (Instance.Resume).
 		DelegatedChildren: engine.Provide(engine.DelegatedChildren{ResumesByKey: true}),
+		// What delivery writes into the working tree: the settings, commands
+		// and skills dir, the MCP file, and the context file.
+		ProjectArtifacts: []string{ConfigDirName + "/", MCPFileName, ContextFileName},
 	}
 	c := Claude{Base: engine.Base{Definition: d}}
 	for _, o := range opts {

@@ -199,7 +199,7 @@ func (d dirtyFileList) writeTo(b *strings.Builder) {
 // counts as noise": this codebase's own per-agent worktree preparation
 // already writes the delivered-surface noise that would otherwise make this
 // gate unusable into the shared common-dir .git/info/exclude
-// (gitignore.WorktreeArtifactPatterns, written by
+// (isolation.WorktreeArtifactPatterns, written by
 // Worktree.excludeConfigFromMerge), and the tracked .gitignore separately
 // covers the generated living-docs journeys. Once a repo has
 // prepared even ONE agent worktree, that noise is invisible to `git status

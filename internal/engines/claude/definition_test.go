@@ -37,6 +37,15 @@ func claudeDef(t *testing.T) engine.Base {
 	return e.Root()
 }
 
+// claude declares what its delivery leaves in a working tree, each at the
+// granularity it owns: .claude/ wholesale (ctxloom owns the directory
+// outright), the MCP file and CLAUDE.md as single files — sweeping a
+// directory a user shares with ctxloom would silently un-track their own
+// files. A per-agent worktree's exclude set reads this declaration.
+func TestBuild_DeclaresTheProjectArtifactsItWrites(t *testing.T) {
+	require.ElementsMatch(t, []string{ConfigDirName + "/", MCPFileName, ContextFileName}, claudeDef(t).ProjectArtifacts)
+}
+
 func TestBuild_DeclaresEverySurface_HooksIncluded_AndBothHalves(t *testing.T) {
 	def := claudeDef(t)
 	require.Equal(t, engine.Name(EngineName), def.Name)

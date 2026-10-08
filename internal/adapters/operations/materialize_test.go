@@ -245,7 +245,7 @@ func TestRunSyncPostSteps_MaterializesAtTheProjectRootItNames(t *testing.T) {
 	}
 	runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, SyncDependenciesRequest{ApplyHooks: true}, &SyncDependenciesResult{Total: 1}, afero.NewMemMapFs())
 	require.Len(t, got, 1)
-	assert.Equal(t, MaterializeRequest{Target: projectroot.WorkDir()}, got[0])
+	assert.Equal(t, MaterializeRequest{Target: projectroot.WorkDir(), LeaveLaunchContext: true}, got[0])
 }
 
 // TestSyncMaterializeStep_AWholesaleFailureIsAnApplyFinding: the post-sync
@@ -283,4 +283,81 @@ func TestSyncMaterializeStep_AWholesaleFailureIsAnApplyFinding(t *testing.T) {
 	require.Len(t, errored, 1)
 	assert.Contains(t, errored[0].Text, "config generation gone", "the call's own error is what is reported")
 	assert.NotContains(t, errored[0].Text, "no engine could be materialized")
+}
+
+// hookedMaterializeCfg is materializeCfg with the `reviewer` profile also
+// shipping a session_start hook, so a delivery has a hooks kind to write.
+func hookedMaterializeCfg(t *testing.T, mark, llm string) *config.Config {
+	t.Helper()
+	cfg := materializeCfg(t, mark, llm)
+	appPaths := cfg.ToFixture().AppPaths
+	require.NotEmpty(t, appPaths)
+	testsupport.WriteFileString(t, afero.NewOsFs(), filepath.Join(bundletree.ProjectProfilesDir(t, appPaths[0]), "reviewer.yaml"),
+		"select_tags:\n  - security\nhooks:\n  unified:\n    session_start:\n      - type: command\n        command: echo team-guardrail\n", 0o644)
+	return cfg
+}
+
+// TestRunSyncPostSteps_LeavesLaunchContextOut: the post-sync refresh, with
+// the real Materialize behind it, writes no context file for an engine
+// whose context rides the launch (claude's argv channel) but still delivers
+// its hooks, while an engine that opens its context file at rest (mock)
+// still gets the context.
+func TestRunSyncPostSteps_LeavesLaunchContextOut(t *testing.T) {
+	cfg := hookedMaterializeCfg(t, "SYNC-MARK", "")
+	root := t.TempDir()
+	t.Setenv("CTXLOOM_ROOT", root)
+	require.Equal(t, root, projectroot.WorkDir())
+	reg := engines.Registry()
+	claudeKind, ok := reg.Lookup(engine.Name("claude-code"))
+	require.True(t, ok)
+	require.True(t, contextRidesTheLaunch(claudeKind.Root()), "claude's context rides the launch")
+	mockKind, ok := reg.Lookup(engine.Name("mock"))
+	require.True(t, ok)
+	require.False(t, contextRidesTheLaunch(mockKind.Root()), "mock opens its context file at rest")
+
+	var got []*MaterializeResult
+	orig := syncHooksStep
+	t.Cleanup(func() { syncHooksStep = orig })
+	syncHooksStep = func(ctx context.Context, reg engine.Registry, cfg *config.Config, req MaterializeRequest) (*MaterializeResult, error) {
+		req.Engines = []string{"claude-code", "mock"}
+		res, err := Materialize(ctx, reg, cfg, req)
+		got = append(got, res)
+		return res, err
+	}
+	runSyncPostSteps(context.Background(), reg, cfg, SyncDependenciesRequest{ApplyHooks: true}, &SyncDependenciesResult{Total: 1}, afero.NewOsFs())
+	require.Len(t, got, 1)
+	require.NotNil(t, got[0])
+	require.Equal(t, MaterializeApplied, got[0].Status, "%v", got[0].Errors)
+
+	assert.NoFileExists(t, filepath.Join(root, claude.ContextFileName), "claude's context rides the launch: no CLAUDE.md at rest")
+	assert.Contains(t, fileIn(t, root, ".claude/settings.json"), "team-guardrail", "claude's hooks still refresh")
+	assert.Contains(t, fileIn(t, root, mock.ContextFileName), "SYNC-MARK", "an engine reading its file at rest still gets the context")
+	byEngine := map[string]EngineOutcome{}
+	for _, o := range got[0].Engines {
+		byEngine[o.Engine] = o
+	}
+	assert.NotContains(t, byEngine["claude-code"].Wrote, "context")
+	assert.NotContains(t, byEngine["claude-code"].Released, "context", "the context kind is left untouched, not released")
+	assert.Contains(t, byEngine["mock"].Wrote, "context")
+}
+
+// TestRunSyncPostSteps_APlainSyncLeavesNoContextAtRestToWarnOf: after the
+// post-sync refresh for the default engine (claude, whose context rides the
+// launch), the R5 run warning finds no materialized context in the project.
+func TestRunSyncPostSteps_APlainSyncLeavesNoContextAtRestToWarnOf(t *testing.T) {
+	cfg := hookedMaterializeCfg(t, "PLAIN-SYNC-MARK", "")
+	root := t.TempDir()
+	t.Setenv("CTXLOOM_ROOT", root)
+	reg := engines.Registry()
+	require.Equal(t, []string{"claude-code"}, ConfiguredEngines(reg, cfg), "the default engine is claude")
+	orig := syncHooksStep
+	t.Cleanup(func() { syncHooksStep = orig })
+	syncHooksStep = Materialize
+	mark := strictness.Checkpoint()
+	runSyncPostSteps(context.Background(), reg, cfg, SyncDependenciesRequest{ApplyHooks: true}, &SyncDependenciesResult{Total: 1}, afero.NewOsFs())
+	require.Empty(t, strictness.Since(mark), "the refresh succeeded")
+	assert.Contains(t, fileIn(t, root, ".claude/settings.json"), "team-guardrail", "the refresh ran")
+	records, err := OwnershipRecords()
+	require.NoError(t, err)
+	assert.Empty(t, MaterializedContextFindings(records, root), "no context at rest, so no R5 warning")
 }

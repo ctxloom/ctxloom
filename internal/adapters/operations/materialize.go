@@ -54,8 +54,14 @@ type MaterializeRequest struct {
 	// DryRun plans and reports, and writes (and creates) nothing.
 	DryRun bool `json:"dry_run,omitempty"`
 	// Force overrides the refusal to write an engine's user-global scope.
-	Force bool        `json:"force,omitempty"`
-	Root  safefs.Root `json:"-"`
+	Force bool `json:"force,omitempty"`
+	// LeaveLaunchContext drops the context kind for every engine whose
+	// context rides the launch (contextRidesTheLaunch): its context is
+	// neither written nor released. The post-sync refresh sets it — a
+	// launched session carries that context itself, so a copy at rest would
+	// double it — while hooks, MCP, settings and commands still refresh.
+	LeaveLaunchContext bool        `json:"leave_launch_context,omitempty"`
+	Root               safefs.Root `json:"-"`
 }
 
 // MaterializeResult is what one materialize did, per engine.
@@ -293,12 +299,13 @@ func materializeEngine(ctx context.Context, reg engine.Registry, cfg *config.Con
 	if !ok {
 		return out, fmt.Errorf("materialize: no engine kind is composed for %s", name)
 	}
-	pkg, withheld, err := materializePackage(ctx, reg, cfg, m.req, name, m.kinds)
+	kinds := engineKinds(m.req, kind.Root(), m.kinds)
+	pkg, withheld, err := materializePackage(ctx, reg, cfg, m.req, name, kinds)
 	if err != nil {
 		return out, err
 	}
 	out.WithheldByPremise = withheld
-	p := Placement{Start: present.ProjectOnHost(m.target), Family: delivery.ProjectWriterFor(engine.Name(name)), Kinds: m.kinds, ContextFile: m.contextFile}
+	p := Placement{Start: present.ProjectOnHost(m.target), Family: delivery.ProjectWriterFor(engine.Name(name)), Kinds: kinds, ContextFile: m.contextFile}
 	var plan delivery.Plan
 	if m.req.DryRun {
 		plan, err = planMaterialized(kind, pkg, p, &out)
@@ -308,15 +315,35 @@ func materializeEngine(ctx context.Context, reg engine.Registry, cfg *config.Con
 	} else {
 		plan = deliverMaterializedAt(ctx, m.root, kind, pkg, p, &out)
 	}
-	for _, k := range m.kinds {
+	for _, k := range kinds {
 		if !slices.Contains(out.Wrote, k.String()) {
 			out.Released = append(out.Released, k.String())
 		}
 	}
 	if !cfg.ShouldSilenceUnsupported() {
-		out.NotCarried = selectedLosses(notCarried(name, kind, pkg, plan), m.kinds)
+		out.NotCarried = selectedLosses(notCarried(name, kind, pkg, plan), kinds)
 	}
 	return out, nil
+}
+
+// engineKinds is the kinds delivered for one engine: the selected kinds,
+// less context when req.LeaveLaunchContext is set and the engine's context
+// rides the launch.
+func engineKinds(req MaterializeRequest, root engine.Base, kinds []present.Kind) []present.Kind {
+	if !req.LeaveLaunchContext || !contextRidesTheLaunch(root) {
+		return kinds
+	}
+	return slices.DeleteFunc(slices.Clone(kinds), func(k present.Kind) bool { return k == present.Context })
+}
+
+// contextRidesTheLaunch decides, from the engine's declaration alone, how
+// the context reaches it with ctxloom IN the loop: an engine whose context
+// approach is told on argv (a launch-time channel, nothing it opens at rest)
+// takes the context at launch, so nothing at rest need carry it; an engine
+// that opens a context file reads the file written at rest.
+func contextRidesTheLaunch(root engine.Base) bool {
+	a, ok := root.Surfaces()[present.Context]
+	return ok && a.Traits().Channel == present.ChannelArgv
 }
 
 // planMaterialized is a dry run's plan at p, its kinds recorded as what

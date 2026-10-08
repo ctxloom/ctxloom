@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -427,16 +426,6 @@ func applyHooksToBackends(ctx context.Context, reg engine.Registry, p hookApplyP
 		retracted = append(retracted, took...)
 	}
 	return applied, retracted, applyErrors, nil
-}
-
-// contextRidesTheLaunch decides, from the engine's declaration alone, how
-// the context reaches it with ctxloom IN the loop: an engine whose context
-// approach is told on argv (a launch-time channel, nothing it opens at rest)
-// takes the context at launch, so nothing at rest carries it; an engine that
-// opens a context file reads the file written at rest.
-func contextRidesTheLaunch(root engine.Base) bool {
-	a, ok := root.Surfaces()[present.Context]
-	return ok && a.Traits().Channel == present.ChannelArgv
 }
 
 // applyHooksToBackend delivers the package AT REST into the project root

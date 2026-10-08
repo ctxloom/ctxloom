@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // newConstraintResolver builds the dependency walker's hash resolver: it turns a

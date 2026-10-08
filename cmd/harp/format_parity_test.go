@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
-// harp's --format reader must agree with the family-wide cliemit.Resolve on
+// harp's --format reader must agree with the family-wide cobrafmt.Resolve on
 // every input. A private copy drifts silently: an empty --format has to render
 // text, as it does for every other binary in the family, not fail as an
 // unsupported format. This is the pin that harp never re-grows one.
@@ -55,7 +55,7 @@ func TestResolveFormat_MatchesSharedResolver(t *testing.T) {
 			}
 
 			gotFormat, gotErr := resolveFormat(newCmd())
-			wantFormat, wantErr := cliemit.Resolve(newCmd())
+			wantFormat, wantErr := cobrafmt.Resolve(newCmd())
 
 			if wantErr != nil {
 				require.Error(t, gotErr, "shared resolver errored; harp must too")

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // Superseded agent images are never removed on their own: composedImageTagFor

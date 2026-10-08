@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// ResolveFormat's table is cliemit.Resolve's cases with the flag lookup
+// ResolveFormat's table is cobrafmt.Resolve's cases with the flag lookup
 // taken out: an unrequested format follows the terminal, an explicit one
 // always wins, an explicit "" is text.
 func TestResolveFormat(t *testing.T) {

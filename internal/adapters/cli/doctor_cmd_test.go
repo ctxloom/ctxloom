@@ -193,7 +193,7 @@ func execDoctor(t *testing.T, root string, args ...string) (string, error) {
 // doctorChecksOf parses `ctxloom doctor`'s structured report out of what the
 // command wrote.
 //
-// A test binary's stdout is never a terminal, so cliemit.Resolve hands doctor
+// A test binary's stdout is never a terminal, so cobrafmt.Resolve hands doctor
 // the machine-readable default and the report arrives as JSON — the same bytes
 // every piped or scripted caller now gets. Reading the record beats scanning
 // the rendered lines: operations.DoctorCheck.Status is pinned as a field rather than as a

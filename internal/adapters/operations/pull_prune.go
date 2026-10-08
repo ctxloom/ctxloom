@@ -11,8 +11,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // errCheckoutRootNotOwned: the bundle checkout root, or the clone cache its

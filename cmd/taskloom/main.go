@@ -9,9 +9,9 @@ import (
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/logboot"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // reportExecuteError writes a terminal error in the format the invocation
@@ -24,7 +24,7 @@ import (
 // is testable, and discards EmitError's result because the only way it fails is
 // a failing w — and w is the sole channel that failure could be reported on.
 func reportExecuteError(w io.Writer, err error) {
-	_ = cliemit.EmitError(w, rootCmd, err)
+	_ = cobrafmt.EmitError(w, rootCmd, err)
 }
 
 func main() {

@@ -11,10 +11,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	sessionpaths "github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // layout is stage 1: the run's LOCAL layout at host paths, the same on every

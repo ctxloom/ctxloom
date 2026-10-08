@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 	"golang.org/x/term"
 )
 

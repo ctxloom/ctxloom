@@ -57,7 +57,7 @@ func TestRootHelp_FirstStepIsInit(t *testing.T) {
 }
 
 // TestFormatFlagHelp_StatesTheDerivedDefault: with --format unset the output
-// is text on a terminal and json otherwise (cliemit.Resolve). The help must
+// is text on a terminal and json otherwise (cobrafmt.Resolve). The help must
 // say that, not advertise a fixed "text" default a piped run contradicts.
 func TestFormatFlagHelp_StatesTheDerivedDefault(t *testing.T) {
 	usage := rootCommand().PersistentFlags().FlagUsages()

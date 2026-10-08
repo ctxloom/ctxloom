@@ -13,9 +13,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // claudeVendorFixturePath resolves the same real claude transcript fixture

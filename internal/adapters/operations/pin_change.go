@@ -16,9 +16,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // PinChange is what moving (or first creating) one pin brings in: every item

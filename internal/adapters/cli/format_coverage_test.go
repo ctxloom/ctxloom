@@ -53,7 +53,7 @@ type formatCoverageEntry struct {
 
 	// formatDebt marks a skip entry as format debt: this command registers
 	// (inherits) the persistent --format flag but its RunE never routes
-	// through emit()/cliemit.Emit, so --format is silently accepted and
+	// through emit()/cobrafmt.Emit, so --format is silently accepted and
 	// discarded. It is orthogonal to skip's REASON the harness can't
 	// exercise the command here (fixture cost, network,
 	// destructive, installer, deprecated-alias-noise) — many skip'd

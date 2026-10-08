@@ -21,7 +21,7 @@ package cli
 // more widely than it is honored". It is the machine-readable
 // list of commands currently allowed to register/inherit the persistent
 // --format flag and silently discard it (their RunE never reaches
-// emit()/cliemit.Emit). TestFormatCoverage_DebtAllowlistTracksRegistry
+// emit()/cobrafmt.Emit). TestFormatCoverage_DebtAllowlistTracksRegistry
 // requires every formatCoverageRegistry entry marked formatDebt: true to have
 // exactly one matching key here, and vice versa — so a new broken command (or
 // a stale allowlist entry left behind after a fix) fails the build instead of

@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // ForgeConfig is the discriminator+union envelope for one labeled forge

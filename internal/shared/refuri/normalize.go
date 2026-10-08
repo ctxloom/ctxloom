@@ -3,7 +3,7 @@ package refuri
 import (
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // A ctxloom reference CANNOT carry a control character. The grammar is built

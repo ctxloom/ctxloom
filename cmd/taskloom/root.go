@@ -11,8 +11,6 @@ import (
 
 	tagma "github.com/benjaminabbitt/tagma/ports/go"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
@@ -21,6 +19,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	taskloomconfig "github.com/ctxloom/ctxloom/internal/taskloom/config"
 	"github.com/ctxloom/ctxloom/internal/taskloom/workdir"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // progName is the one name this binary answers to: the cobra Use line, the PATH
@@ -63,7 +63,7 @@ func rootPersistentPreRun(cmd *cobra.Command, _ []string) {
 	// Applied only when the flag was given, mirroring cmd/ctxloom's root:
 	// the mode is process-global and a bare invocation must not reset a mode
 	// something earlier in the process set (tests drive this tree repeatedly).
-	format, ferr := cliemit.Resolve(cmd)
+	format, ferr := cobrafmt.Resolve(cmd)
 	clidiag.SetStructured(ferr == nil && format.Structured())
 }
 

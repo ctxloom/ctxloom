@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // executeFailingUnderFormat drives the REAL rootCmd — the tree the binary ships
@@ -69,7 +69,7 @@ func executeFailingUnderFormat(t *testing.T, format string) string {
 // test that drives it through Execute (or otherwise sets these flags
 // directly) has to defend both directions:
 //
-// INBOUND: cliemit.Resolve honours a Changed --json flag as --format json
+// INBOUND: cobrafmt.Resolve honours a Changed --json flag as --format json
 // BEFORE it ever reads --format. Go runs this package's tests in source-file
 // order, and loadout_test.go sorts ahead of this file, so a test there that
 // leaves --json Changed (runLoadout's callers) leaks into whichever test

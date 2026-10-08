@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // osExecutable and osStat are seams the tests override to drive the Path

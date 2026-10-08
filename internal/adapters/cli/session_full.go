@@ -7,10 +7,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // SessionFullRow is the `--full` projection `session list` and `session
@@ -112,7 +112,7 @@ func emitSessionRows(cmd *cobra.Command, views []operations.SessionView, full bo
 		fullRows[i] = newSessionFullRow(afero.NewOsFs(), v)
 	}
 
-	format, err := cliemit.Resolve(cmd)
+	format, err := cobrafmt.Resolve(cmd)
 	if err != nil {
 		return err
 	}

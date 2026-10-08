@@ -7,7 +7,7 @@
 // the `--format json` row must report the SAME thing, and only an explicit
 // `--format text` still gets prose. `ctxloom --version` is a distinct code
 // path — cobra's own version templater, set once from rootCmd.Version — and
-// never goes through cliemit.Resolve, so it is the fixed point every row
+// never goes through cobrafmt.Resolve, so it is the fixed point every row
 // cross-checks against rather than a fourth row of its own.
 package acceptance
 

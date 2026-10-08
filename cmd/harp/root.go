@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // progName is the binary/command name, used in the cobra root and in
@@ -153,5 +153,5 @@ func runGenerate(cmd *cobra.Command, opts generateOpts) error {
 // every other binary in the family renders text. One reader, one behavior; the
 // parity test in format_parity_test.go pins it.
 func resolveFormat(cmd *cobra.Command) (clifmt.Format, error) {
-	return cliemit.Resolve(cmd)
+	return cobrafmt.Resolve(cmd)
 }

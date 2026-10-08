@@ -17,9 +17,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // envelopeKeys decodes an envelope into its top-level keys, so a test can

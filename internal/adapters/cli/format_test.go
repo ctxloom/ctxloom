@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // formatCmd builds a bare command with the --format flag registered and set,
@@ -228,8 +228,8 @@ func TestUnwiredCommand_DefaultTextStillWorks(t *testing.T) {
 
 // A prior review counted four format vocabularies for one flag and named the
 // third independent resolveFormat (cmd/harp) as the duplication. That copy is gone:
-// cmd/harp imports cliemit and its resolveFormat delegates to
-// cliemit.Resolve, pinned by cmd/harp/format_parity_test.go. What remains is
+// cmd/harp imports cobrafmt and its resolveFormat delegates to
+// cobrafmt.Resolve, pinned by cmd/harp/format_parity_test.go. What remains is
 // not a fourth implementation but a deliberate NARROWING, documented in this
 // file's const block: the streaming commands (session transcript watch, plan watch,
 // run's structured stream) render one event at a time and cannot hand clifmt
@@ -311,7 +311,7 @@ func TestCheckFormatWasHonored_DerivedJSONIsNotADishonoredRequest(t *testing.T) 
 	// The flag is never Set, so it is not Changed. A test binary's stdout is
 	// never a terminal, so Resolve derives JSON — the same path a piped or
 	// scripted caller takes in production.
-	got, rerr := cliemit.Resolve(cmd)
+	got, rerr := cobrafmt.Resolve(cmd)
 	require.NoError(t, rerr)
 	require.Equal(t, clifmt.FormatJSON, got)
 

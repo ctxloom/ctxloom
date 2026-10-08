@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 func newVersionCmd() *cobra.Command {
@@ -15,9 +15,9 @@ func newVersionCmd() *cobra.Command {
 }
 
 func runLtkVersion(cmd *cobra.Command, _ []string) error {
-	// Routed through cliemit.EmitVersion like cmd/ctxloom and cmd/taskloom:
+	// Routed through cobrafmt.EmitVersion like cmd/ctxloom and cmd/taskloom:
 	// text prints the bare version line; json/yaml/toml/markdown serialize
-	// cliversion.Info. json stays {name,version} — the shape ctxloom's boot
+	// cobrafmt.VersionInfo. json stays {name,version} — the shape ctxloom's boot
 	// probe parses.
-	return cliemit.EmitVersion(cmd, cliemit.Emit, progName, Version)
+	return cobrafmt.EmitVersion(cmd, progName, Version)
 }

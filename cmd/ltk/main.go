@@ -16,9 +16,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/logboot"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // Version is set at build time via ldflags (package main), e.g.
@@ -32,7 +32,7 @@ var Version = "dev"
 // inline root so the documentation generator can walk exactly the tree the
 // binary runs (`just gen-docs`; see docs_gen.go).
 // formatFlagUsage is --format's help. Its default is derived, not fixed —
-// cliemit.Resolve answers text on a terminal and json off one — so the flag is
+// cobrafmt.Resolve answers text on a terminal and json off one — so the flag is
 // registered with an empty default and the usage says what an unset flag does.
 const formatFlagUsage = "Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)"
 
@@ -67,7 +67,7 @@ retry the right way. See https://ctxloom.dev/ltk/rules/ for the full rule model.
 }
 
 // reportExecuteError writes a terminal error on w in the format the invocation
-// selected. json/yaml/toml go through the shared cliemit filter, so a caller
+// selected. json/yaml/toml go through the shared cobrafmt filter, so a caller
 // reading a machine-readable stream gets a parseable {"error": "..."} envelope
 // for the failure rather than a human sentence that ends its parse on the one
 // event it most needs to handle.
@@ -78,7 +78,7 @@ retry the right way. See https://ctxloom.dev/ltk/rules/ for the full rule model.
 // aligning the wording is a separate, human-visible change and not this one.
 //
 // root is the command that OWNS --format, which is why the flag is resolved
-// against it and not against whatever subcommand failed (see cliemit.Resolve's
+// against it and not against whatever subcommand failed (see cobrafmt.Resolve's
 // ordering note). An unresolvable --format reads as not-structured and keeps
 // the human line: a format that will not parse must not cost the caller the
 // original error.
@@ -88,10 +88,10 @@ func reportExecuteError(w io.Writer, root *cobra.Command, err error) {
 	// without this gate every piped or redirected `ltk` lost its "ltk: <err>"
 	// line to a structured envelope nobody asked for, which is exactly what the
 	// guard below this function's own doc promises cannot happen.
-	if format, ferr := cliemit.Resolve(root); cliemit.Explicit(root) && ferr == nil && format.Structured() {
+	if format, ferr := cobrafmt.Resolve(root); cobrafmt.Explicit(root) && ferr == nil && format.Structured() {
 		// EmitError only fails when w does, and w is the only channel that
 		// failure could have been reported on.
-		_ = cliemit.EmitError(w, root, err)
+		_ = cobrafmt.EmitError(w, root, err)
 		return
 	}
 	fmt.Fprintln(w, progName+":", err)

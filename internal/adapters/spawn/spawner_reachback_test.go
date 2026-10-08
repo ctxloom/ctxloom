@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // childMCPServers can compose a set with no ctxloom MCP server in it —

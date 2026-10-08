@@ -349,10 +349,12 @@ Feature: run — assembling a project's context and handing it to an engine
     # (the prompt a flag, not stdin), a terminal on both ends, the assembled
     # guidance in the AGENTS.md delivered to its config dir, Alice's own
     # tui.json carried in beside it (the relocated config would otherwise
-    # drop her theme), and the snapshot default a TUI's /undo needs.
+    # drop her theme), the snapshot default a TUI's /undo needs, and the
+    # bridge plugin that carries her session's hooks, mail and wake.
     @opencode
     Scenario: An opencode label's run is opencode's TUI on a terminal, with the guidance and Alice's TUI preferences
       Given Alice has an opencode label served by a scripted opencode TUI, and a fragment of guidance
       And Alice keeps her own opencode TUI preferences
       When Alice runs the opencode label interactively with the prompt "hello tui"
       Then the scripted opencode TUI ran on a terminal with the prompt as a flag, the guidance and Alice's preferences in its config dir
+      And the bridge plugin in its config dir fires ctxloom's session-start and mail-drain for opencode, and the TUI is told its wake socket

@@ -158,6 +158,18 @@ config dialects, renderers, failure tables) stays in each engine.
   provider, home var, default policy, its typed config's binary/args).
 - **`kit.ResolveDegraded`**: a permission model's `--degraded` fallback to
   its floor (the mock's and opencode's models).
+- **`kit.HookEvents`**: an engine's unified⇄native hook event table
+  (`Unified` maps a native or unified name back, `Map` is
+  `Exports.HookEvent`); claude's and opencode's.
+- **`kit.NativeHookCodec`**: `engine.HookCodec` over ctxloom's OWN hook wire
+  (`kit.NativeHookPayload` on stdin, `kit.NativeHookAnswer` on stdout), for
+  an engine whose hooks ctxloom fires itself; the engine supplies its event
+  table, its skill and edited-path readers, and the events an answer may
+  carry context or a block on. The mock's codec and opencode's.
+- **`kit.SocketWake`**: a `WakeSpec` over a unix socket the interactive
+  session's runtime listens on (`Path` is the socket in the session-private
+  root, named in the engine's own env var; `Fire` posts `engine.WakeText`
+  as one line). The mock's and opencode's.
 
 **The kit rule: a component enters `internal/engines/kit` only when two
 engines use it in the same slice.** A component with one user is that
@@ -173,11 +185,12 @@ and does not spawn, so it is not a second user.
 ## The opencode kind
 
 `internal/engines/opencode` drives the opencode CLI against an
-OpenAI-compatible endpoint a `type: opencode` label names (opt-in,
-structured only in this release). Everything is delivered into the session
-home H, which `OPENCODE_CONFIG_DIR` names: the framed `AGENTS.md`,
-`opencode.json` claims (`/mcp/<server>`, `/permission/<tool>`, `/$schema`),
-`commands/` and `skills/`. Its home relocates every path opencode reads: the
+OpenAI-compatible endpoint a `type: opencode` label names (opt-in): the TUI
+on ctxloom's pty, and the structured runner. Everything is delivered into
+the session home H, which `OPENCODE_CONFIG_DIR` names: the framed
+`AGENTS.md`, `opencode.json` claims (`/mcp/<server>`, `/permission/<tool>`,
+`/$schema`), `commands/`, `skills/` and `plugins/ctxloom.js`. Its home
+relocates every path opencode reads: the
 four XDG bases are further home vars merged with opencode's own app dir
 owned (`.xdg/data`, ...), `OPENCODE_TEST_HOME` and
 `OPENCODE_TEST_MANAGED_CONFIG_DIR` point at session dirs, and its database
@@ -186,9 +199,33 @@ is native history at `.xdg/data/opencode`, so a resumed child (`run
 `OPENCODE_CONFIG_CONTENT` from the label (provider, `limit.context` from the
 neutral `context_window`, timeouts, model options, snapshot/title/share) and
 names the endpoint key only by reference; the key itself
-(`CTXLOOM_OPENCODE_API_KEY`) rides the run's credentials. Hooks, approvals,
-wake, trust and containers are declared absent or unsupported, each with its
-reason.
+(`CTXLOOM_OPENCODE_API_KEY`) rides the run's credentials.
+
+opencode runs no hook command, only in-process plugins, so its hooks
+approach writes ONE generated plugin, the bridge (`plugins/ctxloom.js`,
+from `bridge.js` with the bound hook set spliced in). It fires ctxloom's hook
+commands on opencode's points with `kit.NativeHookCodec`'s wire:
+`tool.execute.before/after` (pre/post tool; pre_shell and post_file_edit
+narrowed to their tool class; a block throws, failing the call), `chat.message`
+(turn_start: mail-drain's context becomes a synthetic part of the prompt,
+a block refuses it), `session.created` (session_start, root sessions:
+session-bind; its context joins the session's system prompt) and
+`session.idle` (turn_end). session_end and permission_ask have no point
+(`HookLosses`). The same plugin carries the TUI owner's wake (a unix socket,
+`kit.SocketWake` on `CTXLOOM_OPENCODE_WAKE_SOCKET`: the wake's turn_start
+hooks fire first, so a stale wake is never sent; otherwise the wake text is
+`promptAsync`'d to the current root session, queued behind a busy turn) and
+the transcript: after every turn, before the turn_end hooks,
+`<data>/opencode/ctxloom/<session>.jsonl` (a header carrying the
+session_start context — the harp marker — then each message as opencode's
+API holds it), which is native history found by location; the reader is a
+VendorAdapter in `opencode/engine` sharing the live stream's part mapping,
+and `TranscriptSession` is the file stem. Loading any plugin makes opencode
+wait at startup on its OWN npm install into each config dir
+(`@opencode-ai/plugin`); an offline host sees opencode's npm failure there.
+That is opencode's behaviour, tolerated, not worked around. ltk guards
+opencode through the bridge with a runtime-only adapter. Approvals, trust
+and containers are declared absent or unsupported, each with its reason.
 
 ## Start here
 

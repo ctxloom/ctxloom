@@ -43,6 +43,8 @@ out=pipe; [ -t 1 ] && out=terminal
   echo "tui: $(cat "$OPENCODE_CONFIG_DIR/tui.json" 2>/dev/null)"
   echo "guidance: $(grep -o 'TUI-GUIDANCE-[A-Za-z0-9-]*' "$OPENCODE_CONFIG_DIR/AGENTS.md" 2>/dev/null | head -n 1)"
   echo "content: $OPENCODE_CONFIG_CONTENT"
+  echo "bridge: $(grep -o '"[a-z-]*","--engine","opencode"' "$OPENCODE_CONFIG_DIR/plugins/ctxloom.js" 2>/dev/null | sort -u | tr '\n' ' ')"
+  echo "wake: $CTXLOOM_OPENCODE_WAKE_SOCKET"
 } >> "$rec"
 echo OPENCODE-TUI-SCRIPTED-UP
 `
@@ -120,17 +122,9 @@ llm:
 
 	ctx.Step(`^the scripted opencode TUI ran on a terminal with the prompt as a flag, the guidance and Alice's preferences in its config dir$`, func(c context.Context) error {
 		w := worldFrom(c)
-		raw, err := os.ReadFile(opencodeTUIRecord(w))
+		rec, f, err := opencodeTUIRecorded(w)
 		if err != nil {
-			return fmt.Errorf("the scripted opencode TUI never ran: %w", err)
-		}
-		rec := string(raw)
-		w.docStepMaterialized = rec
-		f := map[string]string{}
-		for _, line := range strings.Split(rec, "\n") {
-			if k, v, ok := strings.Cut(line, ": "); ok {
-				f[k] = v
-			}
+			return err
 		}
 		for _, chk := range []struct {
 			ok   bool
@@ -150,4 +144,42 @@ llm:
 		}
 		return nil
 	})
+
+	ctx.Step(`^the bridge plugin in its config dir fires ctxloom's session-start and mail-drain for opencode, and the TUI is told its wake socket$`, func(c context.Context) error {
+		w := worldFrom(c)
+		rec, f, err := opencodeTUIRecorded(w)
+		if err != nil {
+			return err
+		}
+		for _, chk := range []struct {
+			ok   bool
+			fail string
+		}{
+			{strings.Contains(f["bridge"], `"session-start","--engine","opencode"`), "the bridge plugin does not fire session-start naming opencode"},
+			{strings.Contains(f["bridge"], `"mail-drain","--engine","opencode"`), "the bridge plugin does not fire mail-drain naming opencode"},
+			{strings.HasPrefix(f["wake"], filepath.Join(w.env.Root)) && strings.HasSuffix(f["wake"], "wake.sock"), "the TUI was not told a wake socket of its session's own"},
+		} {
+			if !chk.ok {
+				return fmt.Errorf("%s; the scripted opencode recorded:\n%s", chk.fail, rec)
+			}
+		}
+		return nil
+	})
+}
+
+// opencodeTUIRecorded is the scripted TUI's record, raw and by field.
+func opencodeTUIRecorded(w *World) (string, map[string]string, error) {
+	raw, err := os.ReadFile(opencodeTUIRecord(w))
+	if err != nil {
+		return "", nil, fmt.Errorf("the scripted opencode TUI never ran: %w", err)
+	}
+	rec := string(raw)
+	w.docStepMaterialized = rec
+	f := map[string]string{}
+	for _, line := range strings.Split(rec, "\n") {
+		if k, v, ok := strings.Cut(line, ": "); ok {
+			f[k] = v
+		}
+	}
+	return rec, f, nil
 }

@@ -153,16 +153,7 @@ type bridgeHook struct {
 // opencode (agent.BindHooks), filed under the point its event fires on; a
 // lost event's hooks are dropped (the plugin fires nothing for it).
 func bridgePlugin(hooks wire.UnifiedHooks, ext wire.BackendHooks) ([]byte, error) {
-	for event, n := range narrowed {
-		hs := slices.Clone(hooks.Event(event))
-		for i := range hs {
-			if hs[i].Matcher == "" && hs[i].Tool == "" {
-				hs[i].Tool = n.class
-			}
-		}
-		hooks.SetEvent(event, hs)
-	}
-	bound, err := agent.BindHooks(hooks, string(EngineName), toolMatcher)
+	bound, err := agent.BindHooks(narrowToClass(hooks), string(EngineName), toolMatcher)
 	if err != nil {
 		return nil, err
 	}
@@ -170,11 +161,7 @@ func bridgePlugin(hooks wire.UnifiedHooks, ext wire.BackendHooks) ([]byte, error
 	cfg.Transcript.Env, cfg.Transcript.Rel = transcriptBase, transcriptRel
 	points := hookEvents.Map()
 	for _, event := range wire.HookEvents() {
-		unified := event
-		if n, ok := narrowed[event]; ok {
-			unified = n.broad
-		}
-		if point, ok := points[unified]; ok {
+		if point, ok := points[broadEvent(event)]; ok {
 			cfg.Hooks[point] = appendCommands(cfg.Hooks[point], bound.Event(event))
 		}
 	}
@@ -188,6 +175,30 @@ func bridgePlugin(hooks wire.UnifiedHooks, ext wire.BackendHooks) ([]byte, error
 		return nil, err
 	}
 	return []byte(strings.Replace(bridgeTemplate, configMarker, string(b), 1)), nil
+}
+
+// narrowToClass narrows each pre_shell and post_file_edit hook that names no
+// matcher of its own to its tool class (BindHooks then spells the class as
+// opencode's matcher), on a copy: the caller's set is not mutated.
+func narrowToClass(hooks wire.UnifiedHooks) wire.UnifiedHooks {
+	for event, n := range narrowed {
+		hs := slices.Clone(hooks.Event(event))
+		for i := range hs {
+			if hs[i].Matcher == "" && hs[i].Tool == "" {
+				hs[i].Tool = n.class
+			}
+		}
+		hooks.SetEvent(event, hs)
+	}
+	return hooks
+}
+
+// broadEvent is the event whose point a unified event fires on.
+func broadEvent(event string) string {
+	if n, ok := narrowed[event]; ok {
+		return n.broad
+	}
+	return event
 }
 
 // appendCommands adds the command hooks of hs (a prompt or agent hook has no

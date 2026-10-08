@@ -101,19 +101,7 @@ func emitDecision(out engine.Output, stdout, stderr io.Writer) error {
 // whose payload this is (detectEngineFromPayload), else the default: a hook
 // command shared by every engine (a bundle's `ltk evaluate`) names none.
 func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) (engine.Output, error) {
-	if engineName == "" {
-		input, err := io.ReadAll(stdin)
-		if err != nil {
-			return failClosed(engine.Default(), fmt.Sprintf(
-				"%s could not read the hook payload and is denying this action: %v", progName, err))
-		}
-		var detected engine.Adapter = engine.Default()
-		if a := detectEngineFromPayload(input); a != nil {
-			detected = a
-		}
-		engineName, stdin = detected.Name(), bytes.NewReader(input)
-	}
-	adapter, err := engine.AdapterFor(engineName)
+	adapter, stdin, err := resolveAdapter(engineName, stdin)
 	if err != nil {
 		return denyUnknownEngine(engineName, err, stdin)
 	}
@@ -171,6 +159,23 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 		return engine.Output{}, fmt.Errorf("encode decision: %w", err)
 	}
 	return noteWhenNothingIsGated(out, resolved), nil
+}
+
+// resolveAdapter is the adapter engineName names; for "" the engine whose
+// payload stdin carries (detectEngineFromPayload), else the default, with a
+// reader over the same bytes returned in stdin's place. A stdin that cannot
+// be read reads as empty, which the decode refuses, so the hook still fails
+// closed.
+func resolveAdapter(engineName string, stdin io.Reader) (engine.Adapter, io.Reader, error) {
+	if engineName != "" {
+		a, err := engine.AdapterFor(engineName)
+		return a, stdin, err
+	}
+	input, _ := io.ReadAll(stdin)
+	if a := detectEngineFromPayload(input); a != nil {
+		return a, bytes.NewReader(input), nil
+	}
+	return engine.Default(), bytes.NewReader(input), nil
 }
 
 // denyUnknownEngine fails closed for an --engine name no adapter answers to.

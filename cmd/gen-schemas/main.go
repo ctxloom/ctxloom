@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/cli"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/engines"
@@ -39,7 +38,6 @@ func main() {
 	}
 	var targets []schemagen.Target
 	targets = append(targets, operations.SchemaTargets(reg)...)
-	targets = append(targets, cli.SchemaTargets()...)
 	targets = append(targets, mcp.SchemaTargets()...)
 
 	written, err := schemagen.Generate(afero.NewOsFs(), schemaDir, targets)

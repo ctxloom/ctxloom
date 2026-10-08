@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -10,8 +9,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/harpmarker"
 )
@@ -20,7 +20,10 @@ import (
 // engine's SessionStart hook. It is NOT part
 // of the user-facing `session` command tree — it registers under the hidden
 // `hook` namespace — and it answers to a different contract: stdout carries
-// hook output only, and nothing here may ever fail the host engine's startup.
+// hook output only. A bind that cannot happen — a payload the firing engine's
+// codec cannot read, an index that refuses the bind — is an error the process
+// exits non-zero on: the engine shows a failed hook, and a session that never
+// bound is not mistaken for one that did.
 
 func init() {
 	// session-bind is a machine callback (SessionStart hook target), so it lives
@@ -46,61 +49,59 @@ var sessionBindCmd = &cobra.Command{
 
 func runSessionBind(cmd *cobra.Command, args []string) error {
 	harp := os.Getenv(sessions.EnvHarp)
-	// Read the hook payload once: the marker doesn't need it, the bind does.
-	raw, _ := io.ReadAll(cmd.InOrStdin())
-	// Emit the deterministic harp self-id marker as SessionStart context so
-	// the transcript carries a greppable owner tag, independent of the index,
-	// the binding, or PID bookkeeping. This is the SessionStart hook installed
-	// for every ctxloom session, so it identifies the harp whatever else the
-	// session starts with. Best-effort: a hook must
-	// never fail the host backend's startup, so failures past this point only
-	// skip the index bind — the marker is already on stdout.
-	emitHarpMarker(cmd.OutOrStdout(), harp)
-	if err := bindSessionFromPayload(bytes.NewReader(raw), harp); err != nil {
-		clidiag.Warn("ctxloom", "session bind failed: %v", err)
+	kind, err := firingEngine(cmd)
+	if err != nil {
+		return err
 	}
-	return nil
+	codec := kind.Hooks()
+	// Read the hook payload once: the marker doesn't need it, the bind does.
+	raw, err := io.ReadAll(cmd.InOrStdin())
+	if err != nil {
+		return fmt.Errorf("session-bind: read the hook payload: %w", err)
+	}
+	// Emit the deterministic harp self-id marker as session-start context so
+	// the transcript carries a greppable owner tag, independent of the index,
+	// the binding, or PID bookkeeping. This is the session_start hook
+	// installed for every ctxloom session, so it identifies the harp whatever
+	// else the session starts with. It is written before the bind, so a bind
+	// that fails below still leaves the marker on stdout.
+	emitHarpMarker(cmd.OutOrStdout(), codec, harp)
+	return bindSessionFromPayload(bytes.NewReader(raw), codec, harp)
 }
 
-// emitHarpMarker writes the harp self-id marker to w as a SessionStart hook
-// output (the same envelope session-start uses), so the backend injects it into
-// the session and it lands in the transcript.
+// emitHarpMarker writes the harp self-id marker as the firing engine's
+// session-start context, so the engine injects it into the session and it
+// lands in the transcript.
 //
 // The marker is the only index-independent statement of which harp owns a
 // transcript, so a run that emits none produces a transcript nothing can
-// attribute. Emitting it is still best-effort — a hook must never fail the host
-// backend's startup — but every way of emitting nothing is REPORTED on the
-// diagnostic channel. stdout stays the hook's contract channel and never
-// carries a diagnostic.
-func emitHarpMarker(w io.Writer, harp string) {
+// attribute. Every way of emitting nothing is REPORTED on the diagnostic
+// channel; stdout stays the hook's contract channel and never carries a
+// diagnostic.
+func emitHarpMarker(w io.Writer, codec engine.HookCodec, harp string) {
 	marker := harpmarker.Format(harp)
 	if marker == "" {
 		clidiag.Warn("ctxloom", "session-bind: no usable harp (CTXLOOM_SESSION_HARP=%q) — this session's transcript carries no harp self-id marker and cannot be attributed to a harp by content", harp)
 		return
 	}
-	out := HookOutput{HookSpecificOutput: &HookSpecificOutput{
-		HookEventName:     claude.HookEventSessionStart,
-		AdditionalContext: marker,
-	}}
-	b, err := json.Marshal(out)
-	if err != nil {
-		clidiag.Warn("ctxloom", "session-bind: harp %q: could not encode the harp self-id marker: %v — the transcript carries no owner tag", harp, err)
-		return
+	reply, err := codec.Encode(wire.HookEventSessionStart, engine.HookResponse{Context: marker})
+	if err == nil {
+		_, err = w.Write(reply.Stdout)
 	}
-	if _, err := w.Write(append(b, '\n')); err != nil {
+	if err != nil {
 		clidiag.Warn("ctxloom", "session-bind: harp %q: could not write the harp self-id marker: %v — the transcript carries no owner tag", harp, err)
 	}
 }
 
-// bindSessionFromPayload reads a SessionStart hook payload from in,
-// extracts session_id / transcript_path, and binds them to harp in the
-// given Manager. Idempotent: re-running with the same payload is a
-// no-op. Malformed payloads silently succeed (a hook must never fail
-// the host backend's startup over a bad message).
-//
-// Extracted from sessionBindCmd's RunE so the binding logic is testable
-// without spinning up cobra or the real os.Stdin.
-func bindSessionFromPayload(in io.Reader, harp string) error {
+// bindSessionFromPayload reads a session_start payload from in, decodes it
+// through the firing engine's codec, and binds the native session and
+// transcript it names to harp. Idempotent: re-running with the same payload
+// is a no-op; operations.BindSession no-ops a harp that is absent from the
+// index, and re-points one whose engine has rotated to a new transcript. A
+// payload the codec cannot decode is an error naming the harp: the bind did
+// not happen, and saying so is how an operator learns why a harp never got
+// captured ("no canonical transcript captured for harp ...").
+func bindSessionFromPayload(in io.Reader, codec engine.HookCodec, harp string) error {
 	if harp == "" {
 		return nil
 	}
@@ -108,18 +109,9 @@ func bindSessionFromPayload(in io.Reader, harp string) error {
 	if err != nil {
 		return fmt.Errorf("read payload: %w", err)
 	}
-	var payload claude.SessionStartPayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		// This must never fail the host backend's tool call over a
-		// bad hook message (returning nil is right), but a malformed payload
-		// silently skipping the harp->session_id bind with NOTHING reported
-		// anywhere left an operator no way to learn why a harp never got
-		// captured — one of the two live-reproducible causes behind
-		// "no canonical transcript captured for harp ...".
-		clidiag.Warn("ctxloom", "session-bind: harp %q: SessionStart hook payload did not parse as JSON: %v — harp<->session_id bind skipped", harp, err)
-		return nil
+	ev, err := codec.Decode(wire.HookEventSessionStart, raw)
+	if err != nil {
+		return fmt.Errorf("session-bind: harp %q: the session_start payload did not decode, so the harp<->session bind did not happen: %w", harp, err)
 	}
-	// operations.BindSession no-ops a harp that is absent from the index, and
-	// re-points one whose engine has rotated to a new transcript.
-	return operations.BindSession(harp, payload.SessionID, payload.TranscriptPath)
+	return operations.BindSession(harp, ev.NativeSession, ev.Transcript)
 }

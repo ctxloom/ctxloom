@@ -60,7 +60,7 @@ func TestLogChannels_StructuredGoesToTheFileAndNeverToAHooksStderr(t *testing.T)
 	// and both the config load and the log sink resolve under this test's home.
 	cmd := env.Command(
 		[]string{"HOME=" + home, "CTXLOOM_HOME=" + home},
-		"hook", "session-start",
+		"hook", "session-start", "--engine", "claude-code",
 	)
 	cmd.Dir = projectDir
 	cmd.Stdin = strings.NewReader(`{"session_id":"log-channels","source":"startup"}`)

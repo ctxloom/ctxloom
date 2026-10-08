@@ -34,7 +34,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/spf13/afero"
 )
 
@@ -45,9 +44,9 @@ type Adapter struct{}
 var _ vendorreader.VendorAdapter = Adapter{}
 
 // vendorName is the string this adapter reports in wrapped errors: the
-// registry name mock is registered under, read from config data rather than
-// spelled here.
-const vendorName = config.BackendMock
+// registry name of the mock engine this package reads the store of (an
+// engine's family package names its own engine).
+const vendorName = "mock"
 
 // VersionedAdapters declares the version span this adapter reads.
 //

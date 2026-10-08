@@ -46,7 +46,7 @@ by hand.`,
 	}
 	c.Flags().StringVar(&f.cfgPath, "config", "", "path to rules YAML (default: search cwd)")
 	c.Flags().StringVar(&f.shellName, "shell", "", "force a shell dialect, overriding the engine's tool-derived shell")
-	c.Flags().StringVar(&f.engineName, "engine", "claude-code", "hook engine adapter")
+	c.Flags().StringVar(&f.engineName, "engine", engine.Default().Name(), "hook engine adapter")
 	return c
 }
 
@@ -162,9 +162,9 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 //
 // An unknown --engine in the installed hook (a manual edit or a cross-version
 // rename) would otherwise exit 1, which the host treats as a silent allow, and
-// there is no adapter for the NAMED engine to deny with. Guessing claude-code
-// unconditionally is wrong: on any other host the deny would ride
-// claude-code's wire format, which that host does not recognize, so the
+// there is no adapter for the NAMED engine to deny with. Guessing the default
+// engine unconditionally is wrong: on any other host the deny would ride the
+// default's wire format, which that host does not recognize, so the
 // "fail closed" deny would be invisible and the action would proceed anyway —
 // the exact failure mode this branch exists to prevent. Try every registered
 // engine's own Decode against the payload actually received; the first one
@@ -178,11 +178,7 @@ func denyUnknownEngine(engineName string, lookupErr error, stdin io.Reader) (eng
 	input, _ := io.ReadAll(stdin) // best-effort: an unreadable body just skips detection below
 	fallback := detectEngineFromPayload(input)
 	if fallback == nil {
-		var ferr error
-		fallback, ferr = engine.Get("claude-code")
-		if ferr != nil {
-			return engine.Output{}, lookupErr // unreachable in practice; nothing to deny with
-		}
+		fallback = engine.Default()
 	}
 	return failClosed(fallback, fmt.Sprintf(
 		"%s is misconfigured: unknown --engine %q; denying everything it guards until the hook command is fixed",
@@ -213,7 +209,7 @@ func noteWhenNothingIsGated(out engine.Output, resolvedConfig string) engine.Out
 // input and returns the first whose result looks like a genuine decode — a
 // recognized tool name or a populated Command/FilePath — never a blind guess.
 // nil means no engine's Decode produced anything meaningful for
-// this payload, so the caller falls back to claude-code.
+// this payload, so the caller falls back to the default engine.
 func detectEngineFromPayload(input []byte) engine.Engine {
 	if len(input) == 0 {
 		return nil
@@ -290,8 +286,8 @@ func ungatedToolRemedy(tool string) string {
 //     json.Marshal over a struct of plain string fields, which has no failure
 //     mode (invalid UTF-8 is replaced, not rejected), so the encode-error
 //     returns are unreachable rather than merely unlikely.
-//   - engine.Get("claude-code") always resolves, so the last-resort fallback
-//     for an unknown --engine always has something to deny with.
+//   - engine.Default() always resolves, so the last-resort fallback for an
+//     unknown --engine always has something to deny with.
 //
 // The moment an adapter grows a fallible encoder, the hook path stops being
 // fail-closed and this comment stops being true — which is exactly when that

@@ -6,8 +6,8 @@ capabilities are wired host-side without any engine honouring them. Every cell
 below is what the code **does**, with a `file:line`.
 
 Composed engine ids are what `operations.EngineNames()` returns: `claude-code`
-(`config.BackendClaudeCode`) and the test doubles (`config.BackendMock` and its
-`config.BackendMock*` siblings) — all in one `init()` in
+(`claude.EngineName`) and the test doubles (`mock.Name` and its
+`mock.Name*` siblings) — all in one `init()` in
 `internal/engines` (the composition root). `cmd/mockengine` is **not** a
 registered backend; it is a fake vendor CLI (see [mockengine](mockengine.md)).
 Where a row below says "the doubles", the mock family behaves alike unless the
@@ -97,11 +97,11 @@ private cwd (worktree) or a container cell.**
 | Backend | MCP file | MCP scopes | Commands dir | Skills dir |
 |---|---|---|---|---|
 | `claude-code` | `.mcp.json` (+ out-of-cwd via `--mcp-config`; in a trusted repository ctxloom's servers **layer over** the project's, otherwise `--strict-mcp-config` keeps the project's out — `repoSourceArgs`) | project + global (`~/.claude.json`) | `.claude/commands/*.md` | `.claude/skills/<n>/**` |
-| the doubles | — | — | — | `.mock/skills/<n>/**` (`skillsRel`, `surfaces.go`), except `config.BackendMockNoSkills`, which declares no skills mapper at all |
+| the doubles | — | — | — | `.mock/skills/<n>/**` (`skillsRel`, `surfaces.go`), except `mock.NameNoSkills`, which declares no skills mapper at all |
 
 **Skills cross the launch wire** (§3). An engine's `Exports` maps them into
 `engine.SkillsInputs` for its skills approach, and reports which engines
-declare one, and `config.BackendMockNoSkills` exists so the "no skills surface"
+declare one, and `mock.NameNoSkills` exists so the "no skills surface"
 arm of every caller has a subject.
 
 ## 5b. Hooks — declaring what an engine cannot carry
@@ -116,7 +116,7 @@ arm of every caller has a subject.
 A descriptor declares what it *cannot* carry in one of two fields:
 `noHooksReason` (the engine has no hook mechanism at all) and
 `unsupportedHookKinds` (specific unified events with no native equivalent —
-`config.BackendMockLossy` models this with two events, each naming its own
+`mock.NameLossy` models this with two events, each naming its own
 reason). The loss itself is structural and fine to have; the **silence** was not.
 A materialize used to print only true `wrote` lines with the dropped hook
 nowhere among them, so a team could ship a guardrail and a deskmate could

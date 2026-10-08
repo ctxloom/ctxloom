@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,7 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
-	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -34,7 +33,8 @@ as additional context of the turn that is starting.
 The session owner is the one recipient with no runner of its own, and this
 hook is its ONLY spool reader: it claims what waits in in/, writes each
 message — under the coordinator's provenance header, exactly as a hosted
-engine sees delivered mail — to stdout as a UserPromptSubmit envelope, and
+engine sees delivered mail — to stdout as turn context, encoded by the codec
+of the engine --engine names, and
 acknowledges what it wrote. A message is acknowledged only once it has been
 written; a hook that dies in between leaves it claimed, and the next turn's
 hook delivers it again.
@@ -71,10 +71,25 @@ func runHookMailDrain(cmd *cobra.Command, args []string) error {
 	if sessionOwnerEnv() {
 		harp = os.Getenv(agent.SessionHarpEnv)
 	}
-	if err := drainMail(afero.NewOsFs(), cmd, harp); err != nil {
+	if err := drainMailFor(cmd, harp); err != nil {
 		clidiag.Warn(mailDrainProg, "%v", err)
 	}
 	return nil
+}
+
+// drainMailFor resolves the firing engine and drains for harp; with no harp
+// it reads stdin to EOF and claims nothing (see drainMail).
+func drainMailFor(cmd *cobra.Command, harp string) error {
+	if harp == "" {
+		_, _ = io.Copy(io.Discard, cmd.InOrStdin())
+		return nil
+	}
+	kind, err := firingEngine(cmd)
+	if err != nil {
+		_, _ = io.Copy(io.Discard, cmd.InOrStdin())
+		return fmt.Errorf("no mail delivered: %w", err)
+	}
+	return drainMail(afero.NewOsFs(), cmd, kind.Hooks(), harp)
 }
 
 // drainMail does the work and RETURNS its failure rather than warning itself,
@@ -87,7 +102,7 @@ func runHookMailDrain(cmd *cobra.Command, args []string) error {
 // property of hook carriage, not of this code: the day carriage is fixed,
 // the same binary reads the same spool through the same home-relative mapper
 // (spool.HomeMapper's mount contract), and nothing here changes.
-func drainMail(fs afero.Fs, cmd *cobra.Command, harp string) error {
+func drainMail(fs afero.Fs, cmd *cobra.Command, codec engine.HookCodec, harp string) error {
 	// Read to EOF before anything can return: closing stdin early would be
 	// reported by some engines as a failed hook.
 	raw, _ := io.ReadAll(cmd.InOrStdin())
@@ -98,11 +113,16 @@ func drainMail(fs afero.Fs, cmd *cobra.Command, harp string) error {
 		return nil
 	}
 	mapper := spool.NewHomeMapper()
-	// An unreadable payload is a turn with no prompt we can read: never a
-	// wake, so never blocked.
-	var payload claude.UserPromptSubmitPayload
-	_ = json.Unmarshal(raw, &payload)
-	isWake, problems := redeemWakeNonce(fs, mapper, harp, payload.Prompt)
+	// An undecodable payload is a turn with no prompt we can read: never a
+	// wake, so never blocked — and NAMED, because a wake that is never
+	// redeemed refuses every later one, and the cause must be findable.
+	var problems []string
+	ev, err := codec.Decode(wire.HookEventTurnStart, raw)
+	if err != nil {
+		problems = append(problems, fmt.Sprintf("the turn_start payload did not decode, so it was not checked for a wake: %v", err))
+	}
+	isWake, wakeProblems := redeemWakeNonce(fs, mapper, harp, ev.Prompt)
+	problems = append(problems, wakeProblems...)
 	res, err := spool.Claim(fs, mapper, harp)
 	if err != nil {
 		return fmt.Errorf("no mail delivered: %w", err)
@@ -112,7 +132,7 @@ func drainMail(fs afero.Fs, cmd *cobra.Command, harp string) error {
 	}
 	if len(res.Entries) == 0 {
 		if isWake {
-			problems = append(problems, blockStaleWake(cmd)...)
+			problems = append(problems, blockStaleWake(cmd, codec)...)
 		}
 		return joinProblems(problems)
 	}
@@ -122,10 +142,7 @@ func drainMail(fs afero.Fs, cmd *cobra.Command, harp string) error {
 			From: e.Message.FromHarp, Kind: e.Message.Kind, ID: e.Identity(), InReplyTo: e.Message.InReplyTo, Body: e.Message.Body,
 		}))
 	}
-	if err := writeHookOutput(cmd, claude.UserPromptSubmitOutput{HookSpecificOutput: &claude.AdditionalContextOutput{
-		HookEventName:     claude.HookEventUserPromptSubmit,
-		AdditionalContext: strings.Join(frames, "\n\n"),
-	}}); err != nil {
+	if err := writeHookResponse(cmd, codec, wire.HookEventTurnStart, engine.HookResponse{Context: strings.Join(frames, "\n\n")}); err != nil {
 		// Delivery is the write. What was not written stays in in/claimed/,
 		// where the next turn's Claim hands it out again.
 		return fmt.Errorf("%d message(s) left claimed, not delivered: %w", len(res.Entries), err)
@@ -154,10 +171,10 @@ func redeemWakeNonce(fs afero.Fs, mapper spool.PathMapper, harp, prompt string) 
 
 // blockStaleWake blocks a wake whose mail was already delivered, reporting
 // when the block could not be written.
-func blockStaleWake(cmd *cobra.Command) []string {
-	if err := writeHookOutput(cmd, claude.UserPromptSubmitOutput{
-		Decision: claude.DecisionBlock,
-		Reason:   "ctxloom: the mail this wake announced was already delivered",
+func blockStaleWake(cmd *cobra.Command, codec engine.HookCodec) []string {
+	if err := writeHookResponse(cmd, codec, wire.HookEventTurnStart, engine.HookResponse{
+		Block:  true,
+		Reason: "ctxloom: the mail this wake announced was already delivered",
 	}); err != nil {
 		return []string{fmt.Sprintf("a stale wake could not be blocked: %v", err)}
 	}
@@ -174,17 +191,6 @@ func ackDelivered(fs afero.Fs, mapper spool.PathMapper, harp string, entries []s
 		}
 	}
 	return problems
-}
-
-// writeHookOutput writes out as one JSON line. It is encoded to bytes first so
-// a failure cannot leave a partial envelope on the engine's input channel.
-func writeHookOutput(cmd *cobra.Command, out claude.UserPromptSubmitOutput) error {
-	body, err := json.Marshal(out)
-	if err != nil {
-		return err
-	}
-	_, err = cmd.OutOrStdout().Write(append(body, '\n'))
-	return err
 }
 
 // joinProblems renders every non-fatal problem as ONE failure, so the hook's

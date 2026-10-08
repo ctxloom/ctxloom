@@ -11,6 +11,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -34,7 +36,7 @@ func TestHookMailDrain_AChildWithoutTheOwnerMarkerClaimsNothing(t *testing.T) {
 	name := seedOwnerMail(t, "parent", "message", "for the child's runner, not its hook\n")
 
 	var out bytes.Buffer
-	require.NoError(t, runHookMailDrain(mailDrainCmd(&out), nil))
+	require.NoError(t, runHookMailDrain(firedBy(t, mailDrainCmd(&out), claude.EngineName), nil))
 
 	assert.Empty(t, out.String(), "nothing reaches the child engine's turn")
 	assert.Equal(t, []string{name}, spoolNames(t, spool.DirIn), "the message is still waiting for the runner")
@@ -49,7 +51,7 @@ func TestHookMailDrain_TheOwnerDrainsUnderItsMarker(t *testing.T) {
 	name := seedOwnerMail(t, "child-one", "report", "FINAL: done\n")
 
 	var out bytes.Buffer
-	require.NoError(t, runHookMailDrain(mailDrainCmd(&out), nil))
+	require.NoError(t, runHookMailDrain(firedBy(t, mailDrainCmd(&out), claude.EngineName), nil))
 
 	assert.Contains(t, drainedEnvelope(t, &out).HookSpecificOutput.AdditionalContext, "FINAL: done")
 	assert.Empty(t, spoolNames(t, spool.DirIn))
@@ -70,4 +72,24 @@ func TestSwitches_ConsumeTheSessionOwnerMarker(t *testing.T) {
 	_, still := os.LookupEnv(sessions.EnvSessionOwner)
 	assert.False(t, still, "the process no longer carries the marker")
 	assert.True(t, sessionOwnerEnv(), "but it remembers that it was the owner's")
+}
+
+// TestHookMailDrain_AnUnknownEngineClaimsNothing: a mail-drain whose
+// --engine names no registered engine cannot answer the turn, so it claims
+// nothing (the mail waits for a hook that can deliver it) and says why on the
+// diagnostic channel, exiting 0 so the human's prompt still runs.
+func TestHookMailDrain_AnUnknownEngineClaimsNothing(t *testing.T) {
+	testsupport.Isolate(t)
+	t.Setenv(sessions.EnvHarp, mailDrainOwner)
+	withSessionOwnerEnv(t, true)
+	name := seedOwnerMail(t, "child-one", "report", "FINAL: done\n")
+	var diag bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&diag))
+
+	var out bytes.Buffer
+	require.NoError(t, runHookMailDrain(firedBy(t, mailDrainCmd(&out), "no-such-engine"), nil))
+
+	assert.Empty(t, out.String())
+	assert.Equal(t, []string{name}, spoolNames(t, spool.DirIn), "the message is still waiting")
+	assert.Contains(t, diag.String(), "no-such-engine")
 }

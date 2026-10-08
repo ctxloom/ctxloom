@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -24,7 +25,7 @@ import (
 // setup nudge fires) whose regenerated context cache holds marker — the
 // project context the session-start hook must never deliver. It runs the
 // hook against that project with payload on stdin, returning its output.
-func runSessionStartIn(t *testing.T, marker, payload string) HookOutput {
+func runSessionStartIn(t *testing.T, marker, payload string) claudeAnswer {
 	t.Helper()
 	t.Setenv(projectroot.EnvVar, "")
 	root := t.TempDir()
@@ -41,13 +42,12 @@ func runSessionStartIn(t *testing.T, marker, payload string) HookOutput {
 	testApp(t, configload.WithAppDir(appDir))
 	t.Chdir(root)
 
-	stdinFromString(t, payload)
-	var runErr error
-	out := captureStdout(t, func() { runErr = hookSessionStartCmd.RunE(&cobra.Command{}, nil) })
-	require.NoError(t, runErr)
-	var got HookOutput
-	require.NoError(t, json.Unmarshal([]byte(out), &got), "stdout is the hook envelope: %q", out)
-	return got
+	var out bytes.Buffer
+	cmd := firedBy(t, &cobra.Command{}, claude.EngineName)
+	cmd.SetIn(strings.NewReader(payload))
+	cmd.SetOut(&out)
+	require.NoError(t, hookSessionStartCmd.RunE(cmd, nil))
+	return decodeClaudeAnswer(t, out.Bytes())
 }
 
 // TestHookSessionStart_DeliversTheResumedEssenceAndNoticesButNeverTheProjectContext

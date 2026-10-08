@@ -45,7 +45,7 @@ ctxloom profile materialize <profile>... [flags]
 ### Options
 
 ```
-      --backend string   Backend whose surface is written, or compared against with --diff (claude-code) (default "claude-code")
+      --backend string   Backend whose surface is written, or compared against with --diff (empty = the default engine)
       --diff string      Compare this profile's materialized context against an already-delivered context file instead of writing --target
       --target string    Target directory to write the agent surface into (required)
 ```

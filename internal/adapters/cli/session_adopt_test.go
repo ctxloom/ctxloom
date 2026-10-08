@@ -140,7 +140,7 @@ func TestSessionAdopt_UnsupportedBackendFails(t *testing.T) {
 	_, _, err = execRootCmdBoth(t, "session", "adopt", entry.HarpName)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "mock")
-	assert.Contains(t, err.Error(), "not supported yet")
+	assert.Contains(t, err.Error(), "supplies no transcript reader")
 }
 
 // TestSessionAdopt_UnknownHarpFails pins the plain not-found error.

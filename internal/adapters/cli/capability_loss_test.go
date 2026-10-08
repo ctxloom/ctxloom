@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,10 +119,10 @@ func requireFixtureLosesNothing(t *testing.T, cfg *config.Config) {
 // descriptor's unsupportedHookKinds entry — a drifted copy would assert a
 // message the product never emits, and the test would fail for the wrong
 // reason.
-const mockLossyHookReason = config.BackendMockLossy + " has no native session_start event"
+const mockLossyHookReason = string(mock.NameLossy) + " has no native session_start event"
 
 func TestDoctorCmd_CapabilityLoss_NamesTheHooksAnEngineCannotCarry(t *testing.T) {
-	root, cfg := setupCapabilityLossProject(t, config.BackendMockLossy)
+	root, cfg := setupCapabilityLossProject(t, string(mock.NameLossy))
 	requireFixtureLosesSomething(t, cfg, "session_start", mockLossyHookReason)
 
 	out, err := runDoctor(t, root)
@@ -205,7 +206,7 @@ func execManageCheckAs(t *testing.T, root, format string) (string, error) {
 // and every line of it was true while the guardrail it could not wire went
 // unmentioned — the same silence the delivery report had.
 func TestManageCheck_CapabilityLoss_NamesTheHooksAnEngineCannotCarry(t *testing.T) {
-	root, cfg := setupCapabilityLossProject(t, config.BackendMockLossy)
+	root, cfg := setupCapabilityLossProject(t, string(mock.NameLossy))
 	requireFixtureLosesSomething(t, cfg, "session_start", mockLossyHookReason)
 
 	out, err := execManageCheck(t, root)
@@ -250,7 +251,7 @@ func TestManageCheck_CapabilityLoss_StaysQuietWhenNothingIsLost(t *testing.T) {
 // A report that named the loss only in prose would state it to a human and
 // withhold it from every machine consumer.
 func TestManageCheck_CapabilityLoss_JSONCarriesTheLoss(t *testing.T) {
-	root, cfg := setupCapabilityLossProject(t, config.BackendMockLossy)
+	root, cfg := setupCapabilityLossProject(t, string(mock.NameLossy))
 	requireFixtureLosesSomething(t, cfg, "session_start", mockLossyHookReason)
 
 	out, err := execManageCheckAs(t, root, "json")
@@ -262,7 +263,7 @@ func TestManageCheck_CapabilityLoss_JSONCarriesTheLoss(t *testing.T) {
 	require.Len(t, got.CapabilityLoss, 1, "exactly the one configured agent loses something:\n"+out)
 	entry := got.CapabilityLoss[0]
 	assert.Equal(t, "default", entry.Agent, "the payload must name WHICH agent loses it")
-	assert.Equal(t, config.BackendMockLossy, entry.Backend, "the payload must name the engine that cannot carry it")
+	assert.Equal(t, string(mock.NameLossy), entry.Backend, "the payload must name the engine that cannot carry it")
 	// ONE LOSS PER DECLARED KIND, each carrying its own detail and reason. A
 	// payload that merged them would tell a consumer that "hooks" were lost
 	// without saying which events, and would attribute one kind's absence to

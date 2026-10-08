@@ -19,8 +19,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -70,7 +72,7 @@ func postToolUsePayload(transcriptPath, toolName, toolInput string) string {
 }
 
 func skillPayload(transcriptPath, skill string) string {
-	return postToolUsePayload(transcriptPath, claude.SkillToolName, `{"skill":"`+skill+`","args":""}`)
+	return postToolUsePayload(transcriptPath, skillTool, `{"skill":"`+skill+`","args":""}`)
 }
 
 // skillTranscript is a session transcript in which the named skills were
@@ -79,7 +81,7 @@ func skillTranscript(t *testing.T, skills ...string) string {
 	t.Helper()
 	lines := []string{userPrompt("good night", "u1")}
 	for i, s := range skills {
-		lines = append(lines, assistantTool(fmt.Sprintf("a%d", i), fmt.Sprintf("msg_%d", i), claude.SkillToolName, `{"skill":"`+s+`","args":""}`))
+		lines = append(lines, assistantTool(fmt.Sprintf("a%d", i), fmt.Sprintf("msg_%d", i), skillTool, `{"skill":"`+s+`","args":""}`))
 	}
 	return writeClaudeTranscript(t, lines...)
 }
@@ -93,12 +95,10 @@ func skillMatesCmd(payload string) *cobra.Command {
 	return c
 }
 
-func additionalContext(out claude.PostToolUseOutput) string {
-	if out.HookSpecificOutput == nil {
-		return ""
-	}
-	return out.HookSpecificOutput.AdditionalContext
-}
+// skillTool is the tool claude runs a skill through.
+const skillTool = "Skill"
+
+func additionalContext(out engine.HookResponse) string { return out.Context }
 
 // TestSkillMatesOutput_MemberCompletesMateUninvoked_NamesTheMate is the verb
 // end to end in process: real config, real bundle on disk, real session index,
@@ -112,10 +112,10 @@ func TestSkillMatesOutput_MemberCompletesMateUninvoked_NamesTheMate(t *testing.T
 	seedHookSession(t, "claude-code")
 	transcript := skillTranscript(t, "admit")
 
-	out, err := skillMatesOutput(skillMatesCmd(skillPayload(transcript, "admit")))
+	out, err := skillMatesOutput(skillMatesCmd(skillPayload(transcript, "admit")), claudeKind(t))
 
 	require.NoError(t, err)
-	assert.Equal(t, claude.SkillMatesContext("admit", []string{"unattended"}), additionalContext(out))
+	assert.Equal(t, skillMatesContext("admit", []string{"unattended"}), additionalContext(out))
 }
 
 // TestSkillMatesOutput_NamesOnlySkillsTheEngineHas: a linked skill that is
@@ -129,10 +129,10 @@ func TestSkillMatesOutput_NamesOnlySkillsTheEngineHas(t *testing.T) {
 	seedHookSession(t, "claude-code")
 	transcript := skillTranscript(t, "admit", "unattended")
 
-	out, err := skillMatesOutput(skillMatesCmd(skillPayload(transcript, "admit")))
+	out, err := skillMatesOutput(skillMatesCmd(skillPayload(transcript, "admit")), claudeKind(t))
 
 	require.NoError(t, err)
-	assert.Nil(t, out.HookSpecificOutput, "withheld is linked but not the engine's; with unattended invoked there is nothing to name")
+	assert.Empty(t, out.Context, "withheld is linked but not the engine's; with unattended invoked there is nothing to name")
 }
 
 // TestSkillMatesOutput_AllMatesInvoked_Silent: the transcript already carries
@@ -145,10 +145,10 @@ func TestSkillMatesOutput_AllMatesInvoked_Silent(t *testing.T) {
 	seedHookSession(t, "claude-code")
 	transcript := skillTranscript(t, "unattended", "admit")
 
-	out, err := skillMatesOutput(skillMatesCmd(skillPayload(transcript, "admit")))
+	out, err := skillMatesOutput(skillMatesCmd(skillPayload(transcript, "admit")), claudeKind(t))
 
 	require.NoError(t, err)
-	assert.Nil(t, out.HookSpecificOutput)
+	assert.Empty(t, out.Context)
 }
 
 // TestSkillMatesOutput_NonMemberSkill_Silent: a delivered skill in no link
@@ -158,10 +158,10 @@ func TestSkillMatesOutput_NonMemberSkill_Silent(t *testing.T) {
 	seedHookSession(t, "claude-code")
 	transcript := skillTranscript(t, "free")
 
-	out, err := skillMatesOutput(skillMatesCmd(skillPayload(transcript, "free")))
+	out, err := skillMatesOutput(skillMatesCmd(skillPayload(transcript, "free")), claudeKind(t))
 
 	require.NoError(t, err)
-	assert.Nil(t, out.HookSpecificOutput)
+	assert.Empty(t, out.Context)
 }
 
 // TestSkillMatesOutput_NonSkillTool_SilentWithoutReadingAnything: for any
@@ -175,10 +175,10 @@ func TestSkillMatesOutput_NonSkillTool_SilentWithoutReadingAnything(t *testing.T
 	testsupport.Isolate(t)
 	t.Setenv(agent.SessionHarpEnv, "")
 
-	out, err := skillMatesOutput(skillMatesCmd(postToolUsePayload("/nonexistent/t.jsonl", "Bash", `{"command":"ls"}`)))
+	out, err := skillMatesOutput(skillMatesCmd(postToolUsePayload("/nonexistent/t.jsonl", "Bash", `{"command":"ls"}`)), claudeKind(t))
 
 	require.NoError(t, err)
-	assert.Nil(t, out.HookSpecificOutput)
+	assert.Empty(t, out.Context)
 }
 
 // TestSkillMatesOutput_NamesWhyItStayedSilent pins that a Skill completion the
@@ -203,9 +203,9 @@ func TestSkillMatesOutput_NamesWhyItStayedSilent(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.setup(t)
-			out, err := skillMatesOutput(skillMatesCmd(tc.payload(t)))
+			out, err := skillMatesOutput(skillMatesCmd(tc.payload(t)), claudeKind(t))
 			require.Error(t, err, "silence here must carry a reason")
-			assert.Nil(t, out.HookSpecificOutput)
+			assert.Empty(t, out.Context)
 		})
 	}
 }
@@ -217,15 +217,13 @@ func TestSkillMatesOutput_NamesWhyItStayedSilent(t *testing.T) {
 func TestRunHookSkillMates_AlwaysLeavesValidJSONAndExitsZero(t *testing.T) {
 	testsupport.Isolate(t)
 	t.Setenv(agent.SessionHarpEnv, "")
-	cmd := skillMatesCmd(skillPayload("/nonexistent/t.jsonl", "admit"))
+	cmd := firedBy(t, skillMatesCmd(skillPayload("/nonexistent/t.jsonl", "admit")), claude.EngineName)
 	stdout := &bytes.Buffer{}
 	cmd.SetOut(stdout)
 
 	require.NoError(t, runHookSkillMates(cmd, nil))
 
-	var out claude.PostToolUseOutput
-	require.NoError(t, json.Unmarshal(stdout.Bytes(), &out), "stdout must be valid JSON: %q", stdout.String())
-	assert.Nil(t, out.HookSpecificOutput)
+	assert.Nil(t, decodeClaudeAnswer(t, stdout.Bytes()).HookSpecificOutput)
 }
 
 // TestHookSkillMates_FiresOnTheWire drives the BUILT BINARY exactly as
@@ -246,7 +244,7 @@ func TestHookSkillMates_FiresOnTheWire(t *testing.T) {
 
 	run := func(payload string) map[string]any {
 		t.Helper()
-		cmd := exec.Command(bin, "hook", "skill-mates")
+		cmd := exec.Command(bin, "hook", "skill-mates", agent.HookEngineFlag, claude.EngineName)
 		cmd.Stdin = bytes.NewBufferString(payload)
 		stderr := &bytes.Buffer{}
 		cmd.Stderr = stderr
@@ -260,9 +258,26 @@ func TestHookSkillMates_FiresOnTheWire(t *testing.T) {
 	fired := run(skillPayload(transcript, "admit"))
 	specific, ok := fired["hookSpecificOutput"].(map[string]any)
 	require.True(t, ok, "a mate left uninvoked must produce hookSpecificOutput: %v", fired)
-	assert.Equal(t, claude.HookEventPostToolUse, specific["hookEventName"])
-	assert.Equal(t, claude.SkillMatesContext("admit", []string{"unattended"}), specific["additionalContext"])
+	assert.Equal(t, "PostToolUse", specific["hookEventName"])
+	assert.Equal(t, skillMatesContext("admit", []string{"unattended"}), specific["additionalContext"])
 
 	silent := run(skillPayload(skillTranscript(t, "admit", "unattended"), "unattended"))
 	assert.NotContains(t, silent, "hookSpecificOutput", "every mate invoked: the hook injects nothing")
+}
+
+// TestDeliveredEnabledSkills_ReadsTheFiringEnginesExports: the skill set the
+// mates are drawn from is the one the FIRING engine was delivered, read
+// through that engine's exports — an engine with no skills surface was
+// delivered none, whatever another engine would have been.
+//
+// MUTATION -- read the exports of a fixed engine instead of engineName --
+// turns this red.
+func TestDeliveredEnabledSkills_ReadsTheFiringEnginesExports(t *testing.T) {
+	linkedSkillsProject(t)
+	withSkills, err := deliveredEnabledSkills(context.Background(), claude.EngineName)
+	require.NoError(t, err)
+	require.NotEmpty(t, withSkills, "precondition: the project delivers skills to an engine that has a skills surface")
+	none, err := deliveredEnabledSkills(context.Background(), string(mock.NameNoSkills))
+	require.NoError(t, err)
+	assert.Empty(t, none, "an engine with no skills surface was delivered no skill to name")
 }

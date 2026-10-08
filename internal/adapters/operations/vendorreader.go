@@ -610,3 +610,23 @@ func hasCanonicalTranscript(fsys afero.Fs, harp string) bool {
 	_, err = fsys.Stat(p)
 	return err == nil
 }
+
+// recordSpannerFor is the reader of the named engine's store that can read a
+// transcript's record-time span (vendorreader.RecordSpanner), found among the
+// readers its kind supplies (Engine.Transcripts) — the capability, never the
+// engine's name, decides. ok is false for an unregistered engine and for one
+// none of whose readers offers it. A record's timestamp is the store's own
+// stamp, not a version-scoped parse, so any of the kind's readers that offers
+// the span reads every version it carries.
+func recordSpannerFor(reg engine.Registry, name string) (vendorreader.RecordSpanner, bool) {
+	vr, ok := vendorReaderFor(reg, name)
+	if !ok {
+		return nil, false
+	}
+	for _, a := range vr.adapters {
+		if s, ok := a.Adapter.(vendorreader.RecordSpanner); ok {
+			return s, true
+		}
+	}
+	return nil, false
+}

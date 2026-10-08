@@ -2,6 +2,7 @@ package operations
 
 import (
 	"encoding/json"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"strings"
 	"testing"
 
@@ -81,7 +82,7 @@ func TestMockControlFor_ReadsTheMockLabelsControlMapAndNothingElse(t *testing.T)
 	cfg := config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
-				"m": {Type: config.BackendMock, Body: map[string]interface{}{
+				"m": {Type: string(mock.Name), Body: map[string]interface{}{
 					"mock_control": map[string]interface{}{"CTXLOOM_MOCK_RESPONSE": "canned-7f3a"},
 				}},
 				"big": {Type: "claude-code", Body: map[string]interface{}{"model": "opus"}},

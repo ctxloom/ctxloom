@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"maps"
 	"os"
 	"path/filepath"
@@ -373,7 +374,7 @@ func engineContextRelPath(dir, engine string) (string, error) {
 	// unsupported, mock-launch in delivering only context at materialize time
 	// (its other four surfaces arrive at launch). Context is the one surface
 	// all three write, which is why one case covers them.
-	case config.BackendMock, config.BackendMockLossy, config.BackendMockLaunch:
+	case string(mock.Name), string(mock.NameLossy), string(mock.NameLaunch):
 		return filepath.Join(dir, "MOCK_CONTEXT.md"), nil
 	default:
 		return "", fmt.Errorf("unknown engine %q for native context surface", engine)

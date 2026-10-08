@@ -71,7 +71,7 @@ func TestCaptureNextStep_WritesTheTurnsFinalMessageUnderTheHarp(t *testing.T) {
 	harp := seedHookSession(t, "claude-code")
 	const final = "Next I will run just lint and then merge."
 
-	require.NoError(t, captureNextStep(nextStepCmd(stopPayload(turnEndingWith(t, final)))))
+	require.NoError(t, captureNextStep(nextStepCmd(stopPayload(turnEndingWith(t, final))), claudeCodec(t)))
 
 	got, ok := memory.ReadNextStep(afero.NewOsFs(), harp)
 	require.True(t, ok, "the capture must leave a next step on disk, not merely exit 0")
@@ -93,7 +93,7 @@ func TestCaptureNextStep_TakesTheFinalMessageNotTheToolCall(t *testing.T) {
 		assistantText("a3", "msg_3", "THE closing statement"),
 	)
 
-	require.NoError(t, captureNextStep(nextStepCmd(stopPayload(transcript))))
+	require.NoError(t, captureNextStep(nextStepCmd(stopPayload(transcript)), claudeCodec(t)))
 
 	got, _ := memory.ReadNextStep(afero.NewOsFs(), harp)
 	assert.Equal(t, "THE closing statement", got)
@@ -110,7 +110,7 @@ func TestCaptureNextStep_OverwritesEachTurn(t *testing.T) {
 	harp := seedHookSession(t, "claude-code")
 
 	for _, text := range []string{"turn one intends A", "turn two intends B", "turn three intends C"} {
-		require.NoError(t, captureNextStep(nextStepCmd(stopPayload(turnEndingWith(t, text)))))
+		require.NoError(t, captureNextStep(nextStepCmd(stopPayload(turnEndingWith(t, text))), claudeCodec(t)))
 	}
 
 	got, ok := memory.ReadNextStep(afero.NewOsFs(), harp)
@@ -148,7 +148,7 @@ func TestCaptureNextStep_NamesWhyItCapturedNothing(t *testing.T) {
 				t.Setenv(agent.SessionHarpEnv, "")
 			}
 
-			err := captureNextStep(nextStepCmd(tc.payload(t)))
+			err := captureNextStep(nextStepCmd(tc.payload(t)), claudeCodec(t))
 
 			require.Error(t, err, "a capture that did not happen must say why")
 			assert.NotEmpty(t, err.Error())

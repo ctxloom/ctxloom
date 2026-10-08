@@ -30,6 +30,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,8 +39,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 
 	"github.com/cucumber/godog"
-
-	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 const (
@@ -77,8 +76,8 @@ func j001200Of(w *World) *j001200State {
 func j001200AddIndexEntry(w *World, harp, _, transcriptPath string) error {
 	return seedSessionSidecar(w, harp, sessionSeed{
 		SessionID:      "seeded-" + harp,
-		Backend:        config.BackendMock,
-		EngineVersion:  j001000SeededEngineVersion(config.BackendMock),
+		Backend:        string(mock.Name),
+		EngineVersion:  j001000SeededEngineVersion(string(mock.Name)),
 		StartedAt:      "2026-03-14T00:00:00Z",
 		EndedAt:        "2026-03-14T02:00:00Z",
 		TranscriptPath: transcriptPath,

@@ -1,9 +1,7 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -11,16 +9,10 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 )
-
-// HookOutput is the JSON output format for Claude Code's SessionStart hook.
-type HookOutput = claude.SessionStartOutput
-
-// HookSpecificOutput contains hook-specific data to inject.
-type HookSpecificOutput = claude.AdditionalContextOutput
 
 // hookSessionStartCmd is ctxloom's own SessionStart callback. It NEVER
 // delivers the project's assembled context: that is the session's system
@@ -33,65 +25,64 @@ var hookSessionStartCmd = &cobra.Command{
 	Use:    "session-start",
 	Hidden: true, // Machine callback (SessionStart hook) - not for direct use
 	Short:  "Deliver the resumed essence and session-start notices to an AI tool's SessionStart hook",
-	Long: `Reads the SessionStart payload on stdin and writes the hook's JSON to stdout:
-the compacted essence of the session a compacted resume continues, as
-additionalContext, and the session-start notices as systemMessage. It never
-carries the project's context, which the session already has.`,
+	Long: `Reads the session_start payload on stdin, through the codec of the engine
+--engine names, and answers through the same codec: the compacted essence of
+the session a compacted resume continues, as model context, and the
+session-start notices for the user. It never carries the project's context,
+which the session already has.`,
 	Args:          cobra.NoArgs,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	RunE:          runHookSessionStart,
 }
 
+// runHookSessionStart answers one session_start. A payload it cannot read is
+// an error and the process exits non-zero: an engine shows a failed hook,
+// which is the truth, where an answer built from an empty payload would claim
+// a startup that never happened. A panic exits non-zero for the same reason.
 func runHookSessionStart(cmd *cobra.Command, _ []string) (err error) {
-	// Always output valid JSON, even on errors, so the host never hangs
-	// waiting for output — but a panic still exits NON-ZERO: exit 0 would
-	// make a crash indistinguishable from "nothing to deliver".
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom hook session-start: panic: %v\n", r)
-			fmt.Println("{}")
 			err = fmt.Errorf("session-start hook panicked: %v", r)
 		}
 	}()
-
-	var hookInput claude.SessionStartPayload
-	inputData, err := io.ReadAll(cmd.InOrStdin())
-	if err == nil && len(inputData) > 0 {
-		if unmarshalErr := json.Unmarshal(inputData, &hookInput); unmarshalErr != nil {
-			clidiag.Warn("ctxloom hook session-start", "failed to parse hook input: %v", unmarshalErr)
-		}
+	kind, err := firingEngine(cmd)
+	if err != nil {
+		return err
 	}
+	codec := kind.Hooks()
+	ev, err := readHookEvent(cmd, codec, wire.HookEventSessionStart)
+	if err != nil {
+		return err
+	}
+	return writeHookResponse(cmd, codec, wire.HookEventSessionStart, sessionStartResponse(ev, codec.ContextLimit()))
+}
 
+// sessionStartResponse is what one session_start earns: the resumed essence
+// (held under the engine's context limit) and the user-facing notices.
+//
+// After a /clear the USER (not the model) is nudged toward /recover: a clear
+// starts a FRESH native session and an empty transcript, firing session_start
+// again with the new id; recovery reads the harp-lifetime canonical
+// transcript, so recoverability is a question about the harp's index entry
+// (currentSessionRecoverable). The two notices can co-occur, so they are
+// joined rather than one clobbering the other.
+func sessionStartResponse(ev engine.HookEvent, contextLimit int) engine.HookResponse {
 	resumedFrom := os.Getenv("CTXLOOM_RESUMED_FROM")
-	output := buildSessionStartOutput(
-		resumedEssenceForInjection(hookInput.Source, resumedFrom, os.Getenv("CTXLOOM_RESUMED_PARTS")),
-		essencePathOf(resumedFrom))
-
-	// After a /clear, nudge the USER (not the model) toward /recover via the
-	// systemMessage channel. claude-code's /clear starts a FRESH session UUID
-	// and an empty transcript file, firing SessionStart again with the new id;
-	// recovery reads the harp-lifetime canonical transcript, so recoverability
-	// is a question about the harp's index entry (currentSessionRecoverable).
-	clearRecoverable := currentSessionRecoverable(hookInput.Source, os.Getenv(agent.SessionHarpEnv), hookInput.SessionID)
-	// The two notices can co-occur, so they are joined rather than one
-	// clobbering the other.
-	output.SystemMessage = textblocks.Join(
-		clearRecoveryMessage(hookInput.Source, clearRecoverable),
-		agentSetupNudge(),
-	)
-
-	if err := json.NewEncoder(os.Stdout).Encode(output); err != nil {
-		clidiag.Warn("ctxloom hook session-start", "failed to encode output: %v", err)
-		fmt.Println("{}")
+	clearRecoverable := currentSessionRecoverable(ev.Source, os.Getenv(agent.SessionHarpEnv), ev.NativeSession)
+	return engine.HookResponse{
+		Context: sessionStartContext(
+			resumedEssenceForInjection(ev.Source, resumedFrom, os.Getenv("CTXLOOM_RESUMED_PARTS")),
+			essencePathOf(resumedFrom), contextLimit),
+		Notice: textblocks.Join(clearRecoveryMessage(ev.Source, clearRecoverable), agentSetupNudge()),
 	}
-	return nil
 }
 
 // clearRecoveryMessage returns the user-facing nudge shown after a /clear when
 // the current session's pre-clear transcript is recoverable, or "" otherwise.
 func clearRecoveryMessage(source string, recoverable bool) string {
-	if source != "clear" || !recoverable {
+	if source != engine.SessionSourceClear || !recoverable {
 		return ""
 	}
 	return "ctxloom: context cleared. Run /recover to bring your pre-clear context back."
@@ -111,7 +102,7 @@ func clearRecoveryMessage(source string, recoverable bool) string {
 //     clear's displacement yet; a bound id that disagrees with the incoming
 //     one is exactly that displacement.
 func currentSessionRecoverable(source, harpName, payloadSessionID string) bool {
-	if source != "clear" || harpName == "" {
+	if source != engine.SessionSourceClear || harpName == "" {
 		return false
 	}
 	entry, err := operations.GetSession(harpName)
@@ -145,35 +136,31 @@ const essenceHeader = "# Resumed session (assembled by ctxloom)" +
 
 const essenceFooter = "\n\n</ctxloom-resumed-session>\n"
 
-// buildSessionStartOutput wraps the resumed essence in the envelope a
-// SessionStart hook returns, or an empty HookOutput when there is none.
+// sessionStartContext frames the resumed essence for the model, or "" when
+// there is none.
 //
-// The essence is held under claude.AdditionalContextMaxChars, because past
-// claude's cap the model sees only a short preview of what a hook returned.
-// An essence too long for that is CUT, not dropped: the model gets as much of
-// it as fits, then a pointer to where the whole of it is (essencePath) and to
-// /recover, which brings the prior session back through ctxloom's MCP
-// tools rather than a hook. A cut with no path still names /recover.
-func buildSessionStartOutput(essence, essencePath string) HookOutput {
+// The essence is held under limit, the firing engine's context limit
+// (engine.HookCodec.ContextLimit; 0 declares none), because past an engine's
+// cap the model sees only a short preview of what a hook returned. An essence
+// too long for that is CUT, not dropped: the model gets as much of it as fits,
+// then a pointer to where the whole of it is (essencePath) and to /recover,
+// which brings the prior session back through ctxloom's MCP tools rather than
+// a hook. A cut with no path still names /recover.
+func sessionStartContext(essence, essencePath string, limit int) string {
 	if essence == "" {
-		return HookOutput{}
+		return ""
 	}
 	body := essenceHeader + essence + essenceFooter
-	if len(body) > claude.AdditionalContextMaxChars {
+	if limit > 0 && len(body) > limit {
 		where := "Run /recover to bring the whole of it back."
 		if essencePath != "" {
 			where = fmt.Sprintf("The whole essence is at `%s`; read it, or run /recover to bring it back.", essencePath)
 		}
 		cut := fmt.Sprintf("\n\n_[The essence is cut here to fit the session-start limit. %s]_", where)
-		room := claude.AdditionalContextMaxChars - len(essenceHeader) - len(essenceFooter) - len(cut)
+		room := limit - len(essenceHeader) - len(essenceFooter) - len(cut)
 		body = essenceHeader + strings.ToValidUTF8(essence[:max(room, 0)], "") + cut + essenceFooter
 	}
-	return HookOutput{
-		HookSpecificOutput: &HookSpecificOutput{
-			HookEventName:     claude.HookEventSessionStart,
-			AdditionalContext: body,
-		},
-	}
+	return body
 }
 
 // essencePathOf is where harp's essence file is, "" when there is none.
@@ -213,7 +200,7 @@ func resumedEssenceForInjection(source, resumedFrom, resumedParts string) string
 // which fire mid-session where /recover is the explicit path.
 func shouldInjectResumedEssence(source string) bool {
 	switch source {
-	case "clear", "compact":
+	case engine.SessionSourceClear, engine.SessionSourceCompact:
 		return false
 	default:
 		return true

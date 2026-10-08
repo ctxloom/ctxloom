@@ -22,6 +22,9 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 const (
@@ -64,13 +67,13 @@ func parseEngineVersionsEnv(t *testing.T, path string) map[string]string {
 func TestEngineVersionsEnvIsWellFormed(t *testing.T) {
 	versions := parseEngineVersionsEnv(t, engineVersionsPath)
 
-	// One key, because one engine has a vendor reader. internal/adapters/transcript/
-	// vendorreader ships a claude adapter and nothing else, and this file locks
-	// the versions those readers are known to parse — so an entry here without
-	// a reader behind it would pin a claim nothing can check.
-	wantKeys := []string{
-		"CLAUDE_CODE_CLI_VERSION",
-	}
+	// One key per registered engine that has a CLI version to pin: an engine
+	// declaring a version command (Definition.Version) is a real binary
+	// ctxloom drives and whose store its readers parse. Derived from the
+	// registry, so a new versioned engine needs its lock entry and nothing
+	// here — and an entry with no versioned engine behind it would pin a claim
+	// nothing can check.
+	wantKeys := versionedEngineLockKeys(t)
 	for _, k := range wantKeys {
 		v, ok := versions[k]
 		if !ok {
@@ -85,6 +88,22 @@ func TestEngineVersionsEnvIsWellFormed(t *testing.T) {
 		t.Errorf("%s: expected exactly %d entries (%v), found %d (%v) -- a new engine key needs a matching matrix entry in %s, and vice versa",
 			engineVersionsPath, len(wantKeys), wantKeys, len(versions), versions, workflowPath)
 	}
+}
+
+// versionedEngineLockKeys is the lock key of every registered engine that
+// declares a version command: its name upper-cased, dashes as underscores,
+// suffixed _CLI_VERSION (claude-code -> CLAUDE_CODE_CLI_VERSION).
+func versionedEngineLockKeys(t *testing.T) []string {
+	t.Helper()
+	reg := engines.Registry()
+	var keys []string
+	for _, n := range reg.Names(func(d engine.Definition) bool { return d.Version.Declared() }) {
+		keys = append(keys, strings.ToUpper(strings.ReplaceAll(string(n), "-", "_"))+"_CLI_VERSION")
+	}
+	if len(keys) == 0 {
+		t.Fatal("no registered engine declares a version command — the lock has nothing to pin and this gate checks nothing")
+	}
+	return keys
 }
 
 // matrixLockKeyRE matches one `- engine: <name>` / `lock_key: <KEY>` pair in

@@ -24,33 +24,40 @@ import (
 // post_file_edit for an editing tool), turn_end, and session_end last. The turn reads the hook file its
 // argv names (--hooks, announced by the hooks approach), runs every command
 // hook registered for the event whose matcher admits the tool, and writes
-// the mock's own payload to the hook's stdin. Hooks() decodes that payload.
+// the mock's own payload to the hook's stdin. Hooks() decodes that payload
+// and encodes the mock's own answer: no field of either is another engine's.
 // A turn with no hooks delivered spawns nothing.
+//
+// The mock's tool vocabulary IS the neutral one: its shell tool is named
+// wire.ToolShell, its editing tool wire.ToolFileEdit and its skill tool
+// wire.ToolSkill, so a prompt's `mock:tool=shell` is a shell call. Any other
+// name is some other tool.
 
 // The unified events the mock can fire, in the order a turn fires them.
 // The lossy double drops session_start and session_end (WithoutHookEvents).
 var hookEvents = []string{"session_start", "turn_start", "pre_shell", "pre_tool", "permission_ask", "post_tool", "post_file_edit", "turn_end", "session_end"}
 
-// shellTools and editTools are the tools that narrow pre_tool to pre_shell
-// and post_tool to post_file_edit.
-var (
-	shellTools = map[string]bool{"Bash": true, "PowerShell": true}
-	editTools  = map[string]bool{"Edit": true, "Write": true, "MultiEdit": true, "NotebookEdit": true}
-)
-
-// eventsOfTurn lists the events one turn fires, in order.
+// eventsOfTurn lists the events one turn fires, in order: a shell-class tool
+// narrows pre_tool to pre_shell, a file-edit-class tool post_tool to
+// post_file_edit.
 func eventsOfTurn(tool string, hasTool bool) []string {
 	out := []string{"session_start", "turn_start"}
 	if hasTool {
-		if shellTools[tool] {
+		if tool == string(wire.ToolShell) {
 			out = append(out, "pre_shell")
 		}
 		out = append(out, "pre_tool", "post_tool")
-		if editTools[tool] {
+		if tool == string(wire.ToolFileEdit) {
 			out = append(out, "post_file_edit")
 		}
 	}
 	return append(out, "turn_end", "session_end")
+}
+
+// toolMatcher maps a tool class to the mock's matcher: its tool of that
+// name, exactly (agent.BindHooks).
+func toolMatcher(c wire.ToolClass) (string, bool) {
+	return "^" + regexp.QuoteMeta(string(c)) + "$", true
 }
 
 // toolCallPattern is the mock's control grammar for a tool call: a prompt
@@ -120,18 +127,29 @@ func toolCallIn(prompt string) (string, bool) {
 // keeps no session state to key.
 const sessionKey = "mock-session"
 
-// hookPayload is the JSON the mock writes to a hook's stdin.
+// hookPayload is the JSON the mock writes to a hook's stdin: the mock's own
+// field names, decoded by its own codec alone.
 type hookPayload struct {
-	Event     string `json:"hook_event_name"`
-	SessionID string `json:"session_id"`
-	ToolName  string `json:"tool_name,omitempty"`
-	Cwd       string `json:"cwd,omitempty"`
-	// Prompt is the submitted prompt on turn_start, under the field name the
-	// turn-start hooks read (the mail-drain hook redeems a wake from it).
+	Event   string `json:"event"`
+	Session string `json:"session"`
+	Tool    string `json:"tool,omitempty"`
+	Cwd     string `json:"cwd,omitempty"`
+	// Prompt is the submitted prompt on turn_start (the mail-drain hook
+	// redeems a wake from it).
 	Prompt string `json:"prompt,omitempty"`
 }
 
-// hookCodec decodes the mock's own payload.
+// hookAnswer is the JSON the mock's codec renders a hook's response as. The
+// mock reads no hook's answer back (a turn's context is its own prompt), so
+// it is the codec's half of a round trip the tests read.
+type hookAnswer struct {
+	Context string `json:"context,omitempty"`
+	Notice  string `json:"notice,omitempty"`
+	Block   bool   `json:"block,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// hookCodec is the mock's hook wire (engine.HookCodec).
 type hookCodec struct{ name engine.Name }
 
 func (c hookCodec) Decode(event string, payload []byte) (engine.HookEvent, error) {
@@ -142,7 +160,28 @@ func (c hookCodec) Decode(event string, payload []byte) (engine.HookEvent, error
 	if p.Event == "" {
 		p.Event = event
 	}
-	return engine.HookEvent{Event: p.Event, NativeSession: p.SessionID}, nil
+	return engine.HookEvent{Event: p.Event, NativeSession: p.Session, Tool: p.Tool, Prompt: p.Prompt}, nil
+}
+
+func (c hookCodec) Encode(_ string, r engine.HookResponse) (engine.HookReply, error) {
+	b, err := json.Marshal(hookAnswer(r))
+	if err != nil {
+		return engine.HookReply{}, err
+	}
+	return engine.HookReply{Stdout: append(b, '\n')}, nil
+}
+
+// ContextLimit: the mock bounds nothing.
+func (hookCodec) ContextLimit() int { return 0 }
+
+// InvokedSkill: the mock's skill tool (wire.ToolSkill) carries the skill's
+// name as its input, a JSON string.
+func (hookCodec) InvokedSkill(tool string, input []byte) (string, bool) {
+	var name string
+	if tool != string(wire.ToolSkill) || json.Unmarshal(input, &name) != nil || name == "" {
+		return "", false
+	}
+	return name, true
 }
 
 // hooksFileOf reads the hook file the exec's argv names; "" when the turn
@@ -218,7 +257,7 @@ func fireHooks(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks, eve
 // in its own working directory. The payload names the mock's one session,
 // and carries prompt (the submitted line on turn_start; "" otherwise).
 func FireHooks(ctx context.Context, hooks wire.UnifiedHooks, event, tool, prompt, workDir string, env map[string]string) error {
-	payload, err := json.Marshal(hookPayload{Event: event, SessionID: sessionKey, ToolName: tool, Cwd: workDir, Prompt: prompt})
+	payload, err := json.Marshal(hookPayload{Event: event, Session: sessionKey, Tool: tool, Cwd: workDir, Prompt: prompt})
 	if err != nil {
 		return err
 	}

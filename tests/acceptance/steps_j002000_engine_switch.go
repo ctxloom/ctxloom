@@ -26,6 +26,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"path/filepath"
 	"strings"
 
@@ -43,7 +44,7 @@ const (
 	j002000Marker = "J002000-TEAM-GUIDANCE-MARKER"
 
 	j002000OldEngine = "claude-code"
-	j002000NewEngine = config.BackendMockLossy
+	j002000NewEngine = string(mock.NameLossy)
 
 	// j002000Agent is the binding the whole team runs through — the thing the
 	// switch is performed ON.

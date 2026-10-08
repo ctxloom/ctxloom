@@ -382,8 +382,8 @@ func ctxloomStatusLineCommand() string {
 // unifiedHookRoutes maps each unified hook kind to claude's native event.
 func unifiedHookRoutes(unified wire.UnifiedHooks) []agent.HookRoute {
 	return []agent.HookRoute{
-		{Hooks: unified.PreTool, Event: "PreToolUse"},
-		{Hooks: unified.PostTool, Event: "PostToolUse"},
+		{Hooks: unified.PreTool, Event: hookEventPreToolUse},
+		{Hooks: unified.PostTool, Event: hookEventPostToolUse},
 		{Hooks: unified.SessionStart, Event: "SessionStart"},
 		{Hooks: unified.SessionEnd, Event: "SessionEnd"},
 		// Stop and UserPromptSubmit take no matcher: neither event has a tool
@@ -391,8 +391,8 @@ func unifiedHookRoutes(unified wire.UnifiedHooks) []agent.HookRoute {
 		// one is emitted without it.
 		{Hooks: unified.TurnEnd, Event: "Stop"},
 		{Hooks: unified.TurnStart, Event: HookEventUserPromptSubmit},
-		{Hooks: unified.PreShell, Event: "PreToolUse", DefaultMatcher: "Bash"},
-		{Hooks: unified.PostFileEdit, Event: "PostToolUse", DefaultMatcher: "Edit|Write"},
+		{Hooks: unified.PreShell, Event: hookEventPreToolUse, DefaultMatcher: toolMatchers[wire.ToolShell]},
+		{Hooks: unified.PostFileEdit, Event: hookEventPostToolUse, DefaultMatcher: toolMatchers[wire.ToolFileEdit]},
 		{Hooks: unified.PermissionAsk, Event: hookEventPermissionRequest},
 	}
 }

@@ -405,7 +405,7 @@ func TestApplyHooks_NamedBackendLeavesOtherConfiguredEnginesUntouched(t *testing
 			LM: config.LMConfig{
 				Configs: map[string]config.LLMConfig{
 					"claude": {Type: "claude-code"},
-					"backup": {Type: config.BackendMock},
+					"backup": {Type: string(mock.Name)},
 				},
 				// Explicit, so PrimaryLabel doesn't fall back to "the only
 				// entry" (which would be "backup"/mock with two configs
@@ -418,7 +418,7 @@ func TestApplyHooks_NamedBackendLeavesOtherConfiguredEnginesUntouched(t *testing
 
 	cfg, cerr := mockConfigLoader()
 	require.NoError(t, cerr)
-	require.ElementsMatch(t, []string{"claude-code", config.BackendMock}, ConfiguredEngines(engines.Registry(), cfg),
+	require.ElementsMatch(t, []string{"claude-code", string(mock.Name)}, ConfiguredEngines(engines.Registry(), cfg),
 		"fixture must configure BOTH engines, or this test proves nothing")
 
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{

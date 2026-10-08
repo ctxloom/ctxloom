@@ -226,7 +226,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/turnchange -> internal/adapters/transcript/vendorreader": "slice 11b: the readers become engine.TranscriptReader values (Engine.Transcripts)",
 
 			// cli reaching past operations
-			"internal/adapters/cli -> internal/engines/claude":      "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
 			"internal/adapters/cli -> internal/engines":             "slice 11b: engines.Build() is called by the composition root, cmd/*",
 			"internal/adapters/cli -> internal/adapters/isolation":  "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
 			"internal/adapters/cli -> internal/adapters/mcp":        "the session host composes the coordinator's hosting helper and the host relay (mcp.HostCoordinatorForSession); the session endpoint lives in runner/interaction",

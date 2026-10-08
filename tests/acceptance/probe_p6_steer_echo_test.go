@@ -23,12 +23,11 @@
 package acceptance
 
 import (
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/stretchr/testify/require"
 )
@@ -291,7 +290,7 @@ func TestP6Mint_IsLedgeredAndUniquePerCell(t *testing.T) {
 	// would be invisible to the leak scanner.
 	a, err := probeHarps.Mint(p6Cell("claude-code", "host", "none"))
 	require.NoError(t, err)
-	b, err := probeHarps.Mint(p6Cell(config.BackendMock, "host", "none"))
+	b, err := probeHarps.Mint(p6Cell(string(mock.Name), "host", "none"))
 	require.NoError(t, err)
 	require.NotEqual(t, a, b, "two cells sharing a harp would make the leak scanner report a collision as contamination")
 

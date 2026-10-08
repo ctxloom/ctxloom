@@ -1,6 +1,7 @@
 package managedhooks
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"strings"
 	"testing"
 
@@ -24,11 +25,11 @@ func TestAppendManagedDynamicHooks_InstallsTheSkillMatesHook(t *testing.T) {
 
 	var matchers []string
 	for _, h := range m.For(bundles.HookEventPostTool) {
-		if h.Hook.Matcher == "Skill" {
+		if h.Hook.Tool == wire.ToolSkill {
 			matchers = append(matchers, strings.Join(append([]string{h.Hook.Command}, h.Hook.Args...), " "))
 		}
 	}
-	if assert.Len(t, matchers, 1, "exactly one Skill-matched PostToolUse hook") {
+	if assert.Len(t, matchers, 1, "exactly one PostToolUse hook narrowed to the skill tool class") {
 		assert.Contains(t, matchers[0], "hook skill-mates")
 	}
 }

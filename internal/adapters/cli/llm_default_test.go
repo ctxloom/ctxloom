@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"slices"
 	"testing"
 
@@ -158,7 +159,7 @@ func TestIsKnownLLM_AgreesWithTheAdvertisedSet(t *testing.T) {
 	})
 
 	for _, name := range []string{
-		"claude-code", "mock", config.BackendMock,
+		"claude-code", "mock", string(mock.Name),
 		"my-claude", "stale", "nonexistent-plugin", "",
 	} {
 		advertised := slices.Contains(operations.AvailableLLMNames(engines.Registry(), cfg), name)

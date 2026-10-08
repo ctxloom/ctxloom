@@ -24,9 +24,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 const feedWait = 5 * time.Second

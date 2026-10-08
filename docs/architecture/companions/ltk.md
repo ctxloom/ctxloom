@@ -255,8 +255,8 @@ further hooks.json-shaped engine would share.
 
 | Symbol | Notes |
 |---|---|
-| `newRootCmd` | Builds the tree; registers a **persistent** `--format` |
-| `main` / `reportExecuteError` | On error renders it (through `cliemit.EmitError`, so an explicit structured `--format` gets an envelope) and exits 1 |
+| `newRootCmd` | Builds the tree; registers the family's persistent `--format` (`cobrafmt.AddFlag`) and switches diagnostics with `cobrafmt.ApplyDiagnostics` |
+| `main` | Runs the tree through `cobrafmt.Execute`, which reports a failure as `ltk: <msg>` (an envelope under an explicit structured `--format`), flushes the log sink, and exits with the returned status |
 | `runEvaluate` / `emitDecision` | Reads stdin → `evaluate` → writes the two streams. A failed stdout write is an error (the host never saw the decision); a failed stderr write is ignored, because promoting it would turn a lost diagnostic into a non-zero exit the host reads as allow |
 | `evaluate` | The whole decision path: engine → shell → config → submodules → payload → ungated-tool check → `app.Decide` → confirm-by-repeat → encode. Its fail-closed branches each say why |
 | `failClosed` | Encodes a reason as a well-formed deny with **exit 0** — a broken ltk installation never surfaces as an error exit on the hook path |

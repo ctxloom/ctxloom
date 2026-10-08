@@ -91,9 +91,14 @@ registry's default engine (`Registry.Default`, the same setup-level default
 **Tool classes.** A hook narrowed to a kind of tool names a neutral class,
 `wire.Hook.Tool` (`shell`, `file_edit`, `skill`), never an engine's tool
 name. `agent.BindHooks` maps the class to the engine's native matcher
-(claude: `Bash`, `Edit|Write`, `Skill`; the mock's tools ARE the classes),
-and the same map gives claude's `pre_shell` / `post_file_edit` routes their
-default matchers. The skill-mates hook is narrowed this way.
+(claude: `Bash|PowerShell`, `Edit|Write|MultiEdit|NotebookEdit`, `Skill` —
+every claude tool of the class; the mock's tools ARE the classes), and the
+same map gives claude's `pre_shell` / `post_file_edit` routes their default
+matchers. The skill-mates hook is narrowed this way, and so is every bundle
+or companion-loadout hook: a bundle hook's only narrowing is `tool:`
+(`bundles.BundleHook.Tool`) — an engine-native `matcher:` is refused at parse
+— so ltk's loadout declares one `ltk evaluate` hook per class it gates
+(`shell`, `file_edit`) and guards under any engine.
 
 ## `hook session-start` — the resumed essence and the session-start notices
 

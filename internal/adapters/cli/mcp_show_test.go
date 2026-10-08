@@ -14,7 +14,7 @@ import (
 // TestMcpServerShow_NotFound_TextAndJSONAgree pins the fix that `mcp server
 // show <missing>` used to error on the text path but exit 0 with `--format
 // json` (the not-found check lived INSIDE emit()'s text closure, which
-// cliemit.Emit only runs for FormatText — every structured format fell
+// cobrafmt.Emit only runs for FormatText — every structured format fell
 // through to clifmt.Render(result, format), rendering {"found":false,...}
 // as a success). Both formats must now refuse identically: a
 // machine caller asking for JSON must not be told a missing server is a

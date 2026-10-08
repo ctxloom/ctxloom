@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // Every failed item in the pull summary carries its own fix line, directly

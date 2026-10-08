@@ -13,7 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // payloadWithResponseBytes builds a claude PostToolUse payload whose

@@ -17,7 +17,7 @@ import (
 // runVersionCmd executes `ctxloom version` with the given --format and
 // returns everything it wrote. --format is an explicit argument rather than
 // an omitted flag because an omitted one resolves from whether stdout is a
-// terminal (cliemit.Resolve); it is put back with resetFlags afterward.
+// terminal (cobrafmt.Resolve); it is put back with resetFlags afterward.
 func runVersionCmd(t *testing.T, format string) string {
 	t.Helper()
 	var out bytes.Buffer
@@ -53,7 +53,7 @@ func TestVersion_TextEmitsANonEmptyVersionPayload(t *testing.T) {
 
 // TestVersion_UnknownFormatIsRejectedByTheSharedVocabulary pins its subject:
 // the set of legal --format values for `version` is owned in ONE
-// place (clifmt.ParseFormat, reached through emit/cliemit.Resolve) and not
+// place (clifmt.ParseFormat, reached through emit/cobrafmt.Resolve) and not
 // re-enumerated by the version command itself. The row described a bare
 // string switch over ""/"text"/"json" inside cliversion.Render duplicating
 // that vocabulary; Render is gone, and this asserts what replaced

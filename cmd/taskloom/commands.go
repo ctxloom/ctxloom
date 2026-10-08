@@ -12,14 +12,14 @@ import (
 
 	tagma "github.com/benjaminabbitt/tagma/ports/go"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/priority"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // sortPriority is the only recognized `--sort` / task_list `sort` value
@@ -111,7 +111,7 @@ tags in use (with counts) via "taskloom tags".`,
 }
 
 func runList(cmd *cobra.Command, args []string) error {
-	format, err := cliemit.Resolve(cmd)
+	format, err := cobrafmt.Resolve(cmd)
 	if err != nil {
 		return err
 	}
@@ -480,7 +480,7 @@ What was completed belongs in the commit message, not here.
 
 Locate the work by SIGNATURE, not by position. Name the function, method,
 type, or exact string to search for — "cloneMCPServer in internal/core/config",
-"the Changed --json branch in cliemit.Resolve" — never "accessors.go:95".
+"the Changed --json branch in cobrafmt.Resolve" — never "accessors.go:95".
 Line numbers drift on every edit above them and are usually wrong by the
 time anyone reads the task; a symbol name still finds it.
 
@@ -535,11 +535,11 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	warnTask(res.Warning)
 	noteTaskProject(res.ProjectDir, res.ProjectID)
 	task := res.Task
-	return cliemit.Emit(cmd, task, func() error {
-		w := errwriter.New(cmd.OutOrStdout())
+	return cobrafmt.Emit(cmd, task, clifmt.WithWriter(clifmt.FormatText, func(out io.Writer) error {
+		w := errwriter.New(out)
 		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
 		return w.Err()
-	})
+	}))
 }
 
 var tasksStatusTrigger string
@@ -568,11 +568,11 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	warnTask(res.Warning)
 	noteTaskProject(res.ProjectDir, res.ProjectID)
 	task := res.Task
-	return cliemit.Emit(cmd, task, func() error {
-		w := errwriter.New(cmd.OutOrStdout())
+	return cobrafmt.Emit(cmd, task, clifmt.WithWriter(clifmt.FormatText, func(out io.Writer) error {
+		w := errwriter.New(out)
 		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
 		return w.Err()
-	})
+	}))
 }
 
 var editCmd = &cobra.Command{
@@ -604,11 +604,11 @@ func runEdit(cmd *cobra.Command, args []string) error {
 	warnTask(res.Warning)
 	noteTaskProject(res.ProjectDir, res.ProjectID)
 	task := res.Task
-	return cliemit.Emit(cmd, task, func() error {
-		w := errwriter.New(cmd.OutOrStdout())
+	return cobrafmt.Emit(cmd, task, clifmt.WithWriter(clifmt.FormatText, func(out io.Writer) error {
+		w := errwriter.New(out)
 		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
 		return w.Err()
-	})
+	}))
 }
 
 var (
@@ -647,9 +647,9 @@ func runTag(cmd *cobra.Command, args []string) error {
 	warnTask(res.Warning)
 	noteTaskProject(res.ProjectDir, res.ProjectID)
 	task := res.Task
-	return cliemit.Emit(cmd, task, func() error {
-		return renderTagResult(cmd.OutOrStdout(), task, hideConfigFor(tc))
-	})
+	return cobrafmt.Emit(cmd, task, clifmt.WithWriter(clifmt.FormatText, func(out io.Writer) error {
+		return renderTagResult(out, task, hideConfigFor(tc))
+	}))
 }
 
 // renderTagResult prints `taskloom tag`'s human line for t: harp id, status
@@ -718,7 +718,7 @@ with "taskloom list --tag-query".`,
 }
 
 func runTags(cmd *cobra.Command, args []string) error {
-	format, err := cliemit.Resolve(cmd)
+	format, err := cobrafmt.Resolve(cmd)
 	if err != nil {
 		return err
 	}
@@ -833,7 +833,7 @@ named with its project, since a harp id is unique only within one project.`,
 }
 
 func runSummary(cmd *cobra.Command, args []string) error {
-	format, err := cliemit.Resolve(cmd)
+	format, err := cobrafmt.Resolve(cmd)
 	if err != nil {
 		return err
 	}
@@ -932,8 +932,8 @@ refused as the first character of a status name.`,
 
 func runStatusesCmd(cmd *cobra.Command, args []string) error {
 	statuses := tasks.Statuses()
-	return cliemit.Emit(cmd, statuses, func() error {
-		w := errwriter.New(cmd.OutOrStdout())
+	return cobrafmt.Emit(cmd, statuses, clifmt.WithWriter(clifmt.FormatText, func(out io.Writer) error {
+		w := errwriter.New(out)
 		for _, s := range statuses {
 			flags := ""
 			if s.Terminal {
@@ -945,7 +945,7 @@ func runStatusesCmd(cmd *cobra.Command, args []string) error {
 			w.Printf("%d\t%s%s\n", s.Order, s.Name, flags)
 		}
 		return w.Err()
-	})
+	}))
 }
 
 func init() {

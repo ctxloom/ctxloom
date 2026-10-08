@@ -16,12 +16,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // maxSyncPasses bounds the collect→pull fixed-point iteration in
@@ -656,7 +656,7 @@ func (c *refCollector) add(ref, owner string) {
 // It carries no prefix list of its own. remote.IsSelfContainedRef is the one
 // place that knows which spellings are scheme-qualified -- its own doc says
 // "THIS IS THE ONLY LIST", recorded after a second copy drifted and downgraded
-// a malformed companion ref into an auto-trusted first-party name. A third copy
+// a malformed companion ref into a first-party local name. A third copy
 // here drifted the same way and in the same direction: it listed only the four
 // retired prefixes, so every canonical ctxloom+<class>: ref answered "not
 // remote" and was reported as a missing local profile.

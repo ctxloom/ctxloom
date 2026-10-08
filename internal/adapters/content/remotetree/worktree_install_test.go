@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // installedTree lays a bundle tree out on a REAL filesystem at the modes a git
@@ -69,8 +70,8 @@ func TestApplyDeclaredModes_TheDeclarationWinsOverTheCommittedMode(t *testing.T)
 }
 
 // TestApplyDeclaredModes_SaysWhenACommittedExecutableIsUndeclared. Applying the
-// declaration makes everything downstream CONSISTENT — the file is 0644, the
-// manifest says 0644, verification passes — and therefore silent: the model is
+// declaration makes everything downstream CONSISTENT — the file is 0644 and the
+// skill manifest built from it says 0644 — and therefore silent: the model is
 // handed a script it cannot run and nothing reports a failure.
 func TestApplyDeclaredModes_SaysWhenACommittedExecutableIsUndeclared(t *testing.T) {
 	var warnings bytes.Buffer
@@ -92,6 +93,8 @@ func TestApplyDeclaredModes_SaysWhenACommittedExecutableIsUndeclared(t *testing.
 		"the warning must name the file as the PUBLISHER sees it, not as a cache path they have never heard of")
 	assert.Contains(t, got, "DECLARED NON-EXECUTABLE")
 	assert.Contains(t, got, "executable:", "and the declaration to add")
+	assert.NotContains(t, strings.ToLower(got), "signature",
+		"signing is gone; the warning must not justify itself by machinery that no longer exists")
 	// "scripts/declared.sh" cannot match inside "scripts/undeclared.sh": the
 	// slash pins the boundary that a bare "declared.sh" would let slide.
 	assert.NotContains(t, got, "scripts/declared.sh",

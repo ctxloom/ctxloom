@@ -74,7 +74,7 @@ func TestRefAsBundleRef_FileRemote(t *testing.T) {
 // through as a DISTINCT host name rather than folded off or refused. Whether
 // "www.git.example.com" and "git.example.com" are one repository is
 // host-specific knowledge this layer does not have; folding on a guess merges
-// two identities onto one trust key.
+// two identities onto one source identity.
 func TestRefAsBundleRef_WwwHostIsPreserved(t *testing.T) {
 	withWww, err := Ref{RepoURL: "https://www.git.example.com/acme/repo", Bundle: "toolkit"}.AsBundleRef()
 	require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestRefAsBundleRef_WwwHostIsPreserved(t *testing.T) {
 	bare, err := Ref{RepoURL: "https://git.example.com/acme/repo", Bundle: "toolkit"}.AsBundleRef()
 	require.NoError(t, err)
 	assert.NotEqual(t, bare.Identity(), withWww.Identity(),
-		"two host spellings collapsed onto one trust key")
+		"two host spellings collapsed onto one source identity")
 }
 
 // TestRefAsBundleRef_ZeroRefErrors pins that the zero Ref — produced only
@@ -159,9 +159,8 @@ func TestRefFromBundleRef_CompanionCarriesCanonicalURLToken(t *testing.T) {
 }
 
 // TestRefDisplayRef_RendersGrammarA pins DisplayRef's normal path: it mints
-// through AsBundleRef and renders String() (WITH any version), the same
-// operation CountersignRef uses but rendering Identity's version-carrying
-// sibling instead.
+// through AsBundleRef and renders String() (WITH any version), the
+// version-carrying sibling of BundleRef.Identity.
 func TestRefDisplayRef_RendersGrammarA(t *testing.T) {
 	ref := Ref{IsLocal: true, Bundle: "lang/go", Kind: KindFragment, Name: "solid"}
 	got, err := ref.DisplayRef()

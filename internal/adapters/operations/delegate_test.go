@@ -19,8 +19,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // TestCellsPrepare_ContainerDegradeGate pins the cells adapter's fail-loud

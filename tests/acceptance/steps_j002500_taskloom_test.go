@@ -8,7 +8,7 @@ import "testing"
 // out of `taskloom add` stdout" is shared by both call sites
 // (steps_j002500_taskloom.go's "taskloom has tasks:" and "taskloom adds a
 // task ...") instead of duplicated verbatim. taskloom shares ctxloom's
-// cliemit.Resolve, so its stdout off a terminal (this harness, always) is the
+// cobrafmt.Resolve, so its stdout off a terminal (this harness, always) is the
 // JSON tasks.Task object — not the tab-separated text line this used to
 // parse before that default changed.
 func TestParseTaskloomAddHarp_ExtractsHarpIDField(t *testing.T) {

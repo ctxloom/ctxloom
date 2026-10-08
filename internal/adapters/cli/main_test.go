@@ -41,7 +41,7 @@ import (
 // render that touches that child, and never undoes it. Production always
 // parses before RunE, so a RunE there always sees the merged set. A test that
 // drives a RunE through Find() sees whatever earlier tests happened to merge,
-// and cliemit.Resolve answers differently for an absent --format (text) than
+// and cobrafmt.Resolve answers differently for an absent --format (text) than
 // for a present-but-unset one off a terminal (JSON). Merging every node here
 // gives each test the production shape regardless of order.
 func TestMain(m *testing.M) {

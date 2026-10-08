@@ -17,9 +17,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 func TestGetBaseDir_UsesConfigPath(t *testing.T) {

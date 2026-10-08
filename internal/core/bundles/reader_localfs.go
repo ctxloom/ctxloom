@@ -309,6 +309,6 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 	// part of identity (ProvenanceClass's own doc). A collision between two
 	// sources of one name is settled where collisions belong — in
 	// Catalog.Resolve, which keeps the project's and SAYS SO. Source
-	// qualification lives only on bundle.sourceRef, the trust key.
+	// qualification lives only on bundle.sourceRef, the source identity.
 	return newRead(name, bundle, r.provenance, LocalityLocal), nil
 }

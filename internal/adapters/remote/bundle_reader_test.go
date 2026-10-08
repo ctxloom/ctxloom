@@ -145,11 +145,11 @@ func TestBundleReader_ReadBundleBytes(t *testing.T) {
 		assert.Contains(t, err.Error(), "boom")
 	})
 
-	// An empty entry.SHA must never reach the tree fetcher — the pin IS
-	// the security control (EffectiveTrust gates on content read at a
-	// specific commit), and a fetcher asked to read "" resolves the default
-	// branch TIP instead, silently converting a pinned read into a latest
-	// read. A hand-edited, truncated, or future-written lockfile is the
+	// An empty entry.SHA must never reach the tree fetcher — the lockfile
+	// pin is what makes a read reproducible and keeps content from moving
+	// except through a disclosed `deps upgrade`, and a fetcher asked to read
+	// "" resolves the default branch TIP instead, silently converting a
+	// pinned read into a latest read. A hand-edited, truncated, or future-written lockfile is the
 	// realistic path to this state; no production writer emits an empty SHA
 	// today, but a pinned reader must refuse to read unpinned regardless of
 	// how it got that way.
@@ -261,5 +261,3 @@ func TestLoadAllBytes(t *testing.T) {
 		}
 	})
 }
-
-// --- detached publisher signatures (spec §4.1) --------------------------------

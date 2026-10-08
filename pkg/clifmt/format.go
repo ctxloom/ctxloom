@@ -24,14 +24,15 @@ const (
 var ErrUnsupportedFormat = errors.New("clifmt: unsupported format")
 
 // formatSpec is the single declaration of one output format: its canonical
-// name, the extra input spellings ParseFormat accepts for it, whether it is a
-// data-interchange format a script parses rather than one meant for a human
-// terminal, and the renderer Render dispatches to.
+// name, the extra input spellings ParseFormat accepts for it, and how Render
+// writes it. A structured format (one a script parses) marshals the value
+// through its json contract; a human format writes the value's derived Doc.
 type formatSpec struct {
 	format     Format
 	aliases    []string
 	structured bool
-	render     func(io.Writer, any) error
+	marshal    func(io.Writer, any) error // structured formats
+	write      func(io.Writer, Doc) error // human formats
 }
 
 // formatTable is the ONE enumeration of clifmt's format set, in the canonical
@@ -40,11 +41,11 @@ type formatSpec struct {
 // format is one entry here and none of them can be left behind. Previously
 // each kept its own parallel list and nothing failed when they disagreed.
 var formatTable = []formatSpec{
-	{format: FormatJSON, structured: true, render: renderJSON},
-	{format: FormatYAML, aliases: []string{"yml"}, structured: true, render: renderYAML},
-	{format: FormatTOML, structured: true, render: renderTOML},
-	{format: FormatText, aliases: []string{"txt"}, render: renderText},
-	{format: FormatMarkdown, aliases: []string{"md"}, render: renderMarkdown},
+	{format: FormatJSON, structured: true, marshal: renderJSON},
+	{format: FormatYAML, aliases: []string{"yml"}, structured: true, marshal: renderYAML},
+	{format: FormatTOML, structured: true, marshal: renderTOML},
+	{format: FormatText, aliases: []string{"txt"}, write: writeTextDoc},
+	{format: FormatMarkdown, aliases: []string{"md"}, write: writeMarkdownDoc},
 }
 
 // formatByName maps every accepted input spelling — canonical names and

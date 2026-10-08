@@ -16,11 +16,11 @@ type reportResult struct {
 }
 
 type ownerInfo struct {
-	Team string `json:"team" label:"Owning Team"`
+	Team string `json:"team" clifmt:"label=Owning Team"`
 }
 
 type rowEntry struct {
-	ID     string `json:"id" col:"ID"`
+	ID     string `json:"id" clifmt:"col=ID"`
 	Status string `json:"status"`
 }
 
@@ -104,16 +104,15 @@ func TestRenderAllFormatsTableDriven(t *testing.T) {
 		})
 	}
 
-	// YAML and TOML assert structural properties rather than a byte-exact
-	// string, since map key ordering in the generic round-trip is alphabetic
-	// (yaml.v3/go-toml/v2's own determinism) rather than struct field order.
+	// YAML follows the json contract's field order; TOML's keys are sorted
+	// (go-toml/v2 has no ordered generic form).
 	t.Run("yaml_field_identity", func(t *testing.T) {
 		var buf bytes.Buffer
 		if err := Render(&buf, exampleReport(), FormatYAML); err != nil {
 			t.Fatalf("Render(yaml): %v", err)
 		}
-		want := "count: 2\n" +
-			"name: nightly-build\n" +
+		want := "name: nightly-build\n" +
+			"count: 2\n" +
 			"owner:\n" +
 			"  team: platform\n" +
 			"rows:\n" +

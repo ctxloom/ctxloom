@@ -64,8 +64,8 @@ engine with no hook mechanism at all declares that on its registry descriptor
 | `turn_start` | `UserPromptSubmit`, no matcher |
 | `pre_tool` | `PreToolUse` |
 | `post_tool` | `PostToolUse` |
-| `pre_shell` | `PreToolUse` matcher `Bash` |
-| `post_file_edit` | `PostToolUse` matcher `Edit\|Write` |
+| `pre_shell` | `PreToolUse` matcher `Bash\|PowerShell` |
+| `post_file_edit` | `PostToolUse` matcher `Edit\|Write\|MultiEdit\|NotebookEdit` |
 
 `session_end` and `turn_end` are not interchangeable, and the difference is why
 `turn_end` exists. `session_end` fires ONCE, at teardown; `turn_end` fires every

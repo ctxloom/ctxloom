@@ -21,7 +21,7 @@ import (
 // no filesystem, so the bundle format must remain expressible as a single
 // document". It does not: the same model with a different TRANSPORT is enough, and
 // this is NOT a second format. Every registered SurfaceType, the candidate walker,
-// the digest and the form partition are all reused unchanged; only where the bytes
+// and the form partition are all reused unchanged; only where the bytes
 // come from differs.
 //
 // # The boundary, stated deliberately
@@ -48,9 +48,8 @@ type DocumentBundle map[string][]byte
 
 // NewDocumentStore builds a read-only store from in-memory bundle contents.
 //
-// Paths are validated with the SAME rule the digest uses, so a path this store
-// would accept but the digest could not encode is refused up front rather than at
-// signing time.
+// Paths are validated with the SAME component-path rule the tree store uses, so a
+// path the tree could not hold is refused up front rather than at the first read.
 func NewDocumentStore(bundles map[BundleID]DocumentBundle, prov Provenance) (*DocumentStore, error) {
 	if err := prov.validate(); err != nil {
 		return nil, err

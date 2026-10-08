@@ -2,8 +2,8 @@ bundle code-quality
   file fragments/solid.distilled.md size=67 sha=90832d65b4da7783
   file fragments/solid.md size=226 sha=b892863d268d2025
   file fragments/tricky.md size=162 sha=b82c90f1ec73dcf9
-  file hooks/pre_tool/audit.yaml size=67 sha=223677fdb8a197b5
-  file hooks/pre_tool/guard.yaml size=59 sha=49f02465f8f1b8a1
+  file hooks/pre_tool/audit.yaml size=68 sha=1d3a7c62f6c8733d
+  file hooks/pre_tool/guard.yaml size=57 sha=b5d87acdaac1c439
   file hooks/session_start/greet.yaml size=71 sha=80af5afea3917edd
   file mcp/.postgres.meta.yaml size=175 sha=0d4bf37253ec893c
   file mcp/postgres.yaml size=103 sha=df88d5aac0034c16
@@ -23,10 +23,10 @@ bundle code-quality
       component fragments/tricky.md mode=regular size=162 sha=b82c90f1ec73dcf9
   ref code-quality#hooks/pre_tool/audit local=true repo=""
     form raw
-      component hooks/pre_tool/audit.yaml mode=regular size=67 sha=223677fdb8a197b5
+      component hooks/pre_tool/audit.yaml mode=regular size=68 sha=1d3a7c62f6c8733d
   ref code-quality#hooks/pre_tool/guard local=true repo=""
     form raw
-      component hooks/pre_tool/guard.yaml mode=regular size=59 sha=49f02465f8f1b8a1
+      component hooks/pre_tool/guard.yaml mode=regular size=57 sha=b5d87acdaac1c439
   ref code-quality#hooks/session_start/greet local=true repo=""
     form raw
       component hooks/session_start/greet.yaml mode=regular size=71 sha=80af5afea3917edd

@@ -201,9 +201,12 @@ archives:
       - src: cmd/harp/README.md
         dst: README.md
 
-# Homebrew casks published to ctxloom/homebrew-tap. Two casks mirror the two
-# builds; they install the same `ctxloom` binary, so each declares a conflict
-# with the other. Casks are macOS-only — Linux users install via scripts/install.sh.
+# Homebrew casks published to ctxloom/homebrew-tap: one per distributable
+# (ctxloom, ltk, taskloom, harp), each built from that tool's archive id. They
+# install different binaries, so none declares a conflict with another. The
+# generated casks carry both on_macos and on_linux stanzas (darwin and linux
+# tar.gz archives; windows zips are never referenced). Only the ctxloom cask
+# lacks `skip_upload: auto`, so it is the one cask pushed for a prerelease tag.
 #
 # Requires the HOMEBREW_TAP_GITHUB_TOKEN secret (a PAT with push access to the
 # tap repo) — the per-repo GITHUB_TOKEN cannot push to another repository.

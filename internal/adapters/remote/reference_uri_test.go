@@ -92,14 +92,14 @@ func TestParseReference_CanonicalURIFamilyParses(t *testing.T) {
 			assert.Equal(t, ItemTypeBundle, got.ItemType)
 
 			// The identity is the canonical URI, asserted as a literal: it is
-			// the string a grant is keyed on.
+			// the bundle's source identity.
 			assert.Equal(t, tt.wantCanonical, got.CanonicalString(),
 				"a reference's identity is its canonical URI")
 
 			// A canonical URI and its PRE-CANONICAL spelling are one identity:
 			// both are accepted as input and both resolve to the same URI, so
 			// an authored ref can be written either way without becoming a
-			// second trust key.
+			// second source identity.
 			old, err := ParseReference(tt.wantSameAsOld)
 			require.NoError(t, err)
 			assert.Equal(t, old.CanonicalString(), got.CanonicalString(),

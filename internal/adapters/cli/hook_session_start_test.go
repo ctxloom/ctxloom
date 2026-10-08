@@ -17,10 +17,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // TestShouldInjectResumedEssence covers the source gate: the resumed essence

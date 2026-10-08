@@ -145,7 +145,7 @@ func (t widgetType) Encode(s content.Surface) ([]content.Component, error) {
 
 // TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI is the registry
 // extension test the design turns on: a kind registered FROM A TEST FILE must
-// enumerate, resolve, decode, digest, sign and write through the public API with
+// enumerate, resolve, decode and write through the public API with
 // ZERO production changes.
 func TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI(t *testing.T) {
 	content.Register(widgetType{})

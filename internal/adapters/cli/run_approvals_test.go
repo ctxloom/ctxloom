@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // TestValidatePermissionFlag pins fix B: an explicitly-typed --permissions value

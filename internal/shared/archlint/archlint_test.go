@@ -58,9 +58,10 @@ func TestLedgerDiscipline_ManagedWriteNeedsARecord(t *testing.T) {
 // TestWriteDiscipline_PackageLevelAndTestFiles plants a raw write in a
 // package-level var initialiser and in a function, and — in test files — the
 // afero writes the test arm governs beside the os.* writes and afero-free
-// files it leaves alone.
+// files it leaves alone. The exempt write library's own raw directory and
+// removal ops are planted too, and must not be reported.
 func TestWriteDiscipline_PackageLevelAndTestFiles(t *testing.T) {
-	run(t, archlint.WriteDisciplineAnalyzer, "internal/writeprod", "internal/writetest")
+	run(t, archlint.WriteDisciplineAnalyzer, "internal/writeprod", "internal/writetest", "internal/shared/safefs")
 }
 
 // TestVocabulary_ConversionFromRawString plants the rule's basic case. It is
@@ -88,4 +89,12 @@ func TestTestSupport_ImportAndReachability(t *testing.T) {
 // admitted files.
 func TestSessionBind_UnadmittedCaller(t *testing.T) {
 	run(t, archlint.SessionBindAnalyzer, "internal/bindplant")
+}
+
+// TestJSONTags_EverySinkIsWatched hands an untagged struct to cobrafmt.Emit,
+// clifmt.Render and the (*clifmt.Printer).Render method — each must report —
+// and to a clifmt function that is not a sink, which must not. It is what
+// fails when a sink package moves and the rule's keys are left behind.
+func TestJSONTags_EverySinkIsWatched(t *testing.T) {
+	run(t, archlint.JSONTagsAnalyzer, "internal/jsonsinkplant")
 }

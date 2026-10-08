@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // Execute owns error printing. Without the silence flags cobra prints every
@@ -36,26 +36,26 @@ func TestMCPCommand_RejectsUnknownSubcommands(t *testing.T) {
 	assert.Error(t, mcpCmd.RunE(mcpCmd, []string{"list"}))
 }
 
-// cliemit.EmitError is Execute()'s error-printing tail, callable without the
+// cobrafmt.EmitError is Execute()'s error-printing tail, callable without the
 // process-ending os.Exit calls around it. --format text keeps the exact
 // "Error: msg\n" line Execute() always printed (a script scraping that line
 // today sees no change); the other four formats get clifmt's structured
 // {"error": "..."} envelope instead of the same human line regardless of
 // --format, which was the one place in the CLI where --format=json still
 // leaked plain text onto stderr. The fix moved the rendering itself into
-// cliemit, where the package doc already claimed it lived; these assertions
+// cobrafmt, where the package doc already claimed it lived; these assertions
 // are unchanged, which is the point.
 func TestReportExecuteError_Text_MatchesPreClifmtLine(t *testing.T) {
 	var buf bytes.Buffer
 	cmd, _ := formatCmd(formatText)
-	require.NoError(t, cliemit.EmitError(&buf, cmd, errors.New("boom")))
+	require.NoError(t, cobrafmt.EmitError(&buf, cmd, errors.New("boom")))
 	assert.Equal(t, "Error: boom\n", buf.String())
 }
 
 func TestReportExecuteError_JSON_EmitsStructuredEnvelope(t *testing.T) {
 	var buf bytes.Buffer
 	cmd, _ := formatCmd(formatJSON)
-	require.NoError(t, cliemit.EmitError(&buf, cmd, errors.New("boom")))
+	require.NoError(t, cobrafmt.EmitError(&buf, cmd, errors.New("boom")))
 	assert.JSONEq(t, `{"error":"boom"}`, buf.String())
 }
 
@@ -144,9 +144,9 @@ func TestExecuteErrorPath_FormatResolvesFromRootAndNoJSONShorthandExists(t *test
 	root.SetArgs([]string{"boom", "--format", "json"})
 	require.Error(t, root.Execute())
 
-	fromRoot, err := cliemit.Resolve(root)
+	fromRoot, err := cobrafmt.Resolve(root)
 	require.NoError(t, err)
-	fromSub, err := cliemit.Resolve(sub)
+	fromSub, err := cobrafmt.Resolve(sub)
 	require.NoError(t, err)
 	assert.Equal(t, clifmt.FormatJSON, fromRoot,
 		"a persistent --format parsed on a subcommand is visible from the root it belongs to")

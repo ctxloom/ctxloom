@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // A ctxloom reference cannot carry a control character (see isRefControlChar).
@@ -75,7 +75,8 @@ func TestNormalizeRef_WarnsOnlyWhenSomethingWasStripped(t *testing.T) {
 
 // TestRefIngestPointsStripControlChars covers every ref-producing entry point
 // this package exposes. A newline is used because it is the character that
-// breaks the countersign frame; the strip itself is class-wide.
+// lets a ref forge the lines after it in line-delimited text (canonical
+// strings, lockfile keys, terminal output); the strip itself is class-wide.
 func TestRefIngestPointsStripControlChars(t *testing.T) {
 	const nl = "\n"
 

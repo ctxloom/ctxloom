@@ -193,7 +193,7 @@ func execDoctor(t *testing.T, root string, args ...string) (string, error) {
 // doctorChecksOf parses `ctxloom doctor`'s structured report out of what the
 // command wrote.
 //
-// A test binary's stdout is never a terminal, so cliemit.Resolve hands doctor
+// A test binary's stdout is never a terminal, so cobrafmt.Resolve hands doctor
 // the machine-readable default and the report arrives as JSON — the same bytes
 // every piped or scripted caller now gets. Reading the record beats scanning
 // the rendered lines: operations.DoctorCheck.Status is pinned as a field rather than as a
@@ -291,8 +291,8 @@ func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 // scaffoldLocalTierState creates a stand-in for every paths.TierLocal path
 // (internal/core/paths.Layout) — the local-only state a FRESH init/machine never
 // has (it's exactly what accrues from actually using a project AND this
-// machine: running sessions, using taskloom, reviewing an update, giving a
-// countersignature, trusting a signer, running a coordinator). RootProject
+// machine: running sessions, using taskloom, reviewing an update, trusting a
+// signer, running a coordinator). RootProject
 // entries land under root's .ctxloom; RootHome entries land under the
 // isolated HOME testsupport.Isolate already set for this test (setupProject
 // calls it). Only DOCTOR-CHECK-LOCAL-STATE-p6 reads these paths at all

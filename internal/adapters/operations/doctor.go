@@ -80,7 +80,7 @@ type DoctorCheck struct {
 	// Remedy is the one-line fix for a row that is not the intended state,
 	// when one is known; it travels beside Detail rather than inside it so
 	// every output format carries it as a field.
-	Remedy string `json:"remedy,omitempty" label:"fix"`
+	Remedy string `json:"remedy,omitempty" clifmt:"label=fix"`
 }
 
 // DoctorReport is `ctxloom doctor`'s structured result.

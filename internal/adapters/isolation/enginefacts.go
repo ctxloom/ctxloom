@@ -1,9 +1,11 @@
 package isolation
 
 import (
+	"slices"
 	"sort"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
@@ -19,12 +21,16 @@ type EngineFacts struct {
 	// refusal is the absent reason a container binding is refused with.
 	Container    engine.Declared[engine.ContainerSpec]
 	Distribution engine.Distribution
+	// ProjectArtifacts are the paths the engine writes into a working tree
+	// (engine.Definition.ProjectArtifacts): its share of the per-agent
+	// worktree exclude set (WorktreeArtifactPatterns).
+	ProjectArtifacts []string
 }
 
 // FactsOf projects one engine's declarations into the facts the cells
 // adapter reads.
 func FactsOf(eng engine.Engine) EngineFacts {
-	f := EngineFacts{Home: eng.Home(), Distribution: eng.Root().Distribution}
+	f := EngineFacts{Home: eng.Home(), Distribution: eng.Root().Distribution, ProjectArtifacts: eng.Root().ProjectArtifacts}
 	if spec, err := eng.Container(); err != nil {
 		f.Container = engine.Absent[engine.ContainerSpec](err.Error())
 	} else {
@@ -86,6 +92,25 @@ func factNames() []string {
 	names := f.Names()
 	sort.Strings(names)
 	return names
+}
+
+// WorktreeArtifactPatterns is the per-agent worktree exclude set: ctxloom's
+// own artifacts (gitignore.CtxloomWorktreePatterns) plus every path each
+// engine the accessor knows declares it writes into a working tree, each
+// once, ctxloom's first. A worktree writes it to the repository's shared
+// info/exclude and skip-worktrees any tracked file it names, so no
+// ctxloom-written config — whichever engine wrote it — merges back.
+func WorktreeArtifactPatterns() []string {
+	out := slices.Clone(gitignore.CtxloomWorktreePatterns)
+	for _, name := range factNames() {
+		f, _ := factsFor(name)
+		for _, p := range f.ProjectArtifacts {
+			if !slices.Contains(out, p) {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
 }
 
 // engineContainerRegistration is one engine's container story with the

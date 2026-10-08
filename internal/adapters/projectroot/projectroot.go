@@ -47,8 +47,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // EnvVar is the project-root override variable. Documented in docs/environment.md

@@ -14,7 +14,7 @@ import (
 func companionLoadout() map[BundleID]DocumentBundle {
 	return map[BundleID]DocumentBundle{
 		"ltk": {
-			"hooks/pre_tool/guardrail.yaml": []byte("matcher: Bash\ntype: command\ncommand: ltk hook\n"),
+			"hooks/pre_tool/guardrail.yaml": []byte("tool: shell\ntype: command\ncommand: ltk hook\n"),
 			"mcp/ltk.yaml":                  []byte("command: ltk\nargs:\n  - mcp\n"),
 			"mcp/.ltk.meta.yaml":            []byte("notes: shipped by the ltk companion\n"),
 			"fragments/tool-discipline.md":  []byte("---\ntags:\n  - tools\n---\nUse the narrowest tool.\n"),
@@ -58,15 +58,15 @@ func TestDocumentStore_ReadsABundleWithNoFilesystem(t *testing.T) {
 	if !slices.Equal(keys, want) {
 		t.Fatalf("Refs = %v, want %v", keys, want)
 	}
-	// Provenance is stamped, so a companion item is neither local nor builtin and
-	// therefore still gates — it does not inherit local auto-allow.
+	// Provenance is stamped, so a companion item is neither local nor builtin —
+	// it is never mistaken for project-authored content.
 	for _, r := range refs {
 		if r.IsLocal || r.RepoURL != "ctxloom:companion@ltk" {
 			t.Errorf("%s: provenance = %+v", r.Key(), r)
 		}
 	}
 
-	// Decoding, the sidecar, and the digest all work identically to the tree.
+	// Decoding and the sidecar work identically to the tree.
 	item, err := bundle.Item(ctx, ident.Ref{Bundle: "ltk", Kind: ident.KindMCP, Name: "ltk"})
 	if err != nil {
 		t.Fatalf("Item: %v", err)

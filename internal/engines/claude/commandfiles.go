@@ -5,25 +5,15 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
-// writeCommandDir writes cmds as claude slash-command files into dir — the
+// renderCommand is claude's slash-command file form for one command: the
 // one transform both the project's .claude/commands and the session home's
-// commands directory go through — and returns the host path of every file it
-// placed. A command it skips is reported on rep (nil discards).
-func writeCommandDir(files safefs.Root, dir string, cmds []agent.CommandExport, rep report.Sink) ([]string, error) {
-	var opts []agent.ManagedWriteOption
-	if rep != nil {
-		opts = append(opts, agent.WithWriteReporter(rep))
-	}
-	return agent.WriteManagedCommandFiles(files, dir, cmds,
-		func(c agent.CommandExport) (string, []byte, error) {
-			// Replace path separators with dashes for nested names.
-			filename := strings.ReplaceAll(c.Name, "/", "-") + ".md"
-			return filename, []byte(TransformToClaudeCommand(c)), nil
-		}, opts...)
+// commands directory go through (kit.DeliverCommands writes it). A nested
+// name's path separators become dashes.
+func renderCommand(c agent.CommandExport) (string, []byte, error) {
+	filename := strings.ReplaceAll(c.Name, "/", "-") + ".md"
+	return filename, []byte(TransformToClaudeCommand(c)), nil
 }
 
 // TransformToClaudeCommand converts a command export to Claude Code command

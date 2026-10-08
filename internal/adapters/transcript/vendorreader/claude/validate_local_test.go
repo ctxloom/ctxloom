@@ -19,7 +19,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // validateRootEnv names the directory TestValidateLocalClaudeTranscripts

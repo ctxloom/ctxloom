@@ -124,7 +124,8 @@ resolution.
 
 - `build [backend]` — flag-over-config merge, then `isolation.BuildAgentImage`.
 - `tooling list` — emits `toolingJSON{Instructions, Declarations}`; `renderTooling`
-  explains the trust gate explicitly when there are zero declarations.
+  explains, when there are zero declarations, that only registered companions
+  contribute.
 - `scaffold` — `operations.ScaffoldDevcontainer` writes a project `.devcontainer/` seeded from the embedded base; refuses when one exists.
 - `check [backend]` — diagnoses container capability through `renderContainerCheck`.
 
@@ -180,7 +181,8 @@ TOML integer round-trip does not fail verification.
 - **`doctor` is diagnostic-only.** It never mutates; a `warn` status is its
   fail-loud signal (stated in its own `Long` text).
 - **`container tooling` explains an empty result.** Zero declarations produces a
-  two-line explanation naming the trust gate, not silence.
+  two-line explanation that only registered companions contribute (and how to
+  register one), not silence.
 - **`init` is warn-and-continue after the config write.** Only the config write
   and the git check are fatal; remotes, clones, seeded deps and hooks each warn
   and proceed (`setupNewCtxloomDir`).

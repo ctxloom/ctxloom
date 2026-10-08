@@ -66,6 +66,6 @@ A retired generation is never rewritten: a consumer that captured `gen 1` keeps 
 
 **Called in by:** `internal/adapters/operations` (`App`, `ComposeSources`, every service taking a `*Config`), `internal/adapters/cli` (`GetConfig`, `App().Update`, `pinAppDir`), `internal/core/coord` (the spawner's per-spawn `Reload`), `internal/adapters/mcp` (the generation the host relay serves), `internal/adapters/operations/managedhooks` (the `ResolveBundle*` resolvers).
 
-**Calls out to:** `internal/core/bundles` (`Resolve`, `Catalog`, `Loader`), `internal/core/paths`, `internal/core/profiles`, `internal/core/ident`, `internal/core/agents` (the `agents.Agent` value type), `internal/adapters/remote`, `shared/clidiag`, `shared/strictness`.
+**Calls out to:** `internal/core/bundles` (`Resolve`, `Catalog`, `Loader`), `internal/core/paths`, `internal/core/profiles`, `internal/core/ident`, `internal/core/agents` (the `agents.Agent` value type), `internal/adapters/remote`, `pkg/clifmt/clidiag`, `shared/strictness`.
 
 **Implements:** `config.Sources` — `internal/adapters/configload.Sources`.

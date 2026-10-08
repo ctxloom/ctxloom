@@ -10,7 +10,7 @@ import (
 // A scheme-less absolute path is a LOCAL repository, and the grammar has no
 // way to tell it from a host-qualified path once the leading "/" is trimmed:
 // "/srv/bundles.git" would otherwise be guessed into
-// "https://github.com/srv/bundles" — a real, fetchable, trust-keyed URL the
+// "https://github.com/srv/bundles" — a real, fetchable repository URL the
 // user never named. It must be refused, and the refusal must carry the file://
 // spelling that does work.
 func TestParseRepoURL_RefusesASchemelessAbsolutePath(t *testing.T) {

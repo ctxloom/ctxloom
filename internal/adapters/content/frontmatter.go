@@ -111,8 +111,8 @@ func joinFrontMatter(meta any, body string) ([]byte, error) {
 // marshalYAML encodes a metadata struct, returning nil for a struct that
 // produces an empty mapping (yaml.v3 renders that as "{}\n").
 //
-// The encoded bytes land inside a signed component, so the encoding is a
-// digest input: yamlx.Marshal pins it rather than a library default.
+// The encoded bytes land inside a stored component, so the encoding must be
+// stable across builds: yamlx.Marshal pins it rather than a library default.
 func marshalYAML(v any) ([]byte, error) {
 	out, err := yamlx.Marshal(v)
 	if err != nil {

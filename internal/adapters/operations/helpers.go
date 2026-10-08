@@ -6,8 +6,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // rootOf is root, or the controller's own filesystem when none was handed.

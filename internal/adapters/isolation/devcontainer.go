@@ -12,7 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // This file implements the agent-image BASE resolver (resolveBase): the

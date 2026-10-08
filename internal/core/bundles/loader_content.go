@@ -408,7 +408,7 @@ func (c Catalog) ResolveFragmentAsk(name string) string {
 // searchFragment scans every bundle for a fragment with the given name and
 // reports EVERY match, in List order (bundle-name sorted, so the order is
 // deterministic). Reporting all of them is what lets the process stage keep
-// scanning past one it withholds — a trusted copy in another bundle still wins
+// scanning past one it withholds — a usable copy in another bundle still wins
 // — a decision the reader is in no position to make.
 func (c Catalog) searchFragment(name string) ([]*ItemRead, error) {
 	var out []*ItemRead
@@ -451,7 +451,7 @@ func (c Catalog) ReadCommand(name string) ([]*ItemRead, error) {
 // commandRead is itemRead for a command, carrying its per-engine blocks.
 // ItemRef keeps the "prompts" kind segment (ident.KindPrompt, whose Dir()
 // is "prompts") even though the load selector is "#commands/", so the
-// item-kind rename does not invalidate existing trust grants.
+// item-kind rename does not move any existing command's item ref.
 func commandRead(read BundleRead, promptName string, prompt BundleCommand) (*ItemRead, error) {
 	r, err := itemRead(read, ident.KindPrompt, promptName, prompt.ItemBody, prompt.Resolve)
 	if err != nil {

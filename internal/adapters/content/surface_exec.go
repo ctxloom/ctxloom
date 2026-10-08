@@ -54,10 +54,9 @@ func detectSingleYAML(dir string, src Source, depth int) (string, bool) {
 // one, its metadata sidecar.
 //
 // A nil meta target means the kind has no sidecar, and a sidecar found anyway is
-// REFUSED rather than skipped. Skipping it would leave bytes that are grouped into
-// the item and hashed into the digest but that nothing in the decode path can
-// explain — exactly the shape in which unexplained content rides along under a
-// valid signature.
+// REFUSED rather than skipped. Skipping it would leave a file that is grouped into
+// the item but that nothing in the decode path reads — the author's metadata
+// silently ignored.
 func readExecItem(t SurfaceType, src Source, depth int, content, meta any) (string, error) {
 	dir := t.Dir()
 	name, ok := detectSingleYAML(dir, src, depth)
@@ -98,8 +97,8 @@ func readExecItem(t SurfaceType, src Source, depth int, content, meta any) (stri
 // it — many JSON/YAML consumers reject unknown keys, and polluting a foreign
 // contract to store our bookkeeping is how a format stops being directly usable
 // by the tool that owns its schema. Our keys go in the sidecar, which is a
-// component of the item and therefore hashed: changing metadata changes Content
-// and invalidates the signature, exactly as changing the content file does.
+// component of the item: changing metadata changes the item's Content and
+// travels with it, exactly as changing the content file does.
 func encodeExecItem(t SurfaceType, name string, content, meta any) ([]Component, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: surface has no name", ErrSurfaceType)
@@ -237,12 +236,12 @@ func (t mcpType) Encode(s Surface) ([]Component, error) {
 
 // -------------------------------------------------------------------- hooks
 
-// Hook is one lifecycle hook. Its trust identity is "<event>/<name>" — the NAME,
+// Hook is one lifecycle hook. Its identity is "<event>/<name>" — the NAME,
 // never an ordinal position.
 //
 // The old identity was the hook's INDEX within its event, which is connascence of
 // position: inserting a hook at the top of an event silently changed the identity
-// of every hook below it, invalidating approvals for items that had not changed.
+// of every hook below it, so items that had not changed read as changed.
 //
 // # Order IS a field, and here is why the earlier retraction no longer holds
 //
@@ -281,7 +280,9 @@ type Hook struct {
 	// could not tell them apart.
 	Order *int
 
-	Matcher         string
+	// Tool narrows a tool event to one neutral tool class; a tree hook, like
+	// every bundle hook, never names an engine's own tools.
+	Tool            wire.ToolClass
 	Type            string
 	Command         string
 	Args            []string
@@ -325,14 +326,19 @@ func (h Hook) refName() string { return h.Event + "/" + h.Name }
 // bookkeeping, and keeping both out of the content file keeps the vendor
 // config pure.
 type hookContent struct {
-	Matcher         string   `yaml:"matcher,omitempty"`
-	Type            string   `yaml:"type,omitempty"`
-	Command         string   `yaml:"command,omitempty"`
-	Args            []string `yaml:"args,omitempty"`
-	Prompt          string   `yaml:"prompt,omitempty"`
-	Timeout         int      `yaml:"timeout,omitempty"`
-	Async           bool     `yaml:"async,omitempty"`
-	PreToolFallback bool     `yaml:"pre_tool_fallback,omitempty"`
+	Tool            wire.ToolClass `yaml:"tool,omitempty"`
+	Type            string         `yaml:"type,omitempty"`
+	Command         string         `yaml:"command,omitempty"`
+	Args            []string       `yaml:"args,omitempty"`
+	Prompt          string         `yaml:"prompt,omitempty"`
+	Timeout         int            `yaml:"timeout,omitempty"`
+	Async           bool           `yaml:"async,omitempty"`
+	PreToolFallback bool           `yaml:"pre_tool_fallback,omitempty"`
+
+	// RefusedMatcher catches an engine-native `matcher:` so Decode can refuse
+	// it: this file decodes leniently, and a dropped matcher would leave the
+	// hook firing on EVERY tool with nothing said. Never written.
+	RefusedMatcher string `yaml:"matcher,omitempty"`
 }
 
 // hookMeta is the sidecar's shape: our keys only.
@@ -354,9 +360,9 @@ func (hookType) Name() string { return ident.KindHook.Dir() }
 func (hookType) Dir() string  { return ident.KindHook.Dir() }
 
 // Meta: a sidecar, so hooks/<event>/<name>.yaml stays pure hook configuration.
-// The sidecar is a COMPONENT and therefore hashed — changing a hook's order
-// invalidates that hook's signature, exactly as changing its command does, rather
-// than order riding along unattested.
+// The sidecar is a COMPONENT of the hook — changing a hook's order changes the
+// hook's content and is delivered with it, exactly as changing its command does,
+// rather than order riding along outside the item.
 func (hookType) Meta() MetaStore { return SidecarMeta{} }
 
 func (t hookType) Detect(src Source) bool {
@@ -387,11 +393,17 @@ func (t hookType) Decode(src Source) (Surface, error) {
 		return nil, err
 	}
 	event, hookName, _ := strings.Cut(name, "/")
+	if content.RefusedMatcher != "" {
+		return nil, fmt.Errorf("%w: hook %s: matcher %q names an engine's own tools; narrow the hook with `tool:` (one of %s) instead", ErrSurfaceType, name, content.RefusedMatcher, wire.ToolClassList())
+	}
+	if content.Tool != "" && !content.Tool.Known() {
+		return nil, fmt.Errorf("%w: hook %s: tool %q is not a tool class; use one of %s", ErrSurfaceType, name, content.Tool, wire.ToolClassList())
+	}
 	return Hook{
 		Event:           event,
 		Name:            hookName,
 		Order:           meta.Order,
-		Matcher:         content.Matcher,
+		Tool:            content.Tool,
 		Type:            content.Type,
 		Command:         content.Command,
 		Args:            content.Args,
@@ -416,7 +428,7 @@ func (t hookType) Encode(s Surface) ([]Component, error) {
 	}
 	return encodeExecItem(t, h.refName(),
 		hookContent{
-			Matcher:         h.Matcher,
+			Tool:            h.Tool,
 			Type:            h.Type,
 			Command:         h.Command,
 			Args:            h.Args,
@@ -428,7 +440,7 @@ func (t hookType) Encode(s Surface) ([]Component, error) {
 		// marshalYAML renders an all-omitempty struct as nothing, so a hook that
 		// declares neither order nor tags writes NO sidecar — absence is
 		// represented by the absence of a file, not by an empty one. An empty
-		// `{}` per hook would be bytes in the digest that mean nothing, and would
+		// `{}` per hook would be component bytes that mean nothing, and would
 		// make "authored before the field existed" indistinguishable from
 		// "deliberately unordered".
 		hookMeta{Order: h.Order, Tags: h.Tags})

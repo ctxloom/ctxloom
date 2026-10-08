@@ -18,12 +18,11 @@ import (
 // for every reader class, or a seeded profile is keyed where no lookup goes.
 //
 // The same identity is also what a pull writes the lockfile entry under
-// (Reference.LockKey) and what the trust gate looks a retraction up by, so
-// every spelling below is held to all four agreeing. The spellings are the
-// ones that have split them: a path needing escaping (a space, a literal
-// '%'), host case, a trailing '/', http://, userinfo and scp. A publisher's
-// retraction keyed one way and looked up another is a retraction silently
-// not enforced.
+// (Reference.LockKey), so every spelling below is held to all three agreeing.
+// The spellings are the ones that have split them: a path needing escaping (a
+// space, a literal '%'), host case, a trailing '/', http://, userinfo and scp.
+// A lockfile entry keyed one way and looked up another is a pin silently not
+// applied.
 func TestBundleRead_KeyEqualsCanonicalBundleRefOfDisplayName(t *testing.T) {
 	remoteRefs := []string{
 		"https://example.test/repo@bundles/kit",
@@ -60,8 +59,8 @@ func TestBundleRead_KeyEqualsCanonicalBundleRefOfDisplayName(t *testing.T) {
 
 // Every spelling of ONE git repository is one identity: the transport, host
 // case, a trailing slash and credentials are not part of which repository it
-// is. If any of these keyed apart, a retraction recorded under one spelling
-// would not withhold content pulled under another.
+// is. If any of these keyed apart, a lockfile pin recorded under one spelling
+// would not apply to content pulled under another.
 func TestLockKey_SpellingsOfOneRepositoryAreOneKey(t *testing.T) {
 	spellings := []string{
 		"https://example.test/repo@bundles/kit",

@@ -5,7 +5,8 @@ import "strings"
 // The two SOURCE TOKENS that stand where a repository URL would: content
 // authored in this project, and a loadout a companion binary emits. They are
 // reference grammar, not fetch policy, which is why they live here below both
-// the trust tier that keys on them and the fetcher that dispatches on them.
+// the identity layer (core/ident) that keys on them and the fetcher that
+// dispatches on them.
 
 // LocalSource is the fixed source token for ctxloom:local references —
 // project-authored content under the committed .ctxloom/content/ working copy.
@@ -17,8 +18,8 @@ const LocalSource = "ctxloom:local"
 // PATH (`<bin> loadout --format yaml`). This is the FIRST-CLASS, RECOGNIZED source token companion
 // loadouts are seeded under: recognized here (so the unrecognized-source
 // guard every caller builds on IsSelfContainedRef never fires for it) and mapped to a NON-local
-// trust.Ref (Reference.IsLocal stays false), so companion content is never
-// treated as project-local and never denied as unrecognized.
+// ident.Ref (IsCompanion set, IsLocal false), so companion content is never
+// treated as project-local and never refused as unrecognized.
 const CompanionSource = "ctxloom:companion"
 
 // IsSelfContainedRef reports whether ref carries its own scheme/source token
@@ -32,14 +33,14 @@ const CompanionSource = "ctxloom:companion"
 // operations.looksLikeSourceRef — and they were not merely duplicated, they
 // had DRIFTED: the operations copy recognised any "://" but was missing
 // ctxloom:companion@, so a malformed companion ref was downgraded to a
-// first-party local bundle name and auto-trusted, i.e. trusted MORE than a
-// well-formed one. This function is the union of the two, so neither reach
-// is lost:
+// project-local bundle name and resolved against the project's own tree
+// instead of being refused. This function is the union of the two, so
+// neither reach is lost:
 //
 //   - the whole canonical ctxloom+<class>: family, via refuri.HasScheme. Two
 //     of the four classes are OPAQUE URIs — "ctxloom+local:x" carries no
-//     "://" at all — so a "://" test reads them as bare names and grants them
-//     the first-party local exemption, which is the fail-OPEN direction for
+//     "://" at all — so a "://" test reads them as bare names and resolves
+//     them as project-local bundles, which is the fail-OPEN direction for
 //     every guard built on this answer.
 //   - any "://" ANYWHERE, not just the http/https/file prefixes ParseReference
 //     dispatches on. An "ssh://…" or "git://…" ref is scheme-qualified even

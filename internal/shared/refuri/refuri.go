@@ -49,7 +49,7 @@ const (
 // Classes returns every source class, in a fixed order.
 //
 // It exists so exhaustiveness over the classes is TESTABLE rather than
-// trusted: anything that must answer for every class walks this list, so a
+// assumed: anything that must answer for every class walks this list, so a
 // class added here without being handled there fails that test instead of
 // being silently misread at runtime. ClassForScheme is driven off it directly,
 // which is what makes this list the definition of the vocabulary rather than a
@@ -129,11 +129,11 @@ func (p Parts) IsExternal() bool {
 // follows is one this package knows, and that width is deliberate.
 //
 // A caller uses it to tell "scheme-qualified" (fail CLOSED — refuse, and say
-// why) apart from "no scheme at all" (a bare name, first-party by
-// construction, and the only input that takes the local exemption). Narrowing
-// this to the KNOWN classes would put "ctxloom+registry:x" — a reference
-// naming a class this build does not implement — on the bare-name side, where
-// it would be granted the exemption instead of being refused. A reference from
+// why) apart from "no scheme at all" (a bare name, which resolves as a
+// project-local bundle). Narrowing this to the KNOWN classes would put
+// "ctxloom+registry:x" — a reference naming a class this build does not
+// implement — on the bare-name side, where it would be looked up as a local
+// bundle instead of being refused. A reference from
 // a newer grammar must fail, not be adopted.
 //
 // Parse is where a class is checked, and it refuses every scheme this
@@ -154,17 +154,15 @@ func HasScheme(raw string) bool {
 // "www." prefixes and repository-path case are PRESERVED byte-exact, and two
 // spellings of one repository are two identities. That is deliberate: whether
 // two addresses reach the same repository is host-specific knowledge we do not
-// have, and folding on a guess merges two identities onto one trust key —
-// which would let a rejection of one silently govern the other. The inverse,
+// have, and folding on a guess merges two identities onto one key — which
+// would let one repository's lockfile entry, registered-remote match and
+// context identity silently answer for the other. The inverse,
 // refusing a non-preferred spelling, is worse still: "https://host/foo.git" IS
 // the real path of a bare repository on a plain git server, where
 // "https://host/foo" often does not exist, so refusing it makes a real
 // repository UNADDRESSABLE.
 //
-// The cross-address case is already handled one layer over: a CONTENT-reject
-// omits the ref by design, so a rejection of these bytes holds wherever they
-// appear. A REF-reject blocks one ADDRESS, which is what it says. Refusal here
-// is reserved for spellings that are MALFORMED — "%2F" forging a separator, a
+// Refusal here is reserved for spellings that are MALFORMED — "%2F" forging a separator, a
 // control character, a missing "bundles/" prefix — never for spellings that
 // are merely non-preferred.
 //
@@ -398,9 +396,10 @@ func (p *Parts) parseInternal(u *url.URL) error {
 // parsing the result yields equal Parts.
 //
 // withVersion=false is what an IDENTITY renders as. The version is omitted
-// from an identity deliberately: grants pin by content hash, not by commit, so
-// an identity that moved with every commit would key every grant to a single
-// revision.
+// from an identity deliberately: an item spelled with and without a pin is ONE
+// item (the context dedupes on this identity, and the lockfile records the
+// pinned commit as a value, not as part of the key), so an identity that moved
+// with every commit would split one item into one per revision.
 func (p Parts) Render(withVersion bool) string {
 	u := url.URL{Scheme: SchemePrefix + string(p.Class)}
 	if p.IsExternal() {
@@ -443,7 +442,7 @@ func (p Parts) Render(withVersion bool) string {
 // "/acme/repo//bundles/lang/go" it returns "/acme/repo/bundles/lang/go",
 // silently merging the repository path into the bundle path and producing a
 // DIFFERENT reference that still looks valid. Downstream that is the
-// rejected → ALLOW failure mode described on Parse, and it would arrive via
+// store-MISS-or-wrong-hit failure described on Parse, and it would arrive via
 // a one-line tidy-up refactor by someone who saw two path-cleaning
 // implementations and deleted the unfamiliar one. This paragraph and
 // TestBundleRef_R4_SeparatorSurvivesDotSegments are the defence; the test

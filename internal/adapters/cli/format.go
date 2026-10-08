@@ -2,12 +2,13 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // Output formats accepted by the global --format flag. These two remain
@@ -25,17 +26,17 @@ const (
 
 // unknownFormatError is the error the streaming commands above return for
 // any --format value outside their own text/json pair. emit() has its own,
-// wider error (clifmt.ParseFormat, via cliemit.Resolve) covering all five
+// wider error (clifmt.ParseFormat, via cobrafmt.Resolve) covering all five
 // formats.
 func unknownFormatError(format string) error {
 	return fmt.Errorf("unknown format %q (supported: %s, %s)", format, formatText, formatJSON)
 }
 
 // emit renders a command's result in the format selected by the global
-// --format flag. It delegates to the cross-binary cliemit filter (shared with
-// cmd/taskloom and cmd/ltk) so the emit()/resolve pair is defined once:
-// json/yaml/toml/markdown go through clifmt.Render, text runs the bespoke human
-// closure (or, when nil, clifmt's reflective text render).
+// --format flag. It delegates to cobrafmt.Emit (shared with cmd/taskloom,
+// cmd/ltk and cmd/harp): json/yaml/toml/markdown go through clifmt, and text
+// runs the bespoke human closure as a clifmt.WithWriter (or, when nil,
+// clifmt's own derived text view).
 //
 // Commands build their result once and hand both forms here, so --format is a
 // presentation choice and never a branch in business logic. This keeps every
@@ -47,12 +48,16 @@ func unknownFormatError(format string) error {
 // value, regardless of which branch it took.
 func emit(cmd *cobra.Command, data any, text func() error) error {
 	formatWasHonored = true
-	return cliemit.Emit(cmd, data, text)
+	var opts []clifmt.Option
+	if text != nil {
+		opts = append(opts, clifmt.WithWriter(clifmt.FormatText, func(io.Writer) error { return text() }))
+	}
+	return cobrafmt.Emit(cmd, data, opts...)
 }
 
 // streamFormat resolves --format for a streaming command — one that renders
 // event by event and so cannot hand emit() a single value. It resolves through
-// cliemit.Resolve like emit() does, so a streaming command and an emitting one
+// cobrafmt.Resolve like emit() does, so a streaming command and an emitting one
 // read the same flag the same way; the caller then refuses any format outside
 // its own text/json pair with unknownFormatError.
 //
@@ -60,7 +65,7 @@ func emit(cmd *cobra.Command, data any, text func() error) error {
 // the streaming command's proof that it read --format.
 func streamFormat(cmd *cobra.Command) (clifmt.Format, error) {
 	formatWasHonored = true
-	return cliemit.Resolve(cmd)
+	return cobrafmt.Resolve(cmd)
 }
 
 // wantsNonTextOutput reports whether this invocation's --format is anything
@@ -77,7 +82,7 @@ func streamFormat(cmd *cobra.Command) (clifmt.Format, error) {
 // This deliberately does NOT mark formatWasHonored: the proof of honoring is
 // emit() actually rendering.
 func wantsNonTextOutput(cmd *cobra.Command) bool {
-	format, err := cliemit.Resolve(cmd)
+	format, err := cobrafmt.Resolve(cmd)
 	return err != nil || format != clifmt.FormatText
 }
 
@@ -121,7 +126,7 @@ func resetFormatGuard() { formatWasHonored = false }
 // The refusal lives there rather than here so the caller gets the error alone
 // instead of a screenful of help followed by one — see groupNodeFormatRefusal.
 func checkFormatWasHonored(cmd *cobra.Command) error {
-	format, ferr := cliemit.Resolve(cmd)
+	format, ferr := cobrafmt.Resolve(cmd)
 	if ferr != nil || format == clifmt.FormatText || formatWasHonored {
 		return nil
 	}
@@ -130,7 +135,7 @@ func checkFormatWasHonored(cmd *cobra.Command) error {
 	// debt would fail for every piped or scripted caller — after doing its
 	// work, which for `run` means burning the LLM call and then reporting
 	// failure.
-	if !cliemit.Explicit(cmd) {
+	if !cobrafmt.Explicit(cmd) {
 		return nil
 	}
 	return unsupportedFormatError(cmd, string(format))
@@ -162,14 +167,14 @@ func unsupportedFormatError(cmd *cobra.Command, format string) error {
 // catches a command that carries new, untracked debt, so newly-broken commands
 // keep failing loudly instead of silently discarding --format.
 func refuseUnsupportedFormat(cmd *cobra.Command) error {
-	format, err := cliemit.Resolve(cmd)
+	format, err := cobrafmt.Resolve(cmd)
 	if err != nil || format == clifmt.FormatText {
 		return nil
 	}
 	// Only a format the caller ASKED for can be refused. Off a terminal
 	// Resolve defaults to JSON, so refusing on a derived format would break
 	// every piped and scripted invocation of every debt-carrying command.
-	if !cliemit.Explicit(cmd) {
+	if !cobrafmt.Explicit(cmd) {
 		return nil
 	}
 	// CommandPath() is "ctxloom foo bar"; the ledger is keyed "foo bar".
@@ -181,7 +186,7 @@ func refuseUnsupportedFormat(cmd *cobra.Command) error {
 }
 
 // formatFlagUsage is --format's help. Its default is derived, not fixed —
-// cliemit.Resolve answers text on a terminal and json off one — so the flag is
+// cobrafmt.Resolve answers text on a terminal and json off one — so the flag is
 // registered with an empty default and the usage says what an unset flag does.
 // yesFlagName confirms a report-then-apply command: without it the command
 // reports its plan and changes nothing.

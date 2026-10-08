@@ -11,7 +11,7 @@ import (
 // when the error names a fix (see RemedyOf), the "fix: X" line for free.
 type ErrorEnvelope struct {
 	Error  string `json:"error"`
-	Remedy string `json:"remedy,omitempty" label:"fix"`
+	Remedy string `json:"remedy,omitempty" clifmt:"label=fix"`
 }
 
 // ErrNilError is returned by RenderError when err is nil. A nil error is not a

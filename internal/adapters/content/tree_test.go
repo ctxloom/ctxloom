@@ -68,7 +68,7 @@ func TestBundle_RefsEnumeratesEveryKind(t *testing.T) {
 // TestBundle_RefsDoesNotEnumerateSidecarsAsItems states the trap separately from
 // the golden list, because it is the one that fails silently: a sidecar listed as
 // an item would ALSO mean it is not a component of its item, so its bytes would
-// leave the digest and declared executability would stop being attested.
+// drop out of the item and declared executability would stop travelling with it.
 func TestBundle_RefsDoesNotEnumerateSidecarsAsItems(t *testing.T) {
 	store := fixtureStore(t)
 	bundle, err := store.Open(context.Background(), "code-quality")
@@ -190,9 +190,8 @@ func TestItem_FormsReportExactlyWhatExists(t *testing.T) {
 // its own: an executable surface has exactly ONE materialization, carried by an
 // unsuffixed filename, so it reports the BASE layout form and nothing else.
 //
-// The ROLE that distinguishes it from a fragment lives in the composite
-// attestation form the trust layer derives from the item's kind, NOT in this
-// axis — so an mcp server reporting the same layout form a never-distilled
+// The ROLE that distinguishes it from a fragment lives in the item's kind
+// (ident.ItemKind), NOT in this axis — so an mcp server reporting the same layout form a never-distilled
 // document reports is correct, and a distilled form it does not have is still
 // refused.
 func TestItem_ExecutableSurfacesCarryOnlyTheBaseForm(t *testing.T) {
@@ -227,10 +226,10 @@ func TestItem_MissingFormIsRefused(t *testing.T) {
 	}
 }
 
-// TestForm_RawAndDistilledAreIndependent is the storage-model proof that blessing
-// the raw form cannot validate a distilled exposure: the two forms are separate
-// files with separate component sets, so their digests differ and their signature
-// lookups cannot collide. Nothing enforces this in code — it falls out.
+// TestForm_RawAndDistilledAreIndependent is the storage-model proof that the raw
+// and distilled forms of one item cannot be confused: the two forms are separate
+// files with separate component sets, so delivering one never delivers the
+// other's bytes. Nothing enforces this in code — it falls out.
 func TestForm_RawAndDistilledAreIndependent(t *testing.T) {
 	store := fixtureStore(t)
 	ctx := context.Background()
@@ -271,12 +270,11 @@ func TestForm_RawAndDistilledAreIndependent(t *testing.T) {
 // security-trap test.
 //
 // Dotfiles are excluded by default in much glob and walk code. If the walker
-// misses ".code-reviewer.meta.yaml", it never enters the digest, and because
-// executability is DECLARED in that sidecar rather than read from a mode bit,
-// executability silently stops being attested — while every signature still
-// verifies and everything looks green. So: the sidecar must appear in
-// Components(), it must change Content(), and its declaration must reach
-// Component.Mode.
+// misses ".code-reviewer.meta.yaml", it never becomes part of the item, and
+// because executability is DECLARED in that sidecar rather than read from a
+// mode bit, the skill's scripts silently stop being executable while
+// everything looks green. So: the sidecar must appear in Components(), and its
+// declaration must reach Component.Mode.
 func TestSkill_DotPrefixedSidecarIsAComponentAndDeclaresExecutability(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
@@ -705,8 +703,10 @@ func TestNewTreeStore_RefusesAmbiguousProvenance(t *testing.T) {
 }
 
 // TestDecode_RefusesUnexplainedSidecars: a sidecar in a kind whose metadata does
-// NOT live in a sidecar is grouped into the item and hashed, so ignoring it would
-// mean bytes ride along under a valid signature that no decode path accounts for.
+// NOT live in a sidecar is still grouped into the item by the walker, so ignoring
+// it would mean the author's metadata is part of the item yet read by nothing.
+// The refusal must say so, name the offending file, and tell the author what to
+// do about it.
 func TestDecode_RefusesUnexplainedSidecars(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
@@ -715,6 +715,10 @@ func TestDecode_RefusesUnexplainedSidecars(t *testing.T) {
 	writeFile(t, store.fsys, root+"/profiles/.strict.meta.yaml", "owner: nobody\n")
 
 	bundle, _ := store.Open(ctx, "code-quality")
+	sidecars := map[string]string{
+		"fragment": "fragments/.solid.meta.yaml",
+		"profile":  "profiles/.strict.meta.yaml",
+	}
 	for name, ref := range map[string]ident.Ref{
 		"fragment": {Bundle: "code-quality", Kind: ident.KindFragment, Name: "solid"},
 		"profile":  {Bundle: "code-quality", Kind: KindProfile, Name: "strict"},
@@ -727,17 +731,32 @@ func TestDecode_RefusesUnexplainedSidecars(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: Item: %v", name, err)
 		}
-		if _, err := item.Surface(ctx); err == nil {
+		_, err = item.Surface(ctx)
+		if err == nil {
 			t.Errorf("%s: an unexplained sidecar was silently accepted", name)
+			continue
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, sidecars[name]) {
+			t.Errorf("%s: refusal %q does not name the sidecar %s", name, msg, sidecars[name])
+		}
+		if !strings.Contains(msg, unexplainedMetaReason) {
+			t.Errorf("%s: refusal %q does not state why the file is refused", name, msg)
+		}
+		// Signing is gone; a message that still blames a signature tells the
+		// author about machinery that no longer exists.
+		if strings.Contains(strings.ToLower(msg), "signature") {
+			t.Errorf("%s: refusal %q still cites a signature", name, msg)
 		}
 	}
 }
 
 // TestEngineExports_EncodeIsDeterministic pins the one library behaviour the map
-// fields depend on: yaml.v3 must emit map keys in a stable order. Determinism is a
-// hard requirement of the digest, and EngineExports (like MCP.Env) is a map, so a
-// dependency bump that made map emission order-dependent would silently break
-// every signature. This fails loudly if that ever changes.
+// fields depend on: yaml.v3 must emit map keys in a stable order. Encoding an
+// unchanged item must reproduce its stored bytes, and EngineExports (like MCP.Env)
+// is a map, so a dependency bump that made map emission order-dependent would
+// silently rewrite unchanged items with spurious diffs. This fails loudly if that
+// ever changes.
 func TestEngineExports_EncodeIsDeterministic(t *testing.T) {
 	exports := EngineExports{
 		"engine-e":    {"description": "e"},
@@ -781,7 +800,7 @@ func TestMCPEnv_EncodeIsDeterministic(t *testing.T) {
 }
 
 // TestSurfaceType_MetaResidencyIsPerType pins what each shipped type DECLARES,
-// so a residency change is a visible diff rather than a surprise in a digest.
+// so a residency change is a visible diff rather than a surprise in stored bytes.
 func TestSurfaceType_MetaResidencyIsPerType(t *testing.T) {
 	for _, tc := range []struct {
 		kind        ident.ItemKind

@@ -7,9 +7,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // The compaction/compaction cluster the session commands share with the MCP

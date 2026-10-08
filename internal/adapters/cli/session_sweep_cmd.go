@@ -9,8 +9,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 var (

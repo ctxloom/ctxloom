@@ -181,7 +181,7 @@ func TestMapTreeFS_RefusesAPathThatIsBothFileAndDirectory(t *testing.T) {
 //
 // The SAME fixture is served two ways — through an afero.Fs and through a
 // bytes-only map that never touched a filesystem — and the full walker answer
-// (bundles, files, refs, forms, components, digests) is compared against the
+// (bundles, files, refs, forms, components) is compared against the
 // SAME golden. If the seam had not been extracted, the bytes-only side would
 // need a second walker, and this test is what would catch the two drifting.
 func TestFSStore_BytesOnlyBackendAnswersIdenticallyToAfero(t *testing.T) {

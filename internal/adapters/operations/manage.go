@@ -16,8 +16,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // RemoveHooksRequest contains parameters for stripping ctxloom's harness from

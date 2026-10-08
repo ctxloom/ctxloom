@@ -128,7 +128,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 	"github.com/knadh/koanf/providers/confmap"
 	koanf "github.com/knadh/koanf/v2"
 	"gopkg.in/yaml.v3"

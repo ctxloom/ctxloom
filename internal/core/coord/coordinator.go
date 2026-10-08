@@ -189,6 +189,25 @@ type Options struct {
 	// engine missing here, or one declaring no codec, covers nothing, and
 	// the human is asked.
 	Engines engine.Registry
+
+	// The test seams below (same package only; nil in production) are
+	// Options, never fields set on a constructed Coordinator: New re-arms
+	// adopted holds, raises findings and starts the goroutines that read
+	// them, so a seam written after New returns misses that work and races
+	// those readers.
+	//
+	// holdStep is told each hold step a test may need to hold at
+	// (credhold.go's holdStep* names).
+	holdStep func(step string)
+	// turnIdleHook runs synchronously in onTurnIdle with the run's harp at
+	// the instant before the run is marked idle — the moment a human may
+	// resume a run that reads idle.
+	turnIdleHook func(harp string)
+	// runnerHelloHook runs synchronously at the top of RunnerHello with the
+	// dialing runner's credential hash — the window in which that runner's
+	// run channel, dialing unordered against it, may already be delivering
+	// events.
+	runnerHelloHook func(credHash string)
 }
 
 // Coordinator is the runtime coordinator: durable CQRS stores + credential
@@ -371,9 +390,8 @@ type Coordinator struct {
 	// by key; holdsF is the authority on which holds are in force. Guarded by
 	// holdMu.
 	holds map[string]*holdLocal
-	// afterFunc arms a hold's backoff timer (Options.AfterFunc); holdStep,
-	// when set, is told each hold step a test may need to hold at (a test
-	// seam).
+	// afterFunc arms a hold's backoff timer (Options.AfterFunc); holdStep is
+	// Options.holdStep (a test seam; nil in production).
 	afterFunc func(d time.Duration, f func()) (stop func() bool)
 	holdStep  func(step string)
 	// lookupEnv is Options.LookupEnv, resolved.
@@ -529,15 +547,9 @@ type Coordinator struct {
 	// "up" with its run channel not yet attached; parking here makes that
 	// window a fact a test can hold open. Nil in production.
 	attachRunHook func(harp string)
-	// turnIdleHook, if set (tests only, same package), runs synchronously in
-	// onTurnIdle with the run's harp at the instant before the run is marked
-	// idle — the moment a human may resume a run that reads idle. Nil in
-	// production.
-	turnIdleHook func(harp string)
-	// runnerHelloHook, if set (tests only, same package), runs synchronously
-	// at the top of RunnerHello with the dialing runner's credential hash —
-	// the window in which that runner's run channel, dialing unordered
-	// against it, may already be delivering events. Nil in production.
+	// turnIdleHook and runnerHelloHook are Options.turnIdleHook and
+	// Options.runnerHelloHook (test seams; nil in production).
+	turnIdleHook    func(harp string)
 	runnerHelloHook func(credHash string)
 
 	closeOnce sync.Once
@@ -607,6 +619,9 @@ func New(opts Options) (*Coordinator, error) {
 		byHarp:             make(map[string]*childRt),
 		holds:              make(map[string]*holdLocal),
 		afterFunc:          t.afterFunc,
+		holdStep:           opts.holdStep,
+		turnIdleHook:       opts.turnIdleHook,
+		runnerHelloHook:    opts.runnerHelloHook,
 		lookupEnv:          t.lookupEnv,
 		refreshSecrets:     opts.RefreshSecrets,
 		secretReleases:     make(map[string]func()),

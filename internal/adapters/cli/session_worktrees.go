@@ -19,13 +19,13 @@ import (
 // sessionWorktreeRow is `session worktrees`' rendering projection — never the
 // domain type, matching cli.SessionRow's own convention (see session_row.go).
 type sessionWorktreeRow struct {
-	Harp       string `json:"harp"                label:"Harp"      col:"HARP"`
-	Worktree   string `json:"worktree"             label:"Worktree" col:"WORKTREE"`
-	Path       string `json:"path"                 label:"Path"     col:"PATH"`
-	OwnerPID   int    `json:"owner_pid,omitempty"  label:"Owner PID" col:"OWNER"`
-	OwnerState string `json:"owner_state"          label:"Owner"    col:"OWNER STATE"`
-	Verdict    string `json:"verdict"              label:"Verdict"  col:"VERDICT"`
-	Reason     string `json:"reason,omitempty"     label:"Reason"   col:"REASON"`
+	Harp       string `json:"harp"                clifmt:"label=Harp,col=HARP"`
+	Worktree   string `json:"worktree"             clifmt:"label=Worktree,col=WORKTREE"`
+	Path       string `json:"path"                 clifmt:"label=Path,col=PATH"`
+	OwnerPID   int    `json:"owner_pid,omitempty"  clifmt:"label=Owner PID,col=OWNER"`
+	OwnerState string `json:"owner_state"          clifmt:"label=Owner,col=OWNER STATE"`
+	Verdict    string `json:"verdict"              clifmt:"label=Verdict,col=VERDICT"`
+	Reason     string `json:"reason,omitempty"     clifmt:"label=Reason,col=REASON"`
 }
 
 // sessionWorktreeReport is `session worktrees`' --format json payload.

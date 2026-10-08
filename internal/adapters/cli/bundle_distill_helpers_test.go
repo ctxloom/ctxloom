@@ -271,13 +271,15 @@ func TestRunBundleDistill_TextPathReportsWriteFailuresAndUsesCommandWriters(t *t
 // loadDistillPrompt has exactly two legitimate answers and one refusal, and the
 // bug this pins was that all three collapsed into "return the default": every
 // error from operations.GetCommand — errs.ErrCommandWithheld included — fell
-// through to defaultDistillPrompt, so a prompt the trust gate DECLINED to
-// supply was silently replaced by ctxloom's own and the run reported success.
+// through to defaultDistillPrompt, so a configured prompt the delivery
+// pipeline DECLINED to supply was silently replaced by ctxloom's own and the
+// run reported success.
 //
 // The two legitimate answers are pinned here (absence → the embedded default;
-// a configured command → that command). The refusal is
-// TestBundleDistill_WithheldPromptRefuses, which asserts the EFFECT: nothing
-// distilled, exit 2, and the item named.
+// a configured command → that command). The refusal arm (ErrCommandWithheld →
+// exit 2) has no test today: under the exposure pipeline's unchecked link
+// grant, the only way a configured `distill` command is withheld is an item
+// ref that does not parse.
 func TestLoadDistillPrompt_AlwaysYieldsAUsablePrompt(t *testing.T) {
 	require.NotEmpty(t, defaultDistillPrompt, "the embedded fallback is the whole reason absence needs no error")
 
@@ -341,11 +343,10 @@ func reloaded(t *testing.T) *config.Config {
 	return cfg
 }
 
-// isolatedHome points $HOME at a fresh temp dir for one test. The USER
-// countersignature store is resolved from $HOME (paths.HomeApprovalsPath), so a
-// test that records a rejection writes into the developer's real ~/.ctxloom and
-// leaks that decision into every later test in the package unless HOME moves
-// first.
+// isolatedHome points $HOME at a fresh temp dir for one test, so anything the
+// command resolves from $HOME reads and writes a throwaway ~/.ctxloom rather
+// than the developer's real one, and nothing one test leaves there reaches a
+// later test in the package.
 func isolatedHome(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
@@ -356,12 +357,12 @@ func isolatedHome(t *testing.T) {
 // returns early and the prompt is never resolved at all.
 const distillProjectYAML = "schema_version: 7\nllm:\n  configs:\n    fast: { type: claude-code, model: haiku }\n  defaults:\n    fast: fast\n"
 
-// TestBundleDistill_TrustedPromptIsNotRefused is the negative control for the
-// test above: the SAME project with the SAME configured prompt, only NOT
-// withheld, must not be refused, and the distiller must carry the CONFIGURED
-// bytes. Without it, a fix that refused whenever a `distill` command exists at
-// all — or one that refused and then used the default anyway — would pass.
-func TestBundleDistill_TrustedPromptIsNotRefused(t *testing.T) {
+// TestBundleDistill_ConfiguredPromptIsUsed: a project with a deliverable
+// `distill` command must not be refused, and the constructed distiller must
+// carry the CONFIGURED bytes. Without it, a refusal whenever a `distill`
+// command exists at all — or a refusal that then used the default anyway —
+// would pass.
+func TestBundleDistill_ConfiguredPromptIsUsed(t *testing.T) {
 	isolatedHome(t)
 	agentProject(t, distillProjectYAML)
 	cfg, err := GetConfig()
@@ -369,7 +370,7 @@ func TestBundleDistill_TrustedPromptIsNotRefused(t *testing.T) {
 	cfg = seedDistillCommand(t, cfg)
 
 	d, err := newLLMDistiller(cfg, "fast")
-	require.NoError(t, err, "an admitted prompt is not a refusal")
+	require.NoError(t, err, "a deliverable configured prompt is not a refusal")
 	require.NotNil(t, d)
 	assert.Equal(t, distillCommandBody, d.prompt, "the configured prompt is what gets used")
 }

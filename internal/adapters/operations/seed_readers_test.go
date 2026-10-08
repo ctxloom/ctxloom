@@ -23,8 +23,8 @@ import (
 // reads: one reader per ref, over the bundle's own YAML bytes.
 //
 // It exists because no exported constructor lets a caller mint a provenance —
-// deliberately, since one that did would be a trust bypass wearing a struct
-// literal. So a test that wants content in a loader supplies BYTES and lets the
+// deliberately, since one that did would let a struct literal claim a source
+// it was not read from. So a test that wants content in a loader supplies BYTES and lets the
 // reader establish the facts, exactly as a session does.
 //
 // THE SEED KEY DECIDES WHICH READER. A canonical ref is pinned REMOTE content
@@ -85,7 +85,7 @@ func seedLoader(t *testing.T, seed map[string]*bundles.Bundle) *bundles.Loader {
 
 // seedRepoURL is the publisher repository a seeded ref claims to have come
 // from: the canonical ref's own prefix, so a fixture claims the origin it names
-// rather than a constant that could disagree with the ref trust keys on.
+// rather than a constant that could disagree with the ref's source identity.
 //
 // A tree read opens a content store, and content.Provenance REFUSES to default
 // a remote origin, so this is required rather than decorative.

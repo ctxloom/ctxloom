@@ -50,8 +50,8 @@ func TestGitignore_ReadsAndWritesThroughTheGivenFs(t *testing.T) {
 	})
 
 	t.Run("RetireWorktreeConfigBlock", func(t *testing.T) {
-		fsys := seed(t, "keep\n"+WorktreeComment+"\n"+WorktreeArtifactPatterns[0]+"\n")
-		changed, err := RetireWorktreeConfigBlock(fsys, root)
+		fsys := seed(t, "keep\n"+WorktreeComment+"\n"+CtxloomWorktreePatterns[0]+"\n")
+		changed, err := RetireWorktreeConfigBlock(fsys, root, CtxloomWorktreePatterns)
 		require.NoError(t, err)
 		require.True(t, changed)
 	})

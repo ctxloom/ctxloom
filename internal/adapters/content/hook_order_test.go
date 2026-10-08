@@ -95,8 +95,9 @@ func TestHookOrder_TiesBreakByName(t *testing.T) {
 // TestHook_OrderLivesInTheSidecarNotTheContentFile pins residency. `order` is
 // OURS, not the hook's behavioural configuration, and encodeExecItem's rule is
 // that our keys never pollute a content file. Equally load-bearing: the sidecar
-// is a COMPONENT, so it is hashed — an order change stales that hook's own
-// countersignature, which is correct, rather than riding along unattested.
+// is a COMPONENT of that hook's own form, so an order change is a change to
+// that hook's files (disclosed as such by the `deps upgrade` diff) and to no
+// other hook's.
 func TestHook_OrderLivesInTheSidecarNotTheContentFile(t *testing.T) {
 	comps := encodeHook(t, Hook{
 		Event: "pre_tool", Name: "guard", Type: "command", Command: "echo hi", Order: intp(300),
@@ -124,7 +125,7 @@ func TestHook_OrderLivesInTheSidecarNotTheContentFile(t *testing.T) {
 
 // TestHook_NoOrderWritesNoSidecar: absence must be represented by the ABSENCE of a
 // file, not by a sidecar saying nothing. An empty `{}` sidecar per hook would be
-// bytes in the digest that mean nothing, and would make "authored before the
+// component bytes that mean nothing, and would make "authored before the
 // field" indistinguishable from "deliberately unordered".
 func TestHook_NoOrderWritesNoSidecar(t *testing.T) {
 	comps := encodeHook(t, Hook{Event: "pre_tool", Name: "guard", Type: "command", Command: "x"})
@@ -156,7 +157,7 @@ func TestHook_OrderRoundTripsThroughTheTree(t *testing.T) {
 	}
 
 	// And the sidecar must be a COMPONENT of the item, or its bytes are in the
-	// tree, outside the digest, explained by nothing.
+	// tree, outside the item, explained by nothing.
 	comps := mustComponents(t, item)
 	if _, meta := splitHookComponents(comps); meta == nil {
 		t.Fatalf("components = %v, want the order sidecar among them", componentPaths(comps))
@@ -217,8 +218,9 @@ func mustComponents(t *testing.T, item Item) []Component {
 
 // TestHook_InsertingAHookLeavesItsNeighboursBytesUntouched is the property the
 // whole change exists for. Under the retired `<NN>-<slug>` scheme, inserting a
-// hook renumbered every hook below it: their FILENAMES changed, their bytes moved,
-// and their countersignatures staled for a change they did not make.
+// hook renumbered every hook below it: their FILENAMES changed and their bytes
+// moved, so every neighbour showed up as changed (in git history and in the
+// `deps upgrade` diff) for a change it did not make.
 //
 // With order as data and SPARSE spacing, an insert writes exactly one new file and
 // one new sidecar. Nothing else in the event is touched.
@@ -263,8 +265,7 @@ func TestHook_InsertingAHookLeavesItsNeighboursBytesUntouched(t *testing.T) {
 
 // TestHook_ExecArgsRoundTripThroughTheTree: an exec-form hook's argument
 // list survives encode → filesystem → walk → decode, and a shell-form hook's
-// content file carries no args key, so its bytes (and digest) are what they
-// were.
+// content file carries no args key, so its bytes are what they were.
 func TestHook_ExecArgsRoundTripThroughTheTree(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)

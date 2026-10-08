@@ -16,8 +16,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // materializeFlags is one invocation's flags.

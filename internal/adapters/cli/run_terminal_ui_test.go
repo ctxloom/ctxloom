@@ -17,10 +17,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 func TestValidateTerminalUIConfig_BadKeyIsFatalFinding(t *testing.T) {

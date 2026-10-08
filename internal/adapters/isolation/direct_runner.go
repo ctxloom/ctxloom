@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // StartRunner launches the engine runner INSIDE a container via a plain

@@ -2,7 +2,7 @@ package cli
 
 import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 	"github.com/spf13/afero"
 )
 

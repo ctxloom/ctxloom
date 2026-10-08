@@ -21,7 +21,7 @@ import (
 // invokes the child's RunE directly, and cobra only merges a command's
 // inherited persistent flags during ParseFlags — which the child, never having
 // been dispatched to, never runs. So the child's own Flags() had no "format"
-// at all and cliemit.Resolve fell through to text.
+// at all and cobrafmt.Resolve fell through to text.
 func TestGroupNodeDefault_BareNounHonorsFormat(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
@@ -44,8 +44,8 @@ func TestGroupNodeDefault_BareNounHonorsFormat(t *testing.T) {
 //
 // It asks for `--format text` outright. An unset --format is resolved against
 // stdout, and a test binary's stdout is never a terminal, so the default lands
-// machine-readable here — that default is cliemit's contract (pinned by
-// cliemit.TestResolve_DefaultFollowsTTY) and cannot be presented from this
+// machine-readable here — that default is cobrafmt's contract (pinned by
+// cobrafmt.TestResolve_DefaultFollowsTTY) and cannot be presented from this
 // package. What is unique to this path, and covered nowhere else, is that a
 // bare noun reaches the text renderer at all: the same structural gap the test
 // above closes could just as easily leave the human table unreachable, and an

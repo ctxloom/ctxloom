@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"

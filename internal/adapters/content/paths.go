@@ -15,11 +15,13 @@ import (
 // dot-prefixing machinery. That choice carries a trap worth stating at the
 // definition: dotfiles are excluded by default in much glob and walk code —
 // filepath.Glob("*") does not match them. A walker that misses a sidecar drops
-// it from the digest, and declared executability then silently stops being
-// attested while every signature still verifies and everything looks green.
-// The tree walker in this package therefore reads directories directly and
-// never globs, and there is a test asserting a dot-prefixed sidecar appears in
-// Components AND changes Content.
+// it from the item, and the executability it declares then silently stops
+// reaching Component.Mode — scripts install non-executable while everything
+// looks green. The tree walker in this package therefore reads directories
+// directly and never globs, and a test
+// (TestSkill_DotPrefixedSidecarIsAComponentAndDeclaresExecutability) asserts a
+// dot-prefixed sidecar appears in Components AND its declaration reaches
+// Component.Mode.
 const MetaSuffix = ".meta.yaml"
 
 // MetaPath returns the metadata sidecar path for a content component path.
@@ -40,7 +42,7 @@ func MetaPath(contentPath string) string {
 // produce "hooks/.pre_tool/guard.meta.yaml" — a HIDDEN DIRECTORY holding a file
 // that IsMetaPath does not recognise, so the walker would neither group it into
 // the item nor refuse it. That is the shape in which bytes ride along a tree
-// unattested, which is exactly what sidecar recognition exists to prevent.
+// outside any item, which is exactly what sidecar recognition exists to prevent.
 func MetaPathForName(dir, name string) string {
 	parent, base := path.Split(name)
 	return dir + "/" + parent + "." + base + MetaSuffix

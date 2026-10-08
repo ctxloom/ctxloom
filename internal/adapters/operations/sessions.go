@@ -13,9 +13,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // Session operations wrap the harp-keyed session store so frontends never

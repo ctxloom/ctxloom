@@ -10,15 +10,13 @@
 package main
 
 import (
-	"fmt"
-	"io"
 	"os"
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/logboot"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // Version is set at build time via ldflags (package main), e.g.
@@ -31,11 +29,6 @@ var Version = "dev"
 // newRootCmd assembles the ltk command tree. It is a factory rather than an
 // inline root so the documentation generator can walk exactly the tree the
 // binary runs (`just gen-docs`; see docs_gen.go).
-// formatFlagUsage is --format's help. Its default is derived, not fixed —
-// cliemit.Resolve answers text on a terminal and json off one — so the flag is
-// registered with an empty default and the usage says what an unset flag does.
-const formatFlagUsage = "Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)"
-
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   progName,
@@ -55,46 +48,16 @@ path in .gitmodules, so one rule blocks edits inside all git submodules.
 
 On a denial the agent is handed your message and suggested alternative so it can
 retry the right way. See https://ctxloom.dev/ltk/rules/ for the full rule model.`,
-		Version:       Version,
-		SilenceUsage:  true,
-		SilenceErrors: true,
+		Version:      Version,
+		SilenceUsage: true,
+		// A machine-readable run carries machine-readable warnings too.
+		PersistentPreRun: func(cmd *cobra.Command, _ []string) { cobrafmt.ApplyDiagnostics(cmd) },
 	}
-	root.PersistentFlags().String("format", "", formatFlagUsage)
+	cobrafmt.AddFlag(root)
 	schemaver.BindWriteUpgrades(root.PersistentFlags())
 	root.AddCommand(newEvaluateCmd(), newCheckCmd(), newManageCmd(), newVersionCmd(), newLoadoutCmd())
 	registerDocsCmd(root)
 	return root
-}
-
-// reportExecuteError writes a terminal error on w in the format the invocation
-// selected. json/yaml/toml go through the shared cliemit filter, so a caller
-// reading a machine-readable stream gets a parseable {"error": "..."} envelope
-// for the failure rather than a human sentence that ends its parse on the one
-// event it most needs to handle.
-//
-// text and markdown keep the "ltk: <err>" line verbatim. The family's other
-// binaries print "Error: <msg>" there, but ltk has always named itself instead,
-// and that line is what a terminal and any script grepping stderr sees today;
-// aligning the wording is a separate, human-visible change and not this one.
-//
-// root is the command that OWNS --format, which is why the flag is resolved
-// against it and not against whatever subcommand failed (see cliemit.Resolve's
-// ordering note). An unresolvable --format reads as not-structured and keeps
-// the human line: a format that will not parse must not cost the caller the
-// original error.
-func reportExecuteError(w io.Writer, root *cobra.Command, err error) {
-	// Explicit gates this, not Resolve alone. Resolve DERIVES a format from
-	// stdout not being a terminal, and a derived format is not a request — so
-	// without this gate every piped or redirected `ltk` lost its "ltk: <err>"
-	// line to a structured envelope nobody asked for, which is exactly what the
-	// guard below this function's own doc promises cannot happen.
-	if format, ferr := cliemit.Resolve(root); cliemit.Explicit(root) && ferr == nil && format.Structured() {
-		// EmitError only fails when w does, and w is the only channel that
-		// failure could have been reported on.
-		_ = cliemit.EmitError(w, root, err)
-		return
-	}
-	fmt.Fprintln(w, progName+":", err)
 }
 
 func main() {
@@ -104,14 +67,11 @@ func main() {
 	// is exactly the output the sink exists to keep off that surface.
 	flush := logboot.Install("ltk", false)
 
-	root := newRootCmd()
-	err := root.Execute()
-	if err != nil {
-		reportExecuteError(os.Stderr, root, err)
-	}
+	// Execute reports a failure in the family's form ("ltk: <msg>", or an
+	// envelope under an explicit structured --format) and returns the status;
+	// it never exits, so the flush below still runs.
+	code := cobrafmt.Execute(newRootCmd(), progName, os.Stderr)
 	// Flushed as a plain statement before the exit; see logboot.Install.
 	flush()
-	if err != nil {
-		os.Exit(1)
-	}
+	os.Exit(code)
 }

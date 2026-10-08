@@ -36,8 +36,8 @@ type Catalog struct {
 	// reader stamps from WHERE the bundle was read, never from what it
 	// declares — so two bundles that share a declared name under different
 	// URIs are two entries, both listed, both loadable, both independently
-	// trustable. Resolution and trust land on one string by construction
-	// rather than by agreement between two maps.
+	// addressable. Resolution and source identity land on one string by
+	// construction rather than by agreement between two maps.
 	//
 	// A read whose SourceRef is the zero BundleRef (unaddressable — see
 	// Ref.AsBundleRef for when a mint fails) is NOT entered: it has no

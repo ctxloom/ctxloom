@@ -20,9 +20,10 @@ instructions for the LLM: fold the additions into the agent image's base
 when the project has none) as a diff, get the user's explicit approval per
 change, then rebuild ('ctxloom container build').
 
-Collection is TRUST-GATED: a rejected companion's declaration is withheld
-like any other gated content, and nothing is ever applied automatically on
-pull/sync — the edit is the LLM's, gated by the user.
+Only companions you registered ('ctxloom companion add') contribute: an
+unregistered companion on PATH is never run, so it declares nothing, and
+project or remote bundles carry no tooling declaration at all. Nothing is ever
+applied automatically on pull/sync — the edit is the LLM's, gated by the user.
 
 ```
 ctxloom container tooling [flags]

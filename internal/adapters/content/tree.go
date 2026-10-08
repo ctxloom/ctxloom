@@ -122,7 +122,7 @@ func (s *TreeStore) beginWrite(ctx context.Context) error {
 }
 
 // osPath resolves a store-relative slash path to a native path for the WRITE
-// side. Only writer.go and the signature writer use it; every read goes through
+// side. Only writer.go uses it; every read goes through
 // the TreeFS.
 func (s *TreeStore) osPath(rel string) string {
 	return filepath.Join(s.root, filepath.FromSlash(rel))
@@ -500,12 +500,12 @@ func (b *treeBundle) readDir(relDir string) ([]TreeEntry, error) {
 // filesUnder lists every regular file below relDir, bundle-relative and sorted.
 //
 // It recurses through readDir rather than globbing: filepath.Glob("*") does not
-// match dot-prefixed names, and a sidecar missed here would silently leave the
-// digest. The depth cap is the one thing the old afero.Walk got for free from
+// match dot-prefixed names, and a sidecar missed here would silently drop out
+// of its item. The depth cap is the one thing the old afero.Walk got for free from
 // the filesystem and this does not: a TreeFS is a pair of functions, and a
 // hostile or buggy backend can describe a tree that nests forever. It is
 // therefore an ERROR rather than a silent stop, because a silent stop is a file
-// that leaves the digest.
+// that silently drops out of its item.
 func (b *treeBundle) filesUnder(relDir string) ([]string, error) {
 	out, err := b.appendFilesUnder(nil, relDir, 0)
 	if err != nil {
@@ -584,7 +584,7 @@ func (i *treeItem) Form(ctx context.Context, f ident.ContentForm) (Form, error) 
 	return &treeForm{item: i, form: f, forms: forms}, nil
 }
 
-// treeForm is one attestable form of one item.
+// treeForm is one form of one item.
 type treeForm struct {
 	item  *treeItem
 	form  ident.ContentForm
@@ -598,7 +598,7 @@ func (f *treeForm) Surface(ctx context.Context) (Surface, error) { return f.item
 // Components returns this form's components with their exact stored bytes.
 //
 // The bytes come from the filesystem, never from re-encoding the decoded
-// surface: a re-serialization would attest what this build of ctxloom would have
+// surface: a re-serialization would deliver what this build of ctxloom would have
 // written rather than what the publisher actually shipped. The MODE, by
 // contrast, is a declaration, so it is read back through the type's own Encode —
 // which is where a type states its declared modes — and applied to the stored

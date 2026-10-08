@@ -52,14 +52,16 @@ func TestRenderContainerCheck(t *testing.T) {
 	})
 }
 
-// TestRenderTooling covers both shapes: no declarations (the hint
-// about trust review) and collected declarations attributed to their bundles
-// under the instruction preamble.
+// TestRenderTooling covers both shapes: no declarations (the hint that only
+// registered companions contribute) and collected declarations attributed to
+// their bundles under the instruction preamble.
 func TestRenderTooling(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		var buf bytes.Buffer
 		assert.NoError(t, renderTooling(&buf, nil))
 		assert.Contains(t, buf.String(), "No registered companion declares container tooling")
+		assert.Contains(t, buf.String(), "ctxloom companion add", "the hint names how a companion gets registered")
+		assert.NotContains(t, buf.String(), "rejected", "nothing is rejected: registration is the only filter")
 	})
 
 	t.Run("declarations", func(t *testing.T) {
@@ -117,7 +119,7 @@ func TestContainerCheckConfigGap(t *testing.T) {
 
 // TestDiagnosticCommandsDoNotPromiseAnUnconditionalZeroExit pins that
 // `container check` and `doctor` both advertised "always exits 0", yet both
-// end in `return emit(...)`, which propagates cliemit.Resolve's error for an
+// end in `return emit(...)`, which propagates cobrafmt.Resolve's error for an
 // unrenderable --format (pinned by TestEmit_UnknownFormat_WrapsErrUnsupported
 // Format in format_test.go), and `container check` also rejects an unknown
 // backend argument. A promise of exit 0 invites `ctxloom doctor || exit 1`

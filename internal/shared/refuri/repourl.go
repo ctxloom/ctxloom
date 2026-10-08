@@ -45,7 +45,7 @@ func isRelativePath(raw string) bool {
 
 // This file is the ONE place the repo-URL grammar lives.
 //
-// The concerns below are legitimately distinct — a trust key is not a clone
+// The concerns below are legitimately distinct — an identity key is not a clone
 // argument is not a cache path — but each re-deriving "what shape is this
 // string?" is how derivations come to disagree. Two shorthand arms with
 // different guards is a bug you cannot see in either file alone.
@@ -54,7 +54,7 @@ func isRelativePath(raw string) bool {
 //
 //	ParseRepoURL(raw) (RepoURL, error)   the grammar
 //	  .Normalized()  string              stored    -> the spelling remotes.yaml keeps
-//	ParseRepoIdentity / CanonicalRepoURL identity  -> trust namespace, lockfile keys (repoidentity.go)
+//	ParseRepoIdentity / CanonicalRepoURL identity  -> lockfile keys, registered-remote match (repoidentity.go)
 //	  .CloneArg()    string              transport -> what git receives
 //	  .CacheSegments() ([]string, error)  filesystem -> cache path segments
 //	  .Kind()        SourceKind          dispatch  -> local / companion / remote
@@ -110,7 +110,7 @@ const (
 	// or carries neither host nor path ("https://"). It is echoed back
 	// unchanged: inventing structure for it would turn a degenerate input into
 	// a plausible-looking URL, and every consumer of that answer is one that
-	// clones, deletes or trust-keys whatever it is handed.
+	// clones, deletes or keys a lockfile entry on whatever it is handed.
 	formVerbatim
 )
 
@@ -133,7 +133,7 @@ type RepoURL struct {
 	//
 	// This is not fastidiousness, it is the one place this refactor could
 	// have failed OPEN. Folding "file:///srv/repo/" onto "file:///srv/repo"
-	// would move that repository's trust-namespace key, and unlike the
+	// would move that repository's identity key, and unlike the
 	// scheme-less spellings this change deliberately re-keys, a file://,
 	// ssh:// or git:// URL names a repository that REALLY EXISTS — so a
 	// record keyed under the old spelling could exist, and a moved key is a
@@ -267,8 +267,8 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 // refusePathSpelling refuses raw when it is spelled as a filesystem path:
 // absolute, relative, or home-relative. Every arm of ParseRepoURL would trim
 // a leading "/" or read "." or "~" as a host or a GitHub owner, turning a
-// local repository into a network URL — one that is fetched, trust-keyed and
-// may well exist under someone else's control.
+// local repository into a network URL — one that is fetched, keyed in the
+// lockfile and may well exist under someone else's control.
 func refusePathSpelling(raw string) error {
 	switch {
 	case strings.HasPrefix(raw, "/"):
@@ -364,10 +364,12 @@ func (r RepoURL) Kind() SourceKind { return r.kind }
 // shorthand, scheme-less host paths and http all render as https. Which
 // transport reached a repository is a statement about the caller's
 // CREDENTIALS — an ssh key versus a token — and a user who switches remotes
-// from git@ to https has not changed which repository they are addressing, so
-// they must not lose their approvals or escape their rejections by doing it.
-// Do not add a transport dimension here or to trust.BundleRef's ClassGit,
-// which abstracts the same thing for the same reason.
+// from git@ to https has not changed which repository they are addressing.
+// The canonical identity keys that repository's lockfile entries and decides
+// whether a reference matches a registered remote (remote.SameRepository), so
+// a transport switch that moved the key would orphan its pins and holds and
+// let one repository register twice. Do not add a transport dimension here or
+// to ident.ClassGit, which abstracts the same thing for the same reason.
 //
 // EVERY OTHER SPELLING IS PRESERVED byte-exact, including a ".git" suffix, on
 // every scheme. The two rules are one rule applied twice: fold what is

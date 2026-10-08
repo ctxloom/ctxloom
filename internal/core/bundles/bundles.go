@@ -55,9 +55,9 @@ type Bundle struct {
 	// Addressed by "<bundle>#profiles/<name>" (refuri.ProfileSelector) and seeded
 	// into the shared profile loader so a bundle profile resolves/runs exactly
 	// like a top-level or local profile (config bundle-profile seed). The profile
-	// DEFINITION is never trust-gated (no ident.ItemKind for profiles, never
-	// baselined); its constituent fragments/commands still gate at content
-	// assembly and any mcp/hooks it pulls in still gate at the exec choke.
+	// DEFINITION is not an item (no ident.ItemKind for profiles), so the
+	// delivery pipeline never withholds it; its constituent fragments/commands
+	// still pass through that pipeline at assembly.
 	Profiles map[string]BundleProfile `yaml:"profiles,omitempty"`
 
 	// Hooks shipped with this bundle (e.g. PostFileEdit plan-stamping).
@@ -86,21 +86,21 @@ type Bundle struct {
 	// silently yielding "." (see FSDir's doc for what that cost).
 	Path string `yaml:"-"` // File path for saving; see FSDir before using as one
 	// sourceRef is the bundle's LOCATION-DERIVED canonical ref, and it is the
-	// sole input to contentSourceRef — the content trust key. Every shape it
+	// sole input to contentSourceRef — the bundle's source identity. Every shape it
 	// takes is decided by WHERE the bundle was found, never by what it says
 	// about itself: the class-appropriate minter's BundleRef for a remote
 	// (cloned) source, a companion loadout (ident.CompanionRef), and the
 	// path-relative resolution
-	// name for a bundle in the project's own tree (ident.LocalRef) — the
-	// last of those is what lets project content auto-trust.
+	// name for a bundle in the project's own tree (ident.LocalRef).
 	//
 	// newRead stamps the resolution ref here whenever a reader left it empty,
 	// so it is never empty on a read a reader emitted. That backstop is a
 	// SECURITY property, not tidiness: Bundle.Name is declared in the bundle's
 	// own YAML (`name:`), so falling back to it would let the content being
-	// judged choose its own trust key — a project bundle declaring
-	// `name: ctxloom:companion@ltk` would claim the companion's trust identity, and
-	// a bundle that renamed itself would move off its own recorded decisions.
+	// addressed choose its own source identity — a project bundle declaring
+	// `name: ctxloom:companion@ltk` would claim the companion's identity (its
+	// item refs and its MCP server linkage), and a bundle that renamed itself
+	// would move off its own lockfile entry.
 	// The declared name is CONTENT, and therefore never an input to the
 	// identity it is keyed under.
 	//
@@ -118,9 +118,9 @@ type Bundle struct {
 	// BundleRef is therefore a REACHABLE, meaningful value — a mint that
 	// failed (an unfoldable repo-URL spelling — see Ref.AsBundleRef's doc) —
 	// not merely "unset"; BundleRead.SourceRef reports it as-is rather than
-	// guessing, and a producer minting an item ref from it must degrade to a
-	// stable, well-formed address rather than withhold silently (see
-	// operations.CountersignRef's identical fallback).
+	// guessing, and a producer minting an item ref from it gets ItemRefFor's
+	// error and drops that item (warnUnmintableSource has already named the
+	// spelling that failed) rather than inventing a stand-in address.
 	//
 	// Because the zero value is reachable and meaningful, "has a reader
 	// already stamped this" cannot be read off sourceRef itself — a failed
@@ -143,29 +143,28 @@ type Bundle struct {
 // intrinsic content, never installed; see companionReader.read.
 func (b *Bundle) Self() bool { return b.self }
 
-// contentSourceRef returns the bundle's honest source ref for content trust
-// gating: the canonical ref of a seeded (cloned) bundle, the CompanionRef of
-// a companion loadout, or the LocalRef of a project (fs) bundle. Locality
-// flows from this into the trust cascade, so a clone's TEXT gates like its
-// executables, a companion's TEXT carries the SAME identity whether it was
-// selected by ref or delivered unconditionally (two identities for one item
-// is how a rejection via one route fails to withhold the other), and a
-// project bundle's bare token keys IsLocal and auto-trusts. "Text to an LLM
-// is executable."
+// contentSourceRef returns the bundle's canonical source ref — its source
+// identity: the canonical ref of a seeded (cloned) bundle, the CompanionRef of
+// a companion loadout, or the LocalRef of a project (fs) bundle. Every item
+// ref the bundle's content is addressed by is built from it, so a companion's
+// TEXT carries the SAME identity whether it was selected by ref or delivered
+// unconditionally (two identities for one item is how one route's item stops
+// matching the other's).
 //
 // It reads sourceRef and NOTHING ELSE. In particular it must never fall back
 // to Bundle.Name: Name is DECLARED in the bundle's own YAML, so a fallback
-// would make the content being judged an input to its own trust key — a
-// project bundle declaring `name: ctxloom:companion@ltk` would key as the companion
-// and inherit its grants. newRead stamps the location-derived resolution ref
+// would make the content being addressed an input to its own source identity
+// — a project bundle declaring `name: ctxloom:companion@ltk` would key as the
+// companion and inherit its MCP server linkage. newRead stamps the location-derived resolution ref
 // into sourceRef for every read a reader emits, so there is nothing for a
 // fallback to do but reopen that hole (outdated-recoil).
 //
 // That last sentence is measured, not assumed, and it is why NO test can be
 // written that dies to restoring the fallback here on its own: with newRead
 // stamping, the fallback is unreachable. Its removal is trap removal — the
-// stamp is the load-bearing half, and the tests that die are the ones that die
-// when the stamp goes (internal/adapters/operations/declared_name_trust_test.go).
+// stamp is the load-bearing half. The test that died when the stamp went
+// (operations' declared_name_trust_test.go) was deleted with the trust gate,
+// so today nothing pins the stamp end to end.
 func (b *Bundle) contentSourceRef() ident.BundleRef {
 	if b == nil {
 		return ident.BundleRef{}
@@ -192,7 +191,7 @@ var nonFilesystemPathPrefixes = []string{remotePathSentinel, "<remote-version>:"
 //   - filepath.Dir("") is ".", and so is filepath.Dir("<seeded>:some-bundle")
 //     (no separator in it). A companion or seeded bundle's files therefore
 //     resolved against the PROCESS WORKING DIRECTORY — whatever happened to sit
-//     at ./skills/<name> was loaded, trust-gated and materialized AS that
+//     at ./skills/<name> was loaded and materialized AS that
 //     bundle's content. Arbitrary project-local files, adopted under a
 //     bundle's identity.
 //   - filepath.Dir("<remote>:some/bundle@sha") is "<remote>:some", a garbage
@@ -222,8 +221,12 @@ func (b *Bundle) FSDir() (string, error) {
 // operations boundary, not hand-authored). The conversion to wire.Hook lives in
 // config.ResolveBundleHooks.
 type BundleHook struct {
-	Matcher string `yaml:"matcher,omitempty"`
-	Command string `yaml:"command,omitempty"`
+	// Tool narrows a tool event to one neutral tool class (wire.ToolClass —
+	// shell, file_edit, skill). It is the ONLY narrowing a bundle declares:
+	// an engine-native matcher would name one engine's tools, so each
+	// engine's hooks approach maps the class to its own (agent.BindHooks).
+	Tool    wire.ToolClass `yaml:"tool,omitempty"`
+	Command string         `yaml:"command,omitempty"`
 	// Args, when set, runs the hook in exec form: Command is the executable,
 	// spawned with these arguments and no shell (wire.Hook.Args).
 	Args    []string `yaml:"args,omitempty"`
@@ -277,7 +280,7 @@ func (h BundleHooks) HasAny() bool {
 }
 
 // Hook event names. They double as the stable event component of a bundle
-// hook's trust identity ("<bundle>#hooks/<event>/<index>") and as the canonical
+// hook's identity ("<bundle>#hooks/<event>/<index>") and as the canonical
 // iteration order below, and match the BundleHooks YAML field tags.
 const (
 	HookEventPreTool      = wire.HookEventPreTool
@@ -287,23 +290,36 @@ const (
 	HookEventPreShell     = wire.HookEventPreShell
 	HookEventPostFileEdit = wire.HookEventPostFileEdit
 	// HookEventTurnEnd and HookEventTurnStart are APPENDED to hookEventOrder
-	// rather than slotted in beside their siblings: that order is a hook's
-	// trust identity ("<bundle>#hooks/<event>/<index>" is per-event, but
+	// rather than slotted in beside their siblings: that order is part of a
+	// hook's identity ("<bundle>#hooks/<event>/<index>" is per-event, but
 	// Entries() walks this slice), and inserting an event mid-list would
-	// renumber nothing while still reordering every hook report against a
-	// baselined one. TestBundleHooks_TrustIdentityIsStableUnderVocabularyGrowth
+	// renumber nothing while still reordering every hook report against the
+	// previous one. TestBundleHooks_IdentityIsStableUnderVocabularyGrowth
 	// holds the baseline.
 	HookEventTurnEnd   = wire.HookEventTurnEnd
 	HookEventTurnStart = wire.HookEventTurnStart
 )
 
 // hookEventOrder is the canonical event order for hook identity + enumeration.
-// Entries() and hook extraction both walk it so a baselined hook's ref matches
+// Entries() and hook extraction both walk it so a reported hook's ref matches
 // the one extraction addresses. A new event goes LAST.
 var hookEventOrder = []string{
 	HookEventPreTool, HookEventPostTool, HookEventSessionStart,
 	HookEventSessionEnd, HookEventPreShell, HookEventPostFileEdit,
 	HookEventTurnEnd, HookEventTurnStart,
+}
+
+// checkHookTools refuses a hook narrowed to a tool class outside the neutral
+// vocabulary (wire.ToolClasses), naming the hook and the classes it may use.
+func (h BundleHooks) checkHookTools() error {
+	for _, event := range hookEventOrder {
+		for i, hook := range h.eventHooks(event) {
+			if hook.Tool != "" && !hook.Tool.Known() {
+				return fmt.Errorf("hooks.%s[%d]: tool %q is not a tool class; use one of %s", event, i, hook.Tool, wire.ToolClassList())
+			}
+		}
+	}
+	return nil
 }
 
 // eventHooks returns the hook slice for an event (nil for an unknown event).
@@ -329,7 +345,7 @@ func (h BundleHooks) eventHooks(event string) []BundleHook {
 	return nil
 }
 
-// HookEntry is one bundle hook paired with its stable trust identity: the event
+// HookEntry is one bundle hook paired with its stable identity: the event
 // it fires on and its index within that event's list. Bundle hooks are an
 // ordered list with no author-given name, so (event, index) is the addressable
 // identity a hook is addressed by.
@@ -340,15 +356,15 @@ type HookEntry struct {
 }
 
 // ID returns the stable per-hook identity "<event>/<index>", the <id> in the
-// trust ref "<bundle>#hooks/<id>". The index is the hook's authored position in
+// ref "<bundle>#hooks/<id>". The index is the hook's authored position in
 // its event list.
 func (e HookEntry) ID() string {
 	return e.Event + "/" + strconv.Itoa(e.Index)
 }
 
 // Entries returns every bundle hook with its identity, in canonical event order
-// then authored index. Hook extraction (config.extractHooksFromBundle) and the
-// migration baseline both enumerate hooks through this scheme so the refs agree.
+// then authored index. Every hook report (bundle listing, pin-change diffs,
+// links) enumerates hooks through this scheme so the refs agree.
 func (h BundleHooks) Entries() []HookEntry {
 	var out []HookEntry
 	for _, event := range hookEventOrder {
@@ -357,25 +373,6 @@ func (h BundleHooks) Entries() []HookEntry {
 		}
 	}
 	return out
-}
-
-// EntryByID resolves a hook identity ("<event>/<index>") back to its entry. It
-// reports ok=false for a malformed id or an out-of-range index — fail-closed: an
-// unresolvable hook hashes to nothing and gates.
-func (h BundleHooks) EntryByID(id string) (HookEntry, bool) {
-	event, idxStr, found := strings.Cut(id, "/")
-	if !found {
-		return HookEntry{}, false
-	}
-	idx, err := strconv.Atoi(idxStr)
-	if err != nil || idx < 0 {
-		return HookEntry{}, false
-	}
-	hooks := h.eventHooks(event)
-	if idx >= len(hooks) {
-		return HookEntry{}, false
-	}
-	return HookEntry{Event: event, Index: idx, Hook: hooks[idx]}, true
 }
 
 // BundleMCP is the bundle-authoring shape of an MCP server: the wire.MCPServer
@@ -795,6 +792,12 @@ func ParseBundle(raw []byte) (*Bundle, error) {
 	// a malformed entry that loads cleanly reaches an engine writer as a server that cannot be launched or dialed, and the failure
 	// surfaces far from the typo that caused it.
 	if err := bundle.checkMCPTargets(); err != nil {
+		return nil, err
+	}
+
+	// A tool class no engine maps would fail every engine's hook binding at
+	// delivery, far from the typo. Refused here for the same reason.
+	if err := bundle.Hooks.checkHookTools(); err != nil {
 		return nil, err
 	}
 

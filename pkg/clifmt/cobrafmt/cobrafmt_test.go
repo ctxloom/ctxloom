@@ -1,9 +1,10 @@
-package cliemit
+package cobrafmt
 
 import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -62,10 +63,10 @@ func TestEmit_TextRunsClosure(t *testing.T) {
 	}
 	err := Emit(c, struct {
 		Name string `json:"name"`
-	}{Name: "x"}, func() error {
+	}{Name: "x"}, clifmt.WithWriter(clifmt.FormatText, func(io.Writer) error {
 		_, e := buf.WriteString("human line\n")
 		return e
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,10 +82,10 @@ func TestEmit_JSONRendersData(t *testing.T) {
 	}
 	err := Emit(c, struct {
 		Name string `json:"name"`
-	}{Name: "x"}, func() error {
+	}{Name: "x"}, clifmt.WithWriter(clifmt.FormatText, func(io.Writer) error {
 		t.Fatal("text closure must not run for json")
 		return nil
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +176,7 @@ func TestEmit_NilClosureOverEmptySliceIsNeverZeroBytes(t *testing.T) {
 		if err := c.Flags().Set("format", string(format)); err != nil {
 			t.Fatal(err)
 		}
-		if err := Emit(c, []string{}, nil); err != nil {
+		if err := Emit(c, []string{}); err != nil {
 			t.Fatalf("Emit(%s): %v", format, err)
 		}
 		if buf.Len() == 0 {

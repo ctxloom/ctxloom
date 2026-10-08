@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // EngineProcess is a runner process started for a resolved launch: up,
@@ -199,7 +199,7 @@ func (d dirtyFileList) writeTo(b *strings.Builder) {
 // counts as noise": this codebase's own per-agent worktree preparation
 // already writes the delivered-surface noise that would otherwise make this
 // gate unusable into the shared common-dir .git/info/exclude
-// (gitignore.WorktreeArtifactPatterns, written by
+// (isolation.WorktreeArtifactPatterns, written by
 // Worktree.excludeConfigFromMerge), and the tracked .gitignore separately
 // covers the generated living-docs journeys. Once a repo has
 // prepared even ONE agent worktree, that noise is invisible to `git status

@@ -15,9 +15,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // This file wires the agent-observation terminal layer (internal/adapters/termui +

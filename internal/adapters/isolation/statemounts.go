@@ -10,9 +10,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	taskpaths "github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // SessionState is the run's session identity threaded into the isolation seam:

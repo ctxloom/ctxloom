@@ -3,8 +3,9 @@
 An engine is an `engine.Engine` value (`internal/core/engine`): its
 `Definition` — one typed approach per surface kind, the modes and their argv
 grammars, the permission facts, the export schema, the version command
-(`Definition.Version`) and the hook events it declares it cannot carry
-(`Definition.HookLosses`) — plus the instance half (`Instance`, `Home`,
+(`Definition.Version`), the hook events it declares it cannot carry
+(`Definition.HookLosses`) and the paths its delivery writes into a working
+tree (`Definition.ProjectArtifacts`) — plus the instance half (`Instance`, `Home`,
 `Container`, `Transcripts`, `Hooks`, `Exports`). Each engine package builds
 its kind in ONE plain constructor (`claude.Build`, `mock.Build`); the port
 and the conformance suite (`core/engine/conformance`) are the contract.
@@ -22,7 +23,12 @@ Definitions, `engines.NamesWhere(keep)` over the values. There is no
 package-level table anywhere else and no `init()`: adding an engine is
 creating its package, writing its constructor, and adding it to `Build`.
 
-The cells adapter reads engine facts by name through `isolation.Facts`;
+The cells adapter reads engine facts by name through `isolation.Facts`
+(among them each engine's `ProjectArtifacts`, which
+`isolation.WorktreeArtifactPatterns` unions with ctxloom's own
+`gitignore.CtxloomWorktreePatterns` into the per-agent worktree exclude set —
+the gitignore package names no engine's paths, and `tests/arch` holds it to
+that);
 the root that composed installs `isolation.RegistryFacts{Registry}` beside
 the registry (`cli.composeEngines`; a TestMain uses
 `enginefixture.MustComposeShipped()`). A test that stands a synthetic engine

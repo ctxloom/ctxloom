@@ -9,13 +9,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // unsetFormatCmd is a command whose --format is registered and never Set: the
-// invocation that asked for nothing, so cliemit.Resolve derives the format
+// invocation that asked for nothing, so cobrafmt.Resolve derives the format
 // from whether stdout is a terminal. Those are the arms these tests drive.
 func unsetFormatCmd(t *testing.T) (*cobra.Command, *bytes.Buffer) {
 	t.Helper()
@@ -33,12 +33,12 @@ func unsetFormatCmd(t *testing.T) (*cobra.Command, *bytes.Buffer) {
 // invocation piped is a script, and gets the structured treatment.
 func TestWantsNonTextOutput_FollowsTheTerminalWhenNothingWasAsked(t *testing.T) {
 	t.Run("terminal", func(t *testing.T) {
-		t.Cleanup(cliemit.OverrideTerminal(true))
+		t.Cleanup(cobrafmt.OverrideTerminal(true))
 		cmd, _ := unsetFormatCmd(t)
 		assert.False(t, wantsNonTextOutput(cmd), "a human at a terminal who asked for nothing is not a script")
 	})
 	t.Run("not a terminal", func(t *testing.T) {
-		t.Cleanup(cliemit.OverrideTerminal(false))
+		t.Cleanup(cobrafmt.OverrideTerminal(false))
 		cmd, _ := unsetFormatCmd(t)
 		assert.True(t, wantsNonTextOutput(cmd), "a piped invocation derives json, which a script parses")
 	})
@@ -49,7 +49,7 @@ func TestWantsNonTextOutput_FollowsTheTerminalWhenNothingWasAsked(t *testing.T) 
 func TestEmit_FollowsTheTerminalWhenNothingWasAsked(t *testing.T) {
 	withFormatGuardReset(t)
 	t.Run("terminal", func(t *testing.T) {
-		t.Cleanup(cliemit.OverrideTerminal(true))
+		t.Cleanup(cobrafmt.OverrideTerminal(true))
 		cmd, buf := unsetFormatCmd(t)
 		ran := false
 		require.NoError(t, emit(cmd, emitTestItem{Name: "abc"}, func() error { ran = true; return nil }))
@@ -57,7 +57,7 @@ func TestEmit_FollowsTheTerminalWhenNothingWasAsked(t *testing.T) {
 		assert.Empty(t, buf.String(), "nothing but the text closure may write")
 	})
 	t.Run("not a terminal", func(t *testing.T) {
-		t.Cleanup(cliemit.OverrideTerminal(false))
+		t.Cleanup(cobrafmt.OverrideTerminal(false))
 		cmd, buf := unsetFormatCmd(t)
 		require.NoError(t, emit(cmd, emitTestItem{Name: "abc"}, func() error {
 			t.Fatal("a piped invocation must not get the text rendering")
@@ -81,7 +81,7 @@ func TestPersistentPreRun_StructuredDiagnosticsFollowTheTerminal(t *testing.T) {
 		{"not a terminal", false, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			t.Cleanup(cliemit.OverrideTerminal(c.terminal))
+			t.Cleanup(cobrafmt.OverrideTerminal(c.terminal))
 			cmd, _ := unsetFormatCmd(t)
 			_ = rootCmd.PersistentPreRunE(cmd, nil)
 
@@ -97,7 +97,7 @@ func TestPersistentPreRun_StructuredDiagnosticsFollowTheTerminal(t *testing.T) {
 // through — none may refuse a human for a flag they never typed.
 func TestFormatGuards_PassAHumanAtATerminal(t *testing.T) {
 	withFormatGuardReset(t)
-	t.Cleanup(cliemit.OverrideTerminal(true))
+	t.Cleanup(cobrafmt.OverrideTerminal(true))
 	for name, guard := range map[string]func(*cobra.Command) error{
 		"checkFormatWasHonored":   checkFormatWasHonored,
 		"refuseUnsupportedFormat": refuseUnsupportedFormat,
@@ -105,7 +105,7 @@ func TestFormatGuards_PassAHumanAtATerminal(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			cmd, _ := unsetFormatCmd(t)
-			got, err := cliemit.Resolve(cmd)
+			got, err := cobrafmt.Resolve(cmd)
 			require.NoError(t, err)
 			require.Equal(t, clifmt.FormatText, got, "the seam must put Resolve on its terminal arm")
 			assert.NoError(t, guard(cmd))

@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // executeFailingUnderFormat drives the REAL command tree — newRootCmd, the one
@@ -20,10 +21,9 @@ import (
 // with --format set to format, and returns every byte the invocation put on the
 // error stream, main's own tail included.
 //
-// The tail is the point. ltk already silences cobra's error print, so the only
-// thing that ever describes a failure to the caller is reportExecuteError, and
-// the only way to know it honours --format is to run it behind a real Execute
-// with a real parsed flag.
+// The tail is the point: cobrafmt.Execute, which main uses, is the only thing
+// that describes a failure to the caller, and the only way to know it honours
+// --format is to run it over a real parsed flag.
 func executeFailingUnderFormat(t *testing.T, format string) string {
 	t.Helper()
 	root := newRootCmd()
@@ -37,11 +37,9 @@ func executeFailingUnderFormat(t *testing.T, format string) string {
 	root.SetErr(&buf)
 	root.SetArgs([]string{"zz-fail-under-test", "--format", format})
 
-	err := root.Execute()
-	if err == nil {
-		t.Fatal("the fixture command must fail; with no error there is no error path to pin")
+	if code := cobrafmt.Execute(root, progName, &buf); code != 1 {
+		t.Fatalf("exit %d: the fixture command must fail; with no error there is no error path to pin", code)
 	}
-	reportExecuteError(&buf, root, err)
 	return buf.String()
 }
 
@@ -65,10 +63,9 @@ func TestExecuteError_IsParseableUnderStructuredFormats(t *testing.T) {
 }
 
 // TestExecuteError_HumanLineIsUnchanged pins the other half. ltk has always
-// prefixed its terminal error with its own name rather than the family's
-// "Error:", and a script grepping for "ltk:" on stderr is a script this change
-// must not break: nobody who did not ask for a machine format should be able to
-// tell the tail was rewritten. Byte-for-byte, both human formats.
+// prefixed its terminal error with its own name, which is now the family's
+// form, and a script grepping for "ltk:" on stderr must not break.
+// Byte-for-byte, both human formats.
 func TestExecuteError_HumanLineIsUnchanged(t *testing.T) {
 	for _, format := range []string{"text", "markdown"} {
 		if got := executeFailingUnderFormat(t, format); got != "ltk: boom\n" {
@@ -84,7 +81,7 @@ func TestExecuteError_HumanLineIsUnchanged(t *testing.T) {
 // exitPinArgvEnv turns this test binary into ltk. When it is set, TestMain runs
 // the REAL main() with the variable's value as argv instead of running tests, so
 // the pin below observes main's own os.Exit — the one thing an in-process test
-// of reportExecuteError structurally cannot see, because os.Exit would take the
+// of the tail structurally cannot see, because os.Exit would take the
 // test binary down with it.
 const exitPinArgvEnv = "LTK_EXIT_PIN_ARGV"
 
@@ -92,10 +89,7 @@ func TestMain(m *testing.M) {
 	if argv, ok := os.LookupEnv(exitPinArgvEnv); ok {
 		os.Args = append([]string{progName}, strings.Fields(argv)...)
 		main()
-		// Reached only when Execute returned nil, which is exactly when the
-		// real binary falls off the end of main and the process exits 0.
-		// Mirroring that keeps a success indistinguishable from the real thing,
-		// so a pin expecting 1 fails loudly instead of hanging.
+		// main always exits with Execute's status; this is never reached.
 		os.Exit(0)
 	}
 	// Sandboxed: ltk's settings writes lock under the home lock directory
@@ -161,7 +155,7 @@ func TestExecuteError_ExitStatusIsUnchanged(t *testing.T) {
 
 // TestExecuteError_StructuredStreamIsParseableInTheRealProcess re-checks the
 // json envelope in the actual process rather than against an in-memory buffer.
-// The in-process test calls reportExecuteError directly; only this one proves
+// The in-process test drives cobrafmt.Execute itself; only this one proves
 // that main WIRES it — that the bytes a caller redirecting ltk's stderr
 // receives are the parseable ones.
 func TestExecuteError_StructuredStreamIsParseableInTheRealProcess(t *testing.T) {

@@ -1,4 +1,4 @@
-// Package trust owns the addressing and canonicalization primitives every
+// Package ident owns the addressing and canonicalization primitives every
 // bundle item is identified by: the item kinds (ItemKind), the item reference
 // (Ref), the canonical bundle-reference grammar (BundleRef) and the content
 // forms an item is served in (ContentForm). It holds no persisted state of its
@@ -96,8 +96,10 @@ func (k ItemKind) Noun() string {
 // item kind, and the item name.
 type Ref struct {
 	// RepoURL is the source repository URL (empty for local items). It is
-	// canonicalized via CanonicalRepoURL before keying so URL variants
-	// (scheme, .git, case, git@ vs https) name one repository.
+	// canonicalized via CanonicalRepoURL before keying so transport variants
+	// (scheme, git@ vs https, credentials, host case, default port) name one
+	// repository; a ".git" suffix and repository-path case are identity and
+	// are preserved (see refuri.Parse).
 	RepoURL string
 
 	// Bundle is the repo-relative bundle path, e.g. "code-quality" — NOT the

@@ -140,7 +140,7 @@ profiles:                           # Profiles shipped with the bundle,
 
 hooks:                              # Agent lifecycle hooks
   pre_tool:
-    - matcher: "Bash"
+    - tool: shell                   # a tool class: shell, file_edit, skill
       command: "./scripts/check.sh"
 ```
 

@@ -100,7 +100,7 @@ func TestWriter_FragmentRoundTrip(t *testing.T) {
 }
 
 // TestWriter_PutOneFormLeavesTheOtherAlone: forms are separate files, so writing
-// one must not touch the other's bytes or its signature.
+// one must not touch the other's bytes.
 func TestWriter_PutOneFormLeavesTheOtherAlone(t *testing.T) {
 	ctx := context.Background()
 	store := emptyStore(t)

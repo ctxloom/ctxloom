@@ -13,10 +13,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/ident"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // PinnedRef is one resolved dependency in a flattened closure: a manifest

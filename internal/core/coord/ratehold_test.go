@@ -92,9 +92,10 @@ type holdFixture struct {
 }
 
 // newHoldFixtureOpts is the hold fixture with its engine's failures decided
-// by failed, its Options adjusted by opts, and the coordinator adjusted by
-// tune before any child is spawned (both may be nil).
-func newHoldFixtureOpts(t *testing.T, failed func(ex engine.Exec, prompt string) *agent.TurnFailure, opts func(*Options), tune func(*Coordinator)) *holdFixture {
+// by failed and its Options adjusted by opts (may be nil) — the one place a
+// test installs a seam (Options.holdStep and its kin), since New starts the
+// goroutines that read them.
+func newHoldFixtureOpts(t *testing.T, failed func(ex engine.Exec, prompt string) *agent.TurnFailure, opts func(*Options)) *holdFixture {
 	t.Helper()
 	resetStrictness(t)
 	teeHome(t)
@@ -127,9 +128,6 @@ func newHoldFixtureOpts(t *testing.T, failed func(ex engine.Exec, prompt string)
 	}
 	c, err := New(o)
 	require.NoError(t, err)
-	if tune != nil {
-		tune(c)
-	}
 	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 	f := &holdFixture{c: c, sp: sp, findings: &findings, opts: o}
@@ -141,19 +139,21 @@ func newHoldFixtureOpts(t *testing.T, failed func(ex engine.Exec, prompt string)
 
 // newRateFixture is the hold fixture on a manual clock: the coordinator's
 // command time and its hold timers are clk's, so a backoff elapses only when
-// the test advances it. tune, when set, adjusts the coordinator further.
-func newRateFixture(t *testing.T, tune ...func(*Coordinator)) (*holdFixture, *fakeclock.Clock) {
+// the test advances it. Its holdStep signals f.folded; tune, when set, adjusts
+// the Options further (wrapping or replacing that holdStep, or any seam).
+func newRateFixture(t *testing.T, tune ...func(*Options)) (*holdFixture, *fakeclock.Clock) {
 	t.Helper()
 	clk := fakeclock.New()
 	folded := make(chan struct{}, 64) // beyond any test's failures: a full buffer would stall the coordinator
-	f := newHoldFixtureOpts(t, rateFailure, func(o *Options) { o.Clock, o.AfterFunc = clk.Now, clk.AfterFunc }, func(c *Coordinator) {
-		c.holdStep = func(step string) {
+	f := newHoldFixtureOpts(t, rateFailure, func(o *Options) {
+		o.Clock, o.AfterFunc = clk.Now, clk.AfterFunc
+		o.holdStep = func(step string) {
 			if step == holdStepTurnFolded {
 				folded <- struct{}{}
 			}
 		}
 		for _, fn := range tune {
-			fn(c)
+			fn(o)
 		}
 	})
 	f.folded = folded
@@ -440,9 +440,9 @@ func TestRateHold_AnEarlierLimitNeverShortensTheWait(t *testing.T) {
 // superseded deadline's callback still fires, and must not release a hold
 // whose deadline has since moved.
 func TestRateHold_ATimerTooLateToStopReleasesNothing(t *testing.T) {
-	f, clk := newRateFixture(t, func(c *Coordinator) {
-		inner := c.afterFunc
-		c.afterFunc = func(d time.Duration, fn func()) func() bool {
+	f, clk := newRateFixture(t, func(o *Options) {
+		inner := o.AfterFunc
+		o.AfterFunc = func(d time.Duration, fn func()) func() bool {
 			inner(d, fn)
 			return func() bool { return false }
 		}
@@ -562,8 +562,8 @@ func TestRateHold_AReleaseNeverOvertakesTheHoldsOwnPark(t *testing.T) {
 	var once sync.Once
 	park := func() { once.Do(func() { close(letPark) }) }
 	t.Cleanup(park) // a failed test must not leave the hold's parking stuck at the seam
-	f, clk := newRateFixture(t, func(c *Coordinator) {
-		c.holdStep = func(step string) {
+	f, clk := newRateFixture(t, func(o *Options) {
+		o.holdStep = func(step string) {
 			switch step {
 			case holdStepParkSibling:
 				close(parking)
@@ -604,8 +604,8 @@ func TestRateHold_TheBackoffAndTheHumanReleaseItOnce(t *testing.T) {
 	park := func() { once.Do(func() { close(letPark) }) }
 	t.Cleanup(park)
 	var waits int
-	f, clk := newRateFixture(t, func(c *Coordinator) {
-		c.holdStep = func(step string) {
+	f, clk := newRateFixture(t, func(o *Options) {
+		o.holdStep = func(step string) {
 			switch step {
 			case holdStepParkSibling:
 				close(parking)
@@ -657,8 +657,8 @@ func TestRateHold_AResumeAtTheIdleInstantFindsTheLimitFolded(t *testing.T) {
 	letGo := make(chan struct{})
 	var once, release sync.Once
 	t.Cleanup(func() { release.Do(func() { close(letGo) }) }) // a failed test must not leave the run stuck at the seam
-	f, _ := newRateFixture(t, func(c *Coordinator) {
-		c.turnIdleHook = func(harp string) {
+	f, _ := newRateFixture(t, func(o *Options) {
+		o.turnIdleHook = func(harp string) {
 			if p := target.Load(); p == nil || *p != harp {
 				return
 			}
@@ -837,7 +837,7 @@ func TestRateHold_LivenessNeverJudgesAHeldRunStalled(t *testing.T) {
 // timeout. The clock is advanced and the sweep invoked, never awaited.
 func TestRateHold_TheIdleReaperSparesHeldAndPausedRuns(t *testing.T) {
 	const idle = 5 * time.Minute
-	f, clk := newRateFixture(t, func(c *Coordinator) { c.idleTimeout = idle })
+	f, clk := newRateFixture(t, func(o *Options) { o.IdleTimeout = idle })
 	_, err := f.c.ControlPause(human(t), humanInitiator(), f.stranger, "reviewing")
 	require.NoError(t, err)
 	f.send(t, f.worker, limitHit+" do the work")

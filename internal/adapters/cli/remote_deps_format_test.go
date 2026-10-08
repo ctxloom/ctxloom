@@ -16,8 +16,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/ident"
-	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
 // The `remote` and `deps` verbs below carry a --format json payload whose
@@ -27,10 +27,10 @@ import (
 // dropped or added key fails here rather than in somebody's jq.
 
 // pipedCmd is a command as a piped caller presents it: --format registered
-// but unset, stdout not a terminal, so cliemit.Resolve derives json.
+// but unset, stdout not a terminal, so cobrafmt.Resolve derives json.
 func pipedCmd(t *testing.T) (cmd *cobra.Command, stdout, stderr *bytes.Buffer) {
 	t.Helper()
-	t.Cleanup(cliemit.OverrideTerminal(false))
+	t.Cleanup(cobrafmt.OverrideTerminal(false))
 	cmd = &cobra.Command{}
 	cmd.Flags().String("format", formatText, "")
 	stdout, stderr = &bytes.Buffer{}, &bytes.Buffer{}

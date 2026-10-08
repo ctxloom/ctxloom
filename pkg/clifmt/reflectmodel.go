@@ -3,217 +3,73 @@ package clifmt
 import (
 	"fmt"
 	"reflect"
-	"sort"
 	"strconv"
 )
 
-// Node is the reflective model of a struct value: its fields bucketed by how
-// the text and markdown renderers present them. Scalars become "Label:
-// value" lines, Sections become nested headings, Tables become slices of
-// struct rendered as tables. Order within each slice follows the struct's
-// declared field order.
-type Node struct {
-	Scalars  []ScalarField
-	Sections []SectionField
-	Tables   []TableField
+// humanFieldInfo is what the human views need of one struct field.
+type humanFieldInfo struct {
+	name      string // the json name, or the Go name when untagged: the path segment
+	label     string
+	col       string
+	omitempty bool
 }
 
-// Empty reports whether node carries no scalars, sections, or tables — the
-// case renderNode (noderender.go) writes zero bytes for and returns nil
-// (U154-F02: an all-omitempty struct silently rendered as nothing, in both
-// text and markdown, indistinguishable from a write that never happened).
-// Callers use this to render an explicit "(none)" marker instead.
-func (n *Node) Empty() bool {
-	return len(n.Scalars) == 0 && len(n.Sections) == 0 && len(n.Tables) == 0
-}
-
-// ScalarField is one "Label: value" line.
-type ScalarField struct {
-	Label string
-	Value string
-}
-
-// SectionField is a nested struct field, rendered as its own heading.
-type SectionField struct {
-	Label string
-	Node  *Node
-}
-
-// TableField is a slice-of-struct field, rendered as a table.
-type TableField struct {
-	Label string
-	Table *Table
-}
-
-// Table is an aligned column model: Columns is the header row, Rows is the
-// stringified body, one slice per row with the same length as Columns.
-type Table struct {
-	Columns []string
-	Rows    [][]string
-}
-
-// buildNode reflects over a struct value (or pointer to one) and produces
-// its Node model. It is the shared entry point the text and markdown
-// renderers use for any struct-shaped Result.
-func buildNode(v reflect.Value) (*Node, error) {
-	v = derefValue(v)
-	if !v.IsValid() {
-		return &Node{}, nil
+// humanField resolves a visible struct field for the human views: its label,
+// its column header and its omitempty flag, or ok=false when the field is
+// unexported, json:"-", or hidden by clifmt:"-".
+func humanField(hints *typeHints, sf reflect.StructField) (humanFieldInfo, bool) {
+	if !sf.IsExported() {
+		return humanFieldInfo{}, false
 	}
-	if v.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("clifmt: buildNode requires a struct, got %s", v.Kind())
+	jsonName, skip, omitempty := parseJSONTag(sf.Tag)
+	h := hints.of(sf)
+	if skip || h.hide {
+		return humanFieldInfo{}, false
 	}
-
-	node := &Node{}
-	for _, sf := range reflect.VisibleFields(v.Type()) {
-		if !sf.IsExported() {
-			continue
-		}
-		fv, err := v.FieldByIndexErr(sf.Index)
-		if err != nil {
-			// A nil embedded pointer along the path: nothing to show.
-			continue
-		}
-
-		jsonName, skip, omitempty := parseJSONTag(sf.Tag)
-		if skip {
-			continue
-		}
-		label := resolveLabel(sf, jsonName)
-
-		if omitempty && isEmptyValue(fv) {
-			continue
-		}
-
-		deref := derefValue(fv)
-		switch classifyField(deref) {
-		case fieldKindSection:
-			sub, err := buildNode(deref)
-			if err != nil {
-				return nil, err
-			}
-			node.Sections = append(node.Sections, SectionField{Label: label, Node: sub})
-		case fieldKindTable:
-			tbl, err := buildTable(deref)
-			if err != nil {
-				return nil, err
-			}
-			node.Tables = append(node.Tables, TableField{Label: label, Table: tbl})
-		default:
-			node.Scalars = append(node.Scalars, ScalarField{Label: label, Value: scalarString(fv)})
-		}
+	label := resolveLabel(sf, jsonName, h)
+	name := jsonName
+	if name == "" {
+		name = sf.Name
 	}
-	return node, nil
+	return humanFieldInfo{name: name, label: label, col: resolveCol(h, label), omitempty: omitempty}, true
 }
 
 type fieldKind int
 
+// The field kinds, in the order their blocks appear within a struct.
 const (
 	fieldKindScalar fieldKind = iota
 	fieldKindSection
 	fieldKindTable
+	fieldKindCount
 )
 
-// classifyField decides how an already-dereferenced field value should be
-// modeled. A struct that implements fmt.Stringer (e.g. time.Time) is treated
-// as a scalar rather than a section, since it has a canonical human string
-// form. A slice/array of struct becomes a table; a slice of scalars is
-// stringified as a comma-joined scalar line.
+// classifyField decides how an already-dereferenced member value is
+// modeled. A struct that implements fmt.Stringer (e.g. time.Time) is a
+// scalar, since it has a canonical human string form. A struct or a map is a
+// section; a list of structs, or of maps that share one key set and hold
+// only scalars, a table; a list of other maps a section of numbered
+// sections; and a list of scalars a comma-joined scalar line.
 func classifyField(v reflect.Value) fieldKind {
-	if !v.IsValid() {
+	if !v.IsValid() || implementsStringer(v) {
 		return fieldKindScalar
 	}
-	if implementsStringer(v) {
-		return fieldKindScalar
-	}
-	switch v.Kind() {
-	case reflect.Struct:
+	if isMapLike(v) || v.Kind() == reflect.Struct {
 		return fieldKindSection
-	case reflect.Slice, reflect.Array:
-		elem := derefType(v.Type().Elem())
-		if elem.Kind() == reflect.Struct && !typeImplementsStringer(elem) {
+	}
+	if !isList(v) {
+		return fieldKindScalar
+	}
+	if isTableSlice(v) {
+		return fieldKindTable
+	}
+	if ml, ok := mapListShape(v); ok {
+		if ml.uniform {
 			return fieldKindTable
 		}
-		return fieldKindScalar
-	default:
-		return fieldKindScalar
+		return fieldKindSection
 	}
-}
-
-// buildTable reflects a slice (or array) of struct into a Table. Columns are
-// derived from the element type so an empty slice still reports its headers.
-func buildTable(v reflect.Value) (*Table, error) {
-	v = derefValue(v)
-	if v.Kind() != reflect.Slice && v.Kind() != reflect.Array {
-		return nil, fmt.Errorf("clifmt: buildTable requires a slice or array, got %s", v.Kind())
-	}
-	elemType := derefType(v.Type().Elem())
-	if elemType.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("clifmt: buildTable requires a slice of struct, got slice of %s", elemType.Kind())
-	}
-
-	cols := reflect.VisibleFields(elemType)
-	var columns []string
-	var indices [][]int
-	for _, sf := range cols {
-		if !sf.IsExported() {
-			continue
-		}
-		jsonName, skip, _ := parseJSONTag(sf.Tag)
-		if skip {
-			continue
-		}
-		label := resolveLabel(sf, jsonName)
-		columns = append(columns, resolveCol(sf, label))
-		indices = append(indices, sf.Index)
-	}
-
-	tbl := &Table{Columns: columns, Rows: [][]string{}}
-	for i := 0; i < v.Len(); i++ {
-		elem := derefValue(v.Index(i))
-		row := make([]string, len(indices))
-		if !elem.IsValid() {
-			// A nil element of a slice-of-pointer: no fields to read, but the
-			// row still occupies its place so row indexes keep matching the
-			// caller's slice indexes. Whole-row condition, so it is decided
-			// once per row rather than re-asked for every column.
-			tbl.Rows = append(tbl.Rows, row)
-			continue
-		}
-		for c, index := range indices {
-			fv, err := elem.FieldByIndexErr(index)
-			if err != nil {
-				// A nil embedded pointer along this promoted field's index
-				// path: nothing to show for this ONE cell. The column stays
-				// in the header and the cell stays empty (row is pre-zeroed),
-				// so a row that cannot reach a promoted field still lines up
-				// with its siblings. Mirrors buildNode's swallow, where the
-				// same condition drops the field entirely because a Node has
-				// no fixed column set to keep aligned.
-				continue
-			}
-			row[c] = tableCellString(fv)
-		}
-		tbl.Rows = append(tbl.Rows, row)
-	}
-	return tbl, nil
-}
-
-// tableCellString stringifies a row field for a table cell. Nested
-// struct/slice fields (rare inside a table row) fall back to a compact
-// fmt.Sprintf rather than recursing into another table, since a table cell
-// has no room for a nested table.
-func tableCellString(v reflect.Value) string {
-	deref := derefValue(v)
-	if !deref.IsValid() {
-		return ""
-	}
-	switch classifyField(deref) {
-	case fieldKindScalar:
-		return scalarString(v)
-	default:
-		return fmt.Sprintf("%v", deref.Interface())
-	}
+	return fieldKindScalar
 }
 
 // scalarString renders a leaf field value as a human string. Pointers
@@ -242,42 +98,21 @@ func scalarString(v reflect.Value) string {
 		return strconv.FormatUint(v.Uint(), 10)
 	case reflect.Float32, reflect.Float64:
 		return strconv.FormatFloat(v.Float(), 'g', -1, 64)
-	case reflect.Slice, reflect.Array:
-		return joinSlice(v)
-	case reflect.Map:
-		return joinMap(v)
 	default:
 		return fmt.Sprintf("%v", v.Interface())
 	}
 }
 
-func joinSlice(v reflect.Value) string {
-	out := ""
-	for i := 0; i < v.Len(); i++ {
-		if i > 0 {
-			out += ", "
-		}
-		out += scalarString(v.Index(i))
+// hasStringForm reports whether scalarString renders v whole (through
+// fmt.Stringer or error) rather than by its kind.
+func hasStringForm(v reflect.Value) bool {
+	if implementsStringer(v) {
+		return true
 	}
-	return out
+	return v.CanInterface() && v.Type().Implements(errorType)
 }
 
-func joinMap(v reflect.Value) string {
-	keys := v.MapKeys()
-	pairs := make([]string, 0, len(keys))
-	for _, k := range keys {
-		pairs = append(pairs, fmt.Sprintf("%v=%s", k.Interface(), scalarString(v.MapIndex(k))))
-	}
-	sort.Strings(pairs)
-	out := ""
-	for i, p := range pairs {
-		if i > 0 {
-			out += ", "
-		}
-		out += p
-	}
-	return out
-}
+var errorType = reflect.TypeFor[error]()
 
 func derefValue(v reflect.Value) reflect.Value {
 	for v.IsValid() && (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) {

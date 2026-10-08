@@ -70,9 +70,9 @@ func TestImportBundle_RoundTrip(t *testing.T) {
 }
 
 // What lands is the SOURCE's bytes, not a re-emission of the parsed envelope.
-// A publisher signature covers the files' exact bytes, so an import that
-// round-tripped through the parser would drop comments and reorder keys and
-// arrive unverifiable — while still reporting "imported".
+// An import that round-tripped through the parser would drop the author's
+// comments and reorder keys — a silent rewrite of the publisher's file while
+// still reporting "imported".
 //
 // The fixture leads with a comment and a trailing key precisely because those
 // are what a re-emission destroys; asserting on a body the parser would
@@ -104,7 +104,7 @@ func TestImportBundle_InvalidFile(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid bundle file")
 }
 
-// --- committed-content layout + signature carry -----------------------------
+// --- committed-content layout ----------------------------------------------
 
 // Export/import resolve the COMMITTED content tree, not the gitignored cache.
 // memBundleFS seeds content/bundles, so a bundle it seeded being found at all

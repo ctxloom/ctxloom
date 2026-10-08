@@ -13,9 +13,9 @@ import (
 //
 // Run is consumed every session — the bundle of fragments, commands, skills,
 // hooks and MCP servers the companion contributes. Init is consumed once, at
-// setup. They are separate top-level sections of one document, under one
-// signature, so a companion's setup-time and session-time contributions can
-// never be signed, delivered or reviewed apart from each other.
+// setup. They are separate top-level sections of one document, so a
+// companion's setup-time and session-time contributions are always delivered
+// together and can never drift apart.
 type Loadout struct {
 	// Run is the RUN loadout: the bundle. Never nil on a parsed loadout — a
 	// document without `run:` parses to an empty bundle, so a reader can seed
@@ -77,8 +77,8 @@ type loadoutDocument struct {
 	Init InitLoadout `yaml:"init"`
 }
 
-// ParseLoadout parses a companion's loadout DOCUMENT — the exact bytes its
-// detached signature covers — into its RUN bundle and typed INIT loadout.
+// ParseLoadout parses a companion's loadout DOCUMENT into its RUN bundle and
+// typed INIT loadout.
 //
 // STRICT at every level: a key the document does not model is refused, not
 // dropped, and a bare bundle at the top level (the previous contract's

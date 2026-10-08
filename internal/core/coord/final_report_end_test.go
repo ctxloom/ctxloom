@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -501,4 +502,59 @@ func TestFinalReport_LateFinalFromAnEndedRunDoesNotEndTheResumedRun(t *testing.T
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
 		"the resumed run's OWN FINAL must still end it")
 	assert.Equal(t, CauseFinalReported, runCause(c, resumed))
+}
+
+// TestFinalReport_AnEndedRunsTeardownSparesTheResumedRunsChannel pins the
+// cause TestFinalReport_LateFinalFromAnEndedRunDoesNotEndTheResumedRun fell
+// into under load. A run's end is journaled FIRST — the roster reads ended,
+// and mail resumes the harp as a fresh run — while the rest of the ended run's
+// teardown (its runner's kill, then its run channel's) is still to come. A
+// kill is not instant (a docker stop takes seconds), so the resumed run's
+// runner can attach its own run channel, under the same harp, before the
+// ended run's teardown reaches it. That teardown must cut, and wait on, the
+// ENDED run's channel, never the successor's: cut, the resumed run's turn
+// boundary and outbound doorbells wait on its runner's reconnect, and the run
+// reads executing long after its turn ended.
+//
+// Driven on the channel registry directly, with the successor's channel the
+// harp's live one: the end-to-end shape (the ended run's kill held until the
+// resumed run is mid-turn) also delivers the follow-up mail to the ended run's
+// still-live runner some of the time, a separate hazard this test must not
+// depend on.
+func TestFinalReport_AnEndedRunsTeardownSparesTheResumedRunsChannel(t *testing.T) {
+	sp := startRunSpawner(t, nil)
+	c := newTestCoordinator(t, sp, nil)
+	const harp, ended, resumed = "child-harp-x", "run-ended", "run-resumed"
+	var cut atomic.Bool
+	successor := &RunChannel{
+		BidiSession: NewBidiSession[OutFrame, OutFrame, OutFrame](func() { cut.Store(true) }, 1),
+		role:        harp,
+		id:          Identity{Harp: harp, RunID: resumed},
+		completed:   make(chan struct{}),
+	}
+	c.mu.Lock()
+	c.chans[harp] = successor
+	c.mu.Unlock()
+	var waited []string
+	c.drainHook = func(role string) { waited = append(waited, role) } // called on this goroutine, inside drainTerminalTail
+
+	c.drainTerminalTail(harp, ended)
+	c.severChan(harp, ended)
+	c.mu.Lock()
+	live := c.chans[harp]
+	c.mu.Unlock()
+	assert.Same(t, successor, live, "the ended run's teardown deregistered the resumed run's channel")
+	assert.False(t, cut.Load(), "the ended run's teardown cancelled the resumed run's channel")
+	assert.Empty(t, waited, "the ended run's teardown waited on the resumed run's channel")
+
+	// The control: the run's own teardown still drains and severs its channel.
+	close(successor.completed)
+	c.drainTerminalTail(harp, resumed)
+	c.severChan(harp, resumed)
+	c.mu.Lock()
+	_, still := c.chans[harp]
+	c.mu.Unlock()
+	assert.False(t, still, "a run's own teardown deregisters its channel")
+	assert.True(t, cut.Load(), "a run's own teardown cancels its channel")
+	assert.Equal(t, []string{harp}, waited, "a run's own teardown drains its channel")
 }

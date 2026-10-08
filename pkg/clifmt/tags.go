@@ -16,7 +16,8 @@ var (
 // (empty if absent), whether the field is excluded (json:"-"), and whether
 // omitempty was requested. This is clifmt's sole source of field identity
 // for the reflective text/markdown renderer, per the package's tag
-// convention: json tags name and gate fields, label/col only tune display.
+// convention: json tags name and gate fields, the clifmt tag (hints.go) only
+// tunes display.
 func parseJSONTag(tag reflect.StructTag) (name string, skip bool, omitempty bool) {
 	raw, ok := tag.Lookup("json")
 	if !ok || raw == "" {
@@ -35,12 +36,12 @@ func parseJSONTag(tag reflect.StructTag) (name string, skip bool, omitempty bool
 	return name, false, omitempty
 }
 
-// resolveLabel returns the human heading/line label for a field: an explicit
-// `label:"..."` tag wins, otherwise the json-tag-derived name (or the Go
-// field name if untagged) is humanized.
-func resolveLabel(field reflect.StructField, jsonName string) string {
-	if l := field.Tag.Get("label"); l != "" {
-		return l
+// resolveLabel returns the human heading/line label for a field: a
+// `clifmt:"label=…"` hint wins, otherwise the json-tag-derived name (or the
+// Go field name if untagged) is humanized.
+func resolveLabel(field reflect.StructField, jsonName string, h hint) string {
+	if h.label != "" {
+		return h.label
 	}
 	base := jsonName
 	if base == "" {
@@ -49,11 +50,11 @@ func resolveLabel(field reflect.StructField, jsonName string) string {
 	return humanize(base)
 }
 
-// resolveCol returns the table column header for a field: an explicit
-// `col:"..."` tag wins, otherwise it falls back to the field's label.
-func resolveCol(field reflect.StructField, label string) string {
-	if c := field.Tag.Get("col"); c != "" {
-		return c
+// resolveCol returns the table column header for a field: a
+// `clifmt:"col=…"` hint wins, otherwise it falls back to the field's label.
+func resolveCol(h hint, label string) string {
+	if h.col != "" {
+		return h.col
 	}
 	return label
 }

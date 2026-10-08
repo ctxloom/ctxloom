@@ -83,3 +83,11 @@ func TestDoubles_OnlyThePrimaryRendersTheSessionEndpoint(t *testing.T) {
 		assert.Equal(t, engine.BearerEntry(ep), root.Dynamic.Endpoint(ep))
 	}
 }
+
+// The mock declares what its delivery leaves in a working tree — its config
+// dir, named wholesale because it owns it outright, and its context file —
+// so a mock-backed worktree's exclude set covers them without any other
+// package naming them.
+func TestBuild_DeclaresTheProjectArtifactsItWrites(t *testing.T) {
+	assert.ElementsMatch(t, []string{ConfigDirName + "/", ContextFileName}, New().Root().ProjectArtifacts)
+}

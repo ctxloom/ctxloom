@@ -16,11 +16,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/ident"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/compression"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -52,7 +52,7 @@ to process multiple bundles at once.`,
 // file path so json/yaml/toml/markdown output can attribute items to files
 // (the text renderer's "Processing: <path>" header does the same, visually).
 type bundleDistillFileOutcome struct {
-	Path  string                         `json:"path" col:"File"`
+	Path  string                         `json:"path" clifmt:"col=File"`
 	Saved bool                           `json:"saved"`
 	Items []operations.DistillBundleItem `json:"items"`
 }
@@ -345,7 +345,7 @@ func buildSiblingContext(bundle *bundles.Bundle, excludeName string) string {
 // hasSiblingsOfType reports whether a bundle has sibling items of a kind worth
 // listing: more than one of that kind, or exactly one that isn't the excluded
 // (currently-distilling) item. It takes the item KIND, not a spelled-out
-// prefix, so the selector grammar lives only in trust (FormatSelector /
+// prefix, so the selector grammar lives only in ident (FormatSelector /
 // ParseSelector).
 func hasSiblingsOfType(count int, excludeName string, kind ItemType) bool {
 	excludedKind, _, err := ident.ParseSelector(excludeName)

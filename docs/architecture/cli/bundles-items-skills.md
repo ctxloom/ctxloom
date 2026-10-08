@@ -5,7 +5,8 @@ commands (formerly "prompts"), skills, MCP server declarations, hooks and
 profiles. `ctxloom bundle *` is its CRUD; `ctxloom fragment *` and
 `ctxloom command *` are two instantiations of one generic item surface
 (`item_crud.go`, `item_list.go`, `item_kind.go`); `ctxloom skill *` is a
-separate, package-shaped item kind with its own archive/signature story.
+separate, package-shaped item kind with its own archive (`.zip`/`.tar.gz`)
+import and export.
 Distillation (LLM or structural compression of an item's content) and
 `ctxloom search` (unified local + remote content search) sit alongside because
 both are cross-item operations.
@@ -109,8 +110,9 @@ the item's siblings, so a fragment is compressed knowing what else is in its
 bundle. `buildDistillMessage` assembles prompt + sibling context + tagged
 content. `loadDistillPrompt` prefers the bundle's own `distill` command body
 over the built-in prompt; `refuseWithheldDistillPrompt` is the one error
-`newLLMDistiller` returns — a configured `distill` prompt the trust gate
-withheld is a refusal, not a warn-and-continue, because a run that silently
+`newLLMDistiller` returns — a configured `distill` prompt the delivery
+pipeline withheld (`errs.ErrCommandWithheld`; under the exposure pipeline's
+unchecked link grant, only an unparseable item ref) is a refusal, not a warn-and-continue, because a run that silently
 proceeded on the built-in prompt would be indistinguishable from working.
 
 ## Invariants

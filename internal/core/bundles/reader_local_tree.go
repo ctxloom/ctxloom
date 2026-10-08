@@ -70,10 +70,10 @@ var (
 //
 // This is the one place a bundle document is turned into a *Bundle from a PATH.
 // Every caller needs the same two things together and for the same reason: the
-// envelope to judge the bundle by, and the bytes it was judged from. A
-// publisher signature covers those exact bytes (spec §3.1), so a caller handed
-// just one of the two goes back to the filesystem for the other — and then the file
-// on disk has been read twice, with nothing making the two reads agree.
+// envelope to judge the bundle by, and the bytes it was judged from (an import
+// or move writes those exact bytes, not a re-emission). A caller handed just one
+// of the two goes back to the filesystem for the other — and then the file on
+// disk has been read twice, with nothing making the two reads agree.
 //
 // It is deliberately NOT a Reader. A Reader enumerates everything one SOURCE
 // holds; this answers for a single document at a path the user named, which may
@@ -159,10 +159,10 @@ func openTreeAt(ctx context.Context, fsys afero.Fs, manifestPath string, prov co
 // and a store cannot be opened without it.
 //
 // WHAT IT DOES NOT DO, measured rather than assumed: it does not decide this
-// bundle's trust identity. The store stamps the value onto every trust.Ref it
+// bundle's source identity. The store stamps the value onto every item ref it
 // enumerates, but ReadTree folds items by SURFACE and reads nothing off those
 // refs except a kind name in an error message, so the stamps are discarded
-// before a bundle exists. Trust identity is established where it is for every
+// before a bundle exists. Source identity is established where it is for every
 // other form — newRead, from r.provenance, in readBundle. A mutation flipping
 // the two arms below therefore changes no observable behaviour, and that is a
 // property of this path, not a gap in its tests.

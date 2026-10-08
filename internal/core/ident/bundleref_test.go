@@ -224,9 +224,10 @@ func TestBundleRef_R1_PipeAndControlCharactersNeverPassThrough(t *testing.T) {
 	})
 
 	t.Run("control characters are refused, not stripped", func(t *testing.T) {
-		// A newline is the one that forges the countersign frame: it closes
-		// the "ref:" line early and lets the rest of the ref write the header
-		// lines that follow.
+		// A ref is interpolated into line-delimited text (canonical strings,
+		// lockfile keys, terminal output): a newline closes its line early and
+		// lets the rest of the ref forge the lines that follow, and CR, DEL and
+		// the rest of C0 let it repaint the terminal (refuri's normalize.go).
 		for _, in := range []string{
 			"ctxloom+local:tool\ning#fragments/a",
 			"ctxloom+local:tooling#fragments/a\rb",
@@ -306,7 +307,7 @@ func TestBundleRef_R2_RepoPathCase(t *testing.T) {
 	t.Run("uppercase is PRESERVED on a case-folding forge, not refused and not rewritten", func(t *testing.T) {
 		// A forge that serves "Foo/Bar" and "foo/bar" as one repository is
 		// host-specific knowledge this grammar does not have. Folding on it
-		// merges two identities onto one trust key; refusing makes a real
+		// merges two identities onto one source identity; refusing makes a real
 		// repository unaddressable. Neither: the spelling is preserved.
 		for _, host := range []string{"github.com", "gitlab.com", "bitbucket.org"} {
 			in := "ctxloom+git://" + host + "/Acme/Repo//bundles/x"
@@ -324,7 +325,7 @@ func TestBundleRef_R2_RepoPathCase(t *testing.T) {
 		lower, err := ParseBundleRef("ctxloom+git://github.com/acme/repo//bundles/x")
 		require.NoError(t, err)
 		assert.NotEqual(t, upper.Identity(), lower.Identity(),
-			"two spellings collapsed onto one trust key")
+			"two spellings collapsed onto one source identity")
 	})
 
 	t.Run("case is PRESERVED on a case-sensitive git server", func(t *testing.T) {

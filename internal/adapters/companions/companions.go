@@ -21,8 +21,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // companionProbeTimeout bounds the `<bin> loadout --format json` exec at

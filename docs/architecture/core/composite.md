@@ -102,8 +102,7 @@ command's export name, every fragment (a premised one carries its premise),
 the hooks, the servers and whether settings are present. The engine decodes
 its block against its `Definition.ExportSchema` (`engine.Engine.Exports`),
 published per engine by `gen-schemas` as `engine-exports-<name>`. Nothing in
-core reads inside a block; the one frozen exception is the exec preimage
-contract in `core/bundles` (see `docs/adr/0020-operations-llm-boundary.md`,
+core reads inside a block (see `docs/adr/0020-operations-llm-boundary.md`,
 the amendment).
 
 ## IndexOf

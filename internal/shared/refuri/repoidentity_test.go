@@ -90,7 +90,7 @@ func TestCanonicalRepoURL_NonPreferredSpellingsStayDISTINCT(t *testing.T) {
 		"https://www.github.com/acme/repo",
 	} {
 		if got, _ := CanonicalRepoURL(in); got == base {
-			t.Errorf("CanonicalRepoURL(%q) = %q, which collapsed onto %q — two identities merged onto one trust key", in, got, base)
+			t.Errorf("CanonicalRepoURL(%q) = %q, which collapsed onto %q — two identities merged onto one key", in, got, base)
 		}
 	}
 }
@@ -193,7 +193,7 @@ func TestCanonicalRepoURL_DefaultPortAndIDNFold(t *testing.T) {
 	}
 }
 
-// The canonical key is a FIXED POINT: trust.RefFromBundleRef renders an
+// The canonical key is a FIXED POINT: ident.RefFromBundleRef renders an
 // identity with FetchURL and ParseRepoIdentity reads it back, so a key that
 // re-canonicalizes to a different key is two keys for one repository. The
 // hazard is a non-default SOURCE port that happens to be https's default

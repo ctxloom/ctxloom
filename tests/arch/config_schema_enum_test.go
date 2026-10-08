@@ -45,6 +45,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -138,10 +139,22 @@ var schemaEnumBindings = []schemaEnumBinding{
 	// through verbatim (ClaudeCodeHookWriter.addHook defaults it to
 	// "command" and otherwise copies wire.Hook.Type as-is); no ctxloom Go
 	// type owns it.
+	// $defs/hook/tool: the neutral tool classes a hook narrows by, which
+	// every engine maps to its own tool names (wire.ToolClasses).
+	{path: "$defs/hook/properties/tool", goNames: toolClassNames},
 	{
 		path:          "$defs/hook/properties/type",
 		excludeReason: "claude-code's own hook-handler type vocabulary, passed through verbatim; no ctxloom Go type owns it",
 	},
+}
+
+// toolClassNames is wire.ToolClasses as strings, the shape the table binds.
+func toolClassNames() []string {
+	names := make([]string, len(wire.ToolClasses))
+	for i, c := range wire.ToolClasses {
+		names[i] = string(c)
+	}
+	return names
 }
 
 func init() {

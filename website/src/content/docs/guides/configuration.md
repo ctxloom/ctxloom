@@ -272,8 +272,8 @@ the merged order and where each hook came from.
 # .ctxloom/content/bundles/v2/project/profiles/developer.yaml
 hooks:
   unified:
-    session_start:
-      - matcher: ".*"           # Regex pattern
+    pre_tool:
+      - tool: shell             # tool class: shell, file_edit or skill
         command: "echo hello"   # Shell command
         type: "command"         # command, prompt, or agent
         timeout: 30             # Seconds
@@ -282,6 +282,13 @@ hooks:
     claude-code:
       EventName: []
 ```
+
+`tool:` narrows a tool event to a class of tool, which each engine maps to its
+own tool names (claude: `shell` is `Bash|PowerShell`, `file_edit` is
+`Edit|Write|MultiEdit|NotebookEdit`). A profile hook may instead give
+`matcher:`, a regex over one engine's native tool names, which wins when both
+are set; a bundle hook may only use `tool:`, and a `matcher:` in a bundle is
+refused when the bundle is read.
 
 ## Claude Code Integration
 

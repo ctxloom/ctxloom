@@ -54,10 +54,9 @@ func detectSingleYAML(dir string, src Source, depth int) (string, bool) {
 // one, its metadata sidecar.
 //
 // A nil meta target means the kind has no sidecar, and a sidecar found anyway is
-// REFUSED rather than skipped. Skipping it would leave bytes that are grouped into
-// the item and hashed into the digest but that nothing in the decode path can
-// explain — exactly the shape in which unexplained content rides along under a
-// valid signature.
+// REFUSED rather than skipped. Skipping it would leave a file that is grouped into
+// the item but that nothing in the decode path reads — the author's metadata
+// silently ignored.
 func readExecItem(t SurfaceType, src Source, depth int, content, meta any) (string, error) {
 	dir := t.Dir()
 	name, ok := detectSingleYAML(dir, src, depth)

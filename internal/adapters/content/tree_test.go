@@ -270,12 +270,11 @@ func TestForm_RawAndDistilledAreIndependent(t *testing.T) {
 // security-trap test.
 //
 // Dotfiles are excluded by default in much glob and walk code. If the walker
-// misses ".code-reviewer.meta.yaml", it never enters the digest, and because
-// executability is DECLARED in that sidecar rather than read from a mode bit,
-// executability silently stops being attested — while every signature still
-// verifies and everything looks green. So: the sidecar must appear in
-// Components(), it must change Content(), and its declaration must reach
-// Component.Mode.
+// misses ".code-reviewer.meta.yaml", it never becomes part of the item, and
+// because executability is DECLARED in that sidecar rather than read from a
+// mode bit, the skill's scripts silently stop being executable while
+// everything looks green. So: the sidecar must appear in Components(), and its
+// declaration must reach Component.Mode.
 func TestSkill_DotPrefixedSidecarIsAComponentAndDeclaresExecutability(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
@@ -704,8 +703,10 @@ func TestNewTreeStore_RefusesAmbiguousProvenance(t *testing.T) {
 }
 
 // TestDecode_RefusesUnexplainedSidecars: a sidecar in a kind whose metadata does
-// NOT live in a sidecar is grouped into the item and hashed, so ignoring it would
-// mean bytes ride along under a valid signature that no decode path accounts for.
+// NOT live in a sidecar is still grouped into the item by the walker, so ignoring
+// it would mean the author's metadata is part of the item yet read by nothing.
+// The refusal must say so, name the offending file, and tell the author what to
+// do about it.
 func TestDecode_RefusesUnexplainedSidecars(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
@@ -714,6 +715,10 @@ func TestDecode_RefusesUnexplainedSidecars(t *testing.T) {
 	writeFile(t, store.fsys, root+"/profiles/.strict.meta.yaml", "owner: nobody\n")
 
 	bundle, _ := store.Open(ctx, "code-quality")
+	sidecars := map[string]string{
+		"fragment": "fragments/.solid.meta.yaml",
+		"profile":  "profiles/.strict.meta.yaml",
+	}
 	for name, ref := range map[string]ident.Ref{
 		"fragment": {Bundle: "code-quality", Kind: ident.KindFragment, Name: "solid"},
 		"profile":  {Bundle: "code-quality", Kind: KindProfile, Name: "strict"},
@@ -726,8 +731,22 @@ func TestDecode_RefusesUnexplainedSidecars(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: Item: %v", name, err)
 		}
-		if _, err := item.Surface(ctx); err == nil {
+		_, err = item.Surface(ctx)
+		if err == nil {
 			t.Errorf("%s: an unexplained sidecar was silently accepted", name)
+			continue
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, sidecars[name]) {
+			t.Errorf("%s: refusal %q does not name the sidecar %s", name, msg, sidecars[name])
+		}
+		if !strings.Contains(msg, unexplainedMetaReason) {
+			t.Errorf("%s: refusal %q does not state why the file is refused", name, msg)
+		}
+		// Signing is gone; a message that still blames a signature tells the
+		// author about machinery that no longer exists.
+		if strings.Contains(strings.ToLower(msg), "signature") {
+			t.Errorf("%s: refusal %q still cites a signature", name, msg)
 		}
 	}
 }

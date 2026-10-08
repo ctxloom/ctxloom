@@ -500,6 +500,7 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src id
 		PreShell:     convert(bundles.HookEventPreShell, bundle.Hooks.PreShell),
 		PostFileEdit: convert(bundles.HookEventPostFileEdit, bundle.Hooks.PostFileEdit),
 		TurnEnd:      convert(bundles.HookEventTurnEnd, bundle.Hooks.TurnEnd),
+		TurnStart:    convert(bundles.HookEventTurnStart, bundle.Hooks.TurnStart),
 	}
 	return hooks, withheld
 }

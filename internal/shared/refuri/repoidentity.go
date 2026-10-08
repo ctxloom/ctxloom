@@ -24,7 +24,7 @@ import (
 // slash, a port the scheme defines as its default, or whether an IDN host is
 // spelled as its U-label or A-label. A ".git" suffix, a "www." prefix and repository-path case ARE
 // identity and are preserved — see Parse's doc for why folding them on a guess
-// would let a rejection of one repository govern another.
+// would let one repository's lockfile entry and remote match answer for another.
 //
 // The sentinel source tokens map onto their classes (ClassLocal,
 // ClassCompanion), which carry no repository at all.

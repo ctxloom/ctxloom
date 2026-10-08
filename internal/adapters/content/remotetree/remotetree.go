@@ -11,24 +11,24 @@
 // content.TreeFS is two methods and why nothing in the walker takes an
 // afero.Fs. This package implements those two methods and inherits the entire
 // traversal — stem grouping, sidecar merging, the fail-loud unclaimed-file
-// rule, the digest — without a line of walking of its own. If it had needed a
+// rule, declared modes — without a line of walking of its own. If it had needed a
 // second walker, the seam would have been wrong.
 //
 // # Fetch-then-serve, not read-through
 //
 // The tree is fetched ONCE at construction and served from memory afterwards,
-// the same shape the archive backend uses and for a sharper reason: a signature
-// covers the exact bytes of a specific tree, and a store that re-read the forge
-// per access could enumerate one tree and digest another. A commit SHA is
-// immutable, so a snapshot of it is not a staleness risk; it is the only way to
-// be sure the bytes that were counted are the bytes that were served.
+// the same shape the archive backend uses and for a sharper reason: a store
+// that re-read the forge per access could enumerate one tree and serve the
+// bytes of another. A commit SHA is immutable, so a snapshot of it is not a
+// staleness risk; it is the only way to be sure the items that were enumerated
+// are the bytes that were served.
 //
-// # It verifies nothing
+// # It admits nothing
 //
-// Layer 0 knows only where bytes live. This package fetches them, bounds them
-// and refuses to lie about where they came from — it stamps remote provenance,
-// never local — and it says nothing whatsoever about whether any signature over
-// them verifies. That question belongs to layer 2.
+// This package knows only where bytes live. It fetches them, bounds them and
+// refuses to lie about where they came from — it stamps remote provenance,
+// never local — and it decides nothing about whether they may be used. That
+// was decided when the user added the repository as a remote.
 package remotetree
 
 import (
@@ -67,8 +67,8 @@ type Spec struct {
 	// ErrNotPinned, and that refusal is the point of this type.
 	//
 	// A mutable ref can be repointed between the listing that decided what the
-	// tree contains and the reads that produced its bytes, so the tree a digest
-	// covers need not be the tree that was served — with no error anywhere,
+	// tree contains and the reads that produced its bytes, so the tree that was
+	// enumerated need not be the tree that was served — with no error anywhere,
 	// because every individual call succeeded. Resolving a ref to a SHA is the
 	// caller's job (Fetcher.ResolveRef) precisely so that the moment a pin
 	// stops being a pin is visible in the caller's code rather than buried
@@ -181,9 +181,9 @@ func New(ctx context.Context, f remote.Fetcher, spec Spec) (*content.FSStore, er
 // the probe where the candidates are generated (remote, from the ref's own file
 // path) and the composition here is what lets neither side duplicate the other.
 //
-// It verifies NOTHING, exactly as the rest of this package does not: layer 0
-// knows only where bytes live. Whether a signature over them holds is layer 2's
-// question, asked by bundles.ReadRemoteRef before it interprets a single item.
+// It admits NOTHING, exactly as the rest of this package does not: it knows
+// only where bytes live. bundles.ReadRemoteRef interprets the items; whether
+// the repository may supply them was settled when it was added as a remote.
 func OpenFetchedBundle(ctx context.Context, id string, files map[string]remote.TreeFile, repoURL string) (content.Bundle, error) {
 	if len(files) == 0 {
 		// Same refusal New makes, for the same reason: a store that enumerates
@@ -214,16 +214,17 @@ func OpenFetchedBundle(ctx context.Context, id string, files map[string]remote.T
 // separately what git recorded.
 //
 // The two exist separately because their callers want genuinely different
-// things. The content layer wants BYTES: a store enumerates items, digests them
-// and hands them to a signature check, and a mode is not part of any of that.
+// things. The content layer wants BYTES: a store enumerates items and decodes
+// them, and git's blob mode is not part of any of that.
 // An INSTALLER wants the file as PUBLISHED — a skill package ships scripts the
 // model runs on its own, and a 0755 script that lands 0644 is delivered content
 // the agent cannot use, with nothing anywhere reporting a failure.
 //
-// "As published" means the DECLARATION, not git's blob mode. A mode bit is not
-// portable and the digest excludes it, so the `executable:` list inside the
-// hashed, signed sidecar is what a publisher actually said; git's 100755 rides
-// along uncovered by any signature. Resolving the declaration here — rather
+// "As published" means the DECLARATION, not git's blob mode. A mode bit does
+// not survive every checkout, archive and platform, so the `executable:` list
+// inside the sidecar is what a publisher actually said and what an installer
+// writes; git's 100755 is carried alongside only as remote.TreeFile's
+// CommittedExecutable, which never decides an installed mode. Resolving the declaration here — rather
 // than in the installer — is the only place it can happen: reading a sidecar
 // means knowing the tree format, and internal/adapters/remote sits below the package
 // that owns it.

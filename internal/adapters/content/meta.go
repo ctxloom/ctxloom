@@ -11,14 +11,15 @@ package content
 //   - Is this path SHAPED like metadata? That is package-wide and deliberately
 //     so: `.<name>.meta.yaml` is a RESERVED namespace (see IsMetaPath), and the
 //     tree walker groups any such file into its item regardless of type. It has
-//     to — a sidecar the walker failed to group would leave the digest, and
-//     declared executability would stop being attested with everything still
-//     green. Making recognition per-type would put that trap back.
+//     to — a sidecar the walker failed to group would drop out of the item's
+//     Components, and the executability it declares would silently stop
+//     reaching Component.Mode with everything still green. Making recognition
+//     per-type would put that trap back.
 //   - Does THIS type legitimately keep metadata there? That is per-type, and it
 //     is what this interface answers. A type that keeps metadata in front-matter,
 //     or has none at all, returns false from Accepts — which turns a stray
-//     metadata-shaped file into a LOUD ERROR at decode rather than bytes that are
-//     hashed into the signature and explained by nothing.
+//     metadata-shaped file into a LOUD ERROR at decode rather than a file that is
+//     part of the item yet read by nothing.
 //
 // So the walker stays kind-agnostic, a stray sidecar can never vanish silently,
 // and a type still owns its own storage.
@@ -75,6 +76,11 @@ func refuseUnexplainedMeta(t SurfaceType, name, path string) error {
 	return &unexplainedMetaError{kind: t.Name(), item: name, path: path}
 }
 
+// unexplainedMetaReason is the explanation every unexplained-metadata refusal
+// carries. It is a constant so the message has one definition that tests pin.
+const unexplainedMetaReason = " (the .<name>.meta.yaml name is reserved for ctxloom metadata," +
+	" so the file is refused rather than silently ignored; remove or rename it)"
+
 type unexplainedMetaError struct {
 	kind string
 	item string
@@ -83,6 +89,5 @@ type unexplainedMetaError struct {
 
 func (e *unexplainedMetaError) Error() string {
 	return "content: " + e.kind + " item " + e.item + " carries the metadata file " + e.path +
-		", but " + e.kind + " items keep no separate metadata file" +
-		" (its bytes are hashed into this item's signature, so it cannot be ignored)"
+		", but " + e.kind + " items keep no separate metadata file" + unexplainedMetaReason
 }

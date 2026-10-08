@@ -70,8 +70,8 @@ func (m SkillManifest) sorted() SkillManifest {
 // SkillPackage is an Agent Skill package parsed from its source-tree
 // directory: SKILL.md's frontmatter + body, plus the deterministic
 // per-file manifest of every file in the tree (SKILL.md included). It is the
-// parsed/runtime twin of BundleSkill (the authored bundle.yaml entry) — B1b's
-// archive codec and B2's signing both operate on a SkillPackage, never on the
+// parsed/runtime twin of BundleSkill (the authored bundle.yaml entry) — the
+// archive codec and the loader both operate on a SkillPackage, never on the
 // directory directly.
 type SkillPackage struct {
 	Name        string // the package directory's basename
@@ -150,12 +150,13 @@ func ParseSkillPackage(fsys afero.Fs, dir string, maxBytes int64) (*SkillPackage
 // skillManifestMode is the manifest mode of a file with permission perm:
 // "0755" when anybody may execute it, "0644" otherwise.
 //
-// The manifest is inside the skill's trust PREIMAGE, so it may carry only what
-// the package means. A tree declares executability as a boolean (see
+// The manifest's mode is what the loader materializes each file with and what
+// the archive export stamps on each zip entry, so it may carry only what the
+// package means. A tree declares executability as a boolean (see
 // content.DeclaredExecutable) and git records the exec bit and nothing else,
 // so every other bit is umask, filesystem and platform noise: a clone under
-// umask 002 lands at 0664 with no different meaning than 0644, and hashing
-// that difference would give one package two trust hashes.
+// umask 002 lands at 0664 with no different meaning than 0644, and carrying
+// that difference would materialize, and export, one package two ways.
 func skillManifestMode(perm os.FileMode) string {
 	if perm.Perm()&0o111 != 0 {
 		return "0755"

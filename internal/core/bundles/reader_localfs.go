@@ -20,9 +20,8 @@ import (
 // It is ONE implementation serving two sources — the project's own bundle
 // directories and the bundles compiled into the binary — because an embed.FS
 // adapted through afero is a filesystem, and a second body would have been the
-// same walk, the same parse and the same signature check free to drift from
-// this one. Its provenance label and filesystem are hard-coded by its
-// constructor, never arguments.
+// same walk and the same parse free to drift from this one. Its provenance
+// label and filesystem are hard-coded by its constructor, never arguments.
 type localFSReader struct {
 	fsys       afero.Fs
 	dirs       []string

@@ -137,11 +137,6 @@ func resolveResumeMode(reg engine.Registry, driving agents.DrivingMode, backend 
 // A reload that fails (a transient read problem, a concurrent partial write)
 // must not break spawning, so it degrades — with a warning — to the
 // generation already published, which is complete and consistent.
-//
-// The child decides with the same trust posture as the session that spawns
-// it: a session that waived the signature check delegates waived (owner
-// ruling 2026-10-02), and the child's launch hands its own hooks the waiver
-// (launch.Resolve) and records it on the child's session (ResolveLaunch).
 func (s *spawner) spawnGeneration(ctx context.Context) (*config.Snapshot, error) {
 	snap, err := s.app.Reload(ctx)
 	if err == nil {

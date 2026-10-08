@@ -47,6 +47,13 @@ type InstanceHomeRequest struct {
 	// history as a real directory, started from NativeHome's
 	// (restoreNativeHistory) instead of linked to it.
 	HistoryInHome bool
+	// ShareUserXDG is that the run may be given the user's own XDG content:
+	// a host run, unsandboxed, which could read it anyway. Each merged home
+	// var's tree (engine.HomeVar.Merge) then links the user's base in beside
+	// the owned dirs. False (a container, and the zero value) gives the tree
+	// the owned dirs alone, so a container is given no more of the user's
+	// XDG content than any container run is: none.
+	ShareUserXDG bool
 	// Root is ctxloom's root the home is prepared on: its Private makes the
 	// home owner-only and checks what the engine wrote. Zero is the
 	// controller's own filesystem (safefs.New).
@@ -118,6 +125,14 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 	if err := ensureHomeDirs(req, f.Home.Vars); err != nil {
 		return rep, err
 	}
+	skipped, err := mergeXDGBases(req, f.Home.Vars, hostOS)
+	for _, w := range skipped {
+		clidiag.WarnOnce("ctxloom", "%s session home: %s", req.Engine, w)
+	}
+	rep.Warnings = append(rep.Warnings, skipped...)
+	if err != nil {
+		return rep, err
+	}
 	if req.NativeHome != "" && f.Home.TranscriptStoreRel != "" {
 		place := linkNativeHistory
 		if req.HistoryInHome {
@@ -130,7 +145,9 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 	if f.Home.InstanceConfig == nil {
 		return rep, nil
 	}
-	return writeInstanceConfig(req, f.Home.InstanceConfig)
+	written, err := writeInstanceConfig(req, f.Home.InstanceConfig)
+	written.Warnings = append(rep.Warnings, written.Warnings...)
+	return written, err
 }
 
 // ensureHomeDirs makes the session home owner-only, then creates, owner-only,

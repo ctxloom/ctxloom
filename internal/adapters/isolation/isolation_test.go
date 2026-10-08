@@ -321,6 +321,16 @@ func stubRuntimeCandidates(t *testing.T, cands ...runtimeCandidate) {
 	t.Cleanup(func() { runtimeCandidates = prev })
 }
 
+// useProductionRuntimeCandidates restores the REAL candidate table for one
+// test — whose probes exec docker/podman, so the test must first put its own
+// shim alone on PATH (or stub engineInfo underneath).
+func useProductionRuntimeCandidates(t *testing.T) {
+	t.Helper()
+	prev := runtimeCandidates
+	runtimeCandidates = productionRuntimeCandidates
+	t.Cleanup(func() { runtimeCandidates = prev })
+}
+
 // ownedBy builds a candidate whose probe reports an available runtime named
 // name owned in mode owns.
 func ownedBy(name string, owns RuntimeAxis) runtimeCandidate {

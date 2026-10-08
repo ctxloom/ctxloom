@@ -108,11 +108,11 @@ type Handed struct {
 	SessionClaims launch.SessionClaims
 	Root          safefs.Root
 	// ContainerRuntimes answers which OCI runtimes this host offers — the
-	// probe doctor's runtime rows share. nil is the real probe
-	// (doctorRuntimes), which execs `docker info` / `podman info`; a test
-	// composition hands a fake, because a rootless `podman info` under a
-	// test's throwaway XDG_RUNTIME_DIR starts a pause process that outlives
-	// the test.
+	// one probe doctor's runtime rows and `container prune` share. nil is
+	// the real probe (doctorRuntimes), which execs `docker info` /
+	// `podman info`; a test composition hands a fake, because a rootless
+	// `podman info` under a test's throwaway XDG_RUNTIME_DIR starts a pause
+	// process that outlives the test.
 	ContainerRuntimes func() []isolation.Runtime
 }
 

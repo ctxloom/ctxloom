@@ -265,9 +265,9 @@ func ociRuntimes() []isolation.Runtime {
 }
 
 // doctorRuntimes is every OCI runtime available on this host — the one probe
-// doctor's runtime rows share. It is doctor's alone: a host run never asks,
-// because the first `podman info` a user ever runs creates rootless storage
-// under their home.
+// doctor's runtime rows and `container prune` share, both through
+// App.containerRuntimes. A host run never asks, because the first
+// `podman info` a user ever runs creates rootless storage under their home.
 func doctorRuntimes() []isolation.Runtime {
 	var out []isolation.Runtime
 	for _, rt := range ociRuntimes() {
@@ -296,27 +296,29 @@ func (a *App) containerRuntimes() []isolation.Runtime {
 // container listed here is either still inside that window or wedged past
 // it; the remedy removes it, and is the operator's call to make.
 func doctorCheckOrphanContainers(ctx context.Context, runtimes []isolation.Runtime, find func(context.Context, isolation.Runtime) ([]isolation.ContainerCandidate, error)) DoctorCheck {
-	const marker = "DOCTOR-CHECK-ORPHAN-CONTAINERS-z2"
-	if len(runtimes) == 0 {
-		return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: "no container runtime on this host; nothing to check"}
-	}
+	return doctorRuntimeCheck(ctx, "DOCTOR-CHECK-ORPHAN-CONTAINERS-z2", runtimes, find, judgeOrphanContainers)
+}
+
+// judgeOrphanContainers renders every runtime's orphan listing as one row: a
+// runtime that could not be listed is named beside the orphans the others
+// reported, never in place of them.
+func judgeOrphanContainers(answers []runtimeAnswer[[]isolation.ContainerCandidate]) DoctorCheck {
 	var names, found, failed, remedies []string
-	for _, rt := range runtimes {
-		names = append(names, rt.Name())
-		orphans, err := find(ctx, rt)
-		if err != nil {
-			failed = append(failed, fmt.Sprintf("%s (%v)", rt.Name(), err))
+	for _, a := range answers {
+		names = append(names, a.rt.Name())
+		if a.err != nil {
+			failed = append(failed, fmt.Sprintf("%s (%v)", a.rt.Name(), a.err))
 			continue
 		}
-		if len(orphans) == 0 {
+		if len(a.val) == 0 {
 			continue
 		}
 		var cnames []string
-		for _, o := range orphans {
+		for _, o := range a.val {
 			cnames = append(cnames, o.Name)
-			found = append(found, fmt.Sprintf("%s %s (owner pid %d dead)", rt.Name(), o.Name, o.OwnerPID))
+			found = append(found, fmt.Sprintf("%s %s (owner pid %d dead)", a.rt.Name(), o.Name, o.OwnerPID))
 		}
-		remedies = append(remedies, rt.Binary()+" rm -f "+strings.Join(cnames, " "))
+		remedies = append(remedies, a.rt.Binary()+" rm -f "+strings.Join(cnames, " "))
 	}
 	var detail []string
 	if len(found) > 0 {
@@ -327,10 +329,35 @@ func doctorCheckOrphanContainers(ctx context.Context, runtimes []isolation.Runti
 		detail = append(detail, "could not list runner containers on "+strings.Join(failed, ", "))
 	}
 	if len(detail) == 0 {
-		return DoctorCheck{Marker: marker, Status: DoctorOK,
+		return DoctorCheck{Status: DoctorOK,
 			Detail: "no runner container outlived its owner (" + strings.Join(names, ", ") + ")"}
 	}
-	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: strings.Join(detail, "; "), Remedy: strings.Join(remedies, "; ")}
+	return DoctorCheck{Status: DoctorWarn, Detail: strings.Join(detail, "; "), Remedy: strings.Join(remedies, "; ")}
+}
+
+// runtimeAnswer is one runtime's answer to a doctorRuntimeCheck question.
+type runtimeAnswer[T any] struct {
+	rt  isolation.Runtime
+	val T
+	err error
+}
+
+// doctorRuntimeCheck is the shape every read-only per-runtime doctor check
+// shares: with no runtime on the host there is nothing to check (an Info
+// row); otherwise ask puts one question to every runtime present, in order,
+// and judge renders all the answers as the check's row under marker.
+func doctorRuntimeCheck[T any](ctx context.Context, marker string, runtimes []isolation.Runtime, ask func(context.Context, isolation.Runtime) (T, error), judge func([]runtimeAnswer[T]) DoctorCheck) DoctorCheck {
+	if len(runtimes) == 0 {
+		return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: "no container runtime on this host; nothing to check"}
+	}
+	answers := make([]runtimeAnswer[T], 0, len(runtimes))
+	for _, rt := range runtimes {
+		v, err := ask(ctx, rt)
+		answers = append(answers, runtimeAnswer[T]{rt: rt, val: v, err: err})
+	}
+	check := judge(answers)
+	check.Marker = marker
+	return check
 }
 
 // doctorMissingFromPath returns the subset of bins that does not resolve on

@@ -25,6 +25,7 @@ func TestSelectRuntime_SlowEngineIsStillSelected(t *testing.T) {
 		"case \"$*\" in *--format*) echo 'true pasta' ;; esac\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "podman"), []byte(shim), 0o755))
 	t.Setenv("PATH", dir)
+	useProductionRuntimeCandidates(t)
 
 	rt := SelectRuntime("", RuntimeContainerRootless)
 	assert.IsType(t, Podman{}, rt,

@@ -52,7 +52,7 @@ to process multiple bundles at once.`,
 // file path so json/yaml/toml/markdown output can attribute items to files
 // (the text renderer's "Processing: <path>" header does the same, visually).
 type bundleDistillFileOutcome struct {
-	Path  string                         `json:"path" col:"File"`
+	Path  string                         `json:"path" clifmt:"col=File"`
 	Saved bool                           `json:"saved"`
 	Items []operations.DistillBundleItem `json:"items"`
 }

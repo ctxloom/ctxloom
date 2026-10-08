@@ -123,7 +123,7 @@ type dryRunJSON struct {
 type findingJSON struct {
 	Kind   string `json:"kind"`
 	Text   string `json:"text"`
-	Remedy string `json:"remedy,omitempty" label:"fix"`
+	Remedy string `json:"remedy,omitempty" clifmt:"label=fix"`
 	Fatal  bool   `json:"fatal"`
 }
 

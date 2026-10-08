@@ -94,7 +94,7 @@ func TestRenderMarkdownTopLevelScalar(t *testing.T) {
 // carry the same number of pipes as the body.
 func TestMarkdownTableEscapesHeaders(t *testing.T) {
 	type row struct {
-		A string `json:"a" col:"pipe|header"`
+		A string `json:"a" clifmt:"col=pipe|header"`
 		B string `json:"b"`
 	}
 	var buf bytes.Buffer

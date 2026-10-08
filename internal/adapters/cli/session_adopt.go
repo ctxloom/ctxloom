@@ -67,13 +67,13 @@ func init() {
 // got a span for (already resolved via the store lookup) renders as empty
 // cells rather than a misleading zero-time.
 type sessionAdoptRow struct {
-	SessionID       string       `json:"session_id" label:"Session" col:"SESSION"`
-	SpanStart       *sessionTime `json:"span_start,omitempty" label:"Span Start" col:"SPAN START"`
-	SpanEnd         *sessionTime `json:"span_end,omitempty" label:"Span End" col:"SPAN END"`
-	Verdict         string       `json:"verdict" label:"Verdict" col:"VERDICT"`
-	Reason          string       `json:"reason,omitempty" label:"Reason" col:"REASON"`
-	RotatedAt       *sessionTime `json:"rotated_at,omitempty" label:"Rotated At" col:"ROTATED AT"`
-	RotatedAtSource string       `json:"rotated_at_source,omitempty" label:"Rotated At Source" col:"SOURCE"`
+	SessionID       string       `json:"session_id" clifmt:"label=Session,col=SESSION"`
+	SpanStart       *sessionTime `json:"span_start,omitempty" clifmt:"label=Span Start,col=SPAN START"`
+	SpanEnd         *sessionTime `json:"span_end,omitempty" clifmt:"label=Span End,col=SPAN END"`
+	Verdict         string       `json:"verdict" clifmt:"label=Verdict,col=VERDICT"`
+	Reason          string       `json:"reason,omitempty" clifmt:"label=Reason,col=REASON"`
+	RotatedAt       *sessionTime `json:"rotated_at,omitempty" clifmt:"label=Rotated At,col=ROTATED AT"`
+	RotatedAtSource string       `json:"rotated_at_source,omitempty" clifmt:"label=Rotated At Source,col=SOURCE"`
 }
 
 func newSessionAdoptRow(c operations.AdoptCandidate) sessionAdoptRow {

@@ -32,11 +32,11 @@ func TestHumanize(t *testing.T) {
 
 type tagFixture struct {
 	Plain     string `json:"plain"`
-	Labeled   string `json:"labeled" label:"Custom Label"`
+	Labeled   string `json:"labeled" clifmt:"label=Custom Label"`
 	Skipped   string `json:"-"`
 	NoTag     string
 	Empty     string `json:"empty,omitempty"`
-	ColTagged string `json:"col_tagged" col:"Short"`
+	ColTagged string `json:"col_tagged" clifmt:"col=Short"`
 }
 
 func TestParseJSONTag(t *testing.T) {
@@ -69,35 +69,43 @@ func TestParseJSONTag(t *testing.T) {
 
 func TestResolveLabel(t *testing.T) {
 	typ := reflect.TypeOf(tagFixture{})
+	hints, err := hintsFor(typ)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	f, _ := typ.FieldByName("Plain")
-	if got := resolveLabel(f, "plain"); got != "Plain" {
+	if got := resolveLabel(f, "plain", hints.of(f)); got != "Plain" {
 		t.Errorf("Plain label = %q, want %q", got, "Plain")
 	}
 
 	f, _ = typ.FieldByName("Labeled")
-	if got := resolveLabel(f, "labeled"); got != "Custom Label" {
+	if got := resolveLabel(f, "labeled", hints.of(f)); got != "Custom Label" {
 		t.Errorf("Labeled label = %q, want %q", got, "Custom Label")
 	}
 
 	f, _ = typ.FieldByName("NoTag")
-	if got := resolveLabel(f, ""); got != "No Tag" {
+	if got := resolveLabel(f, "", hints.of(f)); got != "No Tag" {
 		t.Errorf("NoTag label = %q, want %q", got, "No Tag")
 	}
 }
 
 func TestResolveCol(t *testing.T) {
 	typ := reflect.TypeOf(tagFixture{})
+	hints, err := hintsFor(typ)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	f, _ := typ.FieldByName("ColTagged")
-	label := resolveLabel(f, "col_tagged")
-	if got := resolveCol(f, label); got != "Short" {
+	label := resolveLabel(f, "col_tagged", hints.of(f))
+	if got := resolveCol(hints.of(f), label); got != "Short" {
 		t.Errorf("ColTagged col = %q, want %q", got, "Short")
 	}
 
 	f, _ = typ.FieldByName("Plain")
-	label = resolveLabel(f, "plain")
-	if got := resolveCol(f, label); got != label {
+	label = resolveLabel(f, "plain", hints.of(f))
+	if got := resolveCol(hints.of(f), label); got != label {
 		t.Errorf("Plain col = %q, want fallback to label %q", got, label)
 	}
 }

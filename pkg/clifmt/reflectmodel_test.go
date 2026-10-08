@@ -19,7 +19,7 @@ type nestedFixture struct {
 }
 
 type tableRowFixture struct {
-	ID   string `json:"id" col:"ID"`
+	ID   string `json:"id" clifmt:"col=ID"`
 	Name string `json:"name"`
 }
 

@@ -64,9 +64,14 @@ func buildNode(v reflect.Value) (*Node, error) {
 		return nil, fmt.Errorf("clifmt: buildNode requires a struct, got %s", v.Kind())
 	}
 
+	hints, err := hintsFor(v.Type())
+	if err != nil {
+		return nil, err
+	}
 	node := &Node{}
 	for _, sf := range reflect.VisibleFields(v.Type()) {
-		if !sf.IsExported() {
+		hf, ok := humanField(hints, sf)
+		if !ok {
 			continue
 		}
 		fv, err := v.FieldByIndexErr(sf.Index)
@@ -74,16 +79,10 @@ func buildNode(v reflect.Value) (*Node, error) {
 			// A nil embedded pointer along the path: nothing to show.
 			continue
 		}
-
-		jsonName, skip, omitempty := parseJSONTag(sf.Tag)
-		if skip {
+		if hf.omitempty && isEmptyValue(fv) {
 			continue
 		}
-		label := resolveLabel(sf, jsonName)
-
-		if omitempty && isEmptyValue(fv) {
-			continue
-		}
+		label := hf.label
 
 		deref := derefValue(fv)
 		switch classifyField(deref) {
@@ -104,6 +103,29 @@ func buildNode(v reflect.Value) (*Node, error) {
 		}
 	}
 	return node, nil
+}
+
+// humanFieldInfo is what the human views need of one struct field.
+type humanFieldInfo struct {
+	label     string
+	col       string
+	omitempty bool
+}
+
+// humanField resolves a visible struct field for the human views: its label,
+// its column header and its omitempty flag, or ok=false when the field is
+// unexported, json:"-", or hidden by clifmt:"-".
+func humanField(hints *typeHints, sf reflect.StructField) (humanFieldInfo, bool) {
+	if !sf.IsExported() {
+		return humanFieldInfo{}, false
+	}
+	jsonName, skip, omitempty := parseJSONTag(sf.Tag)
+	h := hints.of(sf)
+	if skip || h.hide {
+		return humanFieldInfo{}, false
+	}
+	label := resolveLabel(sf, jsonName, h)
+	return humanFieldInfo{label: label, col: resolveCol(h, label), omitempty: omitempty}, true
 }
 
 type fieldKind int
@@ -152,19 +174,19 @@ func buildTable(v reflect.Value) (*Table, error) {
 		return nil, fmt.Errorf("clifmt: buildTable requires a slice of struct, got slice of %s", elemType.Kind())
 	}
 
+	hints, err := hintsFor(elemType)
+	if err != nil {
+		return nil, err
+	}
 	cols := reflect.VisibleFields(elemType)
 	var columns []string
 	var indices [][]int
 	for _, sf := range cols {
-		if !sf.IsExported() {
+		hf, ok := humanField(hints, sf)
+		if !ok {
 			continue
 		}
-		jsonName, skip, _ := parseJSONTag(sf.Tag)
-		if skip {
-			continue
-		}
-		label := resolveLabel(sf, jsonName)
-		columns = append(columns, resolveCol(sf, label))
+		columns = append(columns, hf.col)
 		indices = append(indices, sf.Index)
 	}
 

@@ -330,11 +330,11 @@ func reportPlanOnly(cmd *cobra.Command, applyCommand string) error {
 // cli.SessionRow's convention: never the domain type (operations.PurgeItem),
 // tagged for clifmt's reflective text table.
 type sessionPurgeRow struct {
-	Rel    string `json:"rel"    label:"Path"   col:"PATH"`
-	Class  string `json:"class"  label:"Class"  col:"CLASS"`
-	Action string `json:"action" label:"Action" col:"ACTION"`
-	Bytes  int64  `json:"bytes"  label:"Bytes"  col:"BYTES"`
-	Reason string `json:"reason,omitempty" label:"Reason" col:"REASON"`
+	Rel    string `json:"rel"    clifmt:"label=Path,col=PATH"`
+	Class  string `json:"class"  clifmt:"label=Class,col=CLASS"`
+	Action string `json:"action" clifmt:"label=Action,col=ACTION"`
+	Bytes  int64  `json:"bytes"  clifmt:"label=Bytes,col=BYTES"`
+	Reason string `json:"reason,omitempty" clifmt:"label=Reason,col=REASON"`
 }
 
 // renderSessionPurgePlan is the text-format body for a file-population

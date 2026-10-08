@@ -24,7 +24,7 @@ type SessionFullRow struct {
 	SessionRow
 	// Essence is the complete essence.md body, "" when the session was never
 	// compacted (EssencePath is "" too in that case — nothing else to check).
-	Essence string `json:"essence" label:"Essence"`
+	Essence string `json:"essence" clifmt:"label=Essence"`
 }
 
 // newSessionFullRow builds a SessionFullRow for v: the same projection

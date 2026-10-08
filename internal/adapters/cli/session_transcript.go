@@ -42,10 +42,10 @@ var sessionTranscriptListAll bool
 // sessionTranscriptRow is the listing's rendering projection — never the
 // domain type, matching cli.SessionRow's convention (see session_row.go).
 type sessionTranscriptRow struct {
-	Harp     string `json:"harp"           label:"Harp"     col:"HARP"`
-	Captured bool   `json:"captured"       label:"Captured" col:"CAPTURED"`
-	Bytes    int64  `json:"bytes"          label:"Bytes"    col:"BYTES"`
-	Path     string `json:"path,omitempty" label:"Path"     col:"PATH"`
+	Harp     string `json:"harp"           clifmt:"label=Harp,col=HARP"`
+	Captured bool   `json:"captured"       clifmt:"label=Captured,col=CAPTURED"`
+	Bytes    int64  `json:"bytes"          clifmt:"label=Bytes,col=BYTES"`
+	Path     string `json:"path,omitempty" clifmt:"label=Path,col=PATH"`
 }
 
 // sessionTranscriptReport is `session transcript list`'s payload.

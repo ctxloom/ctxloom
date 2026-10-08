@@ -16,11 +16,11 @@ type reportResult struct {
 }
 
 type ownerInfo struct {
-	Team string `json:"team" label:"Owning Team"`
+	Team string `json:"team" clifmt:"label=Owning Team"`
 }
 
 type rowEntry struct {
-	ID     string `json:"id" col:"ID"`
+	ID     string `json:"id" clifmt:"col=ID"`
 	Status string `json:"status"`
 }
 

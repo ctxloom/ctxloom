@@ -3,7 +3,6 @@ package clifmt
 import (
 	"fmt"
 	"reflect"
-	"sort"
 	"strconv"
 )
 
@@ -45,47 +44,32 @@ const (
 	fieldKindCount
 )
 
-// classifyField decides how an already-dereferenced field value should be
-// modeled. A struct that implements fmt.Stringer (e.g. time.Time) is treated
-// as a scalar rather than a section, since it has a canonical human string
-// form. A slice/array of struct becomes a table; a slice of scalars is
-// stringified as a comma-joined scalar line.
+// classifyField decides how an already-dereferenced member value is
+// modeled. A struct that implements fmt.Stringer (e.g. time.Time) is a
+// scalar, since it has a canonical human string form. A struct or a map is a
+// section; a list of structs, or of maps that share one key set and hold
+// only scalars, a table; a list of other maps a section of numbered
+// sections; and a list of scalars a comma-joined scalar line.
 func classifyField(v reflect.Value) fieldKind {
-	if !v.IsValid() {
+	if !v.IsValid() || implementsStringer(v) {
 		return fieldKindScalar
 	}
-	if implementsStringer(v) {
-		return fieldKindScalar
-	}
-	switch v.Kind() {
-	case reflect.Struct:
+	if isMapLike(v) || v.Kind() == reflect.Struct {
 		return fieldKindSection
-	case reflect.Slice, reflect.Array:
-		elem := derefType(v.Type().Elem())
-		if elem.Kind() == reflect.Struct && !typeImplementsStringer(elem) {
+	}
+	if !isList(v) {
+		return fieldKindScalar
+	}
+	if isTableSlice(v) {
+		return fieldKindTable
+	}
+	if ml, ok := mapListShape(v); ok {
+		if ml.uniform {
 			return fieldKindTable
 		}
-		return fieldKindScalar
-	default:
-		return fieldKindScalar
+		return fieldKindSection
 	}
-}
-
-// tableCellString stringifies a row field for a table cell. Nested
-// struct/slice fields (rare inside a table row) fall back to a compact
-// fmt.Sprintf rather than recursing into another table, since a table cell
-// has no room for a nested table.
-func tableCellString(v reflect.Value) string {
-	deref := derefValue(v)
-	if !deref.IsValid() {
-		return ""
-	}
-	switch classifyField(deref) {
-	case fieldKindScalar:
-		return scalarString(v)
-	default:
-		return fmt.Sprintf("%v", deref.Interface())
-	}
+	return fieldKindScalar
 }
 
 // scalarString renders a leaf field value as a human string. Pointers
@@ -114,10 +98,6 @@ func scalarString(v reflect.Value) string {
 		return strconv.FormatUint(v.Uint(), 10)
 	case reflect.Float32, reflect.Float64:
 		return strconv.FormatFloat(v.Float(), 'g', -1, 64)
-	case reflect.Slice, reflect.Array:
-		return joinSlice(v)
-	case reflect.Map:
-		return joinMap(v)
 	default:
 		return fmt.Sprintf("%v", v.Interface())
 	}
@@ -133,34 +113,6 @@ func hasStringForm(v reflect.Value) bool {
 }
 
 var errorType = reflect.TypeFor[error]()
-
-func joinSlice(v reflect.Value) string {
-	out := ""
-	for i := 0; i < v.Len(); i++ {
-		if i > 0 {
-			out += ", "
-		}
-		out += scalarString(v.Index(i))
-	}
-	return out
-}
-
-func joinMap(v reflect.Value) string {
-	keys := v.MapKeys()
-	pairs := make([]string, 0, len(keys))
-	for _, k := range keys {
-		pairs = append(pairs, fmt.Sprintf("%v=%s", k.Interface(), scalarString(v.MapIndex(k))))
-	}
-	sort.Strings(pairs)
-	out := ""
-	for i, p := range pairs {
-		if i > 0 {
-			out += ", "
-		}
-		out += p
-	}
-	return out
-}
 
 func derefValue(v reflect.Value) reflect.Value {
 	for v.IsValid() && (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) {

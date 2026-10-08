@@ -59,6 +59,12 @@ func stepPath(t reflect.Type, seg string) (reflect.Type, error) {
 		}
 		return t.Elem(), nil
 	}
+	if t == mapType {
+		return reflect.TypeFor[any](), nil // a Map's values are typed any
+	}
+	if t.Kind() == reflect.Map {
+		return t.Elem(), nil // any key: keys are data, unknown until run time
+	}
 	if t.Kind() != reflect.Struct || typeImplementsStringer(t) {
 		return nil, fmt.Errorf("%s renders as one value; it has no field %q", t, seg)
 	}

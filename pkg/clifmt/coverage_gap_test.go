@@ -3,6 +3,7 @@ package clifmt
 import (
 	"bytes"
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -29,7 +30,7 @@ func TestDeriveFlattensEmbeddedStruct(t *testing.T) {
 	}
 }
 
-// --- slice-of-scalar and map fields render as a joined scalar line ---
+// --- a slice-of-scalar field is a joined line; a map field is a section ---
 
 type withSliceAndMapFixture struct {
 	Tags  []string       `json:"tags"`
@@ -43,15 +44,16 @@ func TestDeriveSliceOfScalarsJoined(t *testing.T) {
 	}
 }
 
-func TestDeriveMapJoinedSorted(t *testing.T) {
-	var got string
+func TestDeriveMapIsASortedSection(t *testing.T) {
+	var got Section
 	for _, b := range derive(t, withSliceAndMapFixture{Attrs: map[string]int{"z": 1, "a": 2}}) {
-		if f, ok := b.(Field); ok && f.Label == "Attrs" {
-			got = f.Value
+		if s, ok := b.(Section); ok && s.Title == "Attrs" {
+			got = s
 		}
 	}
-	if got != "a=2, z=1" {
-		t.Errorf("Attrs joined = %q, want sorted \"a=2, z=1\"", got)
+	want := Doc{Field{Label: "a", Value: "2"}, Field{Label: "z", Value: "1"}}
+	if !reflect.DeepEqual(got.Body, want) {
+		t.Errorf("Attrs = %#v, want a section of sorted entries %#v", got, want)
 	}
 }
 

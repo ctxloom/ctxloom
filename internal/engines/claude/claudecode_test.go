@@ -17,13 +17,12 @@ import (
 // =============================================================================
 
 // TestNewClaudeCode_DefaultValues verifies that a new Claude Code backend
-// is created with sensible defaults for binary path and capabilities.
+// is created with sensible defaults: its name, version and no label args.
 func TestNewClaudeCode_DefaultValues(t *testing.T) {
 	backend := NewClaudeCode()
 
 	assert.Equal(t, "claude-code", backend.Name())
 	assert.Equal(t, "1.0.0", backend.Version())
-	assert.Equal(t, "claude", backend.BinaryPath)
 	assert.Empty(t, backend.Args)
 }
 
@@ -43,19 +42,6 @@ func TestNewClaudeCode_SupportedModes(t *testing.T) {
 //
 // Configure applies user plugin settings to customize the backend behavior.
 // =============================================================================
-
-// TestClaudeCode_Configure_BinaryPath verifies that custom binary paths
-// override the default "claude" command.
-func TestClaudeCode_Configure_BinaryPath(t *testing.T) {
-	backend := NewClaudeCode()
-
-	cfg := &ClaudeConfig{
-		BinaryPath: "/custom/path/to/claude",
-	}
-	require.NoError(t, backend.Configure(cfg))
-
-	assert.Equal(t, "/custom/path/to/claude", backend.BinaryPath)
-}
 
 // TestClaudeCode_Configure_Args verifies that custom arguments are applied
 // to the backend configuration.
@@ -77,7 +63,7 @@ func (wrongConfig) BackendType() string { return "other" }
 
 // TestClaudeCode_Configure_RefusesAnotherEnginesConfig: a config that is not
 // a *ClaudeConfig is refused loudly, never applied as a silent no-op that
-// leaves the binary and args at their defaults.
+// leaves the args at their defaults.
 func TestClaudeCode_Configure_RefusesAnotherEnginesConfig(t *testing.T) {
 	backend := NewClaudeCode()
 
@@ -85,7 +71,7 @@ func TestClaudeCode_Configure_RefusesAnotherEnginesConfig(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			err := backend.Configure(cfg)
 			require.ErrorIs(t, err, agent.ErrBackendConfigType)
-			assert.Equal(t, "claude", backend.BinaryPath)
+			assert.Empty(t, backend.Args)
 		})
 	}
 }
@@ -101,7 +87,7 @@ func TestClaudeCode_Configure_EmptyFields(t *testing.T) {
 	require.NoError(t, backend.Configure(cfg))
 
 	// Original default should be preserved
-	assert.Equal(t, "claude", backend.BinaryPath)
+	assert.Empty(t, backend.Args)
 }
 
 // =============================================================================

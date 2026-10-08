@@ -1,11 +1,14 @@
 package claude
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"maps"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -185,4 +188,25 @@ func TestBuildArgs_IsInstanceExec(t *testing.T) {
 	merged := maps.Clone(req.Env)
 	maps.Copy(merged, ex.Env)
 	require.Equal(t, fmt.Sprint(merged), fmt.Sprint(b.ExecuteEnv(req)), "the launch env is the request's with Exec's engine-native vars over it")
+}
+
+// TestExecute_SpawnsTheComposedExecsBinary: what Execute spawns is the binary
+// the composed Exec names (the session label's binary), never one the backend
+// holds of its own — the two must not be able to disagree.
+func TestExecute_SpawnsTheComposedExecsBinary(t *testing.T) {
+	var spawned agent.LaunchSpec
+	b := NewClaudeCode()
+	b.SetLauncher(func(_ context.Context, spec agent.LaunchSpec, _ io.Reader, _, _ io.Writer, _ <-chan agent.WindowSize) (int32, error) {
+		spawned = spec
+		return 0, nil
+	})
+	req := withSession(b, &agent.ExecuteRequest{Mode: agent.ModeOneshot, Prompt: &agent.Fragment{Content: "p"}}, modePolicy(modeBypass))
+	req.Session.Label.Binary = "/composed/claude"
+	ex, err := b.ExecFor(req)
+	require.NoError(t, err)
+	require.Equal(t, "/composed/claude", ex.Binary)
+	_, err = b.Execute(context.Background(), req, io.Discard, io.Discard)
+	require.NoError(t, err)
+	assert.Equal(t, ex.Binary, spawned.BinaryPath)
+	assert.Equal(t, ex.Args, spawned.Args)
 }

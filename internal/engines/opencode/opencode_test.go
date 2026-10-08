@@ -278,9 +278,9 @@ func TestBackend(t *testing.T) {
 	h := e.(agent.Hosted)
 	b := h.Backend(nil)
 	cfg := h.NewConfig().(*Config)
-	cfg.BinaryPath = "/opt/oc"
+	cfg.Args = []string{"--print-logs"}
 	require.NoError(t, b.(agent.Configurable).Configure(cfg))
-	assert.Equal(t, "/opt/oc", b.(*kit.ProjectedBackend).GetBinaryPath())
+	assert.Equal(t, []string{"--print-logs"}, b.(*kit.ProjectedBackend).Args)
 	require.ErrorIs(t, b.(agent.Configurable).Configure(otherConfig{}), agent.ErrBackendConfigType)
 	assert.Equal(t, string(EngineName), cfg.BackendType())
 	_, ok := h.HookGlobalScope()

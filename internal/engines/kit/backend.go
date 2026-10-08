@@ -17,8 +17,6 @@ type BackendDefaults struct {
 	// Engine names the backend (agent.Backend's Name) and the request
 	// session's label.
 	Engine string
-	// Binary is the engine's CLI when the label names none.
-	Binary string
 	// Provider is the ModelInfo provider a run reports.
 	Provider string
 	// HomeVar is the env var a request names the engine home by, bound as
@@ -28,9 +26,8 @@ type BackendDefaults struct {
 	// that carries none.
 	Policy func() engine.PermissionPolicy
 	// Local reads the label's typed config (agent.Hosted.NewConfig's type)
-	// for its binary_path and args; a config of another type is
-	// agent.ErrBackendConfigType.
-	Local func(agent.BackendConfig) (binary string, args []string, err error)
+	// for its args; a config of another type is agent.ErrBackendConfigType.
+	Local func(agent.BackendConfig) (args []string, err error)
 }
 
 // ProjectedBackend is agent.Backend as a projection onto the engine kind:
@@ -48,7 +45,6 @@ type ProjectedBackend struct {
 func NewProjectedBackend(kind engine.Engine, launch agent.Launcher, d BackendDefaults) *ProjectedBackend {
 	b := &ProjectedBackend{kind: kind, d: d}
 	b.BaseBackend = agent.NewBaseBackend(d.Engine, "1.0.0")
-	b.BinaryPath = d.Binary
 	b.InitLaunch(agent.NewBaseContextProvider())
 	// The home var names the engine home a request's run env advises; a run
 	// without one advises no engine home.
@@ -62,13 +58,13 @@ func NewProjectedBackend(kind engine.Engine, launch agent.Launcher, d BackendDef
 // Kind is the engine kind the backend projects onto.
 func (b *ProjectedBackend) Kind() engine.Engine { return b.kind }
 
-// Configure applies the label's typed config: its binary_path and args.
+// Configure applies the label's typed config: its args.
 func (b *ProjectedBackend) Configure(cfg agent.BackendConfig) error {
-	binary, args, err := b.d.Local(cfg)
+	args, err := b.d.Local(cfg)
 	if err != nil {
 		return err
 	}
-	agent.ApplyLocalCLIConfig(&b.BaseBackend, binary, args)
+	agent.ApplyLocalCLIConfig(&b.BaseBackend, args)
 	return nil
 }
 
@@ -80,7 +76,7 @@ func ErrConfigType(eng string, cfg agent.BackendConfig) error {
 
 // SessionFor is the engine-facing Session the instance is bound to: the
 // runner's projection when the request carries one, else one projected from
-// the request — the harp the run env carries, the label's binary and args,
+// the request — the harp the run env carries, the label's args,
 // the model, the mode, the engine's default policy, the prompt, the working
 // directory and the home the run env names.
 func (b *ProjectedBackend) SessionFor(req *agent.ExecuteRequest) engine.Session {
@@ -89,7 +85,7 @@ func (b *ProjectedBackend) SessionFor(req *agent.ExecuteRequest) engine.Session 
 	}
 	s := engine.Session{
 		Identity:   sessions.Identity{Harp: req.Env[agent.SessionHarpEnv]},
-		Label:      engine.LabelConfig{Label: b.d.Engine, Model: req.Model, Binary: b.BinaryPath, Args: b.Args},
+		Label:      engine.LabelConfig{Label: b.d.Engine, Model: req.Model, Args: b.Args},
 		Mode:       req.Mode,
 		Permission: b.d.Policy(),
 		Prompt:     agent.GetPromptContent(req.Prompt),
@@ -111,7 +107,8 @@ func (b *ProjectedBackend) ExecFor(req *agent.ExecuteRequest) (engine.Exec, erro
 	return inst.Exec(req.Presented)
 }
 
-// Execute runs the request's Exec: an interactive one on the launcher's pty
+// Execute runs the request's Exec — its binary over its args, so what is
+// spawned is what the engine composed: an interactive one on the launcher's pty
 // with the frontend's stdin, a one-shot with its task on stdin (PromptStdin).
 func (b *ProjectedBackend) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
 	// Best-effort model identity: the requested model, else the backend's
@@ -129,7 +126,7 @@ func (b *ProjectedBackend) Execute(ctx context.Context, req *agent.ExecuteReques
 	if req.Mode == agent.ModeOneshot {
 		oneshotStdin = PromptStdin(req)
 	}
-	return b.ExecuteCLI(ctx, req, ex.Args, oneshotStdin, &agent.ModelInfo{ModelName: modelName, Provider: b.d.Provider}, stdout, stderr)
+	return b.ExecuteCLI(ctx, req, ex.Binary, ex.Args, oneshotStdin, &agent.ModelInfo{ModelName: modelName, Provider: b.d.Provider}, stdout, stderr)
 }
 
 // PromptStdin is the one-shot task as a stdin reader, or nil when there is

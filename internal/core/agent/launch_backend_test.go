@@ -37,7 +37,6 @@ func newSpecCapturingBackend() (*LaunchBackend, *LaunchSpec) {
 	var captured LaunchSpec
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.BinaryPath = "/bin/true"
 	b.SetLauncher(func(_ context.Context, spec LaunchSpec, _ io.Reader, _, _ io.Writer, _ <-chan WindowSize) (int32, error) {
 		captured = spec
 		return 0, nil
@@ -66,7 +65,7 @@ func TestExecuteCLI_InteractiveRelaysStdinCleanup(t *testing.T) {
 		Mode:         ModeInteractive,
 		Stdin:        bytes.NewReader(nil),
 		StdinCleanup: func() { released = true },
-	}, nil, nil, nil, io.Discard, io.Discard)
+	}, "/bin/true", nil, nil, nil, io.Discard, io.Discard)
 	require.NoError(t, err)
 
 	require.NotNil(t, captured.StdinCleanup,
@@ -87,7 +86,7 @@ func TestExecuteCLI_NonInteractiveCarriesNoStdinCleanup(t *testing.T) {
 	_, err := b.ExecuteCLI(context.Background(), &ExecuteRequest{
 		Mode:         ModeOneshot,
 		StdinCleanup: func() { t.Error("a non-interactive run must never release the caller's stdin") },
-	}, nil, bytes.NewReader(nil), nil, io.Discard, io.Discard)
+	}, "/bin/true", nil, bytes.NewReader(nil), nil, io.Discard, io.Discard)
 	require.NoError(t, err)
 
 	assert.Nil(t, captured.StdinCleanup,

@@ -68,14 +68,14 @@ func (b *LaunchBackend) SetEngineHomeVar(name string) { b.engineHomeVar = name }
 // ExecuteCLI runs the shared tail of an exec-style Execute: the dry-run
 // preview stop, the v16 argv trace, env assembly (the request env plus the
 // SCM context-file path), and interactive/non-interactive routing. A concrete
-// backend resolves its model + argv — the genuinely engine-specific half —
-// and delegates the launch here, so the launch plumbing can't drift between
+// backend resolves its model, binary and argv — the genuinely engine-specific
+// half — and delegates the launch here, so the launch plumbing can't drift between
 // engines.
 // oneshotStdin, when non-nil, is fed to the child's stdin for a non-interactive
 // run — the channel a backend uses to deliver a large oneshot prompt off the
 // argv (which the OS length-limits). It is ignored for an interactive run, whose
 // stdin is the frontend's (req.Stdin).
-func (b *LaunchBackend) ExecuteCLI(ctx context.Context, req *ExecuteRequest, args []string, oneshotStdin io.Reader, modelInfo *ModelInfo, stdout, stderr io.Writer) (*ExecuteResult, error) {
+func (b *LaunchBackend) ExecuteCLI(ctx context.Context, req *ExecuteRequest, binary string, args []string, oneshotStdin io.Reader, modelInfo *ModelInfo, stdout, stderr io.Writer) (*ExecuteResult, error) {
 	if req.DryRun {
 		return &ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
 	}
@@ -90,21 +90,21 @@ func (b *LaunchBackend) ExecuteCLI(ctx context.Context, req *ExecuteRequest, arg
 		singleArgLimit(perArgCapped, os.Getpagesize())); err != nil {
 		return nil, err
 	}
-	b.TraceArgs(req.Verbosity, args, stderr)
+	b.TraceArgs(req.Verbosity, binary, args, stderr)
 	env := b.ExecuteEnv(req)
 	if req.Mode == ModeInteractive {
-		exitCode, err := b.RunInteractive(ctx, args, env, req.Stdin, req.StdinCleanup, stdout, stderr, req.Resize)
+		exitCode, err := b.RunInteractive(ctx, binary, args, env, req.Stdin, req.StdinCleanup, stdout, stderr, req.Resize)
 		return &ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
 	}
-	exitCode, err := b.RunNonInteractive(ctx, args, env, oneshotStdin, stdout, stderr)
+	exitCode, err := b.RunNonInteractive(ctx, binary, args, env, oneshotStdin, stdout, stderr)
 	return &ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
 }
 
 // TraceArgs prints the resolved argv at verbosity 16+ — the launch trace
 // every exec-style backend shows.
-func (b *LaunchBackend) TraceArgs(verbosity uint32, args []string, stderr io.Writer) {
+func (b *LaunchBackend) TraceArgs(verbosity uint32, binary string, args []string, stderr io.Writer) {
 	if verbosity >= 16 {
-		_, _ = fmt.Fprintf(stderr, "[v16] %s %s\n", b.BinaryPath, strings.Join(args, " "))
+		_, _ = fmt.Fprintf(stderr, "[v16] %s %s\n", binary, strings.Join(args, " "))
 	}
 }
 

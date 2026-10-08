@@ -223,16 +223,15 @@ func (o Opencode) Backend(launch agent.Launcher) agent.Backend {
 // backendDefaults is what the projected backend needs beyond the kind.
 var backendDefaults = kit.BackendDefaults{
 	Engine:   string(EngineName),
-	Binary:   defaultBinary,
 	Provider: "openai-compatible",
 	HomeVar:  envConfigDir,
 	Policy:   defaultPolicy,
-	Local: func(cfg agent.BackendConfig) (string, []string, error) {
+	Local: func(cfg agent.BackendConfig) ([]string, error) {
 		c, ok := cfg.(*Config)
 		if !ok {
-			return "", nil, kit.ErrConfigType(string(EngineName), cfg)
+			return nil, kit.ErrConfigType(string(EngineName), cfg)
 		}
-		return c.BinaryPath, c.Args, nil
+		return c.Args, nil
 	},
 }
 

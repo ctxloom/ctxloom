@@ -51,12 +51,11 @@ type Launcher func(ctx context.Context, spec LaunchSpec, stdin io.Reader, stdout
 // BaseBackend provides common functionality for all AI backends.
 // Embed this struct in concrete backend implementations.
 type BaseBackend struct {
-	name       string
-	version    string
-	BinaryPath string
-	Args       []string
-	workDir    string
-	launcher   Launcher
+	name     string
+	version  string
+	Args     []string
+	workDir  string
+	launcher Launcher
 }
 
 // SetLauncher injects the process launcher. ctxloom sets a pty-backed launcher at
@@ -82,13 +81,6 @@ func (b *BaseBackend) Name() string {
 // Version returns the backend version.
 func (b *BaseBackend) Version() string {
 	return b.version
-}
-
-// GetBinaryPath returns the configured binary path. It satisfies the
-// BinaryPathProvider contract the registry uses to resolve a backend's default
-// binary without launching it.
-func (b *BaseBackend) GetBinaryPath() string {
-	return b.BinaryPath
 }
 
 // SupportedModes returns the default supported modes (both interactive and oneshot).
@@ -120,34 +112,34 @@ func (b *BaseBackend) BuildEnv(reqEnv map[string]string) []string {
 	return env
 }
 
-// RunInteractive runs the backend's command in interactive mode: the injected
+// RunInteractive runs binary in interactive mode: the injected
 // launcher allocates a pty and wires the frontend's stdin/resize (from the bidi
 // Run stream) into it. stdin/resize may be nil (e.g. a non-tty caller).
 // stdinCleanup releases stdin once the pty's copier stops reading it; see
 // ExecuteRequest.StdinCleanup, and nil for a reader the caller still owns.
-func (b *BaseBackend) RunInteractive(ctx context.Context, args []string, env map[string]string, stdin io.Reader, stdinCleanup func(), stdout, stderr io.Writer, resize <-chan WindowSize) (int32, error) {
-	return b.run(ctx, args, env, true, stdin, stdinCleanup, stdout, stderr, resize)
+func (b *BaseBackend) RunInteractive(ctx context.Context, binary string, args []string, env map[string]string, stdin io.Reader, stdinCleanup func(), stdout, stderr io.Writer, resize <-chan WindowSize) (int32, error) {
+	return b.run(ctx, binary, args, env, true, stdin, stdinCleanup, stdout, stderr, resize)
 }
 
-// RunNonInteractive runs the backend's command without a pty (no resize). stdin
+// RunNonInteractive runs binary without a pty (no resize). stdin
 // is the child's standard input — nil for a run that takes no input, or a finite
 // reader to deliver a oneshot prompt off the argv (which the OS length-limits).
 //
 // It carries no stdin cleanup because there is nothing to release: without a pty
 // the reader is handed straight to the child process and drained to EOF, so no
 // copier goroutine ever parks on it and no writer waits on a reader that left.
-func (b *BaseBackend) RunNonInteractive(ctx context.Context, args []string, env map[string]string, stdin io.Reader, stdout, stderr io.Writer) (int32, error) {
-	return b.run(ctx, args, env, false, stdin, nil, stdout, stderr, nil)
+func (b *BaseBackend) RunNonInteractive(ctx context.Context, binary string, args []string, env map[string]string, stdin io.Reader, stdout, stderr io.Writer) (int32, error) {
+	return b.run(ctx, binary, args, env, false, stdin, nil, stdout, stderr, nil)
 }
 
-// run builds the LaunchSpec from the backend's state and hands it to the injected
-// launcher. The substrate never execs a process itself.
-func (b *BaseBackend) run(ctx context.Context, args []string, env map[string]string, interactive bool, stdin io.Reader, stdinCleanup func(), stdout, stderr io.Writer, resize <-chan WindowSize) (int32, error) {
+// run builds the LaunchSpec for binary from the backend's state and hands it to
+// the injected launcher. The substrate never execs a process itself.
+func (b *BaseBackend) run(ctx context.Context, binary string, args []string, env map[string]string, interactive bool, stdin io.Reader, stdinCleanup func(), stdout, stderr io.Writer, resize <-chan WindowSize) (int32, error) {
 	if b.launcher == nil {
 		return 1, fmt.Errorf("no launcher configured for %s", b.name)
 	}
 	return b.launcher(ctx, LaunchSpec{
-		BinaryPath:   b.BinaryPath,
+		BinaryPath:   binary,
 		Args:         args,
 		Env:          b.BuildEnv(env),
 		WorkDir:      b.WorkDir(),

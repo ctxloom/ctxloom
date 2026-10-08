@@ -43,16 +43,15 @@ func NewClaudeCode() *ClaudeCode {
 // The run's CLAUDE_CONFIG_DIR is the engine home a request names.
 var claudeBackend = kit.BackendDefaults{
 	Engine:   EngineName,
-	Binary:   "claude",
 	Provider: "anthropic",
 	HomeVar:  ConfigDirEnv,
 	Policy:   defaultPolicy,
-	Local: func(cfg agent.BackendConfig) (string, []string, error) {
+	Local: func(cfg agent.BackendConfig) ([]string, error) {
 		c, ok := cfg.(*ClaudeConfig)
 		if !ok {
-			return "", nil, kit.ErrConfigType(EngineName, cfg)
+			return nil, kit.ErrConfigType(EngineName, cfg)
 		}
-		return c.BinaryPath, c.Args, nil
+		return c.Args, nil
 	},
 }
 

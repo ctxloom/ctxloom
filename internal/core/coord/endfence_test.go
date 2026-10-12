@@ -146,3 +146,19 @@ func TestEndFence_AnEndingRunIsSentNoResume(t *testing.T) {
 	_, err := f.c.sendRunnerControl(context.Background(), rec, "resume", "")
 	require.ErrorIs(t, err, ErrCapabilityUnavailable, "a resume reached an ending run's runner")
 }
+
+// TestEndRun_SessionEndIsScopedToTheEndedRun: the run's end names the RUN to
+// the spawner's session accounting, so the spawner can tell a late end of an
+// ended run from the end of the resumed run that now holds the session
+// (spawn's TestProdSpawner_ALateEndOfAnEndedRunSparesItsResumedSuccessor).
+func TestEndRun_SessionEndIsScopedToTheEndedRun(t *testing.T) {
+	resetStrictness(t)
+	sp := startRunSpawner(t, nil)
+	c := newTestCoordinator(t, sp, nil)
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
+	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: done")))
+	require.Eventually(t, func() bool { return len(sp.sessionEndRunIDs()) > 0 }, conformanceWait, 10*time.Millisecond)
+	assert.Equal(t, []string{out.RunID}, sp.sessionEndRunIDs())
+}

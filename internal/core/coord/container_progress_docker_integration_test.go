@@ -240,7 +240,7 @@ func (s *progressSpawner) record(name string, kill func()) {
 func (s *progressSpawner) ResumeHistory(context.Context, string) string        { return "" }
 func (s *progressSpawner) RecordEngineVersion(context.Context, string, string) {}
 
-func (s *progressSpawner) MarkSessionEnded(string)          {}
+func (s *progressSpawner) MarkSessionEnded(string, string)  {}
 func (s *progressSpawner) BindNativeSession(string, string) {}
 func (s *progressSpawner) NativeSession(string) string      { return "" }
 

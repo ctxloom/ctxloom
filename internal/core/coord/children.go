@@ -430,7 +430,7 @@ func (c *Coordinator) admitAgentRun(caller Identity, agentName, prompt string) e
 // implementation's own diagnostic (MarkSessionEnded warns for itself).
 func (c *Coordinator) releaseAssignedHarp(harp string, cause error) {
 	c.rep.Warnf("agent_run: releasing session %s — the spawn was refused before the run was registered: %v", harp, cause)
-	c.spawner.MarkSessionEnded(harp)
+	c.spawner.MarkSessionEnded(harp, "")
 }
 
 // defaultSpawnNoticeAfter is how long agent_run's pre-registration span may
@@ -1611,7 +1611,7 @@ func (c *Coordinator) endRun(runID, cause, detail string, drainTail, fence bool)
 	c.spoolReactor.Mark(rec.Harp)
 
 	c.notifyParentOfDeath(rec, cause, detail, runFailure)
-	c.spawner.MarkSessionEnded(rec.Harp)
+	c.spawner.MarkSessionEnded(rec.Harp, runID)
 
 	// A message that raced the death (queued after the last boundary drain)
 	// must not strand: the ended-child delivery rule is resume (§6a). That

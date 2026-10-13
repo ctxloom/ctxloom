@@ -295,9 +295,10 @@ func driveDiscoverySessionViaMock(w *World, recordFile string, initArgs ...strin
 	}
 	defer sess.Close()
 
-	exited, waitErr := sess.Wait(eventBudget())
-	if !exited {
-		return "", fmt.Errorf("ctxloom init never exited; captured output:\n%s", sess.Output())
+	// Nothing answers this init, so any question it asks is a hang.
+	waitErr, err := sess.WaitForExitUnless(eventBudget(), initEngineMenu, initPersonalRepos, initRepoEntry)
+	if err != nil {
+		return "", fmt.Errorf("ctxloom init: %w", err)
 	}
 	if waitErr != nil {
 		return "", fmt.Errorf("ctxloom init exited with an error: %w; captured output:\n%s", waitErr, sess.Output())
@@ -385,6 +386,29 @@ func freshInitPath(w *World) (string, error) {
 	return freshInitStubDir(w) + string(os.PathListSeparator) + rest, nil
 }
 
+// Init's interactive screens, by what each prints. A step that drives init
+// lists the ones it never answers, so a screen it did not expect fails the
+// step AT ONCE, naming what init showed — rather than waiting out a deadline
+// the whole suite shares (an engine menu nobody answered once spent it, and
+// 21 later scenarios failed with it).
+var (
+	initEngineMenu = testenv.Unexpected{
+		Name:      "init's engine menu (more than one engine was found on PATH)",
+		Signature: "Select your AI engine (press Enter for recommended):",
+	}
+	initPersonalRepos = testenv.Unexpected{
+		Name:      "init's personal-repositories question",
+		Signature: freshInitReposPrompt,
+	}
+	initRepoEntry = testenv.Unexpected{
+		Name:      "init's repository entry prompt",
+		Signature: "(blank to finish): ",
+	}
+)
+
+// freshInitReposPrompt is the one question the fresh-init interview answers.
+const freshInitReposPrompt = "Do you have any personal ctxloom repositories? (y/N): "
+
 // driveFreshInitInterview runs a REAL `ctxloom init` on a project with no
 // .ctxloom over a real pty, answering each question as it is asked: no
 // personal repositories. It is hermetic by construction:
@@ -393,35 +417,42 @@ func freshInitPath(w *World) (string, error) {
 //   - --no-pull skips the dependency pull;
 //   - GIT_ALLOW_PROTOCOL=file refuses the seeded remote's https clone
 //     outright, which init tolerates (a failed clone warns and continues).
-//
-// Each answer waits for its own prompt, so a question that is skipped,
-// reordered or renamed fails here, naming the one that never came.
 func driveFreshInitInterview(w *World) (string, error) {
 	path, err := freshInitPath(w)
 	if err != nil {
 		return "", err
 	}
-	env := []string{"PATH=" + path, "GIT_ALLOW_PROTOCOL=file"}
-	sess, err := w.env.RunPTY(100, 30, env, "init", "--skip-launch", "--no-pull")
+	return runFreshInitInterview(w.env, path)
+}
+
+// runFreshInitInterview is the interview itself, on env with init's PATH.
+// Each answer waits for its own prompt, so a question that is skipped,
+// reordered or renamed fails here, naming the one that never came; a screen
+// the interview never answers (initEngineMenu, initRepoEntry), or init
+// exiting early, fails it at once, naming what init showed.
+func runFreshInitInterview(env *testenv.TestEnvironment, path string) (string, error) {
+	sess, err := env.RunPTY(100, 30, []string{"PATH=" + path, "GIT_ALLOW_PROTOCOL=file"}, "init", "--skip-launch", "--no-pull")
 	if err != nil {
 		return "", fmt.Errorf("start pty session: %w", err)
 	}
 	defer sess.Close()
 
+	unanswered := []testenv.Unexpected{initEngineMenu, initRepoEntry}
 	for _, qa := range []struct{ prompt, answer string }{
-		{"Do you have any personal ctxloom repositories? (y/N): ", "n"},
+		{freshInitReposPrompt, "n"},
 	} {
-		if !sess.WaitForOutput(eventBudget(), func(out string) bool { return strings.Contains(out, qa.prompt) }) {
-			return sess.Output(), fmt.Errorf("init never asked %q; captured output:\n%s", qa.prompt, sess.Output())
+		asked := func(out string) bool { return strings.Contains(out, qa.prompt) }
+		if err := sess.WaitForScreen(eventBudget(), fmt.Sprintf("init's question %q", qa.prompt), asked, unanswered...); err != nil {
+			return sess.Output(), err
 		}
 		if _, err := sess.Write([]byte(qa.answer + "\r")); err != nil {
 			return sess.Output(), fmt.Errorf("answer %q: %w", qa.prompt, err)
 		}
 	}
 
-	exited, waitErr := sess.Wait(eventBudget())
-	if !exited {
-		return sess.Output(), fmt.Errorf("ctxloom init never exited; captured output:\n%s", sess.Output())
+	waitErr, err := sess.WaitForExitUnless(eventBudget(), unanswered...)
+	if err != nil {
+		return sess.Output(), fmt.Errorf("ctxloom init: %w", err)
 	}
 	if waitErr != nil {
 		return sess.Output(), fmt.Errorf("ctxloom init exited with an error: %w; captured output:\n%s", waitErr, sess.Output())

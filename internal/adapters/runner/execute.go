@@ -124,6 +124,9 @@ var (
 // is no Execute that skips delivery and no way to
 // hold a Launch that Resolve did not make.
 func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
+	// The ownership record names files by their HOST path; prepareLaunch
+	// reopens the cell at its Engine side, which in a container is another.
+	projectRoot := l.Cell.Paths.Paths().ProjectRoot.Host
 	l, inst, err := prepareLaunch(deps, l)
 	if err != nil {
 		return Outcome{}, err
@@ -145,6 +148,7 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		return Outcome{}, err
 	}
 	sweepDeparted(ctx, deps)
+	warnMaterializedContext(deps, projectRoot)
 	closeServed, err := serveEndpoint(ctx, deps, lo)
 	if err != nil {
 		return Outcome{}, err
@@ -284,6 +288,18 @@ func sweepDeparted(ctx context.Context, deps Deps) {
 	}
 	if err := deps.Static.Reverse(ctx, deps.Records, dead...); err != nil {
 		reportSweep(deps, fmt.Sprintf("reverse departed sessions %v's deliveries", dead), err)
+	}
+}
+
+// warnMaterializedContext reports, before the engine spawns, each file in
+// the launch's project that holds context an earlier `ctxloom materialize`
+// wrote (R5): the engine may read it beside the session's own context. Here,
+// in the runner, so every launch path warns; the report rides the StartRun
+// answer to the originator. Advisory: a record that cannot be read warns
+// nothing.
+func warnMaterializedContext(deps Deps, projectRoot string) {
+	for _, f := range materializedContextFindings(deps.Records, projectRoot) {
+		report.To(deps.Reporter).Report(f)
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines"
@@ -412,5 +413,7 @@ func TestRunSyncPostSteps_APlainSyncLeavesNoContextAtRestToWarnOf(t *testing.T) 
 	assert.Contains(t, fileIn(t, root, ".claude/settings.json"), "team-guardrail", "the refresh ran")
 	records, err := OwnershipRecords()
 	require.NoError(t, err)
-	assert.Empty(t, MaterializedContextFindings(records, root), "no context at rest, so no R5 warning")
+	atRest, err := delivery.ProjectContextClaims(records, root)
+	require.NoError(t, err)
+	assert.Empty(t, atRest, "no context at rest, so no R5 warning")
 }

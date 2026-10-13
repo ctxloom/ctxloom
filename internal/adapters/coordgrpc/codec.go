@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/remedystatus"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // The codec between the coordination vocabulary (event.go, frames.go) and
@@ -566,13 +567,40 @@ func RunnerResponseFromWire(resp *agentcoordpb.RunnerResponse) coord.RunnerRespo
 	}
 	switch k := resp.GetKind().(type) {
 	case *agentcoordpb.RunnerResponse_StartRun:
-		out.Kind = coord.StartRunResult{HarnessSessionID: k.StartRun.GetHarnessSessionId(), PID: k.StartRun.GetPid()}
+		out.Kind = coord.StartRunResult{HarnessSessionID: k.StartRun.GetHarnessSessionId(), PID: k.StartRun.GetPid(), Findings: decodeFindings(k.StartRun.GetFindings())}
 	case *agentcoordpb.RunnerResponse_PauseRun:
 		out.Kind = coord.PauseRunResult{NewlyPaused: k.PauseRun.GetNewlyPaused()}
 	case *agentcoordpb.RunnerResponse_ResumeRun:
 		out.Kind = coord.ResumeRunResult{NewlyResumed: k.ResumeRun.GetNewlyResumed()}
 	case *agentcoordpb.RunnerResponse_Turn:
 		out.Kind = coord.TurnResult{Result: engine.TurnResult{NativeKey: k.Turn.GetNativeKey(), Answer: k.Turn.GetAnswer()}}
+	}
+	return out
+}
+
+// EncodeFindings is what a runner reported while executing a launch, on the
+// StartRun answer (StartRunResult.findings), as the advisories the
+// originator renders: text, remedy and once. The kind stays behind — the
+// runner has already acted on its severity.
+func EncodeFindings(fs report.Findings) []*agentcoordpb.RunFinding {
+	if len(fs) == 0 {
+		return nil
+	}
+	out := make([]*agentcoordpb.RunFinding, 0, len(fs))
+	for _, f := range fs {
+		out = append(out, &agentcoordpb.RunFinding{Text: f.Text, Remedy: f.Remedy, Once: f.Once})
+	}
+	return out
+}
+
+// decodeFindings is EncodeFindings' inverse.
+func decodeFindings(in []*agentcoordpb.RunFinding) report.Findings {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(report.Findings, 0, len(in))
+	for _, f := range in {
+		out = append(out, report.Finding{Text: f.GetText(), Remedy: f.GetRemedy(), Once: f.GetOnce()})
 	}
 	return out
 }

@@ -969,6 +969,8 @@ func (st *runState) emitDryRun() error {
 	deps.Cells = operations.PreviewCells(App().LaunchFacts())
 	deps.Assembler = operations.PreviewAssembler(App().Engines())
 	deps.ClaimCheck = operations.PreviewClaims()
+	// A preview records nothing and execs no vendor CLI for a version.
+	deps.ProbeVersion = nil
 	l, err := operations.StartRun(st.ctx, deps, sessions.Seed{ProjectDir: st.workDir, ProjectID: st.projectID}, src)
 	if err != nil {
 		return st.refused(err)
@@ -1149,7 +1151,6 @@ func (st *runState) openSessionBanner() func() {
 		Unsafe:    unsafeLabels(st.launch),
 		Previous:  previous,
 	})
-	st.warnMaterializedContext()
 
 	// Set the terminal window title to the harp name via the OSC2 escape
 	// sequence. Skipped for non-TTY (CI, piped) so we don't pollute
@@ -1161,19 +1162,6 @@ func (st *runState) openSessionBanner() func() {
 		return func() { fmt.Fprint(os.Stderr, "\033[23;0t") }
 	}
 	return func() {}
-}
-
-// warnMaterializedContext reports, before the engine spawns, each file in
-// this run's project that holds context an earlier `ctxloom materialize`
-// wrote (R5). Advisory: a record that cannot be read warns nothing.
-func (st *runState) warnMaterializedContext() {
-	records, err := operations.OwnershipRecords()
-	if err != nil {
-		return
-	}
-	for _, f := range operations.MaterializedContextFindings(records, st.workDir) {
-		report.To(App().Reporter).Report(f)
-	}
 }
 
 // markSessionEnded stamps the harp's end timestamp. runRun defers it only

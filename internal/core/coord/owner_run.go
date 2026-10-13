@@ -202,11 +202,15 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 		return nil, err
 	}
 
+	c.mu.Lock()
+	found := rt.startFindings
+	c.mu.Unlock()
 	return &RunOutcome{
-		Harp:    l.Identity.Harp,
-		RunID:   rt.runID,
-		Engine:  l.Label.Label,
-		Runtime: runtime,
+		Harp:     l.Identity.Harp,
+		RunID:    rt.runID,
+		Engine:   l.Label.Label,
+		Runtime:  runtime,
+		Findings: found,
 	}, nil
 }
 

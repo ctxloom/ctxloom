@@ -162,7 +162,11 @@ type childRt struct {
 	// Everything else (turn state, slot accounting, spool-borne follow-up
 	// turns) is identical to a child.
 	ownerRun bool
-	close    func()
+	// startFindings is what the runner reported executing this run's launch,
+	// off its StartRun answer (StartRunResult.Findings). An owner run hands
+	// them to its owner on the RunOutcome.
+	startFindings report.Findings
+	close         func()
 	// idleSince is when this run's runner last went idle (a turn boundary);
 	// zero while a turn is in flight. The idle reaper reads it.
 	idleSince time.Time
@@ -225,6 +229,10 @@ type RunOutcome struct {
 	Runtime  launch.RuntimeAxis
 	Queued   bool
 	Degraded []string
+	// Findings is what the run's runner reported executing its launch (an
+	// owner run's: StartOwnedRun), for the owning `ctxloom run` to show — the
+	// runner's own stderr surfaces only when a run fails.
+	Findings report.Findings
 }
 
 // AgentRun launches a configured agent as a delegated child of caller:
@@ -1042,6 +1050,9 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	})
 	if res, ok := resp.Kind.(StartRunResult); ok {
 		c.bindNativeSession(rt.harp, res.HarnessSessionID)
+		c.mu.Lock()
+		rt.startFindings = res.Findings
+		c.mu.Unlock()
 	}
 	// Mail written while the engine was coming up is the runner's own
 	// startup sweep's to deliver, as turns.

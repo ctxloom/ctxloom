@@ -38,7 +38,9 @@ import (
 // the engine home and settle the dirty parent tree.
 
 // StartRun mints the session identity for seed and resolves src through the
-// one resolver. The caller starts the transport it owns from the Launch and
+// one resolver, then records the version of the binary the resolved launch
+// spawns against the minted harp (deps.ProbeVersion; recordLaunchedVersion).
+// The caller starts the transport it owns from the Launch and
 // ends the session (EndSession) when the run is over; a launch that does not
 // resolve ends its own session here so no harp is left half-minted.
 func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src launch.Source) (launch.Launch, error) {
@@ -61,13 +63,36 @@ func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src lau
 		}
 		return launch.Launch{}, err
 	}
+	recordLaunchedVersion(ctx, deps, l)
 	return l, nil
+}
+
+// recordLaunchedVersion records, against l's harp, the version of the binary
+// l spawns: l's engine at its label binary. It runs here, once the launch
+// resolves, rather than in MintIdentity, because the mint does not know the
+// engine or the binary yet — Resolve decides both.
+//
+// WHY EVERY TOP-LEVEL RUN NEEDS IT: a session with no recorded version is
+// refused by every transcript reader (vendorreader.NoRecordedVersionError),
+// the turn-end hooks (next-step, skill-mates) included. A delegated child is
+// recorded by the coordinator (coord's recordEngineVersion); this is the same
+// record for the originator's own session.
+//
+// It is synchronous, so the record is in the index before the engine's first
+// turn can end. The probe is cached per process and bounded
+// (engineversion.DefaultProbeTimeout); a failed one warns and the run goes on.
+func recordLaunchedVersion(ctx context.Context, deps launch.Deps, l launch.Launch) {
+	if deps.ProbeVersion == nil {
+		return
+	}
+	version, perr := deps.ProbeVersion(ctx, string(l.Engine), l.Label.Binary)
+	recordProbedVersion(deps.Sessions, l.Identity.Harp, version, perr)
 }
 
 // MintIdentity is THE mint on the host: the harp assigned in the store (its
 // directory and sidecar), the liveness lock held by this process, the
 // identity returned. The engine is not known here — Resolve decides it and
-// records it (Store.BindEngine). The session's output dir is recorded under outputBase (OutputBase); a session that cannot
+// records it (Store.BindEngine), and StartRun records its version. The session's output dir is recorded under outputBase (OutputBase); a session that cannot
 // say where its outputs go is refused.
 func MintIdentity(store sessions.Store, seed sessions.Seed, outputBase string) (sessions.Identity, error) {
 	entry, err := store.AssignHarp(seed.ProjectDir, seed.Engine)
@@ -99,13 +124,21 @@ func MintIdentity(store sessions.Store, seed sessions.Seed, outputBase string) (
 }
 
 // LaunchDeps composes the resolver's ports over this process's published
-// generation.
+// generation, with this App's cached engine-version probe as ProbeVersion, so
+// a session started on them records the version it ran (StartRun).
 func (a *App) LaunchDeps(ctx context.Context) (launch.Deps, error) {
 	snap, err := a.Snapshot(ctx)
 	if err != nil {
 		return launch.Deps{}, err
 	}
-	return LaunchDepsFor(a.LaunchFacts(), snap)
+	deps, err := LaunchDepsFor(a.LaunchFacts(), snap)
+	if err != nil {
+		return launch.Deps{}, err
+	}
+	deps.ProbeVersion = func(ctx context.Context, engine, binary string) (string, error) {
+		return probeEngineVersion(a, ctx, engine, binary)
+	}
+	return deps, nil
 }
 
 // LaunchDepsFor composes the resolver's ports over one generation: the

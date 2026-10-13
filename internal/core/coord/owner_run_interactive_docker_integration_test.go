@@ -28,7 +28,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/attach"
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
-	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -36,7 +35,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/daemonfixture"
 )
@@ -126,7 +124,7 @@ func TestCoordOwnerRun_InteractiveContainerIsTheForegroundRunner(t *testing.T) {
 	// HOME first: the mint writes the sidecar the container launch reads the
 	// output dir from, so it must land in the home the run resolves against.
 	coord.TeeHome(t)
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, "mock", "", filepath.Join(projectDir, ".test-output"))
+	entry, err := operations.AssignSessionHarp(projectDir, "mock", filepath.Join(projectDir, ".test-output"))
 	require.NoError(t, err)
 	ownerHarp := entry.HarpName
 

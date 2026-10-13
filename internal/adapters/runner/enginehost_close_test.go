@@ -57,7 +57,7 @@ func TestEngineHost_DrivesNothingOnceClosed(t *testing.T) {
 	// Drive past startRun's own check: Drive is where the refusal holds.
 	t.Run("a launch already being delivered is not driven", func(t *testing.T) {
 		eh, home, sc := closedHost(t)
-		err := testRunner{eh: eh, inst: sc}.Execute(context.Background(), testStartRun("run-1").GetLaunch())
+		_, err := testRunner{eh: eh, inst: sc}.Execute(context.Background(), testStartRun("run-1").GetLaunch())
 		require.ErrorIs(t, err, errEngineHostClosed)
 		assertNothingDriven(t, home)
 	})
@@ -110,7 +110,8 @@ func TestEngineHost_CloseWaitsForADriveInFlight(t *testing.T) {
 
 	driveErr := make(chan error, 1)
 	go func() {
-		driveErr <- testRunner{eh: eh, inst: sc}.Execute(context.Background(), testStartRun("run-1").GetLaunch())
+		_, err := testRunner{eh: eh, inst: sc}.Execute(context.Background(), testStartRun("run-1").GetLaunch())
+		driveErr <- err
 	}()
 	<-home.reached // Drive is past its closed check
 	eh.mu.Lock()
@@ -156,7 +157,8 @@ func TestEngineHost_ADriveOutlastingCloseInstallsNoRecorder(t *testing.T) {
 
 	driveErr := make(chan error, 1)
 	go func() {
-		driveErr <- testRunner{eh: eh, inst: sc}.Execute(context.Background(), testStartRun("run-1").GetLaunch())
+		_, err := testRunner{eh: eh, inst: sc}.Execute(context.Background(), testStartRun("run-1").GetLaunch())
+		driveErr <- err
 	}()
 	<-home.reached // Drive is past its closed check, held before it opens the recorder
 

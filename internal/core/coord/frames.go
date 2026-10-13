@@ -7,6 +7,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // The frames below are the coordination vocabulary as the coordinator
@@ -116,6 +117,11 @@ type RunnerResultKind interface{ runnerResultKind() }
 type StartRunResult struct {
 	HarnessSessionID string
 	PID              int64
+	// Findings is what the runner reported while executing the launch (a
+	// command or skill the writers skipped, a failed sweep): its stderr
+	// surfaces only when a run fails, so on a run that starts this is how
+	// they reach the originator (RunOutcome.Findings).
+	Findings report.Findings
 }
 
 // PauseRunResult is a PauseRun's answer.

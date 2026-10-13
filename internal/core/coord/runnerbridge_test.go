@@ -52,6 +52,10 @@ func init() {
 			host := eh.(*engineHost).EngineHost
 			host.BindRunner(testRunner{eh: host, inst: inst, refuse: refuse})
 		},
+		BindReportingTestRunner: func(eh coord.TestEngineHost, inst engine.Instance, findings report.Findings) {
+			host := eh.(*engineHost).EngineHost
+			host.BindRunner(testRunner{eh: host, inst: inst, findings: findings})
+		},
 		DialRunner: func(ctx context.Context, rep report.Sink, coordURL, token, runID, harness, version string, handler coord.TestRunnerRequestHandler) (coord.TestRunnerLink, error) {
 			link, err := runner.DialRunner(ctx, rep, coordURL, token, runID, harness, version, runner.RunnerRequestHandler(handler))
 			if link == nil {
@@ -85,22 +89,24 @@ type testRunner struct {
 	// refuse, when set and true, refuses the launch the way a runner whose
 	// endpoint cannot be bound does.
 	refuse func() bool
+	// findings is what the launch reports, relayed on the StartRun answer.
+	findings report.Findings
 }
 
-func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) error {
+func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) (report.Findings, error) {
 	l, err := coordgrpc.DecodeLaunch(wire)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if r.refuse != nil && r.refuse() {
-		return delivery.ErrEndpointUnavailable
+		return nil, delivery.ErrEndpointUnavailable
 	}
 	if _, err := composite.Open(ctx, composite.Inline{}, composite.ClaimCheck{Store: launchtest.MemStore{}}, l.Package); err != nil {
-		return err
+		return nil, err
 	}
 	ex, err := r.inst.Exec(nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return r.eh.Drive(ctx, runner.Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: l.Prompt})
+	return r.findings, r.eh.Drive(ctx, runner.Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: l.Prompt})
 }

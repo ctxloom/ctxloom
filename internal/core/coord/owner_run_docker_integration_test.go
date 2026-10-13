@@ -32,13 +32,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/engines"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
-	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -150,7 +148,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	// HOME first: the mint writes the sidecar the container launch reads the
 	// output dir from, so it must land in the home the run resolves against.
 	coord.TeeHome(t)
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, "mock", "", filepath.Join(projectDir, ".test-output"))
+	entry, err := operations.AssignSessionHarp(projectDir, "mock", filepath.Join(projectDir, ".test-output"))
 	require.NoError(t, err)
 	ownerHarp := entry.HarpName
 
@@ -258,7 +256,7 @@ func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
 	// HOME first: the mint writes the sidecar the container launch reads the
 	// output dir from, so it must land in the home the run resolves against.
 	coord.TeeHome(t)
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, "mock", "", filepath.Join(projectDir, ".test-output"))
+	entry, err := operations.AssignSessionHarp(projectDir, "mock", filepath.Join(projectDir, ".test-output"))
 	require.NoError(t, err)
 	ownerHarp := entry.HarpName
 

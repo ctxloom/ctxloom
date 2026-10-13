@@ -177,38 +177,11 @@ func ForgetSession(harp string) error {
 	return mgr.Forget(harp)
 }
 
-// probeEngineVersion is the seam AssignSession probes through. A package var
+// probeEngineVersion is the seam every session-start version record probes
+// through (RecordSessionEngineVersion, and App.LaunchDeps' ProbeVersion). A package var
 // so tests can drive both outcomes without an engine binary installed — the
 // production value execs the real CLI through the shared cached prober.
 var probeEngineVersion = (*App).ProbeEngineVersionAt
-
-// AssignSession mints a fresh harp for a new run in projectDir under backend,
-// records the version of the binary the run spawns (binary, the launch's
-// label binary; "" is the engine's own install) against it, and returns the pending index entry
-// (SessionID unbound until the spawned LLM initializes). The pre-launch naming
-// step in `ctxloom run` and in the ACP session opener.
-//
-// It is the composition of its two halves, AssignSessionHarp and
-// RecordSessionEngineVersion, for the callers that want both and can afford
-// to wait for both. A caller that must publish the harp somewhere BEFORE the
-// probe — the delegation spawn path, where the probe used to sit between
-// minting the child's address and registering the child anywhere an operator
-// could see it (task affected-yearly) — calls the two halves itself, in that
-// order.
-//
-// ctx bounds the probe. It used to be discarded outright in favour of
-// context.Background(), which meant a wedged `--version` had no deadline at
-// all on any path.
-func (a *App) AssignSession(ctx context.Context, projectDir, backend, binary, outputBase string) (sessions.Entry, error) {
-	entry, err := AssignSessionHarp(projectDir, backend, outputBase)
-	if err != nil {
-		return sessions.Entry{}, err
-	}
-	if version, ok := a.RecordSessionEngineVersion(ctx, entry.HarpName, backend, binary); ok {
-		entry.EngineVersion = version
-	}
-	return entry, nil
-}
 
 // ErrRelativeOutputDir is the refusal of an output_dir config value that is
 // not absolute: it would resolve against whatever directory a command ran in.
@@ -297,6 +270,21 @@ func AssignSessionHarp(projectDir, backend, outputBase string) (sessions.Entry, 
 // the step that exec's somebody else's binary.
 func (a *App) RecordSessionEngineVersion(ctx context.Context, harp, backend, binary string) (string, bool) {
 	version, perr := probeEngineVersion(a, ctx, backend, binary)
+	mgr, err := openSessions()
+	if err != nil {
+		clidiag.Warn("ctxloom", "engine version: record for %s: %v", harp, err)
+		return "", false
+	}
+	return recordProbedVersion(mgr, harp, version, perr)
+}
+
+// recordProbedVersion records what a version probe said (version, or the
+// probe's failure perr) against harp in store, reporting the recorded version
+// and whether anything was recorded. It is the ONE recording rule for every
+// session — a delegated child (RecordSessionEngineVersion) and a top-level
+// run (StartRun) alike: a failed probe warns and records nothing, and never
+// fails the session.
+func recordProbedVersion(store sessions.Store, harp, version string, perr error) (string, bool) {
 	if perr != nil {
 		// An engine that declares no version command at all (mock, the
 		// generic acp backend — neither has one binary whose version would
@@ -310,12 +298,7 @@ func (a *App) RecordSessionEngineVersion(ctx context.Context, harp, backend, bin
 		}
 		return "", false
 	}
-	mgr, err := openSessions()
-	if err != nil {
-		clidiag.Warn("ctxloom", "engine version: record %s for %s: %v", version, harp, err)
-		return "", false
-	}
-	if rerr := mgr.RecordEngineVersion(harp, version); rerr != nil {
+	if rerr := store.RecordEngineVersion(harp, version); rerr != nil {
 		clidiag.Warn("ctxloom", "engine version: record %s for %s: %v", version, harp, rerr)
 		return "", false
 	}

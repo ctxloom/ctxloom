@@ -1,4 +1,4 @@
-package operations
+package runner
 
 import (
 	"testing"
@@ -33,10 +33,10 @@ func TestMaterializedContextFindings(t *testing.T) {
 	claimIn(t, fs, rec, "/elsewhere/CTX.md", fam.Of(present.Context))
 	claimIn(t, fs, rec, "/p/settings.json", fam.Of(present.Settings))
 	claimIn(t, fs, rec, "/p/SESSION.md", delivery.SessionWriter("brisk-otter"))
-	require.Empty(t, MaterializedContextFindings(rec, "/p"), "no context claim under the project: no warning")
+	require.Empty(t, materializedContextFindings(rec, "/p"), "no context claim under the project: no warning")
 
 	claimIn(t, fs, rec, "/p/docs/AGENTS.md", fam.Of(present.Context))
-	got := MaterializedContextFindings(rec, "/p")
+	got := materializedContextFindings(rec, "/p")
 	require.Len(t, got, 1)
 	require.False(t, got[0].Fatal(), "a warning, not a refusal")
 	require.Contains(t, got[0].Text, "/p/docs/AGENTS.md")
@@ -47,11 +47,11 @@ func TestMaterializedContextFindings(t *testing.T) {
 // ownership record, or no project root, there is nothing to warn about and
 // nothing is read.
 func TestMaterializedContextFindings_NoRecordOrNoProjectIsNoFinding(t *testing.T) {
-	require.Empty(t, MaterializedContextFindings(nil, "/p"), "no record")
+	require.Empty(t, materializedContextFindings(nil, "/p"), "no record")
 
 	fs := afero.NewMemMapFs()
 	rec, err := fsstatic.NewRecords(fs, "/records")
 	require.NoError(t, err)
 	claimIn(t, fs, rec, "/p/AGENTS.md", delivery.ProjectWriterFor("mock").Of(present.Context))
-	require.Empty(t, MaterializedContextFindings(rec, ""), "no project root")
+	require.Empty(t, materializedContextFindings(rec, ""), "no project root")
 }

@@ -72,6 +72,14 @@ type Deps struct {
 	// established for a run that could not authenticate. Nil skips it (a
 	// preview, whose findings gate reports the same refusal).
 	CheckCredential func(backend string, mode engine.AuthMode) error
+	// ProbeVersion reports the version of the binary a resolved launch spawns:
+	// engine at binary (the label's binary_path; "" is the engine's own
+	// install). Resolve never calls it; the host's StartRun records what it
+	// says against the minted harp once the launch resolves, because only the
+	// resolved launch knows which binary that is, and a session with no
+	// recorded version has a transcript nothing will read back. Nil records
+	// nothing (a preview).
+	ProbeVersion func(ctx context.Context, engine, binary string) (string, error)
 	// Reporter receives the diagnostics opening a launch raises (the delivery
 	// preference the engine cannot honour, the packages a writer skips); the
 	// composition chooses the sink. Nil discards.

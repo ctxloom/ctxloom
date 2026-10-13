@@ -40,6 +40,11 @@ type failingLaunchSpawner struct {
 	// firstDelay, when non-zero, replaces delay for the FIRST attempt only —
 	// holding the original launch in flight while later ones fail fast.
 	firstDelay time.Duration
+	// firstGate, when non-nil, parks the FIRST attempt until it is closed
+	// (then that attempt fails as usual) — a latch, set before any goroutine
+	// starts, that pins what a caller does while the original launch is
+	// provably still in flight.
+	firstGate chan struct{}
 	// cancelled counts attempts that ended because their launch CONTEXT was
 	// cancelled rather than by their own failure — the proof that a stop
 	// reaches an in-flight launch, not merely the process it produced.
@@ -79,8 +84,17 @@ var errLaunchDoomed = errors.New("simulated container launch failure (shared-fs 
 
 func (s *failingLaunchSpawner) doomedLaunch(ctx context.Context) error {
 	d := s.delay
-	if s.attempts.Add(1) == 1 && s.firstDelay != 0 {
+	first := s.attempts.Add(1) == 1
+	if first && s.firstDelay != 0 {
 		d = s.firstDelay
+	}
+	if first && s.firstGate != nil {
+		select {
+		case <-s.firstGate:
+		case <-ctx.Done():
+			s.cancelled.Add(1)
+			return ctx.Err()
+		}
 	}
 	t := time.NewTimer(d)
 	defer t.Stop()
@@ -213,11 +227,29 @@ func TestAgentStop_CancelsInFlightLaunch(t *testing.T) {
 // times will not succeed on attempt N+1; the loop must bound itself, back
 // off, and then fail LOUDLY to the parent's mailbox instead of spinning
 // silently for an hour.
+//
+// The ceiling is "maxLaunchAttempts consecutive failures since the last
+// EXPLICIT delivery" — an agent_send to an ENDED child is a fresh ask and
+// resets the budget (TestRelaunchBudget_ResetByExplicitDelivery). So the
+// arming send must land while the ORIGINAL launch is still in flight, making
+// that launch attempt 1 of the budget; firstGate holds it there. Left to the
+// clock, a loaded machine let the 10ms launch fail first, the send reset the
+// budget, and the spawner honestly saw 1 + maxLaunchAttempts attempts.
 func TestFailingLaunch_RetryIsBoundedAndGivesUpLoudly(t *testing.T) {
 	resetStrictness(t)
 	sp := newFailingLaunchSpawner(t)
+	sp.firstGate = make(chan struct{})
 	c := newTestCoordinator(t, sp, nil)
-	spinUpRetryLoop(t, c, sp)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return sp.attempts.Load() >= 1 }, 10*time.Second, 10*time.Millisecond,
+		"precondition: the original launch must be in flight (parked on firstGate)")
+	// Mail for a child still LAUNCHING arms the relaunch through
+	// terminateRun's tail once that launch fails — under the bound, no reset.
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "ping", nil, "")
+	require.NoError(t, err)
+	close(sp.firstGate)
 
 	// Well past the point an unbounded loop would have run hundreds of times.
 	time.Sleep(3 * time.Second)

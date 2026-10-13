@@ -280,7 +280,7 @@ func deliverLaunch(ctx context.Context, deps Deps, src Source, eng engine.Engine
 	if err != nil {
 		return fmt.Errorf("%s exports: %w", def.Name, err)
 	}
-	plan, err := planLaunch(def, pkg, roots, l.Cell.Paths.Paths())
+	plan, err := planLaunch(def, pkg, roots, l.Cell.Paths.Paths(), !src.ToolLess)
 	if err != nil {
 		return err
 	}
@@ -532,13 +532,14 @@ func carry(ctx context.Context, deps Deps, enc composite.Encoded) (composite.Car
 
 // planLaunch is the launch's plan over the cell's roots: the placement
 // core's one planner (delivery.PlanFor) with the root the binding selects
-// per kind, every kind, and the session endpoint served.
-func planLaunch(def engine.Base, pkg composite.Package, roots map[string]string, paths present.Paths) (delivery.Plan, error) {
+// per kind, every kind, and — unless the launch is tool-less, which attaches
+// no MCP server at all — the session endpoint's entry in the MCP file.
+func planLaunch(def engine.Base, pkg composite.Package, roots map[string]string, paths present.Paths, endpointEntry bool) (delivery.Plan, error) {
 	selected, err := bindingRoots(roots)
 	if err != nil {
 		return delivery.Plan{}, err
 	}
-	return delivery.PlanFor(def, itemsOf(pkg, def.Name), paths, selected, nil, true)
+	return delivery.PlanFor(def, itemsOf(pkg, def.Name), paths, selected, nil, endpointEntry)
 }
 
 // bindingRoots is the root the binding selects per kind (validated when the

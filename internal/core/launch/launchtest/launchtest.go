@@ -92,6 +92,9 @@ type fixture struct {
 	sessionAuth engine.AuthMode
 	// toolLess makes the fixture engine implement engine.ToolLess.
 	toolLess bool
+	// dynamic makes the fixture engine provide a dynamic approach: the
+	// session endpoint as an entry in its MCP file.
+	dynamic bool
 	// mcp names the MCP servers the assembler double composes into every
 	// package it assembles.
 	mcp []string
@@ -186,6 +189,10 @@ func FixtureReviewer() Option { return func(f *fixture) { f.reviewer = true } }
 // ToolLess makes the fixture engine implement engine.ToolLess: its
 // ToolLess binds a session (ToolLessInstance) where its Instance refuses.
 func ToolLess() Option { return func(f *fixture) { f.toolLess = true } }
+
+// WithDynamic makes the fixture engine provide the dynamic approach, so a
+// live launch plans an MCP route for the session endpoint's entry.
+func WithDynamic() Option { return func(f *fixture) { f.dynamic = true } }
 
 // AssembledMCP has the assembler double compose an MCP server under each
 // name into every package it assembles.
@@ -288,7 +295,7 @@ func Deps(t *testing.T, opts ...Option) Env {
 	if !f.noPermissionModel {
 		model = &FixtureModel{HasReviewer: f.reviewer}
 	}
-	eng := newFixtureEngine(modes, f.relocatableHome, !f.noApprovals, model)
+	eng := newFixtureEngine(modes, f.relocatableHome, !f.noApprovals, f.dynamic, model)
 	if f.toolLess {
 		eng = toolLessFixture{fixtureEngine: eng.(fixtureEngine)}
 	}
@@ -379,7 +386,7 @@ type fixtureEngine struct {
 }
 
 // model nil declares no permission model.
-func newFixtureEngine(modes []engine.Mode, relocatableHome, approvals bool, model *FixtureModel) engine.Engine {
+func newFixtureEngine(modes []engine.Mode, relocatableHome, approvals, dynamic bool, model *FixtureModel) engine.Engine {
 	a := &approach{}
 	d := engine.Definition{
 		Name:         EngineName,
@@ -391,6 +398,9 @@ func newFixtureEngine(modes []engine.Mode, relocatableHome, approvals bool, mode
 	}
 	for _, m := range modes {
 		d.CLI = append(d.CLI, engine.CLIGrammar{Mode: m, Binary: "fixture", Positional: 1})
+	}
+	if dynamic {
+		d.Dynamic = a
 	}
 	e := fixtureEngine{Base: engine.Base{Definition: d}, approvals: engine.Absent[engine.ApprovalCodec]("NoApprovals: the fixture declares no codec"),
 		permissions: engine.Absent[engine.PermissionModel]("NoPermissionModel: the fixture declares none")}
@@ -512,6 +522,10 @@ func (fixtureEngine) Exports(items engine.Items) (engine.Exports, error) {
 type approach struct{}
 
 func (*approach) Name() string { return "fixture-file" }
+
+// Endpoint is the session endpoint's entry, for a fixture providing the
+// dynamic approach (WithDynamic).
+func (*approach) Endpoint(ep sessions.Endpoint) wire.MCPServer { return engine.BearerEntry(ep) }
 func (*approach) Traits() present.Traits {
 	return present.Traits{Roots: []present.RootKind{present.RootSessionHome, present.RootProjectRoot}, Channel: present.ChannelFile}
 }

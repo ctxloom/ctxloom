@@ -3,14 +3,17 @@ package launch_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
 // A tool-less one-shot (marauding-magnolia, decision #5) is not plan: on an
@@ -41,21 +44,32 @@ func TestResolve_ToolLessOnAMarkedEngineIsNotPlan(t *testing.T) {
 // A tool-less launch delivers no MCP server: the package it carries has none,
 // whatever the binding's profiles composed.
 func TestResolve_ToolLessCarriesNoMCPServer(t *testing.T) {
-	env := launchtest.Deps(t, launchtest.ToolLess(), launchtest.AssembledMCP("companion"))
+	env := launchtest.Deps(t, launchtest.ToolLess(), launchtest.WithDynamic(), launchtest.AssembledMCP("companion"))
 	l, _ := resolved(t, env, launch.Source{Agent: "distiller", Mode: engine.Structured, ToolLess: true})
 	require.NotEmpty(t, env.Assembled().MCP, "the binding's profiles did compose a server")
 
 	pkg, err := launch.Open(context.Background(), env.Deps, l)
 	require.NoError(t, err)
 	assert.Empty(t, pkg.MCP, "the carried package attaches no MCP server")
+	assert.NotContains(t, kindsOf(l.Plan), present.MCP, "no MCP surface is planned, not even the session endpoint's entry")
 
 	// Control: the same binding not tool-less carries it.
-	ctl := launchtest.Deps(t, launchtest.ToolLess(), launchtest.AssembledMCP("companion"))
+	ctl := launchtest.Deps(t, launchtest.ToolLess(), launchtest.WithDynamic(), launchtest.AssembledMCP("companion"))
 	withMCP, _ := resolved(t, ctl, launch.Source{Agent: "distiller", Mode: engine.Structured, Permission: "plan"})
 	assert.False(t, withMCP.ToolLess)
+	assert.Contains(t, kindsOf(withMCP.Plan), present.MCP)
 	ctlPkg, err := launch.Open(context.Background(), ctl.Deps, withMCP)
 	require.NoError(t, err)
 	assert.Contains(t, ctlPkg.MCP, "companion")
+}
+
+// kindsOf are the kinds a plan routes.
+func kindsOf(p delivery.Plan) []present.Kind {
+	var out []present.Kind
+	for _, it := range p.Static {
+		out = append(out, it.Kind)
+	}
+	return out
 }
 
 // On an engine that does not implement the marker a tool-less launch is
@@ -102,4 +116,22 @@ func TestLaunch_InstanceBindsAToolLessLaunchThroughTheMarker(t *testing.T) {
 	var unsupported engine.ErrUnsupported
 	require.True(t, errors.As(err, &unsupported), "a launch that is not tool-less binds through Instance (which the fixture refuses)")
 	assert.Equal(t, "instance", unsupported.Capability)
+}
+
+// A live launch plans an MCP route for its session endpoint's entry even
+// with no server declared; a tool-less one plans none — its endpoint is not
+// attached to the engine as an MCP server.
+func TestResolve_ToolLessPlansNoEndpointEntry(t *testing.T) {
+	for name, tc := range map[string]struct {
+		src     launch.Source
+		wantMCP bool
+	}{
+		"tool-less": {launch.Source{Internal: true, Label: "fast", Mode: engine.Structured, ToolLess: true}, false},
+		"plan":      {launch.Source{Internal: true, Label: "fast", Mode: engine.Structured, Permission: "plan"}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			l, _ := resolved(t, launchtest.Deps(t, launchtest.ToolLess(), launchtest.WithDynamic()), tc.src)
+			assert.Equal(t, tc.wantMCP, slices.Contains(kindsOf(l.Plan), present.MCP))
+		})
+	}
 }

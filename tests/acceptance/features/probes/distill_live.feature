@@ -15,8 +15,9 @@ Feature: Live distillation with a real agent
     And the distilled fragment "rules" in bundle "lore" preserves the domain
 
     Examples:
-      | agent  |
-      | Claude |
+      | agent    |
+      | Claude   |
+      | Opencode |
 
   Scenario Outline: Distilling a prompt records a compressed rendering
     Given a real <agent> agent is available
@@ -26,8 +27,9 @@ Feature: Live distillation with a real agent
     And the bundle "lore" records a distillation
 
     Examples:
-      | agent  |
-      | Claude |
+      | agent    |
+      | Claude   |
+      | Opencode |
 
   Scenario Outline: Distilling a whole bundle distills its fragment
     Given a real <agent> agent is available
@@ -38,5 +40,6 @@ Feature: Live distillation with a real agent
     And the distilled fragment "rules" in bundle "lore" preserves the domain
 
     Examples:
-      | agent  |
-      | Claude |
+      | agent    |
+      | Claude   |
+      | Opencode |

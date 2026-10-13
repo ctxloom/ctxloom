@@ -298,9 +298,12 @@ func TestP4Assert_DispatchesByPostureAndRefusesAnUnknownOne(t *testing.T) {
 // default — bypass on claude-code — silently turning the plan cell into a second
 // control that can never fail.
 func TestP4PermissionValue_MapsThePairAndPanicsOnAnythingElse(t *testing.T) {
-	assert.Equal(t, "plan", p4PermissionValue(p4Plan))
-	assert.Equal(t, "bypass", p4PermissionValue(p4Control))
-	assert.Panics(t, func() { p4PermissionValue("readonly") },
+	assert.Equal(t, "plan", p4PermissionValue(liveAgents["claude"], p4Plan))
+	assert.Equal(t, "bypass", p4PermissionValue(liveAgents["claude"], p4Control))
+	assert.Equal(t, "plan", p4PermissionValue(liveAgents["opencode"], p4Plan))
+	assert.Equal(t, "auto", p4PermissionValue(liveAgents["opencode"], p4Control), "opencode's bypass posture is auto")
+	assert.Panics(t, func() { p4PermissionValue(liveAgent{engine: "x"}, p4Control) }, "an engine with no bypass posture must not bind an empty mode")
+	assert.Panics(t, func() { p4PermissionValue(liveAgents["claude"], "readonly") },
 		"an unmapped posture must panic at the fixture rather than write an empty permissions key that resolves to a default")
 }
 
@@ -309,7 +312,7 @@ func TestP4PermissionValue_MapsThePairAndPanicsOnAnythingElse(t *testing.T) {
 // reaching config.yaml the two cells would become the same cell — both at
 // bypass, both green, the ladder reporting plan enforcement it never exercised.
 func TestP4ConfigYAML_CarriesThePostureOntoTheProductionBindingSurface(t *testing.T) {
-	a := liveAgent{config: fmt.Sprintf("schema_version: %d\nllm:\n  configs:\n    claude:\n      type: claude-code\n      model: claude-haiku-4-5-20251001\n", config.CurrentConfigVersion)}
+	a := liveAgent{engine: "claude-code", bypass: "bypass", config: fmt.Sprintf("schema_version: %d\nllm:\n  configs:\n    claude:\n      type: claude-code\n      model: claude-haiku-4-5-20251001\n", config.CurrentConfigVersion)}
 
 	plan := p4ConfigYAML(a, "claude", p4Plan, "host")
 	control := p4ConfigYAML(a, "claude", p4Control, "host")

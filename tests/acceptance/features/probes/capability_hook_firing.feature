@@ -116,3 +116,14 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
     Examples:
       | engine      | runtime            | workspace |
       | claude-code | container-rootless | worktree  |
+
+    # OPENCODE, on a free hosted model (liveOpencodeModel): host only. Every
+    # opencode container cell is gated out by absence in the registry
+    # (opencodeContainerGate: no pinned opencode image exists to run in).
+    # opencode runs no hook command: its session_start fires from the bridge
+    # plugin's session.created (opencode hooks.go), so this cell is the one
+    # live proof that the bridge executes a hook ctxloom wrote.
+    @opencode @host @ws-none @probe-p3-hook-firing
+    Examples:
+      | engine   | runtime | workspace |
+      | opencode | host    | none      |

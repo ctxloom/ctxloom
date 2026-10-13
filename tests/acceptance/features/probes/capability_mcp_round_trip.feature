@@ -96,3 +96,11 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
     Examples:
       | engine      | runtime            | workspace |
       | claude-code | container-rootless | worktree  |
+
+    # OPENCODE, on a free hosted model (liveOpencodeModel): host only. Every
+    # opencode container cell is gated out by absence in the registry
+    # (opencodeContainerGate: no pinned opencode image exists to run in).
+    @probe-p2-mcp-round-trip @opencode @host @ws-none
+    Examples:
+      | engine   | runtime | workspace |
+      | opencode | host    | none      |

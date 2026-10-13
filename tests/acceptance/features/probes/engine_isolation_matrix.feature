@@ -188,3 +188,17 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
     Examples:
       | engine      | runtime          | workspace |
       | claude-code | container-rootful | worktree  |
+
+    # OPENCODE, on a FREE hosted model (liveOpencodeModel, opencode/big-pickle):
+    # no key, no subscription turn. Host only: every opencode container cell is
+    # gated out by absence in the registry (opencodeContainerGate — no pinned
+    # opencode image exists to run in).
+    @opencode @host @ws-none
+    Examples:
+      | engine   | runtime | workspace |
+      | opencode | host    | none      |
+
+    @opencode @host @ws-worktree
+    Examples:
+      | engine   | runtime | workspace |
+      | opencode | host    | worktree  |

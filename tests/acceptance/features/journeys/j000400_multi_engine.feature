@@ -127,7 +127,7 @@ Feature: One shared profile, reaching every engine in its own native format
       | claude-code | CLAUDE.md       |
       | mock        | MOCK_CONTEXT.md |
 
-  # @live: one real vendor ships today, so this table has one row. Each row
+  # @live: one row per real engine the live lane drives. Each row
   # self-skips without credentials, exactly like J000200's own @live scenario.
   # Adding an engine here is adding a ROW — no new Go and no new steps.
   @live
@@ -140,3 +140,4 @@ Feature: One shared profile, reaching every engine in its own native format
     Examples:
       | engine      |
       | Claude      |
+      | Opencode    |

@@ -185,22 +185,9 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 
 	// --- @live twins ----------------------------------------------------------
 
-	ctx.Step(`^her company's companion instructs the assistant to confirm a company codeword$`, func(c context.Context) error {
+	ctx.Step(`^her company's companion instructs her real (\S+) assistant to confirm a company codeword$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		a, ok := liveAgents["claude"]
-		if !ok {
-			return fmt.Errorf("no live agent config registered for claude")
-		}
-		if avail, reason := engineAvailable(a); !avail {
-			fmt.Printf("SKIP j000300 live: %s\n", reason)
-			return godog.ErrSkip
-		}
-		w.j000200Live = true
-		cfg := a.config + "agents:\n  default:\n    llm: claude\n    profiles:\n      - default\n" + permissionsBlock(a.engine, "bypass") + "default_agent: default\n"
-		if err := scaffoldProjectWithConfig(w, cfg); err != nil {
-			return err
-		}
-		if err := seedLiveCredentials(a, w.env.SetChildEnv); err != nil {
+		if err := j000200LiveProject(w, "j000300", engine); err != nil {
 			return err
 		}
 		instruction := fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j000300CompanyCodeword)
@@ -261,22 +248,9 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^its setup guidance instructs the assistant to confirm a companion codeword$`, func(c context.Context) error {
+	ctx.Step(`^its setup guidance instructs her real (\S+) assistant to confirm a companion codeword$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		a, ok := liveAgents["claude"]
-		if !ok {
-			return fmt.Errorf("no live agent config registered for claude")
-		}
-		if avail, reason := engineAvailable(a); !avail {
-			fmt.Printf("SKIP j000300 live: %s\n", reason)
-			return godog.ErrSkip
-		}
-		w.j000200Live = true
-		cfg := a.config + "agents:\n  default:\n    llm: claude\n    profiles:\n      - default\n" + permissionsBlock(a.engine, "bypass") + "default_agent: default\n"
-		if err := scaffoldProjectWithConfig(w, cfg); err != nil {
-			return err
-		}
-		if err := seedLiveCredentials(a, w.env.SetChildEnv); err != nil {
+		if err := j000200LiveProject(w, "j000300", engine); err != nil {
 			return err
 		}
 		return installSetupGuidanceCompanion(w, "reprise",

@@ -236,6 +236,11 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
     Examples:
       | engine      | marker                                       |
       | claude-code | J002300-DELEGATE-MARKER-CLAUDE-CODE-1d4c07ab |
+
+    @opencode
+    Examples:
+      | engine   | marker                                    |
+      | opencode | J002300-DELEGATE-MARKER-OPENCODE-6e1b3f52 |
   # P6 — THE STEER ECHO. Capability-probe ladder rung p6-steer-echo
   # (tests/acceptance/capability_probe_registry.go), living here rather than in a
   # file of its own because it extends this journey's machinery rather than
@@ -357,6 +362,19 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
     Examples:
       | engine      | runtime            | workspace | marker                                   |
       | claude-code | container-rootless | none      | P6-WAKE-MARKER-CLAUDE-CODE-CTRNONE-b82a4 |
+
+    # OPENCODE, on a free hosted model (liveOpencodeModel): host only. Every
+    # opencode container cell is gated out by absence in the registry
+    # (opencodeContainerGate: no pinned opencode image exists to run in).
+    @opencode @host @ws-none
+    Examples:
+      | engine   | runtime | workspace | marker                              |
+      | opencode | host    | none      | P6-WAKE-MARKER-OPENCODE-7c2e91d4    |
+
+    @opencode @host @ws-worktree
+    Examples:
+      | engine   | runtime | workspace | marker                                 |
+      | opencode | host    | worktree  | P6-WAKE-MARKER-OPENCODE-HOSTWT-4a8f03 |
 
   # Back to: tests/acceptance/features/journeys/j002100_delegation.feature (the privilege
   # half of delegation this journey complements).

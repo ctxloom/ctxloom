@@ -79,5 +79,14 @@ Feature: Isolation probe — live proof against real vendor engines
       | engine      | axis              |
       | claude-code | container-rootful |
 
+    # opencode, on a free hosted model (liveOpencodeModel): the worktree axis
+    # only. Its container axes are absent, not skipped: opencode.Opencode.Container
+    # refuses while opencode.releaseSHA256 carries no pinned tarball, so no
+    # opencode image exists to probe.
+    @opencode @worktree
+    Examples:
+      | engine   | axis     |
+      | opencode | worktree |
+
   # Back to: tests/acceptance/features/journeys/j002200_isolation.feature (the hermetic layer
   # this feature complements).

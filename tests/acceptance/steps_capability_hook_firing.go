@@ -366,7 +366,7 @@ func hookProbeConfigYAML(a liveAgent, llmKey, engine, runtime string) string {
 	var b strings.Builder
 	b.WriteString(a.config)
 	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n%s",
-		hookProbeAgent, llmKey, hookProbeAgent, permissionsBlock(a.engine, "bypass"))
+		hookProbeAgent, llmKey, hookProbeAgent, a.bypassBlock())
 	if hookProbeNeedsSessionHome(engine) {
 		b.WriteString("    engine_home: session\n")
 	}

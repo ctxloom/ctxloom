@@ -91,3 +91,15 @@ Feature: P4 — the plan sentinel: does permissions=plan actually stop a write
     Examples:
       | engine      | runtime | workspace | posture |
       | claude-code | host    | none      | plan    |
+
+    # OPENCODE, on a free hosted model (liveOpencodeModel). Its control binds
+    # opencode's own bypass posture, auto (liveAgent.bypass); plan is plan.
+    @opencode @host @ws-none @var-control
+    Examples:
+      | engine   | runtime | workspace | posture |
+      | opencode | host    | none      | control |
+
+    @opencode @host @ws-none @var-plan
+    Examples:
+      | engine   | runtime | workspace | posture |
+      | opencode | host    | none      | plan    |

@@ -50,15 +50,26 @@ Feature: Setting up ctxloom on a project
       | claude-code |
 
   # LOCKED — @live: a REAL assistant, after the restart; proves it can USE the
-  # delivered context. Self-skips without credentials.
+  # delivered context. Self-skips when the engine is unavailable. One block per
+  # engine, tagged with it, so one engine's row is addressable alone.
   @live
-  Scenario: The restarted assistant can see every source
-    Given Alice has personal and company ctxloom repositories
+  Scenario Outline: The restarted <engine> assistant can see every source
+    Given Alice has personal and company ctxloom repositories, served by a real <engine> assistant
     And each source carries a distinct marker phrase
     And Alice has completed setup and restarted into her configured session
     When she asks her assistant to repeat every marker phrase it can see
     Then its reply contains her personal repository's marker
     And its reply contains her company repository's marker
+
+    @claude-code
+    Examples:
+      | engine |
+      | Claude |
+
+    @opencode
+    Examples:
+      | engine   |
+      | Opencode |
 
   # LOCKED — adding a repository is the trust act: she added the repository,
   # so its content reaches her.

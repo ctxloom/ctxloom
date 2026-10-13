@@ -37,6 +37,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/engines/opencode"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -91,15 +92,21 @@ func vendorCredential(a liveAgent) (credentialMapping, bool) {
 // (launch.Placement.SecretFiles) by isolation's containerPlacement.
 type probeAuth struct {
 	// Env is what the engine's Auth sets for a token-mode run: the token's
-	// variable and its value. Nil when the cell cannot authenticate. Never
-	// printed.
+	// variable and its value. Empty for a keyless engine, nil when the cell
+	// cannot authenticate. Never printed.
 	Env map[string]string
+	// Authed is the engine's own Auth's answer: it can authenticate a
+	// token-mode run from what was captured. True with an empty Env for an
+	// engine whose run needs no credential (opencode on a built-in
+	// provider's free model).
+	Authed bool
 	// Reason says why, and is printed: it names variables, never a value.
 	Reason string
 }
 
-// ok reports whether the cell has a credential to run with.
-func (a probeAuth) ok() bool { return len(a.Env) > 0 }
+// ok reports whether the cell can authenticate: the engine's Auth succeeded,
+// keyless or with a credential.
+func (a probeAuth) ok() bool { return a.Authed }
 
 // probeTokenAuth asks backendType's own Auth capability what a run in
 // engine.AuthToken mode needs, reading only the credential captured at launch
@@ -135,7 +142,10 @@ func probeTokenAuth(backendType string) probeAuth {
 		}
 		return probeAuth{Reason: reason}
 	}
-	return probeAuth{Env: creds.Env, Reason: strings.Join(slices.Sorted(maps.Keys(creds.Env)), ",") + " captured at launch"}
+	if len(creds.Env) == 0 {
+		return probeAuth{Authed: true, Reason: "keyless: " + backendType + "'s Auth needs no credential"}
+	}
+	return probeAuth{Env: creds.Env, Authed: true, Reason: strings.Join(slices.Sorted(maps.Keys(creds.Env)), ",") + " captured at launch"}
 }
 
 // liveVendorEnv is the ENTIRE environment for a cell that runs the claude
@@ -175,6 +185,19 @@ type liveAgent struct {
 	// credDir is the engine's config directory under HOME: the root the
 	// isolation probe censuses for writes leaking out of an isolated run.
 	credDir string
+	// censusExtra are further paths under HOME the engine writes to when it
+	// runs unisolated, censused beside credDir (claude's onboarding state
+	// file; opencode's other XDG directories).
+	censusExtra []string
+	// bypass is the engine's posture that approves everything without
+	// asking: what a live cell's agent binding runs at, because a headless
+	// cell has nobody to answer a prompt. Each engine names it in its own
+	// vocabulary (claude-code "bypass", opencode "auto").
+	bypass string
+	// free marks an engine whose pinned live model costs nothing per turn.
+	// Its cells are not counted against the ladder's subscription budget
+	// (probePaidCellCount).
+	free bool
 	// config is the ctxloom config.yaml that points primary+fast at this
 	// backend, pinned to ONE CHEAP MODEL where a verified slug exists: live
 	// tests prove context DELIVERY, not model quality, and a bigger model
@@ -191,15 +214,26 @@ func permissionsBlock(engine, mode string) string {
 	return "    permissions:\n      " + engine + ":\n        mode: " + mode + "\n"
 }
 
+// bypassBlock is a's agent-binding permissions block at its bypass posture.
+func (a liveAgent) bypassBlock() string { return permissionsBlock(a.engine, a.bypass) }
+
 // liveAgentOrder is the availability report's fixed display order. Kept
 // separate from the map because map iteration order is unspecified and this
 // report's whole point is to be predictable and diffable across runs.
-var liveAgentOrder = []string{"claude"}
+var liveAgentOrder = []string{"claude", "opencode"}
 
 // liveClaudeModel is the ONE cheap model every claude @live cell pins, whether
 // the cell drives claude through ctxloom (the config below) or invokes the
 // vendor binary directly.
 const liveClaudeModel = "claude-haiku-4-5-20251001"
+
+// liveOpencodeModel is the ONE model every opencode @live cell pins: a FREE
+// hosted model on opencode's built-in provider, so the label carries no
+// provider block and the run needs no key (opencodeAuth authenticates
+// keyless). Swap the model here and nowhere else. Measured 2026-10-12:
+// opencode/big-pickle answered keyless from a throwaway HOME;
+// opencode/deepseek-v4-flash-free returned a server error.
+const liveOpencodeModel = "opencode/big-pickle"
 
 // liveAgents maps the lowercased scenario token ("claude") to its
 // backend wiring.
@@ -208,7 +242,9 @@ var liveAgents = map[string]liveAgent{
 		binary:         "claude",
 		vendorCredEnvs: []string{claude.OAuthTokenEnv, claude.APIKeyEnv},
 		credDir:        ".claude",
+		censusExtra:    []string{".claude.json"},
 		engine:         "claude-code",
+		bypass:         "bypass",
 		config: fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion) + `llm:
   configs:
     claude:
@@ -217,6 +253,32 @@ var liveAgents = map[string]liveAgent{
   defaults:
     primary: claude
     fast: claude
+`,
+	},
+	// opencode on a built-in provider's free model: no provider block, so no
+	// key is needed and none is seeded. A key exported at launch is still
+	// captured and handed over (vendorCredEnvs), harmlessly: a label with no
+	// endpoint never names it. Its label carries approver none, which the
+	// schema requires of every opencode label (opencode run rejects every
+	// ask itself).
+	"opencode": {
+		binary:         "opencode",
+		vendorCredEnvs: []string{opencode.APIKeyEnv},
+		credDir:        ".local/share/opencode",
+		censusExtra:    []string{".config/opencode", ".cache/opencode", ".local/state/opencode"},
+		engine:         "opencode",
+		bypass:         "auto",
+		free:           true,
+		config: fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion) + `llm:
+  configs:
+    opencode:
+      type: opencode
+      model: ` + liveOpencodeModel + `
+      permissions:
+        approver: none
+  defaults:
+    primary: opencode
+    fast: opencode
 `,
 	},
 }

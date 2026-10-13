@@ -23,23 +23,26 @@ func (g gatedWriter) Write(p []byte) (int, error) {
 	return g.w.Write(p)
 }
 
-// TestPTYSessionReportsExitOnlyOnceItsLastLineIsCaptured forces the
-// interleaving behind the engine-death test's lost "never reported its
-// outcome" line: the process writes its last line and exits, and the reap is
-// signalled while the drain still holds that line. The drain is released only
-// by the settle fence, so a session that reports the exit without settling
-// reports it with the line still held — every time, not when the scheduler
-// happens to lose the race.
-func TestPTYSessionReportsExitOnlyOnceItsLastLineIsCaptured(t *testing.T) {
+// gatedDrain holds the drain's deliveries until settle starts waiting on its
+// boundary, and is the hook pair that does it.
+func gatedDrain(t *testing.T) ptyHooks {
 	open := make(chan struct{})
 	var release sync.Once
 	opened := func() { release.Do(func() { close(open) }) }
 	t.Cleanup(opened)
+	return ptyHooks{
+		drainTo:  func(w io.Writer) io.Writer { return gatedWriter{w: w, open: open} },
+		settling: opened,
+	}
+}
 
-	s, err := startPTY(ptyHooks{
-		drainTo:      func(w io.Writer) io.Writer { return gatedWriter{w: w, open: open} },
-		fenceWritten: opened,
-	}, t.TempDir(), []string{"TERM=dumb", "PATH=" + os.Getenv("PATH")}, "/bin/sh", 80, 24, "-c", "echo LAST-LINE")
+// assertLastLineCaptured runs a process whose last line the drain holds when
+// the reap is signalled, and asserts the reported exit came with that line —
+// settled on a real boundary, not on ptySettleBound's backstop.
+func assertLastLineCaptured(t *testing.T, hooks ptyHooks) {
+	t.Helper()
+	start := time.Now()
+	s, err := startPTY(hooks, t.TempDir(), []string{"TERM=dumb", "PATH=" + os.Getenv("PATH")}, "/bin/sh", 80, 24, "-c", "echo LAST-LINE")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +52,9 @@ func TestPTYSessionReportsExitOnlyOnceItsLastLineIsCaptured(t *testing.T) {
 	if !exited || err != nil {
 		t.Fatalf("AwaitExit = (%v, %v), want a clean exit; captured: %q", exited, err, s.Output())
 	}
+	if took := time.Since(start); took >= ptySettleBound {
+		t.Fatalf("exit reported after %v: settle waited out its backstop instead of finding its boundary", took)
+	}
 	out := s.Output()
 	if !strings.Contains(out, "LAST-LINE") {
 		t.Fatalf("exit reported before the drain delivered the process's last line; captured: %q", out)
@@ -56,6 +62,29 @@ func TestPTYSessionReportsExitOnlyOnceItsLastLineIsCaptured(t *testing.T) {
 	if strings.Contains(out, ptyFence) {
 		t.Fatalf("the settle fence leaked into the capture: %q", out)
 	}
+}
+
+// TestPTYSessionReportsExitOnlyOnceItsLastLineIsCaptured forces the
+// interleaving behind the engine-death test's lost "never reported its
+// outcome" line: the process writes its last line and exits, and the reap is
+// signalled while the drain still holds that line. The drain is released only
+// once settle waits on its boundary, so a session that reports the exit
+// without settling reports it with the line still held — every time, not
+// when the scheduler happens to lose the race.
+func TestPTYSessionReportsExitOnlyOnceItsLastLineIsCaptured(t *testing.T) {
+	assertLastLineCaptured(t, gatedDrain(t))
+}
+
+// TestPTYSessionSettlesWhenTheTerminalRefusesTheFence is the same guarantee
+// where the fence cannot be written: darwin revokes a session leader's
+// controlling terminal when it exits, so every open slave descriptor —
+// the harness's own included — fails from then on. Closing the harness's
+// slave after the reap leaves the same state on any platform: the fence
+// write fails and no slave remains open, so the drain's end is the boundary.
+func TestPTYSessionSettlesWhenTheTerminalRefusesTheFence(t *testing.T) {
+	hooks := gatedDrain(t)
+	hooks.beforeFence = func(slave *os.File) { _ = slave.Close() }
+	assertLastLineCaptured(t, hooks)
 }
 
 // TestPtyCaptureCutsAFenceSplitAcrossWrites: the fence is reported and cut

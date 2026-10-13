@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"syscall"
@@ -143,9 +144,17 @@ type PTYSession struct {
 type ptyHooks struct {
 	// drainTo wraps the writer the drain copies the master into.
 	drainTo func(io.Writer) io.Writer
-	// fenceWritten runs once settle's fence is on the slave.
-	fenceWritten func()
+	// beforeFence runs after the reap, before settle writes its fence.
+	beforeFence func(slave *os.File)
+	// settling runs once settle has its boundary and waits on it.
+	settling func()
 }
+
+// ptySettleBound backstops settle: a reaped process's exit is reported after
+// at most this long even if the drain neither delivers the fence nor ends.
+// Far beyond a settle that works (milliseconds); it only bounds one that
+// would otherwise hang the exit until Close.
+const ptySettleBound = 5 * time.Second
 
 // ptyFence is what settle writes behind the reaped process's output. No
 // newline (ONLCR would rewrite it) and nothing a program prints by accident.
@@ -226,27 +235,40 @@ func startPTY(hooks ptyHooks, dir string, env []string, bin string, cols, rows i
 }
 
 // settle returns once the drain has delivered everything the reaped process
-// wrote to the pty. The drain can never see EOF here — this harness holds the
-// slave open itself, as may a process the session left behind — so the
+// wrote to the pty. While a slave stays open — this harness holds one itself,
+// as may a process the session left behind — the drain never sees EOF, so the
 // boundary is made instead: a fence written to the slave after the reap
 // queues behind every byte the process wrote before it, and the capture
-// reports the fence when the drain gets to it. A drain that stops first (the
-// master was closed by Hangup or Close) has nothing more to deliver.
+// reports the fence when the drain gets to it.
+//
+// A terminal that refuses the fence has no slave left to write through, and
+// then the drain's own end is the boundary: the master reads out what was
+// queued and then fails or reads EOF. That is darwin's ordinary case, not an
+// edge: when a session leader exits, XNU waits for its output to be read off
+// the master and then revokes its controlling terminal, so every slave
+// descriptor (this harness's included) fails from then on. It is also the
+// case after Hangup or Close, whose closed master has already ended the
+// drain. ptySettleBound backstops a drain that neither delivers the fence nor
+// ends, so a reaped process's exit is always reported.
 func (s *PTYSession) settle() {
 	up, ok := s.pty.(pty.UnixPty)
 	if !ok {
 		return
 	}
 	seen := s.out.expect(ptyFence)
-	if _, err := up.Slave().Write([]byte(ptyFence)); err != nil {
-		return
+	if s.hooks.beforeFence != nil {
+		s.hooks.beforeFence(up.Slave())
 	}
-	if s.hooks.fenceWritten != nil {
-		s.hooks.fenceWritten()
+	if _, err := up.Slave().Write([]byte(ptyFence)); err != nil {
+		seen = nil // never arrives; wait on the drain alone
+	}
+	if s.hooks.settling != nil {
+		s.hooks.settling()
 	}
 	select {
 	case <-seen:
 	case <-s.drained:
+	case <-time.After(ptySettleBound):
 	}
 }
 

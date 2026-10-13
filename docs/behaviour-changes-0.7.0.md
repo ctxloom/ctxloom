@@ -474,6 +474,12 @@ Grouped by what you would have to change.
 - `ctxloom profile materialize` with no `--backend` writes for the
   registry's default engine (today claude-code, as before); the flag's
   default is now empty rather than the literal `claude-code`.
+- `ltk` reads a zsh command line containing an empty parameter name, `${}`,
+  as ordinary text: the parameter is dropped and the words around it are
+  kept, so rules match the command. It used to be reported as a parse
+  error, so your `on_parse_error` setting decided the outcome instead.
+  Upgrading the shell parser (mvdan.cc/sh v3.14.1) fixed the crash behind that
+  error.
 
 ## If you ran a 0.7 development build
 

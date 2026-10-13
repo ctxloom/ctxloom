@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"mvdan.cc/sh/v3/expand"
+	"mvdan.cc/sh/v3/syntax"
+
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 )
 
@@ -292,28 +295,40 @@ var noPanicCorpus = []string{
 
 // isKnownLoweringCrasher is the allowlist consulted wherever this file checks
 // Parse's error for the "internal error lowering" marker (TestParseNeverPanics
-// and FuzzParse below). Parse's recover boundary (shell.go:75) means a panic
-// during lowering no longer propagates as a panic — it comes back as an
-// ordinary error carrying that marker — so a bare `recover()` in the test, or
-// a fuzz body that only checks for a non-nil script, can no longer tell "no
-// panic happened" from "a panic happened and was swallowed". That is the
-// guard hiding the thing it guards against, one level up.
+// and FuzzParse below). Parse's recover boundary means a panic during lowering
+// no longer propagates as a panic — it comes back as an ordinary error
+// carrying that marker — so a bare `recover()` in the test, or a fuzz body that
+// only checks for a non-nil script, can no longer tell "no panic happened"
+// from "a panic happened and was swallowed". That is the guard hiding the
+// thing it guards against, one level up.
 //
 // The fix is to open the marker back up: any error containing it fails the
-// test/fuzz UNLESS the (shell, src) pair is catalogued here as an already-known
-// crasher. Matching on the panic's message text instead would not work — the
-// Go runtime's "invalid memory address or nil pointer dereference" string is
-// identical for every nil-deref regardless of cause, so it can't distinguish
-// "the one bug we know about" from "a brand new one that happens to also be a
-// nil-deref". Matching on input is precise enough to keep doing its job.
+// test/fuzz UNLESS the (shell, src) pair is catalogued in knownLoweringCrashers
+// as an already-filed upstream crasher. Matching on the panic's message text
+// instead would not work — the Go runtime's "invalid memory address or nil
+// pointer dereference" string is identical for every nil-deref regardless of
+// cause, so it can't distinguish "the one bug we know about" from "a brand new
+// one that happens to also be a nil-deref". Matching on input is precise
+// enough to keep doing its job.
 func isKnownLoweringCrasher(sh ir.Shell, src string) bool {
-	// mvdan.cc/sh v3.13.1 nil-derefs on an empty parameter name, `${}`, under
-	// the zsh variant only (expand/param.go:57) — filed upstream separately;
-	// see TestExpanderPanicBecomesParseError below and the swift-print task.
-	// Not deduplicated here by exact string: the fuzzer will find other
-	// spellings that hit the same underlying nil-deref (e.g. "x${}y"), and all
-	// of them are this one known bug, not a new one.
-	return sh == ir.ShellZsh && strings.Contains(src, "${}")
+	for _, k := range knownLoweringCrashers {
+		if k.shell == sh && strings.Contains(src, k.substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// knownLoweringCrashers catalogues upstream crashes the recover boundary is
+// known to be absorbing, keyed by shell and an input substring (the fuzzer
+// finds many spellings of one bug, e.g. "x${}y", so an exact-string key would
+// not deduplicate). It is EMPTY: the one entry it held — mvdan.cc/sh v3.13.1
+// nil-dereffing on zsh's empty parameter name `${}` — was fixed upstream in
+// v3.14.0, and TestEmptyParamNameTakesLiteralFallback now guards that input
+// as an ordinary, non-panicking lowering.
+var knownLoweringCrashers []struct {
+	shell  ir.Shell
+	substr string
 }
 
 // failOnUncatalogedLoweringPanic fails t if err is a recovered internal
@@ -391,18 +406,65 @@ func TestParseErrorReturnsNonNilScript(t *testing.T) {
 	}
 }
 
-// An empty parameter name — `${}` — is REJECTED by the bash/POSIX parsers but
-// accepted by the zsh one, and then nil-derefs inside mvdan.cc/sh's expander
-// (v3.13.1, expand/param.go:57). Found by FuzzParse, and a second live crash
-// on the same hook path as the bare-redirection one. The frontend must turn it
-// into a parse error, not a panic, so on_parse_error decides.
-func TestExpanderPanicBecomesParseError(t *testing.T) {
-	s, err := New().Parse(context.Background(), ir.ShellZsh, "00${}0")
-	if err == nil {
-		t.Fatal("want a parse error for ${}, got nil")
+// emptyParamCommand is the FuzzParse seed testdata/fuzz/FuzzParse/
+// 05d9c0bdcd6b6168: an empty parameter name, `${}`, which the bash/POSIX
+// parsers REJECT but the zsh one accepts. mvdan.cc/sh v3.13.1's expander
+// nil-dereffed on it (expand/param.go:57) and only Parse's recover kept the
+// hook alive; v3.14.0 (upstream 163041753) makes the expander return an error
+// instead, so the word now takes the lowerer's ordinary literal fallback.
+const emptyParamCommand = "00${}0"
+
+// requireZshExpansionFails is the hostile-fixture guard for
+// TestEmptyParamNameTakesLiteralFallback: without it a green argv could mean
+// "the literal fallback ran" OR "the expander learned to expand ${} to empty",
+// and those reach the same argv by different doors.
+func requireZshExpansionFails(t *testing.T, src string) {
+	t.Helper()
+	file, err := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader(src), "")
+	if err != nil {
+		t.Fatalf("fixture does not parse under zsh: %v", err)
 	}
-	if !strings.Contains(err.Error(), "internal error lowering") {
-		t.Errorf("error = %v, want it flagged as an internal lowering failure", err)
+	call, ok := file.Stmts[0].Cmd.(*syntax.CallExpr)
+	if !ok {
+		t.Fatalf("fixture is not a call expression: %T", file.Stmts[0].Cmd)
+	}
+	cfg := &expand.Config{Env: expand.FuncEnviron(func(string) string { return "" })}
+	if _, err := expand.Fields(cfg, call.Args...); err == nil {
+		t.Fatalf("fixture is not hostile: expand.Fields(%q) succeeded, so the literal fallback never runs", src)
+	}
+}
+
+// TestEmptyParamNameTakesLiteralFallback is the regression guard for the seed
+// above. It was a recovered panic surfaced as a parse error; it must now lower
+// cleanly — no error at all, so on_parse_error is not consulted — with the
+// parameter erased and the surrounding literal text kept, exactly as
+// literalFallback treats any parameter it cannot expand.
+func TestEmptyParamNameTakesLiteralFallback(t *testing.T) {
+	requireZshExpansionFails(t, emptyParamCommand)
+
+	s, err := New().Parse(context.Background(), ir.ShellZsh, emptyParamCommand)
+	if err != nil {
+		t.Fatalf("Parse(zsh, %q) error = %v, want a clean lowering via the literal fallback", emptyParamCommand, err)
+	}
+	cmds := s.Commands()
+	if len(cmds) != 1 {
+		t.Fatalf("commands = %d, want 1", len(cmds))
+	}
+	if got, want := cmds[0].Argv, []string{"000"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("argv = %q, want %q (literal parts kept, ${} erased)", got, want)
+	}
+}
+
+// TestParseRecoverIsStillABackstop pins that the recover boundary survives
+// the loss of its only known trigger: with no upstream crasher left to aim at,
+// a nil receiver panics (f.env) inside the deferred recover, and Parse must
+// still hand back the marked error and an empty, non-nil script rather than
+// propagate the panic into the hook.
+func TestParseRecoverIsStillABackstop(t *testing.T) {
+	var f *Frontend
+	s, err := f.Parse(context.Background(), ir.ShellBash, "echo hi")
+	if err == nil || !strings.Contains(err.Error(), "internal error lowering") {
+		t.Fatalf("err = %v, want the recovered internal-lowering error", err)
 	}
 	if s == nil {
 		t.Fatal("want a non-nil script alongside the error (Frontend contract)")

@@ -180,28 +180,65 @@ func (o *OneShotSession) End() {
 
 // LazyOneShot is an internal one-shot whose session starts on the FIRST
 // turn: a caller that never turns (a compaction served from its cache)
-// mints nothing. Turn is assignable to memory.Runner; End releases the
-// session if one started.
+// mints nothing. Turn is assignable to memory.Runner, ContextWindow to
+// memory.CompactionConfig.ContextWindow; End releases the session if one
+// started.
 type LazyOneShot struct {
-	start func(ctx context.Context) (*OneShotSession, error)
-	mu    sync.Mutex
-	os    *OneShotSession
+	start   func(ctx context.Context) (*OneShotSession, error)
+	engines engine.Registry
+	mu      sync.Mutex
+	os      *OneShotSession
+}
+
+// session is the started session, starting it first if none has.
+func (l *LazyOneShot) session(ctx context.Context) (*OneShotSession, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.os == nil {
+		o, err := l.start(ctx)
+		if err != nil {
+			return nil, err
+		}
+		l.os = o
+	}
+	return l.os, nil
 }
 
 // Turn drives one turn, starting the session first if none has.
 func (l *LazyOneShot) Turn(ctx context.Context, prompt string) (string, error) {
-	l.mu.Lock()
-	if l.os == nil {
-		o, err := l.start(ctx)
-		if err != nil {
-			l.mu.Unlock()
-			return "", err
-		}
-		l.os = o
+	o, err := l.session(ctx)
+	if err != nil {
+		return "", err
 	}
-	o := l.os
-	l.mu.Unlock()
 	return o.Turn(ctx, prompt)
+}
+
+// ContextWindow is the context window, in tokens, of the label this
+// one-shot runs on (LaunchContextWindow), starting the session first if none
+// has: the label is the one the launch actually resolved — an explicit
+// label, the role agent's, or defaults.fast — so it is read from there, not
+// re-derived. A caller asks it only when it is about to turn.
+func (l *LazyOneShot) ContextWindow(ctx context.Context) (int, error) {
+	o, err := l.session(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return LaunchContextWindow(l.engines, o.Launch), nil
+}
+
+// LaunchContextWindow is the context window, in tokens, of a resolved
+// launch's label: the label's own neutral `context_window`, else the
+// declared default of the engine the launch runs, else 0 (unknown). The
+// engine is reached through the registry by the launch's engine name, so no
+// engine is named here.
+func LaunchContextWindow(reg engine.Registry, l launch.Launch) int {
+	if n := config.LabelContextWindow(l.Label.Body); n > 0 {
+		return n
+	}
+	if eng, ok := reg.Lookup(l.Engine); ok {
+		return eng.Root().ContextWindow
+	}
+	return 0
 }
 
 // End releases the session, if one started. Idempotent.
@@ -322,7 +359,7 @@ func (b *OneShotBuilder) source(rep report.Sink) launch.Source {
 // surface from that turn.
 func (b *OneShotBuilder) Lazy() *LazyOneShot {
 	built := *b
-	return &LazyOneShot{start: built.Start}
+	return &LazyOneShot{start: built.Start, engines: b.facts.Engines}
 }
 
 // isolationGateErr is the fail-loudly member gate over the strictness findings

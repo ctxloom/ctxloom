@@ -89,3 +89,16 @@ func TestBudget_IsTheInverseOfEstimate(t *testing.T) {
 		}
 	}
 }
+
+// TestEstimateBytes_AgreesWithEstimate: the size-only estimate rounds up
+// exactly as Estimate does, and a non-positive size is zero tokens.
+func TestEstimateBytes_AgreesWithEstimate(t *testing.T) {
+	for _, n := range []int{0, 1, 3, 4, 5, 4096, 4097} {
+		if got, want := EstimateBytes(n), Estimate(strings.Repeat("x", n)); got != want {
+			t.Errorf("EstimateBytes(%d) = %d, Estimate of %d bytes = %d", n, got, n, want)
+		}
+	}
+	if got := EstimateBytes(-8); got != 0 {
+		t.Errorf("EstimateBytes(-8) = %d, want 0", got)
+	}
+}

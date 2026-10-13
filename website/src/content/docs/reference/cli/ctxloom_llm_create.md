@@ -15,12 +15,12 @@ Create a new LLM engine config
 
 Create a NEW labeled LLM engine config under the 'llm.configs' key of
 .ctxloom/config.yaml. Refuses a label that already names a config entry OR a
-registered backend (claude-code) — change an
+registered backend (claude-code, opencode) — change an
 existing one with 'ctxloom llm edit'.
 
---type is the backend discriminator (claude-code);
+--type is the backend discriminator (claude-code, opencode);
 omit it to keep claude-code's default. --model sets the model string. --permissions
-sets the label's mode, in its engine's vocabulary (acceptEdits|bypass|default|plan across the
+sets the label's mode, in its engine's vocabulary (acceptEdits|auto|build|bypass|default|plan across the
 engines ctxloom knows); the engine refuses one it does not take.
 
 An entry carries NO credentials and no environment: the engine authenticates
@@ -43,7 +43,7 @@ ctxloom llm create <label> [flags]
 ```
       --model string         model string
       --permissions string   permission mode, in the label's engine's vocabulary (empty clears it)
-      --type string          backend discriminator: claude-code (empty = claude-code)
+      --type string          backend discriminator: claude-code, opencode (empty = claude-code)
 ```
 
 ### Options inherited from parent commands

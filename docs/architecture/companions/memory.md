@@ -44,7 +44,7 @@ flowchart TD
   S2T --> ES{"tooLittleToCompact<br/>under minCompactTokens"}
 
   ES -->|yes| DUMP["dumpUncompacted<br/>transcript verbatim"]
-  ES -->|no| FB["fitToBudget<br/>recency-graded, rune-safe<br/>only when over SinglePassInputTokens"]
+  ES -->|no| FB["fitToBudget<br/>recency-graded, rune-safe<br/>only when over the budget:<br/>min(SinglePassInputTokens, window − reserve)"]
   FB --> RD["runCompactTurn (ONE call)"]
   RD --> LLM
   RES -.->|"session-compact.md"| RD
@@ -92,7 +92,7 @@ flowchart TD
 | `loadSessionToCompact` | `compactor.go` | Preloaded → identity-bound id → `CurrentSession`. Explicit-id failures hard-error; index-derived failures fall through with a documented rationale |
 | `tooLittleToCompact` | `compactor.go` | The rendered transcript is under `minCompactTokens`: too small for distillation to compress, and small enough that the model answers with a refusal rather than a summary |
 | `dumpUncompacted` | `compactor.go` | Short-circuits to the transcript itself as the essence (a placeholder when it rendered to nothing); never replaces an existing essence |
-| `fitToBudget` | `compactor.go` | Deterministic recency-graded reduction to `SinglePassInputTokens`; each entry may claim at most half of what remains, so the budget is never exceeded and the head decays geometrically |
+| `fitToBudget` | `compactor.go` | Deterministic recency-graded reduction to the compaction budget (`inputBudget`: `min(SinglePassInputTokens, window − reserve)`, the window being the distiller label's `context_window` or its engine's declared default, the reserve the prompt plus the essence budget; an unknown window keeps `SinglePassInputTokens`, a window within the reserve refuses with `ErrContextWindowTooSmall`); each entry may claim at most half of what remains, so the budget is never exceeded and the head decays geometrically |
 | `splitEntryBlocks` | `compactor.go` | Splits rendered text back into the `## `-headed per-entry blocks `appendEntryText` wrote |
 | `runCompactTurn` | `compactor.go` | The one compaction call, through the package's `RunPrompt`: a run that fails, or exits 0 with no output, is an error rather than an empty essence |
 | `sessionToText` / `renderEntries` / `appendEntryText` | `compactor.go` | Renders entries to markdown. `appendEntryText` has **no `default` case**, so a thinking-only or unrecognized-type entry contributes zero bytes |

@@ -204,7 +204,8 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | Field | Type | Description |
 |-------|------|-------------|
 | `args` | string[] |  |
-| `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
+| `binary_path` | string | Overrides the engine's own CLI binary (a path, or a name resolved on PATH). Neutral: the launch carries it as the label's binary (engine.LabelConfig.Binary), the one the engine is spawned from and its version probe asks; the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
+| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model. Examples: `200000`, `131072`. |
 | `model` | string | Examples: `opus`, `sonnet`, `haiku`. |
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
 | `role` | string | Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime. Allowed values: `primary`, `fast`. |
@@ -214,6 +215,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model. Examples: `200000`, `131072`. |
 | `mock_control` | map → string | The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment. |
 | `model` | string |  |
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
@@ -224,6 +226,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model. Examples: `200000`, `131072`. |
 | `mock_control` | map → string | The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment. |
 | `model` | string |  |
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
@@ -234,6 +237,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model. Examples: `200000`, `131072`. |
 | `mock_control` | map → string | The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment. |
 | `model` | string |  |
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
@@ -244,11 +248,42 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call. Neutral: every engine's label may carry it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Absent, the engine's declared default applies (claude-code: 200000); set it for a model with a different window, e.g. 1000000 for a 1M-context model. Examples: `200000`, `131072`. |
 | `mock_control` | map → string | The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment. |
 | `model` | string |  |
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
 | `role` | string | Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime. Allowed values: `primary`, `fast`. |
 | `type` | string | Must be `mock-noskills`. |
+
+#### opencode
+
+The opencode CLI driven against an OpenAI-compatible endpoint (e.g. a LAN llama-server). Runs its TUI interactively on ctxloom's terminal, and structured (children and internal one-shots). The endpoint key is never written here: export CTXLOOM_OPENCODE_API_KEY.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `args` | string[] | Arguments placed before opencode's own subcommand. |
+| `binary_path` | string | Overrides the path to the opencode binary. |
+| `context_window` | integer | **Required.** The model's context window, in tokens: what this label's model can hold in one call (llama-server: --ctx-size divided by --parallel). Neutral: every engine's label may carry it; REQUIRED here, because opencode cannot discover it and never compacts without it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Examples: `131072`, `65536`. |
+| `model` | string | **Required.** The model id the endpoint serves (llama-server's --alias). Examples: `qwen3.8-27b`. |
+| `model_options` | object | Passed verbatim as the model's options, which reach every request body (e.g. chat_template_kwargs: {enable_thinking: false}, temperature, top_p). |
+| `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. opencode's: mode (build \| plan \| auto) and permission (an opencode permission object). Its approver must be none: opencode run rejects every ask itself. |
+| `provider` | object | **Required.** The OpenAI-compatible endpoint opencode talks to. |
+| `role` | string | Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime. Allowed values: `primary`, `fast`. |
+| `share` | string | opencode's session sharing. Absent: disabled. Allowed values: `manual`, `auto`, `disabled`. |
+| `snapshot` | boolean | Whether opencode keeps a snapshot of the work tree per step (what undo reverts). Absent: on for an interactive run (the TUI's /undo), off for a structured run. |
+| `title_generation` | boolean | Whether opencode asks the model for a session title (an extra request at every new session). Absent: off. |
+| `type` | string | **Required.** Must be `opencode`. |
+
+##### llmConfig.opencode.provider
+
+The OpenAI-compatible endpoint opencode talks to.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `base_url` | string | **Required.** The endpoint's base URL, including /v1. Examples: `http://192.168.1.20:8081/v1`. |
+| `chunk_timeout_ms` | integer | How long opencode waits between streamed chunks, in milliseconds. Absent: opencode's default (300000). |
+| `header_timeout_ms` | integer | How long opencode waits for the endpoint's response headers, in milliseconds; 0 disables the timeout. A single-slot server queues concurrent requests, so a queued turn needs a long one (or 0). Absent: opencode's default (300000). |
+| `output_limit` | integer | **Required.** The model's output token limit; opencode reserves it out of context_window when deciding to compact. |
 
 ### neutralPermissions
 

@@ -30,10 +30,4 @@ func Transcripts() []engine.TranscriptReader {
 // floor is the release the headless route was verified live on
 // (--permission-prompts none, system/permission_denied, result
 // permission_denials).
-func Version() engine.VersionCommand {
-	return engine.VersionCommand{
-		Args:  []string{"--version"},
-		Parse: func(output string) (string, error) { return engineversion.TokenAt(output, 0) },
-		Floor: "2.1.283",
-	}
-}
+func Version() engine.VersionCommand { return engineversion.LeadingToken("2.1.283") }

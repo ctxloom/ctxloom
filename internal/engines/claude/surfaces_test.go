@@ -2,15 +2,13 @@ package claude
 
 import (
 	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
@@ -23,47 +21,6 @@ func runRoots(project, sessionHome string) present.Start {
 		ProjectRoot: present.Root{Host: project},
 		SessionHome: present.Root{Host: sessionHome},
 	}))
-}
-
-// sampleContext is a representative assembled context.
-const sampleContext = "# Rules\nthe secret color is vermilion"
-
-// newSystemPromptContext is claude's system-prompt writer over the real
-// filesystem — the one contextApproach.DeliverContext drives at the session
-// home.
-func newSystemPromptContext() *systemPromptContext {
-	return &systemPromptContext{content: sampleContext, fs: afero.NewOsFs()}
-}
-
-// ---- context surface -------------------------------------------------------
-
-// The system-prompt approach's ONE form writes the framed <hash>.sysprompt.md
-// beneath the private root (via appendFlagDelivery) and exposes it via Path()
-// — and does NOT touch the well-known CLAUDE.md. Every cell reaches this form;
-// there is no second one for a cell to pick instead.
-func TestContextSurface_DeliverWritesSyspromptAndExposesPath(t *testing.T) {
-	cwd, home := t.TempDir(), t.TempDir()
-	s := newSystemPromptContext()
-
-	handle, err := s.Deliver(runRoots(cwd, home))
-	require.NoError(t, err)
-
-	path := s.Path()
-	require.NotEmpty(t, path, "Path() exposes the framed file for --append-system-prompt-file")
-	assert.Equal(t, home, filepath.Dir(path), "the framed file lands beneath the relocated engine home")
-	assert.True(t, strings.HasSuffix(path, agent.SCMFramedContextSuffix))
-	require.FileExists(t, path)
-
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Equal(t, agent.FrameProjectContext(sampleContext), string(data))
-
-	// The cwd receives nothing, and the home holds no CLAUDE.md.
-	assert.NoFileExists(t, filepath.Join(cwd, "CLAUDE.md"))
-	assert.NoFileExists(t, filepath.Join(home, "CLAUDE.md"))
-
-	require.NoError(t, handle.Cleanup())
-	assert.NoFileExists(t, path)
 }
 
 // ---- the declaration ---------------------------------------------------------
@@ -100,34 +57,20 @@ func TestSurfaces_DeclaresContextTwoWaysMCPTwoAndTheRestOnce(t *testing.T) {
 }
 
 // TestPrivateRootApproaches_RefuseWithoutAnEngineHome is feeble-sway's
-// no-fallback condition at the seam. An approach whose ONLY form lands beneath
-// the private root, handed a run that advises none, refuses with
-// ErrUnrootedSessionHome: it writes neither the project file nor anything
-// else, and records no path for a launch flag to name. The tempting
-// substitutions — CLAUDE.md for the system prompt, the project .mcp.json for
-// the private one — are each a different product
-// behaviour under a different name, and the surface is the wrong place to
-// pick one.
+// no-fallback condition at the seam. The context approach's session-home
+// form lands beneath the private root; handed a run that advises none, it
+// refuses with ErrUnrootedSessionHome and writes neither the project's
+// CLAUDE.md nor anything else, and presents nothing a launch flag could
+// name. The tempting substitution — CLAUDE.md for the system prompt — is a
+// different product behaviour under a different name, and the surface is
+// the wrong place to pick one.
 func TestPrivateRootApproaches_RefuseWithoutAnEngineHome(t *testing.T) {
 	project := t.TempDir()
-	s := newSystemPromptContext()
-	noHome := runRoots(project, "")
-
-	for _, tc := range []struct {
-		name    string
-		deliver func(present.Start) (agent.Delivered, error)
-		path    func() string
-	}{
-		{"context", s.Deliver, s.Path},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			handle, err := tc.deliver(noHome)
-			require.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
-			assert.Nil(t, handle, "a refusal holds no cleanup handle: nothing was written")
-			assert.Empty(t, tc.path(), "a refusal records no path — no flag may name it")
-			assert.Empty(t, dirEntries(t, project), "no fallback to the project file")
-		})
-	}
+	d, err := claudeDef(t).Context.DeliverContext(runRoots(project, ""), present.RootSessionHome,
+		engine.ContextInputs{Text: []byte("# Rules\nthe secret color is vermilion")}, nil)
+	require.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
+	assert.Equal(t, present.Delivered{}, d, "a refusal declares and presents nothing")
+	assert.Empty(t, dirEntries(t, project), "no fallback to the project file")
 }
 
 // dirEntries lists the names directly beneath dir, so a test can assert a

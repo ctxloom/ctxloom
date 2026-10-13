@@ -256,8 +256,8 @@ func (s *spawner) AssignSession(projectDir, backend string) (string, error) {
 	return entry.HarpName, nil
 }
 
-func (s *spawner) RecordEngineVersion(ctx context.Context, harp, backend string) {
-	s.app.RecordSessionEngineVersion(ctx, harp, backend)
+func (s *spawner) RecordEngineVersion(ctx context.Context, harp, backend, binary string) {
+	s.app.RecordSessionEngineVersion(ctx, harp, backend, binary)
 }
 
 // startEngine is operations.StartEngine's production entry point, indirected

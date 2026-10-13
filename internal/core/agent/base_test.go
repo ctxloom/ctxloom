@@ -19,8 +19,6 @@ func TestNewBaseBackend(t *testing.T) {
 
 	assert.Equal(t, "test-backend", backend.name)
 	assert.Equal(t, "1.0.0", backend.version)
-	assert.NotNil(t, backend.Args)
-	assert.Empty(t, backend.Args)
 }
 
 func TestBaseBackend_Name(t *testing.T) {

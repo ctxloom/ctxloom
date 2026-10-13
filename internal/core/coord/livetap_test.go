@@ -251,8 +251,8 @@ func (s *liveTapSpawner) Start(_ context.Context, l launch.Launch, reach session
 	return &coord.EngineSpawn{Kill: func() { cancel(); home.Crash() }}, nil
 }
 
-func (s *liveTapSpawner) ResumeHistory(context.Context, string) string        { return "" }
-func (s *liveTapSpawner) RecordEngineVersion(context.Context, string, string) {}
+func (s *liveTapSpawner) ResumeHistory(context.Context, string) string                { return "" }
+func (s *liveTapSpawner) RecordEngineVersion(context.Context, string, string, string) {}
 
 func (s *liveTapSpawner) MarkSessionEnded(string, string)  {}
 func (s *liveTapSpawner) BindNativeSession(string, string) {}

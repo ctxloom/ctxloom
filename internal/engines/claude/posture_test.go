@@ -30,7 +30,7 @@ var namedPolicies = []struct {
 // withSession projects req's session and gives it p, so a request-driven
 // argv runs at p.
 func withSession(b *ClaudeCode, req *agent.ExecuteRequest, p engine.PermissionPolicy) *agent.ExecuteRequest {
-	s := b.session(req)
+	s := b.SessionFor(req)
 	s.Permission = p
 	req.Session = &s
 	return req

@@ -19,6 +19,10 @@ Feature: auth — how ctxloom-launched engines authenticate
 
     # THE SECRET MUST APPEAR IN NO OUTPUT: a status that echoed the value it
     # found would leak the credential into logs and transcripts, silently.
+    # Rows are per engine and mode, so the claim is read off claude-code's own
+    # row: other engines report their own credentials (opencode's is an
+    # endpoint API key). A second claude-code row (an api-key mode) would make
+    # the selector ambiguous and fail it, which keeps claude token-only.
     Scenario: An exported token is reported present without revealing it
       Given an initialized ctxloom project
       And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
@@ -26,8 +30,8 @@ Feature: auth — how ctxloom-launched engines authenticate
       When I run "ctxloom auth status --format json"
       Then the command succeeds
       And the output does not contain "sk-ant-oat01-acceptance-fixture-not-real"
-      And the output reports "[mode=token].present" as "true"
-      And the output does not contain "api-key"
+      And the output reports "[engine=claude-code].mode" as "token"
+      And the output reports "[engine=claude-code].present" as "true"
 
     Scenario: With nothing exported, status names how to mint and export the token
       Given an initialized ctxloom project

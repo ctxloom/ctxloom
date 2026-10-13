@@ -142,6 +142,8 @@ var schemaEnumBindings = []schemaEnumBinding{
 	// $defs/hook/tool: the neutral tool classes a hook narrows by, which
 	// every engine maps to its own tool names (wire.ToolClasses).
 	{path: "$defs/hook/properties/tool", goNames: toolClassNames},
+	// opencode's `share` (its own session-sharing vocabulary) is excluded in
+	// init(), addressed by its branch's title rather than its position.
 	{
 		path:          "$defs/hook/properties/type",
 		excludeReason: "claude-code's own hook-handler type vocabulary, passed through verbatim; no ctxloom Go type owns it",
@@ -169,7 +171,8 @@ func init() {
 	// a hand-copied literal could. The branch COUNT is read off the schema,
 	// not written here, so removing or adding a backend branch cannot leave
 	// the table naming paths that no longer exist.
-	for i := 0; i < llmConfigBranchCount(); i++ {
+	titles := llmConfigBranchTitles()
+	for i, title := range titles {
 		prefix := fmt.Sprintf("$defs/llmConfig/anyOf/%d/properties", i)
 		schemaEnumBindings = append(schemaEnumBindings,
 			schemaEnumBinding{
@@ -177,13 +180,26 @@ func init() {
 				excludeReason: "a shipped-registry marker the schema itself says is ignored at runtime; no Go vocabulary backs it",
 			},
 		)
+		// An engine's own session-sharing vocabulary on its label branch,
+		// passed verbatim into the engine's config document; no ctxloom Go
+		// type owns it. Found by title: a branch added ahead of opencode's
+		// shifts its index, which a literal path would silently miss.
+		if title == "opencode" {
+			schemaEnumBindings = append(schemaEnumBindings,
+				schemaEnumBinding{
+					path:          prefix + "/share",
+					excludeReason: "an engine's own session-sharing vocabulary, passed verbatim into its config; no ctxloom Go type owns it",
+				},
+			)
+		}
 	}
 }
 
-// llmConfigBranchCount is the number of $defs/llmConfig anyOf branches in the
-// live schema. It runs from init(), where there is no *testing.T to fail, so
-// an unreadable schema panics — the loudest failure available there.
-func llmConfigBranchCount() int {
+// llmConfigBranchTitles is the title of each $defs/llmConfig anyOf branch in
+// the live schema, in branch order. It runs from init(), where there is no
+// *testing.T to fail, so an unreadable schema panics — the loudest failure
+// available there.
+func llmConfigBranchTitles() []string {
 	raw, err := resources.GetConfigSchema()
 	if err != nil {
 		panic("read config schema: " + err.Error())
@@ -191,7 +207,9 @@ func llmConfigBranchCount() int {
 	var doc struct {
 		Defs struct {
 			LLMConfig struct {
-				AnyOf []json.RawMessage `json:"anyOf"`
+				AnyOf []struct {
+					Title string `json:"title"`
+				} `json:"anyOf"`
 			} `json:"llmConfig"`
 		} `json:"$defs"`
 	}
@@ -201,7 +219,11 @@ func llmConfigBranchCount() int {
 	if len(doc.Defs.LLMConfig.AnyOf) == 0 {
 		panic("config schema declares no $defs/llmConfig anyOf branches")
 	}
-	return len(doc.Defs.LLMConfig.AnyOf)
+	titles := make([]string, len(doc.Defs.LLMConfig.AnyOf))
+	for i, b := range doc.Defs.LLMConfig.AnyOf {
+		titles[i] = b.Title
+	}
+	return titles
 }
 
 // TestArch_ConfigSchemaEnums_TableIsWellFormed is a fixture-sanity check on

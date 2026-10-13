@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -55,7 +56,9 @@ type HomeSpec struct {
 	// OUT of the disposable home: the directory lives under the session's
 	// native/ and the home holds a relative link to it, so deleting the home
 	// on Close never deletes the history. A clean relative slash path,
-	// because the same link is followed inside a Linux container.
+	// because the same link is followed inside a Linux container. It may lie
+	// strictly below a further var's directory (created before the link is
+	// placed), within a name the var owns when that var is a merged XDG base.
 	TranscriptStoreRel string
 }
 
@@ -214,7 +217,25 @@ func (h HomeSpec) validateMerge(i int, v HomeVar) error {
 	if err := validateOwns(i, v); err != nil {
 		return err
 	}
+	if err := h.validateStoreOwned(i, v); err != nil {
+		return err
+	}
 	return h.validateMergedTreeClear(i, v)
+}
+
+// validateStoreOwned requires a history store below the merged var Vars[i]
+// to lie within a name the engine owns there: every other top-level name is
+// the user's entry, linked in before the history link is placed.
+func (h HomeSpec) validateStoreOwned(i int, v HomeVar) error {
+	r := h.TranscriptStoreRel
+	if r == "" || !pathWithin(r, v.Subdir) {
+		return nil
+	}
+	top, _, _ := strings.Cut(strings.TrimPrefix(r, v.Subdir+"/"), "/")
+	if !slices.Contains(v.Merge.Owns, top) {
+		return fmt.Errorf("HomeSpec: TranscriptStoreRel %q lies below the merged base %s (%q) at %q, a name it does not own; the store must be within a name Vars[%d] owns", r, v.Name, v.Subdir, top, i)
+	}
+	return nil
 }
 
 // validateOwns requires each name a merged var owns to be one path segment,
@@ -265,12 +286,15 @@ func validateHomeLeaf(sub string) error {
 }
 
 // validateBeneathHome requires a further var's Subdir to be a clean relative
-// slash path strictly beneath the home, clear of the history store's link.
+// slash path strictly beneath the home, neither the history store's link nor
+// inside it: isolation creates the one as a directory and links the other.
+// A store strictly below a var's directory is allowed: the directory is
+// created before the history link is placed in it.
 func (h HomeSpec) validateBeneathHome(i int, sub string) error {
 	if !isContainerRel(sub) || sub == "." {
 		return fmt.Errorf("HomeSpec: Vars[%d].Subdir %q is not a clean relative slash path beneath the session home", i, sub)
 	}
-	if r := h.TranscriptStoreRel; r != "" && (pathWithin(sub, r) || pathWithin(r, sub)) {
+	if r := h.TranscriptStoreRel; r != "" && pathWithin(sub, r) {
 		return fmt.Errorf("HomeSpec: Vars[%d].Subdir %q overlaps TranscriptStoreRel %q; isolation creates the one as a directory and links the other", i, sub, r)
 	}
 	return nil

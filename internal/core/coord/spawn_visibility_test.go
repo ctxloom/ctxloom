@@ -94,6 +94,33 @@ func TestAgentRun_RegistersTheRunBeforeProbingTheEngineVersion(t *testing.T) {
 		"the version is still recorded exactly once — moving it off the critical path must not drop it")
 }
 
+// TestAgentRun_RecordsTheVersionOfTheBinaryTheLaunchNames: the version a
+// session records is asked of the binary its launch spawns — the resolved
+// Launch's engine and label binary (a label's binary_path) — not the
+// engine's default install, so a session on a pinned binary is read back
+// with the reader for the version that wrote it.
+func TestAgentRun_RecordsTheVersionOfTheBinaryTheLaunchNames(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(t, map[string]fakeAgent{
+		"pinned": {perm: "bypass", backend: "mock", binary: "/opt/pinned/bin/engine"},
+		"plain":  {perm: "bypass", backend: "mock"},
+	}, nil)
+	sp.versionProbeEntered = make(chan string, 2)
+	c := newTestCoordinator(t, sp, nil)
+
+	for _, agent := range []string{"pinned", "plain"} {
+		_, err := c.AgentRun(context.Background(), ownerIdentity(), agent, "do the thing", "", "")
+		require.NoError(t, err)
+		select {
+		case <-sp.versionProbeEntered:
+		case <-time.After(conformanceWait):
+			t.Fatalf("%s: the engine-version probe never ran", agent)
+		}
+	}
+	assert.Equal(t, []string{"mock /opt/pinned/bin/engine", "mock "}, sp.probedBinaries(),
+		"each session's version is asked of the binary its launch spawns; none named is the engine's own")
+}
+
 // TestAgentRun_JournalsAcceptanceBeforeTheUntraceableSpan pins the durable
 // record. Three separate steps between the verb and run.enqueued can block
 // for an unbounded time, and until one of them completes there is no run id

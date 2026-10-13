@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines/kit"
 )
 
 // Permissions is the mock's minimal permission model: a mode (default,
@@ -76,14 +77,7 @@ func mockRules(v any) ([]string, error) {
 // Resolve takes each key from the nearest declaration, the flag's mode
 // over them, default when none; degraded drops to the floor.
 func (m permissionModel) Resolve(req engine.PostureRequest) (map[string]any, error) {
-	out, err := m.resolve(req)
-	if err != nil && req.Degraded {
-		if req.Warn != nil {
-			req.Warn("--degraded: %v, so this run drops to the plan floor", err)
-		}
-		return m.Floor(), nil
-	}
-	return out, err
+	return kit.ResolveDegraded(req, m.resolve, m.Floor())
 }
 
 func (m permissionModel) resolve(req engine.PostureRequest) (map[string]any, error) {

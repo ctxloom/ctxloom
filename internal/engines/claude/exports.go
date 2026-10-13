@@ -1,12 +1,10 @@
 package claude
 
 import (
-	"encoding/json"
 	"fmt"
-	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/shared/schema"
+	"github.com/ctxloom/ctxloom/internal/engines/kit"
 )
 
 // claude-code's per-engine EXPORT BLOCK: the opaque bytes a bundle item
@@ -44,35 +42,11 @@ type ExportBlock struct {
 // IsEnabled reports the effective enablement: absent means enabled.
 func (b ExportBlock) IsEnabled() bool { return b.Enabled == nil || *b.Enabled }
 
-var (
-	exportValidatorOnce sync.Once
-	exportValidator     *schema.ConfigValidator
-	exportValidatorErr  error
-)
-
 // DecodeExportBlock decodes an item's block for this engine, validated
-// against ExportSchema. nil is the absent block. A block the schema refuses
-// is an error naming the engine: the item is withheld from claude-code, not
-// exported with a guess.
-func DecodeExportBlock(raw json.RawMessage) (ExportBlock, error) {
-	if raw == nil {
-		return ExportBlock{}, nil
-	}
-	exportValidatorOnce.Do(func() {
-		exportValidator, exportValidatorErr = schema.NewValidatorFromSchema(ExportSchema)
-	})
-	if exportValidatorErr != nil {
-		return ExportBlock{}, fmt.Errorf("%s: export schema: %w", EngineName, exportValidatorErr)
-	}
-	if err := exportValidator.ValidateBytes(raw); err != nil {
-		return ExportBlock{}, fmt.Errorf("%s: export block: %w", EngineName, err)
-	}
-	var block ExportBlock
-	if err := json.Unmarshal(raw, &block); err != nil {
-		return ExportBlock{}, fmt.Errorf("%s: export block: %w", EngineName, err)
-	}
-	return block, nil
-}
+// against ExportSchema (kit.ExportDecoder). nil is the absent block. A block
+// the schema refuses is an error naming the engine: the item is withheld
+// from claude-code, not exported with a guess.
+var DecodeExportBlock = kit.ExportDecoder[ExportBlock](EngineName, ExportSchema)
 
 // Exports decodes each item's claude-code block and says what this engine
 // exports: a command is a slash command unless its block opts out (a
@@ -81,7 +55,7 @@ func DecodeExportBlock(raw json.RawMessage) (ExportBlock, error) {
 // its block opts out. A block the schema refuses is an error naming the
 // engine and the item — nothing is exported on a guess.
 func (c Claude) Exports(items engine.Items) (engine.Exports, error) {
-	out := engine.Exports{HookEvent: hookEventMap()}
+	out := engine.Exports{HookEvent: nativeHookEvents.Map()}
 	for _, item := range items.Commands {
 		block, err := DecodeExportBlock(item.Exports)
 		if err != nil {

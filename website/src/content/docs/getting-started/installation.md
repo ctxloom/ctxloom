@@ -258,6 +258,7 @@ ctxloom holds no model API client of its own (this is a licensing requirement, n
 | Backend | Binary | Install |
 |---|---|---|
 | `claude-code` | `claude` | [claude.ai/code](https://claude.ai/code) |
+| `opencode` | `opencode` | [opencode.ai](https://opencode.ai) |
 
 If the backend you launch (the configured default, or `--llm <label>`) has no binary on `PATH`,
 `ctxloom run` exits non-zero with `exec: "claude": executable file not found in $PATH`. It never

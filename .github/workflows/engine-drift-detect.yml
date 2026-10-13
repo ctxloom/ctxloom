@@ -51,6 +51,8 @@ jobs:
         include:
           - engine: claude-code
             lock_key: CLAUDE_CODE_CLI_VERSION
+          - engine: opencode
+            lock_key: OPENCODE_CLI_VERSION
 
     steps:
       - name: Checkout code

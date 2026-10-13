@@ -69,7 +69,7 @@ func (s *resumeSpawner) Resolve(_ context.Context, agentName string) (*coord.Spa
 }
 
 func (s *resumeSpawner) AssignSession(projectDir, backend string) (string, error) {
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, backend, filepath.Join(projectDir, ".test-output"))
+	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, backend, "", filepath.Join(projectDir, ".test-output"))
 	if err != nil {
 		return "", err
 	}
@@ -136,11 +136,11 @@ func (s *resumeSpawner) Start(ctx context.Context, l launch.Launch, reach sessio
 	return &coord.EngineSpawn{Kill: kill}, nil
 }
 
-func (s *resumeSpawner) ResumeHistory(context.Context, string) string        { return "" }
-func (s *resumeSpawner) RecordEngineVersion(context.Context, string, string) {}
-func (s *resumeSpawner) MarkSessionEnded(string, string)                     {}
-func (s *resumeSpawner) BindNativeSession(string, string)                    {}
-func (s *resumeSpawner) NativeSession(string) string                         { return "" }
+func (s *resumeSpawner) ResumeHistory(context.Context, string) string                { return "" }
+func (s *resumeSpawner) RecordEngineVersion(context.Context, string, string, string) {}
+func (s *resumeSpawner) MarkSessionEnded(string, string)                             {}
+func (s *resumeSpawner) BindNativeSession(string, string)                            {}
+func (s *resumeSpawner) NativeSession(string) string                                 { return "" }
 
 // incarnation is the endpoint and container of the i-th launch.
 func (s *resumeSpawner) incarnation(t *testing.T, i int) (sessions.Endpoint, string) {

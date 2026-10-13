@@ -82,7 +82,7 @@ type unknownAgentError struct{ name string }
 func (e *unknownAgentError) Error() string { return "directBusSpawner: unknown agent " + e.name }
 
 func (s *directBusSpawner) AssignSession(projectDir, backend string) (string, error) {
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, backend, filepath.Join(projectDir, ".test-output"))
+	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, backend, "", filepath.Join(projectDir, ".test-output"))
 	if err != nil {
 		return "", err
 	}
@@ -152,8 +152,8 @@ type preparedContainerCell struct {
 	label   string
 }
 
-func (s *directBusSpawner) ResumeHistory(context.Context, string) string        { return "" }
-func (s *directBusSpawner) RecordEngineVersion(context.Context, string, string) {}
+func (s *directBusSpawner) ResumeHistory(context.Context, string) string                { return "" }
+func (s *directBusSpawner) RecordEngineVersion(context.Context, string, string, string) {}
 
 func (s *directBusSpawner) MarkSessionEnded(string, string)  {}
 func (s *directBusSpawner) BindNativeSession(string, string) {}

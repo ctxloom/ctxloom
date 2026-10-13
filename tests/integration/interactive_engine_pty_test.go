@@ -40,36 +40,17 @@ exit 0
 `
 
 // pathWithout returns the process PATH with every executable called name
-// hidden. An entry holding one is replaced by a mirror of its OTHER entries,
-// so the rest of the toolchain an interactive run needs stays reachable.
+// hidden (testenv.PathHiding), so the rest of the toolchain an
+// interactive run needs stays reachable.
 func pathWithout(t *testing.T, name string) string {
 	t.Helper()
-	sep := string(os.PathListSeparator)
-	var kept []string
-	for _, dir := range strings.Split(os.Getenv("PATH"), sep) {
-		if dir == "" {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
-			kept = append(kept, dir)
-			continue
-		}
-		entries, err := os.ReadDir(dir)
-		require.NoError(t, err)
-		mirror := t.TempDir()
-		for _, e := range entries {
-			if e.Name() == name {
-				continue
-			}
-			require.NoError(t, os.Symlink(filepath.Join(dir, e.Name()), filepath.Join(mirror, e.Name())))
-		}
-		kept = append(kept, mirror)
-	}
-	for _, dir := range kept {
+	path, err := testenv.PathHiding(os.Getenv("PATH"), t.TempDir(), name)
+	require.NoError(t, err)
+	for _, dir := range filepath.SplitList(path) {
 		_, err := os.Stat(filepath.Join(dir, name))
 		require.True(t, os.IsNotExist(err), "%s is still reachable through %s", name, dir)
 	}
-	return strings.Join(kept, sep)
+	return path
 }
 
 // startInteractiveFakeClaude stands up a project whose `dev` agent runs a fake

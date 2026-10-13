@@ -76,7 +76,9 @@ The adapters' name-keyed questions are `operations`' (`engine_*.go`):
 by the engine's permission model), `EngineBinary` (the interactive
 grammar's binary), `EngineAvailability`/`EngineAvailable` (resolved on PATH
 or the login-shell PATH), `ProbeEngineVersion` (the shared cached prober
-over `Definition.Version`), `DecodeEngineConfig`. None
+over `Definition.Version`; `ProbeEngineVersionAt` asks a named binary, which is
+how the runner's version floor probes the binary the engine's composed Exec
+will spawn, a label's `binary_path` included), `DecodeEngineConfig`. None
 branches on an engine's name: `tests/arch`'s engine-identity gate
 (`TestArch_EngineIdentity_OnlyInitialSetupNamesAnEngine`) holds that for all
 production code outside initial setup. A default is the registry's

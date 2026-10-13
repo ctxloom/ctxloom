@@ -275,32 +275,6 @@ func (w *ClaudeCodeHookWriter) corruptSettings(path string, data []byte, what st
 	return agent.RefuseCorrupt(w.getFS(), path, data, what, cause, consequence)
 }
 
-// desiredMCPServers is the set of servers ctxloom wants present, as generic
-// values — the user's own servers are never part of it. Each entry is spelled
-// by the shared agent.ChatMCPConfigEntryOf, so a remote server lands here as
-// type/url/headers exactly as the chat scratch file spells it, and a
-// targetless one is refused by name.
-//
-// The JSON round trip is what honours the entry's json tags, including
-// omitempty: hew encodes whatever Go value it is handed, and handing it the
-// struct directly would spell the keys by their Go field names.
-func (w *ClaudeCodeHookWriter) desiredMCPServers(bundleMCP map[string]wire.MCPServer) (map[string]any, error) {
-	entries, err := w.mcpEntries(bundleMCP)
-	if err != nil {
-		return nil, err
-	}
-
-	out := make(map[string]any, len(entries))
-	for name, entry := range entries {
-		generic, err := agent.GenericMCPEntry(name, entry)
-		if err != nil {
-			return nil, err
-		}
-		out[name] = generic
-	}
-	return out, nil
-}
-
 // applyMCPServers is the one write into a "mcpServers" table: it puts desired
 // there through store, taking back out what the store's writer put there last
 // time, and records what it wrote. Its caller is taskloom's MCPRegistrar.
@@ -400,30 +374,30 @@ func unifiedHookRoutes(unified wire.UnifiedHooks) []agent.HookRoute {
 // AppMCPServerName is the name used for the ctxloom MCP server in settings.
 const AppMCPServerName = agent.MCPServerName
 
-// mcpEntries renders the resolved server set as .mcp.json entries, each
-// written AS DECLARED by the bundle that shipped it — ctxloom's own entry
-// (its companion loadout's) names the bare ctxloom executable, looked up on
-// PATH wherever the file is read (agent.CtxloomCommand's invariant), and no
-// rewrite happens here. The ctxloom entry alone gets a cwd, so it runs in the
-// project directory where findAppDir works — the one field no bundle can
-// express, and .mcp.json (not settings.json) is where ${CLAUDE_PROJECT_DIR}
-// expands, see MCPConfigPath.
-func (w *ClaudeCodeHookWriter) mcpEntries(bundleMCP map[string]wire.MCPServer) (map[string]agent.ChatMCPConfigEntry, error) {
-	out := make(map[string]agent.ChatMCPConfigEntry)
-	for name, server := range bundleMCP {
-		if err := server.Validate(); err != nil {
-			return nil, fmt.Errorf("mcp server %q: %w", name, err)
-		}
-		entry, err := agent.ChatMCPConfigEntryOf(agent.ChatMCPServerFromWire(name, server))
-		if err != nil {
-			return nil, err
-		}
-		if name == AppMCPServerName {
-			entry.Cwd = "${CLAUDE_PROJECT_DIR}"
-		}
-		out[name] = entry
+// mcpEntry is one server as a .mcp.json entry (the generic mcpServers
+// dialect), written AS DECLARED by the bundle that shipped it — ctxloom's
+// own entry (its companion loadout's) names the bare ctxloom executable,
+// looked up on PATH wherever the file is read (agent.CtxloomCommand's
+// invariant), and no rewrite happens here. The ctxloom entry alone gets a
+// cwd, so it runs in the project directory where findAppDir works — the one
+// field no bundle can express, and .mcp.json (not settings.json) is where
+// ${CLAUDE_PROJECT_DIR} expands, see MCPConfigPath. The entry is spelled by
+// the shared agent.ChatMCPConfigEntryOf (a remote server as type/url/headers,
+// exactly as the chat scratch file spells it; a targetless one refused by
+// name) and handed over as generic values (agent.GenericMCPEntry), so the
+// entry's json tags, omitempty included, decide the keys hew writes.
+func mcpEntry(name string, server wire.MCPServer) (any, error) {
+	if err := server.Validate(); err != nil {
+		return nil, fmt.Errorf("mcp server %q: %w", name, err)
 	}
-	return out, nil
+	entry, err := agent.ChatMCPConfigEntryOf(agent.ChatMCPServerFromWire(name, server))
+	if err != nil {
+		return nil, err
+	}
+	if name == AppMCPServerName {
+		entry.Cwd = "${CLAUDE_PROJECT_DIR}"
+	}
+	return agent.GenericMCPEntry(name, entry)
 }
 
 // configExists answers "is this config file there?" without guessing.

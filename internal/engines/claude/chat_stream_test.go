@@ -232,8 +232,9 @@ func TestMapStreamJSONEvent_SubagentAuthFailure_NotTheTurns(t *testing.T) {
 	require.Len(t, evs, 1, "the sub-agent's words are still relayed")
 }
 
-// Only a refused credential, a rate limit or an overload fails a turn.
-// claude's other error values do not: an account on hold is not fixed by
+// Only a refused credential, a rate limit or an overload fails a turn on its
+// own (server_error fails one only with a status-less result:
+// chat_stream_unreachable_test.go). claude's other error values do not: an account on hold is not fixed by
 // signing in again or by waiting; and a value this build does not know is
 // claude's "unknown".
 func TestMapStreamJSONEvent_OtherAPIErrors_NotATurnFailure(t *testing.T) {

@@ -358,7 +358,7 @@ func TestRunCharacterization_UnknownSavedCommandFails(t *testing.T) {
 func TestRunCharacterization_UnboundResumeSessionDegrades(t *testing.T) {
 	dir := runCLIFixture(t)
 
-	entry, err := App().AssignSession(context.Background(), dir, "claude-code", t.TempDir())
+	entry, err := App().AssignSession(context.Background(), dir, "claude-code", "", t.TempDir())
 	require.NoError(t, err)
 
 	base := runCLI(t, "run", "--dry-run", "--format", "json", "-p", "dev", "hi")

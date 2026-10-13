@@ -109,10 +109,17 @@ func TestLoad_UnknownKeyAndMistypedValue_AreBothReported(t *testing.T) {
 // branch once named only the bare kind, so a config bound to one of its
 // registered doubles (mock-lossy, mock-launch, mock-noskills) broke the
 // schema — silently, while that was a warning.
+//
+// A branch may require keys beside type: an opencode label is unusable
+// without its model, context window and endpoint, so its entry carries the
+// minimal set; any engine NOT listed is checked with type alone.
 func TestLoad_EveryRegisteredEngineIsASchemaValidLLMType(t *testing.T) {
+	requiredKeys := map[string]string{
+		"opencode": "      model: m\n      context_window: 1\n      provider:\n        base_url: http://127.0.0.1:9/v1\n        output_limit: 1\n",
+	}
 	for _, name := range engines.Registry().Names(nil) {
 		t.Run(string(name), func(t *testing.T) {
-			cfg := loadYAML(t, "schema_version: 7\nllm:\n  configs:\n    x:\n      type: "+string(name)+"\n")
+			cfg := loadYAML(t, "schema_version: 7\nllm:\n  configs:\n    x:\n      type: "+string(name)+"\n"+requiredKeys[string(name)])
 			assert.Empty(t, schemaViolations(t, cfg), "warnings: %+v", cfg.GetWarnings())
 		})
 	}

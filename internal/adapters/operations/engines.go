@@ -126,19 +126,23 @@ func PostureNames(reg engine.Registry) []string {
 	return slices.Sorted(maps.Keys(seen))
 }
 
-// EngineBinary is the native client binary the named engine's interactive
-// grammar launches, "" for an engine with no declared grammar for it (a
-// double, or an unregistered name).
+// EngineBinary is the native client binary the named engine's grammar
+// launches — its interactive grammar's, else (an engine with no interactive
+// mode) the first grammar it declares — "" for an engine that declares none
+// or an unregistered name.
 func EngineBinary(reg engine.Registry, name string) string {
 	e, ok := reg.Lookup(engine.Name(name))
 	if !ok {
 		return ""
 	}
-	g, ok := engine.CLIFor(e.Root().CLI, engine.Interactive)
-	if !ok {
-		return ""
+	cli := e.Root().CLI
+	if g, ok := engine.CLIFor(cli, engine.Interactive); ok {
+		return g.Binary
 	}
-	return g.Binary
+	if len(cli) > 0 {
+		return cli[0].Binary
+	}
+	return ""
 }
 
 // EngineAvailability resolves the named engine's binary and reports where it
@@ -165,18 +169,23 @@ func EngineAvailable(reg engine.Registry, name string) bool {
 // newEngineVersionProber is the probe cache over reg. The App holds one
 // (App.ProbeEngineVersion), so the fingerprint cache is shared across
 // everything in a `ctxloom run` that might ask; per-call Probers would each
-// re-exec the engine. It pairs the engine's resolved binary
-// (EngineAvailability) with the version command its Definition declares
+// re-exec the engine. It pairs the binary a launch names (resolved as the
+// launcher resolves it), else the engine's own (EngineAvailability), with the version command its Definition declares
 // (engine.Definition.Version). An unresolvable binary is
 // *engineversion.BinaryAbsentError so a caller can tell "not installed"
 // (ordinary) from "installed and misbehaved" (worth saying out loud).
 func newEngineVersionProber(reg engine.Registry) *engineversion.Prober {
-	return engineversion.NewProber(func(name string) (string, engineversion.Command, error) {
+	return engineversion.NewProber(func(name, binary string) (string, engineversion.Command, error) {
 		e, ok := reg.Lookup(engine.Name(name))
 		if !ok || !e.Root().Version.Declared() {
 			return "", engineversion.Command{}, &engineversion.NoVersionCommandError{Engine: name}
 		}
-		binary, err := EngineAvailability(reg, name)
+		var err error
+		if binary == "" {
+			binary, err = EngineAvailability(reg, name)
+		} else {
+			binary, err = shellenv.Resolve(binary)
+		}
 		if err != nil {
 			return "", engineversion.Command{}, &engineversion.BinaryAbsentError{Engine: name, Err: err}
 		}
@@ -189,6 +198,13 @@ func newEngineVersionProber(reg engine.Registry) *engineversion.Prober {
 // says it is, through this App's shared cached prober. Every error is one of
 // engineversion's typed refusals; there is no fallback value.
 func (a *App) ProbeEngineVersion(ctx context.Context, name string) (string, error) {
+	return a.ProbeEngineVersionAt(ctx, name, "")
+}
+
+// ProbeEngineVersionAt is ProbeEngineVersion at the binary a launch will
+// spawn (its Exec's binary: a label's binary_path, where the engine honours
+// one); empty is the engine's own binary.
+func (a *App) ProbeEngineVersionAt(ctx context.Context, name, binary string) (string, error) {
 	a.proberOnce.Do(func() { a.prober = newEngineVersionProber(a.engines) })
-	return a.prober.Probe(ctx, name)
+	return a.prober.ProbeBinary(ctx, name, binary)
 }

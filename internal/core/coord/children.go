@@ -300,14 +300,6 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	}
 	c.audit("agent_run", caller.Harp, map[string]string{"agent": agentName, "harp": harp, "run_id": rt.runID})
 
-	// The engine-version probe execs the vendor's own CLI, which can hang;
-	// engineversion.DefaultProbeTimeout bounds that, but a bound is not
-	// speed. It runs HERE — after run.enqueued is durable and the run is in
-	// the roster — and deliberately not inside AssignSession, where it used
-	// to sit between minting the child's address and registering the child
-	// anywhere visible. Nothing on the launch path reads what it records:
-	// the recorded version is consumed much later, when this session's
-	// transcript is parsed back (sessions.Entry.EngineVersion).
 	// The QUEUED answer is read HERE, before any goroutine that can change
 	// it exists. rt.slot is the ENQUEUE's own claim — enqueueRun tryAcquires
 	// a free slot precisely so this answer can be truthful — but the moment
@@ -325,10 +317,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	// A refusal means Close has begun. The run stays enqueued exactly as a
 	// coordinator dying between enqueue and launch leaves it — the state the
 	// next coordinator's adoption already answers — and the caller is told it
-	// did not launch. The version probe is telemetry: refused, it is dropped.
-	backend := plan.Backend
-	_ = c.goTracked(func() { c.spawner.RecordEngineVersion(c.baseCtx, harp, backend) })
-
+	// did not launch.
 	if err := c.goTracked(func() { c.runChild(rt, prompt, token, url) }); err != nil {
 		return nil, fmt.Errorf("agent_run %s: %w", harp, err)
 	}
@@ -853,6 +842,9 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 		c.failChild(rt, err)
 		return
 	}
+	if !start.Resumed {
+		c.recordEngineVersion(rt.harp, resolved.Launch)
+	}
 	if err := c.honourListen(resolved.Launch.Cell.Listen); err != nil {
 		c.failChild(rt, fmt.Errorf("agent_run: the child's runner has no listener to dial home to: %w", err))
 		return
@@ -897,6 +889,26 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	}
 	c.audit("endpoint_rebind", rt.harp, map[string]string{"run_id": rt.runID})
 	_ = c.issueStartRun(ctx, rt, hashToken(token), rebound.Launch, rebound.Launch.Prompt, rebound.Launch.Label.Model, start.ResumeKey, false)
+}
+
+// recordEngineVersion records, against harp, the version of the binary l
+// spawns: l's engine at its label binary (a label's binary_path; "" is the
+// engine's own install). Only the resolved Launch knows which binary that
+// is, so it runs once the launch resolves.
+//
+// The probe execs the vendor's own CLI, which can hang;
+// engineversion.DefaultProbeTimeout bounds that, but a bound is not speed.
+// It runs on its own tracked goroutine, after run.enqueued is durable and
+// the run is in the roster, and deliberately not inside AssignSession,
+// where it used to sit between minting the child's address and registering
+// the child anywhere visible (task affected-yearly). Nothing on the launch
+// path reads what it records: the recorded version is consumed much later,
+// when this session's transcript is parsed back
+// (sessions.Entry.EngineVersion). It is telemetry: refused because Close
+// has begun, it is dropped.
+func (c *Coordinator) recordEngineVersion(harp string, l launch.Launch) {
+	backend, binary := string(l.Engine), l.Label.Binary
+	_ = c.goTracked(func() { c.spawner.RecordEngineVersion(c.baseCtx, harp, backend, binary) })
 }
 
 // errEndpointUnavailable is issueStartRun's report that the runner refused

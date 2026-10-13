@@ -17,14 +17,16 @@ package acceptance
 
 import (
 	"fmt"
-
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // j000200Source is one named J000200 source fixture: a seeded git remote carrying one
@@ -346,9 +348,10 @@ func freshInitStubRan(w *World) string { return filepath.Join(w.env.Root, "engin
 // installFreshInitEngineStub puts a `claude` executable first on the
 // interview's PATH, so init's engine question resolves to claude-code
 // (operations.EngineAvailable is a PATH lookup) whatever the developer has
-// installed. The stub records that it ran and fails: the interview runs with
-// --skip-launch, so nothing may execute an engine, and freshInitStubRan's
-// absence is what proves that.
+// installed: freshInitPath hides every other registered engine's binary. The
+// stub records that it ran and fails: the interview runs with --skip-launch,
+// so nothing may execute an engine, and freshInitStubRan's absence is what
+// proves that.
 func installFreshInitEngineStub(w *World) error {
 	dir := freshInitStubDir(w)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -356,6 +359,30 @@ func installFreshInitEngineStub(w *World) error {
 	}
 	script := fmt.Sprintf("#!/bin/sh\necho \"$@\" >> %q\nexit 1\n", freshInitStubRan(w))
 	return os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755)
+}
+
+// freshInitPath is the interview's PATH: the claude stub first, then the
+// developer's PATH with every OTHER registered engine's binary hidden, so a
+// machine that has (say) opencode installed still offers init exactly one
+// engine.
+func freshInitPath(w *World) (string, error) {
+	reg := engines.Registry()
+	stubbed := operations.EngineBinary(reg, "claude-code")
+	var others []string
+	for _, name := range operations.EngineNames(reg) {
+		if bin := operations.EngineBinary(reg, name); bin != "" && bin != stubbed {
+			others = append(others, bin)
+		}
+	}
+	scratch := filepath.Join(w.env.Root, "engine-path-mirrors")
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		return "", err
+	}
+	rest, err := testenv.PathHiding(os.Getenv("PATH"), scratch, others...)
+	if err != nil {
+		return "", err
+	}
+	return freshInitStubDir(w) + string(os.PathListSeparator) + rest, nil
 }
 
 // driveFreshInitInterview runs a REAL `ctxloom init` on a project with no
@@ -370,10 +397,11 @@ func installFreshInitEngineStub(w *World) error {
 // Each answer waits for its own prompt, so a question that is skipped,
 // reordered or renamed fails here, naming the one that never came.
 func driveFreshInitInterview(w *World) (string, error) {
-	env := []string{
-		"PATH=" + freshInitStubDir(w) + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"GIT_ALLOW_PROTOCOL=file",
+	path, err := freshInitPath(w)
+	if err != nil {
+		return "", err
 	}
+	env := []string{"PATH=" + path, "GIT_ALLOW_PROTOCOL=file"}
 	sess, err := w.env.RunPTY(100, 30, env, "init", "--skip-launch", "--no-pull")
 	if err != nil {
 		return "", fmt.Errorf("start pty session: %w", err)

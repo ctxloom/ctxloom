@@ -29,9 +29,6 @@ classDiagram
 
     class BaseBackend {
         -name, version string
-        +BinaryPath string
-        +Args argv
-        +Env envMap
         -workDir string
         -launcher Launcher
     }
@@ -78,15 +75,14 @@ classDiagram
 | Symbol | file:line | Purpose |
 |---|---|---|
 | `BaseBackend` | `internal/core/agent/base.go:46` | Embedded identity + launch state every concrete backend reuses. |
-| `NewBaseBackend` | `internal/core/agent/base.go:83` | The only constructor that guarantees non-nil `Args` and `Env` maps. |
+| `NewBaseBackend` | `internal/core/agent/base.go:83` | The constructor: name and version. |
 | `BaseBackend.SetLauncher` | `internal/core/agent/base.go:59` | Injects the launcher. |
 | `BaseBackend.Name` / `.Version` | `internal/core/agent/base.go:93` / `:98` | Identity getters satisfying `Backend`. |
-| `BaseBackend.GetBinaryPath` | `internal/core/agent/base.go:105` | Satisfies `backends.BinaryPathProvider`. |
 | `BaseBackend.SupportedModes` | `internal/core/agent/base.go:110` | Returns both execution modes. |
 | `BaseBackend.WorkDir` / `.SetWorkDir` | `internal/core/agent/base.go:115` / `:123` | Work-dir accessors; the getter defaults to `"."`. |
-| `BaseBackend.BuildEnv` | `internal/core/agent/base.go:128` | `os.Environ()` + backend env + request env, appended in that order. |
-| `BaseBackend.RunInteractive` / `.RunNonInteractive` | `internal/core/agent/base.go:142` / `:149` | Named entry points that call `run` with/without a pty. |
-| `BaseBackend.run` | `internal/core/agent/base.go:155` | Builds the `LaunchSpec` and calls the launcher; fails loud (exit 1) if no launcher was injected. |
+| `BaseBackend.BuildEnv` | `internal/core/agent/base.go:128` | `os.Environ()` + request env, appended in that order. |
+| `BaseBackend.RunInteractive` / `.RunNonInteractive` | `internal/core/agent/base.go:142` / `:149` | Named entry points that call `run`, naming the binary to spawn, with/without a pty. |
+| `BaseBackend.run` | `internal/core/agent/base.go:155` | Builds the `LaunchSpec` for the binary it is handed and calls the launcher; fails loud (exit 1) if no launcher was injected. |
 | `BaseContextProvider` | `internal/core/agent/base_context.go:10` | Hash-keyed context-file lifecycle; the file's path reaches the launched engine as `CTXLOOM_CONTEXT_FILE`. |
 | `NewBaseContextProvider` | `internal/core/agent/base_context.go:15` | Zero-value constructor. |
 | `BaseContextProvider.Provide` | `internal/core/agent/base_context.go:20` | Writes the context file and records its hash. |
@@ -97,7 +93,6 @@ classDiagram
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `ApplyLocalCLIConfig` | `internal/core/agent/localcli.go:9` | Applies per-backend binary/args/env overrides onto a `BaseBackend`. |
 | `GetPromptContent` | `internal/core/agent/base.go:185` | Nil-safe read of a prompt field; the nil guard is the whole point (7 call sites). |
 | `IsManaged` | `internal/core/agent/predicate.go:13` | Ownership test — is this command line one ctxloom installed, by exec-token identity. |
 
@@ -105,7 +100,6 @@ classDiagram
 
 - **Setup → Execute → Cleanup.** `Backend` carries connascence of execution order with no type-level enforcement. Nothing prevents `Execute` before `Setup`.
 - **`SetLauncher` must precede any run.** `BaseBackend.run` (`base.go:155`) fails loud and exits 1 when no launcher was injected — this is the enforcement point, not a nil check at construction.
-- **`NewBaseBackend` is the only safe constructor.** It initializes `Args` and `Env` to non-nil (`base.go:88`). A zero-value `BaseBackend` passed to `ApplyLocalCLIConfig` panics on assignment into a nil `Env` map — real behaviour, not documented.
 - **`BaseBackend.WorkDir()` returns `"."` when unset**, so callers never see an empty work dir.
 - **`BuildEnv` appends rather than overrides.** Duplicate keys are emitted and correctness relies on `os/exec`'s last-wins semantics.
 - **`Provide` must be called before `GetContextFilePath`.** It returns `""` beforehand.

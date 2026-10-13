@@ -2687,6 +2687,561 @@
   "Skills": null,
   "Surfaces": null
 }
+== engine=opencode profile=golden-auto consumer=live
+{
+  "context": "blob:97ff6be424dc18e90bd8df3628c1b4e6521d502eb0f337d8f87e1c43a41357cb",
+  "fragments_loaded": [
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/commit-timeouts",
+      "premise": "blob:a27754173e5860b7ab5b9204c294ecdbbcec9ba5cf885cc84d69e5a811ccd159"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    }
+  ],
+  "profiles": [
+    "golden-auto"
+  ]
+}
+== engine=opencode profile=golden-auto consumer=materialized
+{
+  "context": "blob:97ff6be424dc18e90bd8df3628c1b4e6521d502eb0f337d8f87e1c43a41357cb",
+  "fragments_loaded": [
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/commit-timeouts",
+      "premise": "blob:a27754173e5860b7ab5b9204c294ecdbbcec9ba5cf885cc84d69e5a811ccd159"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    }
+  ],
+  "profiles": [
+    "golden-auto"
+  ]
+}
+== engine=opencode profile=golden-auto managed
+{
+  "BundleMCP": {
+    "ctxloom": {
+      "_ctxloom": "bundle:ctxloom+companion:ctxloom",
+      "notes": "blob:4463890a217062b9bd6378428aa8f5df959d3281e0ee62ceb2248674b8b81c08",
+      "served_by": "session-endpoint"
+    },
+    "postgres": {
+      "_ctxloom": "bundle:ctxloom+local:code-quality",
+      "args": [
+        "--readonly"
+      ],
+      "command": "mcp-postgres",
+      "env": {
+        "PGDATABASE": "app",
+        "PGHOST": "localhost",
+        "PGPORT": "5432"
+      },
+      "installation": "brew install mcp-postgres",
+      "notes": "Read-only connection to the app database."
+    }
+  },
+  "Commands": [
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:03f2404642a89e478b138fe20013c4e3452f476da8d569129c14ebdf62734abf",
+      "Description": "Review Deferred tasks and surface any whose revive trigger has fired",
+      "Enabled": true,
+      "Model": "",
+      "Name": "check-triggers"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:98292062f31e8290e53228dcd3857269a022ca0b6a805c5405e844ae3c2bf998",
+      "Description": "Configure or reconfigure ctxloom for this project — companions, profiles, and agents",
+      "Enabled": true,
+      "Model": "",
+      "Name": "ctxloom-init"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:343c22e47d39477ea8087e88058d9cfd2e85e5e0669917ff4420d8f9d25f9ced",
+      "Description": "Discover and install profiles, bundles, and fragments",
+      "Enabled": true,
+      "Model": "",
+      "Name": "discover"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Review the staged diff.\n",
+      "Description": "Review a diff against the project's standards",
+      "Enabled": true,
+      "Model": "",
+      "Name": "code-quality/review"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Prepare the release notes.",
+      "Description": "Cut a release",
+      "Enabled": true,
+      "Model": "",
+      "Name": "premised/release"
+    }
+  ],
+  "DenyTools": null,
+  "Hooks": {
+    "unified": {
+      "post_tool": [
+        {
+          "args": [
+            "hook",
+            "tool-reflect",
+            "--min-output-bytes",
+            "2048"
+          ],
+          "command": "ctxloom",
+          "timeout": 5,
+          "type": "command"
+        },
+        {
+          "args": [
+            "hook",
+            "skill-mates"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "tool": "skill",
+          "type": "command"
+        }
+      ],
+      "pre_tool": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "async": true,
+          "command": "audit-log record",
+          "tool": "file_edit",
+          "type": "command"
+        },
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "command": "ltk guard",
+          "timeout": 30,
+          "tool": "shell",
+          "type": "command"
+        }
+      ],
+      "session_start": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "pre_tool_fallback": true,
+          "prompt": "Load the project context.",
+          "type": "prompt"
+        },
+        {
+          "args": [
+            "hook",
+            "session-start"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "turn_end": [
+        {
+          "args": [
+            "hook",
+            "next-step"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "turn_start": [
+        {
+          "args": [
+            "hook",
+            "mail-drain"
+          ],
+          "command": "ctxloom",
+          "timeout": 5,
+          "type": "command"
+        }
+      ]
+    }
+  },
+  "ManageStatusline": true,
+  "ShellTimeout": {
+    "Default": 600000000000,
+    "Max": 3600000000000
+  },
+  "Skills": [
+    {
+      "Description": "Review a change against the project's review checklist.",
+      "Enabled": true,
+      "Files": [
+        {
+          "Content": "blob:235fd9e4746922c1dbb12eaca3acf2420e5a14d24ebc209494c3f8bbc87b0747",
+          "Mode": 420,
+          "RelPath": "SKILL.md"
+        },
+        {
+          "Content": "IyBDaGVja2xpc3QKCi0gRG9lcyBpdCBmYWlsIGxvdWRseT8K",
+          "Mode": 420,
+          "RelPath": "references/checklist.md"
+        },
+        {
+          "Content": "IyEvYmluL3NoCmVjaG8gInJldmlld2luZyIK",
+          "Mode": 493,
+          "RelPath": "scripts/run.sh"
+        }
+      ],
+      "Name": "code-reviewer"
+    }
+  ],
+  "Surfaces": null
+}
+== engine=opencode profile=golden-curated consumer=live
+{
+  "context": "blob:53bdc0bb97990683f63114c7e0952ae64ca1c7edc59f135a56ee5ab61dba1084",
+  "fragments_loaded": [
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/commit-timeouts",
+      "premise": "blob:a27754173e5860b7ab5b9204c294ecdbbcec9ba5cf885cc84d69e5a811ccd159"
+    }
+  ],
+  "profiles": [
+    "golden-curated"
+  ]
+}
+== engine=opencode profile=golden-curated consumer=materialized
+{
+  "context": "blob:53bdc0bb97990683f63114c7e0952ae64ca1c7edc59f135a56ee5ab61dba1084",
+  "fragments_loaded": [
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/commit-timeouts",
+      "premise": "blob:a27754173e5860b7ab5b9204c294ecdbbcec9ba5cf885cc84d69e5a811ccd159"
+    }
+  ],
+  "profiles": [
+    "golden-curated"
+  ]
+}
+== engine=opencode profile=golden-curated managed
+{
+  "BundleMCP": {
+    "ctxloom": {
+      "_ctxloom": "bundle:ctxloom+companion:ctxloom",
+      "notes": "blob:4463890a217062b9bd6378428aa8f5df959d3281e0ee62ceb2248674b8b81c08",
+      "served_by": "session-endpoint"
+    },
+    "postgres": {
+      "_ctxloom": "bundle:ctxloom+local:code-quality",
+      "args": [
+        "--readonly"
+      ],
+      "command": "mcp-postgres",
+      "env": {
+        "PGDATABASE": "app",
+        "PGHOST": "localhost",
+        "PGPORT": "5432"
+      },
+      "installation": "brew install mcp-postgres",
+      "notes": "Read-only connection to the app database."
+    }
+  },
+  "Commands": [
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:03f2404642a89e478b138fe20013c4e3452f476da8d569129c14ebdf62734abf",
+      "Description": "Review Deferred tasks and surface any whose revive trigger has fired",
+      "Enabled": true,
+      "Model": "",
+      "Name": "check-triggers"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:98292062f31e8290e53228dcd3857269a022ca0b6a805c5405e844ae3c2bf998",
+      "Description": "Configure or reconfigure ctxloom for this project — companions, profiles, and agents",
+      "Enabled": true,
+      "Model": "",
+      "Name": "ctxloom-init"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:343c22e47d39477ea8087e88058d9cfd2e85e5e0669917ff4420d8f9d25f9ced",
+      "Description": "Discover and install profiles, bundles, and fragments",
+      "Enabled": true,
+      "Model": "",
+      "Name": "discover"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Review the staged diff.\n",
+      "Description": "Review a diff against the project's standards",
+      "Enabled": true,
+      "Model": "",
+      "Name": "code-quality/review"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Prepare the release notes.",
+      "Description": "Cut a release",
+      "Enabled": true,
+      "Model": "",
+      "Name": "premised/release"
+    }
+  ],
+  "DenyTools": [
+    "Task"
+  ],
+  "Hooks": {
+    "unified": {
+      "post_tool": [
+        {
+          "args": [
+            "hook",
+            "tool-reflect",
+            "--min-output-bytes",
+            "2048"
+          ],
+          "command": "ctxloom",
+          "timeout": 5,
+          "type": "command"
+        },
+        {
+          "args": [
+            "hook",
+            "skill-mates"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "tool": "skill",
+          "type": "command"
+        }
+      ],
+      "pre_tool": [
+        {
+          "command": "echo golden",
+          "matcher": "Bash",
+          "type": "command"
+        },
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "async": true,
+          "command": "audit-log record",
+          "tool": "file_edit",
+          "type": "command"
+        },
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "command": "ltk guard",
+          "timeout": 30,
+          "tool": "shell",
+          "type": "command"
+        }
+      ],
+      "session_start": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "pre_tool_fallback": true,
+          "prompt": "Load the project context.",
+          "type": "prompt"
+        },
+        {
+          "args": [
+            "hook",
+            "session-start"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "turn_end": [
+        {
+          "args": [
+            "hook",
+            "next-step"
+          ],
+          "command": "ctxloom",
+          "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "turn_start": [
+        {
+          "args": [
+            "hook",
+            "mail-drain"
+          ],
+          "command": "ctxloom",
+          "timeout": 5,
+          "type": "command"
+        }
+      ]
+    }
+  },
+  "ManageStatusline": true,
+  "ShellTimeout": {
+    "Default": 600000000000,
+    "Max": 3600000000000
+  },
+  "Skills": [
+    {
+      "Description": "Review a change against the project's review checklist.",
+      "Enabled": true,
+      "Files": [
+        {
+          "Content": "blob:235fd9e4746922c1dbb12eaca3acf2420e5a14d24ebc209494c3f8bbc87b0747",
+          "Mode": 420,
+          "RelPath": "SKILL.md"
+        },
+        {
+          "Content": "IyBDaGVja2xpc3QKCi0gRG9lcyBpdCBmYWlsIGxvdWRseT8K",
+          "Mode": 420,
+          "RelPath": "references/checklist.md"
+        },
+        {
+          "Content": "IyEvYmluL3NoCmVjaG8gInJldmlld2luZyIK",
+          "Mode": 493,
+          "RelPath": "scripts/run.sh"
+        }
+      ],
+      "Name": "code-reviewer"
+    }
+  ],
+  "Surfaces": null
+}
 == blob:03f2404642a89e478b138fe20013c4e3452f476da8d569129c14ebdf62734abf
 
 Review the project's Deferred tasks and decide which ones their **revive

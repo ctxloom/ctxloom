@@ -969,6 +969,8 @@ func (st *runState) emitDryRun() error {
 	deps.Cells = operations.PreviewCells(App().LaunchFacts())
 	deps.Assembler = operations.PreviewAssembler(App().Engines())
 	deps.ClaimCheck = operations.PreviewClaims()
+	// A preview records nothing and execs no vendor CLI for a version.
+	deps.ProbeVersion = nil
 	l, err := operations.StartRun(st.ctx, deps, sessions.Seed{ProjectDir: st.workDir, ProjectID: st.projectID}, src)
 	if err != nil {
 		return st.refused(err)

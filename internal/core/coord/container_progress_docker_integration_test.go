@@ -71,13 +71,11 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/engines"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
-	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -139,7 +137,7 @@ func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*coord.S
 }
 
 func (s *progressSpawner) AssignSession(projectDir, backend string) (string, error) {
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, backend, "", filepath.Join(projectDir, ".test-output"))
+	entry, err := operations.AssignSessionHarp(projectDir, backend, filepath.Join(projectDir, ".test-output"))
 	if err != nil {
 		return "", err
 	}

@@ -252,7 +252,7 @@ Every host-side launch enters through `launch.Resolve`
 
 | Function | file:line | Contract |
 |---|---|---|
-| `ListSessions` / `ListSessionsForProject` / `ListAllSessions` / `GetSession` / `RenameSession` / `ForgetSession` / `AssignSession` / `MarkSessionEnded` / `BindSession` | `sessions.go:53,65,83,167,176,186,197,208,254` | The ADR-0019 facade over `internal/core/sessions.Store`; the three list entry points reconcile the index first. |
+| `ListSessions` / `ListSessionsForProject` / `ListAllSessions` / `GetSession` / `RenameSession` / `ForgetSession` / `AssignSessionHarp` / `RecordSessionEngineVersion` / `EndSession` / `BindSession` | `sessions.go` | The ADR-0019 facade over `internal/core/sessions.Store`; the three list entry points reconcile the index first. |
 | `ResolvePreviousSession` / `selectPreviousEntry` | `sessions.go:118,133` | Previous-session selection for memory recall, skipping the active harp and non-materializable entries. |
 | `SessionView` / `ViewSession` / `ViewSessions` | `session_view.go` | The ONE read model the session listing and show render from: the record joined with the derived facts (essence path, staleness, purge mark, the one clock). The CLI's rows and the MCP session menu project from it, never from `sessions.Entry`. |
 | `ReclaimAgedSessions` / `worktreeTriage` / `sessionLocks` | `session_reclaim.go`, `session_locks.go` | `sessions.Reap` over the home layout with this adapter's two collaborators handed in: the liveness port (`sessions.Locks`) over `shared/sessionlock`, and the git worktree triage (`sessions.Triage`) that spares a session whose scratch checkout holds uncommitted work. What is taken, from which sessions, and by which clock is the reaper's own contract. |

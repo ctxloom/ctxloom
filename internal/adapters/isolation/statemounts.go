@@ -39,7 +39,7 @@ type SessionState struct {
 const noProjectIDNotice = "container runs with no project id: their in-container task writes will not reach the shared task log — reported once for every affected run in this session"
 
 // safePathSegment reports whether s can be trusted as a single path segment
-// under ~/.ctxloom/sessions. Harps are normally minted by AssignSession, but
+// under ~/.ctxloom/sessions. Harps are normally minted by MintIdentity or AssignSessionHarp, but
 // they arrive HERE from an env map — the same untrusted channel the task
 // store validates project ids from — and this is the point where the value
 // becomes both a host path and a bind-mount source.

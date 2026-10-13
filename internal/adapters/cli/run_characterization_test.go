@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -351,14 +351,14 @@ func TestRunCharacterization_UnknownSavedCommandFails(t *testing.T) {
 // Observable through the dry-run preview, which is built from the same
 // ctxResult.Context the resume folds into.
 //
-// The harp used here is one AssignSession actually minted, so it exists in the
+// The harp used here is one AssignSessionHarp actually minted, so it exists in the
 // session index but has no bound transcript yet — the "nothing to prime" arm.
 // TestRunCharacterization_UnknownResumeSessionDegrades below covers the other
 // arm, a harp that is not in the index at all.
 func TestRunCharacterization_UnboundResumeSessionDegrades(t *testing.T) {
 	dir := runCLIFixture(t)
 
-	entry, err := App().AssignSession(context.Background(), dir, "claude-code", "", t.TempDir())
+	entry, err := operations.AssignSessionHarp(dir, "claude-code", t.TempDir())
 	require.NoError(t, err)
 
 	base := runCLI(t, "run", "--dry-run", "--format", "json", "-p", "dev", "hi")

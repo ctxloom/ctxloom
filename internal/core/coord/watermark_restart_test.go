@@ -112,7 +112,20 @@ func TestHoldRestart_ARefusalRecordedButNeverAckedIsNotChargedToTheFreshCredenti
 // (deltas group-fsync) are flushed before it is recorded; when that flush
 // fails the boundary is withheld with them, the watermark does not move, and
 // the runner's re-send records both.
-func TestEventWatermark_ABoundaryIsNeverRecordedAboveUnflushedItems(t *testing.T) {
+// watermarkRun is a live, idle child and a run channel for it whose ack and
+// flush cursors start at the run's durable event watermark, base; deltas
+// counts the run's recorded message deltas.
+type watermarkRun struct {
+	c      *Coordinator
+	ch     *RunChannel
+	harp   string
+	runID  string
+	base   uint64
+	deltas func() int
+}
+
+func newWatermarkRun(t *testing.T) *watermarkRun {
+	t.Helper()
 	resetStrictness(t)
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	c := newTestCoordinator(t, sp, nil)
@@ -120,23 +133,32 @@ func TestEventWatermark_ABoundaryIsNeverRecordedAboveUnflushedItems(t *testing.T
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	deltasOf := func() (n int) {
-		c.items.View(func() { n = c.itemsF.countsFor(out.RunID)["message_delta"] })
-		return n
-	}
-	before := deltasOf()
 	base := c.eventWatermark(out.RunID)
 	require.NotZero(t, base, "premise: the briefing's turn raised the watermark")
-	ch := &RunChannel{
-		role:        out.Harp,
-		id:          Identity{Harp: out.Harp, RunID: out.RunID},
-		BidiSession: NewBidiSession[OutFrame, OutFrame, OutFrame](func() {}, 64),
-		completed:   make(chan struct{}),
-		ackSeq:      base,
-		flushedSeq:  base,
+	return &watermarkRun{
+		c: c, harp: out.Harp, runID: out.RunID, base: base,
+		ch: &RunChannel{
+			role:        out.Harp,
+			id:          Identity{Harp: out.Harp, RunID: out.RunID},
+			BidiSession: NewBidiSession[OutFrame, OutFrame, OutFrame](func() {}, 64),
+			completed:   make(chan struct{}),
+			ackSeq:      base,
+			flushedSeq:  base,
+		},
+		deltas: func() (n int) {
+			c.items.View(func() { n = c.itemsF.countsFor(out.RunID)["message_delta"] })
+			return n
+		},
 	}
-	delta := Event{RunID: out.RunID, Seq: base + 1, Payload: MessageDelta{Text: "partial"}}
-	started := Event{RunID: out.RunID, Seq: base + 2, Payload: CustomEvent{Name: CustomTurnStarted}}
+}
+
+func TestEventWatermark_ABoundaryIsNeverRecordedAboveUnflushedItems(t *testing.T) {
+	w := newWatermarkRun(t)
+	c, ch, base := w.c, w.ch, w.base
+	before := w.deltas()
+
+	delta := Event{RunID: w.runID, Seq: base + 1, Payload: MessageDelta{Text: "partial"}}
+	started := Event{RunID: w.runID, Seq: base + 2, Payload: CustomEvent{Name: CustomTurnStarted}}
 
 	restore := breakAppends(c.items)
 	c.HandleEvent(ch, delta)
@@ -144,15 +166,46 @@ func TestEventWatermark_ABoundaryIsNeverRecordedAboveUnflushedItems(t *testing.T
 	restore()
 	acked, _ := drainAcks(ch)
 	assert.Less(t, acked, base+1, "nothing past the unflushed item may be acked")
-	assert.Equal(t, base, c.eventWatermark(out.RunID), "the boundary was recorded above an item that is not durable")
-	assert.Equal(t, StateIdle, rosterState(c, out.Harp), "the withheld boundary changed the run's state")
+	assert.Equal(t, base, c.eventWatermark(w.runID), "the boundary was recorded above an item that is not durable")
+	assert.Equal(t, StateIdle, rosterState(c, w.harp), "the withheld boundary changed the run's state")
 
 	// The runner's re-send, in order.
 	c.HandleEvent(ch, delta)
 	c.HandleEvent(ch, started)
 	acked, _ = drainAcks(ch)
 	assert.Equal(t, base+2, acked)
-	assert.Equal(t, base+2, c.eventWatermark(out.RunID))
-	assert.Equal(t, StateExecuting, rosterState(c, out.Harp))
-	assert.Equal(t, before+1, deltasOf(), "the buffered item is recorded exactly once")
+	assert.Equal(t, base+2, c.eventWatermark(w.runID))
+	assert.Equal(t, StateExecuting, rosterState(c, w.harp))
+	assert.Equal(t, before+1, w.deltas(), "the buffered item is recorded exactly once")
+}
+
+// The turn's END is a boundary too: items buffered ahead of a TurnIdle are
+// flushed before it is recorded, and a failed flush withholds it with them.
+func TestEventWatermark_ATurnsEndIsNeverRecordedAboveUnflushedItems(t *testing.T) {
+	w := newWatermarkRun(t)
+	c, ch, base := w.c, w.ch, w.base
+	c.HandleEvent(ch, Event{RunID: w.runID, Seq: base + 1, Payload: CustomEvent{Name: CustomTurnStarted}})
+	require.Equal(t, base+1, c.eventWatermark(w.runID), "premise: the turn started")
+	require.Equal(t, StateExecuting, rosterState(c, w.harp))
+	drainAcks(ch)
+	before := w.deltas()
+
+	delta := Event{RunID: w.runID, Seq: base + 2, Payload: MessageDelta{Text: "partial"}}
+	idle := Event{RunID: w.runID, Seq: base + 3, Payload: CustomEvent{Name: CustomTurnIdle}}
+	restore := breakAppends(c.items)
+	c.HandleEvent(ch, delta)
+	c.HandleEvent(ch, idle)
+	restore()
+	acked, _ := drainAcks(ch)
+	assert.Less(t, acked, base+2, "nothing past the unflushed item may be acked")
+	assert.Equal(t, base+1, c.eventWatermark(w.runID), "the turn's end was recorded above an item that is not durable")
+	assert.Equal(t, StateExecuting, rosterState(c, w.harp), "the withheld end changed the run's state")
+
+	c.HandleEvent(ch, delta)
+	c.HandleEvent(ch, idle)
+	acked, _ = drainAcks(ch)
+	assert.Equal(t, base+3, acked)
+	assert.Equal(t, base+3, c.eventWatermark(w.runID))
+	assert.Equal(t, StateIdle, rosterState(c, w.harp))
+	assert.Equal(t, before+1, w.deltas(), "the buffered item is recorded exactly once")
 }

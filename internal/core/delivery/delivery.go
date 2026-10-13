@@ -404,6 +404,20 @@ func (t Target) Validate() error {
 // endpoint's rendering (InputsFor) — and nothing else about the engine.
 type Static interface {
 	Deliver(ctx context.Context, lo Loadout, root engine.Base, target Target) (Delivered, error)
+	// Preview is what Deliver of the same loadout at the same target would
+	// change, per kind the target speaks for, WRITING NOTHING: no target
+	// file, no ownership record, no approach's own state, no directory. It is
+	// a separate method so a delivery never becomes a preview by accident.
+	// The target must split its writer per kind (Kinds set): a kind's change
+	// is judged by folding THAT kind's writer alone against the files and
+	// the record as they stand, so a change one kind makes in a file it
+	// shares with another (Claude's settings and hooks) is never attributed
+	// to the other. Validate's refusals and a plan that cannot root are the
+	// preview's error, as they are Deliver's; a refusal a kind's delivery
+	// would meet (ErrNotOurs, a declared file missing, an approach's own
+	// refusal) is that kind's KindPreview.Refused, and the other kinds are
+	// still previewed.
+	Preview(ctx context.Context, lo Loadout, root engine.Base, target Target) (Previewed, error)
 	// Reverse takes each writer's claims back out of EVERY file the record
 	// names for it, whatever root it lies under, in one batch: the sweep of
 	// writers whose sessions are gone, which have no target of their own to
@@ -419,6 +433,39 @@ type Delivered struct {
 	Wrote     []present.Kind
 	Undo      func(ctx context.Context) error
 }
+
+// ErrPreviewNeedsKinds refuses a preview of a target that does not split its
+// writer per kind (Target.Kinds nil, a session's): with one writer for every
+// kind, no change could be attributed to the kind that made it.
+var ErrPreviewNeedsKinds = errors.New("delivery: a preview needs a target that speaks per kind (Target.Kinds)")
+
+// Previewed is what one static preview found: per kind the target speaks
+// for, in the target's order, what a delivery would change.
+type Previewed struct {
+	Kinds []KindPreview
+}
+
+// KindPreview is one kind's part of a preview. A kind DIFFERS when a
+// delivery would change the bytes (or the existence) of a file for it —
+// a user's hand edit the delivery would overwrite included — or would
+// release a claim it holds. A change to the ownership record alone, or to a
+// file's mode alone, is not a difference.
+type KindPreview struct {
+	Kind present.Kind
+	// Changed lists the target files, sorted, whose bytes or existence a
+	// delivery of this kind would change.
+	Changed []string
+	// Released lists the target files, sorted, in which a delivery would
+	// drop a claim this kind's writer holds there.
+	Released []string
+	// Refused is the refusal a delivery of this kind would meet; nil when
+	// none. Changed and Released are empty when it is set: nothing of the
+	// kind would land.
+	Refused error
+}
+
+// Differs reports whether a delivery would change anything for the kind.
+func (k KindPreview) Differs() bool { return len(k.Changed) > 0 || len(k.Released) > 0 }
 
 // Ownership is the ONE ownership mechanism: a record per target file naming,
 // for each place in it, the writers that put a value there. A delivery

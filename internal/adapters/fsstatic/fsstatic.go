@@ -111,6 +111,121 @@ func (s *Static) Deliver(_ context.Context, lo delivery.Loadout, root engine.Bas
 	return s.deliver(sc, lo, root, target)
 }
 
+// Preview is what Deliver of lo at target would change, per kind the target
+// speaks for, writing nothing (delivery.Static.Preview). It refuses what
+// Deliver refuses before its run, and a target that does not speak per kind
+// (delivery.ErrPreviewNeedsKinds); it previews only over the record this
+// package keeps, whose staged folds it reads back.
+func (s *Static) Preview(_ context.Context, lo delivery.Loadout, root engine.Base, target delivery.Target) (out delivery.Previewed, err error) {
+	if err := target.Validate(); err != nil {
+		return delivery.Previewed{}, err
+	}
+	if target.Kinds == nil {
+		return delivery.Previewed{}, delivery.ErrPreviewNeedsKinds
+	}
+	if _, ok := target.Ownership.(*Records); !ok {
+		return delivery.Previewed{}, fmt.Errorf("fsstatic: a preview reads the record's folds back, and the target's ownership (%T) is not fsstatic's record", target.Ownership)
+	}
+	for _, it := range lo.Plan.Static {
+		if !target.Speaks(it.Kind) {
+			return delivery.Previewed{}, fmt.Errorf("%w: %v (the target speaks for %v)", ErrKindNotTargeted, it.Kind, target.Kinds)
+		}
+	}
+	if err := planRootable(lo.Plan.Static, root.Surfaces(), target.Root.Paths()); err != nil {
+		return delivery.Previewed{}, err
+	}
+	sc, err := s.begin()
+	if err != nil {
+		return delivery.Previewed{}, err
+	}
+	defer func() { err = errors.Join(err, sc.release()) }()
+	return s.preview(sc, lo, root, target)
+}
+
+// preview is Deliver's run with nothing landed, under sc. Phase A runs each
+// approach over its overlay and checks it, as deliver does, but never writes
+// the approach's own state; a kind whose run or retain refuses is refused.
+// Then, per kind the target speaks for, ONE batch holds that kind's writer's
+// release and stage alone and is folded, not committed (safefs.Batch.Fold):
+// the files whose bytes it would change are the kind's Changed, the files in
+// which it would drop a claim its writer holds are its Released, and a fold
+// that refuses is its Refused. Folding each kind's writer by itself is what
+// keeps a change in a file two kinds share (Claude's settings and hooks)
+// with the kind that made it. Modes are not compared: restoreModes is not a
+// difference.
+func (s *Static) preview(sc *lockScope, lo delivery.Loadout, root engine.Base, target delivery.Target) (delivery.Previewed, error) {
+	paths := target.Root.Paths()
+	refused := map[present.Kind]error{}
+	var runs []ran
+	if len(lo.Plan.Static) > 0 {
+		inputs, err := delivery.InputsFor(lo, root.Dynamic)
+		if err != nil {
+			return delivery.Previewed{}, err
+		}
+		surfaces := root.Surfaces()
+		for _, it := range lo.Plan.Static {
+			r, err := s.run(sc, it, surfaces[it.Kind], target, inputs)
+			if err != nil {
+				refused[it.Kind] = err
+				continue
+			}
+			runs = append(runs, r)
+		}
+	}
+	written, retained := writtenBy(runs), map[string]bool{}
+	byKind := map[present.Kind]*ran{}
+	for i, r := range runs {
+		if err := s.retainRun(r, written, retained, target); err != nil {
+			refused[r.kind] = err
+			continue
+		}
+		byKind[r.kind] = &runs[i]
+	}
+	released := func(path string) bool { return underARoot(paths, path) && !retained[path] }
+	keep := carried(lo.Package.CarryForward)
+	var out delivery.Previewed
+	for _, k := range target.Kinds {
+		kp := delivery.KindPreview{Kind: k, Refused: refused[k]}
+		if kp.Refused == nil {
+			kp.Changed, kp.Released, kp.Refused = s.previewKind(sc, target, k, byKind[k], released, keep)
+		}
+		out.Kinds = append(out.Kinds, kp)
+	}
+	return out, nil
+}
+
+// previewKind folds kind k's writer alone — its release of the files
+// released admits, then r's declaration when k was planned (r non-nil) —
+// and reports the files whose bytes would change and those it would release
+// a claim in. Any refusal on the way is the kind's: nothing of it would land.
+func (s *Static) previewKind(sc *lockScope, target delivery.Target, k present.Kind, r *ran, released func(string) bool, keep func(pointer, via string) bool) (changed, releases []string, err error) {
+	b := s.batch(sc)
+	st := target.Ownership.In(b)
+	w := target.WriterOf(k)
+	if err := releaseWriters(st, target.Ownership, released, keep, w); err != nil {
+		return nil, nil, err
+	}
+	if r != nil {
+		if err := r.stage(st, target, map[string]os.FileMode{}); err != nil {
+			return nil, nil, err
+		}
+	}
+	folds, err := b.Fold()
+	if err != nil {
+		return nil, nil, fmt.Errorf("fsstatic: preview %v for %s: %w", k, w, err)
+	}
+	staging := st.(*Staging)
+	for _, f := range folds {
+		if f.Changed() {
+			changed = append(changed, f.Path)
+		}
+		if staging.releases(f.Path, w) {
+			releases = append(releases, f.Path)
+		}
+	}
+	return changed, releases, nil
+}
+
 // deliver is Deliver's run, under sc, in three phases. A: each approach
 // runs over its own overlay, and what it declared is checked against what it
 // wrote (ran.check) and against the record (retain). B: the writer's earlier
@@ -285,26 +400,41 @@ func (r ran) check(paths present.Paths) error {
 // user has since edited would then be judged against that new claim
 // (targetOps.wholeFileEdited) and taken as ctxloom's.
 func (s *Static) retain(runs []ran, target delivery.Target) (map[string]bool, error) {
+	written := writtenBy(runs)
+	retained := map[string]bool{}
+	for _, r := range runs {
+		if err := s.retainRun(r, written, retained, target); err != nil {
+			return nil, err
+		}
+	}
+	return retained, nil
+}
+
+// writtenBy is every file the runs wrote under a target root.
+func writtenBy(runs []ran) map[string]bool {
 	written := map[string]bool{}
 	for _, r := range runs {
 		for _, path := range r.written {
 			written[path] = true
 		}
 	}
-	retained := map[string]bool{}
-	for _, r := range runs {
-		for _, path := range r.d.Files {
-			path = filepath.Clean(path)
-			if written[path] || retained[path] {
-				continue
-			}
-			if err := s.retainable(target.WriterOf(r.kind), target.Ownership, path); err != nil {
-				return nil, r.refuse(path, err)
-			}
-			retained[path] = true
+	return written
+}
+
+// retainRun adds to retained each file r declares that no run wrote,
+// refusing one its writer cannot retain (retainable).
+func (s *Static) retainRun(r ran, written, retained map[string]bool, target delivery.Target) error {
+	for _, path := range r.d.Files {
+		path = filepath.Clean(path)
+		if written[path] || retained[path] {
+			continue
 		}
+		if err := s.retainable(target.WriterOf(r.kind), target.Ownership, path); err != nil {
+			return r.refuse(path, err)
+		}
+		retained[path] = true
 	}
-	return retained, nil
+	return nil
 }
 
 // retainable is nil when the record holds writer's claim on path whole and

@@ -315,6 +315,7 @@ type targetOps struct {
 	ops    []claimOp
 	// set by the fold for the seal
 	rec   claimsRecord
+	was   claimsRecord // the record as the ops found it, for a preview's releases
 	disk  []byte
 	prior fileState
 	had   []string // the writers the record named before the ops
@@ -442,6 +443,26 @@ func (s *Staging) Release(target string, w delivery.Writer, keep func(pointer, v
 	return nil
 }
 
+// releases reports whether the ops folded into target drop a claim w held
+// there: a place where the record named w before the ops and does not after.
+// It is read once the batch has folded (safefs.Batch.Fold); a restated or
+// changed claim at the same place is not a release.
+func (s *Staging) releases(target string, w delivery.Writer) bool {
+	t, ok := s.targets[target]
+	if !ok {
+		return false
+	}
+	holds := func(entries []claimEntry) bool {
+		return slices.ContainsFunc(entries, func(e claimEntry) bool { return e.Writer == string(w) })
+	}
+	for p, entries := range t.was.Paths {
+		if holds(entries) && !holds(t.rec.Paths[p]) {
+			return true
+		}
+	}
+	return false
+}
+
 // fold loads the record under the target's lock, completes a write a crash
 // left behind, applies every staged op to the record and moves the file from
 // the state the record described to the state it now describes: one
@@ -477,7 +498,7 @@ func (t *targetOps) fold(cur []byte, exists bool) ([]byte, bool, error) {
 	}
 	rec.settle(was)
 	next, keep, err := t.transition(cur, exists, from, &rec)
-	t.rec = rec
+	t.rec, t.was = rec, was
 	return next, keep, err
 }
 

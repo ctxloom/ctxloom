@@ -19,6 +19,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -157,7 +158,7 @@ llm:
 		}{
 			{strings.Contains(f["bridge"], `"session-start","--engine","opencode"`), "the bridge plugin does not fire session-start naming opencode"},
 			{strings.Contains(f["bridge"], `"mail-drain","--engine","opencode"`), "the bridge plugin does not fire mail-drain naming opencode"},
-			{strings.HasPrefix(f["wake"], filepath.Join(w.env.Root)) && strings.HasSuffix(f["wake"], "wake.sock"), "the TUI was not told a wake socket of its session's own"},
+			{f["wake"] != "" && f["wake"] == opencodeTUIOwnWake(f), "the TUI was not told a wake socket of its session's own"},
 		} {
 			if !chk.ok {
 				return fmt.Errorf("%s; the scripted opencode recorded:\n%s", chk.fail, rec)
@@ -165,6 +166,20 @@ llm:
 		}
 		return nil
 	})
+}
+
+// opencodeTUIOwnWake is the wake socket the recorded session owns: wake.sock
+// in the short socket root (engine.Session.SocketRoot) the product derives
+// from that session's home as the engine sees it — the OPENCODE_CONFIG_DIR
+// the TUI recorded. Derived by the product's own launch.SocketRoot, so the
+// step cannot drift from the contract; the step runs on the runner's host
+// with its ambient XDG_RUNTIME_DIR and TMPDIR, so it picks the same base. ""
+// when the record names no config dir.
+func opencodeTUIOwnWake(f map[string]string) string {
+	if f["config_dir"] == "" {
+		return ""
+	}
+	return filepath.Join(launch.SocketRoot(f["config_dir"]), "wake.sock")
 }
 
 // opencodeTUIRecorded is the scripted TUI's record, raw and by field.

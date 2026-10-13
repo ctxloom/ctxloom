@@ -16,7 +16,7 @@ import (
 // sharedFSProbeTimeout bounds one marker-probe container run. Generous for a
 // cold runtime, small next to an engine launch; a hung daemon degrades the
 // runtime axis rather than stalling the run indefinitely.
-const sharedFSProbeTimeout = 15 * time.Second
+const sharedFSProbeTimeout = 30 * time.Second
 
 // probeWaitDelay bounds the gap between a cancelled probe process being
 // killed and its output pipes closing. exec.CommandContext kills the process

@@ -215,6 +215,11 @@ type Options struct {
 	// yet attached; parking here makes that window a fact a test can hold
 	// open.
 	attachRunHook func(harp string)
+	// handleRequestHook runs synchronously at the top of HandleRequest with
+	// the request's id, before the request is tracked — a run channel's
+	// reader holding a request frame it has not handled yet, which a
+	// reconnect can supersede.
+	handleRequestHook func(requestID string)
 	// endRecordedHook runs synchronously in endRun with the run's id once its
 	// end is JOURNALED — the roster reads ended and mail resumes the harp as a
 	// fresh run — and before any of its teardown (the runner's kill, the run
@@ -576,6 +581,9 @@ type Coordinator struct {
 	stopAnsweredHook func(runID string)
 	// attachRunHook is Options.attachRunHook (a test seam; nil in production).
 	attachRunHook func(harp string)
+	// handleRequestHook is Options.handleRequestHook (a test seam; nil in
+	// production).
+	handleRequestHook func(requestID string)
 	// turnIdleHook and runnerHelloHook are Options.turnIdleHook and
 	// Options.runnerHelloHook (test seams; nil in production).
 	turnIdleHook    func(harp string)
@@ -657,6 +665,7 @@ func New(opts Options) (*Coordinator, error) {
 		turnIdleHook:       opts.turnIdleHook,
 		runnerHelloHook:    opts.runnerHelloHook,
 		attachRunHook:      opts.attachRunHook,
+		handleRequestHook:  opts.handleRequestHook,
 		endRecordedHook:    opts.endRecordedHook,
 		ackHook:            opts.ackHook,
 		lookupEnv:          t.lookupEnv,

@@ -210,7 +210,11 @@ the probe registry (`probeP14` in `tests/acceptance/capability_probe_registry.go
   removes the junction (`platform.DirLinker.UnlinkDir`) and starts from a copy of
   `native/`'s history (`isolation.restoreNativeHistory`); the next host run adopts the
   home's history back into `native/` and links again. What a container run adds moves into `native/` at the next host run, or when Close or
-  `clean` deletes the home (`sessions.KeepHomeHistory`), whichever comes first. A junction keeps
+  `clean` deletes the home (`sessions.KeepHomeHistory`), whichever comes first. Only the
+  engine's store moves (`HomeSpec.TranscriptStoreRel`, installed by the composition root as
+  `sessions.UseHistoryStores`): a store nested below a further home var, as opencode's is
+  below its XDG data base, moves alone, and the session's other content beside it stays in
+  the home for the home's removal to take. A junction keeps
   naming the session dir it was made under, so after `session edit --name` it points at the
   old name; the next host run recognises that as the session's own pre-rename link (the old
   session dir is gone and the shape matches, `isolation.renamedSessionLink`) and relinks

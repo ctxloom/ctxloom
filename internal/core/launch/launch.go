@@ -153,11 +153,32 @@ func SessionHome(sessionDir string, eng engine.Engine, m agents.HomeMode) (dir s
 	if m == agents.HomeModeHost || sessionDir == "" {
 		return "", false
 	}
-	leaf := string(eng.Root().Name)
+	return filepath.Join(sessionDir, paths.SessionEngineHomesDirName, homeLeaf(eng)), true
+}
+
+// homeLeaf is the leaf eng's session home sits at below the homes dir: the
+// declared subdir for an engine that relocates its home, else its name.
+func homeLeaf(eng engine.Engine) string {
 	if home := eng.Home(); home.Relocates() {
-		leaf = home.Vars[0].Subdir
+		return home.Vars[0].Subdir
 	}
-	return filepath.Join(sessionDir, paths.SessionEngineHomesDirName, leaf), true
+	return string(eng.Root().Name)
+}
+
+// HistoryStores maps each session-home leaf (SessionHome) of reg's engines
+// that keep a history store to that store, relative to the home
+// (engine.HomeSpec.TranscriptStoreRel, a slash path): what the reap and the
+// coordinator's close adopt into native/ (sessions.UseHistoryStores), so a
+// store nested below a further home var moves alone, not with its siblings.
+func HistoryStores(reg engine.Registry) map[string]string {
+	out := map[string]string{}
+	for _, n := range reg.Names(nil) {
+		eng, _ := reg.Lookup(n)
+		if rel := eng.Home().TranscriptStoreRel; rel != "" {
+			out[homeLeaf(eng)] = rel
+		}
+	}
+	return out
 }
 
 // NativeHome is where a session keeps eng's NATIVE conversation history:

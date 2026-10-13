@@ -99,3 +99,16 @@ func TestNativeHome_SitsBesideTheSessionHome(t *testing.T) {
 	_, ok = launch.NativeHome("", relocating, agents.HomeModeSession)
 	require.False(t, ok)
 }
+
+// TestHistoryStores_KeysEachStoreByItsSessionHomeLeaf: the reap and the
+// coordinator's close find an engine's history store in a session dir by the
+// leaf its session home sits at (SessionHome's rule) and the engine's
+// TranscriptStoreRel below it, so a nested store is adopted alone. An engine
+// that keeps no store contributes nothing.
+func TestHistoryStores_KeysEachStoreByItsSessionHomeLeaf(t *testing.T) {
+	relocating := launchtest.Deps(t, launchtest.RelocatableHome()).Deps.Engines
+	require.Equal(t, map[string]string{".fixture": launchtest.FixtureHistoryRel}, launch.HistoryStores(relocating))
+
+	plain := launchtest.Deps(t).Deps.Engines
+	require.Empty(t, launch.HistoryStores(plain), "an engine that keeps no history store has none")
+}

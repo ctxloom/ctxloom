@@ -99,17 +99,15 @@ func TestKeepHomeHistory_LeavesALinkedNestedStoreAndItsSiblingsAlone(t *testing.
 	assert.Equal(t, user, target, "a user entry's link is left where it is")
 }
 
-// CHARACTERIZATION (a known limit, not the goal): a NESTED history store that
-// is a real directory — a container run on a host whose directory links do
-// not resolve in containers (Windows junctions), where the home starts from
-// native/'s copy — has no link below it to tell the store's path from its
-// siblings', so the top-level directory is adopted whole. Nothing is lost:
-// the grown history and the new session reach native/. But the session's
-// other content beside the store (another XDG base, a sibling app dir) moves
-// into native/ too, where nothing reads it and nothing deletes it. Telling
-// them apart needs the engine's TranscriptStoreRel at the caller (session
-// reap, coordinator close), which neither carries today.
-func TestKeepHomeHistory_ARealNestedStoreAdoptsItsTopLevelWhole(t *testing.T) {
+// A NESTED history store that is a real directory (a container run on a host
+// whose directory links do not resolve in containers, Windows junctions,
+// where the home starts from native/'s copy) is found by the engine's
+// TranscriptStoreRel for its leaf (UseHistoryStores), so ONLY the store is
+// adopted: the grown history and the run's new session reach native/, and
+// the session's other content beside the store (another XDG base, a sibling
+// app dir) stays in the home, where the homes' removal takes it.
+func TestKeepHomeHistory_ARealNestedStoreIsAdoptedAlone(t *testing.T) {
+	t.Cleanup(UseHistoryStores(map[string]string{"oc": ".xdg/data/app"}))
 	sd := t.TempDir()
 	home := filepath.Join(sd, paths.SessionEngineHomesDirName, "oc")
 	native := filepath.Join(sd, paths.NativeDirName, "oc")
@@ -123,7 +121,29 @@ func TestKeepHomeHistory_ARealNestedStoreAdoptsItsTopLevelWhole(t *testing.T) {
 
 	assert.Equal(t, "history\ngrown\n", got(t, native, ".xdg/data/app/app.db"), "the grown history is kept")
 	assert.Equal(t, "new session\n", got(t, native, ".xdg/data/app/storage/s2.json"), "the run's new session is kept")
-	assert.NoDirExists(t, filepath.Join(home, ".xdg"), "the top-level dir moved whole")
-	assert.Equal(t, "{}", got(t, native, ".xdg/config/app/config.json"), "KNOWN LIMIT: another base rides along into native/")
-	assert.Equal(t, "session data\n", got(t, native, ".xdg/data/app-cache/x"), "KNOWN LIMIT: a sibling of the store rides along into native/")
+	assert.NoDirExists(t, filepath.Join(home, ".xdg/data/app"), "the store left the home")
+	assert.Equal(t, "{}", got(t, home, ".xdg/config/app/config.json"), "another base stays in the home")
+	assert.Equal(t, "session data\n", got(t, home, ".xdg/data/app-cache/x"), "a sibling of the store stays in the home")
+	assert.NoDirExists(t, filepath.Join(native, ".xdg/config"), "native/ holds history alone")
+	assert.NoDirExists(t, filepath.Join(native, ".xdg/data/app-cache"), "native/ holds history alone")
+}
+
+// A store reached through a LINK on its way (a user's XDG entry merged into
+// the home) is not the session's to adopt: it is left where it is, and so is
+// what the link points at.
+func TestKeepHomeHistory_AStoreBehindALinkIsLeftAlone(t *testing.T) {
+	t.Cleanup(UseHistoryStores(map[string]string{"oc": ".xdg/data/app"}))
+	sd := t.TempDir()
+	home := filepath.Join(sd, paths.SessionEngineHomesDirName, "oc")
+	native := filepath.Join(sd, paths.NativeDirName, "oc")
+	put(t, native, ".xdg/data/app/app.db", "history\n")
+	user := t.TempDir()
+	put(t, user, "app/app.db", "the user's own\n")
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".xdg"), 0o700))
+	require.NoError(t, os.Symlink(user, filepath.Join(home, ".xdg/data")))
+
+	require.NoError(t, KeepHomeHistory(afero.NewOsFs(), sd))
+
+	assert.Equal(t, "the user's own\n", got(t, user, "app/app.db"), "the link's target is never adopted")
+	assert.Equal(t, "history\n", got(t, native, ".xdg/data/app/app.db"))
 }

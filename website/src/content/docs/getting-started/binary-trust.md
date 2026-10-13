@@ -24,9 +24,9 @@ On macOS, `install.sh` is the path with the least ceremony, not Homebrew: it is
 the only installer that handles `com.apple.provenance`, which is the attribute
 behind the silent kill described below. Homebrew is still a fine way to install
 `ctxloom` itself if you prefer it (and `install.sh --brew` will delegate to it),
-with two caveats: you may have to clear `com.apple.provenance` afterwards, and the `taskloom` and
-`ltk` casks are **not published for prerelease tags** (a tag with a suffix such
-as `-rc.1`), so a companion's cask can be missing from the tap.
+with two caveats: you may have to clear `com.apple.provenance` afterwards, and
+no cask (`ctxloom` or a companion) is **published for a prerelease tag** (a tag
+with a suffix such as `-rc.1`), so brew installs only stable releases.
 `install.sh --brew` warns and skips a companion whose cask install fails.
 
 ## macOS (Gatekeeper)

@@ -58,7 +58,8 @@ func (m Model) updateApprovalsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if hide {
 		return m.quit()
 	}
-	return m, cmd
+	// A key's command is a decision's one-shot round trip.
+	return m, m.track(cmd)
 }
 
 // applyChromeMsg lands what termui tells the overlay about the modal: the

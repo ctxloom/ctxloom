@@ -78,6 +78,9 @@ type Model struct {
 	// banner is an approval that arrived while the roster view was open
 	// (Overlay.Notify): the human is told, and focus stays where it is.
 	banner string
+
+	// bg tracks the one-shot background commands in flight, for FenceKey.
+	bg *background
 }
 
 // The roster pane owns these two status lines. It refreshes every
@@ -144,6 +147,7 @@ func NewModel(ctx context.Context, src Sources, geo termui.OverlayGeometry, pref
 		follow:    true,
 		expanded:  map[int]bool{},
 		status:    statusLoading,
+		bg:        &background{},
 	}
 	m.vp = viewport.New(viewport.WithWidth(m.feedWidth()), viewport.WithHeight(m.contentHeight()))
 	return m
@@ -190,13 +194,13 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) fetchRosterCmd() tea.Cmd {
 	src, ctx := m.src, m.ctx
-	return func() tea.Msg {
+	return m.track(func() tea.Msg {
 		rows, err := src.Roster(ctx)
 		if err != nil {
 			return rosterErrMsg{err}
 		}
 		return rosterMsg{rows}
-	}
+	})
 }
 
 func rosterTick() tea.Cmd {
@@ -243,13 +247,13 @@ func (m *Model) openFeed(harp string) tea.Cmd {
 	m.reportOK("")
 	m.refreshFeed()
 	src, ctx := m.src, m.ctx
-	return func() tea.Msg {
+	return m.track(func() tea.Msg {
 		f, err := src.Watch(ctx, harp)
 		if err != nil {
 			return feedErrMsg{harp: harp, err: err}
 		}
 		return feedOpenedMsg{harp: harp, feed: f}
-	}
+	})
 }
 
 // Update dispatches one message. Every arm's handling lives in its own
@@ -261,7 +265,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// release, and matching the interface would run every binding twice on a
 	// terminal that reports releases.
 	case tea.KeyPressMsg:
-		return m.updateKey(msg)
+		return m.keyOrFence(msg)
 	case rosterMsg:
 		return m.applyRoster(msg)
 	case rosterErrMsg:
@@ -271,8 +275,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.fetchRosterCmd(), rosterTick())
 	case feedOpenedMsg, feedErrMsg, feedEventMsg, feedClosedMsg:
 		return m.applyFeedMsg(msg)
-	case controlResultMsg:
-		return m.applyControlResult(msg)
+	case controlResultMsg, bgDoneMsg, fenceWriteMsg:
+		return m.applyBackgroundMsg(msg)
 	case geometryMsg:
 		return m.applyGeometry(termui.OverlayGeometry(msg))
 	case armedMsg, noticeMsg:
@@ -594,10 +598,10 @@ func (m Model) updateComposeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) sendControl(req coord.ControlRequest) (tea.Model, tea.Cmd) {
 	m.status = controlPending(req)
 	control, ctx := m.src.Control, m.ctx
-	return m, func() tea.Msg {
+	return m, m.track(func() tea.Msg {
 		res, err := control(ctx, req)
 		return controlResultMsg{req: req, res: res, err: err}
-	}
+	})
 }
 
 // controlPending is the hint while a request is in flight.

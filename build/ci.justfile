@@ -364,9 +364,11 @@ mutation_tmp := env_var_or_default("CTXLOOM_MUTATION_TMP", "/var/tmp/ctxloom-mut
 # mutable Go — gremlins scores an empty changeset 0% and would fail the gate
 # for having nothing to test. "Mutable" is gremlins' own file rule plus
 # .gremlins.yaml's exclude-files, read from that file, not restated. Mutable
-# files whose diffed lines hold no mutable token (a comment-only change) do
-# run, and the aggregate passes them as nothing in scope — but only once every
-# shard has shown it looked.
+# files whose diffed lines yield no KILLED and no LIVED mutant (a comment-only
+# change, or lines whose mutants all went uncovered, timed out or were not
+# viable) do run, and the aggregate passes them as nothing to judge, printing
+# the not-covered, timed-out and not-viable counts — but only once every shard
+# has shown it looked. The coverage gates still judge uncovered lines.
 
 # mutshard builds scripts/mutshard and runs it. Built, not `go run`: `go run`
 # reports every failing exit as 1, and the aggregate's exit code is gremlins'

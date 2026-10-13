@@ -278,16 +278,18 @@ func cmdAggregate(args []string, stdout, stderr io.Writer) error {
 	return verdict
 }
 
-// msgNothingInScope is what a pass over a union with zero in-scope mutants
-// says instead of a 0.00% efficacy beside a green verdict.
-const msgNothingInScope = "no mutant in scope — nothing to judge"
+// msgNothingScored is what a pass over a union with no killed and no lived
+// mutant says instead of a 0.00% efficacy beside a green verdict.
+const msgNothingScored = "no mutant killed or lived — nothing to judge"
 
 // reportVerdict prints the union's counts when the verdict judged one; a
-// refusal to judge prints nothing, its counts describing nothing.
+// refusal to judge prints nothing, its counts describing nothing. A pass with
+// nothing scored prints the counts it could not score, and no efficacy.
 func reportVerdict(stdout io.Writer, shards int, sc scope, t tally, verdict error) {
 	switch {
-	case verdict == nil && t.inScope() == 0:
-		_, _ = fmt.Fprintf(stdout, "\nMutation testing, %d shard(s) of %s: %s (every shard looked; %d skipped)\n", shards, sc, msgNothingInScope, t.skipped)
+	case verdict == nil && t.scored() == 0:
+		_, _ = fmt.Fprintf(stdout, "\nMutation testing, %d shard(s) of %s: %s (every shard looked)\n", shards, sc, msgNothingScored)
+		_, _ = fmt.Fprintf(stdout, "Not covered: %d, Timed out: %d, Not viable: %d, Skipped: %d\n", t.notCovered, t.timedOut, t.notViable, t.skipped)
 	case judged(verdict):
 		printTally(stdout, shards, sc, t)
 	}

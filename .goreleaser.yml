@@ -205,8 +205,9 @@ archives:
 # (ctxloom, ltk, taskloom, harp), each built from that tool's archive id. They
 # install different binaries, so none declares a conflict with another. The
 # generated casks carry both on_macos and on_linux stanzas (darwin and linux
-# tar.gz archives; windows zips are never referenced). Only the ctxloom cask
-# lacks `skip_upload: auto`, so it is the one cask pushed for a prerelease tag.
+# tar.gz archives; windows zips are never referenced). Every cask carries
+# `skip_upload: auto`, so a prerelease tag (v0.7.0-rc.1) or a snapshot pushes
+# no cask and reaches no brew user (pinned by internal/shared/buildpins).
 #
 # Requires the HOMEBREW_TAP_GITHUB_TOKEN secret (a PAT with push access to the
 # tap repo) — the per-repo GITHUB_TOKEN cannot push to another repository.
@@ -226,6 +227,8 @@ homebrew_casks:
     homepage: "https://github.com/ctxloom/ctxloom"
     description: "Context Loom - Weave context for AI coding agents"
     license: "BSD-3-Clause"
+    # Don't push a cask for prereleases (e.g. v0.0.1-rc.1) or snapshots.
+    skip_upload: auto
     hooks:
       post:
         install: |

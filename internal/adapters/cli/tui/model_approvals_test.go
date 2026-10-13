@@ -202,7 +202,7 @@ func (h *apprHarness) run(cmd tea.Cmd) {
 		for _, c := range msg {
 			h.run(c)
 		}
-	case answerResultMsg, revokeResultMsg:
+	case answerResultMsg, revokeResultMsg, bgDoneMsg:
 		h.send(msg)
 	}
 }

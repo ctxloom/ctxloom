@@ -135,6 +135,22 @@ func (h *renderHarness) released() *vtemu.Screen {
 	return frameThrough(h.t, h.tty.String(), 0, f)
 }
 
+// settled returns the screen as the overlay answers everything typed before
+// it: a fence key behind the test's keys (tui.FenceKey), answered once the
+// overlay has applied them, every background result they started (the first
+// roster's feed open among them) and written their frame. So the frame is the
+// overlay's settled one and is judged once: a wrong frame fails at once with
+// what it shows, rather than a wait for a right one spending the binary's
+// deadline every later test shares (testsupport.BudgetUntil).
+func (h *renderHarness) settled() *vtemu.Screen {
+	h.t.Helper()
+	h.fences++
+	h.key(tui.FenceKey(h.fences))
+	marker := tui.FenceMarker(h.fences)
+	h.tty.waitUntil(h.t, "the overlay's fence", contains(marker))
+	return frameThrough(h.t, h.tty.String(), 0, marker)
+}
+
 // frameThrough is the screen the bytes in s paint up to and including the
 // first fence at or after since, which must be there. A sequence the screen
 // model does not understand fails t, since no frame from it on can be judged.
@@ -280,14 +296,14 @@ func TestOverlayRender_QuickPanelIsReadableAndReleaseRestoresTheEngine(t *testin
 	awaitWatch(t, h.watches, renderHarps[0])
 	// Drawable rows are 23 (the bar reserves one); the panel is the bottom 8
 	// of them: rows 16..23, 0-indexed 15..22.
-	h.screenWhen("the panel", panel(15, 22))
+	judge(t, h.settled(), panel(15, 22))
 
 	h.key("j") // moving the selection opens that row's feed
 	awaitWatch(t, h.watches, renderHarps[1])
-	h.screenWhen("the panel after moving", panel(15, 22))
+	judge(t, h.settled(), panel(15, 22))
 
 	h.key("\r")
-	h.screenWhen("the panel on the opened feed", func(t tb, e *vtemu.Screen) {
+	judge(t, h.settled(), func(t tb, e *vtemu.Screen) {
 		assertPanel(t, e, 15, 22)
 		assert.Contains(t, e.Row(15), "feed: "+renderHarps[1], "the header names the opened feed")
 	})
@@ -332,7 +348,7 @@ func TestOverlayRender_FullScreenIsReadableAndReleaseRestoresTheEngine(t *testin
 
 			h.key(string([]byte{compPrefix}) + "f")
 			awaitWatch(t, h.watches, renderHarps[0])
-			h.screenWhen("full screen", func(t tb, e *vtemu.Screen) {
+			judge(t, h.settled(), func(t tb, e *vtemu.Screen) {
 				assert.True(t, e.OnAltScreen(), "full screen draws on the alternate screen")
 				assertPanel(t, e, 0, renderRows-2)
 			})
@@ -385,11 +401,14 @@ func TestOverlayRender_OverAnAltScreenEngineTheOverlayDrawsInPlace(t *testing.T)
 
 	h.key(string([]byte{compPrefix}))
 	awaitWatch(t, h.watches, renderHarps[0])
-	h.screenWhen("the panel", panel(15, 22))
-	// Still the first key. Sent once the panel is up, as a human types it:
-	// the first roster's feed auto-open clears the note slot.
+	// The fence settles the first roster's feed open before f is typed: the
+	// refusal is then judged on the frame that answers f and everything
+	// before it, not waited for on a screen a late background result may
+	// still change.
+	judge(t, h.settled(), panel(15, 22))
+	// Still the first key: a fence is not one.
 	h.key("f")
-	h.screenWhen("the refusal", func(t tb, e *vtemu.Screen) {
+	judge(t, h.settled(), func(t tb, e *vtemu.Screen) {
 		assert.True(t, e.OnAltScreen(), "still the engine's screen")
 		for i := 1; i <= 15; i++ {
 			assert.Equal(t, fmt.Sprintf("fullscreen row %02d", i), e.Row(i-1), "the engine's rows above the panel are untouched:\n%s", e)

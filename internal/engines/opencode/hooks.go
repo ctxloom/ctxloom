@@ -266,4 +266,3 @@ func (a *hooksApproach) DeliverHooks(start present.Start, root present.RootKind,
 }
 
 var _ engine.HooksApproach = (*hooksApproach)(nil)
-

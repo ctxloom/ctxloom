@@ -49,13 +49,16 @@ function normalise(tool, args) {
   return { name: t.name, input }
 }
 
+// nameList is a matcher claude reads as a list of exact names: only letters,
+// digits, "_", "-", spaces, "," and "|".
+const nameList = new RegExp("^[A-Za-z0-9_|, -]*$")
+
 // matches is a hook's matcher against a tool's claude name, by claude's rule:
-// none or "*" admits every tool; one of only letters, digits, "_", "-",
-// spaces, "," and "|" is a list of exact names; anything else an unanchored
-// regexp.
+// none or "*" admits every tool; a name list (nameList) is exact; anything
+// else is an unanchored regexp.
 function matches(matcher, name) {
   if (!matcher || matcher === "*") return true
-  if (/^[A-Za-z0-9_|, -]*$/.test(matcher)) return matcher.split(/[|,]/).map((m) => m.trim()).includes(name)
+  if (nameList.test(matcher)) return matcher.split(new RegExp("[|,]")).map((m) => m.trim()).includes(name)
   try {
     return new RegExp(matcher).test(name)
   } catch {

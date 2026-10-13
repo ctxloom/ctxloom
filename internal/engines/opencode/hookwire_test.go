@@ -147,10 +147,10 @@ func TestBridge_PreToolWritesClaudesPreToolUse(t *testing.T) {
 // the table does not list (an MCP tool) passes name and input verbatim.
 func TestBridge_PreToolNormalisesEachTool(t *testing.T) {
 	for _, c := range []struct {
-		tool     string
-		args     map[string]any
-		name     string
-		input    map[string]any
+		tool  string
+		args  map[string]any
+		name  string
+		input map[string]any
 	}{
 		{"bash", map[string]any{"command": "git status", "description": "d", "workdir": "/w"}, "Bash", map[string]any{"command": "git status", "description": "d", "workdir": "/w"}},
 		{"write", map[string]any{"filePath": "/p/b", "content": "c"}, "Write", map[string]any{"file_path": "/p/b", "content": "c"}},

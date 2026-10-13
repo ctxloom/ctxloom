@@ -105,6 +105,7 @@ ARG JUST_VERSION
 ARG JUST_SHA256_AMD64
 ARG JUST_SHA256_ARM64
 ARG GOPLS_VERSION
+ARG SERENA_AGENT_VERSION
 ARG GITLEAKS_VERSION
 ARG LEFTHOOK_VERSION
 ARG NODE_VERSION
@@ -127,6 +128,7 @@ RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-imag
     && : "${JUST_SHA256_AMD64:?missing --build-arg JUST_SHA256_AMD64 — see .devcontainer/tool-versions.env}" \
     && : "${JUST_SHA256_ARM64:?missing --build-arg JUST_SHA256_ARM64 — see .devcontainer/tool-versions.env}" \
     && : "${GOPLS_VERSION:?missing --build-arg GOPLS_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${SERENA_AGENT_VERSION:?missing --build-arg SERENA_AGENT_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${GITLEAKS_VERSION:?missing --build-arg GITLEAKS_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${LEFTHOOK_VERSION:?missing --build-arg LEFTHOOK_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${NODE_VERSION:?missing --build-arg NODE_VERSION — see .devcontainer/tool-versions.env}" \
@@ -343,8 +345,7 @@ RUN go install golang.org/x/tools/gopls@v${GOPLS_VERSION}
 # installer version is pinned. It is pinned INLINE, by tag and digest (see the
 # top of this file), not via a build ARG like the tools above: BuildKit rejects
 # variable expansion in `COPY --from`, so an ARG here would be a pin that does
-# not bind. serena-agent itself is unpinned, matching
-# container/base/Containerfile.
+# not bind.
 COPY --from=ghcr.io/astral-sh/uv:0.9.22@sha256:2320e6c239737dc73cccce393a8bb89eba2383d17018ee91a59773df802c20e6 /uv /usr/local/bin/uv
 
 # The tool venv and its shims go under /opt + /usr/local/bin, not a user home:
@@ -352,9 +353,17 @@ COPY --from=ghcr.io/astral-sh/uv:0.9.22@sha256:2320e6c239737dc73cccce393a8bb89eb
 # unreachable by the process that actually runs the engine.
 # The gate is `serena --help`, which imports the package and exits 0 — a shim
 # that merely EXISTS proves nothing.
+#
+# serena-agent is pinned to SERENA_AGENT_VERSION, and `uv tool list` must
+# report exactly that version. It is pinned by version only, not by hash:
+# `uv tool install` (uv 0.9.22) has no hash-checking mode — it silently
+# ignores hashes in --constraints and --with-requirements files — so its
+# bytes, and its dependencies' versions, are whatever PyPI serves for this
+# release. container/base/Containerfile still installs it unpinned.
 ENV UV_TOOL_DIR=/opt/uv/tools \
     UV_TOOL_BIN_DIR=/usr/local/bin
-RUN UV_NO_CACHE=1 uv tool install --python python3 serena-agent \
+RUN UV_NO_CACHE=1 uv tool install --python python3 "serena-agent==${SERENA_AGENT_VERSION}" \
+    && uv tool list | grep -qx "serena-agent v${SERENA_AGENT_VERSION}" \
     && serena --help >/dev/null
 
 # Node.js. The opencode bridge plugin ctxloom generates is JavaScript, and its

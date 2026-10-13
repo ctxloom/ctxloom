@@ -139,3 +139,18 @@ func TestDevcontainerInstallsVerifiedLizard(t *testing.T) {
 		t.Errorf("%s: lizard is installed by name, outside the hash-pinned requirements file:\n%s", dockerfilePath, step)
 	}
 }
+
+// serena-agent is installed with `uv tool install`, which (uv 0.9.22) has no
+// hash-checking mode: it ignores hashes in --constraints and
+// --with-requirements files alike. The version is therefore pinned, and the
+// install must prove it got that version — the strongest check uv allows.
+func TestDevcontainerInstallsPinnedSerena(t *testing.T) {
+	step := dockerfileStepCode(t, "# The tool venv and its shims")
+	assertVerifiedStep(t, "serena-agent", step,
+		[]string{
+			`uv tool install --python python3 "serena-agent==${SERENA_AGENT_VERSION}"`,
+			`grep -qx "serena-agent v${SERENA_AGENT_VERSION}"`,
+		},
+		[]string{"uv tool install", "uv tool list", "serena --help"},
+	)
+}

@@ -175,6 +175,9 @@ func (i *instance) execArgs(presented []present.Presentation) ([]string, error) 
 	} else {
 		args = append(args, permissionArgs(i.pos, i.s.MCPServers)...)
 	}
+	if i.s.Identity.IsChild() {
+		args = denyTools(args, childDeniedBuiltins...)
+	}
 	if i.s.Label.Model != "" {
 		args = append(args, flagModel, i.s.Label.Model)
 	}
@@ -197,6 +200,31 @@ func (i *instance) execArgs(presented []present.Presentation) ([]string, error) 
 		return nil, errSettingsTwice
 	}
 	return args, nil
+}
+
+// childDeniedBuiltins are claude's own peer-messaging tools, removed from a
+// delegated child. SendMessage reaches other local claude sessions found
+// through ListAgents; it never reaches ctxloom's coordinator, which a child
+// reaches with ctxloom's agent_send. Offered both, a child picks the
+// built-in: measured live on haiku (claude 2.1.292, j002300's agent_send
+// cell), it called SendMessage{to:"parent"}, was told no "parent" is
+// reachable, confirmed with ListAgents that no session is, and reported in
+// text that it could not send. A session that is not a child keeps them: its
+// human may well be messaging their own other sessions.
+var childDeniedBuiltins = []string{"SendMessage", "ListAgents"}
+
+// denyTools adds tools to args' --disallowedTools, which claude takes as ONE
+// comma-joined value token: appended to the token already there (plan's
+// read-only belt, or one the label's own args carry), or as a new flag pair.
+// args is the caller's own clone.
+func denyTools(args []string, tools ...string) []string {
+	for i, a := range args {
+		if a == flagDisallowedTools && i+1 < len(args) {
+			args[i+1] += "," + strings.Join(tools, ",")
+			return args
+		}
+	}
+	return append(args, flagDisallowedTools, strings.Join(tools, ","))
 }
 
 // presentedArgs is every presentation's args in delivery order. An

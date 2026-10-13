@@ -190,9 +190,34 @@ RUN pip3 install --break-system-packages --no-cache-dir lizard==${LIZARD_VERSION
 # already on PATH from the Go install step above.
 RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${GOLANGCI_LINT_VERSION}
 
-# Install buf for protobuf
-RUN curl -sSL "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-$(uname -s)-$(uname -m)" -o /usr/local/bin/buf && \
-    chmod +x /usr/local/bin/buf
+# Install buf for protobuf, verified the way buf's installation docs prescribe
+# (https://buf.build/docs/cli/installation/, "Verify a release with minisign"):
+# the release's sha256.txt must carry a valid minisign signature from
+# BUF_RELEASE_SIGNER, the minisign public key those docs publish, and the binary must
+# match its line in that file — all before it is installed. A BUF_VERSION bump
+# needs no hash edit: the signed sha256.txt names the hashes, and a release not
+# signed by this key fails the build. minisign (Ubuntu universe) is installed
+# for the check and purged after it, so the image's toolset does not grow.
+# BUF_RELEASE_SIGNER is an ARG with a value, like NODE_RELEASERS below: it is not
+# a tool-versions.env pin, and as an ARG it stays out of the container's env.
+ARG BUF_RELEASE_SIGNER="RWQ/i9xseZwBVE7pEniCNjlNOeeyp4BQgdZDLQcAohxEAH5Uj5DEKjv6"
+RUN case "${TARGETARCH}" in \
+        amd64) BUF_ARCH="x86_64" ;; \
+        arm64) BUF_ARCH="aarch64" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && apt-get update && apt-get install -y --no-install-recommends minisign && rm -rf /var/lib/apt/lists/* \
+    && tmp="$(mktemp -d)" && cd "${tmp}" \
+    && bin="buf-Linux-${BUF_ARCH}" \
+    && curl -fsSLO "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/sha256.txt" \
+    && curl -fsSLO "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/sha256.txt.minisig" \
+    && curl -fsSLO "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/${bin}" \
+    && minisign -Vm sha256.txt -P "${BUF_RELEASE_SIGNER}" \
+    && grep " ${bin}\$" sha256.txt | sha256sum -c - \
+    && install -m 0755 "${bin}" /usr/local/bin/buf \
+    && cd / && rm -rf "${tmp}" \
+    && apt-get purge -y --auto-remove minisign \
+    && test "$(buf --version)" = "${BUF_VERSION}"
 
 # Codegen plugins installed LOCALLY so `buf generate` never executes remote
 # plugins on the BSR — remote plugin execution is rate-limited and made the

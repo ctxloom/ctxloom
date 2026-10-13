@@ -31,7 +31,7 @@ func attestedPackage() Package {
 		Links:      []LinkGroup{{Server: "ctxloom", Members: []ident.Ref{{Bundle: "b", Kind: ident.ItemKind("command"), Name: "c"}}}},
 		DenyTools:  []string{"Task"},
 		Statusline: true,
-		Selection:  Selection{Profiles: []string{"base"}, LLM: "primary", Preference: map[string]string{"context": "file"}},
+		Selection:  Selection{Profiles: []string{"base"}, LLM: "primary"},
 		Loaded:     []string{"b/f"},
 		Findings:   []Finding{{Kind: FindingDuplicate, Ref: "b/f", Message: "dup"}},
 		attestation: Attestation{

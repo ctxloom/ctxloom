@@ -81,7 +81,7 @@ Rebuildability and commitment are independent questions.
 |---|---|
 | `cache/bundles` | `ctxloom deps pull` |
 | `cache/repos` | `ctxloom deps pull` |
-| `cache/context` | `ctxloom manage hooks install` (the next `ctxloom run` also rewrites it) |
+| `cache/context` | `ctxloom run` (a launch rewrites it) |
 
 `cache/bundles` holds *pulled copies* of remote bundles and is **never** a
 bundle search directory — authored YAML found there is a fatal migration
@@ -296,7 +296,7 @@ home has no durable project copy of them for ctxloom to write. A backend in
 that position declares it on its registry descriptor
 (`launchOnlySettingsReason`) — a **declared absence**, not an oversight — so
 that tools can report it instead of silently writing nowhere:
-`ctxloom profile materialize --backend <name>` lists those surfaces as
+`ctxloom materialize --backend <name>` lists those surfaces as
 not-carried with the reason (`backends.LaunchOnlySurfaces`) and still writes
 whatever cwd-keyed surface the engine does have.
 

@@ -25,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
@@ -63,25 +64,17 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 	return root, cfg
 }
 
-// applyHooksHermetically runs ApplyHooks the same way every real
-// caller does (manage.go, init.go all pass RegenerateContext: true) so the
-// always-available, network-free SessionStart context-injection hook lands —
-// unlike the bundle-shipped hooks a profile's remote parent would otherwise
-// supply, this one needs no `ctxloom deps pull`/cache, so it's reachable on
-// a bare host. It also pins the injected hook's exec token to "ctxloom" via
+// applyHooksHermetically materializes the project's surfaces at rest for
+// backend, so the doctor has a fully wired project to inspect. It pins the
+// exec token of every ctxloom-owned command to "ctxloom" via
 // selfexec.SetPathForTesting (restored on cleanup): left at its `go test`
-// default, the hook would name the test binary itself, and
+// default, a command would name the test binary itself, and
 // exectoken.IsManaged(command, "ctxloom") — keyed on that exact exec-token
-// identity — would report it as foreign, not ctxloom-managed. Both are
-// needed for doctorCheckHooksMCP to observe "ok" hermetically, on any
-// host, matching the SAME hooks a fully-wired project always carries
-// regardless of what's cached under its real $HOME.
+// identity — would report it as foreign, not ctxloom-managed.
 func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend string) {
 	t.Helper()
 	t.Cleanup(selfexec.SetPathForTesting("ctxloom"))
-	_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
-		Cfg: cfg, Backend: backend, WorkDir: root, RegenerateContext: true,
-	})
+	_, err := Materialize(context.Background(), engines.Registry(), cfg, MaterializeRequest{Engines: []string{backend}, Surfaces: surfacesBut(present.Context), Target: root})
 	require.NoError(t, err)
 }
 
@@ -412,7 +405,7 @@ func TestDoctorCheckHooksMCP_RightState(t *testing.T) {
 
 	check := doctorCheckHooksMCP(context.Background(), engines.Registry(), cfg, nil)
 	assert.Equal(t, DoctorOK, check.Status)
-	assert.Contains(t, check.Detail, "also registered in the project (the explicit `manage hooks install` door) for: claude-code")
+	assert.Contains(t, check.Detail, "also registered in the project (an explicit `ctxloom materialize`) for: claude-code")
 }
 
 // TestDoctorCheckHooksMCP_SessionDelivery_IsTheHealthyDefault: absent
@@ -421,7 +414,7 @@ func TestDoctorCheckHooksMCP_RightState(t *testing.T) {
 // fault (ruled 2026-09-21).
 func TestDoctorCheckHooksMCP_SessionDelivery_IsTheHealthyDefault(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
-	t.Chdir(root) // no ApplyHooks call: nothing project-side
+	t.Chdir(root) // no materialize: nothing project-side
 
 	check := doctorCheckHooksMCP(context.Background(), engines.Registry(), cfg, nil)
 	assert.Equal(t, DoctorOK, check.Status)

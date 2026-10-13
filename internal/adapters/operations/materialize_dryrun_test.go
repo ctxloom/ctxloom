@@ -9,12 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestApplyHooksDryRunWritesNothing pins the dry-run posture against a real
+// TestMaterializeDryRunWritesNothing pins the dry-run posture against a real
 // apply of the SAME request, because the assertion is only worth anything as a
 // pair: "no file appeared" is trivially true in a fixture that never creates
 // one, and that shape is exactly how this project's characteristic silent
@@ -22,12 +24,11 @@ import (
 // when allowed to, so the dry-run arm's absence means suppression rather than
 // a test that never exercised the writer.
 //
-// Why this exists at all: starting the MCP server applies hooks — rewriting
-// the project's managed settings is what ctxloom does — and a run that merely
-// wanted to inspect the resolution silently rewrote a real project's
-// settings.json, dropping a configured PreToolUse hook. Dry run is the way to
-// ask the question without answering it destructively.
-func TestApplyHooksDryRunWritesNothing(t *testing.T) {
+// Why this exists at all: an at-rest apply once ran on startup, and a run
+// that merely wanted to inspect the resolution silently rewrote a real
+// project's settings.json, dropping a configured PreToolUse hook. Dry run is
+// the way to ask the question without answering it destructively.
+func TestMaterializeDryRunWritesNothing(t *testing.T) {
 	const settingsPath = "/project/.claude/settings.json"
 
 	newFixture := func(t *testing.T) (afero.Fs, func() (*config.Config, error)) {
@@ -43,15 +44,10 @@ func TestApplyHooksDryRunWritesNothing(t *testing.T) {
 		return fs, loader
 	}
 
-	t.Run("control: a real apply writes the settings file", func(t *testing.T) {
+	t.Run("control: a real materialize writes the settings file", func(t *testing.T) {
 		fs, loader := newFixture(t)
 
-		_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
-			Backend: "claude-code",
-			Root:    safefs.NewMem(fs),
-			Cfg:     loaded(t, loader),
-			WorkDir: "/project",
-		})
+		_, err := Materialize(context.Background(), engines.Registry(), loaded(t, loader), MaterializeRequest{Engines: []string{"claude-code"}, Surfaces: surfacesBut(present.Context), Root: safefs.NewMem(fs), Target: "/project"})
 		require.NoError(t, err)
 
 		exists, err := afero.Exists(fs, settingsPath)
@@ -63,13 +59,7 @@ func TestApplyHooksDryRunWritesNothing(t *testing.T) {
 	t.Run("dry run writes nothing", func(t *testing.T) {
 		fs, loader := newFixture(t)
 
-		_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
-			Backend: "claude-code",
-			Root:    safefs.NewMem(fs),
-			Cfg:     loaded(t, loader),
-			WorkDir: "/project",
-			DryRun:  true,
-		})
+		_, err := Materialize(context.Background(), engines.Registry(), loaded(t, loader), MaterializeRequest{Engines: []string{"claude-code"}, Surfaces: surfacesBut(present.Context), Root: safefs.NewMem(fs), Target: "/project", DryRun: true})
 		require.NoError(t, err, "a dry run resolves in full and must not error")
 
 		exists, err := afero.Exists(fs, settingsPath)
@@ -79,19 +69,19 @@ func TestApplyHooksDryRunWritesNothing(t *testing.T) {
 	})
 }
 
-// TestApplyHooksDryRunLeavesExistingSettingsByteIdentical is the regression
+// TestMaterializeDryRunLeavesExistingSettingsByteIdentical is the regression
 // that matters most. The incident was not a file being CREATED — it was an
 // existing settings.json being REWRITTEN, losing a hook nobody noticed was
 // gone. Absence-of-a-new-file cannot catch that; only byte equality against
 // pre-existing content can.
-func TestApplyHooksDryRunLeavesExistingSettingsByteIdentical(t *testing.T) {
+func TestMaterializeDryRunLeavesExistingSettingsByteIdentical(t *testing.T) {
 	const settingsPath = "/project/.claude/settings.json"
-	// Content a real apply would rewrite: a hook ctxloom does not manage.
+	// Content a real materialize would rewrite: a hook ctxloom does not manage.
 	existing := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"command":"guard","type":"command"}]}]}}`)
 
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll("/project/.claude", 0o755))
-	require.NoError(t, afero.WriteFile(fs, settingsPath, existing, 0o644))
+	testsupport.WriteFile(t, fs, settingsPath, existing, 0o644)
 
 	loader := func() (*config.Config, error) {
 		return cfgWithProfileHooks(t, fs, "/project/.ctxloom", wire.HooksConfig{
@@ -101,13 +91,7 @@ func TestApplyHooksDryRunLeavesExistingSettingsByteIdentical(t *testing.T) {
 		}, config.Fixture{}), nil
 	}
 
-	_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
-		Backend: "claude-code",
-		Root:    safefs.NewMem(fs),
-		Cfg:     loaded(t, loader),
-		WorkDir: "/project",
-		DryRun:  true,
-	})
+	_, err := Materialize(context.Background(), engines.Registry(), loaded(t, loader), MaterializeRequest{Engines: []string{"claude-code"}, Surfaces: surfacesBut(present.Context), Root: safefs.NewMem(fs), Target: "/project", DryRun: true})
 	require.NoError(t, err)
 
 	got, err := afero.ReadFile(fs, settingsPath)

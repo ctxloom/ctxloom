@@ -15,7 +15,7 @@ import (
 
 // capabilityLossLines is the wiring report's form of
 // operations.CapabilityLossLines: each line led by "NOT carried by", the
-// words `profile materialize` prints for the same fact.
+// words `ctxloom materialize` prints for the same fact.
 func capabilityLossLines(entries []operations.AgentSurfaceLoss) []string {
 	lines := operations.CapabilityLossLines(entries)
 	for i, line := range lines {

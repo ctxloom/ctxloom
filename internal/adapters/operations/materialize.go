@@ -305,7 +305,8 @@ func materializeEngine(ctx context.Context, reg engine.Registry, cfg *config.Con
 		return out, err
 	}
 	out.WithheldByPremise = withheld
-	p := Placement{Start: present.ProjectOnHost(m.target), Family: delivery.ProjectWriterFor(engine.Name(name)), Kinds: kinds, ContextFile: m.contextFile}
+	p := atRestPlacement(m.target, engine.Name(name), kinds)
+	p.ContextFile = m.contextFile
 	var plan delivery.Plan
 	if m.req.DryRun {
 		plan, err = planMaterialized(kind, pkg, p, &out)
@@ -439,8 +440,7 @@ func materializeRelease(ctx context.Context, reg engine.Registry, root safefs.Ro
 		if !ok {
 			return nil, fmt.Errorf("materialize: no engine kind is composed for %s", name)
 		}
-		p := Placement{Start: present.ProjectOnHost(res.Target), Family: delivery.ProjectWriterFor(engine.Name(name)), Kinds: kinds}
-		if err := Release(ctx, root, kind, p); err != nil {
+		if err := Release(ctx, root, kind, atRestPlacement(res.Target, engine.Name(name), kinds)); err != nil {
 			strictness.Fail(report.KindApply, "fix the failure, then re-run (ctxloom materialize --release)", "release %s: %v", name, err)
 			out.Warnings = append(out.Warnings, err.Error())
 		} else {

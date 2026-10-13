@@ -301,8 +301,8 @@ func (w Writer) SessionHarp() (harp string, ok bool) {
 }
 
 // ProjectWriter is the bare writer tag of an at-rest delivery into the
-// project root, one tag for every engine and kind (ProjectTarget's). The
-// per-(engine, kind) family (ProjectWriterFor, Writer.Of) supersedes it;
+// project root, one tag for every engine and kind (an earlier ctxloom's,
+// still found in ownership records). The per-(engine, kind) family (ProjectWriterFor, Writer.Of) supersedes it;
 // Writer.Project recognises both.
 const ProjectWriter Writer = "project"
 

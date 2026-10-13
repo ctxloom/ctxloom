@@ -98,7 +98,7 @@ func registerJ000700Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Bob's assistant can invoke the conventional-commits command$`, func(c context.Context) error {
 		w := worldFrom(c)
-		if err := runBob(w, "profile", "materialize", j000700Profile, "--target", "out"); err != nil {
+		if err := runBob(w, "materialize", j000700Profile, "--target", "out", "--backend", "claude-code"); err != nil {
 			return err
 		}
 		body, err := findBobCommandFile(w, w.j000700().commandNameOrDefault())
@@ -135,7 +135,7 @@ func registerJ000700Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Bob's assistant receives the distilled guidance$`, func(c context.Context) error {
 		w := worldFrom(c)
-		if err := runBob(w, "profile", "materialize", j000700Profile, "--target", "out"); err != nil {
+		if err := runBob(w, "materialize", j000700Profile, "--target", "out", "--backend", "claude-code"); err != nil {
 			return err
 		}
 		body, err := readBobFile(w, filepath.Join("out", "CLAUDE.md"))
@@ -176,7 +176,7 @@ func registerJ000700Steps(ctx *godog.ScenarioContext) {
 		if err := j000700BobPull(w); err != nil {
 			return err
 		}
-		return runBob(w, "profile", "materialize", j000700Profile, "--target", "out")
+		return runBob(w, "materialize", j000700Profile, "--target", "out", "--backend", "claude-code")
 	})
 
 	ctx.Step(`^Carol edits the command$`, func(c context.Context) error {
@@ -194,7 +194,7 @@ func registerJ000700Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Bob's assistant has the updated command$`, func(c context.Context) error {
 		w := worldFrom(c)
-		if err := runBob(w, "profile", "materialize", j000700Profile, "--target", "out"); err != nil {
+		if err := runBob(w, "materialize", j000700Profile, "--target", "out", "--backend", "claude-code"); err != nil {
 			return err
 		}
 		body, err := findBobCommandFile(w, w.j000700().commandNameOrDefault())
@@ -234,7 +234,7 @@ func (s *j000700State) commandNameOrDefault() string {
 
 // j000700SetupTeamProject scaffolds Carol's checkout (w.env.ProjectDir) as the
 // team's shared project with the minimal fixture config (no LLM needed:
-// `bundle`/`profile create` and `profile materialize` all work against it,
+// `bundle`/`profile create` and `ctxloom materialize` all work against it,
 // exactly as cli/content_decision.feature, command.feature and fragment.feature already rely on).
 func j000700SetupTeamProject(w *World) error {
 	if err := j000700SetupProject(w, minimalConfig); err != nil {

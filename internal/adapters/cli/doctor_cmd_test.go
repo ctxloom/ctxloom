@@ -21,7 +21,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
@@ -72,26 +74,31 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 	return root, cfg
 }
 
-// applyHooksHermetically runs operations.ApplyHooks the same way every real
-// caller does (manage.go, init.go all pass RegenerateContext: true) so the
-// always-available, network-free SessionStart context-injection hook lands —
-// unlike the bundle-shipped hooks a profile's remote parent would otherwise
-// supply, this one needs no `ctxloom deps pull`/cache, so it's reachable on
-// a bare host. It also pins the injected hook's exec token to "ctxloom" via
+// applyHooksHermetically materializes the project's surfaces at rest for
+// backend, so the doctor has a fully wired project to inspect. It pins the
+// exec token of every ctxloom-owned command to "ctxloom" via
 // selfexec.SetPathForTesting (restored on cleanup): left at its `go test`
-// default, the hook would name the test binary itself, and
+// default, a command would name the test binary itself, and
 // exectoken.IsManaged(command, "ctxloom") — keyed on that exact exec-token
-// identity — would report it as foreign, not ctxloom-managed. Both are
-// needed for doctorCheckHooksMCP to observe "ok" hermetically, on any
-// host, matching the SAME hooks a fully-wired project always carries
-// regardless of what's cached under its real $HOME.
+// identity — would report it as foreign, not ctxloom-managed.
 func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend string) {
 	t.Helper()
 	t.Cleanup(selfexec.SetPathForTesting("ctxloom"))
-	_, err := operations.ApplyHooks(context.Background(), engines.Registry(), operations.ApplyHooksRequest{
-		Cfg: cfg, Backend: backend, WorkDir: root, RegenerateContext: true,
-	})
+	_, err := operations.Materialize(context.Background(), engines.Registry(), cfg, operations.MaterializeRequest{Engines: []string{backend}, Target: root, Surfaces: surfacesButContext()})
 	require.NoError(t, err)
+}
+
+// surfacesButContext selects every at-rest kind except context: the
+// scaffolded project's profiles assemble no context, which a materialize
+// that selects context refuses, and the doctor reads none of it.
+func surfacesButContext() []operations.SurfaceSpec {
+	var out []operations.SurfaceSpec
+	for _, k := range delivery.AllKinds() {
+		if k != present.Context {
+			out = append(out, operations.SurfaceSpec{Kind: k})
+		}
+	}
+	return out
 }
 
 // --- DOCTOR-CHECK-SETUP-MARKER-e5 ---
@@ -433,9 +440,7 @@ func TestDoctorCmd_DepsFlag_JSONShapeIsDepsAndGitIdentity(t *testing.T) {
 
 func TestDoctorCmd_JSONShape(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
-	_, err := operations.ApplyHooks(context.Background(), engines.Registry(), operations.ApplyHooksRequest{
-		Cfg: cfg, Backend: "claude-code", WorkDir: root,
-	})
+	_, err := operations.Materialize(context.Background(), engines.Registry(), cfg, operations.MaterializeRequest{Engines: []string{"claude-code"}, Target: root, Surfaces: surfacesButContext()})
 	require.NoError(t, err)
 
 	out, err := runDoctor(t, root, "--format", "json")
@@ -472,9 +477,7 @@ func TestDoctorCmd_JSONShape(t *testing.T) {
 // write hidden behind either branch would still be caught).
 func TestDoctorCmd_ReadOnly(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
-	_, err := operations.ApplyHooks(context.Background(), engines.Registry(), operations.ApplyHooksRequest{
-		Cfg: cfg, Backend: "claude-code", WorkDir: root,
-	})
+	_, err := operations.Materialize(context.Background(), engines.Registry(), cfg, operations.MaterializeRequest{Engines: []string{"claude-code"}, Target: root, Surfaces: surfacesButContext()})
 	require.NoError(t, err)
 
 	before := hashTree(t, root)

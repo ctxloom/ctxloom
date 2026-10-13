@@ -104,7 +104,7 @@ That report closed two journeys' worth of findings at once, and needed no new
 protocol work — the per-engine capability matrix was already known to the
 product, since the code has to branch on it to function. It was known
 internally and never said out loud until `backends.UncarriedSurfaces` (already
-proven by `profile materialize`, whiny-exclusive) was wired to `agent show`
+proven by `ctxloom materialize`, whiny-exclusive) was wired to `agent show`
 too, gaining a PER-EVENT declaration (`agentDescriptor.unsupportedHookKinds`)
 alongside its existing whole-mechanism one, so a backend that has hooks in
 general but lacks one specific native event — codex's case — is reportable and

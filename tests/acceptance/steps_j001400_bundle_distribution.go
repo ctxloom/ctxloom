@@ -9,7 +9,7 @@
 // under the consumer's cache with the publisher's exec bit intact.
 //
 // THE DELIVERY HALF IS NOW HERMETIC TOO, on the host runtime. The vehicle is
-// `profile materialize --backend mock`, over the mock backend's own context and
+// `ctxloom materialize --backend mock`, over the mock backend's own context and
 // skills approaches (internal/engines/mock/surfaces.go), driven by the same
 // static writer every engine's are — the ownership record's appended-section
 // claim and a skills tree written at each file's declared mode. Materialize
@@ -22,7 +22,7 @@
 // THE CONTAINER HALF IS HERMETIC TOO, through internal/testsupport/containercell:
 // a `FROM scratch` image carrying one static ctxloom, the environment root
 // bind-mounted at its own absolute path, `--network=none`, and the SAME
-// `profile materialize --backend mock` executed inside the container. The rows
+// `ctxloom materialize --backend mock` executed inside the container. The rows
 // assert on the HOST side of that mount, and add OWNERSHIP to bytes and mode —
 // the one property a process boundary breaks while the other two come through
 // untouched (a rootful daemon writes byte-identical, mode-identical, ROOT-OWNED
@@ -525,7 +525,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		st := j001400Of(w)
 		// Materialize the consumer's profile and search every delivered
 		// surface — the assistant-visible payload, not the cache.
-		_ = w.env.Run("profile", "materialize", "default", "--target", "out", "--backend", "claude-code")
+		_ = w.env.Run("materialize", "default", "--target", "out", "--backend", "claude-code")
 		matOut := w.env.LastOutput()
 		hits, err := j001400MarkerHits(filepath.Join(w.env.ProjectDir, "out"), marker)
 		if err != nil {
@@ -554,7 +554,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		// into: sharing a directory would let content default selected satisfy
 		// an assertion about what STUDIO selects.
 		target := filepath.Join(w.env.ProjectDir, "out-studio")
-		_ = w.env.Run("profile", "materialize", profileRef, "--target", target, "--backend", "mock")
+		_ = w.env.Run("materialize", profileRef, "--target", target, "--backend", "mock")
 		matOut := w.env.LastOutput()
 		hits, err := j001400MarkerHits(target, marker)
 		if err != nil {
@@ -740,7 +740,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 			st.runOutput = ""
 			return nil
 		}
-		// The vehicle is `profile materialize`, NOT `ctxloom run`, and that is a
+		// The vehicle is `ctxloom materialize`, NOT `ctxloom run`, and that is a
 		// decision rather than a convenience: grpc.RunTurn calls Cleanup
 		// immediately after Execute, and the shared LIFO reversal strips the
 		// delivered managed section — so a step that shells out to `run` and
@@ -755,8 +755,8 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		if runtime == "container" {
 			return j001400DeliverInContainer(c, w, root)
 		}
-		if rerr := w.env.Run("profile", "materialize", "default", "--target", root, "--backend", "mock"); rerr != nil || w.env.LastExitCode() != 0 {
-			st.runErr = fmt.Errorf("`ctxloom profile materialize default --target %s --backend mock` exited %d", root, w.env.LastExitCode())
+		if rerr := w.env.Run("materialize", "default", "--target", root, "--backend", "mock"); rerr != nil || w.env.LastExitCode() != 0 {
+			st.runErr = fmt.Errorf("`ctxloom materialize default --target %s --backend mock` exited %d", root, w.env.LastExitCode())
 		}
 		st.runOutput = w.env.LastOutput()
 		st.agentRoot = root
@@ -1152,7 +1152,7 @@ func j001400PlacementFile(placement string) (string, error) {
 var j001400ContainerReport sync.Once
 
 // j001400DeliverInContainer is the container half of the delivery matrix: run
-// `ctxloom profile materialize` INSIDE a container, delivering into a
+// `ctxloom materialize` INSIDE a container, delivering into a
 // bind-mounted target, and leave the host-side assertions to the Then steps.
 //
 // WHAT MAKES THIS NON-VACUOUS, since "assert a host path" is exactly what a
@@ -1206,7 +1206,7 @@ func j001400DeliverInContainer(c context.Context, w *World, root string) error {
 			"XDG_CONFIG_HOME": filepath.Join(w.env.HomeDir, ".config"),
 			"XDG_DATA_HOME":   filepath.Join(w.env.HomeDir, ".local", "share"),
 		},
-		Args: []string{"profile", "materialize", "default", "--target", root, "--backend", "mock"},
+		Args: []string{"materialize", "default", "--target", root, "--backend", "mock"},
 	})
 	if err != nil {
 		st.runErr = fmt.Errorf("the %s container cell could not run: %w", rt.Name, err)
@@ -1214,7 +1214,7 @@ func j001400DeliverInContainer(c context.Context, w *World, root string) error {
 		return nil
 	}
 	if res.ExitCode != 0 {
-		st.runErr = fmt.Errorf("in-container `ctxloom profile materialize default --target %s --backend mock` exited %d under %s (argv: %s)",
+		st.runErr = fmt.Errorf("in-container `ctxloom materialize default --target %s --backend mock` exited %d under %s (argv: %s)",
 			root, res.ExitCode, rt.Name, strings.Join(res.Argv, " "))
 	}
 	st.runOutput = res.Output

@@ -30,10 +30,10 @@ Feature: Additional read and configuration commands
 
   # ctxloom's own MCP server is served by the running session's endpoint and
   # written into the SESSION's registry at start; nothing at rest carries it —
-  # not even the explicit project-side install. (Ruled 2026-09-21: sessions
-  # carry their surfaces; the stdio server no longer exists.)
-  Scenario: The explicit project-side install registers no ctxloom MCP server at rest
+  # not even an explicit materialize into the project. (Ruled 2026-09-21:
+  # sessions carry their surfaces; the stdio server no longer exists.)
+  Scenario: An explicit materialize registers no ctxloom MCP server at rest
       Given an initialized ctxloom project
-      When I run "ctxloom manage hooks install"
+      When I run "ctxloom materialize --yes"
       Then the command succeeds
       And the file ".mcp.json" registers no MCP server named "ctxloom"

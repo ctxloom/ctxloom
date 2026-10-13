@@ -69,8 +69,7 @@ All three delivery paths now carry it:
 
 | Path | Carries `DenyTools`? | Carries `Skills`? | Site |
 |---|---|---|---|
-| `ctxloom apply-hooks` | yes | **no** | `internal/adapters/operations/hooks.go:452` |
-| `ctxloom profile materialize` | yes | yes | `internal/adapters/operations/profile_materialize.go:129`, `:131` |
+| `ctxloom materialize` | yes | yes (when the skills kind is selected) | `internal/adapters/operations/materialize.go` (`materializePackage`) |
 
 **Whether the engine then *honours* it is a separate question** — the per-engine
 table above is the one that answers it. An engine whose surface constructors
@@ -125,7 +124,7 @@ it (`whiny-exclusive`).
 
 The gap is now DECLARED and reported: `operations.CapabilityLoss` (over `Definition.HookLosses`) turns a
 declaration into an `agent.SurfaceLoss` whenever the run actually carries
-hooks, materialize puts it in `MaterializeProfileResult.NotCarried` (so
+hooks, materialize puts it in each engine's `EngineOutcome.NotCarried` (so
 `--format json` sees it as data) and prints it beside the `wrote` lines, and
 `doctor`, `manage check` and `agent show` read the same predicate through
 `operations.CapabilityLoss`.
@@ -137,9 +136,8 @@ a single unsupported event. `TestDeliveryApproach_HookCarriageMatchesDeclaration
 every registered backend, so it cannot drift into claiming a loss that isn't real
 or missing one that is.
 
-**Still silent elsewhere:** `ctxloom run` and `manage hooks install` deliver to
-an engine with a declared loss and say nothing — neither calls
-`UncarriedSurfaces`.
+**Still silent elsewhere:** `ctxloom run` delivers to an engine with a
+declared loss and says nothing — it does not call `UncarriedSurfaces`.
 
 ## 6. Session history and transcripts
 

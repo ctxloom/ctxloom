@@ -259,7 +259,7 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice starts a session$`, func(c context.Context) error {
 		w := worldFrom(c)
-		_ = w.env.Run("profile", "materialize", "default", "--target", "out")
+		_ = w.env.Run("materialize", "default", "--target", "out", "--backend", "claude-code")
 		return nil
 	})
 

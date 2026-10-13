@@ -28,7 +28,7 @@ flowchart TD
     ROOT["composition root: cli rootPersistentPreRun → operations.ComposeSources(flags, environ, NoCompanions)"] --> SRC["configload.Sources<br/>+ RemoteBundleReaders · companions.Prober.ReaderSource · BundleVersionResolver injected"]
     SRC --> APP["operations.App — the one config.Owner, opened on first need"]
     APP -->|"config.Open"| GEN1["Snapshot gen 1"]
-    GEN1 -->|"consumers take *Snapshot / *Config"| USE["GetConfig · ResolveAgent · ApplyHooks{Cfg} · SyncDependencies · …"]
+    GEN1 -->|"consumers take *Snapshot / *Config"| USE["GetConfig · ResolveAgent · Materialize(cfg) · SyncDependencies · …"]
     APP -->|"Reload: after a pull batch (SyncDependencies) · after a scaffold (init, manage install) · once per spawn (prodSpawner.Resolve)"| GENN["Snapshot gen N+1"]
     APP -->|"Update(fn *Draft): lock · fresh Read · fn · saveLocked · Reload"| GENN
     GENN --> CAT["Catalog(): readers captured at Reload, resolved once on first use"]

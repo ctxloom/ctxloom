@@ -135,7 +135,7 @@ Feature: Engine switch day
   # `doctor` still learned nothing.
   #
   # The mechanism behind all three — operations.CapabilityLoss wraps the SAME
-  # backends.UncarriedSurfaces read `profile materialize` already performed
+  # backends.UncarriedSurfaces read `ctxloom materialize` already performed
   # (whiny-exclusive), against the resolved agent's ACTUAL backend and
   # profiles rather than a materialize target, read once per configured agent.
   # A whole-mechanism noHooksReason alone cannot catch a PER-EVENT gap, which

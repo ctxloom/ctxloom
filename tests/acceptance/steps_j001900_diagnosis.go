@@ -732,7 +732,7 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		// is single-machine. Probe the surfaces that would own a comparison.
 		j001900Probe(w, "profile", "show", "default", "--compare", bobFile)
 		j001900Probe(w, "doctor", "--compare", bobFile)
-		j001900Probe(w, "profile", "materialize", "default", "--diff", bobFile)
+		j001900Probe(w, "materialize", "default", "--diff", bobFile)
 		return nil
 	})
 

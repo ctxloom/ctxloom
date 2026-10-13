@@ -60,7 +60,7 @@ type Agent struct {
 	// Preference lives on the binding because it is a property of the CALLER,
 	// not of the engine. The engine's approach table is a CAPABILITY list whose
 	// first entry is only the at-rest default, and measured 2026-08-08 no
-	// single order there serves launch, `profile materialize` and at-rest
+	// single order there serves launch, `ctxloom materialize` and at-rest
 	// delivery at once. An agent is always LAUNCHED, which makes it the one
 	// caller that can safely prefer system-prompt — the approach that has no
 	// argv sink at rest and so cannot be any table's default.

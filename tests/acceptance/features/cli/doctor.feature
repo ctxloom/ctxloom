@@ -173,7 +173,7 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
       Then the command succeeds
       And the output contains "DOCTOR-CHECK-MCP-INVOCATION-g7"
       And the output contains ".mcp.json"
-      And the output contains "manage hooks install"
+      And the output contains "ctxloom materialize --release --surface mcp"
 
     # The paired negative: a report that warned on every project would be
     # indistinguishable from one that works, and would teach a user to skip the
@@ -195,8 +195,8 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
 
   Rule: A hook entry an older ctxloom left behind is found, and --fix removes only it
 
-    `manage hooks install` takes out only the entries this machine's ctxloom
-    recorded writing. An entry an older release wrote, or one committed with
+    `ctxloom materialize` (and its `--release`) takes out only the entries
+    this machine's ctxloom recorded writing. An entry an older release wrote, or one committed with
     the file from another machine, stays, and the engine runs it at every
     session start, where it fails: this ctxloom has no such subcommand. The
     rule is general rather than a list of retired names: any entry running a

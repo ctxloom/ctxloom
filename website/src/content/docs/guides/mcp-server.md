@@ -8,9 +8,9 @@ ctxloom exposes MCP (Model Context Protocol) tools to the agent it launches, so 
 
 The server is served by the running session. When `ctxloom run` starts a session, the session's runner serves an MCP endpoint and writes its URL and a bearer token into the session's own MCP registry, in the session home (Claude Code receives it on `--mcp-config`). The engine dials that endpoint directly.
 
-There is no `ctxloom` command that speaks the protocol, and nothing is registered in your project at rest: ctxloom injects its MCP only while a session is running. A Claude Code you launch directly, outside `ctxloom run`, does not get ctxloom's tools. `ctxloom manage hooks install` registers the MCP servers your bundles declare, but not ctxloom's own.
+There is no `ctxloom` command that speaks the protocol, and nothing is registered in your project at rest: ctxloom injects its MCP only while a session is running. A Claude Code you launch directly, outside `ctxloom run`, does not get ctxloom's tools. `ctxloom materialize` registers the MCP servers your bundles declare, but not ctxloom's own.
 
-If an old project `.mcp.json` still has a `ctxloom` entry that launches the binary, the engine starts and waits forever for a handshake that never arrives. `ctxloom doctor` flags this (`DOCTOR-CHECK-MCP-INVOCATION-g7`), and `ctxloom manage hooks install` rewrites the registry without it.
+If an old project `.mcp.json` still has a `ctxloom` entry that launches the binary, the engine starts and waits forever for a handshake that never arrives. `ctxloom doctor` flags this (`DOCTOR-CHECK-MCP-INVOCATION-g7`), and `ctxloom materialize --release --surface mcp --yes` takes it out when this machine's ctxloom recorded writing it; otherwise delete it by hand.
 
 ### Where the registration comes from
 

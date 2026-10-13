@@ -195,7 +195,7 @@ func ensureProjectWithEngine(w *World, label, engineType string) error {
 // exit 0 even when it withholds pending content — that is a warning, not a
 // failure — so only a read failure after the run is fatal here).
 func materializeDefault(w *World, target string) (string, error) {
-	_ = w.env.Run("profile", "materialize", "default", "--target", target)
+	_ = w.env.Run("materialize", "default", "--target", target, "--backend", "claude-code")
 	body, err := w.env.ReadFile(filepath.Join(target, "CLAUDE.md"))
 	if err != nil {
 		return "", fmt.Errorf("read materialized %s/CLAUDE.md (materialize output:\n%s): %w", target, w.env.LastOutput(), err)

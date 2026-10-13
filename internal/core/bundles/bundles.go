@@ -61,7 +61,7 @@ type Bundle struct {
 	Profiles map[string]BundleProfile `yaml:"profiles,omitempty"`
 
 	// Hooks shipped with this bundle (e.g. PostFileEdit plan-stamping).
-	// Hooks land in backend settings via ApplyHooks → ResolveBundleHooks.
+	// Hooks land in backend settings via a delivery (`ctxloom run`, `ctxloom materialize`) → ResolveBundleHooks.
 	// A remote-sourced bundle's hooks change only when its pin moves, and
 	// `deps upgrade` discloses every hook it would change before --yes.
 	Hooks BundleHooks `yaml:"hooks,omitempty"`

@@ -15,13 +15,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// TestApplyHooks_ResolvesTheDefaultProfilesOnce pins that one ApplyHooks —
-// `manage hooks install` with context regeneration — resolves the default
-// profile set ONCE: the regenerated context and every backend's settings are
-// written from one assembled package. Each resolution of the default set
+// TestMaterialize_ResolvesTheDefaultProfilesOnce pins that one engine's
+// materialize resolves the default profile set ONCE: its context, settings
+// and every other kind are written from one assembled package. Each resolution of the default set
 // reports a default profile that does not resolve (a KindRef finding), so the
 // count of those findings is the count of resolutions.
-func TestApplyHooks_ResolvesTheDefaultProfilesOnce(t *testing.T) {
+func TestMaterialize_ResolvesTheDefaultProfilesOnce(t *testing.T) {
 	ownRecordsDir(t)
 	resetStrictness(t)
 	tmpDir := t.TempDir()
@@ -36,12 +35,7 @@ func TestApplyHooks_ResolvesTheDefaultProfilesOnce(t *testing.T) {
 
 	mark := strictness.Checkpoint()
 	t.Cleanup(func() { strictness.Close(mark) })
-	_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
-		Backend:           "claude-code",
-		RegenerateContext: true,
-		Cfg:               cfg,
-		WorkDir:           tmpDir,
-	})
+	_, err := Materialize(context.Background(), engines.Registry(), cfg, MaterializeRequest{Engines: []string{"claude-code"}, Target: tmpDir})
 	require.NoError(t, err)
 
 	var resolutions int
@@ -50,5 +44,5 @@ func TestApplyHooks_ResolvesTheDefaultProfilesOnce(t *testing.T) {
 			resolutions++
 		}
 	}
-	assert.Equal(t, 1, resolutions, "one apply, one resolution of the default profile set")
+	assert.Equal(t, 1, resolutions, "one engine's materialize, one resolution of the default profile set")
 }

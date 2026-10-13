@@ -1,9 +1,9 @@
 package operations
 
 import (
-	"context"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engines"
@@ -35,27 +35,27 @@ func TestCapabilityLoss_SilenceOptOut(t *testing.T) {
 	}
 }
 
-// TestMaterializeProfile_SilenceOptOut pins the same switch on the path that
+// TestMaterialize_SilenceOptOut pins the same switch on the path that
 // PRINTS the "NOT carried" lines, since that is where a user meets it.
-func TestMaterializeProfile_SilenceOptOut(t *testing.T) {
+func TestMaterialize_SilenceOptOut(t *testing.T) {
 	loud, target := materializeHookFixture(t)
 
-	res, err := MaterializeProfile(context.Background(), engines.Registry(), loud, MaterializeProfileRequest{
-		Profiles: []string{"reviewer"}, Target: target, Backend: string(mock.NameLossy),
+	res, err := materializeOne(t, loud, MaterializeRequest{
+		Profiles: []string{"reviewer"}, Target: target, Engines: []string{string(mock.NameLossy)},
 	})
 	if err != nil {
-		t.Fatalf("MaterializeProfile (loud): %v", err)
+		t.Fatalf("Materialize (loud): %v", err)
 	}
 	if len(res.NotCarried) == 0 {
 		t.Fatal("precondition: the loud arm must report the declared loss")
 	}
 
 	quiet, qtarget := materializeHookFixture(t)
-	res2, err := MaterializeProfile(context.Background(), engines.Registry(), silencedFrom(t, quiet), MaterializeProfileRequest{
-		Profiles: []string{"reviewer"}, Target: qtarget, Backend: string(mock.NameLossy),
+	res2, err := materializeOne(t, silencedFrom(t, quiet), MaterializeRequest{
+		Profiles: []string{"reviewer"}, Target: qtarget, Engines: []string{string(mock.NameLossy)},
 	})
 	if err != nil {
-		t.Fatalf("MaterializeProfile (silenced): %v", err)
+		t.Fatalf("Materialize (silenced): %v", err)
 	}
 	if len(res2.NotCarried) != 0 {
 		t.Fatalf("silenced materialize still reported loss: %v", res2.NotCarried)

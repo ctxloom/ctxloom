@@ -216,7 +216,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the output contains "ctxloom deps check"
       And the output does not contain "ctxloom deps upgrade"
       And the output does not contain "already installed"
-      When I run "ctxloom profile materialize dev --target out"
+      When I run "ctxloom materialize dev --target out --backend claude-code"
       Then the command succeeds
       And the file "out/CLAUDE.md" contains "Demo fragment content."
       And the file "out/CLAUDE.md" does not contain "MARKER-SKIPPED-PULL-never-seen"
@@ -271,7 +271,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the output contains "could not be reached"
       And the output does not contain "no longer published"
       And the file ".ctxloom/lock.yaml" contains "//bundles/demo"
-      When I run "ctxloom profile materialize dev --target out"
+      When I run "ctxloom materialize dev --target out --backend claude-code"
       Then the file "out/CLAUDE.md" contains "Demo fragment content."
 
     # The lockfile surviving is not enough on its own: a pull that pruned the
@@ -580,7 +580,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
         """
       Then the command succeeds
       And the file ".ctxloom/lock.yaml" contains "held: true"
-      When I run "ctxloom profile materialize dev --target out"
+      When I run "ctxloom materialize dev --target out --backend claude-code"
       Then the file "out/CLAUDE.md" contains "Demo fragment content."
       And the file "out/CLAUDE.md" does not contain "version two"
 
@@ -615,14 +615,14 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
-      And I run "ctxloom profile materialize dev --target before"
+      And I run "ctxloom materialize dev --target before --backend claude-code"
       Then the file "before/CLAUDE.md" contains "Demo fragment content."
       When the remote "origin" changes fragment "demo-frag" to "MARKER-BRAVO-second-edition"
       And Alice advances the pin to the revised content:
         """
         ctxloom deps upgrade --yes
         """
-      And I run "ctxloom profile materialize dev --target after"
+      And I run "ctxloom materialize dev --target after --backend claude-code"
       Then the command succeeds
       And the file "after/CLAUDE.md" contains "MARKER-BRAVO-second-edition"
       And the file "after/CLAUDE.md" does not contain "Demo fragment content."
@@ -641,7 +641,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the remote "origin"'s cached clone is forced back to its first commit
       When Alice materializes after the local checkout went stale:
         """
-        ctxloom profile materialize dev --target out
+        ctxloom materialize dev --target out --backend claude-code
         """
       Then the command succeeds
       And the file "out/CLAUDE.md" contains "MARKER-STALE-CHECKOUT-current"

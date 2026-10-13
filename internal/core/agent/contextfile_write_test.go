@@ -83,7 +83,7 @@ func TestWriteContextFile(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, hash)
 
-		content, err := agent.ReadContextFile(tmpDir, hash)
+		content, err := readContextFile(tmpDir, hash)
 		require.NoError(t, err)
 		assert.Contains(t, content, "Valid content")
 		assert.Contains(t, content, "Another valid")
@@ -134,7 +134,7 @@ func TestWriteContextFile(t *testing.T) {
 		hash, err := agent.WriteContextFile(tmpDir, fragments)
 		require.NoError(t, err)
 
-		content, err := agent.ReadContextFile(tmpDir, hash)
+		content, err := readContextFile(tmpDir, hash)
 		require.NoError(t, err)
 
 		count := countOccurrences(content, "# Go Testing")
@@ -162,7 +162,7 @@ func TestWriteContextFile(t *testing.T) {
 		hash, err := agent.WriteContextFile(tmpDir, fragments)
 		require.NoError(t, err)
 
-		content, err := agent.ReadContextFile(tmpDir, hash)
+		content, err := readContextFile(tmpDir, hash)
 		require.NoError(t, err)
 
 		assert.Equal(t, 2, countOccurrences(content, "# Go Testing"),
@@ -182,7 +182,7 @@ func TestWriteContextFile(t *testing.T) {
 		hash, err := agent.WriteContextFile(tmpDir, fragments)
 		require.NoError(t, err)
 
-		content, err := agent.ReadContextFile(tmpDir, hash)
+		content, err := readContextFile(tmpDir, hash)
 		require.NoError(t, err)
 
 		assert.Contains(t, content, "Content A")
@@ -266,37 +266,12 @@ func TestWriteContextFile_SizeWarnings(t *testing.T) {
 }
 
 // =============================================================================
-// Context File Reading Tests
-// =============================================================================
-// Reading is used by the hook to retrieve context for injection.
-
-func TestReadContextFile(t *testing.T) {
-	t.Run("reads existing file", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		fragments := []*agent.Fragment{{Content: "Test content"}}
-
-		hash, err := agent.WriteContextFile(tmpDir, fragments)
-		require.NoError(t, err)
-
-		content, err := agent.ReadContextFile(tmpDir, hash)
-		require.NoError(t, err)
-		assert.Equal(t, "Test content", content)
-	})
-
-	// A reaped or never-written context file used to read as ("", nil) —
-	// indistinguishable from "no context configured". Callers are only ever
-	// here because a hash exists, so the file's absence is a real fact they
-	// must be able to report.
-	t.Run("missing file is reported, not silently empty", func(t *testing.T) {
-		tmpDir := t.TempDir()
-
-		content, err := agent.ReadContextFile(tmpDir, "nonexistent")
-		require.Error(t, err, "a missing context file must be distinguishable from empty context")
-		assert.ErrorIs(t, err, os.ErrNotExist)
-		assert.Empty(t, content)
-	})
-}
-
-// =============================================================================
 // Read-and-Delete Tests
 // =============================================================================
+
+// readContextFile reads the content-addressed context file WriteContextFile
+// wrote under workDir.
+func readContextFile(workDir, hash string) (string, error) {
+	b, err := os.ReadFile(filepath.Join(workDir, agent.SCMContextSubdir, hash+".md")) //nolint:gosec // a test temp dir
+	return string(b), err
+}

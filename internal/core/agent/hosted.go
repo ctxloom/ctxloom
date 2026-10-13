@@ -27,7 +27,7 @@ type Hosted interface {
 	// ctxloom's wiring in the engine's own settings files.
 	SettingsReader(SettingsOptions) SettingsReader
 	// HookGlobalScope is the project/global settings-path collision guard
-	// `manage hooks install` applies; false for an engine whose global path
+	// `ctxloom materialize` applies; false for an engine whose global path
 	// never collapses onto the project path.
 	HookGlobalScope() (HookGlobalScope, bool)
 }

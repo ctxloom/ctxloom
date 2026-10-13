@@ -14,7 +14,7 @@ import (
 )
 
 // This file covers the USER-FACING half of the silent-hook-drop finding:
-// `profile materialize` telling someone, at the terminal, that the engine
+// `ctxloom materialize` telling someone, at the terminal, that the engine
 // they picked cannot carry part of what they just materialized.
 //
 // The unit tests (internal/adapters/operations) prove the loss reaches the result; these

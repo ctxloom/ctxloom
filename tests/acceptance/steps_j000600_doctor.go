@@ -11,7 +11,7 @@
 // design brief this journey was built from assumed codex's skills surface
 // is GLOBAL on every path ($CODEX_HOME/skills) and that a `profile
 // materialize --backend codex` invocation would need $CODEX_HOME redirected
-// to observe it. Live-verified false: on the static `profile materialize`
+// to observe it. Live-verified false: on the static `ctxloom materialize`
 // CLI path, the engine's own NewSurfaces binds Skills to
 // a closure with no homeOverride, so it cell-scopes under --target exactly
 // like its Commands surface already does (j000400_multi_engine.feature's own
@@ -70,7 +70,7 @@ project's configured remote, and suggest an upgrade if it is behind.
 
 Report, per engine actually in use, whether hooks and MCP are delivered per
 session (the healthy default) or also registered in the project (written by
-` + "`ctxloom manage hooks install`" + `).
+` + "`ctxloom materialize`" + `).
 `
 
 func j000600Of(w *World) *j000600State {
@@ -114,7 +114,7 @@ func registerJ000600Steps(ctx *godog.ScenarioContext) {
 		j000600 := j000600Of(w)
 		j000600.engine = engine
 		j000600.target = "out-" + engine
-		return runOK(w, "profile", "materialize", profile, "--target", j000600.target, "--backend", engine)
+		return runOK(w, "materialize", profile, "--target", j000600.target, "--backend", engine)
 	})
 
 	// engineSkillMDPath returns the --target-relative path to the
@@ -124,7 +124,7 @@ func registerJ000600Steps(ctx *godog.ScenarioContext) {
 	// codex has NO ROW, and the reason is worth stating because it changed.
 	// codex's skills surface is GLOBAL ($CODEX_HOME/skills —
 	// internal/codex/skillfiles.go's WriteSkillFiles), and the static
-	// `profile materialize` path used to cell-scope a project-root home to give
+	// `ctxloom materialize` path used to cell-scope a project-root home to give
 	// it somewhere to land. S7 ended that: there is no durable project home, so
 	// a harpless materialize writes no skill package for codex at all
 	// (internal/codex/declared_absence.go). A codex row here would be asserting

@@ -14,7 +14,7 @@ import (
 )
 
 // atRest is claude's project at dir on fs, delivered at rest through the
-// claims path — what `manage hooks install` and `uninstall` run.
+// claims path — what `ctxloom materialize` and its `--release` run.
 func atRest(t *testing.T, fs afero.Fs, dir string) *atrest.Project {
 	t.Helper()
 	kind, err := Build()
@@ -23,7 +23,7 @@ func atRest(t *testing.T, fs afero.Fs, dir string) *atrest.Project {
 }
 
 // install delivers hooks and servers into p with the statusline managed, as
-// `manage hooks install` does by default.
+// `ctxloom materialize` does by default.
 func install(t *testing.T, p *atrest.Project, hooks *wire.HooksConfig, servers map[string]wire.MCPServer) {
 	t.Helper()
 	require.NoError(t, p.Install(managedPackage(hooks, servers)))

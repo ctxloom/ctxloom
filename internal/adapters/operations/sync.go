@@ -42,7 +42,7 @@ type SyncDependenciesRequest struct {
 	// Lock generates/updates the lockfile after sync.
 	Lock bool `json:"lock"`
 
-	// ApplyHooks applies hooks after sync.
+	// ApplyHooks refreshes the at-rest delivery (Materialize) after sync.
 	ApplyHooks bool `json:"apply_hooks"`
 
 	// Testing injection points

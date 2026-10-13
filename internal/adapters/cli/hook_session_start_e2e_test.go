@@ -36,9 +36,9 @@ func runSessionStartIn(t *testing.T, marker, payload string) claudeAnswer {
 		[]byte("description: seeded by the test\n"), 0o644))
 	hash, err := agent.WriteContextFile(root, []*agent.Fragment{{Name: "rules", Content: marker}})
 	require.NoError(t, err)
-	cached, err := agent.ReadContextFile(root, hash)
+	cached, err := os.ReadFile(filepath.Join(root, agent.SCMContextSubdir, hash+".md"))
 	require.NoError(t, err)
-	require.Contains(t, cached, marker, "precondition: the project's context is on disk where a context hook would find it")
+	require.Contains(t, string(cached), marker, "precondition: the project's context is on disk where a context hook would find it")
 	testApp(t, configload.WithAppDir(appDir))
 	t.Chdir(root)
 

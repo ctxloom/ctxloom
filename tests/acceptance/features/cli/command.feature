@@ -18,7 +18,7 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
   # lands in (.claude/commands/, $CODEX_HOME/prompts/, a SKILL.md package for
   # the engines with no slash-command idiom of their own) is per-engine
   # knowledge this noun owns by SUBJECT, even though the command that writes
-  # it is `profile materialize` — so the full three-engine matrix is built
+  # it is `ctxloom materialize` — so the full three-engine matrix is built
   # HERE, never sampled down to one engine, which would prove strictly less.
   #
   # cli/manage.feature's own "shipped commands in its own idiom" scenario

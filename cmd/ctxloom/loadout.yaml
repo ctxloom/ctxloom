@@ -17,8 +17,8 @@
 # wire.ServedBySessionEndpoint) — there is no command to launch. The runner
 # binds the session's endpoint and delivery renders this entry through the
 # engine's dynamic approach as that endpoint's URL and bearer, into the
-# session's own registry, at session start; at rest (`manage hooks install`,
-# a profile materialize) there is no session to inject and the entry renders
+# session's own registry, at session start; at rest (`ctxloom materialize`)
+# there is no session to inject and the entry renders
 # nothing. ctxloom injects its MCP only while it is running. A session that
 # wants ctxloom's tools off excludes the item (`exclude_mcp: [ctxloom]`) or
 # rejects it.

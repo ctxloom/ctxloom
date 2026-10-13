@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -340,16 +339,16 @@ func indentYAML(s string) string {
 	return b.String()
 }
 
-// ---- the SECOND accumulation point: regenerateContext → the context file ----
+// ---- the SECOND accumulation point: the at-rest context file ----
 //
-// regenerateContext assembles the SessionStart-injected context file through
-// the same assembly, companion delivery included. It must obey the same
-// rule, and its output is a file, so these assert on the bytes actually
-// written — the thing a session loads.
+// Materialize writes the engine's context file through the same assembly,
+// companion delivery included. It must obey the same rule, and its output is
+// a file, so these assert on the bytes actually written — the thing an agent
+// launched there loads.
 
-// TestIngest_RegenerateContext_CompanionFragmentAlsoSelectedByRefIsWrittenOnce
-// is the provoking case on the SessionStart path.
-func TestIngest_RegenerateContext_CompanionFragmentAlsoSelectedByRefIsWrittenOnce(t *testing.T) {
+// TestIngest_MaterializedContext_CompanionFragmentAlsoSelectedByRefIsWrittenOnce
+// is the provoking case on the at-rest path.
+func TestIngest_MaterializedContext_CompanionFragmentAlsoSelectedByRefIsWrittenOnce(t *testing.T) {
 	body := companionIsolationContent(t)
 	appDir, workDir := regenTestApp(t)
 
@@ -360,23 +359,18 @@ func TestIngest_RegenerateContext_CompanionFragmentAlsoSelectedByRefIsWrittenOnc
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	}), isolationCompanion(t))
 
-	hash, err := regenerateContext(defaultPackage(t, cfg), workDir)
-	require.NoError(t, err)
-	require.NotEmpty(t, hash)
-
-	written, err := agent.ReadContextFile(workDir, hash)
-	require.NoError(t, err)
+	written := materializedContext(t, cfg, workDir)
 	require.Contains(t, written, body, "sanity: the isolation content must reach the context file")
 	assert.Equal(t, 1, strings.Count(written, body),
-		"the SessionStart context file must carry an injected-AND-selected fragment once")
+		"the at-rest context file must carry an injected-AND-selected fragment once")
 }
 
-// TestIngest_RegenerateContext_TwoDifferentFragmentsWithIdenticalContentBothSurvive
+// TestIngest_MaterializedContext_TwoDifferentFragmentsWithIdenticalContentBothSurvive
 // is the case the previous content-hash dedup got wrong all the way to the
 // delivered file: two separately authored fragments that happen to say the same
 // thing were collapsed to one, and the second publisher's item never reached
 // the session.
-func TestIngest_RegenerateContext_TwoDifferentFragmentsWithIdenticalContentBothSurvive(t *testing.T) {
+func TestIngest_MaterializedContext_TwoDifferentFragmentsWithIdenticalContentBothSurvive(t *testing.T) {
 	appDir, workDir := regenTestApp(t)
 	writeRegenBundle(t, appDir, "twins", `version: "1.0"
 fragments:
@@ -396,22 +390,18 @@ fragments:
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	})
 
-	hash, err := regenerateContext(defaultPackage(t, cfg), workDir)
-	require.NoError(t, err)
-	written, err := agent.ReadContextFile(workDir, hash)
-	require.NoError(t, err)
+	written := materializedContext(t, cfg, workDir)
 
 	assert.Equal(t, 2, strings.Count(written, "IDENTICAL-TWIN-BODY"),
 		"two different fragments that merely say the same thing must BOTH reach the context file")
 }
 
-// TestIngest_RegenerateContext_OrderIsUnchangedByTheDuplicate is the order
-// proof on the SessionStart path: the context file is content-addressed, so an
-// identical hash is proof the bytes did not move.
-func TestIngest_RegenerateContext_OrderIsUnchangedByTheDuplicate(t *testing.T) {
+// TestIngest_MaterializedContext_OrderIsUnchangedByTheDuplicate is the order
+// proof on the at-rest path: identical bytes are proof nothing moved.
+func TestIngest_MaterializedContext_OrderIsUnchangedByTheDuplicate(t *testing.T) {
 	body := companionIsolationContent(t)
 
-	regen := func(t *testing.T, refs []config.FragmentRef) (hash, written string) {
+	regen := func(t *testing.T, refs []config.FragmentRef) string {
 		t.Helper()
 		appDir, workDir := regenTestApp(t)
 		writeRegenBundle(t, appDir, "dev", `version: "1.0"
@@ -427,18 +417,14 @@ fragments:
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 		}), isolationCompanion(t))
-		h, err := regenerateContext(defaultPackage(t, cfg), workDir)
-		require.NoError(t, err)
-		w, err := agent.ReadContextFile(workDir, h)
-		require.NoError(t, err)
-		return h, w
+		return materializedContext(t, cfg, workDir)
 	}
 
-	withoutHash, without := regen(t, []config.FragmentRef{
+	without := regen(t, []config.FragmentRef{
 		{Name: "dev#fragments/alpha"},
 		{Name: "dev#fragments/omega"},
 	})
-	withHash, with := regen(t, []config.FragmentRef{
+	with := regen(t, []config.FragmentRef{
 		{Name: "dev#fragments/alpha"},
 		{Name: companionIsolationFragmentRef},
 		{Name: "dev#fragments/omega"},
@@ -447,8 +433,6 @@ fragments:
 	require.Contains(t, without, body, "sanity: the companion fragment is delivered even without the explicit selection")
 	assert.Equal(t, without, with,
 		"selecting a fragment that is ALREADY injected must not move one byte of the context file")
-	assert.Equal(t, withoutHash, withHash,
-		"the context file is content-addressed: an unchanged hash is an unchanged file")
 }
 
 // TestIngest_SameItemWithDifferentContentBothSurvive is the case that makes the
@@ -559,12 +543,12 @@ func TestIngest_CompanionFragmentsAreIngestedAfterSelectedContent(t *testing.T) 
 		"the unconditional companion delivery must sit AFTER selected content, which is what makes the selection the occurrence that survives a collision")
 }
 
-// TestIngest_RegenerateContext_CompanionFragmentsAreIngestedAfterSelectedContent
+// TestIngest_MaterializedContext_CompanionFragmentsAreIngestedAfterSelectedContent
 // is TestIngest_CompanionFragmentsAreIngestedAfterSelectedContent at the second
-// accumulation point. The two paths must agree: a SessionStart context file
+// accumulation point. The two paths must agree: an at-rest context file
 // whose precedence differs from what `ctxloom run` assembles is two different
 // sessions from one configuration.
-func TestIngest_RegenerateContext_CompanionFragmentsAreIngestedAfterSelectedContent(t *testing.T) {
+func TestIngest_MaterializedContext_CompanionFragmentsAreIngestedAfterSelectedContent(t *testing.T) {
 	body := companionIsolationContent(t)
 	appDir, workDir := regenTestApp(t)
 	writeRegenBundle(t, appDir, "dev", `version: "1.0"
@@ -580,10 +564,7 @@ fragments:
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	}), isolationCompanion(t))
 
-	hash, err := regenerateContext(defaultPackage(t, cfg), workDir)
-	require.NoError(t, err)
-	written, err := agent.ReadContextFile(workDir, hash)
-	require.NoError(t, err)
+	written := materializedContext(t, cfg, workDir)
 
 	alpha := strings.Index(written, "ALPHA-BODY")
 	iso := strings.Index(written, body)

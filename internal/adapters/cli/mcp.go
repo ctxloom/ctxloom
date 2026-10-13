@@ -85,7 +85,7 @@ var errMCPBareIsNotTheServer = fmt.Errorf(
 		"and a listing delivered to a client waiting for JSON-RPC is indistinguishable from a hang. " +
 		"ctxloom has no stdio MCP server: its tools are served by a running `ctxloom run` session's endpoint, " +
 		"which the session's own registry names — remove this client's configured ctxloom command " +
-		"(`ctxloom manage hooks install` rewrites the project's registry), or run `ctxloom mcp server list` for the listing as data")
+		"(`ctxloom materialize --release --surface mcp --yes` takes out an entry an earlier materialize wrote), or run `ctxloom mcp server list` for the listing as data")
 
 // mcpServerListCmd is the canonical spine's `list` for the MCP-server noun.
 var mcpServerListCmd = &cobra.Command{

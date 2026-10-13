@@ -8,9 +8,8 @@
 // Both reuse steps_j000400.go's JSON parsing (j000400ReadJSON,
 // j000400HookCommandsFrom) rather than re-deriving it: the shape of a
 // generated hooks table or mcpServers map is the SAME fact whether the file
-// under test came from `profile materialize` (j000400's own steps) or from
-// `manage install` / `manage hooks install` / `manage uninstall` (this
-// file's).
+// under test came from `ctxloom materialize` (j000400's own steps and this
+// file's) or from `manage install` / `manage uninstall` (this file's).
 package acceptance
 
 import (

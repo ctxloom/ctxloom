@@ -90,13 +90,13 @@ func assertCellDelivers(t *testing.T, ctx context.Context, rt containercell.Runt
 		// send the user-level config resolution somewhere unwritable and the
 		// run would fail rather than deliver, which is the honest outcome.
 		Env:  map[string]string{"HOME": filepath.Join(root, "home")},
-		Args: []string{"profile", "materialize", "default", "--target", target, "--backend", "mock"},
+		Args: []string{"materialize", "default", "--target", target, "--backend", "mock"},
 	})
 	if err != nil {
 		t.Fatalf("the %s cell could not run: %v", rt.Name, err)
 	}
 	if res.ExitCode != 0 {
-		t.Fatalf("in-container `ctxloom profile materialize` exited %d under %s\nargv: %s\noutput:\n%s",
+		t.Fatalf("in-container `ctxloom materialize` exited %d under %s\nargv: %s\noutput:\n%s",
 			res.ExitCode, rt.Name, strings.Join(res.Argv, " "), res.Output)
 	}
 

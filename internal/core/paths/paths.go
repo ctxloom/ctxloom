@@ -914,13 +914,11 @@ func Layout() []Entry {
 		// session — so two sessions that assemble the same context share one
 		// file, which is a cache's defining property rather than an accident.
 		//
-		// The Rebuild command names `ctxloom manage hooks install` rather than
-		// `ctxloom run`, though a run rewrites it too: there is no `ctxloom
-		// context` command to point at, and of the two writers only the hook
-		// apply is a thing a user can run ON PURPOSE to get the directory back.
+		// Its one writer is a launch: there is no `ctxloom context` command
+		// to point at, so the Rebuild names the launch that rewrites it.
 		{
 			Rel: filepath.Join(AppDirName, CacheDir, ContextCacheDir), Tier: TierDerived,
-			Rebuild: "ctxloom manage hooks install (the next ctxloom run also rewrites it)",
+			Rebuild: "ctxloom run (a launch rewrites it)",
 		},
 		{
 			Rel: filepath.Join(AppDirName, ProjectIDFileName), Tier: TierLocal,

@@ -27,8 +27,8 @@ func emptyContextMaterializeFixture(t *testing.T) (*config.Config, string) {
 	}), target
 }
 
-// TestMaterializeProfile_RefusesEmptyAssembledContext pins this
-// project's signature silent no-op: measured pre-fix, MaterializeProfile
+// TestMaterialize_RefusesEmptyAssembledContext pins this
+// project's signature silent no-op: measured pre-fix, materialize
 // returned a nil error, reported Wrote: [context mcp settings commands skills]
 // — naming the context surface — and wrote NO CLAUDE.md at all. Zero bytes, a
 // success message, and a --target tree whose entire specialization is missing.
@@ -36,16 +36,17 @@ func emptyContextMaterializeFixture(t *testing.T) (*config.Config, string) {
 // every native surface is built from" and "the one HARD-error surface"; an
 // assembly that resolves to nothing is a failed assembly, exactly as
 // the launch resolver rules for a named profile set that assembles to nothing.
-func TestMaterializeProfile_RefusesEmptyAssembledContext(t *testing.T) {
+func TestMaterialize_RefusesEmptyAssembledContext(t *testing.T) {
 	cfg, target := emptyContextMaterializeFixture(t)
 
 	asm, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profiles: []string{"reviewer"}})
 	require.NoError(t, err)
 	require.Empty(t, asm.Context, "the fixture must genuinely reach an empty assembled context")
 
-	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
+	res, err := Materialize(context.Background(), engines.Registry(), cfg, MaterializeRequest{
 		Profiles: []string{"reviewer"},
 		Target:   target,
+		Explicit: true,
 	})
 	require.Error(t, err, "materializing a named profile set that assembles to nothing must fail loudly")
 	assert.Nil(t, res)

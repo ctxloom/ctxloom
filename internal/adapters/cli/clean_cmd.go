@@ -42,8 +42,8 @@ var cleanYes bool
 // clean is not uninstall: what it takes comes back on the next run. A run
 // never writes the project's integration surfaces (hooks, statusline, MCP
 // registration, generated command files); only `ctxloom materialize` (and
-// the post-sync refresh that runs it), `manage hooks install` or `profile
-// materialize` do, so what `manage uninstall` removes stays gone.
+// the post-sync refresh that runs it) does, so what `manage uninstall`
+// removes stays gone.
 var cleanCmd = &cobra.Command{
 	Use:   "clean",
 	Short: "Remove this project's regenerable cache, keeping everything a clone cannot restore",

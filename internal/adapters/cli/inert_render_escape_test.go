@@ -114,9 +114,9 @@ func TestPublisherDisplayPaths_ControlBytesAreEscaped(t *testing.T) {
 			}, false))
 			return buf.String()
 		}},
-		{"profile materialize --diff", func(t *testing.T) string {
+		{"materialize --diff", func(t *testing.T) string {
 			var buf bytes.Buffer
-			require.NoError(t, renderMaterializeDiff(&buf, "p", profileMaterializeDiffJSON{
+			require.NoError(t, renderMaterializeDiff(&buf, "p", materializeDiffJSON{
 				ComparedTo: "theirs.md", Diff: "--- a\n+++ b\n-" + h + "\n+" + h + "\n",
 			}))
 			return buf.String()

@@ -15,7 +15,7 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
 
   # WHERE THE BOUNDARY FALLS, and it is not where it first looks. MATERIALIZING
   # a skill into an engine's native directory is not a `skill` verb at all — it
-  # is `profile materialize`, and the per-engine matrix that proves it lives in
+  # is `ctxloom materialize`, and the per-engine matrix that proves it lives in
   # j000600_agent_skill.feature across all five engines. A claude-only copy of that
   # matrix used to sit in this file (D6 in the suite-unification plan); it was
   # strictly weaker than j000600's, asserted nothing j000600 does not, and is gone. What
@@ -93,7 +93,7 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
       And I run "ctxloom skill create vault planner -d SKILL-MARKER-planner-1a2b3c"
       And a profile "studio" with bundle "vault"
       And profile "studio" curates skill "vault#skills/reviewer"
-      When I run "ctxloom profile materialize studio --target out-curated --backend claude-code"
+      When I run "ctxloom materialize studio --target out-curated --backend claude-code"
       Then "out-curated/.claude/skills/reviewer/SKILL.md" carries the marker "SKILL-MARKER-reviewer-9f3c21"
       And "out-curated/.claude/skills/planner" does not exist
 
@@ -117,14 +117,14 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
     Where a skill LANDS is skill-specific knowledge — each engine names
     the folder differently and one of them is not even pluralised — so it
     belongs to this noun, even though the command that triggers it is
-    `profile materialize`. The trigger is not the subject.
+    `ctxloom materialize`. The trigger is not the subject.
 
     # PATH CORRECTION vs the command surface (j000400_multi_engine.feature's own
     # table): a skill is NOT the same directory a flat command file lands in.
     # Verified against each engine's own skillfiles.go (see
     # steps_j000600_doctor.go's engineSkillMDPath doc for the full story):
     #
-    #   | engine      | skill surface (via `profile materialize`) | scope       |
+    #   | engine      | skill surface (via `ctxloom materialize`) | scope       |
     #   |-------------|---------------------------------------------|-------------|
     #   | claude-code | .claude/skills/<name>/SKILL.md              | project     |
 

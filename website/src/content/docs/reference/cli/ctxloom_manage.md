@@ -52,8 +52,8 @@ ctxloom manage [flags]
 * [ctxloom](/reference/cli/ctxloom/)	 - Assemble context for your AI coding assistant and launch it
 * [ctxloom manage check](/reference/cli/ctxloom_manage_check/)	 - Show what ctxloom has wired into this project
 * [ctxloom manage gitignore](/reference/cli/ctxloom_manage_gitignore/)	 - Maintain ctxloom's .gitignore entries
-* [ctxloom manage hooks](/reference/cli/ctxloom_manage_hooks/)	 - Install, uninstall, or inspect ctxloom backend hooks
+* [ctxloom manage hooks](/reference/cli/ctxloom_manage_hooks/)	 - Inspect ctxloom backend hooks
 * [ctxloom manage install](/reference/cli/ctxloom_manage_install/)	 - Scaffold .ctxloom and git-ignore its private state
 * [ctxloom manage statusline](/reference/cli/ctxloom_manage_statusline/)	 - Enable or disable ctxloom's HUD statusline
-* [ctxloom manage uninstall](/reference/cli/ctxloom_manage_uninstall/)	 - Remove ctxloom's hooks, statusline, MCP entry, and command files
+* [ctxloom manage uninstall](/reference/cli/ctxloom_manage_uninstall/)	 - Remove what ctxloom delivered into the project, for every engine
 

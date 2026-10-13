@@ -38,22 +38,15 @@ func fullPackage(t *testing.T) composite.Package {
 	return pkg
 }
 
-// TestPlanFor_ReproducesProjectPlanAtTheProjectRoot (materialize test 52,
-// characterization): over a project-only cell, nil roots and nil kinds,
-// PlanFor is ProjectPlan, for every engine shape; with kinds, the entries
-// and losses outside them are dropped.
-func TestPlanFor_ReproducesProjectPlanAtTheProjectRoot(t *testing.T) {
+// TestPlanFor_KindsScopeTheProjectRootPlan (materialize test 52): over a
+// project-only cell with nil roots, the entries and losses outside the
+// given kinds are dropped, for every engine shape.
+func TestPlanFor_KindsScopeTheProjectRootPlan(t *testing.T) {
 	pkg := fullPackage(t)
 	paths := present.ProjectOnHost("/p").Paths()
 	for name, root := range planEngines(t) {
 		t.Run(name, func(t *testing.T) {
 			items := pkg.EngineItems(root.Name)
-			want, err := delivery.ProjectPlan(root, items, "/p")
-			require.NoError(t, err)
-			got, err := delivery.PlanFor(root, items, paths, nil, nil, false)
-			require.NoError(t, err)
-			require.Equal(t, want, got)
-
 			scoped, err := delivery.PlanFor(root, items, paths, nil, []present.Kind{present.Context, present.Skills}, false)
 			require.NoError(t, err)
 			var kinds []present.Kind
@@ -69,7 +62,7 @@ func TestPlanFor_ReproducesProjectPlanAtTheProjectRoot(t *testing.T) {
 }
 
 // TestPlanFor_AcceptsTheLossOfEveryUncarriedKind: a kind the Definition
-// does not carry is an accepted loss, never a refusal — the rule ProjectPlan
+// does not carry is an accepted loss, never a refusal — the rule the at-rest planner
 // and the launch preference both stated — and a kinds filter drops a loss
 // outside it.
 func TestPlanFor_AcceptsTheLossOfEveryUncarriedKind(t *testing.T) {
@@ -130,7 +123,7 @@ func TestTargetFor_IsTheOneTargetConstructor(t *testing.T) {
 
 	fam := delivery.ProjectWriterFor("mock")
 	project := delivery.TargetFor(present.ProjectOnHost("/p"), rec, fam, delivery.AllKinds())
-	require.Equal(t, delivery.ProjectTarget("/p", rec).Root, project.Root)
+	require.Equal(t, present.ProjectOnHost("/p"), project.Root)
 	require.Len(t, project.Writers(), 6)
 	require.Equal(t, fam.Of(present.MCP), project.Writers()[1])
 }

@@ -108,7 +108,7 @@ of them.
 **Fix:** start the session with `ctxloom run`. For a Claude Code you launch
 yourself, write a profile's context, hooks and commands into a directory:
 ```bash
-ctxloom profile materialize default --target .
+ctxloom materialize default --target .
 ```
 
 ### Nothing Selected

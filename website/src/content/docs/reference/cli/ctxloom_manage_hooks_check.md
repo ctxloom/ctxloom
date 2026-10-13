@@ -34,5 +34,5 @@ ctxloom manage hooks check [flags]
 
 ### SEE ALSO
 
-* [ctxloom manage hooks](/reference/cli/ctxloom_manage_hooks/)	 - Install, uninstall, or inspect ctxloom backend hooks
+* [ctxloom manage hooks](/reference/cli/ctxloom_manage_hooks/)	 - Inspect ctxloom backend hooks
 

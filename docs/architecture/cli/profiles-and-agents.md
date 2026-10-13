@@ -12,7 +12,7 @@ resolution logic itself lives there, not here.
 
 ```mermaid
 flowchart TD
-    subgraph prof["profile.go / profile_materialize.go"]
+    subgraph prof["profile.go"]
         PL["profile list"] --> RPL["renderProfileList"]
         PS["profile show &lt;name&gt;"] --> RPS["renderProfileShow → writeBulletList"]
         PC["profile create &lt;name&gt;"] --> RPC["runProfileCreate → profileCreateDirs → printProfileCreated"]
@@ -20,8 +20,6 @@ flowchart TD
         PM["profile modify"] --> UPR[["operations.UpdateProfile"]]
         PE["profile edit"] --> EPF["editProfileFile — edit_helpers.go"]
         PX["profile export / import"]
-        PMAT["profile materialize &lt;profile&gt;..."] --> GATES["newPhaseGates(App().Strictness)"] --> MP[["operations.MaterializeProfile"]] --> CLOSE["gates.close(PhaseStartup) → exit 3 on a fatal finding"]
-        PMAT -->|"--diff"| PMD["runProfileMaterializeDiff"]
     end
 
     subgraph mat["materialize.go"]
@@ -61,17 +59,8 @@ profiles" — the reason it is not a plain operations call. `profile modify`
 folds its add/remove flag slices into one `operations.UpdateProfile` request.
 `profile edit` is an `$EDITOR` round-trip via `editProfileFile`.
 
-`profile materialize` is the model command in this package: it opens the
-strictness gates (`newPhaseGates` over `App().Strictness`), calls
-`operations.MaterializeProfile`, closes the startup phase (exit 3 on a fatal
-surface-write finding unless `--degraded` downgrades it — mirroring how `run`
-gates its own startup findings), and renders through an `errwriter.Writer`.
-`operations.MaterializeProfile` rejects empty `Profiles` or `Target`, and cobra
-enforces `MinimumNArgs(1)` — so there is no path to a silent zero-payload
-materialize. `--diff` compares instead of writing.
-
-`ctxloom materialize` (`materialize.go`) is the at-rest delivery that replaces
-`profile materialize` and `manage hooks install`/`uninstall`, which still ship.
+`ctxloom materialize` (`materialize.go`) is the one at-rest delivery
+(`profile materialize` and `manage hooks install`/`uninstall` are gone).
 It parses `--surface KIND[=file][:DEST]` into `operations.SurfaceSpec`s, refuses
 incoherent flag sets before resolving anything (`checkMaterializeFlags`:
 `--release` with profiles or `--diff`; `--diff` with more than one `--backend`
@@ -79,9 +68,13 @@ or with a `--surface` list lacking context), and with no `--target` takes the
 project directory only under `--yes` (`guardProjectTarget` prints the engines
 and kinds it would touch and returns `operations.ErrProjectTargetUnconfirmed`;
 `--dry-run` prints it and proceeds to plan). With no profiles it delivers the
-default agent's. It is gated like `profile materialize` (`newPhaseGates`, exit
-3 on a fatal finding), and a writer's per-kind failures are warnings after the
-report (`MaterializeResult.Errors`). The placement, the per-kind writers and
+default agent's. It opens the strictness gates (`newPhaseGates` over
+`App().Strictness`) and closes the startup phase (exit 3 on a fatal finding
+unless `--degraded` downgrades it — mirroring how `run` gates its own startup
+findings); a writer's per-kind failures are warnings after the report
+(`MaterializeResult.Errors`). An assembly that comes to no context, with
+context selected, is refused, so there is no silent zero-payload
+materialize. The placement, the per-kind writers and
 `--release` are `operations.Materialize`'s; see
 [core/delivery](../core/delivery.md).
 
@@ -121,7 +114,7 @@ script to `os.Stdout`, bypassing `emit()` by design.
   `run` takes the binding's profiles, engine and runtime rather than the
   flag/default path — and cobra enforces `--agent` mutually exclusive with
   `--profile`/`--fragment`/`--tag` (`MarkFlagsMutuallyExclusive` in `run.go`).
-- **Profile materialize is gated.** See above — the pattern the rest of the
+- **Materialize into the project directory is gated.** See above — the pattern the rest of the
   package should copy.
 - **`agent show` never fails because resolution failed.** The error from
   `operations.ResolveAgent` is deliberately not returned; the definition is still

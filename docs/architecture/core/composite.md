@@ -21,13 +21,11 @@ flowchart LR
   ASM["composite.Assemble(ctx, cat, sel, opts) → Package — the ONE constructor"]:::core
   CTX["AssembleContext — the context half, projected (the MCP assemble tool, doctor, the CLI)"]:::consumer
   RUN["the run trunk: launch.Deps.Assembler — Assemble once, Surfaces off the same Package"]:::consumer
-  REGEN["regenerateContext — the SessionStart context file"]:::consumer
-  APPLY["ApplyHooks — the project's static managed surfaces"]:::consumer
-  MAT["MaterializeProfile — a target tree for a launch with no ctxloom behind it"]:::consumer
+  MAT["Materialize — a target tree for a launch with no ctxloom behind it (and the post-sync refresh)"]:::consumer
   MATES["the skill-mates hook — the delivered skill set"]:::consumer
   ENG["Engine.Exports(pkg.EngineItems(name)) — the engine decodes its own block"]:::core
   CFG --> SEL --> ASM
-  ASM --> CTX & RUN & REGEN & APPLY & MAT & MATES
+  ASM --> CTX & RUN & MAT & MATES
   RUN & APPLY & MAT & MATES --> ENG
 ```
 

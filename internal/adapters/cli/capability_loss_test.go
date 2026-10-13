@@ -23,7 +23,7 @@ import (
 // This file covers the OTHER two surfaces of the silent-capability-loss
 // finding (trusting-ambiguity): `ctxloom doctor` and `ctxloom manage check`.
 //
-// `profile materialize` and `agent show` already name what the chosen engine
+// `ctxloom materialize` and `agent show` already name what the chosen engine
 // cannot carry. doctor is the command whose entire job is telling a user what
 // is wrong with their setup, and it said nothing — a green gate measuring
 // nothing. These drive the REAL commands, because the finding was never that

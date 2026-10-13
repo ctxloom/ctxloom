@@ -129,7 +129,7 @@ judgement — see the ruling below for why we have not measured which.
 Where ctxloom is IN THE LOOP, conditional fragments resolve over MCP. Where it is OUT OF
 THE LOOP — a materialized surface, launched with ctxloom absent — premised fragments are
 emitted as skill packages instead, because that is the only progressive disclosure
-available there. `profile_materialize` is the only caller that emits them, and that is
+available there. `operations.Materialize` (`ctxloom materialize`) is the only caller that emits them, and that is
 deliberate: a live session must not receive the same fragment as both a skill and an index
 entry, which would be double delivery under two different selection stories.
 

@@ -49,8 +49,9 @@ run:
   installation: |
     The ctxloom install script and `brew install ctxloom/tap/taskloom` ship the
     taskloom binary (fallback: go install github.com/ctxloom/ctxloom/cmd/taskloom@latest).
-    Then run `ctxloom manage hooks install` (or restart your backend) so the
-    hooks and MCP server are written into the backend's settings.json. The
+    Then start a `ctxloom run` session (it delivers the hooks and MCP server
+    into its own session home), or run `ctxloom materialize --yes` to write
+    them into the project's own engine files. The
     hooks are safe to install before session harp-naming is active (stamp-plan
     no-ops when CTXLOOM_SESSION_HARP is unset). Without ctxloom, the binary
     self-registers: `taskloom manage install`.

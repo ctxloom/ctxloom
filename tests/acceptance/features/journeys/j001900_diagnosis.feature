@@ -258,11 +258,11 @@ Feature: The day the assistant goes blind
   # profile is changed, so this is two real deliveries being compared, not one
   # file read twice.
   #
-  # UNTAGGED 2026-08-16: `ctxloom profile materialize <profile>... --diff
+  # UNTAGGED 2026-08-16: `ctxloom materialize <profile>... --diff
   # <file>` is the surface. Of the three spellings this scenario probes
-  # (`profile show --compare`, `doctor --compare`, `profile materialize
+  # (`profile show --compare`, `doctor --compare`, `ctxloom materialize
   # --diff`), materialize already owns assembling a profile's delivered
-  # context (the same operations.AssembleContext call MaterializeProfile makes
+  # context (the same operations.AssembleContext call Materialize makes
   # for the context surface) — comparing that assembled payload against an
   # already-delivered file elsewhere is a read-only extension of exactly that,
   # not a new responsibility bolted onto `show` (declared config, not

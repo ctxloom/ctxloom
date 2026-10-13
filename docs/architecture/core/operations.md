@@ -22,10 +22,11 @@ session can grep straight to it.
 - Context assembly from profiles/fragments/tags (`context.go`).
 - The pin disclosure: what each pin change brings in, rendered for `deps upgrade`, pull,
   init and startup (`pin_change.go`, `pin_disclosure.go`).
-- Profile and agent CRUD, materialization onto native surfaces
-  (`profiles.go`, `profile_transfer.go`, `profile_materialize.go`, `agents.go`).
-- Managed-harness apply: settings, MCP, context, commands, across backends
-  (`hooks.go`, `manage.go`, `mcp_servers.go`, `tooling.go`).
+- Profile and agent CRUD (`profiles.go`, `profile_transfer.go`, `agents.go`).
+- At-rest delivery onto native surfaces — settings, MCP, context, hooks,
+  commands, skills, across engines (`materialize.go`, `materialize_target.go`,
+  `materialize_report.go`, `configured_engines.go`); harness status and
+  inspection (`manage.go`, `hooks_resolve.go`, `mcp_servers.go`, `tooling.go`).
 - The launch trunk — `StartRun` (mint, then the one resolver), the resolver's
   ports (the assembler, the cells adapter, the endpoint minter), the
   internal one-shots and the engine start over a resolved launch
@@ -63,10 +64,9 @@ flowchart TD
 
     LOADER --> ASM["AssembleContext<br/>context.go"]
 
-    ASM --> APPLY["ApplyHooks<br/>hooks.go:54<br/>settings / MCP / context / commands"]
     ASM --> RUN["launch.Resolve via operations.StartRun<br/>launch.go"]
-    ASM --> MAT["MaterializeProfile<br/>profile_materialize.go:57"]
-    APPLY --> SURF["delivery.Static over the plan<br/>-> native engine files"]
+    ASM --> MAT["Materialize<br/>materialize.go<br/>context / MCP / settings / hooks / commands / skills"]
+    MAT --> SURF["delivery.Static over the plan<br/>-> native engine files"]
 ```
 
 ## Bootstrap — `init.go`, `legacy_cleanup.go`
@@ -200,19 +200,15 @@ flowchart LR
 | `appendBuiltinFragments` | `context.go:220` | Appends always-on builtin fragments with the shared separator. |
 | `guttedProfiles` / `warnGuttedProfiles` | `context.go:794,840` | Detects profiles that declared refs but contributed nothing — the anti-silent-empty guard for assembly. |
 
-## Managed-harness apply — `hooks.go`, `manage.go`, `mcp_servers.go`, `tooling.go`
+## Managed-harness status — `configured_engines.go`, `manage.go`, `mcp_servers.go`, `tooling.go`
 
-`ApplyHooks` (`hooks.go:54`) is the only writer of the managed harness across all backends
-(settings, MCP registration, context file, command exports).
+`Materialize` (`materialize.go`, under Profiles and agents) is the one at-rest writer of the
+managed harness; `manage uninstall` is its release for every registered engine.
 
 | Function | file:line | Contract |
 |---|---|---|
-| `ApplyHooks` | `hooks.go:54` | Reloads config, runs the $HOME-collision scope guard, optionally regenerates context, then writes every requested backend's surfaces. Callers: `cli/manage.go:109,257`, `mcp/mcp_server.go:270`, `cli/init.go:1035`. |
-| `checkHookTargetScope` (+ per-engine variants) | `hooks.go:234,271,300,326` | Refuses to apply when the resolved workDir would write onto an engine's *global* settings file. |
-| `maybeRegenerateContext` / `regenerateContext` | `hooks.go` | Writes the SessionStart context cache from the fragments of the package `ApplyHooks` assembled once for the default profiles — the same package every backend is written from. |
-| `applyHooksToBackends` / `applyHooksToBackend` | `hooks.go:397,435` | Per-backend loop; each failure is recorded via `strictness.Fail` and collected, and the loop aborts on ctx cancel. |
-| `hookBackendNames` | `hooks.go:372` | `"all"` → every settings backend, else the single named backend. |
-| `RemoveHooks` / `removeBackendHarness` | `manage.go:36,70` | Strips ctxloom wiring from each backend: the empty plan through `delivery.Static` (`operations.Release` at an at-rest `Placement`, every kind), which removes what the engine's per-kind project writers' claims name. |
+| `ConfiguredEngines` / `namedBackend` | `configured_engines.go` | The engines a project configures (agents' labels, the role defaults, else the registry default) — what an unqualified materialize targets; a named backend is refused when unregistered. |
+| `checkHookTargetScopeOf` | `engine_seams.go` | Refuses a materialize whose target would write onto an engine's *global* settings file (unless `Force`). |
 | `HarnessStatus` | `manage.go:116` | Per-backend wiring report plus MCP/statusline/root-fallback status. |
 | `SetStatusline` | `manage.go:165` | One `Manager.Update` transaction. |
 | `ListMCPServers` / `GetMCPServer` / `AddMCPServer` / `RemoveMCPServer` / `SetMCPAutoRegister` | `mcp_servers.go:43,159,208,305,406` | MCP registry CRUD over `config.Manager`. Add and Remove are check-and-write inside one `Manager.Update` transaction; removing nothing is a loud error. |
@@ -228,8 +224,7 @@ flowchart LR
 | `requireProfilesExist` | `profiles.go:455` | First unresolvable **local** parent is an error; remote refs are skipped (they may not be pulled yet). |
 | `profileLoader` | `profiles.go:508` | Builds the operations-side profile loader with remote resolvers and bundle seeds. Eight production call sites. |
 | `ExportProfile` / `ImportProfile` / `GetProfileContent` / `SetProfileContent` | `profile_transfer.go:63,104,151,182` | Local-only profile file flow; all four route through `loadLocalProfile` (`:33`), which distinguishes "remote, pull it first" from "absent". |
-| `Materialize` / `MaterializeEngines` / `ParseSurfaceSpecs` | `materialize.go`, `surface_specs.go` | `ctxloom materialize`'s service: the selected profiles (the default agent's when none) delivered, planned (`DryRun`) or released (`Release`) at a target for each selected engine and kind, one `project:<engine>:<kind>` writer per kind. `MaterializeEngines` resolves the engine list (`--backend`, else the project's configured engines); `ParseSurfaceSpecs` parses `--surface KIND[=file][:DEST]`. Also the post-sync refresh (`syncMaterializeStep`). |
-| `MaterializeProfile` | `profile_materialize.go:57` | Assembles a profile's context and delivers it onto a backend's native surface set under `--target`. `Backend` is validated against `EngineExists`. |
+| `Materialize` / `MaterializeEngines` / `ParseSurfaceSpecs` | `materialize.go`, `surface_specs.go` | `ctxloom materialize`'s service: the selected profiles (the default agent's when none) delivered, planned (`DryRun`) or released (`Release`) at a target for each selected engine and kind, one `project:<engine>:<kind>` writer per kind. `MaterializeEngines` resolves the engine list (`--backend`, else the project's configured engines); `ParseSurfaceSpecs` parses `--surface KIND[=file][:DEST]`. Also the post-sync refresh (`syncMaterializeStep`, with `LeaveLaunchContext`: the context of an engine whose context rides the launch is left alone). |
 | `ListAgents` / `GetAgent` / `SetAgent` / `RemoveAgent` | `agents.go:48,68,133,226` | Agent-binding CRUD under the `agents:` config key, inside one `Manager.Update`. `SetAgent` is a whole-record replace. |
 | `ResolveAgent` / `resolveAgentBinding` | `agents.go:357,383` | The single place engine-override precedence lives: compose profiles into context, resolve label/backend/model, resolve runtime and effective permissions. Callers: `cli/run.go`, `cli/doctor_cmd.go`, `coord/spawner.go`, `engine_session.go`. |
 | `resolveMember` | `agents.go:458` | Agent-name-or-bare-profile sugar for ensembles. |
@@ -311,9 +306,9 @@ Every host-side launch enters through `launch.Resolve`
    mints an endpoint anywhere else.
 10. **Path confinement for authored bundles is `requireSafeBundlePath`** (`bundles.go:926`):
     absolute, under a configured dir, and no symlink in any component.
-11. **`AssembleContext` (`context.go:112`) is the single composition entry point.** `hooks.go`'s
-    `regenerateContext` composes nothing: it writes the SessionStart cache from the package
-    `ApplyHooks` assembled (`AssemblePackage`), so one apply resolves the default profiles once.
+11. **`AssembleContext` (`context.go:112`) is the single composition entry point.**
+    `Materialize` composes nothing of its own: it delivers the package `AssemblePackage`
+    assembled for each engine, so one engine's materialize resolves the profiles once.
 
 ## Boundaries
 

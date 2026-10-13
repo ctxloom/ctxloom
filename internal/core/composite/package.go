@@ -50,11 +50,6 @@ type Selection struct {
 	Hooks []ProfileHooks
 	// Exclusions are the MCP server names the profiles veto (the union).
 	Exclusions map[string]struct{}
-	// Preference is the binding's delivery preference as WRITTEN (approach
-	// name per kind); delivery validates it against the engine's Definition.
-	// composite carries it, never interprets it. Set by the caller: it is the
-	// agent binding's, not a profile's.
-	Preference map[string]string
 	// Variables are the merged profile variables, later profile wins.
 	Variables map[string]string
 	// DenyTools is the union of the profiles' deny lists, first-seen order.

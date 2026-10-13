@@ -116,7 +116,7 @@ func j002000Setup(w *World) error {
 // and returns the bytes of the file that engine will actually read.
 func j002000Materialize(w *World, engine string) (string, error) {
 	target := "out-" + engine
-	if err := runOK(w, "profile", "materialize", "default", "--target", target, "--backend", engine); err != nil {
+	if err := runOK(w, "materialize", "default", "--target", target, "--backend", engine); err != nil {
 		return "", err
 	}
 	// Each engine reads its own filename; the whole point of P1 is that the

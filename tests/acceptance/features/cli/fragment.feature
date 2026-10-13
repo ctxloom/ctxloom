@@ -122,7 +122,7 @@ Feature: fragment — reusable context units, and the engine surface each one re
     # second, separate context route — a content-addressed cache file a
     # SessionStart hook reads at run time, carrying a per-invocation content
     # hash a native-file route cannot provide. That second route is keyed on
-    # resolved Fragment objects, which `profile materialize` never populates
+    # resolved Fragment objects, which `ctxloom materialize` never populates
     # (it only ever has the assembled context STRING) — so it is exercised by
     # the live run/launch path, not by materialization, and has no assertion
     # here; AGENTS.md is the surface a materialized profile actually proves.

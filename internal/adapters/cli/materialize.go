@@ -265,7 +265,7 @@ func runMaterializeDiff(fsys afero.Fs, cmd *cobra.Command, cfg *config.Config, a
 			return fmt.Errorf("diff %s against %s's materialized context: %w", matFlags.diff, label, err)
 		}
 	}
-	result := profileMaterializeDiffJSON{Profiles: args, ComparedTo: matFlags.diff, Identical: diffText == "", Diff: diffText}
+	result := materializeDiffJSON{Profiles: args, ComparedTo: matFlags.diff, Identical: diffText == "", Diff: diffText}
 	return emit(cmd, result, func() error { return renderMaterializeDiff(cmd.OutOrStdout(), label, result) })
 }
 
@@ -281,4 +281,29 @@ func init() {
 	f.BoolVar(&matFlags.release, "release", false, "Remove what an earlier materialize wrote (the selected kinds; default all)")
 	f.StringVar(&matFlags.diff, "diff", "", "Compare the context as it would be written against this file, writing nothing")
 	materializeCmd.ValidArgsFunction = completeProfileNames
+}
+
+// materializeDiffJSON is the --format json shape for `materialize
+// --diff`: the two sides compared, whether they matched, and the
+// unified diff text (empty when identical).
+type materializeDiffJSON struct {
+	Profiles   []string `json:"profiles"`
+	ComparedTo string   `json:"compared_to"`
+	Identical  bool     `json:"identical"`
+	Diff       string   `json:"diff,omitempty"`
+}
+
+// renderMaterializeDiff is `materialize --diff`'s text rendering. The
+// diff carries assembled fragment bodies, publisher-authored and unbounded, so
+// it goes through publisherBody — without the blank-line collapse, because a
+// diff redirected to a file must still be the diff.
+func renderMaterializeDiff(out io.Writer, label string, result materializeDiffJSON) error {
+	w := errwriter.New(out)
+	if result.Identical {
+		w.Printf("%s's materialized context matches %s: no difference.\n", label, result.ComparedTo)
+		return w.Err()
+	}
+	w.Printf("Comparing %s's materialized context with %s — content present on one side and absent on the other:\n", label, result.ComparedTo)
+	_ = publisherBody("", "", false).Render(w, label+" diff", result.Diff)
+	return w.Err()
 }

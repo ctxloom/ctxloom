@@ -137,7 +137,7 @@ func runAgentShow(cmd *cobra.Command, args []string) error {
 	if rerr != nil {
 		payload.ResolutionError = rerr.Error()
 	} else {
-		// The loss half of the report, read the SAME way `profile materialize`
+		// The loss half of the report, read the SAME way `ctxloom materialize`
 		// already reads it (operations.CapabilityLoss wraps the identical
 		// backends.UncarriedSurfaces call) — so switching an agent's engine
 		// binding names what the NEW engine cannot carry that the resolved
@@ -166,7 +166,7 @@ type agentShowJSON struct {
 	// CapabilityLoss names the parts of the resolved profiles' hooks
 	// configuration the resolved backend has no structural place for — empty
 	// (omitted) when resolution failed or nothing configured is lost. Additive
-	// field, same shape MaterializeProfileResult.NotCarried already carries.
+	// field, same shape EngineOutcome.NotCarried (ctxloom materialize) carries.
 	CapabilityLoss []agent.SurfaceLoss `json:"capability_loss,omitempty"`
 }
 
@@ -217,7 +217,7 @@ func renderAgentDeclaration(w *errwriter.Writer, def *operations.AgentEntry) {
 //
 // losses is the capability-loss report (operations.CapabilityLoss) for this
 // same resolved engine binding — printed alongside the resolution, not in a
-// separate pass, for the same reason profile_materialize.go interleaves NOT
+// separate pass, for the same reason `ctxloom materialize` interleaves NOT
 // carried lines with wrote lines: a reader who scans only the top of `agent
 // show` must not come away with "the swap succeeded" as the whole story when
 // the new engine silently drops something the old one carried (j002000).

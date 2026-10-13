@@ -46,7 +46,7 @@ const (
 // materialized, and into which target dir.
 type j000400State struct {
 	engine string // current Examples row's backend name (claude-code/codex)
-	target string // profile materialize --target dir for this row (relative to project root)
+	target string // materialize --target dir for this row (relative to project root)
 
 	// handAuthoredBytes is the EXACT content the hand-authored fixture wrote
 	// before any materialize ran. The byte-for-byte regression compares the
@@ -118,7 +118,7 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 		j000400 := j000400Of(w)
 		j000400.engine = engine
 		j000400.target = j000400TargetFor(engine)
-		return runOK(w, "profile", "materialize", "team", "--target", j000400.target, "--backend", engine)
+		return runOK(w, "materialize", "team", "--target", j000400.target, "--backend", engine)
 	})
 
 	ctx.Step(`^the materialized (\S+) context carries the shared fragment's marker, in its own native shape$`, func(c context.Context, engine string) error {
@@ -166,8 +166,8 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 	// Neither call site (cli/mcp.feature, cli/manage.feature,
 	// journeys/j000400_multi_engine.feature) asks for a format, so off a
 	// terminal (this harness, always) they are all exercising the SAME
-	// derived-default row: `profile materialize` is wired to emit(), and its
-	// JSON MaterializeProfileResult carries the loss in a structured
+	// derived-default row: `ctxloom materialize` is wired to emit(), and its
+	// JSON MaterializeResult carries the loss in each engine's structured
 	// not_carried array (agent.SurfaceLoss{surface,detail,reason}) rather than
 	// the "NOT carried: ..." text line this used to scan for. Branching here
 	// on the format actually resolved fixes all three call sites without
@@ -727,7 +727,7 @@ func assertTextReportNamesNotCarried(engine, out string, want []string) error {
 // assertJSONReportNamesNotCarried checks the JSON materialize report's
 // not_carried array names each of want, every entry with a non-empty reason.
 func assertJSONReportNamesNotCarried(w *World, engine string, want []string) error {
-	losses, err := lastOutputJSONArray(w, "not_carried")
+	losses, err := lastOutputJSONArray(w, "engines[engine="+engine+"].not_carried")
 	if err != nil {
 		return fmt.Errorf("%v; stdout:\n%s", err, w.env.LastStdout())
 	}

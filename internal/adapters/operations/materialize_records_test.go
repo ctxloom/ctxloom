@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -25,21 +26,19 @@ func ownRecordsDir(t *testing.T) {
 	t.Cleanup(paths.SetHomeRecordsDirForTesting(t.TempDir()))
 }
 
-// Installing hooks reads the ownership records of the files it delivers,
+// Materializing reads the ownership records of the files it delivers,
 // never every record in the home store: the store holds one for every file
 // ctxloom ever delivered, in every project, and a delivery that decoded them
 // all got slower with each one. The forcing record below cannot be decoded
 // at all (it is from a newer generation), so a delivery that read it fails.
-func TestApplyHooks_ReadsNoRecordOfAnotherProject(t *testing.T) {
+func TestMaterialize_ReadsNoRecordOfAnotherProject(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	apply := func() {
 		t.Helper()
 		cfg := cfgWithProfileHooks(t, fs, "/project/.ctxloom", wire.HooksConfig{Unified: wire.UnifiedHooks{
 			SessionStart: []wire.Hook{{Command: "echo test", Type: "command"}},
 		}}, config.Fixture{})
-		_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
-			Backend: "claude-code", Root: safefs.NewMem(fs), Cfg: cfg, WorkDir: "/project",
-		})
+		_, err := Materialize(context.Background(), engines.Registry(), cfg, MaterializeRequest{Engines: []string{"claude-code"}, Surfaces: surfacesBut(present.Context), Root: safefs.NewMem(fs), Target: "/project"})
 		require.NoError(t, err)
 	}
 	apply()

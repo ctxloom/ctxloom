@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/stretchr/testify/assert"
@@ -82,13 +83,12 @@ func fixtureConfig(root string) *config.Config {
 	})
 }
 
-// TestApplyHooks_DirectoryProfileWithBundles_WritesContextAndSessionStartHook
-// pins the apply_hooks fix: when the only profile lives in
-// .ctxloom/profiles/ and lists bundles (not inline fragment refs), apply_hooks
-// must regenerate a context file containing every fragment, and register
-// ctxloom's SessionStart hook — which names no context (the context reaches
-// claude through the launch's system prompt, never through the hook).
-func TestApplyHooks_DirectoryProfileWithBundles_WritesContextAndSessionStartHook(t *testing.T) {
+// TestMaterialize_DirectoryProfileWithBundles_WritesContextAndSessionStartHook
+// pins the bundle-expansion fix at rest: when the only profile lives in
+// .ctxloom/profiles/ and lists bundles (not inline fragment refs), the
+// materialized context file carries every fragment, and the settings register
+// ctxloom's SessionStart hook — which names no context.
+func TestMaterialize_DirectoryProfileWithBundles_WritesContextAndSessionStartHook(t *testing.T) {
 	ownRecordsDir(t)
 	tmpDir := t.TempDir()
 	writeBundleFixture(t, tmpDir)
@@ -96,20 +96,16 @@ func TestApplyHooks_DirectoryProfileWithBundles_WritesContextAndSessionStartHook
 	cfg := fixtureConfig(tmpDir)
 	mockLoader := func() (*config.Config, error) { return cfg, nil }
 
-	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
-		Backend:           "claude-code",
-		RegenerateContext: true,
-		Cfg:               loaded(t, mockLoader),
-		WorkDir:           tmpDir,
+	result, err := Materialize(context.Background(), engines.Registry(), loaded(t, mockLoader), MaterializeRequest{
+		Engines: []string{"claude-code"},
+		Target:  tmpDir,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "applied", result.Status)
-	require.NotEmpty(t, result.ContextHash,
-		"ContextHash must be non-empty: bundles in directory profile should expand to fragments")
+	assert.Equal(t, MaterializeApplied, result.Status, "%v", result.Errors)
 
-	// Context file exists at the canonical location and contains content
-	// from all three referenced fragments (both alphas, only beta:two).
-	contextPath := filepath.Join(tmpDir, ".ctxloom", "cache", "context", result.ContextHash+".md")
+	// The context file contains content from all three referenced fragments
+	// (both alphas, only beta:two).
+	contextPath := filepath.Join(tmpDir, claude.ContextFileName)
 	contextBytes, err := os.ReadFile(contextPath)
 	require.NoError(t, err, "context file should be written at %s", contextPath)
 	contextStr := string(contextBytes)
@@ -120,15 +116,13 @@ func TestApplyHooks_DirectoryProfileWithBundles_WritesContextAndSessionStartHook
 	assert.NotContains(t, contextStr, "BETA-ONE", "non-cherry-picked fragment must be excluded")
 
 	// Settings file gained ctxloom's SessionStart hook, and that hook names
-	// no context: neither the regenerated hash nor any fragment's text rides
-	// the settings file. We assert by substring rather than parsing JSON
+	// no context: no fragment's text rides the settings file. We assert by substring rather than parsing JSON
 	// because the exact key path differs by backend.
 	settingsBytes, err := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.json"))
 	require.NoError(t, err)
 	settingsStr := string(settingsBytes)
 	assert.Contains(t, settingsStr, "SessionStart", "SessionStart hook should be registered")
 	assert.Contains(t, settingsStr, `"session-start"`, "hook must invoke ctxloom hook session-start")
-	assert.NotContains(t, settingsStr, result.ContextHash, "no hook may reference the context hash: the context is not the hook's to deliver")
 	assert.NotContains(t, settingsStr, "ALPHA-ONE", "no fragment text may ride the settings file")
 }
 

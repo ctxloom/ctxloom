@@ -126,6 +126,9 @@ const (
 	// flagPermissionPrompts tells claude who answers a prompt; "none" =
 	// nobody, so what the posture and rules leave open is denied.
 	flagPermissionPrompts = "--permission-prompts"
+	// flagTools is the built-in tool set claude offers the model; an EMPTY
+	// value token offers none (the tool-less launch, Claude.ToolLess).
+	flagTools = "--tools"
 )
 
 // commonFlags are the flags claude's driver can emit on BOTH surfaces.
@@ -147,7 +150,9 @@ func commonFlags() []agent.CLIFlag {
 		{Name: flagSettingSources, Value: agent.ValueString,
 			Note: "\"user\" on every launch into a repository its verdict does not trust (repoSourceArgs)"},
 		{Name: flagStrictMCPConfig, Value: agent.ValueNone,
-			Note: "beside --setting-sources user: the repository's .mcp.json does not load"},
+			Note: "beside --setting-sources user: the repository's .mcp.json does not load; on every tool-less launch, which names no --mcp-config, so no MCP server loads at all"},
+		{Name: flagTools, Value: agent.ValueString,
+			Note: "the tool-less launch (Claude.ToolLess) only, with an EMPTY value token: no built-in tool. VARIADIC in claude's parser, so it is never the last flag before a positional"},
 	}
 }
 

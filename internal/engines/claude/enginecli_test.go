@@ -32,6 +32,9 @@ type argvCase struct {
 	// resume, when set, is the native key the Instance continues: the
 	// --resume arm of the structured surface.
 	resume string
+	// toolLess binds the session through the tool-less marker
+	// (Claude.ToolLess) instead of Instance.
+	toolLess bool
 }
 
 // argvFor builds this case's argv. A resumed case binds the Instance,
@@ -39,12 +42,18 @@ type argvCase struct {
 // request onto.
 func (c argvCase) argvFor(t *testing.T, b *ClaudeCode) []string {
 	t.Helper()
-	if c.resume == "" {
+	if c.resume == "" && !c.toolLess {
 		return buildArgs(b, c.req)
 	}
-	inst, err := b.Kind().Instance(b.SessionFor(c.req))
+	bind := b.Kind().Instance
+	if c.toolLess {
+		bind = b.Kind().(engine.ToolLess).ToolLess
+	}
+	inst, err := bind(b.SessionFor(c.req))
 	require.NoError(t, err)
-	require.NoError(t, inst.Resume(c.resume))
+	if c.resume != "" {
+		require.NoError(t, inst.Resume(c.resume))
+	}
 	ex, err := inst.Exec(c.req.Presented)
 	require.NoError(t, err)
 	return ex.Args
@@ -84,6 +93,12 @@ func buildArgsMatrix(presented []present.Presentation) []argvCase {
 			delivered = slices.DeleteFunc(slices.Clone(presented), func(p present.Presentation) bool { return slices.Contains(p.Args, flagSettings) })
 		}
 		out = append(out, verdictCases(perms, modes, delivered, trust)...)
+		// The tool-less launch, on every mode, resume and verdict: its
+		// posture is its own, so one posture row stands for all.
+		for _, c := range verdictCases(perms[:1], modes, delivered, trust) {
+			c.label, c.toolLess = "tool-less/"+c.label, true
+			out = append(out, c)
+		}
 	}
 	return out
 }

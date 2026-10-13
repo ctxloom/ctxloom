@@ -111,6 +111,9 @@ type instance struct {
 	s   engine.Session
 	pos posture
 	key string
+	// toolLess is claude's tool-less launch (ToolLess): no built-in tool,
+	// no MCP server, every turn at the same posture.
+	toolLess bool
 }
 
 // Exec composes the process a launch of this session runs. The order is
@@ -169,6 +172,9 @@ func (i *instance) execArgs(presented []present.Presentation) ([]string, error) 
 	if err != nil {
 		return nil, err
 	}
+	if i.toolLess {
+		args = append(args, flagTools, "")
+	}
 	if i.s.Label.Model != "" {
 		args = append(args, flagModel, i.s.Label.Model)
 	}
@@ -182,6 +188,9 @@ func (i *instance) execArgs(presented []present.Presentation) ([]string, error) 
 	surfaces, err := presentedArgs(presented, i.s.Trust, path.Join(i.s.Roots.ProjectRoot.Engine, MCPFileName))
 	if err != nil {
 		return nil, err
+	}
+	if i.toolLess {
+		args, surfaces = toolLessSources(args, surfaces)
 	}
 	args = append(args, surfaces...)
 	if i.key != "" {
@@ -332,6 +341,11 @@ func (i *instance) Resume(key string) error {
 func (i *instance) turnArgv(ex engine.Exec, in engine.Turn) ([]string, error) {
 	if slices.Contains(ex.Args, flagSettings) {
 		return nil, errTurnSettingsPresented
+	}
+	if i.toolLess {
+		// A tool-less turn runs at the session's one posture: there is no
+		// tool for a grant or a moved posture to reach.
+		in.Posture = engine.TurnPosture{}
 	}
 	args := slices.Clone(ex.Args)
 	args = append(args, flagInputFormat, "stream-json", flagOutputFormat, "stream-json", flagVerbose)

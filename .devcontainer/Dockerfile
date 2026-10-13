@@ -263,6 +263,8 @@ RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${GOLANGC
 # for the check and purged after it, so the image's toolset does not grow.
 # BUF_RELEASE_SIGNER is an ARG with a value, like NODE_RELEASERS below: it is not
 # a tool-versions.env pin, and as an ARG it stays out of the container's env.
+# It is the key's only copy: build/ci.justfile's release-install-tools reads
+# this exact line to verify the buf it installs, so keep it one line.
 ARG BUF_RELEASE_SIGNER="RWQ/i9xseZwBVE7pEniCNjlNOeeyp4BQgdZDLQcAohxEAH5Uj5DEKjv6"
 RUN case "${TARGETARCH}" in \
         amd64) BUF_ARCH="x86_64" ;; \

@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -66,6 +67,35 @@ var (
 // imageArches are the TARGETARCH values the devcontainer image is built for —
 // the arms of the Dockerfile's per-arch `case` statements.
 var imageArches = []string{"AMD64", "ARM64"}
+
+// runnerOnlyPinConsumers are the files that read a checksum pin for a
+// platform the image is not built for. CI runners outside the image (macOS,
+// Windows) install `just` themselves, from the same file, so their archives'
+// checksums live in tool-versions.env too, keyed by an arch suffix that is not
+// an imageArches entry (JUST_SHA256_DARWINARM64). The Dockerfile never sees
+// those; the consumer named here must.
+var runnerOnlyPinConsumers = []string{setupJustActionPath}
+
+// isRunnerOnlyPin reports whether key is a checksum pin for a platform the
+// image is not built for, and so no Dockerfile ARG or devcontainer.json
+// build arg carries it.
+func isRunnerOnlyPin(key string) bool {
+	m := checksumKeyRE.FindStringSubmatch(key)
+	return m != nil && !slices.Contains(imageArches, m[2])
+}
+
+// imageKeys returns tool-versions.env's keys that reach the image build —
+// every key but the runner-only checksum pins — sorted.
+func imageKeys(versions map[string]string) []string {
+	var keys []string
+	for k := range versions {
+		if !isRunnerOnlyPin(k) {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
 
 // isPinArg reports whether a Dockerfile ARG carries a tool-versions.env pin.
 func isPinArg(name string) bool {
@@ -216,11 +246,7 @@ func TestDockerfileArgsAreDefaultlessAndMatchToolVersionsEnv(t *testing.T) {
 		}
 	}
 
-	var fileKeys []string
-	for k := range versions {
-		fileKeys = append(fileKeys, k)
-	}
-	sort.Strings(fileKeys)
+	fileKeys := imageKeys(versions)
 	sort.Strings(argVersionNames)
 
 	for _, k := range fileKeys {
@@ -502,13 +528,7 @@ func TestDevcontainerJSONBuildArgsMatchToolVersionsEnv(t *testing.T) {
 		t.Fatalf("%s has no build.args — VS Code's own container build will fail the Dockerfile's tool-version guard RUN (no --build-arg supplied)", devcontainerJSONPath)
 	}
 
-	var fileKeys []string
-	for k := range versions {
-		fileKeys = append(fileKeys, k)
-	}
-	sort.Strings(fileKeys)
-
-	for _, k := range fileKeys {
+	for _, k := range imageKeys(versions) {
 		want := versions[k]
 		got, ok := doc.Build.Args[k]
 		if !ok {
@@ -617,6 +637,26 @@ func TestChecksumPinsPairWithAVersionForEveryArch(t *testing.T) {
 			if _, ok := versions[tool+"_SHA256_"+arch]; !ok {
 				t.Errorf("%s: %s has checksums but none for %s (%s_SHA256_%s)", toolVersionsPath, tool, arch, tool, arch)
 			}
+		}
+	}
+}
+
+// TestRunnerOnlyChecksumPinsAreConsumed: a checksum pin for a platform the
+// image is not built for is exempt from the Dockerfile and devcontainer.json
+// rules above, so it is held to its own: a runner install must read it. One
+// nothing reads looks like a verified download that is not.
+func TestRunnerOnlyChecksumPinsAreConsumed(t *testing.T) {
+	versions := parseToolVersionsEnv(t, toolVersionsPath)
+	var consumers []string
+	for _, path := range runnerOnlyPinConsumers {
+		consumers = append(consumers, readFile(t, path))
+	}
+	for k := range versions {
+		if !isRunnerOnlyPin(k) {
+			continue
+		}
+		if !strings.Contains(strings.Join(consumers, "\n"), k) {
+			t.Errorf("%s: %s pins a platform the image is not built for, and none of %v reads it", toolVersionsPath, k, runnerOnlyPinConsumers)
 		}
 	}
 }

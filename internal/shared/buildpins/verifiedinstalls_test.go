@@ -27,8 +27,14 @@ func dockerfileStepCode(t *testing.T, marker string) string {
 	if end := strings.Index(step, "\n\n"); end > 0 {
 		step = step[:end]
 	}
+	return withoutCommentLines(step)
+}
+
+// withoutCommentLines drops every line whose first non-blank character is #,
+// so a shell step is judged by its instructions, not its prose.
+func withoutCommentLines(text string) string {
 	var code []string
-	for _, line := range strings.Split(step, "\n") {
+	for _, line := range strings.Split(text, "\n") {
 		if !strings.HasPrefix(strings.TrimSpace(line), "#") {
 			code = append(code, line)
 		}
@@ -38,24 +44,24 @@ func dockerfileStepCode(t *testing.T, marker string) string {
 
 var pipeIntoExecRE = regexp.MustCompile(`\|\s*(bash|sh|tar)\b`)
 
-// assertVerifiedStep holds one install step to the contract: it contains every
-// wanted fragment, pipes nothing into a shell or tar, and its fragments in
-// order appear in that order (verify before install).
-func assertVerifiedStep(t *testing.T, tool, step string, want, order []string) {
+// assertVerifiedStep holds one install step, read from path, to the contract:
+// it contains every wanted fragment, pipes nothing into a shell or tar, and
+// its fragments in order appear in that order (verify before install).
+func assertVerifiedStep(t *testing.T, path, tool, step string, want, order []string) {
 	t.Helper()
 	for _, w := range want {
 		if !strings.Contains(step, w) {
-			t.Errorf("%s: the %s install lacks %q:\n%s", dockerfilePath, tool, w, step)
+			t.Errorf("%s: the %s install lacks %q:\n%s", path, tool, w, step)
 		}
 	}
 	if pipeIntoExecRE.MatchString(step) {
-		t.Errorf("%s: the %s install pipes a download into a shell or tar — it runs or unpacks bytes before (or without) verifying them:\n%s", dockerfilePath, tool, step)
+		t.Errorf("%s: the %s install pipes a download into a shell or tar — it runs or unpacks bytes before (or without) verifying them:\n%s", path, tool, step)
 	}
 	last := -1
 	for _, o := range order {
 		i := strings.Index(step, o)
 		if i <= last {
-			t.Errorf("%s: the %s install must run %q in that order (%q missing or out of place) — verification precedes installation:\n%s", dockerfilePath, tool, order, o, step)
+			t.Errorf("%s: the %s install must run %q in that order (%q missing or out of place) — verification precedes installation:\n%s", path, tool, order, o, step)
 			return
 		}
 		last = i
@@ -69,7 +75,7 @@ const bufReleaseSigner = "RWQ/i9xseZwBVE7pEniCNjlNOeeyp4BQgdZDLQcAohxEAH5Uj5DEKj
 
 func TestDevcontainerInstallsVerifiedBuf(t *testing.T) {
 	step := dockerfileStepCode(t, "# Install buf")
-	assertVerifiedStep(t, "buf", step,
+	assertVerifiedStep(t, dockerfilePath, "buf", step,
 		[]string{
 			`ARG BUF_RELEASE_SIGNER="` + bufReleaseSigner + `"`,
 			"https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}",
@@ -82,11 +88,69 @@ func TestDevcontainerInstallsVerifiedBuf(t *testing.T) {
 	)
 }
 
+var aptInstallsMinisignRE = regexp.MustCompile(`apt-get install[^\n]*\sminisign\b`)
+
+// The release job installs buf itself (it runs in the Go image, not the
+// devcontainer image), so it verifies it the way the image does: minisign over
+// sha256.txt, then the binary against its line. The signer key is read from
+// the Dockerfile's BUF_RELEASE_SIGNER, never restated, so the two cannot trust
+// different keys; the job's dependency step provides minisign.
+func TestReleaseInstallToolsInstallsVerifiedBuf(t *testing.T) {
+	recipe := withoutCommentLines(recipeBody(t, ciJustfilePath, "release-install-tools"))
+	assertVerifiedStep(t, ciJustfilePath, "buf", recipe,
+		[]string{
+			`^ARG BUF_RELEASE_SIGNER=`,
+			".devcontainer/Dockerfile",
+			"https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}",
+			"sha256.txt.minisig",
+			`minisign -Vm sha256.txt -P "${BUF_RELEASE_SIGNER}"`,
+			"sha256sum -c",
+			`test "$(buf --version)" = "${BUF_VERSION}"`,
+		},
+		[]string{"minisign -Vm", "sha256sum -c", "/usr/local/bin/buf"},
+	)
+	if strings.Contains(recipe, bufReleaseSigner) {
+		t.Errorf("%s: release-install-tools restates buf's signer key instead of reading the Dockerfile's BUF_RELEASE_SIGNER", ciJustfilePath)
+	}
+	if !aptInstallsMinisignRE.MatchString(workflowJob(t, releaseWorkflowPath, "release")) {
+		t.Errorf("%s: the release job never apt-get installs minisign, so release-install-tools cannot check buf's signature", releaseWorkflowPath)
+	}
+}
+
+// sumDBBypassRE matches the settings that switch off `go install`'s check of
+// a module against the Go checksum database.
+var sumDBBypassRE = regexp.MustCompile(`GOSUMDB|GONOSUMDB|GONOSUMCHECK|GOPRIVATE|GOINSECURE|-insecure`)
+
+// The release job installs versionator the way the image does — `go install`
+// at the pinned version, which checks the module against the Go checksum
+// database (sum.golang.org) — not as a release tarball nothing checks.
+func TestReleaseInstallToolsInstallsVerifiedVersionator(t *testing.T) {
+	const install = "go install github.com/benjaminabbitt/versionator@v${VERSIONATOR_VERSION}"
+	recipe := withoutCommentLines(recipeBody(t, ciJustfilePath, "release-install-tools"))
+	if !strings.Contains(recipe, install) {
+		t.Errorf("%s: release-install-tools lacks %q:\n%s", ciJustfilePath, install, recipe)
+	}
+	if !strings.Contains(readFile(t, dockerfilePath), "RUN "+install) {
+		t.Errorf("%s: the image no longer installs versionator by %q — keep the release job's install the same as the image's", dockerfilePath, install)
+	}
+	if strings.Contains(recipe, "benjaminabbitt/versionator/releases/") {
+		t.Errorf("%s: release-install-tools still downloads a versionator release asset:\n%s", ciJustfilePath, recipe)
+	}
+	for path, text := range map[string]string{
+		ciJustfilePath:      recipe,
+		releaseWorkflowPath: workflowJob(t, releaseWorkflowPath, "release"),
+	} {
+		if m := sumDBBypassRE.FindString(text); m != "" {
+			t.Errorf("%s: %s switches off the Go checksum database check the go installs rely on", path, m)
+		}
+	}
+}
+
 // just publishes SHA256SUMS per release (no signature); the image pins this
 // arch's line of it, like Go, and never pipes just.systems/install.sh to bash.
 func TestDevcontainerInstallsVerifiedJust(t *testing.T) {
 	step := dockerfileStepCode(t, "# Install just")
-	assertVerifiedStep(t, "just", step,
+	assertVerifiedStep(t, dockerfilePath, "just", step,
 		[]string{
 			"https://github.com/casey/just/releases/download/${JUST_VERSION}/",
 			"${JUST_SHA256_AMD64}",
@@ -101,6 +165,28 @@ func TestDevcontainerInstallsVerifiedJust(t *testing.T) {
 	}
 }
 
+// The runners outside the image bootstrap just through .github/actions/setup-
+// just, on Linux, macOS and Windows: each platform's release archive is checked
+// against its SHA256SUMS line, pinned in tool-versions.env beside the image's,
+// before it is unpacked — never just.systems/install.sh piped to bash.
+func TestSetupJustInstallsVerifiedJust(t *testing.T) {
+	step := withoutCommentLines(readFile(t, setupJustActionPath))
+	assertVerifiedStep(t, setupJustActionPath, "just", step,
+		[]string{
+			"https://github.com/casey/just/releases/download/${version}/",
+			"JUST_SHA256_AMD64",
+			"JUST_SHA256_ARM64",
+			"JUST_SHA256_DARWINARM64",
+			"JUST_SHA256_WINDOWSAMD64",
+			`= "just ${version}"`,
+		},
+		[]string{"-c -", "unzip ", "tar -xzf", `= "just ${version}"`},
+	)
+	if strings.Contains(step, "just.systems/install.sh") {
+		t.Errorf("%s: just is still installed by just.systems/install.sh, a script fetched at run time:\n%s", setupJustActionPath, step)
+	}
+}
+
 // dockerAptKeyFingerprint is the primary-key fingerprint Docker documented for
 // its apt signing key ("Verify that you now have the key with the fingerprint
 // 9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88" — docs.docker.com/engine/
@@ -112,7 +198,7 @@ const dockerAptKeyFingerprint = "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
 // in /etc/apt/keyrings — as the git PPA key is fetched by full fingerprint.
 func TestDevcontainerVerifiesDockerAptKey(t *testing.T) {
 	step := dockerfileStepCode(t, "# Install build dependencies")
-	assertVerifiedStep(t, "Docker apt key", step,
+	assertVerifiedStep(t, dockerfilePath, "Docker apt key", step,
 		[]string{
 			`ARG DOCKER_APT_FINGERPRINT="` + dockerAptKeyFingerprint + `"`,
 			"gpg --batch --show-keys --with-colons",
@@ -127,7 +213,7 @@ func TestDevcontainerVerifiesDockerAptKey(t *testing.T) {
 // refuses any requirement (a dependency included) that carries none.
 func TestDevcontainerInstallsVerifiedLizard(t *testing.T) {
 	step := dockerfileStepCode(t, "# Install lizard")
-	assertVerifiedStep(t, "lizard", step,
+	assertVerifiedStep(t, dockerfilePath, "lizard", step,
 		[]string{
 			"COPY .devcontainer/lizard-requirements.txt ",
 			"--require-hashes -r",
@@ -146,7 +232,7 @@ func TestDevcontainerInstallsVerifiedLizard(t *testing.T) {
 // install must prove it got that version — the strongest check uv allows.
 func TestDevcontainerInstallsPinnedSerena(t *testing.T) {
 	step := dockerfileStepCode(t, "# The tool venv and its shims")
-	assertVerifiedStep(t, "serena-agent", step,
+	assertVerifiedStep(t, dockerfilePath, "serena-agent", step,
 		[]string{
 			`uv tool install --python python3 "serena-agent==${SERENA_AGENT_VERSION}"`,
 			`grep -qx "serena-agent v${SERENA_AGENT_VERSION}"`,

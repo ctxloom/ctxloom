@@ -47,10 +47,12 @@ jobs:
 
       # The one step that cannot be a `just` target: it is what makes curl
       # available for the `just` bootstrap on the next line. The Go image is
-      # not the devcontainer image and is not guaranteed to ship it.
+      # not the devcontainer image and is not guaranteed to ship it. minisign
+      # is here for release-install-tools, which checks buf's signed
+      # sha256.txt with it before installing buf.
       - name: Install dependencies
         run: |
-          apt-get update && apt-get install -y git curl unzip
+          apt-get update && apt-get install -y git curl unzip minisign
 
       - uses: ./.github/actions/setup-just
 

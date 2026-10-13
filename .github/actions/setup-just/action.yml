@@ -16,6 +16,17 @@ description: >-
 # from .devcontainer/tool-versions.env — the same file the Dockerfile reads —
 # so a runner and the image can never install different `just` versions.
 # internal/shared/buildpins' drift gate covers that agreement.
+#
+# The release archive for this runner's platform is downloaded from
+# casey/just's GitHub release and checked against its line of that release's
+# SHA256SUMS, pinned in tool-versions.env as JUST_SHA256_<ARCH>, BEFORE it is
+# unpacked — the image does the same. Not just.systems/install.sh piped to
+# bash: that runs whatever script the site serves at that moment. The platform
+# names and archive choice mirror install.sh's own, so the binary is the one it
+# installed: the musl builds on Linux, aarch64-apple-darwin on the arm64 macOS
+# runner, the .zip (extracted with unzip, as install.sh does) on Windows'
+# Git Bash. A platform with no pin fails the step rather than installing
+# unchecked bytes. sha256sum where it exists, shasum -a 256 (macOS) otherwise.
 
 runs:
   using: composite
@@ -24,7 +35,8 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        version="$(grep -E '^JUST_VERSION=' .devcontainer/tool-versions.env | cut -d= -f2-)"
+        pin() { grep -E "^$1=" .devcontainer/tool-versions.env | cut -d= -f2- || true; }
+        version="$(pin JUST_VERSION)"
         if [ -z "$version" ]; then
           echo "::error::JUST_VERSION not found in .devcontainer/tool-versions.env" >&2
           exit 1
@@ -33,9 +45,36 @@ runs:
           echo "just $version already present"
           exit 0
         fi
+        # MINGW's `uname -s` carries a version suffix (MINGW64_NT-10.0-...).
+        platform="$(uname -m)-$(uname -s | cut -d- -f1)"
+        case "$platform" in
+          x86_64-Linux) target=x86_64-unknown-linux-musl; ext=tar.gz; key=JUST_SHA256_AMD64 ;;
+          aarch64-Linux) target=aarch64-unknown-linux-musl; ext=tar.gz; key=JUST_SHA256_ARM64 ;;
+          arm64-Darwin) target=aarch64-apple-darwin; ext=tar.gz; key=JUST_SHA256_DARWINARM64 ;;
+          x86_64-MINGW64_NT | x86_64-Windows_NT) target=x86_64-pc-windows-msvc; ext=zip; key=JUST_SHA256_WINDOWSAMD64 ;;
+          *)
+            echo "::error::no pinned just checksum for runner platform $platform" >&2
+            exit 1
+            ;;
+        esac
+        sum="$(pin "$key")"
+        if [ -z "$sum" ]; then
+          echo "::error::$key not found in .devcontainer/tool-versions.env" >&2
+          exit 1
+        fi
+        if command -v sha256sum >/dev/null 2>&1; then sha256=(sha256sum); else sha256=(shasum -a 256); fi
+        archive="just-${version}-${target}.${ext}"
+        dl="$(mktemp -d)"
+        curl --proto '=https' --tlsv1.2 -fsSL \
+          "https://github.com/casey/just/releases/download/${version}/${archive}" -o "$dl/$archive"
+        (cd "$dl" && echo "$sum  $archive" | "${sha256[@]}" -c -)
         dest="${RUNNER_TEMP:-/tmp}/just-bin"
         mkdir -p "$dest"
-        curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-          | bash -s -- --tag "$version" --to "$dest"
+        case "$ext" in
+          zip) unzip -o -q "$dl/$archive" just.exe -d "$dest" ;;
+          tar.gz) tar -xzf "$dl/$archive" -C "$dest" just ;;
+        esac
+        rm -rf "$dl"
+        test "$("$dest/just" --version)" = "just ${version}"
         echo "$dest" >> "$GITHUB_PATH"
         "$dest/just" --version

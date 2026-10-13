@@ -709,6 +709,53 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 				time.Sleep(250 * time.Millisecond)
 			}
 		})
+
+	// The agent_send cell's single assertion: the marker must arrive in a body
+	// the child SENT, never in its runner's automatic turn report
+	// (j002300ScanSends). A report carrying the marker fails AT ONCE: the
+	// runner writes one only for a turn that sent its parent nothing, so the
+	// model said the marker instead of sending it, and nothing later can
+	// change that.
+	ctx.Step(`^the coordinator's own spool receives "([^"]*)" in an agent_send body from "([^"]*)", not in its automatic turn report$`,
+		func(c context.Context, want, name string) error {
+			return j002300AwaitSend(worldFrom(c), name, want)
+		})
+}
+
+// j002300AwaitSend waits until the coordinator's spool holds a body from
+// name's child, containing want, that the child sent itself.
+func j002300AwaitSend(w *World, name, want string) error {
+	harp, ok := j002300Of(w).harps[name]
+	if !ok {
+		return fmt.Errorf("j002300: no session harp remembered for %q — spawn it first", name)
+	}
+	if strings.TrimSpace(want) == "" {
+		return fmt.Errorf("j002300: waiting for an EMPTY body from %q would be satisfied by any message at all", name)
+	}
+	budget := eventBudget()
+	deadline := time.Now().Add(budget)
+	for {
+		mail, err := j002300OwnerMail(w)
+		if err != nil {
+			return err
+		}
+		s := j002300ScanSends(mail, harp, want)
+		switch {
+		case s.hit != "":
+			w.docStepMaterialized = fmt.Sprintf("owner spool — agent_send from %s (harp %s):\n  body: %s", name, harp, s.hit)
+			return nil
+		case s.autoReport != "":
+			return fmt.Errorf("j002300: %q's marker %q reached its coordinator only in the runner's AUTOMATIC turn report — the model said it and never called agent_send (harp %s):\n%s",
+				name, want, harp, s.autoReport)
+		case len(s.failed) > 0:
+			return fmt.Errorf("j002300: %q reported a %s message instead of sending %q — harp %s:\n%s",
+				name, kindLabel(coord.KindError), want, harp, strings.Join(s.failed, "\n---\n"))
+		case time.Now().After(deadline):
+			return fmt.Errorf("j002300: %q never sent its coordinator a body containing %q within %s — %d message(s) arrived from harp %s:\n%s",
+				name, want, budget, len(s.seen), harp, strings.Join(s.seen, "\n---\n"))
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
 
 // j002300ScanMail scans mail from harp: hit is the first body containing want

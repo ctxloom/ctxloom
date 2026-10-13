@@ -21,5 +21,10 @@ func TestFormatParity(t *testing.T) {
 		// show takes exactly one argument; omitting it fails before any
 		// store is opened.
 		FailingArgs: []string{"show"},
+		// "or" is a reserved query word, so the tag gate refuses it on any
+		// project with one finding naming one fix; nothing is written.
+		Refusal: func(t *testing.T, extra ...string) (int, string) {
+			return runMainForExitStatus(t, strings.Join(append([]string{"add", "refused", "--tag", "or"}, extra...), " "))
+		},
 	})
 }

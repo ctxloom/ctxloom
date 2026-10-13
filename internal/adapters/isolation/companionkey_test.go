@@ -9,6 +9,7 @@ import (
 
 	containerfiles "github.com/ctxloom/ctxloom/container"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // TestImageStale_UpdatingACompanionInvalidatesTheImage is the point of the
@@ -108,7 +109,8 @@ func TestCompanionVersionKey_UnreportableCompanionRefusesByDefault(t *testing.T)
 	err := strictness.Mode{}.FindingsError(mark)
 	require.Error(t, err, "an unreportable staged companion must be a fatal finding, not a silent omission")
 	assert.Contains(t, err.Error(), "ltk", "the refusal must name WHICH companion; got %q", err)
-	assert.Contains(t, err.Error(), "fix:", "the refusal must carry a remedy; got %q", err)
+	fix, ok := clifmt.RemedyOf(err)
+	assert.True(t, ok && fix != "", "the refusal must carry a remedy; got %q", err)
 }
 
 // TestCompanionVersionKey_UnreportableCompanionWarnsUnderDegraded is the other

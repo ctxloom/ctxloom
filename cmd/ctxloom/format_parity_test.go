@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,11 +22,19 @@ import (
 // branch) and returns the process's exit status and stderr.
 func runMain(t *testing.T, args ...string) (int, string) {
 	t.Helper()
+	return runMainIn(t, "", args...)
+}
+
+// runMainIn is runMain with the child's working directory set to dir (""
+// inherits this process's).
+func runMainIn(t *testing.T, dir string, args ...string) (int, string) {
+	t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatalf("locating the test binary to re-exec: %v", err)
 	}
 	cmd := exec.Command(exe)
+	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), mainArgvEnv+"="+strings.Join(args, " "))
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -52,7 +61,24 @@ func TestFormatParity(t *testing.T) {
 		// bundle show takes exactly one argument; omitting it fails in
 		// argument validation, before any store is opened.
 		FailingArgs: []string{"bundle", "show"},
+		Refusal:     refusedConfig(t),
 	})
+}
+
+// refusedConfig runs ctxloom in a project whose config carries one unknown
+// key: the config gate refuses it with one finding naming one fix.
+func refusedConfig(t *testing.T) func(*testing.T, ...string) (int, string) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	cfg := []byte("schema_version: 7\nzz_unknown_key: 1\n")
+	if err := os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"), cfg, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return func(t *testing.T, extra ...string) (int, string) {
+		return runMainIn(t, dir, append([]string{"profile", "list"}, extra...)...)
+	}
 }
 
 // The one failure only ctxloom's entrypoint can produce: a verb that slipped

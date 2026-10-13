@@ -8,6 +8,8 @@ package formatparity
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -31,6 +33,14 @@ type Binary struct {
 	// FailingArgs is an invocation that fails without touching any store or
 	// the network (a missing required argument, say).
 	FailingArgs []string
+	// Refusal, when set, runs the binary's real process tail on an invocation
+	// that is refused naming exactly ONE fix, with extra appended to its argv
+	// (the table appends "--format", "json"), and returns its exit status and
+	// stderr. Nil for a binary none of whose failures names a fix; NoRefusal
+	// then says why, so a gap is a stated fact rather than an omission.
+	Refusal func(t *testing.T, extra ...string) (code int, stderr string)
+	// NoRefusal is why Refusal is nil.
+	NoRefusal string
 }
 
 // Check runs the family table against b.
@@ -86,6 +96,7 @@ func Check(t *testing.T, b Binary) {
 			t.Errorf("--format json: stderr %q is not an error envelope (%v)", stderr, err)
 		}
 	})
+	t.Run("one fix line per refusal", func(t *testing.T) { checkRefusal(t, b) })
 	t.Run("default follows the terminal", func(t *testing.T) {
 		for _, tc := range []struct {
 			terminal bool
@@ -104,4 +115,77 @@ func Check(t *testing.T, b Binary) {
 			}
 		}
 	})
+}
+
+// checkRefusal pins that a refusal naming one fix shows it once: the human
+// error report (everything from the "<prog>: " line that is not a streamed
+// "<prog>: warning:") carries exactly one "fix:" line, and the json envelope
+// carries the fix in remedy and not again inside error.
+func checkRefusal(t *testing.T, b Binary) {
+	t.Helper()
+	if b.Refusal == nil {
+		if b.NoRefusal == "" {
+			t.Fatal("Binary.Refusal is nil and NoRefusal does not say why")
+		}
+		t.Skip(b.NoRefusal)
+	}
+	code, stderr := b.Refusal(t)
+	if code == 0 {
+		t.Fatalf("the refusal exited 0; stderr %q", stderr)
+	}
+	report := errorReport(stderr, b.Prog)
+	if got := countFixLines(report); got != 1 {
+		t.Errorf("the error report carries %d fix: lines, want exactly 1:\n%s", got, report)
+	}
+	_, stderr = b.Refusal(t, "--format", "json")
+	env, err := lastEnvelope(stderr)
+	if err != nil {
+		t.Fatalf("--format json: stderr %q ends in no error envelope (%v)", stderr, err)
+	}
+	if env.Remedy == "" || strings.Contains(env.Error, env.Remedy) {
+		t.Errorf("--format json: envelope %+v; want the fix in remedy and only there", env)
+	}
+}
+
+// errorReport is stderr from the process tail's "<prog>: <msg>" line on,
+// skipping the streamed "<prog>: warning:" diagnostics before it.
+func errorReport(stderr, prog string) string {
+	lines := strings.Split(stderr, "\n")
+	for i, l := range lines {
+		if strings.HasPrefix(l, prog+": ") && !strings.HasPrefix(l, prog+": warning:") {
+			return strings.Join(lines[i:], "\n")
+		}
+	}
+	return ""
+}
+
+// countFixLines counts the lines of s that are a clifmt.FixLine.
+func countFixLines(s string) int {
+	n := 0
+	for _, l := range strings.Split(s, "\n") {
+		if strings.HasPrefix(strings.TrimLeft(l, " "), "fix: ") {
+			n++
+		}
+	}
+	return n
+}
+
+// lastEnvelope decodes stderr as a stream of JSON values and returns the
+// last: the envelope follows any streamed JSON Lines warnings.
+func lastEnvelope(stderr string) (clifmt.ErrorEnvelope, error) {
+	dec := json.NewDecoder(strings.NewReader(stderr))
+	var env clifmt.ErrorEnvelope
+	for {
+		var v clifmt.ErrorEnvelope
+		if err := dec.Decode(&v); err != nil {
+			if errors.Is(err, io.EOF) && env.Error != "" {
+				return env, nil
+			}
+			if errors.Is(err, io.EOF) {
+				return env, errors.New("no error envelope")
+			}
+			return env, err
+		}
+		env = v
+	}
 }

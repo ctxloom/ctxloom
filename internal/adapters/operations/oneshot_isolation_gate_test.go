@@ -111,9 +111,10 @@ func TestIsolationGateErr(t *testing.T) {
 		err := isolationGateErr(strictness.Mode{}, []report.Finding{isoFinding})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), isoFinding.Text)
-		assert.Contains(t, err.Error(), isoFinding.Remedy)
 		fix, _ := clifmt.RemedyOf(err)
 		assert.Equal(t, isoFinding.Remedy, fix, "a single finding's remedy reaches the error envelope")
+		assert.NotContains(t, err.Error(), isoFinding.Remedy,
+			"the one remedy is carried, not also spliced into the text every renderer appends it to")
 	})
 
 	t.Run("strict + several isolation findings → every finding's fix is shown", func(t *testing.T) {

@@ -185,8 +185,8 @@ func TestBuildInitialConfig(t *testing.T) {
 	}{
 		{
 			name: "claude-code wires opus + haiku", engine: "claude-code",
-			wantPrimary: "claude-code", wantBackend: "claude-code", wantModel: "claude-opus-4-8",
-			wantFast: "claude-fast", wantFastBE: "claude-code", wantFastMod: "claude-haiku-4-5-20251001",
+			wantPrimary: "claude-code", wantBackend: "claude-code", wantModel: "opus",
+			wantFast: "claude-fast", wantFastBE: "claude-code", wantFastMod: "haiku",
 		},
 		{
 			name: "engine without role markers falls back to a single entry", engine: "mock",

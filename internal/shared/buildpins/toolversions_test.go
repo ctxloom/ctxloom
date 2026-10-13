@@ -627,6 +627,41 @@ func TestChecksumPinsPairWithAVersionForEveryArch(t *testing.T) {
 // are extracted. A `curl | tar` would extract whatever arrived; the tarball
 // must land in a file, pass `sha256sum -c`, and only then be unpacked.
 func TestDevcontainerInstallsVerifiedGo(t *testing.T) {
+	step := goInstallStep(t)
+
+	t.Run("pinned release checked against its per-arch sha256", func(t *testing.T) {
+		for _, want := range []string{
+			"https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz",
+			"${GO_SHA256_AMD64}",
+			"${GO_SHA256_ARM64}",
+			"sha256sum -c",
+		} {
+			if !strings.Contains(step, want) {
+				t.Errorf("%s: the Go install lacks %q — the toolchain must be the pinned release, checked against its pinned sha256 for the build's arch", dockerfilePath, want)
+			}
+		}
+	})
+
+	t.Run("never piped into tar", func(t *testing.T) {
+		if regexp.MustCompile(`\|\s*tar\b`).MatchString(step) {
+			t.Errorf("%s: the Go install pipes the download into tar — it is extracted before (or without) being verified:\n%s", dockerfilePath, step)
+		}
+	})
+
+	t.Run("verified before extracted", func(t *testing.T) {
+		verify := strings.Index(step, "sha256sum -c")
+		extract := strings.Index(step, "tar -C /usr/local")
+		if extract < 0 || verify < 0 || extract < verify {
+			t.Errorf("%s: the Go install must verify (sha256sum -c) BEFORE extracting (tar -C /usr/local):\n%s", dockerfilePath, step)
+		}
+	})
+}
+
+// goInstallStep returns the Dockerfile's Go install step, from its
+// `# Install Go` comment up to the next ENV, with comment lines dropped so the
+// checks judge the instructions rather than the prose explaining them.
+func goInstallStep(t *testing.T) string {
+	t.Helper()
 	dockerfile := readFile(t, dockerfilePath)
 	start := strings.Index(dockerfile, "# Install Go")
 	if start < 0 {
@@ -636,30 +671,11 @@ func TestDevcontainerInstallsVerifiedGo(t *testing.T) {
 	if end := strings.Index(step, "\nENV "); end > 0 {
 		step = step[:end]
 	}
-	// Judge the instructions, not the comment explaining them.
 	var code []string
 	for _, line := range strings.Split(step, "\n") {
 		if !strings.HasPrefix(strings.TrimSpace(line), "#") {
 			code = append(code, line)
 		}
 	}
-	step = strings.Join(code, "\n")
-	for _, want := range []string{
-		"https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz",
-		"${GO_SHA256_AMD64}",
-		"${GO_SHA256_ARM64}",
-		"sha256sum -c",
-	} {
-		if !strings.Contains(step, want) {
-			t.Errorf("%s: the Go install lacks %q — the toolchain must be the pinned release, checked against its pinned sha256 for the build's arch", dockerfilePath, want)
-		}
-	}
-	if regexp.MustCompile(`\|\s*tar\b`).MatchString(step) {
-		t.Errorf("%s: the Go install pipes the download into tar — it is extracted before (or without) being verified:\n%s", dockerfilePath, step)
-	}
-	verify := strings.Index(step, "sha256sum -c")
-	extract := strings.Index(step, "tar -C /usr/local")
-	if extract < 0 || verify < 0 || extract < verify {
-		t.Errorf("%s: the Go install must verify (sha256sum -c) BEFORE extracting (tar -C /usr/local):\n%s", dockerfilePath, step)
-	}
+	return strings.Join(code, "\n")
 }

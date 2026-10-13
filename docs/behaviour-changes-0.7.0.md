@@ -290,7 +290,8 @@ that `ctxloom run` launches. The hook no longer carries it:
 - **A claude session you start by hand gets no ctxloom context from any
   hook.** It reads only what was materialized into the project at rest
   (§13), by `ctxloom materialize --yes`. The refresh that runs after
-  `deps pull` or a startup sync does not write claude's context. Otherwise
+  `deps pull --yes` or a `run --yes` startup sync does not write claude's
+  context. Otherwise
   nothing tells you so: the session starts normally, without your
   profiles' guidance. Start it with `ctxloom run` instead.
 - The `hook` context approach (`surfaces: {context: hook}` on a claude agent
@@ -337,13 +338,24 @@ default agent's; with no `--backend`, the project's configured engines.
   take them out, `manage uninstall` does not release them, and `ctxloom run`
   does not warn about context written under them, so a section it appended
   may appear twice until you remove the old one by hand.
-- **The post-sync refresh** (after `deps pull`, or a startup sync that
-  installs a remote bundle) now runs `ctxloom materialize` into the project
-  root. It refreshes hooks, MCP servers, settings, commands and skills for
-  every configured engine, and the context file of an engine that reads its
-  context from a file at rest. It leaves alone the context of an engine
-  whose context rides the launch (claude: its system prompt), neither
-  writing nor removing it, so a sync writes no CLAUDE.md.
+- **The post-sync refresh** (after `deps pull`, or a `ctxloom run` startup
+  sync that installs a remote bundle) writes the project root only when you
+  pass `--yes`: `ctxloom deps pull --yes`, `ctxloom run --yes`. That is the
+  consent `ctxloom materialize` asks before writing the project directory.
+  In 0.6 a pull applied hooks unasked. **Without `--yes` the pull (or the
+  run) still succeeds**: it installs and locks the closure, writes and
+  removes no engine file, and prints `Project refresh skipped`, naming each
+  engine's kinds it would have written and the two ways to apply them (the
+  same command with `--yes`, or the `ctxloom materialize --yes --surface ...`
+  that writes exactly those kinds). `--format json` carries the same as
+  `refresh_skipped`. A script that relied on a pull refreshing the
+  project's hooks or MCP servers must add `--yes`. There is no config
+  setting for it. With `--yes`, the refresh runs `ctxloom materialize` into
+  the project root. It refreshes hooks, MCP servers, settings, commands and
+  skills for every configured engine, and the context file of an engine
+  that reads its context from a file at rest. It leaves alone the context of
+  an engine whose context rides the launch (claude: its system prompt),
+  neither writing nor removing it, so a sync writes no CLAUDE.md.
 - **A `ctxloom run` warns** when the project holds context materialized into
   it, naming the file and `ctxloom materialize --release --surface
   context`.

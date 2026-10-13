@@ -16,6 +16,7 @@ import (
 var (
 	depsPullForce bool
 	depsPullLock  bool
+	depsPullYes   bool
 )
 
 var depsPullCmd = &cobra.Command{
@@ -23,8 +24,16 @@ var depsPullCmd = &cobra.Command{
 	Short: "Make this project's installed closure match upstream",
 	Long: `Reconcile the installation with the remotes it came from: fetch every remote
 bundle this project's profiles depend on, record each one's resolved commit in
-the lockfile, apply hooks, and remove anything its remote has stopped
-publishing.
+the lockfile, and remove anything its remote has stopped publishing.
+
+THE PROJECT'S ENGINE FILES ARE WRITTEN ONLY WITH --yes. After installing, a
+pull refreshes the hooks, MCP servers, settings, commands and skills the
+project's profiles deliver into the project directory's engine files (an
+engine whose context rides its launch keeps its context out of it). That
+directory is shared by every session and person using the checkout, so like
+'ctxloom materialize' the refresh writes there only under --yes. Without it the
+pull still succeeds: it writes no engine file and names what the refresh would
+have written, and how to apply it.
 
 BOTH DIRECTIONS, AND NEITHER ASKS. Installed remote content is a projection of
 remote state — every byte re-fetchable from the address it came from, none of it
@@ -44,6 +53,7 @@ reference at its pin. A changed constraint is reported and left for
 'ctxloom deps upgrade', which is the one command that moves a pin; 'ctxloom deps
 check' is what tells you one could be moved.`,
 	Example: `  ctxloom deps pull                      # Install the closure and reconcile it
+  ctxloom deps pull --yes                # ...and refresh the project's engine files
   ctxloom deps pull --force              # Reinstall every reference at its pin
   ctxloom deps pull --lock=false         # Leave the lockfile alone`,
 	RunE: runDepsPull,
@@ -58,9 +68,10 @@ func runDepsPull(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintln(cmd.ErrOrStderr(), "Pulling dependencies...")
 
 	result, err := syncDependencies(cmd.Context(), App(), operations.SyncDependenciesRequest{
-		Force:      depsPullForce,
-		Lock:       depsPullLock,
-		ApplyHooks: true,
+		Force:        depsPullForce,
+		Lock:         depsPullLock,
+		ApplyHooks:   true,
+		WriteProject: depsPullYes,
 	})
 	if err != nil {
 		return err
@@ -83,6 +94,7 @@ func runDepsPull(cmd *cobra.Command, _ []string) error {
 		if plan != nil {
 			renderReconcile(cmd.OutOrStdout(), *plan)
 		}
+		operations.WriteRefreshSkipped(cmd.OutOrStdout(), "  ", result.RefreshSkipped, "ctxloom deps pull --yes")
 		return nil
 	}); err != nil {
 		return err
@@ -116,6 +128,10 @@ type pullView struct {
 	// Reconcile is nil when no reconcile ran: --lock=false, or a lockfile it
 	// could not read. An empty plan would claim a check that never happened.
 	Reconcile *reconcileView `json:"reconcile,omitempty"`
+	// RefreshSkipped is the project refresh this pull planned but did not
+	// write, for want of --yes (operations.SyncDependenciesResult.
+	// RefreshSkipped); absent when it ran or had nothing to do.
+	RefreshSkipped *operations.MaterializeResult `json:"refresh_skipped,omitempty"`
 }
 
 // pullFailureView is one failed item and the fix its failure names
@@ -157,6 +173,7 @@ func newPullView(result *operations.SyncDependenciesResult, plan *operations.Rec
 
 		ConstraintChanges: result.ConstraintChanges,
 		Changes:           result.Changes,
+		RefreshSkipped:    result.RefreshSkipped,
 	}
 	for _, item := range result.Failed {
 		view.Failed = append(view.Failed, pullFailureView{
@@ -283,4 +300,6 @@ func init() {
 		"Reinstall every reference at its pin instead of skipping what is already installed")
 	depsPullCmd.Flags().BoolVar(&depsPullLock, "lock", true,
 		"Update lockfile after pull")
+	depsPullCmd.Flags().BoolVar(&depsPullYes, "yes", false,
+		"Let the post-pull refresh write the project directory's engine files (hooks, MCP, settings, commands, skills)")
 }

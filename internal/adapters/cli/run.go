@@ -52,6 +52,10 @@ var (
 	runProfile     string
 	runSavedPrompt string // --command / -r
 	runDryRun      bool
+	// runYes lets the startup sync's project refresh write the project
+	// directory's engine files (SyncDependenciesRequest.WriteProject). Without
+	// it the sync still installs, and names the refresh it skipped.
+	runYes bool
 	// runOneShot selects the single-turn mode: one turn, the answer, exit. The
 	// name is the MODE, not its output — printing is what every mode does, and
 	// it is the turn count that decides whether an engine gets a session. It
@@ -865,7 +869,7 @@ func (st *runState) runStartupTasks() {
 	if syncCfg.ShouldAutoSync() && !runDryRun {
 		fmt.Fprintf(os.Stderr, "ctxloom: syncing remote bundles and profiles from config...\n")
 		syncCtx, syncCancel := context.WithTimeout(st.ctx, 60*time.Second)
-		result, syncErr := operations.SyncOnStartup(syncCtx, App())
+		result, syncErr := operations.SyncOnStartup(syncCtx, App(), runYes)
 		syncCancel()
 		if syncErr != nil {
 			if !errors.Is(syncErr, context.Canceled) {
@@ -873,6 +877,7 @@ func (st *runState) runStartupTasks() {
 			}
 		} else {
 			operations.WriteAndRecordSyncSummary(os.Stderr, result)
+			operations.WriteRefreshSkipped(os.Stderr, "ctxloom: ", result.RefreshSkipped, "ctxloom run --yes")
 		}
 	}
 
@@ -1616,6 +1621,7 @@ func init() {
 	_ = runCmd.RegisterFlagCompletionFunc("workspace", completeWorkspaceNames)
 	_ = runCmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
 	runCmd.Flags().BoolVarP(&runDryRun, "dry-run", "n", false, "Show command that would be executed")
+	runCmd.Flags().BoolVar(&runYes, "yes", false, "Let the startup sync refresh the project directory's engine files (hooks, MCP, settings, commands, skills)")
 	runCmd.Flags().BoolVar(&runOneShot, "one-shot", false, "Run one turn non-interactively, print the response, and exit")
 	runCmd.Flags().BoolVar(&runPlainTerminal, "plain-terminal", false, "Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session")
 	runCmd.Flags().BoolVar(&runNoStartupFindings, "no-startup-findings", false, "Do not deliver this launch's startup findings (what doctor reports about this run's config, companions and local state, and anything a --degraded launch proceeded past) into the agent's context")

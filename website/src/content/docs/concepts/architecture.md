@@ -233,8 +233,7 @@ flowchart TD
     D --> G["4. Update lockfile"]
     E --> G
     F --> G
-    G --> H["5. Regenerate context"]
-    H --> I["6. Apply hooks"]
+    G --> H["5. Refresh the project's engine files (only with --yes; otherwise report what was skipped)"]
 ```
 
 ## Directory Structure

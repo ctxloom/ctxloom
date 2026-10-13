@@ -80,7 +80,7 @@ ctxloom never mints or stores one. See
 | --- | --- | --- | --- |
 | a delegated run (the runner tail) | the cell's advised roots: the session home, and the project root where the binding selected it | `delivery.SessionWriter(harp)` | `runner.Execute` → `Static.Deliver(l.Loadout(pkg), kind.Root().Surfaces(), l.Target(records))` |
 | `ctxloom materialize` | `--target` (any directory, symlink-resolved) or, with `--yes`, the project root | `project:<engine>:<kind>`, one per selected kind | `operations.Materialize` → `operations.Deliver` / `operations.Release` |
-| the post-sync refresh | the project root (`projectroot.WorkDir()`, named explicitly) | `project:<engine>:<kind>`, every kind but the context of an engine whose context rides the launch (`MaterializeRequest.LeaveLaunchContext`) | `operations.syncMaterializeStep` → `operations.Materialize` |
+| the post-sync refresh, under `deps pull --yes` / `run --yes` (`SyncDependenciesRequest.WriteProject`; without it a dry run, reported as `RefreshSkipped`) | the project root (`projectroot.WorkDir()`, named explicitly) | `project:<engine>:<kind>`, every kind but the context of an engine whose context rides the launch (`MaterializeRequest.LeaveLaunchContext`) | `operations.syncMaterializeStep` → `operations.Materialize` |
 | `manage uninstall` | the project root | `project:<engine>:<kind>`, every kind, every registered engine | `operations.Materialize` (`Release`) → `operations.Release` |
 
 **Per-kind release.** An at-rest delivery for one engine is still ONE

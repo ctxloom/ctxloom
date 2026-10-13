@@ -45,6 +45,14 @@ type SyncDependenciesRequest struct {
 	// ApplyHooks refreshes the at-rest delivery (Materialize) after sync.
 	ApplyHooks bool `json:"apply_hooks"`
 
+	// WriteProject is the user's consent (the CLI's --yes) for that refresh
+	// to write the project directory, the same consent `ctxloom materialize`
+	// asks before writing there (ruling 17b). Without it the refresh only
+	// plans: nothing is written or released, and the plan comes back as
+	// SyncDependenciesResult.RefreshSkipped. The sync itself succeeds either
+	// way.
+	WriteProject bool `json:"write_project"`
+
 	// Testing injection points
 	FS       afero.Fs         `json:"-"`
 	Registry *remote.Registry `json:"-"`
@@ -120,6 +128,12 @@ type SyncDependenciesResult struct {
 	// Changes discloses each pin this sync created: everything the bundle
 	// brings in, executables included. A sync never moves an existing pin.
 	Changes []PinChange `json:"changes,omitempty"`
+	// RefreshSkipped is the post-sync project refresh this sync planned but
+	// did not write, for want of WriteProject: the target and, per engine,
+	// the kinds it would have written or released. Nil when the refresh ran,
+	// was not due, or would have changed nothing. WriteRefreshSkipped
+	// renders it.
+	RefreshSkipped *MaterializeResult `json:"refresh_skipped,omitempty"`
 }
 
 // ConstraintChange is a pin kept at its commit although the manifest now asks
@@ -466,20 +480,25 @@ func runSyncPostSteps(ctx context.Context, reg engine.Registry, cfg *config.Conf
 	// Materialize whenever there were remote references, so MCP servers from
 	// bundles get registered even if every dependency was already installed.
 	if req.ApplyHooks && result.Total > 0 {
-		syncMaterializeStep(ctx, reg, cfg)
+		result.RefreshSkipped = syncMaterializeStep(ctx, reg, cfg, req.WriteProject)
 	}
 }
 
 // syncMaterializeStep is the post-sync at-rest delivery with every default
 // but the target, which this internal caller names itself (the project
-// root) — the CLI's project-directory guard is the CLI's, not this step's —
-// and the context of an engine whose context rides the launch, which it
-// leaves alone (MaterializeRequest.LeaveLaunchContext). A
-// wholesale failure is fatal-class in strict mode (per-engine partial
+// root), and the context of an engine whose context rides the launch, which
+// it leaves alone (MaterializeRequest.LeaveLaunchContext).
+//
+// It writes the project directory only when write is set: the user's --yes,
+// the consent `ctxloom materialize` asks before writing there (ruling 17b).
+// Otherwise it runs the same request as a dry run and returns the plan as
+// the refresh it skipped (nil when the plan would change nothing).
+//
+// A wholesale failure is fatal-class in strict mode (per-engine partial
 // failures are already instrumented inside Materialize); degraded mode warns
 // and continues.
-func syncMaterializeStep(ctx context.Context, reg engine.Registry, cfg *config.Config) {
-	res, err := syncHooksStep(ctx, reg, cfg, MaterializeRequest{Target: projectroot.WorkDir(), LeaveLaunchContext: true})
+func syncMaterializeStep(ctx context.Context, reg engine.Registry, cfg *config.Config, write bool) *MaterializeResult {
+	res, err := syncHooksStep(ctx, reg, cfg, MaterializeRequest{Target: projectroot.WorkDir(), LeaveLaunchContext: true, DryRun: !write})
 	if err == nil && res != nil && res.Status == MaterializeFailed {
 		err = fmt.Errorf("no engine could be materialized: %s", strings.Join(res.Errors, "; "))
 	}
@@ -487,7 +506,26 @@ func syncMaterializeStep(ctx context.Context, reg engine.Registry, cfg *config.C
 		strictness.Fail(report.KindApply, "fix the failure, then re-apply (ctxloom materialize --yes)",
 			"failed to apply hooks after sync: %v", err)
 		zap.L().Warn("failed to apply hooks", zap.Error(err))
+		return nil
 	}
+	if write || !refreshPlansAnything(res) {
+		return nil
+	}
+	return res
+}
+
+// refreshPlansAnything reports whether a planned refresh would write or
+// release any kind for any engine.
+func refreshPlansAnything(res *MaterializeResult) bool {
+	if res == nil {
+		return false
+	}
+	for _, e := range res.Engines {
+		if len(e.Wrote) > 0 || len(e.Released) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // syncRefURLs returns the unique repo URLs behind the given canonical refs, in
@@ -905,7 +943,10 @@ func refreshReferencedClones(ctx context.Context, cfg *config.Config) {
 
 // SyncOnStartup is a convenience function that runs sync with sensible defaults.
 // This is meant to be called during MCP server initialization or CLI startup.
-func SyncOnStartup(ctx context.Context, app *App) (*SyncDependenciesResult, error) {
+//
+// writeProject is the user's consent for the post-sync project refresh to
+// write the project directory (SyncDependenciesRequest.WriteProject).
+func SyncOnStartup(ctx context.Context, app *App, writeProject bool) (*SyncDependenciesResult, error) {
 	cfg, err := app.Config(ctx)
 	if err != nil {
 		return nil, err
@@ -937,8 +978,9 @@ func SyncOnStartup(ctx context.Context, app *App) (*SyncDependenciesResult, erro
 
 	// Sync missing dependencies
 	return SyncDependencies(ctx, app, SyncDependenciesRequest{
-		Force:      false, // Don't overwrite existing
-		Lock:       true,  // Update lockfile
-		ApplyHooks: true,  // Apply hooks
+		Force:        false, // Don't overwrite existing
+		Lock:         true,  // Update lockfile
+		ApplyHooks:   true,  // Refresh the project's engine files, written only with consent
+		WriteProject: writeProject,
 	})
 }

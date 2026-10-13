@@ -84,6 +84,7 @@ ctxloom run [flags] [prompt...]
   -t, --tag strings                    Include fragments with this tag (can be repeated)
   -v, --verbose count                  Increase verbosity (can be repeated: -v, -vv, -vvv)
       --workspace string               Session workspace axis (none|worktree; empty = project default)
+      --yes                            Let the startup sync refresh the project directory's engine files (hooks, MCP, settings, commands, skills)
 ```
 
 ### Options inherited from parent commands

@@ -536,8 +536,9 @@ func init() {
 // resolves engines by NAME (PrepareInstanceHome is handed an engine name) and
 // cannot import the engine packages, so the root that built the registry
 // hands it over here. The sessions store, below the engine port, is handed
-// the same registry's TranscriptSession for the same reason. Idempotent, like
-// Compose.
+// the same registry's TranscriptSession, and each engine's history store
+// (launch.HistoryStores) for the reap and the coordinator's close, for the
+// same reason. Idempotent, like Compose.
 func composeEngines() error {
 	if err := engines.Compose(); err != nil {
 		return err
@@ -546,6 +547,7 @@ func composeEngines() error {
 		reg := engines.Registry()
 		isolation.UseFacts(isolation.RegistryFacts{Registry: reg})
 		sessions.UseTranscriptSessions(transcriptSessions(reg))
+		sessions.UseHistoryStores(launch.HistoryStores(reg))
 	})
 	return nil
 }

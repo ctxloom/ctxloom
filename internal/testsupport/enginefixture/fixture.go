@@ -9,6 +9,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
@@ -37,16 +39,21 @@ func Install(t testing.TB, kinds ...engine.Engine) engine.Registry {
 	reg := RegistryOf(kinds...)
 	restore := engines.Use(reg)
 	restoreFacts := isolation.UseFacts(isolation.RegistryFacts{Registry: reg})
-	t.Cleanup(func() { restoreFacts(); restore() })
+	restoreStores := sessions.UseHistoryStores(launch.HistoryStores(reg))
+	t.Cleanup(func() { restoreStores(); restoreFacts(); restore() })
 	return reg
 }
 
 // MustComposeShipped composes the shipped engines the way the CLI root does
-// — the registry, and the cells adapter's facts accessor over it — for a
+// — the registry, the cells adapter's facts accessor and the sessions
+// store's history stores over it — for a
 // TestMain whose package resolves engines by name. Idempotent.
 func MustComposeShipped() {
 	engines.MustCompose()
-	shippedOnce.Do(func() { isolation.UseFacts(isolation.RegistryFacts{Registry: engines.Registry()}) })
+	shippedOnce.Do(func() {
+		isolation.UseFacts(isolation.RegistryFacts{Registry: engines.Registry()})
+		sessions.UseHistoryStores(launch.HistoryStores(engines.Registry()))
+	})
 }
 
 var shippedOnce sync.Once

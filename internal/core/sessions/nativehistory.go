@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"strings"
+	"sync"
 
 	"github.com/spf13/afero"
 
@@ -54,13 +56,47 @@ func AdoptHistory(fsys afero.Fs, src, dst string) error {
 	return fsys.Remove(src)
 }
 
+// historyStores maps an engine home's leaf to its engine's history store,
+// relative to the home (engine.HomeSpec.TranscriptStoreRel, a slash path).
+var (
+	historyStoresMu sync.RWMutex
+	historyStores   map[string]string
+)
+
+// UseHistoryStores installs, until restore is called, where each engine
+// home's history store sits: leaf (the session home's leaf, launch.SessionHome)
+// to the engine's TranscriptStoreRel. The composition root installs one over
+// the engine registry (launch.HistoryStores), so the reap and the
+// coordinator's close adopt exactly the store. A leaf it does not name is
+// found by native/'s shape instead (keepStore).
+func UseHistoryStores(stores map[string]string) (restore func()) {
+	historyStoresMu.Lock()
+	defer historyStoresMu.Unlock()
+	prev := historyStores
+	historyStores = stores
+	return func() {
+		historyStoresMu.Lock()
+		defer historyStoresMu.Unlock()
+		historyStores = prev
+	}
+}
+
+// historyStoreFor is leaf's installed store, as a slash path.
+func historyStoreFor(leaf string) (string, bool) {
+	historyStoresMu.RLock()
+	defer historyStoresMu.RUnlock()
+	rel, ok := historyStores[leaf]
+	return rel, ok && rel != ""
+}
+
 // KeepHomeHistory adopts into native/ every history store an engine home in
 // sessionDir on fsys holds as a real directory, so deleting the homes loses
-// no history. native/<leaf>/ holds exactly each engine's history stores, so a
-// real home/<leaf>/<store> beside an existing native/<leaf>/<store> is
-// history; a store that is the link into native/ has nothing to move, and
-// one nested below a further home var is reached through the directories on
-// its way (keepStore).
+// no history. A leaf whose store is installed (UseHistoryStores) adopts
+// exactly that store (keepKnownStore). Otherwise native/<leaf>/ holds exactly
+// each engine's history stores, so a real home/<leaf>/<store> beside an
+// existing native/<leaf>/<store> is history; a store that is the link into
+// native/ has nothing to move, and one nested below a further home var is
+// reached through the directories on its way (keepStore).
 func KeepHomeHistory(fsys afero.Fs, sessionDir string) error {
 	native := filepath.Join(sessionDir, paths.NativeDirName)
 	leaves, err := afero.ReadDir(fsys, native)
@@ -70,23 +106,62 @@ func KeepHomeHistory(fsys afero.Fs, sessionDir string) error {
 	if err != nil {
 		return fmt.Errorf("keep home history: %w", err)
 	}
+	homes := filepath.Join(sessionDir, paths.SessionEngineHomesDirName)
 	for _, leaf := range leaves {
-		stores, err := afero.ReadDir(fsys, filepath.Join(native, leaf.Name()))
-		if err != nil {
+		if rel, ok := historyStoreFor(leaf.Name()); ok {
+			if err := keepKnownStore(fsys, filepath.Join(homes, leaf.Name()), filepath.Join(native, leaf.Name()), rel); err != nil {
+				return fmt.Errorf("keep home history: move %s's store into native: %w", leaf.Name(), err)
+			}
 			continue
 		}
-		for _, store := range stores {
-			rel := filepath.Join(leaf.Name(), store.Name())
-			home := filepath.Join(sessionDir, paths.SessionEngineHomesDirName, rel)
-			if !store.IsDir() || !IsRealDir(fsys, home) {
-				continue
-			}
-			if err := keepStore(fsys, home, filepath.Join(native, rel)); err != nil {
-				return fmt.Errorf("keep home history: move %s into native: %w", home, err)
-			}
+		if err := keepLeafStores(fsys, homes, native, leaf.Name()); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// keepLeafStores adopts, for a leaf with no installed store, each real
+// home/<leaf>/<store> native/<leaf>/ has a counterpart for (keepStore).
+func keepLeafStores(fsys afero.Fs, homes, native, leaf string) error {
+	stores, err := afero.ReadDir(fsys, filepath.Join(native, leaf))
+	if err != nil {
+		return nil
+	}
+	for _, store := range stores {
+		home := filepath.Join(homes, leaf, store.Name())
+		if !store.IsDir() || !IsRealDir(fsys, home) {
+			continue
+		}
+		if err := keepStore(fsys, home, filepath.Join(native, leaf, store.Name())); err != nil {
+			return fmt.Errorf("keep home history: move %s into native: %w", home, err)
+		}
+	}
+	return nil
+}
+
+// keepKnownStore adopts the store at rel (a slash path) below the engine
+// home into the same path below native, when it is a real directory reached
+// through real directories only: a store that is the link into native/ has
+// nothing to move, and one behind a link on its way (a user's merged XDG
+// entry) is not the session's. Only the store moves; the session's other
+// content beside it stays in the home.
+func keepKnownStore(fsys afero.Fs, home, native, rel string) error {
+	src := home
+	for _, seg := range strings.Split(rel, "/") {
+		if !IsRealDir(fsys, src) {
+			return nil
+		}
+		src = filepath.Join(src, seg)
+	}
+	if !IsRealDir(fsys, src) {
+		return nil
+	}
+	dst := filepath.Join(native, filepath.FromSlash(rel))
+	if err := fsys.MkdirAll(dst, 0o700); err != nil {
+		return err
+	}
+	return AdoptHistory(fsys, src, dst)
 }
 
 // keepStore adopts the real directory home into its native counterpart —
@@ -96,9 +171,9 @@ func KeepHomeHistory(fsys afero.Fs, sessionDir string) error {
 //
 // A nested store that is itself a real directory (a home whose links do not
 // resolve, as in a container) has no link below to tell its path from its
-// siblings', so the top-level directory is adopted whole, as a single-segment
-// store is: nothing is lost, but the session's other content beside it moves
-// too.
+// siblings', so here the top-level directory is adopted whole. The installed
+// store (UseHistoryStores) is what tells them apart: a leaf it names never
+// reaches this.
 func keepStore(fsys afero.Fs, home, native string) error {
 	if !linkedBelow(fsys, home, native) {
 		return AdoptHistory(fsys, home, native)

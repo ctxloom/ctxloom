@@ -35,7 +35,26 @@ type Session struct {
 	// Trust is the engine's verdict on the repository WorkDir is in
 	// (Engine.Trust), taken once where the cell was prepared.
 	Trust WorkspaceTrust
+	// SocketRoot is a short directory, on the side the engine runs, for the
+	// session's unix sockets (a wake socket, kit.SocketWake): a socket path
+	// is capped (sun_path, 108 bytes on linux, 104 on darwin) and the
+	// session home nests under the ctxloom home far too deep for one. It is
+	// keyed by the session home, so every process of the session names the
+	// same root; a socket leaf of up to SocketLeafMax bytes binds under it
+	// within SocketPathBudget. "" when the session has no home. Not a root a
+	// presentation builds from, and never on the wire: the runner computes it
+	// beside the engine (launch.SocketRoot).
+	SocketRoot string
 }
+
+// SocketPathBudget is the longest unix socket path ctxloom binds: below
+// sun_path on every platform (108 bytes on linux, 104 on darwin), so one
+// number is portable.
+const SocketPathBudget = 100
+
+// SocketLeafMax is the longest socket leaf a Session.SocketRoot leaves room
+// for within SocketPathBudget.
+const SocketLeafMax = 16
 
 // LabelConfig is one llm.configs label resolved: a configuration of the
 // engine kind, not an engine identity. Several labels instantiate the same

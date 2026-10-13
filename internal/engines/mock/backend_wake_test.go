@@ -38,7 +38,8 @@ func ownerSession(t *testing.T, harp string) engine.Session {
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	return engine.Session{
 		Identity: sessions.Identity{Harp: harp}, Mode: engine.Interactive, WorkDir: root,
-		Roots: present.Paths{SessionHome: present.Root{Host: root, Engine: root}},
+		Roots:      present.Paths{SessionHome: present.Root{Host: root, Engine: root}},
+		SocketRoot: filepath.Join(root, "s"),
 	}
 }
 
@@ -52,7 +53,7 @@ func TestExec_AnInteractiveSessionNamesItsWakeSocket(t *testing.T) {
 	require.NoError(t, err)
 	ex, err := inst.Exec(nil)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(owner.Roots.SessionHome.Engine, "wake.sock"), ex.Env[EnvWakeSocket], "one socket per session, in its own root")
+	assert.Equal(t, filepath.Join(owner.SocketRoot, "wake.sock"), ex.Env[EnvWakeSocket], "one socket per session, in its own socket root")
 
 	s := ownerSession(t, "child-harp")
 	s.Mode = engine.Structured
@@ -206,6 +207,7 @@ func TestInteractiveEcho_AWakeIsTakenAsATypedLine(t *testing.T) {
 	_, err = pw.Write([]byte("quit\n"))
 	require.NoError(t, err)
 	require.NoError(t, testsupport.Await(t, 5*time.Second, done, "the echo did not end on quit"))
+	assert.NoDirExists(t, s.SocketRoot, "the session's socket root goes with its engine")
 
 	got := payloads()
 	require.Len(t, got, 2)

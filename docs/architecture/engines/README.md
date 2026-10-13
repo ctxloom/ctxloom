@@ -167,9 +167,17 @@ config dialects, renderers, failure tables) stays in each engine.
   table, its skill and edited-path readers, and the events an answer may
   carry context or a block on. The mock's codec and opencode's.
 - **`kit.SocketWake`**: a `WakeSpec` over a unix socket the interactive
-  session's runtime listens on (`Path` is the socket in the session-private
-  root, named in the engine's own env var; `Fire` posts `engine.WakeText`
-  as one line). The mock's and opencode's.
+  session's runtime listens on (`Path` is the socket in the session's short
+  socket root, `engine.Session.SocketRoot`, named in the engine's own env
+  var; `Fire` posts `engine.WakeText` as one line). The mock's and
+  opencode's. The socket root is not the session home, which nests too deep
+  for a unix socket path (sun_path: 108 bytes on linux, 104 on darwin): the
+  runner computes it beside the engine (`launch.SocketRoot`) as
+  `<base>/ctxloom-<16 hex of the session home's sha256>`, the base being the
+  first of `$XDG_RUNTIME_DIR`, the temp dir and `/tmp` that leaves room
+  within `engine.SocketPathBudget`. `Ensure` makes it owner-only (refusing a
+  link) before the engine starts, and `ReleaseSocketRoot` removes it, when
+  empty, after the engine ends.
 
 **The kit rule: a component enters `internal/engines/kit` only when two
 engines use it in the same slice.** A component with one user is that
@@ -229,10 +237,10 @@ opencode through the bridge with a runtime-only adapter. Approvals and trust
 are declared absent or unsupported, each with its reason.
 
 Its container story installs the pinned release tarball
-(`OPENCODE_CLI_VERSION`) for the machine and libc, checks it against a sha256
-pinned in code per asset, and runs `opencode --version` as the gate; while
-any asset's pin is unverified (empty) `Container` refuses with the reason, so
-a container binding fails at Resolve.
+(`OPENCODE_CLI_VERSION`) for the machine and libc, taken from the official
+GitHub release as-is, and runs `opencode --version` as the gate. There is no
+checksum step: upstream publishes no checksums and ctxloom adds none, so
+integrity rests on GitHub's TLS and the release itself.
 
 ## Start here
 

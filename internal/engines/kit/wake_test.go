@@ -6,6 +6,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,13 +66,65 @@ func TestSocketWake_AnUndeliverableWakeFails(t *testing.T) {
 	require.Error(t, w.Fire(context.Background(), "0123456789abcdef"))
 }
 
-// The socket is an interactive session's alone, in its private root.
+// The socket is an interactive session's alone, in its short socket root
+// (engine.Session.SocketRoot), never the session home: that nests too deep
+// for a unix socket path.
 func TestSocketWake_PathIsTheInteractiveSessionsOwn(t *testing.T) {
 	w := SocketWake{EnvVar: testWakeVar}
 	s := engine.Session{Mode: engine.Interactive}
-	assert.Empty(t, w.Path(s), "no session-private root, no socket")
-	s.Roots.SessionHome.Engine = "/h"
-	assert.Equal(t, filepath.Join("/h", "wake.sock"), w.Path(s))
+	s.Roots.SessionHome.Engine = "/" + strings.Repeat("deep/", 40)
+	assert.Empty(t, w.Path(s), "no socket root, no socket")
+	s.SocketRoot = "/r"
+	assert.Equal(t, filepath.Join("/r", "wake.sock"), w.Path(s))
 	s.Mode = engine.Structured
 	assert.Empty(t, w.Path(s), "a structured session has nobody to wake")
+	assert.LessOrEqual(t, len(wakeSocketName), engine.SocketLeafMax, "the leaf fits the room the contract leaves")
+}
+
+// Ensure makes the socket root an owner-only directory a socket can be
+// bound in, and refuses a root that is a link: a predictable name in a
+// shared temp dir is not trusted to be the session's own.
+func TestSocketWake_EnsureMakesAnOwnerOnlyRoot(t *testing.T) {
+	w := SocketWake{EnvVar: testWakeVar}
+	s := engine.Session{Mode: engine.Interactive, SocketRoot: filepath.Join(testsupport.SocketDir(t, "ctxloom-0123456789abcdef/wake.sock"), "ctxloom-0123456789abcdef")}
+	path, err := w.Ensure(s)
+	require.NoError(t, err)
+	assert.Equal(t, w.Path(s), path)
+	st, err := os.Lstat(s.SocketRoot)
+	require.NoError(t, err)
+	assert.True(t, st.IsDir())
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0o700), st.Mode().Perm())
+	}
+	_, err = w.Ensure(s)
+	require.NoError(t, err, "an existing root of the session's own is reused")
+
+	if runtime.GOOS != "windows" {
+		linked := engine.Session{Mode: engine.Interactive, SocketRoot: filepath.Join(filepath.Dir(s.SocketRoot), "linked")}
+		require.NoError(t, os.Symlink(s.SocketRoot, linked.SocketRoot))
+		_, err = w.Ensure(linked)
+		require.Error(t, err, "a root that is a link is refused")
+	}
+
+	none, err := w.Ensure(engine.Session{Mode: engine.Structured, SocketRoot: s.SocketRoot})
+	require.NoError(t, err)
+	assert.Empty(t, none, "a structured session needs no socket")
+}
+
+// ReleaseSocketRoot takes the session's socket root once its engine has
+// gone, but only when empty: a socket still in it belongs to a process of
+// the same session that is still running (a concurrent resume), whose wake
+// must keep working.
+func TestReleaseSocketRoot_RemovesOnlyAnEmptyRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "ctxloom-0123456789abcdef")
+	require.NoError(t, os.Mkdir(root, 0o700))
+	ReleaseSocketRoot(engine.Session{SocketRoot: root})
+	assert.NoDirExists(t, root, "an empty root goes")
+
+	require.NoError(t, os.Mkdir(root, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "wake.sock"), nil, 0o600))
+	ReleaseSocketRoot(engine.Session{SocketRoot: root})
+	assert.FileExists(t, filepath.Join(root, "wake.sock"), "a root still in use stays")
+
+	ReleaseSocketRoot(engine.Session{}) // no root: nothing to do, and no panic
 }

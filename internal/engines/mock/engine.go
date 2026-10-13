@@ -363,7 +363,11 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 		return engine.Exec{}, err
 	}
 	interactive := i.s.Mode == engine.Interactive
-	if path := wake.Path(i.s); path != "" {
+	path, err := wake.Ensure(i.s)
+	if err != nil {
+		return engine.Exec{}, err
+	}
+	if path != "" {
 		// The session owner's wake: the interactive echo listens here, and
 		// the runner binds the mock's wake from this same env.
 		env[EnvWakeSocket] = path

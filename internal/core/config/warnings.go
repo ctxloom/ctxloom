@@ -20,8 +20,18 @@ const (
 	WarnKindRead WarningKind = "read"
 	// WarnKindParse: the config file's YAML failed to unmarshal.
 	WarnKindParse WarningKind = "parse"
-	// WarnKindValidate: the config parsed but failed schema validation.
+	// WarnKindValidate: the config failed a validation that is not one config
+	// file's schema breakage — the schema itself failed to compile, an
+	// override value the schema refuses, or the loaded value's own semantic
+	// checks.
 	WarnKindValidate WarningKind = "validate"
+	// WarnKindSchemaViolation: a config FILE parsed but breaks the schema —
+	// a value of the wrong type, outside its enum, or matching none of the
+	// shapes an entry may take. Split out of WarnKindValidate so the startup
+	// gate can refuse on it by class and the warning can carry the typed
+	// *SchemaViolation (file, key path, expected type) as its Cause. An
+	// unknown key is WarnKindUnknownKey, not this.
+	WarnKindSchemaViolation WarningKind = "schema-violation"
 	// WarnKindUnknownKey: the config carries a key ctxloom does not know — a
 	// typo, or a key RETIRED by a schema generation the migrator has already
 	// passed (the classic: `profiles.defaults` copied out of a stale doc into a
@@ -68,6 +78,9 @@ func (k WarningKind) Remedy() string {
 		// The message already names the key and (when known) its replacement, so
 		// the remedy only has to say where to make the edit.
 		return "remove or rename the key in config.yaml (ctxloom manage config edit)"
+	case WarnKindSchemaViolation:
+		// The message names the file, the key and what the schema expected.
+		return "give the key a value the schema accepts, or remove it (ctxloom manage config edit)"
 	case WarnKindEnginelessAgent:
 		return "bind the agent to an llm or to profiles (ctxloom agent edit <name> --llm <label> | --profiles <p,...>), or remove it (ctxloom agent remove <name>)"
 	default: // parse / validate
@@ -75,11 +88,15 @@ func (k WarningKind) Remedy() string {
 	}
 }
 
-// Warning is one non-fatal load-time diagnostic: the degradation text and the
-// kind the startup gate keys on.
+// Warning is one load-time diagnostic: the degradation text and the kind the
+// startup gate keys on. Cause, when set, is the typed error the text renders
+// (a *SchemaViolation for WarnKindSchemaViolation), so a gate that refuses on
+// the warning can return something a caller matches with errors.Is/As instead
+// of the text.
 type Warning struct {
-	Kind WarningKind
-	Text string
+	Kind  WarningKind
+	Text  string
+	Cause error
 }
 
 // Finding is the warning as the fail-loudly finding a sink renders and

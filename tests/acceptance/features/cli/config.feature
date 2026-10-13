@@ -130,6 +130,44 @@ Feature: config — the project's one configuration document, read and scaffolde
       Then the command fails
       And the output contains "unknown key `profiles`"
 
+    # A key the schema DOES describe, holding a value of the wrong type, is
+    # refused the same way: by file, key path and the type that was expected.
+    # It used to be a warning, and the command ran on a setting the schema
+    # could not vouch for.
+    Scenario: A config value of the wrong type is refused, naming the file, key and expected type
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 7
+        session_reap_age: 5
+        """
+      When Alice reads a section of the document:
+        """
+        ctxloom config show llm
+        """
+      Then the command fails
+      And the output contains ".ctxloom/config.yaml"
+      And the output contains "`session_reap_age`"
+      And the output contains "expected string"
+
+    # --degraded is the escape hatch for every fatal startup finding, this one
+    # included: the violation is still reported, and the command runs.
+    Scenario: Under --degraded a config value of the wrong type is warned about and the config loads
+      Given an initialized ctxloom project
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 7
+        session_reap_age: 5
+        """
+      When Alice reads a section of the document:
+        """
+        ctxloom --degraded config show llm
+        """
+      Then the command succeeds
+      And the output contains "claude-code"
+      And the output contains "`session_reap_age`"
+      And the output contains "expected string"
+
     # The refusal has to be USEFUL, not merely correct: a caller who guessed
     # wrong recovers from the message or not at all, so it names every section
     # that does exist.

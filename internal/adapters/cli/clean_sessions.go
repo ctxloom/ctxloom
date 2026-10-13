@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -55,9 +56,16 @@ func reclaimCutoff(olderThan string, now time.Time) (time.Time, error) {
 		return parseAgeBound("--older-than", olderThan, now)
 	}
 	age := config.DefaultSessionReapAge
-	if cfg, err := GetConfig(); err != nil {
+	cfg, err := GetConfig()
+	switch {
+	case errors.As(err, new(configRefusedError)):
+		// A config that loaded and was refused is not an unreadable one: the
+		// reap must not proceed on the default age over a setting the user
+		// did write.
+		return time.Time{}, err
+	case err != nil:
 		clidiag.Warn("ctxloom", "config could not be loaded (%v); the session reap proceeds on the built-in session_reap_age %s", err, age)
-	} else {
+	default:
 		age = cfg.SessionReapAge()
 	}
 	return parseAgeBound("session_reap_age", age, now)

@@ -52,6 +52,10 @@ func inodeOf(t *testing.T, path string) uint64 {
 // it, a stampPID that had silently gone back to rename-based writing could
 // still pass the first half on a filesystem that happened to reuse the inode
 // number.
+//
+// The probes are a SWEEPER's (another process's) view of the file, so they
+// go through acquire with the holder's in-memory answer off: Inspect from the
+// holder itself answers Alive from memory and never looks at the inode.
 func TestStampPID_KeepsALockedInodeVisiblyAlive(t *testing.T) {
 	testsupport.Isolate(t)
 	trustEverything(t)
@@ -59,17 +63,22 @@ func TestStampPID_KeepsALockedInodeVisiblyAlive(t *testing.T) {
 	const harp = "stamped-harp"
 	require.NoError(t, Hold(harp))
 	t.Cleanup(func() { Release(harp) })
+	sweeperView := func() Verdict {
+		p, release := acquire(harp, false)
+		release()
+		return p.Verdict
+	}
 
 	path := lockPath(t, harp)
 	locked := inodeOf(t, path)
-	require.Equal(t, Alive, Inspect(harp).Verdict, "the fixture must start from a live session")
+	require.Equal(t, Alive, sweeperView(), "the fixture must start from a live session")
 
 	// The migration under test: a re-stamp of the locked file.
 	require.NoError(t, stampPID(path))
 
 	assert.Equal(t, locked, inodeOf(t, path),
 		"stampPID replaced the inode the lock is held on; a sweeper would now open an unlocked file and read this LIVE session as dead")
-	assert.Equal(t, Alive, Inspect(harp).Verdict,
+	assert.Equal(t, Alive, sweeperView(),
 		"the session must still probe as alive after its own pid stamp")
 	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -79,6 +88,6 @@ func TestStampPID_KeepsALockedInodeVisiblyAlive(t *testing.T) {
 	require.NoError(t, safefs.WriteFile(afero.NewOsFs(), path, raw, lockFileMode))
 	require.NotEqual(t, locked, inodeOf(t, path),
 		"fixture is not discriminating: the atomic write kept the inode, so the assertion above proves nothing")
-	assert.Equal(t, Dead, Inspect(harp).Verdict,
+	assert.Equal(t, Dead, sweeperView(),
 		"fixture is not discriminating: a rename-based stamp must be observable as a live session reading DEAD")
 }

@@ -89,7 +89,7 @@ func TestMaterializeReport_NamesTheHooksTheEngineCannotCarry(t *testing.T) {
 	// JSON would delete the prose half rather than move it. The prose half is
 	// this file's whole subject: a structured field no CLI prints is the same
 	// silence with extra steps.
-	require.NoError(t, env.Run("profile", "materialize", "team", "--target", "out-mock-lossy", "--backend", "mock-lossy", "--format", "text"),
+	require.NoError(t, env.Run("materialize", "team", "--target", "out-mock-lossy", "--backend", "mock-lossy", "--format", "text"),
 		"a structural capability gap is reported, not fatal — the rest of the tree is still worth having")
 
 	out := env.LastOutput()
@@ -108,25 +108,29 @@ func TestMaterializeReport_NamesTheHooksTheEngineCannotCarry(t *testing.T) {
 func TestMaterializeReport_JSONCarriesTheLoss(t *testing.T) {
 	env := setupLossFixture(t)
 
-	require.NoError(t, env.Run("profile", "materialize", "team", "--target", "out-json", "--backend", "mock-lossy", "--format", "json"))
+	require.NoError(t, env.Run("materialize", "team", "--target", "out-json", "--backend", "mock-lossy", "--format", "json"))
 
-	var res struct {
-		Backend    string   `json:"backend"`
-		Wrote      []string `json:"wrote"`
-		NotCarried []struct {
-			Surface string `json:"surface"`
-			Detail  string `json:"detail"`
-			Reason  string `json:"reason"`
-		} `json:"not_carried"`
+	var doc struct {
+		Engines []struct {
+			Engine     string   `json:"engine"`
+			Wrote      []string `json:"wrote"`
+			NotCarried []struct {
+				Surface string `json:"surface"`
+				Detail  string `json:"detail"`
+				Reason  string `json:"reason"`
+			} `json:"not_carried"`
+		} `json:"engines"`
 	}
 	// LastOutput is stdout+stderr combined, and ctxloom's warnings are their own
 	// JSON lines on stderr — so decode the FIRST document rather than requiring
 	// the whole stream to be one value.
 	out := env.LastOutput()
-	require.NoError(t, json.NewDecoder(strings.NewReader(out)).Decode(&res),
+	require.NoError(t, json.NewDecoder(strings.NewReader(out)).Decode(&doc),
 		"materialize --format json must emit the result as a JSON document:\n"+out)
 
-	assert.Equal(t, "mock-lossy", res.Backend)
+	require.Len(t, doc.Engines, 1, "one --backend, one engine outcome:\n"+out)
+	res := doc.Engines[0]
+	assert.Equal(t, "mock-lossy", res.Engine)
 	assert.NotEmpty(t, res.Wrote, "precondition: something was written")
 	require.Len(t, res.NotCarried, 1, "the loss must be a structured field, not prose:\n"+out)
 	assert.Equal(t, "hooks", res.NotCarried[0].Surface)
@@ -144,7 +148,7 @@ func TestMaterializeReport_SaysNothingWhenNothingIsLost(t *testing.T) {
 
 	// Explicit text for the same reason as its twin above: the silence being
 	// proven is a silence in the PROSE report.
-	require.NoError(t, env.Run("profile", "materialize", "team", "--target", "out-claude", "--backend", "claude-code", "--format", "text"))
+	require.NoError(t, env.Run("materialize", "team", "--target", "out-claude", "--backend", "claude-code", "--format", "text"))
 
 	out := env.LastOutput()
 	assert.Contains(t, out, "wrote settings", "precondition: claude-code's settings surface (which carries the hook) landed")

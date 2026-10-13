@@ -229,7 +229,7 @@ func printEach(w *errwriter.Writer, format string, items []string) {
 // fragment is inlined exactly when the write inlines it — against an
 // already-delivered file. Read-only.
 func runMaterializeDiff(fsys afero.Fs, cmd *cobra.Command, cfg *config.Config, args []string, specs []operations.SurfaceSpec) error {
-	engines, err := operations.MaterializeEngines(App().Engines(), cfg, operations.MaterializeRequest{Engines: matFlags.backends, Explicit: true})
+	engines, err := operations.MaterializeEngines(App().Engines(), cfg, operations.MaterializeRequest{Engines: matFlags.backends})
 	if err != nil {
 		return err
 	}

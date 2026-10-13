@@ -23,9 +23,9 @@ func namedBackend(reg engine.Registry, backend string) ([]string, error) {
 // de-duplicated: the engines resolved from the configured agents' LLM labels.
 // It is what an unqualified materialize targets.
 //
-// A project that configures none gets an empty list, and a materialize over nothing
-// writes nothing — the correct outcome, not a reason to fall back to the whole
-// registry.
+// A project that configures none gets the registry's default engine (the
+// one it runs on), never the whole registry; only a registry that ships no
+// default yields an empty list.
 func ConfiguredEngines(reg engine.Registry, cfg *config.Config) []string {
 	if cfg == nil {
 		return nil

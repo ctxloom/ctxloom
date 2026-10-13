@@ -424,18 +424,20 @@ func TestMaterializeEngines_AcceptsOnlyTheRegisteredName(t *testing.T) {
 }
 
 // TestMaterializeEngines_TheDefaultFollowsTheRegistry: with no engine named
-// or configured, an explicit target is written for whichever engine the
-// registry ships by default — a registry whose default is another engine
-// gets that engine.
+// or configured, any target — named or the project-root default — is written
+// for whichever engine the registry ships by default (ruling 16) — a
+// registry whose default is another engine gets that engine.
 //
 // MUTATION -- resolve "" to a fixed engine name -- turns this red.
 func TestMaterializeEngines_TheDefaultFollowsTheRegistry(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 	reg, err := engine.NewRegistry(mock.NewNamed("solo", mock.WithDistribution(engine.DistributionDefault)))
 	require.NoError(t, err)
-	got, err := materializeEngines(reg, cfg, MaterializeRequest{Explicit: true})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"solo"}, got)
+	for _, explicit := range []bool{false, true} {
+		got, err := materializeEngines(reg, cfg, MaterializeRequest{Explicit: explicit})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"solo"}, got, "explicit=%v", explicit)
+	}
 
 	none, err := engine.NewRegistry(mock.New())
 	require.NoError(t, err)

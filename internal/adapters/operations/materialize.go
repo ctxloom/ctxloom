@@ -40,9 +40,11 @@ type MaterializeRequest struct {
 	// Target is REQUIRED and explicit: the CLI resolves the project-root
 	// default and applies its guard; an internal caller passes its own.
 	Target string `json:"target"`
-	// Explicit says the user named Target: with no engine configured, an
-	// explicit target is delivered for the registry's default engine and the
-	// project-root default is not (R6).
+	// Explicit says the user named Target rather than taking the CLI's
+	// project-root default; the CLI's project-directory guard (R14) keys on
+	// it. Engine resolution does not: with no engine named or configured,
+	// every target is delivered for the registry's default engine (R6,
+	// ruling 16).
 	Explicit bool `json:"explicit,omitempty"`
 	// Engines is the engine set; nil is the configured engines.
 	Engines []string `json:"engines,omitempty"`
@@ -72,7 +74,7 @@ type MaterializeResult struct {
 	Profiles []string        `json:"profiles,omitempty"`
 	Engines  []EngineOutcome `json:"engines"`
 	// Status is applied | partial | failed | released | planned (a dry run)
-	// | nothing (no engine to deliver for, or nothing to release).
+	// | nothing (nothing to release).
 	Status   string   `json:"status"`
 	Errors   []string `json:"errors,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
@@ -131,11 +133,6 @@ func Materialize(ctx context.Context, reg engine.Registry, cfg *config.Config, r
 	m, err := newMaterializeRun(reg, cfg, req)
 	if err != nil {
 		return nil, err
-	}
-	if len(m.names) == 0 {
-		m.res.Status = MaterializeNothing
-		m.res.Warnings = append(m.res.Warnings, "no engine is configured, so nothing was delivered; name one with --backend, or give --target to deliver for the default engine")
-		return m.res, nil
 	}
 	if req.Release {
 		return materializeRelease(ctx, reg, m.root, m.names, m.kinds, m.res)
@@ -263,8 +260,9 @@ func checkSurfaceSpec(s SurfaceSpec, release bool) error {
 }
 
 // materializeEngines resolves the engine set (R6): the named engines, each
-// registered; else the configured engines; else, for an explicit target
-// only, the registry's default.
+// registered; else the configured engines, which already fall back to the
+// registry's default (ruling 16) — so the tail below is reached only by a
+// registry that ships no default, and refuses with its error.
 func materializeEngines(reg engine.Registry, cfg *config.Config, req MaterializeRequest) ([]string, error) {
 	if len(req.Engines) > 0 {
 		var out []string
@@ -280,9 +278,6 @@ func materializeEngines(reg engine.Registry, cfg *config.Config, req Materialize
 	}
 	if names := ConfiguredEngines(reg, cfg); len(names) > 0 {
 		return names, nil
-	}
-	if !req.Explicit {
-		return nil, nil
 	}
 	def, err := reg.Default()
 	if err != nil {

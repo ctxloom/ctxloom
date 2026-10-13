@@ -21,6 +21,7 @@ flowchart TB
     LO["delivery.Loadout — launch.Launch.Loadout(pkg): the ONE builder the runner and the local launcher share; delivery.InputsFor(lo) projects it into every kind's typed inputs once"]:::consume
     TGT["delivery.Target{Root (absolute), Ownership, Writer} — Validate refuses the zero value and a relative root; launch.Launch.Target(records) for a session, delivery.TargetFor for a materialize"]:::decide
     STATIC["fsstatic.Static.Deliver(lo, surfaces, target): per static item the engine's typed Deliver runs over an OVERLAY of the target fs and DECLARES what it owns (present.Delivered: Files owned whole, Claims on a place in a file, a section, an array element) → ONE safefs.Batch: release the writer's claims under the target's roots except on a declared file it did not rewrite → stage every declaration → Commit writes each changed file once"]:::consume
+    PREVIEW["fsstatic.Static.Preview(lo, surfaces, target) — Deliver with NOTHING written: the approaches run over their overlays (no own state written), then per kind ONE batch of that kind's writer alone, scoped to its places, folded by safefs.Batch.Fold and never committed (no record, no seal, no file) → delivery.Previewed: per kind Changed / Released / Refused"]:::consume
     REC[("fsstatic.Records — ONE claims record per target file, home-rooted: per place, the writers that put a value there (a session's value over the project's; the latest among sessions); a place leaves the file with its last writer; a user's value is never claimed, and ctxloom's own drifted value is refused")]:::store
     DYN["Dynamic.Serve(lo, ServePolicy) — the runner's MCP package BINDS Launch.MCP"]:::consume
     EMPTY["the EMPTY plan = uninstall for that writer: only what the record names under the target's roots is removed (ctxloom materialize --release, manage uninstall → operations.Release)"]:::consume
@@ -32,6 +33,9 @@ flowchart TB
     LO --> STATIC
     TGT --> STATIC
     STATIC <--> REC
+    LO --> PREVIEW
+    TGT --> PREVIEW
+    REC --> PREVIEW
     LO --> DYN
     EMPTY --> STATIC
 ```
@@ -80,7 +84,7 @@ ctxloom never mints or stores one. See
 | --- | --- | --- | --- |
 | a delegated run (the runner tail) | the cell's advised roots: the session home, and the project root where the binding selected it | `delivery.SessionWriter(harp)` | `runner.Execute` → `Static.Deliver(l.Loadout(pkg), kind.Root().Surfaces(), l.Target(records))` |
 | `ctxloom materialize` | `--target` (any directory, symlink-resolved) or, with `--yes`, the project root | `project:<engine>:<kind>`, one per selected kind | `operations.Materialize` → `operations.Deliver` / `operations.Release` |
-| the post-sync refresh, under `deps pull --yes` / `run --yes` (`SyncDependenciesRequest.WriteProject`; without it a dry run, reported as `RefreshSkipped`) | the project root (`projectroot.WorkDir()`, named explicitly) | `project:<engine>:<kind>`, every kind but the context of an engine whose context rides the launch (`MaterializeRequest.LeaveLaunchContext`) | `operations.syncMaterializeStep` → `operations.Materialize` |
+| the post-sync refresh, under `deps pull --yes` / `run --yes` (`SyncDependenciesRequest.WriteProject`; without it a dry run — a `Static.Preview` — reported as `RefreshSkipped` only when a kind differs or is refused) | the project root (`projectroot.WorkDir()`, named explicitly) | `project:<engine>:<kind>`, every kind but the context of an engine whose context rides the launch (`MaterializeRequest.LeaveLaunchContext`) | `operations.syncMaterializeStep` → `operations.Materialize` |
 | `manage uninstall` | the project root | `project:<engine>:<kind>`, every kind, every registered engine | `operations.Materialize` (`Release`) → `operations.Release` |
 
 **Per-kind release.** An at-rest delivery for one engine is still ONE
@@ -114,6 +118,45 @@ record and each release leaves what the other still claims —
 `TestStatic_TwoWritersOneTarget_ReconcileRemovesOnlyOwnEntries`,
 `TestClaimsASharedEntrySurvivesEitherWritersRelease` and
 `TestClaimsAnAtRestApplyMidRunKeepsTheRunsEntry`.
+
+## The preview: what a delivery would change, writing nothing
+
+`delivery.Static.Preview` takes Deliver's arguments and returns
+`delivery.Previewed`: per kind the target speaks for, the files whose bytes
+(or existence) a delivery would change (`KindPreview.Changed`), the files in
+which it would drop a claim that kind's writer holds (`Released`), and the
+refusal it would meet (`Refused`). It is a separate method, not a flag on
+the loadout, so a session's delivery can never become a preview by accident
+(owner ruling 2026-10-13, wieldable-squander). It writes nothing: no target
+file, no ownership record or claimant marker, no approach's own state
+outside the target, no directory — a target that does not exist yet is
+previewed as empty. It needs a target that speaks per kind (`Kinds` set;
+else `delivery.ErrPreviewNeedsKinds`).
+
+A kind DIFFERS when folding its claims against the file as it stands would
+change the file's bytes — a user's hand edit the delivery would overwrite
+included — or would release a claim its writer holds. A change to the record
+alone (bookkeeping, a settled sequence number) and a change to a file's mode
+alone are not differences. `fsstatic` computes it per kind: the approaches
+run over their overlays as in a delivery (a run or retain refusal is that
+kind's), then each kind's writer alone — its release, then its declaration —
+is staged into ONE `safefs.Batch` and folded with `Batch.Fold`, which reads
+and folds each path under its lock exactly as `Commit` would and lands
+nothing (no seal, no confirm, no write). The fold is scoped to the places
+that writer claims before or after its ops (`Staging.scopeTo`), so in a file
+two kinds share — Claude's settings and hooks in `settings.json` — a change
+one makes, or a place of one the user removed, is attributed to that kind
+and never to the other. A fold that refuses (`fsstatic.ErrNotOurs`, a file
+that does not parse) is that kind's `Refused`; the other kinds are still
+previewed. Pinned by `internal/adapters/fsstatic/preview_test.go` and
+`TestBatchFold*`.
+
+Its consumer is `operations.Materialize`'s dry run (`operations.Preview`
+at a placement): a planned kind that differs is reported as written, a kind
+the plan no longer routes that differs as released, a refused kind as an
+`operations.KindRefusal` with its fix. The post-sync refresh without `--yes`
+reports that as `RefreshSkipped` only when something differs or is
+refused, so a project already current gets no note.
 
 ## The placement core, and the at-rest plan
 

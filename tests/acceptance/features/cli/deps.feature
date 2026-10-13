@@ -229,8 +229,10 @@ Feature: deps — the installed dependency closure, and everything that moves it
     session and person using the checkout, so the refresh asks the same
     consent `ctxloom materialize` asks before writing there: `--yes`. Without
     it the PULL STILL SUCCEEDS. It installs and locks the closure, writes no
-    engine file, and names what the refresh would have written and the two
-    ways to apply it.
+    engine file, and names what the refresh would have changed and the two
+    ways to apply it. The note compares against the project as it stands: a
+    project already current gets no note, and a kind the refresh would be
+    refused is named with its fix.
 
     Scenario: A pull without --yes installs the closure and leaves the project's engine files alone
       Given an initialized ctxloom project
@@ -247,6 +249,44 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the output contains "Project refresh skipped"
       And the output contains "ctxloom deps pull --yes"
       And the output contains "ctxloom materialize --yes"
+
+    Scenario: A pull right after a --yes pull has no refresh to skip
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And I run "ctxloom remote default origin"
+      And I run "ctxloom profile create dev --include origin/demo"
+      And Alice has already let a pull refresh the project:
+        """
+        ctxloom deps pull --yes --format text
+        """
+      When Alice pulls again without consenting to the project refresh:
+        """
+        ctxloom deps pull --format text
+        """
+      Then the command succeeds
+      And the output does not contain "Project refresh skipped"
+
+    Scenario: A refresh the project would refuse is named with its fix, and the pull still succeeds
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And I run "ctxloom remote default origin"
+      And I run "ctxloom profile create dev --include origin/demo"
+      And Alice has already let a pull refresh the project:
+        """
+        ctxloom deps pull --yes --format text
+        """
+      And the project already has the file ".claude/settings.json":
+        """
+        { this is not json
+        """
+      When Alice pulls again without consenting to the project refresh:
+        """
+        ctxloom deps pull --format text
+        """
+      Then the command succeeds
+      And the output contains "Project refresh skipped"
+      And the output contains "hooks refused"
+      And the output contains "fix: "
 
     Scenario: A pull with --yes also refreshes the project's engine files
       Given an initialized ctxloom project

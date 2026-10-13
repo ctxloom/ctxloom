@@ -63,7 +63,8 @@ settings, hooks, MCP registry, context, commands and skills — never into the
 project (ruled 2026-09-21: sessions carry their surfaces; the project is
 written only by an explicit `ctxloom materialize`, or the post-sync refresh
 that runs it under `--yes`: without `run --yes` the startup sync's refresh
-only plans, and `operations.WriteRefreshSkipped` names what it skipped).
+only previews, and `operations.WriteRefreshSkipped` names what it would
+have changed, or would be refused, and nothing when the project is current).
 ctxloom's own MCP
 server reaches the engine as the session's endpoint (URL + bearer in the
 session's registry), rendered from the companion loadout's declaration by

@@ -69,14 +69,15 @@ server reaches the engine as the session's endpoint (URL + bearer in the
 session's registry), rendered from the companion loadout's declaration by
 `delivery.InputsFor`; see `docs/architecture/cli/mcp.md`.
 
-Before the engine spawns, right after the start banner, `ctxloom run` warns
-once per file in its project that holds context an earlier `ctxloom
-materialize` wrote (`operations.MaterializedContextFindings` over the
-home-rooted record: any `project:<engine>:context` claim under the project
-root), naming the file and `ctxloom materialize --release --surface
-context`. It is advisory: the engine may read that file beside the
-session's own context. It is reported by the originator, not the runner,
-whose stderr reaches the user only when a run fails.
+Before the engine spawns, the runner warns once per file in the launch's
+project that holds context an earlier `ctxloom materialize` wrote
+(`runner.warnMaterializedContext` over the home-rooted record: any
+`project:<engine>:context` claim under the project root's host path),
+naming the file and `ctxloom materialize --release --surface context`. It is
+advisory: the engine may read that file beside the session's own context. It
+is the runner's, so every launch path raises it, and the owner run's reaches
+`ctxloom run`'s output by the relay below (a delegated child's is relayed to
+its coordinator, which does not show it yet).
 
 What the runner reports while executing the launch — a command or skill the
 writers skip, a departed session's sweep that fails — rides its StartRun

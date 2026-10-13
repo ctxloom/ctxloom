@@ -1,4 +1,4 @@
-package operations
+package runner
 
 import (
 	"fmt"
@@ -7,13 +7,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
-// MaterializedContextFindings is one advisory finding per file under
+// materializedContextFindings is one advisory finding per file under
 // projectRoot that holds context an earlier `ctxloom materialize` wrote
 // (R5): a session started there may have the engine read that file beside
 // the context the session delivers itself. A warning, never a refusal —
 // --surface can leave context out of a materialize — and each names how to
-// take it back out. `ctxloom run` reports them before it launches.
-func MaterializedContextFindings(records delivery.Ownership, projectRoot string) []report.Finding {
+// take it back out. The runner reports them before it delivers and drives
+// (warnMaterializedContext), so every launch path warns, and the originator
+// shows them off the StartRun answer.
+func materializedContextFindings(records delivery.Ownership, projectRoot string) []report.Finding {
 	if records == nil || projectRoot == "" {
 		return nil
 	}

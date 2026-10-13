@@ -19,6 +19,7 @@ func TestEvaluateWithoutEngine_AnswersTheHookWire(t *testing.T) {
 		t.Fatal(err)
 	}
 	const deny = `"permissionDecision":"deny"`
+	engineName := newEvaluateCmd().Flag("engine").DefValue // the bundle's `ltk evaluate` names none
 	for _, c := range []struct{ name, payload, want string }{
 		{"claude bash", `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push --force"}}`, "no force pushes"},
 		{"bridge bash", `{"session_id":"ses_1","cwd":"/p","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push --force","workdir":"/p"},"tool_use_id":"call_1"}`, "no force pushes"},
@@ -26,7 +27,7 @@ func TestEvaluateWithoutEngine_AnswersTheHookWire(t *testing.T) {
 		{"bridge apply_patch", `{"hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_input":{"patchText":"*** Begin Patch\n*** Update File: /p/vendor/x.go\n@@\n-a\n+b\n*** End Patch"}}`, "no vendor edits"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			out, err := evaluate("", cfgPath, "", strings.NewReader(c.payload))
+			out, err := evaluate(engineName, cfgPath, "", strings.NewReader(c.payload))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -35,8 +36,23 @@ func TestEvaluateWithoutEngine_AnswersTheHookWire(t *testing.T) {
 			}
 		})
 	}
-	out, err := evaluate("", cfgPath, "", strings.NewReader(`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}`))
+	out, err := evaluate(engineName, cfgPath, "", strings.NewReader(`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}`))
 	if err != nil || len(out.Stdout) != 0 || out.ExitCode != 0 {
 		t.Errorf("an allowed command writes nothing, got %+v, %v", out, err)
+	}
+}
+
+// ltk keeps ONE adapter, claude's: the hook wire is claude's on every engine,
+// so --engine opencode names no adapter, and fails closed in the wire.
+func TestEvaluate_OpencodeIsNoAdapter(t *testing.T) {
+	if got := newEvaluateCmd().Flag("engine").DefValue; got != "claude-code" {
+		t.Errorf("--engine defaults to claude-code, got %q", got)
+	}
+	out, err := evaluate("opencode", "", "", strings.NewReader(`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out.Stdout), `"permissionDecision":"deny"`) || !strings.Contains(string(out.Stdout), `unknown --engine \"opencode\"`) {
+		t.Errorf("want claude's deny naming the unknown engine, got %s", out.Stdout)
 	}
 }

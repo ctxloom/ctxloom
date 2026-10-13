@@ -108,16 +108,6 @@ func toolMatcher(c wire.ToolClass) (string, bool) {
 	return strings.Join(names, "|"), ok
 }
 
-// ToolClass is the neutral class an opencode tool id belongs to.
-func ToolClass(tool string) (wire.ToolClass, bool) {
-	for c, names := range classTools {
-		if slices.Contains(names, claudeTools[tool].Name) {
-			return c, true
-		}
-	}
-	return "", false
-}
-
 // hookCodec is opencode's hook wire on every point but the pre-tool one:
 // ctxloom's own, written by the bridge, with opencode's own tool ids. Context
 // reaches the model on session_start (the session's system prompt),

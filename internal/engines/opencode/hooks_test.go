@@ -154,16 +154,6 @@ func TestHookCodec_ReadsTheBridgesPayloads(t *testing.T) {
 	assert.JSONEq(t, `{"context":"mail","block":true,"reason":"stale"}`, string(reply.Stdout))
 }
 
-func TestToolClass_MapsOpencodesToolIDs(t *testing.T) {
-	for tool, want := range map[string]wire.ToolClass{"bash": wire.ToolShell, "edit": wire.ToolFileEdit, "write": wire.ToolFileEdit, "apply_patch": wire.ToolFileEdit, "skill": wire.ToolSkill} {
-		got, ok := ToolClass(tool)
-		assert.True(t, ok, tool)
-		assert.Equal(t, want, got, tool)
-	}
-	_, ok := ToolClass("read")
-	assert.False(t, ok)
-}
-
 //go:embed testdata/bridge.golden.js
 var bridgeGolden string
 

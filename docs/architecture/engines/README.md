@@ -232,7 +232,8 @@ and `TranscriptSession` is the file stem. Loading any plugin makes opencode
 wait at startup on its OWN npm install into each config dir
 (`@opencode-ai/plugin`); an offline host sees opencode's npm failure there.
 That is opencode's behaviour, tolerated, not worked around. ltk guards
-opencode through the bridge with a runtime-only adapter. Approvals and trust
+opencode through the bridge with its one adapter, claude's: the bridge's
+pre-tool payload IS claude's PreToolUse. Approvals and trust
 are declared absent or unsupported, each with its reason.
 
 Its container story installs the pinned release tarball

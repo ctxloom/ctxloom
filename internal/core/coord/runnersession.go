@@ -169,8 +169,10 @@ func (c *Coordinator) RunnerExited(credHash string, exited RunExited) {
 	c.bindNativeSession(harp, exited.HarnessSessionID)
 	if stop, stopping := c.pendingStop(runID); stopping {
 		// The runner closed the run because an agent_stop asked it to: the
-		// exit IS the stop, and is recorded as one.
-		c.terminateRun(runID, CauseStopped, stop)
+		// exit IS the stop, and is recorded as one. Unfenced: the runner has
+		// already ended the run, and this is its runner channel's recv
+		// goroutine, which a fence request would wait on.
+		c.endRun(runID, CauseStopped, stop, true, false)
 		return
 	}
 	detail := ""

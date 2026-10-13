@@ -427,7 +427,7 @@ func (c *Coordinator) drainForce(harp, runID string, bound time.Duration, p drai
 // already processed, and a drain here would wait the whole window for a
 // run_completed that only this goroutine could read.
 func (c *Coordinator) drainAtBoundary(rt *childRt, p *drainPolicy) {
-	c.endRun(rt.runID, p.endCause, p.endDetail("at its turn boundary"), false)
+	c.endRun(rt.runID, p.endCause, p.endDetail("at its turn boundary"), false, fencesRunner(p.endCause))
 }
 
 // interruptThenClose sends ch's runner the per-run stop (stopAtRunner) on its

@@ -479,9 +479,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return st.refused(err)
 	}
 	// Mark the harp ended on whatever exit path we take — clean return,
-	// ctrl+c, or panic. The end timestamp lets the time-window fallback in
-	// `ctxloom session compact` find this session's transcript even when the
-	// bind middleware never fired.
+	// ctrl+c, or panic. The end timestamp is display only: the End column and
+	// query matching of `session list` / `session query`, and `ended_at` in
+	// SessionView. No transcript lookup reads it.
 	defer st.markSessionEnded()
 
 	// The startup gate: config load, sync, assembly and the cell all ran

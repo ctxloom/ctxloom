@@ -37,7 +37,7 @@ func (NopSpawner) Start(context.Context, launch.Launch, sessions.Endpoint) (*coo
 	return nil, context.Canceled
 }
 func (NopSpawner) ResumeHistory(context.Context, string) string { return "" }
-func (NopSpawner) MarkSessionEnded(string)                      {}
+func (NopSpawner) MarkSessionEnded(string, string)              {}
 func (NopSpawner) BindNativeSession(string, string)             {}
 func (NopSpawner) NativeSession(string) string                  { return "" }
 

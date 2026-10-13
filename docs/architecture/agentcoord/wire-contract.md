@@ -88,10 +88,6 @@ field decodes to. This table is the security-relevant audit.
 
 Recorded because the comment is normative and a reader will otherwise trust it.
 
-- `HelloAck.committed_seq` is "the authoritative resume cursor";
-  `runchannel.go` sets `CommittedSeq: hello.GetResumeFromSeq()` — the agent's own
-  claim, echoed. `HelloAck.event_window` has zero references, so the file header's
-  end-to-end backpressure claim is unimplemented.
 - `RunnerHello.harnesses` ("runtime MUST NOT StartRun a harness the runner didn't
   advertise") and `RunnerHello.max_concurrent_runs` ("RESOURCE_EXHAUSTED when at
   capacity") are both never read. `RunnerHeartbeat`'s three payload fields and

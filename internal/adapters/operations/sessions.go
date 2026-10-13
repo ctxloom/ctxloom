@@ -318,9 +318,10 @@ func (a *App) RecordSessionEngineVersion(ctx context.Context, harp, backend stri
 }
 
 // EndSession ends harp's session: it stamps the entry's end time and
-// releases the session's liveness lock. Idempotent; the end stamp lets the
-// time-window transcript fallback find the session even when the bind hook
-// never fired.
+// releases the session's liveness lock. Idempotent. The end stamp
+// (Entry.EndedAt) is display only: it feeds the End column and query matching
+// of `session list` / `session query`, and `ended_at` in SessionView. No
+// transcript lookup reads it.
 //
 // It removes NOTHING. The session home — the engine's config-home instance,
 // credential copy and all — is an Ephemeral member of the session

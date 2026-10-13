@@ -138,7 +138,7 @@ func (s *resumeSpawner) Start(ctx context.Context, l launch.Launch, reach sessio
 
 func (s *resumeSpawner) ResumeHistory(context.Context, string) string        { return "" }
 func (s *resumeSpawner) RecordEngineVersion(context.Context, string, string) {}
-func (s *resumeSpawner) MarkSessionEnded(string)                             {}
+func (s *resumeSpawner) MarkSessionEnded(string, string)                     {}
 func (s *resumeSpawner) BindNativeSession(string, string)                    {}
 func (s *resumeSpawner) NativeSession(string) string                         { return "" }
 

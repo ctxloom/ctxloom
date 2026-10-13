@@ -158,7 +158,14 @@ type Spawner interface {
 	// accounting and releases its liveness lock (in production, via
 	// operations.EndSession), which is what lets the reaper take the child's
 	// session home — credential copy and all — once it ages out.
-	MarkSessionEnded(harp string)
+	//
+	// It is scoped to the RUN that ended (runID; "" for a spawn refused before
+	// any run was registered): a run's end is recorded before its teardown,
+	// so a resume can start the harp's next run before the ended run's call
+	// arrives, and that late call must leave the successor's session — its
+	// liveness lock above all — untouched. Start is where a run takes the
+	// session over.
+	MarkSessionEnded(harp, runID string)
 }
 
 // EngineSpawn is a Start result: the spawned-but-not-chatting runner

@@ -95,7 +95,15 @@ func (c *Coordinator) ringSpool(role string, ref spool.Ref) error {
 
 	c.mu.Lock()
 	ch := c.chans[role]
+	ending := ch != nil && c.endingLocked(ch.id.RunID)
 	c.mu.Unlock()
+	if ending {
+		// The channel is an ENDING run's, still registered until its
+		// teardown severs it: its runner is not the reader this file is for.
+		// The run that resumes the harp sweeps in/ when it attaches.
+		c.noteSpoolDrop(role, ref, "its run is ending")
+		return nil
+	}
 	if ch == nil {
 		// The owner has no run channel of its own to ring: its reader is its
 		// turn-start hook, which reads the directory when a turn starts, and

@@ -139,6 +139,10 @@ type RunChannel struct {
 	flushedSeq uint64
 	items      []Fact
 
+	// resumeSeq is the resume cursor this channel was attached at (AttachRun),
+	// fixed from construction: the HelloAck's committed_seq.
+	resumeSeq uint64
+
 	// redoSeq is the seq of an event whose RECORD failed (0: none). Its ack
 	// is withheld, so the runner still holds it and re-sends it; until it
 	// does, everything after it is refused unprocessed and unacked too
@@ -156,6 +160,34 @@ type RunChannel struct {
 
 	// attachConfirmed fires ConfirmAttach's re-sweep once per channel.
 	attachConfirmed sync.Once
+}
+
+// CommittedSeq is the resume cursor the HelloAck answers with: every event of
+// the run at or below it is durably recorded, so the runner re-sends only
+// what lies above it.
+func (ch *RunChannel) CommittedSeq() uint64 { return ch.resumeSeq }
+
+// eventWatermark is runID's DURABLE event watermark: the highest event seq
+// below which this coordinator's journals hold every event's record — a turn
+// boundary's state fact (RunRecord.EventSeq, journaled with the items buffered
+// ahead of it flushed first) or an item fact (itemsFold.maxSeq). Every other
+// sequenced event is recorded before anything after it is admitted
+// (go-back-N), so neither can stand above an unrecorded event. Rebuilt from
+// the journals, it survives a coordinator crash: the restarted coordinator
+// knows which re-sent events the crashed one already recorded. 0 for the
+// owner's run-less channel.
+func (c *Coordinator) eventWatermark(runID string) uint64 {
+	if runID == "" {
+		return 0
+	}
+	var boundary, items uint64
+	c.runs.View(func() {
+		if r := c.runsF.run(runID); r != nil {
+			boundary = r.EventSeq
+		}
+	})
+	c.items.View(func() { items = c.itemsF.maxSeq[runID] })
+	return max(boundary, items)
 }
 
 // Role is the harp this channel serves.
@@ -189,12 +221,21 @@ func (c *Coordinator) AttachRun(id Identity, hello RunHello, cancel context.Canc
 	for _, cap := range hello.Capabilities {
 		caps[cap] = true
 	}
+	// THE RESUME CURSOR (Hello.resume_from_seq / HelloAck.committed_seq):
+	// the higher of what the runner says was acked and what this
+	// coordinator's journal says it recorded. Answered in the HelloAck, it is
+	// what the runner re-sends above; seeded as the channel's watermark, a
+	// re-send at or below it is refused as the duplicate it is.
+	committed := max(hello.ResumeFromSeq, c.eventWatermark(id.RunID))
 	ch := &RunChannel{
 		BidiSession: NewBidiSession[OutFrame, OutFrame, OutFrame](cancel, 64),
 		role:        id.Harp,
 		id:          id,
 		completed:   make(chan struct{}),
 		caps:        caps,
+		ackSeq:      committed,
+		flushedSeq:  committed,
+		resumeSeq:   committed,
 	}
 	if hook := c.attachRunHook; hook != nil {
 		hook(id.Harp)
@@ -270,7 +311,7 @@ func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
 	var err error
 	switch payload := ev.Payload.(type) {
 	case CustomEvent:
-		err = c.handleCustomEvent(ch, payload)
+		err = c.handleCustomEvent(ch, payload, ev.Seq)
 	case Summary:
 		err = c.recordSummary(ch.role, ch.id.RunID, ev.Seq, payload)
 		c.warnSummaryErr(ch, err)
@@ -366,6 +407,9 @@ func (c *Coordinator) handleItemEvent(ch *RunChannel, ev Event) {
 // send pump has buffer; a full buffer drops the ack — cumulative acks make
 // that safe).
 func (c *Coordinator) ackThrough(ch *RunChannel, seq uint64) {
+	if hook := c.ackHook; hook != nil && hook(ch.role) {
+		return
+	}
 	select {
 	case ch.send <- OutFrame{Ack: &Ack{CommittedSeq: seq}}:
 	default:
@@ -374,7 +418,17 @@ func (c *Coordinator) ackThrough(ch *RunChannel, seq uint64) {
 
 // handleCustomEvent serves the ctxloom/* custom event vocabulary. A non-nil
 // error is a record that failed to journal: the event is not acked.
-func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent) error {
+//
+// A turn boundary's record carries its seq (journalState), raising the run's
+// durable event watermark (eventWatermark) in the same write. Every event
+// below it must be durable by then, so the items still buffered ahead of it
+// are flushed first; a flush that fails withholds the boundary too.
+func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent, seq uint64) error {
+	if ev.Name == CustomTurnStarted || ev.Name == CustomTurnIdle {
+		if err := c.flushBufferedItems(ch); err != nil {
+			return err
+		}
+	}
 	switch ev.Name {
 	case CustomHarnessSession:
 		sid, _ := ev.Value["session_id"].(string)
@@ -396,7 +450,7 @@ func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent) error {
 			return c.recordResumable(ch.id.RunID, v)
 		}
 	case CustomTurnStarted:
-		return c.onTurnStarted(ch.role, ch.id.RunID)
+		return c.onTurnStarted(ch.role, ch.id.RunID, seq)
 	case CustomTurnIdle:
 		// Keyed by the channel's run: a late boundary from an ended run's
 		// channel must not drop what the harp's next run asks.
@@ -404,7 +458,7 @@ func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent) error {
 		// A turn the engine turned away on a held failure: the runner has
 		// parked the run already; the hold parks the rest that share its
 		// credential.
-		return c.onTurnIdle(ch.role, ch.id.RunID, turnFailureOf(ev.Value))
+		return c.onTurnIdle(ch.role, ch.id.RunID, seq, turnFailureOf(ev.Value))
 	}
 	return nil
 }

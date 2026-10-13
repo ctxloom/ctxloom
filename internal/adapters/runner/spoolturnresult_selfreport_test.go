@@ -18,17 +18,24 @@ import (
 // out/ for the test to read — the calls below are synchronous, nothing waits.
 func midTierHome(t *testing.T, harp string) *Home {
 	t.Helper()
+	return boundHome(t, coord.Identity{Harp: harp, Depth: 1})
+}
+
+// boundHome is midTierHome bound to the given identity, as the Launch's
+// identity is bound by the engine host.
+func boundHome(t *testing.T, id coord.Identity) *Home {
+	t.Helper()
 	resetStrictness(t)
 	teeHome(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	home, err := NewHome(ctx, HomeConfig{
 		Reporter: termSink(),
-		URL:      "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-" + harp, Harness: "mock",
+		URL:      "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-" + id.Harp, Harness: "mock",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { home.Crash() })
-	home.BindIdentity(coord.Identity{Harp: harp, Depth: 1})
+	home.BindIdentity(id)
 	return home
 }
 
@@ -72,6 +79,26 @@ func TestSelfReport_SendToOwnChildStillReportsToParent(t *testing.T) {
 	require.Len(t, got, 1, "a turn whose only send went to a child must still be reported to the parent")
 	assert.Equal(t, coord.ParentAddress, got[0].To)
 	assert.Contains(t, got[0].Body, "I delegated the lockfile check")
+}
+
+// TestSelfReport_SendToParentByHarpSuppressesTheReport: the model may
+// address its parent by the parent's actual harp rather than the "parent"
+// alias. The runner is told that harp at spawn (Identity.Parent), so such a
+// send is the run reporting in its own words and is not followed by a
+// duplicate automatic report — while a send to any OTHER harp still is.
+func TestSelfReport_SendToParentByHarpSuppressesTheReport(t *testing.T) {
+	const harp, parent = "harp-addressed-child", "the-spawning-parent"
+	home := boundHome(t, coord.Identity{Harp: harp, Depth: 1, Parent: parent})
+
+	sendFrom(t, home, parent, "in my own words, to my parent by name")
+	require.NoError(t, home.ReportTurnResult("whatever the model happened to say", "", nil, nil, nil))
+	assert.Empty(t, autoReportsIn(t, harp), "a send to the parent's harp is a report; the automatic one would duplicate it")
+
+	sendFrom(t, home, "some-other-harp", "not my parent")
+	require.NoError(t, home.ReportTurnResult("the turn after", "", nil, nil, nil))
+	got := autoReportsIn(t, harp)
+	require.Len(t, got, 1, "a send to a harp that is not the parent's must leave the automatic report in place")
+	assert.Contains(t, got[0].Body, "the turn after")
 }
 
 // TestSelfReport_SendToParentSuppressesTheReport is the other half: a turn

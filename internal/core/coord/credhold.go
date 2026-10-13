@@ -493,7 +493,10 @@ func (c *Coordinator) decideTurnFailure(t failedTurn, now time.Time, local *hold
 	// fresh hold — its reset already past, so floored to a new backoff — and
 	// park the runs the release just resumed. A failure that was never folded
 	// costs one more failed turn at most: the run's next turn meets the limit
-	// afresh, and that one holds.
+	// afresh, and that one holds — the accepted policy (owner, 2026-10-08).
+	// The durable event watermark (HelloAck.committed_seq) keeps a turn start
+	// the crashed coordinator RECORDED from being re-sent and clearing the mark,
+	// so what still reaches here is a failure whose idle state the crash beat.
 	if t.beforeAdopt {
 		return turnFold{}, nil
 	}

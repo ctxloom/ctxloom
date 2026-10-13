@@ -748,6 +748,11 @@ func (h *Home) openRunChannel(client agentcoordpb.CoordinatorServiceClient) (run
 	if !ack.GetAccepted() {
 		return nil, rejectedHelloError("run channel Hello", ack.GetRejectReason())
 	}
+	// The coordinator's resume cursor is an ack: everything at or below it is
+	// recorded there — including events a crashed predecessor recorded and
+	// never acked — so it is dropped here, BEFORE attachAndReissue re-sends
+	// the rest.
+	h.advanceAck(ack.GetCommittedSeq())
 	return stream, nil
 }
 

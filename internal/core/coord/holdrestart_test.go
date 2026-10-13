@@ -70,7 +70,7 @@ func (f *holdFixture) restartTuned(t *testing.T, was *fakeclock.Clock, down time
 	clk.Advance(was.Now().Sub(fakeclock.Epoch) + down)
 	o := f.opts
 	o.Clock, o.AfterFunc = clk.Now, clk.AfterFunc
-	o.holdStep, o.turnIdleHook, o.runnerHelloHook = nil, nil, nil
+	o.holdStep, o.turnIdleHook, o.runnerHelloHook, o.ackHook = nil, nil, nil, nil
 	var findings report.Collector
 	o.Reporter = &findings
 	tune(&o)

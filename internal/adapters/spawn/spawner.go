@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
@@ -22,6 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -34,6 +36,18 @@ type StarterFunc func(backend string, runnerEnv map[string]string) func(context.
 // generation per spawn (Resolve's Reload), which the plan then carries to
 // StartEngine's resolution.
 type spawner struct {
+	// sessionMu guards owners and orders every session claim (Start) against
+	// every session end (MarkSessionEnded): a claim's lock hold and an end's
+	// lock release never interleave. owners is, by harp, the run that last
+	// took the harp's session over (Start); an end for any other run is a
+	// predecessor's, arriving late. holdLock and endSession are the
+	// session-accounting seams; nil is production (sessionlock.Hold,
+	// operations.EndSession).
+	sessionMu  sync.Mutex
+	owners     map[string]string
+	holdLock   func(harp string) error
+	endSession func(harp string, at time.Time) error
+
 	rep        report.Reporter
 	app        *operations.App
 	projectDir string
@@ -319,6 +333,7 @@ func childSource(plan *coord.SpawnPlan, start coord.SpawnStart, projectDir strin
 // Start starts the runner for a resolved launch through StartRunner over the
 // cell's transport, with the reach-back trio on the runner's env.
 func (s *spawner) Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*coord.EngineSpawn, error) {
+	s.claimSession(l.Identity.Harp, l.Identity.RunID)
 	h, err := StartRunner(ctx, cellRuntime{starter: s.starter}, l, reach)
 	if err != nil {
 		return nil, err
@@ -379,8 +394,45 @@ func (s *spawner) NativeSession(harp string) string {
 	return entry.SessionID
 }
 
-func (s *spawner) MarkSessionEnded(harp string) {
-	if err := operations.EndSession(harp, time.Now()); err != nil {
+// claimSession makes runID the run harp's session belongs to and holds the
+// session's liveness lock for it. A first run's lock is already held from
+// AssignSession (Hold is idempotent per process); a RESUMED run's was released
+// at its predecessor's end, and without this it would run with the session
+// reading dead, its home reclaimable under it.
+func (s *spawner) claimSession(harp, runID string) {
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	if s.owners == nil {
+		s.owners = make(map[string]string)
+	}
+	s.owners[harp] = runID
+	hold := s.holdLock
+	if hold == nil {
+		hold = sessionlock.Hold
+	}
+	if err := hold(harp); err != nil {
+		s.rep.Warnf("agent %s: run %s cannot hold its session's liveness lock, so its data reads as unowned while it runs: %v", harp, runID, err)
+	}
+}
+
+// MarkSessionEnded ends harp's session for runID's end — unless a later run
+// has taken the session over since (claimSession), in which case runID's end
+// arrived late and the successor's session, its liveness lock included, is
+// left alone. A harp no run has claimed (a spawn refused before its run
+// registered, "" run id; a run that failed before its runner started) is
+// ended: nothing else will end it.
+func (s *spawner) MarkSessionEnded(harp, runID string) {
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	if owner, claimed := s.owners[harp]; claimed && owner != runID {
+		return
+	}
+	delete(s.owners, harp)
+	end := s.endSession
+	if end == nil {
+		end = operations.EndSession
+	}
+	if err := end(harp, time.Now()); err != nil {
 		s.rep.Warnf("agent %s: end session: %v", harp, err)
 	}
 }

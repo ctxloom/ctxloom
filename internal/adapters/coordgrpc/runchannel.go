@@ -55,12 +55,10 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	if err := stream.Send(&agentcoordpb.CoordinatorFrame{Kind: &agentcoordpb.CoordinatorFrame_HelloAck{
 		HelloAck: &agentcoordpb.HelloAck{
 			Accepted: true,
-			// NOT an independent watermark: the coordinator keeps no durable
-			// event log, so it echoes the runner's own claim back. The proto
-			// says so at Hello.resume_from_seq / HelloAck.committed_seq's
-			// doc — nobody should build a client that trusts this as
-			// confirmation.
-			CommittedSeq: hello.ResumeFromSeq,
+			// The coordinator's resume cursor (RunChannel.CommittedSeq):
+			// every event at or below it is durably recorded, so the runner
+			// drops those and re-sends only what lies above.
+			CommittedSeq: ch.CommittedSeq(),
 		},
 	}}); err != nil {
 		return err

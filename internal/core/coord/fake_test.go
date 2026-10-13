@@ -43,8 +43,10 @@ type fakeSpawner struct {
 	// identities records each ResolveLaunch's start.Identity, in call order:
 	// what the child's engine env is stamped from.
 	identities []Identity
-	// sessionsEnded records each MarkSessionEnded call's harp, in call order.
-	sessionsEnded []string
+	// sessionsEnded records each MarkSessionEnded call's harp, in call order,
+	// and sessionEndRuns the run id each call was scoped to.
+	sessionsEnded  []string
+	sessionEndRuns []string
 	// native stands in for each harp's sessions.Entry native session key:
 	// what BindNativeSession writes and NativeSession reads.
 	native map[string]string
@@ -637,10 +639,11 @@ func (s *fakeSpawner) probedVersions() []string {
 // MarkSessionEnded records the harps whose session accounting was ended —
 // the Spawner's ONLY release primitive, and therefore what an aborted spawn
 // must call to give back a harp AssignSession already committed.
-func (s *fakeSpawner) MarkSessionEnded(harp string) {
+func (s *fakeSpawner) MarkSessionEnded(harp, runID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sessionsEnded = append(s.sessionsEnded, harp)
+	s.sessionEndRuns = append(s.sessionEndRuns, runID)
 }
 
 // BindNativeSession mirrors sessions.Store.BindSession with no transcript
@@ -673,6 +676,14 @@ func (s *fakeSpawner) rebindNativeSession(harp, key string) {
 		s.native = map[string]string{}
 	}
 	s.native[harp] = key
+}
+
+// sessionEndRunIDs is the run id each MarkSessionEnded call named, in call
+// order.
+func (s *fakeSpawner) sessionEndRunIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.sessionEndRuns...)
 }
 
 // endedSessions is MarkSessionEnded's recording, in call order.

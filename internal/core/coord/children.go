@@ -430,7 +430,7 @@ func (c *Coordinator) admitAgentRun(caller Identity, agentName, prompt string) e
 // implementation's own diagnostic (MarkSessionEnded warns for itself).
 func (c *Coordinator) releaseAssignedHarp(harp string, cause error) {
 	c.rep.Warnf("agent_run: releasing session %s — the spawn was refused before the run was registered: %v", harp, cause)
-	c.spawner.MarkSessionEnded(harp)
+	c.spawner.MarkSessionEnded(harp, "")
 }
 
 // defaultSpawnNoticeAfter is how long agent_run's pre-registration span may
@@ -842,7 +842,7 @@ const defaultRunnerAwaitTimeout = 5 * time.Minute
 // caller's CANCELLABLE launch context (launchgate.go), not baseCtx:
 // agent_stop cancels it to abort a spawn that is still in flight.
 func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url string, start SpawnStart) {
-	start.Identity = c.inProject(Identity{Harp: rt.harp, RunID: rt.runID, Depth: rt.depth, OneShot: rt.plan.ResumeMode == ResumeModeOneShot})
+	start.Identity = c.inProject(Identity{Harp: rt.harp, RunID: rt.runID, Depth: rt.depth, Parent: rt.parentHarp, OneShot: rt.plan.ResumeMode == ResumeModeOneShot})
 	start.Identity.Leaf = start.Identity.IsLeaf(c.depthCap)
 	start.Prompt = prompt
 	if start.Resumed && start.ResumeKey == "" {
@@ -1167,7 +1167,7 @@ func (c *Coordinator) runtimeForLocked(role, runID string) *childRt {
 // tryAcquire rolls the claim back via releaseSlotIntent, and a successful
 // one is committed via commitSlotClaim rather than left at
 // slotClaimed forever.
-func (c *Coordinator) onTurnStarted(role, runID string) error {
+func (c *Coordinator) onTurnStarted(role, runID string, seq uint64) error {
 	c.mu.Lock()
 	rt := c.runtimeForLocked(role, runID)
 	if rt != nil {
@@ -1198,7 +1198,7 @@ func (c *Coordinator) onTurnStarted(role, runID string) error {
 			c.slots.Release(1)
 		}
 	}
-	return c.journalState(rt, StateExecuting)
+	return c.journalState(rt, StateExecuting, seq)
 }
 
 // captureRunFailure records a FAILED RunCompleted's reason on the child's
@@ -1246,7 +1246,7 @@ func (c *Coordinator) captureRunFailure(role, runID string, ev Event) {
 //
 // A non-nil error is a fold that failed to journal; the boundary is then not
 // acked, and its re-send folds it again (both folds are idempotent).
-func (c *Coordinator) onTurnIdle(role, runID string, failed *agent.TurnFailure) error {
+func (c *Coordinator) onTurnIdle(role, runID string, seq uint64, failed *agent.TurnFailure) error {
 	c.mu.Lock()
 	rt := c.runtimeForLocked(role, runID)
 	c.mu.Unlock()
@@ -1283,7 +1283,7 @@ func (c *Coordinator) onTurnIdle(role, runID string, failed *agent.TurnFailure) 
 	c.mu.Lock()
 	rt.idleSince = c.now()
 	c.mu.Unlock()
-	stateErr := c.journalState(rt, StateIdle)
+	stateErr := c.journalState(rt, StateIdle, seq)
 	c.releaseSlot(rt)
 	return errors.Join(foldErr, stateErr)
 }
@@ -1332,17 +1332,19 @@ func launchFailureDetail(err error) string {
 // setState journals a §6a state transition (the folds are the single owner
 // of roster/queue state; the runtime only mirrors slot bookkeeping).
 func (c *Coordinator) setState(rt *childRt, state string) {
-	_ = c.journalState(rt, state)
+	_ = c.journalState(rt, state, 0)
 }
 
 // journalState is setState reporting the journal failure it warned about.
-func (c *Coordinator) journalState(rt *childRt, state string) error {
+// seq is the run-channel event the state records (0: none) — journaled IN the
+// state fact, so the event's record and the watermark it raises are one write.
+func (c *Coordinator) journalState(rt *childRt, state string, seq uint64) error {
 	if err := c.runs.Exec(func() ([]Fact, error) {
 		r := c.runsF.run(rt.runID)
 		if r == nil || r.Ended {
 			return nil, nil
 		}
-		return []Fact{factAt(factRunState, c.now(), runState{RunID: rt.runID, State: state})}, nil
+		return []Fact{factAt(factRunState, c.now(), runState{RunID: rt.runID, State: state, Seq: seq})}, nil
 	}); err != nil {
 		c.rep.Warnf("agent %s: journal state %s: %v", rt.harp, state, err)
 		return err
@@ -1544,15 +1546,30 @@ func (c *Coordinator) releaseSlotIntent(rt *childRt) {
 // doc; a terminal decided in-band, on that channel's own recv goroutine, goes
 // through endRun instead.
 func (c *Coordinator) terminateRun(runID, cause, detail string) {
-	c.endRun(runID, cause, detail, cause == CauseRunnerExit || cause == CauseStopped)
+	c.endRun(runID, cause, detail, cause == CauseRunnerExit || cause == CauseStopped, fencesRunner(cause))
 }
 
 // endRun is terminateRun's body; drainTail says whether the run's channel is
-// drained before anything can sever it.
-func (c *Coordinator) endRun(runID, cause, detail string, drainTail bool) {
+// drained before anything can sever it, and fence whether the run's runner is
+// told its run is over before the end is recorded (endfence.go). From the
+// mark below to the end of the teardown the run is ENDING: no doorbell rings
+// on its channel and no resume reaches its runner.
+func (c *Coordinator) endRun(runID, cause, detail string, drainTail, fence bool) {
+	c.markEnding(runID)
+	var fenced *RunRecord
+	if fence {
+		fenced = c.fenceRunner(runID, cause)
+	}
 	rec, won := c.claimRunTerminal(runID, cause, detail)
 	if !won {
+		c.unmarkEnding(runID)
+		c.unfenceLive(fenced)
 		return
+	}
+	defer c.unmarkEnding(runID)
+	c.releaseFences(runID)
+	if hook := c.endRecordedHook; hook != nil {
+		hook(runID)
 	}
 	c.releaseRunSecrets(runID)
 	c.sampleExecGauge() // the terminal is also a (possible) StateExecuting exit — see setState's sibling call
@@ -1597,7 +1614,7 @@ func (c *Coordinator) endRun(runID, cause, detail string, drainTail bool) {
 	c.spoolReactor.Mark(rec.Harp)
 
 	c.notifyParentOfDeath(rec, cause, detail, runFailure)
-	c.spawner.MarkSessionEnded(rec.Harp)
+	c.spawner.MarkSessionEnded(rec.Harp, runID)
 
 	// A message that raced the death (queued after the last boundary drain)
 	// must not strand: the ended-child delivery rule is resume (§6a). That

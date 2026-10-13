@@ -282,11 +282,11 @@ func fromWire[K comparable, V comparable](table map[K]V, v V) (K, bool) {
 }
 
 func encodeIdentity(id sessions.Identity) *pb.Identity {
-	return &pb.Identity{Harp: id.Harp, RunId: id.RunID, Depth: int32(id.Depth), OneShot: id.OneShot, Project: id.Project, Leaf: id.Leaf}
+	return &pb.Identity{Harp: id.Harp, RunId: id.RunID, Depth: int32(id.Depth), OneShot: id.OneShot, Project: id.Project, Leaf: id.Leaf, Parent: id.Parent}
 }
 
 func decodeIdentity(w *pb.Identity) sessions.Identity {
-	return sessions.Identity{Harp: w.GetHarp(), RunID: w.GetRunId(), Depth: int(w.GetDepth()), OneShot: w.GetOneShot(), Project: w.GetProject(), Leaf: w.GetLeaf()}
+	return sessions.Identity{Harp: w.GetHarp(), RunID: w.GetRunId(), Depth: int(w.GetDepth()), OneShot: w.GetOneShot(), Project: w.GetProject(), Leaf: w.GetLeaf(), Parent: w.GetParent()}
 }
 
 func encodeLabel(l engine.LabelConfig) *pb.LabelConfig {

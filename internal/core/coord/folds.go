@@ -67,6 +67,10 @@ type RunRecord struct {
 	ContainerName string
 	// MayDelegate is the roles the run may launch (runEnqueued.MayDelegate).
 	MayDelegate []string
+	// EventSeq is the highest run-channel event seq whose turn boundary this
+	// run's state facts record (runState.Seq): half of the run's durable
+	// event watermark (Coordinator.eventWatermark).
+	EventSeq uint64
 }
 
 // TopLevel reports whether the run is a session's OWN run rather than a
@@ -162,6 +166,7 @@ func (f *runsFold) applyState(p runState, at time.Time) {
 	if r := f.runs[p.RunID]; r != nil && !r.Ended {
 		r.State = p.State
 		r.LastActivity = at
+		r.EventSeq = max(r.EventSeq, p.Seq)
 	}
 }
 

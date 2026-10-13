@@ -161,18 +161,18 @@ type RunChannel struct {
 	// attachConfirmed fires ConfirmAttach's re-sweep once per channel.
 	attachConfirmed sync.Once
 
-	// handling serializes HandleEvent across one RUN's successive channels:
-	// a reconnect's channel shares its predecessor's (AttachRun), because the
-	// old stream's reader is joined by nothing — serveTracked returns on the
+	// handling serializes HandleEvent, and HandleRequest's receive half,
+	// across one RUN's successive channels: a reconnect's channel shares its
+	// predecessor's (AttachRun), because the old stream's reader is joined by nothing — serveTracked returns on the
 	// stream's cancel, and AttachRun does not wait — so a frame it still
 	// holds can be handled while the successor handles the runner's re-send
 	// of it and what follows. Nil only for a channel a test built by hand.
 	handling *sync.Mutex
 	// superseded is set (guarded by Coordinator.mu) when a newer channel for
 	// the SAME run took over: what this one still holds is stale — the runner
-	// re-sends it on the successor — and HandleEvent drops it. A resumed
-	// run's channel never supersedes the ended run's: that run's tail frames
-	// are still its own (drainTerminalTail).
+	// re-sends it on the successor — and HandleEvent and HandleRequest drop
+	// it. A resumed run's channel never supersedes the ended run's: that
+	// run's tail frames are still its own (drainTerminalTail).
 	superseded bool
 }
 
@@ -297,6 +297,24 @@ func (c *Coordinator) ConfirmAttach(ch *RunChannel) {
 	ch.attachConfirmed.Do(func() { c.spoolReactor.Mark(ch.role) })
 }
 
+// enterHandling takes ch's run handling lock (RunChannel.handling) and
+// reports whether a reconnect has superseded ch; release lets the lock go.
+// HandleEvent and HandleRequest hold it for as long as they read or change
+// the run's state, so one run's channels handle frames one at a time, and a
+// superseded channel's reader, which can outlive the takeover, handles
+// nothing more.
+func (c *Coordinator) enterHandling(ch *RunChannel) (release func(), superseded bool) {
+	release = func() {}
+	if mu := ch.handling; mu != nil {
+		mu.Lock()
+		release = mu.Unlock
+	}
+	c.mu.Lock()
+	superseded = ch.superseded
+	c.mu.Unlock()
+	return release, superseded
+}
+
 // HandleEvent processes plane-1 events: the ctxloom custom events
 // (mail consumption, park/turn state, harness session), the report kinds
 // (Summary, ArtifactProduced — their own reports journal), and
@@ -317,13 +335,8 @@ func (c *Coordinator) ConfirmAttach(ch *RunChannel) {
 // the takeover, and a stale boundary folded after the successor's would set
 // the run's state and slot back.
 func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
-	if mu := ch.handling; mu != nil {
-		mu.Lock()
-		defer mu.Unlock()
-	}
-	c.mu.Lock()
-	superseded := ch.superseded
-	c.mu.Unlock()
+	release, superseded := c.enterHandling(ch)
+	defer release()
 	if superseded {
 		// Unacked on a stream that is gone: the runner re-sends it on the
 		// channel that superseded this one, which handles it in order.
@@ -619,7 +632,24 @@ type inflightReq struct {
 // dispatch answers on whichever channel is live when it finishes. Handlers run
 // on their own goroutine — a spawn (or an approval request waiting on the human) can take
 // seconds to minutes and must not block the stream's recv loop.
+//
+// The receive half — tracking, and an approval's turn stamp — runs under the
+// run's handling lock, as HandleEvent does, and a superseded channel's
+// request is dropped: deduplication cannot catch a stale copy the runner
+// no longer holds (its turn ended across the reconnect), and its stamp,
+// taken after the successor folded that turn's end, would be the next turn's.
 func (c *Coordinator) HandleRequest(ch *RunChannel, req AgentRequest) {
+	if hook := c.handleRequestHook; hook != nil {
+		hook(req.RequestID)
+	}
+	release, superseded := c.enterHandling(ch)
+	defer release()
+	if superseded {
+		// Unanswered on a stream that is gone. A request the runner still
+		// holds it re-sends on the successor; one it no longer holds asked
+		// for a turn that ended, and stamped now it would park into the next.
+		return
+	}
 	reqID := req.RequestID
 	if reqID == "" {
 		c.respond(ch, AgentReply{Err: fmt.Errorf("%w: request_id is required", ErrInvalidRequest)})

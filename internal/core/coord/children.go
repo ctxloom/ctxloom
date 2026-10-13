@@ -842,7 +842,7 @@ const defaultRunnerAwaitTimeout = 5 * time.Minute
 // caller's CANCELLABLE launch context (launchgate.go), not baseCtx:
 // agent_stop cancels it to abort a spawn that is still in flight.
 func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url string, start SpawnStart) {
-	start.Identity = c.inProject(Identity{Harp: rt.harp, RunID: rt.runID, Depth: rt.depth, OneShot: rt.plan.ResumeMode == ResumeModeOneShot})
+	start.Identity = c.inProject(Identity{Harp: rt.harp, RunID: rt.runID, Depth: rt.depth, Parent: rt.parentHarp, OneShot: rt.plan.ResumeMode == ResumeModeOneShot})
 	start.Identity.Leaf = start.Identity.IsLeaf(c.depthCap)
 	start.Prompt = prompt
 	if start.Resumed && start.ResumeKey == "" {

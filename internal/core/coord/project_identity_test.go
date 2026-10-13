@@ -92,3 +92,14 @@ func TestIdentify_OwnerCredentialCarriesTheProjectID(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, testProjectID, id.Project)
 }
+
+// TestChildIdentity_CarriesItsParentsHarp: a spawned child's launch identity
+// names the harp of the session that spawned it, so its runner can tell a
+// send addressed to its parent BY HARP from a send to anyone else (the
+// runner's no-double-delivery rule; spooldelivery.go sendPeerViaSpool).
+func TestChildIdentity_CarriesItsParentsHarp(t *testing.T) {
+	resetStrictness(t)
+	c := newProjectCoordinator(t, researcherSpawner(t), testProjectID)
+
+	assert.Equal(t, ownerIdentity().Harp, spawnedIdentity(t, c).Parent)
+}

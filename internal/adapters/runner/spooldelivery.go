@@ -261,12 +261,9 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 	// the same turn. Marked HERE, at the one place an accepted send exists,
 	// which is the runner-side twin of the coordinator's noteChildReported.
 	// A send to one of this run's own children tells the parent nothing and
-	// must leave the turn's report in place.
-	//
-	// Only the ParentAddress alias is recognised: the runner is never told its
-	// parent's harp, so a send addressed to the parent by harp is still
-	// followed by the automatic report — a duplicate, never a silence.
-	if sr.To == coord.ParentAddress {
+	// must leave the turn's report in place. The parent is reachable by the
+	// "parent" alias or by its harp, which the Launch's identity carries.
+	if h.isParent(sr.To) {
 		h.noteSelfReported()
 	}
 	return &agentcoordpb.CoordinatorResponse{

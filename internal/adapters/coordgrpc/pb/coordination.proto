@@ -409,6 +409,10 @@ message Identity {
   // runner withholds the coordinator-only tools by it, holding no config to
   // read the depth cap from.
   bool leaf = 6;
+  // The spawning session's harp (sessions.Identity.Parent); empty at depth
+  // 0. The runner treats a send addressed to it as the run reporting to its
+  // parent, exactly as a send to the "parent" alias.
+  string parent = 7;
 }
 
 // LabelConfig is engine.LabelConfig: one llm.configs label resolved. body is

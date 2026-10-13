@@ -185,8 +185,8 @@ func blockedPreamble(calls []coord.BlockedCall) string {
 
 // noteSelfReported records that this run sent its parent a message during the
 // current turn, so the automatic report does not repeat it. Its one caller
-// (sendPeerViaSpool) calls it only for a send addressed to the parent; a send
-// to a child is not a report.
+// (sendPeerViaSpool) calls it only for a send addressed to the parent, by
+// alias or by harp (isParent); a send to a child is not a report.
 //
 // It is set at the SEND, not at the turn boundary, because that is the only
 // place the fact exists: by the boundary the send is indistinguishable from
@@ -195,6 +195,19 @@ func (h *Home) noteSelfReported() {
 	h.mu.Lock()
 	h.selfReported = true
 	h.mu.Unlock()
+}
+
+// isParent reports whether to addresses this run's parent: the "parent"
+// alias, or the parent's own harp as the Launch's identity names it. A run
+// with no parent (depth 0, or an identity bound without one) recognises only
+// the alias.
+func (h *Home) isParent(to string) bool {
+	if to == coord.ParentAddress {
+		return true
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.identity.Parent != "" && to == h.identity.Parent
 }
 
 // takeSelfReported reads and clears the flag — one turn's suppression never

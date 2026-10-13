@@ -20,6 +20,12 @@ type Identity struct {
 	// are deeper. The CAP is config (delegation.depth); nothing here says how
 	// many depths exist. The recursion guard derives from THIS, not from env.
 	Depth int `json:"depth"`
+	// Parent is the harp of the session that spawned this run: empty for a
+	// depth-0 run, which has no parent. The coordinator stamps it on the
+	// Launch so the runner can recognise a send addressed to its parent BY
+	// HARP as the run reporting in its own words — the same as a send to the
+	// "parent" alias — and not follow it with a duplicate automatic report.
+	Parent string `json:"parent,omitempty"`
 	// OneShot mirrors THIS run's own resume mode being one-shot: its engine
 	// tears down and is resumed by native session key at every turn
 	// boundary, so it cannot hold a coordination relationship across turns.

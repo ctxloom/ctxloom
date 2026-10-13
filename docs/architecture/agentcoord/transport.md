@@ -61,6 +61,7 @@ flowchart TD
   end
   CODEC["coordgrpc.EncodeLaunch ⇄ DecodeLaunch<br/>the ONE launch codec (WireFieldNames parity)"]
   RSESS -->|"RuntimeFrame StartRun{run_id, launch}"| RL
+  RL -->|"StartRunResult{findings} (what Execute reported)"| RSESS
   HOME -->|"AgentFrame Event/Request (host = typed HostRequest)"| CS
   ITEMS -->|"Ack committed_seq"| HOME
   CS -.->|"StartRun.launch"| CODEC -.-> RUN

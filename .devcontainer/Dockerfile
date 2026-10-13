@@ -69,6 +69,7 @@ ARG JUST_VERSION
 ARG GOPLS_VERSION
 ARG GITLEAKS_VERSION
 ARG LEFTHOOK_VERSION
+ARG NODE_VERSION
 ARG GIT_MIN_VERSION
 
 RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-image', which reads .devcontainer/tool-versions.env}" \
@@ -86,6 +87,7 @@ RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-imag
     && : "${GOPLS_VERSION:?missing --build-arg GOPLS_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${GITLEAKS_VERSION:?missing --build-arg GITLEAKS_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${LEFTHOOK_VERSION:?missing --build-arg LEFTHOOK_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${NODE_VERSION:?missing --build-arg NODE_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${GIT_MIN_VERSION:?missing --build-arg GIT_MIN_VERSION — see .devcontainer/tool-versions.env}"
 
 # git from the git-core PPA, over the one Ubuntu 24.04 ships: ctxloom registers
@@ -248,6 +250,49 @@ ENV UV_TOOL_DIR=/opt/uv/tools \
     UV_TOOL_BIN_DIR=/usr/local/bin
 RUN UV_NO_CACHE=1 uv tool install --python python3 serena-agent \
     && serena --help >/dev/null
+
+# Node.js. The opencode bridge plugin ctxloom generates is JavaScript, and its
+# wire tests run it under node: they skip on a host without node but FAIL under
+# CI, which runs them in this image.
+#
+# The download is verified, like the git PPA's key above, against keys named
+# by FULL fingerprint: the Node.js releasers' primary keys, as nodejs/node's
+# README lists them. The release's SHASUMS256.txt must carry a valid signature
+# whose signing key is one of THESE fingerprints (gpgv's VALIDSIG, not merely
+# "some key in the ring"), and the tarball must match its line there. Bumping
+# NODE_VERSION needs no hash edit; a release signed by a releaser missing from
+# NODE_RELEASERS fails the build loudly, and the fix is to add the fingerprint from
+# that README. `gpg` is installed only to dearmor the keys: the base image's
+# gpgv cannot read an armored keyring. NODE_RELEASERS is an ARG with a value, unlike
+# the version ARGs above: it is not a pin tool-versions.env carries, and as an
+# ARG it stays out of the running container's environment.
+ARG NODE_RELEASERS="5BE8A3F6C8A5C01D106C0AD820B1A390B168D356 DD792F5973C6DE52C432CBDAC77ABFA00DDBF2B7 CC68F5A3106FF448322E48ED27F5E38D5B0A215F 8FCCA13FEF1D0C2E91008E09770F7A9A5AE15600 890C08DB8579162FEE0DF9DB8BEAB4DFCF555EF4 C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C 108F52B48DB57BB0CC439B2997B01419BD92F80A 655F3B5C1FB3FA8D1A0CA6BDE4A7D232B936D2FD A363A499291CBBC940DD62E41F10027AF002F8B0"
+RUN case "${TARGETARCH}" in \
+        amd64) NODE_ARCH="x64" ;; \
+        arm64) NODE_ARCH="arm64" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && apt-get update && apt-get install -y --no-install-recommends gpg && rm -rf /var/lib/apt/lists/* \
+    && tmp="$(mktemp -d)" && cd "${tmp}" \
+    && for fpr in ${NODE_RELEASERS}; do \
+        curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x${fpr}" -o key.asc \
+        && gpg --batch --dearmor < key.asc >> keys.gpg || exit 1; \
+    done \
+    && tarball="node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
+    && curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" \
+    && curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt.sig" \
+    && curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/${tarball}" \
+    && signer="$(gpgv --status-fd 1 --keyring ./keys.gpg SHASUMS256.txt.sig SHASUMS256.txt 2>/dev/null | awk '$2 == "VALIDSIG" {print $NF}')" \
+    && case " ${NODE_RELEASERS} " in \
+        *" ${signer:-none} "*) ;; \
+        *) echo "node ${NODE_VERSION}: SHASUMS256.txt has no valid signature from a listed releaser (signer: ${signer:-none})" >&2; exit 1 ;; \
+    esac \
+    && grep " ${tarball}\$" SHASUMS256.txt | sha256sum -c - \
+    && tar -xJf "${tarball}" -C /opt \
+    && ln -s "/opt/node-v${NODE_VERSION}-linux-${NODE_ARCH}" /opt/node \
+    && cd / && rm -rf "${tmp}" \
+    && test "$(/opt/node/bin/node --version)" = "v${NODE_VERSION}"
+ENV PATH="/opt/node/bin:${PATH}"
 
 # Set working directory
 WORKDIR /workspace

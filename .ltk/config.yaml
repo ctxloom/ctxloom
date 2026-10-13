@@ -213,3 +213,29 @@ rules:
       args_any: ['-[A-Za-z0-9]*[rR][A-Za-z0-9]*', '--(dereference-)?recursive', '--directories=recurse']
     message: "A recursive grep also searches trees git excludes — including agent worktrees under .claude/worktrees/, which are hidden from `git status` but not from grep, so every file another agent is editing shows up twice."
     suggest: "git grep -n <pattern> -- '<pathspec>'   # respects .gitignore and .git/info/exclude; use grep -r only for paths outside this repo"
+
+  # `git bisect run` EXPORTS GIT_DIR to the command it runs, and GIT_DIR
+  # outranks both `-C` and the cwd. Every git command inside a bisect script
+  # therefore acts on the repo being bisected — which here is the SHARED common
+  # repo behind every agent's worktree. On 2026-10-12 a bisect script's
+  # `git -C <tmp> init` re-initialised that shared repo with core.bare=true and
+  # broke every worktree at once. Owner decision #8 (2026-10-13): an enforced
+  # rule, not briefing text.
+  #
+  # The cleared spelling is the run command wrapped in `env -u GIT_DIR`, so the
+  # script's git finds its repo the ordinary way. The allow is anchored at
+  # operand 0 (allow rules are position-anchored; options drop out of operand
+  # slots, so `env -u GIT_DIR s` reads as operands env, GIT_DIR, s). That makes
+  # it fail closed for `git -C <dir> bisect run env -u GIT_DIR …` — `-C`'s value
+  # takes operand 0 — so cd there first. The deny is a subsequence match, so
+  # global options do not hide it, and ltk's unwrapping of sh -c bodies and
+  # env/assignment prefixes carries it into those too. Other bisect
+  # subcommands (start/good/bad/skip/log/reset) carry no `run` and are
+  # untouched.
+  - id: allow-git-bisect-run-unset-git-dir
+    match: { command: [git, bisect, run, env, GIT_DIR] }
+    action: allow
+  - id: no-git-bisect-run-with-git-dir
+    match: { command: [git, bisect, run] }
+    message: "`git bisect run` exports GIT_DIR to the command it runs, so any git inside it (even `git -C <tmp> init`) acts on THIS repo — the shared one behind every worktree. It has already re-initialised the shared repo as bare once. Wrap the run command so GIT_DIR is unset."
+    suggest: "git bisect run env -u GIT_DIR <script> [args...]   # the script's own git commands then find their repo from the cwd, not the bisected one"

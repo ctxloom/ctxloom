@@ -15,13 +15,13 @@ Feature: session — the record of what your assistant did, and the tools to pru
   Surfaces covered here:
 
     ctxloom session                     (bare: lists)
-    ctxloom session list
+    ctxloom session list [--state live|ended|unknown]
     ctxloom session show <harp>
     ctxloom session edit <harp> --name <new>
     ctxloom session remove <harp> [--yes]
     ctxloom session compact <harp>
     ctxloom session adopt <harp> [--yes]
-    ctxloom session search <word>...
+    ctxloom session search <word>... [--state live|ended|unknown]
     ctxloom session transcript              (bare: lists)
     ctxloom session transcript list [<harp>]
     ctxloom session transcript watch <harp>
@@ -73,6 +73,51 @@ Feature: session — the record of what your assistant did, and the tools to pru
       When I run "ctxloom session show amber-swift-owl"
       Then the command succeeds
       And the output contains "Seeded essence"
+
+    # The index says ended; the lock says running. The lock wins in the
+    # listing too: ended_at is when the LAST run ended and a resume keeps it,
+    # so it is no answer to "is this running now". The state is the lock's
+    # verdict — held is live, free is ended, no lock file is unknown — and a
+    # live session's end is blank rather than a stamp from its previous run.
+    Scenario: The listing takes each session's state from its lock, not its end stamp
+      Given an initialized ctxloom project
+      And a session "amber-swift-owl" with a transcript and an essence that is running again
+      And a finished session "brisk-copper-moth" with a transcript and an essence
+      And a finished session "calm-dusty-wren" with a transcript and an essence but no session lock
+      When I run "ctxloom session list --all --format json"
+      Then the command succeeds
+      And the JSON output array "$" contains an object whose "harp" is "amber-swift-owl" and whose "state" is "live"
+      And the JSON output array "$" contains an object whose "harp" is "amber-swift-owl" and that has no "end"
+      And the JSON output array "$" contains an object whose "harp" is "brisk-copper-moth" and whose "state" is "ended"
+      And the JSON output array "$" contains an object whose "harp" is "calm-dusty-wren" and whose "state" is "unknown"
+      When I run "ctxloom session list --all --format text"
+      Then the command succeeds
+      And the output contains "STATE"
+
+    Scenario Outline: --state keeps only the sessions in that state
+      Given an initialized ctxloom project
+      And a session "amber-swift-owl" with a transcript and an essence that is running again
+      And a finished session "brisk-copper-moth" with a transcript and an essence
+      And a finished session "calm-dusty-wren" with a transcript and an essence but no session lock
+      When I run "ctxloom session <leaf> --all --state <state> --format json"
+      Then the command succeeds
+      And the JSON output array "$" contains an object whose "harp" is "<kept>" and whose "state" is "<state>"
+      And the JSON output array "$" contains no object whose "harp" is "<dropped1>"
+      And the JSON output array "$" contains no object whose "harp" is "<dropped2>"
+
+      Examples: both listings filter the same way
+        | leaf           | state   | kept              | dropped1          | dropped2          |
+        | list           | live    | amber-swift-owl   | brisk-copper-moth | calm-dusty-wren   |
+        | list           | ended   | brisk-copper-moth | amber-swift-owl   | calm-dusty-wren   |
+        | list           | unknown | calm-dusty-wren   | amber-swift-owl   | brisk-copper-moth |
+        | search seeded  | live    | amber-swift-owl   | brisk-copper-moth | calm-dusty-wren   |
+        | search seeded  | ended   | brisk-copper-moth | amber-swift-owl   | calm-dusty-wren   |
+
+    Scenario: --state refuses a word that is not a state
+      Given an initialized ctxloom project
+      When I run "ctxloom session list --state running"
+      Then the command fails
+      And the output contains "live, ended, unknown"
 
   Rule: Renaming is a field assignment, so it rides `edit`
 

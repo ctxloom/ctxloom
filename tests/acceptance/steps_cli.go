@@ -205,6 +205,30 @@ func registerJSONOutputSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("JSON array %q has no object whose %q is %q; stdout:\n%s", arrayKey, keyField, keyWant, w.env.LastStdout())
 		})
 
+	// A field ABSENT from one object, which "contains no object whose F is V"
+	// cannot say: a session list row omits "end" while the session is live,
+	// and the claim is about that one row, not about every row.
+	ctx.Step(`^the JSON output array "([^"]*)" contains an object whose "([^"]*)" is "([^"]*)" and that has no "([^"]*)"$`,
+		func(c context.Context, arrayKey, keyField, keyWant, absent string) error {
+			w := worldFrom(c)
+			entries, err := lastOutputJSONArray(w, arrayKey)
+			if err != nil {
+				return err
+			}
+			for _, e := range entries {
+				obj, ok := e.(map[string]any)
+				if !ok || fmt.Sprintf("%v", obj[keyField]) != keyWant {
+					continue
+				}
+				if got, present := obj[absent]; present {
+					return fmt.Errorf("JSON array %q object with %s=%q has %s=%v, want it absent; stdout:\n%s",
+						arrayKey, keyField, keyWant, absent, got, w.env.LastStdout())
+				}
+				return nil
+			}
+			return fmt.Errorf("JSON array %q has no object whose %q is %q; stdout:\n%s", arrayKey, keyField, keyWant, w.env.LastStdout())
+		})
+
 	ctx.Step(`^every object in the JSON output array "([^"]*)" has a non-empty "([^"]*)"$`,
 		func(c context.Context, arrayKey, field string) error {
 			w := worldFrom(c)

@@ -218,7 +218,7 @@ func MessageEvents(raw []byte) ([]agent.ChatEvent, error) {
 			continue
 		}
 		if p.Type == "text" && !p.Ignored && p.Text != "" {
-			out = append(out, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: p.Text, Timestamp: time.UnixMilli(m.Info.Time.Created)}})
+			out = append(out, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: p.Text, Timestamp: msTime(m.Info.Time.Created)}})
 		}
 	}
 	return out, nil
@@ -250,11 +250,18 @@ func (m *turnStream) End() []agent.ChatEvent {
 	return nil
 }
 
+// msTime is one of opencode's unix-millisecond times as an entry time, in
+// UTC: the zone the transcript recorder writes, so an entry's time does not
+// depend on the host's zone.
+func msTime(ms int64) time.Time {
+	return time.UnixMilli(ms).UTC()
+}
+
 // entry is a text or reasoning part as an entry, at the time it ended.
 func entry(t agent.SessionEntryType, p *ocPart) agent.ChatEvent {
 	e := &agent.SessionEntry{Type: t, Content: p.Text}
 	if p.Time != nil && p.Time.End > 0 {
-		e.Timestamp = time.UnixMilli(p.Time.End)
+		e.Timestamp = msTime(p.Time.End)
 	}
 	return agent.ChatEvent{Entry: e}
 }
@@ -269,7 +276,7 @@ func toolEvents(p *ocPart) []agent.ChatEvent {
 	}
 	var at time.Time
 	if s.Time != nil && s.Time.End > 0 {
-		at = time.UnixMilli(s.Time.End)
+		at = msTime(s.Time.End)
 	}
 	use := &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: p.Tool, ToolCallID: p.CallID, ToolInput: s.Input, Timestamp: at}
 	result := &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolName: p.Tool, ToolCallID: p.CallID, ToolOutput: s.Output, Timestamp: at}

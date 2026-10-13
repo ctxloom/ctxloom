@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -121,6 +122,31 @@ func entriesOf(evs []agent.ChatEvent, typ agent.SessionEntryType) []*agent.Sessi
 // A plain answer: the session announced once (the key the next turn
 // resumes by), the text as the answer, one completion with the step's
 // usage and the label's window.
+// Every entry time opencode reports (a user message's creation, a text
+// part's end, a tool call's end) is the same instant in UTC, the zone the
+// transcript recorder writes, whatever zone the host runs in. Checked on the
+// mapped value itself: the wire's JSON keeps the instant but not the zone.
+func TestMessageEvents_EntryTimesAreUTC(t *testing.T) {
+	const ms = 1791434956526
+	user := fmt.Sprintf(`{"info":{"role":"user","time":{"created":%d}},"parts":[{"type":"text","text":"hi"}]}`, ms)
+	assistant := fmt.Sprintf(`{"info":{"role":"assistant"},"parts":[{"type":"text","text":"pong","time":{"end":%d}},{"type":"tool","tool":"bash","callID":"c1","state":{"status":"completed","output":"ok","time":{"end":%d}}}]}`, ms, ms)
+	var entries []*agent.SessionEntry
+	for _, raw := range []string{user, assistant} {
+		evs, err := MessageEvents([]byte(raw))
+		require.NoError(t, err)
+		for _, e := range evs {
+			if e.Entry != nil {
+				entries = append(entries, e.Entry)
+			}
+		}
+	}
+	require.Len(t, entries, 4, "user text, assistant text, tool use, tool result")
+	for _, e := range entries {
+		assert.True(t, time.UnixMilli(ms).Equal(e.Timestamp), "%s: %v", e.Type, e.Timestamp)
+		assert.Same(t, time.UTC, e.Timestamp.Location(), "%s is reported in UTC", e.Type)
+	}
+}
+
 func TestTurn_RecordedAnswer(t *testing.T) {
 	res, evs, err := turnOver(t, fixture(t, "run_simple.jsonl"), nil)
 	require.NoError(t, err)
@@ -129,7 +155,7 @@ func TestTurn_RecordedAnswer(t *testing.T) {
 	require.NotNil(t, evs[0].Session, "the session is the first event")
 	text := entriesOf(evs, agent.EntryTypeAssistant)
 	require.Len(t, text, 1)
-	assert.Equal(t, time.UnixMilli(1791434956526), text[0].Timestamp, "an entry carries the time its part ended")
+	assert.True(t, time.UnixMilli(1791434956526).Equal(text[0].Timestamp), "an entry carries the time its part ended: %v", text[0].Timestamp)
 	cs := completions(evs)
 	require.Len(t, cs, 1)
 	assert.Equal(t, "stop", cs[0].StopReason)

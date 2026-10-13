@@ -88,6 +88,35 @@ func TestDevcontainerInstallsVerifiedBuf(t *testing.T) {
 	)
 }
 
+var aptInstallsMinisignRE = regexp.MustCompile(`apt-get install[^\n]*\sminisign\b`)
+
+// The release job installs buf itself (it runs in the Go image, not the
+// devcontainer image), so it verifies it the way the image does: minisign over
+// sha256.txt, then the binary against its line. The signer key is read from
+// the Dockerfile's BUF_RELEASE_SIGNER, never restated, so the two cannot trust
+// different keys; the job's dependency step provides minisign.
+func TestReleaseInstallToolsInstallsVerifiedBuf(t *testing.T) {
+	recipe := withoutCommentLines(recipeBody(t, ciJustfilePath, "release-install-tools"))
+	assertVerifiedStep(t, ciJustfilePath, "buf", recipe,
+		[]string{
+			`^ARG BUF_RELEASE_SIGNER=`,
+			".devcontainer/Dockerfile",
+			"https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}",
+			"sha256.txt.minisig",
+			`minisign -Vm sha256.txt -P "${BUF_RELEASE_SIGNER}"`,
+			"sha256sum -c",
+			`test "$(buf --version)" = "${BUF_VERSION}"`,
+		},
+		[]string{"minisign -Vm", "sha256sum -c", "/usr/local/bin/buf"},
+	)
+	if strings.Contains(recipe, bufReleaseSigner) {
+		t.Errorf("%s: release-install-tools restates buf's signer key instead of reading the Dockerfile's BUF_RELEASE_SIGNER", ciJustfilePath)
+	}
+	if !aptInstallsMinisignRE.MatchString(workflowJob(t, releaseWorkflowPath, "release")) {
+		t.Errorf("%s: the release job never apt-get installs minisign, so release-install-tools cannot check buf's signature", releaseWorkflowPath)
+	}
+}
+
 // just publishes SHA256SUMS per release (no signature); the image pins this
 // arch's line of it, like Go, and never pipes just.systems/install.sh to bash.
 func TestDevcontainerInstallsVerifiedJust(t *testing.T) {

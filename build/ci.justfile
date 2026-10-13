@@ -315,8 +315,30 @@ release-install-tools:
     curl -sSL "https://github.com/benjaminabbitt/versionator/releases/download/v${VERSIONATOR_VERSION}/versionator-linux-amd64.tar.gz" -o /tmp/versionator.tar.gz
     tar -xzf /tmp/versionator.tar.gz -C /tmp
     install /tmp/versionator-linux-amd64 /usr/local/bin/versionator
-    curl -sSL "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-Linux-x86_64" -o /usr/local/bin/buf
-    chmod +x /usr/local/bin/buf
+    # buf, verified as the image verifies it (the Dockerfile's buf step): the
+    # release's sha256.txt must carry a valid minisign signature from buf's
+    # published key, and the binary must match its line in it, before it is
+    # installed. The key is read from the Dockerfile's BUF_RELEASE_SIGNER, its
+    # one copy, so the image and the release cannot trust different keys.
+    # minisign comes from release-completer.yml's dependency step.
+    BUF_RELEASE_SIGNER="$(sed -n 's/^ARG BUF_RELEASE_SIGNER="\(.*\)"$/\1/p' .devcontainer/Dockerfile)"
+    if [ -z "${BUF_RELEASE_SIGNER}" ]; then
+        echo "release-install-tools: no ARG BUF_RELEASE_SIGNER in .devcontainer/Dockerfile" >&2
+        exit 1
+    fi
+    bufdl="$(mktemp -d)"
+    bufbin="buf-Linux-$(uname -m)"
+    (
+        cd "${bufdl}"
+        for f in sha256.txt sha256.txt.minisig "${bufbin}"; do
+            curl -fsSLO "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/${f}"
+        done
+        minisign -Vm sha256.txt -P "${BUF_RELEASE_SIGNER}"
+        grep " ${bufbin}\$" sha256.txt | sha256sum -c -
+    )
+    install -m 0755 "${bufdl}/${bufbin}" /usr/local/bin/buf
+    rm -rf "${bufdl}"
+    test "$(buf --version)" = "${BUF_VERSION}"
     go install google.golang.org/protobuf/cmd/protoc-gen-go@v${PROTOC_GEN_GO_VERSION}
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v${PROTOC_GEN_GO_GRPC_VERSION}
     go install github.com/goreleaser/goreleaser/v2@v${GORELEASER_VERSION}

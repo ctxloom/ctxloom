@@ -854,7 +854,7 @@ test-acceptance-live-container: container-build-acceptance
     # every tarball's pin. Its cells therefore skip loudly here ("binary not
     # found") and run on the host recipes (engine-matrix, capability-probe,
     # plan-sentinel, isolation-probe, live-delegation with ENGINE=opencode),
-    # which need network for the model and the bridge plugin's npm install.
+    # which need network for the hosted model.
     # Require it once the pins land and the image installs it.
     if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
         echo "live-container: FATAL — CTXLOOM_LIVE_REQUIRE names claude, but CLAUDE_CODE_OAUTH_TOKEN is not exported (run \`claude setup-token\`)" >&2

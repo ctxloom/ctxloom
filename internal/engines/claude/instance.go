@@ -157,26 +157,17 @@ var errSettingsTwice = errors.New("claude: the launch would name --settings twic
 var errTurnSettingsPresented = errors.New("claude: a structured turn's only --settings is its posture, and a presentation names another settings file — deliver settings to the session home instead")
 
 // execArgs is the argv up to the prompt: the label's args, the permission
-// posture (headless: permissionArgs; interactive: the human's own session,
-// interactivePermissionArgs), the model, the session name (interactive) or
+// posture (withPosture, which also takes claude's own peer messaging from a
+// delegated child), the model, the session name (interactive) or
 // --print, the repository's sources unless the verdict trusts it
 // (repoSourceArgs), every presentation's args in delivery order, then the
 // resumed native key. It refuses an argv naming --settings twice, and an
 // untrusted session's presented --settings.
 func (i *instance) execArgs(presented []present.Presentation) ([]string, error) {
-	args := slices.Clone(i.s.Label.Args)
 	interactive := i.s.Mode == engine.Interactive
-	if interactive {
-		posture, err := interactivePermissionArgs(i.pos, i.s.MCPServers)
-		if err != nil {
-			return nil, err
-		}
-		args = append(args, posture...)
-	} else {
-		args = append(args, permissionArgs(i.pos, i.s.MCPServers)...)
-	}
-	if i.s.Identity.IsChild() {
-		args = denyTools(args, childDeniedBuiltins...)
+	args, err := i.withPosture(slices.Clone(i.s.Label.Args))
+	if err != nil {
+		return nil, err
 	}
 	if i.s.Label.Model != "" {
 		args = append(args, flagModel, i.s.Label.Model)
@@ -198,6 +189,26 @@ func (i *instance) execArgs(presented []present.Presentation) ([]string, error) 
 	}
 	if countFlag(args, flagSettings) > 1 {
 		return nil, errSettingsTwice
+	}
+	return args, nil
+}
+
+// withPosture appends the permission posture to args (headless:
+// permissionArgs; interactive: the human's own session,
+// interactivePermissionArgs), and for a delegated child removes claude's own
+// peer messaging (childDeniedBuiltins) in the same --disallowedTools token.
+func (i *instance) withPosture(args []string) ([]string, error) {
+	if i.s.Mode == engine.Interactive {
+		posture, err := interactivePermissionArgs(i.pos, i.s.MCPServers)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, posture...)
+	} else {
+		args = append(args, permissionArgs(i.pos, i.s.MCPServers)...)
+	}
+	if i.s.Identity.IsChild() {
+		args = denyTools(args, childDeniedBuiltins...)
 	}
 	return args, nil
 }

@@ -12,6 +12,19 @@ FROM ubuntu:24.04
 # internal/adapters/isolation's docker-gated integration tests (see justfile
 # test-docker-integration). Those tests self-skip when docker is unreachable,
 # so this is a "make it possible to pass" addition, not a hard requirement.
+#
+# Docker's apt key is trusted for every package that repository serves, so the
+# fetched key must be exactly Docker's before it lands in /etc/apt/keyrings,
+# as the git PPA key below is fetched by full fingerprint: the file must hold
+# one primary key, and its fingerprint must be DOCKER_APT_FINGERPRINT.
+# That value is the fingerprint Docker documented for this key ("9DC8 5822
+# 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88", docs.docker.com/engine/install/
+# ubuntu/; docker/docs engine/install/ubuntu.md, until 760bb64ea3cc dropped the
+# check from the page in 2021 — the key itself is unchanged since 2017). If
+# Docker rotates the key, this fails loudly; take the new fingerprint from
+# Docker's own announcement, never from the fetched file. `gpg` is installed
+# here to read the key (the node install below uses it too).
+ARG DOCKER_APT_FINGERPRINT="9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
 RUN apt-get update && apt-get install -y \
     build-essential \
     git \
@@ -29,9 +42,17 @@ RUN apt-get update && apt-get install -y \
     xz-utils \
     python3 \
     python3-pip \
+    gpg \
     && install -m 0755 -d /etc/apt/keyrings \
-    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
-    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && tmp="$(mktemp -d)" \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o "${tmp}/docker.asc" \
+    && fprs="$(GNUPGHOME="${tmp}" gpg --batch --show-keys --with-colons "${tmp}/docker.asc" \
+        | awk -F: '$1 == "pub" {p = 1; next} p && $1 == "fpr" {print $10; p = 0}')" \
+    && if [ "${fprs}" != "${DOCKER_APT_FINGERPRINT}" ]; then \
+        echo "Docker apt key: want exactly ${DOCKER_APT_FINGERPRINT}, fetched: ${fprs:-no key}" >&2; exit 1; \
+    fi \
+    && install -m 0644 "${tmp}/docker.asc" /etc/apt/keyrings/docker.asc \
+    && rm -rf "${tmp}" \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" \
         > /etc/apt/sources.list.d/docker.list \
     && apt-get update && apt-get install -y docker-ce-cli \
@@ -327,17 +348,17 @@ RUN UV_NO_CACHE=1 uv tool install --python python3 serena-agent \
 # "some key in the ring"), and the tarball must match its line there. Bumping
 # NODE_VERSION needs no hash edit; a release signed by a releaser missing from
 # NODE_RELEASERS fails the build loudly, and the fix is to add the fingerprint from
-# that README. `gpg` is installed only to dearmor the keys: the base image's
-# gpgv cannot read an armored keyring. NODE_RELEASERS is an ARG with a value, unlike
-# the version ARGs above: it is not a pin tool-versions.env carries, and as an
-# ARG it stays out of the running container's environment.
+# that README. `gpg` (installed with the build dependencies at the top) is used
+# only to dearmor the keys: the base image's gpgv cannot read an armored
+# keyring. NODE_RELEASERS is an ARG with a value, unlike the version ARGs
+# above: it is not a pin tool-versions.env carries, and as an ARG it stays out
+# of the running container's environment.
 ARG NODE_RELEASERS="5BE8A3F6C8A5C01D106C0AD820B1A390B168D356 DD792F5973C6DE52C432CBDAC77ABFA00DDBF2B7 CC68F5A3106FF448322E48ED27F5E38D5B0A215F 8FCCA13FEF1D0C2E91008E09770F7A9A5AE15600 890C08DB8579162FEE0DF9DB8BEAB4DFCF555EF4 C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C 108F52B48DB57BB0CC439B2997B01419BD92F80A 655F3B5C1FB3FA8D1A0CA6BDE4A7D232B936D2FD A363A499291CBBC940DD62E41F10027AF002F8B0"
 RUN case "${TARGETARCH}" in \
         amd64) NODE_ARCH="x64" ;; \
         arm64) NODE_ARCH="arm64" ;; \
         *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
-    && apt-get update && apt-get install -y --no-install-recommends gpg && rm -rf /var/lib/apt/lists/* \
     && tmp="$(mktemp -d)" && cd "${tmp}" \
     && for fpr in ${NODE_RELEASERS}; do \
         curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x${fpr}" -o key.asc \

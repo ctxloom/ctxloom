@@ -100,3 +100,24 @@ func TestDevcontainerInstallsVerifiedJust(t *testing.T) {
 		t.Errorf("%s: just is still installed by just.systems/install.sh, a script fetched at build time:\n%s", dockerfilePath, step)
 	}
 }
+
+// dockerAptKeyFingerprint is the primary-key fingerprint Docker documented for
+// its apt signing key ("Verify that you now have the key with the fingerprint
+// 9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88" — docs.docker.com/engine/
+// install/ubuntu/, docker/docs engine/install/ubuntu.md before 760bb64ea3cc).
+const dockerAptKeyFingerprint = "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+
+// The Docker apt key is trusted for every docker-ce package apt installs, so
+// the fetched key must be exactly Docker's documented key before it is placed
+// in /etc/apt/keyrings — as the git PPA key is fetched by full fingerprint.
+func TestDevcontainerVerifiesDockerAptKey(t *testing.T) {
+	step := dockerfileStepCode(t, "# Install build dependencies")
+	assertVerifiedStep(t, "Docker apt key", step,
+		[]string{
+			`ARG DOCKER_APT_FINGERPRINT="` + dockerAptKeyFingerprint + `"`,
+			"gpg --batch --show-keys --with-colons",
+			`"${DOCKER_APT_FINGERPRINT}"`,
+		},
+		[]string{"https://download.docker.com/linux/ubuntu/gpg", "--show-keys", "/etc/apt/keyrings/docker.asc"},
+	)
+}

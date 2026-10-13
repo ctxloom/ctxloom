@@ -41,8 +41,9 @@ func roleTestConfig(t *testing.T, agentNames ...string) *config.Config {
 }
 
 // assertRunsAsRoleAgent resolves src and pins that the launch is the role
-// agent's: its label, its label's env, its declared runtime, at plan.
-func assertRunsAsRoleAgent(t *testing.T, cfg *config.Config, src launch.Source, name string) {
+// agent's: its label, its label's env, its declared runtime, and the
+// posture its role runs at (assertDistillerToolLess, assertTriagePlan).
+func assertRunsAsRoleAgent(t *testing.T, cfg *config.Config, src launch.Source, name string, posture func(*testing.T, launch.Launch)) {
 	t.Helper()
 	assert.Equal(t, name, src.Agent, "the one-shot runs as the agent named for its role")
 	assert.False(t, src.Internal, "an agent binding is not the label-only internal arm")
@@ -53,7 +54,22 @@ func assertRunsAsRoleAgent(t *testing.T, cfg *config.Config, src launch.Source, 
 	assert.Equal(t, "role-model", o.Launch.Label.Model, "no Model override keeps the agent label's own model")
 	assert.Equal(t, "from-the-role-agent", o.Launch.Env[roleAgentEnvKey], "the agent's label env crossed")
 	assert.Equal(t, launch.RuntimeRootless, o.Launch.Declared.Runtime, "the agent's runtime axis is honoured")
-	assert.Equal(t, "plan", o.Launch.Permission.Posture.Document["mode"], "a role agent's one-shot still only reads and answers")
+	posture(t, o.Launch)
+}
+
+// assertDistillerToolLess: a distillation is tool-less (marauding-magnolia,
+// decision #5) — not plan, no posture, nobody to approve anything.
+func assertDistillerToolLess(t *testing.T, l launch.Launch) {
+	t.Helper()
+	assert.True(t, l.ToolLess, "a distillation only reads the text it is handed: no tool, no MCP server")
+	assert.Empty(t, l.Permission.Posture.Document, "a tool-less run names no posture")
+}
+
+// assertTriagePlan: trigger triage stays at plan.
+func assertTriagePlan(t *testing.T, l launch.Launch) {
+	t.Helper()
+	assert.False(t, l.ToolLess)
+	assert.Equal(t, "plan", l.Permission.Posture.Document["mode"], "a role agent's one-shot still only reads and answers")
 }
 
 // assertFallsBackToFast pins the no-such-agent arm: defaults.fast, label-only,
@@ -73,7 +89,7 @@ func TestDistillerOneShot_RunsAsTheDistillerAgent(t *testing.T) {
 	var found report.Collector
 	src := DistillerOneShot(LaunchFacts{}, nil, cfg).WorkDir(t.TempDir()).source(&found)
 	assert.Empty(t, found.All())
-	assertRunsAsRoleAgent(t, cfg, src, distillerAgent)
+	assertRunsAsRoleAgent(t, cfg, src, distillerAgent, assertDistillerToolLess)
 }
 
 func TestDistillerOneShot_NoDistillerAgentFallsBackToFastWithAFinding(t *testing.T) {
@@ -99,7 +115,7 @@ func TestTriageOneShot_RunsAsTheTriageAgent(t *testing.T) {
 	var found report.Collector
 	src := triageOneShot(LaunchFacts{}, EvaluateTriggersRequest{RepoDir: t.TempDir()}, cfg).source(&found)
 	assert.Empty(t, found.All())
-	assertRunsAsRoleAgent(t, cfg, src, triageAgent)
+	assertRunsAsRoleAgent(t, cfg, src, triageAgent, assertTriagePlan)
 }
 
 func TestTriageOneShot_NoTriageAgentFallsBackToFastWithAFinding(t *testing.T) {

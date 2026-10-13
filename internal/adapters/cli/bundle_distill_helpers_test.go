@@ -22,6 +22,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // TestRunBundleDistill_AllFilesFailedExitsNonZero pins that per-file
@@ -337,7 +339,7 @@ func TestLoadDistillPrompt_WithheldConfiguredPromptRefusesWithExit2(t *testing.T
 	cmd := &cobra.Command{}
 	cmd.SetErr(&errBuf)
 	refusal := refuseWithheldDistillPrompt(cmd, err)
-	var exit *ExitError
+	var exit clifmt.ExitStatus
 	require.ErrorAs(t, refusal, &exit)
 	assert.Equal(t, exitCodeRefused, exit.Code)
 	assert.Equal(t, 2, exit.Code, "a refusal is exit 2 (docs/cli-ux-principles.md §7)")

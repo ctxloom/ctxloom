@@ -17,6 +17,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // The owner-owned run: `ctxloom run` mints a run in the coordinator it hosts
@@ -189,7 +191,7 @@ type ownedRenderResult struct {
 // REASONING/LOG channels are excluded — the host renders the answer, not the
 // scratchpad, exactly like accumulateFinalText.
 //
-// A run that did not succeed returns an *ExitError carrying
+// A run that did not succeed returns a clifmt.ExitStatus carrying
 // failedRunExitCode.
 //
 // The accumulator is LOCAL by construction: every read by another
@@ -293,7 +295,7 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 				} else if r.GetStatus() != agentcoordpb.Result_RUN_STATUS_FAILED {
 					clidiag.Warn("ctxloom", "run did not succeed: %s", r.GetStatus())
 				}
-				return answer.String(), &ExitError{Code: failedRunExitCode(r)}
+				return answer.String(), clifmt.ExitStatus{Code: failedRunExitCode(r)}
 			}
 		case <-ctx.Done():
 			return answer.String(), ctx.Err()

@@ -16,6 +16,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // swtDeadPid is the pid these fixtures stamp into a session's lock file. It
@@ -233,7 +235,7 @@ func TestSessionWorktrees_ReapYes_ChangedNothing_Refuses(t *testing.T) {
 
 	_, err := execRootCmd(t, "session", "worktrees", "purge", "amber", "--yes", "--format", "json")
 	require.Error(t, err, "a purge that removed nothing must refuse, not exit 0")
-	var exitErr *ExitError
+	var exitErr clifmt.ExitStatus
 	require.ErrorAs(t, err, &exitErr)
 	assert.Equal(t, exitCodeRefused, exitErr.Code)
 }
@@ -304,6 +306,6 @@ func TestSessionWorktrees_HarpNotFound_IsOrdinaryError(t *testing.T) {
 	testsupport.Isolate(t)
 	_, err := execRootCmd(t, "session", "worktrees", "list", "no-such-harp-ever")
 	require.Error(t, err)
-	var exitErr *ExitError
+	var exitErr clifmt.ExitStatus
 	assert.False(t, errors.As(err, &exitErr), "a not-found harp is an ordinary error, not a coded refusal")
 }

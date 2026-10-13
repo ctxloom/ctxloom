@@ -18,6 +18,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // =============================================================================
@@ -170,7 +172,7 @@ func TestRunCharacterization_StartupGateAbortsOnRecordedFindings(t *testing.T) {
 	res := runCLI(t, "run", "--dry-run", "--format", "text", "hello")
 	require.Error(t, res.err, "unresolvable default-profile parents must abort the startup gate")
 
-	var exitErr *ExitError
+	var exitErr clifmt.ExitStatus
 	require.ErrorAs(t, res.err, &exitErr, "a strict startup abort carries its own exit code")
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
 	assert.Contains(t, res.all(), "aborting startup")
@@ -201,7 +203,7 @@ func TestRunCharacterization_ExplicitFragmentMissFailsLoudly(t *testing.T) {
 	require.Error(t, res.err, "a partial fragment resolution still carries an unresolved reference")
 	assert.NotContains(t, res.err.Error(), "no fragments loaded",
 		"a partial resolution is NOT the empty-selection error")
-	var exitErr *ExitError
+	var exitErr clifmt.ExitStatus
 	require.ErrorAs(t, res.err, &exitErr)
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code, "it aborts at the startup gate, not the assembly guard")
 }
@@ -437,7 +439,7 @@ func TestRunCharacterization_DryRunRefusesAMissingBundleLikeARun(t *testing.T) {
 
 	res := runCLI(t, "run", "--dry-run", "--format", "text", "--profile", "broken", "hello")
 	require.Error(t, res.err, "a bundle that does not load refuses the preview as it refuses the run: %s", res.all())
-	var exitErr *ExitError
+	var exitErr clifmt.ExitStatus
 	require.ErrorAs(t, res.err, &exitErr, "the refusal carries the fatal-findings exit status")
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
 	assert.Contains(t, res.all(), `failed to load bundle "does-not-exist"`, "the finding is listed")

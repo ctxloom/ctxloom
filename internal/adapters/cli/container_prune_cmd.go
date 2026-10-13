@@ -11,6 +11,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 var (
@@ -88,7 +90,7 @@ var containerPrune = operations.ContainerPrune
 // failure.
 func containerPruneExit(rep operations.ContainerPruneReport) error {
 	if rep.Failed() {
-		return &ExitError{Code: 1}
+		return clifmt.ExitStatus{Code: 1}
 	}
 	return nil
 }

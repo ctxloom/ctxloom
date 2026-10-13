@@ -17,6 +17,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/displaysafe"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // The command lives under `session`: these are the approvals a session's
@@ -113,7 +115,7 @@ func runSessionApprovals(cmd *cobra.Command, _ []string) error {
 	if err := ew.Err(); err != nil {
 		return err
 	}
-	return &ExitError{Code: 1}
+	return clifmt.ExitStatus{Code: 1}
 }
 
 // noCoordinatorRunningIn says nothing is running, and where discovery

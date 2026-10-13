@@ -10,6 +10,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // versionPayloadMarker appears in what the `version` command WRITES and in
@@ -56,7 +58,7 @@ func TestUnstampedBuild_RefusesByDefault(t *testing.T) {
 	out, err := runRoot(t, "version")
 
 	require.Error(t, err, "an unstamped binary must refuse")
-	var exitErr *ExitError
+	var exitErr clifmt.ExitStatus
 	require.True(t, errors.As(err, &exitErr), "the refusal must carry an exit status, not just fail: got %#v", err)
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code, "a startup refusal reports the fatal-findings status")
 	assert.NotContains(t, out, versionPayloadMarker, "the command RAN; refusing must stop it before dispatch, not report alongside it")
@@ -84,7 +86,7 @@ func TestUnstampedBuild_RefusesEvenUnderDegraded(t *testing.T) {
 	out, err := runRoot(t, "--degraded", "version")
 
 	require.Error(t, err, "an unstamped binary must refuse even under --degraded")
-	var exitErr *ExitError
+	var exitErr clifmt.ExitStatus
 	require.True(t, errors.As(err, &exitErr), "the refusal must carry an exit status, not just fail: got %#v", err)
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code, "a non-degradable startup refusal reports the fatal-findings status")
 	assert.NotContains(t, out, versionPayloadMarker, "refusing must stop the command before dispatch, not report alongside it")

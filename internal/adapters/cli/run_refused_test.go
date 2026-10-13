@@ -13,6 +13,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // refusedFixture is a runState at the point the resolver has just failed:
@@ -43,7 +45,7 @@ func TestRunState_Refused_CellRefusalIsTheFatalAbort(t *testing.T) {
 
 	err := st.refused(cellRefusal("container-rootless requested but no container runtime is available"))
 
-	var exitErr *ExitError
+	var exitErr clifmt.ExitStatus
 	require.ErrorAs(t, err, &exitErr, "a recorded finding aborts through the gate, not as the resolver's own error")
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
 	assert.Contains(t, out.String(), "["+string(report.KindIsolation)+"]")
@@ -62,7 +64,7 @@ func TestRunState_Refused_DegradedStillAbortsOnNonDegradable(t *testing.T) {
 
 	err := st.refused(cellRefusal("requested container could not start"))
 
-	var exitErr *ExitError
+	var exitErr clifmt.ExitStatus
 	require.ErrorAs(t, err, &exitErr)
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
 }
@@ -83,7 +85,7 @@ func TestRunState_Refused_EmptyAssemblyWithAFindingAbortsThroughTheGate(t *testi
 
 	err := st.refused(cause)
 
-	var exitErr *ExitError
+	var exitErr clifmt.ExitStatus
 	require.ErrorAs(t, err, &exitErr, "the recorded finding is why the set is empty; it aborts through the gate")
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
 	assert.Contains(t, out.String(), "does-not-exist")

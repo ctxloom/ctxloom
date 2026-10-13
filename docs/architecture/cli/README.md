@@ -25,7 +25,7 @@ flowchart TD
     ACC --> ROOT
 
     subgraph cli["internal/adapters/cli — one flat package"]
-        ROOT["root.go — rootCmd · Run · ExitError<br/>App · GetConfig · rootPersistentPreRunE"]
+        ROOT["root.go — rootCmd · Run<br/>App · GetConfig · rootPersistentPreRunE"]
         ROOT --> FMT["format.go — emit() chokepoint + the two --format guards"]
         ROOT --> SH["startup_helpers.go — phaseGates"]
         ROOT --> CMDS["one init() per command family, each file registering its own verbs"]
@@ -60,7 +60,7 @@ command's help text:
 
 | Page | Covers |
 |---|---|
-| [entrypoints.md](entrypoints.md) | `cmd/*` binaries, the composition root, `root.go`, `Run`, `ExitError`, `App`, the phase gates |
+| [entrypoints.md](entrypoints.md) | `cmd/*` binaries, the composition root, `root.go`, `Run`, `App`, the phase gates |
 | [output-and-format.md](output-and-format.md) | `emit()`, `--format`, the two guards that enforce it, writer conventions, paging |
 | [run.md](run.md) | `ctxloom run` — the full launch path and the transport arms |
 | [terminal-and-prompts.md](terminal-and-prompts.md) | Raw-mode ownership, resize, the terminal UI, `stdinReader`/`promptLine`, signals |
@@ -87,5 +87,5 @@ the rule lives.
 | I5 | **Process-owning entry points close a phase gate before spawning.** Any command that spawns an engine opens `phaseGates` and closes the startup phase, which aborts with `strictness.ExitCodeFatalFindings` on an actionable finding. Honoured by `run` (`runState.gateStartup`), `materialize` and `profile materialize`; the root's `refuseUnstampedBuild` closes one of its own. | `startup_helpers.go` |
 | I6 | **The runner is the one credential holder.** `runner.Main` decodes the reach-back once and unsets it before the engine spawns; the session host keeps only the owner's credential (`mcp.HostCoordinatorForSession`) and stamps nothing on its own environment. | `internal/adapters/runner` |
 | I7 | **Relayed MCP handlers derive identity from the caller, not from process env.** `mcp.HostApp.Serve` binds each relayed call to the caller's credential-derived `coord.Identity`; `ctxServer.projectDir` is that identity's project with no cwd fallback (`TestArch_EnvLiteralsOnce` holds the env-key discipline). | `internal/adapters/mcp` |
-| I8 | **Exit codes travel as `ExitError`,** not `os.Exit`, so deferred cleanup runs. `run` unwraps it with `errors.As` (`exitCodeFor`); `strictness.ExitCodeFatalFindings` is reserved for a phase-gate abort. | `root.go` |
+| I8 | **Exit codes travel as errors** (`clifmt.ExitStatus`, or a `clifmt.ExitCoder` such as `refusal`), not `os.Exit`, so deferred cleanup runs. `run` ends through the family's `cobrafmt.Report`; `strictness.ExitCodeFatalFindings` is reserved for a phase-gate abort. | `root.go` |
 | I9 | **`emit()` renders; the text closure runs only for `--format text`.** A not-found check placed *inside* the text closure therefore does not fire for structured formats. | `pkg/clifmt/cobrafmt` |

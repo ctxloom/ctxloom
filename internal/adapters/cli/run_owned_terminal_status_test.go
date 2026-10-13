@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // TestRenderOwnedRunEvents_TerminalStatusFailsClosed pins a fix: the
@@ -56,7 +58,7 @@ func TestRenderOwnedRunEvents_TerminalStatusFailsClosed(t *testing.T) {
 				assert.NoError(t, err)
 				return
 			}
-			var exit *ExitError
+			var exit clifmt.ExitStatus
 			if !assert.ErrorAs(t, err, &exit, "terminal status %v must not exit 0", tc.status) {
 				return
 			}
@@ -78,7 +80,7 @@ func TestRenderOwnedRunEvents_MissingResultFailsClosed(t *testing.T) {
 		Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}},
 	}
 	_, err := renderOwnedRunEvents(ctx, io.Discard, formatText, "run-1", events, nil, true)
-	var exit *ExitError
+	var exit clifmt.ExitStatus
 	require.ErrorAs(t, err, &exit, "a terminal event with no Result must not report success")
 	assert.Equal(t, 1, exit.Code)
 }
@@ -114,7 +116,7 @@ func TestRenderOwnedRunEvents_FailedRunExitsWithTheEngineStatus(t *testing.T) {
 				}},
 			}
 			_, err := renderOwnedRunEvents(ctx, io.Discard, formatText, "run-1", events, nil, true)
-			var exit *ExitError
+			var exit clifmt.ExitStatus
 			require.ErrorAs(t, err, &exit)
 			assert.Equal(t, tc.want, exit.Code)
 		})

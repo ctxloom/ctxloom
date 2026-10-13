@@ -429,6 +429,13 @@ Grouped by what you would have to change.
   skills and env) renders one sub-section per entry instead of Go struct
   syntax. A list of maps that share their keys and hold plain values renders
   as a table.
+- `ctxloom` reports a failure as `ctxloom: <message>` instead of
+  `Error: <message>`, and its `fix:` line is indented two spaces, under
+  `--format text` and `markdown` alike (an explicit `--format markdown` no
+  longer prints `**Error:** <message>`). The `{"error": …}` envelope under an
+  explicit `--format json|yaml|toml` and the exit codes (1 for an error, 2 for
+  a refusal, an engine's own status passed through) are unchanged. `--format`
+  values now complete in the shell.
 - `taskloom` reports a failure as `taskloom: <message>` (plus a `fix:` line
   when there is one) instead of `Error: <message>`, under `--format text` and
   `markdown` alike; `ltk` and `harp` keep their `ltk:`/`harp:` prefix and gain

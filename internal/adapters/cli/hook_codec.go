@@ -9,6 +9,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // hookEngineFlagName is agent.HookEngineFlag without its dashes: the flag the
@@ -79,7 +81,7 @@ func writeHookResponse(cmd *cobra.Command, codec engine.HookCodec, event string,
 		return err
 	}
 	if reply.Exit != 0 {
-		return &ExitError{Code: reply.Exit}
+		return clifmt.ExitStatus{Code: reply.Exit}
 	}
 	return nil
 }

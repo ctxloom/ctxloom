@@ -6,7 +6,7 @@
 // strictness.FindingsError), so it gives ordinary management commands no
 // policy at all. The actual mechanism management commands need already
 // exists one layer up: cli.Run (root.go) turns any non-nil RunE error
-// into os.Exit(1) (or an *ExitError's own code) — that seam works fine
+// into exit status 1 (or a clifmt.ExitStatus's own code) — that seam works fine
 // whenever a RunE actually RETURNS its error.
 //
 // The bug is narrower than "no policy exists": a RunE body collects per-item

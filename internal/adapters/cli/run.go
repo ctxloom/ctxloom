@@ -39,6 +39,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 	"github.com/ctxloom/ctxloom/internal/shared/tokens"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 var (
@@ -1398,7 +1400,7 @@ func (st *runState) driveTransport() error {
 func credentialRefusedOutcome(err error, holds []coord.CredentialHold, harp string) error {
 	for _, h := range holds {
 		if h.Kind == agent.FailureCredentialRejected && slices.Contains(h.Harps, harp) {
-			return &ExitError{Code: exitCodeRefused}
+			return clifmt.ExitStatus{Code: exitCodeRefused}
 		}
 	}
 	return err
@@ -1496,7 +1498,7 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 	if strings.TrimSpace(answer) == "" {
 		clidiag.Warn("ctxloom", "one-shot run produced no answer text: the engine started and finished "+
 			"without emitting a single answer byte, so there is nothing to print or record")
-		return &ExitError{Code: 1}
+		return clifmt.ExitStatus{Code: 1}
 	}
 	if terr := transcript.RecordOneshot(safefs.New(), harp, backend, prompt, answer); terr != nil {
 		clidiag.Warn("ctxloom", "oneshot transcript capture: %v", terr)

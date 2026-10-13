@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // `--one-shot` is a one-shot. It gets exactly one turn, and the prompt
@@ -80,7 +82,7 @@ func TestRecordOneshotAnswer_EmptyAnswerFails(t *testing.T) {
 			err := recordOneshotAnswer("some-harp", "claude-code", "do the thing", answer)
 
 			require.Error(t, err, "a one-shot that produced no answer must not exit 0")
-			var exitErr *ExitError
+			var exitErr clifmt.ExitStatus
 			require.True(t, errors.As(err, &exitErr), "the failure must carry a nonzero exit code, got %T", err)
 			assert.NotZero(t, exitErr.Code)
 		})

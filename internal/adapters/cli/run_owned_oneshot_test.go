@@ -15,6 +15,8 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // These tests cover the Transport-2 container oneshot path
@@ -75,7 +77,7 @@ func TestRunOneshotViaCoord_EmptyAnswerIsAFailure(t *testing.T) {
 	err := runOneshotViaCoord(t.Context(), sess, "", "claude-code", "do the thing", &out)
 
 	require.Error(t, err, "a oneshot that delivered zero answer bytes must not exit 0")
-	var exitErr *ExitError
+	var exitErr clifmt.ExitStatus
 	require.True(t, errors.As(err, &exitErr), "the failure must carry a nonzero exit code, got %T", err)
 	assert.NotZero(t, exitErr.Code)
 	assert.Empty(t, out.String())

@@ -15,10 +15,10 @@ import (
 	"github.com/ctxloom/ctxloom/pkg/clifmt/cobrafmt"
 )
 
-// Execute owns error printing. Without the silence flags cobra prints every
-// RunE error twice and dumps the full usage text — including for a wrapped
-// LLM's ordinary nonzero exit (run returns ExitError so deferred cleanup can
-// run before the process exits).
+// The family's tail (cobrafmt.Report) owns error printing. Without the
+// silence flags cobra prints every RunE error twice and dumps the full usage
+// text — including for a wrapped LLM's ordinary nonzero exit (run returns a
+// clifmt.ExitStatus so deferred cleanup can run before the process exits).
 func TestRootCommand_SilencesCobraErrorNoise(t *testing.T) {
 	assert.True(t, rootCmd.SilenceUsage, "usage spam on every error")
 	assert.True(t, rootCmd.SilenceErrors, "errors would print twice")
@@ -34,29 +34,6 @@ func TestRootCommand_SilencesCobraErrorNoise(t *testing.T) {
 func TestMCPCommand_RejectsUnknownSubcommands(t *testing.T) {
 	require.True(t, isGroupNode(mcpCmd), "mcp is a namespace and carries the guard")
 	assert.Error(t, mcpCmd.RunE(mcpCmd, []string{"list"}))
-}
-
-// cobrafmt.EmitError is Execute()'s error-printing tail, callable without the
-// process-ending os.Exit calls around it. --format text keeps the exact
-// "Error: msg\n" line Execute() always printed (a script scraping that line
-// today sees no change); the other four formats get clifmt's structured
-// {"error": "..."} envelope instead of the same human line regardless of
-// --format, which was the one place in the CLI where --format=json still
-// leaked plain text onto stderr. The fix moved the rendering itself into
-// cobrafmt, where the package doc already claimed it lived; these assertions
-// are unchanged, which is the point.
-func TestReportExecuteError_Text_MatchesPreClifmtLine(t *testing.T) {
-	var buf bytes.Buffer
-	cmd, _ := formatCmd(formatText)
-	require.NoError(t, cobrafmt.EmitError(&buf, cmd, errors.New("boom")))
-	assert.Equal(t, "Error: boom\n", buf.String())
-}
-
-func TestReportExecuteError_JSON_EmitsStructuredEnvelope(t *testing.T) {
-	var buf bytes.Buffer
-	cmd, _ := formatCmd(formatJSON)
-	require.NoError(t, cobrafmt.EmitError(&buf, cmd, errors.New("boom")))
-	assert.JSONEq(t, `{"error":"boom"}`, buf.String())
 }
 
 // PersistentPreRunE is where the CLI's resolved --format flows into
@@ -101,7 +78,7 @@ func TestPersistentPreRun_SetsClidiagStructuredFromFormat(t *testing.T) {
 	}
 }
 
-// A prior finding claimed Execute()'s error path resolves --format from
+// A prior finding claimed the error tail resolves --format from
 // rootCmd, "where the --json shorthand does not exist", so a --json
 // invocation that fails gets JSON-shaped output on the happy path and plain
 // text on the error path. Both halves were measured against the code and
@@ -117,8 +94,8 @@ func TestPersistentPreRun_SetsClidiagStructuredFromFormat(t *testing.T) {
 //
 // The second half is what makes the row latent rather than live, so it is the
 // half worth pinning: this goes red the moment a --json flag is added under
-// rootCmd, which is exactly when Execute()'s root-scoped Resolve would start
-// to lie.
+// rootCmd, which is exactly when the tail's root-scoped Resolve
+// (cobrafmt.Report) would start to lie.
 func TestExecuteErrorPath_FormatResolvesFromRootAndNoJSONShorthandExists(t *testing.T) {
 	var withJSON []string
 	var walk func(*cobra.Command)
@@ -132,7 +109,7 @@ func TestExecuteErrorPath_FormatResolvesFromRootAndNoJSONShorthandExists(t *test
 	}
 	walk(rootCmd)
 	assert.Empty(t, withJSON,
-		"Execute() resolves --format from rootCmd, which cannot see a subcommand-local --json; "+
+		"the error tail (cobrafmt.Report) resolves --format from rootCmd, which cannot see a subcommand-local --json; "+
 			"adding one re-opens this problem and must move the resolve to the executed command")
 
 	root := &cobra.Command{Use: "probe", SilenceUsage: true, SilenceErrors: true}

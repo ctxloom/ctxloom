@@ -75,16 +75,6 @@ func switches(cmd *cobra.Command) operations.Switches {
 	return operations.Switches{NoCompanions: companionsOff(cmd)}
 }
 
-// ExitError is returned when a command needs to exit with a specific code.
-// This allows deferred cleanup to run before the process exits.
-type ExitError struct {
-	Code int
-}
-
-func (e *ExitError) Error() string {
-	return fmt.Sprintf("exit code %d", e.Code)
-}
-
 // Composition is what the composition root (cmd/ctxloom) decides once per
 // process and hands to Run: the Reporter every component reports through,
 // the one way to open the config owner and the one way to construct the
@@ -368,13 +358,9 @@ func rootPersistentPreRun(cmd *cobra.Command, args []string) {
 	// per process, here, as inputs to the one config.Owner.
 	sw := switches(cmd)
 	installApp(cmd.Flags(), os.Environ(), sw, strictnessMode(cmd))
-	// Flip clidiag's structured-diagnostics channel on for json/yaml/toml
-	// --format, off (today's plain "<prog>: warning: <msg>" stderr) for
-	// text/markdown or an unresolvable value — an invalid --format is
-	// reported by the command's own emit()/cobrafmt.Resolve call, not here, so
-	// this just falls back to the safe default rather than erroring twice.
-	format, ferr := cobrafmt.Resolve(cmd)
-	clidiag.SetStructured(ferr == nil && format.Structured())
+	// Warnings follow --format: JSON Lines under json/yaml/toml, the plain
+	// "<prog>: warning: <msg>" line otherwise.
+	cobrafmt.ApplyDiagnostics(cmd)
 }
 
 // GetRootCmd returns the root command assembled over comp, for a path that
@@ -477,34 +463,13 @@ func run(comp Composition, args []string, stdout io.Writer) int {
 	if stdout != nil {
 		root.SetOut(stdout)
 	}
-	err := dispatch(root)
-	if err == nil {
-		return 0
-	}
-	// An ExitError carries the wrapped LLM's own exit code — an ordinary
-	// outcome, not an error to report.
-	if code, ok := exitCodeFor(err); ok {
-		return code
-	}
-	// EmitError only fails if the underlying writer fails (os.Stderr in
-	// production never does); there is no further fallback if it did. A
-	// --format value that will not parse falls back to text in there, so
-	// the ORIGINAL failure is always what gets reported.
-	_ = cobrafmt.EmitError(os.Stderr, rootCmd, err)
-	return errorExitCode(err)
-}
-
-// exitCodeFor reports the exit code an error carries in its own right, and
-// whether it carried one. Only an ExitError does: it relays a wrapped
-// engine's status, which is the engine's outcome rather than a ctxloom
-// failure, so it is passed through unreported. Every other error is ctxloom's
-// own and exits 1 after being emitted.
-func exitCodeFor(err error) (int, bool) {
-	var exitErr *ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.Code, true
-	}
-	return 0, false
+	// The family's tail (cobrafmt.Report) reports what dispatch ended with
+	// and picks the exit status: a clifmt.ExitStatus (a wrapped engine's own
+	// status, or an outcome already reported) is silent, a refusal exits
+	// exitCodeRefused, and an explicit --format json|yaml|toml turns the
+	// report into an error envelope. rootCmd sets SilenceErrors, so cobra
+	// never reports it first.
+	return cobrafmt.Report(root, "ctxloom", os.Stderr, dispatch(root))
 }
 
 func init() {

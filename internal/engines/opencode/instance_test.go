@@ -243,3 +243,24 @@ func TestTurn_ArgvNamesTheSessionOnce(t *testing.T) {
 	}
 	assert.Equal(t, 1, n)
 }
+
+// A label with no provider.base_url NAMES A BUILT-IN PROVIDER: its model
+// passes through verbatim (opencode/big-pickle, a free hosted model), in argv
+// and config alike, and ctxloom configures no provider of its own — no
+// provider block, no enabled_providers, no key reference.
+func TestExec_BuiltInProviderModelPassesThroughVerbatim(t *testing.T) {
+	s := session(t, map[string]any{"type": "opencode", "model": "opencode/big-pickle"})
+	s.Label.Model = "opencode/big-pickle"
+	ex := mustExec(t, bind(t, s))
+	assert.Equal(t, []string{"run", "--format", "json", "--thinking", "--model", "opencode/big-pickle"}, ex.Args)
+	doc := configDoc(t, ex)
+	assert.Equal(t, "opencode/big-pickle", doc["model"])
+	assert.Equal(t, "opencode/big-pickle", doc["small_model"])
+	assert.NotContains(t, doc, "provider")
+	assert.NotContains(t, doc, "enabled_providers")
+	assert.NotContains(t, ex.Env[envConfigContent], APIKeyEnv, "a built-in provider names no ctxloom key")
+
+	s.Mode = engine.Interactive
+	s.Prompt = ""
+	assert.Equal(t, []string{"--model", "opencode/big-pickle"}, mustExec(t, bind(t, s)).Args, "the TUI names the same model")
+}

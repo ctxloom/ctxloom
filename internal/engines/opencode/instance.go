@@ -21,7 +21,7 @@ const defaultBinary = "opencode"
 
 // The structured protocol's argv: `run` with JSON events, reasoning emitted
 // (it only gates emission; whether the model thinks is the label's
-// model_options), the ctxloom provider's model, the session to continue,
+// model_options), the model (modelRef), the session to continue,
 // and --auto, which approves what the posture leaves to ask.
 const (
 	cmdRun       = "run"
@@ -123,8 +123,8 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 	if !interactive {
 		args = append(args, cmdRun, flagFormat, "json", flagThinking)
 	}
-	if m := i.s.Label.Model; m != "" {
-		args = append(args, flagModel, providerID+"/"+m)
+	if m := modelRef(i.s.Label.Model, i.cfg); m != "" {
+		args = append(args, flagModel, m)
 	}
 	args = append(args, i.resumeArgs()...)
 	if interactive && i.s.Prompt != "" {

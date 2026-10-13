@@ -209,17 +209,25 @@ func TestPermissionModel(t *testing.T) {
 	assert.False(t, m.Reviewer())
 }
 
-// Auth: one required variable, the key by value in the run's credentials;
-// unset is refused with the remedy; login is not a mode opencode has.
+// Auth: one optional variable. Exported, the key rides the run's credentials
+// by value (a base_url label's config names it by reference); unexported, the
+// run authenticates keyless — a built-in provider's free model needs none.
+// Login is not a mode opencode has.
 func TestAuth(t *testing.T) {
 	a := opencodeAuth{}
 	assert.Equal(t, []engine.AuthMode{engine.AuthToken}, a.Modes())
 	c, err := a.Credentials(engine.AuthToken, func(k string) (string, bool) { return map[string]string{APIKeyEnv: "sk"}[k], k == APIKeyEnv })
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{APIKeyEnv: "sk"}, c.Env)
-	_, err = a.Credentials(engine.AuthToken, func(string) (string, bool) { return "", false })
-	require.ErrorIs(t, err, engine.ErrNoCredential)
-	assert.Contains(t, err.Error(), APIKeyEnv)
+	for name, shell := range map[string]func(string) (string, bool){
+		"unset": func(string) (string, bool) { return "", false },
+		"empty": func(string) (string, bool) { return "", true },
+	} {
+		c, err = a.Credentials(engine.AuthToken, shell)
+		require.NoError(t, err, name)
+		assert.Equal(t, engine.AuthToken, c.Mode, name)
+		assert.Empty(t, c.Env, name)
+	}
 	_, err = a.Credentials(engine.AuthLogin, nil)
 	require.ErrorIs(t, err, engine.ErrAuthModeUnsupported)
 }

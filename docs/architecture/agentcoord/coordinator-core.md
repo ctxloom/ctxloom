@@ -80,7 +80,9 @@ whose carriers now resolve to a different credential digest (`adoptRefusedHold`,
 `reauth`), and — once each re-adopted run's runner re-Hellos (only a container's can: a
 host runner ends with the process that started it, and its harp relaunches)
 (`readoptHold`) — re-sends a held run's pause or a released run's owed resume. Both are
-idempotent at the runner, whose pause gate is process memory that outlives a redial. A
+idempotent at the runner, whose pause gate is process memory that outlives a redial,
+and a pause there that lands while a turn waits to start is caught at the hand-off: no
+turn starts on a paused run ([transport](transport.md#invariants), T10). A
 failed turn that began before this coordinator adopted its run (`turnBeforeAdopt`,
 cleared at the run's next turn start or its end) may join a hold in force but opens
 none, as a turn on a replaced credential (`replacedCreds`) does: the runner re-sends an

@@ -358,7 +358,8 @@ default agent's; with no `--backend`, the project's configured engines.
   it holds, so a pull right after a `--yes` pull prints no note at all. A kind
   the refresh would be refused (a value in the file that is not ctxloom's, a
   file that does not parse) is named on its own line with a `fix:` line; the
-  pull still succeeds. `--format json` carries the same as
+  pull still succeeds. A note that names only refused kinds has no apply
+  line, since there is nothing `--yes` would write. `--format json` carries the same as
   `refresh_skipped`. A script that relied on a pull refreshing the
   project's hooks or MCP servers must add `--yes`. There is no config
   setting for it. With `--yes`, the refresh runs `ctxloom materialize` into
@@ -425,6 +426,17 @@ Grouped by what you would have to change.
   means for the sessions you already have.
 - The transcript has its own sub-noun.
 - A session is renamed by assigning its name, not by a verb.
+- `session list` and `session search` show each session's state in a new
+  STATE column: `live`, `ended` or `unknown`. The state comes from the
+  session's liveness lock, never from its recorded end time: a held lock is
+  `live`, a free one `ended`, and anything the lock cannot prove (no lock
+  file, an untrusted filesystem, a failed probe) is `unknown`. END is blank
+  while a session is live, including a resumed session that still carries
+  its previous run's end. Under `--format json` (and yaml, toml) each row
+  gains `state` and omits `end` while the session is live, so a script that
+  read a present `end` as "finished" must read `state` instead. Both
+  commands take `--state live|ended|unknown` to list only sessions in that
+  state; any other value is refused.
 - A `distill` prompt the delivery pipeline withholds now REFUSES the run —
   `bundle distill`, `fragment distill`, `command distill` and item edits exit 2
   and name the item — instead of silently distilling with ctxloom's built-in
@@ -449,6 +461,17 @@ Grouped by what you would have to change.
   So the `pre_shell` and `post_file_edit` events, and any hook narrowed by
   class, now also fire on PowerShell, MultiEdit and NotebookEdit.
 - `subagent` is renamed to `agent` across config, CLI, API and prompts.
+- Distillation runs tool-less on every engine: `bundle distill`,
+  `fragment distill`, `command distill` and item edits, every MCP
+  tool that compacts a session (`compact_session`, and a session load that
+  compacts first), and `session compact` give the model no tool and attach no MCP
+  server. They are not plan mode, so they need no approval channel. They
+  still run as the `distiller` agent (or the `--llm` you name), but that
+  agent's `permissions:` block and its profiles' MCP servers no longer apply
+  to them. An engine runs a tool-less session only if it implements one
+  (claude and opencode do); on any other engine the distillation is refused
+  rather than run with tools. Trigger triage and premise authoring still
+  run at plan.
 - Every profile file is validated against the profile schema when it loads. A
   key the schema does not have (a `name:` key, for one) or a value of the wrong
   type is a fatal finding naming the file and the offending key; `--degraded`

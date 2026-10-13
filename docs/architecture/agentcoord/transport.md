@@ -167,6 +167,7 @@ it is not inferred from scattered call sites:
 | `severChan` / `drainTerminalTail` / `clearReqTrack` | tear the ENDED RUN's channel down and un-reserve synchronously, and bounded-wait for its flushed `run_completed` — both look the channel up by run (`runChanLocked`), never by harp alone, so a late teardown leaves a resumed successor's freshly attached channel alone; drop the ENDED RUN's idempotency records at the terminal — each `inflightReq` carries the run whose channel it arrived on, so a late teardown spares a resumed successor's requests tracked under the same role |
 | `okStatus` / `statusErr` / `statusFromErr` | the status vocabulary (19, 27 and 5 uses) |
 | `bufferItem` / `flushItems` | append plane-1 item facts, group-fsync at a boundary or a full buffer, then advance the Ack watermark |
+| `RunChannel.handling` / `superseded` / `enterHandling` | the run's handling lock and the supersede mark. A reconnect of the SAME run (`AttachRun`, same run id) marks the old channel `superseded` under `Coordinator.mu` and gives the new channel the old one's `handling` lock. `HandleEvent` and the receive half of `HandleRequest` run under that lock (`enterHandling`), and on a superseded channel they handle nothing: the frame is left unacked and the request unanswered (see [Reconnect of the same run](#reconnect-of-the-same-run)) |
 | `HandleEvent` / `withholdAck` | a custom, summary or artifact event whose record fails (journal write, hold fold, state fact) is not acked: `withholdAck` drops the watermark back below it and everything after it is refused unprocessed until the runner re-sends (go-back-N), so the re-send replays the tail in its original order. A refusal that would repeat on every re-send (`ErrRevoked`) is acked |
 
 `runchannel.go` holds two responsibilities: stream/frame plumbing and the plane-2 verb
@@ -201,6 +202,32 @@ it — [coordinator-core](coordinator-core.md)'s accepted policy. Forcing tests:
 `TestHoldRestart_AFailedTurnRecordedButNeverAckedIsNotReplayedIntoAFreshHold`,
 `TestHoldRestart_ARefusalRecordedButNeverAckedIsNotChargedToTheFreshCredential`
 (`Options.ackHook` drops the acks).
+
+### Reconnect of the same run
+
+The old stream's reader is not joined at a reconnect: `serveTracked` returns on
+the stream's cancel, and `AttachRun` does not wait for it. So a frame the old
+reader still holds can arrive while the new channel handles the runner's re-send
+of that frame and what follows. Two rules keep one run's frames handled once and
+in order:
+
+- **One lock per run.** The new channel shares the old one's `handling` lock, so
+  the two readers never handle at the same time.
+- **A superseded channel handles nothing.** `enterHandling` reports the mark
+  under that lock. `HandleEvent` returns without acking, and the runner re-sends
+  the event on the new channel, above `committed_seq`, in order. `HandleRequest`
+  returns before its `request_id` check or any tracking, without answering. A
+  request the runner still holds is re-sent on the new channel. One it no longer
+  holds asked for a turn that has ended, and an approval stamped now would park
+  into the next turn.
+
+`RefuseSpoolChanged` does not take the lock and is not gated: a malformed doorbell
+on a superseded channel is still warned and counted
+(`spoolDoorbell.Rejected`). It changes no run state.
+
+Only a reconnect of the same run id supersedes. A resumed run attaches under a
+new run id, so its channel never supersedes the ended run's: the ended run's
+tail frames are still its own (`drainTerminalTail`).
 
 ## Runner side
 
@@ -249,6 +276,7 @@ in slice 9.
 | `EngineHost` | hosts exactly one delegated run's engine; `MaxConcurrentRuns = 1` |
 | `NewEngineHost` / `BindHome` / `Handle` | construct; idempotently bind and unblock `Handle`; dispatch `StartRun` / `Turn` / `Kill` / `Stop` with typed gRPC codes |
 | `startRun` / `Drive` | validate → `start_paused` raises the pause gate → the bound runner executes the launch (redeem, decode, bind the endpoint, deliver) → `Drive`: open the transcript recorder ONCE for the run → `deliverFirstTurn`: hand off the briefing, THEN register the turn sink (mail before it buffers behind the briefing). A run started paused answers StartRun at once and does that hand-off when the gate lifts |
+| `enqueueTurn` / `handOffTurn` / `startTurn` | the turn hand-off and the pause gate. `enqueueTurn` waits at the pause gate (`pauseGate`) holding nothing. `handOffTurn` then takes the enqueue lock and waits for the turn in flight and for the owner. `startTurn` checks `paused` under `EngineHost.mu`, the same lock under which it publishes the engine busy (`turnBusy`), and refuses with `errTurnPaused` when the run is paused. `enqueueTurn` then lets go of the enqueue lock and waits at the gate again. A pause that comes while a caller waits behind the turn in flight never starts a turn on a paused run. That covers a `PauseRun` and the turn's own self-park on a held failure |
 | `startEngine` / `parkAtBoundary` / `unpark` | one ENGINE process per one-shot turn inside a runner that stays: the boundary ends the process and parks the host; the next turn (mail or a `Turn` frame) starts a fresh process resumed by key |
 | `turnFrame` | `RunnerRequest.Turn` → one engine turn, answered with `TurnResult{native_key, answer}` at its boundary |
 | `adapt` | native event stream → plane-1 `AgentEvent`s; at a one-shot boundary it parks (no terminal); otherwise → `RunCompleted` → `RunExited` |
@@ -272,6 +300,8 @@ and the engine.
 | T6 | A dead runner's runs are terminated by loss synthesis, not left executing | `grpcserver.go`, `runchannel.go` defer |
 | T7 | One writer per stream: `sendMu` on the runner side, a single writer pump on the coordinator side | `runnerlink.go`, `runchannel.go` |
 | T8 | `HelloAck.committed_seq` never exceeds what the coordinator's journals durably record for the run, and is never below `Hello.resume_from_seq`; nothing at or below it is processed twice | `runchannel.go` (`eventWatermark`, `AttachRun`), `home.go` (`openRunChannel`) |
+| T9 | A reconnect of the same run supersedes the old channel: the two channels share one handling lock, and the old one's events are left unacked and its requests unanswered, so the runner's re-send on the new channel is handled once, in order. A resumed run (a new run id) supersedes nothing | `runchannel.go` (`AttachRun`, `enterHandling`, `HandleEvent`, `HandleRequest`) |
+| T10 | A paused run starts no turn: `startTurn` refuses with `errTurnPaused` under the lock that marks the engine busy, and `enqueueTurn` waits at the pause gate again | `enginehost_control.go` (`enqueueTurn`, `handOffTurn`, `startTurn`) |
 
 ## Divergences and real behaviour
 

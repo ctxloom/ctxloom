@@ -69,7 +69,7 @@ func runSessionQuery(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	views := operations.ViewSessions(entries)
+	views := operations.ViewSessions(entries, nil)
 	matched := make([]operations.SessionView, 0, len(views))
 	for _, v := range views {
 		if sessionMatchesQuery(v, args) {

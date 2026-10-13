@@ -17,12 +17,18 @@ import (
 type SessionView struct {
 	Harp    string `json:"harp"`
 	Project string `json:"project"`
-	Engine  string `json:"engine"`
+	// State is the session's liveness now — SessionLive, SessionEnded or
+	// SessionUnknown — from its liveness lock through the listing's probe;
+	// "" (and absent from JSON) when the caller passed none.
+	State  string `json:"state,omitempty"`
+	Engine string `json:"engine"`
 	// NativeSession is the engine's own session key, "" while unbound.
-	NativeSession string     `json:"native_session,omitempty"`
-	Summary       string     `json:"summary,omitempty"`
-	StartedAt     time.Time  `json:"started_at"`
-	EndedAt       *time.Time `json:"ended_at,omitempty"`
+	NativeSession string    `json:"native_session,omitempty"`
+	Summary       string    `json:"summary,omitempty"`
+	StartedAt     time.Time `json:"started_at"`
+	// EndedAt is when the session's LAST RUN ended. A resumed session keeps
+	// it while it runs again, so it says nothing about now: State does.
+	EndedAt *time.Time `json:"ended_at,omitempty"`
 	// LastActivity is the one clock (sessions.ActivityTime) the listing
 	// ordered this session by.
 	LastActivity time.Time `json:"last_activity"`
@@ -55,13 +61,36 @@ func ViewSession(e sessions.Entry) SessionView {
 	return v
 }
 
-// ViewSessions builds the read model for a listing, in the listing's order.
-// Never nil: an empty listing renders as an empty table, not as an absent
-// field.
-func ViewSessions(entries []sessions.Entry) []SessionView {
+// The three states a session can be in, one per verdict of its liveness lock
+// (sessionlock): held is live, free is ended, and anything the lock cannot
+// prove — no lock file, an untrusted filesystem, a failed probe — is unknown,
+// never rounded to a guess.
+const (
+	SessionLive    = "live"
+	SessionEnded   = "ended"
+	SessionUnknown = "unknown"
+)
+
+// SessionStates is every state, in the order a flag lists them.
+var SessionStates = []string{SessionLive, SessionEnded, SessionUnknown}
+
+// SessionStateProbe is the port a listing asks a session's state through: one
+// of SessionLive, SessionEnded, SessionUnknown for a harp. LockSessionState is
+// the production probe.
+type SessionStateProbe func(harp string) string
+
+// ViewSessions builds the read model for a listing, in the listing's order,
+// asking state for each row's State. A nil state leaves State empty and
+// probes nothing: the caller for a process that may itself hold a listed
+// session's lock (MCP list_sessions) passes none. Never nil: an empty listing
+// renders as an empty table, not as an absent field.
+func ViewSessions(entries []sessions.Entry, state SessionStateProbe) []SessionView {
 	views := make([]SessionView, len(entries))
 	for i, e := range entries {
 		views[i] = ViewSession(e)
+		if state != nil {
+			views[i].State = state(e.HarpName)
+		}
 	}
 	return views
 }

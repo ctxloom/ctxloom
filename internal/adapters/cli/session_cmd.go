@@ -64,7 +64,7 @@ func runSessionList(cmd *cobra.Command, _ []string) error {
 	// summary, start, end, essence path — by default, or each session's
 	// complete essence body under --full (see session_full.go);
 	// emitSessionRows owns both shapes.
-	return emitSessionRows(cmd, operations.ViewSessions(entries), sessionListFull)
+	return emitSessionRows(cmd, operations.ViewSessions(entries, nil), sessionListFull)
 }
 
 // loadSessionEntries reads the session index: every project's sessions when

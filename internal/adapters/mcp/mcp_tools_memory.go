@@ -310,7 +310,9 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 		}
 	}
 
-	views := operations.ViewSessions(entries)
+	// No state probe: this server runs inside a session's own process, and
+	// list_sessions carries no state (sloppy-mulch decision #1 left it as is).
+	views := operations.ViewSessions(entries, nil)
 	rows := make([]sessionSummary, 0, len(views))
 	for _, v := range views {
 		rows = append(rows, sessionSummary{

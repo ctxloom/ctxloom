@@ -47,6 +47,10 @@ A `ctxloom run` session delivers its hooks into the session's own home, so nothi
 
 The command names the bare `ctxloom` executable and takes no arguments. The settings file is usually committed, and an absolute path would be one developer's path that no other clone can satisfy. Everything the hook needs comes from its input and environment when it fires.
 
+### opencode
+
+opencode runs no hook commands, only in-process plugins, so a `ctxloom run` session on opencode gets one generated plugin in its session home (`plugins/ctxloom.js`) that runs the session's hooks itself. Nothing is written into the project: opencode has no at-rest delivery. A `pre_tool` or `pre_shell` hook receives Claude Code's `PreToolUse` input with opencode's tools under Claude Code's names, and blocks the call only with a deny that carries a reason; see [Configuration → Hooks](/guides/configuration/#hooks). opencode gives a plugin no point for `session_end` or `permission_ask`, so hooks on those events do not fire there.
+
 ## Manual Hook Management
 
 ### Apply Hooks

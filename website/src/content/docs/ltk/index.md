@@ -131,5 +131,9 @@ The starter rules are a working policy, not just examples.
 - **[CLI reference](/ltk/reference/cli/)** — every command, generated from the binary.
 
 :::note
-Claude Code is the agent `ltk` can install a hook for today.
+Claude Code is the agent `ltk` can install a hook for today. An opencode
+session started by `ctxloom run` is guarded too, when its profile or bundle
+declares `ltk evaluate` as a `pre_tool` hook: ctxloom's opencode plugin hands
+ltk Claude Code's `PreToolUse` input, so the one Claude Code adapter answers
+it. `ltk evaluate --engine opencode` names no adapter and denies everything.
 :::

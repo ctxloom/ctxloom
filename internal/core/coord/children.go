@@ -1567,6 +1567,7 @@ func (c *Coordinator) endRun(runID, cause, detail string, drainTail, fence bool)
 		return
 	}
 	defer c.unmarkEnding(runID)
+	c.releaseFences(runID)
 	if hook := c.endRecordedHook; hook != nil {
 		hook(runID)
 	}

@@ -435,6 +435,10 @@ type Coordinator struct {
 	// mu. An ending run's channel is rung no doorbell and its runner sent no
 	// resume (endfence.go).
 	ending map[string]int
+	// fences holds, by run id, the release of each end fence still waiting on
+	// its runner's answer, guarded by mu: the terminal that records the run's
+	// end releases them (releaseFences, endfence.go).
+	fences map[string][]*context.CancelCauseFunc
 	// onAskPublished, when set, is called by controlAsk between RECORDING the
 	// ask open and PUBLISHING it — the record-before-publish test seam. It
 	// fires on that side of the publish deliberately: a hook fired after it
@@ -661,6 +665,7 @@ func New(opts Options) (*Coordinator, error) {
 		replacedCreds:      make(map[string]bool),
 		turnBeforeAdopt:    make(map[string]bool),
 		ending:             make(map[string]int),
+		fences:             make(map[string][]*context.CancelCauseFunc),
 		runners:            make(map[string]*RunnerSession),
 		runnerReady:        make(map[string]chan struct{}),
 		chans:              make(map[string]*RunChannel),

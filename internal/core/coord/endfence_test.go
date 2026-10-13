@@ -162,3 +162,67 @@ func TestEndRun_SessionEndIsScopedToTheEndedRun(t *testing.T) {
 	require.Eventually(t, func() bool { return len(sp.sessionEndRunIDs()) > 0 }, conformanceWait, 10*time.Millisecond)
 	assert.Equal(t, []string{out.RunID}, sp.sessionEndRunIDs())
 }
+
+// TestEndFence_ARunnerThatEndedTheRunReleasesTheFence: a fence still waiting
+// on its PauseRun answer ends the moment another terminal records the run's
+// end — here the runner's own RunExited, after which its engine host takes no
+// turn, which is all the fence was for.
+//
+// Without this the two recv goroutines wait on each other: a stopped turn's
+// boundary is handled on the run channel's, whose end fences and waits for
+// the runner channel's answer; that channel's goroutine is meanwhile handling
+// the runner's RunExited, whose end drains the run channel — the one stuck in
+// the fence. Only terminalDrainWindow broke it, after the bulk stop's bound,
+// so a run its runner had cleanly stopped was reported forced
+// (TestStopChildren_SweptChildStaysResumableButIsNotAutoRelaunched, red ~1 in
+// 10 under -race).
+//
+// Here the PauseRun's answer is held and the runner-exit's end is held once
+// recorded, before its teardown could end the runner's session: nothing but
+// that recorded end can release the fence before endFenceBound.
+func TestEndFence_ARunnerThatEndedTheRunReleasesTheFence(t *testing.T) {
+	resetStrictness(t)
+	sp := startRunSpawner(t, nil)
+	var target atomic.Value
+	target.Store("")
+	pauseSeen, holdPause, holdEnd := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var seenOnce sync.Once
+	sp.refuse = func(req *agentcoordpb.RunnerRequest) error {
+		if p := req.GetPauseRun(); p != nil && p.GetRunId() == target.Load().(string) {
+			seenOnce.Do(func() { close(pauseSeen) })
+			<-holdPause
+		}
+		return nil
+	}
+	c := newTestCoordinatorWith(t, sp, func(o *Options) {
+		o.endRecordedHook = func(runID string) {
+			if runID == target.Load().(string) {
+				<-holdEnd
+			}
+		}
+	})
+	t.Cleanup(func() { close(holdEnd) })
+	t.Cleanup(func() { close(holdPause) })
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
+	target.Store(out.RunID)
+	var credHash string
+	c.runs.View(func() { credHash = c.runsF.run(out.RunID).CredHash })
+
+	fenced := make(chan struct{})
+	go func() {
+		defer close(fenced)
+		c.markEnding(out.RunID)
+		defer c.unmarkEnding(out.RunID)
+		c.fenceRunner(out.RunID, CauseStopped)
+	}()
+	within(t, pauseSeen, "premise: the fence's PauseRun never reached the runner")
+
+	go c.RunnerExited(credHash, RunExited{RunID: out.RunID})
+	select {
+	case <-fenced:
+	case <-time.After(endFenceBound / 2):
+		t.Fatal("the fence kept waiting on a runner that had already ended the run")
+	}
+}

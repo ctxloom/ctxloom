@@ -2,6 +2,8 @@ package coord
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"time"
 )
 
@@ -29,6 +31,19 @@ import (
 // host has ended, and that answer arrives on the runner channel's own recv
 // goroutine, which a request here would wait on), when the runner is gone
 // (runner loss), and when the run never started on it (a launch failure).
+//
+// A fence still WAITING when another terminal records the run's end is
+// released at once (releaseFences): that terminal either fenced the runner
+// itself or needed no fence (the runner ended the run, or is gone), so the
+// waiting fence has nothing left to do. It must not wait on: a stopped turn's
+// boundary fences on the run channel's recv goroutine while the runner's
+// RunExited, on the runner channel's, records the end and then drains that
+// same run channel — each waiting on the other until terminalDrainWindow.
+
+// errEndRecorded is the cause a waiting fence is released with when another
+// terminal recorded the run's end: the fence is moot, so it is not warned
+// about.
+var errEndRecorded = errors.New("another terminal recorded the run's end")
 
 // endFenceBound bounds the fence's wait for the runner's answer. A live
 // runner answers a pause at once; one that does not answer is not allowed to
@@ -85,17 +100,53 @@ func (c *Coordinator) fenceRunner(runID, cause string) *RunRecord {
 	if rec == nil || !c.runnerConnected(runID) {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(c.baseCtx, endFenceBound)
+	released, release := context.WithCancelCause(c.baseCtx)
+	defer c.trackFence(runID, &release)()
+	// Re-checked once tracked: an end recorded before the registration found
+	// no fence to release, and this one would otherwise wait it out.
+	if c.runEnded(runID) {
+		return rec
+	}
+	ctx, cancel := context.WithTimeout(released, endFenceBound)
 	defer cancel()
 	resp, err := c.requestRunner(ctx, rec.CredHash, RunnerRequest{Kind: PauseRun{RunID: runID, Reason: "the run is ending (" + cause + ")"}})
 	if err == nil {
 		err = resp.Err
 	}
-	if err != nil {
+	if err != nil && !errors.Is(context.Cause(released), errEndRecorded) {
 		c.rep.Warnf("agent %s: run %s's runner was not told its run is ending (%v); until its teardown, its own spool sweep may still deliver mail meant for the run that resumes the harp",
 			rec.Harp, runID, err)
 	}
 	return rec
+}
+
+// trackFence registers release as a fence of runID's that releaseFences can
+// end, returning its deregistration (which also releases it).
+func (c *Coordinator) trackFence(runID string, release *context.CancelCauseFunc) func() {
+	c.mu.Lock()
+	c.fences[runID] = append(c.fences[runID], release)
+	c.mu.Unlock()
+	return func() {
+		c.mu.Lock()
+		if rest := slices.DeleteFunc(c.fences[runID], func(f *context.CancelCauseFunc) bool { return f == release }); len(rest) > 0 {
+			c.fences[runID] = rest
+		} else {
+			delete(c.fences, runID)
+		}
+		c.mu.Unlock()
+		(*release)(nil)
+	}
+}
+
+// releaseFences ends every fence of runID's still waiting on its runner's
+// answer. Called by the terminal that recorded the run's end, once recorded.
+func (c *Coordinator) releaseFences(runID string) {
+	c.mu.Lock()
+	waiting := slices.Clone(c.fences[runID])
+	c.mu.Unlock()
+	for _, release := range waiting {
+		(*release)(errEndRecorded)
+	}
 }
 
 // unfenceLive lifts the fence fenceRunner set on rec's run when its end was

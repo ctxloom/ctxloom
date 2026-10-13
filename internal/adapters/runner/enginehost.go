@@ -14,6 +14,7 @@ import (
 
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
@@ -87,9 +88,13 @@ var _ engineHome = (*Home)(nil)
 // decodes the wire launch (the codec is adapters/coordgrpc's), redeems and
 // decodes the package, delivers it into the cell, and drives the engine back
 // through Drive. adapters/runner implements it; the host lives here until
-// the engine-host files move beside Execute (slice 14a).
+// the engine-host files move beside Execute (slice 14a). It returns what
+// executing the launch reported, which the host relays on the StartRun
+// answer (StartRunResult.findings): the runner's own stderr surfaces only
+// when a run fails, so on a run that starts that answer is how a skipped
+// command or skill reaches the originator.
 type Runner interface {
-	Execute(ctx context.Context, wire *agentcoordpb.Launch) error
+	Execute(ctx context.Context, wire *agentcoordpb.Launch) (report.Findings, error)
 }
 
 // Turn is what the runner asks the engine host to drive once the launch is
@@ -490,7 +495,8 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 		// off behind it (deliverFirstTurn), and ResumeRun lifts it.
 		eh.installPause()
 	}
-	if err := runner.Execute(eh.baseCtx, sr.GetLaunch()); err != nil {
+	found, err := runner.Execute(eh.baseCtx, sr.GetLaunch())
+	if err != nil {
 		if errors.Is(err, errEngineHostClosed) {
 			return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.FailedPrecondition, err.Error())}
 		}
@@ -505,6 +511,14 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	}
 	eh.mu.Lock()
 	result := eh.result
+	if result != nil && len(found) > 0 {
+		// A copy replaces the cached answer, so a reissued StartRun relays
+		// them too, and an earlier reissue's answer is never written under
+		// its reader.
+		result = proto.Clone(result).(*agentcoordpb.RunnerResponse)
+		result.GetStartRun().Findings = coordgrpc.EncodeFindings(found)
+		eh.result = result
+	}
 	eh.mu.Unlock()
 	if result == nil {
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Internal, "the runner executed the launch but drove no engine")}

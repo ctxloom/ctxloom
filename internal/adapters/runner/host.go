@@ -7,6 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	pb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // Host is the Runner the engine host hands a StartRun's launch to: it
@@ -24,20 +25,32 @@ type Host struct {
 	out *Outcome
 }
 
-// Execute implements Runner.
-func (h *Host) Execute(ctx context.Context, wire *pb.Launch) error {
+// Execute implements Runner. Everything executing the launch reports still
+// reaches the runner's own sink (Deps.Reporter); the rendered ones are also
+// returned, for the StartRun answer to relay. A Quiet finding is not: it is
+// recorded, never shown, wherever it is reported.
+func (h *Host) Execute(ctx context.Context, wire *pb.Launch) (report.Findings, error) {
 	l, err := coordgrpc.DecodeLaunch(wire)
 	if err != nil {
-		return fmt.Errorf("runner: %w", err)
+		return nil, fmt.Errorf("runner: %w", err)
 	}
-	out, err := Execute(ctx, h.Deps, l)
+	var relay report.Collector
+	deps := h.Deps
+	own := report.To(h.Deps.Reporter)
+	deps.Reporter = report.SinkFunc(func(f report.Finding) {
+		own.Report(f)
+		if !f.Quiet {
+			relay.Report(f)
+		}
+	})
+	out, err := Execute(ctx, deps, l)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	h.mu.Lock()
 	h.out = &out
 	h.mu.Unlock()
-	return nil
+	return relay.Drain(), nil
 }
 
 // Teardown reverses what the run delivered, through the ownership record,

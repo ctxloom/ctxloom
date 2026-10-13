@@ -97,7 +97,10 @@ type TestRunnerHooks struct {
 	// drives inst's driver; refuse, when set and answering true, refuses the
 	// launch the way a runner whose endpoint cannot be bound does.
 	BindTestRunner func(eh TestEngineHost, inst engine.Instance, refuse func() bool)
-	DialRunner     func(ctx context.Context, rep report.Sink, coordURL, token, runID, harness, version string, handler TestRunnerRequestHandler) (TestRunnerLink, error)
+	// BindReportingTestRunner is BindTestRunner whose launch reports
+	// findings, which the runner relays on its StartRun answer.
+	BindReportingTestRunner func(eh TestEngineHost, inst engine.Instance, findings report.Findings)
+	DialRunner              func(ctx context.Context, rep report.Sink, coordURL, token, runID, harness, version string, handler TestRunnerRequestHandler) (TestRunnerLink, error)
 	// FrameCoordinatorDelivery renders one coordinator-delivered message the
 	// way the engine host frames it for the engine; CoordinatorFrameOpen is
 	// that frame's opening literal.

@@ -21,7 +21,9 @@ const startRunRemedy = "run `ctxloom doctor` and fix the container runtime it na
 // failingRunner is a Runner whose launch fails with err.
 type failingRunner struct{ err error }
 
-func (r failingRunner) Execute(context.Context, *agentcoordpb.Launch) error { return r.err }
+func (r failingRunner) Execute(context.Context, *agentcoordpb.Launch) (report.Findings, error) {
+	return nil, r.err
+}
 
 // TestEngineHost_StartRunRefusalCarriesTheRemedy: a launch that fails naming
 // its own fix answers StartRun with that fix on the status, on both refusal

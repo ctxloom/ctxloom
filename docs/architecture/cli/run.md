@@ -78,6 +78,15 @@ context`. It is advisory: the engine may read that file beside the
 session's own context. It is reported by the originator, not the runner,
 whose stderr reaches the user only when a run fails.
 
+What the runner reports while executing the launch — a command or skill the
+writers skip, a departed session's sweep that fails — rides its StartRun
+answer back (`StartRunResult.findings`, `coordgrpc.EncodeFindings`) to the
+coordinator `ctxloom run` hosts, which hands it over on the owner run's
+outcome (`coord.RunOutcome.Findings`). `ctxloom run` renders each as an
+advisory (`relayRunnerFindings`) on a run that starts: the runner has
+already acted on its severity, and its own stderr surfaces only when a run
+fails.
+
 ## Invariants
 
 - The engine is spawned exactly once per turn, with exactly one assembled

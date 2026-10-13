@@ -541,3 +541,28 @@ func TestDevcontainerInstallsTheCommitHookRunner(t *testing.T) {
 		t.Errorf("%s does not install lefthook at ${LEFTHOOK_VERSION}", dockerfilePath)
 	}
 }
+
+// TestDevcontainerInstallsVerifiedNode: the opencode bridge plugin ctxloom
+// generates is JavaScript, and its wire tests run it under node. They skip
+// where node is absent but FAIL under CI, which runs them in this image — so
+// the image must carry node, at the version tool-versions.env pins, and must
+// check the bytes it downloads: the release's SHASUMS256.txt against its
+// signature, and the tarball against that file.
+func TestDevcontainerInstallsVerifiedNode(t *testing.T) {
+	versions := parseToolVersionsEnv(t, toolVersionsPath)
+	if _, ok := versions["NODE_VERSION"]; !ok {
+		t.Fatalf("%s pins no NODE_VERSION", toolVersionsPath)
+	}
+	dockerfile := readFile(t, dockerfilePath)
+	for _, want := range []string{
+		"https://nodejs.org/dist/v${NODE_VERSION}",
+		"node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz",
+		"gpgv --status-fd 1",
+		"SHASUMS256.txt.sig SHASUMS256.txt",
+		"sha256sum -c",
+	} {
+		if !strings.Contains(dockerfile, want) {
+			t.Errorf("%s: the node install lacks %q — node must be the pinned release, its checksum file signature-checked, and the tarball checked against it", dockerfilePath, want)
+		}
+	}
+}

@@ -184,3 +184,33 @@ func TestOneShot_PersistentModeUnchanged(t *testing.T) {
 	assert.Empty(t, keys[0], "the first turn resumes nothing")
 	assert.Equal(t, scriptedchat.NativeKey, keys[1], "the follow-up turn's process resumes by the key the first reported")
 }
+
+// TestOneShot_TheLaunchIdentityCarriesTheResumeMode: the child's launch is
+// resolved under an identity whose OneShot is its plan's resume mode — what
+// the runner's park decision reads. (The turn-level tests above cannot tell
+// the two apart: a one-shot runner also takes the follow-up itself.)
+func TestOneShot_TheLaunchIdentityCarriesTheResumeMode(t *testing.T) {
+	for name, oneshot := range map[string]bool{"one-shot": true, "persistent": false} {
+		t.Run(name, func(t *testing.T) {
+			resetStrictness(t)
+			sp := newFakeSpawner(t, map[string]fakeAgent{
+				"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"},
+					backend: "claude-code", oneshot: oneshot},
+			}, func() *scriptedChat { return &scriptedChat{} })
+			c := newTestCoordinator(t, sp, nil)
+			_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+			require.NoError(t, err)
+			var id Identity
+			require.Eventually(t, func() bool {
+				sp.mu.Lock()
+				defer sp.mu.Unlock()
+				if len(sp.identities) == 0 {
+					return false
+				}
+				id = sp.identities[0]
+				return true
+			}, conformanceWait, 10*time.Millisecond, "the child's launch was never resolved")
+			assert.Equal(t, oneshot, id.OneShot)
+		})
+	}
+}

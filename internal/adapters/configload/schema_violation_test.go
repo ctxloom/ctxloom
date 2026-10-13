@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/santhosh-tekuri/jsonschema/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -124,4 +125,58 @@ func TestLoad_EveryRegisteredEngineIsASchemaValidLLMType(t *testing.T) {
 			assert.Empty(t, schemaViolations(t, cfg), "warnings: %+v", cfg.GetWarnings())
 		})
 	}
+}
+
+// The alternative whose discriminator held need not be the first: an entry of
+// the LAST backend with a bad value inside is still that backend's shape, and
+// its bad value is the defect, named at its own key.
+func TestLoad_FaultInsideALaterAlternative_IsReportedAtItsKey(t *testing.T) {
+	cfg := loadYAML(t, "schema_version: 7\nllm:\n  configs:\n    local:\n      type: opencode\n      model: qwen\n      provider: {base_url: http://127.0.0.1:9/v1, output_limit: 1}\n      context_window: big\n")
+
+	got := schemaViolations(t, cfg)
+	require.Len(t, got, 1, "warnings: %+v", cfg.GetWarnings())
+	assert.Equal(t, "llm.configs.local.context_window", got[0].KeyPath)
+	assert.Equal(t, "integer", got[0].Expected)
+	assert.Equal(t, "string", got[0].Got)
+}
+
+// A bad enum value on a property other than the discriminator is a bad value
+// inside the shape the entry IS, not a sign the entry is another shape.
+func TestLoad_BadEnumInsideTheMatchingAlternative_IsReportedAtItsKey(t *testing.T) {
+	cfg := loadYAML(t, "schema_version: 7\nllm:\n  configs:\n    big:\n      type: claude-code\n      role: boss\n")
+
+	got := schemaViolations(t, cfg)
+	require.Len(t, got, 1, "warnings: %+v", cfg.GetWarnings())
+	assert.Equal(t, "llm.configs.big.role", got[0].KeyPath)
+	assert.NotEqual(t, noAlternativeMatched, got[0].Constraint, "the entry is a claude-code entry with a bad role")
+}
+
+// An entry whose discriminator held but whose only fault is a key another
+// backend declares (so it is not reported as unknown) has no defect of its
+// own to name, and is reported where the anyOf governs: it matches none of
+// the shapes. It is never silently accepted.
+func TestLoad_AnotherBackendsKeyInsideTheMatchingAlternative_IsOneViolationAtTheEntry(t *testing.T) {
+	cfg := loadYAML(t, "schema_version: 7\nllm:\n  configs:\n    big:\n      type: claude-code\n      share: auto\n")
+
+	assert.Empty(t, unknownKeyWarnings(cfg), "premise: share is a key the anyOf declares, so it is not unknown")
+	got := schemaViolations(t, cfg)
+	require.Len(t, got, 1, "warnings: %+v", cfg.GetWarnings())
+	assert.Equal(t, "llm.configs.big", got[0].KeyPath)
+	assert.Equal(t, noAlternativeMatched, got[0].Constraint)
+}
+
+// A leaf is read as a type mismatch only when it fails the `type` keyword:
+// another keyword's message worded like one is a constraint, quoted as is.
+func TestLeafViolation_ATypeMismatchIsKnownByItsKeyword(t *testing.T) {
+	typed := leafViolation(fixtureConfigPath, &jsonschema.ValidationError{
+		KeywordLocation: "/properties/args/type", InstanceLocation: "/args", Message: "expected array, but got number",
+	})
+	assert.Equal(t, "array", typed.Expected)
+	assert.Equal(t, "number", typed.Got)
+
+	worded := leafViolation(fixtureConfigPath, &jsonschema.ValidationError{
+		KeywordLocation: "/properties/args/format", InstanceLocation: "/args", Message: "expected array, but got number",
+	})
+	assert.Empty(t, worded.Expected, "a message's wording does not make a leaf a type mismatch")
+	assert.Equal(t, "expected array, but got number", worded.Constraint)
 }

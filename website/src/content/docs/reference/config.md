@@ -257,17 +257,17 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 
 #### opencode
 
-The opencode CLI driven against an OpenAI-compatible endpoint (e.g. a LAN llama-server). Runs its TUI interactively on ctxloom's terminal, and structured (children and internal one-shots). The endpoint key is never written here: export CTXLOOM_OPENCODE_API_KEY.
+The opencode CLI, driven either against one of opencode's built-in providers (no provider block: model is opencode's own provider/model reference, e.g. opencode/big-pickle, a free hosted model that needs no key) or against an OpenAI-compatible endpoint (a provider block, e.g. a LAN llama-server). Runs its TUI interactively on ctxloom's terminal, and structured (children and internal one-shots). An endpoint key is never written here: export CTXLOOM_OPENCODE_API_KEY.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `args` | string[] | Arguments placed before opencode's own subcommand. |
 | `binary_path` | string | Overrides the path to the opencode binary. |
-| `context_window` | integer | **Required.** The model's context window, in tokens: what this label's model can hold in one call (llama-server: --ctx-size divided by --parallel). Neutral: every engine's label may carry it; REQUIRED here, because opencode cannot discover it and never compacts without it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Examples: `131072`, `65536`. |
-| `model` | string | **Required.** The model id the endpoint serves (llama-server's --alias). Examples: `qwen3.8-27b`. |
+| `context_window` | integer | The model's context window, in tokens: what this label's model can hold in one call (llama-server: --ctx-size divided by --parallel). Neutral: every engine's label may carry it; REQUIRED with a provider block, because opencode cannot discover an endpoint's window and never compacts without it (a built-in provider's window is in opencode's own catalog). Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve). Examples: `131072`, `65536`. |
+| `model` | string | **Required.** With a provider block, the model id the endpoint serves (llama-server's --alias). Without one, opencode's own provider/model reference, passed through verbatim. Examples: `qwen3.8-27b`, `opencode/big-pickle`. |
 | `model_options` | object | Passed verbatim as the model's options, which reach every request body (e.g. chat_template_kwargs: {enable_thinking: false}, temperature, top_p). |
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. opencode's: mode (build \| plan \| auto) and permission (an opencode permission object). Its approver must be none: opencode run rejects every ask itself. |
-| `provider` | object | **Required.** The OpenAI-compatible endpoint opencode talks to. |
+| `provider` | object | The OpenAI-compatible endpoint opencode talks to. Absent: model names one of opencode's built-in providers, and ctxloom configures no provider of its own. |
 | `role` | string | Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime. Allowed values: `primary`, `fast`. |
 | `share` | string | opencode's session sharing. Absent: disabled. Allowed values: `manual`, `auto`, `disabled`. |
 | `snapshot` | boolean | Whether opencode keeps a snapshot of the work tree per step (what undo reverts). Absent: on for an interactive run (the TUI's /undo), off for a structured run. |
@@ -276,7 +276,7 @@ The opencode CLI driven against an OpenAI-compatible endpoint (e.g. a LAN llama-
 
 ##### llmConfig.opencode.provider
 
-The OpenAI-compatible endpoint opencode talks to.
+The OpenAI-compatible endpoint opencode talks to. Absent: model names one of opencode's built-in providers, and ctxloom configures no provider of its own.
 
 | Field | Type | Description |
 |-------|------|-------------|

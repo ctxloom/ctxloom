@@ -663,7 +663,7 @@
         },
         {
           "title": "opencode",
-          "description": "The opencode CLI driven against an OpenAI-compatible endpoint (e.g. a LAN llama-server). Runs its TUI interactively on ctxloom's terminal, and structured (children and internal one-shots). The endpoint key is never written here: export CTXLOOM_OPENCODE_API_KEY.",
+          "description": "The opencode CLI, driven either against one of opencode's built-in providers (no provider block: model is opencode's own provider/model reference, e.g. opencode/big-pickle, a free hosted model that needs no key) or against an OpenAI-compatible endpoint (a provider block, e.g. a LAN llama-server). Runs its TUI interactively on ctxloom's terminal, and structured (children and internal one-shots). An endpoint key is never written here: export CTXLOOM_OPENCODE_API_KEY.",
           "properties": {
             "type": {
               "const": "opencode"
@@ -682,15 +682,16 @@
             },
             "model": {
               "type": "string",
-              "description": "The model id the endpoint serves (llama-server's --alias).",
+              "description": "With a provider block, the model id the endpoint serves (llama-server's --alias). Without one, opencode's own provider/model reference, passed through verbatim.",
               "examples": [
-                "qwen3.8-27b"
+                "qwen3.8-27b",
+                "opencode/big-pickle"
               ]
             },
             "context_window": {
               "type": "integer",
               "minimum": 1,
-              "description": "The model's context window, in tokens: what this label's model can hold in one call (llama-server: --ctx-size divided by --parallel). Neutral: every engine's label may carry it; REQUIRED here, because opencode cannot discover it and never compacts without it. Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve).",
+              "description": "The model's context window, in tokens: what this label's model can hold in one call (llama-server: --ctx-size divided by --parallel). Neutral: every engine's label may carry it; REQUIRED with a provider block, because opencode cannot discover an endpoint's window and never compacts without it (a built-in provider's window is in opencode's own catalog). Internal one-shots budget against it: the compactor sends at most min(150000, context_window minus the prompt and essence reserve).",
               "examples": [
                 131072,
                 65536
@@ -709,7 +710,7 @@
             },
             "provider": {
               "type": "object",
-              "description": "The OpenAI-compatible endpoint opencode talks to.",
+              "description": "The OpenAI-compatible endpoint opencode talks to. Absent: model names one of opencode's built-in providers, and ctxloom configures no provider of its own.",
               "properties": {
                 "base_url": {
                   "type": "string",
@@ -765,10 +766,13 @@
           },
           "required": [
             "type",
-            "model",
-            "context_window",
-            "provider"
+            "model"
           ],
+          "dependentRequired": {
+            "provider": [
+              "context_window"
+            ]
+          },
           "additionalProperties": false
         }
       ]

@@ -32,6 +32,27 @@ Guide for contributing to ctxloom development.
 | `just test-acceptance` | Run acceptance tests (requires built binary) |
 | `just dev test` | Run all tests in the devcontainer (matches CI) |
 
+### Live engine tests
+
+`@live` acceptance cells drive a real engine and are skipped by the default
+recipes. Each recipe below runs one cell, on purpose: a cell is a real model
+turn, and a container cell may build an agent image first. `ENGINE` is a
+registered engine name, `claude` or `opencode`.
+
+| Command | Description |
+|---------|-------------|
+| `just engine-matrix ENGINE RUNTIME WORKSPACE` | The simplest round trip for one engine under one isolation cell (`host`, `container-rootless` or `container-rootful`; `none` or `worktree`) |
+| `just live-delegation ENGINE` | A real delegated child whose own context comes back to the coordinator over `agent_send` |
+| `just capability-probe PROBE FEATURE ENGINE RUNTIME WORKSPACE [VARIANT]` | One rung of the capability-probe ladder |
+| `just plan-sentinel ENGINE [POSTURE]` | Whether the engine's plan posture really refuses a write |
+| `just isolation-probe ENGINE AXIS` | One engine on one isolation axis |
+| `just test-acceptance-live-container` | The whole live suite in a container; it requires claude's token and skips opencode's cells, because its image installs no opencode |
+
+claude's cells run on Haiku and need `CLAUDE_CODE_OAUTH_TOKEN` exported (from
+`claude setup-token`). opencode's run keyless on the free hosted
+`opencode/big-pickle` model and need only the `opencode` binary and network. A
+cell whose engine is missing or cannot authenticate skips loudly, saying why.
+
 ## Code Quality
 
 | Command | Description |

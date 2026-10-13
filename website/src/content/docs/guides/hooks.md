@@ -69,8 +69,9 @@ ctxloom materialize --yes --release --surface hooks --surface settings
 `ctxloom materialize` writes per kind, and `--release` takes out only what it
 wrote. With no `--surface` it writes every kind, including claude's context
 into `CLAUDE.md`. `ctxloom manage uninstall` takes out everything any engine's
-at-rest delivery wrote into the project. (`manage hooks install` and `manage
-hooks uninstall` are gone.)
+at-rest delivery wrote into the project. The only other writer is the refresh
+`ctxloom deps pull --yes` and `ctxloom run --yes` run after a sync, which
+writes the same kinds except a context the engine already takes at launch.
 
 Materializing every kind also writes the command files exported from commands, the MCP servers your bundles declare, and the HUD statusline (honoring `config.statusline`). ctxloom's own MCP server is not among them: it is served by a running `ctxloom run` session and registered only for that session, so nothing ctxloom-owned is left executable at rest. There is no MCP tool for this; hook management is CLI-only.
 

@@ -71,7 +71,8 @@ query — an operator with nothing left on its stack to apply to — fails loud 
 
 ```
 $ taskloom list --tag-query "and"
-Error: list tasks: tag query "and": tagma: postfix stack underflow at "and"
+taskloom: list tasks: tag query "and": tagma: postfix stack underflow at "and"
+  fix: queries are postfix: tags first, operator after — e.g. urgent/release/and, urgent/not; an and/or/not operator needs enough operands already on the query's stack, or it fails (see 'taskloom list --help' for more)
 ```
 
 A single bare key with no operator tests presence, valued or not. Value comparisons use `=`
@@ -124,8 +125,10 @@ ignored by the query engine later. The whole write is refused and nothing lands:
 
 ```
 $ taskloom tag hilly-crane --add "triage:kind=bogus"
-Error: add tags: refused 1 tag(s), nothing written: fatal startup findings:
-  - add tags: tag "triage:kind=bogus"'s value "bogus" is not one of triage:kind's declared enum values [defect capability chore] (fix: drop or correct the tag (taskloom tags / the project's tag_schema), or pass --degraded to write without it)
+taskloom: add tags: refused 1 tag(s), nothing written: fatal startup findings:
+  - [task] add tags: tag "triage:kind=bogus"'s value "bogus" is not one of triage:kind's declared enum values [defect capability chore]
+    fix: drop or correct the tag (taskloom tags / the project's tag_schema), or pass --degraded to write without it
+  fix: drop or correct the tag (taskloom tags / the project's tag_schema), or pass --degraded to write without it
 ```
 
 `--degraded` is the escape hatch the message names: the write goes through without the refused
@@ -139,8 +142,10 @@ themselves.
 
 ```
 $ taskloom tag hilly-crane --add "or"
-Error: add tags: refused 1 tag(s), nothing written: fatal startup findings:
-  - add tags: tag "or" is a reserved operator word in tagma's query grammar (and/or/not, matched case-insensitively) — it would always parse as an operator, never as a matchable tag, and so would be permanently unqueryable except by quoting it at query time (fix: drop or correct the tag (taskloom tags / the project's tag_schema), or pass --degraded to write without it)
+taskloom: add tags: refused 1 tag(s), nothing written: fatal startup findings:
+  - [task] add tags: tag "or" is a reserved operator word in tagma's query grammar (and/or/not, matched case-insensitively) — it would always parse as an operator, never as a matchable tag, and so would be permanently unqueryable except by quoting it at query time
+    fix: drop or correct the tag (taskloom tags / the project's tag_schema), or pass --degraded to write without it
+  fix: drop or correct the tag (taskloom tags / the project's tag_schema), or pass --degraded to write without it
 ```
 
 ## Ranking a pile of tags into one order: `--sort priority`

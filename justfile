@@ -920,8 +920,10 @@ test-acceptance-live-container: container-build-acceptance
 # container-rootful is wired but has never gone green on any box this suite
 # has run on (no reachable rootful daemon) — it self-skips loudly. Makes AT
 # MOST one real, paid engine call.
-# Requires ENGINE's token exported (claude: CLAUDE_CODE_OAUTH_TOKEN, from
-# `claude setup-token`) — the only credential an agent run takes. Self-skips
+# Requires ENGINE's credential exported where it takes one (claude:
+# CLAUDE_CODE_OAUTH_TOKEN, from `claude setup-token`, the only credential an
+# agent run takes; opencode: none, its cells run keyless on the free hosted
+# liveOpencodeModel and need only the binary and network). Self-skips
 # loudly, naming it, when absent.
 isolation-probe ENGINE AXIS: build _ensure-gotmpdir
     GOTMPDIR="{{go_tmp}}" \

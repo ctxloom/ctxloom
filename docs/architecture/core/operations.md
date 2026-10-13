@@ -106,13 +106,13 @@ is write-if-absent.
 
 | Function | file:line | Contract |
 |---|---|---|
-| `SyncDependencies` | `sync.go:101` | Collect refs → pull → re-collect, up to `maxSyncPasses` (10), then optional lock + hook post-steps. Status is one of `installed`/`updated`/`skipped`/`failed` per item, `empty` for a no-ref project. |
+| `SyncDependencies` | `sync.go:101` | Collect refs → pull → re-collect, up to `maxSyncPasses` (10), then optional lock + refresh post-steps (the refresh writes the project only under `WriteProject`). Status is one of `installed`/`updated`/`skipped`/`failed` per item, `empty` for a no-ref project. |
 | `collectRemoteReferences` / `collectProfileReferences` / `collectProfileReferencesRecursive` | `sync.go:318,371,394` | Walk every profile (plus the default agent) for remote bundle bases, following local parents depth-first. |
 | `addRemoteBundleBase` | `sync.go:438` | Strips the item selector, rejects retired and unparseable refs, warns once. |
 | `syncRefs` / `syncItem` | `sync.go:236,467` | Per-ref: validate, skip-if-installed, else pull. |
 | `isInstalled` | `sync.go:732` | Lockfile + content probe through a `remote.BundleByteSource`; every read error collapses to "not installed". |
 | `CheckMissingDependencies` | `sync.go:610` | The probe `SyncOnStartup` short-circuits on. |
-| `SyncOnStartup` | `sync.go:775` | Refresh referenced clones → probe → sync with `Lock: true, ApplyHooks: true` hard-coded. |
+| `SyncOnStartup(ctx, app, writeProject)` | `sync.go` | Refresh referenced clones → probe → sync with `Lock: true, ApplyHooks: true` hard-coded and `WriteProject: writeProject` (`ctxloom run --yes`): without it the post-sync refresh only plans, returned as `RefreshSkipped`. |
 | `refreshRepoCaches` | `lockfile.go:464` | `git fetch` each unique clone before any SHA resolution; shared by `sync.go`, `upgrade.go`, `lockfile.go`. |
 
 ### `lockfile.go`, `lockfile_hold.go` — the pin record
@@ -336,7 +336,7 @@ Every host-side launch enters through `launch.Resolve`
   `browseTypeList` (`remotes.go:575`) and `searchTypeList` (`remotes.go:814`) ignore the argument
   and return `[]ItemType{Bundle}`.
 - `AutoSyncConfig` (`sync.go:745`) documents auto-sync configuration; nothing reads it, and
-  `SyncOnStartup` hard-codes `Lock: true, ApplyHooks: true`.
+  `SyncOnStartup` hard-codes `Lock: true, ApplyHooks: true` (only `WriteProject` is the caller's).
 - `EvaluateTriggersResult`'s doc states that degraded/fallback verdicts are never cached and that
   `Degraded` is set whenever any chunk failed; round-two chunk failures do not set `Degraded`
   (`task_triggers.go:640` vs `:258`) and fallback verdicts do reach the cache.

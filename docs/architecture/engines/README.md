@@ -192,8 +192,9 @@ and does not spawn, so it is not a second user.
 
 ## The opencode kind
 
-`internal/engines/opencode` drives the opencode CLI against an
-OpenAI-compatible endpoint a `type: opencode` label names (opt-in): the TUI
+`internal/engines/opencode` drives the opencode CLI on the model a
+`type: opencode` label names (opt-in), on one of opencode's built-in providers
+or against an OpenAI-compatible endpoint (below): the TUI
 on ctxloom's pty, and the structured runner. Everything is delivered into
 the session home H, which `OPENCODE_CONFIG_DIR` names: the framed
 `AGENTS.md`, `opencode.json` claims (`/mcp/<server>`, `/permission/<tool>`,

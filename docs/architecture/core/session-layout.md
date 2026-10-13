@@ -121,9 +121,11 @@ directory in its place.
 | coordinator root | keep | delete only if ephemeral and settled | — | — | removed with the session |
 | output dir | keep | keep | never | never | never |
 
-Every deletion of `home/<leaf>` (Close, `clean`, `clean --include-persist`) first moves a
-history dir the home holds as a real directory into `native/` (`sessions.KeepHomeHistory`),
-and leaves the home when that fails. Close's rule lives in `Coordinator.removeDisposableMembers`; the reaper's in
+Every deletion of `home/<leaf>` (Close, `clean`, `clean --include-persist`) first moves the
+engine's history store into `native/` when the home holds it as a real directory
+(`sessions.KeepHomeHistory`: exactly the leaf's `HomeSpec.TranscriptStoreRel` installed as
+`sessions.UseHistoryStores`, never its siblings; see Windows below), and leaves the home when
+that fails. Close's rule lives in `Coordinator.removeDisposableMembers`; the reaper's in
 `sessions.ReapPolicy.Members`; the purge populations in `operations.PurgeSession`, of which
 the sweep requests only the transcript population. The output dir is reachable by exactly
 one destroyer, the explicit `ctxloom session artifacts purge` (`outputEssenceItems`).

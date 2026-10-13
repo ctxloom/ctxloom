@@ -35,16 +35,51 @@ type ptyCapture struct {
 	mu      sync.Mutex
 	b       strings.Builder
 	written chan struct{} // closed by the next write
+
+	fence     string        // a token expected on the stream, never kept in it
+	fenceSeen chan struct{} // closed once fence has arrived (and been cut)
 }
 
 func (c *ptyCapture) Write(p []byte) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	n, _ := c.b.Write(p)
+	c.cutFence()
 	if c.written != nil {
 		close(c.written)
 		c.written = nil
 	}
-	return c.b.Write(p)
+	return n, nil
+}
+
+// expect arms the capture for token: the write that completes it cuts it out
+// of the capture (nobody waiting on a screen ever sees it) and closes the
+// returned channel. Caller holds no lock.
+func (c *ptyCapture) expect(token string) <-chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.fence = token
+	c.fenceSeen = make(chan struct{})
+	seen := c.fenceSeen
+	c.cutFence()
+	return seen
+}
+
+// cutFence removes an armed fence that has fully arrived. Caller holds mu.
+func (c *ptyCapture) cutFence() {
+	if c.fence == "" {
+		return
+	}
+	cur := c.b.String()
+	i := strings.Index(cur, c.fence)
+	if i < 0 {
+		return
+	}
+	c.b.Reset()
+	c.b.WriteString(cur[:i])
+	c.b.WriteString(cur[i+len(c.fence):])
+	c.fence = ""
+	close(c.fenceSeen)
 }
 
 // next returns what has been captured and a channel the next write closes.
@@ -86,14 +121,35 @@ func (c *ptyCapture) String() string {
 // including the Ctrl-] viewer prefix (0x1d) — and wait on the
 // accumulated output for escape-sequence signatures while (or after) the
 // process runs.
+//
+// Exit is reported only once the capture holds everything the process wrote
+// before it exited (see settle): a process's last line and its exit are two
+// events on two goroutines, and Output read after Wait must not depend on
+// which of them the scheduler ran first.
 type PTYSession struct {
 	pty pty.Pty
 	cmd *pty.Cmd
 	out *ptyCapture
 
-	exited  chan struct{}
+	drained chan struct{} // closed when the drain stops reading the master
+	exited  chan struct{} // closed once the process is reaped AND settled
 	exitErr error
+
+	hooks ptyHooks
 }
+
+// ptyHooks are seams for the harness's own tests, which force the
+// interleavings the harness must survive; the zero value is production.
+type ptyHooks struct {
+	// drainTo wraps the writer the drain copies the master into.
+	drainTo func(io.Writer) io.Writer
+	// fenceWritten runs once settle's fence is on the slave.
+	fenceWritten func()
+}
+
+// ptyFence is what settle writes behind the reaped process's output. No
+// newline (ONLCR would rewrite it) and nothing a program prints by accident.
+const ptyFence = "\x00<ctxloom-pty-settle-fence>\x00"
 
 // RunPTY starts ctxloom attached to a real pty sized cols x rows, with the
 // same isolated HOME/XDG environment Run/RunWithStdin use, in the project
@@ -123,6 +179,13 @@ func (e *TestEnvironment) RunPTY(cols, rows int, extraEnv []string, args ...stri
 // lifetime of (a copy it can unlink while the process lives), which
 // AppBinary — shared by every scenario in the run — can never be.
 func (e *TestEnvironment) RunPTYFrom(bin string, cols, rows int, extraEnv []string, args ...string) (*PTYSession, error) {
+	env := append(append(e.isolatedEnv(), "TERM=dumb"), extraEnv...)
+	return startPTY(ptyHooks{}, e.ProjectDir, env, bin, cols, rows, args...)
+}
+
+// startPTY starts bin in dir with env on a fresh pty, draining the master
+// into the session's capture.
+func startPTY(hooks ptyHooks, dir string, env []string, bin string, cols, rows int, args ...string) (*PTYSession, error) {
 	p, err := pty.New()
 	if err != nil {
 		return nil, fmt.Errorf("open pty: %w", err)
@@ -133,12 +196,22 @@ func (e *TestEnvironment) RunPTYFrom(bin string, cols, rows int, extraEnv []stri
 	}
 
 	cmd := p.CommandContext(context.Background(), bin, args...)
-	cmd.Dir = e.ProjectDir
-	cmd.Env = append(append(e.isolatedEnv(), "TERM=dumb"), extraEnv...)
+	cmd.Dir = dir
+	cmd.Env = env
 	cmd.SysProcAttr = pdeathsigSysProcAttr()
 
-	s := &PTYSession{pty: p, cmd: cmd, out: &ptyCapture{}, exited: make(chan struct{})}
-	go func() { _, _ = io.Copy(s.out, p) }()
+	s := &PTYSession{
+		pty: p, cmd: cmd, out: &ptyCapture{},
+		drained: make(chan struct{}), exited: make(chan struct{}), hooks: hooks,
+	}
+	var sink io.Writer = s.out
+	if hooks.drainTo != nil {
+		sink = hooks.drainTo(sink)
+	}
+	go func() {
+		defer close(s.drained)
+		_, _ = io.Copy(sink, p)
+	}()
 
 	if err := cmd.Start(); err != nil {
 		_ = p.Close()
@@ -146,9 +219,35 @@ func (e *TestEnvironment) RunPTYFrom(bin string, cols, rows int, extraEnv []stri
 	}
 	go func() {
 		s.exitErr = cmd.Wait()
+		s.settle()
 		close(s.exited)
 	}()
 	return s, nil
+}
+
+// settle returns once the drain has delivered everything the reaped process
+// wrote to the pty. The drain can never see EOF here — this harness holds the
+// slave open itself, as may a process the session left behind — so the
+// boundary is made instead: a fence written to the slave after the reap
+// queues behind every byte the process wrote before it, and the capture
+// reports the fence when the drain gets to it. A drain that stops first (the
+// master was closed by Hangup or Close) has nothing more to deliver.
+func (s *PTYSession) settle() {
+	up, ok := s.pty.(pty.UnixPty)
+	if !ok {
+		return
+	}
+	seen := s.out.expect(ptyFence)
+	if _, err := up.Slave().Write([]byte(ptyFence)); err != nil {
+		return
+	}
+	if s.hooks.fenceWritten != nil {
+		s.hooks.fenceWritten()
+	}
+	select {
+	case <-seen:
+	case <-s.drained:
+	}
 }
 
 // Write sends raw bytes into the pty as if typed at the terminal — e.g.
@@ -162,7 +261,9 @@ func (s *PTYSession) Write(p []byte) (int, error) { return s.pty.Write(p) }
 // reads and writes fail from then on. Close still reaps afterwards.
 func (s *PTYSession) Hangup() error { return s.pty.Close() }
 
-// Output returns everything captured off the pty so far.
+// Output returns everything captured off the pty so far. Once Wait or
+// AwaitExit has reported the exit, that includes everything the process
+// wrote.
 func (s *PTYSession) Output() string { return s.out.String() }
 
 // PID returns the session's top-level ctxloom process id, valid once RunPTY

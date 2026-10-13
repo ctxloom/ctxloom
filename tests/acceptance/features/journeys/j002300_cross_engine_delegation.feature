@@ -408,9 +408,8 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
       | engine      | runtime            | workspace | marker                                   |
       | claude-code | container-rootless | none      | P6-WAKE-MARKER-CLAUDE-CODE-CTRNONE-b82a4 |
 
-    # OPENCODE, on a free hosted model (liveOpencodeModel): host only. Every
-    # opencode container cell is gated out by absence in the registry
-    # (opencodeContainerGate: no pinned opencode image exists to run in).
+    # OPENCODE, on a free hosted model (liveOpencodeModel): the host rows are
+    # live-verified.
     @opencode @host @ws-none
     Examples:
       | engine   | runtime | workspace | marker                              |
@@ -420,6 +419,20 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
     Examples:
       | engine   | runtime | workspace | marker                                 |
       | opencode | host    | worktree  | P6-WAKE-MARKER-OPENCODE-HOSTWT-4a8f03 |
+
+    # opencode.Opencode.Container installs the release (installFragment), so
+    # nothing refuses its container cells; they are WIRED, NOT YET LIVE-VERIFIED.
+    # On the live-container lane they skip loudly: its image ships no opencode
+    # binary on the harness side (engineAvailable).
+    @opencode @container-rootless @ws-worktree @reach-back @R4
+    Examples:
+      | engine   | runtime            | workspace | marker                                 |
+      | opencode | container-rootless | worktree  | P6-WAKE-MARKER-OPENCODE-CTRWT-5b9e27c1 |
+
+    @opencode @container-rootless @ws-none @reach-back @R3
+    Examples:
+      | engine   | runtime            | workspace | marker                                  |
+      | opencode | container-rootless | none      | P6-WAKE-MARKER-OPENCODE-CTRNONE-e40d6a |
 
   # Back to: tests/acceptance/features/journeys/j002100_delegation.feature (the privilege
   # half of delegation this journey complements).

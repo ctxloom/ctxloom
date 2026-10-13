@@ -298,28 +298,10 @@ const (
 // (what a cell writes); backendTypeToLiveKey maps it to liveAgents' own key.
 var probeEngines = []string{"claude-code", "opencode"}
 
-// opencodeContainerGate is why every opencode container cell is gated out BY
-// ABSENCE: opencode.Opencode.Container refuses (errUnpinned) while any tarball
-// in opencode.releaseSHA256 carries no sha256 pin, and every pin is empty, so
-// no opencode image is offered and no container run can start. Flip these
-// cells to wired, with Examples rows, when the pins land.
-const opencodeContainerGate = "opencode.Opencode.Container refuses with errUnpinned while opencode.releaseSHA256 carries an empty pin, and every pin is empty: no opencode image is offered, so no container cell can run"
-
 // opencodeContextGate is why P1's opencode cells are gated out BY ABSENCE:
 // both P1 variants pin one of claude's context approaches, and opencode
 // declares only agents-file.
 const opencodeContextGate = "opencode's ApproachTable declares one context approach, agents-file (Context: contextApproach{ApproachAgentsFile}); operations.ResolveAgentSurfaces refuses a pin to system-prompt or file, so neither of P1's claude variants exists for opencode"
-
-// opencodeGateContainers gates out every opencode cell on a container runtime
-// (opencodeContainerGate), whatever probe declared it.
-func opencodeGateContainers(cells []probeCell) []probeCell {
-	for i := range cells {
-		if c := &cells[i]; c.Engine == "opencode" && c.Runtime != "host" {
-			c.Status, c.Reason = probeGatedOut, opencodeContainerGate
-		}
-	}
-	return cells
-}
 
 // hostCell / containerCell are shorthands, so a table row reads as data rather
 // than as four repeated field names.
@@ -423,10 +405,11 @@ var probeRegistry = []probeSpec{
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree", Status: probeLiveVerified,
 				Reason: "measured 2026-10-05 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 35s, nonce harp \"loose-overt-unit\" echoed back, and the fixture server's call log in the per-agent checkout carrying the whole round trip — initialize / notifications/initialized / tools/list / tools/call / tool_call. The engine runs a per-agent CHECKOUT here, so the fixture arrives only because it is committed, and its call log is written there rather than in the project; probeCellRunDir resolves that checkout from `git worktree list --porcelain` AFTER the run, which works because the server's writes leave the checkout dirty and the WIP-safe teardown spares it. Reading the project copy instead would report that the server never ran."},
 			// opencode on its free hosted model (liveOpencodeModel): the host cell,
-			// and its container cells gated out (opencodeContainerGate).
+			// live-verified, and its container cells wired but never run live
+			// (opencode.Opencode.Container installs the release, installFragment).
 			hostCell("opencode", probeLiveVerified, "measured 2026-10-12 (opencode 1.18.35 on the free hosted model opencode/big-pickle (liveOpencodeModel), keyless, throwaway HOME/XDG/repo): `just capability-probe p2-mcp-round-trip probes/capability_mcp_round_trip.feature opencode host none`, 1 scenario / 3 steps green in 19.3s, nonce harp \"gaunt-funny-annex\" served by the fixture server and echoed back, call log present. Its FIRST run red as MCP-DELIVERY (the fixture server never started): opencode run takes its project directory from $PWD, so the relative server command resolved against the launching shell's directory. Fixed in the opencode Exec (PWD = the session's WorkDir, TestExec_PWDIsTheWorkDir), then green."),
-			{Engine: "opencode", Runtime: "container-rootless", Workspace: "none", Status: probeGatedOut, Reason: opencodeContainerGate},
-			{Engine: "opencode", Runtime: "container-rootless", Workspace: "worktree", Status: probeGatedOut, Reason: opencodeContainerGate},
+			{Engine: "opencode", Runtime: "container-rootless", Workspace: "none", Status: probeWired},
+			{Engine: "opencode", Runtime: "container-rootless", Workspace: "worktree", Status: probeWired},
 		},
 	},
 	{
@@ -456,10 +439,11 @@ var probeRegistry = []probeSpec{
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree", Status: probeLiveVerified,
 				Reason: "measured 2026-10-05 on claude 2.1.286 / haiku: 1 scenario / 3 steps green, the stamp read from the one per-agent checkout probeCellRunDir resolved and carrying exactly the cell's argv harp. The mixed corner, kept WITH its container/none partner — P6's host/worktree cell is the measured precedent for what skipping one costs. The engine runs a per-agent CHECKOUT here, so the hook script arrives only because the fixture is committed, and the stamp is written there; reading the project copy instead would report a hook that never fired."},
 			// opencode on its free hosted model (liveOpencodeModel): the host cell,
-			// and its container cells gated out (opencodeContainerGate).
+			// live-verified, and its container cells wired but never run live
+			// (opencode.Opencode.Container installs the release, installFragment).
 			hostCell("opencode", probeLiveVerified, "measured 2026-10-12 (opencode 1.18.35 on the free hosted model opencode/big-pickle (liveOpencodeModel), keyless, throwaway HOME/XDG/repo): `just capability-probe p3-hook-firing probes/capability_hook_firing.feature opencode host none`, 1 scenario / 3 steps green in 25.1s, exit 0, stamp file carrying the 16-byte argv harp \"deep-itchy-rage\". The first live proof that opencode's bridge plugin (plugins/ctxloom.js, session.created) EXECUTES a hook ctxloom wrote. Stage (a) only, as on claude's host row."),
-			{Engine: "opencode", Runtime: "container-rootless", Workspace: "none", Status: probeGatedOut, Reason: opencodeContainerGate},
-			{Engine: "opencode", Runtime: "container-rootless", Workspace: "worktree", Status: probeGatedOut, Reason: opencodeContainerGate},
+			{Engine: "opencode", Runtime: "container-rootless", Workspace: "none", Status: probeWired},
+			{Engine: "opencode", Runtime: "container-rootless", Workspace: "worktree", Status: probeWired},
 		},
 	},
 	{
@@ -679,11 +663,12 @@ var probeRegistry = []probeSpec{
 				Status: probeLiveVerified,
 				Reason: "measured 2026-08-24: 11/11 steps in 29s. The container half without the worktree half — the child's process is isolated and its credential mounted, but it shares the project working directory. Completes the claude matrix: with host/none, host/worktree and container-rootless/worktree, coordinator<->child messaging is now proven on every combination of the two axes rather than only on the diagonal."},
 			// opencode on its free hosted model (liveOpencodeModel): both host
-			// cells; its container cells gated out (opencodeContainerGate).
+			// cells, live-verified; its container cells wired but never run live
+			// (opencode.Opencode.Container installs the release, installFragment).
 			hostCell("opencode", probeLiveVerified, "measured 2026-10-12 (opencode 1.18.35 on the free hosted model opencode/big-pickle (liveOpencodeModel), keyless, throwaway HOME/XDG/repo): `just capability-probe p6-steer-echo journeys/j002300_cross_engine_delegation.feature opencode host none`, 1 scenario / 10 steps green in 55.3s: the opencode child reported its wake marker from its own composed context, then echoed the steer harp \"tall-wide-liver\" over the bus, with the steer consumed from its own spool's out plane."),
 			{Engine: "opencode", Runtime: "host", Workspace: "worktree", Status: probeLiveVerified, Reason: "measured 2026-10-12 (opencode 1.18.35 on the free hosted model opencode/big-pickle (liveOpencodeModel), keyless, throwaway HOME/XDG/repo): `just capability-probe p6-steer-echo journeys/j002300_cross_engine_delegation.feature opencode host worktree`, 1 scenario / 10 steps green in 53.8s, steer harp \"icky-grimy-zero\" echoed back over the bus from a child in a per-agent worktree checkout."},
-			{Engine: "opencode", Runtime: "container-rootless", Workspace: "worktree", Status: probeGatedOut, Reason: opencodeContainerGate},
-			{Engine: "opencode", Runtime: "container-rootless", Workspace: "none", Status: probeGatedOut, Reason: opencodeContainerGate},
+			{Engine: "opencode", Runtime: "container-rootless", Workspace: "worktree", Status: probeWired},
+			{Engine: "opencode", Runtime: "container-rootless", Workspace: "none", Status: probeWired},
 		},
 	},
 	{
@@ -856,7 +841,7 @@ func p0Cells() []probeCell {
 		c.Status = probeLiveVerified
 		c.Reason = "measured 2026-10-12 (opencode 1.18.35 on the free hosted model opencode/big-pickle (liveOpencodeModel), keyless, throwaway HOME/XDG/repo), after the PWD fix put opencode in the worktree checkout rather than the launching shell's directory: `just engine-matrix opencode host worktree`, 1 scenario / 3 steps green in 20.2s, nonce harp \"pure-sandy-shaft\"."
 	})
-	return opencodeGateContainers(cells)
+	return cells
 }
 
 // THE MINTED-HARP NONCE HAS NOW SURVIVED A LIVE RUN — once, on one cell.

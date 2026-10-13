@@ -117,13 +117,25 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
       | engine      | runtime            | workspace |
       | claude-code | container-rootless | worktree  |
 
-    # OPENCODE, on a free hosted model (liveOpencodeModel): host only. Every
-    # opencode container cell is gated out by absence in the registry
-    # (opencodeContainerGate: no pinned opencode image exists to run in).
-    # opencode runs no hook command: its session_start fires from the bridge
+    # OPENCODE, on a free hosted model (liveOpencodeModel): the host row is
+    # live-verified. opencode runs no hook command: its session_start fires from the bridge
     # plugin's session.created (opencode hooks.go), so this cell is the one
     # live proof that the bridge executes a hook ctxloom wrote.
     @opencode @host @ws-none @probe-p3-hook-firing
     Examples:
       | engine   | runtime | workspace |
       | opencode | host    | none      |
+
+    # opencode.Opencode.Container installs the release (installFragment), so
+    # nothing refuses its container cells; they are WIRED, NOT YET LIVE-VERIFIED.
+    # On the live-container lane they skip loudly: its image ships no opencode
+    # binary on the harness side (engineAvailable).
+    @opencode @container-rootless @ws-none @probe-p3-hook-firing
+    Examples:
+      | engine   | runtime            | workspace |
+      | opencode | container-rootless | none      |
+
+    @opencode @container-rootless @ws-worktree @probe-p3-hook-firing
+    Examples:
+      | engine   | runtime            | workspace |
+      | opencode | container-rootless | worktree  |

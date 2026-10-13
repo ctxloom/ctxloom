@@ -848,14 +848,14 @@ test-acceptance-live-container: container-build-acceptance
     # run rather than quietly shrink coverage.
     #
     # opencode is deliberately NOT required here, though its live cells need
-    # no secret (a free hosted model, liveOpencodeModel): this image installs
-    # no opencode binary, and the one sanctioned installer
-    # (opencode.installFragment) refuses until opencode.releaseSHA256 carries
-    # every tarball's pin. Its cells therefore skip loudly here ("binary not
-    # found") and run on the host recipes (engine-matrix, capability-probe,
-    # plan-sentinel, isolation-probe, live-delegation with ENGINE=opencode),
-    # which need network for the hosted model.
-    # Require it once the pins land and the image installs it.
+    # no secret (a free hosted model, liveOpencodeModel): this image
+    # (.devcontainer/acceptance.Dockerfile) installs no opencode binary, so the
+    # harness's availability gate (engineAvailable) skips its cells loudly here
+    # ("binary not found"). They run on the host recipes (engine-matrix,
+    # capability-probe, plan-sentinel, isolation-probe, live-delegation with
+    # ENGINE=opencode), which need network for the hosted model; a container
+    # cell there gets its agent image from opencode.installFragment.
+    # Require it once this image installs opencode.
     if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
         echo "live-container: FATAL — CTXLOOM_LIVE_REQUIRE names claude, but CLAUDE_CODE_OAUTH_TOKEN is not exported (run \`claude setup-token\`)" >&2
         exit 1

@@ -361,9 +361,10 @@ func equalStrings(a, b []string) bool {
 // (operations.EngineNamesWhere keeping Distribution !=
 // engine.DistributionTestOnly). It is not plain equality with the registry,
 // and not equality with test-only engines left out of both sides. The reason
-// is that the schema carries a branch for the `mock` double, because
-// test configs declare `type: mock`, while the other mock.Doubles are reached
-// only through --backend and have no branch. A test-only branch is therefore
+// is that the schema carries a branch for each mock double, because test
+// configs declare them as a label's `type` (`type: mock`, and `mock-lossy`
+// in the engine-switch journey and the capability-loss tests) and a config
+// that breaks the schema is refused. A test-only branch is therefore
 // permitted but not required. An UNREGISTERED type is not test-only
 // (IsTestOnlyEngine is false for an unknown name), so a dead branch stays on
 // the left-hand side and breaks the equality.

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ctxloom.dev/schemas/config.json",
   "title": "ctxloom Configuration",
-  "description": "Schema for ctxloom config.yaml files",
+  "description": "Schema for ctxloom config.yaml files. A file that breaks it — a key it does not describe, or a value of the wrong type or outside its allowed values — fails every command that reads the config, naming the file, the key's dotted path and what was expected; --degraded (or CTXLOOM_DEGRADED=1) loads it best-effort with a warning instead.",
   "type": "object",
   "properties": {
     "schema_version": {
@@ -497,6 +497,99 @@
           "properties": {
             "type": {
               "const": "mock"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "primary",
+                "fast"
+              ],
+              "description": "Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime."
+            },
+            "permissions": {
+              "$ref": "#/$defs/labelPermissions",
+              "description": "This label's permissions block: the neutral fields and its engine's keys, flat."
+            },
+            "model": {
+              "type": "string"
+            },
+            "mock_control": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map \u2014 an engine reads its credentials from the ambient environment."
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "mock-lossy",
+          "properties": {
+            "type": {
+              "const": "mock-lossy"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "primary",
+                "fast"
+              ],
+              "description": "Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime."
+            },
+            "permissions": {
+              "$ref": "#/$defs/labelPermissions",
+              "description": "This label's permissions block: the neutral fields and its engine's keys, flat."
+            },
+            "model": {
+              "type": "string"
+            },
+            "mock_control": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map \u2014 an engine reads its credentials from the ambient environment."
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "mock-launch",
+          "properties": {
+            "type": {
+              "const": "mock-launch"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "primary",
+                "fast"
+              ],
+              "description": "Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime."
+            },
+            "permissions": {
+              "$ref": "#/$defs/labelPermissions",
+              "description": "This label's permissions block: the neutral fields and its engine's keys, flat."
+            },
+            "model": {
+              "type": "string"
+            },
+            "mock_control": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map \u2014 an engine reads its credentials from the ambient environment."
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "mock-noskills",
+          "properties": {
+            "type": {
+              "const": "mock-noskills"
             },
             "role": {
               "type": "string",

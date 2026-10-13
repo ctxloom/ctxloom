@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/engines"
@@ -225,7 +226,8 @@ func envSwitchOn(name string) bool {
 // reader downgraded from hard errors (schema-invalid files, refused
 // overrides) are echoed to stderr here so every GetConfig-based command
 // surfaces them instead of silently operating on a partial config; an
-// unknown key additionally refuses the command (unknownKeyRefusal).
+// unknown key or a schema violation additionally refuses the command
+// (configRefusal).
 func GetConfig() (*config.Config, error) {
 	cfg, err := App().Config(context.Background())
 	if err != nil {
@@ -233,35 +235,60 @@ func GetConfig() (*config.Config, error) {
 	}
 	warnings := cfg.GetWarnings()
 	config.ReportWarnings(strictness.Sink("ctxloom"), warnings)
-	if err := unknownKeyRefusal(App().Strictness, warnings); err != nil {
+	if err := configRefusal(App().Strictness, warnings); err != nil {
 		return nil, err
 	}
 	return cfg, nil
 }
 
-// unknownKeyRefusal is the config's unknown-key rule at the choke commands
-// read the config through: a key the schema does not describe is FATAL, so no
-// command runs on a setting it silently dropped. Under a degraded mode the
-// gate passes it, leaving the warning ReportWarnings already printed.
-func unknownKeyRefusal(mode strictness.Mode, warnings []config.Warning) error {
-	var found report.Findings
+// configRefusalHeader heads the listing GetConfig refuses with.
+const configRefusalHeader = "the config breaks its schema:"
+
+// refusingWarningKinds are the config warning classes GetConfig refuses on:
+// a key the schema does not describe, and a value the schema refuses. Both
+// mean the command would run on a setting nobody chose.
+var refusingWarningKinds = []config.WarningKind{config.WarnKindUnknownKey, config.WarnKindSchemaViolation}
+
+// configRefusal is the config's schema rule at the choke commands read the
+// config through: an unknown key or a schema violation is FATAL, so no command
+// runs on a setting it silently dropped or could not vouch for. Under a
+// degraded mode the gate passes them, leaving the warnings ReportWarnings
+// already printed — the same downgrade every other fatal startup finding gets.
+func configRefusal(mode strictness.Mode, warnings []config.Warning) error {
+	var (
+		found  report.Findings
+		causes []error
+	)
 	for _, w := range warnings {
-		if w.Kind == config.WarnKindUnknownKey {
-			found = append(found, w.Finding())
+		if !slices.Contains(refusingWarningKinds, w.Kind) {
+			continue
+		}
+		f := w.Finding()
+		if !mode.Fatal(f) {
+			continue
+		}
+		found = append(found, f)
+		if w.Cause != nil {
+			causes = append(causes, w.Cause)
 		}
 	}
-	if err := mode.ListingError("the config carries keys ctxloom does not know:", mode.Actionable(found)); err != nil {
-		return configRefusedError{err}
+	if err := mode.ListingError(configRefusalHeader, found); err != nil {
+		return configRefusedError{error: err, causes: causes}
 	}
 	return nil
 }
 
 // configRefusedError is GetConfig refusing a configuration that loaded, as
 // distinct from one that could not be read: a command that degrades over an
-// unreadable config must still not run on one it refused.
-type configRefusedError struct{ error }
+// unreadable config must still not run on one it refused. It unwraps to the
+// rendered listing AND to each finding's typed cause, so a caller can match
+// config.ErrSchemaViolation (or errors.As a *config.SchemaViolation) on it.
+type configRefusedError struct {
+	error
+	causes []error
+}
 
-func (e configRefusedError) Unwrap() error { return e.error }
+func (e configRefusedError) Unwrap() []error { return append([]error{e.error}, e.causes...) }
 
 // rootFirstStep is the command the root help's quick start opens with: every
 // other command assumes a project exists, and this is the one that makes it.

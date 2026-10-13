@@ -235,8 +235,12 @@ func refuseConfigVersion(configPath string, refused error) {
 	strictness.FailOnce(report.KindMigration, remedy, "%s: %v", configPath, refused)
 }
 
-// warnInvalidLayer warns, per classified cause, about a layer the schema
-// validator rejects.
+// warnInvalidLayer records, per classified cause, a layer the schema
+// validator rejects: each unknown key and each schema violation is a
+// fatal-class warning carrying its typed cause. The load itself continues —
+// whether the findings refuse the command is the startup gate's decision
+// (GetConfig's configRefusal, the run/mcp findings gate), which is what lets
+// --degraded downgrade them to warnings in one place.
 func (s *Sources) warnInvalidLayer(b *config.Builder, data []byte, configPath string) {
 	if s.validator == nil {
 		return
@@ -246,7 +250,7 @@ func (s *Sources) warnInvalidLayer(b *config.Builder, data []byte, configPath st
 		return
 	}
 	for _, w := range classifyValidationError(configPath, s.validator, verr) {
-		b.Warn(w.Kind, "%s", w.Text)
+		b.AddWarning(w)
 	}
 	zap.L().Warn("config_validation_warning", zap.String("path", configPath), zap.Error(verr))
 }

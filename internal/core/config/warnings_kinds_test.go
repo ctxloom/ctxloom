@@ -21,6 +21,7 @@ var allWarningKinds = []WarningKind{
 	WarnKindRead,
 	WarnKindParse,
 	WarnKindValidate,
+	WarnKindSchemaViolation,
 	WarnKindUnknownKey,
 	WarnKindMigrationLossy,
 	WarnKindEnginelessAgent,

@@ -115,18 +115,6 @@ func TestLoad_UnknownKeyInAnyOfBranch_StillSuggests(t *testing.T) {
 	}
 }
 
-// A schema violation that is NOT an unknown key (a bad enum, a wrong type) keeps
-// its old kind and its raw text: this change narrows the unknown-key case out of
-// config.WarnKindValidate, it does not swallow the rest.
-func TestLoad_NonUnknownKeySchemaError_StaysValidateKind(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 7\nagents:\n  a:\n    llm: e\n    permissions:\n      sandbox: nonsense\n")
-
-	assert.Empty(t, unknownKeyWarnings(cfg), "a bad enum is not an unknown key")
-	require.Len(t, cfg.GetWarnings(), 1)
-	assert.Equal(t, config.WarnKindValidate, cfg.GetWarnings()[0].Kind)
-	assert.Contains(t, cfg.GetWarnings()[0].Text, "config validation warning")
-}
-
 // A valid current config must stay silent — a strictness gate that cries wolf on
 // good configs is worse than no gate.
 func TestLoad_ValidConfig_NoWarnings(t *testing.T) {
@@ -243,11 +231,16 @@ func TestLoad_UnknownKeyInAnyOfBranch_ReportedOnceWithoutBranchNoise(t *testing.
 
 // The suppression above must not be able to hide a real problem. A config whose
 // ONLY fault sits inside a branch — a valid backend with a bad value — has no
-// unknown keys at all, so it still reports the raw validation error.
+// unknown keys at all, so it is reported as a schema violation at the bad
+// value's own key: the alternative whose discriminator held is the shape the
+// entry IS, so its failure is the defect.
 func TestLoad_NonUnknownKeyFaultInsideAnyOfBranch_StillReported(t *testing.T) {
 	cfg := loadYAML(t, "schema_version: 7\nllm:\n  configs:\n    big:\n      type: claude-code\n      args: 12\n")
 
 	assert.Empty(t, unknownKeyWarnings(cfg), "a wrong-typed value is not an unknown key")
-	require.NotEmpty(t, cfg.GetWarnings(), "a fault inside a branch must still be reported")
-	assert.Equal(t, config.WarnKindValidate, cfg.GetWarnings()[0].Kind)
+	got := schemaViolations(t, cfg)
+	require.Len(t, got, 1, "a fault inside a branch must still be reported, once: %+v", cfg.GetWarnings())
+	assert.Equal(t, "llm.configs.big.args", got[0].KeyPath)
+	assert.Equal(t, "array", got[0].Expected)
+	assert.Equal(t, "number", got[0].Got)
 }

@@ -63,9 +63,14 @@ it. Pass `--write-upgrades` to any command to persist it (the previous file
 is kept beside it as `<file>.bak`).
 
 A key the config schema does not describe fails every command that reads the
-config, naming the key and the keys its section does know. Under
-`--degraded` (or `CTXLOOM_DEGRADED=1`) the config loads best-effort: the key
-is warned about and ignored.
+config, naming the key and the keys its section does know. So does a value the
+schema refuses — the wrong type, outside its allowed values, or an
+`llm.configs` entry matching no backend's shape — named by file, dotted key
+path and the type the schema expected (or the rule the value broke). Until
+now such a value drew only a warning and the command ran on it. Under
+`--degraded` (or `CTXLOOM_DEGRADED=1`) the config loads best-effort: each is
+warned about, the unknown key is ignored and the refused value is loaded as
+written.
 
 ## 3. The config-level `hooks:` block is gone
 
@@ -489,7 +494,8 @@ Grouped by what you would have to change.
 **Backends**
 - The `gemini` and `codex` backends are removed, with no replacement.
   `claude-code` is the only engine. A config entry still typed `gemini` or
-  `codex` draws a config-schema warning when the config loads and
+  `codex` breaks the config schema, so every command that reads the config
+  refuses it (see section 2); under `--degraded` it is a warning, and
   `unknown LLM backend type "<type>"` where it would be used; the entry cannot
   run.
 - `taskloom` and `ltk` ship as bundled companions.

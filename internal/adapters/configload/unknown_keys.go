@@ -44,12 +44,35 @@ func fromBranchAlternative(leaf *jsonschema.ValidationError) bool {
 	return branchAlternativeRe.MatchString(leaf.KeywordLocation)
 }
 
+// typeMismatchRe parses a jsonschema `type` violation ("expected string, but
+// got number"; a multi-type schema joins its types with " or ").
+var typeMismatchRe = regexp.MustCompile(`^expected (.+), but got (.+)$`)
+
+// branchPointRe matches the keyword location of an anyOf/oneOf node itself
+// (".../anyOf"), as opposed to one of its alternatives (".../anyOf/3/...").
+var branchPointRe = regexp.MustCompile(`/(anyOf|oneOf)$`)
+
+// noAlternativeMatched is the constraint reported for an entry that matches
+// none of the shapes an anyOf/oneOf allows: the per-alternative failures
+// describe the shapes it is NOT, so none of them is the defect on its own.
+const noAlternativeMatched = "matches none of the shapes the schema allows here"
+
+// typeKeyword ends the keyword location of a type mismatch; constKeyword and
+// enumKeyword those of the value checks a branching schema discriminates on;
+// discriminatorKey ends the instance location of the property it
+// discriminates by (an llm.configs.<label> entry's backend is its `type`).
+const (
+	typeKeyword      = "/type"
+	constKeyword     = "/const"
+	enumKeyword      = "/enum"
+	discriminatorKey = "/type"
+)
+
 // classifyValidationError turns a schema validation failure into load warnings:
-// one config.WarnKindUnknownKey per unknown key (named, suggested, de-retired), plus a
-// single config.WarnKindValidate carrying the raw error when the document ALSO breaks
-// the schema in some other way (a bad enum, a wrong type). A failure with no
-// recognizable unknown-key cause degrades to today's behavior verbatim: one
-// config.WarnKindValidate with the original text.
+// one config.WarnKindUnknownKey per unknown key (named, suggested, de-retired),
+// plus one config.WarnKindSchemaViolation per key that breaks the schema some
+// other way (a wrong type, a bad enum), carrying a typed *config.SchemaViolation
+// that names the file, the dotted key path and the expected type.
 //
 // Both of those counts are per DEFECT, not per schema leaf, and a branching
 // schema does not report them one-to-one. An object behind an anyOf is
@@ -58,30 +81,127 @@ func fromBranchAlternative(leaf *jsonschema.ValidationError) bool {
 // backend branch — seven identical warnings for one typo — and the branches
 // whose discriminator did not match contribute a `const` failure each, which
 // used to raise the "something else is also wrong" flag and append a raw
-// jsonschema dump blaming a `type:` the user got RIGHT. Hence the two rules
-// below: unknown keys are deduplicated by (instance location, key), and a
-// leaf from a rejected alternative does not count as a second defect.
+// jsonschema dump blaming a `type:` the user got RIGHT. Hence the rules
+// below: unknown keys are deduplicated by (instance location, key), violations
+// by key path, and a leaf from a rejected alternative does not count as a
+// defect of its own.
 //
 // Suppressing branch failures cannot hide a real one: a document whose ONLY
-// problem is inside a branch produces no unknown-key warnings at all, and the
-// empty-warnings case still emits the raw error verbatim.
+// problem is inside a branch — an entry matching none of the alternatives —
+// produces no other warning, and is reported as one violation at the entry
+// the anyOf governs.
 func classifyValidationError(configPath string, validator *schema.ConfigValidator, err error) []config.Warning {
 	var ve *jsonschema.ValidationError
 	if !errors.As(err, &ve) {
-		return []config.Warning{{Kind: config.WarnKindValidate, Text: fmt.Sprintf("config validation warning at %s: %v", configPath, err)}}
+		return []config.Warning{schemaViolationWarning(&config.SchemaViolation{File: configPath, Constraint: err.Error()})}
 	}
 
 	r := unknownKeyReport{configPath: configPath, validator: validator, reported: map[string]bool{}}
-	var other bool
+	v := violationReport{reported: map[string]bool{}}
 	for _, leaf := range leafCauses(ve) {
 		if r.add(leaf) {
-			other = true
+			v.add(leaf.InstanceLocation, leafViolation(configPath, leaf))
 		}
 	}
-	if len(r.warnings) == 0 || other {
-		r.warnings = append(r.warnings, config.Warning{Kind: config.WarnKindValidate, Text: fmt.Sprintf("config validation warning at %s: %v", configPath, err)})
+	if len(r.warnings) == 0 && len(v.warnings) == 0 {
+		for _, node := range branchPoints(ve) {
+			v.addBranch(configPath, node)
+		}
 	}
-	return r.warnings
+	return append(r.warnings, v.warnings...)
+}
+
+// addBranch reports an anyOf/oneOf entry that matched none of its
+// alternatives. When exactly one alternative's discriminator held (no failure
+// at its `type` — the entry IS that shape, with a bad value inside), that
+// alternative's own failures are the defects, named at their own keys.
+// Otherwise the entry is the defect, reported once where the anyOf governs.
+func (v *violationReport) addBranch(configPath string, node *jsonschema.ValidationError) {
+	if alt := soleMatchingAlternative(node); alt != nil {
+		for _, leaf := range leafCauses(alt) {
+			if len(unknownKeysIn(leaf.Message)) == 0 {
+				v.add(leaf.InstanceLocation, leafViolation(configPath, leaf))
+			}
+		}
+		if len(v.warnings) > 0 {
+			return
+		}
+	}
+	v.add(node.InstanceLocation, &config.SchemaViolation{
+		File: configPath, KeyPath: dottedPath(node.InstanceLocation), Constraint: noAlternativeMatched,
+	})
+}
+
+// soleMatchingAlternative returns the one alternative of a branch node whose
+// failures include no discriminator failure, or nil when there is not exactly
+// one.
+func soleMatchingAlternative(node *jsonschema.ValidationError) *jsonschema.ValidationError {
+	var match *jsonschema.ValidationError
+	for _, alt := range node.Causes {
+		if slices.ContainsFunc(leafCauses(alt), isDiscriminatorFailure) {
+			continue
+		}
+		if match != nil {
+			return nil
+		}
+		match = alt
+	}
+	return match
+}
+
+// isDiscriminatorFailure reports whether a leaf rejects the entry's
+// discriminating property (a `const` or `enum` failure at its `type`) — how a
+// branching schema tells its alternatives apart. A const/enum failure on any
+// other property is a bad value inside the shape the entry IS.
+func isDiscriminatorFailure(leaf *jsonschema.ValidationError) bool {
+	valueCheck := strings.HasSuffix(leaf.KeywordLocation, constKeyword) || strings.HasSuffix(leaf.KeywordLocation, enumKeyword)
+	return valueCheck && strings.HasSuffix(leaf.InstanceLocation, discriminatorKey)
+}
+
+// violationReport accumulates one schema-violation warning per key path: a
+// value that fails two keywords (a type and an enum) is one defect.
+type violationReport struct {
+	reported map[string]bool
+	warnings []config.Warning
+}
+
+func (v *violationReport) add(instanceLocation string, violation *config.SchemaViolation) {
+	if v.reported[instanceLocation] {
+		return
+	}
+	v.reported[instanceLocation] = true
+	v.warnings = append(v.warnings, schemaViolationWarning(violation))
+}
+
+// schemaViolationWarning wraps a violation as the warning that carries it.
+func schemaViolationWarning(v *config.SchemaViolation) config.Warning {
+	return config.Warning{Kind: config.WarnKindSchemaViolation, Text: v.Error(), Cause: v}
+}
+
+// leafViolation renders one non-unknown-key leaf as a typed violation: a type
+// mismatch names the expected and actual types, anything else the constraint
+// the validator states.
+func leafViolation(configPath string, leaf *jsonschema.ValidationError) *config.SchemaViolation {
+	out := &config.SchemaViolation{File: configPath, KeyPath: dottedPath(leaf.InstanceLocation)}
+	if m := typeMismatchRe.FindStringSubmatch(leaf.Message); m != nil && strings.HasSuffix(leaf.KeywordLocation, typeKeyword) {
+		out.Expected, out.Got = m[1], m[2]
+		return out
+	}
+	out.Constraint = leaf.Message
+	return out
+}
+
+// branchPoints returns the outermost anyOf/oneOf nodes in the error tree —
+// the entries that matched none of their alternatives.
+func branchPoints(ve *jsonschema.ValidationError) []*jsonschema.ValidationError {
+	if branchPointRe.MatchString(ve.KeywordLocation) {
+		return []*jsonschema.ValidationError{ve}
+	}
+	var out []*jsonschema.ValidationError
+	for _, c := range ve.Causes {
+		out = append(out, branchPoints(c)...)
+	}
+	return out
 }
 
 // unknownKeyReport accumulates one unknown-key warning per (location, key).

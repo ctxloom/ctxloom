@@ -50,6 +50,12 @@ func (b *Builder) Warn(k WarningKind, format string, args ...any) {
 	b.cfg.warn(k, format, args...)
 }
 
+// AddWarning records a warning the reader built itself — one that carries a
+// typed Cause, which Warn's format-string form cannot.
+func (b *Builder) AddWarning(w Warning) {
+	b.cfg.warnings = append(b.cfg.warnings, w)
+}
+
 // Decode populates the value from the merged, override-resolved document.
 // It goes through YAML rather than a map walk so the value decodes exactly
 // as ParseConfig decodes a single file (case-preserving keys, the same

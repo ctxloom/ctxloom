@@ -150,6 +150,10 @@ func TestLLMList_DegradedConfigAuthorsNothing(t *testing.T) {
 // container story) renders host and nothing else, WITH the reason — a shorter
 // menu on its own would read as ctxloom having an opinion about containers.
 func TestRunLLMList_TextWithholdsContainerForEngineWithoutAuthAndSaysWhy(t *testing.T) {
+	// "acp" is not a registered engine, so no config can name it validly:
+	// the schema refuses the entry. That is the point of the fixture — no
+	// valid backend lacks a container story — so the config loads degraded.
+	t.Setenv("CTXLOOM_DEGRADED", "1")
 	agentProject(t, "schema_version: 7\nllm:\n  configs:\n    editor: { type: acp }\n")
 	cmd, out := textCmd()
 	require.NoError(t, runLLMList(cmd, nil))
@@ -178,6 +182,10 @@ func TestRunLLMList_TextOffersBothContainerAxesForAnAuthedEngine(t *testing.T) {
 // `--format json`) consults instead of carrying its own list of "engines that
 // support containers".
 func TestRunLLMList_JSONCarriesTheRuntimeOffer(t *testing.T) {
+	// "acp" is not a registered engine, so no config can name it validly:
+	// the schema refuses the entry. That is the point of the fixture — no
+	// valid backend lacks a container story — so the config loads degraded.
+	t.Setenv("CTXLOOM_DEGRADED", "1")
 	agentProject(t, "schema_version: 7\nllm:\n  configs:\n    editor: { type: acp }\n")
 	cmd, out := textCmd()
 	cmd.Flags().String("format", formatText, "")

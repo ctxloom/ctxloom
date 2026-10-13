@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -97,6 +98,10 @@ func purgeCutoff(flag string, now time.Time) (time.Time, error) {
 		return parseAgeBound("--purge-older-than", flag, now)
 	}
 	cfg, err := GetConfig()
+	if errors.As(err, new(configRefusedError)) {
+		// Refused, not unreadable: see reclaimCutoff.
+		return time.Time{}, err
+	}
 	if err != nil {
 		clidiag.Warn("ctxloom", "config could not be loaded (%v); no session_purge_age applies, so nothing is purged", err)
 		return time.Time{}, nil

@@ -21,7 +21,7 @@ For example, `auth` can be set via `CTXLOOM_CONFIG_AUTH=<value>` or `--config-se
 
 ## Top-Level Fields
 
-Schema for ctxloom config.yaml files
+Schema for ctxloom config.yaml files. A file that breaks it — a key it does not describe, or a value of the wrong type or outside its allowed values — fails every command that reads the config, naming the file, the key's dotted path and what was expected; --degraded (or CTXLOOM_DEGRADED=1) loads it best-effort with a warning instead.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -219,6 +219,36 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
 | `role` | string | Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime. Allowed values: `primary`, `fast`. |
 | `type` | string | Must be `mock`. |
+
+#### mock-lossy
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mock_control` | map → string | The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment. |
+| `model` | string |  |
+| `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
+| `role` | string | Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime. Allowed values: `primary`, `fast`. |
+| `type` | string | Must be `mock-lossy`. |
+
+#### mock-launch
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mock_control` | map → string | The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment. |
+| `model` | string |  |
+| `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
+| `role` | string | Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime. Allowed values: `primary`, `fast`. |
+| `type` | string | Must be `mock-launch`. |
+
+#### mock-noskills
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mock_control` | map → string | The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment. |
+| `model` | string |  |
+| `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
+| `role` | string | Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime. Allowed values: `primary`, `fast`. |
+| `type` | string | Must be `mock-noskills`. |
 
 ### neutralPermissions
 

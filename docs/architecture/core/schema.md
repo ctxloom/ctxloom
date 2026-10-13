@@ -18,9 +18,11 @@ dependency reaches the production binary.
 
 ### Non-responsibilities
 
-- Turning validation errors into user-facing warnings — `internal/core/config/unknown_keys.go`
-  (`classifyValidationError`); see [config.md](./config.md).
-- Deciding what to do about an unknown key — `internal/shared/confload` and the strictness layer.
+- Turning validation errors into user-facing warnings — `internal/adapters/configload/unknown_keys.go`
+  (`classifyValidationError`: a `WarnKindUnknownKey` per unknown key, a `WarnKindSchemaViolation`
+  carrying a typed `config.SchemaViolation` per other violation); see [config.md](./config.md).
+- Deciding what to do about a violation — the CLI's `configRefusal` (refuses, unless `--degraded`)
+  and the strictness layer.
 - Authoring the schemas — `resources/schema/input/*.json` (hand-maintained, three files).
 
 ### Data flow
@@ -37,7 +39,7 @@ flowchart TD
 
     VB -->|"yaml.Unmarshal"| CJ["convertToJSON :132"]
     CJ --> JSV["schema.Validate"]
-    JSV -.->|"*ValidationError"| CFG["config.classifyValidationError<br/>-> WarnKindUnknownKey"]
+    JSV -.->|"*ValidationError"| CFG["configload.classifyValidationError<br/>-> WarnKindUnknownKey / WarnKindSchemaViolation"]
 
     KP -->|per segment| SC["schemaChild(s, key) :105"]
     SC --> RSR["resolveSchemaRef :96<br/>(follows the .Ref chain)"]

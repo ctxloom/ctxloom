@@ -165,8 +165,9 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 
 // prepareLaunch refuses missing deps and a foreign engine, opens a container
 // cell's roots at their Engine side, and binds the session to the engine
-// (whose Instance refusal passes through; a Structured launch needs a
-// driver).
+// (launch.Launch.Instance: a tool-less launch through the engine's own
+// engine.ToolLess, refused on a kind that does not implement it; the
+// engine's refusal passes through; a Structured launch needs a driver).
 func prepareLaunch(deps Deps, l launch.Launch) (launch.Launch, engine.Instance, error) {
 	if deps.Driver == nil {
 		return l, nil, ErrNoDriver
@@ -196,7 +197,7 @@ func prepareLaunch(deps Deps, l launch.Launch) (launch.Launch, engine.Instance, 
 	if l.Engine != hosted {
 		return l, nil, fmt.Errorf("%w: hosts %q, launch names %q", ErrWrongEngine, hosted, l.Engine)
 	}
-	inst, err := deps.Kind.Instance(l.Session())
+	inst, err := l.Instance(deps.Kind)
 	if err != nil {
 		return l, nil, err
 	}

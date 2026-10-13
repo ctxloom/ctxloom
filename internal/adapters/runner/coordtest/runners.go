@@ -30,6 +30,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -297,6 +298,21 @@ type recordingKind struct {
 
 func (k recordingKind) Instance(s engine.Session) (engine.Instance, error) {
 	inst, err := k.Engine.Instance(s)
+	if err != nil {
+		return nil, err
+	}
+	return recordingInstance{Instance: inst, rec: k.rec}, nil
+}
+
+// ToolLess binds a tool-less session through the real kind's marker,
+// wrapped to record like Instance; a kind without the marker refuses it, as
+// the runner would.
+func (k recordingKind) ToolLess(s engine.Session) (engine.Instance, error) {
+	tl, ok := k.Engine.(engine.ToolLess)
+	if !ok {
+		return nil, launch.ErrToolLessUnsupported
+	}
+	inst, err := tl.ToolLess(s)
 	if err != nil {
 		return nil, err
 	}

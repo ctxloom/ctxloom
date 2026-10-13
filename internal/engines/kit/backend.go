@@ -103,6 +103,7 @@ func (b *ProjectedBackend) Execute(ctx context.Context, req *agent.ExecuteReques
 	if err != nil {
 		return nil, err
 	}
+	defer ReleaseSocketRoot(b.SessionFor(req))
 	b.SetExecuteEnv(func(*agent.ExecuteRequest) map[string]string { return ex.Env })
 	var oneshotStdin io.Reader
 	if req.Mode == agent.ModeOneshot {

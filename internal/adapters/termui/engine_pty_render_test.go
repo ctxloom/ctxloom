@@ -195,7 +195,7 @@ func TestEnginePTYRender_OverlayOverARealEngineReleasesToItsScreen(t *testing.T)
 
 	h.key(string([]byte{compPrefix}))
 	awaitWatch(t, h.watches, renderHarps[0])
-	h.screenWhen("the panel", panel(15, 22))
+	judge(t, h.settled(), panel(15, 22))
 
 	since := len(h.tty.String())
 	h.key("q")
@@ -211,7 +211,7 @@ func TestEnginePTYRender_AltScreenEngineRepaintsUnderThePanelOnTheNudge(t *testi
 
 	h.key(string([]byte{compPrefix}))
 	awaitWatch(t, h.watches, renderHarps[0])
-	h.screenWhen("the panel over the engine", func(t tb, e *vtemu.Screen) {
+	judge(t, h.settled(), func(t tb, e *vtemu.Screen) {
 		assert.True(t, e.OnAltScreen(), "still the engine's screen")
 		assertPanel(t, e, 15, 22)
 	})
@@ -221,7 +221,7 @@ func TestEnginePTYRender_AltScreenEngineRepaintsUnderThePanelOnTheNudge(t *testi
 	fullscreenBack(t, h.repainted(since))
 }
 
-// fullscreenBack is a screenWhen check: a full-screen engine has its own
+// fullscreenBack is a screen check: a full-screen engine has its own
 // screen again, every row repainted, with the bar back.
 func fullscreenBack(t tb, e *vtemu.Screen) {
 	t.Helper()

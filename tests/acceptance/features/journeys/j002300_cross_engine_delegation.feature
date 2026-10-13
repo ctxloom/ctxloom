@@ -241,6 +241,51 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
     Examples:
       | engine   | marker                                    |
       | opencode | J002300-DELEGATE-MARKER-OPENCODE-6e1b3f52 |
+
+  # THE AGENT_SEND CELL — the floor above, held to the stricter channel.
+  #
+  # WHY THE FLOOR ALONE DOES NOT PROVE agent_send. Two paths carry a child's
+  # words to its coordinator's spool, both as messages from the child's harp:
+  # the child's own agent_send, and its runner's automatic turn report, which
+  # carries whatever the model SAID (runner.Home.ReportTurnResult). A model
+  # that answers "the marker is X" in text, calling no tool, lands X in the
+  # mailbox through the report, and the floor's assertion — the marker bytes
+  # in any body from the child — passes. The floor is left exactly as it is:
+  # it is the bus proof, and it is meant to hold whichever path carried the
+  # words.
+  #
+  # WHAT TELLS THE PATHS APART, with no product change. The runner marks every
+  # automatic report in its structured companion (coord.AutoReportStructured,
+  # the `auto_report` key), and a child that sent its parent anything during a
+  # turn gets no automatic report for that turn at all. The kind does NOT tell
+  # them apart: a report is result-kind, and an agent_send caller picks its own
+  # kind. So this cell passes ONLY on an UNMARKED body from the child carrying
+  # the marker — a message the child chose to send — and fails at once when
+  # the marker arrives in a marked report instead (j002300ScanSends).
+  #
+  # ACCEPTED COST (owner ruling 2026-10-12): one more paid turn per live lane,
+  # and this cell can flake when the model answers in text instead of calling
+  # the tool. That flake is exactly what it measures, and it is isolated from
+  # the bus proof above, which stays green either way.
+  #
+  # Address it alone with
+  #   ACCEPTANCE_TAGS="@live && @delegation-agent-send && @claude-code"
+  # `just live-delegation <engine>` runs it beside the floor.
+  @live @delegation @delegation-agent-send
+  Scenario Outline: A delegated child on a real <engine> sends its coordinator, by agent_send, a marker only its own composed context could supply
+    Given a real "<engine>" engine is available for a delegated child carrying marker "<marker>"
+    And a session owner is standing
+    When the agent calls tool "agent_run" with:
+      | role         | delegate |
+      | input.prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
+    Then the tool call succeeds
+    And "delegate"'s session harp is remembered
+    And the coordinator's own spool receives "<marker>" in an agent_send body from "delegate", not in its automatic turn report
+
+    @claude-code
+    Examples:
+      | engine      | marker                                   |
+      | claude-code | J002300-SEND-MARKER-CLAUDE-CODE-7f3a90c2 |
   # P6 — THE STEER ECHO. Capability-probe ladder rung p6-steer-echo
   # (tests/acceptance/capability_probe_registry.go), living here rather than in a
   # file of its own because it extends this journey's machinery rather than

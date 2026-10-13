@@ -288,24 +288,26 @@ type testRunner struct {
 	refuse func() bool
 	// approval, when set, is the approval route the drive serves.
 	approval *approvalSpec
+	// findings is what the launch reports, relayed on the StartRun answer.
+	findings report.Findings
 }
 
-func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) error {
+func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) (report.Findings, error) {
 	l, err := coordgrpc.DecodeLaunch(wire)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if r.refuse != nil && r.refuse() {
-		return delivery.ErrEndpointUnavailable
+		return nil, delivery.ErrEndpointUnavailable
 	}
 	if _, err := composite.Open(ctx, composite.Inline{}, composite.ClaimCheck{Store: launchtest.MemStore{}}, l.Package); err != nil {
-		return err
+		return nil, err
 	}
 	ex, err := r.inst.Exec(nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return r.eh.Drive(ctx, Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: l.Prompt, approval: r.approval})
+	return r.findings, r.eh.Drive(ctx, Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: l.Prompt, approval: r.approval})
 }
 
 // newTestEngineHost is NewEngineHost with the test runner bound over the

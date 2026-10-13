@@ -2,8 +2,11 @@ package launch
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"maps"
+	"os"
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
@@ -69,6 +72,14 @@ type Deps struct {
 	// established for a run that could not authenticate. Nil skips it (a
 	// preview, whose findings gate reports the same refusal).
 	CheckCredential func(backend string, mode engine.AuthMode) error
+	// ProbeVersion reports the version of the binary a resolved launch spawns:
+	// engine at binary (the label's binary_path; "" is the engine's own
+	// install). Resolve never calls it; the host's StartRun records what it
+	// says against the minted harp once the launch resolves, because only the
+	// resolved launch knows which binary that is, and a session with no
+	// recorded version has a transcript nothing will read back. Nil records
+	// nothing (a preview).
+	ProbeVersion func(ctx context.Context, engine, binary string) (string, error)
 	// Reporter receives the diagnostics opening a launch raises (the delivery
 	// preference the engine cannot honour, the packages a writer skips); the
 	// composition chooses the sink. Nil discards.
@@ -153,11 +164,32 @@ func SessionHome(sessionDir string, eng engine.Engine, m agents.HomeMode) (dir s
 	if m == agents.HomeModeHost || sessionDir == "" {
 		return "", false
 	}
-	leaf := string(eng.Root().Name)
+	return filepath.Join(sessionDir, paths.SessionEngineHomesDirName, homeLeaf(eng)), true
+}
+
+// homeLeaf is the leaf eng's session home sits at below the homes dir: the
+// declared subdir for an engine that relocates its home, else its name.
+func homeLeaf(eng engine.Engine) string {
 	if home := eng.Home(); home.Relocates() {
-		leaf = home.Vars[0].Subdir
+		return home.Vars[0].Subdir
 	}
-	return filepath.Join(sessionDir, paths.SessionEngineHomesDirName, leaf), true
+	return string(eng.Root().Name)
+}
+
+// HistoryStores maps each session-home leaf (SessionHome) of reg's engines
+// that keep a history store to that store, relative to the home
+// (engine.HomeSpec.TranscriptStoreRel, a slash path): what the reap and the
+// coordinator's close adopt into native/ (sessions.UseHistoryStores), so a
+// store nested below a further home var moves alone, not with its siblings.
+func HistoryStores(reg engine.Registry) map[string]string {
+	out := map[string]string{}
+	for _, n := range reg.Names(nil) {
+		eng, _ := reg.Lookup(n)
+		if rel := eng.Home().TranscriptStoreRel; rel != "" {
+			out[homeLeaf(eng)] = rel
+		}
+	}
+	return out
 }
 
 // NativeHome is where a session keeps eng's NATIVE conversation history:
@@ -390,7 +422,39 @@ func (l Launch) Session() engine.Session {
 		Identity: l.Identity, Label: l.Label, Mode: l.Mode, Permission: l.Permission,
 		Roots: l.Cell.Paths.Paths(), WorkDir: l.Cell.Paths.Paths().ProjectRoot.Engine, Home: l.Home, MCP: l.MCP,
 		Prompt: l.Prompt, Resume: l.Resume, Env: l.Env, Trust: l.Trust,
+		SocketRoot: SocketRoot(l.Cell.Paths.Paths().SessionHome.Engine),
 	}
+}
+
+// SocketRoot is the short socket root (engine.Session.SocketRoot) of the
+// session whose home the engine sees at sessionHome, read in the process
+// that computes it: the runner, beside the engine, so the base is the one
+// the engine's own filesystem has (a container's /tmp in a container). ""
+// for no session home.
+func SocketRoot(sessionHome string) string {
+	return socketRoot(os.Getenv, os.TempDir, sessionHome)
+}
+
+// socketRoot is SocketRoot over its environment: <base>/ctxloom-<16 hex of
+// the home's sha256>. The base is the first of the user's runtime dir
+// ($XDG_RUNTIME_DIR, per-user and owner-only), the temp dir and /tmp that
+// leaves room for a SocketLeafMax leaf within SocketPathBudget; the name's
+// length is fixed, so how deep the home nests never matters.
+func socketRoot(getenv func(string) string, tempDir func() string, sessionHome string) string {
+	if sessionHome == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(sessionHome))
+	name := "ctxloom-" + hex.EncodeToString(sum[:8])
+	room := engine.SocketPathBudget - len(name) - engine.SocketLeafMax - 2
+	base := "/tmp"
+	for _, b := range []string{getenv("XDG_RUNTIME_DIR"), tempDir()} {
+		if b != "" && len(b) <= room {
+			base = b
+			break
+		}
+	}
+	return filepath.Join(base, name)
 }
 
 // Discard tears the cell down. Safe on a zero Launch.

@@ -134,7 +134,7 @@ func commonFlags() []agent.CLIFlag {
 		{Name: flagSkipPermissions, Value: agent.ValueNone,
 			Note: "PermissionBypass; the blanket skip"},
 		{Name: flagDisallowedTools, Value: agent.ValueString,
-			Note: "ONE comma-joined value token (Bash,Edit,Write,NotebookEdit), not repeated flags; plan posture only"},
+			Note: "ONE comma-joined value token, not repeated flags: plan posture's belt (Bash,Edit,Write,NotebookEdit) and a delegated child's built-in peer messaging (SendMessage,ListAgents)"},
 		{Name: flagAllowedTools, Value: agent.ValueString,
 			Note: "ONE comma-joined value token of mcp__ctxloom__* grants; plan posture only. VARIADIC in claude's parser like --disallowedTools, so it must never be the last flag before a positional"},
 		{Name: flagModel, Value: agent.ValueString},

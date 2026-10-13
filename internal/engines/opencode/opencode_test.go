@@ -1,7 +1,6 @@
 package opencode
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -267,8 +266,7 @@ func TestFacts(t *testing.T) {
 	e, err := Build()
 	require.NoError(t, err)
 	_, err = e.Container()
-	var unsupported engine.ErrUnsupported
-	require.True(t, errors.As(err, &unsupported))
+	require.NoError(t, err, "the container install is provided: no pin can be missing")
 	_, approvals := e.Approvals().Get()
 	assert.True(t, e.Approvals().Decided())
 	assert.False(t, approvals, "approvals are declared absent")

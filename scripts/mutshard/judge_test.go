@@ -114,16 +114,28 @@ func TestJudge_AShardWithNoTestedMutantsIsFineIfItLooked(t *testing.T) {
 	}
 }
 
-// Nothing killed across a union that HAS in-scope mutants is 0% — refused, as
-// gremlins refuses it. A union whose only in-scope mutant went uncovered is
-// not "nothing to judge".
-func TestJudge_NothingKilledAnywhereIsRefused(t *testing.T) {
+// NOTHING SCORED IS NOTHING TO JUDGE (owner ruling #34, 2026-10-12, which
+// reverses the 2026-10-06 choice to refuse it). A union with no KILLED and no
+// LIVED mutant has no efficacy to measure — its in-scope mutants all went
+// uncovered, timed out or were not viable — so it passes, whatever the
+// thresholds; the coverage gates still judge the uncovered lines. One that has
+// a survivor and no kill is still 0% and refused.
+func TestJudge_NothingKilledOrLivedAnywherePasses(t *testing.T) {
 	reports := []report{
-		rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"a.go", statusNotCovered, 1})),
-		rep(1, 2, twoShards[1], gremlinsJSON(t, mut{"b.go", statusSkipped, 1})),
+		rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"a.go", statusNotCovered, 1}, mut{"a.go", statusTimedOut, 2})),
+		rep(1, 2, twoShards[1], gremlinsJSON(t, mut{"b.go", statusNotViable, 1}, mut{"b.go", statusSkipped, 2})),
 	}
+	got, err := judge(twoShards, testStamp, reports, thresholds{efficacy: 80, mutantCoverage: 70})
+	if err != nil {
+		t.Fatalf("err = %v, want pass: nothing was killed or lived", err)
+	}
+	if got.notCovered != 1 || got.timedOut != 1 || got.notViable != 1 || got.skipped != 1 {
+		t.Errorf("tally = %+v, want 1 not covered / 1 timed out / 1 not viable / 1 skipped", got)
+	}
+
+	reports[1] = rep(1, 2, twoShards[1], gremlinsJSON(t, mut{"b.go", statusLived, 1}))
 	if _, err := judge(twoShards, testStamp, reports, thresholds{efficacy: 80}); !errors.Is(err, errEfficacy) {
-		t.Errorf("err = %v, want errEfficacy", err)
+		t.Errorf("a survivor and no kill: err = %v, want errEfficacy", err)
 	}
 }
 
@@ -140,14 +152,15 @@ func TestJudge_ZeroInScopeMutantsInAFullyCheckedUnionPasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v, want pass: nothing in scope to judge", err)
 	}
-	if got.inScope() != 0 || got.skipped != 2 {
-		t.Errorf("tally = %+v, want 0 in scope / 2 skipped", got)
+	if got != (tally{skipped: 2}) {
+		t.Errorf("tally = %+v, want 2 skipped and nothing else", got)
 	}
 }
 
-// Zero in scope passes ONLY over a union every shard vouched for. Without
+// Nothing scored passes ONLY over a union every shard vouched for. Without
 // that, "nothing to mutate" is indistinguishable from a broken plan or a
-// shard that never ran.
+// shard that never ran. A lone timed-out or not-viable mutant is nothing
+// scored, and passes over a vouched-for union (ruling #34).
 func TestJudge_ZeroInScopeIsRefusedWithoutEveryShardsEvidence(t *testing.T) {
 	skippedOnly := gremlinsJSON(t, mut{"other.go", statusSkipped, 1})
 	cases := []struct {
@@ -160,8 +173,8 @@ func TestJudge_ZeroInScopeIsRefusedWithoutEveryShardsEvidence(t *testing.T) {
 		{"a shard never reported a gremlins run", twoShards, []report{rep(0, 2, twoShards[0], skippedOnly), rep(1, 2, twoShards[1], nil)}, errMeasuredNothing},
 		{"gremlins walked nothing", twoShards, []report{rep(0, 2, twoShards[0], skippedOnly), rep(1, 2, twoShards[1], gremlinsJSON(t))}, errMeasuredNothing},
 		{"no shard was given anything to look at", [][]string{nil, nil}, []report{rep(0, 2, nil, nil), rep(1, 2, nil, nil)}, errEfficacy},
-		{"the only in-scope mutant timed out", twoShards, []report{rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"a.go", statusTimedOut, 1})), rep(1, 2, twoShards[1], skippedOnly)}, errEfficacy},
-		{"the only in-scope mutant was not viable", twoShards, []report{rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"a.go", statusNotViable, 1})), rep(1, 2, twoShards[1], skippedOnly)}, errEfficacy},
+		{"the only in-scope mutant timed out", twoShards, []report{rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"a.go", statusTimedOut, 1})), rep(1, 2, twoShards[1], skippedOnly)}, nil},
+		{"the only in-scope mutant was not viable", twoShards, []report{rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"a.go", statusNotViable, 1})), rep(1, 2, twoShards[1], skippedOnly)}, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -172,16 +185,18 @@ func TestJudge_ZeroInScopeIsRefusedWithoutEveryShardsEvidence(t *testing.T) {
 	}
 }
 
-// The pass over an empty scope says so, rather than printing a 0.00% efficacy
-// beside a green verdict.
-func TestReportVerdict_SaysNothingWasInScope(t *testing.T) {
+// The pass over a union with nothing scored says so, and prints the counts
+// that were not scored, rather than a 0.00% efficacy beside a green verdict.
+func TestReportVerdict_SaysNothingWasScoredAndCountsTheRest(t *testing.T) {
 	var out bytes.Buffer
-	reportVerdict(&out, 2, scope{base: "origin/main"}, tally{skipped: 5}, nil)
-	if !strings.Contains(out.String(), msgNothingInScope) {
-		t.Errorf("output = %q, want it to carry %q", out.String(), msgNothingInScope)
+	reportVerdict(&out, 2, scope{base: "origin/main"}, tally{notCovered: 2, timedOut: 3, notViable: 4, skipped: 5}, nil)
+	for _, want := range []string{msgNothingScored, "Not covered: 2", "Timed out: 3", "Not viable: 4", "Skipped: 5"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output = %q, want it to carry %q", out.String(), want)
+		}
 	}
 	if strings.Contains(out.String(), "efficacy") {
-		t.Errorf("output = %q, want no efficacy figure for an empty scope", out.String())
+		t.Errorf("output = %q, want no efficacy figure when nothing was scored", out.String())
 	}
 }
 

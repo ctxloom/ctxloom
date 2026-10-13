@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
@@ -108,11 +109,26 @@ func startOwnedRun(ctx context.Context, c *coord.Coordinator, spec ownedRunLaunc
 		cancel()
 		return nil, err
 	}
+	relayRunnerFindings(App().Reporter, outcome.Findings)
 	narrow(outcome.RunID)
 	stop := make(chan struct{})
 	var stopOnce sync.Once
 	end := func() { stopOnce.Do(func() { cancel(); close(stop) }) }
 	return &ownedRunSession{coord: c, outcome: outcome, events: wireEvents(events, stop), cancel: end}, nil
+}
+
+// relayRunnerFindings shows on this run's output what its runner reported
+// while executing the launch — a command or skill the writers skipped, a
+// departed session's sweep that failed — which would otherwise reach nobody:
+// the runner's own stderr surfaces only when a run fails. Each renders as an
+// advisory: the runner already acted on its severity, and a fail-loudly kind
+// re-raised here would be ledgered against this process's startup gate. The
+// wire carries none (coordgrpc.EncodeFindings); this holds the line for any
+// other source.
+func relayRunnerFindings(sink report.Sink, found report.Findings) {
+	for _, f := range found {
+		report.To(sink).Report(report.Finding{Text: f.Text, Remedy: f.Remedy, Once: f.Once})
+	}
 }
 
 // runOneshotViaCoord drives a --one-shot owner run: it

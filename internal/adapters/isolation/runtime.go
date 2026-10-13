@@ -569,7 +569,7 @@ func csvRecord(fields []string) string {
 // takes its storage lock on every call). It is no stricter than the launch's
 // own container probe (sharedFSProbeTimeout); a gate that gives up before the
 // step it guards would have succeeded refuses runs the engine could serve.
-const runtimeProbeTimeout = 15 * time.Second
+const runtimeProbeTimeout = 30 * time.Second
 
 // engineInfo is the one exec every selection probe of an engine goes through:
 // `<bin> info` (format "") answers reachability, `<bin> info --format <format>`

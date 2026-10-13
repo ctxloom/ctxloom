@@ -41,6 +41,37 @@ func TestResolveContextFile_StaysInsideTheTarget(t *testing.T) {
 	}
 }
 
+// TestRootedElsewhere_RefusesARootedPathThatIsNotAbsolute (ruling #35): a
+// DEST rooted without being absolute — Windows `\x` (the current drive's
+// root) or `C:x` (a drive's current directory) — cannot be resolved against
+// the target, so it counts as outside it. Judged here with Windows' separator
+// and volume rules so the logic runs on every host; the Windows build also
+// runs it through ResolveContextFile (context_file_windows_test.go).
+func TestRootedElsewhere_RefusesARootedPathThatIsNotAbsolute(t *testing.T) {
+	winSep := func(c uint8) bool { return c == '\\' || c == '/' }
+	winVolume := func(p string) string {
+		if len(p) >= 2 && p[1] == ':' {
+			return p[:2]
+		}
+		return ""
+	}
+	for dest, want := range map[string]bool{
+		`\x`:     true,
+		`/x`:     true,
+		`C:x`:    true,
+		`C:`:     true,
+		`x`:      false,
+		`docs\x`: false,
+		`.\x`:    false,
+	} {
+		require.Equal(t, want, rootedElsewhere(dest, winSep, winVolume), dest)
+	}
+	// On Unix a backslash is an ordinary file-name byte: `\x` is relative.
+	unixSep := func(c uint8) bool { return c == '/' }
+	noVolume := func(string) string { return "" }
+	require.False(t, rootedElsewhere(`\x`, unixSep, noVolume))
+}
+
 func deliverContextTo(t *testing.T, fs afero.Fs, dir string, kind engine.Engine, body, file string) {
 	t.Helper()
 	p := atRestPlacement(dir, kind.Root().Name, []present.Kind{present.Context})

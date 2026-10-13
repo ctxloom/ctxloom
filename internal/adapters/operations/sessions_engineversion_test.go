@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -22,68 +21,27 @@ func stubProbe(t *testing.T, version string, err error) {
 }
 
 // Session start is the ONLY moment at which "what engine is installed" and
-// "what engine will write this session's transcript" are the same fact. If the
-// version is not captured here it cannot be recovered later: probing at read
-// time answers for whatever is installed THEN, which for an upgraded engine is
-// the wrong format entirely.
-func TestAssignSession_RecordsTheProbedEngineVersion(t *testing.T) {
-	testsupport.Isolate(t)
-	stubProbe(t, "2.1.225", nil)
-
-	entry, err := new(App).AssignSession(context.Background(), t.TempDir(), "claude-code", "", t.TempDir())
-	require.NoError(t, err)
-	assert.Equal(t, "2.1.225", entry.EngineVersion, "the returned entry must carry what was probed")
-
-	stored, err := GetSession(entry.HarpName)
-	require.NoError(t, err)
-	require.NotNil(t, stored)
-	assert.Equal(t, "2.1.225", stored.EngineVersion,
-		"the version must be in the INDEX, not just the returned value — a later process is what reads it")
-}
-
-// A version that differs from .github/engine-versions.env's pin is recorded
-// as-is. Recording is not validation: what was actually running gets written
-// down, and whether an adapter covers it is the read path's decision, made
+// "what engine will write this session's transcript" are the same fact, and
+// what was actually running is recorded as-is, whether it is ahead of or
+// behind .github/engine-versions.env's pin. Recording is not validation:
+// whether an adapter covers the version is the read path's decision, made
 // once, in one place.
-func TestAssignSession_RecordsAVersionOtherThanThePin(t *testing.T) {
-	testsupport.Isolate(t)
-	stubProbe(t, "2.1.225", nil)
-
-	entry, err := new(App).AssignSession(context.Background(), t.TempDir(), "claude-code", "", t.TempDir())
-	require.NoError(t, err)
-	assert.Equal(t, "2.1.225", entry.EngineVersion,
-		"an installed version ahead of the tested-version lock is still the truth about what ran")
-}
-
-// And a version BEHIND the pin is recorded just as plainly — the pin is not a floor on
-// what a user may have installed.
-func TestAssignSession_RecordsAVersionBehindThePin(t *testing.T) {
-	testsupport.Isolate(t)
-	stubProbe(t, "0.144.4", nil)
-
-	entry, err := new(App).AssignSession(context.Background(), t.TempDir(), "claude-code", "", t.TempDir())
-	require.NoError(t, err)
-	assert.Equal(t, "0.144.4", entry.EngineVersion)
-}
-
-// A FAILED probe must not fail the run. Refusing to start a session because an
-// engine could not be asked its version would deny a user their working engine
-// over a diagnostic; the refusal that actually protects something happens on
-// the READ path, where an unrecorded version is treated as unknown and stops.
-func TestAssignSession_ProbeFailureLeavesTheVersionUnsetWithoutFailingTheRun(t *testing.T) {
-	testsupport.Isolate(t)
-	stubProbe(t, "", &engineversion.BinaryAbsentError{Engine: "mock", Err: errors.New("not on PATH")})
-
-	entry, err := new(App).AssignSession(context.Background(), t.TempDir(), "mock", "", t.TempDir())
-	require.NoError(t, err, "an unprobeable engine must still get a harp and still run")
-	assert.NotEmpty(t, entry.HarpName)
-	assert.Empty(t, entry.EngineVersion, "a failed probe must record NOTHING, not a guess and not an empty-looking success")
-
-	stored, err := GetSession(entry.HarpName)
-	require.NoError(t, err)
-	require.NotNil(t, stored)
-	assert.Empty(t, stored.EngineVersion,
-		"the index must carry no version, which is exactly what the read path reads as unknown")
+func TestRecordSessionEngineVersion_RecordsWhatWasProbedWhateverThePin(t *testing.T) {
+	for _, version := range []string{"2.1.225", "0.144.4"} {
+		t.Run(version, func(t *testing.T) {
+			testsupport.Isolate(t)
+			entry, err := AssignSessionHarp(t.TempDir(), "claude-code", t.TempDir())
+			require.NoError(t, err)
+			stubProbe(t, version, nil)
+			got, ok := new(App).RecordSessionEngineVersion(context.Background(), entry.HarpName, "claude-code", "")
+			require.True(t, ok)
+			assert.Equal(t, version, got)
+			stored, err := GetSession(entry.HarpName)
+			require.NoError(t, err)
+			require.NotNil(t, stored)
+			assert.Equal(t, version, stored.EngineVersion, "the INDEX carries it: a later process is what reads it")
+		})
+	}
 }
 
 // AssignSessionHarp is the half that exists so a caller whose next act is to
@@ -148,9 +106,7 @@ func TestRecordSessionEngineVersion_ProbesTheBinaryTheSessionLaunched(t *testing
 	version, ok := new(App).RecordSessionEngineVersion(context.Background(), entry.HarpName, "claude-code", "/opt/claude-next/bin/claude")
 	require.True(t, ok)
 	assert.Equal(t, "2.1.300", version)
-	_, err = new(App).AssignSession(context.Background(), t.TempDir(), "claude-code", "/opt/claude-pinned", t.TempDir())
-	require.NoError(t, err)
-	assert.Equal(t, []string{"claude-code /opt/claude-next/bin/claude", "claude-code /opt/claude-pinned"}, asked,
+	assert.Equal(t, []string{"claude-code /opt/claude-next/bin/claude"}, asked,
 		"the probe asks the binary the session launched, not the engine's default")
 }
 
@@ -172,24 +128,36 @@ func TestRecordSessionEngineVersion_AFailedProbeRecordsNothingAndReportsIt(t *te
 	assert.Empty(t, stored.EngineVersion, "an unrecorded version is what the read path refuses on")
 }
 
-// The caller's context reaches the probe. It used to be discarded for
-// context.Background() outright, which is why a wedged version command had no
-// deadline at all on this path however careful the caller was.
-func TestAssignSession_ThreadsTheCallersContextIntoTheProbe(t *testing.T) {
+// The caller's context reaches the probe, on both session-start paths: a
+// child's record (RecordSessionEngineVersion) and a top-level run's
+// (App.LaunchDeps' ProbeVersion, which StartRun calls). It used to be
+// discarded for context.Background() outright, which is why a wedged version
+// command had no deadline at all however careful the caller was.
+func TestEngineVersionProbe_ThreadsTheCallersContext(t *testing.T) {
 	testsupport.Isolate(t)
-	var got context.Context
+	var got []context.Context
 	orig := probeEngineVersion
 	probeEngineVersion = func(_ *App, ctx context.Context, _, _ string) (string, error) {
-		got = ctx
+		got = append(got, ctx)
 		return "", errors.New("no")
 	}
 	t.Cleanup(func() { probeEngineVersion = orig })
 
 	type ctxKey struct{}
 	ctx := context.WithValue(context.Background(), ctxKey{}, "caller")
-	_, err := new(App).AssignSession(ctx, t.TempDir(), "claude-code", "", t.TempDir())
-	require.NoError(t, err, "a failed probe never fails the session")
-	require.NotNil(t, got)
-	assert.Equal(t, "caller", got.Value(ctxKey{}),
-		"the probe ran under the CALLER's context, not a fresh Background one")
+	entry, err := AssignSessionHarp(t.TempDir(), "claude-code", t.TempDir())
+	require.NoError(t, err)
+	_, ok := new(App).RecordSessionEngineVersion(ctx, entry.HarpName, "claude-code", "")
+	require.False(t, ok, "a failed probe records nothing")
+
+	deps, err := testApp(t).LaunchDeps(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, deps.ProbeVersion, "a real launch's deps carry the probe, or no top-level session records a version")
+	_, _ = deps.ProbeVersion(ctx, "claude-code", "")
+
+	require.Len(t, got, 2)
+	for _, c := range got {
+		assert.Equal(t, "caller", c.Value(ctxKey{}),
+			"the probe ran under the CALLER's context, not a fresh Background one")
+	}
 }

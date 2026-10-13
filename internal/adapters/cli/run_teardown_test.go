@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/coordharness"
 	"github.com/ctxloom/ctxloom/internal/testsupport/scriptedchat"
@@ -161,20 +162,22 @@ func (s *liveChildSpawner) killAll() {
 type scriptedRunner struct {
 	eh   *runner.EngineHost
 	inst engine.Instance
+	// findings is what the launch reports, relayed on the StartRun answer.
+	findings report.Findings
 }
 
-func (r scriptedRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) error {
+func (r scriptedRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) (report.Findings, error) {
 	l, err := coordgrpc.DecodeLaunch(wire)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	pkg, err := composite.Open(ctx, composite.Inline{}, composite.ClaimCheck{Store: launchtest.MemStore{}}, l.Package)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ex, err := r.inst.Exec(nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return r.eh.Drive(ctx, runner.Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: pkg.Context.Text + "\n\n" + l.Prompt})
+	return r.findings, r.eh.Drive(ctx, runner.Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: pkg.Context.Text + "\n\n" + l.Prompt})
 }

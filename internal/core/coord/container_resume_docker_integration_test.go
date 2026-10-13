@@ -34,13 +34,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
-	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/daemonfixture"
 )
@@ -69,7 +67,7 @@ func (s *resumeSpawner) Resolve(_ context.Context, agentName string) (*coord.Spa
 }
 
 func (s *resumeSpawner) AssignSession(projectDir, backend string) (string, error) {
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, backend, "", filepath.Join(projectDir, ".test-output"))
+	entry, err := operations.AssignSessionHarp(projectDir, backend, filepath.Join(projectDir, ".test-output"))
 	if err != nil {
 		return "", err
 	}

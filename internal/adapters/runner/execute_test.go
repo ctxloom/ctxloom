@@ -878,7 +878,8 @@ func TestHost_TeardownReversesTheRunsDelivery(t *testing.T) {
 	l := s.resolve(t, "shared", "run-host")
 	h := &runner.Host{Deps: s.deps(t, &recordingDriver{})}
 	require.NoError(t, h.Teardown(context.Background()), "a teardown before any launch is a no-op")
-	require.NoError(t, h.Execute(context.Background(), coordgrpc.EncodeLaunch(l)))
+	_, err := h.Execute(context.Background(), coordgrpc.EncodeLaunch(l))
+	require.NoError(t, err)
 	require.True(t, s.projectHolds(t, l.MCP.Credential), "precondition: the run delivered into the project file")
 
 	require.NoError(t, h.Teardown(context.Background()))

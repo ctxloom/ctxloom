@@ -222,11 +222,11 @@ func registerMailDrainSteps(ctx *godog.ScenarioContext) {
 			}
 			var wake string
 			budget := eventBudget()
-			if !w.owner.sess.WaitForOutput(budget, func(out string) bool {
+			if err := w.owner.sess.WaitForScreen(budget, "the session owner's woken turn", func(out string) bool {
 				wake = wakeLineIn(out)
 				return wake != ""
-			}) {
-				return fmt.Errorf("the session owner was never woken within %s; its terminal:\n%s", budget, w.owner.sess.Output())
+			}); err != nil {
+				return fmt.Errorf("the session owner was never woken: %w", err)
 			}
 			w.docStepMaterialized = "session owner's terminal — the woken turn:\n  " + wake
 			return nil

@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines/kit"
 )
 
 // Backend is the mock kind's agent.Backend: the in-process double that
@@ -186,6 +187,9 @@ func (b *Backend) executeInteractiveEcho(ctx context.Context, req *agent.Execute
 		return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
 	}
 	ex, err := b.interactiveExec(req)
+	if req.Session != nil {
+		defer kit.ReleaseSocketRoot(*req.Session)
+	}
 	if err != nil {
 		return &agent.ExecuteResult{ExitCode: 1, ModelInfo: modelInfo}, err
 	}

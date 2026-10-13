@@ -707,6 +707,22 @@ message StartRunResult {
   // entry's key (a fresh run_id; the harp is what stays continuous).
   string harness_session_id = 1;
   int64 pid = 2;
+  // What the runner reported while executing the launch — a command or skill
+  // the writers skipped, a departed session's sweep that failed, context an
+  // earlier materialize left in the project — relayed so the originator can
+  // show it. The runner's own stderr surfaces only when a run fails, so on a
+  // run that starts these would otherwise reach nobody. The runner has
+  // already acted on each one's severity; the originator renders them.
+  repeated RunFinding findings = 3;
+}
+
+// RunFinding is one report.Finding the runner raised, on the wire, as the
+// originator renders it: an advisory. Its kind does not cross — the runner
+// has already acted on its severity, so the originator never re-raises it.
+message RunFinding {
+  string text = 1;
+  string remedy = 2;
+  bool once = 3;      // render at most once per text (report.Finding.Once)
 }
 
 // Stop a run. To the RUNNER it is interrupt-then-close: the turn in flight is

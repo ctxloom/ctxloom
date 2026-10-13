@@ -209,6 +209,8 @@ func TestLaunch_Session_IsTheOnlyProjection(t *testing.T) {
 	require.Equal(t, l.MCP, s.MCP)
 	require.Equal(t, "hello", s.Prompt)
 	require.Equal(t, engine.TrustUntrusted, s.Trust, "no verdict from the cell is no trust")
+	require.NotEmpty(t, s.SocketRoot, "a session with a home has a short socket root")
+	require.Equal(t, launch.SocketRoot(l.Cell.Paths.Paths().SessionHome.Engine), s.SocketRoot, "keyed by the home the engine sees")
 }
 
 // TestResolve_TheCellsVerdictReachesTheSession: the cells adapter takes the

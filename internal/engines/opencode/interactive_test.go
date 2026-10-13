@@ -1,6 +1,9 @@
 package opencode
 
 import (
+	"context"
+	"io"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -8,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -18,6 +22,7 @@ func tuiSession(t *testing.T) engine.Session {
 	t.Helper()
 	s := session(t, qwenBody())
 	s.Mode = engine.Interactive
+	s.SocketRoot = filepath.Join(t.TempDir(), "sock")
 	return s
 }
 
@@ -57,7 +62,8 @@ func TestExec_InteractiveEnvIsTheStructuredEnv(t *testing.T) {
 	assert.Equal(t, false, configDoc(t, structured)["snapshot"])
 	delete(tui.Env, envConfigContent)
 	delete(structured.Env, envConfigContent)
-	assert.Equal(t, filepath.Join(s.Roots.SessionHome.Engine, "wake.sock"), tui.Env[wake.EnvVar], "the owner's wake, in its own root")
+	assert.Equal(t, filepath.Join(s.SocketRoot, "wake.sock"), tui.Env[wake.EnvVar], "the owner's wake, in its own socket root")
+	assert.DirExists(t, s.SocketRoot, "the root is made for the bridge plugin to listen in")
 	assert.NotContains(t, structured.Env, wake.EnvVar, "a structured run has nobody to wake")
 	delete(tui.Env, wake.EnvVar)
 	assert.Equal(t, structured.Env, tui.Env)
@@ -159,4 +165,22 @@ func TestTUIConfigCarry(t *testing.T) {
 // The kind wires the carry as its instance config.
 func TestHome_CarriesTheTUIConfig(t *testing.T) {
 	assert.IsType(t, tuiConfigCarry{}, Opencode{}.Home().InstanceConfig)
+}
+
+// The TUI's socket root is there for the bridge plugin to listen in while
+// opencode runs, and goes with it: no directory is left behind per session.
+func TestExecute_TheSocketRootLivesAsLongAsTheTUI(t *testing.T) {
+	s := tuiSession(t)
+	var during bool
+	e, err := Build()
+	require.NoError(t, err)
+	b := e.(agent.Hosted).Backend(func(_ context.Context, _ agent.LaunchSpec, _ io.Reader, _, _ io.Writer, _ <-chan agent.WindowSize) (int32, error) {
+		_, err := os.Stat(s.SocketRoot)
+		during = err == nil
+		return 0, nil
+	})
+	_, err = b.Execute(context.Background(), &agent.ExecuteRequest{Mode: agent.ModeInteractive, Session: &s}, io.Discard, io.Discard)
+	require.NoError(t, err)
+	assert.True(t, during, "the root exists while opencode runs")
+	assert.NoDirExists(t, s.SocketRoot, "and goes when it ends")
 }

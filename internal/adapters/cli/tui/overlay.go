@@ -73,7 +73,7 @@ func (o *Overlay) Run(input io.Reader, tty io.Writer, geo termui.OverlayGeometry
 	}
 	p := tea.NewProgram(m,
 		tea.WithInput(input),
-		tea.WithOutput(onlcr{tty}),
+		tea.WithOutput(onlcr{w: tty, fenced: func(n int) { o.deliver(fenceWriteMsg(n)) }}),
 		tea.WithoutSignalHandler(),
 		// The size has to be stated, and it is the PANEL's, not the terminal's.
 		// Input is the interceptor's pipe rather than the tty, so bubbletea v2
@@ -179,14 +179,35 @@ func (o *Overlay) deliver(msg tea.Msg) {
 // holds the engine's output for the duration; bubbletea is a guest painting
 // into rows it was handed. Passing an opaque writer is what says so — the
 // same reasoning the input side states above, applied to output.
-type onlcr struct{ w io.Writer }
+//
+// It is also where a fence's token (FenceKey) is taken out of the stream and
+// reported through fenced: the program flushes its raw output, token
+// included, just before a frame, so the report means that frame is on its
+// way.
+type onlcr struct {
+	w      io.Writer
+	fenced func(n int)
+}
 
 func (o onlcr) Write(p []byte) (int, error) {
-	if bytes.IndexByte(p, '\n') < 0 {
-		return o.w.Write(p)
+	n := len(p)
+	if o.fenced != nil && bytes.Contains(p, []byte(fenceTokenPrefix)) {
+		var fences []int
+		p, fences = splitFenceTokens(p)
+		defer func() {
+			for _, f := range fences {
+				o.fenced(f)
+			}
+		}()
 	}
-	if _, err := o.w.Write(bytes.ReplaceAll(p, []byte("\n"), []byte("\r\n"))); err != nil {
+	if len(p) == 0 {
+		return n, nil
+	}
+	if bytes.IndexByte(p, '\n') >= 0 {
+		p = bytes.ReplaceAll(p, []byte("\n"), []byte("\r\n"))
+	}
+	if _, err := o.w.Write(p); err != nil {
 		return 0, err
 	}
-	return len(p), nil
+	return n, nil
 }

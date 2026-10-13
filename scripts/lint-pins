@@ -15,6 +15,14 @@
 # while its version stands still (that is a different tarball under the same
 # name), and a checksum must be 64 lowercase hex characters.
 #
+# Base images in the devcontainer Dockerfile are pinned `name:tag@sha256:<d>`
+# and read as the pair `image:<name>_VERSION` (the tag) and
+# `image:<name>_SHA256_INDEX` (the index digest), so a tag bump that keeps the
+# old digest is refused as stale like any checksum. The one difference: a
+# digest may move under an unchanged tag, because a tag is mutable by design
+# (ubuntu:24.04 is re-pushed with each security refresh) and refreshing the
+# digest is the routine bump.
+#
 # A deliberate downgrade names its pin in CTXLOOM_ALLOW_PIN_DOWNGRADE (comma-
 # separated). The gate echoes the override it honoured, so the reviewer of the
 # commit sees the decision in the hook output rather than inferring it.
@@ -38,6 +46,7 @@ sources=(
   "env .devcontainer/tool-versions.env"
   "env .github/engine-versions.env"
   "gomod go.mod"
+  "dockerfile .devcontainer/Dockerfile"
 )
 
 # parse_env: KEY=value lines, `#` comments and blanks skipped — the same
@@ -54,10 +63,37 @@ parse_gomod() {
     -e 's/^toolchain[[:space:]]\+go\([^[:space:]]*\).*$/go.mod:toolchain \1/p'
 }
 
+# parse_dockerfile: every image a FROM or `COPY --from=` names, as its tag and
+# digest pins. A reference with neither `:` nor `@` is a build stage, not an
+# image, and is skipped.
+parse_dockerfile() {
+  local ref digest name tag
+  awk '
+    toupper($1) == "FROM" { for (i = 2; i <= NF; i++) if ($i !~ /^--/) { print $i; break } }
+    toupper($1) == "COPY" { for (i = 2; i <= NF; i++) if ($i ~ /^--from=/) print substr($i, 8) }
+  ' | while read -r ref; do
+    [[ $ref == *[:@]* ]] || continue
+    digest=
+    if [[ $ref == *@* ]]; then
+      digest=${ref#*@}
+      digest=${digest#sha256:}
+      ref=${ref%%@*}
+    fi
+    if [[ $ref =~ ^(.+):([^:/]+)$ ]]; then
+      name=${BASH_REMATCH[1]} tag=${BASH_REMATCH[2]}
+    else
+      name=$ref tag=
+    fi
+    if [[ -n $tag ]]; then echo "image:${name}_VERSION $tag"; fi
+    if [[ -n $digest ]]; then echo "image:${name}_SHA256_INDEX $digest"; fi
+  done
+}
+
 parse_with() {
   case "$1" in
     env) parse_env ;;
     gomod) parse_gomod ;;
+    dockerfile) parse_dockerfile ;;
     *) echo "lint-pins: unknown parser $1" >&2; exit 2 ;;
   esac
 }
@@ -103,6 +139,17 @@ compare_versions() {
     if ((10#$x > 10#$y)); then echo 1; return; fi
   done
   echo 0
+}
+
+# is_old_checksum VERSION_KEY VALUE: VALUE is one of HEAD's checksums for the
+# tool VERSION_KEY versions — on any arch, so moving an old hash to another
+# arch's slot is still caught as stale.
+is_old_checksum() {
+  local key
+  for key in "${!head_pins[@]}"; do
+    [[ $(checksum_version_key "$key") == "$1" && ${head_pins[$key]} == "$2" ]] && return 0
+  done
+  return 1
 }
 
 overridden() {
@@ -155,12 +202,13 @@ for src in "${sources[@]}"; do
         refuse "$name" "${old:-(none)}" "$new" "$path" "a checksum pin must be 64 lowercase hex characters"
         continue
       fi
-      [[ -v head_pins[$name] ]] || continue
       version_old=${head_pins[$version_key]-}
       version_new=${index_pins[$version_key]-}
-      if [[ $version_old != "$version_new" && $old == "$new" ]]; then
-        refuse "$name" "$old" "$new" "$path" "stale checksum: $version_key moved $version_old -> $version_new but this checksum did not"
-      elif [[ $version_old == "$version_new" && $old != "$new" ]]; then
+      if [[ -n $version_old && $version_old != "$version_new" ]]; then
+        if is_old_checksum "$version_key" "$new"; then
+          refuse "$name" "${old:-(none)}" "$new" "$path" "stale checksum: $version_key moved $version_old -> $version_new but this is a checksum of $version_old"
+        fi
+      elif [[ -v head_pins[$name] && $old != "$new" && $name != image:* ]]; then
         refuse "$name" "$old" "$new" "$path" "checksum changed while $version_key stayed $version_new — a different download under the same version"
       fi
       continue

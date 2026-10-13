@@ -1,9 +1,22 @@
-# Stage 1: Get osxcross toolchain
-FROM crazymax/osxcross:latest-ubuntu AS osxcross
+# Every image this file builds from or copies out of is pinned by digest,
+# `name:tag@sha256:<digest>`: the tag says which release, the digest which
+# bytes, and a tag the registry re-points cannot change the build. The digest
+# is the multi-arch INDEX's, so each TARGETARCH still resolves its own image.
+# internal/shared/buildpins requires one on every FROM and `COPY --from=`.
+#
+# To bump an image (a new tag) or refresh one (same tag, re-pushed):
+#   docker buildx imagetools inspect <name>:<tag>
+# and copy the top-level `Digest:` (MediaType ...image.index...) beside the tag.
+# scripts/lint-pins refuses a tag change that keeps the old digest; a digest
+# refresh under the same tag is allowed, since that is the routine update.
+
+# Stage 1: Get osxcross toolchain. `latest-ubuntu` floats upstream; the digest
+# is the index the build was already using when this was pinned.
+FROM crazymax/osxcross:latest-ubuntu@sha256:832e027d26eefd7189b9f742d363f629716bc5592e5b1427b11953f903422a64 AS osxcross
 
 # Stage 2: Main build image
 # Use Ubuntu 24.04 for glibc compatibility with osxcross
-FROM ubuntu:24.04
+FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
 
 # Install build dependencies. docker-ce-cli (client only, no daemon) lets
 # `just test-docker-integration` reach the host/CI runner's Docker daemon —
@@ -321,11 +334,12 @@ RUN mkdir -p "${GOMODCACHE}" "${GOCACHE}" && chmod -R 0777 /go
 RUN go install golang.org/x/tools/gopls@v${GOPLS_VERSION}
 
 # uv is copied from its own published image rather than curl-piped, so the
-# installer version is pinned. It is pinned INLINE, not via a build ARG like the
-# tools above: BuildKit rejects variable expansion in `COPY --from`, so an ARG
-# here would be a pin that does not bind. serena-agent itself is unpinned,
-# matching container/base/Containerfile.
-COPY --from=ghcr.io/astral-sh/uv:0.9.22 /uv /usr/local/bin/uv
+# installer version is pinned. It is pinned INLINE, by tag and digest (see the
+# top of this file), not via a build ARG like the tools above: BuildKit rejects
+# variable expansion in `COPY --from`, so an ARG here would be a pin that does
+# not bind. serena-agent itself is unpinned, matching
+# container/base/Containerfile.
+COPY --from=ghcr.io/astral-sh/uv:0.9.22@sha256:2320e6c239737dc73cccce393a8bb89eba2383d17018ee91a59773df802c20e6 /uv /usr/local/bin/uv
 
 # The tool venv and its shims go under /opt + /usr/local/bin, not a user home:
 # this image is run under several uids and anything under /root would be

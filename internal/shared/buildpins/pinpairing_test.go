@@ -1,6 +1,7 @@
 package buildpins
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -60,4 +61,92 @@ func TestLintPins_RealChecksumPins_VersionBumpAloneIsRefused(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Base images are pinned `name:tag@sha256:<index digest>`. scripts/lint-pins
+// reads them from the Dockerfile as `image:<name>_VERSION` (the tag) and
+// `image:<name>_SHA256_INDEX` (the digest), so the tag and digest pair like a
+// version and its checksum.
+var (
+	dockerFromRE     = regexp.MustCompile(`(?mi)^FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?`)
+	dockerCopyFromRE = regexp.MustCompile(`(?mi)^COPY\s+.*?--from=(\S+)`)
+	pinnedImageRE    = regexp.MustCompile(`^([^@\s]+):([^@:/\s]+)@sha256:([0-9a-f]{64})$`)
+)
+
+// dockerfileImageRefs returns every image the Dockerfile FROMs or COPYs
+// from, skipping references to its own named stages.
+func dockerfileImageRefs(t *testing.T, dockerfile string) []string {
+	t.Helper()
+	stages := map[string]bool{}
+	var refs []string
+	for _, m := range dockerFromRE.FindAllStringSubmatch(dockerfile, -1) {
+		refs = append(refs, m[1])
+		if m[2] != "" {
+			stages[m[2]] = true
+		}
+	}
+	for _, m := range dockerCopyFromRE.FindAllStringSubmatch(dockerfile, -1) {
+		refs = append(refs, m[1])
+	}
+	var images []string
+	for _, ref := range refs {
+		if !stages[ref] {
+			images = append(images, ref)
+		}
+	}
+	require.NotEmpty(t, images, "%s: no FROM image found", dockerfilePath)
+	return images
+}
+
+// dockerfileImagePins is what lint-pins --list should report for the real
+// Dockerfile's images.
+func dockerfileImagePins(t *testing.T) map[string]string {
+	t.Helper()
+	pins := map[string]string{}
+	for _, ref := range dockerfileImageRefs(t, readFile(t, dockerfilePath)) {
+		if m := pinnedImageRE.FindStringSubmatch(ref); m != nil {
+			pins["image:"+m[1]+"_VERSION"] = m[2]
+			pins["image:"+m[1]+"_SHA256_INDEX"] = m[3]
+		}
+	}
+	return pins
+}
+
+// TestDockerfileImagesArePinnedByDigest: a tag is a name the registry can
+// point anywhere; the digest is the bytes. Every image the devcontainer is
+// built from carries both.
+func TestDockerfileImagesArePinnedByDigest(t *testing.T) {
+	for _, ref := range dockerfileImageRefs(t, readFile(t, dockerfilePath)) {
+		if !pinnedImageRE.MatchString(ref) {
+			t.Errorf("%s: image %q is not pinned as name:tag@sha256:<64 hex> — a tag alone floats", dockerfilePath, ref)
+		}
+	}
+}
+
+func TestLintPins_RealImagePins_TagBumpAloneIsRefused(t *testing.T) {
+	for _, ref := range dockerfileImageRefs(t, readFile(t, dockerfilePath)) {
+		t.Run(ref, func(t *testing.T) {
+			m := pinnedImageRE.FindStringSubmatch(ref)
+			require.NotNil(t, m, "image %q carries no digest to go stale", ref)
+			r, df := realPinRepo(t, ".devcontainer/Dockerfile", dockerfilePath)
+			r.stage(".devcontainer/Dockerfile", replaceOnce(t, df, m[1]+":"+m[2]+"@", m[1]+":"+m[2]+"-next@"))
+			code, out := r.run("")
+			assert.Equal(t, 1, code, "a %s tag bump with its digest unchanged passed lint-pins:\n%s", m[1], out)
+			assert.Contains(t, out, "image:"+m[1]+"_SHA256_INDEX")
+			assert.Contains(t, out, "stale")
+		})
+	}
+}
+
+// A tag is mutable by design (ubuntu:24.04 is re-pushed with every security
+// refresh), so moving the digest under an unchanged tag is the routine bump,
+// not the "different download under the same version" a tarball checksum
+// guards against.
+func TestLintPins_ImageDigestRefreshUnderSameTag_Passes(t *testing.T) {
+	r := newPinRepo(t)
+	r.stage(".devcontainer/Dockerfile", "FROM ubuntu:24.04@sha256:"+goSHAAmd64Old+"\n")
+	r.git("commit", "-q", "-m", "pin image")
+	r.stage(".devcontainer/Dockerfile", "FROM ubuntu:24.04@sha256:"+goSHAAmd64New+"\n")
+	code, out := r.run("")
+	assert.Equal(t, 0, code, out)
 }

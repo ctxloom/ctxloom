@@ -56,8 +56,8 @@ shipped default engine registry, so only what your configuration sets is shown.
 
 The file declares its format generation as `schema_version`. A file declaring none (`version` is not a spelling of it), or one older than this ctxloom reads, is refused; a file written for a newer ctxloom is refused, naming both numbers. What a load changes in memory (such as resolving an `<alias>/…` ref) is left unchanged on disk; pass `--write-upgrades` to any command to persist it, keeping the previous file as `config.yaml.bak`. The canonical commented example ships as `resources/example-config.yaml` in the repo; `ctxloom config create` scaffolds one.
 
-:::note[Unknown keys are rejected]
-`config.yaml` is validated against its schema on load. A key the current schema doesn't recognize, including a retired one such as the old top-level `profiles:` or `hooks:` block, fails every command that reads the config, with a diagnostic naming the key, the nearest known key and the keys its section does know. Pass `--degraded` or set `CTXLOOM_DEGRADED=1` to downgrade this to a warning and continue.
+:::note[A config that breaks its schema is rejected]
+`config.yaml` is validated against its schema on load, and a violation fails every command that reads the config. A key the current schema doesn't recognize, including a retired one such as the old top-level `profiles:` or `hooks:` block, is named with the nearest known key and the keys its section does know. A value the schema refuses — the wrong type, or outside its allowed values — is named by file and dotted key path, with the type the schema expected (for example, `session_reap_age` holds a number, expected string) or the rule it broke. Pass `--degraded` or set `CTXLOOM_DEGRADED=1` to downgrade these to warnings and continue on the config as loaded.
 :::
 
 ```yaml

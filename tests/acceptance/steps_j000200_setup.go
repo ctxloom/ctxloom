@@ -298,8 +298,16 @@ func j000200LiveProject(w *World, journey, engine string) error {
 		return godog.ErrSkip
 	}
 	w.j000200Live = true
+	w.env.SetCommandBound(liveTurnBound)
 	cfg := a.config + "agents:\n  default:\n    llm: " + key + "\n    profiles:\n      - default\n" + a.bypassBlock() + "default_agent: default\n"
 	if err := scaffoldProjectWithConfig(w, cfg); err != nil {
+		return err
+	}
+	// Written even when an earlier step already scaffolded the project:
+	// scaffoldProjectWithConfig is a no-op then, and the config it left (a
+	// mock one, for a scenario whose first Given is shared with a hermetic
+	// twin) would run this live scenario on the mock.
+	if err := w.env.WriteFile(".ctxloom/config.yaml", cfg); err != nil {
 		return err
 	}
 	return seedLiveCredentials(a, w.env.SetChildEnv)

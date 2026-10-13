@@ -879,10 +879,11 @@ func probeEngineWriteDir(backendType string) (string, error) {
 	case "claude-code":
 		return filepath.Join(claude.HomeLeaf, claude.TranscriptsDirName), nil
 	case "opencode":
-		// opencode's own log dir in its data app dir (the session's native
-		// history): opencode writes log/<name>.log on every run, and no
-		// ctxloom code writes there.
-		return filepath.Join(opencode.HomeLeaf, "log"), nil
+		// opencode's own log dir in its data app dir (the home's
+		// TranscriptStoreRel, linked as the session's native history):
+		// opencode writes log/opencode.log on every run, and no ctxloom code
+		// writes there.
+		return filepath.Join(opencode.HomeLeaf, filepath.FromSlash(opencode.Opencode{}.Home().TranscriptStoreRel), "log"), nil
 	}
 	return "", fmt.Errorf("isolation probe: no engine-written evidence is declared for %q — name where it writes its own state before probing it", backendType)
 }

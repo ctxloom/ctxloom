@@ -5,13 +5,10 @@ package acceptance
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 	"github.com/cucumber/godog"
-	"github.com/spf13/afero"
 )
 
 // The live-engine registry itself (liveAgent, liveAgents, liveAgentOrder,
@@ -50,6 +47,7 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 		if err := w.env.WriteFile(".ctxloom/config.yaml", a.config); err != nil {
 			return err
 		}
+		w.env.SetCommandBound(liveTurnBound)
 		return seedLiveCredentials(a, w.env.SetChildEnv)
 	})
 
@@ -70,8 +68,11 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 			w := worldFrom(c)
 			body := fmt.Sprintf("version: 1.0.0\ndescription: live payload fixture\nfragments:\n  %s:\n    tags: [live]\n    content: |\n      %s\n",
 				fragment, content)
-			_, err := bundletree.WriteDoc(afero.NewOsFs(), filepath.Join(w.env.ProjectDir, ".ctxloom", "cache", "bundles"), bundle, body)
-			return err
+			// The project's bundles root (testenv.BundlesRoot), the one the
+			// loader reads — not the legacy cache path, which the loader no
+			// longer reads, so a fragment written there never reached any
+			// engine and the run aborted on "bundle not found".
+			return testenv.WriteBundleTree(w.env.ProjectDir, bundle, body)
 		})
 
 	ctx.Step(`^the distilled fragment "([^"]*)" in bundle "([^"]*)" is a real compression$`,
@@ -204,3 +205,14 @@ func liveBundleYAML(fragment string) string {
 	}
 	return b.String()
 }
+
+// liveTurnBound is the per-command bound a scenario's commands run under once
+// its live gate has passed: a real model turn is not an ordinary command
+// (testenv.CommandBound is derived from those), so it gets the bound the probe
+// cells already give one (probeRunTimeout). Measured 2026-10-12 on opencode's
+// free hosted model (liveOpencodeModel): J000300's and J000400's one-shots
+// were killed at the 20s ordinary bound, then passed under this one in 20.7s
+// and 19.1s. The free model's stream can also stall outright (one run in a
+// dozen, after its session existed); opencode's own default chunk timeout is
+// 300s, so such a run is killed here rather than answered.
+const liveTurnBound = probeRunTimeout

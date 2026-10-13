@@ -85,10 +85,14 @@ Feature: Isolation probe — live proof against real vendor engines
       | engine   | axis     |
       | opencode | worktree |
 
-    # opencode's container axis: WIRED, UNVERIFIED. opencode.Opencode.Container
-    # installs the release (installFragment), so nothing refuses it; it has
-    # never been run live. On the live-container lane it skips loudly: that
-    # image ships no opencode binary on the harness side (engineAvailable).
+    # opencode's container axis: LIVE-VERIFIED. Measured 2026-10-13 (opencode
+    # 1.18.35, which installFragment installs in the agent image, on the free
+    # model, keyless, throwaway HOME/XDG/repo, rootless docker): `just
+    # isolation-probe opencode container-rootless`, 1 scenario / 4 steps green
+    # in 14.9s, "ISOLATION PROBE: engine=opencode axis=container-rootless
+    # auth=(keyless: opencode's Auth needs no credential) result=PASSED". On
+    # the live-container lane it skips loudly: that image ships no opencode
+    # binary on the harness side (engineAvailable).
     @opencode @container-rootless
     Examples:
       | engine   | axis               |

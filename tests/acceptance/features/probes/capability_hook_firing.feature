@@ -126,8 +126,9 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
       | engine   | runtime | workspace |
       | opencode | host    | none      |
 
-    # opencode.Opencode.Container installs the release (installFragment), so
-    # nothing refuses its container cells; they are WIRED, NOT YET LIVE-VERIFIED.
+    # opencode.Opencode.Container installs the release (installFragment). Both
+    # rootless cells are LIVE-VERIFIED (2026-10-13; the evidence is in
+    # capability_probe_registry.go).
     # On the live-container lane they skip loudly: its image ships no opencode
     # binary on the harness side (engineAvailable).
     @opencode @container-rootless @ws-none @probe-p3-hook-firing

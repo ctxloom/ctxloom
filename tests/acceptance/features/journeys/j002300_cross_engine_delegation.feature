@@ -286,6 +286,21 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
     Examples:
       | engine      | marker                                   |
       | claude-code | J002300-SEND-MARKER-CLAUDE-CODE-7f3a90c2 |
+
+    # OPENCODE, on its free hosted model (liveOpencodeModel), keyless.
+    # Measured 2026-10-13 on opencode 1.18.35, throwaway HOME/XDG/repo:
+    # `ACCEPTANCE_TAGS="@live && @delegation-agent-send && @opencode"`,
+    # 1 scenario / 6 steps green in 15.3s on the first attempt. The marker
+    # came in an unmarked body, so the child chose agent_send. No built-in
+    # tool competes the way claude's SendMessage did: `opencode debug agent
+    # build` lists bash, edit, glob, grep, invalid, question, read, skill,
+    # task, todowrite, webfetch, websearch and write, and none of them sends
+    # a message to a peer. So an opencode child needs no deny list.
+    @opencode
+    Examples:
+      | engine   | marker                                |
+      | opencode | J002300-SEND-MARKER-OPENCODE-2c9d5e17 |
+
   # P6 — THE STEER ECHO. Capability-probe ladder rung p6-steer-echo
   # (tests/acceptance/capability_probe_registry.go), living here rather than in a
   # file of its own because it extends this journey's machinery rather than
@@ -420,8 +435,9 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
       | engine   | runtime | workspace | marker                                 |
       | opencode | host    | worktree  | P6-WAKE-MARKER-OPENCODE-HOSTWT-4a8f03 |
 
-    # opencode.Opencode.Container installs the release (installFragment), so
-    # nothing refuses its container cells; they are WIRED, NOT YET LIVE-VERIFIED.
+    # opencode.Opencode.Container installs the release (installFragment). Both
+    # rootless cells are LIVE-VERIFIED (2026-10-13; the evidence is in
+    # capability_probe_registry.go).
     # On the live-container lane they skip loudly: its image ships no opencode
     # binary on the harness side (engineAvailable).
     @opencode @container-rootless @ws-worktree @reach-back @R4

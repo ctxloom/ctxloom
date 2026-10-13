@@ -202,8 +202,10 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
       | engine   | runtime | workspace |
       | opencode | host    | worktree  |
 
-    # opencode.Opencode.Container installs the release (installFragment), so
-    # nothing refuses its container cells; they are WIRED, NOT YET LIVE-VERIFIED.
+    # opencode.Opencode.Container installs the release (installFragment). Both
+    # rootless cells are LIVE-VERIFIED (2026-10-13; the evidence is in
+    # capability_probe_registry.go). The rootful cells are WIRED, NOT YET
+    # LIVE-VERIFIED: they need a reachable rootful daemon.
     # On the live-container lane they skip loudly: its image ships no opencode
     # binary on the harness side (engineAvailable).
     @opencode @container-rootless @ws-none

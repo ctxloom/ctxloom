@@ -104,8 +104,9 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
       | engine   | runtime | workspace |
       | opencode | host    | none      |
 
-    # opencode.Opencode.Container installs the release (installFragment), so
-    # nothing refuses its container cells; they are WIRED, NOT YET LIVE-VERIFIED.
+    # opencode.Opencode.Container installs the release (installFragment). Both
+    # rootless cells are LIVE-VERIFIED (2026-10-13; the evidence is in
+    # capability_probe_registry.go).
     # On the live-container lane they skip loudly: its image ships no opencode
     # binary on the harness side (engineAvailable).
     @probe-p2-mcp-round-trip @opencode @container-rootless @ws-none

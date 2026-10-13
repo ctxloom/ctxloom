@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // sessionLedger records the spawner's session-accounting calls: each liveness
@@ -115,4 +116,33 @@ func TestProdSpawner_AnEndBeforeAnyRunStartedStillEndsTheSession(t *testing.T) {
 	s.MarkSessionEnded("unstarted-harp", "run-never-started")
 	_, ended := ledger.snapshot()
 	assert.Equal(t, []string{"refused-harp", "unstarted-harp"}, ended)
+}
+
+// A session's accounting that fails is warned about, naming the harp; one
+// that succeeds is not. Both are best-effort: the run goes on either way.
+func TestProdSpawner_SessionAccountingWarnsOnlyWhenItFails(t *testing.T) {
+	for name, fail := range map[string]bool{"succeeds": false, "fails": true} {
+		t.Run(name, func(t *testing.T) {
+			var findings report.Collector
+			s := newSpawner(report.To(&findings), nil, t.TempDir(), nil)
+			var err error
+			if fail {
+				err = errors.New("disk full")
+			}
+			s.holdLock = func(string) error { return err }
+			s.endSession = func(string, time.Time) error { return err }
+
+			s.claimSession("acct-harp", "run-1")
+			s.MarkSessionEnded("acct-harp", "run-1")
+
+			texts := findings.All().Texts()
+			if !fail {
+				assert.Empty(t, texts, "accounting that succeeded is not warned about")
+				return
+			}
+			require.Len(t, texts, 2, "the lock and the end each warn: %q", texts)
+			assert.Contains(t, texts[0], "cannot hold its session's liveness lock")
+			assert.Contains(t, texts[1], "agent acct-harp: end session: disk full")
+		})
+	}
 }

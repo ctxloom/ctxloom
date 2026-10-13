@@ -189,12 +189,23 @@ func TestHoldRestart_AnOverloadHoldSurvivesAdoption(t *testing.T) {
 // restarted coordinator. That failure is the one the released hold already
 // took in: re-folded, it would open a fresh hold — its reset already past, so
 // floored to a new backoff — and park the runs the release just resumed.
+//
+// No ack of the failed turn reaches the runner at all (drop): its turn START
+// was recorded, but the runner still holds it too, as when load delays the
+// ack past the crash. Left to scheduling, that ack usually lands and the
+// runner re-sends the boundary alone; when it did not (CI, mutation shard 5
+// at 6e29e923a, before the durable event watermark), the re-sent turn start
+// was taken as a fresh turn, cleared the run's "turn began before adoption"
+// mark, and the re-sent failure opened that fresh hold. Forced here, both
+// re-sends are what the restarted coordinator meets, every run.
 func TestHoldRestart_ADeadlinePassedWhileDownReleasesOnAdopt(t *testing.T) {
 	var armed atomic.Bool
 	atBoundary, letBoundary := make(chan struct{}), make(chan struct{})
 	var reached, released sync.Once
 	t.Cleanup(func() { released.Do(func() { close(letBoundary) }) }) // the crashed coordinator's boundary stays parked until the end
+	drop := newAckDropper()
 	f, clk := newRateFixture(t, func(o *Options) {
+		o.ackHook = drop.hook
 		o.turnIdleHook = func(string) {
 			if armed.Load() {
 				reached.Do(func() { close(atBoundary) })
@@ -202,6 +213,7 @@ func TestHoldRestart_ADeadlinePassedWhileDownReleasesOnAdopt(t *testing.T) {
 			}
 		}
 	})
+	drop.harp.Store(f.worker)
 	armed.Store(true)
 	f.send(t, f.worker, limitHit+" do the work")
 	within(t, atBoundary, "the worker's failed turn never reached its boundary")

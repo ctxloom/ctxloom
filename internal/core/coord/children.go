@@ -1167,7 +1167,7 @@ func (c *Coordinator) runtimeForLocked(role, runID string) *childRt {
 // tryAcquire rolls the claim back via releaseSlotIntent, and a successful
 // one is committed via commitSlotClaim rather than left at
 // slotClaimed forever.
-func (c *Coordinator) onTurnStarted(role, runID string) error {
+func (c *Coordinator) onTurnStarted(role, runID string, seq uint64) error {
 	c.mu.Lock()
 	rt := c.runtimeForLocked(role, runID)
 	if rt != nil {
@@ -1198,7 +1198,7 @@ func (c *Coordinator) onTurnStarted(role, runID string) error {
 			c.slots.Release(1)
 		}
 	}
-	return c.journalState(rt, StateExecuting)
+	return c.journalState(rt, StateExecuting, seq)
 }
 
 // captureRunFailure records a FAILED RunCompleted's reason on the child's
@@ -1246,7 +1246,7 @@ func (c *Coordinator) captureRunFailure(role, runID string, ev Event) {
 //
 // A non-nil error is a fold that failed to journal; the boundary is then not
 // acked, and its re-send folds it again (both folds are idempotent).
-func (c *Coordinator) onTurnIdle(role, runID string, failed *agent.TurnFailure) error {
+func (c *Coordinator) onTurnIdle(role, runID string, seq uint64, failed *agent.TurnFailure) error {
 	c.mu.Lock()
 	rt := c.runtimeForLocked(role, runID)
 	c.mu.Unlock()
@@ -1283,7 +1283,7 @@ func (c *Coordinator) onTurnIdle(role, runID string, failed *agent.TurnFailure) 
 	c.mu.Lock()
 	rt.idleSince = c.now()
 	c.mu.Unlock()
-	stateErr := c.journalState(rt, StateIdle)
+	stateErr := c.journalState(rt, StateIdle, seq)
 	c.releaseSlot(rt)
 	return errors.Join(foldErr, stateErr)
 }
@@ -1332,17 +1332,19 @@ func launchFailureDetail(err error) string {
 // setState journals a §6a state transition (the folds are the single owner
 // of roster/queue state; the runtime only mirrors slot bookkeeping).
 func (c *Coordinator) setState(rt *childRt, state string) {
-	_ = c.journalState(rt, state)
+	_ = c.journalState(rt, state, 0)
 }
 
 // journalState is setState reporting the journal failure it warned about.
-func (c *Coordinator) journalState(rt *childRt, state string) error {
+// seq is the run-channel event the state records (0: none) — journaled IN the
+// state fact, so the event's record and the watermark it raises are one write.
+func (c *Coordinator) journalState(rt *childRt, state string, seq uint64) error {
 	if err := c.runs.Exec(func() ([]Fact, error) {
 		r := c.runsF.run(rt.runID)
 		if r == nil || r.Ended {
 			return nil, nil
 		}
-		return []Fact{factAt(factRunState, c.now(), runState{RunID: rt.runID, State: state})}, nil
+		return []Fact{factAt(factRunState, c.now(), runState{RunID: rt.runID, State: state, Seq: seq})}, nil
 	}); err != nil {
 		c.rep.Warnf("agent %s: journal state %s: %v", rt.harp, state, err)
 		return err

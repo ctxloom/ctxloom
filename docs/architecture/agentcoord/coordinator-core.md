@@ -85,7 +85,15 @@ failed turn that began before this coordinator adopted its run (`turnBeforeAdopt
 cleared at the run's next turn start or its end) may join a hold in force but opens
 none, as a turn on a replaced credential (`replacedCreds`) does: the runner re-sends an
 unacked failed boundary the crashed coordinator may already have folded, and folding it
-again must not open a fresh hold over a release adoption just made. A
+again must not open a fresh hold over a release adoption just made. Only a turn start
+this coordinator has not already recorded clears either mark: the runner re-sends only
+what lies above the run's durable event watermark (`HelloAck.committed_seq`,
+[transport](transport.md#resume-cursor)), so a recorded start is never replayed as a
+fresh turn. **Accepted policy (owner, 2026-10-08):** a failure not folded into a hold
+before a crash costs at most one more failed turn after the restart — a replayed
+failure may join a hold in force but never opens one; the run's next turn meets the
+limit afresh, and that one holds. The watermark narrows which failures are replayed at
+all (only one whose idle state was not yet recorded); it does not change this rule. A
 member whose run ends stays in the hold by **harp**: no relaunch path resumes a held
 harp, and the release relaunches it if mail waits — unless an `agent_stop` takes the harp
 out first (`dropStoppedHarp`). A run that starts on a credential (or harp) with a hold in force is

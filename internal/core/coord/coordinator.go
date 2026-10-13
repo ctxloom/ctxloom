@@ -221,6 +221,11 @@ type Options struct {
 	// channel's sever). That span is where an ended run's runner is still
 	// alive; parking here holds it open.
 	endRecordedHook func(runID string)
+	// ackHook is asked before every plane-3 Ack this coordinator sends on a
+	// role's run channel; true drops it. The seam that loses acks the way a
+	// crash right after an event's record loses them, so the runner still
+	// holds events this coordinator already recorded.
+	ackHook func(role string) (drop bool)
 }
 
 // Coordinator is the runtime coordinator: durable CQRS stores + credential
@@ -574,6 +579,8 @@ type Coordinator struct {
 	// endRecordedHook is Options.endRecordedHook (a test seam; nil in
 	// production).
 	endRecordedHook func(runID string)
+	// ackHook is Options.ackHook (a test seam; nil in production).
+	ackHook func(role string) (drop bool)
 
 	closeOnce sync.Once
 	// closed is set at the START of Close, before it looks for listeners to
@@ -647,6 +654,7 @@ func New(opts Options) (*Coordinator, error) {
 		runnerHelloHook:    opts.runnerHelloHook,
 		attachRunHook:      opts.attachRunHook,
 		endRecordedHook:    opts.endRecordedHook,
+		ackHook:            opts.ackHook,
 		lookupEnv:          t.lookupEnv,
 		refreshSecrets:     opts.RefreshSecrets,
 		secretReleases:     make(map[string]func()),

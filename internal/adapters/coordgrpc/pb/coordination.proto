@@ -185,11 +185,11 @@
 //     deferred to a future ArtifactTransfer service).
 //   - Ordering holds only within one stream: durable events carry a
 //     per-run monotonic seq; resume is cursor-based on reconnect.
-//   - HTTP/2 flow control is hop-level. An app-level Ack watermark plus a
-//     credit window WOULD give end-to-end backpressure on the event plane;
-//     neither is implemented today — the event plane runs on
-//     HTTP/2 flow control alone. Hello.resume_from_seq / HelloAck.committed_seq
-//     document the gap at the fields themselves.
+//   - HTTP/2 flow control is hop-level. An app-level credit window WOULD give
+//     end-to-end backpressure on the event plane; none is implemented — the
+//     event plane runs on HTTP/2 flow control alone. The Ack watermark
+//     (Ack.committed_seq) and the resume cursor (HelloAck.committed_seq) are
+//     durability, not backpressure.
 //   - proto3 hygiene: *_UNSPECIFIED zero enums, oneof unions,
 //     google.protobuf.Struct for open JSON, google.rpc.Status errors,
 //     versioned package, reserved ranges.
@@ -899,16 +899,9 @@ message Hello {
   string run_id = 2;
   AgentIdentity agent = 3;
 
-  // Highest seq the agent believes the coordinator has committed
-  // (0 on first attach).
-  //
-  // NOT YET IMPLEMENTED. The intended contract is that HelloAck
-  // returns the coordinator's own authoritative watermark and the agent
-  // re-emits anything above it. The coordinator has no durable event log to
-  // derive that watermark from, so it echoes this value straight back
-  // (runchannel.go, "trivially resume where the runner stands"). Do NOT
-  // build a client that trusts the ack as independent confirmation: today
-  // it confirms only what you claimed.
+  // Highest seq the agent has seen acked (0 on first attach). A floor, not the
+  // resume cursor: the coordinator answers with its own
+  // (HelloAck.committed_seq), which is never below this.
   uint64 resume_from_seq = 4;
 
   uint32 protocol_version = 5;  // this file: 1
@@ -943,9 +936,18 @@ message AgentIdentity {
 message HelloAck {
   bool accepted = 1;
   google.rpc.Status reject_reason = 2;  // set iff !accepted
-  // Resume cursor. NOT YET AUTHORITATIVE: the coordinator
-  // echoes Hello.resume_from_seq back unchanged because it keeps no durable
-  // event log to compare against. See Hello.resume_from_seq.
+  // THE RESUME CURSOR, authoritative: every event of the run at or below it
+  // is durably recorded by the coordinator. It is the higher of
+  // Hello.resume_from_seq and the run's durable event watermark — the highest
+  // seq the coordinator's journals hold every event's record below (a turn
+  // boundary's state fact carries its seq; item facts carry theirs), rebuilt
+  // from those journals after a coordinator restart. The agent treats it as an
+  // Ack: it drops every buffered event at or below it and re-emits only those
+  // above, so an event a crashed coordinator recorded but never acked is not
+  // re-sent to its successor and folded a second time (a turn start that
+  // would read as a fresh turn; a failure that would open a fresh hold).
+  // The coordinator also refuses, as duplicates, re-sent events at or below
+  // it. Prototype contract: one protocol, no negotiation.
   uint64 committed_seq = 3;
   // 4 was event_window (uint32), REMOVED: the
   // app-level credit window was never emitted, never read, and never

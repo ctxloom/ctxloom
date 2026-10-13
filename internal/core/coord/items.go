@@ -100,26 +100,15 @@ func (c *Coordinator) bufferItem(ch *RunChannel, ev Event, kind string) {
 // the events unacked and re-emits them on reconnect (the fold dedupes).
 func (c *Coordinator) flushItems(ch *RunChannel) {
 	c.mu.Lock()
-	facts := ch.items
-	ch.items = nil
 	target := ch.ackSeq
 	c.mu.Unlock()
-	if len(facts) > 0 {
-		if err := c.items.Exec(func() ([]Fact, error) { return facts, nil }); err != nil {
-			c.rep.Warnf("coordinator: journal %d item events for %s: %v (unacked; the runner re-emits)", len(facts), ch.role, err)
-			// Put the facts BACK instead of dropping them — the
-			// old behavior both lost them permanently (they existed in no
-			// buffer, no journal, nowhere) AND let a LATER successful flush
-			// falsely certify durability for them: that flush's own
-			// `target := ch.ackSeq` keeps climbing independent of journal
-			// success (HandleEvent advances it on every event), so
-			// without restoring these facts, flushedSeq/ackThrough would
-			// jump straight past the seqs this failed write never wrote.
-			c.mu.Lock()
-			ch.items = append(facts, ch.items...)
-			c.mu.Unlock()
-			return
-		}
+	// The facts a failed append leaves are put BACK, not dropped
+	// (flushBufferedItems): dropped, they existed nowhere, AND a later
+	// successful flush would falsely certify durability for them — its own
+	// target climbs with ch.ackSeq regardless of journal success, so
+	// flushedSeq/ackThrough would jump past the seqs this write never wrote.
+	if c.flushBufferedItems(ch) != nil {
+		return
 	}
 	c.mu.Lock()
 	if target > ch.flushedSeq {
@@ -128,6 +117,28 @@ func (c *Coordinator) flushItems(ch *RunChannel) {
 	ack := ch.flushedSeq
 	c.mu.Unlock()
 	c.ackThrough(ch, ack)
+}
+
+// flushBufferedItems journals the channel's buffered item facts WITHOUT
+// advancing its Ack — the caller's own event, already admitted, is not yet
+// recorded. A failed append puts the facts back (as flushItems does) and is
+// returned.
+func (c *Coordinator) flushBufferedItems(ch *RunChannel) error {
+	c.mu.Lock()
+	facts := ch.items
+	ch.items = nil
+	c.mu.Unlock()
+	if len(facts) == 0 {
+		return nil
+	}
+	if err := c.items.Exec(func() ([]Fact, error) { return facts, nil }); err != nil {
+		c.rep.Warnf("coordinator: journal %d item events for %s: %v (unacked; the runner re-emits)", len(facts), ch.role, err)
+		c.mu.Lock()
+		ch.items = append(facts, ch.items...)
+		c.mu.Unlock()
+		return err
+	}
+	return nil
 }
 
 // itemsFold COUNTS journaled items per run — the replay-equivalence

@@ -280,10 +280,14 @@ type runEnqueued struct {
 	MCPServers []string `json:"mcp_servers,omitempty"`
 }
 
-// runState is factRunState's payload.
+// runState is factRunState's payload. Seq is the run-channel event seq of the
+// turn boundary this state records (0 for a transition no event caused): the
+// fact IS that event's record, so the run's highest recorded Seq is a durable
+// watermark of what this coordinator has seen (RunRecord.EventSeq).
 type runState struct {
 	RunID string `json:"run_id"`
 	State string `json:"state"`
+	Seq   uint64 `json:"seq,omitempty"`
 }
 
 // runEnded is factRunEnded's payload.

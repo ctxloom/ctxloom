@@ -173,3 +173,33 @@ func channelHome(t *testing.T) *Home {
 	t.Helper()
 	return ownerLossHome(t, "http://127.0.0.1:1/mcp", time.Hour)
 }
+
+// TestRunChannelOnce_TheCoordinatorsCommittedSeqIsAnAck: HelloAck's
+// committed_seq is the coordinator's resume cursor — every event at or below
+// it is recorded there, including events a crashed coordinator recorded and
+// never acked. The runner drops those and re-sends only what lies above: a
+// recorded turn boundary re-sent to a restarted coordinator is folded again as
+// a fresh one.
+func TestRunChannelOnce_TheCoordinatorsCommittedSeqIsAnAck(t *testing.T) {
+	h := channelHome(t)
+	h.emitCustomEvent("ctxloom/one", nil)
+	h.emitCustomEvent("ctxloom/two", nil)
+	h.emitCustomEvent("ctxloom/three", nil)
+
+	ack := helloAck(true, nil)
+	ack.GetHelloAck().CommittedSeq = 2
+	srv := &runChannelServer{first: ack, collect: 2}
+	watchdog := time.AfterFunc(conformanceWait, h.cancel)
+	defer watchdog.Stop()
+	err := runChannelOnceBounded(t, h, runChannelClient(t, srv))
+	require.ErrorIs(t, err, io.EOF)
+
+	require.Zero(t, srv.hello.GetResumeFromSeq(), "premise: nothing was acked before the Hello")
+	require.Len(t, srv.got, 2)
+	require.NotNil(t, srv.got[0].GetHeartbeat(), "the attach Heartbeat precedes the reissue")
+	require.Equal(t, "ctxloom/three", srv.got[1].GetEvent().GetCustom().GetName(), "only the event above the cursor is re-sent")
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	require.Equal(t, uint64(2), h.acked)
+	require.Len(t, h.unacked, 1)
+}

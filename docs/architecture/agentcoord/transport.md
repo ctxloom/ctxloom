@@ -154,12 +154,12 @@ it is not inferred from scattered call sites:
 
 | Symbol | Contract |
 | --- | --- |
-| `runChan` | one live coordinator-side channel for a role on the `bidiSession` scaffold (its queue and pump; this side issues no requests), plus the journal watermark (`ackSeq`/`flushedSeq`/`items`/`completed`). Every mutable field is guarded by `Coordinator.mu` |
+| `runChan` | one live coordinator-side channel for a role on the `bidiSession` scaffold (its queue and pump; this side issues no requests), plus the journal watermark (`ackSeq`/`flushedSeq`/`items`/`completed`), seeded at attach from the resume cursor (`resumeSeq`, see [Resume cursor](#resume-cursor)). Every mutable field is guarded by `Coordinator.mu` |
 | `reqKey` / `inflightReq` | the `(role, request_id)` idempotency key that survives a reconnect, and the one-field struct whose nil `resp` means "still running" |
 | `coordService.RunChannel` | auth, Hello/HelloAck, register, start the send and recv pumps, deferred cleanup |
 | `handleAgentFrame` / `handleAgentEvent` | five-way frame switch; seq dedupe and re-ack, live tee to the watch hub, custom/summary/artifact/item routing, terminal marking |
 | `ackThrough` | non-blocking cumulative Ack — droppable by design because it is cumulative |
-| `handleCustomEvent` | the `ctxloom/*` vocabulary: `mail_consumed`, park/unpark, `harness_session`, turn state |
+| `handleCustomEvent` | the `ctxloom/*` vocabulary: `mail_consumed`, park/unpark, `harness_session`, turn state. A turn boundary first flushes the items buffered ahead of it (`flushBufferedItems`; a failure withholds the boundary), then journals its state WITH its seq (`runState.Seq`), raising the run's durable event watermark in the same write |
 | `handleAgentRequest` / `respond` / `respondRole` | reqTrack idempotency, dispatch on its own goroutine, respond on the role's *current* channel |
 | `serveAgentRequest` and the `serve*` verbs | plane-2 verb implementations; unknown kind → `UNIMPLEMENTED` |
 | `serveCustom` | host-relay tool dispatch under a 4 MiB watch; unknown tool → `UNIMPLEMENTED`, oversize → `ResourceExhausted` with a fix-it, empty result → `Internal` |
@@ -171,6 +171,35 @@ it is not inferred from scattered call sites:
 `runchannel.go` holds two responsibilities: stream/frame plumbing and the plane-2 verb
 bodies, which duplicate coordinator verbs reachable from the other transport
 (`AgentSend`, `AgentStop`, `Roster`).
+
+## Resume cursor
+
+`HelloAck.committed_seq` is authoritative: `AttachRun` answers
+`max(Hello.resume_from_seq, eventWatermark(run))`, seeds the new channel's
+`ackSeq`/`flushedSeq` with it (so a re-send at or below it is refused and re-acked
+as the duplicate it is), and the runner treats it as an Ack — `openRunChannel`
+calls `advanceAck` before `attachAndReissue`, so events at or below it are dropped,
+not re-sent.
+
+`eventWatermark` is DURABLE and per run: the higher of the run's
+`RunRecord.EventSeq` (the highest `runState.Seq`, carried by each turn boundary's
+state fact) and `itemsFold.maxSeq` (the highest journaled item). Both are rebuilt
+from `runs.jsonl` / `items.jsonl` on restart. It never stands above an unrecorded
+event: a boundary's items are flushed before it is recorded, and every other
+sequenced event is recorded before anything after it is admitted (go-back-N).
+
+What it closes: a crash after an event's record but before its Ack reached the
+runner used to have the runner re-send it to the restarted coordinator, which
+processed it again — a recorded turn start read as a FRESH turn, clearing the
+re-adopted run's `turnBeforeAdopt` / `replacedCreds` marks, so the recorded failure
+that followed opened a fresh hold, or was charged to a re-authenticated credential.
+What it does not: a failure whose hold fold landed but whose idle state did not (the
+crash fell between the two writes) is above the watermark and is re-sent; the
+`turnBeforeAdopt` rule (it may join a hold in force, never open one) still decides
+it — [coordinator-core](coordinator-core.md)'s accepted policy. Forcing tests:
+`TestHoldRestart_AFailedTurnRecordedButNeverAckedIsNotReplayedIntoAFreshHold`,
+`TestHoldRestart_ARefusalRecordedButNeverAckedIsNotChargedToTheFreshCredential`
+(`Options.ackHook` drops the acks).
 
 ## Runner side
 
@@ -241,13 +270,13 @@ and the engine.
 | T5 | `Store.Exec`'s fsync happens before the fact is applied, so an Ack certifies durability | `journal.go` |
 | T6 | A dead runner's runs are terminated by loss synthesis, not left executing | `grpcserver.go`, `runchannel.go` defer |
 | T7 | One writer per stream: `sendMu` on the runner side, a single writer pump on the coordinator side | `runnerlink.go`, `runchannel.go` |
+| T8 | `HelloAck.committed_seq` never exceeds what the coordinator's journals durably record for the run, and is never below `Hello.resume_from_seq`; nothing at or below it is processed twice | `runchannel.go` (`eventWatermark`, `AttachRun`), `home.go` (`openRunChannel`) |
 
 ## Divergences and real behaviour
 
-- **`HelloAck.committed_seq` echoes the agent's own claim.** `runchannel.go` sets
-  `CommittedSeq: hello.GetResumeFromSeq()`, with an in-code note that there is no
-  durable event log yet; `HelloAck.event_window` is unreferenced, so the documented
-  end-to-end backpressure does not exist.
+- **No end-to-end backpressure.** There is no app-level credit window
+  (`HelloAck.event_window` was removed); the event plane runs on HTTP/2 flow
+  control alone.
 - **`Home.abandonPark` drops a delivered mail batch** (`home.go`) despite a
   comment saying "requeue".
 - **A failed items-journal `Exec` loses the facts and the next flush acks past them**

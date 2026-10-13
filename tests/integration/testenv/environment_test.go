@@ -239,3 +239,29 @@ func TestIsolatedEnv_DropsTheHostZDOTDIR(t *testing.T) {
 		t.Errorf("the host's %s reached the child as %q; the scrub must drop it", zdotdirEnv, v)
 	}
 }
+
+// TestIsolatedEnv_DropsTheHostClaudeConfigDir: claude reads its whole config
+// home — settings, MCP servers, credentials, trusted projects — from
+// CLAUDE_CONFIG_DIR before HOME, and the developer's shell exports it. An
+// inherited one points every claude a scenario launches, a delegated child
+// included, at the DEVELOPER's real config dir despite the fake HOME. The key
+// is scrubbed because testsupport.EnvKeys lists it; this pins that it reaches
+// scrubbedEnvKeys, the list a child's environment is actually filtered by. A
+// config home a scenario stands up itself still reaches the child.
+func TestIsolatedEnv_DropsTheHostClaudeConfigDir(t *testing.T) {
+	const claudeConfigDirEnv = "CLAUDE_CONFIG_DIR"
+	const hostDir, scenarioDir = "/home/developer/.claude-real", "/scenario/claude-home"
+	t.Setenv(claudeConfigDirEnv, hostDir)
+
+	bare := &TestEnvironment{HomeDir: t.TempDir(), originalEnv: map[string]string{}}
+	if v, ok := childEnvValue(bare.isolatedEnv(), claudeConfigDirEnv); ok {
+		t.Errorf("the host's %s reached the child as %q; the scrub must drop it", claudeConfigDirEnv, v)
+	}
+
+	chosen := &TestEnvironment{HomeDir: t.TempDir(), originalEnv: map[string]string{}}
+	t.Cleanup(func() { _ = chosen.Cleanup() })
+	chosen.SetEnv(claudeConfigDirEnv, scenarioDir)
+	if v, ok := childEnvValue(chosen.isolatedEnv(), claudeConfigDirEnv); !ok || v != scenarioDir {
+		t.Errorf("the scenario's %s reached the child as %q (present=%v), want %q", claudeConfigDirEnv, v, ok, scenarioDir)
+	}
+}

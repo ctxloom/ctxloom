@@ -31,13 +31,7 @@ func TestRun_NoToken_RefusedBeforeLaunchWithTheEnginesFix(t *testing.T) {
 			require.True(t, ok)
 			want, _ := clifmt.RemedyOf(operations.AgentTokenMissing(App().Engines(), claude.EngineName, func(string) (string, bool) { return "", false }))
 			assert.Equal(t, want, fix, "the engine's wording, as init and auth show it")
-			assert.Equal(t, exitCodeRefused, errorExitCode(err))
+			assert.Equal(t, exitCodeRefused, clifmt.ExitCodeOf(err))
 		})
 	}
-}
-
-// TestErrorExitCode_OrdinaryErrorsAreOne: only a refusal carries the
-// refusal status; every other ctxloom error stays exitCodeError.
-func TestErrorExitCode_OrdinaryErrorsAreOne(t *testing.T) {
-	assert.Equal(t, exitCodeError, errorExitCode(assert.AnError))
 }

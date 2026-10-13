@@ -8,6 +8,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // The two terminal lines for a round that advanced nothing. They are constants
@@ -131,13 +133,13 @@ func renderNothingMoves(out io.Writer, res operations.UpgradeResult) {
 // refusedExit is the exit-2 outcome: the command completed, said in full why,
 // and deliberately did not do part of what it was asked (exitCodeRefused).
 //
-// It rides ExitError because that is this CLI's one mechanism for an error that
-// carries its own code, and — load-bearing here — Run() returns an ExitError's
-// code WITHOUT printing it. The refusal has already been reported above, in
-// language a human can act on; an "Error: exit code 2" line under it would add
-// nothing and would read as a failure of the tool rather than a decision by it.
+// It is a clifmt.ExitStatus, not a refusal, because — load-bearing here — the
+// family's tail exits with an ExitStatus's code WITHOUT printing it. The
+// refusal has already been reported above, in language a human can act on; a
+// "ctxloom: exit code 2" line under it would add nothing and would read as a
+// failure of the tool rather than a decision by it.
 func refusedExit() error {
-	return &ExitError{Code: exitCodeRefused}
+	return clifmt.ExitStatus{Code: exitCodeRefused}
 }
 
 // reportRemovedPins names each lockfile entry upgrade dropped (applied) or

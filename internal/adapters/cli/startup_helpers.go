@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"io"
 
@@ -10,6 +9,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // THE EXIT-CODE LADDER IS CATEGORICAL, NOT ORDERED BY SEVERITY. Read it as a
@@ -20,13 +21,13 @@ import (
 // §7, which is the contract; these constants are its implementation.
 //
 //	0  success, effect delivered
-//	1  ctxloom's own error (root.go's fallback for any unclassified error)
+//	1  ctxloom's own error (clifmt.ExitCodeOf's fallback for any unclassified error)
 //	2  exitCodeRefused — completed, and deliberately did not do something asked
 //	3  exitCodeFatalFindings — startup aborted over collected fatal findings
 //
-// A wrapped engine's own exit code passes through unchanged (ExitError), so
-// these values are ctxloom's answers only when ctxloom itself is the one
-// answering.
+// A wrapped engine's own exit code passes through unchanged
+// (clifmt.ExitStatus), so these values are ctxloom's answers only when
+// ctxloom itself is the one answering.
 
 // exitCodeRefused is the exit code for a command that RAN TO COMPLETION and
 // DELIBERATELY DID NOT DO something it was asked to do. Nothing failed: the
@@ -39,9 +40,9 @@ import (
 // do; a run that succeeded at doing none of what was asked is not a success
 // (docs/cli-ux-principles.md §7).
 //
-// A command reaches it either by returning a reported `refusal` (see
-// errorExitCode) or a silent ExitError carrying this code; search for both
-// to find its uses.
+// A command reaches it either by returning a reported `refusal` or a silent
+// clifmt.ExitStatus carrying this code (refusedExit); search for both to find
+// its uses.
 //
 // Chosen after checking the closest external analogues, both of which land on
 // 2 for "ran fine, something outstanding": terraform's `plan
@@ -57,21 +58,15 @@ const exitCodeError = 1
 
 // refusal marks an error as a refusal (exitCodeRefused) rather than a failure:
 // ctxloom declined to do what was asked because a precondition the human
-// supplies is missing, and the error names it with its fix. Unlike ExitError
-// it is reported: the message and fix are the point.
+// supplies is missing, and the error names it with its fix. Unlike a
+// clifmt.ExitStatus it is reported: the message and fix are the point.
 type refusal struct{ error }
 
 func (r refusal) Unwrap() error { return r.error }
 
-// errorExitCode is the status a reported ctxloom error exits with: the
-// refusal status for a refusal, exitCodeError for everything else.
-func errorExitCode(err error) int {
-	var r refusal
-	if errors.As(err, &r) {
-		return exitCodeRefused
-	}
-	return exitCodeError
-}
+// ExitCode is exitCodeRefused (clifmt.ExitCoder), which the family's tail
+// exits with after reporting the refusal.
+func (r refusal) ExitCode() int { return exitCodeRefused }
 
 // exitCodeFatalFindings is the exit code for a strict-mode startup abort:
 // distinct from 1 (ordinary command errors) and from the wrapped LLM's own
@@ -171,7 +166,7 @@ func (g *phaseGates) close(p Phase) error {
 		return nil
 	}
 	fmt.Fprintln(g.w, msg)
-	return &ExitError{Code: exitCodeFatalFindings}
+	return clifmt.ExitStatus{Code: exitCodeFatalFindings}
 }
 
 // formatFindings renders the collected findings block: a header naming the

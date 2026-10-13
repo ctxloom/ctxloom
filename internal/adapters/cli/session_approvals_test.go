@@ -19,6 +19,8 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // runApprovals runs `session approvals` in format, returning stdout, stderr
@@ -147,8 +149,8 @@ func TestSessionApprovals_RefusalExitsNonZero(t *testing.T) {
 	startFakeCoordinator(t, home, f)
 
 	_, errOut, err := runApprovals(t, formatText)
-	var exit *ExitError
-	require.True(t, errors.As(err, &exit), "want an ExitError, got %v", err)
+	var exit clifmt.ExitStatus
+	require.True(t, errors.As(err, &exit), "want a clifmt.ExitStatus, got %v", err)
 	assert.Equal(t, 1, exit.Code)
 	assert.Contains(t, errOut, "PermissionDenied")
 	assert.Contains(t, errOut, fakeProjectDir, "a failing coordinator is named by its project")

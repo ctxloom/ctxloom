@@ -107,18 +107,23 @@ func ApplyDiagnostics(cmd *cobra.Command) {
 	clidiag.SetStructured(err == nil && format.Structured())
 }
 
-// Execute runs root and returns the process exit status; see report for what
+// Execute runs root and returns the process exit status; see Report for what
 // it writes. It never calls os.Exit, so the caller can flush what it must
 // before exiting.
 // Reporting is Execute's, so it turns cobra's own error print off
 // (root.SilenceErrors) rather than let the failure be reported twice.
 func Execute(root *cobra.Command, prog string, stderr io.Writer) int {
 	root.SilenceErrors = true
-	return report(root, prog, stderr, root.Execute())
+	return Report(root, prog, stderr, root.Execute())
 }
 
-// report is the family's process tail for err, the error root's execution
-// ended with, returning the exit status (clifmt.ExitCodeOf):
+// Report is Execute's reporting half: the family's process tail for err, the
+// error an invocation of root ended with, returning the exit status
+// (clifmt.ExitCodeOf). It is for a caller that executes root itself because
+// it has a step of its own after execution (ctxloom refuses a verb that
+// slipped through cobra's --help short-circuit, which runs no hook); such a
+// caller sets root.SilenceErrors itself. Call it after root has executed, so
+// root's --format has been parsed:
 //   - nil: 0, nothing written;
 //   - a clifmt.ExitStatus: its code, nothing written (the command has said
 //     all it has to say, or relays a wrapped process's own status);
@@ -126,7 +131,7 @@ func Execute(root *cobra.Command, prog string, stderr io.Writer) int {
 //     clifmt.ErrorEnvelope on stderr;
 //   - anything else: the human line "<prog>: <msg>", then clifmt.FixLine
 //     when the error names a fix.
-func report(root *cobra.Command, prog string, stderr io.Writer, err error) int {
+func Report(root *cobra.Command, prog string, stderr io.Writer, err error) int {
 	if err == nil {
 		return 0
 	}

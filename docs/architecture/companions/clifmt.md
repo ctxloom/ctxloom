@@ -28,7 +28,7 @@ flowchart TD
         T[cmd/taskloom]
         C[internal/adapters/cli]
     end
-    binaries --> CF["cobrafmt<br/>AddFlag · Resolve · Emit · EmitError<br/>EmitVersion · ApplyDiagnostics · Execute"]
+    binaries --> CF["cobrafmt<br/>AddFlag · Resolve · Emit · EmitError<br/>EmitVersion · ApplyDiagnostics · Execute · Report"]
     CF --> P["clifmt.Printer.Render(w, v, Format, opts…)"]
     CF --> RF["clifmt.ResolveFormat(requested, explicit, terminal)"]
     CF --> D["clidiag.SetStructured"]
@@ -190,6 +190,7 @@ gate (`TestArch_ClifmtCoreDoesNotLinkCobra`) runs `go list -deps` on `pkg/clifmt
 | `EmitVersion(cmd, name, version)` | the `{name, version}` payload (`VersionInfo`); text prints the bare version |
 | `ApplyDiagnostics(cmd)` | `clidiag.SetStructured` on for json/yaml/toml, off otherwise. Call from the root's `PersistentPreRun` |
 | `Execute(root, prog, stderr) int` | run the tree and **return** the exit status (never `os.Exit`, so the caller can flush first). Reports nothing for nil or an `ExitStatus`; an envelope under an explicit structured format; otherwise `<prog>: <msg>` plus the fix line |
+| `Report(root, prog, stderr, err) int` | `Execute`'s reporting half, for a caller that executes the tree itself because it has a step of its own after execution: reports `err` exactly as `Execute` would, against the `--format` the root parsed, and returns the status. The caller sets `root.SilenceErrors` |
 | `WithPrinter(root, p)` | the `Printer` `Emit` uses for this tree, carried on the root's context (install it after anything that replaces that context) |
 | `OverrideTerminal(bool)` | test seam for the terminal check |
 
@@ -201,11 +202,13 @@ it, so making it a per-tree value later changes only the adapter.
 - **harp, ltk, taskloom** use `AddFlag`, `ApplyDiagnostics` and `Execute`. Each runs
   `internal/testsupport/formatparity.Check` against its own root, so the flag help, completion,
   derived default, human error line and structured envelope cannot drift between them.
-- **ctxloom** (`internal/adapters/cli`) uses `Resolve`, `Emit` (through its own `emit`, which turns
-  a text closure into `WithWriter`) and `EmitError`, but still registers its own `--format`, sets
-  diagnostics in its own `PersistentPreRun`, and runs its own process tail (`Error: <msg>`, with
-  `ExitError`/`errorExitCode` choosing the status). Moving it onto `AddFlag`/`Execute` is pending:
-  its tail runs a post-execution check (`dispatch`) that `Execute` cannot host.
+- **ctxloom** (`internal/adapters/cli`) uses `AddFlag`, `ApplyDiagnostics`, `Resolve`, `Emit`
+  (through its own `emit`, which turns a text closure into `WithWriter`) and `Report`. It cannot
+  use `Execute`: after the tree runs, its `dispatch` refuses a verb that slipped through cobra's
+  `--help` short-circuit, and cobra runs no hook after that short-circuit. So `Run` executes the
+  tree through `dispatch` and hands what it ended with to `Report`. A refusal is a
+  `clifmt.ExitCoder` (exit 2); a wrapped engine's own status is a `clifmt.ExitStatus`. ctxloom runs
+  `formatparity.Check` too (`cmd/ctxloom`).
 
 `internal/shared/archlint`'s json-tags rule treats `cobrafmt.Emit`, `clifmt.Render` and
 `(*clifmt.Printer).Render` as structured-output sinks: every struct reachable from their payload

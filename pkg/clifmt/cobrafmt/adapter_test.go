@@ -235,3 +235,45 @@ func TestWithPrinter_ThroughExecute(t *testing.T) {
 		t.Errorf("code %d, stdout %q; want 0, %q", code, stdout.String(), "viewed\n")
 	}
 }
+
+// Report is Execute's reporting half, for a caller that runs root itself and
+// can end with an error of its own AFTER execution (ctxloom's dispatch step
+// refuses a verb that slipped through cobra's --help short-circuit). The
+// error it is handed is reported exactly as Execute would report it,
+// against the --format root parsed.
+func TestReport_ReportsACallersOwnError(t *testing.T) {
+	run := func(t *testing.T, err error, args ...string) (int, string) {
+		t.Helper()
+		root := &cobra.Command{Use: "prog", Run: func(*cobra.Command, []string) {}}
+		AddFlag(root)
+		root.SetOut(io.Discard)
+		root.SetArgs(args)
+		if execErr := root.Execute(); execErr != nil {
+			t.Fatal(execErr)
+		}
+		var stderr bytes.Buffer
+		code := Report(root, "prog", &stderr, err)
+		return code, stderr.String()
+	}
+	cases := []struct {
+		name       string
+		err        error
+		args       []string
+		wantCode   int
+		wantStderr string
+	}{
+		{"nil is success", nil, nil, 0, ""},
+		{"exit status is silent", clifmt.ExitStatus{Code: 4}, nil, 4, ""},
+		{"exit coder keeps its code", codeErr{2, "refused"}, nil, 2, "prog: refused\n"},
+		{"the human line with its fix", fixErr{"stray", "drop it"}, nil, 1, "prog: stray\n  fix: drop it\n"},
+		{"explicit json is an envelope", fixErr{"stray", "drop it"}, []string{"--format", "json"}, 1, "{\n  \"error\": \"stray\",\n  \"remedy\": \"drop it\"\n}\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			code, stderr := run(t, tc.err, tc.args...)
+			if code != tc.wantCode || stderr != tc.wantStderr {
+				t.Errorf("code %d, stderr %q; want %d, %q", code, stderr, tc.wantCode, tc.wantStderr)
+			}
+		})
+	}
+}

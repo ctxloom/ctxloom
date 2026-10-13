@@ -12,6 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // resetStrictness restores pristine strict-mode state for a test and registers
@@ -42,8 +44,8 @@ func TestFailOnFindings_StrictAbortsWithFindingsExitCode(t *testing.T) {
 		err := gates.close(PhaseStartup)
 
 		require.Error(t, err, "a collected fatal finding must abort startup in strict mode")
-		var exitErr *ExitError
-		require.ErrorAs(t, err, &exitErr, "the abort must be an ExitError so deferred cleanup runs")
+		var exitErr clifmt.ExitStatus
+		require.ErrorAs(t, err, &exitErr, "the abort must be a clifmt.ExitStatus so deferred cleanup runs")
 		assert.Equal(t, exitCodeFatalFindings, exitErr.Code,
 			"strict abort must carry the distinct findings exit code (3), not the generic 1")
 
@@ -91,7 +93,7 @@ func TestFailOnFindings_ContainerIsolationDegradeIsFatalUnlessDegraded(t *testin
 		err := gates.close(PhaseWorkspace)
 
 		require.Error(t, err, "an explicitly-requested unsatisfiable container must abort before an unsandboxed launch")
-		var exitErr *ExitError
+		var exitErr clifmt.ExitStatus
 		require.ErrorAs(t, err, &exitErr)
 		assert.Equal(t, exitCodeFatalFindings, exitErr.Code, "must carry the distinct findings exit code (3)")
 
@@ -148,7 +150,7 @@ func TestStartupGates_TileWithoutHole(t *testing.T) {
 	// 1 ended and the gap finding is inside it. No caller anchored anything.
 	err := gates.close(PhaseWorkspace)
 	require.Error(t, err, "the window gate 1 opened as it closed must catch a gap finding")
-	var exitErr *ExitError
+	var exitErr clifmt.ExitStatus
 	require.ErrorAs(t, err, &exitErr)
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
 	assert.Contains(t, out.String(), "bundle unreadable")
@@ -214,7 +216,7 @@ func TestPhaseGates_NonDegradableSurvivesDegraded(t *testing.T) {
 		err := gates.close(PhaseTransportStart)
 
 		require.Error(t, err, "--degraded must not swallow a finding whose harm is the launch itself")
-		var exitErr *ExitError
+		var exitErr clifmt.ExitStatus
 		require.ErrorAs(t, err, &exitErr)
 		assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
 

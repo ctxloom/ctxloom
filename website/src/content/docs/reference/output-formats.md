@@ -41,10 +41,9 @@ Results go to stdout; failures and warnings go to stderr.
 - A failure exits non-zero. If you **asked** for `--format json`, `yaml` or
   `toml`, stderr carries a parseable error document,
   `{"error": "…", "remedy": "…"}` (`remedy` only when there is a suggested
-  fix). Otherwise stderr carries one readable line: `taskloom`, `ltk` and
-  `harp` print `<program>: <message>`, and `ctxloom` prints
-  `Error: <message>`, followed in both cases by a `fix: …` line when there is
-  a suggested fix.
+  fix). Otherwise stderr carries one readable line, `<program>: <message>`
+  (`ctxloom: …`, `taskloom: …`, `ltk: …`, `harp: …`), followed by an indented
+  `fix: …` line when there is a suggested fix.
 - A format chosen only because output was piped does not change stderr: you
   still get the readable line, so a redirected run's errors stay readable.
 - Under an explicit or piped `json`, `yaml` or `toml`, warnings are JSON Lines,

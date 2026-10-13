@@ -31,15 +31,16 @@ flowchart TD
     RUN --> RC["rootCommand — assembled once (rootAssembly)"]
     RC --> PPR["rootPersistentPreRunE"]
     PPR --> IA["installApp(flags, environ, noCompanions, strictnessMode)<br/>→ operations.ComposeSources → operations.NewApp"]
-    PPR --> FG["clidiag.SetStructured(format.Structured())"]
+    PPR --> FG["cobrafmt.ApplyDiagnostics"]
     PPR --> RUB["refuseUnstampedBuild"]
     PPR --> RUF["refuseUnsupportedFormat"]
     PPR --> RUNE["subcommand RunE"]
     RUNE --> POST["rootPersistentPostRunE → closeInternalCoordinator · checkFormatWasHonored"]
-    POST --> ERR{"error?"}
-    ERR -->|"*ExitError"| CODE["exitCodeFor → that code"]
-    ERR -->|other| REP["cobrafmt.EmitError → exit 1"]
-    ERR -->|nil| OK["exit 0"]
+    POST --> DISP["dispatch — refuses a stray verb under --help"]
+    DISP --> REPT["cobrafmt.Report"]
+    REPT -->|nil| OK["exit 0"]
+    REPT -->|"clifmt.ExitStatus"| CODE["that code, nothing printed"]
+    REPT -->|other| REP["ctxloom: msg (or an envelope) → clifmt.ExitCodeOf"]
 ```
 
 `Composition` is what the composition root decides once per process: the
@@ -65,9 +66,13 @@ for it: a broken config cannot excuse itself.
   the warnings the reader downgraded from hard errors, so every
   `GetConfig`-based command surfaces them instead of silently operating on a
   partial config.
-- `ExitError{Code}` is the mechanism by which a wrapped engine's exit code
-  survives deferred cleanup: `run` unwraps it with `errors.As` (`exitCodeFor`)
-  rather than calling `os.Exit` mid-stack.
+- A command ends with a status of its own by returning it as an error, so
+  deferred cleanup runs rather than `os.Exit` mid-stack: a
+  `clifmt.ExitStatus{Code}` (a wrapped engine's status, or an outcome already
+  reported) exits silently, and a `refusal` is reported and exits 2.
+  `run` hands what `dispatch` ended with to `cobrafmt.Report`, the family's
+  tail, which prints `ctxloom: <msg>` (or an envelope under an explicit
+  `--format json|yaml|toml`) and picks the status with `clifmt.ExitCodeOf`.
 - `GetRootCmd()` is the only export of the tree; `rootCmd` itself is
   unexported. `RunWithArgs` is the in-process driver tests use.
 
@@ -89,7 +94,7 @@ for it: a broken config cannot excuse itself.
 
 `phaseGates` tiles a process's fatality windows: `newPhaseGates` opens the
 first, and `close(Phase)` reports the phase's findings, returns the abort
-(`ExitError` carrying `exitCodeFatalFindings`) if any survived the mode, and
+(a `clifmt.ExitStatus` carrying `exitCodeFatalFindings`) if any survived the mode, and
 **opens the next window in the same call** — so a finding recorded anywhere
 between two gates is caught, and no caller can forget to re-open. That last
 property is the whole reason the type exists: `run` previously achieved the
@@ -124,6 +129,7 @@ minimal `.ctxloom`-rooted fixture instead of aborting.
   startup path that consumes a loaded config must surface its findings,
   otherwise a corrupted `config.yaml` silently launches an empty-context
   session.
-- **Exit codes travel as `ExitError`.** `strictness.ExitCodeFatalFindings` is
-  reserved for a phase-gate abort; any other error renders through
-  `cobrafmt.EmitError` and exits 1.
+- **Exit codes travel as errors** (`clifmt.ExitStatus`, or a
+  `clifmt.ExitCoder` such as `refusal`). `strictness.ExitCodeFatalFindings` is
+  reserved for a phase-gate abort; any other error is reported by
+  `cobrafmt.Report` and exits 1.

@@ -12,6 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // TestCredentialRefusedOutcome_ExitsRefusedNotTheEnginesStatus: when the
@@ -24,14 +26,14 @@ func TestCredentialRefusedOutcome_ExitsRefusedNotTheEnginesStatus(t *testing.T) 
 	refused := []coord.CredentialHold{{Kind: agent.FailureCredentialRejected, Harps: []string{"other", "mine"}}}
 
 	err := credentialRefusedOutcome(nil, refused, "mine")
-	var exit *ExitError
+	var exit clifmt.ExitStatus
 	require.ErrorAs(t, err, &exit)
 	assert.Equal(t, exitCodeRefused, exit.Code)
 
 	assert.NoError(t, credentialRefusedOutcome(nil, refused, "someone-else"), "another session's refusal is not this run's")
 	limited := []coord.CredentialHold{{Kind: agent.FailureRateLimited, Harps: []string{"mine"}}}
 	assert.NoError(t, credentialRefusedOutcome(nil, limited, "mine"), "a rate limit is not a refusal")
-	engineFailed := &ExitError{Code: 7}
+	engineFailed := clifmt.ExitStatus{Code: 7}
 	assert.Equal(t, engineFailed, credentialRefusedOutcome(engineFailed, nil, "mine"), "no refusal: the run's own outcome stands")
 }
 
@@ -47,7 +49,7 @@ func TestRun_LoginModeWithNoLoginOnThisHost_WritesNoProjectMarker(t *testing.T) 
 
 	res := runCLI(t, "--config-set", "auth="+string(engine.AuthLogin), "run", "--one-shot", "-p", "dev", "hi")
 	require.ErrorIs(t, res.err, engine.ErrNoCredential, res.all())
-	assert.Equal(t, exitCodeRefused, errorExitCode(res.err))
+	assert.Equal(t, exitCodeRefused, clifmt.ExitCodeOf(res.err))
 	_, statErr := os.Stat(marker)
 	assert.True(t, os.IsNotExist(statErr), "a refused login run wrote the project marker")
 }

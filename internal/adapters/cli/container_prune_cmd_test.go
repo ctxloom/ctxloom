@@ -15,6 +15,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 var pruneGoldenNow = time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
@@ -138,7 +140,7 @@ func TestContainerPrune_ExitCodes(t *testing.T) {
 				assert.NoError(t, err)
 				return
 			}
-			var ee *ExitError
+			var ee clifmt.ExitStatus
 			require.True(t, errors.As(err, &ee), "want exit %d, got %v", tc.wantCode, err)
 			assert.Equal(t, tc.wantCode, ee.Code)
 		})

@@ -146,7 +146,7 @@ Registered LLM backends:
 | Backend | CLI | Description |
 |---------|-----|-------------|
 | `claude-code` | [Claude Code](https://claude.ai/code) | Anthropic's Claude (default) |
-| `opencode` | [opencode](https://opencode.ai) | opencode against an OpenAI-compatible endpoint (e.g. a LAN llama-server) |
+| `opencode` | [opencode](https://opencode.ai) | opencode on one of its built-in providers (e.g. the keyless `opencode/big-pickle`) or against an OpenAI-compatible endpoint (e.g. a LAN llama-server) |
 
 Each backend launches the vendor's own CLI as a child process — ctxloom holds no model API
 client of its own, so the backend's binary must be installed and on `PATH` before you can run
@@ -348,9 +348,25 @@ hooks:
 `tool:` narrows a tool event to a class of tool, which each engine maps to its
 own tool names (claude: `shell` is `Bash|PowerShell`, `file_edit` is
 `Edit|Write|MultiEdit|NotebookEdit`). A profile hook may instead give
-`matcher:`, a regex over one engine's native tool names, which wins when both
+`matcher:`, a regex over one engine's tool names, which wins when both
 are set; a bundle hook may only use `tool:`, and a `matcher:` in a bundle is
 refused when the bundle is read.
+
+A `pre_tool` or `pre_shell` command hook reads the same input on every engine:
+Claude Code's `PreToolUse` JSON on stdin (`tool_name`, `tool_input`, `cwd`,
+`session_id`, ...). On opencode, which has no hook commands of its own,
+ctxloom's plugin runs the hook and writes that input itself, with opencode's
+tools under Claude Code's names and input keys (`bash` is `Bash`, `edit` is
+`Edit` with `file_path`, `old_string`, `new_string`; `apply_patch`, which Claude
+Code lacks, keeps its name; an MCP tool passes as opencode names it). A
+`matcher:` on opencode is tested against those Claude Code names, so one
+matcher works on both engines; `shell` is `Bash` and `file_edit` is
+`Edit|Write|apply_patch`. There the one answer that blocks the call is a deny
+with a non-empty reason, written on stdout as Claude Code's
+`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"..."}}`;
+the reason reaches the model. Any other answer, a non-zero exit (2 included) or
+a timeout lets the call through, so write a deny, not an exit status. A hook written for Claude Code's `PreToolUse`, such as
+`ltk evaluate`, therefore guards opencode unchanged.
 
 ## Claude Code Integration
 

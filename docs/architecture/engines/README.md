@@ -192,8 +192,9 @@ and does not spawn, so it is not a second user.
 
 ## The opencode kind
 
-`internal/engines/opencode` drives the opencode CLI against an
-OpenAI-compatible endpoint a `type: opencode` label names (opt-in): the TUI
+`internal/engines/opencode` drives the opencode CLI on the model a
+`type: opencode` label names (opt-in), on one of opencode's built-in providers
+or against an OpenAI-compatible endpoint (below): the TUI
 on ctxloom's pty, and the structured runner. Everything is delivered into
 the session home H, which `OPENCODE_CONFIG_DIR` names: the framed
 `AGENTS.md`, `opencode.json` claims (`/mcp/<server>`, `/permission/<tool>`,
@@ -272,6 +273,7 @@ integrity rests on GitHub's TLS and the release itself.
 | Page | Backend id | Drive | `plan` enforced? | Notable |
 |---|---|---|---|---|
 | [claude](claude.md) | `claude-code` | vendor CLI | **yes** | The exercised default. Carries a native per-tool deny list, and its approaches declare an out-of-cwd form (`agent.OutOfCwd`) so a shared cwd is never written into |
+| [opencode](#the-opencode-kind) | `opencode` | vendor CLI (TUI on the pty; `opencode run --format json` structured) | **yes** (`planDenies`: every edit and shell call) | Opt-in; a built-in provider (keyless `opencode/big-pickle`) or an OpenAI-compatible endpoint. Hooks ride one generated bridge plugin, whose pre-tool point speaks claude's PreToolUse. No page of its own yet: see the section above |
 | [mockengine](mockengine.md) | *(not a backend)* | it *is* the engine | n/a | A fake vendor CLI that proves context delivery — and what a mock-only pass does not prove |
 
 The in-process test doubles (`mock.Name` and its siblings, `mock.Doubles`) are
@@ -287,6 +289,7 @@ flowchart LR
     CH --> RUN["runner.Execute: Kind.Instance(session),<br/>delivery.Static over the plan"]
     RUN --> INT["interactive: Hosted.Backend.Execute<br/>over runner.RunLaunchSpec (pty)"]
     RUN --> STR["structured: Instance.Drivers()[0].Turn<br/>over Instance.Exec"]
+    RUN -.->|"findings: skipped surfaces, materialized context<br/>(StartRunResult.findings)"| CH
     INT --> ENG["vendor engine process"]
     STR --> ENG
 

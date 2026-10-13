@@ -26,6 +26,14 @@ The authorities are code, not this page:
 | Scratch | session dir | one run | `scratch/` (`ctxloom-iso-*`, `ctxloom-tmp-*`, the secret dir's disk fallback) |
 | Readable output | output dir | the human's; ctxloom's sweeps never delete it | `essence.md`, `next-step.md`, `*.plan.md`, `segments/<id>.md`, `reports/` |
 
+One per-session path lives outside both: the socket root (`engine.Session.SocketRoot`,
+computed beside the engine by `launch.SocketRoot`), a short owner-only directory
+`<base>/ctxloom-<16 hex of the session home's sha256>` under the first of
+`$XDG_RUNTIME_DIR`, the temp dir and `/tmp` that keeps a socket path within
+`engine.SocketPathBudget`. The session home nests too deep for a unix socket, so a wake
+socket (`kit.SocketWake`) binds there instead. It holds sockets only, lives for one engine
+process, and `kit.ReleaseSocketRoot` removes it, when empty, after the engine ends.
+
 ## Layout
 
 ```
@@ -121,9 +129,11 @@ directory in its place.
 | coordinator root | keep | delete only if ephemeral and settled | — | — | removed with the session |
 | output dir | keep | keep | never | never | never |
 
-Every deletion of `home/<leaf>` (Close, `clean`, `clean --include-persist`) first moves a
-history dir the home holds as a real directory into `native/` (`sessions.KeepHomeHistory`),
-and leaves the home when that fails. Close's rule lives in `Coordinator.removeDisposableMembers`; the reaper's in
+Every deletion of `home/<leaf>` (Close, `clean`, `clean --include-persist`) first moves the
+engine's history store into `native/` when the home holds it as a real directory
+(`sessions.KeepHomeHistory`: exactly the leaf's `HomeSpec.TranscriptStoreRel` installed as
+`sessions.UseHistoryStores`, never its siblings; see Windows below), and leaves the home when
+that fails. Close's rule lives in `Coordinator.removeDisposableMembers`; the reaper's in
 `sessions.ReapPolicy.Members`; the purge populations in `operations.PurgeSession`, of which
 the sweep requests only the transcript population. The output dir is reachable by exactly
 one destroyer, the explicit `ctxloom session artifacts purge` (`outputEssenceItems`).

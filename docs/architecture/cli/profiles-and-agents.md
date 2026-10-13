@@ -60,7 +60,8 @@ folds its add/remove flag slices into one `operations.UpdateProfile` request.
 `profile edit` is an `$EDITOR` round-trip via `editProfileFile`.
 
 `ctxloom materialize` (`materialize.go`) is the one at-rest delivery
-(`profile materialize` and `manage hooks install`/`uninstall` are gone).
+(`operations.Materialize`, which the post-sync refresh also runs); no other
+command writes an engine's files into a project.
 It parses `--surface KIND[=file][:DEST]` into `operations.SurfaceSpec`s, refuses
 incoherent flag sets before resolving anything (`checkMaterializeFlags`:
 `--release` with profiles or `--diff`; `--diff` with more than one `--backend`

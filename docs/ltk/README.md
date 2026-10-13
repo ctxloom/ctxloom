@@ -226,7 +226,9 @@ Run them with `just acceptance`.
 ## Install
 
 > **Claude Code is the supported engine.** `ltk manage install` detects the
-> engines present at the chosen scope; name one with `--engine`.
+> engines present at the chosen scope; name one with `--engine`. An opencode
+> session `ctxloom run` starts reaches ltk on Claude Code's `PreToolUse` wire
+> (ctxloom's bridge plugin writes it), so the claude-code adapter answers it.
 
 Build a static binary (no runtime dependencies):
 

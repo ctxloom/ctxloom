@@ -77,6 +77,14 @@ flowchart TD
 
 claude's codec is `internal/engines/claude/hookcodec.go`; the mock's is its
 own (`internal/engines/mock/hooks.go`) and writes no other engine's shape.
+opencode's (`internal/engines/opencode/hooks.go`, `hookCodec`) is
+`kit.NativeHookCodec` on every point but the pre-tool one, and blocks on none
+of pre_tool/pre_shell: that point carries THE HOOK WIRE, ctxloom's
+cross-engine command-hook wire, which is claude's PreToolUse input and its
+deny-with-reason reply (`claude.DecodeHookPayload`/`EncodeDeny`). opencode's
+bridge plugin writes it itself, each tool under claude's name and input keys
+(`claudeTools`), and tests every matcher against that name; see the engines
+README's opencode section.
 
 **How a verb knows its engine.** The engine a hook was delivered to is known
 at setup, so it is written there: every hooks approach binds the unified set

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -209,4 +210,52 @@ func TestExecute_SpawnsTheComposedExecsBinary(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ex.Binary, spawned.BinaryPath)
 	assert.Equal(t, ex.Args, spawned.Args)
+}
+
+// disallowedValues returns the value token of every --disallowedTools in args.
+func disallowedValues(args []string) []string {
+	var out []string
+	for i, a := range args {
+		if a == flagDisallowedTools && i+1 < len(args) {
+			out = append(out, args[i+1])
+		}
+	}
+	return out
+}
+
+// TestInstance_ChildHasNoBuiltinPeerMessaging: a delegated child's channel to
+// its coordinator is ctxloom's agent_send. claude ships its own peer
+// messaging (SendMessage, found through ListAgents), which reaches only other
+// local claude sessions, never ctxloom's coordinator. Measured live on haiku
+// (j002300's agent_send cell): offered both, the child called
+// SendMessage{to:"parent"}, was told no "parent" is reachable, and gave up in
+// text. So a child's argv removes claude's peer-messaging tools, in the ONE
+// --disallowedTools token claude's parser takes (merged into plan's belt), on
+// every mode and posture; a session that is not a child keeps them.
+func TestInstance_ChildHasNoBuiltinPeerMessaging(t *testing.T) {
+	kind, err := Build()
+	require.NoError(t, err)
+	for _, mode := range kind.Root().Modes {
+		for _, named := range namedPolicies {
+			for _, depth := range []int{0, 1, 2} {
+				s := engine.Session{Identity: sessions.Identity{Harp: "h", Depth: depth}, Label: engine.LabelConfig{Label: EngineName}, Mode: mode, Permission: named.p, Prompt: "p"}
+				inst, err := kind.Instance(s)
+				require.NoError(t, err)
+				ex, err := inst.Exec(nil)
+				require.NoError(t, err)
+				deny := disallowedValues(ex.Args)
+				require.LessOrEqual(t, len(deny), 1, "%v %s depth %d: one --disallowedTools token, never repeated: %v", mode, named.name, depth, ex.Args)
+				var tools []string
+				if len(deny) == 1 {
+					tools = strings.Split(deny[0], ",")
+				}
+				for _, builtin := range []string{"SendMessage", "ListAgents"} {
+					assert.Equal(t, depth > 0, slices.Contains(tools, builtin), "%v %s depth %d: %s denied", mode, named.name, depth, builtin)
+				}
+				if named.name == modePlan && mode == engine.Structured {
+					assert.Subset(t, tools, []string{"Bash", "Edit", "Write", "NotebookEdit"}, "plan's read-only belt survives the merge")
+				}
+			}
+		}
+	}
 }

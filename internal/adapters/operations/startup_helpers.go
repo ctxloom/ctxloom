@@ -103,13 +103,15 @@ func WriteAndRecordSyncSummary(w io.Writer, result *SyncDependenciesResult) {
 	}
 }
 
-// WriteRefreshSkipped names the post-sync project refresh a sync planned but
-// did not write for want of the user's --yes (SyncDependenciesResult.
-// RefreshSkipped): the project directory, per engine the kinds it would have
-// written or released, and the two ways to apply it — rerun, the calling
-// command's own --yes form, and the equivalent `ctxloom materialize`, limited
-// by --surface to the kinds the refresh touches so it writes nothing more.
-// indent prefixes every line. A nil skipped is a no-op.
+// WriteRefreshSkipped names the post-sync project refresh a sync previewed
+// but did not write for want of the user's --yes (SyncDependenciesResult.
+// RefreshSkipped): the project directory, per engine the kinds whose files
+// it would have written or released, each kind it would have been refused
+// with the reason and its fix, and the two ways to apply it — rerun, the
+// calling command's own --yes form, and the equivalent `ctxloom
+// materialize`, limited by --surface to the kinds the refresh touches so it
+// writes nothing more. With only refusals there is nothing to apply, so no
+// apply line. indent prefixes every line. A nil skipped is a no-op.
 func WriteRefreshSkipped(w io.Writer, indent string, skipped *MaterializeResult, rerun string) {
 	if skipped == nil {
 		return
@@ -125,15 +127,21 @@ func WriteRefreshSkipped(w io.Writer, indent string, skipped *MaterializeResult,
 		if len(e.Released) > 0 {
 			parts = append(parts, "would release "+strings.Join(e.Released, ", "))
 		}
-		if len(parts) == 0 {
-			continue
+		if len(parts) > 0 {
+			ew.Printf("%s  %s: %s\n", indent, e.Engine, strings.Join(parts, "; "))
 		}
-		ew.Printf("%s  %s: %s\n", indent, e.Engine, strings.Join(parts, "; "))
+		for _, r := range e.Refused {
+			ew.Printf("%s  %s: %s refused: %s\n", indent, e.Engine, r.Kind, r.Reason)
+			ew.Printf("%s    fix: %s\n", indent, r.Fix)
+		}
 		for _, k := range append(slices.Clone(e.Wrote), e.Released...) {
 			if !slices.Contains(kinds, k) {
 				kinds = append(kinds, k)
 			}
 		}
+	}
+	if len(kinds) == 0 {
+		return
 	}
 	materialize := "ctxloom materialize --yes"
 	for _, k := range kinds {

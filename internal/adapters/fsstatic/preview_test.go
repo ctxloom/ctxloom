@@ -2,6 +2,7 @@ package fsstatic_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -268,6 +269,34 @@ func TestPreview_InASharedFileAChangeIsAttributedToTheKindThatMadeIt(t *testing.
 	settingsChanged, err := c.static.Preview(context.Background(), c.loadout(t, []string{"Bash", "Write"}, wire.Hook{Type: "command", Command: "true"}), c.root, c.target)
 	require.NoError(t, err)
 	assert.Equal(t, []present.Kind{present.Settings}, differing(settingsChanged))
+}
+
+// A place another kind claims that the user took out of the shared file is
+// put back in THAT kind's name only: the settings kind, folded alone, moves
+// only the places it claims, so the hooks the user deleted are the hooks
+// kind's difference and not the settings kind's.
+// MUTATION: fold each kind unscoped (drop Staging.scopeTo) → red.
+func TestPreview_ALostPlaceIsTheKindThatClaimsIt(t *testing.T) {
+	fs := afero.NewOsFs()
+	c := newClaudeShared(t, fs)
+	lo := c.loadout(t, []string{"Bash"}, wire.Hook{Type: "command", Command: "true"})
+	_, err := c.static.Deliver(context.Background(), lo, c.root, c.target)
+	require.NoError(t, err)
+	settings := filepath.Join(c.project, ".claude", "settings.json")
+	raw, err := os.ReadFile(settings)
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(raw, &doc))
+	require.Contains(t, doc, "hooks")
+	delete(doc, "hooks")
+	edited, err := json.Marshal(doc)
+	require.NoError(t, err)
+	require.NoError(t, safefs.WriteFile(fs, settings, edited, 0o644))
+
+	p, err := c.static.Preview(context.Background(), lo, c.root, c.target)
+
+	require.NoError(t, err)
+	assert.Equal(t, []present.Kind{present.Hooks}, differing(p))
 }
 
 // mutationFs records every operation that could change the filesystem and

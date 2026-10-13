@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -95,8 +96,20 @@ type EngineOutcome struct {
 	// Skipped names each command or skill the engine's writers skipped or
 	// refused (an unsafe name, a failed render, a vendor constraint): the
 	// rest was delivered, these were not.
-	Skipped  []string `json:"skipped,omitempty"`
-	Warnings []string `json:"warnings,omitempty"`
+	Skipped []string `json:"skipped,omitempty"`
+	// Refused names, in a dry run, each kind whose delivery would be
+	// refused (a value that is not ctxloom's, a declared file missing, a
+	// file it cannot read), with the fix. Nothing of such a kind would land.
+	Refused  []KindRefusal `json:"refused,omitempty"`
+	Warnings []string      `json:"warnings,omitempty"`
+}
+
+// KindRefusal is one kind a dry run found its delivery would refuse: why,
+// and what the human changes so it can land.
+type KindRefusal struct {
+	Kind   string `json:"kind"`
+	Reason string `json:"reason"`
+	Fix    string `json:"fix"`
 }
 
 // Materialize statuses.
@@ -304,16 +317,16 @@ func materializeEngine(ctx context.Context, reg engine.Registry, cfg *config.Con
 	p.ContextFile = m.contextFile
 	var plan delivery.Plan
 	if m.req.DryRun {
-		plan, err = planMaterialized(kind, pkg, p, &out)
+		plan, err = previewMaterializedAt(ctx, m.root, kind, pkg, p, &out)
 		if err != nil {
 			return out, err
 		}
 	} else {
 		plan = deliverMaterializedAt(ctx, m.root, kind, pkg, p, &out)
-	}
-	for _, k := range kinds {
-		if !slices.Contains(out.Wrote, k.String()) {
-			out.Released = append(out.Released, k.String())
+		for _, k := range kinds {
+			if !slices.Contains(out.Wrote, k.String()) {
+				out.Released = append(out.Released, k.String())
+			}
 		}
 	}
 	if !cfg.ShouldSilenceUnsupported() {
@@ -342,17 +355,55 @@ func contextRidesTheLaunch(root engine.Base) bool {
 	return ok && a.Traits().Channel == present.ChannelArgv
 }
 
-// planMaterialized is a dry run's plan at p, its kinds recorded as what
-// would be written.
-func planMaterialized(kind engine.Engine, pkg composite.Package, p Placement, out *EngineOutcome) (delivery.Plan, error) {
-	plan, err := delivery.PlanFor(kind.Root(), pkg.EngineItems(kind.Root().Name), p.Start.Paths(), nil, p.Kinds, false)
+// previewMaterializedAt is a dry run at p: the delivery previewed against the
+// project as it stands (Preview), writing nothing. Only a kind that differs
+// is recorded — a planned one as what would be written, one the plan no
+// longer routes as what would be released — so a project already current
+// records nothing. A kind whose delivery would be refused is recorded with
+// its fix (KindRefusal) and fails nothing: the refusal is the dry run's
+// finding, not its error. The writers' skips are recorded as a delivery's
+// are.
+func previewMaterializedAt(ctx context.Context, root safefs.Root, kind engine.Engine, pkg composite.Package, p Placement, out *EngineOutcome) (delivery.Plan, error) {
+	var skipped report.Findings
+	pv, plan, err := Preview(ctx, root, kind, pkg, delivery.Loadout{Report: &skipped}, p)
 	if err != nil {
 		return delivery.Plan{}, err
 	}
+	for _, f := range skipped {
+		out.Skipped = append(out.Skipped, f.Text)
+	}
+	planned := map[present.Kind]bool{}
 	for _, it := range plan.Static {
-		out.Wrote = append(out.Wrote, it.Kind.String())
+		planned[it.Kind] = true
+	}
+	for _, k := range pv.Kinds {
+		switch {
+		case k.Refused != nil:
+			out.Refused = append(out.Refused, KindRefusal{Kind: k.Kind.String(), Reason: k.Refused.Error(), Fix: refusalFix(k.Kind, k.Refused)})
+		case !k.Differs():
+		case planned[k.Kind]:
+			out.Wrote = append(out.Wrote, k.Kind.String())
+		default:
+			out.Released = append(out.Released, k.Kind.String())
+		}
 	}
 	return plan, nil
+}
+
+// refusalFix is what the human changes so a refused kind can land: the
+// refusal's own remedy when it carries one, else the change its cause asks
+// for.
+func refusalFix(k present.Kind, err error) string {
+	var r report.Remediable
+	switch {
+	case errors.As(err, &r) && r.Remedy() != "":
+		return r.Remedy()
+	case errors.Is(err, fsstatic.ErrNotOurs):
+		return "ctxloom will not overwrite a value it did not put there: move or remove yours at the place named, then apply"
+	case errors.Is(err, fsstatic.ErrDeclaredMissing), errors.Is(err, fsstatic.ErrDeclaredUnclaimed):
+		return fmt.Sprintf("release the kind with 'ctxloom materialize --release --yes --surface %s', then apply it again", k)
+	}
+	return "correct the file the reason names (it must parse, and ctxloom must be able to read it), then apply"
 }
 
 // deliverMaterializedAt delivers pkg at p and records on out what landed,

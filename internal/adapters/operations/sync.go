@@ -128,11 +128,14 @@ type SyncDependenciesResult struct {
 	// Changes discloses each pin this sync created: everything the bundle
 	// brings in, executables included. A sync never moves an existing pin.
 	Changes []PinChange `json:"changes,omitempty"`
-	// RefreshSkipped is the post-sync project refresh this sync planned but
-	// did not write, for want of WriteProject: the target and, per engine,
-	// the kinds it would have written or released. Nil when the refresh ran,
-	// was not due, or would have changed nothing. WriteRefreshSkipped
-	// renders it.
+	// RefreshSkipped is the post-sync project refresh this sync previewed
+	// but did not write, for want of WriteProject: the target and, per
+	// engine, the kinds whose files it would have changed (written or
+	// released) and the kinds it would have been refused, each with its fix.
+	// Nil when the refresh ran, was not due, or would have changed nothing
+	// and been refused nothing — the preview compares against the project as
+	// it stands (delivery.Static.Preview), so a project already current gets
+	// no note. WriteRefreshSkipped renders it.
 	RefreshSkipped *MaterializeResult `json:"refresh_skipped,omitempty"`
 }
 
@@ -491,8 +494,9 @@ func runSyncPostSteps(ctx context.Context, reg engine.Registry, cfg *config.Conf
 //
 // It writes the project directory only when write is set: the user's --yes,
 // the consent `ctxloom materialize` asks before writing there (ruling 17b).
-// Otherwise it runs the same request as a dry run and returns the plan as
-// the refresh it skipped (nil when the plan would change nothing).
+// Otherwise it runs the same request as a dry run — a preview against the
+// project as it stands — and returns it as the refresh it skipped (nil when
+// it would change nothing and meet no refusal).
 //
 // A wholesale failure is fatal-class in strict mode (per-engine partial
 // failures are already instrumented inside Materialize); degraded mode warns
@@ -514,14 +518,14 @@ func syncMaterializeStep(ctx context.Context, reg engine.Registry, cfg *config.C
 	return res
 }
 
-// refreshPlansAnything reports whether a planned refresh would write or
-// release any kind for any engine.
+// refreshPlansAnything reports whether a previewed refresh would change any
+// kind's files for any engine (write or release), or be refused one.
 func refreshPlansAnything(res *MaterializeResult) bool {
 	if res == nil {
 		return false
 	}
 	for _, e := range res.Engines {
-		if len(e.Wrote) > 0 || len(e.Released) > 0 {
+		if len(e.Wrote) > 0 || len(e.Released) > 0 || len(e.Refused) > 0 {
 			return true
 		}
 	}

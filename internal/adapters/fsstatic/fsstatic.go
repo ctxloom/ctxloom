@@ -196,12 +196,14 @@ func (s *Static) preview(sc *lockScope, lo delivery.Loadout, root engine.Base, t
 
 // previewKind folds kind k's writer alone — its release of the files
 // released admits, then r's declaration when k was planned (r non-nil) —
-// and reports the files whose bytes would change and those it would release
+// scoped to the places that writer claims (Staging.scopeTo), and reports the files whose bytes would change and those it would release
 // a claim in. Any refusal on the way is the kind's: nothing of it would land.
 func (s *Static) previewKind(sc *lockScope, target delivery.Target, k present.Kind, r *ran, released func(string) bool, keep func(pointer, via string) bool) (changed, releases []string, err error) {
 	b := s.batch(sc)
 	st := target.Ownership.In(b)
+	staging := st.(*Staging)
 	w := target.WriterOf(k)
+	staging.scopeTo(w)
 	if err := releaseWriters(st, target.Ownership, released, keep, w); err != nil {
 		return nil, nil, err
 	}
@@ -214,7 +216,6 @@ func (s *Static) previewKind(sc *lockScope, target delivery.Target, k present.Ki
 	if err != nil {
 		return nil, nil, fmt.Errorf("fsstatic: preview %v for %s: %w", k, w, err)
 	}
-	staging := st.(*Staging)
 	for _, f := range folds {
 		if f.Changed() {
 			changed = append(changed, f.Path)

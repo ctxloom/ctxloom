@@ -51,25 +51,46 @@ func (p Placement) servesEndpoint() bool {
 // endpoint, Identity, Index, SessionHome) and is zero at rest; its Plan,
 // Package and Exports are overwritten.
 func Deliver(ctx context.Context, fsRoot safefs.Root, kind engine.Engine, pkg composite.Package, extra delivery.Loadout, p Placement) (delivery.Delivered, delivery.Plan, error) {
+	lo, target, err := placed(fsRoot, kind, pkg, extra, p)
+	if err != nil {
+		return delivery.Delivered{}, delivery.Plan{}, err
+	}
+	d, err := fsstatic.New(fsRoot).Deliver(ctx, lo, kind.Root(), target)
+	return d, lo.Plan, err
+}
+
+// Preview is Deliver with nothing written: the same loadout and target, and
+// one Static.Preview — what Deliver would change at p, per kind.
+func Preview(ctx context.Context, fsRoot safefs.Root, kind engine.Engine, pkg composite.Package, extra delivery.Loadout, p Placement) (delivery.Previewed, delivery.Plan, error) {
+	lo, target, err := placed(fsRoot, kind, pkg, extra, p)
+	if err != nil {
+		return delivery.Previewed{}, delivery.Plan{}, err
+	}
+	pv, err := fsstatic.New(fsRoot).Preview(ctx, lo, kind.Root(), target)
+	return pv, lo.Plan, err
+}
+
+// placed is the loadout and target Deliver and Preview share at p: the
+// engine's Exports, delivery.PlanFor and delivery.TargetFor.
+func placed(fsRoot safefs.Root, kind engine.Engine, pkg composite.Package, extra delivery.Loadout, p Placement) (delivery.Loadout, delivery.Target, error) {
 	root := kind.Root()
 	items := pkg.EngineItems(root.Name)
 	exports, err := kind.Exports(items)
 	if err != nil {
-		return delivery.Delivered{}, delivery.Plan{}, fmt.Errorf("%s exports: %w", root.Name, err)
+		return delivery.Loadout{}, delivery.Target{}, fmt.Errorf("%s exports: %w", root.Name, err)
 	}
 	paths := p.Start.Paths()
 	plan, err := delivery.PlanFor(root, items, paths, p.Roots, p.Kinds, p.servesEndpoint())
 	if err != nil {
-		return delivery.Delivered{}, delivery.Plan{}, err
+		return delivery.Loadout{}, delivery.Target{}, err
 	}
 	records, err := OwnershipRecordsOn(fsRoot.Fs)
 	if err != nil {
-		return delivery.Delivered{}, delivery.Plan{}, err
+		return delivery.Loadout{}, delivery.Target{}, err
 	}
 	lo := extra
 	lo.Plan, lo.Package, lo.Exports, lo.ContextFile = plan, pkg, exports, p.ContextFile
-	d, err := fsstatic.New(fsRoot).Deliver(ctx, lo, root, delivery.TargetFor(p.Start, records, p.Family, p.Kinds))
-	return d, plan, err
+	return lo, delivery.TargetFor(p.Start, records, p.Family, p.Kinds), nil
 }
 
 // Release delivers the EMPTY plan at p: the record says what p's writers

@@ -279,6 +279,10 @@ type EngineHost struct {
 	// in flight gives up when it fires instead of after
 	// engineHostCloseJoinBudget.
 	closeDriveExpired <-chan time.Time
+	// enqueueAt is a test seam: enqueueTurn calls it, when set, at each
+	// enqueuePoint it reaches — so a test can land a pause exactly between
+	// the pause gate and the hand-off. Set before any turn is enqueued.
+	enqueueAt func(enqueuePoint)
 }
 
 // errEngineHostClosed refuses a run that reaches the engine host after Close

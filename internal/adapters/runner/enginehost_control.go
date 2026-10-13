@@ -78,17 +78,34 @@ func (eh *EngineHost) enqueueTurn(ctx context.Context, tag turnTag, text string)
 	if ended {
 		return errors.New("engine host: the run has ended; no engine takes a turn")
 	}
-	// THE PAUSE GATE (spoolcontrol.go's ControlPause). A paused run takes no
-	// new turn: the caller waits here, holding NOTHING — not the enqueue lock,
-	// not a slot on the FIFO — so a pause cannot deadlock a resume, and the
-	// mail behind this turn stays unconsumed in the spool where a relaunch
-	// would find it. Bounded by the same two contexts everything else here is.
-	if err := waitGate(ctx, runCtx, eh.pauseGate()); err != nil {
-		return err
+	for {
+		// THE PAUSE GATE (spoolcontrol.go's ControlPause). A paused run takes
+		// no new turn: the caller waits here, holding NOTHING — not the
+		// enqueue lock, not a slot on the FIFO — so a pause cannot deadlock a
+		// resume, and the mail behind this turn stays unconsumed in the spool
+		// where a relaunch would find it. Bounded by the same two contexts
+		// everything else here is.
+		eh.enqueueSeam(enqueueAtPauseGate)
+		if err := waitGate(ctx, runCtx, eh.pauseGate()); err != nil {
+			return err
+		}
+		// A pause that lands while this caller waits for the turn in flight
+		// (PauseRun, or that turn's own self-park on a held failure) is
+		// caught by startTurn, atomically with the hand-off: the caller lets
+		// go of the enqueue lock and goes back to the gate.
+		if err := eh.handOffTurn(ctx, runCtx, tag, text); !errors.Is(err, errTurnPaused) {
+			return err
+		}
 	}
+}
 
+// handOffTurn is enqueueTurn's serialized half: under the enqueue lock it
+// waits for the turn in flight and for the owner, then starts the turn —
+// or reports errTurnPaused when the run was paused meanwhile.
+func (eh *EngineHost) handOffTurn(ctx, runCtx context.Context, tag turnTag, text string) error {
 	eh.enqueueMu.Lock()
 	defer eh.enqueueMu.Unlock()
+	eh.enqueueSeam(enqueueAtBusy)
 	// The turn in flight ends first: one engine process at a time.
 	eh.mu.Lock()
 	busy := eh.turnBusy
@@ -113,6 +130,29 @@ func (eh *EngineHost) enqueueTurn(ctx context.Context, tag turnTag, text string)
 	return eh.startTurn(tag, text)
 }
 
+// errTurnPaused is startTurn's refusal of a hand-off the pause gate went up
+// behind: enqueueTurn waits at the gate again rather than start a turn on a
+// paused run.
+var errTurnPaused = errors.New("engine host: the run is paused; the turn waits at the gate")
+
+// enqueuePoint names a point enqueueTurn passes, for its test seam.
+type enqueuePoint int
+
+const (
+	// enqueueAtPauseGate: about to consult the pause gate.
+	enqueueAtPauseGate enqueuePoint = iota
+	// enqueueAtBusy: past the pause gate, holding the enqueue lock, about
+	// to wait for the turn in flight.
+	enqueueAtBusy
+)
+
+// enqueueSeam calls the enqueueAt test seam, when set.
+func (eh *EngineHost) enqueueSeam(at enqueuePoint) {
+	if hook := eh.enqueueAt; hook != nil {
+		hook(at)
+	}
+}
+
 // waitGate waits for gate to close, bounded by ctx and the run's ctx; a nil
 // gate is open.
 func waitGate(ctx, runCtx context.Context, gate <-chan struct{}) error {
@@ -130,13 +170,17 @@ func waitGate(ctx, runCtx context.Context, gate <-chan struct{}) error {
 }
 
 // startTurn hands text to the engine as the next turn — unless the run ended
-// while the caller waited — pushing tag on the attribution FIFO, marking the
+// or was paused while the caller waited — pushing tag on the attribution FIFO, marking the
 // engine busy, and recording the user turn. Called under the enqueue lock.
 func (eh *EngineHost) startTurn(tag turnTag, text string) error {
 	eh.mu.Lock()
 	if eh.ended || eh.stopping {
 		eh.mu.Unlock()
 		return errors.New("engine host: the run has ended; no engine takes a turn")
+	}
+	if eh.paused != nil {
+		eh.mu.Unlock()
+		return errTurnPaused
 	}
 	if posture, ok := tag.approve.Get(); ok && eh.approvals != nil && eh.approvals.approvePlan(posture) {
 		text = planApprovedPrompt

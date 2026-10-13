@@ -24,7 +24,7 @@ flowchart LR
   classDef port fill:#ffd,stroke:#a80
   RUN["cli run: the flags → Source"]:::src
   INIT["cli init: the auth probe and the discovery session — two Sources, two identities"]:::src
-  ONE["internal one-shots (a compaction, a triage, the CLI distiller): Source{Internal}"]:::src
+  ONE["internal one-shots (a compaction, a triage, the CLI distiller): Source{Internal}, or the distiller agent's binding; a distillation is Source{ToolLess}"]:::src
   SPAWN["coord prodSpawner.StartEngine: Source{Identity: child, Agent, Workspace, DirtyTree, Resume}"]:::src
   START["operations.StartRun: MintIdentity → Resolve → record the engine version (Deps.ProbeVersion; none for a preview)"]:::core
   RES["launch.Resolve — the one constructor"]:::core
@@ -56,8 +56,9 @@ label that names neither a configured entry nor a composed engine),
 (a posture that does not parse; a delegated child that would block on a
 prompt), `ErrContextEmpty` (named profiles that assembled to nothing),
 `ErrOwnershipMismatch` / `ErrRuntimeUnavailable` (the cells adapter's
-refusals, passed through), and `delivery.ErrUncarried` / `delivery.Unrootable`
-from the router.
+refusals, passed through), `ErrToolLessUnsupported` / `ErrToolLessPosture`
+(a tool-less launch on an engine without the marker, or naming a posture),
+and `delivery.ErrUncarried` / `delivery.Unrootable` from the router.
 
 **The permission policy.** `resolvePolicy` settles it once. The engine's
 `PermissionModel` resolves its own document from the binding's block for
@@ -70,6 +71,25 @@ network) are each the first of the binding, the label and the project that
 declares one, else the engine's default; the sandbox must be one the engine
 enforces on the settled runtime, with no degraded fallback. Nothing
 downstream re-decides it.
+
+**A tool-less launch is not plan.** `Source.ToolLess` asks for a launch that
+grants the model no tool and attaches no MCP server. It resolves only on an
+engine that implements the marker interface `engine.ToolLess`
+(`ErrToolLessUnsupported` otherwise) and names no posture
+(`ErrToolLessPosture`). Its policy is `toolLessPolicy`, not `resolvePolicy`'s:
+no posture document, approver none (there is no tool to ask about), the
+engine's default sandbox. So the plan/approver gates (`resolveApprover`,
+`plansFirstNeedsHuman`, `requireApprovalRoute`) are never asked about it,
+and they are unchanged for every other launch. Its package carries no MCP
+server, and its plan routes no MCP surface, not even the session endpoint's
+entry. The runner serves the endpoint but does not attach it as an MCP server.
+`Launch.ToolLess` crosses the wire, and `Launch.Instance` binds the session
+through the engine's `ToolLess` method, refusing a kind without the marker.
+That method is the engine's own no-tools launch, pinned by its unit tests:
+claude `--tools "" --strict-mcp-config` with no `--mcp-config`, under
+`--permission-prompts none`; opencode `OPENCODE_PERMISSION={"*":"deny"}` on
+every turn, no `--auto`, its project config off; the mock, its ordinary
+launch.
 
 ## What diverges from the design, and why
 
@@ -108,6 +128,11 @@ downstream re-decides it.
   binding for each retires it. The model override, the explicit-assembly
   arm's fragments and tags, and the caller's engine passthrough are the
   Source's because the callers had them.
+- **`Source.ToolLess`.** Ruled 2026-10-13 (marauding-magnolia, decision #5):
+  an internal one-shot that only summarises the text its prompt carries asks
+  for no tool rather than for plan, so it can run on an engine with no
+  approval channel. The marker interface is the proof, checked at compile
+  time; no capability is declared and nothing is probed at run time.
 - **The host facts derive from `paths`' one reader**, not from `cmd/*`.
 
 ## The internal one-shots
@@ -119,7 +144,15 @@ the cell's transport, its answer recorded on the session's own transcript).
 `LazyOneShot` starts the session on the first turn, so a compaction served
 from its cache mints nothing. The session compactor (`session compact`, the MCP
 compactor), the bundle distiller (`bundle distill`), the trigger triage and init's auth probe are
-one-shots; they receive the managed surfaces the generation composes for
-their label (the default profiles' MCP servers, hooks, commands and skills)
-— the surfaces a
-`LaunchFormMinimal` run used to declare away.
+one-shots. The internal arm (`Source.Internal`) composes no profiles. A role
+one-shot that runs as its agent (`distiller`, `triage`) composes that
+binding's profiles.
+
+The posture differs by role. The distillations (`operations.DistillerOneShot`:
+`session compact`, the MCP compactor and distill, `bundle distill` and the
+other CLI distill commands) are **tool-less** on every arm: they summarise
+the text their prompt carries (`<content_to_compress>`, `<session_log>`) and
+use no tool, so they run with none and no MCP server, on any engine that
+implements `engine.ToolLess`. The trigger triage and premise authoring stay
+at **plan** (`operations.InternalSource`), and init's auth probe overrides
+the posture as before.

@@ -53,6 +53,10 @@ exists only while the session runs (see the [MCP Server guide](/guides/mcp-serve
 wire this up; it's there because you're running through `ctxloom run` at all. A delegated child
 that sits at the bottom of the tree gets only the reporting half (`agent_send`,
 `agent_report`); the tools that spawn, observe or control other children are withheld from it.
+A delegated Claude Code child is also not offered Claude Code's own `SendMessage` or
+`ListAgents`: they reach other local Claude Code sessions, never the coordinator, so a child
+offered both would message nobody. It reaches its coordinator with `agent_send`. The session you
+start yourself keeps them.
 
 ## When a credential hits its rate limit
 

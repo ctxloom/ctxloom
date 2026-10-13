@@ -54,7 +54,6 @@ func TestEndpoint_PushesOnlyTheWake(t *testing.T) {
 	wake := make(chan struct{}, 4)
 
 	client := sdk.NewClient(&sdk.Implementation{Name: "push-probe", Version: "0"}, &sdk.ClientOptions{
-		LoggingMessageHandler: func(context.Context, *sdk.LoggingMessageRequest) { log.handle("logging") },
 		ProgressNotificationHandler: func(context.Context, *sdk.ProgressNotificationClientRequest) {
 			log.handle("progress")
 		},
@@ -68,10 +67,6 @@ func TestEndpoint_PushesOnlyTheWake(t *testing.T) {
 			log.mu.Unlock()
 			wake <- struct{}{}
 		},
-		CreateMessageHandler: func(context.Context, *sdk.CreateMessageRequest) (*sdk.CreateMessageResult, error) {
-			log.handle("sampling/createMessage")
-			return &sdk.CreateMessageResult{Content: &sdk.TextContent{}}, nil
-		},
 		ElicitationHandler: func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error) {
 			log.handle("elicitation/create")
 			return &sdk.ElicitResult{Action: "decline"}, nil
@@ -80,8 +75,14 @@ func TestEndpoint_PushesOnlyTheWake(t *testing.T) {
 			log.handle("elicitation/complete")
 		},
 	})
-	// The handlers cover what the SDK has a hook for; this sees every method
-	// the client receives, hooked or not (ping, roots/list, anything new).
+	// The handlers above cover the pushes the SDK has a supported hook for.
+	// The receiving middleware is the authority: it sees every method the
+	// client receives before any handler is chosen, hooked or not, so it also
+	// catches pushes whose hooks the SDK deprecates (sampling/createMessage,
+	// notifications/message, roots/list; SEP-2577) and anything new. Such a
+	// request still reaches the wire: the server sends it without consulting
+	// the client's capabilities, and the client refuses it only after the
+	// middleware has recorded it.
 	client.AddReceivingMiddleware(func(next sdk.MethodHandler) sdk.MethodHandler {
 		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
 			log.mu.Lock()

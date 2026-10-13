@@ -14,7 +14,7 @@ require (
 	github.com/google/go-github/v60 v60.0.0
 	github.com/google/jsonschema-go v0.4.3
 	github.com/gtramontina/ooze v0.2.0
-	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
@@ -61,6 +61,7 @@ require (
 	github.com/cucumber/messages/go/v34 v34.2.1 // indirect
 	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/telemetry v0.0.0-20261009151841-97e8ea77aa2a // indirect
+	golang.org/x/time v0.15.0 // indirect
 )
 
 require (

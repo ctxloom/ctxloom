@@ -265,7 +265,7 @@ further hooks.json-shaped engine would share.
 | `statePath` / `confirmByRepeat` | Anchors `state.json` beside the **resolved** config, and drives `state.ConfirmByRepeat` |
 | `checkResult` / `runCheck` | Discrete `{decision, message, suggestion}` fields, so a GUI never re-splits `Response.Message()`; `check` fails **loud**, unlike the hook path |
 | `manageFlags` / `scaffoldConfig` / `writeFile` | Install/uninstall flags; `--force` backs up to `.bak` first. A `--global` install omits the project-relative `--config` and says so, leaving each project's rules to the search |
-| `newLoadoutCmd` | `loadout.NewCommand` over the embedded `loadout.yaml` + `.sig` — ctxloom's companion-discovery entry point |
+| `newLoadoutCmd` | `loadout.NewCommand(binName, loadoutYAML)` over the embedded `loadout.yaml` (no signature is embedded or passed) — ctxloom's companion-discovery entry point |
 | `registerDocsCmd` | Build-tag pair; `internal/shared/docsgen` is mounted only under `-tags docsgen` |
 
 **`--format` has two vocabularies on one tree.** The root's persistent `--format` and the

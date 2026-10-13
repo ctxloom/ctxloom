@@ -28,8 +28,8 @@ func TestDistillerOneShot_IsToolLessOnEveryArm(t *testing.T) {
 		cfg   *config.Config
 		label string
 	}{
-		"the distiller agent":           {cfg: roleTestConfig(t, distillerAgent)},
-		"an explicit label":             {cfg: roleTestConfig(t, distillerAgent), label: "fast-llm"},
+		"the distiller agent":            {cfg: roleTestConfig(t, distillerAgent)},
+		"an explicit label":              {cfg: roleTestConfig(t, distillerAgent), label: "fast-llm"},
 		"the defaults.fast fallback arm": {cfg: roleTestConfig(t, triageAgent)},
 	} {
 		t.Run(name, func(t *testing.T) {

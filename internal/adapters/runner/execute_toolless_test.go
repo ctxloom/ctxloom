@@ -25,7 +25,7 @@ type markedSpy struct {
 
 func (m markedSpy) ToolLess(s engine.Session) (engine.Instance, error) {
 	*m.bound = append(*m.bound, s)
-	return m.Engine.Instance(s)
+	return m.Instance(s)
 }
 
 // A tool-less launch (marauding-magnolia) is bound through the engine's own

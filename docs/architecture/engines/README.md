@@ -229,10 +229,10 @@ opencode through the bridge with a runtime-only adapter. Approvals and trust
 are declared absent or unsupported, each with its reason.
 
 Its container story installs the pinned release tarball
-(`OPENCODE_CLI_VERSION`) for the machine and libc, checks it against a sha256
-pinned in code per asset, and runs `opencode --version` as the gate; while
-any asset's pin is unverified (empty) `Container` refuses with the reason, so
-a container binding fails at Resolve.
+(`OPENCODE_CLI_VERSION`) for the machine and libc, taken from the official
+GitHub release as-is, and runs `opencode --version` as the gate. There is no
+checksum step: upstream publishes no checksums and ctxloom adds none, so
+integrity rests on GitHub's TLS and the release itself.
 
 ## Start here
 

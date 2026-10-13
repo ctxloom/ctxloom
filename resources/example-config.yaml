@@ -12,12 +12,14 @@ schema_version: 7
 # Out of the box ctxloom ships a built-in primary (claude-code) and a fast
 # compression config (claude-code on haiku), so you do not need this block at
 # all unless you want to change a model, point at a custom binary, or pair
-# different configs per role.
+# different configs per role. claude-code models are the claude CLI's aliases
+# (opus, sonnet, haiku), which it resolves to the current model; a full model id
+# pins one.
 #
 # llm:
 #   configs:
-#     big:   { type: claude-code, model: claude-opus-4-8 }         # label is arbitrary...
-#     quick: { type: claude-code, model: claude-haiku-4-5-20251001 } # ...two claude-code backends
+#     big:   { type: claude-code, model: opus }   # label is arbitrary...
+#     quick: { type: claude-code, model: haiku }  # ...two claude-code backends
 #   defaults:
 #     primary: big     # coding/interactive role → label
 #     fast:    quick    # fallback for distill/compaction/triage when no `distiller`/`triage` agent is configured

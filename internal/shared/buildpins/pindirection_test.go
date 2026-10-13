@@ -250,8 +250,12 @@ func TestLintPins_List_CoversEveryPinSourceOfTheRealTree(t *testing.T) {
 	for k, v := range images {
 		assert.Equal(t, v, listed[k], "Dockerfile image pin %s is not covered by the gate", k)
 	}
+	pips := lizardRequirementPins(t)
+	for k, v := range pips {
+		assert.Equal(t, v, listed[k], "lizard requirements pin %s is not covered by the gate", k)
+	}
 	assert.NotEmpty(t, listed["go.mod:go"], "go.mod's go directive is not covered by the gate")
-	assert.Len(t, listed, len(tools)+len(engines)+len(images)+goModDirectiveCount(t), "the gate lists a pin no source declares")
+	assert.Len(t, listed, len(tools)+len(engines)+len(images)+len(pips)+goModDirectiveCount(t), "the gate lists a pin no source declares")
 }
 
 // goModDirectiveCount is how many of go.mod's version directives (`go`,

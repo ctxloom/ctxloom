@@ -121,3 +121,21 @@ func TestDevcontainerVerifiesDockerAptKey(t *testing.T) {
 		[]string{"https://download.docker.com/linux/ubuntu/gpg", "--show-keys", "/etc/apt/keyrings/docker.asc"},
 	)
 }
+
+// lizard and its dependencies come from PyPI under pip's hash-checking mode:
+// every distribution must match a sha256 in the requirements file, and pip
+// refuses any requirement (a dependency included) that carries none.
+func TestDevcontainerInstallsVerifiedLizard(t *testing.T) {
+	step := dockerfileStepCode(t, "# Install lizard")
+	assertVerifiedStep(t, "lizard", step,
+		[]string{
+			"COPY .devcontainer/lizard-requirements.txt ",
+			"--require-hashes -r",
+			`test "$(lizard --version)" = "${LIZARD_VERSION}"`,
+		},
+		[]string{"COPY .devcontainer/lizard-requirements.txt", "--require-hashes"},
+	)
+	if strings.Contains(step, "lizard==") {
+		t.Errorf("%s: lizard is installed by name, outside the hash-pinned requirements file:\n%s", dockerfilePath, step)
+	}
+}

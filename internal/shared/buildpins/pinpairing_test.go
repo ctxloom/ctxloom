@@ -150,3 +150,74 @@ func TestLintPins_ImageDigestRefreshUnderSameTag_Passes(t *testing.T) {
 	code, out := r.run("")
 	assert.Equal(t, 0, code, out)
 }
+
+// lizard is pip-installed with --require-hashes from a requirements file that
+// pins it and its runtime dependencies, one requirement per line:
+// `name==version --hash=sha256:<wheel> --hash=sha256:<sdist>`. lint-pins reads
+// each as `pip:<name>_VERSION` plus `pip:<name>_SHA256_<n>`.
+const lizardRequirementsPath = "../../../.devcontainer/lizard-requirements.txt"
+
+var pipRequirementRE = regexp.MustCompile(`^([a-z0-9._-]+)==([0-9][^\s]*)((?:\s+--hash=sha256:[0-9a-f]{64})+)\s*$`)
+
+type pipRequirement struct {
+	name, version string
+	hashes        []string
+}
+
+func parseLizardRequirements(t *testing.T) []pipRequirement {
+	t.Helper()
+	var reqs []pipRequirement
+	for _, line := range strings.Split(readFile(t, lizardRequirementsPath), "\n") {
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		m := pipRequirementRE.FindStringSubmatch(line)
+		if m == nil {
+			t.Errorf("%s: %q is not `name==version --hash=sha256:<64 hex>...` on one line (lowercase name, no continuations)", lizardRequirementsPath, line)
+			continue
+		}
+		reqs = append(reqs, pipRequirement{m[1], m[2], strings.Fields(strings.ReplaceAll(m[3], "--hash=sha256:", ""))})
+	}
+	return reqs
+}
+
+// lizardRequirementPins is what lint-pins --list should report for the file.
+func lizardRequirementPins(t *testing.T) map[string]string {
+	t.Helper()
+	pins := map[string]string{}
+	for _, r := range parseLizardRequirements(t) {
+		pins["pip:"+r.name+"_VERSION"] = r.version
+		for i, h := range r.hashes {
+			pins["pip:"+r.name+"_SHA256_"+strconv.Itoa(i+1)] = h
+		}
+	}
+	return pins
+}
+
+// The requirements file is where lizard's version is decided; LIZARD_VERSION
+// in tool-versions.env must name the same release, or the two pins disagree
+// about what the image contains.
+func TestLizardRequirementsPinLizardVersion(t *testing.T) {
+	want := parseToolVersionsEnv(t, toolVersionsPath)["LIZARD_VERSION"]
+	for _, r := range parseLizardRequirements(t) {
+		if r.name == "lizard" {
+			assert.Equal(t, want, r.version, "%s pins lizard==%s but tool-versions.env has LIZARD_VERSION=%s", lizardRequirementsPath, r.version, want)
+			return
+		}
+	}
+	t.Errorf("%s does not pin lizard", lizardRequirementsPath)
+}
+
+func TestLintPins_RealPipPins_VersionBumpAloneIsRefused(t *testing.T) {
+	for _, req := range parseLizardRequirements(t) {
+		t.Run(req.name, func(t *testing.T) {
+			r, reqs := realPinRepo(t, ".devcontainer/lizard-requirements.txt", lizardRequirementsPath)
+			old := req.name + "==" + req.version + " "
+			r.stage(".devcontainer/lizard-requirements.txt", replaceOnce(t, reqs, old, req.name+"=="+bumpLast(t, req.version)+" "))
+			code, out := r.run("")
+			assert.Equal(t, 1, code, "a %s bump with its hashes unchanged passed lint-pins:\n%s", req.name, out)
+			assert.Contains(t, out, "pip:"+req.name+"_SHA256_1")
+			assert.Contains(t, out, "stale")
+		})
+	}
+}

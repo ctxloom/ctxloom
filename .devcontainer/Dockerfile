@@ -235,7 +235,13 @@ RUN case "${TARGETARCH}" in \
 # Install lizard (cross-language per-function complexity analyzer). Ubuntu 24.04
 # marks its Python env externally-managed (PEP 668), so --break-system-packages
 # is required; the console script lands in /usr/local/bin (already on PATH).
-RUN pip3 install --break-system-packages --no-cache-dir lizard==${LIZARD_VERSION}
+# pip runs in hash-checking mode over lizard-requirements.txt, which pins
+# lizard and its dependencies to PyPI's published sha256s: a distribution that
+# matches none of them, or a dependency the file does not pin, fails the build.
+COPY .devcontainer/lizard-requirements.txt /tmp/lizard-requirements.txt
+RUN pip3 install --break-system-packages --no-cache-dir --require-hashes -r /tmp/lizard-requirements.txt \
+    && rm /tmp/lizard-requirements.txt \
+    && test "$(lizard --version)" = "${LIZARD_VERSION}"
 
 # Install golangci-lint via `go install` so the build does not depend on
 # golangci/golangci-lint's install.sh, whose embedded sha256 has been seen to

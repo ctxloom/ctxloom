@@ -23,6 +23,9 @@
 # (ubuntu:24.04 is re-pushed with each security refresh) and refreshing the
 # digest is the routine bump.
 #
+# lizard's hash-pinned pip requirements are read the same way, as
+# `pip:<name>_VERSION` plus `pip:<name>_SHA256_<n>` per listed hash.
+#
 # A deliberate downgrade names its pin in CTXLOOM_ALLOW_PIN_DOWNGRADE (comma-
 # separated). The gate echoes the override it honoured, so the reviewer of the
 # commit sees the decision in the hook output rather than inferring it.
@@ -47,6 +50,7 @@ sources=(
   "env .github/engine-versions.env"
   "gomod go.mod"
   "dockerfile .devcontainer/Dockerfile"
+  "pipreq .devcontainer/lizard-requirements.txt"
 )
 
 # parse_env: KEY=value lines, `#` comments and blanks skipped — the same
@@ -89,11 +93,27 @@ parse_dockerfile() {
   done
 }
 
+# parse_pipreq: a hash-pinned requirements file, one requirement per line as
+# `name==version --hash=sha256:<h> ...`, read as `pip:<name>_VERSION` plus one
+# `pip:<name>_SHA256_<n>` per hash, numbered in file order.
+parse_pipreq() {
+  awk '
+    /^[[:space:]]*(#|$)/ { next }
+    {
+      split($1, nv, "==")
+      print "pip:" nv[1] "_VERSION " nv[2]
+      n = 0
+      for (i = 2; i <= NF; i++) if ($i ~ /^--hash=sha256:/) print "pip:" nv[1] "_SHA256_" ++n " " substr($i, 15)
+    }
+  '
+}
+
 parse_with() {
   case "$1" in
     env) parse_env ;;
     gomod) parse_gomod ;;
     dockerfile) parse_dockerfile ;;
+    pipreq) parse_pipreq ;;
     *) echo "lint-pins: unknown parser $1" >&2; exit 2 ;;
   esac
 }

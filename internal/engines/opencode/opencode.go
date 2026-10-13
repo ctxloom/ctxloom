@@ -142,7 +142,7 @@ const (
 )
 
 // Home declares the relocation (Q-B, Q-L FINAL): see the vars above. Auth is
-// one required variable (opencodeAuth). The instance config is only the
+// one optional variable, the endpoint key (opencodeAuth: keyless without it). The instance config is only the
 // user's TUI preferences carried in (tuiConfigCarry): ctxloom's provider and
 // policy reach opencode in OPENCODE_CONFIG_CONTENT.
 func (o Opencode) Home() engine.HomeSpec {

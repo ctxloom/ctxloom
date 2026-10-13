@@ -49,11 +49,21 @@ Feature: Companions shape how a project is set up
   # hermetic row above proves the prompt was DELIVERED; only this one proves a
   # model actually read it.
   @live
-  Scenario: A real assistant follows the composed setup guidance
-    Given her company's companion instructs the assistant to confirm a company codeword
+  Scenario Outline: A real <engine> assistant follows the composed setup guidance
+    Given her company's companion instructs her real <engine> assistant to confirm a company codeword
     And the company's companion is installed and registered
     When Alice runs the ctxloom setup and its interview launches her real assistant
     Then the assistant's setup response confirms the company codeword
+
+    @claude-code
+    Examples:
+      | engine |
+      | Claude |
+
+    @opencode
+    Examples:
+      | engine   |
+      | Opencode |
 
   # A first-party companion contributes through the SAME path as any other:
   # its loadout is read into the same catalog, and the typed setup guidance it
@@ -69,8 +79,18 @@ Feature: Companions shape how a project is set up
 
   # The @live twin for the companion path, for the same reason as above.
   @live
-  Scenario: A real assistant follows an installed companion's setup guidance
+  Scenario Outline: A real <engine> assistant follows an installed companion's setup guidance
     Given the "reprise" companion is installed
-    And its setup guidance instructs the assistant to confirm a companion codeword
+    And its setup guidance instructs her real <engine> assistant to confirm a companion codeword
     When Alice runs the ctxloom setup and its interview launches her real assistant
     Then the assistant's setup response confirms the companion codeword
+
+    @claude-code
+    Examples:
+      | engine |
+      | Claude |
+
+    @opencode
+    Examples:
+      | engine   |
+      | Opencode |

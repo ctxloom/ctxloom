@@ -74,6 +74,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/engines/opencode"
 )
 
 // probeAxis names the isolation axis under test: the WORKSPACE axis
@@ -203,19 +204,15 @@ func probeCensusDiff(before, after map[string]probeCensusEntry) []string {
 
 // probeCensusRoots returns the host-census roots (relative to HOME) for the
 // named REGISTERED backend type — reusing liveAgents[...].credDir rather than
-// re-declaring the path a second time. claude-code carries one extra sibling
-// file (.claude.json, its onboarding state).
+// re-declaring the path a second time, plus the engine's censusExtra
+// (claude-code's .claude.json onboarding state; opencode's other XDG dirs).
 func probeCensusRoots(backendType string) ([]string, error) {
 	key := backendTypeToLiveKey(backendType)
 	a, ok := liveAgents[key]
 	if !ok {
 		return nil, fmt.Errorf("isolation probe: %q is not a registered live engine", backendType)
 	}
-	roots := []string{a.credDir}
-	if backendType == "claude-code" {
-		roots = append(roots, ".claude.json")
-	}
-	return roots, nil
+	return append([]string{a.credDir}, a.censusExtra...), nil
 }
 
 // --- worktree-axis live observation -----------------------------------
@@ -615,7 +612,7 @@ func probeConfigYAML(backendType string, axis probeAxis) string {
 	b.WriteString(base)
 	b.WriteString("agents:\n  probe:\n    llm: ")
 	b.WriteString(key)
-	b.WriteString("\n    profiles: []\n" + permissionsBlock(agent.engine, "bypass"))
+	b.WriteString("\n    profiles: []\n" + agent.bypassBlock())
 	if isProbeContainerAxis(axis) {
 		fmt.Fprintf(&b, "    runtime: %s\n", axis)
 	}
@@ -873,13 +870,20 @@ func assertProbeWorktree(res *probeResult) error {
 
 // probeEngineWriteDir is where, relative to the session's native history, an
 // engine leaves state only IT writes: claude's own transcript, written through
-// the session home's history link. ctxloom writes into the home before launch
+// the session home's history link; opencode's own log, in the data app dir
+// that is its native history. ctxloom writes into the home before launch
 // (the instance config, the settings), so a non-empty home proves nothing
 // about where the engine wrote.
 func probeEngineWriteDir(backendType string) (string, error) {
 	switch backendType {
 	case "claude-code":
 		return filepath.Join(claude.HomeLeaf, claude.TranscriptsDirName), nil
+	case "opencode":
+		// opencode's own log dir in its data app dir (the home's
+		// TranscriptStoreRel, linked as the session's native history):
+		// opencode writes log/opencode.log on every run, and no ctxloom code
+		// writes there.
+		return filepath.Join(opencode.HomeLeaf, filepath.FromSlash(opencode.Opencode{}.Home().TranscriptStoreRel), "log"), nil
 	}
 	return "", fmt.Errorf("isolation probe: no engine-written evidence is declared for %q — name where it writes its own state before probing it", backendType)
 }

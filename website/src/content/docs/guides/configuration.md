@@ -184,9 +184,23 @@ list of strings, got string`). It is never read as absent, so a typo cannot quie
 stock binary with no arguments. Loading the config only warns about such a value; the launch is
 where it fails.
 
-An `opencode` label drives the opencode CLI against an OpenAI-compatible endpoint. It
-requires `model`, `context_window` (opencode cannot discover the window and never compacts
-without it) and `provider`:
+An `opencode` label drives the opencode CLI. It requires `model`. Without a `provider`
+block, `model` names one of opencode's built-in providers and is passed through as written,
+and no key is needed:
+
+```yaml
+llm:
+  configs:
+    free:
+      type: opencode
+      model: "opencode/big-pickle"  # a free hosted model; no key
+      permissions:
+        approver: none
+```
+
+With a `provider` block it drives opencode against that OpenAI-compatible endpoint, and also
+requires `context_window` (opencode cannot discover an endpoint's window and never compacts
+without it):
 
 ```yaml
 llm:
@@ -211,7 +225,8 @@ llm:
 ```
 
 The endpoint's key never goes in the config: export `CTXLOOM_OPENCODE_API_KEY` and the run's
-credentials carry it. See the [config reference](/reference/config/) for every key.
+credentials carry it. A built-in provider label needs no key; when the variable is not
+exported, the run starts keyless. See the [config reference](/reference/config/) for every key.
 
 A config entry carries no credentials or environment. The engine reads those
 from the environment ctxloom runs in, so export them in that shell; an `env:`

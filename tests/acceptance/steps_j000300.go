@@ -185,22 +185,9 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 
 	// --- @live twins ----------------------------------------------------------
 
-	ctx.Step(`^her company's companion instructs the assistant to confirm a company codeword$`, func(c context.Context) error {
+	ctx.Step(`^her company's companion instructs her real (\S+) assistant to confirm a company codeword$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		a, ok := liveAgents["claude"]
-		if !ok {
-			return fmt.Errorf("no live agent config registered for claude")
-		}
-		if avail, reason := engineAvailable(a); !avail {
-			fmt.Printf("SKIP j000300 live: %s\n", reason)
-			return godog.ErrSkip
-		}
-		w.j000200Live = true
-		cfg := a.config + "agents:\n  default:\n    llm: claude\n    profiles:\n      - default\n" + permissionsBlock(a.engine, "bypass") + "default_agent: default\n"
-		if err := scaffoldProjectWithConfig(w, cfg); err != nil {
-			return err
-		}
-		if err := seedLiveCredentials(a, w.env.SetChildEnv); err != nil {
+		if err := j000200LiveProject(w, "j000300", engine); err != nil {
 			return err
 		}
 		instruction := fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j000300CompanyCodeword)
@@ -255,28 +242,12 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		if !w.j000200Live {
 			return fmt.Errorf("j000300: reached this step with w.j000200Live still false -- the scenario's own live-agent Given should have skipped the whole scenario before this ran")
 		}
-		if !strings.Contains(w.env.LastOutput(), j000300CompanyCodeword) {
-			return fmt.Errorf("assistant's setup response does not confirm the company codeword; output:\n%s", w.env.LastOutput())
-		}
-		return nil
+		return j000300SetupReplyConfirms(w.env.LastOutput(), j000300CompanyCodeword)
 	})
 
-	ctx.Step(`^its setup guidance instructs the assistant to confirm a companion codeword$`, func(c context.Context) error {
+	ctx.Step(`^its setup guidance instructs her real (\S+) assistant to confirm a companion codeword$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		a, ok := liveAgents["claude"]
-		if !ok {
-			return fmt.Errorf("no live agent config registered for claude")
-		}
-		if avail, reason := engineAvailable(a); !avail {
-			fmt.Printf("SKIP j000300 live: %s\n", reason)
-			return godog.ErrSkip
-		}
-		w.j000200Live = true
-		cfg := a.config + "agents:\n  default:\n    llm: claude\n    profiles:\n      - default\n" + permissionsBlock(a.engine, "bypass") + "default_agent: default\n"
-		if err := scaffoldProjectWithConfig(w, cfg); err != nil {
-			return err
-		}
-		if err := seedLiveCredentials(a, w.env.SetChildEnv); err != nil {
+		if err := j000200LiveProject(w, "j000300", engine); err != nil {
 			return err
 		}
 		return installSetupGuidanceCompanion(w, "reprise",
@@ -288,10 +259,7 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		if !w.j000200Live {
 			return fmt.Errorf("j000300: reached this step with w.j000200Live still false -- the scenario's own live-agent Given should have skipped the whole scenario before this ran")
 		}
-		if !strings.Contains(w.env.LastOutput(), j000300CompanionCodeword) {
-			return fmt.Errorf("assistant's setup response does not confirm the companion codeword; output:\n%s", w.env.LastOutput())
-		}
-		return nil
+		return j000300SetupReplyConfirms(w.env.LastOutput(), j000300CompanionCodeword)
 	})
 }
 
@@ -305,6 +273,24 @@ func j000300PromptLacks(w *World, marker, what string) error {
 	}
 	if strings.Contains(prompt, marker) {
 		return fmt.Errorf("interview prompt contains %s although companions were switched off; prompt:\n%s", what, prompt)
+	}
+	return nil
+}
+
+// j000300SetupGuidanceTag opens the guidance the setup prompt carries; a reply
+// containing it is the prompt echoed back, not an answer.
+const j000300SetupGuidanceTag = "<setup-guidance>"
+
+// j000300SetupReplyConfirms is the @live setup-response verdict: the reply
+// names the codeword, and is not an echo of the prompt. The prompt itself
+// carries the guidance naming the codeword, so an engine that echoes its
+// prompt (the mock does) would otherwise pass without reading anything.
+func j000300SetupReplyConfirms(out, codeword string) error {
+	if strings.Contains(out, j000300SetupGuidanceTag) {
+		return fmt.Errorf("the setup response is an echo of its own prompt (it carries %s), so the codeword in it proves nothing — was the run on a real engine?; output:\n%s", j000300SetupGuidanceTag, out)
+	}
+	if !strings.Contains(out, codeword) {
+		return fmt.Errorf("assistant's setup response does not confirm the codeword %s; output:\n%s", codeword, out)
 	}
 	return nil
 }

@@ -237,6 +237,11 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
       | engine      | marker                                       |
       | claude-code | J002300-DELEGATE-MARKER-CLAUDE-CODE-1d4c07ab |
 
+    @opencode
+    Examples:
+      | engine   | marker                                    |
+      | opencode | J002300-DELEGATE-MARKER-OPENCODE-6e1b3f52 |
+
   # THE AGENT_SEND CELL — the floor above, held to the stricter channel.
   #
   # WHY THE FLOOR ALONE DOES NOT PROVE agent_send. Two paths carry a child's
@@ -402,6 +407,32 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
     Examples:
       | engine      | runtime            | workspace | marker                                   |
       | claude-code | container-rootless | none      | P6-WAKE-MARKER-CLAUDE-CODE-CTRNONE-b82a4 |
+
+    # OPENCODE, on a free hosted model (liveOpencodeModel): the host rows are
+    # live-verified.
+    @opencode @host @ws-none
+    Examples:
+      | engine   | runtime | workspace | marker                              |
+      | opencode | host    | none      | P6-WAKE-MARKER-OPENCODE-7c2e91d4    |
+
+    @opencode @host @ws-worktree
+    Examples:
+      | engine   | runtime | workspace | marker                                 |
+      | opencode | host    | worktree  | P6-WAKE-MARKER-OPENCODE-HOSTWT-4a8f03 |
+
+    # opencode.Opencode.Container installs the release (installFragment), so
+    # nothing refuses its container cells; they are WIRED, NOT YET LIVE-VERIFIED.
+    # On the live-container lane they skip loudly: its image ships no opencode
+    # binary on the harness side (engineAvailable).
+    @opencode @container-rootless @ws-worktree @reach-back @R4
+    Examples:
+      | engine   | runtime            | workspace | marker                                 |
+      | opencode | container-rootless | worktree  | P6-WAKE-MARKER-OPENCODE-CTRWT-5b9e27c1 |
+
+    @opencode @container-rootless @ws-none @reach-back @R3
+    Examples:
+      | engine   | runtime            | workspace | marker                                  |
+      | opencode | container-rootless | none      | P6-WAKE-MARKER-OPENCODE-CTRNONE-e40d6a |
 
   # Back to: tests/acceptance/features/journeys/j002100_delegation.feature (the privilege
   # half of delegation this journey complements).

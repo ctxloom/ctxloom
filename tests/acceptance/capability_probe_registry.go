@@ -296,7 +296,12 @@ const (
 // liveEngines is the ladder's engine vocabulary, in the display order the
 // availability report and the Examples tables already use. Backend-type spelling
 // (what a cell writes); backendTypeToLiveKey maps it to liveAgents' own key.
-var probeEngines = []string{"claude-code"}
+var probeEngines = []string{"claude-code", "opencode"}
+
+// opencodeContextGate is why P1's opencode cells are gated out BY ABSENCE:
+// both P1 variants pin one of claude's context approaches, and opencode
+// declares only agents-file.
+const opencodeContextGate = "opencode's ApproachTable declares one context approach, agents-file (Context: contextApproach{ApproachAgentsFile}); operations.ResolveAgentSurfaces refuses a pin to system-prompt or file, so neither of P1's claude variants exists for opencode"
 
 // hostCell / containerCell are shorthands, so a table row reads as data rather
 // than as four repeated field names.
@@ -334,6 +339,14 @@ var probeRegistry = []probeSpec{
 				Status: probeLiveVerified, Reason: "measured 2026-08-25: 1 scenario / 3 steps green in 71s, nonce harp \"weird-idle-punch\" echoed back exactly, no degrade warning. THE MIXED CORNER, and it was run because P6 measured what skipping one costs — its host/worktree cell failed where both-off and both-on passed, since the axes resolve credentials by DIFFERENT mechanisms (a container bind-mounts, a worktree seeds via credentialSeedSpecs). Here both boundaries hold together: the system-prompt scratch file survives a container whose workspace is also an isolated checkout."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "worktree", Variant: "file-shared",
 				Status: probeLiveVerified, Reason: "the SharedRealization out-of-cwd writers (claude.NewSurfaces) are the one race-safe shared-cwd conversion, and the worktree axis is where that matters. Measured 2026-08-13: 1 scenario / 3 steps green in 5.5s, harp \"snug-void-rebel\", no degrade warning. CLAUDE.md into an isolated checkout delivers."},
+			// opencode declares ONE context approach, agents-file (opencode.Build's
+			// Context: contextApproach{ApproachAgentsFile}); operations.ResolveAgentSurfaces
+			// refuses a pin to either of claude's, so these cells are gated out BY
+			// ABSENCE. An agents-file pin would only repeat P0's default-context cell.
+			{Engine: "opencode", Runtime: "host", Workspace: "none", Variant: "system-prompt", Status: probeGatedOut, Reason: opencodeContextGate},
+			{Engine: "opencode", Runtime: "container-rootless", Workspace: "none", Variant: "system-prompt", Status: probeGatedOut, Reason: opencodeContextGate},
+			{Engine: "opencode", Runtime: "container-rootless", Workspace: "worktree", Variant: "system-prompt", Status: probeGatedOut, Reason: opencodeContextGate},
+			{Engine: "opencode", Runtime: "host", Workspace: "worktree", Variant: "file-shared", Status: probeGatedOut, Reason: opencodeContextGate},
 		},
 	},
 	{
@@ -391,6 +404,12 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-09-23 on fix/container-engine-home-path: 1 scenario / 3 steps green in 19s, nonce harp \"mean-deaf-lurch\", call log carrying the whole round trip — start / initialize / notifications/initialized / tools/list / tools/call / tool_call. The runner is the container's foreground process and delivers claude's engine-home surfaces (--mcp-config, --append-system-prompt-file, settings.json) at the container side of the engine-home mount (runner.Execute via present.Mapped.EngineSide); the product-cell half is pinned without a vendor engine by TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath. The fixture lives INSIDE the workspace, which a container cell bind-mounts at the same absolute path, and mcpProbeAssert's demand for a tools/call in the fixture server's OWN log is what keeps the cell honest."},
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree", Status: probeLiveVerified,
 				Reason: "measured 2026-10-05 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 35s, nonce harp \"loose-overt-unit\" echoed back, and the fixture server's call log in the per-agent checkout carrying the whole round trip — initialize / notifications/initialized / tools/list / tools/call / tool_call. The engine runs a per-agent CHECKOUT here, so the fixture arrives only because it is committed, and its call log is written there rather than in the project; probeCellRunDir resolves that checkout from `git worktree list --porcelain` AFTER the run, which works because the server's writes leave the checkout dirty and the WIP-safe teardown spares it. Reading the project copy instead would report that the server never ran."},
+			// opencode on its free hosted model (liveOpencodeModel): the host cell,
+			// live-verified, and its container cells wired but never run live
+			// (opencode.Opencode.Container installs the release, installFragment).
+			hostCell("opencode", probeLiveVerified, "measured 2026-10-12 (opencode 1.18.35 on the free hosted model opencode/big-pickle (liveOpencodeModel), keyless, throwaway HOME/XDG/repo): `just capability-probe p2-mcp-round-trip probes/capability_mcp_round_trip.feature opencode host none`, 1 scenario / 3 steps green in 19.3s, nonce harp \"gaunt-funny-annex\" served by the fixture server and echoed back, call log present. Its FIRST run red as MCP-DELIVERY (the fixture server never started): opencode run takes its project directory from $PWD, so the relative server command resolved against the launching shell's directory. Fixed in the opencode Exec (PWD = the session's WorkDir, TestExec_PWDIsTheWorkDir), then green."),
+			{Engine: "opencode", Runtime: "container-rootless", Workspace: "none", Status: probeWired},
+			{Engine: "opencode", Runtime: "container-rootless", Workspace: "worktree", Status: probeWired},
 		},
 	},
 	{
@@ -419,6 +438,12 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-05 on claude 2.1.286 / haiku: 1 scenario / 3 steps green, the stamp carrying exactly the cell's argv harp, and the in-container carriage scan finding the hook command inside the container. The workspace is bind-mounted at the same absolute path (isolation.buildRunSpec's identity mapper), so the hook command ctxloom writes resolves in-container and the stamp lands on a host-readable path; the runner writes claude's settings at the container side of the engine-home mount (runner.Execute, pinned by TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath). Stage (a) only, as on claude's host row: no hook carries claude's context, so this cell must not assert an echo production never asked for."},
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree", Status: probeLiveVerified,
 				Reason: "measured 2026-10-05 on claude 2.1.286 / haiku: 1 scenario / 3 steps green, the stamp read from the one per-agent checkout probeCellRunDir resolved and carrying exactly the cell's argv harp. The mixed corner, kept WITH its container/none partner — P6's host/worktree cell is the measured precedent for what skipping one costs. The engine runs a per-agent CHECKOUT here, so the hook script arrives only because the fixture is committed, and the stamp is written there; reading the project copy instead would report a hook that never fired."},
+			// opencode on its free hosted model (liveOpencodeModel): the host cell,
+			// live-verified, and its container cells wired but never run live
+			// (opencode.Opencode.Container installs the release, installFragment).
+			hostCell("opencode", probeLiveVerified, "measured 2026-10-12 (opencode 1.18.35 on the free hosted model opencode/big-pickle (liveOpencodeModel), keyless, throwaway HOME/XDG/repo): `just capability-probe p3-hook-firing probes/capability_hook_firing.feature opencode host none`, 1 scenario / 3 steps green in 25.1s, exit 0, stamp file carrying the 16-byte argv harp \"deep-itchy-rage\". The first live proof that opencode's bridge plugin (plugins/ctxloom.js, session.created) EXECUTES a hook ctxloom wrote. Stage (a) only, as on claude's host row."),
+			{Engine: "opencode", Runtime: "container-rootless", Workspace: "none", Status: probeWired},
+			{Engine: "opencode", Runtime: "container-rootless", Workspace: "worktree", Status: probeWired},
 		},
 	},
 	{
@@ -442,6 +467,7 @@ var probeRegistry = []probeSpec{
 		Paid:         true,
 		Cells: []probeCell{
 			hostCell("claude-code", probePlanned, "adapter engine — the parked-forever class of bug lives here, so it lands first"),
+			hostCell("opencode", probeGatedOut, "opencode.Opencode.Approvals is engine.Absent: `opencode run` rejects every permission ask itself and its permission.ask plugin hook is never invoked, so no request can surface to a human"),
 		},
 	},
 	// P12 measures the VENDOR half of the approval route P5 waits on: with no
@@ -636,6 +662,13 @@ var probeRegistry = []probeSpec{
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "none",
 				Status: probeLiveVerified,
 				Reason: "measured 2026-08-24: 11/11 steps in 29s. The container half without the worktree half — the child's process is isolated and its credential mounted, but it shares the project working directory. Completes the claude matrix: with host/none, host/worktree and container-rootless/worktree, coordinator<->child messaging is now proven on every combination of the two axes rather than only on the diagonal."},
+			// opencode on its free hosted model (liveOpencodeModel): both host
+			// cells, live-verified; its container cells wired but never run live
+			// (opencode.Opencode.Container installs the release, installFragment).
+			hostCell("opencode", probeLiveVerified, "measured 2026-10-12 (opencode 1.18.35 on the free hosted model opencode/big-pickle (liveOpencodeModel), keyless, throwaway HOME/XDG/repo): `just capability-probe p6-steer-echo journeys/j002300_cross_engine_delegation.feature opencode host none`, 1 scenario / 10 steps green in 55.3s: the opencode child reported its wake marker from its own composed context, then echoed the steer harp \"tall-wide-liver\" over the bus, with the steer consumed from its own spool's out plane."),
+			{Engine: "opencode", Runtime: "host", Workspace: "worktree", Status: probeLiveVerified, Reason: "measured 2026-10-12 (opencode 1.18.35 on the free hosted model opencode/big-pickle (liveOpencodeModel), keyless, throwaway HOME/XDG/repo): `just capability-probe p6-steer-echo journeys/j002300_cross_engine_delegation.feature opencode host worktree`, 1 scenario / 10 steps green in 53.8s, steer harp \"icky-grimy-zero\" echoed back over the bus from a child in a per-agent worktree checkout."},
+			{Engine: "opencode", Runtime: "container-rootless", Workspace: "worktree", Status: probeWired},
+			{Engine: "opencode", Runtime: "container-rootless", Workspace: "none", Status: probeWired},
 		},
 	},
 	{
@@ -646,6 +679,7 @@ var probeRegistry = []probeSpec{
 		Paid:         true,
 		Cells: []probeCell{
 			hostCell("claude-code", probePlanned, "claude declares DelegatedChildren with ResumesByKey"),
+			hostCell("opencode", probePlanned, "opencode declares DelegatedChildren with ResumesByKey (--session)"),
 		},
 	},
 	{
@@ -665,6 +699,7 @@ var probeRegistry = []probeSpec{
 		Paid:         false,
 		Cells: []probeCell{
 			hostCell("claude-code", probePlanned, "unpaid: versionCommand is a local exec, no model turn"),
+			hostCell("opencode", probePlanned, "unpaid: opencodeengine.Version is a local exec, no model turn"),
 		},
 	},
 	{
@@ -797,6 +832,14 @@ func p0Cells() []probeCell {
 	})
 	setCell(cells, "claude-code", "container-rootless", "worktree", func(c *probeCell) {
 		c.Reason += " RE-VERIFIED 2026-08-16 on the subscription lane, part of the same four-cell claude sweep: passed in 8s (measured before the container-rootless/container-rootful split; see containerEvidence's own reattribution note)."
+	})
+	setCell(cells, "opencode", "host", "none", func(c *probeCell) {
+		c.Status = probeLiveVerified
+		c.Reason = "measured 2026-10-12 (opencode 1.18.35 on the free hosted model opencode/big-pickle (liveOpencodeModel), keyless, throwaway HOME/XDG/repo): `just engine-matrix opencode host none`, 1 scenario / 3 steps green in 12.3s, minted nonce harp \"sweet-sour-ivory\" echoed back as the exact JSON object. (Green also before the PWD fix, harp \"odd-stark-sauna\": a context nonce does not depend on the working directory.)"
+	})
+	setCell(cells, "opencode", "host", "worktree", func(c *probeCell) {
+		c.Status = probeLiveVerified
+		c.Reason = "measured 2026-10-12 (opencode 1.18.35 on the free hosted model opencode/big-pickle (liveOpencodeModel), keyless, throwaway HOME/XDG/repo), after the PWD fix put opencode in the worktree checkout rather than the launching shell's directory: `just engine-matrix opencode host worktree`, 1 scenario / 3 steps green in 20.2s, nonce harp \"pure-sandy-shaft\"."
 	})
 	return cells
 }
@@ -934,6 +977,22 @@ func p4Cells() []probeCell {
 	// choice not to gate on the exit code was therefore not needed HERE — it is
 	// insurance for any engine whose plan behaviour is still unobserved, and it
 	// stays.
+	// OPENCODE'S PLAN CELL CANNOT EXIST: every opencode label runs with
+	// approver none (opencode.Opencode.Approvals is Absent), and the launch
+	// refuses a plan-first posture without a human approver. Measured
+	// 2026-10-12: `just plan-sentinel opencode pair` — the plan run exited 1
+	// before any turn, stderr "the declared permission posture cannot be
+	// honoured: launch: a posture that plans first needs the human as its
+	// approver: the posture is plan, but the approver is none".
+	for i := range cells {
+		if c := &cells[i]; c.Engine == "opencode" && c.Variant == string(p4Plan) {
+			c.Status = probeGatedOut
+			c.Reason = "launch.ErrPlansFirstNeedsHuman: a plan-first posture needs the human as its approver, and every opencode label's approver is none (opencode.Opencode.Approvals is Absent), so the launch refuses it before any turn"
+		}
+	}
+
+	setP4Cell(cells, "opencode", p4Control,
+		"measured 2026-10-12 (opencode 1.18.35 on the free hosted model opencode/big-pickle (liveOpencodeModel), keyless, throwaway HOME/XDG/repo): `just plan-sentinel opencode pair`, the control scenario green in 9.7s: under permissions=auto the ordered overwrite LANDED on the sentinel planted with harp unfed-mild-speed. exit=0, 16B stdout. It licenses no plan cell — opencode's is gated out (launch.ErrPlansFirstNeedsHuman) — and stands as the live proof that opencode's bypass posture (auto) writes.")
 	setP4Cell(cells, "claude-code", p4Control,
 		"live-verified 2026-08-13 as HALF OF A PAIR (`just plan-sentinel claude-code pair`, 2 scenarios / 6 steps, no skip): under permissions=bypass the ordered overwrite LANDED — the sentinel planted with harp legal-rosy-pouch came back carrying the overwrite token instead. exit=0, 55B stdout, plan-oneshot-warning=false (correctly absent: the control is not a plan run). This is what licenses the plan cell beside it.")
 	setP4Cell(cells, "claude-code", p4Plan,
@@ -1012,7 +1071,9 @@ func probeCapabilityCoverage() map[int][]string {
 
 // probePaidCellCount is the ladder's cost in cells: how many cells would
 // actually buy a model turn if everything currently planned or wired ran.
-// Gated-out and deferred cells cost nothing because they never run.
+// Gated-out and deferred cells cost nothing because they never run, and a
+// free engine's cells (liveAgent.free: opencode's free hosted model) cost
+// nothing when they do.
 func probePaidCellCount() int {
 	n := 0
 	for _, p := range probeRegistry {
@@ -1020,7 +1081,7 @@ func probePaidCellCount() int {
 			continue
 		}
 		for _, c := range p.Cells {
-			if c.Status == probeGatedOut || c.Status == probeDeferred {
+			if c.Status == probeGatedOut || c.Status == probeDeferred || liveAgents[backendTypeToLiveKey(c.Engine)].free {
 				continue
 			}
 			n++

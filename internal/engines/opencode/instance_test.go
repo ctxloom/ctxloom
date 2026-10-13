@@ -243,3 +243,40 @@ func TestTurn_ArgvNamesTheSessionOnce(t *testing.T) {
 	}
 	assert.Equal(t, 1, n)
 }
+
+// A label with no provider.base_url NAMES A BUILT-IN PROVIDER: its model
+// passes through verbatim (opencode/big-pickle, a free hosted model), in argv
+// and config alike, and ctxloom configures no provider of its own — no
+// provider block, no enabled_providers, no key reference.
+func TestExec_BuiltInProviderModelPassesThroughVerbatim(t *testing.T) {
+	s := session(t, map[string]any{"type": "opencode", "model": "opencode/big-pickle"})
+	s.Label.Model = "opencode/big-pickle"
+	ex := mustExec(t, bind(t, s))
+	assert.Equal(t, []string{"run", "--format", "json", "--thinking", "--model", "opencode/big-pickle"}, ex.Args)
+	doc := configDoc(t, ex)
+	assert.Equal(t, "opencode/big-pickle", doc["model"])
+	assert.Equal(t, "opencode/big-pickle", doc["small_model"])
+	assert.NotContains(t, doc, "provider")
+	assert.NotContains(t, doc, "enabled_providers")
+	assert.NotContains(t, ex.Env[envConfigContent], APIKeyEnv, "a built-in provider names no ctxloom key")
+
+	s.Mode = engine.Interactive
+	s.Prompt = ""
+	assert.Equal(t, []string{"--model", "opencode/big-pickle"}, mustExec(t, bind(t, s)).Args, "the TUI names the same model")
+}
+
+// PWD is the session's working directory, in both modes. `opencode run` takes
+// its project directory from $PWD, not from the process cwd: measured on
+// 1.18.35, a run started in one directory with PWD naming another worked in
+// the PWD one. The process cwd is WorkDir (Exec.WorkDir), so an inherited
+// PWD — the launching shell's directory — would put the agent in the user's
+// project instead of an isolated worktree checkout.
+func TestExec_PWDIsTheWorkDir(t *testing.T) {
+	s := session(t, qwenBody())
+	ex := mustExec(t, bind(t, s))
+	assert.Equal(t, s.WorkDir, ex.WorkDir)
+	assert.Equal(t, s.WorkDir, ex.Env[envPWD], "structured")
+
+	s.Mode = engine.Interactive
+	assert.Equal(t, s.WorkDir, mustExec(t, bind(t, s)).Env[envPWD], "interactive")
+}

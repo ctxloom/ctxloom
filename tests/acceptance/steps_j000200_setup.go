@@ -157,22 +157,9 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 
 	// --- Scenario 3: @live, restarted assistant sees every source -----------
 
-	ctx.Step(`^Alice has personal and company ctxloom repositories$`, func(c context.Context) error {
+	ctx.Step(`^Alice has personal and company ctxloom repositories, served by a real (\S+) assistant$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		a, ok := liveAgents["claude"]
-		if !ok {
-			return fmt.Errorf("no live agent config registered for claude")
-		}
-		if ok, reason := engineAvailable(a); !ok {
-			fmt.Printf("SKIP j000200 live: %s\n", reason)
-			return godog.ErrSkip
-		}
-		w.j000200Live = true
-		cfg := a.config + "agents:\n  default:\n    llm: claude\n    profiles:\n      - default\n" + permissionsBlock(a.engine, "bypass") + "default_agent: default\n"
-		if err := scaffoldProjectWithConfig(w, cfg); err != nil {
-			return err
-		}
-		if err := seedLiveCredentials(a, w.env.SetChildEnv); err != nil {
+		if err := j000200LiveProject(w, "j000200", engine); err != nil {
 			return err
 		}
 		if _, err := seedSource(w, "personal", "fragments", "marker", j000200LivePersonalMark, j000200LivePersonalMark); err != nil {
@@ -292,4 +279,36 @@ func assertMaterializedContains(c context.Context, target, want string) error {
 		return fmt.Errorf("materialized %s/CLAUDE.md does not contain %q; content:\n%s", target, want, body)
 	}
 	return nil
+}
+
+// j000200LiveProject is the gate and scaffold every J000200/J000300 @live
+// scenario opens with, for the real engine its Examples row names ("Claude",
+// "Opencode": a liveAgents key, any case): skip when that engine is
+// unavailable, else a project whose default agent runs on the engine's own
+// live label at its bypass posture, with the engine's credential seeded (none
+// for a keyless engine).
+func j000200LiveProject(w *World, journey, engine string) error {
+	key := strings.ToLower(engine)
+	a, ok := liveAgents[key]
+	if !ok {
+		return fmt.Errorf("%s: no live agent registered for %q (known: %v)", journey, engine, liveAgentOrder)
+	}
+	if avail, reason := engineAvailable(a); !avail {
+		fmt.Printf("SKIP %s live (%s): %s\n", journey, key, reason)
+		return godog.ErrSkip
+	}
+	w.j000200Live = true
+	w.env.SetCommandBound(liveTurnBound)
+	cfg := a.config + "agents:\n  default:\n    llm: " + key + "\n    profiles:\n      - default\n" + a.bypassBlock() + "default_agent: default\n"
+	if err := scaffoldProjectWithConfig(w, cfg); err != nil {
+		return err
+	}
+	// Written even when an earlier step already scaffolded the project:
+	// scaffoldProjectWithConfig is a no-op then, and the config it left (a
+	// mock one, for a scenario whose first Given is shared with a hermetic
+	// twin) would run this live scenario on the mock.
+	if err := w.env.WriteFile(".ctxloom/config.yaml", cfg); err != nil {
+		return err
+	}
+	return seedLiveCredentials(a, w.env.SetChildEnv)
 }

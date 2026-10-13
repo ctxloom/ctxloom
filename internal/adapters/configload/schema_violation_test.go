@@ -111,11 +111,12 @@ func TestLoad_UnknownKeyAndMistypedValue_AreBothReported(t *testing.T) {
 // schema — silently, while that was a warning.
 //
 // A branch may require keys beside type: an opencode label is unusable
-// without its model, context window and endpoint, so its entry carries the
-// minimal set; any engine NOT listed is checked with type alone.
+// without its model (with no provider it names a built-in provider's), so its
+// entry carries the minimal set; any engine NOT listed is checked with type
+// alone.
 func TestLoad_EveryRegisteredEngineIsASchemaValidLLMType(t *testing.T) {
 	requiredKeys := map[string]string{
-		"opencode": "      model: m\n      context_window: 1\n      provider:\n        base_url: http://127.0.0.1:9/v1\n        output_limit: 1\n",
+		"opencode": "      model: opencode/big-pickle\n",
 	}
 	for _, name := range engines.Registry().Names(nil) {
 		t.Run(string(name), func(t *testing.T) {

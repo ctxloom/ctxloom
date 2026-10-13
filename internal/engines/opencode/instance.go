@@ -21,7 +21,7 @@ const defaultBinary = "opencode"
 
 // The structured protocol's argv: `run` with JSON events, reasoning emitted
 // (it only gates emission; whether the model thinks is the label's
-// model_options), the ctxloom provider's model, the session to continue,
+// model_options), the model (modelRef), the session to continue,
 // and --auto, which approves what the posture leaves to ask.
 const (
 	cmdRun       = "run"
@@ -77,6 +77,10 @@ const (
 	envDisableAutoupdate     = "OPENCODE_DISABLE_AUTOUPDATE"
 	envDisableModelsFetch    = "OPENCODE_DISABLE_MODELS_FETCH"
 	envDisableExternalSkills = "OPENCODE_DISABLE_EXTERNAL_SKILLS"
+	// envPWD is set to the session's working directory: `opencode run`
+	// takes its project directory from $PWD rather than the process cwd, so
+	// the launching shell's PWD would otherwise win over Exec.WorkDir.
+	envPWD = "PWD"
 )
 
 // Instance binds one session: the label's body decoded, the posture read.
@@ -114,8 +118,8 @@ type instance struct {
 // bare TUI on a pty with the prompt as --prompt; the model, the resumed
 // session (resumeArgs), and --auto at the auto posture. Env, identical in
 // both modes, holds only opencode's own variables: the home vars, every
-// presentation's env, the composed config, the posture and the isolation
-// switches. The key is never in it: the run's credentials carry it, and the
+// presentation's env, the composed config, the posture, the isolation
+// switches and PWD (the working directory; opencode reads it, not the cwd). The key is never in it: the run's credentials carry it, and the
 // config names it by reference.
 func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 	interactive := i.s.Mode == engine.Interactive
@@ -123,8 +127,8 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 	if !interactive {
 		args = append(args, cmdRun, flagFormat, "json", flagThinking)
 	}
-	if m := i.s.Label.Model; m != "" {
-		args = append(args, flagModel, providerID+"/"+m)
+	if m := modelRef(i.s.Label.Model, i.cfg); m != "" {
+		args = append(args, flagModel, m)
 	}
 	args = append(args, i.resumeArgs()...)
 	if interactive && i.s.Prompt != "" {
@@ -187,6 +191,9 @@ func (i *instance) execEnv(presented []present.Presentation) (map[string]string,
 	}
 	env[envConfigContent] = content
 	env[envPermission] = perm
+	if i.s.WorkDir != "" {
+		env[envPWD] = i.s.WorkDir
+	}
 	for _, v := range []string{envDisableClaudeCode, envDisableAutoupdate, envDisableModelsFetch, envDisableExternalSkills} {
 		env[v] = "1"
 	}

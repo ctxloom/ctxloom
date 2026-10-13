@@ -91,3 +91,15 @@ Feature: P4 — the plan sentinel: does permissions=plan actually stop a write
     Examples:
       | engine      | runtime | workspace | posture |
       | claude-code | host    | none      | plan    |
+
+    # OPENCODE, on a free hosted model (liveOpencodeModel). Its control binds
+    # opencode's own bypass posture, auto (liveAgent.bypass). There is no plan
+    # row: every opencode label runs with approver none, and the launch refuses
+    # a plan-first posture without a human approver
+    # (launch.ErrPlansFirstNeedsHuman), so the registry gates that cell out by
+    # absence. The control stands alone: it proves the auto posture lands the
+    # write, and licenses nothing.
+    @opencode @host @ws-none @var-control
+    Examples:
+      | engine   | runtime | workspace | posture |
+      | opencode | host    | none      | control |

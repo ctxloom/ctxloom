@@ -208,7 +208,16 @@ is native history at `.xdg/data/opencode`, so a resumed child (`run
 neutral `context_window`, timeouts, model options, snapshot/title/share) and
 names the endpoint key only by reference; the key itself
 (`CTXLOOM_OPENCODE_API_KEY`) rides the run's credentials (a secret file in a
-container).
+container). A label with no `provider.base_url` names one of opencode's
+BUILT-IN providers instead: its model (`opencode/big-pickle`) passes through
+verbatim as `--model` and `model`, and no ctxloom provider block or
+`enabled_providers` is written. The key is therefore optional: `opencodeAuth`
+sets it when exported and otherwise authenticates keyless, because Auth never
+sees the label and cannot tell an endpoint label from a built-in one. An
+endpoint label run without the key reaches its endpoint with an empty key. The Exec
+also sets `PWD` to the session's working directory: `opencode run` takes its
+project directory from `$PWD`, not from its process cwd, so an inherited PWD
+(the launching shell's) would put the agent outside a worktree checkout.
 
 opencode runs no hook command, only in-process plugins, so its hooks
 approach writes ONE generated plugin, the bridge (`plugins/ctxloom.js`,

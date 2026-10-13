@@ -532,11 +532,16 @@ in a tagged release, so this only matters if you ran a build from `main`.
   one of them fails the same way as `gemini` above. The config schema no
   longer has a `codex` branch.
 - The development build's `opencode` backend is replaced by a new one with a
-  different label shape: it drives opencode against an OpenAI-compatible
-  endpoint and requires `model`, `context_window` and `provider` (`base_url`,
-  `output_limit`); the key comes from `CTXLOOM_OPENCODE_API_KEY`. An entry in
-  the old shape does not validate against the new branch (it has no
-  `provider`). See Configuration → LLMs.
+  different label shape. It requires `model`. With a `provider` block
+  (`base_url`, `output_limit`, plus `context_window` on the label) it drives
+  opencode against that OpenAI-compatible endpoint, with the key taken from
+  `CTXLOOM_OPENCODE_API_KEY`. Without one, `model` names one of opencode's
+  built-in providers and passes through as written (`opencode/big-pickle`, a
+  free hosted model), and no key is needed: the run authenticates keyless
+  when `CTXLOOM_OPENCODE_API_KEY` is not exported. An entry in the old shape does
+  not validate if it has no `model`, or if its `permissions` is a string (the
+  old posture spelling; the new branch takes a permissions block). See
+  Configuration → LLMs.
 - The `thinking` key under a backend config is removed. It was accepted and
   had no effect; a config still setting it now draws an unknown-key warning.
 - A second `ctxloom run` in a project that already had one open was refused.

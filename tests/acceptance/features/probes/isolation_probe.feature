@@ -79,5 +79,20 @@ Feature: Isolation probe — live proof against real vendor engines
       | engine      | axis              |
       | claude-code | container-rootful |
 
+    # opencode, on a free hosted model (liveOpencodeModel).
+    @opencode @worktree
+    Examples:
+      | engine   | axis     |
+      | opencode | worktree |
+
+    # opencode's container axis: WIRED, UNVERIFIED. opencode.Opencode.Container
+    # installs the release (installFragment), so nothing refuses it; it has
+    # never been run live. On the live-container lane it skips loudly: that
+    # image ships no opencode binary on the harness side (engineAvailable).
+    @opencode @container-rootless
+    Examples:
+      | engine   | axis               |
+      | opencode | container-rootless |
+
   # Back to: tests/acceptance/features/journeys/j002200_isolation.feature (the hermetic layer
   # this feature complements).

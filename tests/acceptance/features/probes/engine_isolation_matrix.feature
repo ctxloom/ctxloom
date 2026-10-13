@@ -188,3 +188,40 @@ Feature: Claude × runtime × workspace matrix — the simplest round trip, on e
     Examples:
       | engine      | runtime          | workspace |
       | claude-code | container-rootful | worktree  |
+
+    # OPENCODE, on a FREE hosted model (liveOpencodeModel, opencode/big-pickle):
+    # no key, no subscription turn. The host rows are live-verified; the
+    # container rows below them are wired, not yet live-verified.
+    @opencode @host @ws-none
+    Examples:
+      | engine   | runtime | workspace |
+      | opencode | host    | none      |
+
+    @opencode @host @ws-worktree
+    Examples:
+      | engine   | runtime | workspace |
+      | opencode | host    | worktree  |
+
+    # opencode.Opencode.Container installs the release (installFragment), so
+    # nothing refuses its container cells; they are WIRED, NOT YET LIVE-VERIFIED.
+    # On the live-container lane they skip loudly: its image ships no opencode
+    # binary on the harness side (engineAvailable).
+    @opencode @container-rootless @ws-none
+    Examples:
+      | engine   | runtime            | workspace |
+      | opencode | container-rootless | none      |
+
+    @opencode @container-rootless @ws-worktree
+    Examples:
+      | engine   | runtime            | workspace |
+      | opencode | container-rootless | worktree  |
+
+    @opencode @container-rootful @ws-none
+    Examples:
+      | engine   | runtime           | workspace |
+      | opencode | container-rootful | none      |
+
+    @opencode @container-rootful @ws-worktree
+    Examples:
+      | engine   | runtime           | workspace |
+      | opencode | container-rootful | worktree  |

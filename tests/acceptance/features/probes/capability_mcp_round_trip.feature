@@ -96,3 +96,24 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
     Examples:
       | engine      | runtime            | workspace |
       | claude-code | container-rootless | worktree  |
+
+    # OPENCODE, on a free hosted model (liveOpencodeModel): the host row is
+    # live-verified.
+    @probe-p2-mcp-round-trip @opencode @host @ws-none
+    Examples:
+      | engine   | runtime | workspace |
+      | opencode | host    | none      |
+
+    # opencode.Opencode.Container installs the release (installFragment), so
+    # nothing refuses its container cells; they are WIRED, NOT YET LIVE-VERIFIED.
+    # On the live-container lane they skip loudly: its image ships no opencode
+    # binary on the harness side (engineAvailable).
+    @probe-p2-mcp-round-trip @opencode @container-rootless @ws-none
+    Examples:
+      | engine   | runtime            | workspace |
+      | opencode | container-rootless | none      |
+
+    @probe-p2-mcp-round-trip @opencode @container-rootless @ws-worktree
+    Examples:
+      | engine   | runtime            | workspace |
+      | opencode | container-rootless | worktree  |

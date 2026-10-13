@@ -104,12 +104,18 @@ var p4Postures = []p4Posture{p4Control, p4Plan}
 // `permissions:` line would resolve to the engine's host default instead of
 // the posture under test, so a typo would silently make the plan cell measure
 // something else.
-func p4PermissionValue(p p4Posture) string {
+//
+// The control is the engine's own bypass posture (liveAgent.bypass): claude's
+// "bypass", opencode's "auto". Plan is spelled "plan" by every engine.
+func p4PermissionValue(a liveAgent, p p4Posture) string {
 	switch p {
 	case p4Plan:
 		return "plan"
 	case p4Control:
-		return "bypass"
+		if a.bypass == "" {
+			panic(fmt.Sprintf("p4: engine %q declares no bypass posture — the control would bind an empty mode and resolve to the default", a.engine))
+		}
+		return a.bypass
 	}
 	panic(fmt.Sprintf("p4: no permissions value for posture %q — an unmapped posture would write an empty permissions key, which resolves to the built-in default and would silently turn the plan cell into a second control", p))
 }
@@ -185,7 +191,7 @@ func p4ConfigYAML(a liveAgent, llmKey string, posture p4Posture, runtime string)
 	var b strings.Builder
 	b.WriteString(a.config)
 	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles: []\n%s",
-		p4Agent, llmKey, permissionsBlock(a.engine, p4PermissionValue(posture)))
+		p4Agent, llmKey, permissionsBlock(a.engine, p4PermissionValue(a, posture)))
 	b.WriteString(runtimeBindingLine(runtime))
 	return b.String()
 }

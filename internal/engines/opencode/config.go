@@ -69,9 +69,9 @@ func decodeConfig(body map[string]any) (Config, error) {
 const providerID = "ctxloom"
 
 // configContent is the one OPENCODE_CONFIG_CONTENT document a session runs
-// with, composed from the label: the provider (endpoint, key by reference,
-// timeouts, the model's window and output limit and options) as the only
-// enabled provider, the model, the fixed policy (no autoupdate) with the
+// with, composed from the label: for a label with an endpoint, the provider
+// (endpoint, key by reference, timeouts, the model's window and output limit
+// and options) as the only enabled provider; the model (modelRef); the fixed policy (no autoupdate) with the
 // label's snapshot/title/share switches, and — for an untrusted repository,
 // whose project config opencode is told to ignore — the project's AGENTS.md
 // re-added by its engine path. It carries no secret.
@@ -87,15 +87,27 @@ func configContent(s engine.Session, c Config, projectAgents bool) (string, erro
 		doc["provider"] = map[string]any{providerID: p}
 		doc["enabled_providers"] = []string{providerID}
 	}
-	if m := s.Label.Model; m != "" {
-		doc["model"] = providerID + "/" + m
-		doc["small_model"] = providerID + "/" + m
+	if m := modelRef(s.Label.Model, c); m != "" {
+		doc["model"] = m
+		doc["small_model"] = m
 	}
 	if projectAgents {
 		doc["instructions"] = []string{path.Join(s.Roots.ProjectRoot.Engine, ContextFileName)}
 	}
 	b, err := json.Marshal(doc)
 	return string(b), err
+}
+
+// modelRef is the model as opencode names it. A label with an endpoint
+// (provider.base_url) runs its model on the ctxloom provider: ctxloom/<model>.
+// A label without one NAMES A BUILT-IN PROVIDER: its model is already
+// opencode's provider/model reference (opencode/big-pickle) and passes
+// through verbatim. "" for a label naming no model.
+func modelRef(model string, c Config) string {
+	if model == "" || c.Provider.BaseURL == "" {
+		return model
+	}
+	return providerID + "/" + model
 }
 
 // provider is the ctxloom provider block, or nil for a label that names no

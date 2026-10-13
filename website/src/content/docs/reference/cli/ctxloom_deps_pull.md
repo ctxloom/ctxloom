@@ -24,7 +24,9 @@ engine whose context rides its launch keeps its context out of it). That
 directory is shared by every session and person using the checkout, so like
 'ctxloom materialize' the refresh writes there only under --yes. Without it the
 pull still succeeds: it writes no engine file and names what the refresh would
-have written, and how to apply it.
+have changed, compared with the files as they stand (nothing at all when the
+project is already current), each kind it would be refused with the fix, and
+how to apply it.
 
 BOTH DIRECTIONS, AND NEITHER ASKS. Installed remote content is a projection of
 remote state — every byte re-fetchable from the address it came from, none of it

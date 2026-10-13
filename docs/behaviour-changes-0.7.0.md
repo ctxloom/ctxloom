@@ -350,9 +350,15 @@ default agent's; with no `--backend`, the project's configured engines.
   In 0.6 a pull applied hooks unasked. **Without `--yes` the pull (or the
   run) still succeeds**: it installs and locks the closure, writes and
   removes no engine file, and prints `Project refresh skipped`, naming each
-  engine's kinds it would have written and the two ways to apply them (the
-  same command with `--yes`, or the `ctxloom materialize --yes --surface ...`
-  that writes exactly those kinds). `--format json` carries the same as
+  engine's kinds it would have written or released and the two ways to apply
+  them (the same command with `--yes`, or the `ctxloom materialize --yes
+  --surface ...` that writes exactly those kinds). The note compares against
+  the project's files as they stand: a kind is named only when `--yes` would
+  change its files (a hand edit `--yes` would undo counts) or release a claim
+  it holds, so a pull right after a `--yes` pull prints no note at all. A kind
+  the refresh would be refused (a value in the file that is not ctxloom's, a
+  file that does not parse) is named on its own line with a `fix:` line; the
+  pull still succeeds. `--format json` carries the same as
   `refresh_skipped`. A script that relied on a pull refreshing the
   project's hooks or MCP servers must add `--yes`. There is no config
   setting for it. With `--yes`, the refresh runs `ctxloom materialize` into

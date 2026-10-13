@@ -287,4 +287,10 @@ warning: heads up
 	bare := render(&operations.MaterializeResult{Target: "/out", Status: operations.MaterializeReleased, Engines: []operations.EngineOutcome{{Engine: "mock"}}})
 	assert.Equal(t, "Released → /out (released)\nmock\n", bare, "no profiles, no context file: no lines for them")
 	assert.True(t, strings.HasPrefix(render(&operations.MaterializeResult{Target: "/out", Status: operations.MaterializePlanned}), "Would materialize → /out"))
+
+	refused := render(&operations.MaterializeResult{Target: "/out", Status: operations.MaterializePlanned, Engines: []operations.EngineOutcome{
+		{Engine: "claude-code", Wrote: []string{"settings"}, Refused: []operations.KindRefusal{{Kind: "hooks", Reason: "settings.json: not json", Fix: "repair it"}}},
+	}})
+	assert.Equal(t, "Would materialize → /out (planned)\nclaude-code\n  wrote settings\n  refused hooks: settings.json: not json\n    fix: repair it\n", refused,
+		"a dry run names each kind it would be refused, with the fix")
 }

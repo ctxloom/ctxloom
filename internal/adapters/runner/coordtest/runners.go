@@ -197,6 +197,10 @@ func (noDelivery) Reverse(context.Context, delivery.Ownership, ...delivery.Write
 	return nil
 }
 
+func (noDelivery) Preview(context.Context, delivery.Loadout, engine.Base, delivery.Target) (delivery.Previewed, error) {
+	return delivery.Previewed{}, nil
+}
+
 // Close kills every runner spawned so far.
 func (r *Runners) Close() {
 	r.cancel()

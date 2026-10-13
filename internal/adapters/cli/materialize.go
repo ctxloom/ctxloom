@@ -183,8 +183,8 @@ func guardProjectTarget(w io.Writer, cfg *config.Config, req operations.Material
 }
 
 // renderMaterialize is the text report: one block per engine — what was
-// written, released and not carried, the premise withholds, and what the
-// writers skipped.
+// written, released and not carried, the premise withholds, the kinds a dry
+// run would be refused (each with its fix), and what the writers skipped.
 func renderMaterialize(out io.Writer, res *operations.MaterializeResult) error {
 	w := errwriter.New(out)
 	verb := map[string]string{operations.MaterializePlanned: "Would materialize", operations.MaterializeReleased: "Released"}[res.Status]
@@ -210,6 +210,9 @@ func renderMaterialize(out io.Writer, res *operations.MaterializeResult) error {
 		}
 		for _, p := range e.WithheldByPremise {
 			w.Printf("  withheld by premise: %s (%s)%s\n", p.Name, p.Premise, map[bool]string{true: " → " + p.Delivered, false: ""}[p.Delivered != ""])
+		}
+		for _, r := range e.Refused {
+			w.Printf("  refused %s: %s\n    fix: %s\n", r.Kind, r.Reason, r.Fix)
 		}
 		printEach(w, "  skipped: %s\n", e.Skipped)
 		printEach(w, "  warning: %s\n", e.Warnings)

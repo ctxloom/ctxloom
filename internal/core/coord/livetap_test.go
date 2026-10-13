@@ -192,6 +192,10 @@ func (noDelivery) Reverse(context.Context, delivery.Ownership, ...delivery.Write
 	return nil
 }
 
+func (noDelivery) Preview(context.Context, delivery.Loadout, engine.Base, delivery.Target) (delivery.Previewed, error) {
+	return delivery.Previewed{}, nil
+}
+
 // ResolveLaunch resolves the worker's launch: it composes no context (the
 // tap renders the turn's own words).
 func (s *liveTapSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {

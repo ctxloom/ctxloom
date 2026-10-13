@@ -33,7 +33,9 @@ engine whose context rides its launch keeps its context out of it). That
 directory is shared by every session and person using the checkout, so like
 'ctxloom materialize' the refresh writes there only under --yes. Without it the
 pull still succeeds: it writes no engine file and names what the refresh would
-have written, and how to apply it.
+have changed, compared with the files as they stand (nothing at all when the
+project is already current), each kind it would be refused with the fix, and
+how to apply it.
 
 BOTH DIRECTIONS, AND NEITHER ASKS. Installed remote content is a projection of
 remote state — every byte re-fetchable from the address it came from, none of it
@@ -128,9 +130,10 @@ type pullView struct {
 	// Reconcile is nil when no reconcile ran: --lock=false, or a lockfile it
 	// could not read. An empty plan would claim a check that never happened.
 	Reconcile *reconcileView `json:"reconcile,omitempty"`
-	// RefreshSkipped is the project refresh this pull planned but did not
+	// RefreshSkipped is the project refresh this pull previewed but did not
 	// write, for want of --yes (operations.SyncDependenciesResult.
-	// RefreshSkipped); absent when it ran or had nothing to do.
+	// RefreshSkipped); absent when it ran, or would have changed nothing and
+	// been refused nothing.
 	RefreshSkipped *operations.MaterializeResult `json:"refresh_skipped,omitempty"`
 }
 

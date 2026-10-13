@@ -295,7 +295,17 @@ type Staging struct {
 	c       *Records
 	b       *safefs.Batch
 	targets map[string]*targetOps
+	// scope, set only by a preview (scopeTo), confines each target's
+	// structured transition to the places this writer claims.
+	scope delivery.Writer
 }
+
+// scopeTo confines every target this staging touches from now on to w's
+// places: the fold moves only the places w claims before or after its ops,
+// so a place another writer claims that the file has lost is not put back
+// in w's name. A preview folds each kind's writer this way; a delivery never
+// does, and moves every place.
+func (s *Staging) scopeTo(w delivery.Writer) { s.scope = w }
 
 // In is a staging bound to b.
 func (c *Records) In(b *safefs.Batch) delivery.Staging {
@@ -314,10 +324,15 @@ type targetOps struct {
 	target string
 	ops    []claimOp
 	// set by the fold for the seal
-	rec   claimsRecord
-	disk  []byte
-	prior fileState
-	had   []string // the writers the record named before the ops
+	rec claimsRecord
+	was claimsRecord // the record as the ops found it, for a preview's releases
+	// scope (Staging.scopeTo) and scoped, which the fold sets for the ops'
+	// transition and never for a crash's redo, confine the transition.
+	scope  delivery.Writer
+	scoped bool
+	disk   []byte
+	prior  fileState
+	had    []string // the writers the record named before the ops
 	// set by the seal when it notes a write pending, for the confirm
 	noted *claimsRecord
 }
@@ -325,7 +340,7 @@ type targetOps struct {
 func (s *Staging) touch(target string) *targetOps {
 	t, ok := s.targets[target]
 	if !ok {
-		t = &targetOps{c: s.c, target: target}
+		t = &targetOps{c: s.c, target: target, scope: s.scope}
 		s.targets[target] = t
 		s.b.Edit(target, t.fold)
 		s.b.Seal(target, t.seal)
@@ -442,6 +457,26 @@ func (s *Staging) Release(target string, w delivery.Writer, keep func(pointer, v
 	return nil
 }
 
+// releases reports whether the ops folded into target drop a claim w held
+// there: a place where the record named w before the ops and does not after.
+// It is read once the batch has folded (safefs.Batch.Fold); a restated or
+// changed claim at the same place is not a release.
+func (s *Staging) releases(target string, w delivery.Writer) bool {
+	t, ok := s.targets[target]
+	if !ok {
+		return false
+	}
+	holds := func(entries []claimEntry) bool {
+		return slices.ContainsFunc(entries, func(e claimEntry) bool { return e.Writer == string(w) })
+	}
+	for p, entries := range t.was.Paths {
+		if holds(entries) && !holds(t.rec.Paths[p]) {
+			return true
+		}
+	}
+	return false
+}
+
 // fold loads the record under the target's lock, completes a write a crash
 // left behind, applies every staged op to the record and moves the file from
 // the state the record described to the state it now describes: one
@@ -476,6 +511,7 @@ func (t *targetOps) fold(cur []byte, exists bool) ([]byte, bool, error) {
 		}
 	}
 	rec.settle(was)
+	t.was, t.scoped = was, t.scope != ""
 	next, keep, err := t.transition(cur, exists, from, &rec)
 	t.rec = rec
 	return next, keep, err
@@ -638,6 +674,9 @@ func digest(data []byte, exists bool) string {
 // describes, recording in rec the containers and the file it creates.
 func (t *targetOps) transition(cur []byte, exists bool, from fileState, rec *claimsRecord) ([]byte, bool, error) {
 	to := rec.state()
+	if t.scoped {
+		from, to = t.inScope(from, rec), t.inScope(to, rec)
+	}
 	kind, err := claimKind(from, to)
 	switch {
 	case err != nil:
@@ -650,6 +689,22 @@ func (t *targetOps) transition(cur []byte, exists bool, from fileState, rec *cla
 		return cur, exists, nil
 	}
 	return t.structured(cur, exists, from, to, rec)
+}
+
+// inScope is s with only the places t's scope writer claims, in the record
+// as the ops found it or as they leave it (rec).
+func (t *targetOps) inScope(s fileState, rec *claimsRecord) fileState {
+	holds := func(entries []claimEntry) bool {
+		return slices.ContainsFunc(entries, func(e claimEntry) bool { return e.Writer == string(t.scope) })
+	}
+	out := s
+	out.Values = map[string]claimEntry{}
+	for k, v := range s.Values {
+		if holds(t.was.Paths[k]) || holds(rec.Paths[k]) {
+			out.Values[k] = v
+		}
+	}
+	return out
 }
 
 // byPlace is claimKind's answer for a file claimed place by place.

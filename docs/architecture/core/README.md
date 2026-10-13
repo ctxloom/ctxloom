@@ -70,6 +70,7 @@ flowchart TD
     DELIVER --> STATIC["delivery.Static.Deliver<br/>fsstatic over the engine's typed approaches<br/>ONE ownership record per target file, writer-tagged"]
     STATIC --> RUN["a run: the runner tail, under the session writer<br/>runner.Execute"]
     STATIC --> MAT["at rest: ctxloom materialize (and the older install/uninstall), under per-engine, per-kind project writers<br/>operations.Deliver at a Placement; release = the empty plan for the selected kinds"]
+    DELIVER --> PREVIEW["delivery.Static.Preview<br/>the same delivery with nothing written: per kind, what would change or be refused<br/>materialize --dry-run; the post-sync refresh without --yes"]
     DELIVER --> DYN["delivery.Dynamic.Serve<br/>the runner's MCP endpoint"]
 
 ```

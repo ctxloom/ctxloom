@@ -103,13 +103,15 @@ func WriteAndRecordSyncSummary(w io.Writer, result *SyncDependenciesResult) {
 	}
 }
 
-// WriteRefreshSkipped names the post-sync project refresh a sync planned but
-// did not write for want of the user's --yes (SyncDependenciesResult.
-// RefreshSkipped): the project directory, per engine the kinds it would have
-// written or released, and the two ways to apply it — rerun, the calling
-// command's own --yes form, and the equivalent `ctxloom materialize`, limited
-// by --surface to the kinds the refresh touches so it writes nothing more.
-// indent prefixes every line. A nil skipped is a no-op.
+// WriteRefreshSkipped names the post-sync project refresh a sync previewed
+// but did not write for want of the user's --yes (SyncDependenciesResult.
+// RefreshSkipped): the project directory, per engine the kinds whose files
+// it would have written or released, each kind it would have been refused
+// with the reason and its fix, and the two ways to apply it — rerun, the
+// calling command's own --yes form, and the equivalent `ctxloom
+// materialize`, limited by --surface to the kinds the refresh touches so it
+// writes nothing more. With only refusals there is nothing to apply, so no
+// apply line. indent prefixes every line. A nil skipped is a no-op.
 func WriteRefreshSkipped(w io.Writer, indent string, skipped *MaterializeResult, rerun string) {
 	if skipped == nil {
 		return
@@ -118,26 +120,39 @@ func WriteRefreshSkipped(w io.Writer, indent string, skipped *MaterializeResult,
 	ew.Printf("%sProject refresh skipped: without --yes nothing was written into %s.\n", indent, skipped.Target)
 	var kinds []string
 	for _, e := range skipped.Engines {
-		var parts []string
-		if len(e.Wrote) > 0 {
-			parts = append(parts, "would write "+strings.Join(e.Wrote, ", "))
-		}
-		if len(e.Released) > 0 {
-			parts = append(parts, "would release "+strings.Join(e.Released, ", "))
-		}
-		if len(parts) == 0 {
-			continue
-		}
-		ew.Printf("%s  %s: %s\n", indent, e.Engine, strings.Join(parts, "; "))
-		for _, k := range append(slices.Clone(e.Wrote), e.Released...) {
+		for _, k := range writeEngineRefresh(ew, indent, e) {
 			if !slices.Contains(kinds, k) {
 				kinds = append(kinds, k)
 			}
 		}
+	}
+	if len(kinds) == 0 {
+		return
 	}
 	materialize := "ctxloom materialize --yes"
 	for _, k := range kinds {
 		materialize += " --surface " + k
 	}
 	ew.Printf("%s  Apply it with '%s', or '%s'.\n", indent, rerun, materialize)
+}
+
+// writeEngineRefresh writes one engine's lines of a skipped refresh: the
+// kinds it would write or release, then each refused kind with its fix. It
+// returns the kinds whose files the refresh would change, written first.
+func writeEngineRefresh(ew *errwriter.Writer, indent string, e EngineOutcome) []string {
+	var parts []string
+	if len(e.Wrote) > 0 {
+		parts = append(parts, "would write "+strings.Join(e.Wrote, ", "))
+	}
+	if len(e.Released) > 0 {
+		parts = append(parts, "would release "+strings.Join(e.Released, ", "))
+	}
+	if len(parts) > 0 {
+		ew.Printf("%s  %s: %s\n", indent, e.Engine, strings.Join(parts, "; "))
+	}
+	for _, r := range e.Refused {
+		ew.Printf("%s  %s: %s refused: %s\n", indent, e.Engine, r.Kind, r.Reason)
+		ew.Printf("%s    fix: %s\n", indent, r.Fix)
+	}
+	return append(slices.Clone(e.Wrote), e.Released...)
 }

@@ -34,17 +34,23 @@ func TestMaterialize_AContextDestinationIsWhereTheContextGoes(t *testing.T) {
 
 // TestMaterialize_SelectedKindsAreReportedInPlanOrderOnce: kinds selected
 // out of order, one of them twice, are each reported once, in the plan's
-// order — by a delivery and by a dry run alike. The mock writes nothing
-// for this profile's MCP servers or skills, so both are left empty (released).
+// order. The mock writes nothing for this profile's MCP servers or skills,
+// so a delivery leaves both empty (released); a dry run, which reports only
+// what would change, reports neither on a target that holds no claim.
 func TestMaterialize_SelectedKindsAreReportedInPlanOrderOnce(t *testing.T) {
 	cfg := materializeCfg(t, "X", "")
 	surfaces := []SurfaceSpec{{Kind: present.Skills}, {Kind: present.Skills}, {Kind: present.MCP}}
-	for _, dry := range []bool{false, true} {
-		res := materialize(t, cfg, MaterializeRequest{Target: t.TempDir(), Engines: []string{"mock"}, Surfaces: surfaces, DryRun: dry})
-		require.Len(t, res.Engines, 1)
-		assert.Empty(t, res.Engines[0].Wrote, "dry=%v", dry)
-		assert.Equal(t, []string{"mcp", "skills"}, res.Engines[0].Released, "dry=%v", dry)
-	}
+	res := materialize(t, cfg, MaterializeRequest{Target: t.TempDir(), Engines: []string{"mock"}, Surfaces: surfaces})
+	require.Len(t, res.Engines, 1)
+	assert.Empty(t, res.Engines[0].Wrote)
+	assert.Equal(t, []string{"mcp", "skills"}, res.Engines[0].Released)
+
+	// A dry run previews against the target as it stands: a fresh one holds
+	// no claim of either kind, so there is nothing it would release.
+	dry := materialize(t, cfg, MaterializeRequest{Target: t.TempDir(), Engines: []string{"mock"}, Surfaces: surfaces, DryRun: true})
+	require.Len(t, dry.Engines, 1)
+	assert.Empty(t, dry.Engines[0].Wrote)
+	assert.Empty(t, dry.Engines[0].Released)
 }
 
 // TestMaterialize_NamedProfilesAreTheOnesReported: profiles the request

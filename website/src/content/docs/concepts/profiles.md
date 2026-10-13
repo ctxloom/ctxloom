@@ -164,7 +164,9 @@ The same consent governs the refresh after `ctxloom deps pull`, or after a
 project root's hooks, MCP servers, settings, commands and skills only under
 `--yes` (`ctxloom deps pull --yes`, `ctxloom run --yes`). Without it the pull
 still succeeds, writes no engine file, and names what the refresh skipped and
-how to apply it. Even under `--yes` it leaves out the context of an engine
+how to apply it. It names only what `--yes` would actually change, compared
+with the files as they stand, so a project that is already current gets no
+note; a kind the refresh would be refused is named with its fix. Even under `--yes` it leaves out the context of an engine
 whose context rides the launch, so it writes no `CLAUDE.md`.
 :::
 

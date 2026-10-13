@@ -27,6 +27,7 @@ flowchart LR
   PREF --> ROUTE["delivery.Route(items, engine.Base, pref, paths)"]
   ROUTE --> PLAN["Plan{Static: kind, approach, root}"]
   PLAN --> FS["fsstatic.Static.Deliver"]
+  PLAN --> PV["fsstatic.Static.Preview<br/>(the same run, nothing written)"]
   FS --> TA["typed approach Deliver&lt;Kind&gt;(start, root, inputs)"]
   TA --> DEC["present.Delivered{Presented, Files, Claims}"]
   DEC --> REC["ownership record (one per target file)"]
@@ -92,7 +93,10 @@ approach DECLARES what it owns — whole files (`Files`) or values claimed into
 a shared file (`Claims`) — and what it presents (`Presented`: the path and
 the flag or env that announces it). The writer refuses a declaration that
 disagrees with what the approach did, releases the writer's earlier claims,
-and commits once per file.
+and commits once per file. `fsstatic.Static.Preview` runs the same approaches
+and folds each kind's claims without committing, reporting per kind what a
+delivery would change or be refused, and writing nothing
+([delivery](../core/delivery.md#the-preview-what-a-delivery-would-change-writing-nothing)).
 
 An approach rooted under the session home refuses a run that advises none
 (`agent.SessionHomeRooted`, `ErrUnrootedSessionHome`) rather than falling

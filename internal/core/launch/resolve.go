@@ -43,7 +43,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	pkg = pkg.WithLead(src.Extra...)
+	pkg = toolLessPackage(pkg.WithLead(src.Extra...), src)
 
 	label := firstNonEmpty(src.Label, sel.llm, pkg.Selection.LLM, cfg.PrimaryLabel())
 	eng, labelCfg, labelPerm, err := resolveEngineMode(deps, cfg, src, label)
@@ -56,7 +56,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	perm, err := resolvePolicy(report.To(deps.Reporter), src, declsFor(sel, label, labelPerm, cfg), eng, axes.Runtime)
+	perm, err := policyFor(report.To(deps.Reporter), src, declsFor(sel, label, labelPerm, cfg), eng, axes.Runtime)
 	if err != nil {
 		return Launch{}, err
 	}
@@ -83,6 +83,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		Trust:      cell.Trust,
 		Prompt:     src.Prompt,
 		Env:        passthrough,
+		ToolLess:   src.ToolLess,
 	}
 	if err := deliverLaunch(ctx, deps, src, eng, pkg, sel.roots, &l); err != nil {
 		_ = Discard(ctx, Launch{Cell: cell})

@@ -90,6 +90,11 @@ type fixture struct {
 	trust engine.WorkspaceTrust
 	// sessionAuth is the configured top-level `auth:`.
 	sessionAuth engine.AuthMode
+	// toolLess makes the fixture engine implement engine.ToolLess.
+	toolLess bool
+	// mcp names the MCP servers the assembler double composes into every
+	// package it assembles.
+	mcp []string
 }
 
 // WithAgent declares an agent binding named name, composed over the "base"
@@ -177,6 +182,16 @@ func NoPermissionModel() Option { return func(f *fixture) { f.noPermissionModel 
 // FixtureReviewer makes the fixture's permission model serve approver:
 // reviewer.
 func FixtureReviewer() Option { return func(f *fixture) { f.reviewer = true } }
+
+// ToolLess makes the fixture engine implement engine.ToolLess: its
+// ToolLess binds a session (ToolLessInstance) where its Instance refuses.
+func ToolLess() Option { return func(f *fixture) { f.toolLess = true } }
+
+// AssembledMCP has the assembler double compose an MCP server under each
+// name into every package it assembles.
+func AssembledMCP(names ...string) Option {
+	return func(f *fixture) { f.mcp = append(f.mcp, names...) }
+}
 
 // NoApprovals makes the fixture engine declare no approval codec.
 func NoApprovals() Option { return func(f *fixture) { f.noApprovals = true } }
@@ -273,7 +288,11 @@ func Deps(t *testing.T, opts ...Option) Env {
 	if !f.noPermissionModel {
 		model = &FixtureModel{HasReviewer: f.reviewer}
 	}
-	reg, err := engine.NewRegistry(newFixtureEngine(modes, f.relocatableHome, !f.noApprovals, model))
+	eng := newFixtureEngine(modes, f.relocatableHome, !f.noApprovals, model)
+	if f.toolLess {
+		eng = toolLessFixture{fixtureEngine: eng.(fixtureEngine)}
+	}
+	reg, err := engine.NewRegistry(eng)
 	require.NoError(t, err)
 
 	store := sessions.NewMemStore()
@@ -281,7 +300,7 @@ func Deps(t *testing.T, opts ...Option) Env {
 	require.NoError(t, err)
 
 	c := &cells{available: f.available, withoutContainer: f.withoutContainer, trust: f.trust}
-	asm := &assembler{profileLLM: f.profileLLM}
+	asm := &assembler{profileLLM: f.profileLLM, mcp: f.mcp}
 	return Env{
 		cells: c,
 		asm:   asm,
@@ -397,6 +416,32 @@ func (fixtureEngine) Instance(engine.Session) (engine.Instance, error) {
 	return nil, engine.ErrUnsupported{Engine: EngineName, Capability: "instance"}
 }
 
+// toolLessFixture is the fixture engine implementing engine.ToolLess.
+type toolLessFixture struct{ fixtureEngine }
+
+// ToolLess binds the session the marker's way: a ToolLessInstance carrying
+// it, where the fixture's Instance refuses.
+func (toolLessFixture) ToolLess(s engine.Session) (engine.Instance, error) {
+	return ToolLessInstance{Session: s}, nil
+}
+
+var _ engine.ToolLess = toolLessFixture{}
+
+// ToolLessInstance is the instance the ToolLess fixture binds: the session
+// it was handed, and nothing to run.
+type ToolLessInstance struct{ Session engine.Session }
+
+// Exec composes nothing: the fixture runs no process.
+func (ToolLessInstance) Exec([]present.Presentation) (engine.Exec, error) { return engine.Exec{}, nil }
+
+// Drivers are none.
+func (ToolLessInstance) Drivers() []engine.StructuredDriver { return nil }
+
+// Resume refuses: the fixture keeps no native session.
+func (ToolLessInstance) Resume(string) error {
+	return engine.ErrUnsupported{Engine: EngineName, Capability: "resume"}
+}
+
 // Home is the zero spec unless RelocatableHome declared one.
 func (e fixtureEngine) Home() engine.HomeSpec { return e.home }
 func (e fixtureEngine) Container() (engine.ContainerSpec, error) {
@@ -494,6 +539,7 @@ func (*approach) DeliverSkills(present.Start, present.RootKind, engine.SkillsInp
 // (none by default); the catalog index is empty.
 type assembler struct {
 	profileLLM string
+	mcp        []string
 	last       composite.Package
 }
 
@@ -502,6 +548,12 @@ func (a *assembler) Assemble(_ context.Context, _ *config.Snapshot, sel launch.S
 	a.last = composite.Package{
 		Context:   composite.Context{Text: text, Hash: fmt.Sprintf("%x", sha256.Sum256([]byte(text)))},
 		Selection: composite.Selection{Profiles: sel.Profiles, LLM: a.profileLLM},
+	}
+	for _, name := range a.mcp {
+		if a.last.MCP == nil {
+			a.last.MCP = map[string]wire.MCPServer{}
+		}
+		a.last.MCP[name] = wire.MCPServer{Command: "/bin/" + name}
 	}
 	return a.last, nil
 }

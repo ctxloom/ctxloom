@@ -59,6 +59,7 @@ var wireFields = map[string]protoreflect.Name{
 	"Resume":     "resume",
 	"Env":        "env",
 	"Trust":      "trust",
+	"ToolLess":   "tool_less",
 }
 
 // WireFieldNames is the set of launch.Launch field names the proto Launch
@@ -107,6 +108,7 @@ func EncodeLaunch(l launch.Launch) *pb.Launch {
 		Resume:     &pb.ResumeRef{Harp: l.Resume.Harp, NativeKey: l.Resume.NativeKey},
 		Env:        l.Env,
 		Trust:      encodeTrust(l.Trust),
+		ToolLess:   l.ToolLess,
 	}
 }
 
@@ -181,6 +183,7 @@ func DecodeLaunch(w *pb.Launch) (launch.Launch, error) {
 		Resume:     sessions.ResumeRef{Harp: w.GetResume().GetHarp(), NativeKey: w.GetResume().GetNativeKey()},
 		Env:        w.GetEnv(),
 		Trust:      decodeTrust(w.GetTrust()),
+		ToolLess:   w.GetToolLess(),
 	}
 	if err := l.Identity.Validate(); err != nil {
 		return launch.Launch{}, fmt.Errorf("coordgrpc: launch identity: %w", err)

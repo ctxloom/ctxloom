@@ -333,6 +333,10 @@ type Launch struct {
 	Prompt   string
 	Resume   sessions.ResumeRef
 	Env      map[string]string // engine passthrough only
+	// ToolLess is a launch that grants the model no tool and attaches no MCP
+	// server (Source.ToolLess): its engine implements engine.ToolLess, and
+	// the runner binds the session through it (Instance).
+	ToolLess bool
 }
 
 var (

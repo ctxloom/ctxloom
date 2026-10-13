@@ -347,6 +347,14 @@ func (m Mock) Instance(s engine.Session) (engine.Instance, error) {
 	return &instance{name: m.Name, s: s, fires: m.fires}, nil
 }
 
+// ToolLess binds a session to the mock's tool-less launch (engine.ToolLess;
+// marauding-magnolia, decision #5), which is its ordinary one: the mock has
+// no tools — what a turn's prompt markers script (TOOLS, mock:deny,
+// mock:ask) is the echo's vocabulary, not a tool the model is offered.
+func (m Mock) ToolLess(s engine.Session) (engine.Instance, error) { return m.Instance(s) }
+
+var _ engine.ToolLess = Mock{}
+
 type instance struct {
 	name  engine.Name
 	s     engine.Session

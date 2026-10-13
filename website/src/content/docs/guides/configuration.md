@@ -399,8 +399,9 @@ ctxloom deps pull        # Fetch referenced content and update lock.yaml
 Session memory is always enabled. Compaction and distillation run as the
 agent named `distiller` — its engine, environment and runtime — falling back
 to the **fast role** (`llm.defaults.fast`) with a warning when no such agent
-is configured. The size of a distilled session essence is a behavioral
-setting:
+is configured. Either way the session is offered no tool and no MCP server,
+so the agent's `permissions:` block does not apply to it. The size of a
+distilled session essence is a behavioral setting:
 
 ```yaml
 llm:

@@ -18,13 +18,14 @@ Feature: Live distillation with a real agent
       | agent  |
       | Claude |
 
-    # @wip — a product gap, not a harness one: the distiller's internal
-    # one-shot runs at the plan floor, and the launch refuses a plan-first
-    # posture without a human approver (launch.ErrPlansFirstNeedsHuman);
-    # every opencode label's approver is none (opencode.Opencode.Approvals is
-    # Absent). Measured 2026-10-12: "no reachable engine for distillation ...
-    # the posture is plan, but the approver is none". Untag when an
-    # approver-none engine can run ctxloom's internal one-shots.
+    # @wip — the provider, not ctxloom: a distillation is tool-less now
+    # (marauding-magnolia, decision #5), so it launches on opencode, and
+    # opencode sends the model no tool at all. The free hosted model these
+    # rows run on (liveOpencodeModel, opencode/big-pickle) refuses exactly
+    # that request. Measured 2026-10-13 (opencode 1.18.35): 403 FreeTierError,
+    # "OpenCode's free tier can only be used from within OpenCode", recorded
+    # in the run's own opencode store. Untag when these rows run on an
+    # opencode label whose provider serves a tool-less request.
     @opencode @wip
     Examples:
       | agent    |
@@ -41,13 +42,14 @@ Feature: Live distillation with a real agent
       | agent  |
       | Claude |
 
-    # @wip — a product gap, not a harness one: the distiller's internal
-    # one-shot runs at the plan floor, and the launch refuses a plan-first
-    # posture without a human approver (launch.ErrPlansFirstNeedsHuman);
-    # every opencode label's approver is none (opencode.Opencode.Approvals is
-    # Absent). Measured 2026-10-12: "no reachable engine for distillation ...
-    # the posture is plan, but the approver is none". Untag when an
-    # approver-none engine can run ctxloom's internal one-shots.
+    # @wip — the provider, not ctxloom: a distillation is tool-less now
+    # (marauding-magnolia, decision #5), so it launches on opencode, and
+    # opencode sends the model no tool at all. The free hosted model these
+    # rows run on (liveOpencodeModel, opencode/big-pickle) refuses exactly
+    # that request. Measured 2026-10-13 (opencode 1.18.35): 403 FreeTierError,
+    # "OpenCode's free tier can only be used from within OpenCode", recorded
+    # in the run's own opencode store. Untag when these rows run on an
+    # opencode label whose provider serves a tool-less request.
     @opencode @wip
     Examples:
       | agent    |
@@ -65,13 +67,14 @@ Feature: Live distillation with a real agent
       | agent  |
       | Claude |
 
-    # @wip — a product gap, not a harness one: the distiller's internal
-    # one-shot runs at the plan floor, and the launch refuses a plan-first
-    # posture without a human approver (launch.ErrPlansFirstNeedsHuman);
-    # every opencode label's approver is none (opencode.Opencode.Approvals is
-    # Absent). Measured 2026-10-12: "no reachable engine for distillation ...
-    # the posture is plan, but the approver is none". Untag when an
-    # approver-none engine can run ctxloom's internal one-shots.
+    # @wip — the provider, not ctxloom: a distillation is tool-less now
+    # (marauding-magnolia, decision #5), so it launches on opencode, and
+    # opencode sends the model no tool at all. The free hosted model these
+    # rows run on (liveOpencodeModel, opencode/big-pickle) refuses exactly
+    # that request. Measured 2026-10-13 (opencode 1.18.35): 403 FreeTierError,
+    # "OpenCode's free tier can only be used from within OpenCode", recorded
+    # in the run's own opencode store. Untag when these rows run on an
+    # opencode label whose provider serves a tool-less request.
     @opencode @wip
     Examples:
       | agent    |

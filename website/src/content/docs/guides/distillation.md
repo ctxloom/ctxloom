@@ -42,7 +42,11 @@ truncates low-entropy values. This approach is:
 For everything else, prose, documentation and source code alike, ctxloom uses LLM compression. It runs as
 the agent named `distiller` (or on `bundle distill --llm <label>`; with neither,
 on the **fast role**, `llm.defaults.fast`), as one internal one-shot session
-whose turns are the items being distilled. The
+whose turns are the items being distilled. That session is offered no tool
+and no MCP server: the model only reads the content it is handed and
+answers. It needs nobody to approve anything, so it runs on an engine
+without an approval channel, such as opencode, and the `distiller` agent's
+`permissions:` block does not apply to it. The
 prompt is ctxloom's built-in one unless a bundle you use ships a `distill`
 command, which replaces it; a `distill` command that cannot be delivered stops the
 run rather than falling back to the built-in prompt.

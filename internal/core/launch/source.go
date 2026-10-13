@@ -44,6 +44,13 @@ type Source struct {
 	// session: a harp, an endpoint, the managed surfaces. It exists because
 	// no shipped binding names these runs; a binding for each retires it.
 	Internal bool
+	// ToolLess asks for a launch that grants the model NO tool and attaches
+	// NO MCP server: an internal one-shot that only reads what its prompt
+	// carries and answers (a distillation, a compaction). It is not a
+	// permission posture: it takes none (Permission must be ""), resolves
+	// no approver, and runs only on an engine that implements
+	// engine.ToolLess, whose own launch is what makes it tool-less.
+	ToolLess bool
 }
 
 // Resume is the resume arm. A non-zero Ref makes Resolve REUSE the session:

@@ -253,12 +253,13 @@ func (l *LazyOneShot) End() {
 
 // InternalSource is the Source an internal one-shot asks with: no binding,
 // the label naming its engine (model overridden when the caller says so),
-// at plan. An internal one-shot (distill, triage) only reads and answers,
-// and its payload can carry transcript text, so it must never run at a
-// posture that could act on what that text says. The posture rides the
+// at plan. An internal one-shot (triage, premise authoring) only reads and
+// answers, and its payload can carry transcript text, so it must never run
+// at a posture that could act on what that text says. The posture rides the
 // flag rung, so no label or project declaration widens it; on an engine
-// that cannot enforce plan the run is refused. A caller that is not
-// distilling (the setup probe) overrides Permission.
+// that cannot enforce plan the run is refused. A distillation is not plan
+// but tool-less (DistillerOneShot), and the setup probe overrides
+// Permission.
 func InternalSource(label, model, workDir string) launch.Source {
 	return launch.Source{Internal: true, Label: label, Model: model, WorkDir: workDir, Permission: "plan"}
 }
@@ -282,6 +283,9 @@ type OneShotBuilder struct {
 	// role is the agent name the one-shot runs as when no Label is named
 	// (distillerAgent, triageAgent); "" is no role.
 	role string
+	// toolLess asks every arm for a tool-less launch (launch.Source.ToolLess)
+	// instead of plan: set for a distillation (DistillerOneShot).
+	toolLess bool
 }
 
 // The role agents are resolved BY NAME: the agent the project names
@@ -296,11 +300,16 @@ const (
 )
 
 // DistillerOneShot is the one-shot every distillation runs on: session
-// compaction and content distillation. It runs as the distiller agent; a
-// Label named on it (an explicit `--llm`) wins.
+// compaction (`session compact`, the MCP compactor) and content
+// distillation. It runs as the distiller agent; a Label named on it (an
+// explicit `--llm`) wins. It is TOOL-LESS on every arm (marauding-magnolia,
+// decision #5): a distillation summarises the text its prompt carries and
+// needs no tool, so it asks for no tool and no MCP server rather than for
+// plan — which is what lets it run on an engine with no approval channel.
 func DistillerOneShot(f LaunchFacts, hosts RunHosts, cfg *config.Config) *OneShotBuilder {
 	b := OneShot(f, hosts, cfg)
 	b.role = distillerAgent
+	b.toolLess = true
 	return b
 }
 
@@ -340,8 +349,25 @@ func (b *OneShotBuilder) Start(ctx context.Context) (*OneShotSession, error) {
 // source; else the role agent's binding when the project declares it; else,
 // for a role whose agent is absent, defaults.fast — reported to rep, since
 // the user was told to create that agent and nothing else would say it is
-// not the one running. Every arm is at plan (see InternalSource).
+// not the one running. Every arm is at plan (see InternalSource), or
+// tool-less for a tool-less builder (toolLessSource).
 func (b *OneShotBuilder) source(rep report.Sink) launch.Source {
+	src := b.arm(rep)
+	if b.toolLess {
+		return toolLessSource(src)
+	}
+	return src
+}
+
+// toolLessSource is src asking for a tool-less launch: it names no posture,
+// since a tool-less run has none (launch.ErrToolLessPosture).
+func toolLessSource(src launch.Source) launch.Source {
+	src.ToolLess, src.Permission = true, ""
+	return src
+}
+
+// arm is the Source of the arm the one-shot takes, at plan.
+func (b *OneShotBuilder) arm(rep report.Sink) launch.Source {
 	if b.label != "" || b.role == "" {
 		return InternalSource(b.label, b.model, b.workDir)
 	}

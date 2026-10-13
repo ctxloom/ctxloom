@@ -386,6 +386,7 @@ message Launch {
   Axes declared = 18;                // the axes as ASKED (empty where nothing declared them); axes is what they settled to
   PermissionPolicy permission = 19;  // resolved ONCE by the resolver; the runner honours exactly what it is told
   WorkspaceTrust trust = 20;         // the engine's verdict on the repository, taken where the cell was prepared
+  bool tool_less = 21;               // launch.Launch.ToolLess: the runner binds the session through the engine's own tool-less launch (engine.ToolLess)
 }
 
 // WorkspaceTrust is engine.WorkspaceTrust. Only TRUSTED lets the

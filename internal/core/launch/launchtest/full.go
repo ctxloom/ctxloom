@@ -68,6 +68,8 @@ func FullLaunch(t *testing.T) launch.Launch {
 		Prompt: "do the thing",
 		Resume: sessions.ResumeRef{Harp: "harp-1", NativeKey: "native-1"},
 		Env:    map[string]string{"USER_VAR": "u"},
+		// ToolLess set so the wire's bool is populated (proto3 drops false).
+		ToolLess: true,
 	}
 }
 

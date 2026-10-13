@@ -111,6 +111,9 @@ type instance struct {
 	s   engine.Session
 	pos posture
 	key string
+	// toolLess is claude's tool-less launch (ToolLess): no built-in tool,
+	// no MCP server, every turn at the same posture.
+	toolLess bool
 }
 
 // Exec composes the process a launch of this session runs. The order is
@@ -164,10 +167,34 @@ var errTurnSettingsPresented = errors.New("claude: a structured turn's only --se
 // resumed native key. It refuses an argv naming --settings twice, and an
 // untrusted session's presented --settings.
 func (i *instance) execArgs(presented []present.Presentation) ([]string, error) {
+	args, err := i.leadArgs()
+	if err != nil {
+		return nil, err
+	}
+	args, err = i.withSources(args, presented)
+	if err != nil {
+		return nil, err
+	}
+	if i.key != "" {
+		args = append(args, flagResume, i.key)
+	}
+	if countFlag(args, flagSettings) > 1 {
+		return nil, errSettingsTwice
+	}
+	return args, nil
+}
+
+// leadArgs are the argv's leading flags: the label's args, the permission
+// posture (withPosture), the tool-less launch's empty --tools, the model,
+// and the session name (interactive) or --print.
+func (i *instance) leadArgs() ([]string, error) {
 	interactive := i.s.Mode == engine.Interactive
 	args, err := i.withPosture(slices.Clone(i.s.Label.Args))
 	if err != nil {
 		return nil, err
+	}
+	if i.toolLess {
+		args = append(args, flagTools, "")
 	}
 	if i.s.Label.Model != "" {
 		args = append(args, flagModel, i.s.Label.Model)
@@ -178,19 +205,23 @@ func (i *instance) execArgs(presented []present.Presentation) ([]string, error) 
 	if !interactive {
 		args = append(args, flagPrint)
 	}
+	return args, nil
+}
+
+// withSources appends the launch's sources to args: the repository's
+// unless the verdict trusts it (repoSourceArgs), then every presentation's
+// args in delivery order — for a tool-less launch with no MCP source at all
+// (toolLessSources).
+func (i *instance) withSources(args []string, presented []present.Presentation) ([]string, error) {
 	args = append(args, repoSourceArgs(i.s.Trust)...)
 	surfaces, err := presentedArgs(presented, i.s.Trust, path.Join(i.s.Roots.ProjectRoot.Engine, MCPFileName))
 	if err != nil {
 		return nil, err
 	}
-	args = append(args, surfaces...)
-	if i.key != "" {
-		args = append(args, flagResume, i.key)
+	if i.toolLess {
+		args, surfaces = toolLessSources(args, surfaces)
 	}
-	if countFlag(args, flagSettings) > 1 {
-		return nil, errSettingsTwice
-	}
-	return args, nil
+	return append(args, surfaces...), nil
 }
 
 // withPosture appends the permission posture to args (headless:
@@ -332,6 +363,11 @@ func (i *instance) Resume(key string) error {
 func (i *instance) turnArgv(ex engine.Exec, in engine.Turn) ([]string, error) {
 	if slices.Contains(ex.Args, flagSettings) {
 		return nil, errTurnSettingsPresented
+	}
+	if i.toolLess {
+		// A tool-less turn runs at the session's one posture: there is no
+		// tool for a grant or a moved posture to reach.
+		in.Posture = engine.TurnPosture{}
 	}
 	args := slices.Clone(ex.Args)
 	args = append(args, flagInputFormat, "stream-json", flagOutputFormat, "stream-json", flagVerbose)

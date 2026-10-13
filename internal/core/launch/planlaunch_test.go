@@ -49,7 +49,7 @@ func TestPlanLaunch_IsTodaysRouteThroughPlanFor(t *testing.T) {
 				}
 				want, err := delivery.Route(itemsOf(pkg, def.Name), def, pref, cell)
 				require.NoError(t, err)
-				got, err := planLaunch(def, pkg, roots, cell)
+				got, err := planLaunch(def, pkg, roots, cell, true)
 				require.NoError(t, err)
 				require.Equal(t, want, got)
 			})
@@ -61,8 +61,8 @@ func TestPlanLaunch_IsTodaysRouteThroughPlanFor(t *testing.T) {
 // parses is refused by name, as before.
 func TestPlanLaunch_RefusesARootLabelByName(t *testing.T) {
 	pkg := compositetest.Fixture(t, compositetest.WithFragment("hello", "hello"))
-	_, err := planLaunch(mock.New().Root(), pkg, map[string]string{"context": "attic"}, present.Paths{})
+	_, err := planLaunch(mock.New().Root(), pkg, map[string]string{"context": "attic"}, present.Paths{}, true)
 	require.ErrorIs(t, err, ErrBindingRoots)
-	_, err = planLaunch(mock.New().Root(), pkg, map[string]string{"widgets": "project-root"}, present.Paths{})
+	_, err = planLaunch(mock.New().Root(), pkg, map[string]string{"widgets": "project-root"}, present.Paths{}, true)
 	require.ErrorIs(t, err, ErrBindingRoots)
 }

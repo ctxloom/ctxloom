@@ -50,6 +50,8 @@ starts. A headless run carries its mode on each turn's `--settings`.
 
 One further permission fact:
 
+- A **tool-less** launch (`engine.ToolLess`, a distillation or compaction) takes no posture. Claude runs it with `--tools ""` and `--strict-mcp-config`, and drops any `--mcp-config`. It adds `--permission-prompts none`, and every turn's settings say `dontAsk`. Measured on claude 2.1.292: the init event lists no tool and no MCP server.
+
 - A headless **structured** run launches at whatever posture resolved and cannot hang on an engine approval prompt: claude is told nobody answers (`--permission-prompts none`), so it denies what the posture leaves open, and the runner reports that turn BLOCKED to the parent (`agent.ChatEvent.Denied`, `agent.TurnMeta.Denials`).
 
 ## 3. Native per-tool deny list

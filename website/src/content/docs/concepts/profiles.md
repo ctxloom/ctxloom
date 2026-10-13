@@ -174,6 +174,14 @@ project. On another machine a committed copy looks like your own text, and the
 next materialize there appends a second copy beside it.
 :::
 
+A `ctxloom run` in a project that still holds context `ctxloom materialize`
+wrote there warns before the engine starts, naming the file and
+`ctxloom materialize --release --surface context`, on every engine and runtime:
+the engine may read that file beside the session's own context. It is one of the
+things the session's runner reports while it delivers the launch, together with
+a command or skill it had to skip; `ctxloom run` prints each as a
+`ctxloom: warning:` with its fix, even when the session starts normally.
+
 Remote profiles ship inside bundles. To consume one, author a local profile
 that inherits from it, then pull:
 

@@ -306,15 +306,16 @@ _test-native goos runner:
 # SAME versions CI generated against, and a release whose codegen silently used
 # whatever happened to be installed is the failure this guards
 # (internal/shared/buildpins package doc).
+#
+# Every download is verified before it is installed, as in the image: buf
+# against its minisign-signed sha256.txt, the go installs against the Go
+# checksum database.
 release-install-tools:
     #!/usr/bin/env bash
     set -euo pipefail
     set -a
     . .devcontainer/tool-versions.env
     set +a
-    curl -sSL "https://github.com/benjaminabbitt/versionator/releases/download/v${VERSIONATOR_VERSION}/versionator-linux-amd64.tar.gz" -o /tmp/versionator.tar.gz
-    tar -xzf /tmp/versionator.tar.gz -C /tmp
-    install /tmp/versionator-linux-amd64 /usr/local/bin/versionator
     # buf, verified as the image verifies it (the Dockerfile's buf step): the
     # release's sha256.txt must carry a valid minisign signature from buf's
     # published key, and the binary must match its line in it, before it is
@@ -342,9 +343,15 @@ release-install-tools:
     go install google.golang.org/protobuf/cmd/protoc-gen-go@v${PROTOC_GEN_GO_VERSION}
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v${PROTOC_GEN_GO_GRPC_VERSION}
     go install github.com/goreleaser/goreleaser/v2@v${GORELEASER_VERSION}
+    # versionator the way the image installs it: `go install` checks the module
+    # against the Go checksum database (sum.golang.org), as for every go install
+    # here, so it needs no pin of its own. (Its release tarballs come with an
+    # unsigned checksums.txt; using them would mean a second install method and
+    # per-arch hash pins the image never reads.)
+    go install github.com/benjaminabbitt/versionator@v${VERSIONATOR_VERSION}
     gobin="$(go env GOPATH)/bin"
     if [ -n "${GITHUB_PATH:-}" ]; then echo "$gobin" >> "$GITHUB_PATH"; fi
-    echo "installed versionator ${VERSIONATOR_VERSION}, buf ${BUF_VERSION}, goreleaser ${GORELEASER_VERSION}, protoc-gen-go ${PROTOC_GEN_GO_VERSION}, protoc-gen-go-grpc ${PROTOC_GEN_GO_GRPC_VERSION} (plugins in $gobin)"
+    echo "installed buf ${BUF_VERSION}, versionator ${VERSIONATOR_VERSION}, goreleaser ${GORELEASER_VERSION}, protoc-gen-go ${PROTOC_GEN_GO_VERSION}, protoc-gen-go-grpc ${PROTOC_GEN_GO_GRPC_VERSION} (go installs in $gobin)"
 
 # SHA256 of the published install scripts, as KEY=VALUE.
 #

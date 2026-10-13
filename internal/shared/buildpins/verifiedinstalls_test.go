@@ -117,6 +117,35 @@ func TestReleaseInstallToolsInstallsVerifiedBuf(t *testing.T) {
 	}
 }
 
+// sumDBBypassRE matches the settings that switch off `go install`'s check of
+// a module against the Go checksum database.
+var sumDBBypassRE = regexp.MustCompile(`GOSUMDB|GONOSUMDB|GONOSUMCHECK|GOPRIVATE|GOINSECURE|-insecure`)
+
+// The release job installs versionator the way the image does — `go install`
+// at the pinned version, which checks the module against the Go checksum
+// database (sum.golang.org) — not as a release tarball nothing checks.
+func TestReleaseInstallToolsInstallsVerifiedVersionator(t *testing.T) {
+	const install = "go install github.com/benjaminabbitt/versionator@v${VERSIONATOR_VERSION}"
+	recipe := withoutCommentLines(recipeBody(t, ciJustfilePath, "release-install-tools"))
+	if !strings.Contains(recipe, install) {
+		t.Errorf("%s: release-install-tools lacks %q:\n%s", ciJustfilePath, install, recipe)
+	}
+	if !strings.Contains(readFile(t, dockerfilePath), "RUN "+install) {
+		t.Errorf("%s: the image no longer installs versionator by %q — keep the release job's install the same as the image's", dockerfilePath, install)
+	}
+	if strings.Contains(recipe, "benjaminabbitt/versionator/releases/") {
+		t.Errorf("%s: release-install-tools still downloads a versionator release asset:\n%s", ciJustfilePath, recipe)
+	}
+	for path, text := range map[string]string{
+		ciJustfilePath:      recipe,
+		releaseWorkflowPath: workflowJob(t, releaseWorkflowPath, "release"),
+	} {
+		if m := sumDBBypassRE.FindString(text); m != "" {
+			t.Errorf("%s: %s switches off the Go checksum database check the go installs rely on", path, m)
+		}
+	}
+}
+
 // just publishes SHA256SUMS per release (no signature); the image pins this
 // arch's line of it, like Go, and never pipes just.systems/install.sh to bash.
 func TestDevcontainerInstallsVerifiedJust(t *testing.T) {

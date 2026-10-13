@@ -56,8 +56,10 @@ func TestLintPins_RealChecksumPins_VersionBumpAloneIsRefused(t *testing.T) {
 			r.stage(".devcontainer/tool-versions.env", replaceOnce(t, env, key+"="+v+"\n", key+"="+bumpLast(t, v)+"\n"))
 			code, out := r.run("")
 			assert.Equal(t, 1, code, "a %s bump with its checksums unchanged passed lint-pins:\n%s", key, out)
-			for _, arch := range imageArches {
-				assert.Contains(t, out, tool+"_SHA256_"+arch)
+			for k := range versions {
+				if strings.HasPrefix(k, tool+"_SHA256_") {
+					assert.Contains(t, out, k)
+				}
 			}
 		})
 	}

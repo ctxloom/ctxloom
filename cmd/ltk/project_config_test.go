@@ -149,3 +149,74 @@ func TestProjectRulesAllowTheirOwnJustTargets(t *testing.T) {
 		})
 	}
 }
+
+// TestProjectRulesGuardGitBisectRun pins the guidable-shut rule (owner
+// decision #8, 2026-10-13). `git bisect run` exports GIT_DIR to the command it
+// runs, so any git inside that command targets the OUTER repo: on 2026-10-12 a
+// bisect script's `git -C <tmp> init` re-initialised the shared repo as bare
+// and broke every worktree. The only cleared spelling is the run command
+// wrapped in `env -u GIT_DIR`; every other bisect subcommand is untouched.
+func TestProjectRulesGuardGitBisectRun(t *testing.T) {
+	cfgPath := projectConfigPath(t)
+	cfg, _, err := rules.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load %s: %v", cfgPath, err)
+	}
+	a := app.New(cfg, app.Shells{})
+	const wantSuggestion = "git bisect run env -u GIT_DIR <script> [args...]   # the script's own git commands then find their repo from the cwd, not the bisected one"
+
+	decide := func(command string) engine.Response {
+		return a.Decide(context.Background(), engine.Request{Command: command, Shell: ir.ShellBash})
+	}
+
+	for _, command := range []string{
+		"git bisect run ./probe.sh",
+		"git bisect run sh -c 'git -C /tmp/scratch init'",
+		// A global option ahead of the subcommand does not hide it.
+		"git -C /repo bisect run ./probe.sh",
+		// Wrappers ltk unwraps: a shell body, an env/assignment prefix.
+		"sh -c 'git bisect run ./probe.sh'",
+		"bash -c \"cd /repo && git bisect run make test\"",
+		"env GIT_DIR=/x git bisect run ./probe.sh",
+		"GIT_DIR= git bisect run ./probe.sh",
+		// env without the unset, or setting GIT_DIR instead, is not the guard.
+		"git bisect run env ./probe.sh",
+		"git bisect run env GIT_DIR=/x ./probe.sh",
+		"git bisect run env -i ./probe.sh",
+		// Fail-closed limitation: the allow is position-anchored, so a global
+		// option that takes an operand slot keeps even the wrapped form out of
+		// it. `cd /repo && git bisect run env -u GIT_DIR …` is the way through.
+		"git -C /repo bisect run env -u GIT_DIR ./probe.sh",
+	} {
+		t.Run("deny/"+command, func(t *testing.T) {
+			resp := decide(command)
+			if resp.Allow {
+				t.Fatalf("expected %q to be denied, but it was allowed", command)
+			}
+			if !strings.Contains(resp.Reason, "GIT_DIR") {
+				t.Errorf("reason = %q, want it to name GIT_DIR", resp.Reason)
+			}
+			if resp.Suggest != wantSuggestion {
+				t.Errorf("suggest = %q, want %q", resp.Suggest, wantSuggestion)
+			}
+		})
+	}
+
+	for _, command := range []string{
+		"git bisect run env -u GIT_DIR ./probe.sh",
+		"git bisect run env -u GIT_DIR sh -c 'git -C /tmp/scratch init && make test'",
+		"cd /repo && git bisect run env -u GIT_DIR ./probe.sh",
+		"git bisect start HEAD v0.6.0",
+		"git bisect good",
+		"git bisect bad HEAD",
+		"git bisect skip",
+		"git bisect log",
+		"git bisect reset",
+	} {
+		t.Run("allow/"+command, func(t *testing.T) {
+			if resp := decide(command); !resp.Allow {
+				t.Fatalf("expected %q to be allowed, but it was denied: %s", command, resp.Message())
+			}
+		})
+	}
+}

@@ -264,3 +264,83 @@ func goModDirectiveCount(t *testing.T) int {
 	}
 	return n
 }
+
+// Checksum pins: `<TOOL>_SHA256_<ARCH>` pins the bytes of the download that
+// `<TOOL>_VERSION` names, so the two move together or not at all. A checksum
+// is not a version and has no direction; what the gate judges instead is the
+// PAIRING. A version bump that leaves a checksum behind would build against a
+// hash of the OLD release and fail the image build at its verify step — or,
+// worse, invite someone to "fix" the build by pasting whatever hash the new
+// download produced. A checksum that changes while its version does not is a
+// different tarball under the same name, which is the very thing the
+// checksum exists to refuse.
+
+const (
+	goSHAAmd64Old = "1111111111111111111111111111111111111111111111111111111111111111"
+	goSHAArm64Old = "2222222222222222222222222222222222222222222222222222222222222222"
+	goSHAAmd64New = "3333333333333333333333333333333333333333333333333333333333333333"
+	goSHAArm64New = "4444444444444444444444444444444444444444444444444444444444444444"
+)
+
+func checksumPins(version, amd64, arm64 string) string {
+	return "# build pins\nGO_VERSION=" + version + "\nGO_SHA256_AMD64=" + amd64 + "\nGO_SHA256_ARM64=" + arm64 + "\nBUF_VERSION=1.47.2\n"
+}
+
+// newChecksumPinRepo is newPinRepo with HEAD's tool-versions.env carrying Go's
+// per-arch checksums, as the real file does.
+func newChecksumPinRepo(t *testing.T) *pinRepo {
+	t.Helper()
+	r := newPinRepo(t)
+	r.stage(".devcontainer/tool-versions.env", checksumPins("1.26.8", goSHAAmd64Old, goSHAArm64Old))
+	r.git("commit", "-q", "-m", "pin go checksums")
+	return r
+}
+
+func TestLintPins_VersionBumpWithStaleChecksums_Fails(t *testing.T) {
+	r := newChecksumPinRepo(t)
+	r.stage(".devcontainer/tool-versions.env", checksumPins("1.26.9", goSHAAmd64Old, goSHAArm64Old))
+	code, out := r.run("")
+	assert.Equal(t, 1, code, out)
+	assert.Contains(t, out, "GO_SHA256_AMD64")
+	assert.Contains(t, out, "GO_SHA256_ARM64")
+	assert.Contains(t, out, "GO_VERSION")
+	assert.Contains(t, out, "stale")
+}
+
+// One arch updated and the other forgotten is still a stale pin.
+func TestLintPins_VersionBumpWithOneStaleChecksum_FailsNamingIt(t *testing.T) {
+	r := newChecksumPinRepo(t)
+	r.stage(".devcontainer/tool-versions.env", checksumPins("1.26.9", goSHAAmd64New, goSHAArm64Old))
+	code, out := r.run("")
+	assert.Equal(t, 1, code, out)
+	assert.Contains(t, out, "GO_SHA256_ARM64")
+	assert.NotContains(t, out, "GO_SHA256_AMD64")
+}
+
+func TestLintPins_VersionBumpWithFreshChecksums_Passes(t *testing.T) {
+	r := newChecksumPinRepo(t)
+	r.stage(".devcontainer/tool-versions.env", checksumPins("1.26.9", goSHAAmd64New, goSHAArm64New))
+	code, out := r.run("")
+	assert.Equal(t, 0, code, out)
+}
+
+func TestLintPins_ChecksumChangeWithoutVersionChange_Fails(t *testing.T) {
+	r := newChecksumPinRepo(t)
+	r.stage(".devcontainer/tool-versions.env", checksumPins("1.26.8", goSHAAmd64New, goSHAArm64Old))
+	code, out := r.run("")
+	assert.Equal(t, 1, code, out)
+	assert.Contains(t, out, "GO_SHA256_AMD64")
+
+	code, out = r.run("GO_SHA256_AMD64")
+	assert.Equal(t, 0, code, out)
+	assert.Contains(t, out, downgradeOverrideEnv+"=GO_SHA256_AMD64")
+}
+
+func TestLintPins_MalformedChecksum_Fails(t *testing.T) {
+	r := newChecksumPinRepo(t)
+	r.stage(".devcontainer/tool-versions.env", checksumPins("1.26.9", goSHAAmd64New, "not-a-sha"))
+	code, out := r.run("")
+	assert.Equal(t, 1, code, out)
+	assert.Contains(t, out, "GO_SHA256_ARM64")
+	assert.Contains(t, out, "64 lowercase hex")
+}

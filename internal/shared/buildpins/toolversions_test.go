@@ -54,6 +54,24 @@ var releaseCompleterKeys = []string{
 
 var versionValueRE = regexp.MustCompile(`^[0-9]+(\.[0-9]+){1,3}$`)
 
+// A checksum pin is `<TOOL>_SHA256_<ARCH>`: the sha256 of the download that
+// `<TOOL>_VERSION` names, for one TARGETARCH. scripts/lint-pins keeps it
+// moving in step with its version; the tests here keep it well-formed and
+// wired into the Dockerfile.
+var (
+	checksumKeyRE   = regexp.MustCompile(`^(.+)_SHA256_([A-Z0-9]+)$`)
+	checksumValueRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
+)
+
+// imageArches are the TARGETARCH values the devcontainer image is built for —
+// the arms of the Dockerfile's per-arch `case` statements.
+var imageArches = []string{"AMD64", "ARM64"}
+
+// isPinArg reports whether a Dockerfile ARG carries a tool-versions.env pin.
+func isPinArg(name string) bool {
+	return strings.HasSuffix(name, "_VERSION") || checksumKeyRE.MatchString(name)
+}
+
 // parseToolVersionsEnv loads .devcontainer/tool-versions.env's KEY=value
 // pairs, skipping comment (#) and blank lines exactly as every consumer's
 // `grep -v '^#' | grep -v '^$'` does.
@@ -162,6 +180,12 @@ func TestToolVersionsEnvIsWellFormed(t *testing.T) {
 		t.Fatalf("%s: expected at least 5 pinned tool versions, found %d (%v)", toolVersionsPath, len(versions), versions)
 	}
 	for k, v := range versions {
+		if checksumKeyRE.MatchString(k) {
+			if !checksumValueRE.MatchString(v) {
+				t.Errorf("%s: %s=%q is not a sha256 (want 64 lowercase hex characters)", toolVersionsPath, k, v)
+			}
+			continue
+		}
 		if !versionValueRE.MatchString(v) {
 			t.Errorf("%s: %s=%q does not look like a version (want digits and dots)", toolVersionsPath, k, v)
 		}
@@ -183,12 +207,12 @@ func TestDockerfileArgsAreDefaultlessAndMatchToolVersionsEnv(t *testing.T) {
 
 	var argVersionNames []string
 	for name, arg := range args {
-		if !strings.HasSuffix(name, "_VERSION") {
+		if !isPinArg(name) {
 			continue
 		}
 		argVersionNames = append(argVersionNames, name)
 		if arg.hasDefault {
-			t.Errorf("Dockerfile: ARG %s has a default value — tool version ARGs must be default-less so %s stays the only source of truth (a default would silently diverge from it)", name, toolVersionsPath)
+			t.Errorf("Dockerfile: ARG %s has a default value — tool pin ARGs must be default-less so %s stays the only source of truth (a default would silently diverge from it)", name, toolVersionsPath)
 		}
 	}
 
@@ -565,4 +589,93 @@ func TestDevcontainerInstallsVerifiedNode(t *testing.T) {
 			t.Errorf("%s: the node install lacks %q — node must be the pinned release, its checksum file signature-checked, and the tarball checked against it", dockerfilePath, want)
 		}
 	}
+}
+
+// TestChecksumPinsPairWithAVersionForEveryArch: a checksum pin binds to the
+// version beside it, and the image is built for more than one arch, so a tool
+// with any checksum must have one per arch — an arch without one would either
+// fail its build or, if the Dockerfile ever tolerated an empty value, install
+// unverified bytes on that arch only.
+func TestChecksumPinsPairWithAVersionForEveryArch(t *testing.T) {
+	versions := parseToolVersionsEnv(t, toolVersionsPath)
+	tools := map[string]bool{}
+	for k := range versions {
+		m := checksumKeyRE.FindStringSubmatch(k)
+		if m == nil {
+			continue
+		}
+		tools[m[1]] = true
+		if _, ok := versions[m[1]+"_VERSION"]; !ok {
+			t.Errorf("%s: checksum pin %s has no %s_VERSION beside it — nothing says which release it hashes", toolVersionsPath, k, m[1])
+		}
+	}
+	if !tools["GO"] {
+		t.Fatalf("%s pins no GO_SHA256_<ARCH> — the Go toolchain download would be unverified", toolVersionsPath)
+	}
+	for tool := range tools {
+		for _, arch := range imageArches {
+			if _, ok := versions[tool+"_SHA256_"+arch]; !ok {
+				t.Errorf("%s: %s has checksums but none for %s (%s_SHA256_%s)", toolVersionsPath, tool, arch, tool, arch)
+			}
+		}
+	}
+}
+
+// TestDevcontainerInstallsVerifiedGo: the Go toolchain is the image's most
+// load-bearing download — every binary the image builds goes through it — so
+// its bytes are checked against the sha256 tool-versions.env pins before they
+// are extracted. A `curl | tar` would extract whatever arrived; the tarball
+// must land in a file, pass `sha256sum -c`, and only then be unpacked.
+func TestDevcontainerInstallsVerifiedGo(t *testing.T) {
+	step := goInstallStep(t)
+
+	t.Run("pinned release checked against its per-arch sha256", func(t *testing.T) {
+		for _, want := range []string{
+			"https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz",
+			"${GO_SHA256_AMD64}",
+			"${GO_SHA256_ARM64}",
+			"sha256sum -c",
+		} {
+			if !strings.Contains(step, want) {
+				t.Errorf("%s: the Go install lacks %q — the toolchain must be the pinned release, checked against its pinned sha256 for the build's arch", dockerfilePath, want)
+			}
+		}
+	})
+
+	t.Run("never piped into tar", func(t *testing.T) {
+		if regexp.MustCompile(`\|\s*tar\b`).MatchString(step) {
+			t.Errorf("%s: the Go install pipes the download into tar — it is extracted before (or without) being verified:\n%s", dockerfilePath, step)
+		}
+	})
+
+	t.Run("verified before extracted", func(t *testing.T) {
+		verify := strings.Index(step, "sha256sum -c")
+		extract := strings.Index(step, "tar -C /usr/local")
+		if extract < 0 || verify < 0 || extract < verify {
+			t.Errorf("%s: the Go install must verify (sha256sum -c) BEFORE extracting (tar -C /usr/local):\n%s", dockerfilePath, step)
+		}
+	})
+}
+
+// goInstallStep returns the Dockerfile's Go install step, from its
+// `# Install Go` comment up to the next ENV, with comment lines dropped so the
+// checks judge the instructions rather than the prose explaining them.
+func goInstallStep(t *testing.T) string {
+	t.Helper()
+	dockerfile := readFile(t, dockerfilePath)
+	start := strings.Index(dockerfile, "# Install Go")
+	if start < 0 {
+		t.Fatalf("%s: no `# Install Go` step", dockerfilePath)
+	}
+	step := dockerfile[start:]
+	if end := strings.Index(step, "\nENV "); end > 0 {
+		step = step[:end]
+	}
+	var code []string
+	for _, line := range strings.Split(step, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "#") {
+			code = append(code, line)
+		}
+	}
+	return strings.Join(code, "\n")
 }

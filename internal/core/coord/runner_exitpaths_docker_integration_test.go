@@ -44,6 +44,11 @@ type exitLeg struct {
 	bin     string
 	axes    launch.Axes
 	image   string
+	// dataHome is the XDG_DATA_HOME the leg built its image under: rootless
+	// podman's store. Each run re-pins it after isolating, which unsets the
+	// XDG bases, or podman would read a fresh, empty store under the run's
+	// own HOME.
+	dataHome string
 }
 
 // newExitLeg resolves runtimeName's leg, failing loudly when the runtime
@@ -54,7 +59,7 @@ func newExitLeg(t *testing.T, runtimeName, image string) exitLeg {
 	if got := isolation.SelectRuntime(runtimeName, axes.Runtime).Name(); got != runtimeName {
 		t.Fatalf("%s serves no container ownership on this host (a %s launch selects %q)", runtimeName, axes.Runtime, got)
 	}
-	return exitLeg{runtime: runtimeName, bin: isolation.ProbeRuntime(runtimeName).Binary(), axes: axes, image: image}
+	return exitLeg{runtime: runtimeName, bin: isolation.ProbeRuntime(runtimeName).Binary(), axes: axes, image: image, dataHome: os.Getenv("XDG_DATA_HOME")}
 }
 
 // exitSpawner is directBusSpawner on its leg's runtime, launching on the
@@ -162,6 +167,9 @@ func startExitRun(t *testing.T, leg exitLeg, ownerLossWindow time.Duration) exit
 	}
 	sp := &exitSpawner{directBusSpawner: directBusSpawner{image: leg.image, projectDir: projectDir}, leg: leg}
 	coord.TeeHome(t)
+	if leg.dataHome != "" {
+		t.Setenv("XDG_DATA_HOME", leg.dataHome)
+	}
 	var logs syncBuffer
 	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "exit-itest", Spawner: sp, OwnerHarp: coord.OwnerIdentity().Harp,
 		Reporter: report.SinkFunc(func(f report.Finding) { fmt.Fprintf(&logs, "coordinator: %v\n", f) })})

@@ -32,3 +32,22 @@ func lockProbe(p sessions.LockProbe) sessionlock.Probe {
 	}
 	return sessionlock.Probe{Verdict: verdict, PID: p.PID, Reason: p.Reason}
 }
+
+// LockSessionState is the production SessionStateProbe: the session lock's
+// verdict, read without holding anything (sessionlock.Inspect). It comes from
+// the lock and from nothing else — never from the record's ended_at, which
+// is a fact about the past that lies about now in both directions: a crashed
+// session never wrote one and would read as live forever, and a session
+// resumed under its harp still carries the old one and would read as ended
+// while it runs. A harp this process itself holds is answered from memory
+// (sessionlock.Acquire), so an in-process caller cannot drop its own lock.
+func LockSessionState(harp string) string {
+	switch sessionlock.Inspect(harp).Verdict {
+	case sessionlock.Alive:
+		return SessionLive
+	case sessionlock.Dead:
+		return SessionEnded
+	default:
+		return SessionUnknown
+	}
+}

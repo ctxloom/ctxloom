@@ -483,9 +483,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return st.refused(err)
 	}
 	// Mark the harp ended on whatever exit path we take — clean return,
-	// ctrl+c, or panic. The end timestamp is display only: the End column and
-	// query matching of `session list` / `session query`, and `ended_at` in
-	// SessionView. No transcript lookup reads it.
+	// ctrl+c, or panic. The end timestamp is display only: the last run's
+	// end, shown in the END column (blank while the session's lock says it
+	// is live) and matched by `session search`, and `ended_at` in
+	// SessionView. No transcript lookup reads it and no liveness decision
+	// does: a session's state comes from its liveness lock.
 	defer st.markSessionEnded()
 
 	// The startup gate: config load, sync, assembly and the cell all ran

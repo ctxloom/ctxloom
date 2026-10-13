@@ -344,3 +344,26 @@ func expiredCtx() context.Context {
 	cancel()
 	return ctx
 }
+
+// TestInspect_TheHarpThisProcessHoldsIsAnsweredWithoutTouchingTheFile: a
+// listing inside the holding process (the TUI roster's own row, any in-process
+// session-state probe) must never open a second descriptor on its own lock
+// file — on the fcntl-emulated platforms closing it drops the process's lock,
+// and fcntl's per-process locks would even let the probe "win" and read the
+// live session as Dead. So a harp in this process's held set is Alive, this
+// pid, decided from memory: the probe never reaches the lock file.
+func TestInspect_TheHarpThisProcessHoldsIsAnsweredWithoutTouchingTheFile(t *testing.T) {
+	testsupport.Isolate(t)
+	trustEverything(t)
+	require.NoError(t, Hold("self-harp"))
+	t.Cleanup(func() { Release("self-harp") })
+
+	prev := beforeProbeLock
+	beforeProbeLock = func(p string) { t.Errorf("the probe reached the lock file %s of a harp this process holds", p) }
+	t.Cleanup(func() { beforeProbeLock = prev })
+
+	p := Inspect("self-harp")
+	assert.Equal(t, Alive, p.Verdict)
+	assert.Equal(t, os.Getpid(), p.PID)
+	assert.NotEmpty(t, p.Reason)
+}

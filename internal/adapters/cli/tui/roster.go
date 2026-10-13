@@ -1,18 +1,20 @@
 package tui
 
 import (
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 )
 
 // The three labels an index session can carry when the coordinator has no
 // state for it. They are the session lock's three verdicts, one each: there
-// is no fourth, and none is a guess.
+// is no fourth, and none is a guess. The same words `ctxloom session list`
+// prints in its STATE column (operations.SessionLive and siblings), and the
+// ended word is the coordinator's own.
 const (
-	StateLive    = "live"
+	StateLive    = operations.SessionLive
 	StateEnded   = coord.StateEnded
-	StateUnknown = "unknown"
+	StateUnknown = operations.SessionUnknown
 )
 
 // BuildRoster merges the session index (every session of this project) with
@@ -91,24 +93,10 @@ func indexRow(e sessions.Entry, held coord.RosterEntry, isHeld bool) RosterRow {
 }
 
 // lockState is the state label for a session the coordinator has no state
-// for. It comes from the session lock and from nothing else — never from the
-// index's ended_at, which is a fact about the past that lies about now in
-// both directions: a crashed session never wrote one and reads as live
-// forever, and a session resumed under its harp still carries the old one
-// and reads as ended while it runs. The lock's three verdicts are the three
-// labels; Indeterminate is reported as such rather than rounded to a guess.
-//
-// Inspect, never Acquire: this is a read-only view and must hold nothing.
-func lockState(harp string) string {
-	switch sessionlock.Inspect(harp).Verdict {
-	case sessionlock.Alive:
-		return StateLive
-	case sessionlock.Dead:
-		return StateEnded
-	default:
-		return StateUnknown
-	}
-}
+// for: the shared session-state probe (operations.LockSessionState), the one
+// mapping from the session lock's verdict to a state word. Never the index's
+// ended_at, which a resumed session still carries while it runs.
+var lockState operations.SessionStateProbe = operations.LockSessionState
 
 // placeLineage moves children under their parent, depth-indented, preserving
 // the order rows arrived in among siblings. The child index is built in one

@@ -217,6 +217,14 @@ func Release(harp string) {
 	_ = lk.Unlock()
 }
 
+// holdsHere reports whether this process holds harp's lock.
+func holdsHere(harp string) bool {
+	heldMu.Lock()
+	defer heldMu.Unlock()
+	_, ok := held[harp]
+	return ok
+}
+
 // Acquire probes harp and, on Dead, KEEPS the lock until the returned
 // release is called — so a sweeper reclaims under the lock, and a session
 // resumed under the same harp meanwhile waits in Hold instead of racing the
@@ -226,7 +234,15 @@ func Release(harp string) {
 // carry no pid, and read as Dead on the next probe. The lock is safefs's
 // TryLockExisting, so a missing file — however recently it vanished — is
 // refused as unprovable and left missing.
-func Acquire(harp string) (Probe, func()) {
+//
+// A harp this process itself holds is answered Alive from memory, never by
+// probing its file (see acquire).
+func Acquire(harp string) (Probe, func()) { return acquire(harp, true) }
+
+// acquire is Acquire with the in-process answer optional: ownFromMemory
+// false probes the file even for a harp this process holds, which only a
+// test standing in for ANOTHER process's sweeper may ask for.
+func acquire(harp string, ownFromMemory bool) (Probe, func()) {
 	noop := func() {}
 	path, err := paths.HarpLockPath(harp)
 	if err != nil {
@@ -239,6 +255,16 @@ func Acquire(harp string) (Probe, func()) {
 		return Probe{PID: readPID(path), Reason: fmt.Sprintf("the filesystem holding %s could not be identified, so its lock cannot be trusted: %v", path, err)}, noop
 	case !trusted:
 		return Probe{PID: readPID(path), Reason: fmt.Sprintf("%s is on a %s filesystem, whose locks cannot be trusted to prove the owner dead", path, fstype)}, noop
+	}
+
+	// A harp this process holds is Alive, decided from memory: probing it
+	// would open a second descriptor on our own locked file, and on the
+	// fcntl-emulated platforms closing that descriptor drops the lock (and
+	// fcntl's per-process locks would even let the probe take it and read
+	// the live session as Dead). After the trust gate, so an untrusted
+	// filesystem still refuses whoever holds.
+	if ownFromMemory && holdsHere(harp) {
+		return Probe{Verdict: Alive, PID: os.Getpid(), Reason: "the session's lock is held by this process: its owner is alive"}, noop
 	}
 
 	beforeProbeLock(path)

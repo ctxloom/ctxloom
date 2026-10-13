@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
@@ -270,4 +271,13 @@ func TestBuildRoster_CarriesTheTerminalCause(t *testing.T) {
 	assert.Equal(t, detail, byHarp["indexed-kid"].Detail)
 	assert.Equal(t, coord.CauseRunnerLoss, byHarp["bus-only-kid"].Cause)
 	assert.Equal(t, detail, byHarp["bus-only-kid"].Detail)
+}
+
+// TestRosterStates_AreTheListingsWords: the roster and `ctxloom session list`
+// say a session's state in one vocabulary — the overlay's ended word is the
+// coordinator's, and that must be the listing's too.
+func TestRosterStates_AreTheListingsWords(t *testing.T) {
+	assert.Equal(t, operations.SessionLive, StateLive)
+	assert.Equal(t, operations.SessionEnded, StateEnded)
+	assert.Equal(t, operations.SessionUnknown, StateUnknown)
 }

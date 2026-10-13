@@ -307,9 +307,12 @@ func recordProbedVersion(store sessions.Store, harp, version string, perr error)
 
 // EndSession ends harp's session: it stamps the entry's end time and
 // releases the session's liveness lock. Idempotent. The end stamp
-// (Entry.EndedAt) is display only: it feeds the End column and query matching
-// of `session list` / `session query`, and `ended_at` in SessionView. No
-// transcript lookup reads it.
+// (Entry.EndedAt) is display only: when the session's LAST run ended, kept
+// if a resume runs it again. It feeds the END column (blank while the lock
+// says live) and the matching of `session list` / `session search`, and
+// `ended_at` in SessionView. No transcript lookup reads it and no liveness
+// decision does: the released lock is what makes the session ended
+// (LockSessionState).
 //
 // It removes NOTHING. The session home — the engine's config-home instance,
 // credential copy and all — is an Ephemeral member of the session

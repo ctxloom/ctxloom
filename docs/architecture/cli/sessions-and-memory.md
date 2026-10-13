@@ -10,7 +10,8 @@ coordinator is holding. The memory MCP tools
 live in `internal/adapters/mcp` (`mcp_tools_memory.go`), served both on the
 stdio MCP server and relayed from child agents through the coordinator
 (`coord_host.go`), and this page only points at them. Both surfaces read the
-one read model, `operations.SessionView`.
+one read model, `operations.SessionView` (only the CLI listings ask it for a
+session's state; see below).
 
 ## Structure
 
@@ -45,12 +46,14 @@ flowchart TD
     ESR --> PAGER["pagerWriter (pager.go)"]
     LSE --> SV[["operations.SessionView"]]
     H --> SV
+    SL -. "state (one probe per row)" .-> LSS[["operations.LockSessionState → sessionlock.Inspect"]]
+    SQ -.-> LSS
 ```
 
 ## Row/render types
 
 - `SessionRow` (`session_row.go`) is the lean projection `session list` and
-  `session search` render: summary, harp, start/end, the essence *path* but
+  `session search` render: summary, harp, state, start/end, the essence *path* but
   never the essence body — that is `session show`'s job, or `--full`'s. It is
   projected from `operations.SessionView`, never from the store's entry.
 - `sessionTime` is a `time.Time` newtype so the same field marshals RFC3339
@@ -66,6 +69,41 @@ flowchart TD
   full text output only — structured formats never reach `pagerWriter`.
 - `StartSessionInfo` / `PrintStartSessionBanner` (`session_banner.go`) are
   `run`'s pre-spawn banner.
+
+## Session state: the lock, not the end stamp
+
+A record's `ended_at` (`Entry.EndedAt`, `SessionView.EndedAt`) is when the
+session's **last run** ended. Only a coordinator-resumed child reuses its
+harp, and a resume keeps the stamp, so `ended_at` can predate a run that is
+live right now; nothing reads liveness from it. Liveness has one source, the
+session's liveness lock (`internal/shared/sessionlock`), and its three
+verdicts are the three states:
+
+| lock verdict | state | END column |
+|---|---|---|
+| Alive (held) | `live` | blank, even when `ended_at` is set |
+| Dead (free) | `ended` | `ended_at` |
+| Indeterminate (no lock file, untrusted filesystem, failed probe) | `unknown` | `ended_at` |
+
+`operations.ViewSessions(entries, probe)` asks a `SessionStateProbe` once
+per row and puts the answer in `SessionView.State` (`state` in JSON).
+`operations.LockSessionState` is the production probe (a non-blocking
+`sessionlock.Inspect` that never creates the file), and the TUI roster's
+index rows use the same function, so the overlay and the listing speak one
+vocabulary. `session list` and `session search` pass it, so the text table's
+STATE column, `--full`, every structured format and search agree. Search
+does not match a live row's stale end stamp, because it matches what the row
+shows. Both commands take `--state live|ended|unknown`. MCP `list_sessions`
+passes no probe and carries no state: it runs inside a session's own
+process.
+
+That last point is the in-process hazard. On the fcntl-emulated platforms,
+a probe by the lock's own holder opens and closes a second descriptor on
+its locked file, which drops the lock. `sessionlock.Acquire` (and so
+`Inspect`) therefore answers a harp this process holds as Alive from
+memory, without touching the file. The only in-process caller, the TUI
+roster's own row, is safe for that reason. A container sees no lock file,
+so its sessions list as `unknown`.
 
 ## `plan watch`
 

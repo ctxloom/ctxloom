@@ -357,7 +357,7 @@ func landClaims(t *testing.T, delivered []present.Delivered) {
 	st := rec.In(b)
 	for _, d := range delivered {
 		for path, claims := range d.Claims {
-			if err := st.Stage(path, delivery.ProjectWriter, claims); err != nil {
+			if err := st.Stage(path, delivery.ProjectWriterFor("mock"), claims); err != nil {
 				t.Fatalf("stage %s: %v", path, err)
 			}
 		}

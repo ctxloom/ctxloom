@@ -46,7 +46,7 @@ func (f declaredFixture) deliver(t *testing.T, deliver func(fs afero.Fs) (presen
 	t.Helper()
 	root := mock.New().Root()
 	root.Context = contextBy{ContextApproach: root.Context, deliver: deliver}
-	return deliverMock(t, f.fs, f.rec, root, f.project, delivery.ProjectWriter, false)
+	return deliverMock(t, f.fs, f.rec, root, f.project, delivery.ProjectWriterFor("mock"), false)
 }
 
 // writeAndDeclare writes each path whole and declares it.
@@ -68,7 +68,7 @@ func declareOnly(paths ...string) func(fs afero.Fs) (present.Delivered, error) {
 
 func (f declaredFixture) claimed(t *testing.T) []string {
 	t.Helper()
-	targets, err := f.rec.Targets(delivery.ProjectWriter)
+	targets, err := f.rec.Targets(delivery.ProjectWriterFor("mock"))
 	require.NoError(t, err)
 	return targets
 }
@@ -188,7 +188,7 @@ func TestDeliver_RemovesALegacyManagedMarkerTheRecordClaims(t *testing.T) {
 	commands := filepath.Join(project, claude.ConfigDirName, claude.CommandsDirName)
 	marker := filepath.Join(commands, legacyMarker)
 	seed := safefs.NewBatch(fs, func(_ string, fn func() error) error { return fn() })
-	require.NoError(t, rec.In(seed).Stage(marker, delivery.ProjectWriter, []present.Claim{{Value: []byte("go.md\tcommands\n")}}))
+	require.NoError(t, rec.In(seed).Stage(marker, delivery.ProjectWriterFor("mock"), []present.Claim{{Value: []byte("go.md\tcommands\n")}}))
 	_, err = seed.Commit()
 	require.NoError(t, err)
 	require.FileExists(t, marker, "precondition: the record's claim landed the marker")
@@ -202,13 +202,13 @@ func TestDeliver_RemovesALegacyManagedMarkerTheRecordClaims(t *testing.T) {
 	pref := delivery.Preference{Root: map[present.Kind]present.RootKind{present.Commands: present.RootProjectRoot}}
 	plan, err := delivery.Route(items, eng.Root(), pref, present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}})
 	require.NoError(t, err)
-	target := delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter}
+	target := delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriterFor("mock")}
 	_, err = fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, eng.Root(), target)
 	require.NoError(t, err)
 
 	require.NoFileExists(t, marker, "the legacy marker is released and removed")
 	require.FileExists(t, filepath.Join(commands, "go.md"))
-	claimed, err := rec.Targets(delivery.ProjectWriter)
+	claimed, err := rec.Targets(delivery.ProjectWriterFor("mock"))
 	require.NoError(t, err)
 	require.Equal(t, []string{filepath.Join(commands, "go.md")}, claimed)
 }

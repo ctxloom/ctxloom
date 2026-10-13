@@ -27,7 +27,7 @@ func claimsRecordPath() string {
 func writeClaimsRecord(t *testing.T, fs afero.Fs, versionKey string, version int) string {
 	t.Helper()
 	body := versionKey + ": " + strconv.Itoa(version) + "\ntarget: " + versionedTarget +
-		"\nseq: 1\npaths:\n  /mcpServers/ctxloom:\n    - writer: project\n      seq: 1\n      value: {command: ctxloom}\n"
+		"\nseq: 1\npaths:\n  /mcpServers/ctxloom:\n    - writer: " + string(project) + "\n      seq: 1\n      value: {command: ctxloom}\n"
 	testsupport.WriteFileString(t, fs, claimsRecordPath(), body, 0o600)
 	return body
 }

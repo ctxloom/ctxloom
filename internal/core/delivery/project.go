@@ -12,7 +12,7 @@ import (
 )
 
 // ProjectClaims is the record's account of what any project writer (the
-// legacy tag or the per-engine, per-kind family: Writer.Project) has
+// per-engine, per-kind family: Writer.Project) has
 // installed in a file: the places it claims that the file holds now. It is
 // what a settings status reads (the agent.SettingsOptions field of the same
 // name).
@@ -35,8 +35,7 @@ func ProjectClaims(fs afero.Fs, records Ownership) func(target string) ([]string
 // ProjectContextClaims lists, sorted, the files under projectRoot that any
 // at-rest context writer (a "project:<engine>:context" tag) claims a value
 // in: materialized context a `ctxloom run` session in that project would
-// meet beside its own (R5). The legacy bare "project" tag names no kind and
-// is not counted; a session's own claims never are.
+// meet beside its own (R5). A session's own claims never are.
 func ProjectContextClaims(records Ownership, projectRoot string) ([]string, error) {
 	writers, err := records.Writers()
 	if err != nil {

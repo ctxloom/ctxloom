@@ -93,10 +93,12 @@ releases, so `--surface context` re-delivers the context and leaves the
 commands, skills, MCP entries and settings standing; and one engine's
 delivery never releases another engine's files in the same directory. A
 selected kind with nothing to deliver is released. A target with `Kinds`
-nil (a session) is one writer for every kind, as before. Records under the
-old bare `project` tag are left alone; nothing releases them.
+nil (a session) is one writer for every kind, as before. A record under an
+earlier build's bare `project` tag is not a project writer's: nothing
+releases it, and neither a settings status nor `ctxloom run`'s
+materialized-context warning counts it (no legacy handling).
 
-The record store is owner-onlyThe record store is owner-only before any delivery writes through it, and
+The record store is owner-only before any delivery writes through it, and
 that is a security invariant: a claims record keeps every value ctxloom put
 into the file it describes. The store lives under `paths.HomeRecordsDir`, one
 of the home roots every ctxloom process establishes owner-only at startup

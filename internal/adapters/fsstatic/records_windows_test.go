@@ -31,7 +31,7 @@ func TestRecords_ARecordUnderAnEstablishedDirIsOwnerOnly_ADACL(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "settings.json")
 	testsupport.WriteFileString(t, fs, target, "{}\n", 0o644)
 	b := safefs.NewBatch(fs, func(_ string, fn func() error) error { return fn() })
-	require.NoError(t, rec.In(b).Stage(target, delivery.ProjectWriter, []present.Claim{{Pointer: "/project", Value: "p"}}))
+	require.NoError(t, rec.In(b).Stage(target, delivery.ProjectWriterFor("mock"), []present.Claim{{Pointer: "/project", Value: "p"}}))
 	_, err = b.Commit()
 	require.NoError(t, err)
 	fileperm.OwnerOnly(t, dir)

@@ -332,9 +332,11 @@ default agent's; with no `--backend`, the project's configured engines.
   selected kinds (default all). `--diff FILE` compares instead of writing.
 - **What ctxloom wrote is now owned per engine and per kind.** Delivering
   one kind or one engine no longer takes another's files out of the same
-  directory. Claims an earlier 0.7 build recorded under the single
-  `project` writer are left alone: a re-install does not take them out, so
-  a section it appended may appear twice until you remove the old one.
+  directory. Claims an earlier 0.7 pre-release build recorded under the
+  single `project` writer are not recognised at all: a re-install does not
+  take them out, `manage uninstall` does not release them, and `ctxloom run`
+  does not warn about context written under them, so a section it appended
+  may appear twice until you remove the old one by hand.
 - **The post-sync refresh** (after `deps pull`, or a startup sync that
   installs a remote bundle) now runs `ctxloom materialize` into the project
   root. It refreshes hooks, MCP servers, settings, commands and skills for

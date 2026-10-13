@@ -106,7 +106,7 @@ func TestMock_AContextFileItCreatesIsOwnerOnly(t *testing.T) {
 			plan, err := delivery.Route(pkg.EngineItems(eng.Root().Name), eng.Root(), delivery.Preference{}, start.Paths())
 			require.NoError(t, err)
 			_, err = fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(),
-				delivery.Target{Root: start, Ownership: rec, Writer: delivery.ProjectWriter})
+				delivery.Target{Root: start, Ownership: rec, Writer: delivery.ProjectWriterFor("mock")})
 			require.NoError(t, err)
 			info, err := os.Stat(path)
 			require.NoError(t, err)

@@ -803,15 +803,15 @@ func TestExecute_TheProjectWriterIsNeverSwept(t *testing.T) {
 	s := newSharedProjectMCP(t)
 	target := filepath.Join(s.env.project, "materialized.json")
 	batch := safefs.NewBatch(afero.NewOsFs(), func(_ string, fn func() error) error { return fn() })
-	require.NoError(t, s.rec.In(batch).Stage(target, delivery.ProjectWriter, []present.Claim{{Pointer: "/kept", Value: true}}))
+	require.NoError(t, s.rec.In(batch).Stage(target, delivery.ProjectWriterFor("mock"), []present.Claim{{Pointer: "/kept", Value: true}}))
 	_, err := batch.Commit()
 	require.NoError(t, err)
-	s.locks.Dead[string(delivery.ProjectWriter)] = true // were it asked, the project writer would read as gone
+	s.locks.Dead[string(delivery.ProjectWriterFor("mock"))] = true // were it asked, the project writer would read as gone
 	s.run(t, "x", "run-next")
 	b, err := os.ReadFile(target)
 	require.NoError(t, err, "the project writer's file was swept")
 	require.Contains(t, string(b), "kept")
-	require.NotContains(t, s.locks.Released, string(delivery.ProjectWriter), "the project writer's liveness is never asked")
+	require.NotContains(t, s.locks.Released, string(delivery.ProjectWriterFor("mock")), "the project writer's liveness is never asked")
 }
 
 // TestHost_TeardownReversesTheRunsDelivery: Execute returns once the first

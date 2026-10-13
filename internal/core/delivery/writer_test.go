@@ -18,7 +18,7 @@ func TestWriter_SessionHarp(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "brave-amber-fox", harp)
 
-	_, ok = delivery.ProjectWriter.SessionHarp()
+	_, ok = delivery.ProjectWriterFor("mock").SessionHarp()
 	require.False(t, ok, "the project writer is no session")
 
 	_, ok = delivery.SessionWriter("").SessionHarp()
@@ -28,19 +28,20 @@ func TestWriter_SessionHarp(t *testing.T) {
 // TestWriter_ProjectFamilyIsPerEngineAndKind (materialize test 4): the
 // at-rest writer is one tag per (engine, kind), so a delivery of one kind
 // or one engine never releases another's claims. Project() admits the
-// family and the legacy bare tag; no project tag names a session.
+// family only: an earlier build's bare "project" tag is no project writer
+// (ruling 20, no legacy handling); no project tag names a session.
 func TestWriter_ProjectFamilyIsPerEngineAndKind(t *testing.T) {
 	fam := delivery.ProjectWriterFor("claude-code")
 	require.Equal(t, delivery.Writer("project:claude-code"), fam)
 	require.Equal(t, delivery.Writer("project:claude-code:context"), fam.Of(present.Context))
 	require.Equal(t, delivery.Writer("project:claude-code:skills"), fam.Of(present.Skills))
 
-	for _, w := range []delivery.Writer{delivery.ProjectWriter, fam, fam.Of(present.Hooks)} {
+	for _, w := range []delivery.Writer{fam, fam.Of(present.Hooks)} {
 		require.True(t, w.Project(), "%s is a project writer", w)
 		_, ok := w.SessionHarp()
 		require.False(t, ok, "%s names no session", w)
 	}
-	for _, w := range []delivery.Writer{delivery.SessionWriter("x"), "projects", "projectx:y"} {
+	for _, w := range []delivery.Writer{"project", delivery.SessionWriter("x"), "projects", "projectx:y"} {
 		require.False(t, w.Project(), "%s is no project writer", w)
 	}
 }

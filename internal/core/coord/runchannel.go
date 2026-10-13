@@ -160,6 +160,20 @@ type RunChannel struct {
 
 	// attachConfirmed fires ConfirmAttach's re-sweep once per channel.
 	attachConfirmed sync.Once
+
+	// handling serializes HandleEvent across one RUN's successive channels:
+	// a reconnect's channel shares its predecessor's (AttachRun), because the
+	// old stream's reader is joined by nothing — serveTracked returns on the
+	// stream's cancel, and AttachRun does not wait — so a frame it still
+	// holds can be handled while the successor handles the runner's re-send
+	// of it and what follows. Nil only for a channel a test built by hand.
+	handling *sync.Mutex
+	// superseded is set (guarded by Coordinator.mu) when a newer channel for
+	// the SAME run took over: what this one still holds is stale — the runner
+	// re-sends it on the successor — and HandleEvent drops it. A resumed
+	// run's channel never supersedes the ended run's: that run's tail frames
+	// are still its own (drainTerminalTail).
+	superseded bool
 }
 
 // CommittedSeq is the resume cursor the HelloAck answers with: every event of
@@ -240,8 +254,13 @@ func (c *Coordinator) AttachRun(id Identity, hello RunHello, cancel context.Canc
 	if hook := c.attachRunHook; hook != nil {
 		hook(id.Harp)
 	}
+	ch.handling = &sync.Mutex{}
 	c.mu.Lock()
 	if prev := c.chans[id.Harp]; prev != nil {
+		if prev.id.RunID == id.RunID && prev.handling != nil {
+			prev.superseded = true
+			ch.handling = prev.handling
+		}
 		prev.cancel() // one RunChannel per role; newest wins (reconnect)
 	}
 	c.chans[id.Harp] = ch
@@ -292,7 +311,24 @@ func (c *Coordinator) ConfirmAttach(ch *RunChannel) {
 // An ack follows a successful RECORD only: an event whose record fails to
 // journal is withheld (withholdAck), so the runner — which drops what is acked
 // and re-sends what is not — sends it again.
+//
+// One run's channels handle events one at a time (RunChannel.handling), and a
+// channel a reconnect superseded handles nothing more: its reader can outlive
+// the takeover, and a stale boundary folded after the successor's would set
+// the run's state and slot back.
 func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
+	if mu := ch.handling; mu != nil {
+		mu.Lock()
+		defer mu.Unlock()
+	}
+	c.mu.Lock()
+	superseded := ch.superseded
+	c.mu.Unlock()
+	if superseded {
+		// Unacked on a stream that is gone: the runner re-sends it on the
+		// channel that superseded this one, which handles it in order.
+		return
+	}
 	if !c.admitEventSeq(ch, ev.Seq) {
 		return
 	}

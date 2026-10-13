@@ -68,7 +68,11 @@ type fakeSpawner struct {
 	// spawns a REAL runner half (Home + EngineHost over the coordinator's
 	// live gRPC listeners) around it. chats/kills record per spawn.
 	nextChat func() *scriptedChat
-	chats    []*scriptedChat
+	// redialBackoff, when set, is the runner halves' RedialBackoff: a test
+	// that supersedes a runner's channel itself sets it long, so the runner's
+	// own reattach stays out of the interleaving it places.
+	redialBackoff time.Duration
+	chats         []*scriptedChat
 	// credentialFor, when set, names each agent's credential source on the
 	// launch it resolves (launch.Cell.Credential), as the cells adapter does
 	// from the credentials it resolved.
@@ -421,12 +425,13 @@ func (s *fakeSpawner) Start(ctx context.Context, l launch.Launch, reach sessions
 	host := runnerHooks.NewEngineHost(sctx, nil, string(l.Engine), runnerEnv[EnvRunID])
 	runnerHooks.BindTestRunner(host, inst, func() bool { return s.refuseBind(sctx) })
 	home, err := runnerHooks.NewHome(sctx, TestHomeConfig{
-		Reporter: termSink(),
-		URL:      runnerEnv[EnvCoordURL],
-		Token:    runnerEnv[EnvCoordCred],
-		RunID:    runnerEnv[EnvRunID],
-		Harness:  string(l.Engine),
-		Version:  "test",
+		Reporter:      termSink(),
+		URL:           runnerEnv[EnvCoordURL],
+		Token:         runnerEnv[EnvCoordCred],
+		RunID:         runnerEnv[EnvRunID],
+		Harness:       string(l.Engine),
+		Version:       "test",
+		RedialBackoff: s.redialBackoff,
 		Engine: func(req *agentcoordpb.RunnerRequest) *agentcoordpb.RunnerResponse {
 			if sr := req.GetStartRun(); sr != nil {
 				s.mu.Lock()

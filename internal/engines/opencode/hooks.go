@@ -21,7 +21,8 @@ import (
 // This file is opencode's HOOKS: opencode runs no external hook command, only
 // in-process plugins loaded from its config dirs, so the hooks approach
 // writes ONE plugin, the bridge (bridge.js, H/plugins/ctxloom.js), that fires
-// ctxloom's hook commands itself with ctxloom's own hook wire
+// ctxloom's hook commands itself: on the pre-tool point with the hook wire,
+// claude's PreToolUse (claudeTools); everywhere else with ctxloom's own
 // (kit.NativeHookCodec). The same plugin carries what a live TUI needs and no
 // hook command can give: the session owner's wake (a unix socket,
 // kit.SocketWake) and the transcript ctxloom reads back (transcript.go).
@@ -61,41 +62,75 @@ var hookLosses = map[string]string{
 	wire.HookEventPermissionAsk: "opencode never invokes its permission.ask plugin hook (upstream #47654)",
 }
 
-// toolIDs are opencode's tool ids in each neutral class.
-var toolIDs = map[wire.ToolClass][]string{
-	wire.ToolShell:    {"bash"},
-	wire.ToolFileEdit: {"edit", "write", "apply_patch"},
-	wire.ToolSkill:    {"skill"},
+// claudeTool is one opencode tool in claude's spelling: its claude name and
+// the input keys renamed to claude's (a key not listed is kept as it is).
+type claudeTool struct {
+	Name string            `json:"name"`
+	Keys map[string]string `json:"keys,omitempty"`
 }
 
-// toolMatcher is a class's tool ids as the regexp the bridge tests a tool
-// call's id with.
+// claudeTools normalises opencode's tool calls to claude's names for THE HOOK
+// WIRE (ruling #28): ctxloom's cross-engine command-hook wire is claude's
+// PreToolUse, which the bridge writes on opencode's pre-tool point with each
+// tool named and its input keyed as claude's own tool is. The ids are
+// opencode 1.18.35's (its shell tool keeps the id "bash" until opencode 2.0).
+// apply_patch has no claude counterpart and keeps its own name and input; a
+// tool not listed here (an MCP or plugin tool) passes verbatim. The bridge
+// matches every hook's matcher against the normalised name.
+var claudeTools = map[string]claudeTool{
+	"bash":        {Name: "Bash"},
+	"edit":        {Name: "Edit", Keys: map[string]string{"filePath": "file_path", "oldString": "old_string", "newString": "new_string", "replaceAll": "replace_all"}},
+	"write":       {Name: "Write", Keys: map[string]string{"filePath": "file_path"}},
+	"read":        {Name: "Read", Keys: map[string]string{"filePath": "file_path"}},
+	"glob":        {Name: "Glob"},
+	"grep":        {Name: "Grep", Keys: map[string]string{"include": "glob"}},
+	"webfetch":    {Name: "WebFetch"},
+	"websearch":   {Name: "WebSearch"},
+	"task":        {Name: "Task"},
+	"todowrite":   {Name: "TodoWrite"},
+	"skill":       {Name: "Skill", Keys: map[string]string{"name": "skill"}},
+	"apply_patch": {Name: "apply_patch"},
+}
+
+// classTools are the normalised names of opencode's tools in each neutral
+// class.
+var classTools = map[wire.ToolClass][]string{
+	wire.ToolShell:    {"Bash"},
+	wire.ToolFileEdit: {"Edit", "Write", "apply_patch"},
+	wire.ToolSkill:    {"Skill"},
+}
+
+// toolMatcher is a class's normalised tool names as the matcher the bridge
+// tests a call's normalised name with: an exact name list, as claude reads
+// one.
 func toolMatcher(c wire.ToolClass) (string, bool) {
-	ids, ok := toolIDs[c]
-	return "^(" + strings.Join(ids, "|") + ")$", ok
+	names, ok := classTools[c]
+	return strings.Join(names, "|"), ok
 }
 
 // ToolClass is the neutral class an opencode tool id belongs to.
 func ToolClass(tool string) (wire.ToolClass, bool) {
-	for c, ids := range toolIDs {
-		if slices.Contains(ids, tool) {
+	for c, names := range classTools {
+		if slices.Contains(names, claudeTools[tool].Name) {
 			return c, true
 		}
 	}
 	return "", false
 }
 
-// hookCodec is opencode's hook wire: ctxloom's own, written by the bridge.
-// Context reaches the model on session_start (the session's system prompt),
+// hookCodec is opencode's hook wire on every point but the pre-tool one:
+// ctxloom's own, written by the bridge, with opencode's own tool ids. Context
+// reaches the model on session_start (the session's system prompt),
 // turn_start (a part of the prompt) and after a tool (its output); a throw
-// blocks a tool call, a prompt, or a finished tool's result.
+// blocks a prompt or a finished tool's result. The pre-tool point carries the
+// hook wire (claudeTools) instead, so no answer here blocks a tool call.
 var hookCodec = kit.NativeHookCodec{
 	Engine:     EngineName,
 	Events:     hookEvents,
 	Skill:      invokedSkill,
 	EditedPath: editedPath,
 	ContextOn:  []string{wire.HookEventSessionStart, wire.HookEventTurnStart, wire.HookEventPostTool, wire.HookEventPostFileEdit},
-	BlockOn:    []string{wire.HookEventPreTool, wire.HookEventPreShell, wire.HookEventTurnStart, wire.HookEventPostTool, wire.HookEventPostFileEdit},
+	BlockOn:    []string{wire.HookEventTurnStart, wire.HookEventPostTool, wire.HookEventPostFileEdit},
 }
 
 // toolInput is the fields of opencode's tool inputs the codec reads.
@@ -130,10 +165,12 @@ var bridgeTemplate string
 const configMarker = "/*CTXLOOM_CONFIG*/{}"
 
 // bridgeConfig is what the bridge is generated with: the hook commands by
-// opencode hook point, the wake socket's variable, and where transcripts go
+// opencode hook point, the tool table the hook wire is normalised by
+// (claudeTools), the wake socket's variable, and where transcripts go
 // (a directory beneath a base variable's value).
 type bridgeConfig struct {
 	Hooks      map[string][]bridgeHook `json:"hooks"`
+	Tools      map[string]claudeTool   `json:"tools"`
 	WakeEnv    string                  `json:"wakeEnv"`
 	Transcript struct {
 		Env string `json:"env"`
@@ -157,7 +194,7 @@ func bridgePlugin(hooks wire.UnifiedHooks, ext wire.BackendHooks) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	cfg := bridgeConfig{Hooks: map[string][]bridgeHook{}, WakeEnv: wake.EnvVar}
+	cfg := bridgeConfig{Hooks: map[string][]bridgeHook{}, Tools: claudeTools, WakeEnv: wake.EnvVar}
 	cfg.Transcript.Env, cfg.Transcript.Rel = transcriptBase, transcriptRel
 	points := hookEvents.Map()
 	for _, event := range wire.HookEvents() {
@@ -239,3 +276,4 @@ func (a *hooksApproach) DeliverHooks(start present.Start, root present.RootKind,
 }
 
 var _ engine.HooksApproach = (*hooksApproach)(nil)
+

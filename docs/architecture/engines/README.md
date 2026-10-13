@@ -204,10 +204,17 @@ container).
 
 opencode runs no hook command, only in-process plugins, so its hooks
 approach writes ONE generated plugin, the bridge (`plugins/ctxloom.js`,
-from `bridge.js` with the bound hook set spliced in). It fires ctxloom's hook
-commands on opencode's points with `kit.NativeHookCodec`'s wire:
-`tool.execute.before/after` (pre/post tool; pre_shell and post_file_edit
-narrowed to their tool class; a block throws, failing the call), `chat.message`
+from `bridge.js` with the bound hook set spliced in). On
+`tool.execute.before` (pre_tool; pre_shell narrowed to its tool class) it
+fires THE HOOK WIRE, ctxloom's cross-engine command-hook wire (ruling #28):
+claude's PreToolUse input, the call normalised to claude's tool names and
+input keys by one table (`claudeTools`; apply_patch keeps its own name, an
+unlisted tool passes verbatim). The only reply it acts on is a deny with a
+reason, which throws and fails the call; everything else passes. Every
+matcher, a tool class's included, is tested against the claude name by
+claude's matcher rule. Its other points carry `kit.NativeHookCodec`'s wire:
+`tool.execute.after` (post tool; post_file_edit narrowed to its class; a
+block throws, failing the call), `chat.message`
 (turn_start: mail-drain's context becomes a synthetic part of the prompt,
 a block refuses it), `session.created` (session_start, root sessions:
 session-bind; its context joins the session's system prompt) and

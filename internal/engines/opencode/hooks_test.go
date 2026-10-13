@@ -22,7 +22,8 @@ import (
 // ctxloom callback on each carried point (bound: --engine opencode), the ltk
 // guards narrowed to tool classes, an unnarrowed pre_shell and post_file_edit
 // (narrowed to their class on the broad point), a native matcher kept as
-// given, a prompt hook (no opencode form), and the two lost events.
+// given (in claude's tool names, as every matcher is), a prompt hook (no
+// opencode form), and the two lost events.
 func goldenHooks() (wire.UnifiedHooks, wire.BackendHooks) {
 	cb := func(verb string) wire.Hook {
 		return wire.Hook{Command: agent.CtxloomCommand(), Args: []string{"hook", verb}, Timeout: 5}
@@ -31,7 +32,7 @@ func goldenHooks() (wire.UnifiedHooks, wire.BackendHooks) {
 		SessionStart:  []wire.Hook{cb("session-bind")},
 		TurnStart:     []wire.Hook{cb("mail-drain")},
 		TurnEnd:       []wire.Hook{cb("next-step")},
-		PreTool:       []wire.Hook{{Command: "ltk evaluate", Tool: wire.ToolShell}, {Command: "ltk evaluate", Tool: wire.ToolFileEdit}, {Command: "guard", Matcher: "^webfetch$"}},
+		PreTool:       []wire.Hook{{Command: "ltk evaluate", Tool: wire.ToolShell}, {Command: "ltk evaluate", Tool: wire.ToolFileEdit}, {Command: "guard", Matcher: "WebFetch"}},
 		PreShell:      []wire.Hook{{Command: "shell-only"}},
 		PostTool:      []wire.Hook{cb("skill-mates"), {Type: "prompt", Prompt: "no opencode form"}},
 		PostFileEdit:  []wire.Hook{{Command: "fmt-edited"}},
@@ -79,8 +80,9 @@ func TestBridgePlugin_FilesEachHookUnderItsPoint(t *testing.T) {
 	assert.Equal(t, []string{cl + " hook session-bind --engine opencode ~"}, commands("session.created"))
 	assert.Equal(t, []string{cl + " hook mail-drain --engine opencode ~"}, commands("chat.message"))
 	assert.Equal(t, []string{cl + " hook next-step --engine opencode ~"}, commands("session.idle"))
-	assert.Equal(t, []string{"ltk evaluate  ~^(bash)$", "ltk evaluate  ~^(edit|write|apply_patch)$", "guard  ~^webfetch$", "shell-only  ~^(bash)$", "native-before  ~"}, commands("tool.execute.before"))
-	assert.Equal(t, []string{cl + " hook skill-mates --engine opencode ~^(skill)$", "fmt-edited  ~^(edit|write|apply_patch)$"}, commands("tool.execute.after"))
+	assert.Equal(t, []string{"ltk evaluate  ~Bash", "ltk evaluate  ~Edit|Write|apply_patch", "guard  ~WebFetch", "shell-only  ~Bash", "native-before  ~"}, commands("tool.execute.before"))
+	assert.Equal(t, []string{cl + " hook skill-mates --engine opencode ~Skill", "fmt-edited  ~Edit|Write|apply_patch"}, commands("tool.execute.after"))
+	assert.Equal(t, claudeTools, cfg.Tools, "the hook wire's tool table rides the config")
 	assert.Len(t, cfg.Hooks, 5, "no point beyond the bridge's five")
 	assert.Equal(t, wake.EnvVar, cfg.WakeEnv)
 	assert.Equal(t, "XDG_DATA_HOME", cfg.Transcript.Env)
@@ -115,13 +117,19 @@ func TestDeliverHooks_WritesTheBridge(t *testing.T) {
 	require.Error(t, err, "the bridge lands in the session home only")
 }
 
-// opencode's codec over payloads as the bridge writes them: the point maps
-// to the unified event, the skill tool names its skill, edit and write name
-// their file; context and blocks only where the bridge can carry them.
+// opencode's codec over payloads as the bridge writes them with ctxloom's own
+// wire (every point but the pre-tool one, which carries the hook wire): the
+// point maps to the unified event, the skill tool names its skill, edit and
+// write name their file; context and blocks only where the bridge can carry
+// them, so never a pre-tool block.
 func TestHookCodec_ReadsTheBridgesPayloads(t *testing.T) {
-	ev, err := hookCodec.Decode("pre_tool", []byte(`{"event":"tool.execute.before","session":"ses_1","tool":"edit","tool_input":{"filePath":"/p/a.go"}}`))
+	ev, err := hookCodec.Decode("post_tool", []byte(`{"event":"tool.execute.after","session":"ses_1","tool":"edit","tool_input":{"filePath":"/p/a.go"}}`))
 	require.NoError(t, err)
-	assert.Equal(t, engine.HookEvent{Event: "pre_tool", NativeSession: "ses_1", Tool: "edit", ToolInput: []byte(`{"filePath":"/p/a.go"}`), Path: "/p/a.go"}, ev)
+	assert.Equal(t, engine.HookEvent{Event: "post_tool", NativeSession: "ses_1", Tool: "edit", ToolInput: []byte(`{"filePath":"/p/a.go"}`), Path: "/p/a.go"}, ev)
+	for _, event := range []string{"pre_tool", "pre_shell"} {
+		_, err = hookCodec.Encode(event, engine.HookResponse{Block: true, Reason: "r"})
+		require.Error(t, err, "%s answers only in the hook wire", event)
+	}
 
 	ev, err = hookCodec.Decode("post_tool", []byte(`{"event":"tool.execute.after","session":"s","tool":"skill","tool_input":{"name":"closeout"}}`))
 	require.NoError(t, err)

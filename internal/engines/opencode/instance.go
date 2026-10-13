@@ -109,6 +109,9 @@ type instance struct {
 	key string
 	// totals are the session's running output and cost across its turns.
 	totals sessionTotals
+	// toolLess is opencode's tool-less launch (ToolLess): every tool
+	// denied, every turn, and the project's own config off.
+	toolLess bool
 }
 
 // Exec composes the process: the label's binary (the launch carries the
@@ -180,12 +183,14 @@ func (i *instance) binary() string {
 // presentations first).
 func (i *instance) execEnv(presented []present.Presentation) (map[string]string, error) {
 	env := kit.ComposeEnv(i.s, presented)
-	untrusted := i.s.Trust != engine.TrustTrusted
-	content, err := configContent(i.s, i.cfg, untrusted && i.projectAgentsExists())
+	// A tool-less launch keeps the project's own config out on a trusted
+	// repository too: a rule of its would follow the deny-all.
+	noProjectConfig := i.s.Trust != engine.TrustTrusted || i.toolLess
+	content, err := configContent(i.s, i.cfg, noProjectConfig && i.projectAgentsExists())
 	if err != nil {
 		return nil, err
 	}
-	perm, err := i.pos.document("")
+	perm, err := i.permission("")
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +202,7 @@ func (i *instance) execEnv(presented []present.Presentation) (map[string]string,
 	for _, v := range []string{envDisableClaudeCode, envDisableAutoupdate, envDisableModelsFetch, envDisableExternalSkills} {
 		env[v] = "1"
 	}
-	if untrusted {
+	if noProjectConfig {
 		env[envDisableProjectConfig] = "1"
 	}
 	path, err := wake.Ensure(i.s)
@@ -252,7 +257,7 @@ func (i *instance) turnArgv(ex engine.Exec, in engine.Turn) ([]string, error) {
 	if in.Resume != "" && !slices.Contains(args, flagSession) {
 		args = append(args, flagSession, in.Resume)
 	}
-	if i.pos.turnMode(in.Posture) == modeAuto {
+	if !i.toolLess && i.pos.turnMode(in.Posture) == modeAuto {
 		args = append(args, flagAuto)
 	}
 	return args, nil
@@ -260,7 +265,7 @@ func (i *instance) turnArgv(ex engine.Exec, in engine.Turn) ([]string, error) {
 
 // turnEnv is the turn's posture as OPENCODE_PERMISSION, over the session's.
 func (i *instance) turnEnv(_ engine.Exec, in engine.Turn) (map[string]string, error) {
-	doc, err := i.pos.document(in.Posture.Mode)
+	doc, err := i.permission(in.Posture.Mode)
 	if err != nil {
 		return nil, err
 	}

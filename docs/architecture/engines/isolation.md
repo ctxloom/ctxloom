@@ -559,6 +559,22 @@ directories (a Windows junction). `HomeSpec.Validate` refuses a merge on
 name that is not one segment or is repeated, and any other var inside a merged
 tree.
 
+**A resume can prune a link a still-running earlier process uses (accepted).**
+A session's runs share one session home, so resuming a session reconciles its
+merged tree again (`reconcileLinks`) while an earlier process of the same
+session may still be running in it. When a user XDG entry changed in between
+(the user removed it, the base now resolves elsewhere, or the engine now owns
+the name), the resume unlinks that entry's link. The still-running process then
+loses that link mid-run: config or data it reaches through that name is gone
+from its view, or, once relinked, is the user's current entry. Nothing
+persisted is lost: the link is unlinked, never followed, so the user's entry is
+untouched, and the session's own dirs are not links and are never pruned. With no change to the
+user's entries, a resume keeps every link the earlier run is using. A container
+start prunes every host link (above), so a container resume beside a
+still-running host run is the same case. This was accepted for 0.7.0
+(2026-10-12) rather than holding the links of live runs; revisit it if anyone
+hits it. `TestMergeBase_ALaterRunReconcilesToTheNewSnapshot` pins the prune.
+
 The instance root resolves through one helper, `paths.HarpSessionEngineHomes` — the
 session's own `home/` member under `~/.ctxloom/sessions/<harp>/` — and each
 engine appends its OWN leaf (its `HomeVar.Subdir`). The leaves are distinct by

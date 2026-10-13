@@ -144,10 +144,10 @@ func (w *World) resumeSessionOwner(harp string) error {
 	if _, err := sess.Write([]byte(sessionOwnerSentinel + "\n")); err != nil {
 		return fmt.Errorf("resumed session owner: type the readiness sentinel: %w", err)
 	}
-	if !sess.WaitForOutput(eventBudget(), func(out string) bool {
+	if err := sess.WaitForScreen(eventBudget(), fmt.Sprintf("the resumed session owner's echo of %q", sessionOwnerSentinel), func(out string) bool {
 		return strings.Contains(out, "mock echo: "+sessionOwnerSentinel)
-	}) {
-		return fmt.Errorf("resumed session owner never echoed %q; output:\n%s", sessionOwnerSentinel, sess.Output())
+	}); err != nil {
+		return fmt.Errorf("resume the session owner: %w", err)
 	}
 	after, err := deliveredConfigs(w.env.HomeDir)
 	if err != nil {
@@ -435,11 +435,11 @@ func overlayPause(sess *testenv.PTYSession, harp string) error {
 	origin := len(sess.Output())
 	since := func(out string) string { return out[min(origin, len(out)):] }
 	waitFor := func(what string) error {
-		if !sess.WaitForOutput(eventBudget(), func(out string) bool {
+		if err := sess.WaitForScreen(eventBudget(), fmt.Sprintf("the overlay's %q", what), func(out string) bool {
 			return strings.Contains(testenv.ScreenText(since(out)), what)
-		}) {
+		}); err != nil {
 			out := since(sess.Output())
-			return fmt.Errorf("the overlay never showed %q; screen since Ctrl-]:\n%s\noutput since Ctrl-]:\n%q", what, testenv.ScreenText(out), out)
+			return fmt.Errorf("%w\nscreen since Ctrl-]:\n%s\noutput since Ctrl-]:\n%q", err, testenv.ScreenText(out), out)
 		}
 		return nil
 	}

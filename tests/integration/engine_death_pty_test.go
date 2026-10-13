@@ -207,7 +207,7 @@ func TestRunPTY_RunnerDeadWithoutAnOutcomeEndsTheRun(t *testing.T) {
 			require.True(t, exited, "ctxloom run (pid %d) outlived its runner; captured: %q", sess.PID(), sess.Output())
 			assert.NotEqual(t, 0, sess.ExitCode(), "a run whose runner died unreported is not a success; captured: %q", sess.Output())
 			if tc.saysOutcome {
-				assert.Contains(t, sess.Output(), "never reported its outcome", "the run says why it ended")
+				assert.Contains(t, sess.Output(), "never reported its outcome", "the run says why it ended; captured: %q", sess.Output())
 			}
 			released, err := coord.ProbeOwner(safefs.New(), filepath.Dir(locks[0]))
 			require.NoError(t, err)

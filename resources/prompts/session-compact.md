@@ -22,7 +22,7 @@ attribute it to the user.
 Begin your output with a YAML frontmatter block in this exact form:
 
     ---
-    summary: <a few words — a terse title, ≤40 characters, no quotes, no trailing period>
+    summary: <a few words — a terse title, ≤80 characters, no quotes, no trailing period>
     ---
 
 The summary line is a very short title — just a few words naming what the

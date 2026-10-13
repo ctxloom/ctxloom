@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -70,6 +71,26 @@ func testHome(t *testing.T) *runner.Home {
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })
 	return h
+}
+
+// TestRunnerServer_ReadOnlyToolsAdvertiseReadOnlyAndIdempotent pins the
+// annotations the session's three read-only tools put on the wire. go-sdk
+// v1.7.0 stopped omitting a false readOnlyHint/idempotentHint, so both are
+// always present; these tools read the session's package and change nothing,
+// so both are true (owner ruling 2026-10-13). The JSON is compared whole: a
+// hint added or dropped is a change clients see.
+func TestRunnerServer_ReadOnlyToolsAdvertiseReadOnlyAndIdempotent(t *testing.T) {
+	server, err := newTestServer("test-harp", testHome(t), false, "")
+	require.NoError(t, err)
+	tools := listServerTools(t, server)
+	for _, name := range []string{"assemble_context", "search_content", "search_library"} {
+		tool, ok := tools[name]
+		require.True(t, ok, "%s is served", name)
+		require.NotNil(t, tool.Annotations, "%s carries annotations", name)
+		wire, err := json.Marshal(tool.Annotations)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"readOnlyHint":true,"idempotentHint":true}`, string(wire), "%s annotations on the wire", name)
+	}
 }
 
 // TestRunnerServer_ServesExactlyTheClassifiedSurface: the runner's tool set

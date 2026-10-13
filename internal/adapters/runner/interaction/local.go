@@ -86,7 +86,7 @@ func (s loadoutSurface) registerContextTools(server *mcp.Server) []string {
 		&mcp.Tool{
 			Name:        "assemble_context",
 			Description: "Assemble context from a profile, fragments, and/or tags. Returns the combined context that would be sent to an AI.",
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
 		},
 		func(_ context.Context, _ *mcp.CallToolRequest, in assembleContextInput) (*mcp.CallToolResult, *assembleContextOutput, error) {
 			if in.Profile != "" {
@@ -117,7 +117,7 @@ func (s loadoutSurface) registerContextTools(server *mcp.Server) []string {
 		&mcp.Tool{
 			Name:        "search_content",
 			Description: "Search across all ctxloom content types (fragments, commands, skills, profiles, MCP servers)",
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
 		},
 		func(_ context.Context, _ *mcp.CallToolRequest, in searchContentInput) (*mcp.CallToolResult, *operations.SearchContentResult, error) {
 			return nil, s.searchIndex(in), nil
@@ -127,7 +127,7 @@ func (s loadoutSurface) registerContextTools(server *mcp.Server) []string {
 		&mcp.Tool{
 			Name:        "search_library",
 			Description: "Search the library of installable bundles across configured remotes, reading their local git clones (no network). Use this for discovery — search_content only sees content already installed in this project. Returns each match's pull_ref for installing via the CLI.",
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
 		},
 		func(_ context.Context, _ *mcp.CallToolRequest, in searchRemotesInput) (*mcp.CallToolResult, *operations.SearchRemotesResult, error) {
 			// The Index is the catalog the package was assembled from — every

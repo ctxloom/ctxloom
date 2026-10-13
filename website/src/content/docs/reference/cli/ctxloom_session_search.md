@@ -21,9 +21,14 @@ not an OR).
 
 The search itself runs CLI-side: the summary body is read off disk, scanned,
 and discarded per session — it is never handed to a model and never
-returned in a result row (the same lightweight name/summary/start/end shape
-`session list` renders). Fetch a matched session's full summary with
+returned in a result row (the same lightweight name/summary/state/start/end
+shape `session list` renders). Fetch a matched session's full summary with
 `session show <session-name>`.
+
+--state narrows the matches to sessions in that state (live, ended or
+unknown), read from each session's liveness lock as `session list` does.
+A live session's END is blank, so its previous run's end stamp is not
+searched either.
 
 ```
 ctxloom session search <word>... [flags]
@@ -33,13 +38,15 @@ ctxloom session search <word>... [flags]
 
 ```
   ctxloom session search lockfile migration
+  ctxloom session search --state ended lockfile
 ```
 
 ### Options
 
 ```
-      --all    Search sessions from every project (default: filter to cwd)
-      --full   Include each matched session's complete compacted summary body (text output pages through $PAGER on a terminal)
+      --all            Search sessions from every project (default: filter to cwd)
+      --full           Include each matched session's complete compacted summary body (text output pages through $PAGER on a terminal)
+      --state string   Only sessions in this state, from the session's liveness lock: live, ended, unknown
 ```
 
 ### Options inherited from parent commands

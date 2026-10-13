@@ -1,0 +1,19 @@
+# lizard and its runtime dependencies, for `pip install --require-hashes`
+# (.devcontainer/Dockerfile). In hash-checking mode pip refuses a download
+# whose sha256 is not listed here, and any requirement — a dependency
+# included — that is not pinned here with a hash.
+#
+# One requirement per line, `name==version --hash=sha256:<wheel>
+# --hash=sha256:<sdist>`, lowercase names, no `\` continuations:
+# scripts/lint-pins reads this file and refuses a version bump that keeps an
+# old hash. Take hashes from PyPI's JSON API,
+# https://pypi.org/pypi/<name>/<version>/json (`urls[].digests.sha256`),
+# never from hashing a download. lizard's version must equal LIZARD_VERSION in
+# tool-versions.env (internal/shared/buildpins checks).
+#
+# pygments is the version Ubuntu 24.04's python3-pygments provides, which pip
+# finds already installed (apt-verified) and leaves in place; it is pinned here
+# so that pip, if it ever has to fetch it, fetches only these bytes.
+lizard==1.22.2 --hash=sha256:9a640e35103fbad7aeb6bb7ba5a58419054c2f4d347453a93728ccc3ac14bde1 --hash=sha256:39f6a44fb04b8d5edb9c4b95194fd3f8a7d29b2ec4ef30c6774a68f3561bd362
+pathspec==1.1.1 --hash=sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189 --hash=sha256:17db5ecd524104a120e173814c90367a96a98d07c45b2e10c2f3919fff91bf5a
+pygments==2.17.2 --hash=sha256:b27c2826c47d0f3219f29554824c30c5e8945175d888647acd804ddd04af846c --hash=sha256:da46cec9fd2de5be3a8a784f434e4c4ab670b4ff54d605c4c2717e9d49c4c367

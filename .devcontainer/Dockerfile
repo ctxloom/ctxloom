@@ -1,9 +1,22 @@
-# Stage 1: Get osxcross toolchain
-FROM crazymax/osxcross:latest-ubuntu AS osxcross
+# Every image this file builds from or copies out of is pinned by digest,
+# `name:tag@sha256:<digest>`: the tag says which release, the digest which
+# bytes, and a tag the registry re-points cannot change the build. The digest
+# is the multi-arch INDEX's, so each TARGETARCH still resolves its own image.
+# internal/shared/buildpins requires one on every FROM and `COPY --from=`.
+#
+# To bump an image (a new tag) or refresh one (same tag, re-pushed):
+#   docker buildx imagetools inspect <name>:<tag>
+# and copy the top-level `Digest:` (MediaType ...image.index...) beside the tag.
+# scripts/lint-pins refuses a tag change that keeps the old digest; a digest
+# refresh under the same tag is allowed, since that is the routine update.
+
+# Stage 1: Get osxcross toolchain. `latest-ubuntu` floats upstream; the digest
+# is the index the build was already using when this was pinned.
+FROM crazymax/osxcross:latest-ubuntu@sha256:832e027d26eefd7189b9f742d363f629716bc5592e5b1427b11953f903422a64 AS osxcross
 
 # Stage 2: Main build image
 # Use Ubuntu 24.04 for glibc compatibility with osxcross
-FROM ubuntu:24.04
+FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
 
 # Install build dependencies. docker-ce-cli (client only, no daemon) lets
 # `just test-docker-integration` reach the host/CI runner's Docker daemon —
@@ -12,6 +25,19 @@ FROM ubuntu:24.04
 # internal/adapters/isolation's docker-gated integration tests (see justfile
 # test-docker-integration). Those tests self-skip when docker is unreachable,
 # so this is a "make it possible to pass" addition, not a hard requirement.
+#
+# Docker's apt key is trusted for every package that repository serves, so the
+# fetched key must be exactly Docker's before it lands in /etc/apt/keyrings,
+# as the git PPA key below is fetched by full fingerprint: the file must hold
+# one primary key, and its fingerprint must be DOCKER_APT_FINGERPRINT.
+# That value is the fingerprint Docker documented for this key ("9DC8 5822
+# 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88", docs.docker.com/engine/install/
+# ubuntu/; docker/docs engine/install/ubuntu.md, until 760bb64ea3cc dropped the
+# check from the page in 2021 — the key itself is unchanged since 2017). If
+# Docker rotates the key, this fails loudly; take the new fingerprint from
+# Docker's own announcement, never from the fetched file. `gpg` is installed
+# here to read the key (the node install below uses it too).
+ARG DOCKER_APT_FINGERPRINT="9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
 RUN apt-get update && apt-get install -y \
     build-essential \
     git \
@@ -29,9 +55,17 @@ RUN apt-get update && apt-get install -y \
     xz-utils \
     python3 \
     python3-pip \
+    gpg \
     && install -m 0755 -d /etc/apt/keyrings \
-    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
-    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && tmp="$(mktemp -d)" \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o "${tmp}/docker.asc" \
+    && fprs="$(GNUPGHOME="${tmp}" gpg --batch --show-keys --with-colons "${tmp}/docker.asc" \
+        | awk -F: '$1 == "pub" {p = 1; next} p && $1 == "fpr" {print $10; p = 0}')" \
+    && if [ "${fprs}" != "${DOCKER_APT_FINGERPRINT}" ]; then \
+        echo "Docker apt key: want exactly ${DOCKER_APT_FINGERPRINT}, fetched: ${fprs:-no key}" >&2; exit 1; \
+    fi \
+    && install -m 0644 "${tmp}/docker.asc" /etc/apt/keyrings/docker.asc \
+    && rm -rf "${tmp}" \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" \
         > /etc/apt/sources.list.d/docker.list \
     && apt-get update && apt-get install -y docker-ce-cli \
@@ -68,7 +102,10 @@ ARG VERSIONATOR_VERSION
 ARG GORELEASER_VERSION
 ARG LIZARD_VERSION
 ARG JUST_VERSION
+ARG JUST_SHA256_AMD64
+ARG JUST_SHA256_ARM64
 ARG GOPLS_VERSION
+ARG SERENA_AGENT_VERSION
 ARG GITLEAKS_VERSION
 ARG LEFTHOOK_VERSION
 ARG NODE_VERSION
@@ -88,7 +125,10 @@ RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-imag
     && : "${GORELEASER_VERSION:?missing --build-arg GORELEASER_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${LIZARD_VERSION:?missing --build-arg LIZARD_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${JUST_VERSION:?missing --build-arg JUST_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${JUST_SHA256_AMD64:?missing --build-arg JUST_SHA256_AMD64 — see .devcontainer/tool-versions.env}" \
+    && : "${JUST_SHA256_ARM64:?missing --build-arg JUST_SHA256_ARM64 — see .devcontainer/tool-versions.env}" \
     && : "${GOPLS_VERSION:?missing --build-arg GOPLS_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${SERENA_AGENT_VERSION:?missing --build-arg SERENA_AGENT_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${GITLEAKS_VERSION:?missing --build-arg GITLEAKS_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${LEFTHOOK_VERSION:?missing --build-arg LEFTHOOK_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${NODE_VERSION:?missing --build-arg NODE_VERSION — see .devcontainer/tool-versions.env}" \
@@ -174,13 +214,36 @@ RUN mkdir -p /opt/onnxruntime-embed && \
 # is not incidental tooling — it IS the CI contract now that every workflow
 # step is a `just` target, so the runner bootstrap
 # (.github/actions/setup-just) and this image must install the same version.
-RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-    | bash -s -- --tag "${JUST_VERSION}" --to /usr/local/bin
+#
+# The release tarball is downloaded directly and checked against the sha256
+# tool-versions.env pins for this arch — casey/just's own SHA256SUMS lines —
+# before it is extracted, like Go above. Not just.systems/install.sh piped to
+# bash: that executes whatever script the site serves at build time. The musl
+# targets are the ones install.sh itself picks for Linux, so the binary is the
+# same one it installed.
+RUN case "${TARGETARCH}" in \
+        amd64) JUST_TARGET="x86_64-unknown-linux-musl"; JUST_SHA256="${JUST_SHA256_AMD64}" ;; \
+        arm64) JUST_TARGET="aarch64-unknown-linux-musl"; JUST_SHA256="${JUST_SHA256_ARM64}" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && tarball="just-${JUST_VERSION}-${JUST_TARGET}.tar.gz" \
+    && tmp="$(mktemp -d)" \
+    && curl -fsSL "https://github.com/casey/just/releases/download/${JUST_VERSION}/${tarball}" -o "${tmp}/${tarball}" \
+    && echo "${JUST_SHA256}  ${tmp}/${tarball}" | sha256sum -c - \
+    && tar -xzf "${tmp}/${tarball}" -C /usr/local/bin just \
+    && rm -rf "${tmp}" \
+    && test "$(just --version)" = "just ${JUST_VERSION}"
 
 # Install lizard (cross-language per-function complexity analyzer). Ubuntu 24.04
 # marks its Python env externally-managed (PEP 668), so --break-system-packages
 # is required; the console script lands in /usr/local/bin (already on PATH).
-RUN pip3 install --break-system-packages --no-cache-dir lizard==${LIZARD_VERSION}
+# pip runs in hash-checking mode over lizard-requirements.txt, which pins
+# lizard and its dependencies to PyPI's published sha256s: a distribution that
+# matches none of them, or a dependency the file does not pin, fails the build.
+COPY .devcontainer/lizard-requirements.txt /tmp/lizard-requirements.txt
+RUN pip3 install --break-system-packages --no-cache-dir --require-hashes -r /tmp/lizard-requirements.txt \
+    && rm /tmp/lizard-requirements.txt \
+    && test "$(lizard --version)" = "${LIZARD_VERSION}"
 
 # Install golangci-lint via `go install` so the build does not depend on
 # golangci/golangci-lint's install.sh, whose embedded sha256 has been seen to
@@ -190,9 +253,34 @@ RUN pip3 install --break-system-packages --no-cache-dir lizard==${LIZARD_VERSION
 # already on PATH from the Go install step above.
 RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${GOLANGCI_LINT_VERSION}
 
-# Install buf for protobuf
-RUN curl -sSL "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-$(uname -s)-$(uname -m)" -o /usr/local/bin/buf && \
-    chmod +x /usr/local/bin/buf
+# Install buf for protobuf, verified the way buf's installation docs prescribe
+# (https://buf.build/docs/cli/installation/, "Verify a release with minisign"):
+# the release's sha256.txt must carry a valid minisign signature from
+# BUF_RELEASE_SIGNER, the minisign public key those docs publish, and the binary must
+# match its line in that file — all before it is installed. A BUF_VERSION bump
+# needs no hash edit: the signed sha256.txt names the hashes, and a release not
+# signed by this key fails the build. minisign (Ubuntu universe) is installed
+# for the check and purged after it, so the image's toolset does not grow.
+# BUF_RELEASE_SIGNER is an ARG with a value, like NODE_RELEASERS below: it is not
+# a tool-versions.env pin, and as an ARG it stays out of the container's env.
+ARG BUF_RELEASE_SIGNER="RWQ/i9xseZwBVE7pEniCNjlNOeeyp4BQgdZDLQcAohxEAH5Uj5DEKjv6"
+RUN case "${TARGETARCH}" in \
+        amd64) BUF_ARCH="x86_64" ;; \
+        arm64) BUF_ARCH="aarch64" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && apt-get update && apt-get install -y --no-install-recommends minisign && rm -rf /var/lib/apt/lists/* \
+    && tmp="$(mktemp -d)" && cd "${tmp}" \
+    && bin="buf-Linux-${BUF_ARCH}" \
+    && curl -fsSLO "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/sha256.txt" \
+    && curl -fsSLO "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/sha256.txt.minisig" \
+    && curl -fsSLO "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/${bin}" \
+    && minisign -Vm sha256.txt -P "${BUF_RELEASE_SIGNER}" \
+    && grep " ${bin}\$" sha256.txt | sha256sum -c - \
+    && install -m 0755 "${bin}" /usr/local/bin/buf \
+    && cd / && rm -rf "${tmp}" \
+    && apt-get purge -y --auto-remove minisign \
+    && test "$(buf --version)" = "${BUF_VERSION}"
 
 # Codegen plugins installed LOCALLY so `buf generate` never executes remote
 # plugins on the BSR — remote plugin execution is rate-limited and made the
@@ -254,20 +342,28 @@ RUN mkdir -p "${GOMODCACHE}" "${GOCACHE}" && chmod -R 0777 /go
 RUN go install golang.org/x/tools/gopls@v${GOPLS_VERSION}
 
 # uv is copied from its own published image rather than curl-piped, so the
-# installer version is pinned. It is pinned INLINE, not via a build ARG like the
-# tools above: BuildKit rejects variable expansion in `COPY --from`, so an ARG
-# here would be a pin that does not bind. serena-agent itself is unpinned,
-# matching container/base/Containerfile.
-COPY --from=ghcr.io/astral-sh/uv:0.9.22 /uv /usr/local/bin/uv
+# installer version is pinned. It is pinned INLINE, by tag and digest (see the
+# top of this file), not via a build ARG like the tools above: BuildKit rejects
+# variable expansion in `COPY --from`, so an ARG here would be a pin that does
+# not bind.
+COPY --from=ghcr.io/astral-sh/uv:0.9.22@sha256:2320e6c239737dc73cccce393a8bb89eba2383d17018ee91a59773df802c20e6 /uv /usr/local/bin/uv
 
 # The tool venv and its shims go under /opt + /usr/local/bin, not a user home:
 # this image is run under several uids and anything under /root would be
 # unreachable by the process that actually runs the engine.
 # The gate is `serena --help`, which imports the package and exits 0 — a shim
 # that merely EXISTS proves nothing.
+#
+# serena-agent is pinned to SERENA_AGENT_VERSION, and `uv tool list` must
+# report exactly that version. It is pinned by version only, not by hash:
+# `uv tool install` (uv 0.9.22) has no hash-checking mode — it silently
+# ignores hashes in --constraints and --with-requirements files — so its
+# bytes, and its dependencies' versions, are whatever PyPI serves for this
+# release. container/base/Containerfile still installs it unpinned.
 ENV UV_TOOL_DIR=/opt/uv/tools \
     UV_TOOL_BIN_DIR=/usr/local/bin
-RUN UV_NO_CACHE=1 uv tool install --python python3 serena-agent \
+RUN UV_NO_CACHE=1 uv tool install --python python3 "serena-agent==${SERENA_AGENT_VERSION}" \
+    && uv tool list | grep -qx "serena-agent v${SERENA_AGENT_VERSION}" \
     && serena --help >/dev/null
 
 # Node.js. The opencode bridge plugin ctxloom generates is JavaScript, and its
@@ -281,17 +377,17 @@ RUN UV_NO_CACHE=1 uv tool install --python python3 serena-agent \
 # "some key in the ring"), and the tarball must match its line there. Bumping
 # NODE_VERSION needs no hash edit; a release signed by a releaser missing from
 # NODE_RELEASERS fails the build loudly, and the fix is to add the fingerprint from
-# that README. `gpg` is installed only to dearmor the keys: the base image's
-# gpgv cannot read an armored keyring. NODE_RELEASERS is an ARG with a value, unlike
-# the version ARGs above: it is not a pin tool-versions.env carries, and as an
-# ARG it stays out of the running container's environment.
+# that README. `gpg` (installed with the build dependencies at the top) is used
+# only to dearmor the keys: the base image's gpgv cannot read an armored
+# keyring. NODE_RELEASERS is an ARG with a value, unlike the version ARGs
+# above: it is not a pin tool-versions.env carries, and as an ARG it stays out
+# of the running container's environment.
 ARG NODE_RELEASERS="5BE8A3F6C8A5C01D106C0AD820B1A390B168D356 DD792F5973C6DE52C432CBDAC77ABFA00DDBF2B7 CC68F5A3106FF448322E48ED27F5E38D5B0A215F 8FCCA13FEF1D0C2E91008E09770F7A9A5AE15600 890C08DB8579162FEE0DF9DB8BEAB4DFCF555EF4 C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C 108F52B48DB57BB0CC439B2997B01419BD92F80A 655F3B5C1FB3FA8D1A0CA6BDE4A7D232B936D2FD A363A499291CBBC940DD62E41F10027AF002F8B0"
 RUN case "${TARGETARCH}" in \
         amd64) NODE_ARCH="x64" ;; \
         arm64) NODE_ARCH="arm64" ;; \
         *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
-    && apt-get update && apt-get install -y --no-install-recommends gpg && rm -rf /var/lib/apt/lists/* \
     && tmp="$(mktemp -d)" && cd "${tmp}" \
     && for fpr in ${NODE_RELEASERS}; do \
         curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x${fpr}" -o key.asc \

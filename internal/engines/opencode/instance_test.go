@@ -264,3 +264,19 @@ func TestExec_BuiltInProviderModelPassesThroughVerbatim(t *testing.T) {
 	s.Prompt = ""
 	assert.Equal(t, []string{"--model", "opencode/big-pickle"}, mustExec(t, bind(t, s)).Args, "the TUI names the same model")
 }
+
+// PWD is the session's working directory, in both modes. `opencode run` takes
+// its project directory from $PWD, not from the process cwd: measured on
+// 1.18.35, a run started in one directory with PWD naming another worked in
+// the PWD one. The process cwd is WorkDir (Exec.WorkDir), so an inherited
+// PWD — the launching shell's directory — would put the agent in the user's
+// project instead of an isolated worktree checkout.
+func TestExec_PWDIsTheWorkDir(t *testing.T) {
+	s := session(t, qwenBody())
+	ex := mustExec(t, bind(t, s))
+	assert.Equal(t, s.WorkDir, ex.WorkDir)
+	assert.Equal(t, s.WorkDir, ex.Env[envPWD], "structured")
+
+	s.Mode = engine.Interactive
+	assert.Equal(t, s.WorkDir, mustExec(t, bind(t, s)).Env[envPWD], "interactive")
+}

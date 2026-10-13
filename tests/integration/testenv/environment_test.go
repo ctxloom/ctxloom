@@ -225,3 +225,17 @@ func TestIsolatedEnv_DropsTheHostSSHAgentButKeepsAHermeticOne(t *testing.T) {
 		t.Errorf("the scenario's %s reached the child as %q (present=%v), want %q", sshAuthSockEnv, v, ok, hermeticSock)
 	}
 }
+
+// TestIsolatedEnv_DropsTheHostZDOTDIR: zsh reads its startup files from
+// ZDOTDIR rather than HOME, so an inherited one points a child's login shell
+// at the DEVELOPER's rc files despite the fake HOME. ctxloom probes exactly
+// that shell for PATH (shellenv.Resolve's fallback), so the developer's
+// installed engines would leak into what a scenario sees as installed.
+func TestIsolatedEnv_DropsTheHostZDOTDIR(t *testing.T) {
+	t.Setenv(zdotdirEnv, "/home/developer")
+
+	e := &TestEnvironment{HomeDir: t.TempDir(), originalEnv: map[string]string{}}
+	if v, ok := childEnvValue(e.isolatedEnv(), zdotdirEnv); ok {
+		t.Errorf("the host's %s reached the child as %q; the scrub must drop it", zdotdirEnv, v)
+	}
+}

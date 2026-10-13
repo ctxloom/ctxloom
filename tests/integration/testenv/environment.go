@@ -601,17 +601,25 @@ func (e *TestEnvironment) AddGitWorktree(name string) (string, error) {
 // SetChildEnv.
 const sshAuthSockEnv = "SSH_AUTH_SOCK"
 
+// zdotdirEnv names zsh's startup-file directory. An inherited one points a
+// child's login shell at the DEVELOPER's rc files whatever HOME says, and
+// ctxloom probes that shell for PATH (shellenv.Resolve's fallback), so the
+// developer's own PATH additions — an installed engine, say — would decide
+// what a scenario finds installed. Dropped, zsh falls back to the fake HOME.
+const zdotdirEnv = "ZDOTDIR"
+
 // scrubbedEnvKeys are the ambient variables dropped before any child binary is
 // spawned: the canonical testsupport.EnvKeys session / forge set, so a test
 // never inherits the host session's project id, harp, or tokens and resolves
 // its home-rooted stores against our fake home instead, plus the host
 // identity carriers above that are not session state.
 var scrubbedEnvKeys = func() map[string]bool {
-	m := make(map[string]bool, len(testsupport.EnvKeys)+1)
+	m := make(map[string]bool, len(testsupport.EnvKeys)+2)
 	for _, k := range testsupport.EnvKeys {
 		m[k] = true
 	}
 	m[sshAuthSockEnv] = true
+	m[zdotdirEnv] = true
 	return m
 }()
 
@@ -634,8 +642,8 @@ func scrubAmbientEnv(env []string) []string {
 // enough: when the suite itself runs inside a ctxloom session, inherited vars
 // like CTXLOOM_ROOT (the authoritative project root) and CTXLOOM_SESSION_HARP
 // would steer the spawned binary at the LIVE repo's .ctxloom instead of the
-// fake project, and an inherited SSH_AUTH_SOCK would hand it the developer's
-// ssh-agent. scrubAmbientEnv drops scrubbedEnvKeys so
+// fake project, an inherited SSH_AUTH_SOCK would hand it the developer's
+// ssh-agent, and an inherited ZDOTDIR its zsh rc files. scrubAmbientEnv drops scrubbedEnvKeys so
 // Run/RunWithStdin/Command/StartMCP are all isolated the same way. The base is
 // gitutil.SanitizedEnviron, not the raw environment: a suite run under
 // `git bisect run` or a git hook inherits GIT_DIR naming the REAL checkout,

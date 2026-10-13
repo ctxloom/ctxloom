@@ -99,8 +99,8 @@ func TestSessionRow_JSONShape(t *testing.T) {
 		var got map[string]any
 		require.NoError(t, json.Unmarshal(b, &got))
 
-		assert.ElementsMatch(t, []string{"harp", "summary", "start"}, keysOf(got),
-			"end and essence_path must be omitted (omitempty) when unset, and no other Entry field should leak through")
+		assert.ElementsMatch(t, []string{"harp", "summary", "state", "start"}, keysOf(got),
+			"end and essence_path must be omitted (omitempty) when unset, and no other Entry field should leak through (state is always present: the CLI row always asks the lock)")
 		assert.Equal(t, "swift-amber-falcon", got["harp"])
 		assert.Equal(t, "Designed the picker", got["summary"])
 	})
@@ -123,7 +123,7 @@ func TestSessionRow_JSONShape(t *testing.T) {
 		require.NoError(t, err)
 		var got map[string]any
 		require.NoError(t, json.Unmarshal(b, &got))
-		assert.ElementsMatch(t, []string{"harp", "summary", "start", "essence_path"}, keysOf(got))
+		assert.ElementsMatch(t, []string{"harp", "summary", "state", "start", "essence_path"}, keysOf(got))
 		assert.Equal(t, essencePath, got["essence_path"])
 	})
 }

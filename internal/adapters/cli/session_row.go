@@ -1,8 +1,13 @@
 package cli
 
 import (
+	"fmt"
 	"io"
+	"slices"
+	"strings"
 	"time"
+
+	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
@@ -31,16 +36,22 @@ func (t sessionTime) MarshalJSON() ([]byte, error) {
 
 // SessionRow is the lightweight per-session projection `session list` and
 // `session query` render by default: a single-line summary, the harp name,
-// start/end timestamps, and — when the session has been compacted — the
+// the session's state now (from its liveness lock), start/end timestamps, and — when the session has been compacted — the
 // essence file's path, but never the essence BODY itself (that stays
 // `session show`'s job, or `--full`'s — see session_full.go). Projected from
 // operations.SessionView, the one read model, never from the store's entry.
 // The clifmt label/col hints drive clifmt's text/markdown table headers (see
 // renderSessionRows).
 type SessionRow struct {
-	Harp        string       `json:"harp" clifmt:"label=Harp,col=HARP"`
-	Summary     string       `json:"summary" clifmt:"label=Summary,col=SUMMARY"`
-	Start       sessionTime  `json:"start" clifmt:"label=Start,col=START"`
+	Harp    string `json:"harp" clifmt:"label=Harp,col=HARP"`
+	Summary string `json:"summary" clifmt:"label=Summary,col=SUMMARY"`
+	// State is SessionView.State: live, ended or unknown, from the session's
+	// liveness lock — never from End.
+	State string      `json:"state" clifmt:"label=State,col=STATE"`
+	Start sessionTime `json:"start" clifmt:"label=Start,col=START"`
+	// End is when the session's last run ended, blank while it is live: a
+	// resumed session keeps its previous run's stamp, which is not an end
+	// of the run in progress.
 	End         *sessionTime `json:"end,omitempty" clifmt:"label=End,col=END"`
 	EssencePath string       `json:"essence_path,omitempty" clifmt:"label=Essence Path,col=ESSENCE PATH"`
 	// Purged mirrors SessionView.Purged: `ctxloom session purge` destroyed
@@ -71,11 +82,12 @@ func newSessionRow(v operations.SessionView) SessionRow {
 	row := SessionRow{
 		Harp:        v.Harp,
 		Summary:     summary,
+		State:       v.State,
 		Start:       sessionTime(v.StartedAt),
 		Purged:      v.Purged,
 		EssencePath: v.EssencePath,
 	}
-	if v.EndedAt != nil {
+	if v.EndedAt != nil && v.State != operations.SessionLive {
 		end := sessionTime(*v.EndedAt)
 		row.End = &end
 	}
@@ -95,4 +107,42 @@ func renderSessionRows(w io.Writer, rows []SessionRow) error {
 		return ew.Err()
 	}
 	return clifmt.Render(w, rows, clifmt.FormatText)
+}
+
+// sessionStateOf is the probe `session list` and `session search` ask each
+// row's state through: the session's liveness lock. Both commands run in
+// their own process, so no listed session's lock is this process's; a test
+// swaps the probe to force the states it needs.
+var sessionStateOf operations.SessionStateProbe = operations.LockSessionState
+
+// addSessionStateFlag registers --state on a session listing, bound to dst.
+func addSessionStateFlag(cmd *cobra.Command, dst *string) {
+	cmd.Flags().StringVar(dst, "state", "",
+		"Only sessions in this state, from the session's liveness lock: "+strings.Join(operations.SessionStates, ", "))
+	_ = cmd.RegisterFlagCompletionFunc("state", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return operations.SessionStates, cobra.ShellCompDirectiveNoFileComp
+	})
+}
+
+// checkSessionState refuses a --state that is not one of the three states;
+// "" (no filter) passes.
+func checkSessionState(state string) error {
+	if state == "" || slices.Contains(operations.SessionStates, state) {
+		return nil
+	}
+	return fmt.Errorf("--state %q: a session's state is one of %s", state, strings.Join(operations.SessionStates, ", "))
+}
+
+// filterSessionState keeps the views in state, in order; "" keeps them all.
+func filterSessionState(views []operations.SessionView, state string) []operations.SessionView {
+	if state == "" {
+		return views
+	}
+	kept := make([]operations.SessionView, 0, len(views))
+	for _, v := range views {
+		if v.State == state {
+			kept = append(kept, v)
+		}
+	}
+	return kept
 }

@@ -32,17 +32,23 @@ var (
 	sessionListAll     bool
 	sessionListCompact bool
 	sessionListFull    bool
+	// sessionListState backs --state: only rows in that state.
+	sessionListState string
 )
 
 var sessionListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List recorded sessions (default: current project; --all for everything)",
 	Example: `  ctxloom session list
-  ctxloom session list --all`,
+  ctxloom session list --all
+  ctxloom session list --state live`,
 	RunE: runSessionList,
 }
 
 func runSessionList(cmd *cobra.Command, _ []string) error {
+	if err := checkSessionState(sessionListState); err != nil {
+		return err
+	}
 	entries, err := loadSessionEntries(sessionListAll)
 	if err != nil {
 		return err
@@ -61,10 +67,11 @@ func runSessionList(cmd *cobra.Command, _ []string) error {
 	}
 	// The rows render from the one read model (operations.SessionView),
 	// never from the entry: a lightweight projection — harp, single-line
-	// summary, start, end, essence path — by default, or each session's
-	// complete essence body under --full (see session_full.go);
-	// emitSessionRows owns both shapes.
-	return emitSessionRows(cmd, operations.ViewSessions(entries, nil), sessionListFull)
+	// summary, state, start, end, essence path — by default, or each
+	// session's complete essence body under --full (see session_full.go);
+	// emitSessionRows owns both shapes. State is one lock probe per row.
+	views := filterSessionState(operations.ViewSessions(entries, sessionStateOf), sessionListState)
+	return emitSessionRows(cmd, views, sessionListFull)
 }
 
 // loadSessionEntries reads the session index: every project's sessions when
@@ -299,6 +306,7 @@ func init() {
 	sessionRemoveCmd.Flags().BoolVarP(&sessionRemoveYes, "yes", "y", false,
 		"apply the plan this invocation printed (default: report only)")
 	sessionListCmd.Flags().BoolVar(&sessionListFull, "full", false, "Include each session's complete compacted summary body (text output pages through $PAGER on a terminal)")
+	addSessionStateFlag(sessionListCmd, &sessionListState)
 	sessionCompactCmd.Flags().StringVar(&sessionCompactPromptDir, "prompt-dir", "",
 		"Load compaction prompts from this directory instead of the built-in ones (expects <dir>/session-compact.md and <dir>/result-finding.md; a missing prompt is an error, not a fallback)")
 	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionEditCmd, sessionRemoveCmd, sessionCompactCmd, sessionApprovalsCmd)

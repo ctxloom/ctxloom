@@ -264,7 +264,7 @@ func acquire(harp string, ownFromMemory bool) (Probe, func()) {
 	// the live session as Dead). After the trust gate, so an untrusted
 	// filesystem still refuses whoever holds.
 	if ownFromMemory && holdsHere(harp) {
-		return Probe{Verdict: Alive, PID: os.Getpid(), Reason: "the session's lock is held by this process"}, noop
+		return Probe{Verdict: Alive, PID: os.Getpid(), Reason: "the session's lock is held by this process: its owner is alive"}, noop
 	}
 
 	beforeProbeLock(path)

@@ -567,14 +567,26 @@ func appendBlock(path string, content []byte, comment string, patterns []string)
 
 // writeBlock writes the separating newline (if needed), the comment header,
 // and every pattern to w.
+//
+// The header is written ONLY when content does not already carry it. EnsureFile
+// appends just the MISSING patterns, so a caller whose pattern set grows
+// between runs reaches here again for a file that already has the header —
+// and writing it unconditionally pasted a fresh copy above every growth (the
+// triple-header drift commit 029406e0a fixed for EnsureNested by rewriting
+// wholesale). That remedy does not transfer: this file holds the user's own
+// lines, and moving or rewriting ctxloom's block among them would change which
+// rule wins under last-match-wins. So the patterns are still appended at the
+// end, beneath the one existing header.
 func writeBlock(w io.Writer, content []byte, comment string, patterns []string) error {
 	if len(content) > 0 && content[len(content)-1] != '\n' {
 		if _, err := io.WriteString(w, "\n"); err != nil {
 			return err
 		}
 	}
-	if _, err := fmt.Fprintf(w, "\n%s\n", comment); err != nil {
-		return err
+	if !hasLine(content, comment) {
+		if _, err := fmt.Fprintf(w, "\n%s\n", comment); err != nil {
+			return err
+		}
 	}
 	for _, p := range patterns {
 		if _, err := fmt.Fprintf(w, "%s\n", p); err != nil {
@@ -582,4 +594,16 @@ func writeBlock(w io.Writer, content []byte, comment string, patterns []string) 
 		}
 	}
 	return nil
+}
+
+// hasLine reports whether content carries line, by trimmed-line equality — the
+// same match missingPatterns uses for patterns.
+func hasLine(content []byte, line string) bool {
+	want := strings.TrimSpace(line)
+	for l := range strings.SplitSeq(string(content), "\n") {
+		if strings.TrimSpace(l) == want {
+			return true
+		}
+	}
+	return false
 }

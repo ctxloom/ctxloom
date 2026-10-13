@@ -119,6 +119,41 @@ func TestEnsureFile_IsIdempotentAcrossRuns(t *testing.T) {
 	assert.Equal(t, first, second)
 }
 
+// TestEnsureFile_GrowingPatternSetKeepsOneHeader pins the case the
+// same-list idempotence test above cannot see: the caller's pattern set GROWS
+// between runs (a new engine declares a ProjectArtifact, ctxloom adds one of
+// its own). Each growth must add only the new patterns — not a fresh copy of
+// the header above them, which is how .gitignore files elsewhere ended up with
+// the same ctxloom comment pasted three times.
+func TestEnsureFile_GrowingPatternSetKeepsOneHeader(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	require.NoError(t, os.WriteFile(path, []byte("# my own rules\n*.swp\n"), 0o644))
+
+	require.NoError(t, EnsureFile(path, testComment, "a"))
+	require.NoError(t, EnsureFile(path, testComment, "a", "b"))
+	require.NoError(t, EnsureFile(path, testComment, "a", "b", "c"))
+
+	got := readGitignore(t, dir)
+	assert.Equal(t, "# my own rules\n*.swp\n\n"+testComment+"\na\nb\nc\n", got,
+		"exactly one header, every pattern beneath it once, the user's lines untouched")
+}
+
+// TestEnsureFile_DoesNotRepeatAHeaderAlreadyPresent: a file that already
+// carries the header (written by an earlier run, or by hand) gets the missing
+// patterns appended without a second copy of it.
+func TestEnsureFile_DoesNotRepeatAHeaderAlreadyPresent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	require.NoError(t, os.WriteFile(path, []byte(testComment+"\nkept\n"), 0o644))
+
+	require.NoError(t, EnsureFile(path, testComment, "kept", "new"))
+
+	got := readGitignore(t, dir)
+	assert.Equal(t, 1, strings.Count(got, testComment), "header must not be repeated:\n%s", got)
+	assert.Equal(t, testComment+"\nkept\nnew\n", got)
+}
+
 // TestPrivateStatePatterns_MatchExpectedSet pins membership EXACTLY, in both
 // directions. A pattern missing from the set leaks private state; a pattern
 // present for a path no writer produces is worse than useless — it documents a

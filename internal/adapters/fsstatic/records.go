@@ -324,15 +324,15 @@ type targetOps struct {
 	target string
 	ops    []claimOp
 	// set by the fold for the seal
-	rec   claimsRecord
-	was   claimsRecord // the record as the ops found it, for a preview's releases
+	rec claimsRecord
+	was claimsRecord // the record as the ops found it, for a preview's releases
 	// scope (Staging.scopeTo) and scoped, which the fold sets for the ops'
 	// transition and never for a crash's redo, confine the transition.
 	scope  delivery.Writer
 	scoped bool
-	disk  []byte
-	prior fileState
-	had   []string // the writers the record named before the ops
+	disk   []byte
+	prior  fileState
+	had    []string // the writers the record named before the ops
 	// set by the seal when it notes a write pending, for the confirm
 	noted *claimsRecord
 }

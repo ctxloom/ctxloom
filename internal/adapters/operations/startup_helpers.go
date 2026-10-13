@@ -120,21 +120,7 @@ func WriteRefreshSkipped(w io.Writer, indent string, skipped *MaterializeResult,
 	ew.Printf("%sProject refresh skipped: without --yes nothing was written into %s.\n", indent, skipped.Target)
 	var kinds []string
 	for _, e := range skipped.Engines {
-		var parts []string
-		if len(e.Wrote) > 0 {
-			parts = append(parts, "would write "+strings.Join(e.Wrote, ", "))
-		}
-		if len(e.Released) > 0 {
-			parts = append(parts, "would release "+strings.Join(e.Released, ", "))
-		}
-		if len(parts) > 0 {
-			ew.Printf("%s  %s: %s\n", indent, e.Engine, strings.Join(parts, "; "))
-		}
-		for _, r := range e.Refused {
-			ew.Printf("%s  %s: %s refused: %s\n", indent, e.Engine, r.Kind, r.Reason)
-			ew.Printf("%s    fix: %s\n", indent, r.Fix)
-		}
-		for _, k := range append(slices.Clone(e.Wrote), e.Released...) {
+		for _, k := range writeEngineRefresh(ew, indent, e) {
 			if !slices.Contains(kinds, k) {
 				kinds = append(kinds, k)
 			}
@@ -148,4 +134,25 @@ func WriteRefreshSkipped(w io.Writer, indent string, skipped *MaterializeResult,
 		materialize += " --surface " + k
 	}
 	ew.Printf("%s  Apply it with '%s', or '%s'.\n", indent, rerun, materialize)
+}
+
+// writeEngineRefresh writes one engine's lines of a skipped refresh: the
+// kinds it would write or release, then each refused kind with its fix. It
+// returns the kinds whose files the refresh would change, written first.
+func writeEngineRefresh(ew *errwriter.Writer, indent string, e EngineOutcome) []string {
+	var parts []string
+	if len(e.Wrote) > 0 {
+		parts = append(parts, "would write "+strings.Join(e.Wrote, ", "))
+	}
+	if len(e.Released) > 0 {
+		parts = append(parts, "would release "+strings.Join(e.Released, ", "))
+	}
+	if len(parts) > 0 {
+		ew.Printf("%s  %s: %s\n", indent, e.Engine, strings.Join(parts, "; "))
+	}
+	for _, r := range e.Refused {
+		ew.Printf("%s  %s: %s refused: %s\n", indent, e.Engine, r.Kind, r.Reason)
+		ew.Printf("%s    fix: %s\n", indent, r.Fix)
+	}
+	return append(slices.Clone(e.Wrote), e.Released...)
 }

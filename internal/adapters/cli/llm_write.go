@@ -192,7 +192,7 @@ registered backend (` + engines + `) — change an
 existing one with 'ctxloom llm edit'.
 
 ` + llmWriteLong(reg)
-	llmCreateCmd.Example = `  ctxloom llm create big --type claude-code --model claude-opus-4-8
+	llmCreateCmd.Example = `  ctxloom llm create big --type claude-code --model opus
   ctxloom llm create fast --type claude-code --permissions bypass`
 
 	llmEditCmd.Long = `Change an EXISTING labeled LLM engine config. Refuses a label neither

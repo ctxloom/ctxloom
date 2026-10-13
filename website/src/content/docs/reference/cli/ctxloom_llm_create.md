@@ -34,7 +34,7 @@ ctxloom llm create <label> [flags]
 ### Examples
 
 ```
-  ctxloom llm create big --type claude-code --model claude-opus-4-8
+  ctxloom llm create big --type claude-code --model opus
   ctxloom llm create fast --type claude-code --permissions bypass
 ```
 

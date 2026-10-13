@@ -71,8 +71,8 @@ schema_version: 7
 # only needed to change models, binaries, or role pairings.
 llm:
   configs:
-    big:   { type: claude-code, model: claude-opus-4-8 }
-    quick: { type: claude-code, model: claude-haiku-4-5-20251001 }
+    big:   { type: claude-code, model: opus }
+    quick: { type: claude-code, model: haiku }
   defaults:
     primary: big      # coding/interactive role → label
     fast: quick       # compression role (distill, compaction) → label
@@ -160,7 +160,7 @@ llm:
   configs:
     claude-code:
       type: claude-code
-      model: "claude-opus-4-8"
+      model: "opus"                 # a claude CLI alias, or a full model id to pin one
       binary_path: "/path/to/bin"   # optional
       args: []                      # extra CLI arguments
       context_window: 1000000       # optional; tokens the model holds (claude-code default: 200000)

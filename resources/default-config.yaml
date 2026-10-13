@@ -8,17 +8,21 @@
 # marks it as its backend type's default primary or fast pick, so selecting an
 # engine resolves its pair (primary + fast) by scanning for matching type+role.
 # init clears `role` on the entries it copies: llm.defaults names the pair.
+#
+# The claude-code models are the claude CLI's aliases (`opus`, `haiku`), not
+# pinned ids: the CLI resolves each to its current model, so these defaults —
+# and every config init writes from them — never go stale on a superseded one.
 schema_version: 7
 
 llm:
   configs:
     claude-code:
       type: claude-code
-      model: claude-opus-4-8
+      model: opus
       role: primary
     claude-fast:
       type: claude-code
-      model: claude-haiku-4-5-20251001
+      model: haiku
       role: fast
   defaults:
     primary: claude-code

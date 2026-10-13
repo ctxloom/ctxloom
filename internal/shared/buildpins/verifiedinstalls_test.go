@@ -55,7 +55,7 @@ func assertVerifiedStep(t *testing.T, tool, step string, want, order []string) {
 	for _, o := range order {
 		i := strings.Index(step, o)
 		if i <= last {
-			t.Errorf("%s: the %s install must run %q after %v — verification precedes installation:\n%s", dockerfilePath, tool, o, order, step)
+			t.Errorf("%s: the %s install must run %q in that order (%q missing or out of place) — verification precedes installation:\n%s", dockerfilePath, tool, order, o, step)
 			return
 		}
 		last = i
@@ -80,4 +80,23 @@ func TestDevcontainerInstallsVerifiedBuf(t *testing.T) {
 		},
 		[]string{"minisign -Vm", "sha256sum -c", "/usr/local/bin/buf"},
 	)
+}
+
+// just publishes SHA256SUMS per release (no signature); the image pins this
+// arch's line of it, like Go, and never pipes just.systems/install.sh to bash.
+func TestDevcontainerInstallsVerifiedJust(t *testing.T) {
+	step := dockerfileStepCode(t, "# Install just")
+	assertVerifiedStep(t, "just", step,
+		[]string{
+			"https://github.com/casey/just/releases/download/${JUST_VERSION}/",
+			"${JUST_SHA256_AMD64}",
+			"${JUST_SHA256_ARM64}",
+			"sha256sum -c",
+			`test "$(just --version)" = "just ${JUST_VERSION}"`,
+		},
+		[]string{"sha256sum -c", "tar -xzf"},
+	)
+	if strings.Contains(step, "just.systems/install.sh") {
+		t.Errorf("%s: just is still installed by just.systems/install.sh, a script fetched at build time:\n%s", dockerfilePath, step)
+	}
 }

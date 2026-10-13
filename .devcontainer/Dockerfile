@@ -68,6 +68,8 @@ ARG VERSIONATOR_VERSION
 ARG GORELEASER_VERSION
 ARG LIZARD_VERSION
 ARG JUST_VERSION
+ARG JUST_SHA256_AMD64
+ARG JUST_SHA256_ARM64
 ARG GOPLS_VERSION
 ARG GITLEAKS_VERSION
 ARG LEFTHOOK_VERSION
@@ -88,6 +90,8 @@ RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-imag
     && : "${GORELEASER_VERSION:?missing --build-arg GORELEASER_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${LIZARD_VERSION:?missing --build-arg LIZARD_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${JUST_VERSION:?missing --build-arg JUST_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${JUST_SHA256_AMD64:?missing --build-arg JUST_SHA256_AMD64 — see .devcontainer/tool-versions.env}" \
+    && : "${JUST_SHA256_ARM64:?missing --build-arg JUST_SHA256_ARM64 — see .devcontainer/tool-versions.env}" \
     && : "${GOPLS_VERSION:?missing --build-arg GOPLS_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${GITLEAKS_VERSION:?missing --build-arg GITLEAKS_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${LEFTHOOK_VERSION:?missing --build-arg LEFTHOOK_VERSION — see .devcontainer/tool-versions.env}" \
@@ -174,8 +178,25 @@ RUN mkdir -p /opt/onnxruntime-embed && \
 # is not incidental tooling — it IS the CI contract now that every workflow
 # step is a `just` target, so the runner bootstrap
 # (.github/actions/setup-just) and this image must install the same version.
-RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-    | bash -s -- --tag "${JUST_VERSION}" --to /usr/local/bin
+#
+# The release tarball is downloaded directly and checked against the sha256
+# tool-versions.env pins for this arch — casey/just's own SHA256SUMS lines —
+# before it is extracted, like Go above. Not just.systems/install.sh piped to
+# bash: that executes whatever script the site serves at build time. The musl
+# targets are the ones install.sh itself picks for Linux, so the binary is the
+# same one it installed.
+RUN case "${TARGETARCH}" in \
+        amd64) JUST_TARGET="x86_64-unknown-linux-musl"; JUST_SHA256="${JUST_SHA256_AMD64}" ;; \
+        arm64) JUST_TARGET="aarch64-unknown-linux-musl"; JUST_SHA256="${JUST_SHA256_ARM64}" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && tarball="just-${JUST_VERSION}-${JUST_TARGET}.tar.gz" \
+    && tmp="$(mktemp -d)" \
+    && curl -fsSL "https://github.com/casey/just/releases/download/${JUST_VERSION}/${tarball}" -o "${tmp}/${tarball}" \
+    && echo "${JUST_SHA256}  ${tmp}/${tarball}" | sha256sum -c - \
+    && tar -xzf "${tmp}/${tarball}" -C /usr/local/bin just \
+    && rm -rf "${tmp}" \
+    && test "$(just --version)" = "just ${JUST_VERSION}"
 
 # Install lizard (cross-language per-function complexity analyzer). Ubuntu 24.04
 # marks its Python env externally-managed (PEP 668), so --break-system-packages

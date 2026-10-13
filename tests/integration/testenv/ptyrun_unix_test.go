@@ -131,15 +131,21 @@ var engineMenu = Unexpected{Name: "an engine menu", Signature: "Select your AI e
 // a menu its step never answers, then sits on it, fails the wait at once and
 // names what it saw — with the whole budget still unspent, so a step's wait
 // can never burn a deadline it shares with later scenarios.
+//
+// The menu's header and its options are split by a latch (the script's
+// `read latch`, never answered), forcing the interleaving a real pty may
+// deliver: the wait fails on the header alone. What it promises is the
+// menu's name, its signature, the awaited screen and the capture so far —
+// not the rest of a menu that has not been written yet.
 func TestWaitForScreenFailsFastNamingAnUnexpectedMenu(t *testing.T) {
-	s := shPTY(t, `printf 'Select your AI engine (press Enter for recommended):\n  1) claude-code\n  2) opencode\n> '; read x`)
+	s := shPTY(t, `printf 'Select your AI engine (press Enter for recommended):\n'; read latch; printf '  1) claude-code\n  2) opencode\n> '; read x`)
 
 	err := s.WaitForScreen(screenWaitBudget, `the question "personal repositories?"`,
 		func(out string) bool { return strings.Contains(out, "personal ctxloom repositories?") }, engineMenu)
 	if err == nil {
 		t.Fatal("the wait succeeded on a screen that never asked")
 	}
-	for _, want := range []string{"an engine menu", "Select your AI engine", "2) opencode", "personal repositories?"} {
+	for _, want := range []string{"an engine menu", `"Select your AI engine"`, "personal repositories?", "Select your AI engine (press Enter for recommended):"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the failure does not say %q:\n%v", want, err)
 		}

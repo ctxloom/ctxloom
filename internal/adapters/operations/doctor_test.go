@@ -887,7 +887,7 @@ func TestDoctorCheckForeignWorktrees_SessionsRootExcluded(t *testing.T) {
 // force-removing by proxy).
 func TestDoctorCheckForeignWorktrees_WrongState_NamesUnmergedDirtyAndExactCommands(t *testing.T) {
 	root := t.TempDir()
-	foreign := filepath.Join(t.TempDir(), "proj--stale-feature")
+	foreign := filepath.Join(t.TempDir(), "x-D", "proj--stale-feature")
 	g := &git.Fake{
 		Worktrees: []git.Worktree{
 			{Path: root, Branch: "refs/heads/main"},
@@ -898,12 +898,19 @@ func TestDoctorCheckForeignWorktrees_WrongState_NamesUnmergedDirtyAndExactComman
 	}
 	check := doctorCheckForeignWorktrees(context.Background(), g, root)
 	assert.Equal(t, DoctorWarn, check.Status)
-	assert.Contains(t, check.Detail, "proj--stale-feature")
-	assert.Contains(t, check.Detail, "unmerged")
-	assert.Contains(t, check.Detail, "dirty")
-	assert.Contains(t, check.Detail, "git worktree remove "+foreign)
-	assert.Contains(t, check.Detail, "git branch -d stale-feature")
-	assert.NotContains(t, check.Detail, "-D", "force-removing by proxy is on the project's refusal list")
+	assert.Contains(t, check.Detail, "proj--stale-feature (branch stale-feature, unmerged, dirty)")
+	assert.Contains(t, check.Detail, "`git worktree remove "+foreign+"`")
+	assert.Contains(t, check.Detail, "`git branch -d stale-feature`")
+	rest := detailWithoutPath(check.Detail, foreign)
+	assert.NotContains(t, rest, "branch -D", "force-removing by proxy is on the project's refusal list")
+	assert.NotContains(t, rest, "--force", "force-removing by proxy is on the project's refusal list")
+}
+
+// detailWithoutPath masks every occurrence of path in detail, so a negative
+// substring check judges the words the check wrote and never the test's
+// temp directory name (which is random, and once held "-D" on CI).
+func detailWithoutPath(detail, path string) string {
+	return strings.ReplaceAll(detail, path, "<path>")
 }
 
 // TestDoctorCheckForeignWorktrees_MergedBranchIsReportedMerged proves the
@@ -911,7 +918,7 @@ func TestDoctorCheckForeignWorktrees_WrongState_NamesUnmergedDirtyAndExactComman
 // this check's own MergedBranches call reports as merged must say so.
 func TestDoctorCheckForeignWorktrees_MergedBranchIsReportedMerged(t *testing.T) {
 	root := t.TempDir()
-	foreign := filepath.Join(t.TempDir(), "proj--done-feature")
+	foreign := filepath.Join(t.TempDir(), "x-unmerged", "proj--done-feature")
 	g := &git.Fake{
 		Worktrees: []git.Worktree{
 			{Path: root, Branch: "refs/heads/main"},
@@ -920,8 +927,8 @@ func TestDoctorCheckForeignWorktrees_MergedBranchIsReportedMerged(t *testing.T) 
 		MergedBranchesValue: []string{"main", "done-feature"},
 	}
 	check := doctorCheckForeignWorktrees(context.Background(), g, root)
-	assert.Contains(t, check.Detail, "merged")
-	assert.NotContains(t, check.Detail, "unmerged")
+	assert.Contains(t, check.Detail, "(branch done-feature, merged, clean)")
+	assert.NotContains(t, detailWithoutPath(check.Detail, foreign), "unmerged")
 }
 
 // TestDoctorCheckForeignWorktrees_NeverFabricatesDirtyState is the review
@@ -931,7 +938,7 @@ func TestDoctorCheckForeignWorktrees_MergedBranchIsReportedMerged(t *testing.T) 
 // is exactly the defect this journey exists to prevent.
 func TestDoctorCheckForeignWorktrees_NeverFabricatesDirtyState(t *testing.T) {
 	root := t.TempDir()
-	foreign := filepath.Join(t.TempDir(), "proj--stale-feature")
+	foreign := filepath.Join(t.TempDir(), "x-dirty)", "proj--stale-feature")
 	g := &git.Fake{
 		Worktrees: []git.Worktree{
 			{Path: root, Branch: "refs/heads/main"},
@@ -940,8 +947,8 @@ func TestDoctorCheckForeignWorktrees_NeverFabricatesDirtyState(t *testing.T) {
 		Dirty: map[string]bool{}, // explicitly clean at check time
 	}
 	check := doctorCheckForeignWorktrees(context.Background(), g, root)
-	assert.Contains(t, check.Detail, "clean")
-	assert.NotContains(t, check.Detail, "dirty)")
+	assert.Contains(t, check.Detail, "(branch stale-feature, unmerged, clean)")
+	assert.NotContains(t, detailWithoutPath(check.Detail, foreign), "dirty")
 }
 
 // TestDoctorCheckForeignWorktrees_MergedBranchesErrorDoesNotClaimUnmerged
@@ -950,7 +957,7 @@ func TestDoctorCheckForeignWorktrees_NeverFabricatesDirtyState(t *testing.T) {
 // exactly the fabricated claim MergedBranches exists to prevent.
 func TestDoctorCheckForeignWorktrees_MergedBranchesErrorDoesNotClaimUnmerged(t *testing.T) {
 	root := t.TempDir()
-	foreign := filepath.Join(t.TempDir(), "proj--stale-feature")
+	foreign := filepath.Join(t.TempDir(), "x-unmerged", "proj--stale-feature")
 	g := &git.Fake{
 		Worktrees: []git.Worktree{
 			{Path: root, Branch: "refs/heads/main"},
@@ -959,8 +966,8 @@ func TestDoctorCheckForeignWorktrees_MergedBranchesErrorDoesNotClaimUnmerged(t *
 		MergedBranchesErr: errors.New("git branch --merged: boom"),
 	}
 	check := doctorCheckForeignWorktrees(context.Background(), g, root)
-	assert.Contains(t, check.Detail, "merge state unknown")
-	assert.NotContains(t, check.Detail, "unmerged")
+	assert.Contains(t, check.Detail, "(branch stale-feature, merge state unknown, clean)")
+	assert.NotContains(t, detailWithoutPath(check.Detail, foreign), "unmerged")
 }
 
 // --- DOCTOR-CHECK-HARP-DURABILITY-s9 (J001300 row 3) -----------------------------

@@ -57,3 +57,21 @@ func TestFindingsError_FixOnlyForASingleFinding(t *testing.T) {
 	assert.Contains(t, err.Error(), clifmt.FixLine("    ", fixA))
 	assert.Contains(t, err.Error(), clifmt.FixLine("    ", fixB))
 }
+
+// A single finding's remedy travels in ONE place: the error's Fix, which
+// every renderer (cobrafmt.Report's fix line, RenderError's envelope,
+// taskloom's MCP remedied) appends after the error text. report.Error's
+// contract is that the fix is carried instead of being spliced into the
+// text, so a listing that also wrote it into the text showed it twice.
+func TestListingError_SingleFindingFixIsCarriedNotSpliced(t *testing.T) {
+	found := report.Findings{{Kind: report.KindTask, Text: "refused", Remedy: fixA}}
+	err := strictness.Mode{}.ListingError("header:", found)
+	require.Error(t, err)
+	fix, ok := clifmt.RemedyOf(err)
+	require.True(t, ok)
+	assert.Equal(t, fixA, fix)
+	assert.Equal(t, "header:\n  - [task] refused", err.Error(),
+		"the listing names the finding; its one fix is the error's, not the text's")
+	rendered := err.Error() + clifmt.FixLine("  ", fix)
+	assert.Equal(t, 1, strings.Count(rendered, fixA), "rendered:\n%s", rendered)
+}

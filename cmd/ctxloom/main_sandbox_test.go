@@ -26,6 +26,9 @@ const mainArgvEnv = "CTXLOOM_TEST_MAIN_ARGV"
 func TestMain(m *testing.M) {
 	if argv, ok := os.LookupEnv(mainArgvEnv); ok {
 		os.Args = append([]string{"ctxloom"}, strings.Fields(argv)...)
+		// The stamp a real build's ldflags give it, or every command past
+		// argument validation refuses over the missing stamp.
+		testsupport.StampTestBinary()
 		main()
 		// main always exits with Run's status; this is never reached.
 		os.Exit(0)

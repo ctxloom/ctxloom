@@ -61,5 +61,6 @@ func TestFormatParity(t *testing.T) {
 		Run:  runMainForExitStatus,
 		// A generator asked for no names refuses before generating anything.
 		FailingArgs: []string{"-n", "0"},
+		NoRefusal:   "harp raises no error that names a fix",
 	})
 }

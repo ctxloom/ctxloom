@@ -19,5 +19,6 @@ func TestFormatParity(t *testing.T) {
 		// check takes no arguments; the extra one fails argument validation
 		// before any file or config is read.
 		FailingArgs: []string{"check", "zz-extra-arg"},
+		NoRefusal:   "ltk's own commands raise no error that names a fix",
 	})
 }

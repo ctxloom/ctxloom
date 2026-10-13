@@ -393,20 +393,26 @@ func (m Mode) Listing(header string, found report.Findings) string {
 }
 
 // ListingError renders found as m's Listing under header, as an error, or nil
-// when found is empty — the one form every findings gate returns. Every remedy
-// is in the listing text; the error names the fix structurally
-// (report.Error.Fix, which clifmt.RenderError puts in the envelope) only when
-// there is exactly one finding, because one remedy field cannot honestly stand
-// for several.
+// when found is empty — the one form every findings gate returns.
+//
+// Each remedy is carried in exactly one place. With several findings that is
+// the listing text, one fix line under each, because one remedy field cannot
+// honestly stand for several. With exactly one, it is the error's Fix
+// (report.Error's contract: carried, not spliced into the text) and the
+// listing omits it, because every renderer appends Fix after the text
+// (cobrafmt.Report's fix line, clifmt.RenderError's envelope, taskloom's MCP
+// tool error); a listing that also wrote it printed the fix twice.
 func (m Mode) ListingError(header string, found report.Findings) error {
 	if len(found) == 0 {
 		return nil
 	}
-	e := report.Error{Msg: m.Listing(header, found)}
 	if len(found) == 1 {
-		e.Fix = found[0].Remedy
+		f := found[0]
+		fix := f.Remedy
+		f.Remedy = ""
+		return report.Error{Msg: m.Listing(header, report.Findings{f}), Fix: fix}
 	}
-	return e
+	return report.Error{Msg: m.Listing(header, found)}
 }
 
 // Sink is the rendering sink for this mode's program (see Sink).

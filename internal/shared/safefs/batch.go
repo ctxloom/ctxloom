@@ -99,20 +99,12 @@ func (f fold) changed() bool {
 // the commit there: the paths before it are written, which is the residual
 // of having no cross-file atomicity.
 func (b *Batch) Commit() (Committed, error) {
-	paths := make([]string, 0, len(b.files))
-	for p := range b.files {
-		paths = append(paths, p)
-	}
-	sort.Strings(paths)
+	paths := b.paths()
 	var out Committed
 	err := b.locked(paths, func() error {
-		folds := make([]fold, 0, len(paths))
-		for _, p := range paths {
-			f, err := b.fold(p)
-			if err != nil {
-				return err
-			}
-			folds = append(folds, f)
+		folds, err := b.foldAll(paths)
+		if err != nil {
+			return err
 		}
 		for _, f := range folds {
 			if err := b.land(f, &out); err != nil {
@@ -122,6 +114,61 @@ func (b *Batch) Commit() (Committed, error) {
 		return nil
 	})
 	return out, err
+}
+
+// Folded is one path as a Commit would leave it: as read (Before, Existed)
+// and as every edit folded it (After, Keep).
+type Folded struct {
+	Path          string
+	Before, After []byte
+	Existed, Keep bool
+}
+
+// Changed reports whether a Commit would write or remove the path: its
+// existence or its bytes differ.
+func (f Folded) Changed() bool {
+	return fold{before: f.Before, after: f.After, existed: f.Existed, keep: f.Keep}.changed()
+}
+
+// Fold is a Commit that lands nothing: under every path's lock, in Commit's
+// order, it reads and folds every path and reports each, sorted by path. It
+// runs no seal and no confirm and writes, removes and creates nothing, so
+// what it reports is what a Commit of the same batch would do to each file
+// and nothing more. A failed edit fails it, as it fails a Commit.
+func (b *Batch) Fold() ([]Folded, error) {
+	paths := b.paths()
+	var out []Folded
+	err := b.locked(paths, func() error {
+		folds, err := b.foldAll(paths)
+		for _, f := range folds {
+			out = append(out, Folded{Path: f.path, Before: f.before, After: f.after, Existed: f.existed, Keep: f.keep})
+		}
+		return err
+	})
+	return out, err
+}
+
+// paths is every staged path, sorted: the one order every batch locks in.
+func (b *Batch) paths() []string {
+	paths := make([]string, 0, len(b.files))
+	for p := range b.files {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+// foldAll reads and folds each path, stopping at the first failed edit.
+func (b *Batch) foldAll(paths []string) ([]fold, error) {
+	folds := make([]fold, 0, len(paths))
+	for _, p := range paths {
+		f, err := b.fold(p)
+		if err != nil {
+			return nil, err
+		}
+		folds = append(folds, f)
+	}
+	return folds, nil
 }
 
 // locked runs fn holding the lock of every path, nested in the order given.

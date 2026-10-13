@@ -3,7 +3,6 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/kit"
@@ -58,19 +57,6 @@ func (Opencode) Decode(input []byte) (Request, error) {
 	}
 	req.ToolUngated = req.Command == "" && req.FilePath == ""
 	return req, nil
-}
-
-// patchFileLine is a file header of apply_patch's patch grammar.
-var patchFileLine = regexp.MustCompile(`(?m)^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$`)
-
-// patchedFile is the one file a patch touches; "" when it touches none or
-// several.
-func patchedFile(patch string) string {
-	m := patchFileLine.FindAllStringSubmatch(patch, -1)
-	if len(m) != 1 {
-		return ""
-	}
-	return m[0][1]
 }
 
 // Encode renders a denial as the bridge's blocking answer.

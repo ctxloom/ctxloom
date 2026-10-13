@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -45,6 +46,9 @@ func (ClaudeCode) Decode(input []byte) (Request, error) {
 	if filePath == "" {
 		filePath = p.ToolInput.NotebookPath
 	}
+	if p.ToolName == applyPatchTool {
+		return applyPatchRequest(p.ToolInput.PatchText), nil
+	}
 	return Request{
 		ToolName:    p.ToolName,
 		Command:     p.ToolInput.Command,
@@ -52,6 +56,33 @@ func (ClaudeCode) Decode(input []byte) (Request, error) {
 		FilePath:    filePath,
 		ToolUngated: !claudeGatesTool(p.ToolName),
 	}, nil
+}
+
+// applyPatchTool is the one tool on the hook wire claude has none of:
+// opencode's, which its bridge passes under its own name and input (ruling
+// #28). It is read off the wire only, never part of the matcher `manage`
+// installs into claude's settings (claudeGatedTools).
+const applyPatchTool = "apply_patch"
+
+// applyPatchRequest gates a patch by the one file it touches. A patch that
+// touches other than exactly one file, which a single Request cannot carry, is
+// ungated, which evaluate denies rather than checking half of it.
+func applyPatchRequest(patch string) Request {
+	file := patchedFile(patch)
+	return Request{ToolName: applyPatchTool, FilePath: file, ToolUngated: file == ""}
+}
+
+// patchFileLine is a file header of apply_patch's patch grammar.
+var patchFileLine = regexp.MustCompile(`(?m)^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$`)
+
+// patchedFile is the one file a patch touches; "" when it touches none or
+// several.
+func patchedFile(patch string) string {
+	m := patchFileLine.FindAllStringSubmatch(patch, -1)
+	if len(m) != 1 {
+		return ""
+	}
+	return m[0][1]
 }
 
 // ccShellForTool maps a Claude Code tool name to a shell hint. It only returns

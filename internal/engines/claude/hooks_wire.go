@@ -36,7 +36,10 @@ const HookEventUserPromptSubmit = "UserPromptSubmit"
 // permissionDeny is the permissionDecision value that blocks the tool call.
 const permissionDeny = "deny"
 
-// HookPayload is the JSON Claude Code writes to a PreToolUse hook's stdin.
+// HookPayload is the JSON Claude Code writes to a PreToolUse hook's stdin. It
+// is also THE HOOK WIRE, ctxloom's cross-engine command-hook wire (ruling
+// #28): another engine's pre-tool hooks get this same input, its tools named
+// as claude's (opencode's bridge).
 type HookPayload struct {
 	SessionID      string    `json:"session_id,omitempty"`
 	TranscriptPath string    `json:"transcript_path,omitempty"`
@@ -50,11 +53,13 @@ type HookPayload struct {
 // ToolInput carries the union of tool-input fields ltk-style consumers need:
 // the command for Bash/PowerShell and the target for the file-editing tools —
 // file_path for Edit/Write/MultiEdit, notebook_path for NotebookEdit (which
-// does not send file_path).
+// does not send file_path). PatchText is apply_patch's patch, the one tool on
+// the hook wire claude has none of (opencode's, under its own name and input).
 type ToolInput struct {
 	Command      string `json:"command,omitempty"`
 	FilePath     string `json:"file_path,omitempty"`
 	NotebookPath string `json:"notebook_path,omitempty"`
+	PatchText    string `json:"patchText,omitempty"`
 }
 
 // HookOutput is the decision JSON a hook writes to stdout to deny a tool

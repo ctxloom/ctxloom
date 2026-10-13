@@ -8,6 +8,13 @@
 # everywhere passes all of them. This gate compares the INDEX against HEAD,
 # pin by pin, so what is about to be committed is what is judged.
 #
+# Checksum pins, `<TOOL>_SHA256_<ARCH>`, pin the bytes of the download that
+# `<TOOL>_VERSION` names. A checksum has no direction, so the gate judges the
+# PAIRING instead: a version change must change every one of its checksums
+# (one left behind is a hash of the old release), a checksum may not change
+# while its version stands still (that is a different tarball under the same
+# name), and a checksum must be 64 lowercase hex characters.
+#
 # A deliberate downgrade names its pin in CTXLOOM_ALLOW_PIN_DOWNGRADE (comma-
 # separated). The gate echoes the override it honoured, so the reviewer of the
 # commit sees the decision in the hook output rather than inferring it.
@@ -65,6 +72,17 @@ pins_at() {
   fi
 }
 
+is_sha256() {
+  [[ $1 =~ ^[0-9a-f]{64}$ ]]
+}
+
+# checksum_version_key NAME: for a checksum pin `<TOOL>_SHA256_<ARCH>`, print
+# the `<TOOL>_VERSION` it belongs to and succeed; fail for any other pin.
+checksum_version_key() {
+  [[ $1 =~ ^(.+)_SHA256_[A-Z0-9]+$ ]] || return 1
+  echo "${BASH_REMATCH[1]}_VERSION"
+}
+
 is_dotted_numeric() {
   [[ $1 =~ ^[0-9]+(\.[0-9]+)*$ ]]
 }
@@ -104,18 +122,51 @@ if [[ ${1:-} == --list ]]; then
   exit 0
 fi
 
+# refuse NAME OLD NEW PATH WHY: report a refused pin change unless its name
+# is in the override, and record the failure.
+refuse() {
+  local name=$1 old=$2 new=$3 path=$4 why=$5
+  if overridden "$name"; then
+    echo "lint-pins: ALLOWED $name $old -> $new in $path ($why) — $override_var=${!override_var}"
+    return
+  fi
+  echo "lint-pins: REFUSED $name $old -> $new in $path: $why." >&2
+  echo "  A deliberate change names its pin: $override_var=$name git commit ..." >&2
+  failed=1
+}
+
 failed=0
 for src in "${sources[@]}"; do
   read -r parser path <<<"$src"
-  declare -A head_pins=()
+  declare -A head_pins=() index_pins=()
   while read -r name value; do
     [[ -n $name ]] && head_pins[$name]=$value
   done < <(pins_at HEAD "$parser" "$path")
+  while read -r name value; do
+    [[ -n $name ]] && index_pins[$name]=$value
+  done < <(pins_at "" "$parser" "$path")
 
-  while read -r name new; do
-    [[ -n $name ]] || continue
+  for name in "${!index_pins[@]}"; do
+    new=${index_pins[$name]}
+    old=${head_pins[$name]-}
+
+    if version_key=$(checksum_version_key "$name"); then
+      if ! is_sha256 "$new"; then
+        refuse "$name" "${old:-(none)}" "$new" "$path" "a checksum pin must be 64 lowercase hex characters"
+        continue
+      fi
+      [[ -v head_pins[$name] ]] || continue
+      version_old=${head_pins[$version_key]-}
+      version_new=${index_pins[$version_key]-}
+      if [[ $version_old != "$version_new" && $old == "$new" ]]; then
+        refuse "$name" "$old" "$new" "$path" "stale checksum: $version_key moved $version_old -> $version_new but this checksum did not"
+      elif [[ $version_old == "$version_new" && $old != "$new" ]]; then
+        refuse "$name" "$old" "$new" "$path" "checksum changed while $version_key stayed $version_new — a different download under the same version"
+      fi
+      continue
+    fi
+
     [[ -v head_pins[$name] ]] || continue
-    old=${head_pins[$name]}
     [[ $old == "$new" ]] && continue
 
     if is_dotted_numeric "$old" && is_dotted_numeric "$new"; then
@@ -124,16 +175,9 @@ for src in "${sources[@]}"; do
     else
       why="not a dotted-numeric version, so its direction cannot be ranked (parser: $parser)"
     fi
-
-    if overridden "$name"; then
-      echo "lint-pins: ALLOWED $name $old -> $new in $path ($why) — $override_var=${!override_var}"
-      continue
-    fi
-    echo "lint-pins: REFUSED $name $old -> $new in $path: $why." >&2
-    echo "  A deliberate downgrade names its pin: $override_var=$name git commit ..." >&2
-    failed=1
-  done < <(pins_at "" "$parser" "$path")
-  unset head_pins
+    refuse "$name" "$old" "$new" "$path" "$why"
+  done
+  unset head_pins index_pins
 done
 
 exit $failed

@@ -55,6 +55,8 @@ ARG TARGETARCH
 # internal/shared/buildpins' drift-gate test asserts these ARG names and the
 # workflow consumers all agree with tool-versions.env.
 ARG GO_VERSION
+ARG GO_SHA256_AMD64
+ARG GO_SHA256_ARM64
 ARG UPX_VERSION
 ARG ONNX_VERSION
 ARG GOLANGCI_LINT_VERSION
@@ -73,6 +75,8 @@ ARG NODE_VERSION
 ARG GIT_MIN_VERSION
 
 RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-image', which reads .devcontainer/tool-versions.env}" \
+    && : "${GO_SHA256_AMD64:?missing --build-arg GO_SHA256_AMD64 — see .devcontainer/tool-versions.env}" \
+    && : "${GO_SHA256_ARM64:?missing --build-arg GO_SHA256_ARM64 — see .devcontainer/tool-versions.env}" \
     && : "${UPX_VERSION:?missing --build-arg UPX_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${ONNX_VERSION:?missing --build-arg ONNX_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${GOLANGCI_LINT_VERSION:?missing --build-arg GOLANGCI_LINT_VERSION — see .devcontainer/tool-versions.env}" \
@@ -115,8 +119,23 @@ RUN curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF911AB18
         echo "git ${installed} is older than GIT_MIN_VERSION=${GIT_MIN_VERSION}" >&2; exit 1; \
     fi
 
-# Install Go
-RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -xzf -
+# Install Go. The tarball lands in a file and is checked against the sha256
+# tool-versions.env pins for this arch BEFORE it is extracted: `curl | tar`
+# would unpack whatever arrived. A mismatch fails the build at sha256sum -c.
+# The pins are go.dev's own published checksums, and scripts/lint-pins refuses
+# a GO_VERSION bump that does not move them too.
+RUN case "${TARGETARCH}" in \
+        amd64) GO_SHA256="${GO_SHA256_AMD64}" ;; \
+        arm64) GO_SHA256="${GO_SHA256_ARM64}" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && tarball="go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" \
+    && tmp="$(mktemp -d)" \
+    && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" -o "${tmp}/${tarball}" \
+    && echo "${GO_SHA256}  ${tmp}/${tarball}" | sha256sum -c - \
+    && tar -C /usr/local -xzf "${tmp}/${tarball}" \
+    && rm -rf "${tmp}" \
+    && test "$(/usr/local/go/bin/go env GOVERSION)" = "go${GO_VERSION}"
 ENV PATH="/usr/local/go/bin:$PATH"
 ENV GOPATH="/go"
 ENV PATH="${GOPATH}/bin:${PATH}"

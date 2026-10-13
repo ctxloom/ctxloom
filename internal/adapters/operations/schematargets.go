@@ -40,7 +40,6 @@ func operationsSchemaTargets() []schemagen.Target {
 	return []schemagen.Target{
 		{Type: reflect.TypeOf(AddItemResult{})},
 		{Type: reflect.TypeOf(AddRemoteResult{})},
-		{Type: reflect.TypeOf(ApplyHooksResult{})},
 		{Type: reflect.TypeOf(AssembleContextResult{})},
 		{Type: reflect.TypeOf(BrowseRemoteResult{})},
 		{Type: reflect.TypeOf(CheckMissingDependenciesResult{})},
@@ -75,7 +74,6 @@ func operationsSchemaTargets() []schemagen.Target {
 		{Type: reflect.TypeOf(LockDependenciesResult{})},
 		{Type: reflect.TypeOf(PushBundleResult{})},
 		{Type: reflect.TypeOf(ReadBundleResult{})},
-		{Type: reflect.TypeOf(RemoveHooksResult{})},
 		{Type: reflect.TypeOf(RemoveLocalItemsResult{})},
 		{Type: reflect.TypeOf(RemoveRemoteResult{})},
 		{Type: reflect.TypeOf(SearchContentResult{})},

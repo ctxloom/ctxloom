@@ -84,9 +84,9 @@ func TestDeliveryApproach_ClaudeProjectMCPNeverHoldsTheBearerAcrossSessions(t *t
 }
 
 // sharedMCPFile is one project whose .mcp.json the user wrote, delivered into
-// by BOTH of claude's writers of that file: the at-rest hooks install
+// by BOTH of claude's writers of that file: an at-rest materialize
 // (operations.Deliver at the project root, the per-kind project writers —
-// what applyHooksToBackend runs) and a run's file delivery (a session writer), over the one
+// what Materialize runs) and a run's file delivery (a session writer), over the one
 // production record store, so each step is where one writer's release could
 // take out the other's entry.
 type sharedMCPFile struct {
@@ -118,7 +118,7 @@ func newSharedMCPFile(t *testing.T) *sharedMCPFile {
 	return &sharedMCPFile{t: t, fs: fs, project: project, mcpPath: mcpPath, rec: rec, kind: kind, pkg: pkg}
 }
 
-// atRest is the hooks install's delivery into the project.
+// atRest is a materialize's delivery into the project.
 func (s *sharedMCPFile) atRest() {
 	s.t.Helper()
 	_, _, err := operations.Deliver(context.Background(), safefs.New(), s.kind, s.pkg, delivery.Loadout{}, atRestAt(s.project, s.kind))
@@ -188,9 +188,9 @@ func TestDeliveryApproach_AtRestThenARunShareTheProjectMCPFile(t *testing.T) {
 }
 
 // TestDeliveryApproach_AnAtRestApplyMidRunKeepsTheRunsEntry: the run
-// delivers first, the hooks install applies while it runs, then the run
-// tears down. The install must not take out the LIVE run's relay entry, and
-// the run's teardown must not take out the install's.
+// delivers first, a materialize applies while it runs, then the run
+// tears down. The materialize must not take out the LIVE run's relay entry,
+// and the run's teardown must not take out the materialize's.
 func TestDeliveryApproach_AnAtRestApplyMidRunKeepsTheRunsEntry(t *testing.T) {
 	s := newSharedMCPFile(t)
 	const bearer = "bearer-of-the-run"

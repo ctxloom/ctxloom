@@ -20,9 +20,8 @@ flowchart TD
 | `AssembleContext` | `internal/core/agent/base.go:174` | The one assembler: `assembleDedupedContext` under its exported name. |
 | `assembleDedupedContext` | `internal/core/agent/contextfile.go:103` | Joins fragments, deduplicates by sha256 of content, warns above 16KB. |
 | `WriteContextFile` | `internal/core/agent/contextfile.go:169` | Writes the deduped context to `.ctxloom/cache/context/<hash>.md` and returns the hash. |
-| `ReadContextFile` | `internal/core/agent/contextfile.go:214` | Reads `<hash>.md` back. No production reader remains; tests use it to inspect the cache. |
 | `contextFileOptions` | `internal/core/agent/contextfile.go:44` | Options bag: `{fs afero.Fs, stderr io.Writer}`. |
-| `ContextFileOption` | `internal/core/agent/contextfile.go:50` | Functional-option type; threaded cross-package by `internal/adapters/operations/hooks.go`. |
+| `ContextFileOption` | `internal/core/agent/contextfile.go:50` | Functional-option type. |
 | `WithContextFS` | `internal/core/agent/contextfile.go:54` | Injects the filesystem. |
 | `WithContextStderr` | `internal/core/agent/contextfile.go:62` | Redirects the warning sink (test-only in practice). |
 | `applyContextOptions` | `internal/core/agent/contextfile.go:69` | Applies options over the `OsFs` / `os.Stderr` defaults. |
@@ -39,11 +38,10 @@ flowchart TD
 
 ## Invariants and contracts
 
-- **The project's context reaches a session once.** claude takes it as the system prompt of a `ctxloom run` launch; the older `manage hooks install` writes claude no context at rest, because a `CLAUDE.md` beside the system prompt would double it (`operations.contextRidesTheLaunch`). `ctxloom materialize` does write it by default — a materialized tree is for a launch with ctxloom out of the loop — so a `ctxloom run` in a project holding materialized context warns, naming the file and `ctxloom materialize --release --surface context`. An engine with no launch-time context channel reads a native file written at rest.
+- **The project's context reaches a session once.** claude takes it as the system prompt of a `ctxloom run` launch; the post-sync refresh writes claude no context at rest, because a `CLAUDE.md` beside the system prompt would double it (`operations.contextRidesTheLaunch`, read off the engine's declared context channel). `ctxloom materialize` does write it by default — a materialized tree is for a launch with ctxloom out of the loop — so a `ctxloom run` in a project holding materialized context warns, naming the file and `ctxloom materialize --release --surface context`. An engine with no launch-time context channel reads a native file written at rest.
 - **`WriteContextFile` is the only writer of `.ctxloom/cache/context/<hash>.md`.** `BaseContextProvider.GetContextFilePath` independently re-derives that path from the hash rather than asking the writer, so the naming scheme exists in two places.
 - **There is exactly ONE assembler.** `agent.AssembleContext` IS `assembleDedupedContext` under the exported name: it deduplicates on `(Name, content)` and emits the oversize warning, and every path that needs "the assembled context" goes through it (U100-F13, resolved by `footless-swimming`).
 - **`WriteContextFile` returns `("", nil)` when the assembled content is empty**, so `CTXLOOM_CONTEXT_FILE` is never set. Nothing distinguishes "no context configured" from "context assembly produced nothing".
-- **`ReadContextFile` maps a missing file to `("", nil)`**, so a reaped or never-written cache file is indistinguishable from "no context configured".
 - **`hook session-start` stays under claude's additionalContext cap.** A resumed essence longer than `claude.AdditionalContextMaxChars` (7,500, under claude's ~10,000) is cut with a pointer to the essence file and to `/recover`, because past the cap the model sees only a short preview.
 - **`RouteUnifiedHooks`' `emit` callback returns nothing**, so a failed emit is invisible to the walker; a caller with zero hooks writes a hook-less settings file with no warning.
 - **ctxloom's hooks are exec form** (`wire.Hook.Command` is the bare `ctxloom`, `wire.Hook.Args` its argv), so no value is ever parsed by a shell, and none carries a fact about the machine that wrote it.

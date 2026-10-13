@@ -106,8 +106,8 @@ but the user runs it themselves; ctxloom never installs a binary for you.
 automatically (no separate registration step) — `ctxloom manage check`
 should now show it, and `ctxloom manage hooks check` should show its hooks
 applied to the backends in use. ltk self-installs its own pre-tool hook the
-first time it's invoked; taskloom's MCP tools ride the same `ctxloom manage
-hooks install` pass that wires ctxloom's own MCP server.
+first time it's invoked; taskloom's MCP tools ride the same `ctxloom run`
+session delivery that serves ctxloom's own MCP endpoint.
 
 ## Phase 3 — Profiles + content
 

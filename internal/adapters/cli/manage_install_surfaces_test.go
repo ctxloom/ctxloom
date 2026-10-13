@@ -119,7 +119,7 @@ func TestManageInstall_PrintNamesNoHookApply(t *testing.T) {
 
 // TestManageUninstall_RemovesWhatAnEarlierInstallWrote pins uninstall's
 // migration role: a project carrying the engine files an earlier ctxloom
-// wrote (today, what the explicit `manage hooks install` still writes) has
+// wrote (today, what an explicit `ctxloom materialize` writes) has
 // them removed, and the scaffold stays. The wired state is asserted BEFORE
 // the removal, so the scenario starts from a project that demonstrably has
 // something to remove.
@@ -134,7 +134,10 @@ func TestManageUninstall_RemovesWhatAnEarlierInstallWrote(t *testing.T) {
 	require.NoError(t, err)
 	scaffolded := treeSnapshot(t, dir)
 
-	_, err = runCLIErr(t, "manage", "hooks", "install")
+	// Every kind but context: the scaffolded seed profile assembles none.
+	// --degraded: its remote parent is not installed in this sandbox, a
+	// finding the strict startup gate would abort on.
+	_, err = runCLIErr(t, "materialize", "--yes", "--degraded", "--surface", "mcp", "--surface", "settings", "--surface", "hooks", "--surface", "commands", "--surface", "skills")
 	require.NoError(t, err)
 
 	// What the project-side writer measurably added: the files uninstall

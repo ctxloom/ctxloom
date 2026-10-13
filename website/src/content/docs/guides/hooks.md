@@ -4,7 +4,7 @@ title: "Hooks and Context Injection"
 
 You never paste your standards into a new session again. Start a session with `ctxloom run`, and your fragments and profile are already in the conversation before you type a word.
 
-Claude Code gets the assembled context one way: a `ctxloom run` session passes it to Claude Code as an appended system prompt file in the session's own home. A Claude Code you start directly with `claude` gets no ctxloom context from a hook; it reads only what `ctxloom materialize` wrote into the project at rest (see [Profiles](/concepts/profiles)). `ctxloom manage hooks install` wires ctxloom's hooks into the project, including a **SessionStart hook**, but that hook never carries the project's context. It delivers a resumed session's essence and ctxloom's session-start notices. This guide explains both and how to configure them.
+Claude Code gets the assembled context one way: a `ctxloom run` session passes it to Claude Code as an appended system prompt file in the session's own home. A Claude Code you start directly with `claude` gets no ctxloom context from a hook; it reads only what `ctxloom materialize` wrote into the project at rest (see [Profiles](/concepts/profiles)). `ctxloom materialize` wires ctxloom's hooks into the project, including a **SessionStart hook**, but that hook never carries the project's context. It delivers a resumed session's essence and ctxloom's session-start notices. This guide explains both and how to configure them.
 
 ## How Context Injection Works
 
@@ -20,11 +20,11 @@ Claude Code gets the assembled context one way: a `ctxloom run` session passes i
 
 ## Automatic Hook Setup
 
-A `ctxloom run` session delivers its hooks into the session's own home, so nothing in your project tree is needed for them. `ctxloom init` and `ctxloom manage install` write no engine file; an engine you launch directly in the project gets no ctxloom hooks unless you wired them in explicitly with `ctxloom manage hooks install`. Where they are written, they take the engine's own shape:
+A `ctxloom run` session delivers its hooks into the session's own home, so nothing in your project tree is needed for them. `ctxloom init` and `ctxloom manage install` write no engine file; an engine you launch directly in the project gets no ctxloom hooks unless you wired them in explicitly with `ctxloom materialize`. Where they are written, they take the engine's own shape:
 
 ### Claude Code
 
-`ctxloom manage hooks install` adds a hook to `.claude/settings.json`. Each event maps to an **array** of matcher entries, not a single object, because Claude Code's settings schema rejects the object shape:
+`ctxloom materialize` adds a hook to `.claude/settings.json`. Each event maps to an **array** of matcher entries, not a single object, because Claude Code's settings schema rejects the object shape:
 
 ```json
 {
@@ -56,24 +56,23 @@ A `ctxloom run` session carries its own hooks; you never apply them for it. `ctx
 To write ctxloom's hooks into the project tree explicitly — for an engine you launch directly rather than through `ctxloom run` — apply them yourself:
 
 ```bash
-# Write hooks (the engines this project configures)
-ctxloom manage hooks install
+# Write the hooks and settings (the engines this project configures)
+ctxloom materialize --yes --surface hooks --surface settings
 
 # Target one backend
-ctxloom manage hooks install --backend claude-code
+ctxloom materialize --yes --surface hooks --surface settings --backend claude-code
 
 # Take them back out
-ctxloom manage uninstall
+ctxloom materialize --yes --release --surface hooks --surface settings
 ```
 
-These commands still work, and will be removed in favour of `ctxloom
-materialize`, which writes the same files per kind: `ctxloom materialize --yes
---surface hooks` writes only the hooks into the project, and `--release` takes
-out what it wrote. With no `--surface`, `ctxloom materialize` writes every kind,
-including claude's context into `CLAUDE.md`, which `manage hooks install` never
-did.
+`ctxloom materialize` writes per kind, and `--release` takes out only what it
+wrote. With no `--surface` it writes every kind, including claude's context
+into `CLAUDE.md`. `ctxloom manage uninstall` takes out everything any engine's
+at-rest delivery wrote into the project. (`manage hooks install` and `manage
+hooks uninstall` are gone.)
 
-Applying hooks also writes the command files exported from commands, the MCP servers your bundles declare, and the HUD statusline (honoring `config.statusline`). ctxloom's own MCP server is not among them: it is served by a running `ctxloom run` session and registered only for that session, so nothing ctxloom-owned is left executable at rest. There is no MCP tool for this; hook management is CLI-only.
+Materializing every kind also writes the command files exported from commands, the MCP servers your bundles declare, and the HUD statusline (honoring `config.statusline`). ctxloom's own MCP server is not among them: it is served by a running `ctxloom run` session and registered only for that session, so nothing ctxloom-owned is left executable at rest. There is no MCP tool for this; hook management is CLI-only.
 
 `ctxloom manage hooks list` shows every hook that will fire, per event, in order, with the profile, bundle or companion each came from.
 
@@ -209,7 +208,7 @@ While ctxloom manages its own hooks, you can add custom hooks alongside ctxloom'
 
 **Note:** Claude Code's settings schema rejects unrecognized fields on hook entries, so ctxloom can't tag its own hooks with a marker field. Instead it keeps an ownership record of the hook commands it wrote and removes only those, plus its own callback verbs (`hook session-start` and the other `ctxloom hook` subcommands). A custom hook of yours stays intact even when it invokes `ctxloom`.
 
-Hooks you author yourself belong in a profile or bundle under `hooks:` (see [Configuration → Hooks](/guides/configuration/#hooks)). ctxloom then delivers them with its own, into the session home for `ctxloom run` or into `.claude/settings.json` for `ctxloom materialize` and `manage hooks install`.
+Hooks you author yourself belong in a profile or bundle under `hooks:` (see [Configuration → Hooks](/guides/configuration/#hooks)). ctxloom then delivers them with its own, into the session home for `ctxloom run` or into `.claude/settings.json` for `ctxloom materialize`.
 
 ## Troubleshooting
 

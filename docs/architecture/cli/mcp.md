@@ -26,8 +26,8 @@ declaration: inside a session the engine's provided dynamic approach
 (`engine.Definition.Dynamic`, `DynamicApproach.Endpoint`) turns the endpoint
 the loadout carries (`Loadout.MCP`, bound by the runner) into the entry the
 session's registry names — URL + bearer (`engine.BearerEntry` is the one
-projection). At rest — `manage hooks install`, a profile materialize,
-doctor — there is no session, and the entry renders nothing. An engine with
+projection). At rest — `ctxloom materialize`, doctor — there is no
+session, and the entry renders nothing. An engine with
 no dynamic approach receives nothing for it. A writer handed the declaration
 unrendered refuses it (`wire.ErrMCPServerUnrendered`).
 

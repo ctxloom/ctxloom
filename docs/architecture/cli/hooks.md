@@ -85,7 +85,7 @@ ctxloom callback (`ctxloom hook <verb> ...`). The verb resolves that name
 through the registry (`firingEngine`, `hook_codec.go`). An entry with no
 `--engine` — installed before this existed, or written by hand — is the
 registry's default engine (`Registry.Default`, the same setup-level default
-`profile materialize` uses), never a name written in the verb. An explicit
+an explicit-target `ctxloom materialize` falls back to), never a name written in the verb. An explicit
 `--engine` naming no registered engine is refused (`UnknownHookEngineError`).
 
 **Tool classes.** A hook narrowed to a kind of tool names a neutral class,

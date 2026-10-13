@@ -56,13 +56,15 @@ func registerJ000100Steps(ctx *godog.ScenarioContext) {
 	// It runs the real commands rather than writing the files they produce:
 	// a fabricated installed state drifts from the real one, and every scenario
 	// resting on it would then assert against a state the product never
-	// reaches. "Wired" is the scaffold PLUS the explicit project-side hooks
-	// install — `manage install` alone writes no engine file (a `ctxloom run`
-	// session carries its own surfaces).
+	// reaches. "Wired" is the scaffold PLUS an explicit project-side
+	// `ctxloom materialize` — `manage install` alone writes no engine file (a
+	// `ctxloom run` session carries its own surfaces).
 	ctx.Step(`^ctxloom is already wired into her project$`, func(c context.Context) error {
 		for _, cmdline := range []string{
 			"ctxloom manage install --engine claude-code",
-			"ctxloom manage hooks install",
+			// --degraded: the scaffold's profile inherits a remote parent
+			// only `ctxloom deps pull` installs; this cell is offline.
+			"ctxloom materialize --yes --degraded",
 		} {
 			if err := runCLI(c, cmdline, ""); err != nil {
 				return err

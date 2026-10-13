@@ -200,28 +200,3 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 
 // contextSectionSep joins the fragments of a context file.
 const contextSectionSep = "\n\n---\n\n"
-
-// ReadContextFile reads the context file for the given hash from .ctxloom/context/[hash].md.
-// Use WithContextFS to provide a custom filesystem for testing.
-//
-// A MISSING file is an error wrapping os.ErrNotExist, not ("", nil). Every
-// caller reaches here holding a content hash, which only exists because the
-// file was written — so its absence (reaped cache, wrong workDir, cleaned
-// tree) is a real fact, and collapsing it into "no context" made an
-// undelivered context indistinguishable from a session that was configured
-// with none. Callers that legitimately tolerate absence keep doing so by
-// warning and continuing with empty content; they simply now know.
-func ReadContextFile(workDir, hash string, opts ...ContextFileOption) (string, error) {
-	options := applyContextOptions(opts)
-	fs := options.fs
-
-	contextPath := filepath.Join(workDir, SCMContextSubdir, hash+".md")
-	content, err := afero.ReadFile(fs, contextPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("context file %s.md is missing: %w", hash, os.ErrNotExist)
-		}
-		return "", fmt.Errorf("failed to read context file: %w", err)
-	}
-	return string(content), nil
-}

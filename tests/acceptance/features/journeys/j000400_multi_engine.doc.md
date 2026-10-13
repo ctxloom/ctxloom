@@ -77,7 +77,7 @@ codex has no native context file by design (its only delivery mechanism is a
 hook that reads a cache file at runtime) — that much is an intentional
 difference in shape, not a bug, and the materialization scenario above
 correctly does not claim a codex row for context. What this scenario catches
-is narrower and real: `profile materialize` never populates the underlying
+is narrower and real: `ctxloom materialize` never populates the underlying
 data codex's context hook needs, so on this one delivery path, codex's
 context is a silent no-op — the only one of the three engines whose
 materialized target ends up with no context at all, and nothing about the

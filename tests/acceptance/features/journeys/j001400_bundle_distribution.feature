@@ -61,7 +61,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   #     and how the fixture and its assertions were corrected.
   #
   # (b) THE CONTAINER HALF OF THE DELIVERY MATRIX runs a real
-  #     `profile materialize` INSIDE a hermetic container cell
+  #     `ctxloom materialize` INSIDE a hermetic container cell
   #     (internal/testsupport/containercell) against a bind-mounted target,
   #     asserting the pulled bytes from the host side; mode and ownership
   #     across the mount are the cell's own docker_integration test's. What they do not
@@ -153,7 +153,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # only the first, and dropping the second assertion entirely catches none and
   # narrows the journey's claim to "arrives on disk".
   #
-  # The vehicle is `profile materialize`, not `ctxloom run`, for the reason
+  # The vehicle is `ctxloom materialize`, not `ctxloom run`, for the reason
   # stated at the delivery matrix below: a run's Cleanup strips what it
   # delivered before any step could stat it.
   # --------------------------------------------------------------------------
@@ -295,7 +295,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # after mock gained a context surface it still implied no skills tree was
   # possible — untrue since 3ec1643e.)
   #
-  # THE VEHICLE IS `profile materialize`, NOT `ctxloom run`. That is a
+  # THE VEHICLE IS `ctxloom materialize`, NOT `ctxloom run`. That is a
   # lifecycle fact about every backend, not a mock limitation: grpc.RunTurn
   # calls Cleanup immediately after Execute, and the shared LIFO reversal
   # strips the delivered managed section — removing the file outright when

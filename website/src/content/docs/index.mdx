@@ -40,7 +40,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 :::note[Why not just CLAUDE.md?]
 Claude Code has `CLAUDE.md` - but it is **project-level only** and encourage intermingling project-specific context with general best practices. ctxloom separates concerns: your standards in a personal remote, project context in `.ctxloom/`, team standards in shared remotes. Fragments and commands can also be distilled by a cheap, fast LLM, so a long guideline costs fewer tokens every session.
 
-**ctxloom does not stop Claude Code from reading `CLAUDE.md`.** `ctxloom run` hands its assembled context to Claude Code on a separate channel, and Claude Code still loads any `CLAUDE.md` in the project tree as it always does, so a standard kept in both places is delivered twice. Keep your standards in fragments, not in `CLAUDE.md`. For a Claude Code you launch yourself, `ctxloom profile materialize` appends the assembled context to the target's `CLAUDE.md` and leaves the hand-written part in place.
+**ctxloom does not stop Claude Code from reading `CLAUDE.md`.** `ctxloom run` hands its assembled context to Claude Code on a separate channel, and Claude Code still loads any `CLAUDE.md` in the project tree as it always does, so a standard kept in both places is delivered twice. Keep your standards in fragments, not in `CLAUDE.md`. For a Claude Code you launch yourself, `ctxloom materialize` appends the assembled context to the target's `CLAUDE.md` and leaves the hand-written part in place.
 :::
 
 ## What ctxloom Does
@@ -159,7 +159,7 @@ irm https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.ps1 |
 ctxloom run -p developer "help with code"
 
 # Write a profile into a directory for a Claude Code you launch yourself
-ctxloom profile materialize developer --target .
+ctxloom materialize developer --target .
 ```
 
 ctxloom's own MCP server exists only inside a `ctxloom run` session. A materialized profile carries the context, hooks, commands and the MCP servers its bundles declare, but not ctxloom's; a Claude Code launched with neither gets nothing from ctxloom.

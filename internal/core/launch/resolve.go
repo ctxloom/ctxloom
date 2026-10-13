@@ -44,9 +44,6 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		return Launch{}, err
 	}
 	pkg = pkg.WithLead(src.Extra...)
-	// The binding's delivery preference rides the package as written, so
-	// the runner validates it against the engine it hosts.
-	pkg.Selection.Preference = sel.surfaces
 
 	label := firstNonEmpty(src.Label, sel.llm, pkg.Selection.LLM, cfg.PrimaryLabel())
 	eng, labelCfg, labelPerm, err := resolveEngineMode(deps, cfg, src, label)
@@ -321,7 +318,6 @@ type selection struct {
 	permissions agents.Permissions
 	homeMode    agents.HomeMode
 	envHost     agents.EnvHost
-	surfaces    map[string]string
 	roots       map[string]string
 }
 
@@ -394,7 +390,6 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		permissions: binding.Permissions,
 		homeMode:    home,
 		envHost:     envHost,
-		surfaces:    maps.Clone(binding.Surfaces),
 		roots:       maps.Clone(binding.Roots),
 	}, nil
 }

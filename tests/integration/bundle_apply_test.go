@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -36,11 +37,11 @@ hooks:
       type: command
 `
 
-// applyHooksForProfile lays out an .ctxloom app dir with the demo bundle and the
-// given profiles, makes defaultProfile the active default, runs operations.ApplyHooks
-// against a fresh project dir, and returns the written settings files
+// materializeForProfile lays out an .ctxloom app dir with the demo bundle and the
+// given profiles, makes defaultProfile the active default, runs operations.Materialize
+// into a fresh project dir, and returns the written settings files
 // (Claude's .mcp.json and Claude's settings.json).
-func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[string]string) (mcpJSON, claudeJSON string) {
+func materializeForProfile(t *testing.T, defaultProfile string, profiles map[string]string) (mcpJSON, claudeJSON string) {
 	t.Helper()
 
 	isolatedRecords(t)
@@ -73,13 +74,13 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 	// refused at entry (config.ErrTrustUnbound). A project-local bundle and
 	// the builtins are admitted by locality; nothing here travelled.
 
-	_, err := operations.ApplyHooks(context.Background(), engines.Registry(), operations.ApplyHooksRequest{
-		// Empty, not "all": that selector was removed. An omitted backend now
-		// means the project's CONFIGURED engines, and a named one must resolve.
-		Backend: "",
-		WorkDir: projectDir,
-		Root:    safefs.New(),
-		Cfg:     cfg,
+	_, err := operations.Materialize(context.Background(), engines.Registry(), cfg, operations.MaterializeRequest{
+		// No engine named: the project's CONFIGURED engines.
+		Target: projectDir,
+		Root:   safefs.New(),
+		// The surfaces under test; the demo bundle carries no fragments, and
+		// a materialize that selects context refuses an empty one.
+		Surfaces: []operations.SurfaceSpec{{Kind: present.MCP}, {Kind: present.Settings}, {Kind: present.Hooks}},
 	})
 	require.NoError(t, err)
 
@@ -109,7 +110,7 @@ func assertBundleApplied(t *testing.T, mcpJSON, claudeJSON string) {
 // TestBundleApply_DirectProfile: the demo bundle is referenced directly by the
 // default profile. Baseline that MCP + hooks flow through apply.
 func TestBundleApply_DirectProfile(t *testing.T) {
-	mcpJSON, claudeJSON := applyHooksForProfile(t, "base", map[string]string{
+	mcpJSON, claudeJSON := materializeForProfile(t, "base", map[string]string{
 		"base": "bundles:\n  - demo\n",
 	})
 	assertBundleApplied(t, mcpJSON, claudeJSON)
@@ -117,10 +118,10 @@ func TestBundleApply_DirectProfile(t *testing.T) {
 
 // TestBundleApply_InheritedProfile: the demo bundle is referenced only by a
 // parent profile; the default ("child") merely inherits it. This is the
-// inherited-bundle-drop regression driven end-to-end through ApplyHooks:
+// inherited-bundle-drop regression driven end-to-end through Materialize:
 // before the fix, inherited bundles' MCP servers and hooks were silently dropped.
 func TestBundleApply_InheritedProfile(t *testing.T) {
-	mcpJSON, claudeJSON := applyHooksForProfile(t, "child", map[string]string{
+	mcpJSON, claudeJSON := materializeForProfile(t, "child", map[string]string{
 		"parent": "bundles:\n  - demo\n",
 		"child":  "parents:\n  - parent\n",
 	})

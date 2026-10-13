@@ -281,7 +281,7 @@ var deliverySpecs = func() map[string]deliverySpec {
 	// "No skills" is the absence of a skills EXPORT, not of the surface: the
 	// double carries a skills approach and exports nothing to it, so a
 	// package's skill reaches no file. That absence is the double's subject
-	// (operations.TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext).
+	// (operations.TestMaterialize_NoSkillsEngineDumpsAPremisedFragmentIntoContext).
 	noSkills := "mock-noskills exports no skill, so its skills approach is handed none"
 	for _, m := range []map[string]deliverySpec{
 		mockFamily("mock", allKinds...),

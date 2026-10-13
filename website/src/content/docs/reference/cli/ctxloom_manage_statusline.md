@@ -17,7 +17,7 @@ Control whether ctxloom installs and maintains its HUD statusline.
 
 Disable it to keep your own (or no) statusline — ctxloom will stop managing the
 statusline and clear any it previously installed. The change takes effect on the
-next 'ctxloom manage hooks install' or 'ctxloom run'.
+next 'ctxloom materialize' or 'ctxloom run'.
 
 ```
 ctxloom manage statusline [flags]

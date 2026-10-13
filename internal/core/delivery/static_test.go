@@ -113,7 +113,7 @@ func TestStatic_SessionAndMaterialize_ShareWritersAndDifferOnlyInTarget(t *testi
 	fs := afero.NewMemMapFs()
 	static := fsstatic.New(safefs.NewMem(fs))
 	rec := newRecord(t, fs)
-	sessionW, projectW := delivery.SessionWriter("harp-1"), delivery.ProjectWriter
+	sessionW, projectW := delivery.SessionWriter("harp-1"), delivery.ProjectWriterFor("mock")
 
 	session := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: rec, Writer: sessionW}
 	project := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: projectW}
@@ -154,7 +154,7 @@ func TestStatic_TwoWritersOneTarget_ReconcileRemovesOnlyOwnEntries(t *testing.T)
 	lo := delivery.Loadout{Plan: plan, Package: pkg}
 
 	sessionT := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: delivery.SessionWriter("harp-1")}
-	projectT := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: delivery.ProjectWriter}
+	projectT := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: delivery.ProjectWriterFor("mock")}
 	_, err = static.Deliver(context.Background(), lo, eng.Root(), sessionT)
 	require.NoError(t, err)
 	_, err = static.Deliver(context.Background(), lo, eng.Root(), projectT)
@@ -163,7 +163,7 @@ func TestStatic_TwoWritersOneTarget_ReconcileRemovesOnlyOwnEntries(t *testing.T)
 	// The project writer uninstalls; the session's entries survive.
 	_, err = static.Deliver(context.Background(), delivery.Loadout{Package: pkg}, eng.Root(), projectT)
 	require.NoError(t, err)
-	require.Empty(t, owned(t, rec, delivery.ProjectWriter, "/p"))
+	require.Empty(t, owned(t, rec, delivery.ProjectWriterFor("mock"), "/p"))
 	require.NotEmpty(t, owned(t, rec, delivery.SessionWriter("harp-1"), "/p"))
 	require.NotEmpty(t, deliverytest.RelativeFiles(fs, "/p"), "the file another writer still owns entries in stays")
 }
@@ -244,15 +244,15 @@ func TestStatic_SharedRootIsASelection_NotAFallback(t *testing.T) {
 // record and a writer; each absence is ErrNoRoot.
 func TestTarget_Validate_RefusesAnUnrootableTarget(t *testing.T) {
 	rec := newRecord(t, afero.NewMemMapFs())
-	full := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: delivery.ProjectWriter}
+	full := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: delivery.ProjectWriterFor("mock")}
 	require.NoError(t, full.Validate())
 	require.NoError(t, delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: rec, Writer: delivery.SessionWriter("h")}.Validate())
 
 	require.ErrorIs(t, delivery.Target{}.Validate(), delivery.ErrNoRoot)
-	require.ErrorIs(t, delivery.Target{Root: present.New(present.OnHost(present.Paths{})), Ownership: rec, Writer: delivery.ProjectWriter}.Validate(), delivery.ErrNoRoot, "no root")
-	require.ErrorIs(t, delivery.Target{Root: present.ProjectOnHost("/p"), Writer: delivery.ProjectWriter}.Validate(), delivery.ErrNoRoot, "no record")
+	require.ErrorIs(t, delivery.Target{Root: present.New(present.OnHost(present.Paths{})), Ownership: rec, Writer: delivery.ProjectWriterFor("mock")}.Validate(), delivery.ErrNoRoot, "no root")
+	require.ErrorIs(t, delivery.Target{Root: present.ProjectOnHost("/p"), Writer: delivery.ProjectWriterFor("mock")}.Validate(), delivery.ErrNoRoot, "no record")
 	require.ErrorIs(t, delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec}.Validate(), delivery.ErrNoRoot, "no writer")
-	require.ErrorIs(t, delivery.Target{Root: present.ProjectOnHost("out"), Ownership: rec, Writer: delivery.ProjectWriter}.Validate(), delivery.ErrNoRoot, "a relative root records nothing anyone can find")
+	require.ErrorIs(t, delivery.Target{Root: present.ProjectOnHost("out"), Ownership: rec, Writer: delivery.ProjectWriterFor("mock")}.Validate(), delivery.ErrNoRoot, "a relative root records nothing anyone can find")
 }
 
 // TestInputsFor_ProjectsThePackageOnce: every kind's inputs come from the

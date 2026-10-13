@@ -61,8 +61,10 @@ drives it.
 The runner delivers the launch into the SESSION's home — the engine's
 settings, hooks, MCP registry, context, commands and skills — never into the
 project (ruled 2026-09-21: sessions carry their surfaces; the project is
-written only by an explicit `ctxloom materialize`, or the older `manage
-hooks install`). ctxloom's own MCP
+written only by an explicit `ctxloom materialize`, or the post-sync refresh
+that runs it under `--yes`: without `run --yes` the startup sync's refresh
+only plans, and `operations.WriteRefreshSkipped` names what it skipped).
+ctxloom's own MCP
 server reaches the engine as the session's endpoint (URL + bearer in the
 session's registry), rendered from the companion loadout's declaration by
 `delivery.InputsFor`; see `docs/architecture/cli/mcp.md`.
@@ -82,7 +84,7 @@ whose stderr reaches the user only when a run fails.
   context, under exactly one resolved permission posture, and its exit
   reaches the shell.
 - A process-owning entry point gates on strictness before it spawns
-  (`gateStartup`; `profile materialize` and the version gate use the same
+  (`gateStartup`; `materialize` and the version gate use the same
   `phaseGates`).
 - The runner is the one credential holder: the host keeps the owner's
   credential for minting and revocation and stamps nothing on its own

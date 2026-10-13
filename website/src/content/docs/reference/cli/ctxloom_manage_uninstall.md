@@ -9,15 +9,17 @@ This page is generated from `ctxloom manage uninstall --help`.
 
 ## ctxloom manage uninstall
 
-Remove ctxloom's hooks, statusline, MCP entry, and command files
+Remove what ctxloom delivered into the project, for every engine
 
 ### Synopsis
 
-Strip ctxloom-managed hooks, statusline, MCP servers, and generated command
-files from every supported backend — what an earlier ctxloom's install, or an
-explicit 'manage hooks install', wrote into the project. A project that only
-ever saw the current install has nothing to strip. Leaves the .ctxloom
-directory and its contents (profiles, bundles, config) untouched.
+Take out of the project directory everything ctxloom's at-rest deliveries
+wrote there — hooks, statusline, MCP servers, command and skill files, and
+context — for every supported engine, including one the project no longer
+configures. It is 'ctxloom materialize --release' at the project root for
+all engines; only what ctxloom's ownership record says it wrote is removed,
+so your own entries stay. Leaves the .ctxloom directory and its contents
+(profiles, bundles, config) untouched.
 
 ```
 ctxloom manage uninstall [flags]

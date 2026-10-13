@@ -350,7 +350,7 @@ func resolveSetupEngine(selected string, interactive bool) (engine string, repos
 // config.yaml + default remotes.yaml) to the operations core, then publishes
 // the generation that holds the scaffold — the one Reload after a scaffold.
 // Every post-scaffold step (addPersonalRemotes,
-// cloneConfiguredRemotes, pullSeededDependencies, applyInitHooks) and the
+// cloneConfiguredRemotes, pullSeededDependencies) and the
 // discovery launch read that generation; nothing in this process observes
 // the pre-scaffold state again.
 func writeInitialConfig(appDir, engine, dirtyTreeHandler, headlessPermissions string) error {
@@ -477,7 +477,7 @@ func pullSeededDependencies(cmd *cobra.Command, appDir string) {
 	}
 	result, syncErr := syncDependencies(cmd.Context(), App(), operations.SyncDependenciesRequest{
 		Lock:       true,
-		ApplyHooks: false, // applyInitHooks runs right after
+		ApplyHooks: false, // init writes no engine file: a `ctxloom run` session delivers its own
 	})
 	if syncErr != nil {
 		warnDependencyPullFailed(syncErr)

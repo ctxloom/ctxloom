@@ -26,7 +26,7 @@ func sessionStartCommands(h wire.UnifiedHooks) []string {
 
 // TestAssemble_IncludesProfileSessionStartHook locks in the
 // writer-parity contract: a profile-shipped SessionStart hook must appear in the
-// set Assemble produces (the operations.ApplyHooks path and the
+// set Assemble produces (the operations.Materialize path and the
 // `ctxloom run` setup payload both build from it). Before this, Setup merged
 // default-profile hooks and apply-hooks did not, so the next apply-hooks
 // reconcile dropped the profile hook — the drop-on-clobber class that broke

@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -48,32 +49,37 @@ func TestHarnessStatus_ReportsWiring(t *testing.T) {
 	assert.True(t, claude.MCPPresent)
 }
 
-func TestRemoveHooks_StripsWiring(t *testing.T) {
+// TestMaterializeRelease_EveryEngineStripsWiring is `manage uninstall`'s
+// removal: a release for every registered engine at the project root takes
+// out what an earlier delivery wired there.
+func TestMaterializeRelease_EveryEngineStripsWiring(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	const dir = "/project"
 	wireClaudeHarness(t, fs, dir)
 
 	cfg := &config.Config{}
-	res, err := RemoveHooks(context.Background(), engines.Registry(), cfg, RemoveHooksRequest{Backend: "", Root: safefs.NewMem(fs), WorkDir: dir})
+	res, err := Materialize(context.Background(), engines.Registry(), cfg, MaterializeRequest{
+		Engines: EngineNames(engines.Registry()), Release: true, Force: true, Root: safefs.NewMem(fs), Target: dir,
+	})
 	require.NoError(t, err)
-	assert.Equal(t, "removed", res.Status)
-	assert.Contains(t, res.Backends, "claude-code")
+	assert.Equal(t, MaterializeReleased, res.Status, "%v", res.Errors)
 
 	status, err := HarnessStatus(context.Background(), engines.Registry(), cfg, HarnessStatusRequest{FS: fs, WorkDir: dir})
 	require.NoError(t, err)
 	assert.False(t, backendWiring(t, status, "claude-code").HooksPresent,
-		"hooks must be gone after RemoveHooks")
+		"hooks must be gone after the release")
 }
 
-func TestRemoveHooks_SingleBackendFilter(t *testing.T) {
+func TestMaterializeRelease_SingleEngineFilter(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	const dir = "/project"
 	wireClaudeHarness(t, fs, dir)
 
 	cfg := &config.Config{}
-	res, err := RemoveHooks(context.Background(), engines.Registry(), cfg, RemoveHooksRequest{Backend: "claude-code", Root: safefs.NewMem(fs), WorkDir: dir})
+	res, err := Materialize(context.Background(), engines.Registry(), cfg, MaterializeRequest{Engines: []string{"claude-code"}, Surfaces: surfacesBut(present.Context), Release: true, Root: safefs.NewMem(fs), Target: dir})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"claude-code"}, res.Backends)
+	require.Len(t, res.Engines, 1)
+	assert.Equal(t, "claude-code", res.Engines[0].Engine)
 }
 
 func TestHarnessStatus_ReportsStatuslinePreference(t *testing.T) {
@@ -107,7 +113,7 @@ func TestSetStatusline_PersistsPreference(t *testing.T) {
 	assert.False(t, *reloaded.GetSettings().Statusline, "the toggle records the preference in config")
 }
 
-func TestApplyHooks_HonorsStatuslineOptOut(t *testing.T) {
+func TestMaterialize_HonorsStatuslineOptOut(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	tmpDir := t.TempDir()
 	off := false
@@ -117,18 +123,13 @@ func TestApplyHooks_HonorsStatuslineOptOut(t *testing.T) {
 		}}, config.Fixture{Settings: config.SettingsConfig{Statusline: &off}}), nil
 	}
 
-	_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
-		Backend: "claude-code",
-		Root:    safefs.NewMem(fs),
-		Cfg:     loaded(t, loader),
-		WorkDir: tmpDir,
-	})
+	_, err := Materialize(context.Background(), engines.Registry(), loaded(t, loader), MaterializeRequest{Engines: []string{"claude-code"}, Surfaces: surfacesBut(present.Context), Root: safefs.NewMem(fs), Target: tmpDir})
 	require.NoError(t, err)
 
 	data, err := afero.ReadFile(fs, tmpDir+"/.claude/settings.json")
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), "statusLine",
-		"apply-hooks must not install a statusline when the opt-out is set")
+		"materialize must not install a statusline when the opt-out is set")
 }
 
 // backendWiring returns the named backend's wiring from a status result.

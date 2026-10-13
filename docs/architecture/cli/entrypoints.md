@@ -99,7 +99,7 @@ first, and `close(Phase)` reports the phase's findings, returns the abort
 between two gates is caught, and no caller can forget to re-open. That last
 property is the whole reason the type exists: `run` previously achieved the
 tiling by convention, with comments explaining that the windows must abut and
-nothing enforcing it. Single-window entry points (`profile materialize`) use
+nothing enforcing it. Single-window entry points (`materialize`) use
 the same type and call `close` once, so there is one gate mechanism rather
 than a tiling one and a single-shot one that must be kept agreeing.
 

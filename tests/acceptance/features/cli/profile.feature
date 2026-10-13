@@ -4,8 +4,8 @@ Feature: profile — the composition that decides what an agent actually receive
   Covers: `ctxloom profile list` (and its `ls` alias), `profile show`, `profile
   create`, `profile edit`, `profile modify` (the attach/detach and
   include/exclude surface), `profile remove` (and its `rm`/`del` aliases),
-  `profile export`, `profile import`, `profile materialize`, and the bare
-  `ctxloom profile` form.
+  `profile export`, `profile import`, and the bare `ctxloom profile` form,
+  with `ctxloom materialize` as the vehicle that delivers a profile at rest.
 
   A profile is a COMPOSITION. It owns no content of its own: it names bundles
   to draw from, parents to inherit from, and a mask of what to leave out, and
@@ -156,7 +156,7 @@ Feature: profile — the composition that decides what an agent actually receive
         ctxloom profile modify dev --add-bundle house-style
         """
       Then the command succeeds
-      When I run "ctxloom profile materialize dev --target attached"
+      When I run "ctxloom materialize dev --target attached --backend claude-code"
       Then the command succeeds
       And the file "attached/CLAUDE.md" contains "FRAGMENT-BODY-house-rules"
       And the file "attached/CLAUDE.md" contains "FRAGMENT-BODY-testing"
@@ -165,7 +165,7 @@ Feature: profile — the composition that decides what an agent actually receive
         ctxloom profile modify dev --remove-bundle house-style
         """
       Then the command succeeds
-      When I run "ctxloom profile materialize dev --target detached"
+      When I run "ctxloom materialize dev --target detached --backend claude-code"
       Then the command succeeds
       And the file "detached/CLAUDE.md" does not contain "FRAGMENT-BODY-house-rules"
       And the file "detached/CLAUDE.md" contains "FRAGMENT-BODY-testing"
@@ -190,7 +190,7 @@ Feature: profile — the composition that decides what an agent actually receive
       When I run "ctxloom profile show dev <flags>"
       Then the command succeeds
       And the output reports "parents" containing "<inherits the parent>"
-      When I run "ctxloom profile materialize dev --target inherited"
+      When I run "ctxloom materialize dev --target inherited --backend claude-code"
       Then the command succeeds
       And the file "inherited/CLAUDE.md" contains "FRAGMENT-BODY-house-rules"
       And the file "inherited/CLAUDE.md" contains "FRAGMENT-BODY-testing"
@@ -199,7 +199,7 @@ Feature: profile — the composition that decides what an agent actually receive
         ctxloom profile modify dev --remove-parent base
         """
       Then the command succeeds
-      When I run "ctxloom profile materialize dev --target standalone"
+      When I run "ctxloom materialize dev --target standalone --backend claude-code"
       Then the command succeeds
       And the file "standalone/CLAUDE.md" does not contain "FRAGMENT-BODY-house-rules"
       And the file "standalone/CLAUDE.md" contains "FRAGMENT-BODY-testing"
@@ -259,7 +259,7 @@ Feature: profile — the composition that decides what an agent actually receive
       # Established first: the fragment really does reach the surface, so the
       # absence asserted next is a mask working rather than a fixture that
       # never delivered anything.
-      When I run "ctxloom profile materialize dev --target before"
+      When I run "ctxloom materialize dev --target before --backend claude-code"
       Then the command succeeds
       And the file "before/CLAUDE.md" contains "FRAGMENT-BODY-testing"
       When Alice masks the inherited fragment out of her own context:
@@ -268,7 +268,7 @@ Feature: profile — the composition that decides what an agent actually receive
         """
       Then the command succeeds
       And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" contains "exclude_fragments"
-      When I run "ctxloom profile materialize dev --target masked"
+      When I run "ctxloom materialize dev --target masked --backend claude-code"
       Then the command succeeds
       And the file "masked/CLAUDE.md" does not contain "FRAGMENT-BODY-testing"
       # The rest of the bundle still arrives: the veto took one item, not the
@@ -282,7 +282,7 @@ Feature: profile — the composition that decides what an agent actually receive
         ctxloom profile modify dev --include-fragment testing
         """
       Then the command succeeds
-      When I run "ctxloom profile materialize dev --target restored"
+      When I run "ctxloom materialize dev --target restored --backend claude-code"
       Then the command succeeds
       And the file "restored/CLAUDE.md" contains "FRAGMENT-BODY-testing"
 
@@ -297,7 +297,7 @@ Feature: profile — the composition that decides what an agent actually receive
       And a bundle "demo" exists
       And I run "ctxloom bundle edit demo --add-mcp tree-sitter --add-mcp thinker"
       And a profile "dev" with bundle "demo"
-      When I run "ctxloom profile materialize dev --target before"
+      When I run "ctxloom materialize dev --target before --backend claude-code"
       Then the command succeeds
       And the file "before/.mcp.json" registers an MCP server named "tree-sitter"
       And the file "before/.mcp.json" registers an MCP server named "thinker"
@@ -306,7 +306,7 @@ Feature: profile — the composition that decides what an agent actually receive
         ctxloom profile modify dev --exclude-mcp tree-sitter
         """
       Then the command succeeds
-      When I run "ctxloom profile materialize dev --target masked"
+      When I run "ctxloom materialize dev --target masked --backend claude-code"
       Then the command succeeds
       And the file "masked/.mcp.json" registers no MCP server named "tree-sitter"
       And the file "masked/.mcp.json" registers an MCP server named "thinker"
@@ -315,7 +315,7 @@ Feature: profile — the composition that decides what an agent actually receive
         ctxloom profile modify dev --include-mcp tree-sitter
         """
       Then the command succeeds
-      When I run "ctxloom profile materialize dev --target restored"
+      When I run "ctxloom materialize dev --target restored --backend claude-code"
       Then the command succeeds
       And the file "restored/.mcp.json" registers an MCP server named "tree-sitter"
 
@@ -460,7 +460,7 @@ Feature: profile — the composition that decides what an agent actually receive
       When Alice publishes the definition and stands up a runnable surface:
         """
         ctxloom profile export dev definition
-        ctxloom profile materialize dev --target surface
+        ctxloom materialize dev --target surface --backend claude-code
         """
       Then the command succeeds
       # The definition NAMES the bundle — the `bundles:` key and the entry
@@ -488,7 +488,7 @@ Feature: profile — the composition that decides what an agent actually receive
     # claim came to be asserted against one rendering only.
     Scenario: The uncarried surfaces are stated in the prose report, not only in the JSON
       Given Carol's team profile carries a shared fragment, command, MCP server, and hook
-      When I run "ctxloom profile materialize team --target out-launch-text --backend mock-launch --format text"
+      When I run "ctxloom materialize team --target out-launch-text --backend mock-launch --format text"
       Then the command succeeds
       And the materialize report names each surface mock-launch does not carry, with a reason
 

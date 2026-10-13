@@ -11,11 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -23,7 +20,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -178,75 +174,6 @@ func TestNewRepoCache_MissingRemotesRegistryStaysSilent(t *testing.T) {
 		"a project that has simply never configured a remote must not be warned at")
 }
 
-// When EVERY backend the request asked for failed, ApplyHooks
-// answered Status "partial", Backends [] and a nil error — so
-// `ctxloom manage hooks install` printed "Hooks partial for: []" and exited 0
-// having written nothing at all. That is ctxloom's characteristic silent
-// no-op: exit 0, a success-shaped message, zero bytes on disk.
-//
-// Total failure is now Status "failed" plus a non-nil error, which every
-// caller already routes (manage.go returns it). Partial success — at least one backend took — is deliberately
-// untouched and still a nil error; the control below pins that.
-func TestApplyHooks_TotalFailureIsNotReportedAsPartialSuccess(t *testing.T) {
-	readOnly := afero.NewReadOnlyFs(afero.NewMemMapFs())
-	const workDir = "/project"
-
-	loader := func() (*config.Config, error) {
-		// The profile is seeded on a WRITABLE fs of its own: the read-only fs
-		// under test is the one hooks are written TO, and a config that cannot
-		// even be read would fail this test for the wrong reason.
-		return cfgWithProfileHooks(t, afero.NewMemMapFs(), "/project/.ctxloom", wire.HooksConfig{Unified: wire.UnifiedHooks{
-			SessionStart: []wire.Hook{{Command: "echo test", Type: "command"}},
-		}}, config.Fixture{}), nil
-	}
-
-	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
-		Backend: "claude-code",
-		Root:    safefs.NewMem(readOnly),
-		Cfg:     loaded(t, loader),
-		WorkDir: workDir,
-	})
-
-	// Prove the fixture actually defeated the write from the
-	// code-under-test's vantage point. If a settings file HAD appeared, or no
-	// per-backend error had been recorded, the assertions below would be
-	// asserting something other than total failure.
-	require.NotNil(t, result)
-	require.NotEmpty(t, result.Errors, "fixture is not hostile: no backend actually failed")
-	require.Empty(t, result.Backends, "fixture is not hostile: a backend still succeeded")
-	exists, existsErr := afero.Exists(readOnly, workDir+"/.claude/settings.json")
-	require.NoError(t, existsErr)
-	require.False(t, exists, "fixture is not hostile: settings.json was written anyway")
-
-	require.Error(t, err, "an apply that configured NOTHING must not return a nil error")
-	assert.Equal(t, "failed", result.Status,
-		`"partial" needs something on both sides of it; nothing was applied`)
-}
-
-// Genuine partial success — one backend took, another did
-// not — must stay a nil error and Status "partial". The fix must not
-// promote every per-backend hiccup into a hard failure.
-func TestApplyHooks_PartialSuccessStaysANilError(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	tmpDir := "/project"
-
-	loader := func() (*config.Config, error) {
-		return cfgWithProfileHooks(t, fs, "/project/.ctxloom", wire.HooksConfig{Unified: wire.UnifiedHooks{
-			SessionStart: []wire.Hook{{Command: "echo test", Type: "command"}},
-		}}, config.Fixture{}), nil
-	}
-
-	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
-		Backend: "claude-code",
-		Root:    safefs.NewMem(fs),
-		Cfg:     loaded(t, loader),
-		WorkDir: tmpDir,
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, result.Backends, "control fixture must have at least one backend succeed")
-	assert.Equal(t, "applied", result.Status)
-}
-
 // This pin is a refutation of a prior review claim.
 //
 // The claim says ListFragments "returns the loader's error verbatim with no
@@ -392,7 +319,7 @@ func TestBuildInitialConfig_NeverScaffoldsAHollowConfig(t *testing.T) {
 func TestOperationsRequestResultEnvelopesShareOneJSONContract(t *testing.T) {
 	// One instance per Request/Result envelope declared in the cited file set.
 	envelopes := []any{
-		ApplyHooksRequest{}, ApplyHooksResult{},
+		MaterializeRequest{}, MaterializeResult{},
 		ListFragmentsRequest{}, ListFragmentsResult{},
 		GetFragmentRequest{}, GetFragmentResult{},
 		InitializeProjectRequest{}, InitializeProjectResult{},

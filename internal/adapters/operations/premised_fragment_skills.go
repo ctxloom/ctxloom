@@ -24,7 +24,7 @@ type PremisedFragment struct {
 // THIS IS THE FALLBACK, NOT THE PREFERRED PATH, and the distinction is not
 // stylistic: a skill is a CAPABILITY the model performs, a premised fragment is
 // GUIDANCE that shapes work it is already doing. The mechanism is the same; what
-// they carry is not. Only profile_materialize calls this — where ctxloom is out
+// they carry is not. Only Materialize calls this — where ctxloom is out
 // of the loop and no pull is possible. A live session resolves over MCP instead,
 // and must never receive the same fragment BOTH ways: that is double delivery
 // under two different selection stories.

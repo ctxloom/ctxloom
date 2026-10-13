@@ -157,7 +157,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^Bob starts a session$`, func(c context.Context) error {
-		return runBob(worldFrom(c), "profile", "materialize", j000700Profile, "--target", "out")
+		return runBob(worldFrom(c), "materialize", j000700Profile, "--target", "out", "--backend", "claude-code")
 	})
 
 	// --- Multi-engine outline: Bob's engine may not be Alice's ------------
@@ -175,7 +175,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		j000800 := w.j000800()
 		j000800.engine = engine
 		j000800.target = "out-" + engine
-		return runBob(w, "profile", "materialize", j000700Profile, "--target", j000800.target, "--backend", engine)
+		return runBob(w, "materialize", j000700Profile, "--target", j000800.target, "--backend", engine)
 	})
 
 	ctx.Step(`^his assistant receives the team's standardized context in (\S+)'s own native surface$`, func(c context.Context, engine string) error {
@@ -402,7 +402,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 // convention: materialize is expected to exit 0 even while withholding
 // pending content, so only a read failure afterward is fatal here.
 func bobMaterialized(w *World) (string, error) {
-	_ = runBob(w, "profile", "materialize", j000700Profile, "--target", "out")
+	_ = runBob(w, "materialize", j000700Profile, "--target", "out", "--backend", "claude-code")
 	body, err := readBobFile(w, filepath.Join("out", "CLAUDE.md"))
 	if err != nil {
 		return "", fmt.Errorf("read Bob's materialized out/CLAUDE.md (materialize output:\n%s): %w", w.j000700().bobRuns.LastOutput(), err)

@@ -289,15 +289,18 @@ that `ctxloom run` launches. The hook no longer carries it:
   nudge. It never delivers the project's context.
 - **A claude session you start by hand gets no ctxloom context from any
   hook.** It reads only what was materialized into the project at rest
-  (§13): by `ctxloom materialize --yes`, or by the refresh that runs after
-  `deps pull` or a startup sync installs a remote bundle. Otherwise nothing
-  tells you so: the session starts normally, without your profiles'
-  guidance. Start it with `ctxloom run` instead.
+  (§13), by `ctxloom materialize --yes`. The refresh that runs after
+  `deps pull --yes` or a `run --yes` startup sync does not write claude's
+  context. Otherwise
+  nothing tells you so: the session starts normally, without your
+  profiles' guidance. Start it with `ctxloom run` instead.
 - The `hook` context approach (`surfaces: {context: hook}` on a claude agent
   binding) is removed, because no hook delivers context any more. A binding
   that names it is refused, with the approaches claude supports:
   `system-prompt` (the default) and `file`.
-- Run `ctxloom manage hooks install` once after upgrading. It adds the
+- If you keep ctxloom's hooks in the project, run `ctxloom materialize
+  --yes --surface settings --surface hooks` once after upgrading (without
+  the `--surface` flags it also writes claude's CLAUDE.md). It adds the
   `session-start` hook. It removes the old `inject-context` entries only
   where this machine's ctxloom recorded installing them. An entry written by
   0.6, or by ctxloom on another machine and committed with the file, stays.
@@ -322,28 +325,55 @@ default agent's; with no `--backend`, the project's configured engines.
   `--dry-run` shows what it would do. `--force` is still the separate
   override for a target that is an engine's user-global scope.
 - **By default it writes every kind, context included, for every engine** —
-  including claude, whose context `manage hooks install` never wrote at
-  rest. `--surface KIND[=file][:DEST]` writes only the named kinds and
+  including claude, whose context the 0.6 `manage hooks install` never
+  wrote at rest. `--surface KIND[=file][:DEST]` writes only the named kinds and
   leaves the others as they were; `--surface context=file:PATH` writes the
   context into `PATH` inside the target.
 - **`--release`** takes out what an earlier materialize wrote, for the
   selected kinds (default all). `--diff FILE` compares instead of writing.
 - **What ctxloom wrote is now owned per engine and per kind.** Delivering
   one kind or one engine no longer takes another's files out of the same
-  directory. Claims an earlier 0.7 build recorded under the single
-  `project` writer are left alone: a re-install does not take them out, so
-  a section it appended may appear twice until you remove the old one.
-- **The post-sync refresh** now runs `ctxloom materialize` into the project
-  root, so it writes claude's context file there too.
+  directory. Claims an earlier 0.7 pre-release build recorded under the
+  single `project` writer are not recognised at all: a re-install does not
+  take them out, `manage uninstall` does not release them, and `ctxloom run`
+  does not warn about context written under them, so a section it appended
+  may appear twice until you remove the old one by hand.
+- **The post-sync refresh** (after `deps pull`, or a `ctxloom run` startup
+  sync that installs a remote bundle) writes the project root only when you
+  pass `--yes`: `ctxloom deps pull --yes`, `ctxloom run --yes`. That is the
+  consent `ctxloom materialize` asks before writing the project directory.
+  In 0.6 a pull applied hooks unasked. **Without `--yes` the pull (or the
+  run) still succeeds**: it installs and locks the closure, writes and
+  removes no engine file, and prints `Project refresh skipped`, naming each
+  engine's kinds it would have written and the two ways to apply them (the
+  same command with `--yes`, or the `ctxloom materialize --yes --surface ...`
+  that writes exactly those kinds). `--format json` carries the same as
+  `refresh_skipped`. A script that relied on a pull refreshing the
+  project's hooks or MCP servers must add `--yes`. There is no config
+  setting for it. With `--yes`, the refresh runs `ctxloom materialize` into
+  the project root. It refreshes hooks, MCP servers, settings, commands and
+  skills for every configured engine, and the context file of an engine
+  that reads its context from a file at rest. It leaves alone the context of
+  an engine whose context rides the launch (claude: its system prompt),
+  neither writing nor removing it, so a sync writes no CLAUDE.md.
 - **A `ctxloom run` warns** when the project holds context materialized into
   it, naming the file and `ctxloom materialize --release --surface
   context`.
 - **Do not commit a materialized file.** The record of what ctxloom wrote
   lives in your home directory; on another machine a committed copy reads
   as your own text, and the next materialize appends a second copy.
-- `profile materialize`, `manage hooks install` and `manage hooks uninstall`
-  still work in this build and will be removed in favour of `ctxloom
-  materialize` (`--release` replaces uninstall).
+- **`ctxloom profile materialize`, `ctxloom manage hooks install` and
+  `ctxloom manage hooks uninstall` are removed.** A script that calls one now
+  fails with `unknown command`. Use `ctxloom materialize` (it takes the
+  profiles, `--target`, `--backend` and `--diff` the old command took; with
+  no `--target` add `--yes`), and `ctxloom materialize --release` in place
+  of `hooks uninstall`. `ctxloom manage uninstall` stays: it releases every
+  engine's at-rest delivery from the project, including an engine the
+  project no longer configures. Unlike `manage hooks install`,
+  `ctxloom materialize` writes claude's CLAUDE.md unless you leave context
+  out with `--surface`, and it refuses (exit 3) a profile that does not
+  resolve, such as a remote parent not yet pulled, unless you pass
+  `--degraded`.
 - The native-file delivery approach is renamed **`file`** (it was spelled
   with an `unsafe-` prefix): in `agent set --surface`, an agent binding's
   `surfaces:`, and the config schema. The old spelling is refused as an
@@ -478,9 +508,6 @@ Grouped by what you would have to change.
 - `ctxloom hook stamp-plan` reads the edited file from claude's real payload
   shape (`tool_input.file_path`, or `notebook_path`); a bare top-level
   `file_path`, which no engine sends, is no longer read.
-- `ctxloom profile materialize` with no `--backend` writes for the
-  registry's default engine (today claude-code, as before); the flag's
-  default is now empty rather than the literal `claude-code`.
 - `ltk` reads a zsh command line containing an empty parameter name, `${}`,
   as ordinary text: the parameter is dropped and the words around it are
   kept, so rules match the command. It used to be reported as a parse

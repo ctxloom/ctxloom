@@ -10,8 +10,8 @@ import (
 
 // PlanFor is THE planner for an at-rest delivery and a launch alike: the
 // placement core's planning half. Every kind the Definition does not carry
-// is an accepted loss (the one rule ProjectPlan and the launch preference
-// both stated); roots selects a root per kind (nil: each approach's first
+// is an accepted loss (the one rule the at-rest and launch
+// planners once each stated); roots selects a root per kind (nil: each approach's first
 // offered root that paths has — over a project-only cell, the project
 // root); Route decides; then the entries and losses outside kinds are
 // dropped (nil kinds: all stay).

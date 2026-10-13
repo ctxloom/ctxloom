@@ -40,9 +40,11 @@ type MaterializeRequest struct {
 	// Target is REQUIRED and explicit: the CLI resolves the project-root
 	// default and applies its guard; an internal caller passes its own.
 	Target string `json:"target"`
-	// Explicit says the user named Target: with no engine configured, an
-	// explicit target is delivered for the registry's default engine and the
-	// project-root default is not (R6).
+	// Explicit says the user named Target rather than taking the CLI's
+	// project-root default; the CLI's project-directory guard (R14) keys on
+	// it. Engine resolution does not: with no engine named or configured,
+	// every target is delivered for the registry's default engine (R6,
+	// ruling 16).
 	Explicit bool `json:"explicit,omitempty"`
 	// Engines is the engine set; nil is the configured engines.
 	Engines []string `json:"engines,omitempty"`
@@ -54,8 +56,14 @@ type MaterializeRequest struct {
 	// DryRun plans and reports, and writes (and creates) nothing.
 	DryRun bool `json:"dry_run,omitempty"`
 	// Force overrides the refusal to write an engine's user-global scope.
-	Force bool        `json:"force,omitempty"`
-	Root  safefs.Root `json:"-"`
+	Force bool `json:"force,omitempty"`
+	// LeaveLaunchContext drops the context kind for every engine whose
+	// context rides the launch (contextRidesTheLaunch): its context is
+	// neither written nor released. The post-sync refresh sets it — a
+	// launched session carries that context itself, so a copy at rest would
+	// double it — while hooks, MCP, settings and commands still refresh.
+	LeaveLaunchContext bool        `json:"leave_launch_context,omitempty"`
+	Root               safefs.Root `json:"-"`
 }
 
 // MaterializeResult is what one materialize did, per engine.
@@ -66,7 +74,7 @@ type MaterializeResult struct {
 	Profiles []string        `json:"profiles,omitempty"`
 	Engines  []EngineOutcome `json:"engines"`
 	// Status is applied | partial | failed | released | planned (a dry run)
-	// | nothing (no engine to deliver for, or nothing to release).
+	// | nothing (nothing to release).
 	Status   string   `json:"status"`
 	Errors   []string `json:"errors,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
@@ -125,11 +133,6 @@ func Materialize(ctx context.Context, reg engine.Registry, cfg *config.Config, r
 	m, err := newMaterializeRun(reg, cfg, req)
 	if err != nil {
 		return nil, err
-	}
-	if len(m.names) == 0 {
-		m.res.Status = MaterializeNothing
-		m.res.Warnings = append(m.res.Warnings, "no engine is configured, so nothing was delivered; name one with --backend, or give --target to deliver for the default engine")
-		return m.res, nil
 	}
 	if req.Release {
 		return materializeRelease(ctx, reg, m.root, m.names, m.kinds, m.res)
@@ -257,8 +260,9 @@ func checkSurfaceSpec(s SurfaceSpec, release bool) error {
 }
 
 // materializeEngines resolves the engine set (R6): the named engines, each
-// registered; else the configured engines; else, for an explicit target
-// only, the registry's default.
+// registered; else the configured engines, which already fall back to the
+// registry's default (ruling 16) — so the tail below is reached only by a
+// registry that ships no default, and refuses with its error.
 func materializeEngines(reg engine.Registry, cfg *config.Config, req MaterializeRequest) ([]string, error) {
 	if len(req.Engines) > 0 {
 		var out []string
@@ -275,9 +279,6 @@ func materializeEngines(reg engine.Registry, cfg *config.Config, req Materialize
 	if names := ConfiguredEngines(reg, cfg); len(names) > 0 {
 		return names, nil
 	}
-	if !req.Explicit {
-		return nil, nil
-	}
 	def, err := reg.Default()
 	if err != nil {
 		return nil, err
@@ -293,12 +294,14 @@ func materializeEngine(ctx context.Context, reg engine.Registry, cfg *config.Con
 	if !ok {
 		return out, fmt.Errorf("materialize: no engine kind is composed for %s", name)
 	}
-	pkg, withheld, err := materializePackage(ctx, reg, cfg, m.req, name, m.kinds)
+	kinds := engineKinds(m.req, kind.Root(), m.kinds)
+	pkg, withheld, err := materializePackage(ctx, reg, cfg, m.req, name, kinds)
 	if err != nil {
 		return out, err
 	}
 	out.WithheldByPremise = withheld
-	p := Placement{Start: present.ProjectOnHost(m.target), Family: delivery.ProjectWriterFor(engine.Name(name)), Kinds: m.kinds, ContextFile: m.contextFile}
+	p := atRestPlacement(m.target, engine.Name(name), kinds)
+	p.ContextFile = m.contextFile
 	var plan delivery.Plan
 	if m.req.DryRun {
 		plan, err = planMaterialized(kind, pkg, p, &out)
@@ -308,15 +311,35 @@ func materializeEngine(ctx context.Context, reg engine.Registry, cfg *config.Con
 	} else {
 		plan = deliverMaterializedAt(ctx, m.root, kind, pkg, p, &out)
 	}
-	for _, k := range m.kinds {
+	for _, k := range kinds {
 		if !slices.Contains(out.Wrote, k.String()) {
 			out.Released = append(out.Released, k.String())
 		}
 	}
 	if !cfg.ShouldSilenceUnsupported() {
-		out.NotCarried = selectedLosses(notCarried(name, kind, pkg, plan), m.kinds)
+		out.NotCarried = selectedLosses(notCarried(name, kind, pkg, plan), kinds)
 	}
 	return out, nil
+}
+
+// engineKinds is the kinds delivered for one engine: the selected kinds,
+// less context when req.LeaveLaunchContext is set and the engine's context
+// rides the launch.
+func engineKinds(req MaterializeRequest, root engine.Base, kinds []present.Kind) []present.Kind {
+	if !req.LeaveLaunchContext || !contextRidesTheLaunch(root) {
+		return kinds
+	}
+	return slices.DeleteFunc(slices.Clone(kinds), func(k present.Kind) bool { return k == present.Context })
+}
+
+// contextRidesTheLaunch decides, from the engine's declaration alone, how
+// the context reaches it with ctxloom IN the loop: an engine whose context
+// approach is told on argv (a launch-time channel, nothing it opens at rest)
+// takes the context at launch, so nothing at rest need carry it; an engine
+// that opens a context file reads the file written at rest.
+func contextRidesTheLaunch(root engine.Base) bool {
+	a, ok := root.Surfaces()[present.Context]
+	return ok && a.Traits().Channel == present.ChannelArgv
 }
 
 // planMaterialized is a dry run's plan at p, its kinds recorded as what
@@ -412,8 +435,7 @@ func materializeRelease(ctx context.Context, reg engine.Registry, root safefs.Ro
 		if !ok {
 			return nil, fmt.Errorf("materialize: no engine kind is composed for %s", name)
 		}
-		p := Placement{Start: present.ProjectOnHost(res.Target), Family: delivery.ProjectWriterFor(engine.Name(name)), Kinds: kinds}
-		if err := Release(ctx, root, kind, p); err != nil {
+		if err := Release(ctx, root, kind, atRestPlacement(res.Target, engine.Name(name), kinds)); err != nil {
 			strictness.Fail(report.KindApply, "fix the failure, then re-run (ctxloom materialize --release)", "release %s: %v", name, err)
 			out.Warnings = append(out.Warnings, err.Error())
 		} else {

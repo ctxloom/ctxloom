@@ -16,71 +16,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
-
-// RemoveHooksRequest contains parameters for stripping ctxloom's harness from
-// backend config files.
-type RemoveHooksRequest struct {
-	Backend string      `json:"backend"` // an engine name, or all
-	Root    safefs.Root `json:"-"`       // Optional Root for testing (zero = safefs.New())
-	WorkDir string      `json:"-"`       // Optional work directory (defaults to git root)
-}
-
-// RemoveHooksResult reports which backends were cleaned and any per-backend
-// failures.
-type RemoveHooksResult struct {
-	Status   string   `json:"status"`
-	Backends []string `json:"backends"`
-	Errors   []string `json:"errors,omitempty"`
-}
-
-// RemoveHooks strips ctxloom-managed hooks, statusline, MCP servers, and
-// generated command files from the requested backends. Fault tolerant: a
-// single backend's failure is recorded and the rest still run.
-func RemoveHooks(ctx context.Context, reg engine.Registry, _ *config.Config, req RemoveHooksRequest) (*RemoveHooksResult, error) {
-	root := rootOf(req.Root)
-	workDir := manageWorkDir(req.WorkDir)
-
-	names, err := manageBackendNames(reg, req.Backend)
-	if err != nil {
-		return nil, err
-	}
-	removed := []string{}
-	var errs []string
-	for _, name := range names {
-		if ctx.Err() != nil {
-			return &RemoveHooksResult{Status: "partial", Backends: removed, Errors: errs}, ctx.Err()
-		}
-		if err := removeBackendHarness(ctx, reg, name, workDir, root); err != nil {
-			clidiag.Warn("ctxloom", "%s", err)
-			errs = append(errs, err.Error())
-			continue
-		}
-		removed = append(removed, name)
-	}
-
-	status := "removed"
-	if len(errs) > 0 {
-		status = "partial"
-	}
-	return &RemoveHooksResult{Status: status, Backends: removed, Errors: errs}, nil
-}
-
-// removeBackendHarness releases every kind of the engine's at-rest
-// placement in workDir: its per-kind project writers' record says what
-// ctxloom put there and only that is removed — the user's own hooks, servers, commands and context stay.
-func removeBackendHarness(ctx context.Context, reg engine.Registry, name, workDir string, root safefs.Root) error {
-	kind, ok := reg.Lookup(engine.Name(name))
-	if !ok {
-		return fmt.Errorf("failed to remove %s: no engine kind is composed for it", name)
-	}
-	if err := Release(ctx, root, kind, atRestPlacement(workDir, kind.Root().Name, delivery.AllKinds())); err != nil {
-		return fmt.Errorf("failed to remove %s: %w", name, err)
-	}
-	return nil
-}
 
 type HarnessStatusRequest struct {
 	FS      afero.Fs `json:"-"`
@@ -172,9 +109,9 @@ func HarnessStatus(ctx context.Context, reg engine.Registry, cfg *config.Config,
 	for _, name := range EngineNames(reg) {
 		status, err := engineSettingsStatus(reg, name, workDir, opts...)
 		if err != nil {
-			// Warn-and-continue like the sibling RemoveHooks: one backend's
-			// unreadable settings.json must not abort the whole read-only status
-			// report and hide every other backend's wiring.
+			// Warn-and-continue: one backend's unreadable settings.json must
+			// not abort the whole read-only status report and hide every other
+			// backend's wiring.
 			clidiag.Warn("ctxloom", "failed to read %s status: %v", name, err)
 			result.Errors = append(result.Errors, fmt.Sprintf("failed to read %s status: %v", name, err))
 			continue
@@ -310,8 +247,8 @@ type SetStatuslineResult struct {
 }
 
 // SetStatusline persists whether ctxloom manages its HUD statusline, inside
-// one Owner.Update transaction. The change takes effect on the next hook
-// apply (`manage hooks install` / `ctxloom run`).
+// one Owner.Update transaction. The change takes effect on the next
+// delivery (`ctxloom materialize` / `ctxloom run`).
 func SetStatusline(ctx context.Context, app *App, req SetStatuslineRequest) (*SetStatuslineResult, error) {
 	if app == nil {
 		return nil, fmt.Errorf("app is required")
@@ -336,27 +273,4 @@ func manageWorkDir(workDir string) string {
 		return workDir
 	}
 	return projectroot.WorkDir()
-}
-
-// manageBackendNames resolves the backend filter to the backends to operate on.
-//
-// An unknown name is an ERROR, not a one-element list. Passing it through made
-// `manage hooks uninstall --backend <typo>` report Status "removed" listing the
-// typo while removing nothing: every layer below reads an unregistered backend
-// as a permitted no-op (Declared returns an empty Declaration, so Select
-// skips every kind), so no
-// error ever surfaced and the name was appended to
-// `removed`. The user's harness was still installed and they had been told it
-// was gone. MaterializeProfile in this same package already guards with
-// EngineExists — this is that guard, at the other door.
-// The empty default is EXHAUSTIVE here, and the asymmetry with the apply path
-// (hookBackendNames, which defaults to the project's configured engines) is
-// deliberate: removal must reach managed hooks in an engine the project has
-// since stopped configuring. Write narrowly, clean widely; the reverse leaves
-// litter nothing will collect.
-//
-// Exhaustiveness is a property of REMOVAL, not a value anyone types — there is
-// no "all".
-func manageBackendNames(reg engine.Registry, backend string) ([]string, error) {
-	return backendNames(reg, backend, EngineNames(reg))
 }

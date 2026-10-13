@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -24,15 +23,15 @@ import (
 //
 // There are two accumulation points for one context, and they are
 // near-duplicates that drifted: AssembleContext -> ingestBuiltinFragments is
-// the PULL path, and regenerateContext -> agent.WriteContextFile is the PUSH
-// path (the SessionStart-injected context file). The premise filter was added
+// the PULL path, and Materialize -> the engine's context file is the PUSH
+// path (the context written at rest). The premise filter was added
 // to the pull path's builtin loop and NOT to the push path's, so a premised
 // companion fragment was withheld from what `ctxloom run` assembles while the
 // context file on disk carried the whole body anyway.
 //
 // That is the ONE coupling constraint between the two layers violated: pull
 // and push compose freely except that a fragment must not be delivered TWICE.
-// A premised companion was pushed at SessionStart AND offered again through
+// A premised companion was pushed at rest AND offered again through
 // the premise index.
 //
 // TestBuiltinFragmentsHonourTheirPremise (builtin_premise_test.go) already
@@ -101,9 +100,9 @@ func pushPremiseConfig(t *testing.T, appDir string, defs map[string]config.Profi
 	return cfg
 }
 
-// regenerateForPushPremise runs the real push path and returns the bytes that
-// landed in the context file — what a session actually loads at SessionStart.
-func regenerateForPushPremise(t *testing.T) (written string, cfg *config.Config) {
+// materializeForPushPremise runs the real push path and returns the bytes that
+// landed in the context file — what an agent launched there loads.
+func materializeForPushPremise(t *testing.T) (written string, cfg *config.Config) {
 	t.Helper()
 	appDir, workDir := regenTestApp(t)
 	writeRegenBundle(t, appDir, "dev", `version: "1.0"
@@ -115,27 +114,21 @@ fragments:
 		"default": {Fragments: []config.FragmentRef{{Name: "dev#fragments/loader-fragment"}}},
 	}))
 
-	hash, err := regenerateContext(defaultPackage(t, cfg), workDir)
-	require.NoError(t, err)
-	require.NotEmpty(t, hash, "the push path must actually write a context file")
-
-	written, err = agent.ReadContextFile(workDir, hash)
-	require.NoError(t, err)
-	return written, cfg
+	return materializedContext(t, cfg, workDir), cfg
 }
 
-// TestRegenerateContext_WithholdsPremisedBuiltinFromTheContextFile is the test
+// TestMaterializedContext_WithholdsPremisedBuiltinFromTheContextFile is the test
 // that was missing, and whose absence is why this shipped. It fails on the
 // unfixed push path: the premised companion body is written into the
-// SessionStart context file verbatim.
-func TestRegenerateContext_WithholdsPremisedBuiltinFromTheContextFile(t *testing.T) {
+// at-rest context file verbatim.
+func TestMaterializedContext_WithholdsPremisedBuiltinFromTheContextFile(t *testing.T) {
 	pushPremiseCompanion(t)
-	written, _ := regenerateForPushPremise(t)
+	written, _ := materializeForPushPremise(t)
 
 	// CONTROLS FIRST. Each of these failing means the test stopped being able
 	// to observe the defect, not that the defect is fixed.
 	require.Contains(t, written, "LOADER-SELECTED-BODY",
-		"control: the loader-resolved fragment must reach the context file, or regeneration wrote nothing meaningful")
+		"control: the loader-resolved fragment must reach the context file, or the delivery wrote nothing meaningful")
 	require.Contains(t, written, pushUnpremisedBody,
 		"control: a companion fragment with NO premise must still be injected — without this the withholding assertion below is vacuous, since a fully gated-off companion loadout would also 'withhold' the premised body")
 
@@ -144,14 +137,14 @@ func TestRegenerateContext_WithholdsPremisedBuiltinFromTheContextFile(t *testing
 		"a premised companion fragment must be WITHHELD from the pushed context file: the pull layer offers it through the premise index, and delivering it here too is the one thing the two layers must never do — deliver the same fragment twice")
 }
 
-// TestRegenerateContext_PremiselessBuiltinsStayUnconditional pins the other
+// TestMaterializedContext_PremiselessBuiltinsStayUnconditional pins the other
 // half of the rule, which is what keeps the fix additive: absence of a premise
 // asserts the fragment always applies, so every existing builtin and companion
 // fragment must be unaffected. A filter that withheld these would strip the
-// SessionStart context of content no one made conditional.
-func TestRegenerateContext_PremiselessBuiltinsStayUnconditional(t *testing.T) {
+// at-rest context of content no one made conditional.
+func TestMaterializedContext_PremiselessBuiltinsStayUnconditional(t *testing.T) {
 	pushPremiseCompanion(t)
-	written, _ := regenerateForPushPremise(t)
+	written, _ := materializeForPushPremise(t)
 
 	assert.Contains(t, written, pushUnpremisedBody,
 		"a companion fragment carrying no premise is unconditional and must still be pushed")
@@ -159,15 +152,15 @@ func TestRegenerateContext_PremiselessBuiltinsStayUnconditional(t *testing.T) {
 		"and exactly once — withholding must not disturb the ingest identity rule")
 }
 
-// TestRegenerateContext_PushAndPullAgreeOnThePremisedFragment states the
+// TestMaterializedContext_PushAndPullAgreeOnThePremisedFragment states the
 // coupling constraint directly, across BOTH implementations. The two paths are
 // near-duplicates; this is the invariant that was silently allowed to drift
 // when only one of them was fixed. It compares the push path's file against
 // the pull path's filter decision for the same fragment, so a future
 // divergence in either one fails here even if neither path's own tests notice.
-func TestRegenerateContext_PushAndPullAgreeOnThePremisedFragment(t *testing.T) {
+func TestMaterializedContext_PushAndPullAgreeOnThePremisedFragment(t *testing.T) {
 	pushPremiseCompanion(t)
-	written, cfg := regenerateForPushPremise(t)
+	written, cfg := materializeForPushPremise(t)
 
 	// The pull layer's decision for this exact fragment: a live assembly
 	// over the same config holds it back and offers it.
@@ -187,7 +180,7 @@ func TestRegenerateContext_PushAndPullAgreeOnThePremisedFragment(t *testing.T) {
 // pushPremiseTestFilesExist guards the harness itself: regenTestApp writes to a
 // real temp dir, and a silently-missing app dir would make every assertion
 // above run against an empty assembly.
-func TestRegenerateContext_PushPremiseHarnessWritesRealFiles(t *testing.T) {
+func TestMaterializedContext_PushPremiseHarnessWritesRealFiles(t *testing.T) {
 	appDir, _ := regenTestApp(t)
 	info, err := os.Stat(authoredV1(appDir))
 	require.NoError(t, err)

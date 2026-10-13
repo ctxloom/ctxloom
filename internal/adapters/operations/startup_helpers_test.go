@@ -254,3 +254,27 @@ func TestWriteAndRecordSyncSummary_DisclosesNewPins(t *testing.T) {
 	assert.Contains(t, buf.String(), MsgNewPinsHeader)
 	assert.Contains(t, buf.String(), "  + mcp srv\n      command: node\n")
 }
+
+// TestWriteRefreshSkipped_NamesWhatWasSkippedAndBothWaysToApplyIt (ruling
+// 17b): the skipped refresh names the project directory, each engine's kinds
+// that would have been written or released, the caller's own --yes rerun,
+// and a `ctxloom materialize --yes` limited by --surface to exactly those
+// kinds — so applying it that way writes nothing the refresh would not. An
+// engine with nothing planned gets no line; nil prints nothing.
+func TestWriteRefreshSkipped_NamesWhatWasSkippedAndBothWaysToApplyIt(t *testing.T) {
+	var none bytes.Buffer
+	WriteRefreshSkipped(&none, "  ", nil, "ctxloom deps pull --yes")
+	assert.Empty(t, none.String())
+
+	var buf bytes.Buffer
+	WriteRefreshSkipped(&buf, "  ", &MaterializeResult{Target: "/proj", Engines: []EngineOutcome{
+		{Engine: "claude-code", Wrote: []string{"hooks", "settings"}},
+		{Engine: "idle"},
+		{Engine: "mock", Wrote: []string{"context", "hooks"}, Released: []string{"mcp"}},
+	}}, "ctxloom deps pull --yes")
+	assert.Equal(t, "  Project refresh skipped: without --yes nothing was written into /proj.\n"+
+		"    claude-code: would write hooks, settings\n"+
+		"    mock: would write context, hooks; would release mcp\n"+
+		"    Apply it with 'ctxloom deps pull --yes', or 'ctxloom materialize --yes --surface hooks --surface settings --surface context --surface mcp'.\n",
+		buf.String())
+}

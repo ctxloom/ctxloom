@@ -300,27 +300,26 @@ func (w Writer) SessionHarp() (harp string, ok bool) {
 	return harp, ok && harp != ""
 }
 
-// ProjectWriter is the bare writer tag of an at-rest delivery into the
-// project root, one tag for every engine and kind (ProjectTarget's). The
-// per-(engine, kind) family (ProjectWriterFor, Writer.Of) supersedes it;
-// Writer.Project recognises both.
-const ProjectWriter Writer = "project"
+// projectWriterPrefix opens every at-rest project writer tag:
+// "project:<engine>[:<kind>]". An earlier build's bare "project" tag is not
+// one of them and is not recognised (ruling 20: no legacy handling).
+const projectWriterPrefix = "project:"
 
 // ProjectWriterFor is the writer FAMILY of an at-rest delivery for one
 // engine: "project:<engine>". A Target carrying it with Kinds set speaks
 // for each kind under its own tag (Writer.Of), so delivering one kind or
 // one engine never releases another's claims.
 func ProjectWriterFor(eng engine.Name) Writer {
-	return Writer(string(ProjectWriter) + ":" + string(eng))
+	return Writer(projectWriterPrefix + string(eng))
 }
 
 // Of is w's tag for one kind: "<w>:<kind>".
 func (w Writer) Of(k present.Kind) Writer { return Writer(string(w) + ":" + k.String()) }
 
-// Project reports whether w is an at-rest project writer: the legacy bare
-// "project" tag or any tag in the "project:..." family.
+// Project reports whether w is an at-rest project writer: any tag in the
+// "project:..." family.
 func (w Writer) Project() bool {
-	return w == ProjectWriter || strings.HasPrefix(string(w), string(ProjectWriter)+":")
+	return strings.HasPrefix(string(w), projectWriterPrefix)
 }
 
 // AllKinds is every surface kind, in the order the at-rest planner walks

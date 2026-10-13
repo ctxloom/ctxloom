@@ -274,7 +274,7 @@ func TestSyncOnStartup_TreeAtAnotherCommitIsReinstalledAtThePin(t *testing.T) {
 	p.pull(t)
 	newPin, onlyAtNewPin := p.moveKitPinUnderneath(t)
 
-	res, err := SyncOnStartup(context.Background(), p.app)
+	res, err := SyncOnStartup(context.Background(), p.app, false)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, res.Reinstalled)
@@ -360,7 +360,7 @@ func TestSyncOnStartup_ChangedConstraintIsReportedNotApplied(t *testing.T) {
 	moved := addFileToLocalRepo(t, p.repoDir, "README.md", "moved on\n")
 	p.withKitConstraint(t, moved)
 
-	res, err := SyncOnStartup(context.Background(), p.app)
+	res, err := SyncOnStartup(context.Background(), p.app, false)
 	require.NoError(t, err)
 
 	after, _ := p.lock(t).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, p.kitRef))
@@ -392,7 +392,7 @@ func TestPull_DisclosesFirstPinsOnly(t *testing.T) {
 func TestSyncOnStartup_DisclosesFirstPins(t *testing.T) {
 	p := newShippedProfileProject(t)
 
-	res, err := SyncOnStartup(context.Background(), p.app)
+	res, err := SyncOnStartup(context.Background(), p.app, false)
 	require.NoError(t, err)
 	require.Len(t, res.Changes, 1)
 	assert.Equal(t, p.kitKey, res.Changes[0].Identity)

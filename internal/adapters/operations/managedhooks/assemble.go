@@ -81,7 +81,7 @@ func parseSourceRef(source string) (ident.BundleRef, error) {
 // own hooks.
 //
 // Both writers route through this via operations.AssemblePackage: the
-// `ctxloom run` payload (agent.ManagedConfigFor) and operations.ApplyHooks.
+// `ctxloom run` payload (agent.ManagedConfigFor) and operations.Materialize.
 // A hook one writer assembled and the other did not is withdrawn by the next
 // delivery of the other. Keeping the full assembly here guarantees both
 // writers produce an identical, complete set.

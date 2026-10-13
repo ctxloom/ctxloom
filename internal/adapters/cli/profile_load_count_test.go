@@ -72,22 +72,26 @@ func directCmd(t *testing.T, cmd *cobra.Command) *cobra.Command {
 	return cmd
 }
 
-// TestManageHooksInstall_LoadsTheDefaultProfileOnce pins that one `manage
-// hooks install` — the apply path, which regenerates context and assembles a
-// package per backend — reads the project's default profile ONCE. Every
+// TestMaterialize_LoadsTheDefaultProfileOnce pins that one `ctxloom
+// materialize` for one engine — the at-rest path, which assembles that
+// engine's package — reads the project's default profile ONCE. Every
 // consumer in the command resolves the profile from the generation's catalog
 // in memory; a consumer that re-reads the bundles instead shows up here as a
 // second open.
-func TestManageHooksInstall_LoadsTheDefaultProfileOnce(t *testing.T) {
+func TestMaterialize_LoadsTheDefaultProfileOnce(t *testing.T) {
 	testsupport.ProjectDir(t)
 
 	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "claude-code")
-	require.NoError(t, err, "scaffold the project the hooks install applies to")
+	require.NoError(t, err, "scaffold the project the materialize delivers into")
 
 	counter := newProfileReadCounter(operations.SeedProfileName)
 	testApp(t, configload.WithRoot(safefs.NewMem(counter)))
 
-	require.NoError(t, runManageHooksInstall(directCmd(t, manageHooksInstallCmd), nil))
+	saved := matFlags
+	t.Cleanup(func() { matFlags = saved })
+	// Every kind but context: the scaffolded seed profile assembles none.
+	matFlags = materializeFlags{yes: true, surfaces: []string{"mcp", "settings", "hooks", "commands", "skills"}}
+	require.NoError(t, runMaterialize(directCmd(t, materializeCmd), nil))
 	assert.Equal(t, int64(1), counter.opens.Load(), "one command, one load of the default profile")
 }
 

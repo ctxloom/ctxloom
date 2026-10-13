@@ -23,7 +23,7 @@ flowchart TD
         IP --> PES["promptEngineSelection"] & PPR["promptPersonalRepos"] & PDTH["promptDirtyTreeHandler"]
         SNCD --> WIC["writeInitialConfig"]
         SNCD --> CSD["checkSystemDeps"] --> W1["warnIfNoSignKey / warnIfGitIdentityMissing"]
-        SNCD --> POST["addPersonalRemotes · cloneConfiguredRemotes<br/>pullSeededDependencies · operations.ApplyHooks"]
+        SNCD --> POST["addPersonalRemotes · cloneConfiguredRemotes<br/>pullSeededDependencies"]
         RI --> LD["launchDiscovery"] --> PEA["pingEngineAuth"] --> LEWP["launchEngineWithPrompt (pty)"]
     end
 
@@ -37,9 +37,9 @@ flowchart TD
     subgraph manage["manage.go · manage_companions.go"]
         MI["manage install"] --> EHG["ensureHarnessGitignore"]
         MI --> PIP["printInstallPlan (--print)"]
-        MU["manage uninstall"]
+        MU["manage uninstall"] --> MREL[["operations.Materialize (Release, every engine)"]]
         MS["manage check"] --> PHS["printHarnessStatus"] --> PCS["printCompanionStatus"] --> HFC["hintForCompanion → companionHint"]
-        MH["manage hooks install/uninstall/check"]
+        MH["manage hooks check/list"]
         MSL["manage statusline install/uninstall"] --> SSL["setStatusline"]
         MC["manage config * (deprecated alias)"] --> config
         MG["manage gitignore install"] --> EHG

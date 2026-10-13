@@ -110,16 +110,17 @@ func TestManageInstallUninstall_FormatJSON(t *testing.T) {
 	require.NotEmpty(t, removed["note"])
 }
 
-// TestManageHooksInstallUninstall_FormatJSON pins `manage hooks
-// install`/`uninstall`'s own inline RunEs (distinct from `manage
+// TestMaterializeAndRelease_FormatJSON pins `ctxloom materialize` and its
+// `--release` path under --format json (distinct from `manage
 // install`/`uninstall`'s top-level orchestrators, but the same emit() shape).
-func TestManageHooksInstallUninstall_FormatJSON(t *testing.T) {
+func TestMaterializeAndRelease_FormatJSON(t *testing.T) {
 	testsupport.ProjectDir(t)
 
-	installed := runCLIJSON(t, "manage", "hooks", "install")
+	// Every kind but context: the scaffolded seed profile assembles none.
+	installed := runCLIJSON(t, "materialize", "--yes", "--surface", "settings", "--surface", "hooks")
 	require.NotEmpty(t, installed["status"])
-	require.NotEmpty(t, installed["project_root"])
+	require.NotEmpty(t, installed["target"])
 
-	removed := runCLIJSON(t, "manage", "hooks", "uninstall")
+	removed := runCLIJSON(t, "materialize", "--release", "--yes")
 	require.NotEmpty(t, removed["status"])
 }

@@ -151,7 +151,7 @@ func (Claude) SettingsReader(o agent.SettingsOptions) agent.SettingsReader { ret
 
 // HookGlobalScope is agent.Hosted's. claude's project settings.json
 // collapses onto its user-global one exactly when workDir == $HOME — found
-// live (`manage hooks install` run from $HOME silently went global).
+// live (an at-rest install run from $HOME silently went global).
 func (Claude) HookGlobalScope() (agent.HookGlobalScope, bool) {
 	return agent.HookGlobalScope{
 		Paths: func(workDir string) (string, string, error) {

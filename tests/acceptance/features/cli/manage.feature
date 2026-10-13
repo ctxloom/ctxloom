@@ -11,7 +11,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
   A `ctxloom run` session carries every runtime surface in its own session
   home, so `manage install` writes no engine file; an engine launched
   directly in the project tree gets no ctxloom hooks and no ctxloom MCP
-  server. The project-side copy exists only where `manage hooks install`
+  server. The project-side copy exists only where `ctxloom materialize`
   was asked for, and `manage uninstall` is how it leaves.
 
   This is the comprehensive per-noun spec: what the noun DOES, leaf by leaf,
@@ -25,8 +25,8 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     `manage install` scaffolds `.ctxloom`, records the chosen engine, and
     git-ignores ctxloom's private state. It writes NO engine file: the
     engine's own native configuration is delivered into a `ctxloom run`
-    session's home, and reaches the project tree only through the explicit
-    `manage hooks install`. Which files THAT writes differs per engine and is
+    session's home, and reaches the project tree only through an explicit
+    `ctxloom materialize`. Which files THAT writes differs per engine and is
     the whole point of the engine axis; what they must all do is put the
     project's context in front of that engine and register ctxloom as an MCP
     server.
@@ -61,48 +61,52 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # PAYLOAD, NOT EXISTENCE. An empty file exists just as convincingly as a
     # wired one, so every row names content the surface must actually carry.
     #
-    # EVERY ROW IS UNTAGGED because every row is hermetic: `manage hooks
-    # install` WRITES an engine's config files and never launches the engine,
+    # EVERY ROW IS UNTAGGED because every row is hermetic: `ctxloom
+    # materialize` WRITES an engine's config files and never launches the engine,
     # so no credential is needed and nothing gates behind @live. `mock` is a
     # first-class row — a registered engine with real surfaces of its own.
     #
-    # CONTEXT ARRIVES TWO WAYS, and the table says which each engine uses. An
-    # engine that takes its context at launch (claude's system prompt, through
-    # `ctxloom run`) gets none at rest — a copy beside the launch's would
-    # double it — so its row asserts the one hook it does get, ctxloom's
-    # session-start (the resumed essence and the session-start notices). An
-    # engine without a launch channel reads a file ctxloom materialized.
+    # AN EXPLICIT MATERIALIZE WRITES EVERY ENGINE'S CONTEXT FILE, claude's
+    # CLAUDE.md included: it is for an agent launched with ctxloom OUT of the
+    # loop, which has no system prompt from a `ctxloom run`. (The post-sync
+    # refresh is the one at-rest delivery that leaves a launch-borne context
+    # out.) claude also gets ctxloom's session-start hook (the resumed essence
+    # and the session-start notices), which names no context.
     # (ruled 2026-09-21: sessions carry their surfaces — the project-side
-    # copy is the explicit hooks install's, so it is spelled out after the
+    # copy is an explicit materialize's, so it is spelled out after the
     # scaffold)
+    #
+    # --degraded: the scaffold's seed profile inherits ctxloom's published
+    # default profile, a remote parent `ctxloom deps pull` would install and
+    # this hermetic cell never pulls; a strict materialize refuses to deliver
+    # past it (`manage install` alone writes no engine file to refuse).
     Scenario Outline: Alice wires an empty project for her engine
       Given an empty project directory
       When Alice installs ctxloom for <engine> and wires its files in:
         """
         ctxloom manage install --engine <engine>
-        ctxloom manage hooks install
+        ctxloom materialize --yes --degraded
         """
       Then the command succeeds
       And the file ".ctxloom/config.yaml" is valid YAML
       And the file "<context_surface>" contains "<context_marker>"
       And the file ".ctxloom/.gitignore" contains "ctxloom"
 
-      Examples: engines that take their context at launch — only the session-start hook is wired at rest
+      # The marker is a heading from ctxloom's own shipped guidance.
+      Examples: every engine's context file carries the assembled context
+        | engine      | context_surface                 | context_marker                |
+        | claude-code | CLAUDE.md                       | Isolation: specify both axes  |
+        | mock        | MOCK_CONTEXT.md                 | Isolation: specify both axes  |
+
+      Examples: claude's settings carry the session-start hook, which names no context
         | engine      | context_surface       | context_marker      |
         | claude-code | .claude/settings.json | session-start       |
-
-      # The marker is a heading from ctxloom's own shipped guidance: the
-      # mock's context file is the assembled context verbatim, owned whole
-      # by the ownership record — no marker section is written into it.
-      Examples: engines without one — context is read from a materialized file
-        | engine      | context_surface                 | context_marker                |
-        | mock        | MOCK_CONTEXT.md                 | Isolation: specify both axes  |
 
     # ONE CLAIM, MANY SHAPES. ctxloom's own MCP server is the companion's
     # DYNAMIC declaration — served by the running session's endpoint, injected
     # into the SESSION's registry with that session's URL and bearer at
-    # session start. At rest there is no session to inject, so the explicit
-    # project-side install registers NO server under ctxloom's name, in any
+    # session start. At rest there is no session to inject, so an explicit
+    # materialize registers NO server under ctxloom's name, in any
     # engine's dialect: an entry there would name a command that speaks no
     # protocol, and the engine launching it would come up with none of
     # ctxloom's tools and nothing saying why.
@@ -118,7 +122,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       When Alice installs ctxloom for <engine> and wires its files in:
         """
         ctxloom manage install --engine <engine>
-        ctxloom manage hooks install
+        ctxloom materialize --yes --degraded
         """
       Then the command succeeds
       And the file "<mcp_surface>" registers no MCP server named "ctxloom"
@@ -146,13 +150,13 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # Two engines carry a command surface, which is what makes "in its own
     # idiom" a claim two rows can disagree about.
     # (ruled 2026-09-21: sessions carry their surfaces — the project-side
-    # command files are the explicit hooks install's)
+    # command files are an explicit materialize's)
     Scenario Outline: Every engine gets ctxloom's shipped commands in its own idiom
       Given an empty project directory
       When Alice installs ctxloom for <engine> and wires its files in:
         """
         ctxloom manage install --engine <engine>
-        ctxloom manage hooks install
+        ctxloom materialize --yes --degraded
         """
       Then the command succeeds
       And the file "<command_surface>" contains "Scan the current project and discover matching ctxloom content"
@@ -223,7 +227,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     #
     # mcp is NOT wired at rest, and the report says so: ctxloom's own server
     # is served by the running session's endpoint and injected into the
-    # session's registry at start, so the explicit hooks install registers no
+    # session's registry at start, so an explicit materialize registers no
     # managed MCP server in the project — a "true" here would claim a wiring
     # the engine could not launch (ruled 2026-09-21: ctxloom injects its MCP
     # only while it is running, via its own companion).
@@ -231,7 +235,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Given an initialized ctxloom project
       When Alice wires the hooks in and asks what is configured:
         """
-        ctxloom manage hooks install
+        ctxloom materialize --yes
         ctxloom manage check <flags>
         """
       Then the command succeeds
@@ -258,7 +262,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         | engine      |
         | claude-code |
 
-  Rule: Hooks install, list, and genuinely uninstall
+  Rule: Hooks are materialized, listed, and genuinely released
 
     # A claim scoped to hooks.SessionStart specifically, parsed rather than a
     # whole-file substring: ctxloom's own statusLine command also carries the
@@ -266,8 +270,8 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # check here is satisfied by the statusline whether or not any hook was
     # ever installed or removed.
     #
-    # The project had no settings.json before the install: ctxloom CREATED
-    # it, so uninstall — the empty plan over the ownership record — removes
+    # The project had no settings.json before the materialize: ctxloom
+    # CREATED it, so the release — the empty plan over the ownership record — removes
     # the file with its last entries rather than leaving an empty husk. A
     # settings.json the user wrote is restored to their bytes instead (the
     # hand-written-numbers scenario below).
@@ -275,14 +279,14 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Given an initialized ctxloom project
       When Alice installs the hooks:
         """
-        ctxloom manage hooks install
+        ctxloom materialize --yes
         """
       Then the command succeeds
       And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook session-start"
       When Alice inspects and then removes them:
         """
         ctxloom manage hooks check
-        ctxloom manage hooks uninstall
+        ctxloom materialize --release --yes
         """
       Then the command succeeds
       And the file ".claude/settings.json" does not exist
@@ -301,8 +305,8 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Given an initialized ctxloom project
       When Alice installs the hooks twice:
         """
-        ctxloom manage hooks install
-        ctxloom manage hooks install
+        ctxloom materialize --yes
+        ctxloom materialize --yes
         """
       Then the command succeeds
       And the file ".claude/settings.json" contains "next-step" exactly 1 times
@@ -432,17 +436,17 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
 
     Scenario: Statusline can be disabled and re-enabled
       Given an initialized ctxloom project
-      When Alice turns the statusline off and re-applies the hooks:
+      When Alice turns the statusline off and re-materializes:
         """
         ctxloom manage statusline uninstall
-        ctxloom manage hooks install
+        ctxloom materialize --yes
         """
       Then the command succeeds
       And the file ".claude/settings.json" does not contain "hook hud"
       When Alice turns it back on and re-applies:
         """
         ctxloom manage statusline install
-        ctxloom manage hooks install
+        ctxloom materialize --yes
         """
       Then the command succeeds
       And the file ".claude/settings.json" contains "hook hud"
@@ -454,7 +458,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # float64 can hold exactly. The assertion is on the persisted digits,
     # because a round-trip through a generic JSON decoder loses them while
     # still reporting success.
-    Scenario: Installing hooks preserves the exact numbers the user wrote by hand
+    Scenario: Materializing preserves the exact numbers the user wrote by hand
       Given an initialized ctxloom project
       And the project already has the file ".claude/settings.json":
         """
@@ -464,9 +468,9 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
           "permissions": { "allow": ["Read"], "quota": 18446744073709551615 }
         }
         """
-      When Alice installs the hooks over her hand-written settings:
+      When Alice materializes over her hand-written settings:
         """
-        ctxloom manage hooks install
+        ctxloom materialize --yes
         """
       Then the command succeeds
       And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook session-start"
@@ -493,9 +497,9 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
           "statusLine": { "type": "command", "command": { "exec": "ccusage" } }
         }
         """
-      When Alice installs the hooks over a statusline ctxloom cannot parse:
+      When Alice materializes over a statusline ctxloom cannot parse:
         """
-        ctxloom manage hooks install
+        ctxloom materialize --yes
         """
       Then the command fails
       And the output contains "refusing to write settings.json"
@@ -559,13 +563,13 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # The MCP claim PARSES the file rather than checking for the bare
     # substring "ctxloom".
     # (ruled 2026-09-21: sessions carry their surfaces — the harness this
-    # strips is what the explicit hooks install wrote)
+    # strips is what an explicit materialize wrote)
     Scenario: Uninstall strips the harness but keeps the project's own content
       Given an empty project directory
       When Alice wires ctxloom in:
         """
         ctxloom manage install --engine claude-code
-        ctxloom manage hooks install
+        ctxloom materialize --yes --degraded
         """
       Then the command succeeds
       And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook session-start"
@@ -590,7 +594,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # into the project, so the install's files being absent afterwards shows
     # only that nothing was left behind. Ruled 2026-09-21: sessions carry their surfaces; the project
     # is written only under a root the binding selects, and the project-side
-    # files this scenario removes are the explicit hooks install's.
+    # files this scenario removes are an explicit materialize's.
     Scenario: After an uninstall, a run delivers into its session and the project stays clean
       Given an initialized ctxloom project
       And a bundle "demo" exists
@@ -604,7 +608,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       When Alice wires the mock in, takes it back out, and runs:
         """
         ctxloom manage install --engine mock
-        ctxloom manage hooks install
+        ctxloom materialize --yes
         ctxloom manage uninstall
         ctxloom run --one-shot --profile dev unicorn-prompt
         """

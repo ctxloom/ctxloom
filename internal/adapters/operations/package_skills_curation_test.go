@@ -7,7 +7,7 @@
 // command_curation_test.go, but a skill has no inline content the way a
 // command does (BundleSkill carries no `content:` — see skill.go), so these
 // tests build REAL on-disk directory-form bundles/profiles (like
-// operations.TestMaterializeProfile_WritesSkills) rather than seeding bare
+// operations.TestMaterialize_WritesSkills) rather than seeding bare
 // in-memory bundle structs.
 package operations
 

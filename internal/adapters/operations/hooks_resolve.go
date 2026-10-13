@@ -113,8 +113,8 @@ func resolvedHookEventOrder() []string { return wire.HookEvents() }
 // sequencing only its own hooks within an event. No single input states the
 // result, which is exactly why the result was invisible.
 //
-// So this calls managedhooks.Assemble — the SAME function
-// applyHooksToBackend calls — rather than re-deriving the set from bundles. An
+// So this calls managedhooks.Assemble — the SAME function every delivery's
+// AssemblePackage calls — rather than re-deriving the set from bundles. An
 // inspect surface that computed the answer its own way would be a second
 // implementation of the merge, and the two would drift; the failure mode is an
 // inspect command that confidently reports an order the engine does not run,
@@ -134,19 +134,16 @@ func ResolveHooks(ctx context.Context, req ResolveHooksRequest) (*ResolveHooksRe
 		return nil, err
 	}
 
-	cfg, err := resolveHookConfig(ApplyHooksRequest{Cfg: req.Cfg})
-	if err != nil {
-		return nil, err
+	cfg := req.Cfg
+	if cfg == nil {
+		return nil, fmt.Errorf("resolve hooks: a config generation is required")
 	}
 	// The generation's Trust decides here exactly as on the apply path: a hook
 	// the gate denies never reaches backend settings, so it must not be
 	// reported as something that will fire.
 
-	// The context-injection hook is not in this report: Assemble never
-	// synthesises it — the at-rest writer (applyHooksToBackend) appends it
-	// from a hash it is about to write down — and a
-	// hook whose identity is an artefact of having asked the question is not
-	// inspection.
+	// There is no context-injection hook in this report: Assemble never
+	// synthesises one.
 	assembled := managedhooks.Assemble(cfg, req.Profiles)
 
 	out := &ResolveHooksResult{}

@@ -290,9 +290,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// server show`, which does call emit() — not debt, just fixture-gated.
 	"manage install":              {skip: "installer: side-effecting project bootstrap"},
 	"manage uninstall":            {skip: "installer: side-effecting project teardown"},
-	"manage hooks install":        {skip: "installer: writes real hook files"},
-	"manage hooks uninstall":      {skip: "installer: removes real hook files"},
-	"manage hooks check":          {skip: "reads the hook files the installer above would write; not fixtured here — wired to emit() (shares runManageCheck with `manage check`); registry was stale, not debt"},
+	"manage hooks check":          {skip: "reads the hook files `ctxloom materialize` would write; not fixtured here — wired to emit() (shares runManageCheck with `manage check`); registry was stale, not debt"},
 	"mcp server set":              {skip: "wired to emit(); TestMCPServerSet_EmitsTheResult drives it with --format json"},
 	"mcp server show":             {skip: "wired to emit(), but needs an existing server fixture; not exercised here"},
 	"manage statusline install":   {skip: "installer: writes real statusline config"},
@@ -334,16 +332,10 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"profile edit":   {skip: "not wired to emit() yet", formatDebt: true},
 	"profile export": {skip: "not wired to emit() yet", formatDebt: true},
 	"profile import": {skip: "not wired to emit() yet", formatDebt: true},
-	// This entry was WRONG — one of the registry's "known
-	// inaccuracies". profileMaterializeCmd's RunE DOES call emit() (verified
-	// via find_symbol on profile_materialize.go); it's fixture-gated like
-	// `profile show`, not format debt. Reclassified below; not counted in
-	// the format-debt total and NOT in formatDebtAllowlist.
-	"profile materialize": {skip: "wired to emit(), but needs a resolvable profile + --target fixture; not exercised here (corrected T19 audit: previously mislabeled 'not wired to emit() yet', but profileMaterializeCmd's RunE does call emit())"},
-	"profile modify":      {skip: "not wired to emit() yet", formatDebt: true},
-	"materialize":         {skip: "wired to emit(); needs a profile fixture and a --target (it refuses the project directory without --yes) — the --format json payload is golden-tested in materialize_cmd_test.go"},
-	"session show":        {skip: "wired to emit(), but needs an existing session fixture; not exercised here"},
-	"session edit":        {skip: "wired to emit(), but needs an existing session fixture (a harp in the index) and MUTATES it; covered directly by session_edit_test.go, which drives all five decisions on a seeded harp"},
+	"profile modify": {skip: "not wired to emit() yet", formatDebt: true},
+	"materialize":    {skip: "wired to emit(); needs a profile fixture and a --target (it refuses the project directory without --yes) — the --format json payload is golden-tested in materialize_cmd_test.go"},
+	"session show":   {skip: "wired to emit(), but needs an existing session fixture; not exercised here"},
+	"session edit":   {skip: "wired to emit(), but needs an existing session fixture (a harp in the index) and MUTATES it; covered directly by session_edit_test.go, which drives all five decisions on a seeded harp"},
 	// Not format debt. runSessionRemove routes its result through emit() on
 	// both branches; it is fixture-gated and destructive, like the purges
 	// below. The entry that stood here claimed an inline closure that never

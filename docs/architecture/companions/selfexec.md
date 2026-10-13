@@ -96,12 +96,9 @@ flowchart TD
 
   So after an in-place upgrade, `WarnOnCtxloomPathSkew` compares a `" (deleted)"`-suffixed running
   path against a PATH lookup and reports skew that `Path` deliberately hides.
-- **A second `…ForTesting` mutator is reachable from a production entry point.**
-  `internal/adapters/operations/hooks.go:64-65` calls `agent.SetExecutablePathForTesting(req.ExecPath)`
-  inside the exported `ApplyHooks` whenever `ApplyHooksRequest.ExecPath` is non-empty; that setter
-  assigns the process-lifetime `cachedExecPath` with no lock and **no restore**. Latent today —
-  every assignment to `ExecPath` is in a test — but a production request struct carrying a field
-  whose only job is to mutate a global is a live hazard, and poisoning that cache makes the
-  skew warning lie for the rest of the process.
+- **Resolved: a second `…ForTesting` mutator was reachable from a production entry point.**
+  `ApplyHooksRequest.ExecPath` reached `agent.SetExecutablePathForTesting`, which assigns the
+  process-lifetime `cachedExecPath` with no lock and no restore. The field was deleted
+  (a0c17295), and `ApplyHooks` itself is gone (`ctxloom materialize` replaced it).
 - **`internal/adapters/cli.resolveSelfExecutable` (`run.go:289`) is a one-line pass-through** to
   `selfexec.Path()` with a single caller, whose 6-line doc comment duplicates `Path`'s own.

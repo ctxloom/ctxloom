@@ -70,12 +70,14 @@ to use from a script or CI.`,
 
 var manageUninstallCmd = &cobra.Command{
 	Use:   "uninstall",
-	Short: "Remove ctxloom's hooks, statusline, MCP entry, and command files",
-	Long: `Strip ctxloom-managed hooks, statusline, MCP servers, and generated command
-files from every supported backend — what an earlier ctxloom's install, or an
-explicit 'manage hooks install', wrote into the project. A project that only
-ever saw the current install has nothing to strip. Leaves the .ctxloom
-directory and its contents (profiles, bundles, config) untouched.`,
+	Short: "Remove what ctxloom delivered into the project, for every engine",
+	Long: `Take out of the project directory everything ctxloom's at-rest deliveries
+wrote there — hooks, statusline, MCP servers, command and skill files, and
+context — for every supported engine, including one the project no longer
+configures. It is 'ctxloom materialize --release' at the project root for
+all engines; only what ctxloom's ownership record says it wrote is removed,
+so your own entries stay. Leaves the .ctxloom directory and its contents
+(profiles, bundles, config) untouched.`,
 	Example: `  ctxloom manage uninstall`,
 	Args:    cobra.NoArgs,
 	RunE:    runManageUninstall,
@@ -410,55 +412,59 @@ func ignoreRuleLines(content []byte) []string {
 	return out
 }
 
-// removeHooksAndReport is the shared body of `manage uninstall` and
-// `manage hooks uninstall`. They differ only in the backend they target and in
-// what they print; sharing the removal, the error handling and the emit is what
-// stops one of them being fixed and the other quietly left behind.
+// runManageUninstall takes out of the project root what ctxloom's at-rest
+// deliveries put there: the release path of `ctxloom materialize`, for EVERY
+// registered engine, deliberately — `manage uninstall` takes no engine and
+// must reach what an engine the project has since stopped configuring
+// still holds. Write narrowly, clean widely. A release removes only what the
+// ownership record says ctxloom wrote, so the user-global scope guard (a
+// refusal to WRITE an engine's global settings) is forced past.
 //
-// WarnErrors prints the per-item warnings AND returns non-nil so the run
-// actually fails. The old shape warned and returned nil: a refused engine
-// removal exited 0, and any script gating on the exit code believed it worked.
-func removeHooksAndReport(cmd *cobra.Command, backend string, render func(operations.RemoveHooksResult) (any, func() error)) error {
+// WarnErrors prints the per-engine warnings AND returns non-nil so the run
+// fails: a refused removal must never exit 0.
+func runManageUninstall(cmd *cobra.Command, _ []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return err
 	}
-	result, err := operations.RemoveHooks(cmd.Context(), App().Engines(), cfg, operations.RemoveHooksRequest{Backend: backend})
+	reg := App().Engines()
+	res, err := operations.Materialize(cmd.Context(), reg, cfg, operations.MaterializeRequest{
+		Target: projectroot.WorkDir(), Engines: operations.EngineNames(reg), Release: true, Force: true,
+	})
 	if err != nil {
 		return err
 	}
-	warnErr := clidiag.WarnErrors("ctxloom", result.Errors)
-
-	payload, text := render(*result)
-	if err := emit(cmd, payload, text); err != nil {
+	type manageUninstallResult struct {
+		Status   string   `json:"status"`
+		Backends []string `json:"backends"`
+		Errors   []string `json:"errors,omitempty"`
+		Note     string   `json:"note"`
+	}
+	out := manageUninstallResult{
+		Status:   res.Status,
+		Backends: releasedEngines(res),
+		Errors:   res.Errors,
+		Note:     "The .ctxloom directory and its contents were left in place.",
+	}
+	if err := emit(cmd, out, func() error {
+		fmt.Fprintf(cmd.OutOrStdout(), "Removed ctxloom harness from: %v\n", out.Backends)
+		fmt.Fprintln(cmd.OutOrStdout(), out.Note)
+		return nil
+	}); err != nil {
 		return err
 	}
-	return warnErr
+	return clidiag.WarnErrors("ctxloom", res.Errors)
 }
 
-func runManageUninstall(cmd *cobra.Command, _ []string) error {
-	// Backend "" is EXHAUSTIVE for removal, deliberately: `manage uninstall`
-	// takes no engine and must reach managed hooks in an engine the project has
-	// since stopped configuring.
-	return removeHooksAndReport(cmd, "", func(result operations.RemoveHooksResult) (any, func() error) {
-		type manageUninstallResult struct {
-			Status   string   `json:"status"`
-			Backends []string `json:"backends"`
-			Errors   []string `json:"errors,omitempty"`
-			Note     string   `json:"note"`
+// releasedEngines names the engines a release took everything out of.
+func releasedEngines(res *operations.MaterializeResult) []string {
+	out := []string{}
+	for _, e := range res.Engines {
+		if len(e.Warnings) == 0 {
+			out = append(out, e.Engine)
 		}
-		out := manageUninstallResult{
-			Status:   result.Status,
-			Backends: result.Backends,
-			Errors:   result.Errors,
-			Note:     "The .ctxloom directory and its contents were left in place.",
-		}
-		return out, func() error {
-			fmt.Fprintf(cmd.OutOrStdout(), "Removed ctxloom harness from: %v\n", result.Backends)
-			fmt.Fprintln(cmd.OutOrStdout(), out.Note)
-			return nil
-		}
-	})
+	}
+	return out
 }
 
 func runManageCheck(cmd *cobra.Command, _ []string) error {
@@ -528,101 +534,8 @@ func printSurfaceCurrencies(w io.Writer, surfaces []operations.SurfaceCurrency) 
 
 var manageHooksCmd = groupNode(&cobra.Command{
 	Use:   "hooks",
-	Short: "Install, uninstall, or inspect ctxloom backend hooks",
+	Short: "Inspect ctxloom backend hooks",
 })
-
-var (
-	manageHooksBackend string
-	manageHooksForce   bool
-)
-
-var manageHooksInstallCmd = &cobra.Command{
-	Use:   "install",
-	Short: "UNSAFE: write ctxloom's hooks, MCP, commands and context into the project's engine files",
-	Long: `Write ctxloom's engine files into the PROJECT tree: each configured
-engine's settings (hooks, statusline), MCP registration, command files and
-regenerated context, at the well-known paths the engine reads from the
-project.
-
-This is the UNSAFE door, and the only one on the default path. A
-'ctxloom run' session delivers the same surfaces into its own session home
-and never writes the project or your real home; nothing here happens unless
-you run this command (or select a project root on an agent binding's
-roots:). What it writes is shared by every session and every person using
-this checkout, and it is not locked against them. 'ctxloom manage uninstall'
-removes it.`,
-	Example: `  ctxloom manage hooks install
-  ctxloom manage hooks install --backend claude-code`,
-	Args: cobra.NoArgs,
-	RunE: runManageHooksInstall,
-}
-
-func runManageHooksInstall(cmd *cobra.Command, _ []string) error {
-	cfg, err := GetConfig()
-	if err != nil {
-		return err
-	}
-	workDir := projectroot.WorkDir()
-	result, err := operations.ApplyHooks(cmd.Context(), App().Engines(), operations.ApplyHooksRequest{
-		Cfg:               cfg,
-		Backend:           manageHooksBackend,
-		RegenerateContext: true,
-		Force:             manageHooksForce,
-	})
-	if err != nil {
-		return err
-	}
-	// WarnErrors prints the same per-item warnings this used to print, but
-	// ALSO returns non-nil so the run actually fails. The old shape warned and
-	// returned nil: a refused engine apply exited 0, and any script or CI step
-	// gating on the exit code believed the hooks were installed.
-	warnErr := clidiag.WarnErrors("ctxloom", result.Errors)
-
-	type manageHooksInstallResult struct {
-		Status      string   `json:"status"`
-		Backends    []string `json:"backends"`
-		ProjectRoot string   `json:"project_root"`
-		Retracted   []string `json:"retracted,omitempty"`
-		Errors      []string `json:"errors,omitempty"`
-	}
-	out := manageHooksInstallResult{
-		Status:      result.Status,
-		Backends:    result.Backends,
-		ProjectRoot: workDir,
-		Retracted:   result.Retracted,
-		Errors:      result.Errors,
-	}
-	if err := emit(cmd, out, func() error {
-		fmt.Fprintf(cmd.OutOrStdout(), "Hooks %s for: %v (project root: %s) — unsafe: written into the shared project tree; a 'ctxloom run' session carries its own\n", result.Status, result.Backends, workDir)
-		return nil
-	}); err != nil {
-		return err
-	}
-	return warnErr
-}
-
-var manageHooksUninstallCmd = &cobra.Command{
-	Use:     "uninstall",
-	Short:   "Remove ctxloom hooks, statusline, MCP entries, and command files",
-	Example: `  ctxloom manage hooks uninstall --backend claude-code`,
-	Args:    cobra.NoArgs,
-	RunE:    runManageHooksUninstall,
-}
-
-func runManageHooksUninstall(cmd *cobra.Command, _ []string) error {
-	return removeHooksAndReport(cmd, manageHooksBackend, func(result operations.RemoveHooksResult) (any, func() error) {
-		type manageHooksUninstallResult struct {
-			Status   string   `json:"status"`
-			Backends []string `json:"backends"`
-			Errors   []string `json:"errors,omitempty"`
-		}
-		out := manageHooksUninstallResult{Status: result.Status, Backends: result.Backends, Errors: result.Errors}
-		return out, func() error {
-			fmt.Fprintf(cmd.OutOrStdout(), "Hooks %s for: %v\n", result.Status, result.Backends)
-			return nil
-		}
-	})
-}
 
 var manageHooksCheckCmd = &cobra.Command{
 	Use:     "check",
@@ -756,7 +669,7 @@ var manageStatuslineCmd = groupNode(&cobra.Command{
 
 Disable it to keep your own (or no) statusline — ctxloom will stop managing the
 statusline and clear any it previously installed. The change takes effect on the
-next 'ctxloom manage hooks install' or 'ctxloom run'.`,
+next 'ctxloom materialize' or 'ctxloom run'.`,
 })
 
 var manageStatuslineInstallCmd = &cobra.Command{
@@ -805,7 +718,7 @@ func setStatusline(cmd *cobra.Command, enabled bool) error {
 	out := manageStatuslineResult{Status: state, Statusline: result.Statusline}
 	return emit(cmd, out, func() error {
 		fmt.Fprintf(cmd.OutOrStdout(), "ctxloom HUD statusline: %s\n", state)
-		fmt.Fprintln(cmd.OutOrStdout(), "Run 'ctxloom run' or 'ctxloom manage hooks install' to apply the change.")
+		fmt.Fprintln(cmd.OutOrStdout(), "Run 'ctxloom run' or 'ctxloom materialize' to apply the change.")
 		return nil
 	})
 }
@@ -884,23 +797,12 @@ func init() {
 
 	// hooks.
 	manageCmd.AddCommand(manageHooksCmd)
-	manageHooksCmd.AddCommand(manageHooksInstallCmd)
-	manageHooksCmd.AddCommand(manageHooksUninstallCmd)
 	manageHooksCmd.AddCommand(manageHooksCheckCmd)
 	manageHooksCmd.AddCommand(manageHooksListCmd)
 	manageHooksListCmd.Flags().StringVar(&manageHooksListEvent, "event", "",
 		"Report only this lifecycle event ("+strings.Join(wire.HookEvents(), ", ")+")")
 	manageHooksListCmd.Flags().StringSliceVar(&manageHooksListProfiles, "profile", nil,
 		"Resolve against these profiles instead of the configured defaults (repeatable)")
-	manageHooksInstallCmd.Flags().BoolVar(&manageHooksForce, "force", false, "Proceed even if the resolved project directory would write Claude Code's user-global settings (not inside a project / $HOME)")
-	for _, c := range []*cobra.Command{manageHooksInstallCmd, manageHooksUninstallCmd} {
-		// No default and no "all": omitted means this project's configured
-		// engines, which is the common case and the honest one. The value is
-		// deliberately not enumerated in the help text — the registry is the
-		// authority on what is valid, and a hand-written list here named an
-		// engine that had already been removed.
-		c.Flags().StringVar(&manageHooksBackend, "backend", "", "Engine to target (default: the engines this project configures)")
-	}
 
 	// statusline opt-out.
 	manageCmd.AddCommand(manageStatuslineCmd)

@@ -3,12 +3,14 @@ package operations
 import (
 	"context"
 	"encoding/json"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
@@ -42,18 +44,33 @@ fragments:
 	return cfg, t.TempDir()
 }
 
-// TestMaterializeProfile_WritesClaudeMd proves the core surface: the assembled
+// materializeOne runs Materialize for exactly one engine and returns that
+// engine's outcome; a per-engine failure is the error.
+func materializeOne(t *testing.T, cfg *config.Config, req MaterializeRequest) (EngineOutcome, error) {
+	t.Helper()
+	res, err := Materialize(context.Background(), engines.Registry(), cfg, req)
+	if err != nil {
+		return EngineOutcome{}, err
+	}
+	require.Len(t, res.Engines, 1)
+	if len(res.Errors) > 0 {
+		return res.Engines[0], errors.New(strings.Join(res.Errors, "; "))
+	}
+	return res.Engines[0], nil
+}
+
+// TestMaterialize_WritesClaudeMd proves the core surface: the assembled
 // profile context lands in <target>/CLAUDE.md, the backend defaults to
 // claude-code, and settings/mcp are written.
-func TestMaterializeProfile_WritesClaudeMd(t *testing.T) {
+func TestMaterialize_WritesClaudeMd(t *testing.T) {
 	cfg, target := materializeFixture(t, "MATERIALIZED-CONTENT")
 
-	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
+	res, err := materializeOne(t, cfg, MaterializeRequest{Explicit: true,
 		Profiles: []string{"reviewer"},
 		Target:   target,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "claude-code", res.Backend, "backend defaults to claude-code")
+	assert.Equal(t, "claude-code", res.Engine, "the engine defaults to the registry's default, claude-code")
 	assert.Contains(t, res.Wrote, "context", "the assembled context surface is reported")
 
 	data, err := os.ReadFile(filepath.Join(target, "CLAUDE.md"))
@@ -62,8 +79,8 @@ func TestMaterializeProfile_WritesClaudeMd(t *testing.T) {
 		"the assembled fragment block is the CLAUDE.md payload")
 }
 
-// TestMaterializeProfile_KeepsHomeShadowedCommand is the end-to-end
-// regression: `profile materialize --target` must produce a PORTABLE,
+// TestMaterialize_KeepsHomeShadowedCommand is the end-to-end
+// regression: `ctxloom materialize --target` must produce a PORTABLE,
 // self-contained tree, so a builtin command (e.g. "discover") that happens to
 // be byte-identical to a file already sitting in the MATERIALIZING machine's
 // own ~/.claude/commands must still land in --target. Pre-fix, claude's
@@ -71,14 +88,13 @@ func TestMaterializeProfile_WritesClaudeMd(t *testing.T) {
 // dropping it — exactly the observed cr-correctness bug (3 built-ins missing
 // for claude-code only and present for every other engine, because this host
 // happened to already have them installed under ~/.claude/commands).
-func TestMaterializeProfile_KeepsHomeShadowedCommand(t *testing.T) {
+func TestMaterialize_KeepsHomeShadowedCommand(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
 
 	// Render the "discover" builtin command exactly as materialize itself will
-	// (the same package projection profile_materialize.go drives),
+	// (the same package projection Materialize drives),
 	// and pre-seed a byte-identical copy into $HOME/.claude/commands — simulating
-	// a materializing host that has already installed its own commands (e.g. via
-	// `manage hooks install`), which the --target launch environment does NOT
+	// a materializing host that has already installed its own commands, which the --target launch environment does NOT
 	// share.
 	pkg, err := AssemblePackage(context.Background(), cfg, PackageRequest{Profiles: []string{"reviewer"}})
 	require.NoError(t, err)
@@ -99,7 +115,7 @@ func TestMaterializeProfile_KeepsHomeShadowedCommand(t *testing.T) {
 	}
 	require.True(t, seeded, "precondition: the discover builtin command must be among the exports")
 
-	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
+	res, err := materializeOne(t, cfg, MaterializeRequest{Explicit: true,
 		Profiles: []string{"reviewer"}, Target: target,
 	})
 	require.NoError(t, err)
@@ -109,31 +125,31 @@ func TestMaterializeProfile_KeepsHomeShadowedCommand(t *testing.T) {
 		"a command byte-identical to one in the materializing host's ~/.claude/commands must still land in the portable --target tree")
 }
 
-// TestMaterializeProfile_RefusesARetiredShortSpelling: `claude` is not an
+// TestMaterialize_RefusesARetiredShortSpelling: `claude` is not an
 // engine name and no alias maps it to one, so the request is refused rather
 // than materialized under a backend the caller did not name.
-func TestMaterializeProfile_RefusesARetiredShortSpelling(t *testing.T) {
+func TestMaterialize_RefusesARetiredShortSpelling(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
-	_, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
-		Profiles: []string{"reviewer"}, Target: target, Backend: "claude",
+	_, err := materializeOne(t, cfg, MaterializeRequest{Explicit: true,
+		Profiles: []string{"reviewer"}, Target: target, Engines: []string{"claude"},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `unknown backend "claude"`)
 }
 
-// TestMaterializeProfile_OverwritesEachRun proves the export is the source of
+// TestMaterialize_OverwritesEachRun proves the export is the source of
 // truth: a second run produces a byte-identical CLAUDE.md (deterministic, full
 // overwrite — no append/duplication).
-func TestMaterializeProfile_OverwritesEachRun(t *testing.T) {
+func TestMaterialize_OverwritesEachRun(t *testing.T) {
 	cfg, target := materializeFixture(t, "ONCE")
 
-	req := MaterializeProfileRequest{Profiles: []string{"reviewer"}, Target: target}
-	_, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, req)
+	req := MaterializeRequest{Profiles: []string{"reviewer"}, Target: target, Explicit: true}
+	_, err := materializeOne(t, cfg, req)
 	require.NoError(t, err)
 	first, err := os.ReadFile(filepath.Join(target, "CLAUDE.md"))
 	require.NoError(t, err)
 
-	_, err = MaterializeProfile(context.Background(), engines.Registry(), cfg, req)
+	_, err = materializeOne(t, cfg, req)
 	require.NoError(t, err)
 	second, err := os.ReadFile(filepath.Join(target, "CLAUDE.md"))
 	require.NoError(t, err)
@@ -141,17 +157,17 @@ func TestMaterializeProfile_OverwritesEachRun(t *testing.T) {
 	assert.Equal(t, string(first), string(second), "re-materialize is a clean overwrite")
 }
 
-// TestMaterializeProfile_ExportsCtxloomsOwnMCPServer proves a materialized
+// TestMaterialize_ExportsCtxloomsOwnMCPServer proves a materialized
 // export carries NO entry for ctxloom's own server: the companion loadout's
 // entry is the session-endpoint declaration, rendered only inside a session
 // (the runner binds the endpoint; delivery writes its URL and bearer into
 // the session's registry). At rest there is nothing to render, and an entry
 // written anyway would name a command that speaks no protocol.
-func TestMaterializeProfile_ExportsCtxloomsOwnMCPServer(t *testing.T) {
+func TestMaterialize_ExportsCtxloomsOwnMCPServer(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
 	cfg = withCtxloomLoadout(t, cfg)
 
-	_, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
+	_, err := materializeOne(t, cfg, MaterializeRequest{Explicit: true,
 		Profiles: []string{"reviewer"}, Target: target,
 	})
 	require.NoError(t, err)
@@ -190,7 +206,7 @@ func materializeHookFixture(t *testing.T) (cfg *config.Config, target string) {
 	return config.NewFixture(f), target
 }
 
-// TestMaterializeProfile_ReportsHooksAnEngineCannotCarry is the
+// TestMaterialize_ReportsHooksAnEngineCannotCarry is the
 // characterization: the lossy mock engine (string(mock.NameLossy)) declares no
 // hook mechanism, so a profile's session_start hook lands NOWHERE — and pre-fix the report said only "wrote
 // context / settings / commands / skills", every line true and the loss absent
@@ -199,11 +215,11 @@ func materializeHookFixture(t *testing.T) (cfg *config.Config, target string) {
 //
 // The report must now carry the loss STRUCTURALLY, so `--format json` consumers
 // see it too.
-func TestMaterializeProfile_ReportsHooksAnEngineCannotCarry(t *testing.T) {
+func TestMaterialize_ReportsHooksAnEngineCannotCarry(t *testing.T) {
 	cfg, target := materializeHookFixture(t)
 
-	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
-		Profiles: []string{"reviewer"}, Target: target, Backend: string(mock.NameLossy),
+	res, err := materializeOne(t, cfg, MaterializeRequest{Explicit: true,
+		Profiles: []string{"reviewer"}, Target: target, Engines: []string{string(mock.NameLossy)},
 	})
 	require.NoError(t, err, "the loss is REPORTED, not fatal: the rest of the tree is still worth having")
 	require.Contains(t, res.Wrote, "context",
@@ -218,16 +234,16 @@ func TestMaterializeProfile_ReportsHooksAnEngineCannotCarry(t *testing.T) {
 		"a loss with no stated reason is indistinguishable from a bug")
 }
 
-// TestMaterializeProfile_ReportsNoLossForAnEngineThatCarriesHooks is the other
+// TestMaterialize_ReportsNoLossForAnEngineThatCarriesHooks is the other
 // half: the loss report must be silent when there IS no loss. claude-code writes
 // the same hook into .claude/settings.json, so a "not carried" line there would
 // be a false alarm — and a report that cries wolf gets ignored, taking the real
 // losses with it.
-func TestMaterializeProfile_ReportsNoLossForAnEngineThatCarriesHooks(t *testing.T) {
+func TestMaterialize_ReportsNoLossForAnEngineThatCarriesHooks(t *testing.T) {
 	cfg, target := materializeHookFixture(t)
 
-	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
-		Profiles: []string{"reviewer"}, Target: target, Backend: "claude-code",
+	res, err := materializeOne(t, cfg, MaterializeRequest{Explicit: true,
+		Profiles: []string{"reviewer"}, Target: target, Engines: []string{"claude-code"},
 	})
 	require.NoError(t, err)
 	assert.Empty(t, res.NotCarried, "claude-code carries hooks; nothing is lost")
@@ -238,34 +254,34 @@ func TestMaterializeProfile_ReportsNoLossForAnEngineThatCarriesHooks(t *testing.
 		"precondition: the hook this test says is NOT lost must actually be delivered")
 }
 
-// TestMaterializeProfile_ReportsNoHookLossWhenNoHooksDeclared pins the third
+// TestMaterialize_ReportsNoHookLossWhenNoHooksDeclared pins the third
 // case: a hook-less engine still cannot carry hooks, but a profile that declares none has
 // lost nothing. Reporting a capability gap nobody asked to use is noise, and the
 // same rule the unified hook router already applies (RouteUnifiedHooks warns
 // only when hooks of the unsupported kind were actually configured).
-func TestMaterializeProfile_ReportsNoHookLossWhenNoHooksDeclared(t *testing.T) {
+func TestMaterialize_ReportsNoHookLossWhenNoHooksDeclared(t *testing.T) {
 	cfg, target := materializeFixture(t, "NO-HOOKS")
 
-	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
-		Profiles: []string{"reviewer"}, Target: target, Backend: "mock",
+	res, err := materializeOne(t, cfg, MaterializeRequest{Explicit: true,
+		Profiles: []string{"reviewer"}, Target: target, Engines: []string{"mock"},
 	})
 	require.NoError(t, err)
 	assert.Empty(t, res.NotCarried,
 		"a gap nobody asked to use costs nothing and must stay quiet")
 }
 
-// TestMaterializeProfile_WritesSkills is the PERSISTENT-path proof of the
+// TestMaterialize_WritesSkills is the PERSISTENT-path proof of the
 // skill/command split's Part B3-seam: a directory profile's bundle-shipped
 // Agent Skill package lands at <target>/.claude/skills/<name>/SKILL.md (+
 // sibling files, exec bit preserved) — the same materialize call that writes
-// CLAUDE.md/.mcp.json/settings/commands (TestMaterializeProfile_WritesClaudeMd)
+// CLAUDE.md/.mcp.json/settings/commands (TestMaterialize_WritesClaudeMd)
 // now also reports and writes the skills surface. This exercises
 // backends.SkillExportsFor + backends.LoadSkillExports end to end through a
 // REAL bundle-shipped skill, unlike the claude
 // package's unit tests, which drive Surfaces.Skills directly against a
 // synthetic agent.SkillExport fixture — together they cover both the live
 // (claude package) and persistent (here) delivery paths the plan calls for.
-func TestMaterializeProfile_WritesSkills(t *testing.T) {
+func TestMaterialize_WritesSkills(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
 	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
@@ -287,7 +303,7 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 	cfg := withCtxloomLoadout(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 	target := t.TempDir()
 
-	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
+	res, err := materializeOne(t, cfg, MaterializeRequest{Explicit: true,
 		Profiles: []string{"skilled"}, Target: target,
 	})
 	require.NoError(t, err)
@@ -302,20 +318,20 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(), "the exec bit survives the persistent materialize path")
 }
 
-// TestMaterializeProfile_WritesSkills_MockBackend is the HERMETIC-VEHICLE
+// TestMaterialize_WritesSkills_MockBackend is the HERMETIC-VEHICLE
 // twin of the test above: the same real bundle-shipped skill, materialized
 // with --backend mock, must land under mock's own skills directory with the
 // modes its bundle manifest DECLARES.
 //
 // It exists because eight rows of J001400's delivery matrix assert
 // skills/reviewer/SKILL.md at 0644 and skills/reviewer/scripts/run.sh at 0755
-// at a path an agent can read, and `profile materialize --backend mock` is the
+// at a path an agent can read, and `ctxloom materialize --backend mock` is the
 // vehicle those rows retarget onto. Without a mock
 // skills surface there was no hermetic way to run them at all.
 //
 // 0755 on scripts/run.sh is DECLARED in the tree's skill sidecar, and the
 // delivered file's mode must equal it.
-func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
+func TestMaterialize_WritesSkills_MockBackend(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
 	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
@@ -333,8 +349,8 @@ func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
 	cfg := withCtxloomLoadout(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 	target := t.TempDir()
 
-	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
-		Profiles: []string{"skilled"}, Target: target, Backend: "mock",
+	res, err := materializeOne(t, cfg, MaterializeRequest{Explicit: true,
+		Profiles: []string{"skilled"}, Target: target, Engines: []string{"mock"},
 	})
 	require.NoError(t, err)
 	assert.Contains(t, res.Wrote, "skills", "the mock skills surface is reported as written")
@@ -360,79 +376,72 @@ func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
 		"scripts/run.sh is DECLARED 0755 in the bundle manifest; a delivered script without its exec bit cannot run")
 }
 
-// TestMaterializeProfile_Validation covers the guard rails.
-func TestMaterializeProfile_Validation(t *testing.T) {
+// TestMaterialize_Validation covers the guard rails.
+func TestMaterialize_Validation(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 
-	_, err := MaterializeProfile(ctx, engines.Registry(), cfg, MaterializeProfileRequest{Profiles: []string{"p"}})
-	assert.Error(t, err, "missing target is rejected")
+	_, err := Materialize(ctx, engines.Registry(), cfg, MaterializeRequest{Profiles: []string{"p"}})
+	assert.ErrorIs(t, err, ErrMaterializeNoTarget, "missing target is rejected")
 
-	_, err = MaterializeProfile(ctx, engines.Registry(), cfg, MaterializeProfileRequest{Target: t.TempDir()})
-	assert.Error(t, err, "missing profiles is rejected")
-
-	_, err = MaterializeProfile(ctx, engines.Registry(), cfg, MaterializeProfileRequest{
-		Profiles: []string{"p"}, Target: t.TempDir(), Backend: "bogus",
+	_, err = Materialize(ctx, engines.Registry(), cfg, MaterializeRequest{
+		Profiles: []string{"p"}, Target: t.TempDir(), Engines: []string{"bogus"},
 	})
 	assert.Error(t, err, "unknown backend is rejected")
 
-	_, err = MaterializeProfile(ctx, engines.Registry(), nil, MaterializeProfileRequest{
+	_, err = Materialize(ctx, engines.Registry(), nil, MaterializeRequest{
 		Profiles: []string{"p"}, Target: t.TempDir(),
 	})
 	assert.Error(t, err, "nil config is rejected")
 }
 
-// TestResolveMaterializeTarget_AcceptsOnlyTheRegisteredName pins the resolver
-// to the registry's exact vocabulary. An engine has one name: the registered
-// spelling resolves and is what the result reports; the retired short
-// spellings and case variants are unknown backends, refused rather than
-// rounded to the engine. resolveMaterializeTarget once carried its own
-// one-entry alias table (`backend == "claude"`) — the second copy that
-// drifts — so the refusals here are what keep one from growing back.
-func TestResolveMaterializeTarget_AcceptsOnlyTheRegisteredName(t *testing.T) {
+// TestMaterializeEngines_AcceptsOnlyTheRegisteredName pins the engine set to
+// the registry's exact vocabulary. An engine has one name: the registered
+// spelling resolves; the retired short spellings and case variants are
+// unknown backends, refused rather than rounded to the engine — a one-entry
+// alias table (`backend == "claude"`) once grew here, the second copy that
+// drifts, and the refusals are what keep one from growing back.
+func TestMaterializeEngines_AcceptsOnlyTheRegisteredName(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 
-	got, err := resolveMaterializeTarget(engines.Registry(), cfg, MaterializeProfileRequest{
-		Target: t.TempDir(), Profiles: []string{"p"}, Backend: "claude-code",
-	})
+	got, err := materializeEngines(engines.Registry(), cfg, MaterializeRequest{Engines: []string{"claude-code"}})
 	require.NoError(t, err)
-	assert.Equal(t, "claude-code", got, "the resolved backend is the registered name the result reports")
+	assert.Equal(t, []string{"claude-code"}, got)
 
 	for _, spelling := range []string{"claude", "claudecode", "CLAUDE", "Claude-Code"} {
 		t.Run(spelling, func(t *testing.T) {
-			_, err := resolveMaterializeTarget(engines.Registry(), cfg, MaterializeProfileRequest{
-				Target: t.TempDir(), Profiles: []string{"p"}, Backend: spelling,
-			})
+			_, err := materializeEngines(engines.Registry(), cfg, MaterializeRequest{Engines: []string{spelling}})
 			require.Error(t, err, "%q is not a registered backend name and must be refused", spelling)
 			assert.Contains(t, err.Error(), "unknown backend")
 		})
 	}
 
-	// The empty request means the registry's default engine — the one engine
-	// shipped by default — read from the registry, never a name held here.
-	got, err = resolveMaterializeTarget(engines.Registry(), cfg, MaterializeProfileRequest{
-		Target: t.TempDir(), Profiles: []string{"p"},
-	})
+	// No engine named and none configured: the registry's default engine,
+	// read from the registry, never a name held here.
+	got, err = materializeEngines(engines.Registry(), cfg, MaterializeRequest{Explicit: true})
 	require.NoError(t, err)
-	assert.Equal(t, DefaultEngineName(engines.Registry()), got, "an unspecified backend means the registry's default")
+	assert.Equal(t, []string{DefaultEngineName(engines.Registry())}, got, "an unspecified backend means the registry's default")
 }
 
-// TestResolveMaterializeTarget_TheDefaultFollowsTheRegistry: with no backend
-// named, materialize writes for whichever engine the registry ships by
-// default — a registry whose default is another engine gets that engine.
+// TestMaterializeEngines_TheDefaultFollowsTheRegistry: with no engine named
+// or configured, any target — named or the project-root default — is written
+// for whichever engine the registry ships by default (ruling 16) — a
+// registry whose default is another engine gets that engine.
 //
 // MUTATION -- resolve "" to a fixed engine name -- turns this red.
-func TestResolveMaterializeTarget_TheDefaultFollowsTheRegistry(t *testing.T) {
+func TestMaterializeEngines_TheDefaultFollowsTheRegistry(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 	reg, err := engine.NewRegistry(mock.NewNamed("solo", mock.WithDistribution(engine.DistributionDefault)))
 	require.NoError(t, err)
-	got, err := resolveMaterializeTarget(reg, cfg, MaterializeProfileRequest{Target: t.TempDir(), Profiles: []string{"p"}})
-	require.NoError(t, err)
-	assert.Equal(t, "solo", got)
+	for _, explicit := range []bool{false, true} {
+		got, err := materializeEngines(reg, cfg, MaterializeRequest{Explicit: explicit})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"solo"}, got, "explicit=%v", explicit)
+	}
 
 	none, err := engine.NewRegistry(mock.New())
 	require.NoError(t, err)
-	_, err = resolveMaterializeTarget(none, cfg, MaterializeProfileRequest{Target: t.TempDir(), Profiles: []string{"p"}})
+	_, err = materializeEngines(none, cfg, MaterializeRequest{Explicit: true})
 	require.Error(t, err, "a registry that ships no default names no engine to write for")
 }
 
@@ -451,7 +460,7 @@ func TestResolveMaterializeTarget_TheDefaultFollowsTheRegistry(t *testing.T) {
 // skills-capable engine it is re-delivered as a skill package, so a withhold is
 // not a loss. Reporting the withhold without the destination would turn every
 // correct materialization into a false alarm.
-func TestMaterializeProfile_ReportsAFragmentWithheldByItsPremise(t *testing.T) {
+func TestMaterialize_ReportsAFragmentWithheldByItsPremise(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
 	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
@@ -474,7 +483,7 @@ func TestMaterializeProfile_ReportsAFragmentWithheldByItsPremise(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	target := t.TempDir()
 
-	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
+	res, err := materializeOne(t, cfg, MaterializeRequest{Explicit: true,
 		Profiles: []string{"premised"}, Target: target,
 	})
 	require.NoError(t, err)
@@ -513,7 +522,7 @@ func TestMaterializeProfile_ReportsAFragmentWithheldByItsPremise(t *testing.T) {
 // The pairing with the skills-capable test above is the point. Asserting only
 // the skills arm proves the half that already worked, and this project's rule is
 // that the untested arm is the entire defect.
-func TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext(t *testing.T) {
+func TestMaterialize_NoSkillsEngineDumpsAPremisedFragmentIntoContext(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
 	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
@@ -530,8 +539,8 @@ func TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext(t *t
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	target := t.TempDir()
 
-	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
-		Profiles: []string{"premised2"}, Target: target, Backend: "mock-noskills",
+	res, err := materializeOne(t, cfg, MaterializeRequest{Explicit: true,
+		Profiles: []string{"premised2"}, Target: target, Engines: []string{"mock-noskills"},
 	})
 	require.NoError(t, err)
 

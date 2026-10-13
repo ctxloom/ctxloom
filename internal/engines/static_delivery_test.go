@@ -85,7 +85,7 @@ func TestStaticDelivery_UnchangedRedeliveryKeepsEveryDeclaredFile(t *testing.T) 
 					pref.Root[kind] = present.RootProjectRoot
 				}
 			}
-			return present.ProjectOnHost(project).Paths(), delivery.Target{Root: present.ProjectOnHost(project), Writer: delivery.ProjectWriter}, pref
+			return present.ProjectOnHost(project).Paths(), delivery.Target{Root: present.ProjectOnHost(project), Writer: delivery.ProjectWriterFor("mock")}, pref
 		},
 		"session": func(t *testing.T, root engine.Base) (present.Paths, delivery.Target, delivery.Preference) {
 			cell := present.Paths{

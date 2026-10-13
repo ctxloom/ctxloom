@@ -57,13 +57,13 @@ func TestMcpNamespace_IsReadAndBundleWriteOnly(t *testing.T) {
 	assert.ElementsMatch(t, []string{"list", "show", "edit", "set"}, subNames(servers))
 }
 
-func TestManageHooks_HasInstallUninstallCheckList(t *testing.T) {
+func TestManageHooks_HasCheckList(t *testing.T) {
 	hooks := findSub(findSub(rootCmd, "manage"), "hooks")
 	require.NotNil(t, hooks)
 	// `list` is the canonical spine verb for "enumerate this noun's instances",
 	// and it answers a question `check` does not: check reports which BACKENDS
 	// are wired, list reports which HOOKS run and in what order.
-	assert.ElementsMatch(t, []string{"install", "uninstall", "check", "list"}, subNames(hooks))
+	assert.ElementsMatch(t, []string{"check", "list"}, subNames(hooks), "the project-side writer is `ctxloom materialize`")
 }
 
 func TestInitAliasStaysTopLevel(t *testing.T) {

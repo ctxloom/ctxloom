@@ -296,8 +296,8 @@ A `ctxloom run` session hands the assembled context to Claude Code as an appende
 system prompt file inside the session's own home, so neither `CLAUDE.md` nor
 `.claude/settings.json` in your project is touched. A Claude Code you start
 directly gets ctxloom's context only from files `ctxloom materialize` wrote into
-the project (its context section in `CLAUDE.md`); `ctxloom manage hooks install`
-writes ctxloom's hooks, and its SessionStart hook never carries the context. See
+the project (its context section in `CLAUDE.md`); the hooks `ctxloom materialize`
+writes there include a SessionStart hook that never carries the context. See
 [Hooks and Context Injection](/guides/hooks) for both paths.
 
 ## Sync Configuration

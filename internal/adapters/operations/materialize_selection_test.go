@@ -61,22 +61,20 @@ func TestMaterialize_NamedProfilesAreTheOnesReported(t *testing.T) {
 	assert.Equal(t, []string{"auditor"}, res.Profiles)
 }
 
-// TestMaterialize_WithNoEngineAnywhere: with no engine named, none
-// configured and no default in the registry, an implicit target delivers
-// nothing (and says so), while an explicit one is refused for want of the
-// default it would deliver for.
+// TestMaterialize_WithNoEngineAnywhere (test 23, ruling 16): with no engine
+// named or configured, every target — the project-root default and an
+// explicit one alike — is delivered for the registry's default engine, so a
+// registry that ships no default refuses either way, for want of the engine
+// it would deliver for. Whether the user named the target plays no part.
 func TestMaterialize_WithNoEngineAnywhere(t *testing.T) {
 	cfg := materializeCfg(t, "X", "")
 	reg, err := engine.NewRegistry(mock.New())
 	require.NoError(t, err)
 
-	res, err := Materialize(context.Background(), reg, cfg, MaterializeRequest{Target: t.TempDir()})
-	require.NoError(t, err)
-	assert.Equal(t, MaterializeNothing, res.Status)
-	assert.Empty(t, res.Engines)
-
-	_, err = Materialize(context.Background(), reg, cfg, MaterializeRequest{Target: t.TempDir(), Explicit: true})
-	require.ErrorContains(t, err, "exactly one names the default")
+	for _, explicit := range []bool{false, true} {
+		_, err = Materialize(context.Background(), reg, cfg, MaterializeRequest{Target: t.TempDir(), Explicit: explicit})
+		require.ErrorContains(t, err, "exactly one names the default", "explicit=%v", explicit)
+	}
 }
 
 // TestMaterialize_NotCarriedNamesOnlySelectedKinds: a loss is reported

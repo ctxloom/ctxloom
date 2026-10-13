@@ -216,10 +216,50 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the output contains "ctxloom deps check"
       And the output does not contain "ctxloom deps upgrade"
       And the output does not contain "already installed"
-      When I run "ctxloom profile materialize dev --target out"
+      When I run "ctxloom materialize dev --target out --backend claude-code"
       Then the command succeeds
       And the file "out/CLAUDE.md" contains "Demo fragment content."
       And the file "out/CLAUDE.md" does not contain "MARKER-SKIPPED-PULL-never-seen"
+
+  Rule: Pull writes the project's engine files only with --yes
+
+    After a pull installs remote content, a project refresh re-delivers the
+    project's hooks, MCP servers, settings, commands and skills into the
+    project directory's engine files. That directory is shared by every
+    session and person using the checkout, so the refresh asks the same
+    consent `ctxloom materialize` asks before writing there: `--yes`. Without
+    it the PULL STILL SUCCEEDS. It installs and locks the closure, writes no
+    engine file, and names what the refresh would have written and the two
+    ways to apply it.
+
+    Scenario: A pull without --yes installs the closure and leaves the project's engine files alone
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And I run "ctxloom remote default origin"
+      And I run "ctxloom profile create dev --include origin/demo"
+      When Alice pulls without consenting to the project refresh:
+        """
+        ctxloom deps pull --format text
+        """
+      Then the command succeeds
+      And the file ".ctxloom/lock.yaml" contains "//bundles/demo"
+      And the file ".claude/settings.json" does not exist
+      And the output contains "Project refresh skipped"
+      And the output contains "ctxloom deps pull --yes"
+      And the output contains "ctxloom materialize --yes"
+
+    Scenario: A pull with --yes also refreshes the project's engine files
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And I run "ctxloom remote default origin"
+      And I run "ctxloom profile create dev --include origin/demo"
+      When Alice pulls and lets the refresh write the project:
+        """
+        ctxloom deps pull --yes --format text
+        """
+      Then the command succeeds
+      And the file ".claude/settings.json" contains "session-start"
+      And the output does not contain "Project refresh skipped"
 
   Rule: Pull reconciles to upstream — it removes what upstream no longer has
 
@@ -227,7 +267,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
     byte of it can be re-fetched from the address it came from. So a pull that
     finds a bundle gone upstream removes it locally and says which, by name,
     without asking. That is synchronization, not destruction, and it is why
-    there is no `--yes` on it.
+    removing asks for no `--yes`.
 
     Scenario: A bundle deleted upstream is removed locally, by name
       Given an initialized ctxloom project
@@ -271,7 +311,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the output contains "could not be reached"
       And the output does not contain "no longer published"
       And the file ".ctxloom/lock.yaml" contains "//bundles/demo"
-      When I run "ctxloom profile materialize dev --target out"
+      When I run "ctxloom materialize dev --target out --backend claude-code"
       Then the file "out/CLAUDE.md" contains "Demo fragment content."
 
     # The lockfile surviving is not enough on its own: a pull that pruned the
@@ -580,7 +620,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
         """
       Then the command succeeds
       And the file ".ctxloom/lock.yaml" contains "held: true"
-      When I run "ctxloom profile materialize dev --target out"
+      When I run "ctxloom materialize dev --target out --backend claude-code"
       Then the file "out/CLAUDE.md" contains "Demo fragment content."
       And the file "out/CLAUDE.md" does not contain "version two"
 
@@ -615,14 +655,14 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
-      And I run "ctxloom profile materialize dev --target before"
+      And I run "ctxloom materialize dev --target before --backend claude-code"
       Then the file "before/CLAUDE.md" contains "Demo fragment content."
       When the remote "origin" changes fragment "demo-frag" to "MARKER-BRAVO-second-edition"
       And Alice advances the pin to the revised content:
         """
         ctxloom deps upgrade --yes
         """
-      And I run "ctxloom profile materialize dev --target after"
+      And I run "ctxloom materialize dev --target after --backend claude-code"
       Then the command succeeds
       And the file "after/CLAUDE.md" contains "MARKER-BRAVO-second-edition"
       And the file "after/CLAUDE.md" does not contain "Demo fragment content."
@@ -641,7 +681,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the remote "origin"'s cached clone is forced back to its first commit
       When Alice materializes after the local checkout went stale:
         """
-        ctxloom profile materialize dev --target out
+        ctxloom materialize dev --target out --backend claude-code
         """
       Then the command succeeds
       And the file "out/CLAUDE.md" contains "MARKER-STALE-CHECKOUT-current"

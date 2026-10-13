@@ -53,8 +53,9 @@ func doctorMCPInvocationSurfaces(reg engine.Registry) []string {
 // registry (URL + bearer) at start — so a project-side entry under ctxloom's
 // name with a command is stale in every spelling.
 //
-// WHY THIS CHECK EXISTS AT ALL. The break itself is fine — `manage hooks
-// install` rewrites the project's registry — but its UNTREATED shape is
+// WHY THIS CHECK EXISTS AT ALL. The break itself is fine — `ctxloom
+// materialize --release --surface mcp` takes the entry back out of the
+// project's registry — but its UNTREATED shape is
 // not. An engine launching a stale entry starts normally, the command
 // answers something that is not the protocol, and the client waits forever
 // on a JSON-RPC frame that never comes: exit 0, a live session, no ctxloom
@@ -77,12 +78,12 @@ func doctorCheckMCPInvocation(reg engine.Registry, projectDir string) DoctorChec
 	switch {
 	case len(stale) > 0:
 		detail := fmt.Sprintf(
-			"%d materialized MCP entr(y/ies) launch ctxloom as a stdio server, which ctxloom no longer ships — the engine will start and its ctxloom tools will never appear: %s. ctxloom's tools are served by the running session's endpoint; the fix rewrites the project's registry without the entry",
+			"%d materialized MCP entr(y/ies) launch ctxloom as a stdio server, which ctxloom no longer ships — the engine will start and its ctxloom tools will never appear: %s. ctxloom's tools are served by the running session's endpoint; the fix takes the entry out of the project's registry (a release removes an entry this machine's ctxloom recorded writing; delete any other by hand)",
 			len(stale), strings.Join(stale, ", "))
 		if len(unreadable) > 0 {
 			detail += "; could not read: " + strings.Join(unreadable, ", ")
 		}
-		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: detail, Remedy: doctorHooksInstallRemedy}
+		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: detail, Remedy: doctorMCPReleaseRemedy}
 	case len(unreadable) > 0:
 		// "I could not read it" is not "it is fine". A surface that failed to
 		// parse may hold the very entry this check is looking for, and

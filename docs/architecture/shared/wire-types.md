@@ -105,7 +105,7 @@ One MCP server, as a bundle's `mcp:` block declares it and as it reaches an engi
 **Direction of flow**
 
 - One way, always: `internal/core/config` + `internal/core/profiles` + `internal/core/bundles` parse user YAML into these structs → `agent.ManagedConfigFor` folds them into one `ManagedConfig` → the launch carries it to the runner → `internal/core/agent.BaseLifecycle` re-merges it agent-side → each engine package translates it into its native settings file.
-- **The at-rest writer (`operations.ApplyHooks`) and the `ctxloom run` payload must deliver identical hooks**, or one delivery withdraws a hook the other assembled; both assemble through `managedhooks.AssembleFor` (see `BaseLifecycle.MergeManaged`).
+- **The at-rest writer (`operations.Materialize`) and the `ctxloom run` payload must deliver identical hooks**, or one delivery withdraws a hook the other assembled; both assemble through `managedhooks.AssembleFor` (see `BaseLifecycle.MergeManaged`).
 - `Hook.SCM` (`_ctxloom`) is the bundle-provenance marker a hook is attributed by. `MCPServer.SCM` is its MCP twin.
 
 **Serialization**

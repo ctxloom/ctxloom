@@ -889,7 +889,7 @@ func TestSyncOnStartup(t *testing.T) {
 	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 
 	// With only local bundles, should return up_to_date or empty
-	result, err := SyncOnStartup(context.Background(), fixtureApp(t, cfg))
+	result, err := SyncOnStartup(context.Background(), fixtureApp(t, cfg), false)
 	if err != nil {
 		t.Fatalf("SyncOnStartup failed: %v", err)
 	}

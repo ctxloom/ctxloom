@@ -24,9 +24,10 @@ func stageClaim(t *testing.T, fs afero.Fs, rec delivery.Ownership, path string, 
 }
 
 // TestProjectClaims_NamesOnlyLivePlacesAProjectWriterHolds: a settings
-// status sees the places a project writer (legacy tag or per-kind family)
-// claims AND the file still holds; a session's claim, or a project claim the
-// file no longer holds, is not one.
+// status sees the places a project writer (the per-kind family) claims AND
+// the file still holds; a session's claim, an earlier build's bare
+// "project" claim (ruling 20), or a project claim the file no longer holds,
+// is not one.
 func TestProjectClaims_NamesOnlyLivePlacesAProjectWriterHolds(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	rec := newRecord(t, fs)
@@ -36,6 +37,11 @@ func TestProjectClaims_NamesOnlyLivePlacesAProjectWriterHolds(t *testing.T) {
 	got, err := claims("/p/session.md")
 	require.NoError(t, err)
 	require.Empty(t, got, "a live claim no project writer holds is not a project claim")
+
+	stageClaim(t, fs, rec, "/p/LEGACY.md", delivery.Writer("project"))
+	got, err = claims("/p/LEGACY.md")
+	require.NoError(t, err)
+	require.Empty(t, got, "the bare legacy tag is no project writer")
 
 	stageClaim(t, fs, rec, "/p/AGENTS.md", delivery.ProjectWriterFor("mock").Of(present.Context))
 	got, err = claims("/p/AGENTS.md")
@@ -79,7 +85,7 @@ func TestProjectClaims_AnUnreadableRecordIsAnError(t *testing.T) {
 
 // TestProjectContextClaims_CountsOnlyAtRestContextUnderTheProject (R5):
 // the files under the project an at-rest context writer claims, sorted and
-// once each; not the legacy bare project tag (it names no kind), not another
+// once each; not an earlier build's bare "project" tag, not another
 // kind's project writer, not a session, not a file outside the project.
 func TestProjectContextClaims_CountsOnlyAtRestContextUnderTheProject(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -88,7 +94,7 @@ func TestProjectContextClaims_CountsOnlyAtRestContextUnderTheProject(t *testing.
 
 	// The bare tag sorts before every family writer: skipping it must not
 	// end the walk.
-	stageClaim(t, fs, rec, "/p/LEGACY.md", delivery.ProjectWriter)
+	stageClaim(t, fs, rec, "/p/LEGACY.md", delivery.Writer("project"))
 	stageClaim(t, fs, rec, "/p/settings.json", delivery.ProjectWriterFor("mock").Of(present.Settings))
 	stageClaim(t, fs, rec, "/p/SESSION.md", delivery.SessionWriter("brisk-otter"))
 	stageClaim(t, fs, rec, "/elsewhere/AGENTS.md", mockCtx)

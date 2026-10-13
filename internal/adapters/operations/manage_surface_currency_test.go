@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -61,12 +62,12 @@ func currencyFor(surfaces []SurfaceCurrency, backend string) (SurfaceCurrency, b
 }
 
 // materializeInto delivers the default agent's profile set for backend at
-// rest into dir — what `profile materialize --target dir` does — so the
+// rest into dir — what `ctxloom materialize --target dir` does — so the
 // project writer's record owns the context file the check reads.
 func materializeInto(t *testing.T, cfg *config.Config, backend, dir string) {
 	t.Helper()
-	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
-		Profiles: cfg.DefaultAgentProfiles(), Target: dir, Backend: backend, Root: safefs.New(),
+	res, err := materializeOne(t, cfg, MaterializeRequest{
+		Profiles: cfg.DefaultAgentProfiles(), Target: dir, Engines: []string{backend}, Root: safefs.New(),
 	})
 	require.NoError(t, err)
 	require.Contains(t, res.Wrote, "context")
@@ -183,12 +184,12 @@ func TestContextFileCurrency_ReadsOnlyWhatTheRecordOwns(t *testing.T) {
 	assert.Equal(t, agent.StatusMissing, cur.Status)
 }
 
-// TestApplyHooks_Claude_WithdrawsAClaimedClaudeMdContextSection: claude's
-// assembled context reaches a session through its system prompt, never a
-// CLAUDE.md beside it. A CLAUDE.md section the project writer's record
-// claims — here one a materialize left — is withdrawn by the next claude
-// delivery, and the user's own bytes come back exactly as they were.
-func TestApplyHooks_Claude_WithdrawsAClaimedClaudeMdContextSection(t *testing.T) {
+// TestMaterialize_ReleasingContextRestoresAHandWrittenClaudeMd: a CLAUDE.md
+// section the project writer's record claims — here one a materialize left
+// beside the user's own notes — is withdrawn by a context release
+// (`ctxloom materialize --release --surface context`), and the user's own
+// bytes come back exactly as they were.
+func TestMaterialize_ReleasingContextRestoresAHandWrittenClaudeMd(t *testing.T) {
 	const mine = "# my own notes\n\nLive claude usage is hand-written here.\n"
 	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
 	contextPath := filepath.Join(workDir, "CLAUDE.md")
@@ -198,18 +199,18 @@ func TestApplyHooks_Claude_WithdrawsAClaimedClaudeMdContextSection(t *testing.T)
 	require.NoError(t, err)
 	require.Contains(t, string(claimed), "SECURITY-RULES", "precondition: the record claims a context section in CLAUDE.md")
 
-	res, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
-		Backend: "claude-code", RegenerateContext: true, Root: safefs.New(), Cfg: cfg, WorkDir: workDir,
+	res, err := Materialize(context.Background(), engines.Registry(), cfg, MaterializeRequest{
+		Engines: []string{"claude-code"}, Release: true, Surfaces: []SurfaceSpec{{Kind: present.Context}}, Root: safefs.New(), Target: workDir,
 	})
 	require.NoError(t, err)
-	require.Equal(t, "applied", res.Status)
+	require.Equal(t, MaterializeReleased, res.Status)
 
 	got, err := os.ReadFile(contextPath)
 	require.NoError(t, err)
 	assert.Equal(t, mine, string(got), "the claimed context section is withdrawn; the hand-written CLAUDE.md is left exactly as it was")
 }
 
-// TestApplyHooks_Claude_DeliversOneContextFreeSessionStartHook: claude's
+// TestMaterialize_Claude_DeliversOneContextFreeSessionStartHook: claude's
 // assembled context reaches a session once, through its system prompt. The
 // project settings ctxloom writes at rest carry exactly ONE SessionStart hook
 // of ctxloom's context family — `hook session-start`, which delivers the
@@ -217,15 +218,15 @@ func TestApplyHooks_Claude_WithdrawsAClaimedClaudeMdContextSection(t *testing.T)
 // context — and nothing that could hand it the project context: no retired
 // inject-context hook, no context hash on its argv, no context text in the
 // file.
-func TestApplyHooks_Claude_DeliversOneContextFreeSessionStartHook(t *testing.T) {
+func TestMaterialize_Claude_DeliversOneContextFreeSessionStartHook(t *testing.T) {
 	const marker = "PROJECT-CONTEXT-MARKER-4c1e"
 	cfg, workDir := surfaceCurrencyFixture(t, marker)
 
-	res, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
-		Backend: "claude-code", RegenerateContext: true, Root: safefs.New(), Cfg: cfg, WorkDir: workDir,
+	res, err := Materialize(context.Background(), engines.Registry(), cfg, MaterializeRequest{
+		Engines: []string{"claude-code"}, Root: safefs.New(), Target: workDir,
 	})
 	require.NoError(t, err)
-	require.Equal(t, "applied", res.Status)
+	require.Equal(t, MaterializeApplied, res.Status)
 
 	raw, err := os.ReadFile(filepath.Join(workDir, ".claude", "settings.json"))
 	require.NoError(t, err)
@@ -250,8 +251,5 @@ func TestApplyHooks_Claude_DeliversOneContextFreeSessionStartHook(t *testing.T) 
 	}
 	require.Len(t, family, 1, "exactly one SessionStart hook of ctxloom's context family; got %q", family)
 	assert.Equal(t, []string{"ctxloom", "hook", "session-start", agent.HookEngineFlag, "claude-code"}, family[0], "the one hook is session-start, naming only the engine that fires it — no argument that names a context")
-	if res.ContextHash != "" {
-		assert.NotContains(t, string(raw), res.ContextHash, "no hook names the regenerated context cache")
-	}
 	assert.NotContains(t, string(raw), marker, "the project context never rides the settings file")
 }

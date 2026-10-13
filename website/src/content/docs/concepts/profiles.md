@@ -159,12 +159,13 @@ itself, shared by every session and every person using the checkout. It
 refuses unless you pass `--yes`; `--dry-run` shows what it would do. Make
 `--target DIR` the habit.
 
-One path writes the project directory without asking: after `ctxloom deps
-pull`, or a startup sync, installs a remote bundle, ctxloom refreshes what is
-materialized in the project root, every kind and every configured engine,
-claude's context section in `CLAUDE.md` included. `ctxloom run` then warns
-about that context file; `ctxloom materialize --release --surface context`
-takes it out.
+The same consent governs the refresh after `ctxloom deps pull`, or after a
+`ctxloom run` startup sync that installs a remote bundle: it writes the
+project root's hooks, MCP servers, settings, commands and skills only under
+`--yes` (`ctxloom deps pull --yes`, `ctxloom run --yes`). Without it the pull
+still succeeds, writes no engine file, and names what the refresh skipped and
+how to apply it. Even under `--yes` it leaves out the context of an engine
+whose context rides the launch, so it writes no `CLAUDE.md`.
 :::
 
 :::note[Don't commit a materialized file]

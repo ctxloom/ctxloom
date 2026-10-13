@@ -138,7 +138,7 @@ func commandLoadout(t *testing.T, project, name string) delivery.Loadout {
 // what an interleaved delivery leaves behind.
 func requireRecordIsDisk(t *testing.T, fs afero.Fs, rec delivery.Ownership, project string) {
 	t.Helper()
-	claimed, err := rec.Targets(delivery.ProjectWriter)
+	claimed, err := rec.Targets(delivery.ProjectWriterFor("mock"))
 	require.NoError(t, err)
 	var onDisk []string
 	for _, rel := range deliverytest.RelativeFiles(fs, project) {
@@ -224,7 +224,7 @@ func TestDeliver_TwoDeliveriesIntoOneDirectoryDoNotInterleave(t *testing.T) {
 	require.NoError(t, err)
 	project := t.TempDir()
 	root := mock.New().Root()
-	target := delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter}
+	target := delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriterFor("mock")}
 	loA, loB := commandLoadout(t, project, "a"), commandLoadout(t, project, "b")
 
 	tr := newLockTracker()
@@ -245,7 +245,7 @@ func TestDeliver_TwoDeliveriesIntoOneDirectoryDoNotInterleave(t *testing.T) {
 
 	delivered := deliverytest.RelativeFiles(fs, project)
 	require.Len(t, delivered, 1, "one delivery's set replaces the other's, never their union: %v", delivered)
-	owned, err := rec.Targets(delivery.ProjectWriter)
+	owned, err := rec.Targets(delivery.ProjectWriterFor("mock"))
 	require.NoError(t, err)
 	require.Equal(t, []string{filepath.Join(project, delivered[0])}, owned, "the record names exactly the file on disk")
 }
@@ -264,7 +264,7 @@ func TestDeliver_HoldsTheDirectoryLockThroughItsCommit(t *testing.T) {
 	project := t.TempDir()
 	dir := filepath.Join(project, mock.ConfigDirName, "commands")
 	root := managedCommands(dir)
-	target := delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter}
+	target := delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriterFor("mock")}
 	lo := commandLoadout(t, project, "b")
 
 	tr := newLockTracker()
@@ -292,7 +292,7 @@ func TestDeliver_HoldsTheDirectoryLockThroughItsCommit(t *testing.T) {
 	require.NoError(t, wErr)
 	require.FileExists(t, filepath.Join(dir, "b.md"))
 	require.FileExists(t, filepath.Join(dir, "w.md"))
-	owned, err := rec.Targets(delivery.ProjectWriter)
+	owned, err := rec.Targets(delivery.ProjectWriterFor("mock"))
 	require.NoError(t, err)
 	require.Equal(t, []string{filepath.Join(dir, "b.md")}, owned, "the record names the delivery's file, not the direct writer's")
 }
@@ -310,7 +310,7 @@ func TestDeliver_DeliveriesTakingOverlappingDirsInOppositeOrdersDoNotDeadlock(t 
 	require.NoError(t, err)
 	project := t.TempDir()
 	one, two := filepath.Join(project, "one"), filepath.Join(project, "two")
-	target := delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter}
+	target := delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriterFor("mock")}
 
 	// inOrder is a commands approach writing a command into each of dirs in
 	// turn, calling between after the first.

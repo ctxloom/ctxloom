@@ -15,7 +15,7 @@ import (
 
 // CapabilityLoss reports, for one resolved engine binding, which parts of the
 // named profiles' hooks configuration that engine has no structural place
-// for — the SAME uncarriedSurfaces read MaterializeProfile already
+// for — the SAME uncarriedSurfaces read Materialize already
 // performs and reports as "NOT carried", now available to a
 // caller that names an engine binding without materializing anything at all:
 // `agent show`, `doctor`, `manage check` (trusting-ambiguity).
@@ -24,7 +24,7 @@ import (
 // declares a loss for (engine.Definition.HookLosses, read off the registry by
 // uncarriedSurfaces). Which hooks are LOST depends on the profiles' declared
 // hooks alone, so this never needs a target directory the way
-// `profile materialize` does.
+// `ctxloom materialize` does.
 //
 // nil cfg or an empty backend name report no loss — there is nothing to
 // resolve a hooks configuration against.
@@ -83,7 +83,7 @@ func CapabilityLossByAgent(ctx context.Context, reg engine.Registry, cfg *config
 }
 
 // CapabilityLossLines is one line per (agent, loss), in the SAME words
-// `profile materialize` and `agent show` use — SurfaceLoss.String() is the
+// `ctxloom materialize` and `agent show` use — SurfaceLoss.String() is the
 // one renderer, so the surfaces cannot describe one engine's gap several
 // different ways — prefixed with the agent that is paying for it. Every
 // frontend's rendering is built from these lines.

@@ -394,7 +394,7 @@ ctxloom run --dry-run
 # Only for an engine you start directly, outside `ctxloom run`:
 # check hooks are applied, and reapply them
 cat .claude/settings.json | jq '.hooks'
-ctxloom manage hooks install
+ctxloom materialize --yes --surface hooks --surface settings
 ```
 
 ### When Bundles Are Missing

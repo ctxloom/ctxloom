@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -53,7 +54,7 @@ func newNativePlanSession(t *testing.T) nativePlanSession {
 
 	sessionHome := filepath.Join(t.TempDir(), "home", ".claude")
 	require.NoError(t, os.MkdirAll(filepath.Join(sessionHome, nativePlansDir), 0o755))
-	server, err := NewServer(report.To(nil), home, nativePlanHarp, cwd, sessionHome, false, loadoutSurface{}, NewWakeSignal(nil))
+	server, err := NewServer(report.To(nil), afero.NewOsFs(), home, nativePlanHarp, cwd, sessionHome, false, loadoutSurface{}, NewWakeSignal(nil))
 	require.NoError(t, err)
 	ct, st := mcp.NewInMemoryTransports()
 	ss, err := server.Connect(context.Background(), st, nil)

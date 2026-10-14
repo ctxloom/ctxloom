@@ -116,7 +116,7 @@ func TestReadopt_ARestartedCoordinatorReadoptsALiveRunner(t *testing.T) {
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 
 	first := newTestCoordinatorOver(t, stateDir, sp)
-	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(first, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 	res1 := recvWhere(t, first, func(m Message) bool { return m.Kind == "result" && strings.Contains(m.Body, "task one") }, conformanceWait)
@@ -161,7 +161,7 @@ func TestReadopt_ARunnerThatNeverReturns_IsRunnerLoss(t *testing.T) {
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 
 	first := newTestCoordinatorOver(t, stateDir, sp)
-	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(first, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 	crashCoordinator(first)
@@ -187,7 +187,7 @@ func TestReadopt_ARunRefusedAtSealEndsAsRunnerLossUnlaunched(t *testing.T) {
 
 	first := newTestCoordinatorOver(t, stateDir, sp)
 	first.tracked.Seal()
-	_, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	_, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.ErrorIs(t, err, ErrGroupSealed)
 	require.Len(t, sp.assignedSessions(), 1)
 	harp := sp.assignedSessions()[0]
@@ -216,7 +216,7 @@ func TestReadopt_ARestartSlowerThanTheGraceStillReadoptsTheRunner(t *testing.T) 
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 
 	first := newTestCoordinatorOver(t, stateDir, sp)
-	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(first, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
@@ -256,7 +256,7 @@ func TestReadopt_ShutdownDrainDoesNotWaitOnAnAdoptedRunWithNoRunner(t *testing.T
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 
 	first := newTestCoordinatorOver(t, stateDir, sp)
-	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		sp.mu.Lock()

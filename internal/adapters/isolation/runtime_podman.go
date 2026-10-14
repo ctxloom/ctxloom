@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
 )
@@ -132,8 +133,10 @@ func (p Podman) Enumerate(ctx context.Context, namePrefix string) ([]ContainerIn
 }
 
 // podmanOwnershipFormat is the `podman info` template answering whether the
-// engine is rootless and, in the same call, its rootless network command.
-const podmanOwnershipFormat = "{{.Host.Security.Rootless}} {{.Host.RootlessNetworkCmd}}"
+// engine is rootless and, in the same call, its rootless network command and
+// what decides the resource caps it can enforce (podmanLimitSupport). Every
+// field renders as one word, save the controller list, which is last.
+const podmanOwnershipFormat = "{{.Host.Security.Rootless}} {{.Host.RootlessNetworkCmd}} {{.Host.MemTotal}} {{.Host.CgroupsVersion}} {{.Host.CgroupManager}} {{.Host.CgroupControllers}}"
 
 // podmanRootless reads podmanOwnershipFormat's first field: "true" or
 // "false", and anything else is unreadable.
@@ -146,6 +149,20 @@ func podmanRootless(answer string) (bool, error) {
 	return r, nil
 }
 
+// podmanRootlessNet is the answer's second field, the rootless network
+// command ("" when podman reports none).
+func podmanRootlessNet(answer string) string {
+	f := strings.SplitN(strings.TrimSpace(answer), " ", 3)
+	if len(f) < 2 {
+		return ""
+	}
+	return f[1]
+}
+
+// oomEventArgs is nil: podman logs no OOM event (its log has the container's
+// died/remove, never an oom), so an OOM kill cannot be confirmed after --rm.
+func (Podman) oomEventArgs(string, time.Time, time.Time) []string { return nil }
+
 // newPodmanRuntime probes podman for selection exactly as newDockerRuntime
 // probes docker: reachability, then — only for a reachable engine — its
 // ownership through the shared probeOwnership, whose one call also names the
@@ -155,9 +172,65 @@ func newPodmanRuntime(reachable func(string) bool) (Podman, RuntimeAxis) {
 		return Podman{}, ownershipUndecided
 	}
 	owns, answer := probeOwnership("podman", podmanOwnershipFormat, podmanRootless)
-	_, network, _ := strings.Cut(strings.TrimSpace(answer), " ")
-	p := Podman{rootless: owns == RuntimeContainerRootless, rootlessNet: network}
+	rootless := owns == RuntimeContainerRootless
+	p := Podman{rootless: rootless, rootlessNet: podmanRootlessNet(answer)}
 	p.reachable = true
+	p.limits = podmanLimitSupport(answer, rootless)
 	p.self, p.selfErr = resolveSelf(p)
 	return p, owns
+}
+
+const (
+	// podmanRootlessV1 is why rootless podman on cgroup v1 enforces no cap:
+	// the user cannot be delegated a v1 hierarchy, and podman refuses a run
+	// given one ("cannot specify resource limits without cgroups v2").
+	podmanRootlessV1 = "rootless podman cannot enforce resource limits on cgroup v1"
+	// podmanRootlessNoSystemd is the same refusal under cgroup v2 when podman
+	// manages cgroups itself (cgroupfs) rather than through systemd, which is
+	// what delegates the user a controllable subtree.
+	podmanRootlessNoSystemd = "rootless podman enforces resource limits only with the systemd cgroup manager"
+)
+
+// podmanLimitSupport reads the fields podmanOwnershipFormat appends after
+// rootless and the network command: MemTotal, CgroupsVersion, CgroupManager,
+// then CgroupControllers (the controllers delegated to this user, last
+// because it renders with spaces). Rootful podman enforces both caps on
+// either cgroup version; rootless needs v2 under systemd, and each cap its
+// controller delegated.
+func podmanLimitSupport(answer string, rootless bool) limitSupport {
+	f := strings.SplitN(strings.TrimSpace(answer), " ", 6)
+	if len(f) < 5 {
+		return limitSupport{}
+	}
+	mem, err := strconv.ParseInt(f[2], 10, 64)
+	if err != nil {
+		return limitSupport{}
+	}
+	sup := limitSupport{hostMemory: mem}
+	switch {
+	case !rootless:
+		sup.memory, sup.pids = true, true
+	case f[3] != "v2":
+		sup.unenforced = podmanRootlessV1
+	case f[4] != "systemd":
+		sup.unenforced = podmanRootlessNoSystemd
+	default:
+		var controllers []string
+		if len(f) == 6 {
+			controllers = strings.Fields(strings.Trim(f[5], "[]"))
+		}
+		for _, c := range controllers {
+			switch c {
+			case "memory":
+				sup.memory = true
+			case "pids":
+				sup.pids = true
+			}
+		}
+		if !sup.memory && !sup.pids {
+			sup.unenforced = "rootless podman has neither the memory nor the pids cgroup controller delegated"
+		}
+	}
+	sup.swap = sup.memory
+	return sup
 }

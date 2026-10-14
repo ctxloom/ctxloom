@@ -78,10 +78,26 @@ type watchHub struct {
 	rep  report.Reporter
 	mu   sync.Mutex
 	subs map[*watchSub]struct{}
+	// terminated holds the runs whose terminal has been broadcast: a run has
+	// ONE terminal on this stream. Two producers can send one — the engine's
+	// own RunCompleted, teed from its channel, and the coordinator's
+	// synthesized one (endRun), which is what a run whose engine never sent
+	// one ends on — and whichever reaches the hub first is the run's. Entries
+	// leave with the run's record (forgetTerminals, at reap).
+	terminated map[string]bool
 }
 
 func newWatchHub(rep report.Reporter) *watchHub {
-	return &watchHub{rep: rep, subs: make(map[*watchSub]struct{})}
+	return &watchHub{rep: rep, subs: make(map[*watchSub]struct{}), terminated: make(map[string]bool)}
+}
+
+// forgetTerminals releases the reaped runs' terminal records.
+func (h *watchHub) forgetTerminals(runIDs []string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, id := range runIDs {
+		delete(h.terminated, id)
+	}
 }
 
 // watchSub is one WatchRuns call's subscription. runIDs nil/empty means
@@ -175,6 +191,12 @@ func isEvictable(ev Event) bool {
 func (h *watchHub) broadcast(ev Event) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if isTerminal(ev) {
+		if h.terminated[ev.RunID] {
+			return
+		}
+		h.terminated[ev.RunID] = true
+	}
 	for sub := range h.subs {
 		if len(sub.runIDs) > 0 && !sub.runIDs[ev.RunID] {
 			continue

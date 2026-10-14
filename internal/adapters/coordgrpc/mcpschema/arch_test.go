@@ -50,8 +50,8 @@ import (
 //   - Open google.protobuf.Struct fields (agent_run's `input`) project as
 //     `additionalProperties: true`; their KEYS are not proto fields and the
 //     gate cannot enumerate them. It checks only that the Struct itself is
-//     read. Struct-key contracts (input.prompt / input.workspace /
-//     input.dirty_tree_handler) are covered by the coord handler tests.
+//     read. Struct-key contracts (input.prompt / input.workspace) are
+//     covered by the coord handler tests.
 //   - Nested message-typed input fields are checked recursively (see
 //     nestedInputPaths); a nested leaf with no reader is red. Today no input
 //     message has one, so the list is empty — the check exists so the next

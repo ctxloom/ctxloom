@@ -16,7 +16,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -26,7 +25,7 @@ import (
 func TestGenerateConfig(t *testing.T) {
 	for _, engine := range []string{"claude-code", "mock"} {
 		t.Run(engine, func(t *testing.T) {
-			data, err := operations.BuildInitialConfig(engine, "", "")
+			data, err := operations.BuildInitialConfig(engine, "")
 			require.NoError(t, err)
 			body := string(data)
 			assert.Contains(t, body, "type: "+engine,
@@ -40,7 +39,7 @@ func TestGenerateConfig(t *testing.T) {
 }
 
 func TestGenerateConfig_DefaultsBlock(t *testing.T) {
-	data, err := operations.BuildInitialConfig("claude-code", "", "")
+	data, err := operations.BuildInitialConfig("claude-code", "")
 	require.NoError(t, err)
 	body := string(data)
 	// The scaffold settings survive into the written config.
@@ -56,7 +55,7 @@ func TestGenerateConfig_DefaultsBlock(t *testing.T) {
 // stays an opt-in (`auth: login`). No binding gets an auth of its own; a
 // scaffold carrying a binding `auth:` would not even load.
 func TestGenerateConfig_TheHumansSessionRunsOnTheToken(t *testing.T) {
-	data, err := operations.BuildInitialConfig("claude-code", "", "")
+	data, err := operations.BuildInitialConfig("claude-code", "")
 	require.NoError(t, err)
 	cfg, err := config.ParseConfig(data)
 	require.NoError(t, err, string(data))
@@ -273,7 +272,7 @@ func TestPromptAllEngines_LeavesTheCallersSliceAlone(t *testing.T) {
 func writeEngineConfig(t *testing.T, appDir, engine string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	body, err := operations.BuildInitialConfig(engine, "", "")
+	body, err := operations.BuildInitialConfig(engine, "")
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), body, 0o644))
 }
@@ -363,17 +362,16 @@ func TestDiscoverySessionPrompt_CarriesCompanionSetupGuidance(t *testing.T) {
 		"the companion's setup_guidance must reach the launched prompt's bytes")
 }
 
-// An interactive init asks neither advanced question. It takes the commit
-// dirty-tree handler and the accept-edits headless posture and says, one line
-// each, what it chose and how to change it.
+// An interactive init asks no advanced question. It says how delegation
+// commits, takes the accept-edits headless posture, and says, one line each,
+// what it chose and how to change it.
 func TestTakeInterviewDefaults_ChoosesTheRecommendationsAndSaysSo(t *testing.T) {
 	var buf bytes.Buffer
-	handler, posture := takeInterviewDefaults(&buf)
-	assert.Equal(t, string(launch.DirtyTreeHandlerCommit), handler)
+	posture := takeInterviewDefaults(&buf)
 	assert.Equal(t, initDefaultHeadlessPosture, posture)
 	assert.Equal(t, "acceptEdits", posture, "the owner ruled init starts with the accept-edits posture")
 	assert.Contains(t, initDefaultHeadlessLine, posture, "the line names the default it chose")
-	assert.Equal(t, initDefaultDirtyTreeLine+"\n"+initDefaultHeadlessLine+"\n", buf.String())
+	assert.Equal(t, initDelegationCommitLine+"\n"+initDefaultHeadlessLine+"\n", buf.String())
 }
 
 // init creates first pins like `deps pull` does, and discloses them the same

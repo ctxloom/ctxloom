@@ -120,7 +120,7 @@ func (s *failingLaunchSpawner) ResolveLaunch(ctx context.Context, _ *SpawnPlan, 
 // running.
 func spinUpRetryLoop(t *testing.T, c *Coordinator, sp *failingLaunchSpawner) string {
 	t.Helper()
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err, "agent_run itself is async: the LAUNCH failure surfaces on the mailbox, not here")
 
 	// Mail for a child that is down is what arms the relaunch (§6a: an ended
@@ -157,7 +157,7 @@ func stopDuringArmedRelaunch(t *testing.T) {
 	sp.resolveGate = make(chan struct{})
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	// The first launch fails; the run ends as launch_failed.
 	require.Eventually(t, func() bool { return sp.attempts.Load() >= 1 }, 10*time.Second, 10*time.Millisecond)
@@ -210,7 +210,7 @@ func TestAgentStop_CancelsInFlightLaunch(t *testing.T) {
 	sp.delay = 3 * time.Second // a slow launch: the stop lands mid-flight
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return sp.attempts.Load() >= 1 }, 10*time.Second, 10*time.Millisecond,
 		"precondition: a launch must be in flight")
@@ -241,7 +241,7 @@ func TestFailingLaunch_RetryIsBoundedAndGivesUpLoudly(t *testing.T) {
 	sp.firstGate = make(chan struct{})
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return sp.attempts.Load() >= 1 }, 10*time.Second, 10*time.Millisecond,
 		"precondition: the original launch must be in flight (parked on firstGate)")
@@ -278,7 +278,7 @@ func TestAgentSend_MailRacingTheTerminalIsNotStranded(t *testing.T) {
 	sp.delay = time.Hour // the first launch stays in flight until its terminal cancels it
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return sp.attempts.Load() >= 1 }, 10*time.Second, 10*time.Millisecond,
 		"precondition: the first launch must be in flight")
@@ -317,7 +317,7 @@ func TestAgentSend_MailRacingTheTerminalKeepsTheRetryBound(t *testing.T) {
 	sp.firstDelay = time.Hour // the original launch stays in flight until its terminal cancels it
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return sp.attempts.Load() >= 1 }, 10*time.Second, 10*time.Millisecond,
 		"precondition: the first launch must be in flight")
@@ -356,7 +356,7 @@ func TestAgentSend_MailRacingTheTerminalArmsOneRelaunch(t *testing.T) {
 	sp.delay = time.Hour
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return sp.attempts.Load() >= 1 }, 10*time.Second, 10*time.Millisecond,
 		"precondition: the first launch must be in flight")

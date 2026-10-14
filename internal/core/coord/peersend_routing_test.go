@@ -26,7 +26,7 @@ func TestPeerSend_RoutingAndDispositions(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown sender")
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "report back", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "report back", "")
 	require.NoError(t, err)
 	child := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
 

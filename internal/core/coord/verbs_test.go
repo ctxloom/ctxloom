@@ -26,11 +26,10 @@ func TestVerbs_EveryRequestValidatesItselfOnce(t *testing.T) {
 		refused string // "" = valid
 	}{
 		{"spawn ok", SpawnRequest{Agent: "worker", Prompt: "go"}, ""},
-		{"spawn with axes", SpawnRequest{Agent: "worker", Prompt: "go", Workspace: "worktree", DirtyTree: "fail"}, ""},
+		{"spawn with axes", SpawnRequest{Agent: "worker", Prompt: "go", Workspace: "worktree"}, ""},
 		{"spawn needs an agent", SpawnRequest{Prompt: "go"}, "agent is required"},
 		{"spawn needs a prompt", SpawnRequest{Agent: "worker"}, "prompt is required"},
 		{"spawn refuses an unknown workspace", SpawnRequest{Agent: "worker", Prompt: "go", Workspace: "sandbox"}, "workspace"},
-		{"spawn refuses an unknown dirty-tree handler", SpawnRequest{Agent: "worker", Prompt: "go", DirtyTree: "yolo"}, "dirty_tree_handler"},
 		{"send ok", SendRequest{To: "child-1", Kind: KindMessage, Body: "hello"}, ""},
 		{"send reply is ordinary mail and carries a kind", SendRequest{To: ParentAddress, Kind: KindResult, Body: "42", InReplyTo: "ask-1"}, ""},
 		{"send reply without a kind is refused like any mail", SendRequest{To: ParentAddress, Body: "42", InReplyTo: "ask-1"}, "kind"},

@@ -31,7 +31,7 @@ func newSupersededRun(t *testing.T, set func(*Options)) *supersededRun {
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	sp.redialBackoff = time.Hour
 	c := newTestCoordinatorWith(t, sp, set)
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 	awaitItemsDurable(t, c, sp, out.Harp)

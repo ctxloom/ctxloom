@@ -39,7 +39,20 @@ const drainProcessBound = 10 * time.Minute
 // for up to the bound, which reads as a hang. The interrupt is honoured by
 // the drain's caller (the session's teardown cuts the wait short on a
 // shutdown signal and Close then ends what is left).
-const drainWaitNotice = "%s: waiting up to %s for %d run(s) still in a turn to finish: %s; interrupt (Ctrl-C) to stop waiting and end them now"
+//
+// Each run is named with what it is doing (drainPhase): a run is executing
+// from the moment it holds a slot, which is BEFORE its runner exists, so a
+// child whose launch is still in flight (an agent_run its parent issued just
+// before its own session ended) is waited on too — its launch either fails,
+// which settles the drain at once, or brings it up to run its first turn,
+// which ends at that boundary. Calling it "in a turn" would misstate it.
+const drainWaitNotice = "%s: waiting up to %s for %d run(s) to finish: %s; interrupt (Ctrl-C) to stop waiting and end them now"
+
+// The phases drainWaitNotice names a waited-on run by.
+const (
+	drainPhaseLaunching = "still launching"
+	drainPhaseInTurn    = "in a turn"
+)
 
 // Drain is one bounded drain's handle. Done closes once the drain has
 // settled — every child it tracked has exited or been forced — and Outcome
@@ -363,8 +376,34 @@ func drainHarps(children []drainChild) []string {
 // announceDrainWait prints drainWaitNotice for the runs a drain is about to
 // wait on, under a policy that announces (drainPolicy.announceWait).
 func (c *Coordinator) announceDrainWait(p drainPolicy, bound time.Duration, running []drainChild) {
-	if p.announceWait {
-		c.rep.Warnf(drainWaitNotice, p.label, bound, len(running), strings.Join(drainHarps(running), ", "))
+	if !p.announceWait {
+		return
+	}
+	named := make([]string, 0, len(running))
+	for _, ch := range running {
+		named = append(named, fmt.Sprintf("%s (%s)", ch.harp, c.drainPhase(ch.runID)))
+	}
+	c.rep.Warnf(drainWaitNotice, p.label, bound, len(running), strings.Join(named, ", "))
+}
+
+// drainPhase says what a run the drain waits on is doing: still launching
+// while its launch attempt has not settled (childRt.attached is open — it
+// closes when StartRun round-trips or the launch fails), else in a turn.
+func (c *Coordinator) drainPhase(runID string) string {
+	c.mu.Lock()
+	var attached chan struct{}
+	if rt := c.attach[runID]; rt != nil {
+		attached = rt.attached
+	}
+	c.mu.Unlock()
+	if attached == nil {
+		return drainPhaseInTurn
+	}
+	select {
+	case <-attached:
+		return drainPhaseInTurn
+	default:
+		return drainPhaseLaunching
 	}
 }
 

@@ -49,7 +49,7 @@ func TestDriveObserved_ResumeRefusedOnceSealedKeepsTheMailQueued(t *testing.T) {
 	// tracked harp (TestAgentRun_RefusedOnceSealedLeavesTheRunEnqueued) for
 	// the mail to be queued to; driveObserved acts on the state it is handed.
 	c.tracked.Seal()
-	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.ErrorIs(t, err, ErrGroupSealed)
 	require.Len(t, sp.assignedSessions(), 1)
 	harp := sp.assignedSessions()[0]
@@ -111,7 +111,7 @@ func TestAgentRun_RefusedOnceSealedLeavesTheRunEnqueued(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 	c.tracked.Seal()
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.ErrorIs(t, err, ErrGroupSealed)
 	assert.Nil(t, out)
 

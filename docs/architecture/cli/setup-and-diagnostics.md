@@ -20,7 +20,7 @@ flowchart TD
         CDE -->|new| SNCD["setupNewCtxloomDir"]
         SNCD --> RSE["resolveSetupEngine"] --> PFER["promptForEngineAndRepos"]
         PFER --> IP["initPrompts → readCleanLine"]
-        IP --> PES["promptEngineSelection"] & PPR["promptPersonalRepos"] & PDTH["promptDirtyTreeHandler"]
+        IP --> PES["promptEngineSelection"] & PPR["promptPersonalRepos"]
         SNCD --> WIC["writeInitialConfig"]
         SNCD --> CSD["checkSystemDeps"] --> W1["warnIfNoSignKey / warnIfGitIdentityMissing"]
         SNCD --> POST["addPersonalRemotes · cloneConfiguredRemotes<br/>pullSeededDependencies"]

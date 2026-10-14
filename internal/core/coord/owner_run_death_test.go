@@ -11,7 +11,7 @@ import (
 
 // An owner run whose runner process is already DEAD must fail at once, not
 // after the whole dial-home budget. issueStartRun races awaitRunner against
-// rt.runnerWait (watchRunnerExit); on the owner path that waiter is the
+// rt.runnerExit (watchRunner); on the owner path that waiter is the
 // starter's OwnedRunner.Wait. Without it the parent learns nothing until
 // defaultRunnerAwaitTimeout — `ctxloom run` silent for minutes over a runner
 // that already exited, and the acceptance binary timing out on the

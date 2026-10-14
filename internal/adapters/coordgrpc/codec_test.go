@@ -237,11 +237,11 @@ func TestSpoolRefFromProto_RefusesAnInvalidRef(t *testing.T) {
 
 // TestAgentRequestFromWire_NonStringSpawnInputIsRefused: structpb.Value's
 // GetStringValue answers "" for every non-string kind, which is byte-identical
-// to omitting the key — and omitting dirty_tree_handler selects the default
-// that commits the parent's working tree. Present-but-wrong-type is its own
-// input, refused at the decode rather than read as unset.
+// to omitting the key — and omitting workspace selects the configured
+// default. Present-but-wrong-type is its own input, refused at the decode
+// rather than read as unset.
 func TestAgentRequestFromWire_NonStringSpawnInputIsRefused(t *testing.T) {
-	in, err := structpb.NewStruct(map[string]any{"prompt": "task", "dirty_tree_handler": true})
+	in, err := structpb.NewStruct(map[string]any{"prompt": "task", "workspace": true})
 	require.NoError(t, err)
 	_, err = AgentRequestFromWire(&agentcoordpb.AgentRequest{RequestId: "r-1", Kind: &agentcoordpb.AgentRequest_SpawnAgent{SpawnAgent: &agentcoordpb.SpawnAgentRequest{
 		Role: "worker", Input: in,

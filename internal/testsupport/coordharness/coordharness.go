@@ -36,10 +36,10 @@ func (NopSpawner) ResolveLaunch(context.Context, *coord.SpawnPlan, coord.SpawnSt
 func (NopSpawner) Start(context.Context, launch.Launch, sessions.Endpoint) (*coord.EngineSpawn, error) {
 	return nil, context.Canceled
 }
-func (NopSpawner) ResumeHistory(context.Context, string) string { return "" }
-func (NopSpawner) MarkSessionEnded(string, string)              {}
-func (NopSpawner) BindNativeSession(string, string)             {}
-func (NopSpawner) NativeSession(string) string                  { return "" }
+func (NopSpawner) ResumeHistory(context.Context, string) string      { return "" }
+func (NopSpawner) MarkSessionEnded(string, string, *sessions.RunEnd) {}
+func (NopSpawner) BindNativeSession(string, string)                  {}
+func (NopSpawner) NativeSession(string) string                       { return "" }
 
 // Sink is the diagnostics sink these suites report through.
 func Sink() report.Sink { return strictness.Sink("ctxloom") }

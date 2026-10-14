@@ -1,6 +1,9 @@
 package isolation
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // fakeRuntime is a Runtime stub for the degrade-path tests: it reports a
 // configurable availability and binary without touching a real daemon.
@@ -58,6 +61,12 @@ func (fakeRuntime) removeOutcome(stdout []byte, err error) removeOutcome {
 	return ociRuntime{}.removeOutcome(stdout, err)
 }
 func (fakeRuntime) passesPUID() bool { return ociRuntime{}.passesPUID() }
+
+// limitSupport enforces nothing: a fake run renders no resource caps.
+func (fakeRuntime) limitSupport() limitSupport { return limitSupport{} }
+func (fakeRuntime) oomEventArgs(name string, since, until time.Time) []string {
+	return ociRuntime{}.oomEventArgs(name, since, until)
+}
 
 // placement routes targets through a non-identity prefixMapper — deliberately NOT
 // identityMapper. Under identity, expose(p) == mount{p, p} whether or not a

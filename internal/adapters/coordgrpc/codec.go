@@ -664,15 +664,14 @@ func requestKind[K coord.AgentRequestKind](k K, err error) (coord.AgentRequestKi
 }
 
 // spawnRequestFromWire decodes a spawn: the role names the agent, and the
-// input's prompt, workspace and dirty_tree_handler must each be a string when
-// present.
+// input's prompt and workspace must each be a string when present.
 func spawnRequestFromWire(sa *agentcoordpb.SpawnAgentRequest) (coord.SpawnRequest, error) {
 	sr := coord.SpawnRequest{Agent: sa.GetRole()}
 	in := sa.GetInput()
 	if in == nil {
 		return sr, nil
 	}
-	for key, dst := range map[string]*string{"prompt": &sr.Prompt, "workspace": &sr.Workspace, "dirty_tree_handler": &sr.DirtyTree} {
+	for key, dst := range map[string]*string{"prompt": &sr.Prompt, "workspace": &sr.Workspace} {
 		v, err := spawnInputString(in, key)
 		if err != nil {
 			return coord.SpawnRequest{}, err
@@ -697,10 +696,9 @@ func hostRequestFromWire(h *agentcoordpb.HostRequest) (coord.HostRequest, error)
 //
 // A key that is PRESENT but carries a non-string JSON value is an ERROR.
 // structpb.Value.GetStringValue() answers "" for every other kind, which
-// makes `{"dirty_tree_handler": 4}` indistinguishable from omitting the key —
-// and these keys select postures whose unset path has a default that writes
-// to the user's repository. Unset and unusable are different inputs and get
-// different answers.
+// makes `{"workspace": 4}` indistinguishable from omitting the key, which
+// selects the configured default. Unset and unusable are different inputs and
+// get different answers.
 func spawnInputString(in *structpb.Struct, key string) (string, error) {
 	v, ok := in.GetFields()[key]
 	if !ok {

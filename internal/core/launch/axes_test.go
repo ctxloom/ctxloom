@@ -69,26 +69,6 @@ func TestAxes_Predicates(t *testing.T) {
 	assert.False(t, Axes{Runtime: RuntimeRootless}.Zero())
 }
 
-func TestDirtyTreeHandler_Values_AndParse(t *testing.T) {
-	assert.Equal(t, []string{"commit", "copy", "stale", "fail"}, DirtyTreeHandlerNames())
-	for _, s := range []string{"", "commit", "copy", "stale", "fail"} {
-		got, err := ParseDirtyTreeHandler(s)
-		require.NoError(t, err, s)
-		assert.Equal(t, DirtyTreeHandler(s), got)
-	}
-	// The default member commits the user's tree, so anything that is not
-	// exactly a member stops the spawn — a typo, a case variant, stray
-	// whitespace, a value from another vocabulary — and the refusal quotes
-	// what the caller actually typed and names the legal set.
-	for _, bad := range []string{"comit", "fial", "COMMIT", " commit", "commit ", "true", "none"} {
-		got, err := ParseDirtyTreeHandler(bad)
-		require.Error(t, err, "%q is not a member", bad)
-		assert.Equal(t, DirtyTreeHandler(""), got, "a refused parse yields no handler at all, least of all the default")
-		assert.Contains(t, err.Error(), bad)
-		assert.Contains(t, err.Error(), "commit|copy|stale|fail")
-	}
-}
-
 func TestSource_CarriesWhatACallerKnows(t *testing.T) {
 	// The verbatim shape from the decided design: every way a launch is asked
 	// for is one of these. Nothing resolves it yet.
@@ -101,7 +81,6 @@ func TestSource_CarriesWhatACallerKnows(t *testing.T) {
 		Prompt:     "x",
 		WorkDir:    "/p",
 		Workspace:  WorkspaceWorktree,
-		DirtyTree:  DirtyTreeHandlerCommit,
 		Permission: "plan",
 		Resume:     Resume{Ref: sessions.ResumeRef{Harp: "quiet-amber-falcon", NativeKey: "k"}},
 		Degraded:   false,

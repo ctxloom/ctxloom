@@ -17,7 +17,6 @@ import (
 	"golang.org/x/term"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
@@ -144,23 +143,24 @@ func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 // real engines, and claude is the one whose vocabulary carries this mode.
 const initDefaultHeadlessPosture = "acceptEdits"
 
-// initDefaultDirtyTreeLine and initDefaultHeadlessLine are what an interactive
-// init prints for the two answers it takes without asking: what it chose and
+// initDelegationCommitLine and initDefaultHeadlessLine are what an
+// interactive init prints in place of questions it does not ask: how
+// delegation treats uncommitted work, and the headless posture it chose and
 // how to change it.
 const (
-	initDefaultDirtyTreeLine = "Delegation from a dirty tree: ctxloom commits your uncommitted work so the child sees it " +
-		"(dirty_tree_handler: commit). Choose copy, stale or fail instead with dirty_tree_handler in `ctxloom config edit`."
+	initDelegationCommitLine = "Delegation commits: before a delegated agent's worktree is carved, ctxloom commits your " +
+		"uncommitted work so the agent sees it, and when the agent's run ends it commits the agent's uncommitted work on the agent's own branch."
 	initDefaultHeadlessLine = "Headless runs (one-shot and delegated) use the " + initDefaultHeadlessPosture +
 		" posture: file edits go through, anything else that would ask is denied. " +
 		"Change it: ctxloom agent edit default --permissions <posture>"
 )
 
-// takeInterviewDefaults answers the two advanced questions init no longer
-// asks: the commit dirty-tree handler and the acceptEdits headless posture.
-func takeInterviewDefaults(out io.Writer) (dirtyTreeHandler, headlessPermissions string) {
-	_, _ = fmt.Fprintln(out, initDefaultDirtyTreeLine)
+// takeInterviewDefaults says how delegation commits and answers the advanced
+// question init no longer asks: the acceptEdits headless posture.
+func takeInterviewDefaults(out io.Writer) (headlessPermissions string) {
+	_, _ = fmt.Fprintln(out, initDelegationCommitLine)
 	_, _ = fmt.Fprintln(out, initDefaultHeadlessLine)
-	return string(launch.DirtyTreeHandlerCommit), initDefaultHeadlessPosture
+	return initDefaultHeadlessPosture
 }
 
 // promptForEngineAndRepos runs the interactive engine selection and the

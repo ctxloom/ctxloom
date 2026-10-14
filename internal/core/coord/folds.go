@@ -47,6 +47,9 @@ type RunRecord struct {
 	// (`reason` used to be advertised to the model and discarded).
 	// Empty when the terminal cause carried no detail.
 	Detail string
+	// ExitCode is the terminal fact's exit status (runEnded.ExitCode); nil
+	// when the run's end observed none.
+	ExitCode *int32
 	// Resumable is the run engine's LIVE resume capability (factRunResumable,
 	// from ChatSessionInfo.Resumable).
 	Resumable    bool
@@ -179,6 +182,7 @@ func (f *runsFold) applyEnded(p runEnded, at time.Time) {
 	r.State = StateEnded
 	r.Cause = p.Cause
 	r.Detail = p.Detail
+	r.ExitCode = p.ExitCode
 	r.LastActivity = at
 	// Revocation is part of the terminal fact: the credential dies with the
 	// run.

@@ -164,7 +164,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	}
 	c.mu.Lock()
 	rt.close = runner.Kill
-	rt.runnerWait = runner.Wait
+	rt.runnerExit = watchRunner(runner.Wait)
 	c.mu.Unlock()
 	c.recordContainerName(rt.runID, runner.ContainerName)
 

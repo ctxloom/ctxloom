@@ -4,6 +4,7 @@ package hostpty
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -209,6 +210,9 @@ func TestExitErr_ReportsTheExitAndLeavesTheMasterOpen(t *testing.T) {
 	}
 	require.ErrorContains(t, first, "status 3")
 	require.Equal(t, first.Error(), s.ExitErr().Error(), "every caller sees the same exit")
+	var classified interface{ ExitStatus() int }
+	require.True(t, errors.As(first, &classified), "the exit is handed over classified, for the coordinator to record")
+	require.Equal(t, 3, classified.ExitStatus())
 
 	_, err = masterFile(t, s).Stat()
 	require.NoError(t, err, "ExitErr must not close the master")

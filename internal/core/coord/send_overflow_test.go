@@ -249,7 +249,7 @@ func TestSendOverflow_SameBodyToTwoChildren(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 	var kids []Identity
 	for range 2 {
-		out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "work", "", "")
+		out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "work", "")
 		if !assert.NoError(t, err) {
 			return
 		}
@@ -291,7 +291,7 @@ func TestSendOverflow_DeliveredMessageIsStillObservable(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "work", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "work", "")
 	require.NoError(t, err)
 	kid := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
 	awaitRunnerHome(t, c, sp, kid.Harp)
@@ -379,7 +379,7 @@ func TestSendOverflow_OwnerToChild(t *testing.T) {
 			resetStrictness(t)
 			sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 			c := newTestCoordinator(t, sp, nil)
-			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "work", "", "")
+			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "work", "")
 			if !assert.NoError(t, err) {
 				return
 			}
@@ -400,7 +400,7 @@ func childAndOwnerInbox(t *testing.T) (*Coordinator, Identity) {
 	resetStrictness(t)
 	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "work", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "work", "")
 	require.NoError(t, err)
 	return c, Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
 }

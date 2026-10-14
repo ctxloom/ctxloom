@@ -102,7 +102,7 @@ func TestFinalReport_EndsTheRunAtItsTurnBoundary(t *testing.T) {
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return midTurn(c, sp, out.Harp) }, conformanceWait, 10*time.Millisecond,
 		"the child must be mid-turn, which is when a real agent files FINAL")
@@ -137,7 +137,7 @@ func TestFinalReport_EndsAChildThatIsBetweenTurns(t *testing.T) {
 	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
@@ -158,7 +158,7 @@ func TestProgressReport_DoesNotEndTheRun(t *testing.T) {
 	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
@@ -193,7 +193,7 @@ func TestFinalReport_ParentGetsTheReportBeforeTheExitNotice(t *testing.T) {
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return midTurn(c, sp, out.Harp) }, conformanceWait, 10*time.Millisecond)
 
@@ -230,7 +230,7 @@ func TestFinalReport_SessionStaysResumableAfterTheRunEnds(t *testing.T) {
 	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
@@ -262,7 +262,7 @@ func TestFinalReport_OneShotChildIsEndedByItsFinal(t *testing.T) {
 	sp := oneShotSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return nativeSession(c, out.Harp) != "" }, conformanceWait, 10*time.Millisecond,
 		"the fixture must be a live-confirmed one-shot run before it files FINAL")
@@ -349,7 +349,7 @@ func TestFinalReport_BoundaryRacingTheRequestStillEndsTheRun(t *testing.T) {
 		}
 	}
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return midTurn(c, sp, out.Harp) }, conformanceWait, 10*time.Millisecond)
 
@@ -404,7 +404,7 @@ func TestFinalReport_MidTurnIsNotMetByAChildStillLaunching(t *testing.T) {
 	sp.startGate = launchGate
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateExecuting }, conformanceWait, time.Millisecond,
 		"the roster says executing once the slot is held, before any runner exists")
@@ -431,7 +431,7 @@ func TestFinalReport_FiledWhileStillLaunchingEndsAtTheFirstBoundary(t *testing.T
 	sp.startGate = launchGate
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateExecuting }, conformanceWait, time.Millisecond)
 
@@ -472,7 +472,7 @@ func TestFinalReport_LateFinalFromAnEndedRunDoesNotEndTheResumedRun(t *testing.T
 	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: done")))

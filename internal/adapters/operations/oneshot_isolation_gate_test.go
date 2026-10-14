@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -146,4 +147,28 @@ func TestIsolationGateErr(t *testing.T) {
 		resetStrictness(t)
 		assert.NoError(t, isolationGateErr(strictness.Mode{Degraded: true}, []report.Finding{isoFinding}))
 	})
+}
+
+// TestIsolationGateErr_MarksTheStreamedRefusal: the gate lists findings the
+// diagnostic stream already rendered with their fixes, so its refusal is
+// report.Streamed with the refusal's own one-line summary; a coordinator
+// warning on that stream reads the mark and does not print the fix again. A
+// Quiet finding never reached the stream, so a refusal carrying one is not
+// marked.
+func TestIsolationGateErr_MarksTheStreamedRefusal(t *testing.T) {
+	resetStrictness(t)
+	f := report.Finding{Kind: report.KindIsolation, Text: "container isolation was requested but could not start", Remedy: "start the runtime"}
+
+	var s report.Streamed
+	err := isolationGateErr(strictness.Mode{}, []report.Finding{f})
+	require.ErrorAs(t, err, &s, "a refusal made of streamed findings is marked")
+	assert.Equal(t, isolationRefusal, s.Summary)
+	assert.NotContains(t, s.Summary, f.Remedy, "the summary carries neither the findings nor their fixes")
+	fix, _ := clifmt.RemedyOf(err)
+	assert.Equal(t, f.Remedy, fix, "the mark hides no remedy from a renderer that reaches another audience")
+
+	f.Quiet = true
+	err = isolationGateErr(strictness.Mode{}, []report.Finding{f})
+	require.Error(t, err)
+	assert.False(t, errors.As(err, &s), "a finding recorded Quiet never reached the stream")
 }

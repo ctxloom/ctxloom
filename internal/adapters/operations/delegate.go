@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -74,81 +72,40 @@ func StartEngine(ctx context.Context, l launch.Launch, runnerEnv map[string]stri
 // what ctxloom is about to do about it.
 const maxDirtyFilesListed = 10
 
-// The dirty-tree handler is what a delegated agent_run spawn does when it
-// resolves to worktree isolation while the PARENT project tree (workDir —
-// the coordinator's own checkout; never the child's future workspace)
-// carries uncommitted changes. The vocabulary, its names and its one parser
-// are launch.DirtyTreeHandler's; which member governs a launch is settled
-// ONCE by launch.Resolve (the invocation's, else the project's
-// `dirty_tree_handler` default, else "commit") and arrives here on the
-// CellRequest already decided.
-//
-// WHY THIS EXISTS AT ALL: worktree isolation checks out a fresh branch at a
-// ref (git.Git.WorktreeAdd, `git worktree add -b`) — a checkout of COMMITTED
-// state only, HEAD and everything reachable from it. A
-// coordinator that drafts a file and then hands the work to a delegated
+// THE PARENT COMMIT. A delegated agent_run spawn that carves a NEW worktree
+// checks out a fresh branch at the parent's HEAD (git.Git.WorktreeAdd, `git
+// worktree add -b`): committed state only, HEAD and everything reachable from
+// it. A coordinator that drafts a file and then hands the work to a delegated
 // child would otherwise get a child that silently runs against stale or
 // missing content: exit 0, a plausible transcript, wrong bytes. That is this
-// project's signature failure mode (see silent-no-op-failure-mode), and
-// worktree-by-default would introduce it deliberately if nothing decided
-// what to do about it. Four explicit choices, no refuse-or-degrade blur:
+// project's signature failure mode (see silent-no-op-failure-mode). So before
+// such a checkout is carved, ctxloom commits the parent's uncommitted and
+// untracked (not ignored) state onto the parent's branch, and the child is
+// carved from that commit. It is the only behaviour: there is no handler to
+// choose. Its counterpart at the other end of the run is the child's own
+// run-end commit (isolation.SpecBuilder.CommitOnTeardown).
 //
-//   - launch.DirtyTreeHandlerCommit ("commit", the DEFAULT): commit the
-//     parent's dirty state first, so the child sees it — see
-//     commitDirtyTree.
-//   - launch.DirtyTreeHandlerCopy ("copy"): carve the worktree at HEAD as
-//     usual, then reproduce the parent's uncommitted changes INSIDE it as
-//     uncommitted WIP — nothing is ever committed to the parent's branch.
-//   - launch.DirtyTreeHandlerStale ("stale"): proceed against committed
-//     state only, warning that the child will not see the listed changes.
-//   - launch.DirtyTreeHandlerFail ("fail"): refuse the spawn outright — the
-//     message names the uncommitted paths and the alternatives.
+// It runs from isolation's BeforeCheckout hook (parentCommit, launch.go), so
+// it commits only when a NEW checkout is about to be carved from the parent's
+// HEAD, after the launch's isolation preconditions have passed: a refused
+// launch, and a resume that re-enters its own checkout or its own branch,
+// commit nothing — neither would see the commit.
 //
-// --degraded (strictness.Degraded()) plays NO role in any of the four: which
-// one runs is governed entirely by dirty_tree_handler. Overloading the
-// global degraded flag here would silently convert "refuse/handle a dirty
-// spawn deliberately" back into "hand the child stale content" via a flag
-// set for unrelated startup-finding reasons — reintroducing the exact bug
-// this gate exists to prevent. (isolationGateErr DOES still respect
-// --degraded; that is unchanged and unrelated to this gate.)
-//
-// The ORIGINATOR's own worktree run is not gated: the human who asked for
-// `--workspace worktree` is at the terminal with the tree in front of them,
-// and the handler's whole subject is a child spawned by an agent that
-// cannot see what it would hand over. Cells.Prepare gates on
+// The ORIGINATOR's own worktree run is not committed for: the human who
+// asked for `--workspace worktree` is at the terminal with the tree in front
+// of them, and the commit's whole subject is a child spawned by an agent
+// that cannot see what it would hand over. Cells.Prepare gates on
 // sessions.Identity.IsChild.
 //
-// dirtyTreeOutcome is what handleDirtyParentTree decided, for the cells
-// adapter to act on. Only the "copy" handler populates copy — its
-// file reproduction is deferred until the worktree actually exists (see
-// applyCopySnapshot's call site).
-type dirtyTreeOutcome struct {
-	copy *copySnapshot
-}
-
-// copySnapshot is the parent's dirty state captured at handleDirtyParentTree
-// time (BEFORE the worktree is created), applied into the worktree once it
-// exists. Captured once rather than re-derived later so there is exactly one
-// read of "what's dirty" per spawn — no window for the parent tree to drift
-// between the decision and the application.
-type copySnapshot struct {
-	// patch is `git diff HEAD` from the parent — tracked modifications and
-	// deletions, ""  when there were none.
-	patch string
-	// untracked are the parent's untracked-but-not-ignored file paths
-	// (relative to sourceDir) to copy verbatim — DiffPatch/git apply never
-	// carries these; they need their own byte-for-byte reproduction.
-	untracked []string
-	// sourceDir is the parent directory untracked files are read FROM.
-	sourceDir string
-}
+// --degraded plays no role: overloading the global degraded flag here would
+// silently hand the child stale content for unrelated startup-finding
+// reasons.
 
 // dirtyFileList is the bounded file listing every dirty-tree message shows,
 // together with the one fact a bare []string cannot carry: whether the
 // listing that produced it succeeded. A WorkingChanges failure rendering as
 // the empty set is a lie in exactly the messages that exist to say WHICH
-// files are at stake — the refusal that claims uncommitted work would be
-// invisible to the child, and the preview shown immediately before
+// files are at stake — the preview shown immediately before
 // auto-committing the user's branch.
 type dirtyFileList struct {
 	listed []string
@@ -189,222 +146,81 @@ func (d dirtyFileList) writeTo(b *strings.Builder) {
 	}
 }
 
-// handleDirtyParentTree is the dirty-tree handler dispatch: given that
-// workDir (the PARENT project tree) is being checked ahead of a delegated
-// spawn resolving to worktree isolation, decide (and where possible, act on)
-// what handler says to do. WHAT COUNTS AS DIRTY is git's own notion of it —
-// `git status --porcelain` (git.Git.IsDirty / WorkingChanges), which already
-// honors BOTH the tracked .gitignore and the repo's .git/info/exclude. This
-// is deliberately NOT a bespoke ignore-pattern allowlist reimplementing "what
-// counts as noise": this codebase's own per-agent worktree preparation
-// already writes the delivered-surface noise that would otherwise make this
-// gate unusable into the shared common-dir .git/info/exclude
+// commitParentTree commits workDir (the PARENT project tree) ahead of a
+// delegated child's new worktree checkout, when it is dirty. WHAT COUNTS AS
+// DIRTY is git's own notion of it — `git status --porcelain`
+// (git.Git.IsDirty / WorkingChanges), which honors BOTH the tracked
+// .gitignore and the repo's .git/info/exclude, where this codebase's
+// per-agent worktree preparation writes the delivered-surface noise
 // (isolation.WorktreeArtifactPatterns, written by
-// Worktree.excludeConfigFromMerge), and the tracked .gitignore separately
-// covers the generated living-docs journeys. Once a repo has
-// prepared even ONE agent worktree, that noise is invisible to `git status
-// --porcelain` for every tree sharing the repo's common dir — including the
-// parent's, which is exactly the tree this inspects. Reusing git's own
-// porcelain check (the SAME mechanism the worktree teardown already trusts
-// to decide WIP-safety, git.Git.IsDirty's doc) means this gate's notion of
-// "noise" can never drift from the isolation layer's own.
+// Worktree.excludeConfigFromMerge). Reusing git's own porcelain check (the
+// SAME mechanism the worktree teardown trusts to decide WIP-safety) means
+// this commit's notion of "noise" can never drift from the isolation
+// layer's own.
 //
-// Tracked modifications always count. Untracked files count too, but ONLY
-// when git itself would not already call them ignored/excluded.
-//
-// Best-effort on a git failure (no binary, workDir not a repo — some test
-// doubles pass a bare temp dir): never blocks the spawn, matching how the
-// isolation chain's OWN git checks degrade (chainFor's worktree branch
-// degrades silently to None on a non-repo dir rather than failing the run).
-func handleDirtyParentTree(ctx context.Context, gitClient git.Git, workDir, agentName string, handler launch.DirtyTreeHandler) (dirtyTreeOutcome, error) {
+// Best-effort on a git failure to tell (no binary, workDir not a repo —
+// some test doubles pass a bare temp dir): it commits nothing and never
+// blocks the spawn, matching how the isolation chain's OWN git checks
+// degrade. A commit that is attempted and fails refuses the spawn.
+func commitParentTree(ctx context.Context, gitClient git.Git, workDir, harp string) error {
 	dirty, err := gitClient.IsDirty(ctx, workDir)
 	if err != nil || !dirty {
-		return dirtyTreeOutcome{}, nil
+		return nil
 	}
-	files := boundDirtyChanges(gitClient.WorkingChanges(ctx, workDir, 0))
-
-	switch handler {
-	case launch.DirtyTreeHandlerFail:
-		return dirtyTreeOutcome{}, dirtyTreeFailError(agentName, workDir, files)
-
-	case launch.DirtyTreeHandlerStale:
-		var b strings.Builder
-		fmt.Fprintf(&b, "agent_run: agent %q is spawning into a worktree while %s has uncommitted changes (dirty_tree_handler: \"stale\") — the child will NOT see these changes, only committed state:\n", agentName, workDir)
-		files.writeTo(&b)
-		b.WriteString(`change dirty_tree_handler to "commit" or "copy" to carry these across, or pass workspace: "none" for this call to run against the live checkout instead`)
-		clidiag.Warn("ctxloom", "%s", b.String())
-		return dirtyTreeOutcome{}, nil
-
-	case launch.DirtyTreeHandlerCopy:
-		patch, perr := gitClient.DiffPatch(ctx, workDir)
-		if perr != nil {
-			return dirtyTreeOutcome{}, fmt.Errorf(`dirty_tree_handler "copy": reading %s's tracked changes: %w`, workDir, perr)
-		}
-		untracked, uerr := gitClient.ListUntracked(ctx, workDir)
-		if uerr != nil {
-			return dirtyTreeOutcome{}, fmt.Errorf(`dirty_tree_handler "copy": listing %s's untracked files: %w`, workDir, uerr)
-		}
-		return dirtyTreeOutcome{copy: &copySnapshot{patch: patch, untracked: untracked, sourceDir: workDir}}, nil
-
-	case launch.DirtyTreeHandlerCommit:
-		return dirtyTreeOutcome{}, commitDirtyTree(ctx, gitClient, workDir, agentName, files)
-
-	default:
-		// Unreachable through launch.Resolve, which settles a parsed handler
-		// before the cell is prepared. It stays as a REFUSAL rather than a
-		// fallback to the commit arm: a caller that reached this dispatch
-		// with a value no parse admitted (or none at all) has said nothing
-		// this function may act on, and the arm it would otherwise land on
-		// rewrites the user's branch.
-		return dirtyTreeOutcome{}, fmt.Errorf("agent_run: dirty_tree_handler %q reached the dirty-tree dispatch unparsed (known: %s) — refusing to spawn rather than guess a handler that could commit %s", handler, strings.Join(launch.DirtyTreeHandlerNames(), "|"), workDir)
-	}
+	return commitDirtyTree(ctx, gitClient, workDir, harp, boundDirtyChanges(gitClient.WorkingChanges(ctx, workDir, 0)))
 }
 
-// dirtyTreeFailError renders the "fail" handler's refusal — this gate's
-// original, only behavior before the other three handlers existed. Kept
-// byte-for-byte compatible with that original message.
-func dirtyTreeFailError(agentName, workDir string, files dirtyFileList) error {
-	var b strings.Builder
-	fmt.Fprintf(&b, "agent_run: refusing to spawn agent %q into a worktree — %s has uncommitted changes a worktree checkout cannot see (git worktree add checks out committed state only: HEAD and everything reachable from it, nothing you haven't committed yet). These changes would be invisible to the child:\n", agentName, workDir)
-	files.writeTo(&b)
-	b.WriteString(`commit the changes, or pass workspace: "none" for this agent_run call to run it against the live checkout instead`)
-	return errors.New(b.String())
-}
-
-// commitDirtyTree implements dirty_tree_handler: "commit". The configured
-// handler is the whole authorization. A coherence guard refuses to
-// auto-commit inside a detached-HEAD checkout (see the branch=="HEAD" case
+// commitDirtyTree makes the parent commit. A coherence guard refuses to
+// auto-commit inside a detached-HEAD checkout (see the branch.IsZero() case
 // below); past it, this warns (naming the branch and the bounded file list)
-// and mutates. It never silently trusts a bare "commit succeeded": CommitAll's
-// own before/after diff must show real content, or this refuses (see the
-// len(changed)==0 case) — a commit can land EMPTY (an index-clobbering
-// pre-commit hook), and a post-commit stat is not proof a commit landed.
-func commitDirtyTree(ctx context.Context, gitClient git.Git, workDir, agentName string, files dirtyFileList) error {
+// and mutates. It never silently trusts a bare "commit succeeded":
+// CommitAll's own before/after diff must show real content, or this refuses
+// (see the len(changed)==0 case) — a commit can land EMPTY (an
+// index-clobbering pre-commit hook), and a post-commit stat is not proof a
+// commit landed.
+func commitDirtyTree(ctx context.Context, gitClient git.Git, workDir, harp string, files dirtyFileList) error {
 	branch, berr := gitClient.CurrentBranch(ctx, workDir)
-	// An error here used to be discarded (`branch, _ :=`), leaving
-	// branch=="" — which is NOT "HEAD", so the detached-HEAD guard below never
-	// fired. An unresolvable branch name is exactly the condition this guard
-	// exists to catch (the caller cannot tell whether this is a bare
-	// checkout), so failing loud here is strictly safer than guessing.
+	// An unresolvable branch name is exactly the condition the detached-HEAD
+	// guard below exists to catch (the caller cannot tell whether this is a
+	// bare checkout), so failing loud here is strictly safer than guessing.
 	if berr != nil {
-		return fmt.Errorf(`dirty_tree_handler "commit": could not determine %s's current branch: %w (this guard exists specifically to catch a detached-HEAD checkout, and an unresolvable branch name is the one condition it must not silently treat as safe) — pass dirty_tree_handler: "copy" or "stale" for this spawn instead, or "fail" to refuse it outright`, workDir, berr)
+		return fmt.Errorf(`agent_run: could not determine %s's current branch before committing it for delegated agent %q: %w (an unresolvable branch is the one condition the detached-HEAD guard must not treat as safe) — pass workspace: "none" for this spawn to run it against the live checkout instead`, workDir, harp, berr)
 	}
-	if branch == "HEAD" {
-		return fmt.Errorf(`dirty_tree_handler "commit": %s is a detached-HEAD checkout (this looks like a delegated child's OWN isolated worktree, not a branch checkout — committing here would land on no branch and could be silently discarded when that worktree is later torn down) — pass dirty_tree_handler: "copy" or "stale" for this spawn instead, or "fail" to refuse it outright`, workDir)
+	if branch.IsZero() {
+		return fmt.Errorf(`agent_run: %s is a detached-HEAD checkout, so its uncommitted changes cannot be committed for delegated agent %q (this looks like a delegated child's OWN isolated worktree, not a branch checkout — a commit here would land on no branch and could be silently discarded when that worktree is torn down) — pass workspace: "none" for this spawn to run it against the live checkout instead`, workDir, harp)
 	}
 
-	preview := renderCommitPreview(agentName, workDir, branch, files)
-	clidiag.Warn("ctxloom", "%s", preview)
+	clidiag.Warn("ctxloom", "%s", renderCommitPreview(harp, workDir, branch, files))
 
-	sha, changed, cerr := gitClient.CommitAll(ctx, workDir, renderCommitMessage(agentName))
+	sha, changed, cerr := gitClient.CommitAll(ctx, workDir, renderCommitMessage(harp))
 	if cerr != nil {
-		return fmt.Errorf(`dirty_tree_handler "commit": committing %s: %w`, workDir, cerr)
+		return fmt.Errorf(`agent_run: committing %s for delegated agent %q: %w`, workDir, harp, cerr)
 	}
 	if len(changed) == 0 {
-		return fmt.Errorf(`dirty_tree_handler "commit": commit %s on branch %q reports success but captured NO changed files versus its parent — refusing to spawn against what may be an empty commit (this codebase has a documented history of commits landing empty; inspect %s by hand before retrying)`, sha, branch, workDir)
+		return fmt.Errorf(`agent_run: commit %s on branch %q reports success but captured NO changed files versus its parent — refusing to spawn against what may be an empty commit (this codebase has a documented history of commits landing empty; inspect %s by hand before retrying)`, sha, branch, workDir)
 	}
 	return nil
 }
 
-// renderCommitPreview is the "commit" handler's warning — shown before every
-// individual auto-commit, so each mutation is visible. Names the branch, the bounded file list, that this is a
-// configured-handler side effect (not an incidental one), and the
-// alternatives.
-func renderCommitPreview(agentName, workDir, branch string, files dirtyFileList) string {
+// renderCommitPreview is the warning shown before every parent commit, so
+// each mutation is visible: the branch, and the bounded file list.
+func renderCommitPreview(harp, workDir string, branch git.Branch, files dirtyFileList) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "agent_run: dirty_tree_handler \"commit\" is about to commit %s's uncommitted changes on branch %q so delegated agent %q can see them in its own git worktree (a worktree checkout only ever contains committed state):\n", workDir, branch, agentName)
+	fmt.Fprintf(&b, "agent_run: committing %s's uncommitted changes on branch %q so delegated agent %q sees them in its own git worktree (a worktree checkout only ever contains committed state):\n", workDir, branch, harp)
 	files.writeTo(&b)
-	b.WriteString(`This is happening because dirty_tree_handler is configured to "commit" (the default). Alternatives for this call: dirty_tree_handler "copy" (reproduce these changes as uncommitted WIP inside the child's worktree instead of committing them here), "stale" (spawn the child without these changes), "fail" (refuse the spawn instead of touching this branch); or pass workspace: "none" to run against the live checkout instead.`)
-	return b.String()
+	return strings.TrimRight(b.String(), "\n")
 }
 
-// renderCommitMessage is the exact, self-explanatory commit message format
-// for every dirty_tree_handler: "commit" auto-commit — readable in `git log`
-// with no other context: WHO did it (ctxloom, automatically), WHY (so a
-// named delegated agent's worktree could see it), and that it is a
-// configured, reversible choice (naming the handler and its alternatives).
-func renderCommitMessage(agentName string) string {
-	return fmt.Sprintf(`ctxloom: auto-commit for delegated agent spawn (dirty_tree_handler=commit)
+// renderCommitMessage is the parent commit's message — readable in `git
+// log` with no other context: WHO did it (ctxloom, automatically) and WHY
+// (so a named delegated agent's worktree could see it).
+func renderCommitMessage(harp string) string {
+	return fmt.Sprintf(`ctxloom: commit working tree before delegating to %s
 
 ctxloom committed this working tree automatically before spawning delegated
 agent %q into its own git worktree: a worktree checkout only ever contains
 committed state, so these changes would otherwise be invisible to the child.
-
-This is the configured dirty_tree_handler behavior ("commit", the default).
-Alternatives: "copy" (reproduce these changes as uncommitted WIP inside the
-child's worktree instead of committing them here), "stale" (spawn the child
-without these changes), "fail" (refuse the spawn instead of touching this
-branch). Set dirty_tree_handler in .ctxloom/config.yaml, or pass it per call
-to agent_run.
-`, agentName)
-}
-
-// applyCopySnapshot reproduces snap (captured from the parent BEFORE the
-// worktree existed) inside targetDir (the now-created worktree): the tracked
-// patch first (git apply — modifications and deletions), then every
-// untracked file verbatim. FAILS LOUDLY on any error, including a mid-loop
-// untracked-file failure — it never half-applies and continues, matching
-// CommitAll's own no-silent-partial-success contract.
-func applyCopySnapshot(ctx context.Context, gitClient git.Git, targetDir string, snap *copySnapshot) error {
-	if snap.patch != "" {
-		applied, err := gitClient.ApplyPatch(ctx, targetDir, snap.patch)
-		if err != nil {
-			return fmt.Errorf(`dirty_tree_handler "copy": reproducing tracked changes into %s: %w`, targetDir, err)
-		}
-		// ApplyPatch reports applied=false (no error) for a patch
-		// it considered empty/whitespace-only. snap.patch is non-empty here,
-		// so applied=false means DiffPatch handed us content ApplyPatch does
-		// not consider real — refuse rather than silently reproducing NONE
-		// of the parent's tracked changes while reporting success.
-		if !applied {
-			return fmt.Errorf(`dirty_tree_handler "copy": %s's captured tracked-change patch was not applied (reported as empty) — refusing to proceed as if it had been`, targetDir)
-		}
-	}
-	for _, rel := range snap.untracked {
-		if err := copyUntrackedFile(snap.sourceDir, targetDir, rel); err != nil {
-			return fmt.Errorf(`dirty_tree_handler "copy": reproducing untracked file %q into %s: %w`, rel, targetDir, err)
-		}
-	}
-	return nil
-}
-
-// copyUntrackedFile reproduces one untracked entry from sourceDir/rel at
-// targetDir/rel, creating any needed parent directories. `git ls-files
-// --others` lists exactly two kinds of entry, and both are reproduced: a
-// regular file (bytes + permission bits) and a SYMLINK (recreated as a link
-// carrying the same target text — never dereferenced into a copy of what it
-// points at, which would silently turn a link into a file and, for a link
-// pointing outside the tree, bake a host path into the child's worktree).
-// Anything else cannot be reproduced, and is refused rather than skipped:
-// applyCopySnapshot's contract is that it never half-applies and continues.
-func copyUntrackedFile(sourceDir, targetDir, rel string) error {
-	src := filepath.Join(sourceDir, rel)
-	info, err := os.Lstat(src)
-	if err != nil {
-		return err
-	}
-	dst := filepath.Join(targetDir, rel)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		target, rerr := os.Readlink(src)
-		if rerr != nil {
-			return rerr
-		}
-		if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		return os.Symlink(target, dst)
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("not a regular file or symlink (mode %s) — ctxloom cannot reproduce it in the child's worktree", info.Mode().Type())
-	}
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(dst, data, info.Mode().Perm())
+`, harp, harp)
 }
 
 // Abort tears down a prepared-but-never-started launch's workspace.

@@ -136,6 +136,13 @@ type Runtime interface {
 	// this process is (or that it is none of them), else why it could not:
 	// the container gate refuses on it (settleSelf).
 	identified() error
+	// limitSupport is what selection's probe learned about the resource
+	// caps this runtime enforces and its host's memory (resolveLimits).
+	limitSupport() limitSupport
+	// oomEventArgs builds the argv listing the daemon's OOM events for the
+	// named container between since and until, or nil when the runtime
+	// keeps no such record (noteOOMKill).
+	oomEventArgs(name string, since, until time.Time) []string
 }
 
 // hostRoute is a runtime's answer to reachRoute: the host part a container
@@ -239,6 +246,9 @@ type RunSpec struct {
 	// Network is the run's --network, taken from the route home; "" is the
 	// runtime's default network.
 	Network string
+	// Limits are the run's resolved resource caps (resolveLimits), rendered
+	// as --memory / --memory-swap / --pids-limit; zero renders none.
+	Limits resourceLimits
 	// Harp is the session the container serves, stamped as its env
 	// (sessions.EnvHarp) and as a label (labelHarp) the daemon holds: a
 	// process inside is identified by the one verified against the other
@@ -270,12 +280,30 @@ type ociRuntime struct {
 	self      *selfContainer // nil: this process is not one of the daemon's containers
 	selfErr   error          // non-nil: whether it is, and which, could not be told (settleSelf)
 	reachable bool           // selection's verdict (launchable); set only by the engine probe
+	limits    limitSupport   // the caps the engine enforces; set only by the engine probe
 }
 
 // identified is selection's verdict on this process's own container.
 func (o ociRuntime) identified() error { return o.selfErr }
 
 func (o ociRuntime) launchable() bool { return o.reachable }
+
+func (o ociRuntime) limitSupport() limitSupport { return o.limits }
+
+// oomEventArgs lists the daemon's `oom` events for the named container
+// between since and until (Unix seconds with nanoseconds): the daemon keeps
+// them in its event log past the container's removal. A runtime that logs no
+// OOM event overrides it with nil.
+func (ociRuntime) oomEventArgs(name string, since, until time.Time) []string {
+	return []string{
+		"events",
+		"--since", unixNanoStamp(since),
+		"--until", unixNanoStamp(until),
+		"--filter", "container=" + name,
+		"--filter", "event=oom",
+		"--format", "{{.Action}}",
+	}
+}
 
 // RemoveArgs force-removes the container: SIGKILL, then rm. A racing --rm
 // auto-remove leaves nothing under the name, which removeOutcome reads as
@@ -471,8 +499,9 @@ func identityEnvArgs() []string {
 	}
 }
 
-// renderRunSpec renders the runtime-agnostic tail of a run argv (env, mounts,
-// workdir, image, in-container command) shared by Docker and Podman. The
+// renderRunSpec renders the runtime-agnostic tail of a run argv (resource
+// caps, env, mounts, workdir, image, in-container command) shared by Docker
+// and Podman. The
 // runtime-specific head (--rm/--name/--user) is prepended by each RunArgs.
 // Each mount's source is primary's name for it on the daemon (childLayer).
 func renderRunSpec(spec RunSpec, primary Layer) ([]string, error) {
@@ -483,6 +512,7 @@ func renderRunSpec(spec RunSpec, primary Layer) ([]string, error) {
 	if spec.Network != "" {
 		args = append(args, "--network="+spec.Network)
 	}
+	args = append(args, spec.Limits.args()...)
 	args = append(args, identityArgs(spec)...)
 	// Each Env entry renders as `-e <entry>`. Two forms cross here, both native to
 	// the docker/podman `-e` grammar: "KEY=VAL" sets an explicit value

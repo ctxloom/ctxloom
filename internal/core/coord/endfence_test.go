@@ -59,7 +59,7 @@ func newEndFenceFixture(t *testing.T) *endFenceFixture {
 	t.Cleanup(func() { startOnce.Do(func() { close(f.startGap) }) })
 	t.Cleanup(f.release)
 	f.openStart = func() { startOnce.Do(func() { close(f.startGap) }) }
-	out, err := f.c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := f.c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(f.c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 	f.harp, f.runID = out.Harp, out.RunID
@@ -155,7 +155,7 @@ func TestEndRun_SessionEndIsScopedToTheEndedRun(t *testing.T) {
 	resetStrictness(t)
 	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: done")))
@@ -203,7 +203,7 @@ func TestEndFence_ARunnerThatEndedTheRunReleasesTheFence(t *testing.T) {
 	})
 	t.Cleanup(func() { close(holdEnd) })
 	t.Cleanup(func() { close(holdPause) })
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 	target.Store(out.RunID)

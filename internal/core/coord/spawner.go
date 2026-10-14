@@ -24,11 +24,10 @@ type SpawnPlan struct {
 	Label    string
 	Profiles []string
 	Runtime  launch.RuntimeAxis
-	// Workspace and DirtyTreeHandler are the caller's per-invocation
-	// orchestration traits (agent_run's own fields), stamped by AgentRun
-	// before the launch resolves; a binding carries no opinion on either.
-	Workspace        launch.WorkspaceAxis
-	DirtyTreeHandler launch.DirtyTreeHandler
+	// Workspace is the caller's per-invocation orchestration trait
+	// (agent_run's own field), stamped by AgentRun before the launch
+	// resolves; a binding carries no opinion on it.
+	Workspace launch.WorkspaceAxis
 	// Permission is the engine's display name for the posture the plan was
 	// enqueued with: the binding's resolved posture, or an owner run's
 	// launched one. The launch resolver decides the effective one.
@@ -168,7 +167,13 @@ type Spawner interface {
 	// arrives, and that late call must leave the successor's session — its
 	// liveness lock above all — untouched. Start is where a run takes the
 	// session over.
-	MarkSessionEnded(harp, runID string)
+	//
+	// end is how runID ended, recorded on harp's session entry
+	// (sessions.Entry.RunEnds) WHETHER OR NOT the session is ended here: a
+	// late end still happened, and a successor's own end must not be the only
+	// one the index keeps. Nil when no run ended (a spawn refused before any
+	// run was registered).
+	MarkSessionEnded(harp, runID string, end *sessions.RunEnd)
 }
 
 // EngineSpawn is a Start result: the spawned-but-not-chatting runner

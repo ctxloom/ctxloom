@@ -50,16 +50,13 @@ func TestP6Fixture_ContainerCellIsNotAHostCellWearingALabel(t *testing.T) {
 	// this agent at all. Indentation is the only thing expressing that in YAML.
 	assert.Contains(t, ctr, "\n    runtime: container-rootless\n",
 		"runtime must be indented under the agent binding, as j002200ConfigYAML's mock-container binding writes it")
-	// dirty_tree_handler: MEASURED requirement, not a preference. The first live
-	// run of this cell failed with the child never launching — agent_run refused
-	// the spawn because ctxloom's own managed files (.ctxloom/project-id,
-	// .claude/settings.json, .claude/commands/*) are written
-	// during session startup, AFTER the fixture commits. "copy" leaves the
-	// fixture's own branch untouched, where "commit" would add a commit to it.
-	assert.Contains(t, ctr, "dirty_tree_handler: copy",
-		"the worktree cell must reproduce uncommitted state into the child's checkout, or the child never launches")
-	assert.NotContains(t, host, "dirty_tree_handler",
-		"a shared-workspace run has no second checkout to reproduce into; the key would be inert noise in the host rows")
+	// ctxloom's own managed files (.ctxloom/project-id, .claude/settings.json,
+	// .claude/commands/*) are written during session startup, AFTER the fixture
+	// commits; the worktree cell carries them across by the parent commit
+	// ctxloom makes before carving the child's checkout. There is no key for
+	// it: neither cell may write the retired dirty_tree_handler.
+	assert.NotContains(t, ctr, "dirty_tree_handler", "the key is retired")
+	assert.NotContains(t, host, "dirty_tree_handler", "the key is retired")
 
 	// isolation_engines is MACHINE-SCOPED and must NOT appear in the project
 	// file: config Load drops such a key with a warning rather than applying it,

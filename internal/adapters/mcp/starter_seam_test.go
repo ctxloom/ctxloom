@@ -42,7 +42,7 @@ func TestStarterSeam_MockChildRidesTheSpool(t *testing.T) {
 	t.Cleanup(c.Close)
 	owner := coord.Identity{Harp: "coordinator-harp", Depth: 0}
 
-	out, err := c.AgentRun(context.Background(), owner, "worker", "go", "", "")
+	out, err := c.AgentRun(context.Background(), owner, "worker", "go", "")
 	require.NoError(t, err, "mock is admitted for delegated children through the Starter seam")
 	home := runners.AwaitHome(t, out.RunID)
 	engine := runners.AwaitEngine(t, 0)

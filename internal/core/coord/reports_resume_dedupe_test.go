@@ -29,7 +29,7 @@ func TestReportDedupe_SurvivesResume(t *testing.T) {
 	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -72,7 +72,7 @@ func TestReportDedupe_StillDropsRedeliveryWithinARun(t *testing.T) {
 	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -101,11 +101,11 @@ func TestReportDedupe_IsPerHarp(t *testing.T) {
 	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	a, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "a", "", "")
+	a, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "a", "")
 	if !assert.NoError(t, err) {
 		return
 	}
-	b, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "b", "", "")
+	b, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "b", "")
 	if !assert.NoError(t, err) {
 		return
 	}

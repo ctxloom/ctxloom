@@ -152,7 +152,6 @@ delegation:
   concurrency: 7
   depth: 2
   idle_timeout: 10m
-dirty_tree_handler: commit
 editor:
   args:
     - -n
@@ -163,6 +162,8 @@ isolation_engines:
   - claude-code
 isolation_images:
   claude-code: example.invalid/img:tag
+isolation_memory_limit: 8g
+isolation_pids_limit: "2048"
 llm:
   configs:
     fast:
@@ -205,7 +206,6 @@ delegation:
   concurrency: 7
   depth: 2
   idle_timeout: 10m
-dirty_tree_handler: commit
 editor:
   args:
     - -n
@@ -216,6 +216,8 @@ isolation_engines:
   - claude-code
 isolation_images:
   claude-code: example.invalid/img:tag
+isolation_memory_limit: 8g
+isolation_pids_limit: "2048"
 llm:
   configs:
     fast:
@@ -258,7 +260,6 @@ delegation:
   concurrency: 7
   depth: 2
   idle_timeout: 10m
-dirty_tree_handler: commit
 editor:
   args:
     - -n
@@ -269,6 +270,8 @@ isolation_engines:
   - claude-code
 isolation_images:
   claude-code: example.invalid/img:tag
+isolation_memory_limit: 8g
+isolation_pids_limit: "2048"
 llm:
   configs:
     fast:

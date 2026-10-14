@@ -60,12 +60,12 @@ func TestSelectSoleEngine(t *testing.T) {
 }
 
 // writeInitialConfig creates the .ctxloom skeleton: the dir tree plus config.yaml
-// (carrying the chosen engine and the interview's dirty-tree answer) and
+// (carrying the chosen engine) and
 // remotes.yaml (default remotes).
 func TestWriteInitialConfig(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 
-	if err := writeInitialConfig(appDir, "mock", "copy", ""); err != nil {
+	if err := writeInitialConfig(appDir, "mock", ""); err != nil {
 		t.Fatalf("writeInitialConfig: %v", err)
 	}
 
@@ -77,16 +77,13 @@ func TestWriteInitialConfig(t *testing.T) {
 		}
 	}
 
-	// config.yaml exists and reflects the chosen engine and dirty-tree answer.
+	// config.yaml exists and reflects the chosen engine.
 	cfg, err := os.ReadFile(paths.ConfigPath(appDir))
 	if err != nil {
 		t.Fatalf("read config.yaml: %v", err)
 	}
 	if !strings.Contains(string(cfg), "mock") {
 		t.Errorf("config.yaml should mention chosen engine; got:\n%s", cfg)
-	}
-	if !strings.Contains(string(cfg), "dirty_tree_handler: copy") {
-		t.Errorf("config.yaml should carry the interview's dirty_tree_handler answer; got:\n%s", cfg)
 	}
 
 	// remotes.yaml exists and is non-empty.
@@ -99,29 +96,13 @@ func TestWriteInitialConfig(t *testing.T) {
 	}
 }
 
-// TestWriteInitialConfig_WritesTheCommitHandler: init writes the commit
-// handler into config.yaml, which is the whole authorization.
-func TestWriteInitialConfig_WritesTheCommitHandler(t *testing.T) {
-	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	if err := writeInitialConfig(appDir, "claude-code", "commit", ""); err != nil {
-		t.Fatalf("writeInitialConfig: %v", err)
-	}
-	cfg, err := os.ReadFile(paths.ConfigPath(appDir))
-	if err != nil {
-		t.Fatalf("read config.yaml: %v", err)
-	}
-	if !strings.Contains(string(cfg), "dirty_tree_handler: commit") {
-		t.Errorf("config.yaml should carry dirty_tree_handler: commit; got:\n%s", cfg)
-	}
-}
-
 func TestWriteInitialConfig_IsIdempotent(t *testing.T) {
 	// Re-running over an existing dir must not error (MkdirAll + overwrite).
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	if err := writeInitialConfig(appDir, "claude-code", "", ""); err != nil {
+	if err := writeInitialConfig(appDir, "claude-code", ""); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
-	if err := writeInitialConfig(appDir, "mock", "", ""); err != nil {
+	if err := writeInitialConfig(appDir, "mock", ""); err != nil {
 		t.Fatalf("second write should succeed: %v", err)
 	}
 	cfg, err := os.ReadFile(paths.ConfigPath(appDir))
@@ -148,7 +129,7 @@ func authoredV1(appPath string) string {
 // answer reaches config.yaml as the default seed agent's permissions.
 func TestWriteInitialConfig_HeadlessPosture(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	if err := writeInitialConfig(appDir, "mock", "", "plan"); err != nil {
+	if err := writeInitialConfig(appDir, "mock", "plan"); err != nil {
 		t.Fatalf("writeInitialConfig: %v", err)
 	}
 	cfg, err := os.ReadFile(paths.ConfigPath(appDir))

@@ -122,10 +122,6 @@ type fakeSpawner struct {
 	// spawn order — GAP 2's threading proof (AgentRun -> SpawnPlan.Workspace
 	// -> here), without needing real isolation machinery.
 	workspaces []launch.WorkspaceAxis
-	// dirtyTreeHandlers records each Launch/StartEngine call's
-	// plan.DirtyTreeHandler, in spawn order — the identical threading proof
-	// as workspaces, for AgentRun's dirty_tree_handler override.
-	dirtyTreeHandlers []launch.DirtyTreeHandler
 	// versionProbes records each RecordEngineVersion call's harp, in call
 	// order — the SLOW, post-registration half of session start (the real
 	// one execs a vendor CLI).
@@ -154,6 +150,17 @@ type fakeSpawner struct {
 	// executing, but no runner exists yet. That is the span a loaded host
 	// stretches, and the one a test must be able to stand a child in.
 	startGate chan struct{}
+	// runnerWait, when set, is the runner PROCESS's Wait on every EngineSpawn
+	// Start returns: released closes when the runner is killed. It models how
+	// the runner's process ended — killed by the kernel, still running —
+	// which the in-process runner has no process to report.
+	runnerWait func(released <-chan struct{}) error
+	// runEnds records each MarkSessionEnded's run end, in call order.
+	runEnds []runEndCall
+	// startErr, when set, fails Start (after startGate, if any) with it: an
+	// admitted child whose runner never comes up — a container that cannot
+	// start, a missing binary.
+	startErr error
 	// launches records every launch ResolveLaunch resolved, in order;
 	// endpointSeq numbers the endpoint each resolve mints, as Resolve mints
 	// one per launch.
@@ -301,7 +308,6 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 	s.identities = append(s.identities, start.Identity)
 	s.perms = append(s.perms, perm)
 	s.workspaces = append(s.workspaces, plan.Workspace)
-	s.dirtyTreeHandlers = append(s.dirtyTreeHandlers, plan.DirtyTreeHandler)
 	s.endpointSeq++
 	ep := sessions.Endpoint{URL: fmt.Sprintf("http://127.0.0.1:%d/mcp", 40000+s.endpointSeq), Credential: fmt.Sprintf("bearer-%d", s.endpointSeq)}
 	workDir := s.engineWorkDir
@@ -391,7 +397,7 @@ func (s *fakeSpawner) credentialOf(agentName string) engine.Credentials {
 // synthesis is what must notice.
 func (s *fakeSpawner) Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*EngineSpawn, error) {
 	s.mu.Lock()
-	gate := s.startGate
+	gate, startErr := s.startGate, s.startErr
 	s.mu.Unlock()
 	if gate != nil {
 		select {
@@ -399,6 +405,9 @@ func (s *fakeSpawner) Start(ctx context.Context, l launch.Launch, reach sessions
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
+	}
+	if startErr != nil {
+		return nil, startErr
 	}
 	runnerEnv := sessions.EncodeReach(reach, l.Identity.RunID)
 	s.mu.Lock()
@@ -483,10 +492,15 @@ func (s *fakeSpawner) Start(ctx context.Context, l launch.Launch, reach sessions
 	s.kills = append(s.kills, kill)
 	s.released = append(s.released, released)
 	s.engineHomes = append(s.engineHomes, home)
+	var wait func() error
+	if rw := s.runnerWait; rw != nil {
+		wait = func() error { return rw(released) }
+	}
 	s.mu.Unlock()
 	return &EngineSpawn{
 		Kill:       kill,
 		StderrTail: s.engineStderrTail,
+		Wait:       wait,
 	}, nil
 }
 
@@ -587,17 +601,6 @@ func (s *fakeSpawner) lastWorkspace() launch.WorkspaceAxis {
 	return s.workspaces[len(s.workspaces)-1]
 }
 
-// lastDirtyTreeHandler returns the SpawnPlan.DirtyTreeHandler the most
-// recent Launch/StartEngine call carried.
-func (s *fakeSpawner) lastDirtyTreeHandler() launch.DirtyTreeHandler {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.dirtyTreeHandlers) == 0 {
-		return ""
-	}
-	return s.dirtyTreeHandlers[len(s.dirtyTreeHandlers)-1]
-}
-
 func (s *fakeSpawner) ResumeHistory(context.Context, string) string { return "" }
 
 // awaitResolveGate parks Resolve, WITHOUT holding s.mu (a gated resolve that
@@ -659,11 +662,20 @@ func (s *fakeSpawner) probedBinaries() []string {
 // MarkSessionEnded records the harps whose session accounting was ended —
 // the Spawner's ONLY release primitive, and therefore what an aborted spawn
 // must call to give back a harp AssignSession already committed.
-func (s *fakeSpawner) MarkSessionEnded(harp, runID string) {
+func (s *fakeSpawner) MarkSessionEnded(harp, runID string, end *sessions.RunEnd) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sessionsEnded = append(s.sessionsEnded, harp)
 	s.sessionEndRuns = append(s.sessionEndRuns, runID)
+	if end != nil {
+		s.runEnds = append(s.runEnds, runEndCall{harp: harp, end: *end})
+	}
+}
+
+// runEndCall is one run end MarkSessionEnded was handed.
+type runEndCall struct {
+	harp string
+	end  sessions.RunEnd
 }
 
 // BindNativeSession mirrors sessions.Store.BindSession with no transcript

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -294,20 +295,23 @@ func TestContainerFor_PropagatesEveryImageConfigField(t *testing.T) {
 		AppRoot:             "/some/project",
 		DevcontainerService: "devservice",
 		Engines:             []string{"claude-code", "mock"},
+		Limits:              config.ContainerLimits{Memory: config.ContainerLimit{Kind: config.LimitFixed, Value: 1 << 30}},
 	}
 	c := containerFor(rt, "claude-code", img)
+	assert.Equal(t, img.Limits, c.limits)
 	assert.Equal(t, img.Base, c.baseChoice)
 	assert.Equal(t, img.AppRoot, c.appRoot)
 	assert.Equal(t, img.DevcontainerService, c.devcontainerService)
 	assert.Equal(t, "claude-code", c.engine, "the container carries ITS engine — one image per engine, so there is no set to select")
 
-	over := containerFor(rt, "claude-code", ImageConfig{Image: "user/agent:1"})
+	over := containerFor(rt, "claude-code", ImageConfig{Image: "user/agent:1", Limits: img.Limits})
 	assert.Equal(t, "user/agent:1", over.image)
+	assert.Equal(t, img.Limits, over.limits, "an image override still runs under the caps")
 	assert.Nil(t, over.engineSpec.engineInstall,
 		"an image the user owns is run as-is, never layered onto by a local build")
 
 	assert.Equal(t,
-		[]string{"Image", "Base", "AppRoot", "DevcontainerService", "Engines"},
+		[]string{"Image", "Base", "AppRoot", "DevcontainerService", "Engines", "Limits"},
 		imageConfigFieldNames(),
 		"ImageConfig grew or lost a field: propagate it in containerFor and assert it above")
 }

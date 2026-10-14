@@ -267,6 +267,20 @@ func (m *MemStore) MarkEnded(harpName string, at time.Time) error {
 	return fmt.Errorf("session not found: %q", harpName)
 }
 
+// RecordRunEnd matches *Manager.RecordRunEnd.
+func (m *MemStore) RecordRunEnd(harpName string, end RunEnd) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sessions {
+		if m.sessions[i].HarpName != harpName {
+			continue
+		}
+		m.sessions[i].RunEnds = withRunEnd(m.sessions[i].RunEnds, end)
+		return nil
+	}
+	return fmt.Errorf("session not found: %q", harpName)
+}
+
 // MarkPurged stamps PurgedAt on the named entry. Idempotent. Mirrors
 // Manager.MarkPurged's ordering contract (mark before the caller destroys any
 // file) — this fake exists so operations-level tests can exercise that

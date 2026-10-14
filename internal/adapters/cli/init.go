@@ -280,12 +280,12 @@ func engineForExistingDir(selected, appDir string) string {
 // resolved engine. Per CLAUDE.md fault tolerance, post-scaffold steps warn
 // and continue; only directory/config creation failures are fatal.
 func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, interactive bool) (string, error) {
-	engine, personalRepos, dirtyTreeHandler, headlessPermissions, err := resolveSetupEngine(selectedEngine, interactive)
+	engine, personalRepos, headlessPermissions, err := resolveSetupEngine(selectedEngine, interactive)
 	if err != nil {
 		return "", err
 	}
 
-	if err := writeInitialConfig(appDir, engine, dirtyTreeHandler, headlessPermissions); err != nil {
+	if err := writeInitialConfig(appDir, engine, headlessPermissions); err != nil {
 		return "", err
 	}
 	fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
@@ -325,10 +325,10 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 // prompts when applicable and takes the interview's defaults
 // (takeInterviewDefaults), and finally falls back to the first available
 // primary engine. Returns errNoEngines only when the interactive selection
-// reports none installed. dirtyTreeHandler/headlessPermissions stay at their
-// zero values whenever the interview doesn't run (an --engine flag given, or
+// reports none installed. headlessPermissions stays at its
+// zero value whenever the interview doesn't run (an --engine flag given, or
 // a non-interactive init).
-func resolveSetupEngine(selected string, interactive bool) (engine string, repos []string, dirtyTreeHandler, headlessPermissions string, err error) {
+func resolveSetupEngine(selected string, interactive bool) (engine string, repos []string, headlessPermissions string, err error) {
 	if selected == "" && noEnginesInstalled() {
 		warnNoEnginesDetected()
 		selected = operations.DefaultEngineName(App().Engines())
@@ -337,13 +337,13 @@ func resolveSetupEngine(selected string, interactive bool) (engine string, repos
 	if interactive && selected == "" {
 		selected, repos, err = promptForEngineAndRepos()
 		if err != nil {
-			return "", nil, "", "", err
+			return "", nil, "", err
 		}
-		dirtyTreeHandler, headlessPermissions = takeInterviewDefaults(os.Stdout)
+		headlessPermissions = takeInterviewDefaults(os.Stdout)
 	}
 
 	primary, _ := getAvailableEngines()
-	return pickDefaultEngine(selected, primary), repos, dirtyTreeHandler, headlessPermissions, nil
+	return pickDefaultEngine(selected, primary), repos, headlessPermissions, nil
 }
 
 // writeInitialConfig delegates project bootstrap (the .ctxloom skeleton +
@@ -353,11 +353,10 @@ func resolveSetupEngine(selected string, interactive bool) (engine string, repos
 // cloneConfiguredRemotes, pullSeededDependencies) and the
 // discovery launch read that generation; nothing in this process observes
 // the pre-scaffold state again.
-func writeInitialConfig(appDir, engine, dirtyTreeHandler, headlessPermissions string) error {
+func writeInitialConfig(appDir, engine, headlessPermissions string) error {
 	_, err := operations.InitializeProject(context.Background(), App().Engines(), operations.InitializeProjectRequest{
 		AppDir:              appDir,
 		Engine:              engine,
-		DirtyTreeHandler:    dirtyTreeHandler,
 		HeadlessPermissions: headlessPermissions,
 	})
 	if err != nil {

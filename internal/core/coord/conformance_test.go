@@ -44,7 +44,7 @@ func TestAgentRun_HonorsAgentIntent(t *testing.T) {
 	}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "researcher", "find the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "researcher", "find the thing", "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, out.Harp)
 	assert.Equal(t, "fast", out.Engine)
@@ -74,7 +74,7 @@ func TestAgentRun_HonorsAgentIntent(t *testing.T) {
 func TestAgentRun_UnknownAgentIsHardError(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
-	_, err := c.AgentRun(context.Background(), ownerIdentity(), "ghost", "boo", "", "")
+	_, err := c.AgentRun(context.Background(), ownerIdentity(), "ghost", "boo", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `agent "ghost" not found`)
 }
@@ -96,7 +96,7 @@ func TestAgentRun_ChildTakesItsPosture(t *testing.T) {
 			resetStrictness(t)
 			sp := newFakeSpawner(t, map[string]fakeAgent{"loose": {perm: tc.perm, profiles: []string{"p1"}}}, nil)
 			c := newTestCoordinator(t, sp, nil)
-			_, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go", "", "")
+			_, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go", "")
 			require.NoError(t, err)
 			require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
 			require.Eventually(t, func() bool { return len(sp.chat(0).RecordedTexts()) == 1 }, conformanceWait, 10*time.Millisecond)
@@ -114,7 +114,7 @@ func TestAgentRun_D3DegradedDropsAMisspellingToPlan(t *testing.T) {
 	sp.degraded = true
 	c := newTestCoordinator(t, sp, nil)
 
-	_, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go", "", "")
+	_, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go", "")
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
@@ -131,7 +131,7 @@ func TestAgentRun_QueuePastCap(t *testing.T) {
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
-	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	assert.False(t, first.Queued)
 	require.Eventually(t, func() bool {
@@ -139,7 +139,7 @@ func TestAgentRun_QueuePastCap(t *testing.T) {
 		return e != nil && len(e.RecordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
-	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "", "")
+	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "")
 	require.NoError(t, err)
 	assert.True(t, second.Queued, "past the cap the spawn enqueues, never errors")
 	assert.NotEqual(t, first.Harp, second.Harp)
@@ -167,11 +167,11 @@ func TestAgentRun_GrandchildAllowed(t *testing.T) {
 	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
 	// A caller the coordinator launched: its ceiling is on record, so the
 	// grandchild can be capped at it.
-	child, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "delegate", "", "")
+	child, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "delegate", "")
 	require.NoError(t, err)
 	childHome(t, c, child.RunID)
 	childCaller := c.inProject(Identity{Harp: child.Harp, RunID: child.RunID, Depth: 1})
-	out, err := c.AgentRun(context.Background(), childCaller, "worker", "go deeper", "", "")
+	out, err := c.AgentRun(context.Background(), childCaller, "worker", "go deeper", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond)
 
@@ -197,7 +197,7 @@ func TestAgentRun_GreatGrandchildRefused(t *testing.T) {
 	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
 	grandchildCaller := Identity{Harp: "some-grandchild", RunID: "run-grandchild", Depth: 2}
-	_, err := c.AgentRun(context.Background(), grandchildCaller, "worker", "go deeper still", "", "")
+	_, err := c.AgentRun(context.Background(), grandchildCaller, "worker", "go deeper still", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "maximum delegation depth")
 	assert.Equal(t, 0, sp.spawnCount())
@@ -214,13 +214,13 @@ func TestAgentRun_DepthAtCapRefused(t *testing.T) {
 	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil) // built-in default depth cap (1)
 	childCaller := Identity{Harp: "some-child", RunID: "run-child", Depth: 1}
-	_, err := c.AgentRun(context.Background(), childCaller, "worker", "go deeper", "", "")
+	_, err := c.AgentRun(context.Background(), childCaller, "worker", "go deeper", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "maximum delegation depth")
 	assert.Equal(t, 0, sp.spawnCount())
 
 	ownerCaller := Identity{Harp: "owner", Depth: 0}
-	_, err = c.AgentRun(context.Background(), ownerCaller, "worker", "go deeper", "", "")
+	_, err = c.AgentRun(context.Background(), ownerCaller, "worker", "go deeper", "")
 	require.NoError(t, err, "the session owner (depth 0) must still be able to delegate at the default cap")
 }
 
@@ -233,7 +233,7 @@ func TestAgentSend_MidTurnQueuesForBoundary_FIFO(t *testing.T) {
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.chat(0)
@@ -282,7 +282,7 @@ func TestChildSend_ParentOnly(t *testing.T) {
 	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "report back", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "report back", "")
 	require.NoError(t, err)
 	child := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
 
@@ -307,7 +307,7 @@ func TestAgentSend_ResumesEndedChild(t *testing.T) {
 	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	endChildAtItsFirstBoundary(t, c, sp, out)
 
@@ -370,7 +370,7 @@ func TestRoster_TracksChildStates(t *testing.T) {
 	}
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: the second child's "queued" assertion below is a D4 QUEUEING invariant, not the (now-configurable) default cap value — see adf5f6985, which pinned this same class of test elsewhere in this file and missed this one; at the default cap (4) the second child gets a free slot immediately, so "queued" is only true for the brief window before its dispatch goroutine runs, a scheduler race rather than an invariant
 
-	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.chat(0)
@@ -378,7 +378,7 @@ func TestRoster_TracksChildStates(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond)
 	assert.Equal(t, StateExecuting, rosterState(c, first.Harp))
 
-	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "", "")
+	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "")
 	require.NoError(t, err)
 	assert.Equal(t, StateQueued, rosterState(c, second.Harp))
 
@@ -411,13 +411,13 @@ func TestAgentStop_FreesSlot(t *testing.T) {
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
-	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.chat(0)
 		return e != nil && len(e.RecordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
-	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "", "")
+	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "")
 	require.NoError(t, err)
 	require.True(t, second.Queued)
 
@@ -474,7 +474,7 @@ func TestAgentStop_MidStartRunIsAStopNotALaunchFailure(t *testing.T) {
 		}
 	}
 
-	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	select {
 	case <-sp.bindEntered:
@@ -515,7 +515,7 @@ func TestInject_DeliveryModes(t *testing.T) {
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.chat(0)
@@ -558,7 +558,7 @@ func TestInject_MirrorDigestTruncatesLongText(t *testing.T) {
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.chat(0)
@@ -592,7 +592,7 @@ func TestInject_WakesIdleChildAsNewTurn(t *testing.T) {
 	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
@@ -625,7 +625,7 @@ func TestInject_ResumesEndedChild(t *testing.T) {
 	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	endChildAtItsFirstBoundary(t, c, sp, out)
 
@@ -658,7 +658,7 @@ func TestInject_ReachesTheChildWithUserSenderIdentity(t *testing.T) {
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.chat(0)

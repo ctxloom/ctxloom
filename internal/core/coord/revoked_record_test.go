@@ -19,7 +19,7 @@ func TestReport_FromAnEndedRunIsRefused(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, startRunSpawner(t, nil), nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 	child := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}

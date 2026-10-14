@@ -306,6 +306,10 @@ type Coordinator struct {
 	// no Options field, because it is a diagnostic threshold, not a
 	// behaviour an embedder chooses.
 	spawnNoticeAfter time.Duration
+	// runnerExitGrace bounds how long a run declared lost waits for its
+	// runner process's exit to be observed (defaultRunnerExitGrace,
+	// runnerexit.go). A field so a test can shrink it, like spawnNoticeAfter.
+	runnerExitGrace time.Duration
 	// endedRunTail / endedRunMaxAge are the one-shot retention reap bounds
 	// (Slice 4 / Fork 2.3) — see Options.EndedRunTail/EndedRunMaxAge.
 	endedRunTail   int
@@ -376,6 +380,10 @@ type Coordinator struct {
 	attach  map[string]*childRt       // runID → runtime attachment
 	byHarp  map[string]*childRt       // harp → current attachment
 	runners map[string]*RunnerSession // credHash → connected runner
+	// watchdogLastTick is the time of the heartbeat watchdog's previous
+	// tick (checkRunnerLiveness), zero before the first; it is how the
+	// watchdog sees that it was itself stalled. Guarded by mu.
+	watchdogLastTick time.Time
 	// graceExpire holds the runner-loss grace windows adopt armed for the
 	// runs it found live at startup, keyed by run id, until each fires. A key
 	// with no attachment is a run whose runner has not dialed back: the
@@ -645,6 +653,7 @@ func New(opts Options) (*Coordinator, error) {
 		slots:              semaphore.NewWeighted(int64(t.concurrencyCap)),
 		depthCap:           t.depthCap,
 		spawnNoticeAfter:   defaultSpawnNoticeAfter,
+		runnerExitGrace:    defaultRunnerExitGrace,
 		endedRunTail:       t.endedRunTail,
 		endedRunMaxAge:     t.endedRunMaxAge,
 		runnerAwaitTimeout: t.runnerAwaitTimeout,

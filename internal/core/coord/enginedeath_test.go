@@ -41,7 +41,7 @@ func TestTerminateRun_DeadEngineReasonReachesParentMailbox(t *testing.T) {
 	sp.nextBackend = func() engine.Instance { return qe }
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 
 	// The test speaks for the runner on the runner's own (run, seq) space, so
@@ -146,7 +146,7 @@ func TestRunnerLoss_StderrTailReachesParentMailbox(t *testing.T) {
 	sp.engineStderrTail = func() string { return containerTail }
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 
 	// Wait until the child is fully attached (its RunChannel live) so the
@@ -274,7 +274,7 @@ func assertDeadRunnerIsReportedPromptly(t *testing.T, exitErr error, wantReason 
 	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err, "agent_run is async: the launch failure surfaces on the mailbox, not here")
 
 	msgs, err := ownerMail(t, c, 2*time.Second)

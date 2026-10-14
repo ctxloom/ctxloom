@@ -614,6 +614,44 @@ func withSessionState(chain []policy, state SessionState) []policy {
 	return chain
 }
 
+// checkoutStamps are the Spec's checkout behaviours (BeforeCheckout,
+// CommitOnTeardown), stamped onto every link that can carve a worktree
+// checkout.
+type checkoutStamps struct {
+	beforeCheckout   func(context.Context) error
+	commitOnTeardown bool
+}
+
+// withCheckoutStamps stamps st onto the host Worktree policy and a
+// container's worktree base. Like withSessionState, it returns the stamped
+// chain.
+func withCheckoutStamps(chain []policy, st checkoutStamps) []policy {
+	stamp := func(w Worktree) Worktree {
+		w.beforeCheckout = st.beforeCheckout
+		w.commitOnTeardown = st.commitOnTeardown
+		return w
+	}
+	for i, p := range chain {
+		switch v := p.(type) {
+		case Worktree:
+			chain[i] = stamp(v)
+		case Container:
+			if b, ok := v.base.(worktreeBase); ok {
+				b.wt = stamp(b.wt)
+				v.base = b
+				chain[i] = v
+			}
+		}
+	}
+	return chain
+}
+
+// errCheckoutRefused marks a BeforeCheckout hook's refusal. It is a refusal of
+// the run, not a policy that is unavailable: prepareChain stops walking on it
+// rather than degrading to the next link, and Prepare returns the hook's own
+// error.
+var errCheckoutRefused = errors.New("worktree isolation: refused before carving a checkout at")
+
 // resolveAndBind is the one implementation of the composed resolve-then-mount
 // step every policy.PrepareWorkspace delegates to. It lives here, over the
 // interface, rather than being written out on each policy: a composition of two
@@ -653,12 +691,19 @@ func refuseLostContainer(err error, agentID string, requested RuntimeAxis, surve
 // prepareChain tries each policy's PrepareWorkspace in order and returns the first
 // that succeeds with its workspace, warning at each degrade. The chain always ends
 // in None (which never fails), so a member always gets a workspace; the trailing
-// fallback is defensive against an empty/all-failing chain.
+// fallback is defensive against an empty/all-failing chain. A BeforeCheckout
+// refusal (errCheckoutRefused) is not a degrade: the walk stops there and falls
+// to None silently, and Prepare refuses the run with the hook's error.
 func prepareChain(ctx context.Context, chain []policy, survey runtimeSurvey, requested RuntimeAxis, projectDir, agentID string) (policy, workspace) {
 	for i, p := range chain {
 		ws, err := p.prepareWorkspace(ctx, projectDir, agentID)
 		if err == nil {
 			return p, ws
+		}
+		if errors.Is(err, errCheckoutRefused) {
+			// The run is refused (Prepare returns the hook's error), so no
+			// later link is tried and no degrade is announced.
+			break
 		}
 		next := None{}.Name()
 		if i+1 < len(chain) {

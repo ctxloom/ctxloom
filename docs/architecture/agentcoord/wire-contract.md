@@ -63,7 +63,7 @@ interceptors (`grpcserver.go`).
 | `AgentEvent` | the durable sequenced fact; "the coordinator's view is a pure fold over these" | envelope fields `task_id`, `turn_id`, `parent_item_id`, `traceparent` have **zero references repo-wide** |
 | `Launch` | what to launch — the resolved launch, field for field (`launch.Launch`), the package carried inline or by claim | one codec (`coordgrpc.EncodeLaunch`/`DecodeLaunch`) with a field-set parity test; `StartRun.harness`/`input`/`parent_run_id`/`role` are superseded and reserved in slice 9 |
 | `HostRequest` / `HostResult` | a host-relayed tool by name with its arguments as the tool's own JSON object | the coordinator's `Host` verb dispatches it to the `HostApp` it was composed with, under the caller's identity |
-| `SpawnAgentRequest` | `agent_run` | the live payload has migrated *into* the untyped `input` Struct (`prompt`, `workspace`, `dirty_tree_handler`, read at `runchannel.go`); the typed `budget`/`constraints`/`notify_on` are read by nobody |
+| `SpawnAgentRequest` | `agent_run` | the live payload has migrated *into* the untyped `input` Struct (`prompt`, `workspace`, read at `runchannel.go`); the typed `budget`/`constraints`/`notify_on` are read by nobody |
 | `PeerSendRequest` | `agent_send` | `to_agent_id`/`to_role`/`text`/`structured`/`in_reply_to` are live; `artifact_ids` is never read and `PeerMessage.artifacts` is never populated |
 | `ListRunsRequest` / `ListRunsResult.RunInfo` | `roster` | see [observation.md](observation.md) for which filters and result fields are inert |
 | `StopRun` | used in **two directions with two contracts**: `RunnerRequest.stop_run=11` (runtime→runner, graceful) and `AgentRequest.stop_run=16` (parent→coordinator, hard kill, "grace is advisory") | its `(message_schema).doc` describes only the `agent_stop` sense and is projected into `schemas/agent_stop.json` |
@@ -105,7 +105,7 @@ Schema-validated at the MCP edge, then never read. `Get*` call sites verified ze
 
 | Tool | Argument | Handler |
 | --- | --- | --- |
-| `agent_run` | `budget`, `constraints`, `notify_on` | `runchannel.go` reads only `role` and `input.{prompt,workspace,dirty_tree_handler}` |
+| `agent_run` | `budget`, `constraints`, `notify_on` | `runchannel.go` reads only `role` and `input.{prompt,workspace}` |
 | `roster` | `task_id`, `include_descendants` | `runchannel.go` passes only `include_terminal` and `role` |
 | `agent_stop` | `grace`, `reason` | `runchannel.go` reads only `run_id` |
 | `agent_send` | `artifact_ids` | `runchannel.go` never reads it; `PeerMessage.artifacts` is never populated |

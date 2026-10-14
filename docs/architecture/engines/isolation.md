@@ -189,6 +189,44 @@ a bare `NAME` (value read by the runtime from the launcher's own
 `os.Environ()`) **or** a literal `KEY=VAL`. The bare form exists so credential
 *values* never enter the world-readable argv.
 
+**Resource caps** (`resource_limits.go`): every runner container runs under a
+memory cap and a pids cap, rendered by `renderRunSpec` from
+`RunSpec.Limits` as `--memory=<bytes>`, `--memory-swap=<same bytes>` (swap
+cannot stretch the cap) and `--pids-limit=<n>`. They exist because one
+delegated agent's runaway build once drove the host into OOM thrash, and the
+coordinator's starved heartbeat watchdog then tore down every run, the
+human's own session included; a cap keeps the OOM kill inside the one
+container. `Container.buildRunnerSpec` resolves them (`resolveLimits`) from
+the configured request (`ImageConfig.Limits`, from config
+`isolation_memory_limit` / `isolation_pids_limit`) against what the selected
+runtime enforces (`limitSupport`, read off the SAME `info` call selection
+already makes for ownership: `dockerLimitSupport` / `podmanLimitSupport`).
+
+- **Default memory** (`defaultMemoryLimit`): half the daemon host's memory
+  (`defaultMemoryShareDivisor`; the VM's under Docker Desktop or a podman
+  machine), raised to `defaultMemoryFloor` (2 GiB), never above the host
+  total. The cap is per container, not per host: several agents running away
+  at once can still exhaust the host together. **Default pids:**
+  `defaultPidsLimit` (4096).
+- **Off:** `0` or `unlimited` renders no flag. An unset key takes the
+  default; a request from another source (a devcontainer's
+  `hostRequirements`) enters as the same `config.ContainerLimits`.
+- **Unenforceable:** rootless podman on cgroup v1 (or v2 without the systemd
+  cgroup manager) refuses a run given a cap, and rootless docker without
+  cgroup v2 discards it; a cap the runtime cannot enforce is not rendered,
+  and one warning says why. Each cap follows its own controller (a rootless
+  podman with only `memory` delegated still gets `--memory`); no swap
+  accounting drops `--memory-swap` alone.
+- **OOM in the end record** (`noteOOMKill`): `inspect .State.OOMKilled` is
+  unreadable once the runner exits — the run is `--rm`, removed before its
+  `run` CLI returns. Docker keeps an `oom` event in its event log past the
+  removal, so a capped runner's failed exit asks `oomEventArgs` (since the
+  run's start) and appends `OOM-killed (memory limit N)` to the Wait error the
+  coordinator records verbatim (`describeRunnerExit`), keeping its classified
+  status. Podman logs no OOM event (`oomEventArgs` is nil): a 137 under a cap
+  is reported as *possibly* OOM-killed, never as confirmed. The interactive
+  runner's exit is the human's terminal and gets no note.
+
 **Uid remap / entrypoint**: the image `ENTRYPOINT` is
 `/usr/local/bin/ctxloom-entrypoint`; `identityEnvArgs` passes `-e
 PUID=<uid> -e PGID=<gid>` from `runIdentity` and nothing else — the launching
@@ -752,7 +790,7 @@ image another is between building and running.
 | `Isolated` | `isolation.go` | `p.Name() != "none"`; gates per-member config writes |
 | `StarterForWorkspace` / `FactoryForWorkspace` / `WorkspaceEnv` | `isolation.go` | Binding adapters for `internal/adapters/operations` |
 | `EngineStarter` / `RunnerHandle` | `isolation.go` | Launch closure; `{Name, Kill func(), Wait, StderrTail}` |
-| `ImageConfig` | `isolation.go` | Alias of `launch.ImageConfig`: the image override, the `isolation_base` choice, and the devcontainer inputs |
+| `ImageConfig` | `isolation.go` | Alias of `launch.ImageConfig`: the image override, the `isolation_base` choice, the devcontainer inputs, and the configured resource caps (`Limits`) |
 | `None` / `Container` / `Worktree` | `none.go` / `container.go` / `worktree.go` | The three policy types (four policy identities, six requestable postures) |
 | `PrepareClaudeHome` | `auth.go` | The exported one-way copy-in seam, for per-session instance homes outside a `Policy` |
 | `Runtime` / `Docker` / `Podman` / `Host` | `runtime.go` | Pluggable launcher substrate |

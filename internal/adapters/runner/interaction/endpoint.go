@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
@@ -37,6 +38,9 @@ type Endpoint struct {
 	Wake *WakeSignal
 	// Reporter receives the endpoint's diagnostics; nil discards.
 	Reporter report.Sink
+	// Fs is the filesystem the session's plan directory is created through
+	// (NewServer); nil is the OS filesystem.
+	Fs afero.Fs
 	// ClientExit registers what runs each time the client process that owns
 	// the endpoint's MCP sessions exits, and returns its release
 	// (runner.Home.SetEngineExit in production). The owner is the engine's
@@ -73,6 +77,14 @@ type Endpoint struct {
 // it, and only a POST resets go-sdk's idle timer.
 const IdleSessionTimeout = 12 * time.Hour
 
+// fs is Fs, or the OS filesystem when it is nil.
+func (e Endpoint) fs() afero.Fs {
+	if e.Fs == nil {
+		return afero.NewOsFs()
+	}
+	return e.Fs
+}
+
 // sessionTimeout is SessionTimeout, or IdleSessionTimeout when it is zero.
 func (e Endpoint) sessionTimeout() time.Duration {
 	if e.SessionTimeout == 0 {
@@ -101,7 +113,7 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 		return delivery.Served{}, err
 	}
 	rep := report.To(e.Reporter)
-	server, err := NewServer(rep, e.Home, lo.Identity.Harp, lo.WorkDir, lo.SessionHome, lo.Identity.Leaf, loadoutSurface{lo: lo}, e.Wake)
+	server, err := NewServer(rep, e.fs(), e.Home, lo.Identity.Harp, lo.WorkDir, lo.SessionHome, lo.Identity.Leaf, loadoutSurface{lo: lo}, e.Wake)
 	if err != nil {
 		return delivery.Served{}, err
 	}

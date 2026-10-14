@@ -295,6 +295,11 @@ type runEnded struct {
 	RunID  string `json:"run_id"`
 	Cause  string `json:"cause"`
 	Detail string `json:"detail,omitempty"`
+	// ExitCode is the exit status the run ended with, when one was observed
+	// (endRun's runEndStatus): the engine's, from its RunExited frame, else
+	// the runner process's own — 128+signum for a signal. Absent when none
+	// was: a launch that failed, a runner still running when declared lost.
+	ExitCode *int32 `json:"exit_code,omitempty"`
 }
 
 // runContainer is factRunContainer's payload.

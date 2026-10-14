@@ -31,7 +31,7 @@ func TestAgentRun_ChildRunnerIsHandedTheLoopbackReachOnEveryAxis(t *testing.T) {
 			c := newTestCoordinator(t, sp, nil)
 			t.Cleanup(func() { close(sp.bindHold) })
 
-			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 			require.NoError(t, err)
 			require.Equal(t, axis, out.Runtime, "precondition: the plan's axis is the run's")
 			select {

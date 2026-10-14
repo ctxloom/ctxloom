@@ -25,7 +25,7 @@ func TestRoster_EndedChild_CarriesTerminalCauseAndDetail(t *testing.T) {
 			sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 			c := newTestCoordinatorCap(t, sp, nil, 2)
 
-			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 			require.NoError(t, err)
 			require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
 

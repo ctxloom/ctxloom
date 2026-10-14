@@ -23,7 +23,6 @@ type Source struct {
 	Prompt    string
 	WorkDir   string
 	Workspace WorkspaceAxis
-	DirtyTree DirtyTreeHandler
 	// Permission is the --permissions flag: a posture in the resolved
 	// engine's own vocabulary, over whatever the config declares; "" is
 	// none.

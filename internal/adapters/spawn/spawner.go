@@ -40,13 +40,14 @@ type spawner struct {
 	// every session end (MarkSessionEnded): a claim's lock hold and an end's
 	// lock release never interleave. owners is, by harp, the run that last
 	// took the harp's session over (Start); an end for any other run is a
-	// predecessor's, arriving late. holdLock and endSession are the
-	// session-accounting seams; nil is production (sessionlock.Hold,
-	// operations.EndSession).
-	sessionMu  sync.Mutex
-	owners     map[string]string
-	holdLock   func(harp string) error
-	endSession func(harp string, at time.Time) error
+	// predecessor's, arriving late. holdLock, endSession and recordRunEnd
+	// are the session-accounting seams; nil is production (sessionlock.Hold,
+	// operations.EndSession, operations.RecordRunEnd).
+	sessionMu    sync.Mutex
+	owners       map[string]string
+	holdLock     func(harp string) error
+	endSession   func(harp string, at time.Time) error
+	recordRunEnd func(harp string, end sessions.RunEnd) error
 
 	rep        report.Reporter
 	app        *operations.App
@@ -322,7 +323,6 @@ func childSource(plan *coord.SpawnPlan, start coord.SpawnStart, projectDir strin
 		Prompt:    start.Prompt,
 		WorkDir:   projectDir,
 		Workspace: workspace,
-		DirtyTree: plan.DirtyTreeHandler,
 	}
 	if start.Resumed {
 		src.Resume = launch.Resume{Ref: sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey}}
@@ -415,24 +415,34 @@ func (s *spawner) claimSession(harp, runID string) {
 	}
 }
 
-// MarkSessionEnded ends harp's session for runID's end — unless a later run
-// has taken the session over since (claimSession), in which case runID's end
-// arrived late and the successor's session, its liveness lock included, is
-// left alone. A harp no run has claimed (a spawn refused before its run
-// registered, "" run id; a run that failed before its runner started) is
-// ended: nothing else will end it.
-func (s *spawner) MarkSessionEnded(harp, runID string) {
+// MarkSessionEnded records how runID ended on harp's session entry, then
+// ends the session — unless a later run has taken the session over since
+// (claimSession), in which case runID's end arrived late and the successor's
+// session, its liveness lock included, is left alone (the end is still
+// recorded: it happened). A harp no run has claimed (a spawn refused before
+// its run registered, "" run id; a run that failed before its runner
+// started) is ended: nothing else will end it.
+func (s *spawner) MarkSessionEnded(harp, runID string, end *sessions.RunEnd) {
 	s.sessionMu.Lock()
 	defer s.sessionMu.Unlock()
+	if end != nil {
+		record := s.recordRunEnd
+		if record == nil {
+			record = operations.RecordRunEnd
+		}
+		if err := record(harp, *end); err != nil {
+			s.rep.Warnf("agent %s: record how run %s ended (%s): %v", harp, runID, end.Cause, err)
+		}
+	}
 	if owner, claimed := s.owners[harp]; claimed && owner != runID {
 		return
 	}
 	delete(s.owners, harp)
-	end := s.endSession
-	if end == nil {
-		end = operations.EndSession
+	endSession := s.endSession
+	if endSession == nil {
+		endSession = operations.EndSession
 	}
-	if err := end(harp, time.Now()); err != nil {
+	if err := endSession(harp, time.Now()); err != nil {
 		s.rep.Warnf("agent %s: end session: %v", harp, err)
 	}
 }

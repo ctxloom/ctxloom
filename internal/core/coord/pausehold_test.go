@@ -162,7 +162,7 @@ func TestHoldLaunch_ANewChildOnAHeldCredentialStartsPaused(t *testing.T) {
 	f.awaitHold(t, f.worker, f.sibling)
 	f.awaitParks(t, f.worker, f.sibling)
 
-	out, err := f.c.AgentRun(context.Background(), ownerIdentity(), "sibling", "the new child's briefing", "", "")
+	out, err := f.c.AgentRun(context.Background(), ownerIdentity(), "sibling", "the new child's briefing", "")
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()

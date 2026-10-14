@@ -19,7 +19,7 @@ func heldChild(t *testing.T) (*Coordinator, *fakeSpawner, *RunOutcome) {
 	sp := cutoverSpawner(t, 0)
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{Gate: gate} }
 	c := newCutoverCoordinator(t, sp, 0)
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "a long task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "a long task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return midTurn(c, sp, out.Harp) }, conformanceWait, 10*time.Millisecond)
 	return c, sp, out

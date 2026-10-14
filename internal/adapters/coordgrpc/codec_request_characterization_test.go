@@ -18,7 +18,7 @@ import (
 // every kind: the plane-2 verbs decode to their coord request, a peer send is
 // refused as local-only, and a request naming no kind is unsupported.
 func TestAgentRequestFromWire_DecodesEveryKind(t *testing.T) {
-	input, err := structpb.NewStruct(map[string]any{"prompt": "do it", "workspace": "worktree", "dirty_tree_handler": "commit"})
+	input, err := structpb.NewStruct(map[string]any{"prompt": "do it", "workspace": "worktree"})
 	require.NoError(t, err)
 	args, err := structpb.NewStruct(map[string]any{"q": "x"})
 	require.NoError(t, err)
@@ -31,7 +31,7 @@ func TestAgentRequestFromWire_DecodesEveryKind(t *testing.T) {
 		want any
 	}{
 		{"spawn", &agentcoordpb.AgentRequest_SpawnAgent{SpawnAgent: &agentcoordpb.SpawnAgentRequest{Role: "finder", Input: input}},
-			coord.SpawnRequest{Agent: "finder", Prompt: "do it", Workspace: "worktree", DirtyTree: "commit"}},
+			coord.SpawnRequest{Agent: "finder", Prompt: "do it", Workspace: "worktree"}},
 		{"spawn without input", &agentcoordpb.AgentRequest_SpawnAgent{SpawnAgent: &agentcoordpb.SpawnAgentRequest{Role: "finder"}},
 			coord.SpawnRequest{Agent: "finder"}},
 		{"list runs", &agentcoordpb.AgentRequest_ListRuns{ListRuns: &agentcoordpb.ListRunsRequest{Role: "finder", IncludeTerminal: true}},

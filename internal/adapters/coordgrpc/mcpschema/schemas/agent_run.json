@@ -6,29 +6,19 @@
     "properties": {
       "input": {
         "additionalProperties": true,
-        "description": "Child task input. `prompt` carries the child's briefing, delivered as its first turn. Optional `workspace` (\"none\"|\"worktree\"): \"none\" runs the child in the parent's live project checkout (it can stomp the parent's files, and sees the parent's uncommitted edits); \"worktree\" carves the child its own git worktree, checked out at HEAD (it will NOT see the parent's uncommitted edits). Empty defers to the project config if it sets one explicitly, otherwise defaults to worktree. This isolates the child's WORKING FILES only — it does not isolate the engine's own global config/credentials/session store from the parent's. Optional `dirty_tree_handler` (\"commit\"|\"copy\"|\"stale\"|\"fail\"), relevant only when this spawn resolves to a worktree and the parent tree has uncommitted changes (a worktree checkout only ever sees committed state): \"commit\" auto-commits the parent's dirty state first; \"copy\" carves the worktree at HEAD then reproduces the changes inside it as uncommitted WIP, nothing committed; \"stale\" proceeds with the child seeing committed state only; \"fail\" refuses the spawn, naming the uncommitted paths. Empty defers to the project's dirty_tree_handler config default, then to the built-in default (\"commit\")",
+        "description": "Child task input. `prompt` carries the child's briefing, delivered as its first turn. Optional `workspace` (\"none\"|\"worktree\"): \"none\" runs the child in the parent's live project checkout (it can stomp the parent's files, and sees the parent's uncommitted edits); \"worktree\" carves the child its own git worktree on its own branch. A worktree checkout only ever sees committed state, so before a new worktree is carved ctxloom commits the parent's uncommitted and untracked changes onto the parent's branch, and the child sees them; when the child's run ends, whatever its worktree holds uncommitted is committed on the child's own branch. Empty defers to the project config if it sets one explicitly, otherwise defaults to worktree. This isolates the child's WORKING FILES only — it does not isolate the engine's own global config/credentials/session store from the parent's.",
         "examples": [
           {
             "prompt": "Review the diff on branch X for correctness bugs"
           }
         ],
         "properties": {
-          "dirty_tree_handler": {
-            "description": "What this spawn does when it resolves to a worktree and the parent tree has uncommitted changes. \"commit\" auto-commits the parent's dirty state first; \"copy\" carves the worktree at HEAD then reproduces the changes inside it as uncommitted WIP; \"stale\" proceeds with the child seeing committed state only; \"fail\" refuses the spawn. OMIT to defer to the project's dirty_tree_handler default, then to the built-in default (\"commit\"). A value outside this set is REFUSED, never resolved to the default — the default is the one member that writes to your repository.",
-            "enum": [
-              "commit",
-              "copy",
-              "stale",
-              "fail"
-            ],
-            "type": "string"
-          },
           "prompt": {
             "description": "The child's briefing, delivered as its first turn",
             "type": "string"
           },
           "workspace": {
-            "description": "Where the child's working files live. \"none\" runs it in the parent's live project checkout (it can stomp the parent's files, and sees the parent's uncommitted edits); \"worktree\" carves it its own git worktree at HEAD (it will NOT see the parent's uncommitted edits). OMIT to defer to the project config, which defaults a delegated child to worktree.",
+            "description": "Where the child's working files live. \"none\" runs it in the parent's live project checkout (it can stomp the parent's files, and sees the parent's uncommitted edits); \"worktree\" carves it its own git worktree on its own branch, committing the parent's uncommitted edits first so it sees them. OMIT to defer to the project config, which defaults a delegated child to worktree.",
             "enum": [
               "none",
               "worktree"

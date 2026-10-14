@@ -93,7 +93,7 @@ func seedProjectReferencing(t *testing.T, bundleRef string) (project, appDir str
 	appDir = filepath.Join(project, ".ctxloom")
 	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, appDir), 0o755))
 
-	cfgBody, err := operations.BuildInitialConfig("claude-code", "", "")
+	cfgBody, err := operations.BuildInitialConfig("claude-code", "")
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), cfgBody, 0o644))
 

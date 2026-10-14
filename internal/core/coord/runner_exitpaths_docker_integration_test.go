@@ -190,7 +190,7 @@ func startExitRun(t *testing.T, leg exitLeg, ownerLossWindow time.Duration) exit
 	})
 
 	requireImageInStore(t, leg.runtime, bin, leg.image)
-	out, err := c.AgentRun(context.Background(), coord.OwnerIdentity(), directAgentName, "exit-path seed", "", "")
+	out, err := c.AgentRun(context.Background(), coord.OwnerIdentity(), directAgentName, "exit-path seed", "")
 	require.NoError(t, err)
 	// A launch the spawn refuses (an image the runtime cannot run, a
 	// shared-filesystem probe that did not finish) ENDS the run with no

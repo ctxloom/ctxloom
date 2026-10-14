@@ -24,10 +24,6 @@ type InitializeProjectRequest struct {
 	AppDir string `json:"app_dir"`
 	Engine string `json:"engine"`
 
-	// DirtyTreeHandler is written into config.yaml (BuildInitialConfig);
-	// empty writes no key and the built-in "commit" default applies.
-	DirtyTreeHandler string `json:"dirty_tree_handler"`
-
 	// HeadlessPermissions is the init interview's answer for the posture the
 	// default seed agent's HEADLESS runs may use, written as that agent's
 	// `permissions:`. Empty writes none, and a headless run of the agent is
@@ -78,7 +74,7 @@ func InitializeProject(_ context.Context, reg enginepkg.Registry, req Initialize
 		return nil, err
 	}
 
-	configData, err := BuildInitialConfig(req.Engine, req.DirtyTreeHandler, req.HeadlessPermissions)
+	configData, err := BuildInitialConfig(req.Engine, req.HeadlessPermissions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build config.yaml: %w", err)
 	}
@@ -205,11 +201,7 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 // copied in (role stripped) and pointed at by llm.defaults. Engines without
 // role-marked entries (e.g. mock) get a single self-contained
 // {type: engine} entry serving both roles.
-//
-// dirtyTreeHandler goes straight into the scaffolded config
-// (config.Fixture.DirtyTreeHandler) — empty writes no key and the built-in
-// "commit" default applies.
-func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([]byte, error) {
+func BuildInitialConfig(engine, headlessPermissions string) ([]byte, error) {
 	scaffoldData, err := readResource(resources.GetInitConfig, "init scaffold")
 	if err != nil {
 		return nil, err
@@ -230,7 +222,6 @@ func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([
 
 	f := scaffold.ToFixture()
 	f.LM = engineRegistry(engine, registry.GetLMConfig())
-	f.DirtyTreeHandler = dirtyTreeHandler
 	// PrimaryLabel reads f.LM.Defaults.Primary; resolve it through a throwaway
 	// Config carrying just that update so the seed agent's Engine matches
 	// exactly what scaffold.PrimaryLabel() would have returned post-mutation.

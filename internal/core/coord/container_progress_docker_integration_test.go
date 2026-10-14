@@ -238,9 +238,9 @@ func (s *progressSpawner) record(name string, kill func()) {
 func (s *progressSpawner) ResumeHistory(context.Context, string) string                { return "" }
 func (s *progressSpawner) RecordEngineVersion(context.Context, string, string, string) {}
 
-func (s *progressSpawner) MarkSessionEnded(string, string)  {}
-func (s *progressSpawner) BindNativeSession(string, string) {}
-func (s *progressSpawner) NativeSession(string) string      { return "" }
+func (s *progressSpawner) MarkSessionEnded(string, string, *sessions.RunEnd) {}
+func (s *progressSpawner) BindNativeSession(string, string)                  {}
+func (s *progressSpawner) NativeSession(string) string                       { return "" }
 
 func (s *progressSpawner) containerNames() []string {
 	s.mu.Lock()
@@ -401,7 +401,7 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 	defer cancel()
 
 	startedAt := time.Now()
-	out, err := c.AgentRun(ctx, coord.OwnerIdentity(), progressAgentName, prompt, "", "")
+	out, err := c.AgentRun(ctx, coord.OwnerIdentity(), progressAgentName, prompt, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Harp)
 	require.Equal(t, containerAxes("docker").Runtime, out.Runtime)

@@ -91,7 +91,7 @@ func reportFor(reps []liveness.Report, harp string) *liveness.Report {
 // spawnOneChild launches a single fake child and returns its harp.
 func spawnOneChild(t *testing.T, c *Coordinator) string {
 	t.Helper()
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "go", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "go", "")
 	require.NoError(t, err)
 	require.NoError(t, c.awaitChildUp(context.Background(), out.Harp))
 	return out.Harp

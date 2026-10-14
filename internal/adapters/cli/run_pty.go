@@ -42,8 +42,11 @@ var errSessionOutputLost = errors.New("the session's terminal stopped accepting 
 // ownerRunCompletionWait bounds the wait for the run's terminal event after
 // the runner process has exited: the runner emits RunCompleted before it
 // reports its exit, and the in-process watch delivers it in the same order,
-// so the event is already in flight when the pty closes.
-const ownerRunCompletionWait = 5 * time.Second
+// so the event is already in flight when the pty closes. A run whose engine
+// sent none — its runner killed or declared lost — ends on the one the
+// coordinator synthesizes as it records the end (coord.endRun), which it
+// broadcasts before it kills the runner. A var so a test can shrink it.
+var ownerRunCompletionWait = 5 * time.Second
 
 // stampTerminalEnv copies the originator's TERM/COLORTERM into the launch's
 // engine env (never clobbering a value the launch already carries), so the
@@ -190,7 +193,7 @@ func (st *runState) driveOwnedInteractive() error {
 	case <-drained:
 	case <-time.After(ptyDrainGrace):
 	}
-	_, waitErr := st.pty.Wait()
+	runnerStatus, waitErr := st.pty.Wait()
 	sio.restore()
 	convertVendorTranscriptOnExit(st.activeHarp)
 	if interrupted != nil {
@@ -199,7 +202,7 @@ func (st *runState) driveOwnedInteractive() error {
 	if waitErr != nil {
 		return fmt.Errorf("the runner ended: %w", waitErr)
 	}
-	return st.ownedRunOutcome()
+	return st.ownedRunOutcome(runnerStatus)
 }
 
 // pumpSessionInput feeds the runner's pty from the session: keystrokes onto
@@ -249,13 +252,15 @@ func (st *runState) endRunnerAfter(grace time.Duration) bool {
 // ownedRunOutcome reads the interactive run's terminal from the coordinator's
 // event stream once the runner has exited: SUCCEEDED is a clean exit, anything
 // else the engine's failure. A run whose terminal never arrives is reported
-// as such rather than assumed green.
-func (st *runState) ownedRunOutcome() error {
+// as such rather than assumed green, with the runner process's own exit
+// status (runnerStatus, 128+signum for a signal), so a killed runner does not
+// read like one that exited cleanly.
+func (st *runState) ownedRunOutcome(runnerStatus int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), ownerRunCompletionWait)
 	defer cancel()
 	_, err := renderOwnedRunEvents(ctx, io.Discard, formatText, st.ownedRun.outcome.RunID, st.ownedRun.events, make(chan string, 1), false)
 	if err != nil && ctx.Err() != nil {
-		return fmt.Errorf("the runner exited but the run %s never reported its outcome", st.ownedRun.outcome.RunID)
+		return fmt.Errorf("the runner exited (status %d) but the run %s never reported its outcome", runnerStatus, st.ownedRun.outcome.RunID)
 	}
 	return err
 }

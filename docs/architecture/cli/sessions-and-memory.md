@@ -70,6 +70,18 @@ flowchart TD
 - `StartSessionInfo` / `PrintStartSessionBanner` (`session_banner.go`) are
   `run`'s pre-spawn banner.
 
+## How runs ended: `run_ends`
+
+`Entry.RunEnds` (`run_ends` in `session.yaml`) records how each of the
+session's runs ended, oldest first. Each entry has the run id, the time, the
+terminal cause and its detail, `exit_code` when one was observed (128+signum
+for a signal, so an OOM kill reads 137), and `failed`. A run's later end
+replaces its earlier one, so a resume that fails to launch does not erase the
+end of the run it resumed. The list keeps the newest `sessions.MaxRunEnds`
+entries; the coordinator's run journal keeps all of them. It is written by
+the coordinator at every run's end (see agentcoord/child-lifecycle.md, "What
+an end records").
+
 ## Session state: the lock, not the end stamp
 
 A record's `ended_at` (`Entry.EndedAt`, `SessionView.EndedAt`) is when the

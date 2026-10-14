@@ -47,3 +47,21 @@ func (e Error) Unwrap() error { return e.Err }
 func Errorf(fix, format string, args ...any) error {
 	return Error{Fix: fix, Err: fmt.Errorf(format, args...)}
 }
+
+// Streamed marks an error made of findings the diagnostic stream already
+// rendered, each with its fix line, as they were raised — a findings gate's
+// refusal (the warning and its fix, then the refusal listing them again). A
+// renderer writing to that same stream says Summary and points back to them
+// instead of printing every finding and fix a second time; one that reaches a
+// different audience (a parent agent's mailbox, an error envelope) renders
+// Err in full, as it would unmarked. Error and Unwrap are Err's, so
+// errors.Is/As and a remedy lookup see through the mark.
+type Streamed struct {
+	Err     error
+	Summary string // one line naming the refusal, without the findings
+}
+
+func (s Streamed) Error() string { return s.Err.Error() }
+
+// Unwrap returns Err.
+func (s Streamed) Unwrap() error { return s.Err }

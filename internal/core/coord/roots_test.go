@@ -86,7 +86,7 @@ func TestRoots_ResumeAdoptsTheNamedRootAndAFreshRunLeavesItAlone(t *testing.T) {
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 
 	first := newRoot(t, ownerIdentity().Harp, "", sp)
-	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		sp.mu.Lock()
@@ -158,7 +158,7 @@ func TestRoots_ACleanSessionExitKeepsItsRootForAResume(t *testing.T) {
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 
 	first := newRoot(t, ownerIdentity().Harp, "", sp)
-	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(first, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 	dir := first.StateDir()
@@ -181,7 +181,7 @@ func TestRoots_CloseKeepsARootWithALiveRun(t *testing.T) {
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 
 	first := newRoot(t, ownerIdentity().Harp, "", sp)
-	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		sp.mu.Lock()

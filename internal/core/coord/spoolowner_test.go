@@ -206,10 +206,10 @@ func TestSpoolOwner_MailToAQueuedChildIsNotStranded(t *testing.T) {
 	t.Cleanup(c.Close)
 
 	// Child A holds the only slot mid-turn; child B queues behind the cap.
-	a, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task A", "", "")
+	a, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task A", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, a.Harp) == StateExecuting }, conformanceWait, 10*time.Millisecond)
-	b, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task B", "", "")
+	b, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task B", "")
 	require.NoError(t, err)
 	require.True(t, b.Queued, "child B must be parked on the execution cap for this to be the pre-launch window")
 	require.Equal(t, StateQueued, rosterState(c, b.Harp))

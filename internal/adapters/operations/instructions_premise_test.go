@@ -3,6 +3,7 @@ package operations
 import (
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -22,7 +23,7 @@ func TestSessionInstructions_CarryThePremiseSelectionInstruction(t *testing.T) {
 	testsupport.Isolate(t)
 
 	for _, harp := range []string{"", "some-session-harp"} {
-		got := SessionInstructions(harp)
+		got := SessionInstructions(afero.NewOsFs(), harp)
 
 		assert.Contains(t, got, PremiseSelectionInstruction(),
 			"the measured selection wording must reach the client verbatim (harp %q): a re-worded copy drifts and the measured one loses", harp)

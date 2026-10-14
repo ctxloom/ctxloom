@@ -366,7 +366,7 @@ func TestSpoolAsk_EmptyTextIsRefused(t *testing.T) {
 	sp := cutoverSpawner(t, 0)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "first task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "first task", "")
 	require.NoError(t, err)
 	upCtx, upCancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer upCancel()

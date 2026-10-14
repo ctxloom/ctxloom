@@ -154,9 +154,9 @@ type preparedContainerCell struct {
 func (s *directBusSpawner) ResumeHistory(context.Context, string) string                { return "" }
 func (s *directBusSpawner) RecordEngineVersion(context.Context, string, string, string) {}
 
-func (s *directBusSpawner) MarkSessionEnded(string, string)  {}
-func (s *directBusSpawner) BindNativeSession(string, string) {}
-func (s *directBusSpawner) NativeSession(string) string      { return "" }
+func (s *directBusSpawner) MarkSessionEnded(string, string, *sessions.RunEnd) {}
+func (s *directBusSpawner) BindNativeSession(string, string)                  {}
+func (s *directBusSpawner) NativeSession(string) string                       { return "" }
 
 func (s *directBusSpawner) containerNames() []string {
 	s.mu.Lock()
@@ -209,7 +209,7 @@ func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 
 	owner := coord.OwnerIdentity()
 	seedPayload := "DIRECT-SEED-" + coord.RandID("", 6)
-	out, err := c.AgentRun(ctx, owner, directAgentName, seedPayload, "", "")
+	out, err := c.AgentRun(ctx, owner, directAgentName, seedPayload, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Harp)
 	require.Equal(t, containerAxes("docker").Runtime, out.Runtime)

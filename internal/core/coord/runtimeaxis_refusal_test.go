@@ -24,7 +24,7 @@ func TestAgentRun_RefusesAnUnknownRuntimeAxis(t *testing.T) {
 	sp := newFakeSpawner(t, map[string]fakeAgent{"boxed": {perm: "bypass", runtime: retiredContainerAxis}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	_, err := c.AgentRun(context.Background(), ownerIdentity(), "boxed", "go", "", "")
+	_, err := c.AgentRun(context.Background(), ownerIdentity(), "boxed", "go", "")
 	require.ErrorIs(t, err, launch.ErrUnknownRuntimeAxis)
 	assert.Equal(t, 0, sp.spawnCount(), "a refused plan never launches")
 }
@@ -71,7 +71,7 @@ func TestAgentRun_UnknownRuntimeAxisCarriesNoServingHint(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(t, map[string]fakeAgent{"boxed": {perm: "bypass", runtime: retiredContainerAxis}}, nil)
 	c := newTestCoordinator(t, sp, nil)
-	_, err := c.AgentRun(context.Background(), ownerIdentity(), "boxed", "go", "", "")
+	_, err := c.AgentRun(context.Background(), ownerIdentity(), "boxed", "go", "")
 	require.ErrorIs(t, err, launch.ErrUnknownRuntimeAxis)
 	assert.NotContains(t, err.Error(), notServingHint)
 }

@@ -72,8 +72,6 @@ type fixture struct {
 	noPermissionModel bool
 	// reviewer makes the fixture's permission model serve a reviewer.
 	reviewer bool
-	// projectDirtyTree is the project-level `dirty_tree_handler:` default.
-	projectDirtyTree string
 	// profileLLM is the label the "base" profile declares, reported by the
 	// assembler double.
 	profileLLM string
@@ -203,9 +201,6 @@ func AssembledMCP(names ...string) Option {
 // NoApprovals makes the fixture engine declare no approval codec.
 func NoApprovals() Option { return func(f *fixture) { f.noApprovals = true } }
 
-// ProjectDirtyTree sets the project's `dirty_tree_handler:` default, unparsed.
-func ProjectDirtyTree(s string) Option { return func(f *fixture) { f.projectDirtyTree = s } }
-
 // PinnedBinary is the binary_path the fixture's "pinned" label names.
 const PinnedBinary = "/opt/fixture/bin/fixture-cli"
 
@@ -278,12 +273,11 @@ func Deps(t *testing.T, opts ...Option) Env {
 			Configs:  labels,
 			Defaults: config.RoleDefaults{Primary: "primary", Fast: "fast"},
 		},
-		Agents:           bindings,
-		DefaultAgent:     "setup",
-		Runtime:          f.projectRuntime,
-		Permissions:      f.projectPermissions,
-		DirtyTreeHandler: f.projectDirtyTree,
-		Auth:             f.sessionAuth,
+		Agents:       bindings,
+		DefaultAgent: "setup",
+		Runtime:      f.projectRuntime,
+		Permissions:  f.projectPermissions,
+		Auth:         f.sessionAuth,
 	})
 	snap := &config.Snapshot{Config: cfg}
 

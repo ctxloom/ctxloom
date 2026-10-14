@@ -25,7 +25,7 @@ flowchart LR
   RUN["cli run: the flags → Source"]:::src
   INIT["cli init: the auth probe and the discovery session — two Sources, two identities"]:::src
   ONE["internal one-shots (a compaction, a triage, the CLI distiller): Source{Internal}, or the distiller agent's binding; a distillation is Source{ToolLess}"]:::src
-  SPAWN["coord prodSpawner.StartEngine: Source{Identity: child, Agent, Workspace, DirtyTree, Resume}"]:::src
+  SPAWN["coord prodSpawner.StartEngine: Source{Identity: child, Agent, Workspace, Resume}"]:::src
   START["operations.StartRun: MintIdentity → Resolve → record the engine version (Deps.ProbeVersion; none for a preview)"]:::core
   RES["launch.Resolve — the one constructor"]:::core
   ASM["Deps.Assembler (operations.assembler: AssemblePackage → composite.Assemble once; Surfaces off the same Package)"]:::port

@@ -124,7 +124,7 @@ func TestRetention_BoundsFoldGrowthAcrossResumes(t *testing.T) {
 	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
 		"the engine ends after its turn, ending the run")
@@ -160,7 +160,7 @@ func TestOneShot_PersistentModeUnchanged(t *testing.T) {
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{} }
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		sc := sp.chat(0)
@@ -198,7 +198,7 @@ func TestOneShot_TheLaunchIdentityCarriesTheResumeMode(t *testing.T) {
 					backend: "claude-code", oneshot: oneshot},
 			}, func() *scriptedChat { return &scriptedChat{} })
 			c := newTestCoordinator(t, sp, nil)
-			_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+			_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 			require.NoError(t, err)
 			var id Identity
 			require.Eventually(t, func() bool {

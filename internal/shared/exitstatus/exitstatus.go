@@ -6,6 +6,7 @@
 package exitstatus
 
 import (
+	"errors"
 	"os/exec"
 	"syscall"
 )
@@ -42,4 +43,34 @@ func Of(exitErr *exec.ExitError) int {
 		return 128 + int(status.Signal())
 	}
 	return exitErr.ExitCode()
+}
+
+// Error is a finished child's exit already classified: Code is its POSIX exit
+// status (Of), Err the error that reported the exit, whose text Error keeps.
+// It is how the adapter that owns a process hands a consumer that must not
+// reach os/exec — the coordinator, which reads it through its own
+// ExitStatus() interface — a status it can record as-is.
+type Error struct {
+	Code int
+	Err  error
+}
+
+func (e *Error) Error() string { return e.Err.Error() }
+
+// Unwrap exposes the reporting error, so errors.As still finds the
+// *exec.ExitError (or wait failure) beneath.
+func (e *Error) Unwrap() error { return e.Err }
+
+// ExitStatus is the classified exit status.
+func (e *Error) ExitStatus() int { return e.Code }
+
+// Classify returns err carrying the classified status of the *exec.ExitError
+// in its chain (an *Error wrapping err); nil, and an error with no process
+// status at all (a failed reap), come back unchanged.
+func Classify(err error) error {
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		return err
+	}
+	return &Error{Code: Of(ee), Err: err}
 }

@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/resources"
@@ -53,7 +55,8 @@ func premiseCatalogInstruction() string {
 
 // SessionInstructions renders the MCP server instructions for one caller
 // identity (the stdio server's env harp, a runner's launch identity, or a
-// coordinator credential's). Both servers serve this ONE text.
+// coordinator credential's). Both servers serve this ONE text. fs is the
+// filesystem the session's plan directory is created through (sessionLine).
 //
 // The parts are ordered by what it costs to LOSE them, most costly first,
 // because a client may keep only a prefix: claude truncates server
@@ -62,9 +65,9 @@ func premiseCatalogInstruction() string {
 // where its plans survive; the catalog pointer follows because an agent that
 // never learns the catalog exists never asks for it; the static surface
 // description goes last because it is the same text in every session.
-func SessionInstructions(harp string) string {
+func SessionInstructions(fs afero.Fs, harp string) string {
 	parts := []string{premiseCatalogInstruction(), mcpServerInstructions}
-	if line := sessionLine(harp); line != "" {
+	if line := sessionLine(fs, harp); line != "" {
 		parts = append([]string{line}, parts...)
 	}
 	for i, p := range parts {
@@ -75,7 +78,7 @@ func SessionInstructions(harp string) string {
 
 // sessionLine is the part of the instructions that names THIS session: its
 // harp, its resume provenance, and its plan directory. "" without a harp.
-func sessionLine(harp string) string {
+func sessionLine(fs afero.Fs, harp string) string {
 	if harp == "" {
 		return ""
 	}
@@ -105,10 +108,27 @@ func sessionLine(harp string) string {
 	// than the host records. This sentence is the one place every session is
 	// told where its plans go, so it is the one place the location has to be
 	// right.
-	if planDir, perr := sessions.OutputDirIn(harp, os.Getenv); perr == nil {
+	//
+	// The sentence is a promise that the directory is there: it is created
+	// HERE, by the process that renders it, which is the process that reaches
+	// it at that path (the host path natively, the mount in a container). The
+	// mint only records the path, so nothing else guarantees it exists before
+	// the agent's first write; a directory that cannot be created is not named.
+	if planDir, perr := sessions.OutputDirIn(harp, os.Getenv); perr == nil && ensurePlanDir(fs, planDir) == nil {
 		// The directory is named ONCE: it is the longest thing in the
 		// instructions, and the client truncates them (InstructionsCharCap).
 		line += fmt.Sprintf(" Store implementation/strategy plans as markdown files directly in this session's plan directory `%s`, each named `<descriptive-name>%s` (e.g. `v1-removal%s`). Plans written elsewhere do not survive a containerized run. Use a distinct name per plan.", planDir, paths.PlanFileExt, paths.PlanFileExt)
 	}
 	return line
+}
+
+// planDirMode is the plan directory's mode: a human browses it, the same mode
+// the container's output mount source is created with.
+const planDirMode = 0o755
+
+// ensurePlanDir creates the session's plan directory through fs if it is
+// missing, so the instruction that names it is true before the agent's first
+// write.
+func ensurePlanDir(fs afero.Fs, dir string) error {
+	return fs.MkdirAll(dir, planDirMode)
 }

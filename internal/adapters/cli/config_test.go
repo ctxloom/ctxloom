@@ -69,7 +69,7 @@ func TestResolveConfigSection_KnownSections(t *testing.T) {
 // Config.MarshalYAML — renderConfigYAML's exact call) and asserts `config
 // show <section>` can resolve every top-level key found there. It contains no
 // hand-typed section name: this is the row's own regression case
-// (delegation, dirty_tree_handler, agents, default_agent were all in the
+// (delegation, agents, default_agent were all in the
 // whole document but not resolvable as a section) generalized so that adding a NEW configDoc field without
 // wiring it into resolveConfigSection fails this test, rather than silently
 // reproducing the same drift under a different key.

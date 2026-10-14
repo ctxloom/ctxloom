@@ -214,7 +214,6 @@ type CellRequest struct {
 	Identity    sessions.Identity
 	ProjectRoot string
 	SessionDir  string
-	DirtyTree   DirtyTreeHandler
 	Image       ImageConfig
 	Host        HostFacts
 	Degraded    bool

@@ -101,7 +101,7 @@ func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) 
 	// Nothing has resolved a spool path yet: that happens on each write.
 	t.Setenv("HOME", fixture)
 
-	out, err := c.AgentRun(context.Background(), coord.OwnerIdentity(), "worker", "go", "", "")
+	out, err := c.AgentRun(context.Background(), coord.OwnerIdentity(), "worker", "go", "")
 	require.NoError(t, err)
 	home := coord.AwaitRunnerHome(t, c, sp, out.Harp)
 

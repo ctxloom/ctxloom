@@ -196,16 +196,23 @@ type childRt struct {
 	// a policy/spawner that captures nothing (tests, host paths without a
 	// ring). Set at spawn (runChildViaStartRun).
 	stderrTail func() string
-	// runnerWait blocks until the runner PROCESS exits, reporting why. It is
-	// the DEATH half of the standup race issueStartRun runs: dial-home
-	// readiness is a push (awaitRunner parks on a channel the runner's Hello
-	// closes) and carries no "…and it is still alive" signal, so this is the
-	// only thing that can tell a dead runner from a slow one before the
-	// dial-home budget expires. Nil when the spawner or starter captures no
-	// process (test doubles), which degrades to the timeout. Set at spawn:
+	// runnerExit observes the runner PROCESS's exit (its handle's Wait) for
+	// the run's whole life. It is the DEATH half of the standup race
+	// issueStartRun runs: dial-home readiness is a push (awaitRunner parks on
+	// a channel the runner's Hello closes) and carries no "…and it is still
+	// alive" signal, so this is the only thing that can tell a dead runner
+	// from a slow one before the dial-home budget expires. After standup it
+	// is how a run's end knows its runner's exit status (endRun). Nil when
+	// the spawner or starter captures no process (test doubles), which
+	// degrades to the timeout and to an end with no status. Set at spawn:
 	// runChildViaStartRun (alongside stderrTail) and StartOwnedRun
 	// (OwnedRunner.Wait).
-	runnerWait func() error
+	runnerExit *runnerExit
+	// reportedExit is the engine's exit status from the run's RunExited
+	// frame (RunnerExited), set before that frame ends the run. It outranks
+	// the runner process's own status: the runner outlives its engine until
+	// the coordinator kills it. Guarded by Coordinator.mu.
+	reportedExit *int32
 
 	// attached closes once THIS attempt's launch decision is final: the
 	// engine is up (the StartRun round-trip completed) or the attempt failed
@@ -246,14 +253,7 @@ type RunOutcome struct {
 // ORCHESTRATION trait the CALLER supplies per invocation: it is set on the
 // resolved plan here, never inside Resolve (agent-definition resolution
 // stays pure — see spawner.go's Resolve/GAP 1).
-//
-// dirtyTreeHandler is the identical per-call override for what a worktree
-// spawn does when the parent tree is dirty (the zero value = project default,
-// cfg.GetDirtyTreeHandler()). It is the TYPED value: callers parse the
-// caller-supplied spelling at their own edge, so an unrecognized one is
-// refused where the caller can see it rather than resolved here — see
-// operations.handleDirtyParentTree.
-func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, prompt string, workspace launch.WorkspaceAxis, dirtyTreeHandler launch.DirtyTreeHandler) (*RunOutcome, error) {
+func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, prompt string, workspace launch.WorkspaceAxis) (*RunOutcome, error) {
 	if err := c.admitAgentRun(caller, agentName, prompt); err != nil {
 		return nil, err
 	}
@@ -286,7 +286,6 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 		return nil, err
 	}
 	plan.Workspace = workspace
-	plan.DirtyTreeHandler = dirtyTreeHandler
 
 	harp, err := c.spawner.AssignSession(c.projectDir, plan.Backend)
 	if err != nil {
@@ -427,7 +426,7 @@ func (c *Coordinator) admitAgentRun(caller Identity, agentName, prompt string) e
 // implementation's own diagnostic (MarkSessionEnded warns for itself).
 func (c *Coordinator) releaseAssignedHarp(harp string, cause error) {
 	c.rep.Warnf("agent_run: releasing session %s — the spawn was refused before the run was registered: %v", harp, cause)
-	c.spawner.MarkSessionEnded(harp, "")
+	c.spawner.MarkSessionEnded(harp, "", nil)
 }
 
 // defaultSpawnNoticeAfter is how long agent_run's pre-registration span may
@@ -875,7 +874,7 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	}
 	rt.close = engine.Kill
 	rt.stderrTail = engine.StderrTail
-	rt.runnerWait = engine.Wait
+	rt.runnerExit = watchRunner(engine.Wait)
 	rt.workDir = l.Cell.Paths.Paths().ProjectRoot.Host
 	c.mu.Unlock()
 
@@ -981,7 +980,14 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	// the terminal notice failChild would eventually queue. An observer
 	// watching for less than that budget sees a child that simply never
 	// reports anything, which is indistinguishable from an engine that hung.
-	exited := watchRunnerExit(rt.runnerWait, acancel)
+	exited := rt.runnerExit
+	go func() {
+		select {
+		case <-exited.exited():
+			acancel()
+		case <-actx.Done():
+		}
+	}()
 	_, err := c.awaitRunner(actx, credHash)
 	acancel()
 	if err != nil {
@@ -1074,37 +1080,6 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	return nil
 }
 
-// watchRunnerExit starts the DEATH arm of issueStartRun's standup race: it
-// reaps the runner process in the background and, the moment it exits, both
-// publishes why and cancels the dial-home wait so the caller stops waiting for
-// a runner that no longer exists.
-//
-// ORDER MATTERS: the exit reason is published to the buffered channel BEFORE
-// cancel fires. The waiter is woken by that cancel, so by the time it looks,
-// the reason is already there — the reverse order would race the waiter into
-// reporting a bare timeout about a runner it had just been told was dead.
-//
-// A nil wait (a spawner that captures no process) returns a nil channel: the
-// receive below simply never yields, and detection degrades to the timeout
-// that was the only mechanism before this existed.
-//
-// The goroutine does not leak on the HEALTHY path. It blocks in wait() for the
-// runner's whole lifetime, which is the point — when the child eventually dies
-// it sends into a BUFFERED channel (never blocking on the absent reader),
-// cancels an already-cancelled context (a no-op), and returns.
-func watchRunnerExit(wait func() error, cancel context.CancelFunc) <-chan error {
-	if wait == nil {
-		return nil
-	}
-	exited := make(chan error, 1)
-	go func() {
-		err := wait()
-		exited <- err
-		cancel()
-	}()
-	return exited
-}
-
 // runnerExitReason reports whether the runner process is already known to have
 // exited, and why. The read is NON-BLOCKING: it is called on a wait that has
 // just ended and must answer "is this runner dead?" from what is already
@@ -1115,15 +1090,15 @@ func watchRunnerExit(wait func() error, cancel context.CancelFunc) <-chan error 
 // help and exiting 0 is the documented shape of this (see
 // pb.StartHostRunner's refusal of a bare self-exec) — and reporting only
 // non-zero exits would let the quietest failure keep the old silent timeout.
-func runnerExitReason(exited <-chan error) (string, bool) {
-	select {
-	case err := <-exited:
-		if err != nil {
-			return err.Error(), true
-		}
-		return "runner process exited cleanly (status 0) without ever dialing home", true
-	default:
+func runnerExitReason(exited *runnerExit) (string, bool) {
+	err, dead := exited.result()
+	switch {
+	case !dead:
 		return "", false
+	case err != nil:
+		return err.Error(), true
+	default:
+		return "runner process exited cleanly (status 0) without ever dialing home", true
 	}
 }
 
@@ -1327,7 +1302,7 @@ func (c *Coordinator) failChild(rt *childRt, err error) {
 		return
 	}
 	detail := launchFailureDetail(err)
-	c.rep.Warnf("agent_run: child %s (%s) failed to launch: %s", rt.harp, rt.agentName, detail)
+	c.rep.Warnf("agent_run: child %s (%s) failed to launch: %s", rt.harp, rt.agentName, launchFailureWarning(err, detail))
 	// Count it BEFORE the terminal: terminateRun's leftover-mail tail reads
 	// this count to decide whether another relaunch is warranted at all.
 	c.noteLaunchFailure(rt.harp)
@@ -1350,6 +1325,20 @@ func launchFailureDetail(err error) string {
 		return err.Error() + "\n" + launchFixLabel + r.Remedy()
 	}
 	return err.Error()
+}
+
+// launchFailureWarning is the launch failure as this process's own diagnostic
+// stream is told it. That is detail, unless err is a refusal whose findings the
+// stream already showed, each with its fix, as they were raised
+// (report.Streamed). The warning then names the refusal and points back to
+// them, so one failure's fix reads once on the terminal. The parent's notice
+// still carries the full detail, since the parent never saw those warnings.
+func launchFailureWarning(err error, detail string) string {
+	var s report.Streamed
+	if errors.As(err, &s) && s.Summary != "" {
+		return s.Summary + " (the findings and their fixes are reported above)"
+	}
+	return detail
 }
 
 // setState journals a §6a state transition (the folds are the single owner
@@ -1583,7 +1572,8 @@ func (c *Coordinator) endRun(runID, cause, detail string, drainTail, fence bool)
 	if fence {
 		fenced = c.fenceRunner(runID, cause)
 	}
-	rec, won := c.claimRunTerminal(runID, cause, detail)
+	detail, exitCode := c.runEndStatus(runID, cause, detail)
+	rec, won := c.claimRunTerminal(runID, cause, detail, exitCode)
 	if !won {
 		c.unmarkEnding(runID)
 		c.unfenceLive(fenced)
@@ -1611,6 +1601,15 @@ func (c *Coordinator) endRun(runID, cause, detail string, drainTail, fence bool)
 	if drainTail {
 		c.drainTerminalTail(rec.Harp, runID)
 	}
+	// Every viewer of the run — the `ctxloom run` that owns it above all —
+	// ends on a RunCompleted, and only an engine sends one: a run whose
+	// engine never did (its runner lost, killed, never launched) left them
+	// waiting for an outcome that was already journaled. This is the run's
+	// terminal on the watch stream unless the engine's own got there first
+	// (the drain above is its last chance; the hub keeps one per run).
+	// Before closeFn, so the owner's drive, which wakes when its runner is
+	// killed, finds it waiting.
+	c.watch.broadcast(Event{RunID: runID, OccurredAt: c.now(), Payload: RunCompleted{Result: syntheticResult(cause, detail, exitCode)}})
 
 	rt, closeFn, launchCancel, runFailure := c.detachRun(runID, rec.CredHash)
 	if rt != nil {
@@ -1637,7 +1636,14 @@ func (c *Coordinator) endRun(runID, cause, detail string, drainTail, fence bool)
 	c.spoolReactor.Mark(rec.Harp)
 
 	c.notifyParentOfDeath(rec, cause, detail, runFailure)
-	c.spawner.MarkSessionEnded(rec.Harp, runID)
+	c.spawner.MarkSessionEnded(rec.Harp, runID, &sessions.RunEnd{
+		RunID:    runID,
+		At:       c.now(),
+		Cause:    cause,
+		Detail:   detail,
+		ExitCode: intPtr(exitCode),
+		Failed:   syntheticResult(cause, detail, exitCode).Status != RunStatusSucceeded,
+	})
 
 	// A message that raced the death (queued after the last boundary drain)
 	// must not strand: the ended-child delivery rule is resume (§6a). That
@@ -1657,7 +1663,7 @@ func (c *Coordinator) endRun(runID, cause, detail string, drainTail, fence bool)
 // claimRunTerminal journals runID's end, reporting the run's record and
 // whether this call won the terminal (false when the run is unknown,
 // already ended, or the journal write failed — warned).
-func (c *Coordinator) claimRunTerminal(runID, cause, detail string) (RunRecord, bool) {
+func (c *Coordinator) claimRunTerminal(runID, cause, detail string, exitCode *int32) (RunRecord, bool) {
 	var (
 		won bool
 		rec RunRecord
@@ -1669,7 +1675,7 @@ func (c *Coordinator) claimRunTerminal(runID, cause, detail string) (RunRecord, 
 		}
 		won = true
 		rec = *r
-		return []Fact{factAt(factRunEnded, c.now(), runEnded{RunID: runID, Cause: cause, Detail: detail})}, nil
+		return []Fact{factAt(factRunEnded, c.now(), runEnded{RunID: runID, Cause: cause, Detail: detail, ExitCode: exitCode})}, nil
 	}); err != nil {
 		c.rep.Warnf("agent run %s: journal terminal: %v", runID, err)
 		return RunRecord{}, false
@@ -1799,8 +1805,9 @@ func (c *Coordinator) reapEndedRuns() {
 		return
 	}
 	sort.Strings(reap) // deterministic fact payload
+	var safe []string
 	if err := c.runs.Exec(func() ([]Fact, error) {
-		safe := reap[:0:0]
+		safe = reap[:0:0]
 		for _, id := range reap {
 			// Re-assert ended + non-current under the write lock — a resume
 			// may have made this id current since the View.
@@ -1814,7 +1821,87 @@ func (c *Coordinator) reapEndedRuns() {
 		return []Fact{factAt(factRunReaped, c.now(), runReaped{RunIDs: safe})}, nil
 	}); err != nil {
 		c.rep.Warnf("coordinator: reap ended runs: %v", err)
+		return
 	}
+	c.watch.forgetTerminals(safe)
+}
+
+// runEndStatus is the exit status runID's end records, and its detail. The
+// engine's own status (its RunExited frame) is the run's when it sent one. A
+// run declared LOST has no frame: its runner process's exit is what says
+// how it ended — killed by a signal (an OOM kill is SIGKILL, 137), crashed,
+// or still running when the coordinator gave up on it — so that is awaited
+// for up to runnerExitGrace and folded into the detail. Every other cause is
+// decided by the coordinator, which ends the runner itself; that kill's
+// status says nothing about the run.
+func (c *Coordinator) runEndStatus(runID, cause, detail string) (string, *int32) {
+	c.mu.Lock()
+	var reported *int32
+	var exit *runnerExit
+	if rt := c.attach[runID]; rt != nil {
+		reported, exit = rt.reportedExit, rt.runnerExit
+	}
+	grace := c.runnerExitGrace
+	c.mu.Unlock()
+	if reported != nil || cause != CauseRunnerLoss || exit == nil {
+		return detail, reported
+	}
+	ended := true
+	c.runs.View(func() {
+		r := c.runsF.run(runID)
+		ended = r == nil || r.Ended
+	})
+	if ended {
+		return detail, nil // a terminal already won; this end will not be recorded
+	}
+	err, exited := exit.await(grace)
+	var code *int32
+	if exited {
+		code = exitCodeOf(err)
+	}
+	return joinDetail(detail, describeRunnerExit(err, exited)), code
+}
+
+// joinDetail appends more to a terminal's detail.
+func joinDetail(detail, more string) string {
+	if detail == "" {
+		return more
+	}
+	return detail + "; " + more
+}
+
+// intPtr widens an exit status for the session index.
+func intPtr(code *int32) *int {
+	if code == nil {
+		return nil
+	}
+	v := int(*code)
+	return &v
+}
+
+// syntheticResult is the Result a run's coordinator-decided end reports on
+// the watch stream. Success is an ALLOW-LIST, as it is for every reader of a
+// Result (cli.renderOwnedRunEvents): the clean causes, and an engine exit
+// whose status is known to be 0. An end forced on the run (stopped, a drain
+// past its bound) is CANCELLED; every other end FAILED, saying why.
+func syntheticResult(cause, detail string, exitCode *int32) *Result {
+	r := &Result{Status: RunStatusSucceeded, ExitCode: exitCode}
+	switch {
+	case cause == CauseStopped || cause == CauseDrainInterrupted:
+		r.Status = RunStatusCancelled
+	case CauseIsFailure(cause):
+		r.Status = RunStatusFailed
+	case cause == CauseRunnerExit && (exitCode == nil || *exitCode != 0):
+		r.Status = RunStatusFailed
+	}
+	if r.Status != RunStatusSucceeded {
+		msg := "run ended (" + cause + ")"
+		if detail != "" {
+			msg += ": " + detail
+		}
+		r.Error = &Status{Message: msg}
+	}
+	return r
 }
 
 // resumeChild relaunches an ended harp as a FRESH run attempt (new run id,

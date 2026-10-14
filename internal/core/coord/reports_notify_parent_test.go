@@ -24,7 +24,7 @@ func TestFinalReport_IsQueuedToTheParent(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 	owner := ownerIdentity()
 
-	out, err := c.AgentRun(context.Background(), owner, "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), owner, "worker", "do the thing", "")
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -49,7 +49,7 @@ func TestProgressReport_IsNotQueuedToTheParent(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 	owner := ownerIdentity()
 
-	out, err := c.AgentRun(context.Background(), owner, "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), owner, "worker", "do the thing", "")
 	if !assert.NoError(t, err) {
 		return
 	}

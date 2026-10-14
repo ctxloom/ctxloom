@@ -15,8 +15,7 @@ func (c *Coordinator) Spawn(ctx context.Context, caller Identity, req SpawnReque
 	if err := req.Validate(); err != nil {
 		return SpawnResult{}, err
 	}
-	workspace, dirtyTree := req.axes()
-	out, err := c.AgentRun(ctx, caller, req.Agent, req.Prompt, workspace, dirtyTree)
+	out, err := c.AgentRun(ctx, caller, req.Agent, req.Prompt, req.workspace())
 	if err != nil {
 		return SpawnResult{}, err
 	}

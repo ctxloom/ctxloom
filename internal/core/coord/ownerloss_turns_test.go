@@ -39,7 +39,7 @@ func TestOwnerLoss_AnOrphanedTurnRunsToItsEnd_ThenTheRunnerWaits(t *testing.T) {
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	sp.ownerLossWindow = orphanWindow
 	c := newTestCoordinatorOver(t, t.TempDir(), sp)
-	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "a long task", "", "")
+	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "a long task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return sp.chatCount() == 1 && len(sp.chat(0).RecordedTexts()) == 1 }, conformanceWait, 10*time.Millisecond,
 		"the briefing turn is running")
@@ -69,7 +69,7 @@ func TestOwnerLoss_AReadoptionMidTurnKeepsTheTurn(t *testing.T) {
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	sp.ownerLossWindow = orphanWindow
 	first := newTestCoordinatorOver(t, stateDir, sp)
-	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "a long task", "", "")
+	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "a long task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return sp.chatCount() == 1 && len(sp.chat(0).RecordedTexts()) == 1 }, conformanceWait, 10*time.Millisecond)
 
@@ -95,7 +95,7 @@ func TestOwnerLoss_NoNewTurnWhileTheOwnerIsAway(t *testing.T) {
 	stateDir := t.TempDir()
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	first := newTestCoordinatorOver(t, stateDir, sp)
-	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(first, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 	home := sp.engineHome(0)

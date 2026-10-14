@@ -54,7 +54,7 @@ func currentRunCause(c *Coordinator, harp string) string {
 // must not yield).
 func spawnGatedChild(t *testing.T, sp *fakeSpawner, c *Coordinator) string {
 	t.Helper()
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "go", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "go", "")
 	require.NoError(t, err)
 	require.NoError(t, c.awaitChildUp(context.Background(), out.Harp))
 	require.Eventually(t, func() bool {
@@ -185,7 +185,7 @@ func TestBeginDrain_QueuedChildEndsImmediately(t *testing.T) {
 	c.drainBound = 300 * time.Millisecond
 
 	running := spawnGatedChild(t, sp, c)
-	queued, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "wait your turn", "", "")
+	queued, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "wait your turn", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, queued.Harp) == StateQueued }, conformanceWait, 5*time.Millisecond)
 

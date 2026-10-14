@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -415,11 +416,22 @@ func (b *OneShotBuilder) Lazy() *LazyOneShot {
 // converting the raise sites without converting this would have changed
 // nothing at all. A class-filtered gate must filter and then defer to
 // Actionable — never short-circuit on the mode.
+//
+// Every finding it lists was rendered to the diagnostic stream, fix included,
+// when it was raised (unless recorded Quiet), so the refusal is marked
+// report.Streamed: a reporter on that same stream names the refusal and does
+// not print the findings and their fixes a second time.
 func isolationGateErr(mode strictness.Mode, found report.Findings) error {
-	return mode.ListingError(
-		"isolation: refusing to run this member — an explicitly-requested isolation guarantee could not be satisfied:",
-		mode.Actionable(ofKind(found, report.KindIsolation)))
+	actionable := mode.Actionable(ofKind(found, report.KindIsolation))
+	err := mode.ListingError(isolationRefusal+":", actionable)
+	if err == nil || slices.ContainsFunc(actionable, func(f report.Finding) bool { return f.Quiet }) {
+		return err
+	}
+	return report.Streamed{Err: err, Summary: isolationRefusal}
 }
+
+// isolationRefusal heads isolationGateErr's listing and is its Streamed summary.
+const isolationRefusal = "isolation: refusing to run this member — an explicitly-requested isolation guarantee could not be satisfied"
 
 // ofKind filters found to one Kind, for a gate narrower than FindingsError.
 func ofKind(found report.Findings, kind report.Kind) report.Findings {

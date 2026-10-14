@@ -25,6 +25,16 @@ const (
 	HeartbeatInterval    = 5 * time.Second
 	RunnerLossHeartbeats = 3
 	runnerLossTimeout    = HeartbeatInterval * (RunnerLossHeartbeats + 1)
+	// watchdogStallLateness is how late a watchdog tick must be before the
+	// watchdog concludes that IT was not running — the coordinator, or the
+	// whole host, stalled — and so that the runners' silence over that span
+	// is not evidence (checkRunnerLiveness). One whole HeartbeatInterval: a
+	// tick that late means at least one tick was missed outright, which
+	// ordinary scheduling jitter (milliseconds) never does, while a delay
+	// shorter than an interval cannot by itself carry a heartbeating runner
+	// past runnerLossTimeout. A ticker drops the ticks it could not deliver,
+	// so the gap since the last tick measures the stall directly.
+	watchdogStallLateness = HeartbeatInterval
 )
 
 // RunnerSession is the coordinator's side of one connected runner: the
@@ -167,6 +177,16 @@ func (c *Coordinator) RunnerExited(credHash string, exited RunExited) {
 		return
 	}
 	c.bindNativeSession(harp, exited.HarnessSessionID)
+	if exited.Signal == "" || exited.ExitCode != 0 {
+		// The engine's own status, for the end to record (runEndStatus). A
+		// signal reported with no code has no status this can carry.
+		code := exited.ExitCode
+		c.mu.Lock()
+		if rt := c.attach[runID]; rt != nil {
+			rt.reportedExit = &code
+		}
+		c.mu.Unlock()
+	}
 	if stop, stopping := c.pendingStop(runID); stopping {
 		// The runner closed the run because an agent_stop asked it to: the
 		// exit IS the stop, and is recorded as one. Unfenced: the runner has
@@ -205,9 +225,39 @@ func (c *Coordinator) runnerWatchdog() {
 
 // checkRunnerLiveness is the watchdog body, callable with an explicit now for
 // deterministic tests.
+//
+// A tick that arrives more than watchdogStallLateness late says the watchdog
+// itself was not running: the coordinator or the whole host stalled (the
+// verprop OOM storm froze the host for two minutes, and the watchdog then
+// ended every run, the session owner's among them, though the runners were
+// alive and reconnecting). Silence that overlaps the stall is not evidence of
+// loss, so that tick ends nothing and grants every connected runner one fresh
+// loss bound from now; a runner that really died is ended one bound later. The
+// grace is journaled (watchdog_stall) and warned, so a reader can see why the
+// runs survived. Times come from the coordinator's injectable clock.
 func (c *Coordinator) checkRunnerLiveness(now time.Time) {
 	var lost []*RunnerSession
 	c.mu.Lock()
+	last := c.watchdogLastTick
+	c.watchdogLastTick = now
+	if lateBy := now.Sub(last) - HeartbeatInterval; !last.IsZero() && lateBy > watchdogStallLateness {
+		for _, rs := range c.runners {
+			if rs.lastBeat.Before(now) {
+				rs.lastBeat = now
+			}
+		}
+		runners := len(c.runners)
+		c.mu.Unlock()
+		detail := fmt.Sprintf("watchdog tick late by %s; host stall suspected; extending the loss bound of %d connected runner(s) by %s from now", lateBy, runners, runnerLossTimeout)
+		c.rep.Warnf("coordinator: %s", detail)
+		c.audit("watchdog_stall", "coord", map[string]string{
+			"detail":     detail,
+			"late_by":    lateBy.String(),
+			"runners":    fmt.Sprint(runners),
+			"loss_bound": runnerLossTimeout.String(),
+		})
+		return
+	}
 	for hash, rs := range c.runners {
 		if now.Sub(rs.lastBeat) > runnerLossTimeout {
 			delete(c.runners, hash)

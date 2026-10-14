@@ -66,7 +66,7 @@ func TestIssueStartRun_ToleratesSlowRunnerDialHomeWithinBudget(t *testing.T) {
 	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	env := sp.awaitRunnerEnv(t, out.RunID)
 	credHash := hashToken(env[EnvCoordCred])
@@ -110,7 +110,7 @@ func TestIssueStartRun_TooTightBudgetFailsTheSameSlowDialHome(t *testing.T) {
 	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	env := sp.awaitRunnerEnv(t, out.RunID)
 	credHash := hashToken(env[EnvCoordCred])

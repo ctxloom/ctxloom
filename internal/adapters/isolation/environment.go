@@ -110,7 +110,21 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 		return nil, err
 	}
 	survey := surveyRuntimes()
-	chain := withSessionState(chainFor(survey, s.axes, s.backend(), s.img), s.state)
+	// A BeforeCheckout refusal is recorded as the hook returned it: the chain
+	// stops on it (errCheckoutRefused) and the run is refused with it.
+	var refused error
+	var hook func(context.Context) error
+	if s.beforeCheckout != nil {
+		hook = func(ctx context.Context) error {
+			if err := s.beforeCheckout(ctx); err != nil {
+				refused = err
+				return err
+			}
+			return nil
+		}
+	}
+	chain := withCheckoutStamps(withSessionState(chainFor(survey, s.axes, s.backend(), s.img), s.state),
+		checkoutStamps{beforeCheckout: hook, commitOnTeardown: s.commitOnTeardown})
 	// The requested environment's roots are routed first, with no effects:
 	// the chain's own container mounts map paths too, and a root failing
 	// there would read as an unstartable container rather than as the root
@@ -125,6 +139,10 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 		return nil, err
 	}
 	p, ws := prepareChain(ctx, chain, survey, s.axes.Runtime, s.project, s.state.Harp)
+	if refused != nil {
+		_ = ws.Cleanup()
+		return nil, refused
+	}
 	r := p.relocator()
 	l := stageLayout(s, r, ws.Dir(), workspaceEnv(ws), stores, IsContainerPolicyName(p.Name()))
 	pl, roots, err := r.relocate(l)

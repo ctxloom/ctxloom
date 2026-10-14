@@ -31,7 +31,7 @@ func TestAgentRun_AbortedSpawnReleasesTheHarp(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(c.Close)
 
-		_, err = c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+		_, err = c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 		require.Error(t, err, "a spawn with no reachable coordinator endpoint must be refused")
 
 		assigned := sp.assignedSessions()
@@ -49,7 +49,7 @@ func TestAgentRun_AbortedSpawnReleasesTheHarp(t *testing.T) {
 		// the SECOND leak path: enqueueRun's error return.
 		c.Close()
 
-		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 		require.Error(t, err, "a spawn whose enqueue cannot be journaled must be refused")
 
 		assigned := sp.assignedSessions()

@@ -36,7 +36,7 @@ func TestStartRun_EchoRoundTrip(t *testing.T) {
 	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 
 	// The engine received the briefing alone: the composed context reaches
@@ -157,7 +157,7 @@ func TestStartRun_BackendParity(t *testing.T) {
 			}, nil)
 			c := newTestCoordinator(t, sp, nil)
 
-			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 			require.NoError(t, err)
 
 			require.Eventually(t, func() bool {
@@ -192,7 +192,7 @@ func TestStartRun_SendToIdleChildStartsTurn(t *testing.T) {
 	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "first task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "first task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
@@ -228,14 +228,14 @@ func TestStartRun_KillMidRunSynthesizesLossAndQueueAdvances(t *testing.T) {
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
-	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		sc := sp.chat(0)
 		return sc != nil && len(sc.RecordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
-	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "", "")
+	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "")
 	require.NoError(t, err)
 	require.True(t, second.Queued, "the D4 cap queues the second child")
 
@@ -268,7 +268,7 @@ func TestStartRun_ResumeReadsTheSessionEntry(t *testing.T) {
 	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	spawnCtx, spawnCancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer spawnCancel()

@@ -71,7 +71,7 @@ func TestRunChild_TerminateWhileParkedOnCap_DoesNotStrandTheSlot(t *testing.T) {
 	// A peer occupies the only slot, so the spawn below cannot get one.
 	require.True(t, c.slots.TryAcquire(1), "precondition: the single slot starts free")
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "brief", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "brief", "")
 	require.NoError(t, err)
 	require.True(t, out.Queued, "the spawn must be queued behind the peer, not admitted")
 

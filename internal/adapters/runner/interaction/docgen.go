@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -52,7 +53,7 @@ func NewDocServer() (server *mcp.Server, closeHome func(), err error) {
 		return nil, nil, fmt.Errorf("docgen: dead-endpoint home: %w", err)
 	}
 	closeHome = func() { home.Close(0, "") }
-	server, err = NewServer(report.To(nil), home, "", "", "", false, loadoutSurface{}, NewWakeSignal(nil)) // full surface documented, never the leaf-gated subset
+	server, err = NewServer(report.To(nil), afero.NewMemMapFs(), home, "", "", "", false, loadoutSurface{}, NewWakeSignal(nil)) // full surface documented, never the leaf-gated subset
 	if err != nil {
 		closeHome()
 		return nil, nil, fmt.Errorf("docgen: assemble runner MCP surface: %w", err)

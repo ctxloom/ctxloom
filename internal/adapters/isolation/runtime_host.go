@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"context"
+	"time"
 )
 
 // Host is the non-container runtime: the runner runs as a bare host
@@ -57,6 +58,8 @@ func (Host) imageUniqueSizes(context.Context) (map[string]int64, error) { return
 func (Host) daemonNameTemplate() string                                 { return "" }
 func (Host) removeOutcome([]byte, error) removeOutcome                  { return removeAlreadyGone }
 func (Host) passesPUID() bool                                           { return false }
+func (Host) limitSupport() limitSupport                                 { return limitSupport{} }
+func (Host) oomEventArgs(string, time.Time, time.Time) []string         { return nil }
 func (Host) gatewayInspectArgs() []string                               { return nil }
 func (Host) containerByIDArgs(string) []string                          { return nil }
 func (Host) selfInspectArgs(string) []string                            { return nil }

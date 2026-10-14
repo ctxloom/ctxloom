@@ -9,7 +9,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
 // agentRunSchema returns agent_run's advertised input schema, decoded: the
@@ -57,19 +56,14 @@ func agentRunEnum(t *testing.T, schema map[string]any, argument string) []string
 	return members
 }
 
-// TestAgentRun_ConstrainsPerCallVocabularies is the wire half of typing
-// dirty_tree_handler. The surface DESCRIBED the legal values in prose and
-// constrained nothing, while the human-edited channel (the project config's
-// JSON Schema) has carried enums for the same two keys all along — so the
-// agent-driven per-call channel was the loose one, and its
-// dirty_tree_handler default is the member that auto-commits the user's tree.
+// TestAgentRun_ConstrainsPerCallVocabularies: the per-call workspace
+// argument carries an enum, not just prose about its legal values, matching
+// the human-edited channel (the project config's JSON Schema).
 //
-// The expectation comes from each vocabulary's OWNING package, so a member
+// The expectation comes from the vocabulary's OWNING package, so a member
 // added there fails this test until the surface carries it.
 func TestAgentRun_ConstrainsPerCallVocabularies(t *testing.T) {
 	schema := agentRunSchema(t)
-	assert.Equal(t, launch.DirtyTreeHandlerNames(), agentRunEnum(t, schema, "dirty_tree_handler"),
-		"the advertised dirty_tree_handler enum must be the vocabulary operations owns")
 	assert.Equal(t, isolation.WorkspaceNames(), agentRunEnum(t, schema, "workspace"),
 		"the advertised workspace enum must be the vocabulary isolation owns")
 }

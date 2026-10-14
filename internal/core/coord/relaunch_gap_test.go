@@ -56,7 +56,7 @@ func TestEndRun_ExplicitSendInTheRelaunchGapLaunchesOnce(t *testing.T) {
 	t.Cleanup(openResolve)
 	t.Cleanup(release)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 	harp, ended := out.Harp, out.RunID

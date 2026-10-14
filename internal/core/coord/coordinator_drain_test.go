@@ -31,13 +31,13 @@ func TestBeginDrain_AgentRunRefusesNewWorkOnceDraining(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 
 	require.False(t, c.Draining(), "a fresh coordinator is not draining")
-	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "before drain", "", "")
+	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "before drain", "")
 	require.NoError(t, err, "admission must succeed while the coordinator is not draining")
 
 	c.BeginDrain()
 	require.True(t, c.Draining())
 
-	_, err = c.AgentRun(context.Background(), ownerIdentity(), "worker", "after drain", "", "")
+	_, err = c.AgentRun(context.Background(), ownerIdentity(), "worker", "after drain", "")
 	require.Error(t, err, "admission must be refused once draining")
 	assert.ErrorIs(t, err, ErrDraining, "the refusal must be the typed sentinel, not merely a similar-looking message")
 	assert.Contains(t, err.Error(), "draining", "the reason must be stated, not just refused")
@@ -96,7 +96,7 @@ func TestBeginDrain_RunnerChannelHelloRefusesFreshRunnerButAdmitsReconnect(t *te
 	}, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	env := waitForChildEnv(t, c, out.RunID)
 	// The child's own runner is the baseline: it dialed home with this

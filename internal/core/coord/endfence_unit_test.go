@@ -74,7 +74,7 @@ func newLiveFence(t *testing.T, refuse error) *liveFence {
 		return nil
 	}
 	f.c = newTestCoordinatorWith(t, sp, func(o *Options) { o.Reporter = f.findings })
-	out, err := f.c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := f.c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(f.c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 	require.True(t, f.c.runnerConnected(out.RunID), "premise: the run's runner is connected")

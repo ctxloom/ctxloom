@@ -36,7 +36,6 @@ agents:
 config:
     use_distilled: true
 default_agent: orchestrator
-dirty_tree_handler: commit
 llm:
     configs:
         claude-code:

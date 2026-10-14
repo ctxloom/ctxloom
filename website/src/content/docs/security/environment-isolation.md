@@ -156,33 +156,28 @@ read-only, and the runtime enforces that rather than asking each engine to respe
 A worktree checkout only ever contains committed state — that's a property of `git worktree
 add`, not a choice ctxloom made. HEAD and everything reachable from it, nothing you haven't
 committed yet. So when a delegated `agent_run` child spawns into its own worktree (the default
-above) and your own live checkout has uncommitted changes, something has to give: either the
-child doesn't see those changes, or ctxloom does something to make it see them. Which one
-happens is `dirty_tree_handler`, and it's a choice, not a fixed behavior — set per project, or
-overridden per call.
+above), ctxloom commits around it:
 
-Four options:
+- **Before the child starts.** If your checkout has uncommitted changes, tracked or untracked
+  (but not ignored), ctxloom commits them onto your current branch, then carves the child's
+  worktree from that commit, so the child sees everything. Each of these commits prints a
+  warning first, naming the branch and the files, and the commit message names the child.
+- **When the child's run ends**, however it ended. Whatever the child's worktree holds
+  uncommitted is committed on the child's own branch, so no work is left behind as
+  uncommitted state in a worktree nobody returns to.
 
-- **`commit`** (the default). ctxloom commits your uncommitted changes onto your current branch
-  first, so the child sees everything. The change becomes real git history — at the cost of a
-  commit landing on your branch that you didn't type `git commit` for.
-- **`copy`**. The worktree is carved at HEAD as usual, then your uncommitted changes — tracked
-  and untracked both — are reproduced *inside it* as uncommitted WIP. The child sees the same
-  content `commit` would have shown it; your branch is never touched, and nothing durable is
-  created beyond that one worktree.
-- **`stale`**. The child spawns against committed state only. ctxloom warns you which files it
-  won't see. Cheap and honest, but the child works from whatever you last committed, not what's
-  actually on disk right now.
-- **`fail`**. ctxloom refuses the spawn outright and names the uncommitted paths. No automatic
-  action at all; you decide what happens next.
+There is no setting for this; it is how delegation into a worktree works. If you don't want
+your uncommitted changes committed, commit or stash them yourself first, or pass
+`workspace: "none"` on the `agent_run` call so the child runs in your live checkout instead.
 
-The handler is a project default you set in `.ctxloom/config.yaml`, and any `agent_run` call
-can override it for itself. Choosing `commit`, in config or on the call, is the whole
-authorization. Every individual auto-commit still prints a warning naming the branch and the
-files being touched.
+The first commit happens only when a worktree is actually about to be carved from your branch,
+after the launch's other isolation checks have passed. A launch refused before that point (a
+container that cannot start, say) commits nothing. A resumed child that picks up its own
+surviving worktree, or its own branch, commits nothing on yours either: that worktree is on its
+own branch and would not see a new commit on yours. Your own `ctxloom run --workspace worktree`
+is never committed for: you're at the terminal with the tree in front of you.
 
-See the [config reference](/reference/config/#top-level-fields) and [`agent_run`'s
-parameters](/reference/mcp-tools/#agent_run) for the exact keys, values, and precedence.
+See [`agent_run`'s parameters](/reference/mcp-tools/#agent_run) for the `workspace` key.
 
 ## How to choose
 

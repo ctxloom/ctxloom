@@ -37,8 +37,9 @@ type SeqWatch struct {
 // Ordinary events: the first seq observed is the baseline (a mid-run join is
 // not a loss); a seq at or below the watermark is a reconnect reissue
 // (home.go), a duplicate, not a loss, and does not regress the watermark;
-// seq 0 is never accounted (no in-repo producer emits it; the marker itself
-// has none). A marker's ranges count only past the watermark — an eviction's
+// seq 0 is never accounted (the marker has none, and neither has the
+// RunCompleted the coordinator synthesizes for a run whose engine sent none —
+// coord.endRun — which is outside the runner's sequence). A marker's ranges count only past the watermark — an eviction's
 // range lies BELOW events already delivered, and the jump they revealed was
 // already reported.
 func (w *SeqWatch) Observe(ev *AgentEvent) (lost *EventsLost, marker bool) {

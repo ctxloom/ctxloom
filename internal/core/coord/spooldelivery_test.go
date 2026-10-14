@@ -72,7 +72,7 @@ func cutoverSpawner(t testing.TB, sweep time.Duration) *fakeSpawner {
 // every test below would then be measuring the sweep of an empty directory.
 func awaitCutoverChild(t *testing.T, c *Coordinator, sp *fakeSpawner, prompt string) (*RunOutcome, TestHome) {
 	t.Helper()
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", prompt, "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", prompt, "")
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()

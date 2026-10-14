@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/exitstatus"
 	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
@@ -137,6 +138,7 @@ func (c Container) buildRunnerSpec(backendName, name string, cw *containerWorksp
 		Mounts:  mounts,
 		Network: cw.reach.network,
 		Harp:    c.state.Harp,
+		Limits:  resolveLimits(c.limits, c.runtime.limitSupport()),
 	}
 }
 
@@ -177,6 +179,8 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 	ring := stderrtail.New(stderrtail.DefaultBytes)
 	cmd.Stderr = ring
 	cmd.WaitDelay = runnerWaitDelay
+	// started bounds the OOM-event query to this run (noteOOMKill).
+	started := time.Now()
 	// No stdin (keeps `docker run` off the host terminal); the container's
 	// stdout carries no handshake on this path, so nothing reads it.
 	if err := cmd.Start(); err != nil {
@@ -198,16 +202,20 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 		// Deliberately does NOT block on the reap: the reaper goroutine
 		// finishes on its own (cmd.WaitDelay bounds it).
 	}
-	wait := func() error {
+	// wait reports the exit ONCE, however many readers ask (the standup race
+	// and the coordinator's exit watch both do): the OOM note it adds asks
+	// the daemon, and every reader must see the same answer.
+	wait := sync.OnceValue(func() error {
 		err := reaped()
 		if err != nil {
 			if tail := ring.Tail(); tail != "" {
-				return fmt.Errorf("runner container %q exited: %w (stderr tail: %s)", spec.Name, err, tail)
+				err = exitstatus.Classify(fmt.Errorf("runner container %q exited: %w (stderr tail: %s)", spec.Name, err, tail))
+			} else {
+				err = exitstatus.Classify(fmt.Errorf("runner container %q exited: %w", spec.Name, err))
 			}
-			return fmt.Errorf("runner container %q exited: %w", spec.Name, err)
 		}
-		return nil
-	}
+		return noteOOMKill(rt, spec.Name, spec.Limits, started, err)
+	})
 	handle = &RunnerHandle{Name: spec.Name, Kill: kill, Wait: wait, StderrTail: ring.Tail}
 	return handle, nil
 }

@@ -92,7 +92,7 @@ func TestAgentStop_OnAnEndedRunStillStopsTheRelaunch(t *testing.T) {
 	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "hello", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "hello", "")
 	if !assert.NoError(t, err) {
 		return
 	}

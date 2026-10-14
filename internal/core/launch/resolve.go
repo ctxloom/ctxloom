@@ -61,12 +61,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		return Launch{}, err
 	}
 	pkg = withApprovalHooks(pkg, eng, src.Mode, perm)
-	dirty, err := resolveDirtyTree(cfg, src)
-	if err != nil {
-		return Launch{}, err
-	}
-
-	passthrough, cell, err := admitAndPrepare(ctx, deps, &src, eng, axes, dirty, sel, label)
+	passthrough, cell, err := admitAndPrepare(ctx, deps, &src, eng, axes, sel, label)
 	if err != nil {
 		return Launch{}, err
 	}
@@ -96,14 +91,14 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 // last refusal before anything is established: the engine's credential for
 // the mode this run authenticates in (deps.CheckCredential), then the
 // project identity the cell carries (admittedProject), set on src.
-func admitAndPrepare(ctx context.Context, deps Deps, src *Source, eng engine.Engine, axes Axes, dirty DirtyTreeHandler, sel selection, label string) (map[string]string, Cell, error) {
+func admitAndPrepare(ctx context.Context, deps Deps, src *Source, eng engine.Engine, axes Axes, sel selection, label string) (map[string]string, Cell, error) {
 	if deps.CheckCredential != nil {
 		if err := deps.CheckCredential(string(eng.Root().Name), RunAuth(src.Identity, deps.Snapshot.Config.SessionAuth())); err != nil {
 			return nil, Cell{}, err
 		}
 	}
 	src.Identity.Project = admittedProject(deps, src.Identity.Project)
-	return prepareCell(ctx, deps, *src, eng, axes, dirty, sel, label)
+	return prepareCell(ctx, deps, *src, eng, axes, sel, label)
 }
 
 // admittedProject is the project id an admitted launch carries: the one the
@@ -215,7 +210,7 @@ func RunAuth(id sessions.Identity, session engine.AuthMode) engine.AuthMode {
 
 // prepareCell is Cells.Prepare for the launch, returning the engine
 // passthrough env (the label's env overlaid by the source's) with the cell.
-func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, axes Axes, dirty DirtyTreeHandler, sel selection, label string) (map[string]string, Cell, error) {
+func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, axes Axes, sel selection, label string) (map[string]string, Cell, error) {
 	def := eng.Root()
 	passthrough := map[string]string{}
 	maps.Copy(passthrough, deps.Assembler.LabelEnv(deps.Snapshot, label))
@@ -229,7 +224,6 @@ func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, 
 		Identity:    src.Identity,
 		ProjectRoot: src.WorkDir,
 		SessionDir:  filepath.Join(deps.Host.CtxloomHome, paths.SessionsDir, src.Identity.Harp),
-		DirtyTree:   dirty,
 		Image:       ImageConfigFor(deps.Snapshot.Config, def.Name),
 		Host:        deps.Host,
 		Degraded:    src.Degraded,
@@ -468,32 +462,11 @@ func resolveAxes(cfg *config.Config, src Source, sel selection) (declared, settl
 	return declared, settled, nil
 }
 
-// resolveDirtyTree settles what a worktree cell does about a dirty parent
-// tree, ONCE: the invocation's handler, else the project default, else the
-// built-in. The request arrives typed (its edge parsed it); the project
-// default is parsed here and an unusable spelling REFUSES rather than
-// falling through — the built-in is the member that auto-commits the user's
-// branch, and reaching it through a spelling nobody recognised routes
-// around the consent that handler is gated on.
-func resolveDirtyTree(cfg *config.Config, src Source) (DirtyTreeHandler, error) {
-	if src.DirtyTree != "" {
-		return src.DirtyTree, nil
-	}
-	handler, err := ParseDirtyTreeHandler(cfg.GetDirtyTreeHandler())
-	if err != nil {
-		return "", fmt.Errorf("this project's dirty_tree_handler default is unusable: %w — fix `dirty_tree_handler:` in .ctxloom/config.yaml, or pass a valid one on this call", err)
-	}
-	if handler == "" {
-		return DirtyTreeHandlerCommit, nil
-	}
-	return handler, nil
-}
-
 // ImageConfigFor is the user's container-image configuration for the
 // engine's isolated runs, read off the generation: the per-engine prebuilt
 // image override, the isolation_base choice local builds layer the agent
 // stage onto, the project root and compose service the devcontainer resolves
-// against, and the composable engine set. Resolve reads
+// against, the composable engine set, and the per-container resource caps. Resolve reads
 // it for the cell; the container commands read it to build ahead of a run.
 func ImageConfigFor(cfg *config.Config, eng engine.Name) ImageConfig {
 	return ImageConfig{
@@ -502,6 +475,7 @@ func ImageConfigFor(cfg *config.Config, eng engine.Name) ImageConfig {
 		AppRoot:             cfg.GetAppRoot(),
 		DevcontainerService: cfg.GetIsolationDevcontainerService(),
 		Engines:             cfg.GetIsolationEngines(),
+		Limits:              cfg.IsolationLimits(),
 	}
 }
 

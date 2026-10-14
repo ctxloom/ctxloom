@@ -20,9 +20,17 @@ import (
 // sessionLedger records the spawner's session-accounting calls: each liveness
 // lock held, and each session end, by harp, in order.
 type sessionLedger struct {
-	mu    sync.Mutex
-	held  []string
-	ended []string
+	mu       sync.Mutex
+	held     []string
+	ended    []string
+	recorded []sessions.RunEnd
+}
+
+func (l *sessionLedger) record(_ string, end sessions.RunEnd) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.recorded = append(l.recorded, end)
+	return nil
 }
 
 func (l *sessionLedger) hold(harp string) error {
@@ -57,7 +65,7 @@ func newLedgerSpawner(t *testing.T) (*spawner, *sessionLedger) {
 	t.Cleanup(func() { startEngine = prev })
 	s := newSpawner(termRep(), nil, t.TempDir(), nil)
 	l := &sessionLedger{}
-	s.holdLock, s.endSession = l.hold, l.end
+	s.holdLock, s.endSession, s.recordRunEnd = l.hold, l.end, l.record
 	return s, l
 }
 
@@ -81,13 +89,35 @@ func TestProdSpawner_ALateEndOfAnEndedRunSparesItsResumedSuccessor(t *testing.T)
 	startRunOf(t, s, harp, "run-ended")
 	startRunOf(t, s, harp, "run-resumed")
 
-	s.MarkSessionEnded(harp, "run-ended")
+	s.MarkSessionEnded(harp, "run-ended", nil)
 	_, ended := ledger.snapshot()
 	assert.Empty(t, ended, "the ended run's late call ended the session its resumed successor runs in")
 
-	s.MarkSessionEnded(harp, "run-resumed")
+	s.MarkSessionEnded(harp, "run-resumed", nil)
 	_, ended = ledger.snapshot()
 	assert.Equal(t, []string{harp}, ended, "the run that holds the session ends it")
+}
+
+// TestProdSpawner_EveryRunsEndIsRecordedEvenALateOne: how a run ended goes on
+// its session's entry whether or not its call ends the session. A late end
+// spares its successor's session, but it still happened — the verprop child
+// whose runner was lost was resumed at once, and only the resume's own launch
+// failure would have survived in the index.
+func TestProdSpawner_EveryRunsEndIsRecordedEvenALateOne(t *testing.T) {
+	s, ledger := newLedgerSpawner(t)
+	const harp = "recorded-harp"
+	startRunOf(t, s, harp, "run-lost")
+	startRunOf(t, s, harp, "run-resumed")
+
+	s.MarkSessionEnded(harp, "run-lost", &sessions.RunEnd{RunID: "run-lost", Cause: "runner-loss"})
+	s.MarkSessionEnded(harp, "run-resumed", &sessions.RunEnd{RunID: "run-resumed", Cause: "launch-failed"})
+
+	ledger.mu.Lock()
+	defer ledger.mu.Unlock()
+	require.Len(t, ledger.recorded, 2)
+	assert.Equal(t, "runner-loss", ledger.recorded[0].Cause, "the late end is recorded too")
+	assert.Equal(t, "launch-failed", ledger.recorded[1].Cause)
+	assert.Equal(t, []string{harp}, ledger.ended, "only the owning run's end ends the session")
 }
 
 // TestProdSpawner_AResumedRunHoldsItsSessionsLivenessLock: the lock is taken
@@ -98,7 +128,7 @@ func TestProdSpawner_AResumedRunHoldsItsSessionsLivenessLock(t *testing.T) {
 	s, ledger := newLedgerSpawner(t)
 	const harp = "resumed-harp"
 	startRunOf(t, s, harp, "run-1")
-	s.MarkSessionEnded(harp, "run-1")
+	s.MarkSessionEnded(harp, "run-1", nil)
 	startRunOf(t, s, harp, "run-2")
 
 	held, ended := ledger.snapshot()
@@ -112,8 +142,8 @@ func TestProdSpawner_AResumedRunHoldsItsSessionsLivenessLock(t *testing.T) {
 // — nothing else will end it.
 func TestProdSpawner_AnEndBeforeAnyRunStartedStillEndsTheSession(t *testing.T) {
 	s, ledger := newLedgerSpawner(t)
-	s.MarkSessionEnded("refused-harp", "")
-	s.MarkSessionEnded("unstarted-harp", "run-never-started")
+	s.MarkSessionEnded("refused-harp", "", nil)
+	s.MarkSessionEnded("unstarted-harp", "run-never-started", nil)
 	_, ended := ledger.snapshot()
 	assert.Equal(t, []string{"refused-harp", "unstarted-harp"}, ended)
 }
@@ -133,7 +163,7 @@ func TestProdSpawner_SessionAccountingWarnsOnlyWhenItFails(t *testing.T) {
 			s.endSession = func(string, time.Time) error { return err }
 
 			s.claimSession("acct-harp", "run-1")
-			s.MarkSessionEnded("acct-harp", "run-1")
+			s.MarkSessionEnded("acct-harp", "run-1", nil)
 
 			texts := findings.All().Texts()
 			if !fail {

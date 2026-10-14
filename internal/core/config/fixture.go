@@ -33,7 +33,6 @@ type Fixture struct {
 	Agents                       map[string]agents.Agent
 	DefaultAgent                 string
 	Workspace                    string
-	DirtyTreeHandler             string
 	Runtime                      string
 	Permissions                  agents.NeutralPermissions
 	Delegation                   DelegationConfig
@@ -42,6 +41,8 @@ type Fixture struct {
 	IsolationBase                string
 	IsolationDevcontainerService string
 	IsolationEngines             []string
+	IsolationMemoryLimit         string
+	IsolationPidsLimit           string
 	Companions                   []string
 	OutputDir                    string
 	UI                           UIConfig
@@ -86,7 +87,6 @@ func (c *Config) ToFixture() Fixture {
 		Agents:                       d.Agents,
 		DefaultAgent:                 d.DefaultAgent,
 		Workspace:                    d.Workspace,
-		DirtyTreeHandler:             d.DirtyTreeHandler,
 		Runtime:                      d.Runtime,
 		Permissions:                  d.Permissions,
 		Delegation:                   d.Delegation,
@@ -95,6 +95,8 @@ func (c *Config) ToFixture() Fixture {
 		IsolationBase:                d.IsolationBase,
 		IsolationDevcontainerService: d.IsolationDevcontainerService,
 		IsolationEngines:             d.IsolationEngines,
+		IsolationMemoryLimit:         d.IsolationMemoryLimit,
+		IsolationPidsLimit:           d.IsolationPidsLimit,
 		Companions:                   d.Companions,
 		OutputDir:                    d.OutputDir,
 		UI:                           d.UI,
@@ -137,7 +139,6 @@ func NewFixture(f Fixture) *Config {
 		agents:                       cloneAgentsMap(f.Agents),
 		defaultAgent:                 f.DefaultAgent,
 		workspace:                    f.Workspace,
-		dirtyTreeHandler:             f.DirtyTreeHandler,
 		runtime:                      f.Runtime,
 		permissions:                  f.Permissions.Clone(),
 		delegation:                   f.Delegation,
@@ -146,6 +147,8 @@ func NewFixture(f Fixture) *Config {
 		isolationBase:                f.IsolationBase,
 		isolationDevcontainerService: f.IsolationDevcontainerService,
 		isolationEngines:             slices.Clone(f.IsolationEngines),
+		isolationMemoryLimit:         f.IsolationMemoryLimit,
+		isolationPidsLimit:           f.IsolationPidsLimit,
 		companions:                   slices.Clone(f.Companions),
 		outputDir:                    f.OutputDir,
 		ui:                           cloneUIConfig(f.UI),

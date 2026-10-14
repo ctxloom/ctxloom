@@ -21,18 +21,18 @@ func TestAgentRun_MayDelegateRestrictsTheCaller(t *testing.T) {
 	}, nil)
 	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
 
-	lead, err := c.AgentRun(context.Background(), ownerIdentity(), "lead", "coordinate", "", "")
+	lead, err := c.AgentRun(context.Background(), ownerIdentity(), "lead", "coordinate", "")
 	require.NoError(t, err, "the root session's delegation is not restricted")
 	childHome(t, c, lead.RunID)
 	caller := c.inProject(Identity{Harp: lead.Harp, RunID: lead.RunID, Depth: 1})
 
 	resolved := len(sp.resolved)
-	_, err = c.AgentRun(context.Background(), caller, "coder", "write it", "", "")
+	_, err = c.AgentRun(context.Background(), caller, "coder", "write it", "")
 	require.ErrorIs(t, err, ErrDelegationRefused)
 	assert.ErrorContains(t, err, `agent "lead" may launch only finder, not "coder"`)
 	assert.Len(t, sp.resolved, resolved, "nothing is resolved for a refused role")
 
-	finder, err := c.AgentRun(context.Background(), caller, "finder", "look it up", "", "")
+	finder, err := c.AgentRun(context.Background(), caller, "finder", "look it up", "")
 	require.NoError(t, err, "a listed role launches")
 	childHome(t, c, finder.RunID)
 }
@@ -42,10 +42,10 @@ func TestAgentRun_NoMayDelegatePermitsAny(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(t, map[string]fakeAgent{"lead": {perm: "bypass"}, "coder": {perm: "acceptEdits"}}, nil)
 	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
-	lead, err := c.AgentRun(context.Background(), ownerIdentity(), "lead", "coordinate", "", "")
+	lead, err := c.AgentRun(context.Background(), ownerIdentity(), "lead", "coordinate", "")
 	require.NoError(t, err)
 	childHome(t, c, lead.RunID)
-	coder, err := c.AgentRun(context.Background(), c.inProject(Identity{Harp: lead.Harp, RunID: lead.RunID, Depth: 1}), "coder", "write it", "", "")
+	coder, err := c.AgentRun(context.Background(), c.inProject(Identity{Harp: lead.Harp, RunID: lead.RunID, Depth: 1}), "coder", "write it", "")
 	require.NoError(t, err)
 	childHome(t, c, coder.RunID)
 }
@@ -82,13 +82,13 @@ func TestAgentRun_MayDelegateRestrictsTheRoot(t *testing.T) {
 
 	resolved := len(sp.resolved)
 	for _, caller := range []Identity{owner, c.inProject(Identity{Harp: root.Harp, RunID: root.RunID})} {
-		_, err := c.AgentRun(ctx, caller, "coder", "write it", "", "")
+		_, err := c.AgentRun(ctx, caller, "coder", "write it", "")
 		require.ErrorIs(t, err, ErrDelegationRefused)
 		assert.ErrorContains(t, err, `may launch only finder, not "coder"`)
 	}
 	assert.Len(t, sp.resolved, resolved, "nothing is resolved for a refused role")
 
-	finder, err := c.AgentRun(ctx, owner, "finder", "look it up", "", "")
+	finder, err := c.AgentRun(ctx, owner, "finder", "look it up", "")
 	require.NoError(t, err, "a listed role launches from the root")
 	childHome(t, c, finder.RunID)
 }
@@ -101,7 +101,7 @@ func TestAgentRun_RootWithoutMayDelegatePermitsAny(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	owner, _ := startRootRun(ctx, t, c, "owner-harp-free", "bypass permissions", nil)
-	coder, err := c.AgentRun(ctx, owner, "coder", "write it", "", "")
+	coder, err := c.AgentRun(ctx, owner, "coder", "write it", "")
 	require.NoError(t, err)
 	childHome(t, c, coder.RunID)
 }

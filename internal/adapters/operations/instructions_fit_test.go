@@ -5,6 +5,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -32,7 +33,7 @@ var worstCaseOutputDir = worstCaseHome + "/Documents/ctxloom/" + strings.Repeat(
 func TestSessionInstructions_PartsLeadWithWhatCostsMostToLose(t *testing.T) {
 	testsupport.Isolate(t)
 	const harp = "brisk-teal-otter"
-	got := SessionInstructions(harp)
+	got := SessionInstructions(afero.NewOsFs(), harp)
 
 	session := strings.Index(got, "`"+harp+"`")
 	catalog := strings.Index(got, PremiseSelectionInstruction()[:40])
@@ -49,18 +50,22 @@ func TestSessionInstructions_PartsLeadWithWhatCostsMostToLose(t *testing.T) {
 func TestSessionInstructions_FitTheClientCap(t *testing.T) {
 	testsupport.Isolate(t)
 	t.Setenv("HOME", worstCaseHome)
-	t.Setenv(sessions.EnvOutputDir, worstCaseOutputDir)
+	// The instruction names only a plan dir it could create, and the test
+	// cannot create one under worstCaseHome: so the dir is a creatable path
+	// padded to exactly the worst case's length, which is all the cap sees.
+	planDir := worstCaseLengthDir(t)
+	t.Setenv(sessions.EnvOutputDir, planDir)
 	t.Setenv(sessions.EnvHarp, worstCaseHarp)
 	t.Setenv("CTXLOOM_RESUMED_FROM", worstCaseHarp)
 	t.Setenv("CTXLOOM_RESUMED_PARTS", "session,tasks")
 
-	got := SessionInstructions(worstCaseHarp)
+	got := SessionInstructions(afero.NewOsFs(), worstCaseHarp)
 	require.Contains(t, got, "Resumed from", "the worst case must carry resume provenance")
-	require.Contains(t, got, worstCaseOutputDir, "the worst case must carry the plan dir")
+	require.Contains(t, got, planDir, "the worst case must carry the plan dir")
 
 	n := utf8.RuneCountInString(got)
 	t.Logf("worst case: %d chars (session line %d, catalog %d [selection %d], static %d)", n,
-		utf8.RuneCountInString(sessionLine(worstCaseHarp)),
+		utf8.RuneCountInString(sessionLine(afero.NewOsFs(), worstCaseHarp)),
 		utf8.RuneCountInString(strings.TrimRight(premiseCatalogInstruction(), "\n")),
 		utf8.RuneCountInString(PremiseSelectionInstruction()),
 		utf8.RuneCountInString(strings.TrimRight(mcpServerInstructions, "\n")))
@@ -74,4 +79,16 @@ func TestSessionInstructions_FitTheClientCap(t *testing.T) {
 
 	assert.LessOrEqual(t, n, InstructionsCharCap,
 		"the worst-case instructions exceed the client cap; claude would drop the tail")
+}
+
+// worstCaseLengthDir is a path under a test temp dir exactly as long, in
+// runes, as worstCaseOutputDir.
+func worstCaseLengthDir(t *testing.T) string {
+	t.Helper()
+	base := t.TempDir() + "/"
+	pad := utf8.RuneCountInString(worstCaseOutputDir) - utf8.RuneCountInString(base)
+	require.Positive(t, pad, "the temp dir is longer than the worst case it stands in for")
+	dir := base + strings.Repeat("p", pad)
+	require.Equal(t, utf8.RuneCountInString(worstCaseOutputDir), utf8.RuneCountInString(dir))
+	return dir
 }

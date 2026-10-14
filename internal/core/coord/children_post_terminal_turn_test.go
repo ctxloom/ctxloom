@@ -24,7 +24,7 @@ func TestOnTurnStarted_AfterTheRunsTerminal_DoesNotLeakAnExecutionSlot(t *testin
 	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinatorCap(t, sp, nil, 2)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
 
@@ -60,7 +60,7 @@ func TestOnTurnIdle_AfterTheRunsTerminal_DoesNotBridgeAgain(t *testing.T) {
 	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
 

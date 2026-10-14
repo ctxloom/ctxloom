@@ -192,6 +192,53 @@ type Entry struct {
 	// piggybacks on. Never appended to for an idempotent same-id rebind or an
 	// id-only bind, since neither displaces anything.
 	Rotations []Rotation `yaml:"rotations,omitempty" json:"rotations,omitempty"`
+
+	// RunEnds records how this session's runs ENDED, oldest first: the
+	// cause, its detail, and the runner's exit status when one is known.
+	// EndedAt says only when the session ended; without this a session whose
+	// runner was killed — a signal, an OOM kill — read afterwards exactly like
+	// one that finished. One entry per run (a run's later end replaces its
+	// earlier one), so a resume that fails to launch does not erase the end
+	// of the run it was resuming. Bounded to the newest MaxRunEnds; the
+	// coordinator's run journal keeps every end.
+	RunEnds []RunEnd `yaml:"run_ends,omitempty" json:"run_ends,omitempty"`
+}
+
+// MaxRunEnds bounds Entry.RunEnds: a one-shot session mints a run per turn,
+// and the sidecar is rewritten whole on every change.
+const MaxRunEnds = 16
+
+// RunEnd is one run's end as the session index records it (Entry.RunEnds).
+// ExitCode is the runner's or engine's exit status — its own code, or
+// 128+signum when a signal ended it — and is nil when no exit was observed
+// (a launch that failed, a runner still running when it was declared lost).
+// Failed reports a run that did not finish (coord.CauseIsFailure, or a
+// non-zero exit).
+type RunEnd struct {
+	RunID    string    `yaml:"run_id" json:"run_id"`
+	At       time.Time `yaml:"at" json:"at"`
+	Cause    string    `yaml:"cause" json:"cause"`
+	Detail   string    `yaml:"detail,omitempty" json:"detail,omitempty"`
+	ExitCode *int      `yaml:"exit_code,omitempty" json:"exit_code,omitempty"`
+	Failed   bool      `yaml:"failed,omitempty" json:"failed,omitempty"`
+}
+
+// withRunEnd returns ends with end recorded: replacing the same run's earlier
+// end in place, else appended, then trimmed to the newest MaxRunEnds. The one
+// rule both stores apply.
+func withRunEnd(ends []RunEnd, end RunEnd) []RunEnd {
+	end.At = end.At.UTC()
+	for i := range ends {
+		if ends[i].RunID == end.RunID {
+			ends[i] = end
+			return ends
+		}
+	}
+	ends = append(ends, end)
+	if over := len(ends) - MaxRunEnds; over > 0 {
+		ends = append(ends[:0:0], ends[over:]...)
+	}
+	return ends
 }
 
 // Rotation is one displaced binding in an Entry's lineage: the session ID and
@@ -761,6 +808,14 @@ func (m *Manager) MarkEnded(harpName string, at time.Time) error {
 	return m.update(harpName, func(e *Entry) (bool, error) {
 		t := at.UTC()
 		e.EndedAt = &t
+		return true, nil
+	})
+}
+
+// RecordRunEnd records how one of the session's runs ended (Entry.RunEnds).
+func (m *Manager) RecordRunEnd(harpName string, end RunEnd) error {
+	return m.update(harpName, func(e *Entry) (bool, error) {
+		e.RunEnds = withRunEnd(e.RunEnds, end)
 		return true, nil
 	})
 }

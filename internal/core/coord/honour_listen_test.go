@@ -67,7 +67,7 @@ func TestRunChild_HonoursTheCellsListenBeforeTheRunnerStarts(t *testing.T) {
 	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
-	_, err = c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	_, err = c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err, "the verb's cheap checks pass: the coordinator serves and the axis is known")
 
 	require.Eventually(t, func() bool {

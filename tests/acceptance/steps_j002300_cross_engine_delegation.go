@@ -108,10 +108,8 @@ func j002300ProfileYAML(s *j002300AgentSpec) string {
 // proves CONTEXT isolation and the message bus, not workspace isolation
 // (j002200_isolation.feature's own job), and the fixture's own bundle/profile
 // files are freshly written, uncommitted state that a worktree spawn would
-// otherwise refuse to carry over without an explicit dirty_tree_handler
-// (operations.handleDirtyParentTree) — irrelevant noise for what this
-// journey asserts, and confirmed empirically: without it, agent_run's async
-// launch fails outright ("refusing to auto-commit for delegated agent").
+// commit onto the fixture's branch first (operations.commitParentTree) —
+// irrelevant noise for what this journey asserts.
 func j002300HermeticConfigYAML(specs ...*j002300AgentSpec) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "schema_version: %d\nworkspace: none\nllm:\n  configs:\n    fast:\n      type: mock\n  defaults:\n    primary: fast\n    fast: fast\nagents:\n", config.CurrentConfigVersion)
@@ -147,24 +145,15 @@ const j002300PerEngineAgent = "delegate"
 // unisolated cannot answer whether delegation survives the boundary — which is
 // the whole question isolation exists to settle.
 //
-// A WORKTREE CALLER NEEDS BOTH A COMMIT AND dirty_tree_handler: "copy", and
-// MEASURED 2026-08-24, either one alone is not enough:
-//
-//   - the COMMIT gives the repo a HEAD to branch from. TestEnvironment.
-//     InitGitRepo only runs `git init` plus user config, and AddGitWorktree
-//     documents that `git worktree add -b` needs a valid HEAD, so without a
-//     commit the spawn cannot carve a worktree at all.
-//   - "copy" covers everything written AFTER that commit. ctxloom materializes
-//     its own managed files during session startup — .ctxloom/project-id,
-//     .claude/settings.json, .claude/commands/*.md,
-//     .ctxloom/cache/context/* and more — so a fixture that commits and stops
-//     is dirty again by the time agent_run runs.
-//
-// The first live run of the container cell failed exactly there: the child
-// never launched, and the refusal listed ctxloom's own files, not the
-// fixture's. "copy" reproduces the changes as
-// uncommitted WIP inside the child's worktree, which is what a fixture wants:
-// the child sees the bundle and profile that carry its marker.
+// A WORKTREE CALLER NEEDS A COMMIT: it gives the repo a HEAD to branch from.
+// TestEnvironment.InitGitRepo only runs `git init` plus user config, and
+// AddGitWorktree documents that `git worktree add -b` needs a valid HEAD, so
+// without a commit the spawn cannot carve a worktree at all. Everything
+// written AFTER that commit — ctxloom materializes its own managed files
+// during session startup (.ctxloom/project-id, .claude/settings.json,
+// .claude/commands/*.md, .ctxloom/cache/context/* and more) — is carried
+// across by the parent commit ctxloom makes before carving the child's
+// checkout, so the child sees the bundle and profile that carry its marker.
 //
 // runtime rides the AGENT BINDING and workspace rides the top level, matching
 // j002200ConfigYAML's mock-container binding — the two axes are independent and
@@ -173,20 +162,13 @@ const j002300PerEngineAgent = "delegate"
 // a key in the fixture that the host rows never had.
 func j002300PerEngineConfigYAML(a liveAgent, llmKey string, s *j002300AgentSpec, runtime, workspace string) string {
 	runtimeLine := runtimeBindingLine(runtime)
-	// "copy" is scoped to the worktree axis: on a shared workspace the child
-	// runs in the project itself, so there is no second checkout to reproduce
-	// into and the key would be inert noise in the host rows' fixture.
-	dirtyLine := ""
-	if workspace == "worktree" {
-		dirtyLine = "dirty_tree_handler: copy\n"
-	}
 	return a.config + fmt.Sprintf(`workspace: %s
-%sagents:
+agents:
   %s:
     llm: %s
 %s    profiles:
       - %s
-%s`, workspace, dirtyLine, s.Name, llmKey, runtimeLine, s.Profile, a.bypassBlock())
+%s`, workspace, s.Name, llmKey, runtimeLine, s.Profile, a.bypassBlock())
 }
 
 // j002300WriteAgent writes one agent's bundle + profile files.

@@ -182,7 +182,9 @@ func (s *session) ExitErr() error {
 		return s.waitErr
 	}
 	if s.code != 0 {
-		return fmt.Errorf("runner exited with status %d", s.code)
+		// Classified already (exitstatus.Of, in the reaper): the coordinator
+		// records the status this carries.
+		return &exitstatus.Error{Code: s.code, Err: fmt.Errorf("runner exited with status %d", s.code)}
 	}
 	return nil
 }

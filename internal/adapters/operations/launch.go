@@ -35,7 +35,7 @@ import (
 // identity and resolves the launch through launch.Resolve, with the ports
 // Resolve needs composed once by LaunchDeps. The cells adapter here is the
 // ONE place the three launch paths used to each prepare a workspace, bind
-// the engine home and settle the dirty parent tree.
+// the engine home and commit around a delegated child's worktree.
 
 // StartRun mints the session identity for seed and resolves src through the
 // one resolver, then records the version of the binary the resolved launch
@@ -269,8 +269,8 @@ func (a *assembler) LabelEnv(snap *config.Snapshot, label string) map[string]str
 	return MockControlFor(a.engines, snap.Config, label)
 }
 
-// Cells implements launch.Cells: it settles the dirty parent tree for a
-// delegated child's worktree cell, has isolation prepare the run's
+// Cells implements launch.Cells: it commits around a delegated child's
+// worktree cell (parentCommit), has isolation prepare the run's
 // Environment and hands the cell exactly that environment's outcome. A
 // requested boundary that could not be provided is refused here, typed.
 //
@@ -286,8 +286,8 @@ type Cells struct {
 	// cell, which relocates and probes but creates no checkout, scratch or
 	// session home.
 	preview bool
-	// Git overrides the git seam the dirty-parent-tree decision uses (nil
-	// selects the real binary).
+	// Git overrides the git seam the parent commit uses (nil selects the
+	// real binary).
 	Git git.Git
 }
 
@@ -329,11 +329,8 @@ var (
 // Prepare implements launch.Cells.
 func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell, error) {
 	harp := req.Identity.Harp
-	gitClient, pendingCopy, err := c.settleDirtyParentTree(ctx, req, harp)
-	if err != nil {
-		return launch.Cell{}, err
-	}
-	spec, creds, err := c.spec(ctx, req, harp)
+	commits := c.parentCommit(req, harp)
+	spec, creds, err := c.spec(ctx, req, harp, commits)
 	if err != nil {
 		return launch.Cell{}, err
 	}
@@ -345,9 +342,15 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	// finding, which stays on the ledger for the dry run's own gate to list
 	// after the plan.
 	mark := strictness.Checkpoint()
+	commits.opened(mark)
 	env, err := c.environment(ctx, req, spec)
 	found := strictness.Since(mark)
 	strictness.Close(mark)
+	if cerr := commits.refusal(); cerr != nil {
+		// The parent commit could not be made: returned as it was phrased,
+		// since the runtime is not what failed.
+		return launch.Cell{}, cerr
+	}
 	if errors.Is(err, engine.ErrNoCredential) {
 		// A credential store the run cannot have (missing, or one no
 		// container can reach) is the credential's refusal, with its own
@@ -362,13 +365,6 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 		return launch.Cell{}, fmt.Errorf("%w: %w", launch.ErrRuntimeUnavailable, gerr)
 	}
 	placement := env.Placement()
-	cwd := placement.Paths.Paths().ProjectRoot.Host
-	if pendingCopy != nil {
-		if err := applyCopySnapshot(ctx, gitClient, cwd, pendingCopy); err != nil {
-			_ = env.Cleanup()
-			return launch.Cell{}, err
-		}
-	}
 	return launch.Cell{
 		Placement:             placement,
 		HomeMode:              req.HomeMode,
@@ -383,7 +379,12 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 
 // spec is the isolation Spec the request's cell is prepared from, with the
 // credentials its agent authenticates with.
-func (c Cells) spec(ctx context.Context, req launch.CellRequest, harp string) (isolation.Spec, engine.Credentials, error) {
+//
+// commits, when the cell is a delegated child's worktree (parentCommit),
+// commits the parent before a NEW checkout is carved
+// (isolation.SpecBuilder.BeforeCheckout) and the child's checkout when it is
+// torn down (isolation.SpecBuilder.CommitOnTeardown); nil for neither.
+func (c Cells) spec(ctx context.Context, req launch.CellRequest, harp string, commits *parentCommit) (isolation.Spec, engine.Credentials, error) {
 	// The resolver settled the home mode from the binding's declaration;
 	// re-parsed here through the vocabulary's own parser so the cell never
 	// asserts a spelling it did not check.
@@ -395,14 +396,17 @@ func (c Cells) spec(ctx context.Context, req launch.CellRequest, harp string) (i
 	if err != nil {
 		return isolation.Spec{}, engine.Credentials{}, err
 	}
-	spec, err := isolation.NewSpec(req.Axes, req.Engine).
+	b := isolation.NewSpec(req.Axes, req.Engine).
 		Project(req.ProjectRoot).
 		Session(req.SessionDir, isolation.SessionState{Harp: harp, ProjectID: req.Identity.Project}).
 		Image(req.Image).
 		Home(homeMode).
 		Credentials(creds).
-		EnvHost(req.EnvHost).
-		Build()
+		EnvHost(req.EnvHost)
+	if commits != nil {
+		b = b.BeforeCheckout(commits.beforeCheckout).CommitOnTeardown()
+	}
+	spec, err := b.Build()
 	return spec, creds, err
 }
 
@@ -435,26 +439,80 @@ func (c Cells) environment(ctx context.Context, req launch.CellRequest, spec iso
 	return prepareEnvironment(ctx, req, spec)
 }
 
-// settleDirtyParentTree runs the dirty-tree handler for a delegated worktree
-// spawn, returning the git client it used and the snapshot still to copy
-// into the prepared workspace (nil for neither). The handler is a DELEGATED
-// spawn's concern (its rationale is with handleDirtyParentTree): the
-// originator who asked for a worktree is at the terminal with the tree in
-// front of them, and is not gated on it. The handler itself arrives settled
-// by the resolver.
-func (c Cells) settleDirtyParentTree(ctx context.Context, req launch.CellRequest, harp string) (git.Git, *copySnapshot, error) {
+// parentCommit is the commit on each side of a delegated child's worktree
+// run (the rationale is with commitParentTree): the parent's uncommitted and
+// untracked state is committed before a NEW checkout is carved from the
+// parent's HEAD, and the child's checkout commits whatever it holds
+// uncommitted on its own branch when the cell is torn down, however the run
+// ended. A delegated child's concern only: the originator who asked for a
+// worktree is at the terminal with the tree in front of them.
+//
+// The parent commit runs from isolation's BeforeCheckout hook, NOT ahead of
+// the launch, which is what keeps it from stranding a commit no child sees:
+//
+//   - it runs only once isolation is about to carve the checkout, after the
+//     container gate and the occupied-path check, and only while no
+//     isolation finding that refuses the run has been recorded in this
+//     launch's window (isolationGateErr over the findings so far) — a launch
+//     that goes on to fail commits nothing;
+//   - it does not run for a resume that re-enters its own checkout or its
+//     own branch: that checkout is on the child's branch and never sees a new
+//     commit on the parent's.
+//
+// A nil parentCommit is a launch none of this governs; its methods are
+// nil-safe.
+type parentCommit struct {
+	git     git.Git
+	project string
+	harp    string
+	mode    strictness.Mode
+	// mark is the launch's findings window, opened just before the
+	// environment is prepared (opened); the hook reads the findings so far.
+	mark strictness.Mark
+	// err is the parent commit's own refusal.
+	err error
+}
+
+// parentCommit is the request's commits, or nil when the cell is not a
+// delegated child's worktree.
+func (c Cells) parentCommit(req launch.CellRequest, harp string) *parentCommit {
 	if c.preview || req.Axes.Workspace != launch.WorkspaceWorktree || !req.Identity.IsChild() {
-		return nil, nil, nil
+		return nil
 	}
 	gitClient := c.Git
 	if gitClient == nil {
 		gitClient = git.NewExec()
 	}
-	outcome, err := handleDirtyParentTree(ctx, gitClient, req.ProjectRoot, harp, req.DirtyTree)
-	if err != nil {
-		return nil, nil, err
+	return &parentCommit{git: gitClient, project: req.ProjectRoot, harp: harp, mode: c.mode}
+}
+
+// opened records the launch's findings window.
+func (p *parentCommit) opened(mark strictness.Mark) {
+	if p != nil {
+		p.mark = mark
 	}
-	return gitClient, outcome.copy, nil
+}
+
+// beforeCheckout commits the parent, unless the launch is already refused: a
+// commit for a run that will not start is a commit no child sees. That
+// refusal is the isolation gate's, which Prepare reports.
+func (p *parentCommit) beforeCheckout(ctx context.Context) error {
+	if gerr := isolationGateErr(p.mode, strictness.Since(p.mark)); gerr != nil {
+		return gerr
+	}
+	if err := commitParentTree(ctx, p.git, p.project, p.harp); err != nil {
+		p.err = err
+		return err
+	}
+	return nil
+}
+
+// refusal is the parent commit's own refusal, nil for none.
+func (p *parentCommit) refusal() error {
+	if p == nil {
+		return nil
+	}
+	return p.err
 }
 
 // endpointMinter mints the session's MCP endpoint on the host: a reserved

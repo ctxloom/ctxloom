@@ -117,7 +117,7 @@ func openContractLane(t *testing.T, stateDir string) *contractLane {
 // delegate starts the child on a turn that asks about contractTool.
 func (l *contractLane) delegate(t *testing.T) *coord.RunOutcome {
 	t.Helper()
-	out, err := l.c.AgentRun(context.Background(), l.owner, askerAgent, mock.Ask(contractTool, contractCall), "", "")
+	out, err := l.c.AgentRun(context.Background(), l.owner, askerAgent, mock.Ask(contractTool, contractCall), "")
 	require.NoError(t, err)
 	return out
 }

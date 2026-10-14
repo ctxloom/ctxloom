@@ -58,13 +58,13 @@ flowchart TD
 
 | Type | file | Role |
 |---|---|---|
-| `SpawnPlan` | `spawner.go` | a resolved agent launch: agent name, backend, label, profiles, runtime, permission, degradations, MCP servers, `ResumeMode`, the resolved `Launch` and the config `Snapshot`. `Workspace`/`DirtyTreeHandler` are stamped **after** `Resolve`, by `AgentRun` |
+| `SpawnPlan` | `spawner.go` | a resolved agent launch: agent name, backend, label, profiles, runtime, permission, degradations, MCP servers, `ResumeMode`, the resolved `Launch` and the config `Snapshot`. `Workspace` is stamped **after** `Resolve`, by `AgentRun` |
 | `ResumeMode` | `spawner.go` | persistent vs one-shot engine lifecycle |
 | `SpawnStart` / `Resolved` | `spawner.go` | the per-attempt inputs to `ResolveLaunch` (identity, resume key, `Resumed`, `Prompt`; a rebind re-resolves with the same `SpawnStart`, since every resolve mints a new endpoint) and its result, the launch to deliver |
 | `Spawner` (interface) | `spawner.go` | the launch seam tests fake: `Resolve`, `AssignSession`, `RecordEngineVersion`, `ResolveLaunch`, `Start`, `Adopt`, `ResumeHistory`, `MarkSessionEnded` |
 | `spawner` | `adapters/spawn/spawner.go` | the one production implementation, over the operations launch trunk. Session accounting is RUN-scoped: `Start` makes the run the owner of its harp's session and (re-)holds the session's liveness lock — a resumed run's was released at its predecessor's end — and `MarkSessionEnded(harp, runID)` ends the session only for its owner (or a harp no run claimed: a refused spawn, `""`; a run that failed before its runner started), so the ended run's late call, made last in its teardown after a resume already started the successor, is a no-op |
 | `EngineSpawn` | `spawner.go` | `Start` result: a spawned runner's `Kill`, `StderrTail` and `Wait` |
-| `childRt` | `children.go` | the non-durable runtime attachment of one live run: identity and lineage (`harp`, `parentHarp`, `parentRunID`, `depth`, `plan`), the `slot` tri-state and `slotCancel`, `oneshot`, `ownerRun`, `launchCancel`, a bulk stop's `exitRequested`, `close`, `idleSince`, `workDir`, the death evidence (`runFailure`, `stderrTail`, `runnerWait`), and the test-facing `attached` |
+| `childRt` | `children.go` | the non-durable runtime attachment of one live run: identity and lineage (`harp`, `parentHarp`, `parentRunID`, `depth`, `plan`), the `slot` tri-state and `slotCancel`, `oneshot`, `ownerRun`, `launchCancel`, a bulk stop's `exitRequested`, `close`, `idleSince`, `workDir`, the death evidence (`runFailure`, `stderrTail`, `runnerExit`, `reportedExit`), and the test-facing `attached` |
 | `RunRecord` | `folds.go` | the durable run record; `TopLevel()` is true when `ParentHarp` is empty or equals its own `Harp` — a session's own run, not a delegated child |
 | `RunOutcome` | `children.go` | `agent_run`'s return payload, **fixed at enqueue** |
 | `Coordinator.slots` | `coordinator.go` | `semaphore.Weighted` (`golang.org/x/sync`), bounding concurrently executing child turns. `Release` panics on an over-release rather than handing back a token nobody took — a silently inflated cap admits more live engine processes than configured |
@@ -146,11 +146,39 @@ consequences.
 |---|---|
 | `CauseStopped` | explicit `agent_stop` (`stopRun`), or a bulk stop through drain.go's stop policy; never relaunched for leftover mail |
 | `CauseRunnerExit` | the runner process reported `RunExited` |
-| `CauseRunnerLoss` | the run's RunnerChannel disconnected or missed heartbeats past the bound, or no runner re-Hello'd within the grace after a coordinator relaunch |
+| `CauseRunnerLoss` | the run's RunnerChannel disconnected or missed heartbeats past the bound, or no runner re-Hello'd within the grace after a coordinator relaunch. A watchdog tick late by more than `watchdogStallLateness` (one whole `HeartbeatInterval`, so at least one tick was missed) means the coordinator or host itself stalled. That tick ends nothing: it gives every connected runner one fresh loss bound from now and journals `watchdog_stall` with `late_by` (`checkRunnerLiveness`) |
 | `CauseLaunchFailed` | the launch never attached (`failChild`) |
 | `CauseIdleReaped` | the idle reaper's terminal: no turn for `delegation.idle_timeout`; no parent notice, the harp stays resumable |
 | `CauseDrained` / `CauseDrainInterrupted` | the coordinator's drain ended the child with no work cut short, or forced it down at the drain bound mid-turn |
 | `CauseFinalReported` | the child filed its SCOPE_FINAL report (`endOnFinalReport`); the parent's notice is still queued |
+
+## What an end records
+
+Every end, whatever its cause, is recorded in four places by `endRun`, with
+the exit status when one was observed (`runEndStatus`):
+
+- **The journal**: `factRunEnded` carries the cause, the detail and
+  `exit_code`. The status is the engine's own, from its `RunExited` frame,
+  when it sent one. A run declared LOST has no frame, so its runner
+  process's exit is awaited for up to `defaultRunnerExitGrace`
+  (`runnerexit.go`; `childRt.runnerExit` keeps the runner handle's `Wait`
+  for the run's whole life, not only for standup) and folded into the
+  detail. A runner the kernel killed reads `runner process: … signal:
+  killed` with status 137. A runner that was still running when it was
+  declared lost (a stalled host) reads "still running … the coordinator
+  ended it" and has no status.
+- **The watch stream**: a `RunCompleted` built by `syntheticResult`. Only an
+  engine sends one, so without this a run whose engine never did left every
+  viewer, including the `ctxloom run` that owns it, waiting for an outcome
+  that was already journaled. The hub keeps one terminal per run
+  (`watchHub.terminated`): an engine's own `RunCompleted` that got there first
+  stands. The event is broadcast after the tail drain and before the runner
+  is killed. Its seq is 0, outside the runner's sequence.
+- **The parent's mailbox**: `notifyParentOfDeath`, whose body carries the
+  detail, and with it the runner's exit.
+- **The session index**: `Spawner.MarkSessionEnded` records the end on the
+  harp's `sessions.Entry.RunEnds`, even when a successor run already owns the
+  session.
 
 ## End fence
 

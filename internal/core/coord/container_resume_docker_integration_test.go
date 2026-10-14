@@ -136,7 +136,7 @@ func (s *resumeSpawner) Start(ctx context.Context, l launch.Launch, reach sessio
 
 func (s *resumeSpawner) ResumeHistory(context.Context, string) string                { return "" }
 func (s *resumeSpawner) RecordEngineVersion(context.Context, string, string, string) {}
-func (s *resumeSpawner) MarkSessionEnded(string, string)                             {}
+func (s *resumeSpawner) MarkSessionEnded(string, string, *sessions.RunEnd)           {}
 func (s *resumeSpawner) BindNativeSession(string, string)                            {}
 func (s *resumeSpawner) NativeSession(string) string                                 { return "" }
 
@@ -253,7 +253,7 @@ func reapedAndResumed(t *testing.T) (*coord.Coordinator, *resumeSpawner, string,
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	out, err := c.AgentRun(ctx, coord.OwnerIdentity(), resumeAgentName, "first-task", "", "")
+	out, err := c.AgentRun(ctx, coord.OwnerIdentity(), resumeAgentName, "first-task", "")
 	require.NoError(t, err)
 	awaitResult(t, c, "first-task", 60*time.Second)
 	awaitState(t, c, out.Harp, coord.StateIdle, 30*time.Second)

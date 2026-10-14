@@ -51,7 +51,7 @@ func TestAgentRun_QueuedDispositionIsTruthful(t *testing.T) {
 		t.Errorf("the dispatched child never released its slot within %s, so this test never reached the window it is about", queuedTruthWait)
 	}
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 
 	// Corroboration, independent of the disposition itself: the engine

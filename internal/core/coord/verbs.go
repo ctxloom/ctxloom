@@ -35,23 +35,19 @@ type Verbs interface {
 var ErrInvalidRequest = errors.New("invalid request")
 
 // SpawnRequest is agent_run: launch Agent as the caller's child with Prompt
-// as its first turn. Workspace and DirtyTree are the per-call axis
-// overrides; empty defers to the project's configured default.
+// as its first turn. Workspace is the per-call axis override; empty defers
+// to the project's configured default.
 type SpawnRequest struct {
 	Agent     string `json:"agent"`
 	Prompt    string `json:"prompt"`
 	Workspace string `json:"workspace,omitempty"`
-	DirtyTree string `json:"dirty_tree_handler,omitempty"`
 }
 
 // Validate is the ONLY validation site for a spawn: the agent name and the
-// prompt are required, and both per-call vocabularies are parsed here — a
+// prompt are required, and the per-call workspace vocabulary is parsed here — a
 // typo would otherwise ride inward to the launch goroutine and be reported
 // as a child that died, to a caller who could no longer see which argument
-// was wrong. dirty_tree_handler's default member auto-commits the user's
-// working tree, so a misspelling that fell through to a default would write
-// to the repository past both the caller's and the project's explicit
-// choice.
+// was wrong.
 func (r SpawnRequest) Validate() error {
 	if err := requireNonEmpty("agent_run", "agent", r.Agent); err != nil {
 		return err
@@ -62,17 +58,13 @@ func (r SpawnRequest) Validate() error {
 	if _, err := launch.ParseWorkspaceAxis(r.Workspace); err != nil {
 		return fmt.Errorf("%w: agent_run: workspace: %v", ErrInvalidRequest, err)
 	}
-	if _, err := launch.ParseDirtyTreeHandler(r.DirtyTree); err != nil {
-		return fmt.Errorf("%w: agent_run: dirty_tree_handler: %v", ErrInvalidRequest, err)
-	}
 	return nil
 }
 
-// axes converts the validated overrides to their launch types.
-func (r SpawnRequest) axes() (launch.WorkspaceAxis, launch.DirtyTreeHandler) {
+// workspace converts the validated workspace override to its launch type.
+func (r SpawnRequest) workspace() launch.WorkspaceAxis {
 	w, _ := launch.ParseWorkspaceAxis(r.Workspace)
-	d, _ := launch.ParseDirtyTreeHandler(r.DirtyTree)
-	return w, d
+	return w
 }
 
 // SpawnResult names the child — its harp and this incarnation's run id —

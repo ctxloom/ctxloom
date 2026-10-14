@@ -44,7 +44,7 @@ func TestRunnerLifetime_OneShotBoundaryParksTheRunner_MailRidesTheSameRunner(t *
 	sp := oneShotSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond,
@@ -82,7 +82,7 @@ func TestRunnerLifetime_TurnFrameDrivesAParkedRunner(t *testing.T) {
 	sp := oneShotSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
@@ -113,7 +113,7 @@ func TestRunnerLifetime_IdleReaper_EndsAParkedRunnerAfterIdleTimeout(t *testing.
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	c := newTestCoordinatorIdle(t, sp, clock, time.Minute)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
@@ -153,7 +153,7 @@ func TestRunnerLifetime_EndpointUnavailable_RebindsAndReissuesToTheSameRunner(t 
 	sp.refuseBinds = 1
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	res := recvWhere(t, c, func(m Message) bool { return m.Kind == "result" && strings.Contains(m.Body, "task one") }, conformanceWait)
 	require.NotEmpty(t, res, "the run comes up after the rebind")
@@ -174,7 +174,7 @@ func TestRunnerLifetime_EndpointUnavailableTwice_FailsTheChild(t *testing.T) {
 	sp.refuseBinds = 2
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
 	assert.Len(t, sp.resolvedLaunches(), 2, "exactly one rebind is attempted")

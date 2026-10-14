@@ -41,7 +41,7 @@ func TestSpoolCutover_MailRidesTheSpoolWithNothingAsked(t *testing.T) {
 	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "first task", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "first task", "")
 	require.NoError(t, err)
 	upCtx, upCancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer upCancel()

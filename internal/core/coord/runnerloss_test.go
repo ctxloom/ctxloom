@@ -66,7 +66,7 @@ func TestRunnerLoss_DisconnectSynthesizesExit(t *testing.T) {
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
-	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.chat(0)
@@ -74,7 +74,7 @@ func TestRunnerLoss_DisconnectSynthesizesExit(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond)
 
 	// A second run queues behind the cap.
-	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "", "")
+	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "")
 	require.NoError(t, err)
 	require.True(t, second.Queued)
 
@@ -120,7 +120,7 @@ func TestRunnerLoss_HeartbeatTimeout(t *testing.T) {
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, clockMu.now)
 
-	run, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	run, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.chat(0)

@@ -34,7 +34,7 @@ func TestClose_DeletesEveryTreeAgentsHomeAndScratch(t *testing.T) {
 	rootsHome(t)
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	c := newRoot(t, ownerIdentity().Harp, "", sp)
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 	owner := seedMembers(t, ownerIdentity().Harp)
@@ -59,7 +59,7 @@ func TestClose_LeavesTheMembersOfARunThatHasNotEnded(t *testing.T) {
 	gate := make(chan struct{})
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	first := newRoot(t, ownerIdentity().Harp, "", sp)
-	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		sp.mu.Lock()

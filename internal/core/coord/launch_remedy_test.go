@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -63,7 +64,7 @@ func TestFailChild_LaunchNoticeCarriesTheRemedy(t *testing.T) {
 	}
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 
 	notice := childLaunchNotice(t, c, out.Harp)
@@ -99,7 +100,7 @@ func TestIssueStartRun_RefusalNoticeCarriesTheRemedy(t *testing.T) {
 	sp.refuse = refuseOnly(func(req *agentcoordpb.RunnerRequest) bool { return req.GetStartRun() != nil }, remedialRefusal())
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 
 	notice := childLaunchNotice(t, c, out.Harp)
@@ -132,7 +133,7 @@ func TestTurn_RefusalCarriesTheRemedy(t *testing.T) {
 	sp := oneShotSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
@@ -172,4 +173,51 @@ func TestControlPause_RefusalCarriesTheRemedy(t *testing.T) {
 	fix, ok := clifmt.RemedyOf(err)
 	require.True(t, ok, "the refusal's remedy must survive the coordinator's wrap: %v", err)
 	assert.Equal(t, launchRemedyFix, fix)
+}
+
+// TestFailChild_StreamedRefusalWarnsItsFixOnce: a launch refused by a findings
+// gate (report.Streamed) was already shown on this process's diagnostic
+// stream, each finding with its fix line, when the finding was raised. The
+// coordinator's own "failed to launch" warning then names the refusal and does
+// not print that fix again (three copies of one fix line reached the human's
+// terminal). The parent's notice still carries the fix: the parent never saw
+// the stream.
+func TestFailChild_StreamedRefusalWarnsItsFixOnce(t *testing.T) {
+	resetStrictness(t)
+	const summary = "isolation: refusing to run this member"
+	refusal := report.Streamed{
+		Err:     report.Error{Msg: summary + ":\n  - [isolation] container isolation was requested but could not start", Fix: launchRemedyFix},
+		Summary: summary,
+	}
+	sp := &remedyLaunchSpawner{
+		fakeSpawner: newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless}}, nil),
+		err:         fmt.Errorf("%w: %w", launch.ErrRuntimeUnavailable, refusal),
+	}
+	var warnings []string
+	var mu sync.Mutex
+	c := newTestCoordinatorWith(t, sp, func(o *Options) {
+		o.Reporter = report.SinkFunc(func(f report.Finding) {
+			mu.Lock()
+			defer mu.Unlock()
+			warnings = append(warnings, f.Text)
+		})
+	})
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
+	require.NoError(t, err)
+	notice := childLaunchNotice(t, c, out.Harp)
+	assert.Contains(t, notice.Body, clifmt.FixLine("", launchRemedyFix), "the parent's notice keeps the fix: it never saw the stream")
+
+	mu.Lock()
+	defer mu.Unlock()
+	var launchWarning string
+	for _, w := range warnings {
+		if strings.Contains(w, "failed to launch") {
+			launchWarning = w
+		}
+	}
+	require.NotEmpty(t, launchWarning, "the launch failure is still warned: %q", warnings)
+	assert.Contains(t, launchWarning, summary, "the warning names the refusal")
+	assert.NotContains(t, launchWarning, launchRemedyFix, "the fix the stream already showed is not printed again")
+	assert.NotContains(t, launchWarning, "[isolation]", "nor is the finding it already showed")
 }

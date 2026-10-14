@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -101,6 +102,10 @@ type Container struct {
 	// when the detected devcontainer.json declares dockerComposeFile (config
 	// isolation_devcontainer_service).
 	devcontainerService string
+	// limits are the configured per-container resource caps
+	// (ImageConfig.Limits), resolved against the runtime at each runner's
+	// spec (buildRunnerSpec). The zero value takes every default.
+	limits config.ContainerLimits
 	// engine is THIS container's engine — the backend it was built for. It
 	// keys the agent image: ONE engine per image, so the image identity is a
 	// function of the engine alone, cacheable across projects and structurally
@@ -176,6 +181,7 @@ func containerFor(rt Runtime, backend string, img ImageConfig) Container {
 	c.baseChoice = img.Base
 	c.appRoot = img.AppRoot
 	c.devcontainerService = img.DevcontainerService
+	c.limits = img.Limits
 	if img.Image != "" {
 		c.image = img.Image
 		c.engineSpec.engineInstall = nil

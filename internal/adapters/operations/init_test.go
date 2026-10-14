@@ -72,42 +72,6 @@ func TestInitializeProject_UnknownEngineRefusesAndWritesNothing(t *testing.T) {
 	assert.False(t, cfgExists, "a rejected engine must leave no config.yaml behind")
 }
 
-// TestInitializeProject_DirtyTreeHandlerLandsAndNoAckIsRecorded proves the
-// handler actually LANDS ON DISK — not just that InitializeProject returns
-// success. The handler is read back as raw bytes and through
-// config.ParseConfig.
-func TestInitializeProject_DirtyTreeHandlerLands(t *testing.T) {
-	for _, handler := range []string{"commit", "copy", "stale", "fail", ""} {
-		t.Run("handler="+handler, func(t *testing.T) {
-			fs := afero.NewMemMapFs()
-			appDir := "/proj/.ctxloom"
-
-			res, err := InitializeProject(context.Background(), engines.Registry(), InitializeProjectRequest{
-				AppDir:           appDir,
-				Engine:           "claude-code",
-				DirtyTreeHandler: handler,
-				FS:               fs,
-			})
-			require.NoError(t, err)
-			require.Equal(t, "initialized", res.Status)
-
-			cfgData, err := afero.ReadFile(fs, paths.ConfigPath(appDir))
-			require.NoError(t, err, "config.yaml should be written")
-			body := string(cfgData)
-			if handler != "" {
-				assert.Contains(t, body, "dirty_tree_handler: "+handler)
-			} else {
-				assert.NotContains(t, body, "dirty_tree_handler:")
-			}
-
-			cfg, err := config.ParseConfig(cfgData)
-			require.NoError(t, err)
-			assert.Equal(t, handler, cfg.GetDirtyTreeHandler())
-
-		})
-	}
-}
-
 func TestInitializeProject_RequiresAppDir(t *testing.T) {
 	_, err := InitializeProject(context.Background(), engines.Registry(), InitializeProjectRequest{Engine: "claude-code", FS: afero.NewMemMapFs()})
 	require.Error(t, err)
@@ -196,7 +160,7 @@ func TestBuildInitialConfig(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			data, err := BuildInitialConfig(tt.engine, "", "")
+			data, err := BuildInitialConfig(tt.engine, "")
 			require.NoError(t, err)
 
 			// init clears `role` on the entries it copies from the shipped registry.
@@ -257,7 +221,7 @@ func TestEngineRegistry_SingleRoleMarkedEntryServesBothRoles(t *testing.T) {
 func TestBuildInitialConfig_HeadlessPostureOnTheSeedAgent(t *testing.T) {
 	seed := func(t *testing.T, posture string) agents.Agent {
 		t.Helper()
-		data, err := BuildInitialConfig("mock", "", posture)
+		data, err := BuildInitialConfig("mock", posture)
 		require.NoError(t, err)
 		cfg, err := config.ParseConfig(data)
 		require.NoError(t, err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
@@ -99,10 +100,13 @@ func (d Docker) Enumerate(ctx context.Context, namePrefix string) ([]ContainerIn
 
 // dockerOwnershipFormat is the `docker info` template whose answer names
 // "rootless" among the daemon's security options when the daemon is rootless.
-const dockerOwnershipFormat = "{{.SecurityOptions}}"
+// The same call reports, ahead of that list, the host's memory and whether
+// the daemon enforces each resource cap (dockerLimitSupport): one probe for
+// both.
+const dockerOwnershipFormat = "{{.MemTotal}} {{.MemoryLimit}} {{.SwapLimit}} {{.PidsLimit}} {{.SecurityOptions}}"
 
 // dockerRootless reads dockerOwnershipFormat's answer. Every answer is
-// readable: the list names rootless or it does not.
+// readable: the list names rootless or it does not (no other field can).
 func dockerRootless(answer string) (bool, error) { return strings.Contains(answer, "rootless"), nil }
 
 // newDockerRuntime probes docker for selection: reachability, then — only
@@ -116,9 +120,32 @@ func newDockerRuntime(reachable func(string) bool) (Docker, RuntimeAxis) {
 	if !reachable("docker") {
 		return Docker{}, ownershipUndecided
 	}
-	owns, _ := probeOwnership("docker", dockerOwnershipFormat, dockerRootless)
+	owns, answer := probeOwnership("docker", dockerOwnershipFormat, dockerRootless)
 	d := Docker{rootless: owns == RuntimeContainerRootless}
 	d.reachable = true
+	d.limits = dockerLimitSupport(answer)
 	d.self, d.selfErr = resolveSelf(d)
 	return d, owns
+}
+
+// dockerLimitSupport reads the limit fields of dockerOwnershipFormat's
+// answer: MemTotal, then the daemon's own MemoryLimit / SwapLimit /
+// PidsLimit verdicts. Those verdicts are false where the daemon cannot
+// enforce a cap (rootless docker without cgroup v2), and docker then discards
+// the flag with a warning of its own; rendering nothing is the same outcome
+// without the noise. An unreadable answer enforces nothing.
+func dockerLimitSupport(answer string) limitSupport {
+	f := strings.Fields(answer)
+	if len(f) < 4 {
+		return limitSupport{}
+	}
+	mem, err := strconv.ParseInt(f[0], 10, 64)
+	if err != nil {
+		return limitSupport{}
+	}
+	sup := limitSupport{hostMemory: mem, memory: f[1] == "true", swap: f[2] == "true", pids: f[3] == "true"}
+	if !sup.memory && !sup.pids {
+		sup.unenforced = "docker reports no memory or pids cgroup control (rootless docker needs cgroup v2 with systemd)"
+	}
+	return sup
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -26,7 +27,7 @@ func newTestServer(harp string, home *runner.Home, leaf bool, cwd string) (*mcp.
 	if cwd == "" {
 		cwd = "/work"
 	}
-	return NewServer(report.To(nil), home, harp, cwd, "", leaf, loadoutSurface{}, NewWakeSignal(nil))
+	return NewServer(report.To(nil), afero.NewOsFs(), home, harp, cwd, "", leaf, loadoutSurface{}, NewWakeSignal(nil))
 }
 
 // listServerTools connects an in-memory client and lists the server's tools.

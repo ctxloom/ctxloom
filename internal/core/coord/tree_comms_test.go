@@ -56,7 +56,7 @@ func spawnTree(t *testing.T, holdGrandchild bool) tree {
 	// released before Close waits on the grandchild's runner.
 	t.Cleanup(release)
 
-	pOut, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "coordinate a subtask", "", "")
+	pOut, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "coordinate a subtask", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.chat(0)
@@ -64,7 +64,7 @@ func spawnTree(t *testing.T, holdGrandchild bool) tree {
 	}, conformanceWait, 10*time.Millisecond, "the parent's first turn never reached its engine")
 	parent := Identity{Harp: pOut.Harp, RunID: pOut.RunID, Depth: 1}
 
-	gOut, err := c.AgentRun(context.Background(), parent, "worker", "do the subtask", "", "")
+	gOut, err := c.AgentRun(context.Background(), parent, "worker", "do the subtask", "")
 	require.NoError(t, err)
 	awaitChatText(t, sp, 1, "do the subtask")
 	out := tree{c: c, sp: sp, parent: parent, grandchild: Identity{Harp: gOut.Harp, RunID: gOut.RunID, Depth: 2}}

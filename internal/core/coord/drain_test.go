@@ -30,7 +30,7 @@ func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 
 	// Reach a live, journaled AND QUIESCENT run before manufacturing a

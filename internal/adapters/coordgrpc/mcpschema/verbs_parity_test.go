@@ -30,7 +30,7 @@ type verbBinding struct {
 
 var verbBindings = map[string]verbBinding{
 	ToolAgentRun: {request: coord.SpawnRequest{}, nested: "input",
-		fields: map[string]string{"role": "Agent", "prompt": "Prompt", "workspace": "Workspace", "dirty_tree_handler": "DirtyTree"}},
+		fields: map[string]string{"role": "Agent", "prompt": "Prompt", "workspace": "Workspace"}},
 	ToolAgentSend: {request: coord.SendRequest{},
 		// to_agent_id / to_role are the wire's two spellings of the one
 		// recipient (sendRequestFromWire folds them).

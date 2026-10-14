@@ -73,7 +73,7 @@ func TestAgentRun_OneShotCallerRefusedLoudly(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 	caller := Identity{Harp: "oneshot-owner", Depth: 0, OneShot: true}
 
-	_, err := c.AgentRun(context.Background(), caller, "worker", "go deeper", "", "")
+	_, err := c.AgentRun(context.Background(), caller, "worker", "go deeper", "")
 	require.Error(t, err, "a one-shot caller must be refused, not silently accepted with no child")
 	assert.Contains(t, err.Error(), "one-shot")
 	assert.Equal(t, 0, sp.spawnCount(), "no child may be launched for a refused spawn")
@@ -116,7 +116,7 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
 
 	// depth 0 -> depth 1
-	child, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "delegate this", "", "")
+	child, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "delegate this", "")
 	require.NoError(t, err)
 	childH := childHome(t, c, child.RunID)
 

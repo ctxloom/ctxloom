@@ -54,7 +54,7 @@ func TestAgentRun_RegistersTheRunBeforeProbingTheEngineVersion(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+		out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 		done <- result{out, err}
 	}()
 
@@ -109,7 +109,7 @@ func TestAgentRun_RecordsTheVersionOfTheBinaryTheLaunchNames(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 
 	for _, agent := range []string{"pinned", "plain"} {
-		_, err := c.AgentRun(context.Background(), ownerIdentity(), agent, "do the thing", "", "")
+		_, err := c.AgentRun(context.Background(), ownerIdentity(), agent, "do the thing", "")
 		require.NoError(t, err)
 		select {
 		case <-sp.versionProbeEntered:
@@ -139,7 +139,7 @@ func TestAgentRun_JournalsAcceptanceBeforeTheUntraceableSpan(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 		done <- err
 	}()
 
@@ -189,7 +189,7 @@ func TestAgentRun_ASpawnStillPreparingSaysSoOutLoud(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 		done <- err
 	}()
 
@@ -237,7 +237,7 @@ func TestAgentRun_APromptSpawnNeverReportsItselfStuck(t *testing.T) {
 	restore := clidiag.SetSink(sink)
 	defer restore()
 
-	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 
 	select {
@@ -294,7 +294,7 @@ func TestAgentRun_ASpawnStillPreparingLeavesAStructuredRecord(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 		done <- err
 	}()
 

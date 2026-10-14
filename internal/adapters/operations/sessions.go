@@ -327,6 +327,16 @@ func EndSession(harp string, at time.Time) error {
 	return EndSessionIn(mgr, harp, at)
 }
 
+// RecordRunEnd records how one of harp's runs ended on its session entry
+// (sessions.Entry.RunEnds).
+func RecordRunEnd(harp string, end sessions.RunEnd) error {
+	mgr, err := openSessions()
+	if err != nil {
+		return err
+	}
+	return mgr.RecordRunEnd(harp, end)
+}
+
 // EndSessionIn is EndSession against the store the session was minted in:
 // the launch trunk's own store in production, a MemStore in a test.
 func EndSessionIn(mgr sessions.Store, harp string, at time.Time) error {

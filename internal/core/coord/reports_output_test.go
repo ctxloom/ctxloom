@@ -38,7 +38,7 @@ func publish(t *testing.T, c *Coordinator, harp, id, name, content string) {
 // startedChild is a delegated child with a live, idle run.
 func startedChild(t *testing.T, c *Coordinator) *RunOutcome {
 	t.Helper()
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 	return out

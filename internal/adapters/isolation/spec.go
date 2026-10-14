@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -28,6 +29,12 @@ type Spec struct {
 	home       agents.HomeMode
 	creds      engine.Credentials
 	envHost    agents.EnvHost
+	// beforeCheckout runs once a NEW worktree checkout is about to be carved
+	// (BeforeCheckout); nil for none.
+	beforeCheckout func(context.Context) error
+	// commitOnTeardown commits the checkout's uncommitted work on its own
+	// branch when the environment is torn down (CommitOnTeardown).
+	commitOnTeardown bool
 }
 
 // SpecBuilder assembles a Spec. The first error wins and is reported at
@@ -107,6 +114,36 @@ func (b *SpecBuilder) EnvHost(h agents.EnvHost) *SpecBuilder {
 	b.s.envHost = h
 	return b
 }
+
+// BeforeCheckout is called immediately before the run's worktree checkout
+// is carved from the project's HEAD — after every isolation precondition the
+// chain checks before that point (the container gate, the ownership check of
+// an occupied checkout path) has passed — and never when no checkout is
+// carved: a run without the worktree axis, one degraded off it, and a resume
+// that REUSES its own surviving checkout, which a new commit on the
+// project's branch would not reach anyway. An error refuses the run: Prepare
+// returns it as is, and the chain does not degrade past it.
+func (b *SpecBuilder) BeforeCheckout(fn func(context.Context) error) *SpecBuilder {
+	b.s.beforeCheckout = fn
+	return b
+}
+
+// CommitOnTeardown makes the run's worktree checkout, when it has one, commit
+// whatever it holds uncommitted on its own branch when the environment is
+// torn down — however the run ended — so the teardown finds it clean and no
+// work is stranded as uncommitted state. Tracked changes and untracked, not
+// ignored, files are committed; ignored content never is.
+func (b *SpecBuilder) CommitOnTeardown() *SpecBuilder {
+	b.s.commitOnTeardown = true
+	return b
+}
+
+// CommitsOnTeardown reports whether CommitOnTeardown was set.
+func (s Spec) CommitsOnTeardown() bool { return s.commitOnTeardown }
+
+// BeforeCheckoutHook is the hook BeforeCheckout set, nil for none: what an
+// environment stand-in that carves a checkout must run first, as Prepare does.
+func (s Spec) BeforeCheckoutHook() func(context.Context) error { return s.beforeCheckout }
 
 // curatedEnv is the EnvHost a host engine is launched under: the
 // declaration, with the engine's own home var names kept when it is curated

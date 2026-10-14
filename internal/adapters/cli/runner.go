@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
@@ -61,7 +62,7 @@ func runRunner(cmd *cobra.Command, args []string) error {
 				stdout:  os.Stdout,
 				stderr:  os.Stderr,
 			})
-			return runnerDepsFor(engineName, host, interaction.Endpoint{Home: home, Wake: interaction.NewWakeSignal(home.SetWake), ClientExit: home.SetEngineExit, Reporter: App().Reporter})
+			return runnerDepsFor(engineName, host, interaction.Endpoint{Home: home, Wake: interaction.NewWakeSignal(home.SetWake), ClientExit: home.SetEngineExit, Reporter: App().Reporter, Fs: afero.NewOsFs()})
 		},
 	})
 }

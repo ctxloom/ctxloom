@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // The isolation request is two INDEPENDENT enum axes, never bound together:
@@ -163,51 +165,6 @@ func ParseRuntimeAxis(s string) (RuntimeAxis, error) {
 	}
 }
 
-// DirtyTreeHandler is what a worktree spawn does when the parent tree is
-// dirty; coord and launch share the value. It is a DEFINED TYPE, and every
-// boundary that receives one of these spellings converts through
-// ParseDirtyTreeHandler exactly once: the vocabulary reaches ctxloom from a
-// channel typed by a MODEL (agent_run's free-form input), and the fallback
-// member WRITES TO THE USER'S REPOSITORY — an unrecognized spelling that
-// resolved to the default would auto-commit the parent's working tree on the
-// strength of a typo. Unset and unparseable are different inputs — unset
-// takes the caller's default, unparseable stops.
-type DirtyTreeHandler string
-
-const (
-	DirtyTreeHandlerCommit DirtyTreeHandler = "commit"
-	DirtyTreeHandlerCopy   DirtyTreeHandler = "copy"
-	DirtyTreeHandlerStale  DirtyTreeHandler = "stale"
-	DirtyTreeHandlerFail   DirtyTreeHandler = "fail"
-)
-
-// DirtyTreeHandlerNames returns the recognized handler values, in the order
-// they render into user-facing fix-it text and the wire schemas.
-func DirtyTreeHandlerNames() []string {
-	return []string{
-		string(DirtyTreeHandlerCommit),
-		string(DirtyTreeHandlerCopy),
-		string(DirtyTreeHandlerStale),
-		string(DirtyTreeHandlerFail),
-	}
-}
-
-// ParseDirtyTreeHandler is the ONE conversion between the dirty-tree-handler
-// string vocabulary and the typed DirtyTreeHandler. Empty passes through as
-// "" (the zero value), meaning "this level said nothing"; any other
-// unrecognized spelling is an ERROR naming the bad value and the legal ones.
-// It never warns and never degrades: the default member commits the user's
-// working tree, so a spelling nobody recognizes must stop the spawn rather
-// than reach it.
-func ParseDirtyTreeHandler(s string) (DirtyTreeHandler, error) {
-	switch DirtyTreeHandler(s) {
-	case "", DirtyTreeHandlerCommit, DirtyTreeHandlerCopy, DirtyTreeHandlerStale, DirtyTreeHandlerFail:
-		return DirtyTreeHandler(s), nil
-	default:
-		return "", fmt.Errorf("unknown dirty_tree_handler %q (known: %s)", s, strings.Join(DirtyTreeHandlerNames(), "|"))
-	}
-}
-
 // ImageConfig carries the user's image configuration for containerized
 // isolation: Image is the optional prebuilt agent-image override, run AS-IS
 // and never built; Base is isolation_base verbatim, the base an on-the-fly
@@ -228,4 +185,10 @@ type ImageConfig struct {
 	// invocation's engine. It is NOT a composition set — an agent image
 	// carries exactly ONE engine.
 	Engines []string
+	// Limits are the per-container resource caps as configured
+	// (isolation_memory_limit / isolation_pids_limit). An unset cap is
+	// resolved by the isolation adapter against the daemon's host; this is
+	// also where a source other than config (a devcontainer's
+	// hostRequirements) would supply the request.
+	Limits config.ContainerLimits
 }

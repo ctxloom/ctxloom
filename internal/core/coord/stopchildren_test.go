@@ -122,7 +122,7 @@ func TestStopChildren_OnlyTheCallersOwnChildren(t *testing.T) {
 	// child, coordinating a grandchild of its own.
 	var mineRunID string
 	c.runs.View(func() { mineRunID = c.runsF.currentRun(mine).RunID })
-	other, err := c.AgentRun(context.Background(), Identity{Harp: mine, RunID: mineRunID, Depth: 1}, "worker", "go", "", "")
+	other, err := c.AgentRun(context.Background(), Identity{Harp: mine, RunID: mineRunID, Depth: 1}, "worker", "go", "")
 	require.NoError(t, err)
 	require.NoError(t, c.awaitChildUp(context.Background(), other.Harp))
 	require.Eventually(t, func() bool { return rosterState(c, other.Harp) == StateIdle }, conformanceWait, 5*time.Millisecond)
@@ -135,7 +135,7 @@ func TestStopChildren_OnlyTheCallersOwnChildren(t *testing.T) {
 	assert.Equal(t, StateIdle, rosterState(c, other.Harp), "another session's child is not this caller's to stop")
 
 	assert.False(t, c.Draining(), "a sweep is not the shutdown drain: admission stays open")
-	again, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "next batch", "", "")
+	again, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "next batch", "")
 	require.NoError(t, err, "the coordinator can spawn again after the sweep — the reason the sweep exists")
 	require.NoError(t, c.awaitChildUp(context.Background(), again.Harp))
 }
@@ -284,7 +284,7 @@ func TestStopChildren_BoundaryRacingTheRequestStillEndsTheRun(t *testing.T) {
 		}
 	}
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return midTurn(c, sp, out.Harp) }, conformanceWait, 10*time.Millisecond)
 
@@ -318,7 +318,7 @@ func TestStopChildren_MidStartRunIsAStopNotALaunchFailure(t *testing.T) {
 	t.Cleanup(releaseHold)
 	c.stopAnsweredHook = func(string) { releaseHold() }
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	select {
 	case <-sp.bindEntered:

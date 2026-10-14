@@ -117,7 +117,6 @@ type schemaEnumBinding struct {
 var schemaEnumBindings = []schemaEnumBinding{
 	// Project-default axes (top-level).
 	{path: "properties/workspace", goNames: isolation.WorkspaceNames},
-	{path: "properties/dirty_tree_handler", goNames: launch.DirtyTreeHandlerNames},
 	{path: "properties/runtime", goNames: launch.RuntimeNames},
 	{path: "properties/auth", goNames: engine.AuthModeNames},
 

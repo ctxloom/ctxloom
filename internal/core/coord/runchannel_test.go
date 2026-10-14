@@ -69,7 +69,7 @@ func childHome(t *testing.T, c *Coordinator, runID string) TestHome {
 
 func spawnResearcher(t *testing.T, c *Coordinator) *RunOutcome {
 	t.Helper()
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "researcher", "find the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "researcher", "find the thing", "")
 	require.NoError(t, err)
 	return out
 }
@@ -459,7 +459,7 @@ func TestRunChannel_LateTurnEventsFromAnEndedRunDoNotMoveTheResumedRun(t *testin
 	})
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 	c.mu.Lock()

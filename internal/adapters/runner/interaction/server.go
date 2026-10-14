@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/afero"
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -53,6 +54,8 @@ type LocalSurface interface {
 // classified tool must be served by exactly the route the table names — a
 // mismatch errors the runner up front, never a silent fallthrough.
 //
+// fs is the filesystem the session's plan directory, which the server's
+// instructions name, is created through (operations.SessionInstructions).
 // harp names the session (the server's Title and the identity every
 // coordination frame speaks as); cwd is the cell's working directory — the
 // cell-path boundary agent_report and agent_fetch_artifact confine
@@ -64,8 +67,8 @@ type LocalSurface interface {
 // arrive. It is the launch identity's Leaf, decided by the coordinator that
 // minted it — the runner holds no config to compute it from. wake serves the
 // session relay's subscription to engine.WakeURI.
-func NewServer(rep report.Reporter, home *runner.Home, harp, cwd, sessionHome string, leaf bool, local LocalSurface, wake *WakeSignal) (*mcp.Server, error) {
-	opts := &mcp.ServerOptions{Instructions: operations.SessionInstructions(harp)}
+func NewServer(rep report.Reporter, fs afero.Fs, home *runner.Home, harp, cwd, sessionHome string, leaf bool, local LocalSurface, wake *WakeSignal) (*mcp.Server, error) {
+	opts := &mcp.ServerOptions{Instructions: operations.SessionInstructions(fs, harp)}
 	wake.options(opts)
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "ctxloom",

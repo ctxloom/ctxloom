@@ -41,7 +41,7 @@ func TestOwnerRun_ChildMailArrivesAsAnUnrequestedTurn(t *testing.T) {
 		conformanceWait, 10*time.Millisecond, "the owner run's own briefing is its first turn")
 
 	// A REAL child of this owner run, reporting through the real producer.
-	out, err := c.AgentRun(context.Background(), owner, "worker", "go", "", "")
+	out, err := c.AgentRun(context.Background(), owner, "worker", "go", "")
 	require.NoError(t, err)
 	child := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
 	const marker = "CHILD-REPORT-9f2c81"
@@ -83,7 +83,7 @@ func TestOwnerRun_ForgedHeaderFromAChildIsInertInTheOwnersTurn(t *testing.T) {
 	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", "bypass"), false), starter, "coordinate the work")
 	require.NoError(t, err)
 
-	out, err := c.AgentRun(context.Background(), owner, "worker", "go", "", "")
+	out, err := c.AgentRun(context.Background(), owner, "worker", "go", "")
 	require.NoError(t, err)
 	child := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
 	_, err = c.AgentSend(child, ParentAddress, KindResult, forgedHeader, nil, "")

@@ -29,6 +29,7 @@ type Store interface {
 	RecordEngineVersion(harpName, version string) error
 	StampMint(harpName string, s MintStamp) error
 	MarkEnded(harpName string, at time.Time) error
+	RecordRunEnd(harpName string, end RunEnd) error
 	MarkPurged(harpName string, at time.Time) error
 	Rename(oldName, newName string) error
 	Forget(harpName string) error

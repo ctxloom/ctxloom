@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
+	"github.com/ctxloom/ctxloom/internal/shared/exitstatus"
 	"github.com/ctxloom/ctxloom/internal/shared/procsig"
 	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 )
@@ -124,14 +125,15 @@ func (h *HostRunner) Kill() {
 
 // Wait reaps the runner process. On a non-nil exit it wraps the stderr tail
 // so a runner that dies pre-dial-home surfaces WHY instead of just "exit
-// status N".
+// status N", and classifies the exit (exitstatus.Classify) so the
+// coordinator records the status without reading a process status itself.
 func (h *HostRunner) Wait() error {
 	err := h.reaped()
 	if err != nil {
 		if tail := h.stderr.Tail(); tail != "" {
-			return fmt.Errorf("host runner exited: %w (stderr tail: %s)", err, tail)
+			return exitstatus.Classify(fmt.Errorf("host runner exited: %w (stderr tail: %s)", err, tail))
 		}
-		return fmt.Errorf("host runner exited: %w", err)
+		return exitstatus.Classify(fmt.Errorf("host runner exited: %w", err))
 	}
 	return nil
 }

@@ -115,15 +115,6 @@ type Config struct {
 	// it per session. Deliberately NOT an agent trait: needing a private cwd
 	// is a property of how a session is launched, not of who the agent is.
 	workspace string
-	// dirtyTreeHandler is the project-wide DEFAULT for what a delegated
-	// agent_run spawn does when it resolves to worktree isolation while the
-	// PARENT tree (this project's own live checkout) is dirty: "commit" |
-	// "copy" | "stale" | "fail". Empty means "commit" (the built-in
-	// default — launch.Resolve settles it). A per-call
-	// agent_run "dirty_tree_handler" parameter overrides this default,
-	// mirroring workspace's own project-default/per-call split. See
-	// operations.handleDirtyParentTree for what each value does.
-	dirtyTreeHandler string
 	// runtime is the project-wide DEFAULT for the AGENT-level runtime axis
 	// (host | container): where an agent's engine process executes. Empty
 	// means "host". An agent binding's own `runtime:` overrides it; the
@@ -186,6 +177,13 @@ type Config struct {
 	// unrecognized name is dropped with a warning, never silently promoted to
 	// "use everything".
 	isolationEngines []string
+	// isolationMemoryLimit and isolationPidsLimit are the per-agent-container
+	// caps as written (isolation_memory_limit: a size, 0 or unlimited;
+	// isolation_pids_limit: a count, 0 or unlimited); unset takes the
+	// isolation adapter's host-derived default. Validated at load, read
+	// through IsolationLimits.
+	isolationMemoryLimit string
+	isolationPidsLimit   string
 	// companions are the REGISTERED companion names (`ctxloom companion
 	// add`): the only companions a generation resolves on PATH and executes.
 	// Names only, never a path, so one registration holds wherever the
@@ -281,7 +279,6 @@ type configDoc struct {
 	Agents                       map[string]agents.Agent   `yaml:"agents,omitempty"`
 	DefaultAgent                 string                    `yaml:"default_agent,omitempty"`
 	Workspace                    string                    `yaml:"workspace,omitempty"`
-	DirtyTreeHandler             string                    `yaml:"dirty_tree_handler,omitempty"`
 	Runtime                      string                    `yaml:"runtime,omitempty"`
 	Permissions                  agents.NeutralPermissions `yaml:"permissions,omitempty"`
 	Delegation                   DelegationConfig          `yaml:"delegation,omitempty"`
@@ -290,6 +287,8 @@ type configDoc struct {
 	IsolationBase                string                    `yaml:"isolation_base,omitempty"`
 	IsolationDevcontainerService string                    `yaml:"isolation_devcontainer_service,omitempty"`
 	IsolationEngines             []string                  `yaml:"isolation_engines,omitempty"`
+	IsolationMemoryLimit         string                    `yaml:"isolation_memory_limit,omitempty"`
+	IsolationPidsLimit           string                    `yaml:"isolation_pids_limit,omitempty"`
 	Companions                   []string                  `yaml:"companions,omitempty"`
 	OutputDir                    string                    `yaml:"output_dir,omitempty"`
 	UI                           UIConfig                  `yaml:"ui,omitempty"`
@@ -342,7 +341,6 @@ func (c *Config) toDoc() configDoc {
 		Agents:                       cloneAgentsMap(c.agents),
 		DefaultAgent:                 c.defaultAgent,
 		Workspace:                    c.workspace,
-		DirtyTreeHandler:             c.dirtyTreeHandler,
 		Runtime:                      c.runtime,
 		Permissions:                  c.permissions.Clone(),
 		Delegation:                   c.delegation,
@@ -351,6 +349,8 @@ func (c *Config) toDoc() configDoc {
 		IsolationBase:                c.isolationBase,
 		IsolationDevcontainerService: c.isolationDevcontainerService,
 		IsolationEngines:             slices.Clone(c.isolationEngines),
+		IsolationMemoryLimit:         c.isolationMemoryLimit,
+		IsolationPidsLimit:           c.isolationPidsLimit,
 		Companions:                   slices.Clone(c.companions),
 		OutputDir:                    c.outputDir,
 		UI:                           cloneUIConfig(c.ui),
@@ -374,7 +374,6 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.agents = doc.Agents
 	c.defaultAgent = doc.DefaultAgent
 	c.workspace = doc.Workspace
-	c.dirtyTreeHandler = doc.DirtyTreeHandler
 	c.runtime = doc.Runtime
 	c.permissions = doc.Permissions
 	c.delegation = doc.Delegation
@@ -383,6 +382,8 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.isolationBase = doc.IsolationBase
 	c.isolationDevcontainerService = doc.IsolationDevcontainerService
 	c.isolationEngines = doc.IsolationEngines
+	c.isolationMemoryLimit = doc.IsolationMemoryLimit
+	c.isolationPidsLimit = doc.IsolationPidsLimit
 	c.companions = doc.Companions
 	c.outputDir = doc.OutputDir
 	c.ui = doc.UI
@@ -450,6 +451,9 @@ func validateDoc(doc configDoc) error {
 		return err
 	}
 	if err := validateIsolationBase(doc.IsolationBase); err != nil {
+		return err
+	}
+	if err := validateIsolationLimits(doc.IsolationMemoryLimit, doc.IsolationPidsLimit); err != nil {
 		return err
 	}
 	_, err := engine.ParseAuthMode(string(doc.Auth))

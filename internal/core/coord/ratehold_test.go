@@ -170,7 +170,7 @@ func newRateFixture(t *testing.T, tune ...func(*Options)) (*holdFixture, *fakecl
 // turn boundary.
 func (f *holdFixture) spawnIdle(t *testing.T, agentName string, i int) string {
 	t.Helper()
-	out, err := f.c.AgentRun(context.Background(), ownerIdentity(), agentName, "first task", "", "")
+	out, err := f.c.AgentRun(context.Background(), ownerIdentity(), agentName, "first task", "")
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()

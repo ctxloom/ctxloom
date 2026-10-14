@@ -289,7 +289,7 @@ func TestControlRun_RefusesWhatIsNotTheCallersChild(t *testing.T) {
 	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	a, aHome := awaitCutoverChild(t, c, sp, "first task")
-	b, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "second task", "", "")
+	b, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "second task", "")
 	require.NoError(t, err)
 	require.NoError(t, c.awaitChildUp(context.Background(), b.Harp))
 

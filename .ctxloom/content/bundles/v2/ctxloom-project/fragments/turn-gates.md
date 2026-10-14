@@ -1,5 +1,5 @@
 ---
-description: You are choosing which build, test, lint, or mutation command to run; interpreting an exit code or a suite's output; or deciding whether the gate you ran actually covers the claim you are making. For anyone deciding which command proves a change is done. This is about WHICH gate and how to read it, not about whether a passing test means anything.
+description: You are writing or changing a test during a turn, and need it to survive the close-out mutation run; choosing which build, test, lint, or mutation command to run; interpreting an exit code or a suite's output; or deciding whether the gate you ran actually covers the claim you are making. For anyone deciding which command proves a change is done. This is about WHICH gate and how to read it, not about whether a passing test means anything.
 tags:
   - ctxloom
   - testing
@@ -24,9 +24,30 @@ read what it tells you.
 one proves far less than it looks like it does.
 
 Iterate on the narrow target; run `test-acceptance` before claiming anything is
-done. When you need a single acceptance scenario — hand-mutating one, say —
-`test-acceptance-focus` runs a whole feature in seconds, so acceptance mutation
-is cheap and there is no excuse for skipping it.
+done. When you need a single acceptance scenario — hand-mutating one at
+close-out, say — `test-acceptance-focus` runs a whole feature in seconds.
+
+## During the turn: write the tests the close-out mutation run will judge
+
+Every behaviour you add or change ships with its test IN THE SAME TURN. You do
+not mutate it now — close-out runs `test-mutation-diff` over the whole change
+and scores every changed line — but write each test knowing that run is
+coming, because a mutant that LIVES there is a test you have to come back and
+fix. Per `.gremlins.yaml`, on each line you change it will:
+
+- flip conditional boundaries and negations (`<`→`<=`, `==`→`!=`) — test BOTH
+  sides of every condition you add, at the boundary value itself;
+- swap `&&`/`||` and arithmetic, increments, sign and assignment operators —
+  assert the exact computed value, not just non-zero or "changed";
+- turn `break`/`continue` around and drop self-assignments — assert what the
+  loop produced or skipped, element by element.
+
+And the shapes no mutator needs to find, because they pass with the code
+deleted: green-is-not-passing lists them (exit 0 without the effect, the
+echoed argument, the generic substring, absence-satisfies-absence). Assert
+the EFFECT; assert errors by identity (`errors.Is`), not `err != nil`.
+
+Report such a test as "green, not yet mutation-checked" until close-out has run.
 
 ## Read the EXIT CODE — and know where that is not enough
 
@@ -45,14 +66,31 @@ written.
 
 ## Which mutation method reaches which code
 
-gremlins is COVERAGE-GATED: it mutates source and runs `go test`. The acceptance
-suite and the testenv integration tests exec a PRE-BUILT binary, and Go coverage
-does not cross an exec boundary — so those mutants report NOT COVERED and are
-never attempted. There, HAND mutation is the only real method, not a poor
-substitute.
+Mutation runs at CLOSE-OUT (the `closeout` skill, step 2), once over the whole
+change — not after each test or each turn. Close-out runs everything relevant
+to the DELTA and nothing wider; full-module coverage and mutation are CI's:
 
-    unit-testable code      just test-mutation-diff <BASE>
-    anything via the CLI    hand mutation
+    just test-pkg ./<pkg>/ -cover      each package the change touched: unit + line %
+    just test-mutation-diff <BASE>     changed lines: kill % (gate 80) + mutant coverage %
+
+When mutation runs, the DEFAULT is the tool:
+
+    just test-mutation-diff <BASE>     BASE = the commit before the work began
+
+It mutates every changed line and scores each mutant killed / lived / not
+covered / timed out — systematic, repeatable, and faster than editing by hand.
+Run it, then read its LIVED and NOT COVERED lists. Do not swap in hand mutation
+because the tool "covers the whole diff" (that is the point) or seems slow.
+
+Hand mutation is for ONE gap only. gremlins is coverage-gated: it mutates
+source and runs `go test`, and the acceptance suite and testenv integration
+tests exec a PRE-BUILT binary, so a mutant reachable only through the CLI
+reports NOT COVERED and is never attempted. For exactly those NOT COVERED
+lines that an acceptance or integration test claims to pin, hand mutation is
+the only real method — not a poor substitute, and not a replacement for the run.
+
+    unit-testable code               just test-mutation-diff <BASE>
+    NOT COVERED, reached via the CLI hand mutation, after the run
 
 HAND MUTATION MUST REBUILD. Those suites exec a previously built binary and
 `just test-pkg` does not rebuild. Edit production code, run `just build`, THEN

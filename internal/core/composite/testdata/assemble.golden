@@ -12,7 +12,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:premised#fragments/sometimes",
@@ -57,7 +57,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:premised#fragments/sometimes",
@@ -298,7 +298,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
@@ -343,7 +343,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
@@ -591,7 +591,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:premised#fragments/sometimes",
@@ -636,7 +636,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:premised#fragments/sometimes",
@@ -874,7 +874,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
@@ -919,7 +919,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
@@ -1164,7 +1164,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:premised#fragments/sometimes",
@@ -1209,7 +1209,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:premised#fragments/sometimes",
@@ -1447,7 +1447,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
@@ -1492,7 +1492,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
@@ -1737,7 +1737,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:premised#fragments/sometimes",
@@ -1782,7 +1782,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:premised#fragments/sometimes",
@@ -2020,7 +2020,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
@@ -2065,7 +2065,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
@@ -2310,7 +2310,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:premised#fragments/sometimes",
@@ -2343,7 +2343,7 @@
 }
 == engine=mock-noskills profile=golden-auto consumer=materialized
 {
-  "context": "blob:c03099ae56e84ccfcdf98e07fb54973f05f809382de459661d8391643f212817",
+  "context": "blob:b282e107b8deec9bb99a306e5495c4ef5f9a75152e54cb2461ed5bf8fc8f29ef",
   "fragments_loaded": [
     "ctxloom+local:ctxloom-project#fragments/turn-gates",
     "ctxloom+local:code-quality#fragments/tricky",
@@ -2547,7 +2547,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
@@ -2580,7 +2580,7 @@
 }
 == engine=mock-noskills profile=golden-curated consumer=materialized
 {
-  "context": "blob:c12859402c76e5a0749baf3d11fb8f9b0eab4ffdc7e622c7b6e3bd10a5bc1b6c",
+  "context": "blob:6dc7b487c03f826b0b994f2354b3c50842809a40680bed15f6d3124a8a7e7d53",
   "fragments_loaded": [
     "ctxloom+local:ctxloom-project#fragments/turn-gates",
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
@@ -2791,7 +2791,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:premised#fragments/sometimes",
@@ -2836,7 +2836,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:premised#fragments/sometimes",
@@ -3074,7 +3074,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
@@ -3119,7 +3119,7 @@
   "premise_index": [
     {
       "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
-      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+      "premise": "blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5"
     },
     {
       "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
@@ -3410,8 +3410,6 @@ list until that condition is met.
   `task_set_status` with `status: "Deferred"` and a `trigger`, or `task_add`
   with the same.
 
-== blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1
-You are choosing which build, test, lint, or mutation command to run; interpreting an exit code or a suite's output; or deciding whether the gate you ran actually covers the claim you are making. For anyone deciding which command proves a change is done. This is about WHICH gate and how to read it, not about whether a passing test means anything.
 == blob:235fd9e4746922c1dbb12eaca3acf2420e5a14d24ebc209494c3f8bbc87b0747
 LS0tCm5hbWU6IGNvZGUtcmV2aWV3ZXIKZGVzY3JpcHRpb246IFJldmlldyBhIGNoYW5nZSBhZ2FpbnN0IHRoZSBwcm9qZWN0J3MgcmV2aWV3IGNoZWNrbGlzdC4KLS0tClJ1biBzY3JpcHRzL3J1bi5zaCwgdGhlbiBhcHBseSByZWZlcmVuY2VzL2NoZWNrbGlzdC5tZC4K
 == blob:343c22e47d39477ea8087e88058d9cfd2e85e5e0669917ff4420d8f9d25f9ced
@@ -3609,6 +3607,588 @@ stderr warning, discarding the runtime and permissions you asked for: confirm
 the name resolves before trusting the isolation you requested.
 == blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9
 You have just written or changed a test; you are reading a gate result and deciding what it proves; or you are about to describe something as verified, working, or done. For anyone about to treat a green result as evidence, however that moment arises. More than one fragment may apply here; this one is about whether the evidence is real.
+== blob:6dc7b487c03f826b0b994f2354b3c50842809a40680bed15f6d3124a8a7e7d53
+# Which gate is real in this repo, and how to read one
+
+Companion to green-is-not-passing, which says a test is not passing until a
+mutation dies. This says which command actually proves that here, and how to
+read what it tells you.
+
+## The gates, and what each one is worth
+
+    just build                    ~4s
+    just lint                    ~19s
+    just test-arch               ~20s   the architectural class gates, -tags arch
+    just test-integration        ~30s
+    just test-acceptance        ~510s   THE REAL GATE
+    just test-acceptance-focus features/<f>.feature   ~10-17s, one feature
+
+`just test` only COMPILES the integration suite. It is not the gate, and a green
+one proves far less than it looks like it does.
+
+Iterate on the narrow target; run `test-acceptance` before claiming anything is
+done. When you need a single acceptance scenario — hand-mutating one at
+close-out, say — `test-acceptance-focus` runs a whole feature in seconds.
+
+## During the turn: write the tests the close-out mutation run will judge
+
+Every behaviour you add or change ships with its test IN THE SAME TURN. You do
+not mutate it now — close-out runs `test-mutation-diff` over the whole change
+and scores every changed line — but write each test knowing that run is
+coming, because a mutant that LIVES there is a test you have to come back and
+fix. Per `.gremlins.yaml`, on each line you change it will:
+
+- flip conditional boundaries and negations (`<`→`<=`, `==`→`!=`) — test BOTH
+  sides of every condition you add, at the boundary value itself;
+- swap `&&`/`||` and arithmetic, increments, sign and assignment operators —
+  assert the exact computed value, not just non-zero or "changed";
+- turn `break`/`continue` around and drop self-assignments — assert what the
+  loop produced or skipped, element by element.
+
+And the shapes no mutator needs to find, because they pass with the code
+deleted: green-is-not-passing lists them (exit 0 without the effect, the
+echoed argument, the generic substring, absence-satisfies-absence). Assert
+the EFFECT; assert errors by identity (`errors.Is`), not `err != nil`.
+
+Report such a test as "green, not yet mutation-checked" until close-out has run.
+
+## Read the EXIT CODE — and know where that is not enough
+
+Gate on the exit status, never on grepping output for "PASS" or "ok". Then know
+the three inversions, each of which reports success while telling you otherwise:
+
+- `gofmt -l` LISTS unformatted files and exits 0. Check whether the OUTPUT is
+  empty, not the status.
+- `go test -run <pattern>` whose pattern matches NOTHING exits 0 having run no
+  test. Confirm it actually ran.
+- a pipeline reports the LAST command's status, so `cmd | tail; echo $?` gives
+  tail's exit. Redirect to a file and check directly, or use PIPESTATUS.
+
+The shape to watch for throughout: exit 0, a success message, and zero bytes
+written.
+
+## Which mutation method reaches which code
+
+Mutation runs at CLOSE-OUT (the `closeout` skill, step 2), once over the whole
+change — not after each test or each turn. Close-out runs everything relevant
+to the DELTA and nothing wider; full-module coverage and mutation are CI's:
+
+    just test-pkg ./<pkg>/ -cover      each package the change touched: unit + line %
+    just test-mutation-diff <BASE>     changed lines: kill % (gate 80) + mutant coverage %
+
+When mutation runs, the DEFAULT is the tool:
+
+    just test-mutation-diff <BASE>     BASE = the commit before the work began
+
+It mutates every changed line and scores each mutant killed / lived / not
+covered / timed out — systematic, repeatable, and faster than editing by hand.
+Run it, then read its LIVED and NOT COVERED lists. Do not swap in hand mutation
+because the tool "covers the whole diff" (that is the point) or seems slow.
+
+Hand mutation is for ONE gap only. gremlins is coverage-gated: it mutates
+source and runs `go test`, and the acceptance suite and testenv integration
+tests exec a PRE-BUILT binary, so a mutant reachable only through the CLI
+reports NOT COVERED and is never attempted. For exactly those NOT COVERED
+lines that an acceptance or integration test claims to pin, hand mutation is
+the only real method — not a poor substitute, and not a replacement for the run.
+
+    unit-testable code               just test-mutation-diff <BASE>
+    NOT COVERED, reached via the CLI hand mutation, after the run
+
+HAND MUTATION MUST REBUILD. Those suites exec a previously built binary and
+`just test-pkg` does not rebuild. Edit production code, run `just build`, THEN
+the gate. Skip the build and the mutation survives against the old binary — you
+will call a good test vacuous, or a vacuous one fine.
+
+When a mutation SURVIVES, suspect you aimed at the wrong layer before concluding
+the test is vacuous. The tell is that the mutated code is demonstrably live
+elsewhere: if breaking it reddens some other package's tests, the code is
+reachable, just not from the path under test. Find the reachable gate and kill
+that instead.
+
+## A fresh worktree cannot commit until it is built
+
+`just build` first, and make sure `bin/archlint` exists there. Without a built
+tree the pre-commit hook fails with an `archvocabulary: failed prerequisites`
+cascade that looks like a broken analyzer and is not.
+
+`test-pkg` takes a package PATTERN — `./internal/cli`, with the leading `./`.
+Without it you get a misleading "is not in std" error.
+
+---
+
+# Not all of this project's guidance is in your context
+
+CONDITIONAL fragments each carry a PREMISE (the situation they apply to) and
+are not loaded at launch. You have only the unconditional ones; the rest exist,
+and nothing fires when one becomes relevant. This fragment has no premise: it
+is the pointer to the ones you cannot see.
+
+**Why pulled, not pushed.** Assembled context is delivered once, at launch,
+and an in-process subagent inherits it wholesale. With no per-agent scoping, a
+pushed index fits nobody and never reaches a child ctxloom did not mediate. A
+catalog you ASK for has neither problem, and is answered at the only moment
+the answer means anything: when you have something to match against. The cost:
+an agent that does not know to ask never learns those fragments exist.
+
+**Ask.** `ctxloom fragment premises` lists every premised fragment, its
+condition, and the instruction for deciding between them. Over MCP the same
+menu is the `ctxloom://fragments` resource (each entry: its premise and the
+qualified ref to quote back); bodies come from `ctxloom://fragments/{name}`.
+Judge the premise, not the name: read the guidance the listing ships rather
+than guessing from a title.
+
+**Load.** `ctxloom fragment show <qualified-ref>`, or over MCP call
+`assemble_context` with the chosen names in its `bundles` argument.
+
+**When.** When you are about to ACT and this corpus might hold a rule about
+that action — not once at session start, and not against the conversation
+behind you. Ask again later in a long session: what you are about to do has
+changed, so the answer has too.
+
+---
+
+# Configuration precedence
+
+Every binary in the ctxloom family (ctxloom, taskloom, ltk) resolves
+configuration through one shared chain, owned by
+`internal/shared/confload`:
+
+    home config file  <  project config file  <  ENV VARS  <  --config-set FLAGS
+
+Later layers win. `confload` reads and deep-merges the file layers and
+resolves both override channels against the merged result, so there is
+exactly one place this ordering is implemented — do not re-derive it in
+a command.
+
+## The two override channels
+
+**Environment** — a dedicated namespace under the product's env prefix
+(`CTXLOOM_CONFIG_`), e.g. `CTXLOOM_CONFIG_LLM_DEFAULTS_PRIMARY=big`.
+
+**`--config-set`** — a repeatable root flag taking `<dotted.path>=<value>`,
+e.g. `--config-set agents.MyCoder.runtime=container`.
+
+## A command's own flags are NOT a config source
+
+`--config-set` is the ONLY flag channel. `confload` deliberately does not
+treat a changed flag's NAME as a config path, and this is load-bearing
+rather than stylistic — an earlier revision did exactly that, and it
+silently coupled every current and future flag name to the config schema.
+Two failures were confirmed in production:
+
+- `ctxloom agent set coder --runtime container` clobbered the project's
+  top-level `runtime` key, because `--runtime` resolved as a config path.
+- `--format json` on a structured-output command printed a warning line
+  into what a script expected to be pure JSON, because `--format`
+  resolved as "unrecognized config key, setting it anyway".
+
+So when you add a flag, it configures THAT invocation. If the value
+belongs in config, give it a schema path and let the chain resolve it;
+never bridge a flag name to a config key by convention.
+
+## Case handling diverges between the two channels, deliberately
+
+A shell destroys an env var name's case before Go sees it
+(`CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME` cannot say whether the author
+wrote `MyCoder`, `mycoder`, or `MYCODER`). A `--config-set` value never
+passes through those rules, so it preserves exactly what was typed.
+
+Both resolve identically when the target already exists or is a fixed,
+canonically-cased schema field: case-insensitive match, adopting the
+existing casing. They diverge only at a dynamic level that nothing
+existing covers — an agent label, an LLM config label. There, env falls
+back to whatever the shell handed over, while `--config-set` preserves
+the typed case. That is why `--config-set` can mint a brand-new
+case-sensitive key (`agents.MyCoder.runtime=container`)
+and env fundamentally cannot.
+
+---
+
+# An agent cell is already the dev environment
+
+## The layering
+
+ctxloom agents run inside ctxloom's own containers, and this project's dev
+container sits ON TOP of that. A cell is therefore not a bare box waiting for
+tooling to be delivered to it — it already carries the toolchain the gates
+expect.
+
+That is the whole reason most agents need no docker access at all. Building or
+entering a container from in there constructs a second copy of the environment
+the agent is already running in.
+
+## DinD is not forbidden; it is rarely the answer
+
+Nothing here prohibits docker-in-docker, and some work genuinely needs a
+daemon — work whose SUBJECT is container behaviour: the isolation runtimes,
+image builds, the docker-gated tests. Ask for it there, deliberately, and say
+why.
+
+What is almost always wrong is reaching for it to make an ordinary build or
+test command work. That impulse is a symptom, not a fix, and the next section
+is what it is usually a symptom of.
+
+## The trap that manufactures the wrong fix
+
+The root justfile's recipes name dev-image as a PREREQUISITE, and dev-image
+shells straight out to a container build with no guard of its own. A just
+prerequisite runs BEFORE the recipe body — so inside a cell the dependency
+fails on the missing socket before `_run` is ever reached, and `_run` is the
+part that already dispatches to justfile.container whenever DEVCONTAINER, CI
+or GITHUB_ACTIONS is set.
+
+So the failure presents as "this cell needs docker" when the truth is that the
+dispatch is correct and merely unreachable. Granting the cell a daemon answers
+a question nobody asked: it spends a real isolation boundary to build an image
+the cell already is.
+
+## If you do drive the container justfile by hand, SAY WHICH ONE YOU RAN
+
+justfile.container is a SEPARATE recipe set, and it has silently diverged from
+the root justfile's package lists before — the recipes share a name, which is
+exactly what made the divergence invisible. An exit code from one is therefore
+not the same claim as an exit code from the other.
+
+An orchestrator deciding whether to merge is relying on that distinction, so
+name the recipe path you used when you report. "test-integration exit 0" with
+no path is an ambiguous claim, and the ambiguity always resolves in the
+optimistic direction.
+
+---
+
+# Refuse when something is amiss; `--degraded` is the way through
+
+**The default posture is REFUSE, not proceed.** When ctxloom finds something
+wrong at startup — broken config, an unresolvable profile or bundle, a failed
+hook apply, an invalid document — it ABORTS the launch and says what is wrong
+and how to fix it. It does not quietly launch something lesser.
+
+This is a deliberate pivot away from always-launch. Always-launch produced
+CONFIDENT WRONG WORK: a bad or missing agent name silently degraded to
+`host`+`none`, discarding the runtime and permissions that were asked for, with
+only a stderr warning nobody read. The agent then ran unisolated while everyone
+believed otherwise. A launch that succeeds without doing the thing is worse
+than one that refuses, because nothing downstream can tell the difference.
+
+## First, declare what you accept — in code, in one place
+
+A refusal is only meaningful against a DECLARATION. "Strict" that means
+"whatever this function happened to check" is not strict, it is arbitrary — and
+arbitrary drifts, because the next call site checks something slightly
+different and nothing notices.
+
+So before either mode below can exist, the acceptable shape of a value is
+WRITTEN IN CODE, in one place, as something the program can read: a schema, a
+typed parse, an enumerated set of names. Not a comment, not a doc page, not a
+validation function per call site. Both modes then consume that one
+declaration — the refusal names the declared set, the degraded path names the
+declared value it fell back to — and neither invents its own idea of valid.
+
+THE TEST, and it is one you can actually apply: point at the ONE thing a reader
+would change to add a new accepted value. If the answer is "the validator, and
+the error message, and the docs, and the schema", the declaration does not
+exist. Those are four copies, and copies drift — the error message goes on
+listing the old set with full authority while the validator has already
+accepted a new one.
+
+THIS IS NOT ONLY A LAUNCH CONCERN, and that is the trap. Everything below about
+`strictness` governs findings raised at STARTUP. An ordinary resolution
+function is not a launch check, raises no finding, and reaches none of that
+machinery — which is exactly where silent substitution survives. The `--llm`
+label is the worked example: `config.(*Config).ResolveLLM` falls back to the
+built-in default on a label it does not know, because it has no engine
+registry and cannot tell a typo from a bare engine name. So the finding lives
+one layer up, in `operations.ResolveBackend`, the one place that holds BOTH
+declarations (the configured labels and the registered engines) and can say
+the label names neither. Put the refusal where the declaration is visible, not
+where the lookup happens to miss.
+
+## `--degraded` always reaches a working LLM
+
+`--degraded` (and `CTXLOOM_DEGRADED=1`; the flag wins) lowers every finding
+from an error to a WARNING and continues. That is a promise, not a
+best-effort: **degraded mode always gets the user into a working LLM.** If a
+degraded run can still refuse to launch for an ordinary finding, degraded mode
+is broken.
+
+So the two modes divide cleanly:
+
+    default      refuse, and explain the remedy
+    --degraded   warn, and launch anyway
+
+## The one exception: launching is itself the danger
+
+Security findings where starting the LLM is the harm do NOT yield to
+`--degraded`. A breached trust or isolation boundary — credentials reachable
+that should not be, an ownership mismatch on the runtime axis, unverifiable
+content admitted to an execution surface — stays fatal in both modes.
+
+The test is not "is this serious?" but **"does launching cause the harm?"** A
+profile that fails to parse is serious and still degradable: the user gets a
+working LLM with less context. A container runtime that cannot provide the
+isolation it claimed is not degradable, because the launch IS the exposure.
+`--degraded` falls back to the HOST, never to a different ownership mode.
+
+## How to write one of these, mechanically
+
+Report the finding; let `strictness` decide its fatality:
+
+    strictness.FailOnce(report.KindConfig, "<the remedy>", ...)
+
+Core packages may not import `strictness`; they raise the same finding through
+the `report.Reporter` they are handed (`rep.FailOncef(report.KindConfig, ...)`)
+— `internal/core/profiles` does exactly this for the empty-profile cases.
+Fatality is decided in ONE place: the run's `strictness.Mode`, built once at
+the CLI root from `--degraded` / `CTXLOOM_DEGRADED`, is what the startup gate
+consults. That is what makes the guarantee above hold everywhere at once.
+
+Therefore, at the site of a check:
+
+- **Do NOT branch on degraded state.** No reading `Mode.Degraded` at a check,
+  no `strict bool` parameter, no per-call fatality argument. A check that decides
+  its own fatality is a second policy that will disagree with the first.
+- **Do state the REMEDY, not just the complaint.** The refusal is the entire
+  user interface for the failure. "invalid profile" is a dead end; "give the
+  profile something to select (parents, bundles, fragments, select_tags) or
+  delete it" is error correction. Write the sentence that ends the problem.
+- **Do make sure the remedy is followable.** A message advising an action the
+  caller cannot take — telling them to drop a flag they never passed — is
+  proof the check is firing outside its own design premise. Fix the premise,
+  not the wording.
+- **Report every problem, not the first.** `FailOnce` records and the startup
+  gate decides; a user fixing four things one launch at a time is paying for
+  our convenience.
+
+## Say what you are correcting TO — from the code that does the correcting
+
+A degraded message that names only the FAULT is half a message. It says what
+broke; it does not say what will now happen, and that is the only part that
+lets someone decide whether to let the run continue. Name the value being
+proceeded WITH:
+
+    engine_home "sesion": unknown value (known: host, session)
+      -> degraded: proceeding as "host"
+
+That second line must be produced BY THE CORRECTION ITSELF, never by a
+hand-written string standing beside it. The correction RETURNS the value it
+chose; the announcement FORMATS that returned value. One source, one truth.
+
+The moment the fallback's name is typed into a format string there are two
+statements of one decision, and the compiler sees only one of them. Change the
+fallback and nothing updates the sentence: it keeps its authority while lying,
+to the person already dealing with a fault.
+
+Measured, not hypothetical. A run here warned "this run uses the runtime's own
+config home instead" and then ABORTED on a fatal finding, having taken no such
+fallback. The prose and the behaviour were written separately and drifted
+apart, and the message was believed. The same rule governs the refusal arm: the
+valid set quoted in an error comes from the same declaration the validator
+checks against, never from a second list maintained by hand.
+
+## Outputs stay strict in both modes
+
+None of the above touches the output side. What ctxloom EMITS — files, wire
+messages, exit codes, generated config — is conservative always. Degraded mode
+tolerates a bad INPUT; it never emits a malformed output, a partial file, or a
+zero exit code over work that did not happen.
+
+## Testing it
+
+Pin BOTH arms, and mutate each. The same bad input must REFUSE by default
+(nonzero exit, nothing launched) and WARN-then-launch under `--degraded`. A
+test covering only the refusal lets degraded mode silently start refusing too,
+which breaks the guarantee for every existing user; a test covering only the
+degraded arm lets the refusal rot into a no-op. Assert the EFFECT — exit status
+and whether an engine actually started — never the message text alone.
+
+---
+
+# A test does not pass until a mutation dies
+
+A test is not passing because it is green. It is passing when it is
+green AND a mutation to the production code it names makes it FAIL.
+Green alone means the test ran. It does not mean the test looked.
+
+Apply it in both directions:
+
+- **Writing a test**: green is a claim, not proof. The proof is a
+  mutant dying against the production code the test names, and it is
+  collected ONCE, at close-out, by the diff mutation run over the whole
+  change (the `closeout` skill, step 2; `turn-gates` says which
+  command) — not by mutating after every test. A mutant that LIVES
+  there in code your test names means you wrote a tautology, which is
+  worse than no test because it reports coverage you do not have.
+- **Trusting a test**: a suite's green tells you nothing about a
+  specific claim until a mutant has died against it. "It passes" is
+  not evidence. "It failed when X was broken" is. Until close-out has
+  run, say "green, not yet mutation-checked" — never "verified".
+
+## Why this is a rule here and not a preference
+
+An audit of this project's acceptance suite on 2026-08-04 read 380
+scenarios, ran 41 mutations, and found 25 assertions that passed
+while proving nothing. Not edge cases — one asserted that the output
+matched the regex `.` (any one character). Others asserted an
+argument the command had echoed back, or a MIME type that is a
+static field on the envelope, or the ABSENCE of something the
+fixture never created. Several were satisfied by the subject never
+running at all: a scenario titled "the same engines proceed" passed
+when the engine never launched, and one titled "a per-item
+acceptance and a rejection ARE RECORDED" passed with the record
+store neutered to write nothing.
+
+Every one of those had been green for as long as it had existed.
+
+## The shapes that produce a false green
+
+- asserting exit 0 without asserting the EFFECT (this project's
+  characteristic silent no-op: exit 0, a success message, zero bytes)
+- asserting a name, a header, or an argument the command echoes
+- asserting a file exists without asserting its content or mode
+- asserting the tool's REPORT of what it did instead of the state it
+  changed
+- absence-satisfies-absence: asserting something is missing in a
+  fixture where it was never present
+- a substring so generic it survives gutting the thing under test
+
+## Where the bar is already met, and worth copying
+
+`tests/acceptance/steps_skill.go` compares bytes with an explicit
+zero-length guard — "comparing two empty reads is trivially
+identical" — which is the line that stops a byte comparison from
+being vacuous. `j002600` asserts an exact file COUNT rather than
+existence. `run.feature`'s recorded-input assertion reads what the
+engine actually received rather than what the CLI said it sent.
+
+## Test against a FRESH BUILD, never the installed binary
+
+Any manual or agent-driven verification runs against a binary built
+from the tree under test — `just build`, then `./ctxloom` — never
+`ctxloom` from `$PATH`.
+
+The installed binary is a different program. On 2026-08-05 a check
+of whether a newly added fragment was delivered came back "missing";
+the installed `ctxloom` was `v0.7.0-cefeb77-20260728T201548-dirty`,
+eight days and ~150 commits behind the tree, and dirty on top. Built
+from source, the same check passed. The measurement was wrong, not
+the code — and a wrong measurement that agrees with your fear is the
+expensive kind.
+
+`just test-acceptance` already does this correctly: it depends on
+`build` and drives the binary it just produced. The exposure is
+hand-run commands and agent verification, which reach for `$PATH`
+by default.
+
+The `$PATH` binary's currency may NOT be assumed in either direction. It
+may be current, stale, or dirty, and you cannot tell by looking -- which is
+exactly why verification drives the binary `just build` just produced rather
+than reasoning about which program answered. A stale binary plus an
+exit-code check agrees with anything.
+
+---
+
+# Say what you are looking for, and what you found
+
+Two short statements per tool call — not narration, but the only part of a
+tool interaction that survives compaction:
+
+- BEFORE: what you are trying to learn or change.
+- AFTER: what you actually learned, including "nothing" and "not what I
+  expected", which are results.
+
+**Why it is a rule.** Compaction reduces tool RESULTS to their shape
+(`[2,431 bytes, 47 lines]`): a truncated grep is neither the information nor
+a summary of it, and the content can be re-derived by asking again. What
+cannot be re-derived is what you were trying to find out and what the answer
+changed; omit it and the essence records only that a command ran. Measured on
+this project's transcripts: tool traffic is 50-69% of a session; Bash's
+required `description` covers the BEFORE half (100% of 1,286 calls), but the
+AFTER half follows only 12% of results. That gap is the entire cost.
+
+Weak: "Let me check the config." Strong: "Checking whether the byte cap
+applies per-argument or to the whole object — it decides whether eliding one
+key buys anything."
+
+Weak: "Done." (the result's shape already said that). Strong: "It caps the
+whole object, so eliding the payload should free budget for the path — but
+210 of 210 paths were already visible, so it does not."
+
+A finding that overturns what you expected is the most valuable thing you can
+write. Say it plainly and carry on.
+
+---
+
+SOLID: SRP, OCP, LSP, ISP, DIP.
+
+---
+
+Body with a horizontal rule below.
+
+---
+
+And a literal mustache pair: {{not_a_template}} plus {{triple}}.
+
+---
+
+---
+
+Project golden: always on.
+
+---
+
+Do not edit a signed bundle in place.
+
+---
+
+# A commit can outlive the shell tool's timeout
+
+This repository's git hooks run real gates, and on a busy machine they take
+longer than a shell tool's default timeout.
+
+Pass an explicit timeout equal to the configured `shell_timeout.max` on every
+shell call that runs `git commit`, `git merge` or `git push`.
+
+A command that outlives its timeout is moved to the background, not finished.
+Before you report a commit, confirm it landed with `git log -1`. If it is not
+there, the hooks are still running or have failed: read their output rather
+than retrying blind.
+
+---
+
+## Isolation: specify both axes
+
+Creating, configuring, or delegating to a ctxloom agent (`ctxloom agent
+create`, `ctxloom agent edit`, `run --agent`, `agent_run`)? Set both axes
+explicitly; never rely on the default.
+
+- **runtime** (`host` | `container-rootless` | `container-rootful`, the
+  binding's `runtime:`) isolates the PROCESS. There is no "any container"
+  value: rootless and rootful differ in UID mapping, so a workload can
+  genuinely require one.
+- **workspace** (`none` | `worktree`, per-invocation `--workspace` /
+  `agent_run`'s `workspace`) isolates the FILES.
+
+An ownership mismatch is FATAL, never a substitution: `container-rootful`
+where only rootless is reachable is a fatal KindIsolation finding (exit 3).
+`--degraded` falls back to the HOST, never to the other ownership mode.
+
+The axes are independent. `container-rootless` can mount the workspace at the
+live project's absolute path (process isolated, edits land where the editor
+looks); `worktree` still runs the engine on the host (the editor is blind to
+that tree by design; results return via the delegated-agent merge flow).
+
+Unspecified is `host`+`none`: isolated on NEITHER axis — a default, not a
+decision. Host runtime is no boundary between agents: the coordinator
+credential is readable in the environment of any same-uid process, and that
+token IS identity, so one host-runtime agent can speak as another. Containers
+are the boundary: isolation becomes a property of the runtime, not a request
+to the engine — some vendor CLIs ignore env-var isolation hints and write
+credentials/state to a global path regardless.
+
+A bad or missing agent name silently degrades to `host`+`none` with only a
+stderr warning, discarding the runtime and permissions you asked for: confirm
+the name resolves before trusting the isolation you requested.
 == blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e
 You are adding or changing a flag, an environment variable, or a config key; working out which layer won when a setting resolved unexpectedly; or reading configuration to decide how something is declared. For anyone touching how this family of binaries is configured, however the moment is worded.
 == blob:97ff6be424dc18e90bd8df3628c1b4e6521d502eb0f337d8f87e1c43a41357cb
@@ -4139,9 +4719,11 @@ Then tell the user, plainly:
   session — nothing here was a one-shot wizard; come back whenever something
   needs to change (a new profile, a new agent, a new companion).
 
+== blob:9b26469d29e2f10a280827e8f55eb9739c518004a765d71391ab44919595b2e5
+You are writing or changing a test during a turn, and need it to survive the close-out mutation run; choosing which build, test, lint, or mutation command to run; interpreting an exit code or a suite's output; or deciding whether the gate you ran actually covers the claim you are making. For anyone deciding which command proves a change is done. This is about WHICH gate and how to read it, not about whether a passing test means anything.
 == blob:a27754173e5860b7ab5b9204c294ecdbbcec9ba5cf885cc84d69e5a811ccd159
 You are about to run git commit, git merge or git push through the shell tool — directly, inside a script, or as the last step of a change. For anyone whose next command fires this repository's git hooks, however the moment is worded.
-== blob:c03099ae56e84ccfcdf98e07fb54973f05f809382de459661d8391643f212817
+== blob:b282e107b8deec9bb99a306e5495c4ef5f9a75152e54cb2461ed5bf8fc8f29ef
 # Which gate is real in this repo, and how to read one
 
 Companion to green-is-not-passing, which says a test is not passing until a
@@ -4161,9 +4743,30 @@ read what it tells you.
 one proves far less than it looks like it does.
 
 Iterate on the narrow target; run `test-acceptance` before claiming anything is
-done. When you need a single acceptance scenario — hand-mutating one, say —
-`test-acceptance-focus` runs a whole feature in seconds, so acceptance mutation
-is cheap and there is no excuse for skipping it.
+done. When you need a single acceptance scenario — hand-mutating one at
+close-out, say — `test-acceptance-focus` runs a whole feature in seconds.
+
+## During the turn: write the tests the close-out mutation run will judge
+
+Every behaviour you add or change ships with its test IN THE SAME TURN. You do
+not mutate it now — close-out runs `test-mutation-diff` over the whole change
+and scores every changed line — but write each test knowing that run is
+coming, because a mutant that LIVES there is a test you have to come back and
+fix. Per `.gremlins.yaml`, on each line you change it will:
+
+- flip conditional boundaries and negations (`<`→`<=`, `==`→`!=`) — test BOTH
+  sides of every condition you add, at the boundary value itself;
+- swap `&&`/`||` and arithmetic, increments, sign and assignment operators —
+  assert the exact computed value, not just non-zero or "changed";
+- turn `break`/`continue` around and drop self-assignments — assert what the
+  loop produced or skipped, element by element.
+
+And the shapes no mutator needs to find, because they pass with the code
+deleted: green-is-not-passing lists them (exit 0 without the effect, the
+echoed argument, the generic substring, absence-satisfies-absence). Assert
+the EFFECT; assert errors by identity (`errors.Is`), not `err != nil`.
+
+Report such a test as "green, not yet mutation-checked" until close-out has run.
 
 ## Read the EXIT CODE — and know where that is not enough
 
@@ -4182,14 +4785,31 @@ written.
 
 ## Which mutation method reaches which code
 
-gremlins is COVERAGE-GATED: it mutates source and runs `go test`. The acceptance
-suite and the testenv integration tests exec a PRE-BUILT binary, and Go coverage
-does not cross an exec boundary — so those mutants report NOT COVERED and are
-never attempted. There, HAND mutation is the only real method, not a poor
-substitute.
+Mutation runs at CLOSE-OUT (the `closeout` skill, step 2), once over the whole
+change — not after each test or each turn. Close-out runs everything relevant
+to the DELTA and nothing wider; full-module coverage and mutation are CI's:
 
-    unit-testable code      just test-mutation-diff <BASE>
-    anything via the CLI    hand mutation
+    just test-pkg ./<pkg>/ -cover      each package the change touched: unit + line %
+    just test-mutation-diff <BASE>     changed lines: kill % (gate 80) + mutant coverage %
+
+When mutation runs, the DEFAULT is the tool:
+
+    just test-mutation-diff <BASE>     BASE = the commit before the work began
+
+It mutates every changed line and scores each mutant killed / lived / not
+covered / timed out — systematic, repeatable, and faster than editing by hand.
+Run it, then read its LIVED and NOT COVERED lists. Do not swap in hand mutation
+because the tool "covers the whole diff" (that is the point) or seems slow.
+
+Hand mutation is for ONE gap only. gremlins is coverage-gated: it mutates
+source and runs `go test`, and the acceptance suite and testenv integration
+tests exec a PRE-BUILT binary, so a mutant reachable only through the CLI
+reports NOT COVERED and is never attempted. For exactly those NOT COVERED
+lines that an acceptance or integration test claims to pin, hand mutation is
+the only real method — not a poor substitute, and not a replacement for the run.
+
+    unit-testable code               just test-mutation-diff <BASE>
+    NOT COVERED, reached via the CLI hand mutation, after the run
 
 HAND MUTATION MUST REBUILD. Those suites exec a previously built binary and
 `just test-pkg` does not rebuild. Edit production code, run `just build`, THEN
@@ -4541,14 +5161,17 @@ Green alone means the test ran. It does not mean the test looked.
 
 Apply it in both directions:
 
-- **Writing a test**: after it goes green, break the behaviour it
-  names — in `internal/` or `cmd/`, not in the test — and confirm it
-  goes red. Revert. If nothing you can break makes it fail, you have
-  written a tautology, and it is worse than no test because it
-  reports coverage you do not have.
+- **Writing a test**: green is a claim, not proof. The proof is a
+  mutant dying against the production code the test names, and it is
+  collected ONCE, at close-out, by the diff mutation run over the whole
+  change (the `closeout` skill, step 2; `turn-gates` says which
+  command) — not by mutating after every test. A mutant that LIVES
+  there in code your test names means you wrote a tautology, which is
+  worse than no test because it reports coverage you do not have.
 - **Trusting a test**: a suite's green tells you nothing about a
-  specific claim until someone has killed a mutation against it.
-  "It passes" is not evidence. "It failed when I broke X" is.
+  specific claim until a mutant has died against it. "It passes" is
+  not evidence. "It failed when X was broken" is. Until close-out has
+  run, say "green, not yet mutation-checked" — never "verified".
 
 ## Why this is a rule here and not a preference
 
@@ -4646,547 +5269,6 @@ write. Say it plainly and carry on.
 ---
 
 SOLID: SRP, OCP, LSP, ISP, DIP.
-
----
-
-## Isolation: specify both axes
-
-Creating, configuring, or delegating to a ctxloom agent (`ctxloom agent
-create`, `ctxloom agent edit`, `run --agent`, `agent_run`)? Set both axes
-explicitly; never rely on the default.
-
-- **runtime** (`host` | `container-rootless` | `container-rootful`, the
-  binding's `runtime:`) isolates the PROCESS. There is no "any container"
-  value: rootless and rootful differ in UID mapping, so a workload can
-  genuinely require one.
-- **workspace** (`none` | `worktree`, per-invocation `--workspace` /
-  `agent_run`'s `workspace`) isolates the FILES.
-
-An ownership mismatch is FATAL, never a substitution: `container-rootful`
-where only rootless is reachable is a fatal KindIsolation finding (exit 3).
-`--degraded` falls back to the HOST, never to the other ownership mode.
-
-The axes are independent. `container-rootless` can mount the workspace at the
-live project's absolute path (process isolated, edits land where the editor
-looks); `worktree` still runs the engine on the host (the editor is blind to
-that tree by design; results return via the delegated-agent merge flow).
-
-Unspecified is `host`+`none`: isolated on NEITHER axis — a default, not a
-decision. Host runtime is no boundary between agents: the coordinator
-credential is readable in the environment of any same-uid process, and that
-token IS identity, so one host-runtime agent can speak as another. Containers
-are the boundary: isolation becomes a property of the runtime, not a request
-to the engine — some vendor CLIs ignore env-var isolation hints and write
-credentials/state to a global path regardless.
-
-A bad or missing agent name silently degrades to `host`+`none` with only a
-stderr warning, discarding the runtime and permissions you asked for: confirm
-the name resolves before trusting the isolation you requested.
-== blob:c12859402c76e5a0749baf3d11fb8f9b0eab4ffdc7e622c7b6e3bd10a5bc1b6c
-# Which gate is real in this repo, and how to read one
-
-Companion to green-is-not-passing, which says a test is not passing until a
-mutation dies. This says which command actually proves that here, and how to
-read what it tells you.
-
-## The gates, and what each one is worth
-
-    just build                    ~4s
-    just lint                    ~19s
-    just test-arch               ~20s   the architectural class gates, -tags arch
-    just test-integration        ~30s
-    just test-acceptance        ~510s   THE REAL GATE
-    just test-acceptance-focus features/<f>.feature   ~10-17s, one feature
-
-`just test` only COMPILES the integration suite. It is not the gate, and a green
-one proves far less than it looks like it does.
-
-Iterate on the narrow target; run `test-acceptance` before claiming anything is
-done. When you need a single acceptance scenario — hand-mutating one, say —
-`test-acceptance-focus` runs a whole feature in seconds, so acceptance mutation
-is cheap and there is no excuse for skipping it.
-
-## Read the EXIT CODE — and know where that is not enough
-
-Gate on the exit status, never on grepping output for "PASS" or "ok". Then know
-the three inversions, each of which reports success while telling you otherwise:
-
-- `gofmt -l` LISTS unformatted files and exits 0. Check whether the OUTPUT is
-  empty, not the status.
-- `go test -run <pattern>` whose pattern matches NOTHING exits 0 having run no
-  test. Confirm it actually ran.
-- a pipeline reports the LAST command's status, so `cmd | tail; echo $?` gives
-  tail's exit. Redirect to a file and check directly, or use PIPESTATUS.
-
-The shape to watch for throughout: exit 0, a success message, and zero bytes
-written.
-
-## Which mutation method reaches which code
-
-gremlins is COVERAGE-GATED: it mutates source and runs `go test`. The acceptance
-suite and the testenv integration tests exec a PRE-BUILT binary, and Go coverage
-does not cross an exec boundary — so those mutants report NOT COVERED and are
-never attempted. There, HAND mutation is the only real method, not a poor
-substitute.
-
-    unit-testable code      just test-mutation-diff <BASE>
-    anything via the CLI    hand mutation
-
-HAND MUTATION MUST REBUILD. Those suites exec a previously built binary and
-`just test-pkg` does not rebuild. Edit production code, run `just build`, THEN
-the gate. Skip the build and the mutation survives against the old binary — you
-will call a good test vacuous, or a vacuous one fine.
-
-When a mutation SURVIVES, suspect you aimed at the wrong layer before concluding
-the test is vacuous. The tell is that the mutated code is demonstrably live
-elsewhere: if breaking it reddens some other package's tests, the code is
-reachable, just not from the path under test. Find the reachable gate and kill
-that instead.
-
-## A fresh worktree cannot commit until it is built
-
-`just build` first, and make sure `bin/archlint` exists there. Without a built
-tree the pre-commit hook fails with an `archvocabulary: failed prerequisites`
-cascade that looks like a broken analyzer and is not.
-
-`test-pkg` takes a package PATTERN — `./internal/cli`, with the leading `./`.
-Without it you get a misleading "is not in std" error.
-
----
-
-# Not all of this project's guidance is in your context
-
-CONDITIONAL fragments each carry a PREMISE (the situation they apply to) and
-are not loaded at launch. You have only the unconditional ones; the rest exist,
-and nothing fires when one becomes relevant. This fragment has no premise: it
-is the pointer to the ones you cannot see.
-
-**Why pulled, not pushed.** Assembled context is delivered once, at launch,
-and an in-process subagent inherits it wholesale. With no per-agent scoping, a
-pushed index fits nobody and never reaches a child ctxloom did not mediate. A
-catalog you ASK for has neither problem, and is answered at the only moment
-the answer means anything: when you have something to match against. The cost:
-an agent that does not know to ask never learns those fragments exist.
-
-**Ask.** `ctxloom fragment premises` lists every premised fragment, its
-condition, and the instruction for deciding between them. Over MCP the same
-menu is the `ctxloom://fragments` resource (each entry: its premise and the
-qualified ref to quote back); bodies come from `ctxloom://fragments/{name}`.
-Judge the premise, not the name: read the guidance the listing ships rather
-than guessing from a title.
-
-**Load.** `ctxloom fragment show <qualified-ref>`, or over MCP call
-`assemble_context` with the chosen names in its `bundles` argument.
-
-**When.** When you are about to ACT and this corpus might hold a rule about
-that action — not once at session start, and not against the conversation
-behind you. Ask again later in a long session: what you are about to do has
-changed, so the answer has too.
-
----
-
-# Configuration precedence
-
-Every binary in the ctxloom family (ctxloom, taskloom, ltk) resolves
-configuration through one shared chain, owned by
-`internal/shared/confload`:
-
-    home config file  <  project config file  <  ENV VARS  <  --config-set FLAGS
-
-Later layers win. `confload` reads and deep-merges the file layers and
-resolves both override channels against the merged result, so there is
-exactly one place this ordering is implemented — do not re-derive it in
-a command.
-
-## The two override channels
-
-**Environment** — a dedicated namespace under the product's env prefix
-(`CTXLOOM_CONFIG_`), e.g. `CTXLOOM_CONFIG_LLM_DEFAULTS_PRIMARY=big`.
-
-**`--config-set`** — a repeatable root flag taking `<dotted.path>=<value>`,
-e.g. `--config-set agents.MyCoder.runtime=container`.
-
-## A command's own flags are NOT a config source
-
-`--config-set` is the ONLY flag channel. `confload` deliberately does not
-treat a changed flag's NAME as a config path, and this is load-bearing
-rather than stylistic — an earlier revision did exactly that, and it
-silently coupled every current and future flag name to the config schema.
-Two failures were confirmed in production:
-
-- `ctxloom agent set coder --runtime container` clobbered the project's
-  top-level `runtime` key, because `--runtime` resolved as a config path.
-- `--format json` on a structured-output command printed a warning line
-  into what a script expected to be pure JSON, because `--format`
-  resolved as "unrecognized config key, setting it anyway".
-
-So when you add a flag, it configures THAT invocation. If the value
-belongs in config, give it a schema path and let the chain resolve it;
-never bridge a flag name to a config key by convention.
-
-## Case handling diverges between the two channels, deliberately
-
-A shell destroys an env var name's case before Go sees it
-(`CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME` cannot say whether the author
-wrote `MyCoder`, `mycoder`, or `MYCODER`). A `--config-set` value never
-passes through those rules, so it preserves exactly what was typed.
-
-Both resolve identically when the target already exists or is a fixed,
-canonically-cased schema field: case-insensitive match, adopting the
-existing casing. They diverge only at a dynamic level that nothing
-existing covers — an agent label, an LLM config label. There, env falls
-back to whatever the shell handed over, while `--config-set` preserves
-the typed case. That is why `--config-set` can mint a brand-new
-case-sensitive key (`agents.MyCoder.runtime=container`)
-and env fundamentally cannot.
-
----
-
-# An agent cell is already the dev environment
-
-## The layering
-
-ctxloom agents run inside ctxloom's own containers, and this project's dev
-container sits ON TOP of that. A cell is therefore not a bare box waiting for
-tooling to be delivered to it — it already carries the toolchain the gates
-expect.
-
-That is the whole reason most agents need no docker access at all. Building or
-entering a container from in there constructs a second copy of the environment
-the agent is already running in.
-
-## DinD is not forbidden; it is rarely the answer
-
-Nothing here prohibits docker-in-docker, and some work genuinely needs a
-daemon — work whose SUBJECT is container behaviour: the isolation runtimes,
-image builds, the docker-gated tests. Ask for it there, deliberately, and say
-why.
-
-What is almost always wrong is reaching for it to make an ordinary build or
-test command work. That impulse is a symptom, not a fix, and the next section
-is what it is usually a symptom of.
-
-## The trap that manufactures the wrong fix
-
-The root justfile's recipes name dev-image as a PREREQUISITE, and dev-image
-shells straight out to a container build with no guard of its own. A just
-prerequisite runs BEFORE the recipe body — so inside a cell the dependency
-fails on the missing socket before `_run` is ever reached, and `_run` is the
-part that already dispatches to justfile.container whenever DEVCONTAINER, CI
-or GITHUB_ACTIONS is set.
-
-So the failure presents as "this cell needs docker" when the truth is that the
-dispatch is correct and merely unreachable. Granting the cell a daemon answers
-a question nobody asked: it spends a real isolation boundary to build an image
-the cell already is.
-
-## If you do drive the container justfile by hand, SAY WHICH ONE YOU RAN
-
-justfile.container is a SEPARATE recipe set, and it has silently diverged from
-the root justfile's package lists before — the recipes share a name, which is
-exactly what made the divergence invisible. An exit code from one is therefore
-not the same claim as an exit code from the other.
-
-An orchestrator deciding whether to merge is relying on that distinction, so
-name the recipe path you used when you report. "test-integration exit 0" with
-no path is an ambiguous claim, and the ambiguity always resolves in the
-optimistic direction.
-
----
-
-# Refuse when something is amiss; `--degraded` is the way through
-
-**The default posture is REFUSE, not proceed.** When ctxloom finds something
-wrong at startup — broken config, an unresolvable profile or bundle, a failed
-hook apply, an invalid document — it ABORTS the launch and says what is wrong
-and how to fix it. It does not quietly launch something lesser.
-
-This is a deliberate pivot away from always-launch. Always-launch produced
-CONFIDENT WRONG WORK: a bad or missing agent name silently degraded to
-`host`+`none`, discarding the runtime and permissions that were asked for, with
-only a stderr warning nobody read. The agent then ran unisolated while everyone
-believed otherwise. A launch that succeeds without doing the thing is worse
-than one that refuses, because nothing downstream can tell the difference.
-
-## First, declare what you accept — in code, in one place
-
-A refusal is only meaningful against a DECLARATION. "Strict" that means
-"whatever this function happened to check" is not strict, it is arbitrary — and
-arbitrary drifts, because the next call site checks something slightly
-different and nothing notices.
-
-So before either mode below can exist, the acceptable shape of a value is
-WRITTEN IN CODE, in one place, as something the program can read: a schema, a
-typed parse, an enumerated set of names. Not a comment, not a doc page, not a
-validation function per call site. Both modes then consume that one
-declaration — the refusal names the declared set, the degraded path names the
-declared value it fell back to — and neither invents its own idea of valid.
-
-THE TEST, and it is one you can actually apply: point at the ONE thing a reader
-would change to add a new accepted value. If the answer is "the validator, and
-the error message, and the docs, and the schema", the declaration does not
-exist. Those are four copies, and copies drift — the error message goes on
-listing the old set with full authority while the validator has already
-accepted a new one.
-
-THIS IS NOT ONLY A LAUNCH CONCERN, and that is the trap. Everything below about
-`strictness` governs findings raised at STARTUP. An ordinary resolution
-function is not a launch check, raises no finding, and reaches none of that
-machinery — which is exactly where silent substitution survives. The `--llm`
-label is the worked example: `config.(*Config).ResolveLLM` falls back to the
-built-in default on a label it does not know, because it has no engine
-registry and cannot tell a typo from a bare engine name. So the finding lives
-one layer up, in `operations.ResolveBackend`, the one place that holds BOTH
-declarations (the configured labels and the registered engines) and can say
-the label names neither. Put the refusal where the declaration is visible, not
-where the lookup happens to miss.
-
-## `--degraded` always reaches a working LLM
-
-`--degraded` (and `CTXLOOM_DEGRADED=1`; the flag wins) lowers every finding
-from an error to a WARNING and continues. That is a promise, not a
-best-effort: **degraded mode always gets the user into a working LLM.** If a
-degraded run can still refuse to launch for an ordinary finding, degraded mode
-is broken.
-
-So the two modes divide cleanly:
-
-    default      refuse, and explain the remedy
-    --degraded   warn, and launch anyway
-
-## The one exception: launching is itself the danger
-
-Security findings where starting the LLM is the harm do NOT yield to
-`--degraded`. A breached trust or isolation boundary — credentials reachable
-that should not be, an ownership mismatch on the runtime axis, unverifiable
-content admitted to an execution surface — stays fatal in both modes.
-
-The test is not "is this serious?" but **"does launching cause the harm?"** A
-profile that fails to parse is serious and still degradable: the user gets a
-working LLM with less context. A container runtime that cannot provide the
-isolation it claimed is not degradable, because the launch IS the exposure.
-`--degraded` falls back to the HOST, never to a different ownership mode.
-
-## How to write one of these, mechanically
-
-Report the finding; let `strictness` decide its fatality:
-
-    strictness.FailOnce(report.KindConfig, "<the remedy>", ...)
-
-Core packages may not import `strictness`; they raise the same finding through
-the `report.Reporter` they are handed (`rep.FailOncef(report.KindConfig, ...)`)
-— `internal/core/profiles` does exactly this for the empty-profile cases.
-Fatality is decided in ONE place: the run's `strictness.Mode`, built once at
-the CLI root from `--degraded` / `CTXLOOM_DEGRADED`, is what the startup gate
-consults. That is what makes the guarantee above hold everywhere at once.
-
-Therefore, at the site of a check:
-
-- **Do NOT branch on degraded state.** No reading `Mode.Degraded` at a check,
-  no `strict bool` parameter, no per-call fatality argument. A check that decides
-  its own fatality is a second policy that will disagree with the first.
-- **Do state the REMEDY, not just the complaint.** The refusal is the entire
-  user interface for the failure. "invalid profile" is a dead end; "give the
-  profile something to select (parents, bundles, fragments, select_tags) or
-  delete it" is error correction. Write the sentence that ends the problem.
-- **Do make sure the remedy is followable.** A message advising an action the
-  caller cannot take — telling them to drop a flag they never passed — is
-  proof the check is firing outside its own design premise. Fix the premise,
-  not the wording.
-- **Report every problem, not the first.** `FailOnce` records and the startup
-  gate decides; a user fixing four things one launch at a time is paying for
-  our convenience.
-
-## Say what you are correcting TO — from the code that does the correcting
-
-A degraded message that names only the FAULT is half a message. It says what
-broke; it does not say what will now happen, and that is the only part that
-lets someone decide whether to let the run continue. Name the value being
-proceeded WITH:
-
-    engine_home "sesion": unknown value (known: host, session)
-      -> degraded: proceeding as "host"
-
-That second line must be produced BY THE CORRECTION ITSELF, never by a
-hand-written string standing beside it. The correction RETURNS the value it
-chose; the announcement FORMATS that returned value. One source, one truth.
-
-The moment the fallback's name is typed into a format string there are two
-statements of one decision, and the compiler sees only one of them. Change the
-fallback and nothing updates the sentence: it keeps its authority while lying,
-to the person already dealing with a fault.
-
-Measured, not hypothetical. A run here warned "this run uses the runtime's own
-config home instead" and then ABORTED on a fatal finding, having taken no such
-fallback. The prose and the behaviour were written separately and drifted
-apart, and the message was believed. The same rule governs the refusal arm: the
-valid set quoted in an error comes from the same declaration the validator
-checks against, never from a second list maintained by hand.
-
-## Outputs stay strict in both modes
-
-None of the above touches the output side. What ctxloom EMITS — files, wire
-messages, exit codes, generated config — is conservative always. Degraded mode
-tolerates a bad INPUT; it never emits a malformed output, a partial file, or a
-zero exit code over work that did not happen.
-
-## Testing it
-
-Pin BOTH arms, and mutate each. The same bad input must REFUSE by default
-(nonzero exit, nothing launched) and WARN-then-launch under `--degraded`. A
-test covering only the refusal lets degraded mode silently start refusing too,
-which breaks the guarantee for every existing user; a test covering only the
-degraded arm lets the refusal rot into a no-op. Assert the EFFECT — exit status
-and whether an engine actually started — never the message text alone.
-
----
-
-# A test does not pass until a mutation dies
-
-A test is not passing because it is green. It is passing when it is
-green AND a mutation to the production code it names makes it FAIL.
-Green alone means the test ran. It does not mean the test looked.
-
-Apply it in both directions:
-
-- **Writing a test**: after it goes green, break the behaviour it
-  names — in `internal/` or `cmd/`, not in the test — and confirm it
-  goes red. Revert. If nothing you can break makes it fail, you have
-  written a tautology, and it is worse than no test because it
-  reports coverage you do not have.
-- **Trusting a test**: a suite's green tells you nothing about a
-  specific claim until someone has killed a mutation against it.
-  "It passes" is not evidence. "It failed when I broke X" is.
-
-## Why this is a rule here and not a preference
-
-An audit of this project's acceptance suite on 2026-08-04 read 380
-scenarios, ran 41 mutations, and found 25 assertions that passed
-while proving nothing. Not edge cases — one asserted that the output
-matched the regex `.` (any one character). Others asserted an
-argument the command had echoed back, or a MIME type that is a
-static field on the envelope, or the ABSENCE of something the
-fixture never created. Several were satisfied by the subject never
-running at all: a scenario titled "the same engines proceed" passed
-when the engine never launched, and one titled "a per-item
-acceptance and a rejection ARE RECORDED" passed with the record
-store neutered to write nothing.
-
-Every one of those had been green for as long as it had existed.
-
-## The shapes that produce a false green
-
-- asserting exit 0 without asserting the EFFECT (this project's
-  characteristic silent no-op: exit 0, a success message, zero bytes)
-- asserting a name, a header, or an argument the command echoes
-- asserting a file exists without asserting its content or mode
-- asserting the tool's REPORT of what it did instead of the state it
-  changed
-- absence-satisfies-absence: asserting something is missing in a
-  fixture where it was never present
-- a substring so generic it survives gutting the thing under test
-
-## Where the bar is already met, and worth copying
-
-`tests/acceptance/steps_skill.go` compares bytes with an explicit
-zero-length guard — "comparing two empty reads is trivially
-identical" — which is the line that stops a byte comparison from
-being vacuous. `j002600` asserts an exact file COUNT rather than
-existence. `run.feature`'s recorded-input assertion reads what the
-engine actually received rather than what the CLI said it sent.
-
-## Test against a FRESH BUILD, never the installed binary
-
-Any manual or agent-driven verification runs against a binary built
-from the tree under test — `just build`, then `./ctxloom` — never
-`ctxloom` from `$PATH`.
-
-The installed binary is a different program. On 2026-08-05 a check
-of whether a newly added fragment was delivered came back "missing";
-the installed `ctxloom` was `v0.7.0-cefeb77-20260728T201548-dirty`,
-eight days and ~150 commits behind the tree, and dirty on top. Built
-from source, the same check passed. The measurement was wrong, not
-the code — and a wrong measurement that agrees with your fear is the
-expensive kind.
-
-`just test-acceptance` already does this correctly: it depends on
-`build` and drives the binary it just produced. The exposure is
-hand-run commands and agent verification, which reach for `$PATH`
-by default.
-
-The `$PATH` binary's currency may NOT be assumed in either direction. It
-may be current, stale, or dirty, and you cannot tell by looking -- which is
-exactly why verification drives the binary `just build` just produced rather
-than reasoning about which program answered. A stale binary plus an
-exit-code check agrees with anything.
-
----
-
-# Say what you are looking for, and what you found
-
-Two short statements per tool call — not narration, but the only part of a
-tool interaction that survives compaction:
-
-- BEFORE: what you are trying to learn or change.
-- AFTER: what you actually learned, including "nothing" and "not what I
-  expected", which are results.
-
-**Why it is a rule.** Compaction reduces tool RESULTS to their shape
-(`[2,431 bytes, 47 lines]`): a truncated grep is neither the information nor
-a summary of it, and the content can be re-derived by asking again. What
-cannot be re-derived is what you were trying to find out and what the answer
-changed; omit it and the essence records only that a command ran. Measured on
-this project's transcripts: tool traffic is 50-69% of a session; Bash's
-required `description` covers the BEFORE half (100% of 1,286 calls), but the
-AFTER half follows only 12% of results. That gap is the entire cost.
-
-Weak: "Let me check the config." Strong: "Checking whether the byte cap
-applies per-argument or to the whole object — it decides whether eliding one
-key buys anything."
-
-Weak: "Done." (the result's shape already said that). Strong: "It caps the
-whole object, so eliding the payload should free budget for the path — but
-210 of 210 paths were already visible, so it does not."
-
-A finding that overturns what you expected is the most valuable thing you can
-write. Say it plainly and carry on.
-
----
-
-SOLID: SRP, OCP, LSP, ISP, DIP.
-
----
-
-Body with a horizontal rule below.
-
----
-
-And a literal mustache pair: {{not_a_template}} plus {{triple}}.
-
----
-
----
-
-Project golden: always on.
-
----
-
-Do not edit a signed bundle in place.
-
----
-
-# A commit can outlive the shell tool's timeout
-
-This repository's git hooks run real gates, and on a busy machine they take
-longer than a shell tool's default timeout.
-
-Pass an explicit timeout equal to the configured `shell_timeout.max` on every
-shell call that runs `git commit`, `git merge` or `git push`.
-
-A command that outlives its timeout is moved to the background, not finished.
-Before you report a commit, confirm it landed with `git log -1`. If it is not
-there, the hooks are still running or have failed: read their output rather
-than retrying blind.
 
 ---
 

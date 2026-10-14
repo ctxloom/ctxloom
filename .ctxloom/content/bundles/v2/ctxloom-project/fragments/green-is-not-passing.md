@@ -13,14 +13,17 @@ Green alone means the test ran. It does not mean the test looked.
 
 Apply it in both directions:
 
-- **Writing a test**: after it goes green, break the behaviour it
-  names — in `internal/` or `cmd/`, not in the test — and confirm it
-  goes red. Revert. If nothing you can break makes it fail, you have
-  written a tautology, and it is worse than no test because it
-  reports coverage you do not have.
+- **Writing a test**: green is a claim, not proof. The proof is a
+  mutant dying against the production code the test names, and it is
+  collected ONCE, at close-out, by the diff mutation run over the whole
+  change (the `closeout` skill, step 2; `turn-gates` says which
+  command) — not by mutating after every test. A mutant that LIVES
+  there in code your test names means you wrote a tautology, which is
+  worse than no test because it reports coverage you do not have.
 - **Trusting a test**: a suite's green tells you nothing about a
-  specific claim until someone has killed a mutation against it.
-  "It passes" is not evidence. "It failed when I broke X" is.
+  specific claim until a mutant has died against it. "It passes" is
+  not evidence. "It failed when X was broken" is. Until close-out has
+  run, say "green, not yet mutation-checked" — never "verified".
 
 ## Why this is a rule here and not a preference
 

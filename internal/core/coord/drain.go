@@ -185,6 +185,9 @@ type DrainOutcome struct {
 	// Interrupted were still running when the bound elapsed and were forced,
 	// with the policy's forced cause as their terminal.
 	Interrupted []string
+	// Overtaken is set when Close cut the drain short: Interrupted are the
+	// children it ended BEFORE the bound elapsed, not ones waited out to it.
+	Overtaken bool
 }
 
 // drainChild is one run the drain accounts for.
@@ -233,7 +236,7 @@ func (c *Coordinator) startDrain(d *Drain) {
 		for _, ch := range d.tracked {
 			harps = append(harps, ch.harp)
 		}
-		d.settle(DrainOutcome{Interrupted: sortedCopy(harps)})
+		d.settle(DrainOutcome{Interrupted: sortedCopy(harps), Overtaken: true})
 	}
 }
 
@@ -273,7 +276,7 @@ func (c *Coordinator) drainWake() {
 func (c *Coordinator) runDrain(d *Drain, bound time.Duration) {
 	p := d.policy
 	c.drainRequest(d, p)
-	exited, interrupted := c.drainWait(d, bound, p)
+	exited, interrupted, overtaken := c.drainWait(d, bound, p)
 	if p.stop != nil {
 		for _, ch := range d.tracked {
 			c.setPendingStop(ch.runID, "")
@@ -282,6 +285,7 @@ func (c *Coordinator) runDrain(d *Drain, bound time.Duration) {
 	outcome := DrainOutcome{
 		Exited:      sortedCopy(exited),
 		Interrupted: sortedCopy(interrupted),
+		Overtaken:   overtaken,
 	}
 	c.warnDrainOutcome(p, bound, outcome)
 	d.settle(outcome)
@@ -312,15 +316,15 @@ func (c *Coordinator) drainRequest(d *Drain, p drainPolicy) {
 // drainWait is the WAIT and FORCE phases: it re-classifies on every wake
 // until nothing is running, and at the bound forces what still is. exited
 // is the last pass's; interrupted is what was forced, or what Close()
-// overtook.
-func (c *Coordinator) drainWait(d *Drain, bound time.Duration, p drainPolicy) (exited, interrupted []string) {
+// overtook — overtaken says which.
+func (c *Coordinator) drainWait(d *Drain, bound time.Duration, p drainPolicy) (exited, interrupted []string, overtaken bool) {
 	timer := time.NewTimer(bound)
 	defer timer.Stop()
 	announced := false
 	for {
 		running, exited := c.drainClassify(d, p)
 		if len(running) == 0 {
-			return exited, nil
+			return exited, nil, false
 		}
 		if !announced {
 			announced = true
@@ -333,11 +337,11 @@ func (c *Coordinator) drainWait(d *Drain, bound time.Duration, p drainPolicy) (e
 			for _, ch := range running {
 				c.drainForce(ch.harp, ch.runID, bound, p)
 			}
-			return exited, drainHarps(running)
+			return exited, drainHarps(running), false
 		case <-c.baseCtx.Done():
 			// Close() overtook the drain: its attachment sweep kills what is
 			// left. Account for them as what they are about to become.
-			return exited, drainHarps(running)
+			return exited, drainHarps(running), true
 		}
 	}
 }
@@ -410,10 +414,18 @@ func (c *Coordinator) drainPhase(runID string) string {
 // warnDrainOutcome makes expiry LOUD: a coordinator that goes quiet about it
 // is one whose operator finds out in the morning the hard way.
 func (c *Coordinator) warnDrainOutcome(p drainPolicy, bound time.Duration, outcome DrainOutcome) {
-	if len(outcome.Interrupted) > 0 {
-		c.rep.Warnf("%s: %d child(ren) still running after %s were interrupted: %s",
-			p.label, len(outcome.Interrupted), bound, strings.Join(outcome.Interrupted, ", "))
+	if len(outcome.Interrupted) == 0 {
+		return
 	}
+	if outcome.Overtaken {
+		// The bound did not elapse — naming it would send the reader hunting
+		// for a wait that never happened.
+		c.rep.Warnf("%s: %d child(ren) still running were interrupted when the coordinator closed: %s",
+			p.label, len(outcome.Interrupted), strings.Join(outcome.Interrupted, ", "))
+		return
+	}
+	c.rep.Warnf("%s: %d child(ren) still running after %s were interrupted: %s",
+		p.label, len(outcome.Interrupted), bound, strings.Join(outcome.Interrupted, ", "))
 }
 
 // requestExit marks a running child so its turn boundary ends it under p
@@ -560,7 +572,7 @@ func (c *Coordinator) StopChildren(ctx context.Context, caller Identity, reason 
 // bulk arm reaches it through StopRequest.Validate, which owns the same
 // refusal for that shape.
 func (c *Coordinator) stopChildren(ctx context.Context, caller Identity, reason string, grace time.Duration) ([]StoppedChild, error) {
-	tracked := c.drainTracked(func(r *RunRecord) bool { return r.ParentHarp == caller.Harp })
+	tracked := c.drainTracked(func(r *RunRecord) bool { return r.ChildOf(caller.Harp) })
 	for _, ch := range tracked {
 		c.markStopped(ch.harp)
 		c.audit("agent_stop", caller.Harp, map[string]string{"harp": ch.harp, "run_id": ch.runID, "reason": reason})

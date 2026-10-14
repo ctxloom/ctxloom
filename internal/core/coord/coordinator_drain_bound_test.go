@@ -100,6 +100,7 @@ func TestBeginDrain_NeverYieldingChildIsForcedAtTheBoundAndNamed(t *testing.T) {
 	assert.Less(t, elapsed, drainWait, "the drain must settle at the bound, not hang on the turn")
 	assert.Equal(t, []string{harp}, out.Interrupted, "the outcome must NAME the interrupted child")
 	assert.Empty(t, out.Exited)
+	assert.False(t, out.Overtaken, "the bound elapsed: nothing overtook the drain")
 	assert.Equal(t, StateEnded, rosterState(c, harp))
 	assert.Equal(t, CauseDrainInterrupted, currentRunCause(c, harp), "the terminal must say the child was interrupted, not merely stopped")
 
@@ -427,4 +428,29 @@ func TestDrainBound_NoSecondLiteralExists(t *testing.T) {
 	require.True(t, seenDeclaration, "the walker must find the declaration itself, or it is not finding anything")
 	assert.Contains(t, referencingFiles(t, coordDir, "drainProcessBound", false), "coordinator.go",
 		"the drain bound must be read by name from its declaration")
+}
+
+// TestBeginDrain_CloseOvertakingTheDrainIsNotTheBound: a drain that Close cuts
+// short accounts its still-running children as interrupted — they are about to
+// be — but the bound did NOT elapse, and the outcome must say so. On
+// 2026-10-14 the overtaken drain's warning read "still running after 10m0s
+// were interrupted" one second after the stop that began it, and the human
+// went looking for a ten-minute hang that never happened.
+func TestBeginDrain_CloseOvertakingTheDrainIsNotTheBound(t *testing.T) {
+	resetStrictness(t)
+	gate := make(chan struct{}) // never closed: the turn never yields
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	c := newTestCoordinator(t, sp, nil)
+	c.drainBound = time.Minute // far past the test: only Close can settle it
+
+	harp := spawnGatedChild(t, sp, c)
+	d := c.BeginDrain()
+	require.Eventually(t, func() bool { return len(readAuditKind(t, c, "drain_request")) == 1 }, conformanceWait, 5*time.Millisecond)
+
+	c.Close()
+	out := awaitDrain(t, d)
+
+	assert.Equal(t, []string{harp}, out.Interrupted)
+	assert.True(t, out.Overtaken, "Close cut the drain short: the bound never elapsed")
 }

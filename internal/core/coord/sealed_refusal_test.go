@@ -29,7 +29,7 @@ func TestStartDrain_RefusedOnceSealedSettlesEveryChildInterrupted(t *testing.T) 
 	default:
 		t.Fatal("a refused drain never settled; its waiter hangs")
 	}
-	assert.Equal(t, DrainOutcome{Interrupted: []string{"child-a", "child-b"}}, d.Outcome())
+	assert.Equal(t, DrainOutcome{Interrupted: []string{"child-a", "child-b"}, Overtaken: true}, d.Outcome())
 	c.drainMu.Lock()
 	_, live := c.drains[d]
 	c.drainMu.Unlock()

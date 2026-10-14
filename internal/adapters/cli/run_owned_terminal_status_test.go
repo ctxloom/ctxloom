@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // TestRenderOwnedRunEvents_TerminalStatusFailsClosed pins a fix: the
@@ -121,4 +123,28 @@ func TestRenderOwnedRunEvents_FailedRunExitsWithTheEngineStatus(t *testing.T) {
 			assert.Equal(t, tc.want, exit.Code)
 		})
 	}
+}
+
+// TestRenderOwnedRunEvents_CancelledRunSaysItWasStopped: a run cancelled with
+// no error message (a stop or an interrupt whose reason the engine's own
+// result did not carry) says so in words, not as a bare proto enum name.
+func TestRenderOwnedRunEvents_CancelledRunSaysItWasStopped(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var sink strings.Builder
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	events := make(chan *agentcoordpb.AgentEvent, 1)
+	events <- &agentcoordpb.AgentEvent{
+		RunId: "run-1",
+		Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
+			Result: &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_CANCELLED},
+		}},
+	}
+	_, err := renderOwnedRunEvents(ctx, io.Discard, formatText, "run-1", events, nil, true)
+	var exit clifmt.ExitStatus
+	require.ErrorAs(t, err, &exit)
+	assert.Contains(t, sink.String(), runCancelledNotice)
+	assert.NotContains(t, sink.String(), "RUN_STATUS_")
 }

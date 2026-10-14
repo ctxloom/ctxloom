@@ -1406,7 +1406,7 @@ func (c *Coordinator) childRun(verb, parent, harp string) (*RunRecord, error) {
 	if rec == nil {
 		return nil, fmt.Errorf("%s: unknown session %q: not a child of this session (spawn it with agent_run first)", verb, harp)
 	}
-	if rec.ParentHarp != parent {
+	if !rec.ChildOf(parent) {
 		return nil, Refusal(ErrNotAChild, "%s: %q is not a child of %q: a session addresses and stops only its own children, and reaches a deeper agent through that agent's parent", verb, harp, parent)
 	}
 	return rec, nil

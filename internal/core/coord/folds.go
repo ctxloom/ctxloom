@@ -84,6 +84,14 @@ type RunRecord struct {
 // reported to a parent, ended by its own FINAL, or resumed as an agent.
 func (r RunRecord) TopLevel() bool { return r.ParentHarp == "" || r.ParentHarp == r.Harp }
 
+// ChildOf reports whether r is a delegated child of parent. Every lineage
+// check that grants a session power over "its children" asks this, never the
+// bare ParentHarp comparison: an owner run journals its OWN harp as its parent,
+// so `ParentHarp == caller.Harp` counts the calling session among its own
+// children — a bulk agent_stop then closed the session's own runner mid-turn,
+// under the very call that asked for the stop.
+func (r RunRecord) ChildOf(parent string) bool { return r.ParentHarp == parent && !r.TopLevel() }
+
 // runsFold is the RUN REGISTRY fold: every run attempt by run_id, the
 // harp→current-run index, and the active credential set (cred hash →
 // identity) that backs constant-time verification. It owns the runs journal.

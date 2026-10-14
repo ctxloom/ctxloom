@@ -308,6 +308,8 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 					clidiag.Warn("ctxloom", "run failed: %s", msg)
 				} else if r == nil {
 					clidiag.Warn("ctxloom", "run ended with no terminal result — treating as a failure")
+				} else if r.GetStatus() == agentcoordpb.Result_RUN_STATUS_CANCELLED {
+					clidiag.Warn("ctxloom", "%s", runCancelledNotice)
 				} else if r.GetStatus() != agentcoordpb.Result_RUN_STATUS_FAILED {
 					clidiag.Warn("ctxloom", "run did not succeed: %s", r.GetStatus())
 				}
@@ -318,6 +320,11 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 		}
 	}
 }
+
+// runCancelledNotice is what a cancelled run with no error message says: it
+// was stopped (agent_stop, a drain) or interrupted before it finished, and
+// the engine's own result carried no reason.
+const runCancelledNotice = "run was cancelled: the session was stopped or interrupted before it finished"
 
 // failedRunExitCode is the exit status of a run that did not succeed: the
 // engine's own status when the engine ran and exited non-zero (its code, or

@@ -454,3 +454,32 @@ func TestBeginDrain_CloseOvertakingTheDrainIsNotTheBound(t *testing.T) {
 	assert.Equal(t, []string{harp}, out.Interrupted)
 	assert.True(t, out.Overtaken, "Close cut the drain short: the bound never elapsed")
 }
+
+// TestBeginDrain_CloseSweepLandingBeforeAPassStillOvertakes forces the
+// interleaving the test above only raced into: Close cancels baseCtx and THEN
+// its attachment sweep ends the child, poking the drain's wake. A pass that
+// runs after the sweep (the select took the wake, not baseCtx.Done, or the
+// pass was already classifying) finds the child Ended — and once accounted it
+// exited, with Overtaken false, so the warning lost the interruption. The
+// request hook replays Close's own order (cancel, then end the run) between
+// the REQUEST and the WAIT loop's first pass, so the pass meets exactly that
+// state every run.
+func TestBeginDrain_CloseSweepLandingBeforeAPassStillOvertakes(t *testing.T) {
+	resetStrictness(t)
+	gate := make(chan struct{}) // never closed: only the sweep ends the turn
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	c := newTestCoordinator(t, sp, nil)
+	c.drainBound = time.Minute // far past the test: only the sweep can settle it
+	c.drainRequestHook = func(runID string) {
+		c.cancel() // Close's first move: baseCtx is done
+		c.terminateRun(runID, CauseRunnerExit, "closed by the coordinator's attachment sweep")
+	}
+
+	harp := spawnGatedChild(t, sp, c)
+	out := awaitDrain(t, c.BeginDrain())
+
+	assert.Equal(t, []string{harp}, out.Interrupted, "the child Close ended mid-turn was interrupted, not exited")
+	assert.Empty(t, out.Exited)
+	assert.True(t, out.Overtaken, "Close cut the drain short: the bound never elapsed")
+}

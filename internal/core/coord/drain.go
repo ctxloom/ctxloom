@@ -275,8 +275,8 @@ func (c *Coordinator) drainWake() {
 // cause, and the interruption is audited, warned, and reported to the parent.
 func (c *Coordinator) runDrain(d *Drain, bound time.Duration) {
 	p := d.policy
-	c.drainRequest(d, p)
-	exited, interrupted, overtaken := c.drainWait(d, bound, p)
+	asked, ended := c.drainRequest(d, p)
+	exited, interrupted, overtaken := c.drainWait(d, bound, p, asked, ended)
 	if p.stop != nil {
 		for _, ch := range d.tracked {
 			c.setPendingStop(ch.runID, "")
@@ -292,11 +292,14 @@ func (c *Coordinator) runDrain(d *Drain, bound time.Duration) {
 }
 
 // drainRequest is the REQUEST pass: a running turn is asked to exit, and a
-// child between turns or never started ends now.
-func (c *Coordinator) drainRequest(d *Drain, p drainPolicy) {
+// child between turns or never started ends now. It returns the children it
+// asked (still running) and the ones it ended: drainWait's first "last pass",
+// should Close overtake the drain before drainWait has classified at all.
+func (c *Coordinator) drainRequest(d *Drain, p drainPolicy) (asked []drainChild, ended []string) {
 	for _, ch := range d.tracked {
 		switch c.runState(ch.runID) {
 		case StateExecuting:
+			asked = append(asked, ch)
 			c.audit("drain_request", ch.harp, map[string]string{"harp": ch.harp, "run_id": ch.runID})
 			if hook := c.drainRequestHook; hook != nil {
 				hook(ch.runID)
@@ -307,22 +310,41 @@ func (c *Coordinator) drainRequest(d *Drain, p drainPolicy) {
 			}
 		case StateIdle:
 			c.terminateRun(ch.runID, p.endCause, p.endDetail("between turns"))
+			ended = append(ended, ch.harp)
 		default: // StateQueued: never admitted past the cap, so nothing to wait for
 			c.terminateRun(ch.runID, p.endCause, p.endDetail("before it started"))
+			ended = append(ended, ch.harp)
 		}
 	}
+	return asked, ended
 }
 
 // drainWait is the WAIT and FORCE phases: it re-classifies on every wake
 // until nothing is running, and at the bound forces what still is. exited
 // is the last pass's; interrupted is what was forced, or what Close()
-// overtook — overtaken says which.
-func (c *Coordinator) drainWait(d *Drain, bound time.Duration, p drainPolicy) (exited, interrupted []string, overtaken bool) {
+// overtook — overtaken says which. asked and ended are drainRequest's pass,
+// the "last pass" before drainWait's first.
+//
+// CLOSE OVERTAKING IS CHECKED AFTER EVERY PASS, not only in the select. Close
+// cancels baseCtx and THEN ends every attachment, and each end pokes d.wake;
+// so the select can take the wake rather than baseCtx.Done (Go picks among
+// ready cases at random), or a pass can be mid-classify while Close's sweep
+// ends the child. Either way the pass finds the child Ended and, without this
+// check, accounted it as exited with Overtaken false — losing both the
+// interruption and the mark, and with them the warning the human reads. Once
+// baseCtx is done, the children the PREVIOUS pass found running are the ones
+// Close is ending: they are interrupted, and the drain was overtaken.
+func (c *Coordinator) drainWait(d *Drain, bound time.Duration, p drainPolicy, asked []drainChild, ended []string) (exited, interrupted []string, overtaken bool) {
 	timer := time.NewTimer(bound)
 	defer timer.Stop()
 	announced := false
+	lastRunning, lastExited := asked, ended
 	for {
 		running, exited := c.drainClassify(d, p)
+		if c.baseCtx.Err() != nil && len(lastRunning) > 0 {
+			return lastExited, drainHarps(lastRunning), true
+		}
+		lastRunning, lastExited = running, exited
 		if len(running) == 0 {
 			return exited, nil, false
 		}

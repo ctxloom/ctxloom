@@ -566,6 +566,9 @@ jobs:
   # timeout-coefficient). The plan balances by changed lines and cannot see
   # which mutants will time out, so this is sized for every timed-out mutant of
   # that run landing on ONE shard's workers: three rounds of that budget.
+  # That budget is now capped (.gremlins.yaml, ctxloom-timeout-cap-seconds),
+  # which bounds a hung mutant far below it; the figure was sized before the
+  # cap and errs long.
   mutation:
     name: Mutation Testing
     needs: [build-container, test]

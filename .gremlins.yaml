@@ -83,9 +83,39 @@ unleash:
   # triggers package runs in ~3ms, and at 5x every mutant got a ~15ms budget —
   # 58 of 65 scored TIMED OUT, which is neither killed nor lived, so the run
   # measured nothing. At 30x the same package produced 0 timeouts and a real
-  # verdict. Raise this, never lower it, unless a slow package makes runs
-  # unbearable — a false timeout silently voids a mutant.
+  # verdict. Raise this, never lower it — a false timeout silently voids a
+  # mutant. A slow package is bounded by the cap below instead.
   timeout-coefficient: 30
+  # THE CAP on that budget. gremlins has no absolute timeout, so these two keys
+  # are ours, not gremlins' (it ignores keys it does not know). They are read by
+  # tests/mutation/mutation_tmp.sh, which every recipe and CI shard runs
+  # gremlins under, and applied per mutant by tests/mutation/gremlins_exec.sh.
+  # With B the coverage run's duration:
+  #
+  #   per-mutant test timeout = min(coefficient * B, max(CAP, FLOOR * B))
+  #
+  # Uncapped, a slow scope is enormous: a diff run's whole-module coverage pass
+  # took 140.7s, so every mutant got 30 x 140.7s = 1h10m23s, and four termui
+  # mutants that deadlock a test held their workers 32+ minutes each until
+  # killed by hand (the run took 5.5h+). The cap changes only a scope whose
+  # coefficient budget exceeds it, i.e. B > CAP / coefficient = 20s: every
+  # fast package (triggers at 0.021s) keeps its 30x untouched.
+  #
+  # FLOOR keeps the cap from starving a slow package. B is never less than the
+  # slowest in-scope package's own test time, since the coverage pass runs it
+  # (instrumented, so slower). The slowest package is internal/core/coord, at
+  # 126.3s uninstrumented against that 140.7s module pass, so in a module or
+  # diff run coord's mutants get FLOOR * B, never the bare CAP. Measured
+  # 2026-10-14 (a coord diff run, 4 workers beside another mutation run): B was
+  # 141.9s, each coord mutant ran under -test.timeout=710s, and the longest
+  # coord mutant test run was 134s, 0.94 x B. FLOOR = 5 leaves 5.3x over that.
+  #
+  # A capped mutant scores KILLED, not TIMED OUT: the test binary panics on its
+  # -test.timeout, `go test` exits 1, and gremlins maps exit 1 to KILLED.
+  # TIMED OUT comes only from gremlins' own deadline, and is excluded from
+  # efficacy entirely. Do NOT lower either value without re-measuring coord.
+  ctxloom-timeout-cap-seconds: 600
+  ctxloom-timeout-floor-coefficient: 5
 
   # Quality gates. EFFICACY is the mutant KILL RATE (killed / killed+lived) and
   # is set to the project standard of 80%, decided 2026-08-06. It is expected to

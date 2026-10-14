@@ -79,7 +79,7 @@ rules:
   # tmpfs here. The just targets pin the scope and the timeout budget.
   - id: mutation-via-just
     match: { command: [gremlins] }
-    message: "Run mutation testing through the task runner. A bare `gremlins unleash` copies the entire module per worker (it has filled /tmp here) and inherits a timeout budget that starves fast packages — a 3ms test suite gives each mutant ~15ms, so mutants score as TIMED OUT rather than killed or lived."
+    message: "Run mutation testing through the task runner. A bare `gremlins unleash` copies the entire module per worker (it has filled /tmp here) and inherits a timeout budget that starves fast packages — a 3ms test suite gives each mutant ~15ms, so mutants score as TIMED OUT rather than killed or lived — and it runs without the per-mutant timeout cap tests/mutation/mutation_tmp.sh installs, so a mutant that hangs a slow package's tests holds a worker for over an hour."
     suggest: "just test-mutation-pkg internal/shared/tasks/triggers   # or `just test-mutation` for the whole module"
   # buf.gen.yaml deliberately uses `local:` plugins, not BSR `remote:` ones, so
   # `buf generate` needs protoc-gen-go/protoc-gen-go-grpc on PATH — and the host

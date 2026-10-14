@@ -13,8 +13,8 @@ import (
 )
 
 // TestAppendManagedDynamicHooks_InstallsTheSkillMatesHook pins the wiring that
-// makes the skill-mates hook real: it rides the managed PostToolUse set
-// beside the reflect hook, ungated, because there is nothing to configure --
+// makes the skill-mates hook real: it rides the managed PostToolUse set,
+// ungated, because there is nothing to configure --
 // it is silent for every skill outside a link group.
 //
 // MUTATION -- drop the mergeUnified call for NewSkillMatesHook -- turns this

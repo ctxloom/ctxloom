@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"strconv"
-
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -41,21 +39,8 @@ func ctxloomCallback(timeout int, verb string, args ...string) wire.Hook {
 	}
 }
 
-// DefaultToolReflectBytes is the tool-result size at or above which a result
-// is considered to carry information worth stating. It lives here because TWO
-// mechanisms enforce the same policy and must not drift: the PostToolUse hook
-// (which asks the agent to reflect, where the engine supports that event) and
-// distillation (which decides whether a result's body can be reduced to its
-// shape). Two copies of this number would be two policies.
-//
-// Measured, not chosen: across four real transcripts the median tool result is
-// 447 bytes and 13% exceed 2KB, but those 13% carry roughly 1MB of body that
-// distillation would otherwise discard.
-const DefaultToolReflectBytes = 2048
-
 // DefaultEssenceChars is the target size, in characters, of a finished
-// session essence. It lives here for the same reason DefaultToolReflectBytes
-// does: config resolves it and the compactor consumes it, and two copies of a
+// session essence. It lives here because config resolves it and the compactor consumes it, and two copies of a
 // number that must agree is how they stop agreeing.
 //
 // It is ABSOLUTE rather than a proportion of the transcript, and that is the
@@ -71,23 +56,10 @@ const DefaultToolReflectBytes = 2048
 // tokens, about 1% of a 200k window.
 const DefaultEssenceChars = 10_000
 
-// ToolReflectTimeout is the timeout, in seconds, for the PostToolUse reflect
-// hook. It is short because the hook does no I/O beyond reading its own stdin:
-// a slow one would stall every tool call in the session.
-const ToolReflectTimeout = 5
-
-// NewToolReflectHook creates the PostToolUse hook that asks the agent to state
-// what it learned from a large tool result. minBytes is resolved from config by
-// the caller and interpolated here, so the threshold lives in one place rather
-// than being re-decided inside the hook.
-func NewToolReflectHook(minBytes int) wire.Hook {
-	return ctxloomCallback(ToolReflectTimeout, "tool-reflect", "--min-output-bytes", strconv.Itoa(minBytes))
-}
-
 // SkillMatesTimeout is the timeout, in seconds, for the PostToolUse
 // skill-mates hook. Like NextStepTimeout it READS THE TRANSCRIPT (that is
-// where "already invoked this session" comes from); unlike the reflect hook it
-// fires only on Skill calls, so the longer budget is paid rarely.
+// where "already invoked this session" comes from); unlike a hook that
+// fires on every tool call it fires only on Skill calls, so the longer budget is paid rarely.
 const SkillMatesTimeout = 15
 
 // NewSkillMatesHook creates the PostToolUse hook that, when a link-group skill
@@ -110,7 +82,7 @@ func NewSkillMatesHook() wire.Hook {
 }
 
 // NextStepTimeout is the timeout, in seconds, for the TurnEnd next-step hook.
-// Longer than ToolReflectTimeout because this hook READS THE TRANSCRIPT, which
+// Generous because this hook READS THE TRANSCRIPT, which
 // grows with the session; short enough that a stalled read cannot hold a turn
 // open indefinitely.
 const NextStepTimeout = 15

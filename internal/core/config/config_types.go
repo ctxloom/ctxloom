@@ -180,14 +180,6 @@ func (p *Profile) UnmarshalYAML(node *yaml.Node) error {
 type SettingsConfig struct {
 	UseDistilled *bool `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
 	Statusline   *bool `mapstructure:"statusline" yaml:"statusline,omitempty"`       // Manage the ctxloom HUD statusline (default true)
-	// ToolReflectBytes is the tool-result size, in bytes, at or above which the
-	// PostToolUse reflect hook fires. Compaction reduces a tool result to its
-	// SHAPE, so whatever the agent does not say it learned is not recoverable
-	// from the essence. Firing on every call would cost more than the bodies it
-	// replaces; firing only on large results targets where the loss actually
-	// is. 0 means the default (see Config.GetToolReflectBytes); negative
-	// disables the hook.
-	ToolReflectBytes int `mapstructure:"tool_reflect_bytes" yaml:"tool_reflect_bytes,omitempty"`
 	// EssenceMaxChars is the target size of a finished session essence. 0 means
 	// the default (see Config.GetEssenceMaxChars). The essence is re-injected
 	// into a fresh context window on resume, so this trades detail retained
@@ -209,7 +201,7 @@ type SettingsConfig struct {
 // empty. It MUST cover every field, or setting only an uncovered field would
 // silently drop the whole block on the next Save.
 func (s SettingsConfig) hasAny() bool {
-	return s.UseDistilled != nil || s.Statusline != nil || s.ToolReflectBytes != 0 || s.EssenceMaxChars != 0 || s.SilenceUnsupported
+	return s.UseDistilled != nil || s.Statusline != nil || s.EssenceMaxChars != 0 || s.SilenceUnsupported
 }
 
 // ShouldUseDistilled returns whether to prefer distilled versions of

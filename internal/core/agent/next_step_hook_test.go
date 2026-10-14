@@ -20,8 +20,6 @@ func TestNewNextStepHook_InvokesTheNextStepCallback(t *testing.T) {
 	assert.Equal(t, "command", h.Type)
 	assert.Equal(t, []string{"hook", "next-step"}, h.Args,
 		"the hook must invoke the next-step callback, not some other subcommand")
-	assert.Greater(t, h.Timeout, ToolReflectTimeout,
-		"reading a transcript needs longer than a hook that only reads its own stdin")
 	assert.Equal(t, NextStepTimeout, h.Timeout)
 }
 

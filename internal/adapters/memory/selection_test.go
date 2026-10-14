@@ -98,9 +98,9 @@ func TestRenderToolArgs_QuestionsKeepTextDropOptions(t *testing.T) {
 	}
 }
 
-// bigBody is comfortably over agent.DefaultToolReflectBytes so a test states
+// bigBody is comfortably over largeResultBytes so a test states
 // its intent ("this is a large result") rather than a magic length.
-func bigBody() string { return strings.Repeat("z", agent.DefaultToolReflectBytes*2) }
+func bigBody() string { return strings.Repeat("z", largeResultBytes*2) }
 
 // TestSelectForCompact_RepairsOnlyUnreflectedLargeResults pins the trigger from
 // all three sides: a large result the agent commented on needs no repair, an
@@ -169,7 +169,7 @@ func TestReflectedAfter_ParallelResultsShareOneReflection(t *testing.T) {
 // fallback: a commented-on result keeps only its shape, an ignored large one
 // keeps a bounded excerpt because nothing else recorded what it said.
 func TestRenderResultBody_ExcerptOnlyWhenUnreflected(t *testing.T) {
-	body := "FINDABLE_MARKER" + strings.Repeat("q", agent.DefaultToolReflectBytes)
+	body := "FINDABLE_MARKER" + strings.Repeat("q", largeResultBytes)
 
 	withFinding := renderResultBody(body, true)
 	if strings.Contains(withFinding, "FINDABLE_MARKER") {

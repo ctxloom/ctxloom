@@ -168,17 +168,6 @@
         {
           "args": [
             "hook",
-            "tool-reflect",
-            "--min-output-bytes",
-            "2048"
-          ],
-          "command": "ctxloom",
-          "timeout": 5,
-          "type": "command"
-        },
-        {
-          "args": [
-            "hook",
             "skill-mates"
           ],
           "command": "ctxloom",
@@ -453,17 +442,6 @@
   "Hooks": {
     "unified": {
       "post_tool": [
-        {
-          "args": [
-            "hook",
-            "tool-reflect",
-            "--min-output-bytes",
-            "2048"
-          ],
-          "command": "ctxloom",
-          "timeout": 5,
-          "type": "command"
-        },
         {
           "args": [
             "hook",
@@ -744,17 +722,6 @@
         {
           "args": [
             "hook",
-            "tool-reflect",
-            "--min-output-bytes",
-            "2048"
-          ],
-          "command": "ctxloom",
-          "timeout": 5,
-          "type": "command"
-        },
-        {
-          "args": [
-            "hook",
             "skill-mates"
           ],
           "command": "ctxloom",
@@ -1026,17 +993,6 @@
   "Hooks": {
     "unified": {
       "post_tool": [
-        {
-          "args": [
-            "hook",
-            "tool-reflect",
-            "--min-output-bytes",
-            "2048"
-          ],
-          "command": "ctxloom",
-          "timeout": 5,
-          "type": "command"
-        },
         {
           "args": [
             "hook",
@@ -1317,17 +1273,6 @@
         {
           "args": [
             "hook",
-            "tool-reflect",
-            "--min-output-bytes",
-            "2048"
-          ],
-          "command": "ctxloom",
-          "timeout": 5,
-          "type": "command"
-        },
-        {
-          "args": [
-            "hook",
             "skill-mates"
           ],
           "command": "ctxloom",
@@ -1599,17 +1544,6 @@
   "Hooks": {
     "unified": {
       "post_tool": [
-        {
-          "args": [
-            "hook",
-            "tool-reflect",
-            "--min-output-bytes",
-            "2048"
-          ],
-          "command": "ctxloom",
-          "timeout": 5,
-          "type": "command"
-        },
         {
           "args": [
             "hook",
@@ -1890,17 +1824,6 @@
         {
           "args": [
             "hook",
-            "tool-reflect",
-            "--min-output-bytes",
-            "2048"
-          ],
-          "command": "ctxloom",
-          "timeout": 5,
-          "type": "command"
-        },
-        {
-          "args": [
-            "hook",
             "skill-mates"
           ],
           "command": "ctxloom",
@@ -2175,17 +2098,6 @@
         {
           "args": [
             "hook",
-            "tool-reflect",
-            "--min-output-bytes",
-            "2048"
-          ],
-          "command": "ctxloom",
-          "timeout": 5,
-          "type": "command"
-        },
-        {
-          "args": [
-            "hook",
             "skill-mates"
           ],
           "command": "ctxloom",
@@ -2440,17 +2352,6 @@
         {
           "args": [
             "hook",
-            "tool-reflect",
-            "--min-output-bytes",
-            "2048"
-          ],
-          "command": "ctxloom",
-          "timeout": 5,
-          "type": "command"
-        },
-        {
-          "args": [
-            "hook",
             "skill-mates"
           ],
           "command": "ctxloom",
@@ -2676,17 +2577,6 @@
   "Hooks": {
     "unified": {
       "post_tool": [
-        {
-          "args": [
-            "hook",
-            "tool-reflect",
-            "--min-output-bytes",
-            "2048"
-          ],
-          "command": "ctxloom",
-          "timeout": 5,
-          "type": "command"
-        },
         {
           "args": [
             "hook",
@@ -2941,17 +2831,6 @@
   "Hooks": {
     "unified": {
       "post_tool": [
-        {
-          "args": [
-            "hook",
-            "tool-reflect",
-            "--min-output-bytes",
-            "2048"
-          ],
-          "command": "ctxloom",
-          "timeout": 5,
-          "type": "command"
-        },
         {
           "args": [
             "hook",
@@ -3226,17 +3105,6 @@
   "Hooks": {
     "unified": {
       "post_tool": [
-        {
-          "args": [
-            "hook",
-            "tool-reflect",
-            "--min-output-bytes",
-            "2048"
-          ],
-          "command": "ctxloom",
-          "timeout": 5,
-          "type": "command"
-        },
         {
           "args": [
             "hook",

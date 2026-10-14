@@ -1,12 +1,11 @@
-Feature: The PostToolUse callbacks — a nudge after the tool call that earns one, and silence after every other
+Feature: The PostToolUse callback — a nudge after the tool call that earns one, and silence after every other
 
-  Two hidden commands ride the host engine's PostToolUse hook, invoked after
-  a tool call rather than by a person: `hook tool-reflect` asks the agent to
-  say what it learned from a LARGE tool result, and `hook skill-mates` names
-  the linked skills a just-completed skill leaves uninvoked this session.
+  A hidden command rides the host engine's PostToolUse hook, invoked after a
+  tool call rather than by a person: `hook skill-mates` names the linked
+  skills a just-completed skill leaves uninvoked this session.
 
-  They share session_hooks.feature's contract: a hook that fails interrupts
-  the tool call it rode on, so each always exits 0 and always leaves one JSON
+  It shares session_hooks.feature's contract: a hook that fails interrupts
+  the tool call it rode on, so it always exits 0 and always leaves one JSON
   object on stdout. Exit status therefore proves nothing, and the assertions
   below read the envelope the engine would parse — stdout alone — for WHAT it
   carries. Silence is asserted as a well-formed, empty envelope, which is what
@@ -14,27 +13,6 @@ Feature: The PostToolUse callbacks — a nudge after the tool call that earns on
 
   Background:
     Given an initialized ctxloom project
-
-  Rule: tool-reflect speaks only at or above the size it is given
-
-    # The threshold is the whole decision, so both sides of it are asserted
-    # with the SAME flag value: a hook that fired on everything, or on
-    # nothing, fails one of the two.
-    Scenario: A tool result at the threshold earns the reminder
-      When I run "ctxloom hook tool-reflect --min-output-bytes 16 --engine claude-code" with input:
-        """
-        {"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{},"tool_response":"a result comfortably past sixteen bytes"}
-        """
-      Then the command succeeds
-      And the hook's additionalContext contains "That tool result was large."
-
-    Scenario: A tool result under the threshold is passed over in silence
-      When I run "ctxloom hook tool-reflect --min-output-bytes 4096 --engine claude-code" with input:
-        """
-        {"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{},"tool_response":"short"}
-        """
-      Then the command succeeds
-      And the hook's additionalContext is empty
 
   Rule: skill-mates names a completed skill's uninvoked link-group mates, and nothing else
 

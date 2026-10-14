@@ -948,24 +948,6 @@ func (c *Config) GetDefaultLLM() string {
 	return backend
 }
 
-// GetToolReflectBytes returns the tool-result size at or above which the
-// PostToolUse reflect hook fires, and whether the hook is enabled at all.
-//
-// The default is agent.DefaultToolReflectBytes, which is shared with the
-// distiller so the two enforcement points cannot disagree. A negative value
-// disables the hook, which is why "enabled" is returned rather than inferred
-// from a zero.
-func (c *Config) GetToolReflectBytes() (threshold int, enabled bool) {
-	switch {
-	case c.settings.ToolReflectBytes < 0:
-		return 0, false
-	case c.settings.ToolReflectBytes > 0:
-		return c.settings.ToolReflectBytes, true
-	default:
-		return agent.DefaultToolReflectBytes, true
-	}
-}
-
 // GetEssenceMaxChars returns the target size of a finished session essence,
 // defaulting to agent.DefaultEssenceChars.
 //

@@ -968,7 +968,7 @@ func TestClaimsAnElementTheUserHadIsFoundAndKept(t *testing.T) {
 	assert.Equal(t, userSettings, read(t, fs, settingsTarget))
 }
 
-var hookGroup = map[string]any{"matcher": "Bash", "hooks": []any{map[string]any{"type": "command", "command": "ctxloom", "args": []any{"hook", "tool-reflect"}}}}
+var hookGroup = map[string]any{"matcher": "Bash", "hooks": []any{map[string]any{"type": "command", "command": "ctxloom", "args": []any{"hook", "next-step"}}}}
 
 // An element whose array is missing creates it, and the containers it made
 // leave with it: the file comes back exactly.
@@ -1135,9 +1135,9 @@ func TestClaimsAHookGroupRunningAnotherToolIsFoundAndKept(t *testing.T) {
 // ---- selected elements: /hooks/<Event>/matcher=<m>/hooks/- --------------
 
 var (
-	reflectHook = map[string]any{"type": "command", "command": "ctxloom", "args": []any{"hook", "tool-reflect"}}
-	ltkHook     = map[string]any{"type": "command", "command": "ltk", "args": []any{"evaluate"}}
-	userHook    = map[string]any{"type": "command", "command": "user-bash"}
+	ownHook  = map[string]any{"type": "command", "command": "ctxloom", "args": []any{"hook", "next-step"}}
+	ltkHook  = map[string]any{"type": "command", "command": "ltk", "args": []any{"evaluate"}}
+	userHook = map[string]any{"type": "command", "command": "user-bash"}
 )
 
 func hookIn(event, matcher string, h map[string]any) present.Claim {
@@ -1168,10 +1168,10 @@ func TestClaimsAHookJoinsTheGroupItsMatcherSelects(t *testing.T) {
 		map[string]any{"matcher": "Bash", "hooks": []any{userHook}},
 	}}})
 	c := newRecords(t, fs)
-	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", "Bash", reflectHook)))
+	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", "Bash", ownHook)))
 	g := groups(t, fs, "PreToolUse")
 	require.Len(t, g, 2)
-	assert.Equal(t, []any{userHook, reflectHook}, g[1].(map[string]any)["hooks"])
+	assert.Equal(t, []any{userHook, ownHook}, g[1].(map[string]any)["hooks"])
 	mustCommit(t, c, fs, release(settingsTarget, project))
 	assert.Equal(t, before, read(t, fs, settingsTarget))
 }
@@ -1181,8 +1181,8 @@ func TestClaimsAHooksGroupIsMadeAndPruned(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	before := settingsWith(t, fs, map[string]any{"model": "opus"})
 	c := newRecords(t, fs)
-	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", "Bash", reflectHook)))
-	assert.Equal(t, []any{map[string]any{"matcher": "Bash", "hooks": []any{reflectHook}}}, groups(t, fs, "PreToolUse"))
+	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", "Bash", ownHook)))
+	assert.Equal(t, []any{map[string]any{"matcher": "Bash", "hooks": []any{ownHook}}}, groups(t, fs, "PreToolUse"))
 	mustCommit(t, c, fs, release(settingsTarget, project))
 	assert.Equal(t, before, read(t, fs, settingsTarget))
 }
@@ -1196,14 +1196,14 @@ func TestClaimsAnEmptyMatcherSelectsTheGroupWithout(t *testing.T) {
 		map[string]any{"hooks": []any{userHook}},
 	}}})
 	c := newRecords(t, fs)
-	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("Stop", "", reflectHook)))
-	assert.Equal(t, []any{userHook, reflectHook}, groups(t, fs, "Stop")[1].(map[string]any)["hooks"])
+	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("Stop", "", ownHook)))
+	assert.Equal(t, []any{userHook, ownHook}, groups(t, fs, "Stop")[1].(map[string]any)["hooks"])
 
 	fs = afero.NewMemMapFs()
 	settingsWith(t, fs, map[string]any{})
 	c = newRecords(t, fs)
-	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("Stop", "", reflectHook)))
-	assert.Equal(t, []any{map[string]any{"hooks": []any{reflectHook}}}, groups(t, fs, "Stop"))
+	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("Stop", "", ownHook)))
+	assert.Equal(t, []any{map[string]any{"hooks": []any{ownHook}}}, groups(t, fs, "Stop"))
 }
 
 // A hook an install from before the record merged into the user's group runs
@@ -1211,11 +1211,11 @@ func TestClaimsAnEmptyMatcherSelectsTheGroupWithout(t *testing.T) {
 func TestClaimsAMergedCtxloomHookIsTakenOver(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	settingsWith(t, fs, map[string]any{"hooks": map[string]any{"PreToolUse": []any{
-		map[string]any{"matcher": "Bash", "hooks": []any{userHook, reflectHook}},
+		map[string]any{"matcher": "Bash", "hooks": []any{userHook, ownHook}},
 	}}})
 	c := newRecords(t, fs)
-	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", "Bash", reflectHook)))
-	assert.Equal(t, []any{userHook, reflectHook}, groups(t, fs, "PreToolUse")[0].(map[string]any)["hooks"], "not added twice")
+	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", "Bash", ownHook)))
+	assert.Equal(t, []any{userHook, ownHook}, groups(t, fs, "PreToolUse")[0].(map[string]any)["hooks"], "not added twice")
 	mustCommit(t, c, fs, release(settingsTarget, project))
 	assert.Equal(t, []any{userHook}, groups(t, fs, "PreToolUse")[0].(map[string]any)["hooks"])
 }
@@ -1239,8 +1239,8 @@ func TestClaimsASharedHook(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	before := settingsWith(t, fs, map[string]any{"model": "opus"})
 	c := newRecords(t, fs)
-	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", "Bash", reflectHook)))
-	mustCommit(t, c, fs, stage(settingsTarget, session, hookIn("PreToolUse", "Bash", reflectHook)))
+	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", "Bash", ownHook)))
+	mustCommit(t, c, fs, stage(settingsTarget, session, hookIn("PreToolUse", "Bash", ownHook)))
 	assert.Len(t, groups(t, fs, "PreToolUse")[0].(map[string]any)["hooks"], 1)
 	mustCommit(t, c, fs, release(settingsTarget, project))
 	assert.Len(t, groups(t, fs, "PreToolUse")[0].(map[string]any)["hooks"], 1)
@@ -1253,7 +1253,7 @@ func TestClaimsRefuseASelectorIntoANonArray(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	settingsWith(t, fs, map[string]any{"hooks": map[string]any{"PreToolUse": "mine"}})
 	c := newRecords(t, fs)
-	_, err := commitOps(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", "Bash", reflectHook)))
+	_, err := commitOps(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", "Bash", ownHook)))
 	require.ErrorIs(t, err, ErrNotOurs)
 }
 
@@ -1261,7 +1261,7 @@ func TestClaimsPathsOfASelectedElement(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	settingsWith(t, fs, map[string]any{})
 	c := newRecords(t, fs)
-	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", "Bash", reflectHook)))
+	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", "Bash", ownHook)))
 	got, err := c.Paths(fs, settingsTarget)
 	require.NoError(t, err)
 	assert.Equal(t, []delivery.PathState{{Pointer: "/hooks/PreToolUse/matcher=Bash/hooks/-", Writers: []delivery.Writer{project}, Live: true}}, got)
@@ -1273,9 +1273,9 @@ func TestClaimsAMatcherHoldingPointerSyntaxRoundTrips(t *testing.T) {
 	before := settingsWith(t, fs, map[string]any{"model": "opus"})
 	c := newRecords(t, fs)
 	const odd = "Bash(a=b)/c~d"
-	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", odd, reflectHook)))
+	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", odd, ownHook)))
 	assert.Equal(t, odd, groups(t, fs, "PreToolUse")[0].(map[string]any)["matcher"])
-	mustCommit(t, c, fs, stage(settingsTarget, session, hookIn("PreToolUse", odd, reflectHook)))
+	mustCommit(t, c, fs, stage(settingsTarget, session, hookIn("PreToolUse", odd, ownHook)))
 	assert.Len(t, groups(t, fs, "PreToolUse"), 1, "the second claim selects the group the first made")
 	mustCommit(t, c, fs, release(settingsTarget, project), release(settingsTarget, session))
 	assert.Equal(t, before, read(t, fs, settingsTarget))
@@ -1287,10 +1287,10 @@ func TestClaimsASelectorSkipsAnElementThatIsNoObject(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	settingsWith(t, fs, map[string]any{"hooks": map[string]any{"Stop": []any{"a-string", map[string]any{"hooks": []any{userHook}}}}})
 	c := newRecords(t, fs)
-	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("Stop", "", reflectHook)))
+	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("Stop", "", ownHook)))
 	g := groups(t, fs, "Stop")
 	assert.Equal(t, "a-string", g[0])
-	assert.Equal(t, []any{userHook, reflectHook}, g[1].(map[string]any)["hooks"])
+	assert.Equal(t, []any{userHook, ownHook}, g[1].(map[string]any)["hooks"])
 }
 
 // An event whose array stands but whose groups select nothing gets a new
@@ -1299,10 +1299,10 @@ func TestClaimsAGroupIsAppendedToAnArrayThatStands(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	before := settingsWith(t, fs, map[string]any{"hooks": map[string]any{"PreToolUse": []any{map[string]any{"matcher": "x", "hooks": []any{userHook}}}}})
 	c := newRecords(t, fs)
-	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", "Bash", reflectHook)))
+	mustCommit(t, c, fs, stage(settingsTarget, project, hookIn("PreToolUse", "Bash", ownHook)))
 	g := groups(t, fs, "PreToolUse")
 	require.Len(t, g, 2)
-	assert.Equal(t, map[string]any{"matcher": "Bash", "hooks": []any{reflectHook}}, g[1])
+	assert.Equal(t, map[string]any{"matcher": "Bash", "hooks": []any{ownHook}}, g[1])
 	mustCommit(t, c, fs, release(settingsTarget, project))
 	assert.Equal(t, before, read(t, fs, settingsTarget))
 }

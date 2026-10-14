@@ -22,7 +22,6 @@ import (
 func ctxloomOwnHooks() []wire.Hook {
 	return []wire.Hook{
 		agent.NewSessionStartHook(),
-		agent.NewToolReflectHook(agent.DefaultToolReflectBytes),
 		agent.NewNextStepHook(),
 		agent.NewSkillMatesHook(),
 		agent.NewMailDrainHook(),

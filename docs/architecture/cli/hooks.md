@@ -27,7 +27,6 @@ flowchart TD
     HC --> MP["mail-peek — hook_mail_peek.go"]
     HC --> NS["next-step — hook_next_step.go"]
     HC --> SM["skill-mates — hook_skill_mates.go"]
-    HC --> TR["tool-reflect — hook_tool_reflect.go"]
 
     HUD --> RHH["runHookHud"]
     RHH --> ASJ["agentSessionJSON (stdin wire shape)"]
@@ -53,10 +52,9 @@ flowchart TD
     MD --> DM["drainMail"]
     NS --> CNS["captureNextStep"]
     SM --> SMO["skillMatesOutput → skillMatesResponse"]
-    TR --> BTRO["toolReflectResponse"]
 
     FE["firingEngine (--engine → registry)"] --> CODEC["engine.HookCodec"]
-    CODEC -.-> IC & SP & SB & MD & NS & SM & TR
+    CODEC -.-> IC & SP & SB & MD & NS & SM
 ```
 
 ## The hook codec
@@ -172,9 +170,8 @@ context (`drainMail`); `next-step` captures what the agent was about to do
 next at turn_end (`captureNextStep`); `skill-mates` names a completed skill's
 link-group mates the session has not invoked (`skillMatesOutput`: the skill
 comes from `HookEvent.Skill`, "already invoked" from the transcript through
-`InvokedSkill`, and the delivered skill set from the FIRING engine's exports);
-`tool-reflect` prompts for a finding after a large tool result
-(`toolReflectResponse`). Each exits 0 — a failing turn_start, turn_end or
+`InvokedSkill`, and the delivered skill set from the FIRING engine's exports).
+Each exits 0 — a failing turn_start, turn_end or
 post_tool hook would cost the human's prompt or the tool call — and names
 every reason it did nothing on the diagnostic channel, an undecodable payload
 included.

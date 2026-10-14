@@ -20,7 +20,6 @@ func TestCtxloomHooks_AreExecForm(t *testing.T) {
 		args []string
 	}{
 		{"session-start", NewSessionStartHook(), []string{"hook", "session-start"}},
-		{"tool-reflect", NewToolReflectHook(4096), []string{"hook", "tool-reflect", "--min-output-bytes", "4096"}},
 		{"skill-mates", NewSkillMatesHook(), []string{"hook", "skill-mates"}},
 		{"next-step", NewNextStepHook(), []string{"hook", "next-step"}},
 		{"mail-drain", NewMailDrainHook(), []string{"hook", "mail-drain"}},

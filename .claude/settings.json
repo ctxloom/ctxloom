@@ -3,11 +3,6 @@
     "PostToolUse": [
       {
         "hooks": [
-          { "args": ["hook", "tool-reflect", "--min-output-bytes", "2048"], "command": "ctxloom", "timeout": 5, "type": "command" }
-        ]
-      },
-      {
-        "hooks": [
           { "args": ["hook", "stamp-plan"], "command": "ctxloom", "type": "command" }
         ],
         "matcher": "Edit|Write"

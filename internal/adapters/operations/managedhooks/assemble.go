@@ -154,14 +154,6 @@ func appendManagedDynamicHooks(m *Hooks, cfg *config.Config, set []profiles.Reso
 	m.mergeUnified(
 		wire.UnifiedHooks{SessionStart: []wire.Hook{agent.NewSessionStartHook()}},
 		fixedSource(Source{Origin: OriginContext}))
-	// The PostToolUse reflect hook rides the same managed set: it exists to
-	// keep the distilled essence honest, so it belongs to ctxloom rather than
-	// to any bundle.
-	if minBytes, enabled := cfg.GetToolReflectBytes(); enabled {
-		m.mergeUnified(
-			wire.UnifiedHooks{PostTool: []wire.Hook{agent.NewToolReflectHook(minBytes)}},
-			fixedSource(Source{Origin: OriginContext}))
-	}
 	// The PostToolUse skill-mates hook rides the same managed set: link
 	// groups are ctxloom's own delivery unit, so the step that follows one
 	// up at a skill's completion belongs to ctxloom rather than to any
@@ -171,7 +163,7 @@ func appendManagedDynamicHooks(m *Hooks, cfg *config.Config, set []profiles.Reso
 		wire.UnifiedHooks{PostTool: []wire.Hook{agent.NewSkillMatesHook()}},
 		fixedSource(Source{Origin: OriginContext}))
 	// The TurnEnd next-step hook rides the same managed set, for the same
-	// reason as the reflect hook above: it exists to make the distilled
+	// reason as the session-start hook above: it exists to make the distilled
 	// essence task-aware, so it belongs to ctxloom rather than to any bundle.
 	// Ungated — it takes no configuration, because the only thing there would
 	// be to configure is whether distillation is allowed to know what the

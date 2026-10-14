@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
@@ -184,6 +185,9 @@ func (o *Overlay) deliver(msg tea.Msg) {
 // reported through fenced: the program flushes its raw output, token
 // included, just before a frame, so the report means that frame is on its
 // way.
+//
+// And it is where the guest is kept off the terminal's keyboard mode
+// (stripKeyboardModes): that mode belongs to the engine, which set it.
 type onlcr struct {
 	w      io.Writer
 	fenced func(n int)
@@ -200,6 +204,7 @@ func (o onlcr) Write(p []byte) (int, error) {
 			}
 		}()
 	}
+	p = stripKeyboardModes(p)
 	if len(p) == 0 {
 		return n, nil
 	}
@@ -210,4 +215,67 @@ func (o onlcr) Write(p []byte) (int, error) {
 		return 0, err
 	}
 	return n, nil
+}
+
+// stripKeyboardModes removes the keyboard-protocol sequences bubbletea's
+// renderer writes: modifyOtherKeys set/reset (CSI >4;Nm, CSI >4m), kitty
+// keyboard push/pop/set (CSI >Nu, CSI <Nu, CSI =N;Mu) and the kitty flags
+// query (CSI ?u). The engine chose the terminal's keyboard mode (claude-code
+// pushes kitty flags 5 and sets modifyOtherKeys 2); the overlay inherits it,
+// and its decoder reads every encoding. Left in, the exit's modifyOtherKeys
+// reset — that mode has no stack — takes the engine's mode away for the rest
+// of the session, and the query's reply arrives on stdin, where the
+// interceptor hands it to the engine. bubbletea writes each frame's buffer
+// whole, so a sequence never straddles two writes.
+func stripKeyboardModes(p []byte) []byte {
+	i := bytes.Index(p, []byte("\x1b["))
+	if i < 0 {
+		return p
+	}
+	var out []byte
+	for i >= 0 {
+		if n := keyboardModeLen(p[i:]); n > 0 {
+			if out == nil {
+				out = make([]byte, 0, len(p))
+			}
+			out = append(out, p[:i]...)
+			p = p[i+n:]
+			i = bytes.Index(p, []byte("\x1b["))
+			continue
+		}
+		j := bytes.Index(p[i+2:], []byte("\x1b["))
+		if j < 0 {
+			break
+		}
+		i += 2 + j
+	}
+	if out == nil {
+		return p
+	}
+	return append(out, p...)
+}
+
+// keyboardModeLen is the length of the keyboard-mode sequence at the front of
+// b (which starts with CSI), or 0.
+func keyboardModeLen(b []byte) int {
+	if len(b) < 4 {
+		return 0
+	}
+	marker := b[2]
+	j := 3
+	for j < len(b) && (b[j] >= '0' && b[j] <= '9' || b[j] == ';') {
+		j++
+	}
+	if j == len(b) {
+		return 0
+	}
+	params, final := string(b[3:j]), b[j]
+	switch {
+	case marker == '>' && final == 'm' && (params == "4" || strings.HasPrefix(params, "4;")):
+	case (marker == '>' || marker == '<' || marker == '=') && final == 'u':
+	case marker == '?' && final == 'u' && params == "":
+	default:
+		return 0
+	}
+	return j + 1
 }

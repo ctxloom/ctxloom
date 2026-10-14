@@ -1,7 +1,11 @@
 package cli
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -38,4 +42,47 @@ func TestInteractiveTerminal_RawModeFailureSaysSo(t *testing.T) {
 	assert.Contains(t, warnings.String(), "raw mode",
 		"a refused raw-mode transition must be reported — it is indistinguishable from a non-terminal stdin otherwise")
 	assert.Contains(t, warnings.String(), "ioctl refused", "the underlying cause must survive into the warning")
+}
+
+// TestInteractiveTerminal_RestoreSwitchesOffEngineModes pins the terminal-mode
+// reset on the restore every interactive exit path runs (prepareSessionIO
+// composes it under the terminal layer's Close; the drive defers it and calls
+// it inline). An engine enables focus reporting (DECSET 1004), bracketed paste
+// and mouse tracking for itself; when it does not switch them off — killed,
+// crashed, or its teardown bytes never drained — restoring termios alone
+// leaves the terminal reporting into the user's shell, which echoes every
+// focus change as ^[[I^[[O. The reset must come out exactly once however many
+// paths call restore, and before raw mode is released.
+func TestInteractiveTerminal_RestoreSwitchesOffEngineModes(t *testing.T) {
+	origIsTerminal, origMakeRaw, origRestore, origSink := termIsTerminal, termMakeRaw, termRestore, termModeResetSink
+	t.Cleanup(func() {
+		termIsTerminal, termMakeRaw, termRestore, termModeResetSink = origIsTerminal, origMakeRaw, origRestore, origSink
+	})
+	_ = captureWarnings(t) // the resize watcher may warn about the test's non-tty stdin
+
+	var out bytes.Buffer
+	var events []string
+	termIsTerminal = func(int) bool { return true }
+	termMakeRaw = func(int) (*term.State, error) { return &term.State{}, nil }
+	termRestore = func(int, *term.State) error {
+		events = append(events, "termios restored")
+		return nil
+	}
+	termModeResetSink = func() io.Writer {
+		events = append(events, "modes reset")
+		return &out
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	_, _, restore := interactiveTerminal(ctx)
+	restore()
+	restore() // the deferred call after the inline one
+
+	for _, mode := range []string{"\x1b[?1004l", "\x1b[?2004l", "\x1b[?1000l", "\x1b[?1002l", "\x1b[?1003l", "\x1b[?1006l"} {
+		assert.Equal(t, 1, strings.Count(out.String(), mode), "restore must switch off %q exactly once", mode)
+	}
+	assert.Contains(t, out.String(), "\x1b[?25h", "restore must leave the cursor visible")
+	assert.Equal(t, []string{"modes reset", "termios restored"}, events,
+		"the mode reset is written once, while the terminal is still the session's, then termios is restored")
 }

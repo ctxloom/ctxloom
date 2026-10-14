@@ -776,3 +776,24 @@ func TestOverflowNotice_NeverWraps(t *testing.T) {
 	assert.Equal(t, "\x1b[7m"+overflowText+"\x1b[0m", string(overflowNotice(200)))
 	assert.Equal(t, "\x1b[7m"+overflowText[:20]+"\x1b[0m", string(overflowNotice(20)), "cut to the width")
 }
+
+// TestController_KittyEncodedPrefixOpensTheViewer is the reported symptom end
+// to end: with the engine's kitty keyboard mode on, Ctrl+] reaches stdin as
+// CSI 93;5u. It opens the viewer exactly as the C0 byte does, the viewer gets
+// the keys after it, and once released the engine gets everything else
+// byte-identical.
+func TestController_KittyEncodedPrefixOpensTheViewer(t *testing.T) {
+	h := newCtlHarness(t, nil)
+	h.sized(t, 24, 80)
+
+	h.typeKeys(t, "\x1b[93;5u\x1b[106u")
+	await(t, "the overlay's start", h.overlay.started)
+	h.overlay.ui.waitUntil(t, "the viewer key", func(s string) bool { return s == "\x1b[106u" })
+	assert.Empty(t, h.engine.String(), "neither the prefix nor the viewer key reaches the engine")
+
+	h.overlay.release <- nil
+	h.drainTranslated(t)
+	h.nudgeRestored(t)
+	h.typeKeys(t, "\x1b[93;3u\x1b[1;5A")
+	assert.Equal(t, "\x1b[93;3u\x1b[1;5A", h.engine.String(), "alt+] and ctrl+up pass through untouched")
+}

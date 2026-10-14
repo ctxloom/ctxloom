@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -332,5 +333,87 @@ func TestOverlay_ResizeReachesTheProgram(t *testing.T) {
 		assert.Equal(t, geometryMsg(geo), msg)
 	case <-time.After(2 * time.Second):
 		t.Fatal("the running program never got the geometry")
+	}
+}
+
+// TestOverlay_PrefixDismissesInEveryEncoding: the prefix is "back" in the
+// viewer, and the viewer is reached on the same terminal whose keyboard mode
+// the engine set — kitty flags (claude-code pushes CSI >5u) or xterm
+// modifyOtherKeys 2 — so Ctrl+] arrives as CSI 93;5u or CSI 27;5;93~ rather
+// than the C0 byte. The real Program's decoder must name each of them the
+// prefix, or the viewer can be opened but never dismissed with its own key.
+func TestOverlay_PrefixDismissesInEveryEncoding(t *testing.T) {
+	for _, enc := range []string{"\x1d", "\x1b[93;5u", "\x1b[93;5:1u", "\x1b[93:125;5u", "\x1b[27;5;93~"} {
+		t.Run(strconv.Quote(enc), func(t *testing.T) {
+			f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"}, RosterRow{Harp: "h2", State: "live"})
+			o := NewOverlay(context.Background(), f.sources(), 0x1d, termui.OverlayStart{})
+			pr, pw := io.Pipe()
+			defer pw.Close()
+			var tty syncBuffer
+			done := make(chan error, 1)
+			go func() { done <- o.Run(pr, &tty, testGeo()) }()
+			waitForOverlay(t, "engaged", func() bool { return strings.Contains(tty.String(), "h2") })
+
+			// Not the first key, which is the presentation chord's: the
+			// prefix must be "back" wherever it lands.
+			_, err := pw.Write([]byte("j"))
+			require.NoError(t, err)
+			waitForOverlay(t, "j reached the model", func() bool { return slices.Contains(f.watchedHarps(), "h2") })
+			_, err = pw.Write([]byte(enc))
+			require.NoError(t, err)
+			select {
+			case runErr := <-done:
+				require.NoError(t, runErr)
+			case <-time.After(5 * time.Second):
+				t.Fatalf("%q did not dismiss the overlay", enc)
+			}
+		})
+	}
+}
+
+// TestOverlay_LeavesTheEngineKeyboardModeAlone: the overlay draws on the
+// engine's terminal, whose keyboard mode the ENGINE chose (claude-code sets
+// modifyOtherKeys 2 and pushes kitty flags). bubbletea's renderer sets its own
+// on start and, on exit, resets modifyOtherKeys in place — that mode has no
+// stack — silently taking the engine's away for the rest of the session; its
+// kitty flags query is answered on stdin, where the interceptor hands the
+// reply to the engine that never asked. The overlay inherits the mode instead:
+// none of those sequences reaches the tty.
+func TestOverlay_LeavesTheEngineKeyboardModeAlone(t *testing.T) {
+	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
+	o := NewOverlay(context.Background(), f.sources(), 0x1d, termui.OverlayStart{})
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	var tty syncBuffer
+	done := make(chan error, 1)
+	go func() { done <- o.Run(pr, &tty, testGeo()) }()
+	waitForOverlay(t, "engaged", func() bool { return strings.Contains(tty.String(), "h1") })
+	_, err := pw.Write([]byte("f")) // the alt screen re-sends the modes for the new screen
+	require.NoError(t, err)
+	waitForOverlay(t, "alt screen", func() bool { return strings.Contains(tty.String(), "\x1b[?1049h") })
+	_, err = pw.Write([]byte("q"))
+	require.NoError(t, err)
+	select {
+	case runErr := <-done:
+		require.NoError(t, runErr)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after q")
+	}
+	out := tty.String()
+	for _, seq := range []string{"\x1b[>4", "\x1b[>1u", "\x1b[<1u", "\x1b[=1;1u", "\x1b[?u"} {
+		assert.NotContains(t, out, seq, "the overlay must not touch the terminal's keyboard mode")
+	}
+}
+
+func TestStripKeyboardModes(t *testing.T) {
+	for in, want := range map[string]string{
+		"a\x1b[>4;2mb\x1b[>1uc":                  "abc",
+		"\x1b[>4m\x1b[<1u\x1b[=5;1u\x1b[?u":      "",
+		"\x1b[>4;0m\x1b[>31u\x1b[<u":             "",
+		"\x1b[?1049h\x1b[>0q\x1b[2J\x1b[?2026$p": "\x1b[?1049h\x1b[>0q\x1b[2J\x1b[?2026$p",
+		"\x1b[1;5u\x1b[?25l\x1b[<1;2;3M":         "\x1b[1;5u\x1b[?25l\x1b[<1;2;3M",
+		"\x1b[>":                                 "\x1b[>",
+	} {
+		assert.Equal(t, want, string(stripKeyboardModes([]byte(in))), "%q", in)
 	}
 }

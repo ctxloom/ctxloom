@@ -70,7 +70,7 @@ include the bar row.
 | `Controller` | `controller.go` | Owns `ttyMu` and the four sub-components. Two nearly-disjoint method groups: seam wiring/teardown (`Stdin`/`Stdout`/`Resize`/`Close`) and the engagement state machine (`engage`/`buildOverlay`/`runOverlay`/`release`/`abortLiteral`/`degrade`), plus an independent roster poller |
 | `OutputGate` | `gate.go` | Engine-output writer that can be diverted into a ring and replayed. Shares `*sync.Mutex` with `Surround` **by pointer** |
 | `Ring` | `ring.go` | Bounded drop-oldest byte buffer **with a drop counter that is surfaced to the user** (`gate.go`) |
-| `Interceptor` | `interceptor.go` | Prefix-key state machine over raw stdin, allocation-free on the hot path |
+| `Interceptor` | `interceptor.go` | Prefix-key state machine over raw stdin, a whole `inputTok` token at a time; allocation-free on the hot path (nothing carried, no prefix byte, no ESC) |
 | `ixState` / `ixActions` / `InterceptorCallbacks` | `interceptor.go` | The enum, the deferred-effect record (so effects fire outside the lock), and the hook set |
 | `ResizeTranslator` | `resize.go` | Subtracts the reserved rows from every size event, mirrors the real size to the surround, and forces post-overlay repaints |
 | `Surround` | `surround.go` | Owns the reserved bottom row: scroll region, bar paint, restore |
@@ -98,7 +98,8 @@ include the bar row.
 | `Ring.Write` / `Drain` | `ring.go` | |
 | `Interceptor.Read` / `scan` / `dispatch` | `interceptor.go` | `scan` decides under the lock, `dispatch` acts outside it |
 | `Interceptor.Disengage` / `Off` | `interceptor.go` | |
-| `ParsePrefixKey` / `CaretHint` | `prefixkey.go` | Config key name → control byte, and its caret notation |
+| `ParsePrefixKey` / `CaretHint` | `prefixkey.go` | Config key name → the key's legacy control byte, and its caret notation |
+| `prefixKey.hit` | `prefixkey.go` | Whether one input token is the prefix key: the legacy byte, kitty CSI-u (event-type and alternate-key fields included), or xterm modifyOtherKeys `CSI 27;m;c~` |
 | `NewResizeTranslator` | `resize.go` | Constructor **plus a synchronous drain of the buffered initial size** — a documented ordering fix |
 | `ResizeTranslator.Translate` / `Current` / `Nudge` / `send` | `resize.go` | `Nudge` is a one-row wiggle to force a child SIGWINCH; `send` is latest-wins non-blocking |
 | `reserveActive` | `surround.go` | **The single reservation predicate**, shared by `Surround` and `ResizeTranslator` so the two can never disagree about whether a row is reserved |
@@ -138,6 +139,16 @@ include the bar row.
 9. **`ResumeSequence` returns bytes instead of writing**, so restore is one atomic write.
 10. **`vtGuard` holds back partial sequences and partial runes**, so a bar paint can never be
     spliced into the middle of an escape sequence or a multi-byte character.
+11. **The prefix is a key, not a byte.** The engine sets the terminal's keyboard mode (claude-code
+    pushes kitty flags 5 and sets modifyOtherKeys 2 under a capable terminal or tmux) and
+    `vtGuard` passes that through, so Ctrl+] can arrive as `CSI 93;5u` or `CSI 27;5;93~`.
+    `prefixKey.hit` matches every encoding; anything else reaches the engine byte-identical. A
+    passthrough tail that could still complete as the prefix (`ESC [` digit…) waits for the next
+    read; any other incomplete tail (a lone Esc, Alt+[) is forwarded in the read it arrived in.
+12. **The overlay never touches the keyboard mode.** `tui`'s `onlcr` strips bubbletea's
+    modifyOtherKeys set/reset, kitty push/pop/set and kitty flags query
+    (`stripKeyboardModes`): the overlay inherits the engine's mode, and the exit's
+    modifyOtherKeys reset (a mode with no stack) can no longer take it from the engine.
 
 **Do not hold, or are narrower than documented:**
 
@@ -162,8 +173,6 @@ include the bar row.
 - **`Close` can hang.** It snapshots `c.overlay` then blocks on `sessionMu`;
   `engage` takes `sessionMu` but publishes `c.overlay` only later in the critical section,
   and never re-checks `c.closed` after acquiring the lock.
-- **`ParsePrefixKey` rejects NUL, TAB, LF/CR and ESC** on the ground that "the engine needs them
-  verbatim" — but permits `ctrl-c` (3), `ctrl-d` (4), `ctrl-z` (26) and `ctrl-s`/`ctrl-q` (19/17).
 - **`Controller.release` builds the restore preamble without holding `ttyMu`.**
   `ResumeSequence` takes and releases the lock, setting `suspended = false`, and only then does
   `gate.Release(pre)` re-acquire it — a window in which the roster poller can paint.

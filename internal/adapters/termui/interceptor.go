@@ -5,20 +5,23 @@ import (
 	"io"
 	"sync"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
-// interceptor states. The prefix machine is byte-deterministic — no timers —
-// so the double-press-literal contract is exact: a second prefix byte that
-// follows the first before any other key yields ONE literal prefix byte to
-// the engine (cancelling the engagement if it already fired).
+// interceptor states. The prefix machine is token-deterministic — no timers —
+// so the double-press-literal contract is exact: a second prefix press that
+// follows the first before any other key yields ONE literal prefix, spelled as
+// the terminal sent it, to the engine (cancelling the engagement if it
+// already fired). The prefix is a key, matched in every encoding (prefixKey).
 type ixState int
 
 const (
 	// ixPass forwards every byte to the engine untouched (the hot path).
 	ixPass ixState = iota
-	// ixFresh is "prefix just seen, no viewer key yet": the next byte decides
-	// between literal passthrough (prefix again) and viewer input (anything
-	// else).
+	// ixFresh is "prefix just seen, no viewer key yet": the next token
+	// decides between literal passthrough (prefix again) and viewer input
+	// (anything else).
 	ixFresh
 	// ixUI routes input to the engaged viewer's sink, a whole token at a
 	// time: keys to the viewer (which owns their meaning, prefix/q = back
@@ -51,15 +54,20 @@ type InterceptorCallbacks struct {
 // from other goroutines — hence the mutex on state.
 type interceptor struct {
 	src    io.Reader
-	prefix byte
+	prefix prefixKey
 	cb     InterceptorCallbacks
 	now    func() time.Time
 
-	mu        sync.Mutex
-	state     ixState
-	engaged   bool      // Engage fired for the current engagement
-	sink      io.Writer // viewer input sink while engaged
-	tok       inputTok
+	mu      sync.Mutex
+	state   ixState
+	engaged bool      // Engage fired for the current engagement
+	sink    io.Writer // viewer input sink while engaged
+	tok     inputTok
+	// fwd is how many leading bytes of tok's carried tail already reached the
+	// engine. Passthrough forwards an incomplete tail at once unless it could
+	// still become the prefix (holdable); when the token completes, only the
+	// rest is forwarded.
+	fwd       int
 	lastInput time.Time // when the last read arrived: the quiet gate's clock
 	// draining: a paste began inside a viewer that has since closed; the rest
 	// of it, to its end marker, is dropped rather than typed into the engine
@@ -88,10 +96,10 @@ type modalFocus struct {
 	discarded int
 }
 
-// newInterceptor wraps src. prefix is the raw control byte from
-// ParsePrefixKey; now is the controller's clock.
+// newInterceptor wraps src. prefix is the control byte from ParsePrefixKey,
+// which names the key; now is the controller's clock.
 func newInterceptor(src io.Reader, prefix byte, cb InterceptorCallbacks, now func() time.Time) *interceptor {
-	return &interceptor{src: src, prefix: prefix, cb: cb, now: now}
+	return &interceptor{src: src, prefix: newPrefixKey(prefix), cb: cb, now: now}
 }
 
 // Read implements the engine-bound side: it returns only bytes destined for
@@ -152,25 +160,30 @@ type ixActions struct {
 }
 
 // scan runs the state machine over one chunk. The hot path — passthrough with
-// no prefix byte in the chunk — returns the chunk unchanged after one
-// boundary-tracking check: zero copies, zero allocations. Otherwise the
-// engine-bound bytes (chronological order preserved, including a literal
-// prefix emitted by a double press) and the viewer-bound bytes land in
-// reused scratch buffers.
+// nothing carried and neither the prefix byte nor an ESC in the chunk, so no
+// encoding of the prefix can be in it — returns the chunk unchanged after one
+// boundary-tracking check: zero copies, zero allocations. Otherwise the chunk
+// is taken a whole token at a time: the engine-bound bytes (chronological
+// order preserved, including a literal prefix emitted by a double press) and
+// the viewer-bound bytes land in reused scratch buffers.
 func (ic *interceptor) scan(chunk []byte) (out, ui []byte, act ixActions) {
 	ic.mu.Lock()
 	defer ic.mu.Unlock()
 	ic.lastInput = ic.now()
 	if ic.state == ixOff {
-		return chunk, nil, act
+		return ic.offScan(chunk), nil, act
 	}
-	if ic.state == ixPass && !ic.draining && bytes.IndexByte(chunk, ic.prefix) < 0 {
-		ic.tok.track(chunk)
+	if ic.state == ixPass && !ic.draining && len(ic.tok.pend) == 0 &&
+		bytes.IndexByte(chunk, ic.prefix.b) < 0 && bytes.IndexByte(chunk, ansi.ESC) < 0 {
+		ic.tok.track(chunk) // can carry only a rune's leading bytes, delivered here
+		ic.fwd = len(ic.tok.pend)
 		return chunk, nil, act
 	}
 	ic.engBuf, ic.uiBuf = ic.engBuf[:0], ic.uiBuf[:0]
-	for i := 0; i < len(chunk); {
-		i += ic.step(chunk[i:], &act)
+	ic.tok.feed(chunk, true, func(k tokKind, b []byte) { ic.token(k, b, &act) })
+	if ic.state == ixPass && !ic.draining && len(ic.tok.pend) > ic.fwd && !ic.holdable() {
+		ic.engBuf = append(ic.engBuf, ic.tok.pend[ic.fwd:]...)
+		ic.fwd = len(ic.tok.pend)
 	}
 	if (ic.state == ixFresh || ic.state == ixUI) && !ic.engaged {
 		act.engage = true
@@ -179,55 +192,98 @@ func (ic *interceptor) scan(chunk []byte) (out, ui []byte, act ixActions) {
 	return ic.engBuf, ic.uiBuf, act
 }
 
-// step consumes the front of rest in the current state and returns how much.
-func (ic *interceptor) step(rest []byte, act *ixActions) int {
-	switch {
-	case ic.draining:
-		ic.tok.feed(rest, false, ic.drainToken)
-		return len(rest)
-	case ic.state == ixPass:
-		return ic.passSegment(rest)
-	case ic.state == ixFresh:
-		return ic.fresh(rest[0], act)
+// offScan is degraded passthrough: a tail held for the prefix when the
+// machine went off goes out first.
+func (ic *interceptor) offScan(chunk []byte) []byte {
+	if len(ic.tok.pend) <= ic.fwd {
+		return chunk
 	}
-	ic.tok.feed(rest, true, ic.routeToken)
-	return len(rest)
+	ic.engBuf = append(append(ic.engBuf[:0], ic.tok.pend[ic.fwd:]...), chunk...)
+	ic.dropTail()
+	return ic.engBuf
 }
 
-// passSegment forwards up to the next prefix byte, which it consumes.
-func (ic *interceptor) passSegment(rest []byte) int {
-	seg := rest
-	j := bytes.IndexByte(rest, ic.prefix)
-	if j >= 0 {
-		seg = rest[:j]
+// maxHeldTail bounds a held tail: every encoding of a prefix key is far
+// shorter.
+const maxHeldTail = 32
+
+// holdable reports whether the carried tail could still complete as an
+// encoded prefix (ESC [ then a digit, then parameters, no final yet). Only
+// such a tail waits for the next read; a lone Esc, Alt+[ or anything else
+// reaches the engine in the read it arrived in. A terminal writes a sequence
+// in one burst, so the wait is a read boundary's, never a human's.
+func (ic *interceptor) holdable() bool {
+	t := ic.tok.pend
+	if ic.tok.inPaste || ic.fwd > 0 || len(t) < 3 || len(t) > maxHeldTail ||
+		t[0] != ansi.ESC || t[1] != '[' || t[2] < '0' || t[2] > '9' {
+		return false
 	}
-	ic.tok.track(seg)
-	ic.engBuf = append(ic.engBuf, seg...)
-	if j < 0 {
-		return len(rest)
+	for _, c := range t[3:] {
+		if (c < '0' || c > '9') && c != ';' && c != ':' {
+			return false
+		}
 	}
-	ic.state = ixFresh
-	return j + 1
+	return true
 }
 
-// fresh decides the byte after a prefix: the prefix again is one literal
-// prefix to the engine; anything else is viewer input (consumed by ixUI).
-func (ic *interceptor) fresh(b byte, act *ixActions) int {
-	if b != ic.prefix {
+func (ic *interceptor) dropTail() {
+	ic.tok.reset()
+	ic.fwd = 0
+}
+
+// token advances the machine over one whole input token. Leading bytes the
+// engine already has (a tail forwarded before it completed) are skipped, and
+// such a token is never the prefix: half of it is already the engine's.
+func (ic *interceptor) token(k tokKind, b []byte, act *ixActions) {
+	skip := min(ic.fwd, len(b))
+	ic.fwd -= skip
+	if ic.draining {
+		ic.drainToken(k, b[skip:])
+		return
+	}
+	hit := keyMiss
+	if k == tokKey && skip == 0 {
+		hit = ic.prefix.hit(b)
+	}
+	switch ic.state {
+	case ixPass:
+		switch hit {
+		case keyPress:
+			ic.state = ixFresh
+		case keyRelease:
+			// The engine never saw the press; it does not get the release.
+		default:
+			ic.engBuf = append(ic.engBuf, b[skip:]...)
+		}
+	case ixFresh:
+		ic.fresh(k, b, hit, act)
+	default:
+		ic.routeToken(k, b)
+	}
+}
+
+// fresh decides the token after a prefix: the prefix again is one literal
+// prefix to the engine; its release changes nothing; anything else is viewer
+// input.
+func (ic *interceptor) fresh(k tokKind, b []byte, hit keyHit, act *ixActions) {
+	switch hit {
+	case keyRelease:
+		return
+	case keyMiss:
 		ic.state = ixUI
-		return 0
+		ic.routeToken(k, b)
+		return
 	}
-	// Double press: one literal prefix byte to the engine. When the pair sat
-	// in one chunk no engagement ever fired — no viewer flash; across chunks
-	// the controller aborts the just-opened viewer.
-	ic.engBuf = append(ic.engBuf, b)
+	// Double press: one literal prefix to the engine. When the pair sat in
+	// one chunk no engagement ever fired — no viewer flash; across chunks the
+	// controller aborts the just-opened viewer.
+	ic.engBuf = append(ic.engBuf, b...)
 	if ic.engaged {
 		act.abort = true
 		ic.engaged = false
 		ic.sink = nil
 	}
 	ic.state = ixPass
-	return 1
 }
 
 // routeToken is lock 5 plus lock 3 for one whole token under a viewer.
@@ -340,7 +396,7 @@ func (ic *interceptor) engageExternal(sink io.Writer, quietFor, armFor time.Dura
 		return quietFor, false
 	}
 	// A carried lone ESC already reached the engine: it was the Esc key.
-	ic.tok.reset()
+	ic.dropTail()
 	ic.state, ic.engaged, ic.sink = ixUI, true, sink
 	ic.modal = modalFocus{on: true, gen: gen, armFor: armFor, arming: true}
 	return 0, true
@@ -390,7 +446,7 @@ func (ic *interceptor) Disengage() {
 		ic.state = ixPass
 		ic.draining = ic.tok.inPaste
 		if !ic.draining {
-			ic.tok.reset()
+			ic.dropTail()
 		}
 	}
 	ic.engaged = false
@@ -399,10 +455,15 @@ func (ic *interceptor) Disengage() {
 }
 
 // Off permanently degrades to pure passthrough (viewer failure): the prefix
-// byte flows to the engine like any other key from here on.
+// flows to the engine like any other key from here on. A tail the viewer was
+// collecting, or a paste being drained, is dropped; one passthrough held for
+// the prefix goes out ahead of the next read.
 func (ic *interceptor) Off() {
 	ic.mu.Lock()
 	defer ic.mu.Unlock()
+	if ic.state != ixPass || ic.draining {
+		ic.dropTail()
+	}
 	ic.state = ixOff
 	ic.engaged = false
 	ic.sink = nil

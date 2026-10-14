@@ -225,14 +225,18 @@ needs on first launch.
     untrusted repository exactly as ctxloom does and shows nothing it commits
     runs. A repository the human HAS trusted runs its surfaces under ctxloom as
     it would in their own claude — that is what trusting it means.
-4. **Claude's subprocesses inherit the run's hook token.** A run that serves
-    the approval route puts the session endpoint's bearer into the engine's
+4. **Claude's subprocesses inherit the run's hook token.** Every
+    runner-hosted run puts the session endpoint's bearer into the engine's
     environment as `CTXLOOM_HOOK_TOKEN` (`sessions.EnvHookToken`, written by
-    `sessions.EncodeHookReach` in the runner's `deliverAndDrive`), so every
-    process claude spawns — third-party stdio MCP servers and hooks included —
-    inherits it. The token authorizes only that run's endpoint. On the host
-    runtime a malicious MCP server can therefore act as the run's hooks, for
-    example by answering the run's own approvals. Same-uid processes are not
+    `sessions.EncodeHookReach` through the runner's `hookReachEnv`): the
+    approval hook posts with it when approvals route to the human, and the
+    mail-peek hook asks the runner for mid-turn mail with it in every run. So
+    every process claude spawns — third-party stdio MCP servers and hooks
+    included — inherits it. The token authorizes only that run's endpoint. On
+    the host runtime a malicious MCP server can therefore act as the run's
+    hooks, for example by answering the run's own approvals, or by taking the
+    run's mid-turn mail (it is still the run's own mail, and the turn boundary
+    no longer delivers what such a process confirmed). Same-uid processes are not
     isolated from each other on the host runtime (gap 2); the container
     runtime is the boundary. Ruled and accepted: the token stays in the
     environment.

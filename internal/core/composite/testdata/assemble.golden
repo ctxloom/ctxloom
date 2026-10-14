@@ -185,6 +185,15 @@
           "timeout": 15,
           "tool": "skill",
           "type": "command"
+        },
+        {
+          "args": [
+            "hook",
+            "mail-peek"
+          ],
+          "command": "ctxloom",
+          "timeout": 10,
+          "type": "command"
         }
       ],
       "pre_tool": [
@@ -463,6 +472,15 @@
           "command": "ctxloom",
           "timeout": 15,
           "tool": "skill",
+          "type": "command"
+        },
+        {
+          "args": [
+            "hook",
+            "mail-peek"
+          ],
+          "command": "ctxloom",
+          "timeout": 10,
           "type": "command"
         }
       ],
@@ -743,6 +761,15 @@
           "timeout": 15,
           "tool": "skill",
           "type": "command"
+        },
+        {
+          "args": [
+            "hook",
+            "mail-peek"
+          ],
+          "command": "ctxloom",
+          "timeout": 10,
+          "type": "command"
         }
       ],
       "pre_tool": [
@@ -1018,6 +1045,15 @@
           "command": "ctxloom",
           "timeout": 15,
           "tool": "skill",
+          "type": "command"
+        },
+        {
+          "args": [
+            "hook",
+            "mail-peek"
+          ],
+          "command": "ctxloom",
+          "timeout": 10,
           "type": "command"
         }
       ],
@@ -1298,6 +1334,15 @@
           "timeout": 15,
           "tool": "skill",
           "type": "command"
+        },
+        {
+          "args": [
+            "hook",
+            "mail-peek"
+          ],
+          "command": "ctxloom",
+          "timeout": 10,
+          "type": "command"
         }
       ],
       "pre_tool": [
@@ -1573,6 +1618,15 @@
           "command": "ctxloom",
           "timeout": 15,
           "tool": "skill",
+          "type": "command"
+        },
+        {
+          "args": [
+            "hook",
+            "mail-peek"
+          ],
+          "command": "ctxloom",
+          "timeout": 10,
           "type": "command"
         }
       ],
@@ -1853,6 +1907,15 @@
           "timeout": 15,
           "tool": "skill",
           "type": "command"
+        },
+        {
+          "args": [
+            "hook",
+            "mail-peek"
+          ],
+          "command": "ctxloom",
+          "timeout": 10,
+          "type": "command"
         }
       ],
       "pre_tool": [
@@ -2129,6 +2192,15 @@
           "timeout": 15,
           "tool": "skill",
           "type": "command"
+        },
+        {
+          "args": [
+            "hook",
+            "mail-peek"
+          ],
+          "command": "ctxloom",
+          "timeout": 10,
+          "type": "command"
         }
       ],
       "pre_tool": [
@@ -2385,6 +2457,15 @@
           "timeout": 15,
           "tool": "skill",
           "type": "command"
+        },
+        {
+          "args": [
+            "hook",
+            "mail-peek"
+          ],
+          "command": "ctxloom",
+          "timeout": 10,
+          "type": "command"
         }
       ],
       "pre_tool": [
@@ -2614,6 +2695,15 @@
           "command": "ctxloom",
           "timeout": 15,
           "tool": "skill",
+          "type": "command"
+        },
+        {
+          "args": [
+            "hook",
+            "mail-peek"
+          ],
+          "command": "ctxloom",
+          "timeout": 10,
           "type": "command"
         }
       ],
@@ -2870,6 +2960,15 @@
           "command": "ctxloom",
           "timeout": 15,
           "tool": "skill",
+          "type": "command"
+        },
+        {
+          "args": [
+            "hook",
+            "mail-peek"
+          ],
+          "command": "ctxloom",
+          "timeout": 10,
           "type": "command"
         }
       ],
@@ -3146,6 +3245,15 @@
           "command": "ctxloom",
           "timeout": 15,
           "tool": "skill",
+          "type": "command"
+        },
+        {
+          "args": [
+            "hook",
+            "mail-peek"
+          ],
+          "command": "ctxloom",
+          "timeout": 10,
           "type": "command"
         }
       ],

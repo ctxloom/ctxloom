@@ -123,7 +123,7 @@ func (c *Coordinator) Control(ctx context.Context, by ControlInitiator, req Cont
 		if err != nil {
 			return ControlResult{}, err
 		}
-		return ControlResult{Verb: req.Verb, Delivery: out.Delivery, MessageID: out.MessageID}, nil
+		return ControlResult{Verb: req.Verb, Delivery: out.Delivery, Disposition: out.Disposition, MessageID: out.MessageID}, nil
 	case ControlVerbQuestion, ControlVerbSummarize:
 		kind := KindQuestion
 		if req.Verb == ControlVerbSummarize {

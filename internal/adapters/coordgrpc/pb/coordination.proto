@@ -323,6 +323,7 @@ message RunnerResponse {
     PauseRunResult pause_run = 14;
     ResumeRunResult resume_run = 15;
     TurnResult turn = 16;
+    InterruptRunResult interrupt_run = 17;
     google.protobuf.Struct custom = 90;
   }
 }
@@ -825,6 +826,13 @@ message InterruptRun {
   string run_id = 1;
 }
 
+message InterruptRunResult {
+  // Whether a turn was in flight and this request cut it short, as opposed
+  // to finding the run parked between turns. A steer with interrupt reports
+  // which happened rather than the same "queued" for both.
+  bool interrupted = 1;
+}
+
 // SetGrants hands a run its complete set of session grants (engine-native
 // rules); the run applies them from its next turn.
 message SetGrants {
@@ -1288,7 +1296,7 @@ enum MessageKind {
 // mesh, one policy chokepoint, and offline targets get queued delivery.
 message PeerSendRequest {
   option (message_schema) = {
-    doc: "Send a message to another agent session. Messaging follows the delegation tree: you reach only your own parent and your own children. Address a child of yours by harp (to_agent_id) — delivery starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Address your parent with to_role: \"parent\"; mail to a parent whose run has ended resumes it. The root session has no parent; reach a deeper agent through its own parent, never past it. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with \"keep reading for more detail\", so put nothing essential below the fold."
+    doc: "Send a message to another agent session. Messaging follows the delegation tree: you reach only your own parent and your own children. Address a child of yours by harp (to_agent_id) — delivery starts a new turn on an idle child, reaches a busy one at its next tool call (or at its turn boundary if it makes none), or resumes an ended session. The answer says it is queued, not received: a child's unread mail shows in the roster's `unread`. Address your parent with to_role: \"parent\"; mail to a parent whose run has ended resumes it. The root session has no parent; reach a deeper agent through its own parent, never past it. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with \"keep reading for more detail\", so put nothing essential below the fold."
   };
 
   // or...
@@ -1405,6 +1413,10 @@ message ListRunsResult {
     // session and its reason for a stop, the failure text for a launch
     // failure. Empty when the cause carried none.
     string detail = 12;
+    // unread is how many messages wait undelivered in the run's inbox: mail
+    // sent to it that its engine has not been handed yet. Nonzero while a
+    // child is mid-turn means it has not seen what was sent to it.
+    uint32 unread = 13;
   }
   repeated RunInfo runs = 1;
 }
@@ -1465,7 +1477,7 @@ message ControlRunResult {
 
 message ControlSteer {
   option (message_schema) = {
-    doc: "Steer one of your delegated children: deliver an instruction it acts on as its next turn. The instruction is a DURABLE file in the child's own inbox spool — it survives the child's relaunch, is visible while unread, and the returned message_id is the handle to withdraw it before the child reads it. Delivery follows the child's state: an idle child is woken into a new turn, a busy one sees it at its next turn boundary, an ended one is resumed with it. Only your OWN children may be steered (the target's parent must be you; you cannot steer yourself). This is an instruction, not a conversation — the child does not answer it; use agent_ask when you expect an answer."
+    doc: "Steer one of your delegated children: deliver an instruction it acts on as its next turn. The instruction is a DURABLE file in the child's own inbox spool — it survives the child's relaunch, is visible while unread, and the returned message_id is the handle to withdraw it before the child reads it. Delivery follows the child's state: an idle child is woken into a new turn, a busy one sees it at its next tool call (or its next turn boundary if it makes none), an ended one is resumed with it. Only your OWN children may be steered (the target's parent must be you; you cannot steer yourself). This is an instruction, not a conversation — the child does not answer it; use agent_ask when you expect an answer."
   };
   string harp = 1 [(field_schema) = {
     required: true,
@@ -1477,15 +1489,18 @@ message ControlSteer {
     doc: "The instruction. Delivered verbatim as the child's next turn under a provenance header naming it a steer from you."
   }];
   bool interrupt = 3 [(field_schema) = {
-    doc: "Cut the child's running turn short first, so this instruction becomes its next turn now rather than at its next boundary. The interrupted turn's work so far stands; the child is not stopped. OMIT (false) to let the running turn finish."
+    doc: "Cut the child's running turn short first, so this instruction becomes its next turn now rather than at its next boundary. The interrupted turn's work so far stands; the child is not stopped. The answer says what happened: delivery \"interrupted\" when a running turn was cut, \"interrupt-unconfirmed\" when the child's runner did not confirm it, otherwise the plain delivery (an idle child is woken into a new turn). OMIT (false) to let the running turn finish."
   }];
 }
 
 message ControlSteerResult {
-  // How the steer landed: "new-turn" (an idle child was woken into a new
-  // turn), "queued" (held for the child's next turn boundary, including while
-  // it is paused), or "resumed" (an ended session was relaunched with the
-  // text as its next turn).
+  // How the steer landed: "interrupted" (the child's running turn was cut
+  // short and the steer is its next turn), "interrupt-unconfirmed" (an
+  // interrupt was asked for but the child's runner did not confirm it, so
+  // whether its turn was cut is unknown), "new-turn" (an idle child was woken
+  // into a new turn), "queued" (held for the child's next tool call or turn
+  // boundary, or until it is resumed while it is paused), or "resumed" (an ended session was
+  // relaunched with the text as its next turn).
   string delivery = 1;
   // The withdraw handle: the id of the durable instruction file, valid
   // until the child takes it.

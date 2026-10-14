@@ -95,8 +95,15 @@ func TestControlSteer_InterruptMakesTheSteerTheNextTurnNow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()
 
-	_, err := c.ControlSteer(ctx, humanInitiator(), out.Harp, "change course", true)
+	req := ControlRequest{Verb: ControlVerbSteer, Harp: out.Harp, Body: "change course", Interrupt: true}
+	steered, err := c.Control(ctx, humanInitiator(), req)
 	require.NoError(t, err)
+	assert.Equal(t, DeliveryInterrupted, steered.Delivery,
+		"alpha issue 9: an interrupt that took effect must not report \"queued\" like plain mail")
+	assert.Contains(t, steered.Disposition, "running turn", "the result carries the outcome in words, not only the mode")
+	said := controlDisposition(req, steered)
+	assert.Contains(t, said, "interrupted", "the initiator's text says the turn was cut")
+	assert.NotContains(t, said, "queued")
 	awaitChatText(t, sp, 0, "change course")
 	assert.NotEqual(t, StateEnded, rosterState(c, out.Harp), "an interrupt is not a stop")
 }
@@ -135,8 +142,10 @@ func TestControlSteer_InterruptOnAnIdleTargetDoesNotCutTheSteer(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()
-	_, err := c.ControlSteer(ctx, humanInitiator(), out.Harp, "fresh orders", true)
+	outcome, err := c.ControlSteer(ctx, humanInitiator(), out.Harp, "fresh orders", true)
 	require.NoError(t, err)
+	assert.Equal(t, DeliveryNewTurn, outcome.Delivery, "nothing was running to cut: the idle target is woken, and the answer says so")
+	assert.NotContains(t, outcome.Disposition, "interrupted")
 	awaitChatText(t, sp, 0, "fresh orders")
 	close(held)
 
@@ -170,4 +179,57 @@ func TestStopChildren_InterruptsEachRunningTurnThenCloses(t *testing.T) {
 	require.Len(t, results, 1, "the interrupted turn's report never reached the parent")
 	assert.Contains(t, results[0].Body, "interrupted before it finished")
 	awaitRelease(t, sp, 0)
+}
+
+// TestInterruptVerdict_SaysOnlyWhatTheRunnerConfirmed: the steer's outcome is
+// what the runner ANSWERED. A cut it confirmed is "interrupted"; a parked run
+// it confirmed is nothing cut; an answer that never came, or that does not
+// say, is unconfirmed — never silently "queued"; a refusal is the steer's
+// error.
+func TestInterruptVerdict_SaysOnlyWhatTheRunnerConfirmed(t *testing.T) {
+	v, err := interruptVerdict(RunnerResponse{Kind: InterruptRunResult{Interrupted: true}}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, interruptCut, v)
+
+	v, err = interruptVerdict(RunnerResponse{Kind: InterruptRunResult{}}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, interruptNone, v)
+
+	v, err = interruptVerdict(RunnerResponse{}, context.DeadlineExceeded)
+	require.NoError(t, err, "an unanswered interrupt does not fail the steer: the steer is still written")
+	assert.Equal(t, interruptUnconfirmed, v)
+
+	v, err = interruptVerdict(RunnerResponse{}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, interruptUnconfirmed, v, "an answer that does not say what happened confirms nothing")
+
+	_, err = interruptVerdict(RunnerResponse{Err: ErrControlRefused}, nil)
+	require.ErrorIs(t, err, ErrControlRefused)
+}
+
+// TestSteerOutcome_InterruptWordsTheOutcome: the outcome a steer reports once
+// its interrupt is judged — the cut and the unconfirmed cases replace the
+// mail wording; nothing cut keeps it.
+func TestSteerOutcome_InterruptWordsTheOutcome(t *testing.T) {
+	queued := SteerOutcome{Delivery: DeliveryQueued, Disposition: "queued mid-turn", MessageID: "m-1"}
+
+	cut := queued.afterInterrupt(interruptCut)
+	assert.Equal(t, DeliveryInterrupted, cut.Delivery)
+	assert.Contains(t, cut.Disposition, "interrupted")
+	assert.Equal(t, "m-1", cut.MessageID, "the withdraw handle survives")
+
+	unknown := queued.afterInterrupt(interruptUnconfirmed)
+	assert.Equal(t, DeliveryInterruptUnconfirmed, unknown.Delivery)
+	assert.Contains(t, unknown.Disposition, "not known")
+	assert.NotContains(t, unknown.Disposition, "queued mid-turn", "an unknown outcome must not borrow the mail wording")
+
+	assert.Equal(t, queued, queued.afterInterrupt(interruptNone))
+}
+
+// TestControlDisposition_SteerSaysWhatHappened: the text a wire caller reads
+// for a steer is the outcome's own wording, not a bare mode in parentheses.
+func TestControlDisposition_SteerSaysWhatHappened(t *testing.T) {
+	got := controlDisposition(ControlRequest{Verb: ControlVerbSteer, Harp: "kid"},
+		ControlResult{Verb: ControlVerbSteer, Delivery: DeliveryInterrupted, Disposition: "interrupted its running turn"})
+	assert.Equal(t, "steered kid: interrupted its running turn", got)
 }

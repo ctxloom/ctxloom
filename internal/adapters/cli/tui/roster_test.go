@@ -273,6 +273,24 @@ func TestBuildRoster_CarriesTheTerminalCause(t *testing.T) {
 	assert.Equal(t, detail, byHarp["bus-only-kid"].Detail)
 }
 
+// TestBuildRoster_CarriesTheUnreadCount: a child's unread mail count reaches
+// its row whether the row came from the index or from the coordinator alone.
+func TestBuildRoster_CarriesTheUnreadCount(t *testing.T) {
+	testsupport.Isolate(t)
+	rows := BuildRoster(
+		[]sessions.Entry{{HarpName: "indexed-kid", Backend: "claude-code"}},
+		[]coord.RosterEntry{
+			{Harp: "indexed-kid", State: coord.StateExecuting, Unread: 2},
+			{Harp: "bus-only-kid", State: coord.StateExecuting, Unread: 5},
+		}, "")
+	byHarp := map[string]RosterRow{}
+	for _, r := range rows {
+		byHarp[r.Harp] = r
+	}
+	assert.Equal(t, 2, byHarp["indexed-kid"].Unread)
+	assert.Equal(t, 5, byHarp["bus-only-kid"].Unread)
+}
+
 // TestRosterStates_AreTheListingsWords: the roster and `ctxloom session list`
 // say a session's state in one vocabulary — the overlay's ended word is the
 // coordinator's, and that must be the listing's too.

@@ -241,6 +241,9 @@ stateDiagram-v2
     Delivered --> TurnQueued: turn sink → turnQ
     Delivered --> Buffered: no sink yet → h.buffer (SetTurnSink drains it first)
     TurnQueued --> Accepted: turnPump → sink → EngineHost.enqueueTurn → in chan (engine stdin)
+    TurnQueued --> Peeked: mail-peek hook (post_tool) → POST /mail fetch → Home.PeekMail (lease)
+    Peeked --> InDelivered: hook wrote the context → POST /mail confirm → Home.ConfirmMail → ackMailConsumed; the waiting hand-off's claimTurnMail is false, so no turn starts
+    Peeked --> TurnQueued: not confirmed (lease expires, or the turn's claimTurnMail revokes it)
     Accepted --> InDelivered: ackMailConsumed → spool.Deliver(record in/delivered/<id>, delete in/ file) + Announce('consumed') doorbell → coordinator sweepChildDelivered (spoolCredit) → noteMailConsumed (budget forgiven)
     Buffered --> TurnQueued: SetTurnSink
     TurnQueued --> Buffered: sink returned false (engine gone)
@@ -263,7 +266,11 @@ Reading it:
   coordinator writes into the child's `in/` and rings `CoordinatorNotice.spool_changed`;
   the runner's `Home.sweepSpoolIn` picks it up and either hands it to the engine as a
   turn (`turnPump → EngineHost.enqueueTurn`) or buffers it until the engine
-  registers its turn sink.
+  registers its turn sink. A message that waits behind a turn in flight is also
+  offered to the engine MID-TURN: the post_tool `ctxloom hook mail-peek` asks the
+  runner over `/mail` (`Home.PeekMail`, then `Home.ConfirmMail` once written),
+  and the hand-off that later wins `turnBusy` re-checks (`claimTurnMail`) and
+  starts no turn for a message already delivered that way.
 - **The owner's inbox** is read by its turn-start hook, `ctxloom hook mail-drain`
   (`spool.Claim`, then `spool.Deliver` once the context is written). Its runner reads
   nothing from it: a sweep only fires the owner's wake (`Home.wakeOwner`), which

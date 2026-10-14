@@ -96,12 +96,10 @@ func drainMailFor(cmd *cobra.Command, harp string) error {
 // so a test can assert which reason fired without parsing stderr. It
 // delivers what it can before reporting what it could not.
 //
-// CONTAINER AXIS: this hook is inert for a coordinator hosted in a container
-// tonight — a containerized claude never receives ctxloom's hooks at all
-// (pulmonary-eternity), so nothing there ever invokes it. The exclusion is a
-// property of hook carriage, not of this code: the day carriage is fixed,
-// the same binary reads the same spool through the same home-relative mapper
-// (spool.HomeMapper's mount contract), and nothing here changes.
+// CONTAINER AXIS: a containerized engine is carried ctxloom's hooks like a
+// host one (pulmonary-eternity), so this hook fires for a container-hosted
+// owner too, and reads the same spool through the same home-relative mapper
+// (spool.HomeMapper's mount contract). Nothing here depends on the runtime.
 func drainMail(fs afero.Fs, cmd *cobra.Command, codec engine.HookCodec, harp string) error {
 	// Read to EOF before anything can return: closing stdin early would be
 	// reported by some engines as a failed hook.

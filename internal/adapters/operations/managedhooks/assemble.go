@@ -192,6 +192,17 @@ func appendManagedDynamicHooks(m *Hooks, cfg *config.Config, set []profiles.Reso
 			wire.UnifiedHooks{TurnStart: []wire.Hook{agent.NewMailDrainHook()}},
 			fixedSource(Source{Origin: OriginContext}))
 	}
+	// The post_tool mail-peek hook hands the engine mail that arrived DURING
+	// its turn, at its next tool call, instead of leaving it for the turn's
+	// end. For EVERY reader, unlike the drain above: the owner's peek claims
+	// and acknowledges like the drain does (the two never run at once — one
+	// fires at turn start, the other inside a turn), and a runner-fed run's
+	// peek reads no spool at all, it asks its runner, which hands over only
+	// what no turn has taken and skips at the turn boundary what the peek
+	// delivered. Ungated, for the drain's reason: mail is not optional.
+	m.mergeUnified(
+		wire.UnifiedHooks{PostTool: []wire.Hook{agent.NewMailPeekHook()}},
+		fixedSource(Source{Origin: OriginContext}))
 }
 
 // profileRefBase is the ref a profile's declared hooks are addressed under —

@@ -394,6 +394,9 @@ func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role, parent string
 			})
 		}
 	})
+	for i := range result.Runs {
+		result.Runs[i].Unread = c.unreadMail(result.Runs[i].Agent.AgentID)
+	}
 	return result
 }
 

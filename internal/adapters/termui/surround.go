@@ -46,6 +46,8 @@ type RosterEntry struct {
 	// Hold is the hold parking the child, worded for display ("" for none):
 	// a held run's State reads idle, so this is what tells it apart.
 	Hold string
+	// Unread is how many messages wait undelivered in the child's inbox.
+	Unread int
 }
 
 // surround owns the reserved bottom row: it establishes a DECSTBM scroll
@@ -528,7 +530,32 @@ func rosterDigestBody(roster []RosterEntry) string {
 	b = append(b, latest.Harp...)
 	b = append(b, "→"...)
 	b = append(b, latest.State...)
-	return string(b) + heldDigest(roster)
+	return string(b) + heldDigest(roster) + unreadDigest(roster)
+}
+
+// unreadDigest is the digest's mail element: the first child with mail
+// waiting undelivered and how much, plus how many more children have mail
+// waiting ("" when none does).
+func unreadDigest(roster []RosterEntry) string {
+	var first *RosterEntry
+	more := 0
+	for i := range roster {
+		switch {
+		case roster[i].Unread <= 0:
+		case first == nil:
+			first = &roster[i]
+		default:
+			more++
+		}
+	}
+	if first == nil {
+		return ""
+	}
+	out := " · " + first.Harp + " ✉" + strconv.Itoa(first.Unread) + " unread"
+	if more > 0 {
+		out += " (+" + strconv.Itoa(more) + " more with mail)"
+	}
+	return out
 }
 
 // heldDigest is the digest's hold element: the first held child and its

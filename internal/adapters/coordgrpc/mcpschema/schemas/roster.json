@@ -115,6 +115,10 @@
             },
             "task_id": {
               "type": "string"
+            },
+            "unread": {
+              "description": "unread is how many messages wait undelivered in the run's inbox: mail sent to it that its engine has not been handed yet. Nonzero while a child is mid-turn means it has not seen what was sent to it.",
+              "type": "integer"
             }
           },
           "type": "object"

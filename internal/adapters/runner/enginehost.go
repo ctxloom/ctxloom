@@ -47,6 +47,10 @@ type engineHome interface {
 	// consume-acked (Home.AwaitMailAcked) — the exit path's guard against
 	// reporting RunExited while an accepted turn's file is still in in/.
 	AwaitMailAcked(ctx context.Context, ids []string) error
+	// claimTurnMail is the hand-off's last check for a delivered message:
+	// false when the mail-peek hook already delivered it mid-turn, so no
+	// turn starts for it (Home.claimTurnMail).
+	claimTurnMail(id string) bool
 	ReportRunExited(exitCode int, harnessSessionID string)
 	// ReportTurnResult writes this turn's own output to the parent as the
 	// automatic turn report; blocked is every tool call the turn's engine
@@ -118,6 +122,20 @@ type Turn struct {
 	// approval is the approval route the run serves: set when the launch's
 	// approver is the human and the engine declares an approval codec.
 	approval *approvalSpec
+	// hookEnv is the hook address the engine is started with
+	// (hookReachEnv), already laid into Exec.Env; EngineEnv lays it over the
+	// launch's env for a path that does not start from Exec.Env.
+	hookEnv map[string]string
+}
+
+// EngineEnv is the env an engine process of this turn is started with when
+// the caller composes it from the launch rather than from Exec — the
+// interactive terminal: the launch's engine env with the hook address over
+// it, so the mail-peek hook reaches the runner from every runner-hosted run.
+func (t Turn) EngineEnv() map[string]string {
+	env := t.Launch.EngineEnv()
+	maps.Copy(env, t.hookEnv)
+	return env
 }
 
 // Terminal drives an INTERACTIVE launch on the runner's own terminal — the
@@ -672,7 +690,10 @@ func (eh *EngineHost) deliverFirstTurn(home engineHome, prompt string) error {
 		// report this turn produces can quote it (spoolturnresult.go). It is
 		// the id the DELIVERY used — the file's origin id — which is exactly
 		// what the sender registered its waiter under.
-		return eh.enqueueTurn(eh.baseCtx, turnTag{mail: pm.GetMessageId(), approve: planApprovalIn(pm)}, FrameCoordinatorMessage(pm)) == nil
+		// A message delivered mid-turn while it waited starts no turn
+		// (errMailDeliveredMidTurn); the pump sees it consumed and leaves its
+		// acknowledgement to the peek that delivered it.
+		return eh.enqueueTurn(eh.baseCtx, turnTag{mail: pm.GetMessageId(), approve: planApprovalIn(pm), claim: home.claimTurnMail}, FrameCoordinatorMessage(pm)) == nil
 	})
 	return nil
 }

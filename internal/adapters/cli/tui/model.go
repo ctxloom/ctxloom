@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -333,7 +334,11 @@ func (m Model) applyControlResult(msg controlResultMsg) (tea.Model, tea.Cmd) {
 	}
 	switch msg.req.Verb {
 	case coord.ControlVerbSteer:
-		m.reportOK(fmt.Sprintf("injected into %s: %s", harp, msg.res.Delivery))
+		outcome := msg.res.Disposition
+		if outcome == "" {
+			outcome = msg.res.Delivery
+		}
+		m.reportOK(fmt.Sprintf("injected into %s: %s", harp, outcome))
 	case coord.ControlVerbQuestion, coord.ControlVerbSummarize:
 		m.reportOK(fmt.Sprintf("asked %s (ask %s); its reply arrives as mail", harp, msg.res.AskID))
 	case coord.ControlVerbPause:
@@ -788,6 +793,9 @@ func (m Model) feedTitle() string {
 	if ended := endedLabel(r); ended != "" {
 		title += " · " + ended
 	}
+	if r.Unread > 0 {
+		title += " · ✉ " + strconv.Itoa(r.Unread) + " unread"
+	}
 	if m.feedSource != "" {
 		title += " · " + m.feedSource
 	}
@@ -841,6 +849,9 @@ func (m Model) rosterLines(height int) []string {
 		}
 		if r.Cause != "" {
 			label += " " + r.Cause
+		}
+		if r.Unread > 0 {
+			label += " ✉" + strconv.Itoa(r.Unread)
 		}
 		line := strings.Repeat("  ", min(r.Depth, 3)) + rowGlyph(r) + " " + label
 		if offset+i == m.sel {

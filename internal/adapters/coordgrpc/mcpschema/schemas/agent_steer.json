@@ -1,6 +1,6 @@
 {
   "name": "agent_steer",
-  "description": "Steer one of your delegated children: deliver an instruction it acts on as its next turn. The instruction is a DURABLE file in the child's own inbox spool — it survives the child's relaunch, is visible while unread, and the returned message_id is the handle to withdraw it before the child reads it. Delivery follows the child's state: an idle child is woken into a new turn, a busy one sees it at its next turn boundary, an ended one is resumed with it. Only your OWN children may be steered (the target's parent must be you; you cannot steer yourself). This is an instruction, not a conversation — the child does not answer it; use agent_ask when you expect an answer.",
+  "description": "Steer one of your delegated children: deliver an instruction it acts on as its next turn. The instruction is a DURABLE file in the child's own inbox spool — it survives the child's relaunch, is visible while unread, and the returned message_id is the handle to withdraw it before the child reads it. Delivery follows the child's state: an idle child is woken into a new turn, a busy one sees it at its next tool call (or its next turn boundary if it makes none), an ended one is resumed with it. Only your OWN children may be steered (the target's parent must be you; you cannot steer yourself). This is an instruction, not a conversation — the child does not answer it; use agent_ask when you expect an answer.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -12,7 +12,7 @@
         "type": "string"
       },
       "interrupt": {
-        "description": "Cut the child's running turn short first, so this instruction becomes its next turn now rather than at its next boundary. The interrupted turn's work so far stands; the child is not stopped. OMIT (false) to let the running turn finish.",
+        "description": "Cut the child's running turn short first, so this instruction becomes its next turn now rather than at its next boundary. The interrupted turn's work so far stands; the child is not stopped. The answer says what happened: delivery \"interrupted\" when a running turn was cut, \"interrupt-unconfirmed\" when the child's runner did not confirm it, otherwise the plain delivery (an idle child is woken into a new turn). OMIT (false) to let the running turn finish.",
         "type": "boolean"
       },
       "text": {
@@ -29,7 +29,7 @@
   "outputSchema": {
     "properties": {
       "delivery": {
-        "description": "How the steer landed: \"new-turn\" (an idle child was woken into a new turn), \"queued\" (held for the child's next turn boundary, including while it is paused), or \"resumed\" (an ended session was relaunched with the text as its next turn).",
+        "description": "How the steer landed: \"interrupted\" (the child's running turn was cut short and the steer is its next turn), \"interrupt-unconfirmed\" (an interrupt was asked for but the child's runner did not confirm it, so whether its turn was cut is unknown), \"new-turn\" (an idle child was woken into a new turn), \"queued\" (held for the child's next tool call or turn boundary, or until it is resumed while it is paused), or \"resumed\" (an ended session was relaunched with the text as its next turn).",
         "type": "string"
       },
       "message_id": {

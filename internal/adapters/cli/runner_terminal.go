@@ -42,7 +42,7 @@ func (t stdioTerminal) Run(ctx context.Context, turn runner.Turn) (int, error) {
 		WorkDir:   turn.Launch.Cell.Paths.Paths().ProjectRoot.Engine,
 		Mode:      agent.ModeInteractive,
 		Model:     turn.Launch.Label.Model,
-		Env:       turn.Launch.EngineEnv(),
+		Env:       turn.EngineEnv(),
 		Stdin:     stdin,
 		Resize:    turnResize(ctx, t.stdin),
 		Session:   &session,

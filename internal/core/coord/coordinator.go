@@ -47,8 +47,15 @@ var ErrClosed = errors.New("coordinator is closed")
 // delivery-by-state rule the coordinator applied to the instruction.
 const (
 	DeliveryNewTurn = "new-turn" // woke an idle child into a new turn
-	DeliveryQueued  = "queued"   // queued for the child's next turn boundary
+	DeliveryQueued  = "queued"   // queued for the child's next tool call or turn boundary
 	DeliveryResumed = "resumed"  // relaunched an ended session, the text as its next turn
+	// DeliveryInterrupted: the steer's interrupt cut the target's running
+	// turn short, so the steer is its next turn now.
+	DeliveryInterrupted = "interrupted"
+	// DeliveryInterruptUnconfirmed: an interrupt was asked for and the
+	// target's runner did not confirm what it did, so whether a turn was cut
+	// is not known. The steer itself is written either way.
+	DeliveryInterruptUnconfirmed = "interrupt-unconfirmed"
 )
 
 // Options configures a Coordinator.
@@ -1322,7 +1329,24 @@ func (c *Coordinator) Roster(caller Identity) []RosterEntry {
 			out[i].Hold = holds[c.rosterF.current[out[i].Harp]]
 		}
 	})
+	// Read outside the view: it is filesystem I/O, and the fold lock is not
+	// what keeps it consistent — the spool is.
+	for i := range out {
+		out[i].Unread = c.unreadMail(out[i].Harp)
+	}
 	return out
+}
+
+// unreadMail is harp's undelivered inbox count (spool.Unread), for the
+// roster. An inbox that cannot be read is warned about and counted as
+// empty: the roster still answers, and the warning is what says the count
+// is not to be trusted.
+func (c *Coordinator) unreadMail(harp string) int {
+	n, err := spool.Unread(c.root.Fs, c.mapper, harp)
+	if err != nil {
+		c.rep.Warnf("coordinator: counting %s's unread mail: %v", harp, err)
+	}
+	return n
 }
 
 // AgentSend delivers a message per §6a delivery-by-state, along one edge of
@@ -1459,7 +1483,7 @@ func deliveryDisposition(state string) (mode, prose string) {
 	case deliveryPaused:
 		return DeliveryQueued, "held: the child is paused; the message waits in its spool and is delivered when it is resumed"
 	default: // executing, or a state that raced the delivery
-		return DeliveryQueued, "queued mid-turn: delivered at the child's next turn boundary"
+		return DeliveryQueued, "queued mid-turn: delivered at the child's next tool call, or at its turn boundary if it makes none"
 	}
 }
 

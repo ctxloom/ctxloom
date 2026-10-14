@@ -348,13 +348,11 @@ func drive(ctx context.Context, deps Deps, l launch.Launch, inst engine.Instance
 	// engine env — the identity carriers, the label's env, the caller's
 	// passthrough — is laid under it here, the engine's own on top.
 	env := l.EngineEnv()
-	if approval != nil {
-		hook, err := hookEndpoint(l.MCP)
-		if err != nil {
-			return err
-		}
-		maps.Copy(env, sessions.EncodeHookReach(hook))
+	hookEnv, err := hookReachEnv(l, approval)
+	if err != nil {
+		return err
 	}
+	maps.Copy(env, hookEnv)
 	maps.Copy(env, ex.Env)
 	ex.Env = env
 	turn := Turn{
@@ -366,8 +364,30 @@ func drive(ctx context.Context, deps Deps, l launch.Launch, inst engine.Instance
 		Prompt:     l.Prompt,
 		Presented:  delivered.Presented,
 		approval:   approval,
+		hookEnv:    hookEnv,
 	}
 	return deps.Driver.Drive(ctx, turn)
+}
+
+// hookReachEnv is the hook address every runner-hosted engine is started
+// with (sessions.EncodeHookReach): the session endpoint's origin at HookPath
+// under its bearer. The approval hook posts there when approvals route to the
+// human; the mail-peek hook asks there (MailPath, same origin) in every run.
+// A launch with no endpoint has none. An endpoint with no usable address
+// refuses the launch only when approvals depend on it: without approvals the
+// one thing lost is mid-turn mail, which still arrives at the turn boundary.
+func hookReachEnv(l launch.Launch, approval *approvalSpec) (map[string]string, error) {
+	if l.MCP.URL == "" {
+		return nil, nil
+	}
+	hook, err := hookEndpoint(l.MCP)
+	if err != nil {
+		if approval != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+	return sessions.EncodeHookReach(hook), nil
 }
 
 // mcpFileOf is the host path the MCP kind's presentation names, "" when the

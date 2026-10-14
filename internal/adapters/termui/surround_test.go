@@ -308,3 +308,18 @@ func TestSurround_ApprovalsPaintsCountAndOldestAge(t *testing.T) {
 	s.SetApprovals(0, time.Time{}, false)
 	assert.NotContains(t, tty.String(), "⚑", "clearing to zero clears the element from the bar")
 }
+
+// TestRosterDigest_NamesUnreadMail: mail waiting undelivered in a child's
+// inbox is named on the bar — the first such child and its count, and how
+// many more children have mail waiting — so a reply sitting unread through a
+// child's long turn is visible rather than silent.
+func TestRosterDigest_NamesUnreadMail(t *testing.T) {
+	quiet := RosterEntry{Harp: "quiet", State: "executing", LastActivityUnix: 1}
+	one := []RosterEntry{quiet, {Harp: "busy", State: "executing", LastActivityUnix: 2, Unread: 3}}
+	assert.Equal(t, "2● 0◐ 0✓ · busy→executing · busy ✉3 unread", rosterDigest(one, ""))
+
+	two := append(one, RosterEntry{Harp: "also", State: "idle", Unread: 1})
+	assert.Equal(t, "2● 1◐ 0✓ · busy→executing · busy ✉3 unread (+1 more with mail)", rosterDigest(two, ""))
+
+	assert.NotContains(t, rosterDigest([]RosterEntry{quiet}, ""), "unread", "nothing waiting, nothing named")
+}

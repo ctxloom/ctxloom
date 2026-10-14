@@ -154,15 +154,27 @@ func discard(fs afero.Fs, path string) error {
 	return syncDir(fs, filepath.Dir(path))
 }
 
-// Pending reports whether harp's in/ holds at least one unclaimed file — the
-// only question a caller that is not the reader may ask of the owner's spool.
-// A claimed message is spoken for and does not count; a spool that was never
-// created has nothing pending.
-func Pending(fs afero.Fs, m PathMapper, harp string) (bool, error) {
-	path, err := DirPath(m, harp, DirIn)
-	if err != nil {
-		return false, err
+// HasMail reports whether harp's in/ or in/claimed/ holds a file: mail that
+// has not been acknowledged, whoever has claimed it. It reads two directory
+// listings and parses nothing, so the mail-peek hook can ask it on every
+// tool call and pay almost nothing when nothing waits. A spool that was never
+// created has none.
+func HasMail(fs afero.Fs, m PathMapper, harp string) (bool, error) {
+	for _, d := range []Dir{DirIn, ClaimedDirName} {
+		path, err := DirPath(m, harp, d)
+		if err != nil {
+			return false, err
+		}
+		if has, err := holdsAFile(fs, path); has || err != nil {
+			return has, err
+		}
 	}
+	return false, nil
+}
+
+// holdsAFile reports whether directory path holds at least one plain file; a
+// directory that does not exist holds none.
+func holdsAFile(fs afero.Fs, path string) (bool, error) {
 	entries, err := afero.ReadDir(fs, path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -176,6 +188,18 @@ func Pending(fs afero.Fs, m PathMapper, harp string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// Pending reports whether harp's in/ holds at least one unclaimed file — the
+// only question a caller that is not the reader may ask of the owner's spool.
+// A claimed message is spoken for and does not count; a spool that was never
+// created has nothing pending.
+func Pending(fs afero.Fs, m PathMapper, harp string) (bool, error) {
+	path, err := DirPath(m, harp, DirIn)
+	if err != nil {
+		return false, err
+	}
+	return holdsAFile(fs, path)
 }
 
 // identitiesIn collects the Identity of every message in harp's dirs. A file
@@ -198,4 +222,28 @@ func identitiesIn(fs afero.Fs, m PathMapper, harp string, dirs ...Dir) (map[stri
 		}
 	}
 	return seen, nil
+}
+
+// Unread counts harp's mail that has not been delivered yet: every distinct
+// identity in in/ or in/claimed/ that the delivered record does not hold. It
+// is a reader-neutral peek — it moves nothing — so a caller that is not the
+// reader (the coordinator's roster, telling a parent its child has mail
+// waiting) may ask it of any harp. A spool that was never created has
+// nothing unread.
+func Unread(fs afero.Fs, m PathMapper, harp string) (int, error) {
+	waiting, err := identitiesIn(fs, m, harp, DirIn, ClaimedDirName)
+	if err != nil || len(waiting) == 0 {
+		return 0, err
+	}
+	delivered, err := DeliveredIdentities(fs, m, harp)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for id := range waiting {
+		if _, done := delivered[id]; !done {
+			n++
+		}
+	}
+	return n, nil
 }

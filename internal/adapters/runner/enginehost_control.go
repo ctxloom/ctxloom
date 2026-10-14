@@ -49,7 +49,16 @@ type turnTag struct {
 	// the default. It is applied as the turn starts (startTurn), so the
 	// turns queued ahead of it run at the posture they were sent under.
 	approve engine.Declared[string]
+	// claim, set for a turn a delivered message starts, is asked once the
+	// turn in flight has ended and just before this one starts: false means
+	// the message was delivered mid-turn meanwhile (Home.claimTurnMail), and
+	// the turn is not started.
+	claim func(id string) bool
 }
+
+// errMailDeliveredMidTurn is handOffTurn's answer for a message the mail-peek
+// hook delivered while its turn waited: there is nothing left to start.
+var errMailDeliveredMidTurn = errors.New("engine host: the message was delivered mid-turn; no turn is started for it")
 
 // enqueueTurn is the ONE funnel for every locally-originated turn — the
 // briefing and delivered mail.
@@ -126,6 +135,12 @@ func (eh *EngineHost) handOffTurn(ctx, runCtx context.Context, tag turnTag, text
 		if err := waitGate(ctx, runCtx, home.ownerPresent()); err != nil {
 			return err
 		}
+	}
+	// THE DOUBLE-DELIVERY CHECK: this hand-off may have waited out a whole
+	// turn, during which the engine's mail-peek hook can have delivered the
+	// very message it carries.
+	if tag.claim != nil && !tag.claim(tag.mail) {
+		return errMailDeliveredMidTurn
 	}
 	return eh.startTurn(tag, text)
 }
@@ -363,8 +378,10 @@ func (eh *EngineHost) turnFrame(t *agentcoordpb.Turn) *agentcoordpb.RunnerRespon
 const interruptedTurnNote = "[this turn was interrupted before it finished]"
 
 // interruptTurn interrupts the turn in flight, if any, and returns its
-// boundary (nil before the first turn; already closed when parked).
-func (eh *EngineHost) interruptTurn() <-chan struct{} {
+// boundary (nil before the first turn; already closed when parked) and
+// whether there was a turn to cut — turnCancel is held from a turn's hand-off
+// to its end, so it is exactly "a turn is in flight".
+func (eh *EngineHost) interruptTurn() (<-chan struct{}, bool) {
 	eh.mu.Lock()
 	cancel := eh.turnCancel
 	busy := eh.turnBusy
@@ -372,18 +389,22 @@ func (eh *EngineHost) interruptTurn() <-chan struct{} {
 	if cancel != nil {
 		cancel()
 	}
-	return busy
+	return busy, cancel != nil
 }
 
 // interruptRun answers InterruptRun: the turn in flight is cut short and
 // parks at its boundary; the run lives. With no turn in flight it does
-// nothing. Answered at once — the turn's end is reported by its own idle.
+// nothing. Answered at once — the turn's end is reported by its own idle —
+// with whether a turn was cut, so a steer can say which happened.
 func (eh *EngineHost) interruptRun(req *agentcoordpb.InterruptRun) *agentcoordpb.RunnerResponse {
 	if resp := eh.checkRunID(req.GetRunId(), "InterruptRun"); resp != nil {
 		return resp
 	}
-	eh.interruptTurn()
-	return &agentcoordpb.RunnerResponse{Status: coordgrpc.OKStatus("")}
+	_, cut := eh.interruptTurn()
+	return &agentcoordpb.RunnerResponse{
+		Status: coordgrpc.OKStatus(""),
+		Kind:   &agentcoordpb.RunnerResponse_InterruptRun{InterruptRun: &agentcoordpb.InterruptRunResult{Interrupted: cut}},
+	}
 }
 
 // errNoApprovalRoute refuses grants for a run whose approver is not the
@@ -421,7 +442,7 @@ func (eh *EngineHost) stopRun(req *agentcoordpb.StopRun) *agentcoordpb.RunnerRes
 	eh.mu.Lock()
 	eh.stopping = true
 	eh.mu.Unlock()
-	if busy := eh.interruptTurn(); busy != nil {
+	if busy, _ := eh.interruptTurn(); busy != nil {
 		grace := time.NewTimer(req.GetGrace().AsDuration())
 		defer grace.Stop()
 		select {

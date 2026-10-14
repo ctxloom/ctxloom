@@ -19,8 +19,8 @@ func TestDeliveryDisposition_OneClassificationForBothVocabularies(t *testing.T) 
 		{StateEnded, DeliveryResumed, "child session had ended — resuming it with the message as its next turn"},
 		{StateIdle, DeliveryNewTurn, "delivering as a new turn"},
 		{StateQueued, DeliveryQueued, "queued: the child has not started yet; it will drain its mailbox after its first turn"},
-		{StateExecuting, DeliveryQueued, "queued mid-turn: delivered at the child's next turn boundary"},
-		{"", DeliveryQueued, "queued mid-turn: delivered at the child's next turn boundary"},
+		{StateExecuting, DeliveryQueued, "queued mid-turn: delivered at the child's next tool call, or at its turn boundary if it makes none"},
+		{"", DeliveryQueued, "queued mid-turn: delivered at the child's next tool call, or at its turn boundary if it makes none"},
 	}
 	for _, c := range cases {
 		t.Run(c.state, func(t *testing.T) {

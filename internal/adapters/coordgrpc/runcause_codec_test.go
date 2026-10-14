@@ -22,3 +22,15 @@ func TestRunsSnapshotToWire_CarriesTheTerminalCause(t *testing.T) {
 	assert.Empty(t, got[1].GetCause())
 	assert.Empty(t, got[1].GetDetail())
 }
+
+// A run's unread mail count reaches the wire roster, so an agent reading its
+// roster sees that a child has not been handed what was sent to it.
+func TestRunsSnapshotToWire_CarriesTheUnreadCount(t *testing.T) {
+	got := RunsSnapshotToWire(coord.RunsSnapshot{Runs: []coord.RunInfo{
+		{RunID: "waiting", Phase: coord.StateExecuting, Unread: 3},
+		{RunID: "clear", Phase: coord.StateExecuting},
+	}}).GetRuns()
+	require.Len(t, got, 2)
+	assert.EqualValues(t, 3, got[0].GetUnread())
+	assert.Zero(t, got[1].GetUnread())
+}

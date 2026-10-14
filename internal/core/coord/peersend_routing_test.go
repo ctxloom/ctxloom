@@ -48,6 +48,6 @@ func TestPeerSend_RoutingAndDispositions(t *testing.T) {
 	assert.Contains(t, []string{
 		"delivering as a new turn",
 		"queued: the child has not started yet; it will drain its mailbox after its first turn",
-		"queued mid-turn: delivered at the child's next turn boundary",
+		"queued mid-turn: delivered at the child's next tool call, or at its turn boundary if it makes none",
 	}, disposition, "the prose must be one of deliveryDisposition's, verbatim")
 }

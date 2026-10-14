@@ -49,6 +49,9 @@ type RosterRow struct {
 	// that came with it: coord.RosterEntry's, empty until the run ends.
 	Cause  string
 	Detail string
+	// Unread is how many messages wait undelivered in the child's inbox
+	// (coord.RosterEntry.Unread).
+	Unread int
 }
 
 // Feed is one open observation feed. Cancel releases the watch (switching

@@ -130,6 +130,9 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 	// The approval hook's POST rides the same listener, behind the same
 	// bearer and Origin rules.
 	mux.Handle(runner.HookPath, guard(lo.MCP.Credential, policy.AllowedOrigins, hookHandler(e.Home)))
+	// So does the mail-peek hook's: the engine asks its runner, mid-turn, for
+	// mail waiting behind the turn in flight.
+	mux.Handle(runner.MailPath, guard(lo.MCP.Credential, policy.AllowedOrigins, mailHandler(e.Home)))
 	unstarted := &unstartedConns{open: map[net.Conn]struct{}{}}
 	srv := &http.Server{Handler: mux, ConnState: unstarted.track}
 	if e.served != nil {

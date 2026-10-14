@@ -126,9 +126,9 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
   # minted-harp fallback and this goes red for exactly that reason — nothing
   # reaches the owner's spool, so nothing wakes it.
   #
-  # CONTAINER AXIS EXCLUDED, stated rather than discovered: a containerized
-  # claude never receives ctxloom's hooks at all (pulmonary-eternity), so this
-  # delivery is inert for a container-hosted coordinator until that lands. The
+  # CONTAINER AXIS NOT EXERCISED HERE: a containerized engine is carried
+  # ctxloom's hooks like a host one (pulmonary-eternity), so the same
+  # turn-start delivery reaches a container-hosted coordinator. The
   # coordinator here is a host process, which is the axis this claim covers.
   @reach-back @R2
   Scenario: An idle coordinator is woken by its child's report, and its turn-start hook delivers it, with no receive
@@ -452,3 +452,45 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
 
   # Back to: tests/acceptance/features/journeys/j002100_delegation.feature (the privilege
   # half of delegation this journey complements).
+
+  # MID-TURN MAIL — alpha issue 1, live. A parent's binding reply once sat
+  # unread through a delegated child's whole turn, because a child's mail was
+  # only ever handed to it as its NEXT turn. The post_tool mail-peek hook
+  # (`ctxloom hook mail-peek`) hands the child mail waiting behind the turn in
+  # flight at its next tool call, asking the child's runner — the spool's one
+  # reader — over the session endpoint's /mail.
+  #
+  # The child is given ONE long, multi-tool turn (a dozen sequential sleeps)
+  # and announces it has started; only then does the parent send a code. The
+  # child acknowledges the code by agent_send. Mail reaches the model only as
+  # a turn's prompt or as hook context inside a turn, so the acknowledgement's
+  # tool call appearing in the child's canonical transcript BEFORE its first
+  # turn's `complete` record proves the code was handed over mid-turn, at a
+  # tool call (steps_midturn_mail.go).
+  #
+  # ONE ROW AT A TIME, one paid haiku turn each (liveClaudeModel):
+  #   ACCEPTANCE_TAGS="@live && @midturn-mail && @claude-code && @host && @ws-none"
+  @live @midturn-mail
+  Scenario Outline: A delegated child on a real <engine> in one long multi-tool turn acts on its parent's message before that turn ends
+    Given a real "<engine>" engine on runtime "<runtime>" with workspace "<workspace>" is available for a mid-turn-mail child
+    And a session owner is standing
+    When the agent calls tool "agent_run" with:
+      | role         | delegate |
+      | input.prompt | This is ONE long task; do all of it in this single turn and do not end your turn early. Step 1: call the MCP tool agent_send to your parent (to_role "parent", kind MESSAGE_KIND_MESSAGE) with text exactly MIDTURN-STARTED. Step 2: run the shell command `sleep 5` with your Bash tool, ONE call at a time, 12 times in a row: never in parallel and never combined into one command. While you work, a message from your parent will appear in your context carrying a code that starts with MIDTURN-CODE-. As soon as you see it, stop the sleeps, call agent_send to your parent with text exactly MIDTURN-ACK followed by a space and that full code, and then end your turn. |
+    Then the tool call succeeds
+    And "delegate"'s session harp is remembered
+    And the coordinator's own spool receives a body containing "MIDTURN-STARTED" from "delegate"
+    When the agent calls tool "agent_send" addressed to "delegate"'s session carrying this cell's mid-turn code
+    Then the tool call succeeds
+    And the coordinator's own spool receives "delegate"'s acknowledgement of this cell's mid-turn code
+    And "delegate" acknowledged this cell's mid-turn code inside the turn it was already running
+
+    @claude-code @host @ws-none
+    Examples:
+      | engine      | runtime | workspace |
+      | claude-code | host    | none      |
+
+    @claude-code @container-rootless @ws-none
+    Examples:
+      | engine      | runtime            | workspace |
+      | claude-code | container-rootless | none      |

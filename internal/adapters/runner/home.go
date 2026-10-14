@@ -96,6 +96,17 @@ type Home struct {
 	// polling.
 	acking  map[string]bool
 	ackWake chan struct{}
+	// pendingMail/pendingOrder are every delivered message not yet consumed
+	// — buffered, queued for a turn, or inside a hand-off waiting for the
+	// turn in flight — in arrival order: what the mail-peek hook may be
+	// handed mid-turn (midturnmail.go). turnTaken marks the ones whose turn
+	// has been claimed (claimTurnMail); mailLeases/leasedBy are the peeks'
+	// unconfirmed holds. All guarded by mu.
+	pendingMail  map[string]*agentcoordpb.PeerMessage
+	pendingOrder []string
+	turnTaken    map[string]bool
+	mailLeases   map[string]mailLease
+	leasedBy     map[string]string
 	// exited is set once ReportRunExited has run for a spawned run: the
 	// hosted engine is gone, and this runner must not sweep in/ again — mail
 	// written for the harp's NEXT run would land in a dead sink and be
@@ -891,6 +902,7 @@ func (h *Home) deliverNotice(pm *agentcoordpb.PeerMessage) {
 		h.mu.Unlock()
 		return
 	}
+	h.holdPendingLocked(pm)
 	if h.turnQ != nil {
 		h.turnPending[pm.GetMessageId()] = true
 		q := h.turnQ
@@ -1129,11 +1141,24 @@ func (h *Home) turnPump(q <-chan *agentcoordpb.PeerMessage, sink func(*agentcoor
 	for {
 		select {
 		case pm := <-q:
-			ok := sink(pm)
 			id := pm.GetMessageId()
+			// A message the mail-peek hook delivered mid-turn (ConfirmMail)
+			// starts no turn: the hand-off asks (claimTurnMail) once the turn
+			// in flight has ended, just before it would start one.
+			ok := sink(pm)
 			h.mu.Lock()
 			delete(h.turnPending, id)
+			delete(h.turnTaken, id)
+			if h.consumed[id] {
+				// Delivered by a peek, before or during the hand-off: its ack
+				// is the peek's, already done.
+				delete(h.pendingMail, id)
+				h.wakeAckWaitersLocked()
+				h.mu.Unlock()
+				continue
+			}
 			if ok {
+				delete(h.pendingMail, id)
 				h.consumed[id] = true
 				h.acking[id] = true
 			} else {

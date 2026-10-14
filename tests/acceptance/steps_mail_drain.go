@@ -71,6 +71,14 @@ func spoolMessagesAt(path, label string) ([]*spool.Message, error) {
 			continue
 		}
 		raw, err := os.ReadFile(filepath.Join(path, e.Name()))
+		if os.IsNotExist(err) {
+			// Taken between the listing and the read — a live owner's hook
+			// claimed or delivered it (mail-drain at a turn's start, mail-peek
+			// at a tool call). spool.sweepDir resolves the same race the same
+			// way: the reader won, and the message is found where it went on
+			// the next poll (in/claimed/, or the sender's out/consumed/ copy).
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}

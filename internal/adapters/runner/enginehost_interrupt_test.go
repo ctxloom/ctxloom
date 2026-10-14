@@ -80,6 +80,7 @@ func TestEngineHost_InterruptEndsTheTurnNotTheRun(t *testing.T) {
 
 	resp := handleBounded(t, eh, interruptReq("run-1"))
 	require.Equal(t, int32(codes.OK), resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+	assert.True(t, resp.GetInterruptRun().GetInterrupted(), "the answer must say a turn WAS cut, so a steer can report it")
 	require.Eventually(t, func() bool { return len(home.idleStops()) == 1 }, 5*time.Second, 5*time.Millisecond)
 	assert.Equal(t, []string{"interrupted"}, home.idleStops())
 	assert.Zero(t, home.exitCount(), "an interrupt is not the run's end")
@@ -104,6 +105,8 @@ func TestEngineHost_InterruptWhileParkedIsANoOp(t *testing.T) {
 
 	resp := handleBounded(t, eh, interruptReq("run-1"))
 	require.Equal(t, int32(codes.OK), resp.GetStatus().GetCode())
+	require.NotNil(t, resp.GetInterruptRun(), "the answer says what happened even when nothing was cut")
+	assert.False(t, resp.GetInterruptRun().GetInterrupted(), "no turn was in flight: nothing was cut")
 	require.True(t, home.turnSink()(&agentcoordpb.PeerMessage{MessageId: "m-2", Text: "next"}))
 	require.Eventually(t, func() bool { return len(home.idleStops()) == 2 }, 5*time.Second, 5*time.Millisecond)
 	assert.Equal(t, []string{"end_turn", "end_turn"}, home.idleStops(), "a stale interrupt does not reach a later turn")

@@ -100,6 +100,14 @@ func TestSurroundRows_CarryTheHoldInTheOverlaysWords(t *testing.T) {
 	assert.Empty(t, rows[1].Hold)
 }
 
+// TestSurroundRows_CarryTheUnreadCount: the bar's rows take a child's unread
+// mail count from the coordinator's roster unchanged.
+func TestSurroundRows_CarryTheUnreadCount(t *testing.T) {
+	rows := surroundRows([]coord.RosterEntry{{Harp: "kid", State: coord.StateExecuting, Unread: 2}})
+	require.Len(t, rows, 1)
+	assert.Equal(t, 2, rows[0].Unread)
+}
+
 // TestRedirectDiagnosticsForTUI_AnnouncesTheOutcome pins both halves of the
 // handover contract. On success the user is told where the diagnostics went;
 // on EVERY failure the user is told they did NOT go there, because the

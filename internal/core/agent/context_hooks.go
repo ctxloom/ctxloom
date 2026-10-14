@@ -162,6 +162,20 @@ func NewMailDrainHook() wire.Hook {
 	return ctxloomCallback(MailDrainTimeout, "mail-drain")
 }
 
+// MailPeekTimeout is the timeout, in seconds, for the post_tool mail-peek
+// hook. It fires on every tool call; with no mail waiting it reads two
+// directory listings, and with mail it makes at most two local requests to
+// the run's own runner, each bounded well inside this.
+const MailPeekTimeout = 10
+
+// NewMailPeekHook creates the post_tool hook that hands the engine mail that
+// arrived during its turn, at its next tool call (cli's hook mail-peek).
+// Unnarrowed: any tool call is a moment the model can be handed context.
+// No arguments, for the reason NewNextStepHook gives.
+func NewMailPeekHook() wire.Hook {
+	return ctxloomCallback(MailPeekTimeout, "mail-peek")
+}
+
 // MergeHooksConfig is wire.MergeHooksConfig with the drop named on this
 // package's diagnostic channel: a nil DEST is a caller error, and a non-empty
 // set going missing is warned rather than leaving the session running with

@@ -62,9 +62,63 @@ type SteerOutcome struct {
 	// was woken into a new turn, will see it at its next boundary, or will
 	// be resumed for it.
 	Delivery string
+	// Disposition is Delivery in words, for the initiator: what happened to
+	// the target and when it reads the steer.
+	Disposition string
 	// MessageID is the WITHDRAW HANDLE: a steer is a durable file, and this
 	// is the id WithdrawSteer takes to retract it before the target reads it.
 	MessageID string
+}
+
+// interruptOutcome is what a steer's interrupt is known to have done.
+type interruptOutcome int
+
+const (
+	// interruptNone: nothing was cut — no interrupt was asked for, the
+	// target had no turn in flight, or no runner could have one.
+	interruptNone interruptOutcome = iota
+	// interruptCut: the runner confirmed it cut a running turn short.
+	interruptCut
+	// interruptUnconfirmed: the runner did not say — no answer came, or the
+	// answer did not carry the verdict.
+	interruptUnconfirmed
+)
+
+// interruptVerdict judges an InterruptRun exchange by what the runner
+// ANSWERED, never by what was asked: a refusal is the steer's error; a
+// transport failure or an answer without the verdict is unconfirmed, which
+// the steer reports as such rather than as plain queued mail.
+func interruptVerdict(resp RunnerResponse, err error) (interruptOutcome, error) {
+	if err != nil {
+		return interruptUnconfirmed, nil
+	}
+	if resp.Err != nil {
+		return interruptNone, resp.Err
+	}
+	res, ok := resp.Kind.(InterruptRunResult)
+	switch {
+	case !ok:
+		return interruptUnconfirmed, nil
+	case res.Interrupted:
+		return interruptCut, nil
+	}
+	return interruptNone, nil
+}
+
+// afterInterrupt is o once its interrupt is judged: a confirmed cut and an
+// unconfirmed interrupt each REPLACE the mail wording, which describes a
+// target still mid-turn — the thing an interrupt changes, or may have.
+// Nothing cut leaves the mail outcome standing.
+func (o SteerOutcome) afterInterrupt(v interruptOutcome) SteerOutcome {
+	switch v {
+	case interruptCut:
+		o.Delivery = DeliveryInterrupted
+		o.Disposition = "interrupted its running turn; the steer is its next turn"
+	case interruptUnconfirmed:
+		o.Delivery = DeliveryInterruptUnconfirmed
+		o.Disposition = "the interrupt was sent but its runner did not confirm it, so whether its running turn was cut is not known; the steer waits in its inbox and is read no later than its next turn boundary"
+	}
+	return o
 }
 
 // ErrCapabilityUnavailable marks every refusal whose CAUSE is that the target
@@ -159,8 +213,9 @@ func (c *Coordinator) ControlSteer(ctx context.Context, by ControlInitiator, har
 		audit["interrupt"] = "true"
 	}
 	c.audit("agent_steer", by.auditName(), audit)
+	cut := interruptNone
 	if interrupt {
-		if err := c.interruptAtRunner(ctx, rec); err != nil {
+		if cut, err = c.interruptAtRunner(ctx, rec); err != nil {
 			return SteerOutcome{}, err
 		}
 	}
@@ -170,6 +225,7 @@ func (c *Coordinator) ControlSteer(ctx context.Context, by ControlInitiator, har
 	if err != nil {
 		return SteerOutcome{}, err
 	}
+	outcome = outcome.afterInterrupt(cut)
 	// Mirror notice (decision O3): a human injection always tells the
 	// target's parent, so a coordinator's picture of its child never diverges
 	// without a trace. An AGENT initiator gets no mirror — the parent IS the
@@ -182,12 +238,13 @@ func (c *Coordinator) ControlSteer(ctx context.Context, by ControlInitiator, har
 	return outcome, nil
 }
 
-// interruptAtRunner cuts rec's turn in flight short (InterruptRun). A run no
-// runner request can reach has no turn to cut — an ended target is resumed by
-// the steer itself — so only the runner's own refusal is an error.
-func (c *Coordinator) interruptAtRunner(ctx context.Context, rec *RunRecord) error {
+// interruptAtRunner cuts rec's turn in flight short (InterruptRun) and says
+// what the runner reports it did (interruptVerdict). A run no runner request
+// can reach has no turn to cut — an ended target is resumed by the steer
+// itself — so only the runner's own refusal is an error.
+func (c *Coordinator) interruptAtRunner(ctx context.Context, rec *RunRecord) (interruptOutcome, error) {
 	if rec.Ended || !c.runnerReachable(rec) {
-		return nil
+		return interruptNone, nil
 	}
 	if _, has := ctx.Deadline(); !has {
 		var cancel context.CancelFunc
@@ -195,13 +252,11 @@ func (c *Coordinator) interruptAtRunner(ctx context.Context, rec *RunRecord) err
 		defer cancel()
 	}
 	resp, err := c.requestRunner(ctx, rec.CredHash, RunnerRequest{Kind: InterruptRun{RunID: rec.RunID}})
-	if err != nil {
-		return nil
+	v, refused := interruptVerdict(resp, err)
+	if refused != nil {
+		return interruptNone, fmt.Errorf("steer %s: the interrupt was refused: %w", rec.Harp, refused)
 	}
-	if resp.Err != nil {
-		return fmt.Errorf("steer %s: the interrupt was refused: %w", rec.Harp, resp.Err)
-	}
-	return nil
+	return v, nil
 }
 
 // steerAsMail is the body of the durable steer: the delivery question ("does
@@ -215,8 +270,8 @@ func (c *Coordinator) steerAsMail(sender, harp, kind, text string) (msgID string
 	if err != nil {
 		return "", SteerOutcome{}, err
 	}
-	mode, _ := deliveryDisposition(observed)
-	return msgID, SteerOutcome{Delivery: mode}, nil
+	mode, prose := deliveryDisposition(observed)
+	return msgID, SteerOutcome{Delivery: mode, Disposition: prose}, nil
 }
 
 // askDisposition is what an accepted ask tells its caller beside the ask id.
@@ -227,7 +282,10 @@ const askDisposition = "asked %s (ask %s): its answer arrives as mail quoting th
 func controlDisposition(req ControlRequest, out ControlResult) string {
 	switch req.Verb {
 	case ControlVerbSteer:
-		return fmt.Sprintf("steered %s (%s)", req.Harp, out.Delivery)
+		if out.Disposition == "" {
+			return fmt.Sprintf("steered %s (%s)", req.Harp, out.Delivery)
+		}
+		return fmt.Sprintf("steered %s: %s", req.Harp, out.Disposition)
 	case ControlVerbQuestion, ControlVerbSummarize:
 		return fmt.Sprintf(askDisposition, req.Harp, out.AskID)
 	case ControlVerbPause:

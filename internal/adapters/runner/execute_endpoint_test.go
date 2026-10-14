@@ -139,10 +139,11 @@ func lastWord(s string) string {
 }
 
 // TestExecute_AHumanApprovedRunIsWiredForTheApprovalRoute: a structured run
-// whose approver is the human is delivered the approval hooks, and its
-// engine is started with the address they post to — the session endpoint's
-// origin at the hook path — under the endpoint's own bearer. A run whose
-// approver is not the human gets neither.
+// whose approver is the human is delivered the approval hooks. EVERY run's
+// engine is started with the hook address — the session endpoint's origin at
+// the hook path — under the endpoint's own bearer, because the mail-peek hook
+// asks the runner over the same listener whether or not approvals route
+// there.
 func TestExecute_AHumanApprovedRunIsWiredForTheApprovalRoute(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -173,15 +174,14 @@ func TestExecute_AHumanApprovedRunIsWiredForTheApprovalRoute(t *testing.T) {
 			turn := drive.turns[0]
 
 			hook, err := sessions.DecodeHookReach(func(k string) string { return turn.Exec.Env[k] })
-			if !tc.routed {
-				require.ErrorIs(t, err, sessions.ErrNoHookReach, "no route, no hook address")
-				return
-			}
-			require.NoError(t, err)
+			require.NoError(t, err, "every runner-hosted run carries the hook address: the mail peek reaches its runner there")
 			mcpURL, err := url.Parse(l.MCP.URL)
 			require.NoError(t, err)
 			assert.Equal(t, "http://"+mcpURL.Host+runner.HookPath, hook.URL, "the hook posts to the session endpoint's own listener")
 			assert.Equal(t, l.MCP.Credential, hook.Credential, "under the endpoint's own bearer")
+			if !tc.routed {
+				return
+			}
 
 			var hooksFile string
 			for i, a := range turn.Exec.Args {

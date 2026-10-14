@@ -551,6 +551,23 @@ func TestModel_InjectSendRendersDeliveryMode(t *testing.T) {
 		"the delivery mode renders inline")
 }
 
+// TestModel_InjectSendRendersTheOutcomeInWords: when the coordinator words
+// what the steer did — an interrupt that cut the running turn — the line
+// carries those words, not the bare mode.
+func TestModel_InjectSendRendersTheOutcomeInWords(t *testing.T) {
+	const words = "interrupted its running turn; the steer is its next turn"
+	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "executing"})
+	f.controlOut = coord.ControlResult{Delivery: coord.DeliveryInterrupted, Disposition: words}
+	m := openSelected(t, newTestModel(f), f)
+
+	m, _ = step(t, m, keyMsg("i"))
+	m, _ = step(t, m, keyMsg("go left"))
+	m, cmd := step(t, m, keyMsg("enter"))
+	require.NotNil(t, cmd)
+	m, _ = step(t, m, cmd())
+	assert.Equal(t, "injected into h1: "+words, m.status)
+}
+
 func TestModel_InjectTypedErrorRendersInline(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "ended"})
 	f.controlErr = coord.ErrNotInjectable
@@ -943,4 +960,20 @@ func TestHoldLabel_NoDeadlineSaysOnlyWhat(t *testing.T) {
 	assert.Equal(t, "held: rate limited", HoldLabel(&coord.RunHold{Kind: "rate_limited"}))
 	assert.Equal(t, "held: credential rejected", HoldLabel(&coord.RunHold{Kind: "credential_rejected"}))
 	assert.Empty(t, HoldLabel(nil))
+}
+
+// TestModel_ARowShowsItsUnreadMail: a child with mail waiting undelivered in
+// its inbox says so in the agents pane and in its feed title, so a parent's
+// reply sitting unread through the child's long turn is visible.
+func TestModel_ARowShowsItsUnreadMail(t *testing.T) {
+	f := newFakeSources(t.TempDir(),
+		RosterRow{Harp: "busy-kid", State: coord.StateExecuting, Unread: 2},
+		RosterRow{Harp: "calm-kid", State: coord.StateExecuting},
+	)
+	m := openSelected(t, newTestModel(f), f)
+
+	lines := m.rosterLines(m.contentHeight())
+	assert.Contains(t, lines[0], "busy-kid ✉2")
+	assert.NotContains(t, lines[1], "✉", "a child with nothing waiting shows no mail mark")
+	assert.Contains(t, m.feedTitle(), "✉ 2 unread")
 }

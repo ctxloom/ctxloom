@@ -404,6 +404,12 @@ type RosterEntry struct {
 	// a pause (nil when none does). It is holdsFold's, joined by Coordinator.Roster; this
 	// fold never sets it.
 	Hold *RunHold `json:"hold,omitempty"`
+	// Unread is how many messages wait in the harp's inbox undelivered —
+	// its spool's in/ (and in/claimed/) less its delivered record
+	// (spool.Unread). Mail to a child mid-turn waits for that child's next
+	// delivery point, and this is how its parent sees that it waits. It is
+	// read off the spool by Coordinator.Roster; this fold never sets it.
+	Unread int `json:"unread,omitempty"`
 }
 
 // rosterFold is the ROSTER fold: per-harp coordinator-visible state (the

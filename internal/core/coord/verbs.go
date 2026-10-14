@@ -235,11 +235,13 @@ func (r ControlRequest) Validate() error {
 // of a steer, the id a question's or summarize's answer will quote, or
 // whether a pause or resume changed anything.
 type ControlResult struct {
-	Verb      string
-	Delivery  string
-	MessageID string
-	AskID     string
-	Changed   bool
+	Verb     string
+	Delivery string
+	// Disposition is a steer's outcome in words (SteerOutcome.Disposition).
+	Disposition string
+	MessageID   string
+	AskID       string
+	Changed     bool
 }
 
 // requireNonEmpty is Validate's shared refusal for a required field.

@@ -24,6 +24,7 @@ flowchart TD
     HC --> SP["stamp-plan — hook_stamp_plan.go"]
     HC --> SB["session-bind — session_bind.go"]
     HC --> MD["mail-drain — hook_mail_drain.go"]
+    HC --> MP["mail-peek — hook_mail_peek.go"]
     HC --> NS["next-step — hook_next_step.go"]
     HC --> SM["skill-mates — hook_skill_mates.go"]
     HC --> TR["tool-reflect — hook_tool_reflect.go"]
@@ -177,6 +178,22 @@ comes from `HookEvent.Skill`, "already invoked" from the transcript through
 post_tool hook would cost the human's prompt or the tool call — and names
 every reason it did nothing on the diagnostic channel, an undecodable payload
 included.
+
+`mail-peek` (post_tool) hands the engine mail that arrived DURING its turn, at
+its next tool call (`peekMail`), so a reply sent to a child in one long turn is
+read before that turn ends. It first checks for files in the spool's `in/` and
+`in/claimed/` (`spool.HasMail`) and does nothing more when there are none. The session
+owner's mail is claimed, written and acknowledged as `mail-drain` does
+(`peekOwnerMail`). A runner-hosted run's mail is its runner's to read: the hook
+POSTs a fetch to the runner's `/mail` endpoint (`runner.MailPath`, beside
+`/hook`, same bearer; the address is `CTXLOOM_HOOK_URL`, which every
+runner-hosted engine carries), writes what it is handed, then confirms
+(`peekRunnerMail`). The runner leases what it hands out (`Home.PeekMail`), and a
+confirm is the delivery (`Home.ConfirmMail`); mail that is not confirmed reaches
+the engine at the turn boundary as before. A turn's hand-off, after it has waited
+out the turn in flight, skips a message a peek has already delivered
+(`Home.claimTurnMail`). Mail that does not fit the engine's per-hook context cap
+waits for the next tool call, and the context says how much more waits.
 
 `mail-drain` claims a spool only for the session OWNER's engine: the launch
 marks that engine alone with `CTXLOOM_SESSION_OWNER` (`sessions.EnvSessionOwner`,

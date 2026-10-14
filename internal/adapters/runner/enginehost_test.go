@@ -243,6 +243,9 @@ func (f *fakeEngineHome) AwaitMailAcked(_ context.Context, ids []string) error {
 	return nil
 }
 
+// claimTurnMail: the fake hosts no mail-peek, so every turn takes its mail.
+func (f *fakeEngineHome) claimTurnMail(string) bool { return true }
+
 func (f *fakeEngineHome) customNames() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()

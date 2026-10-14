@@ -130,15 +130,20 @@ type PauseRunResult struct{ NewlyPaused bool }
 // ResumeRunResult is a ResumeRun's answer.
 type ResumeRunResult struct{ NewlyResumed bool }
 
+// InterruptRunResult is an InterruptRun's answer: whether a turn was in
+// flight and this request cut it short.
+type InterruptRunResult struct{ Interrupted bool }
+
 // TurnResult is a Turn's answer; engine.TurnResult is the port's own.
 type TurnResult struct {
 	Result engine.TurnResult
 }
 
-func (StartRunResult) runnerResultKind()  {}
-func (PauseRunResult) runnerResultKind()  {}
-func (ResumeRunResult) runnerResultKind() {}
-func (TurnResult) runnerResultKind()      {}
+func (StartRunResult) runnerResultKind()     {}
+func (PauseRunResult) runnerResultKind()     {}
+func (ResumeRunResult) runnerResultKind()    {}
+func (InterruptRunResult) runnerResultKind() {}
+func (TurnResult) runnerResultKind()         {}
 
 // ErrRunnerUnavailable is the runner's UNAVAILABLE: the minted endpoint
 // could not be bound. The spawn path answers it with ONE rebind.
@@ -305,6 +310,9 @@ type RunInfo struct {
 	Detail string
 	// Hold is the hold parking this run, nil when none does.
 	Hold *RunHold
+	// Unread is how many messages wait undelivered in the run's inbox
+	// (RosterEntry.Unread).
+	Unread int
 }
 
 // RunHold is why a run is parked and when it is released: the turn failure

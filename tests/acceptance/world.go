@@ -105,6 +105,7 @@ type World struct {
 	p17          *p17State          // P17 inline settings: the cell's raw-claude fixture and captured run (steps_p17_inline_settings.go)
 	p18          *p18State          // P18 turn posture: the cell's raw-claude fixture and its two turns (steps_p18_turn_posture.go)
 	p6           *p6State           // P6 capability probe: the steer-echo cell's minted harp and its cell id (steps_p6_steer_echo.go)
+	midTurn      *midTurnState      // mid-turn mail live cell: the code its parent sends mid-turn (steps_midturn_mail.go)
 	contract     *contractState     // coordination_contract.feature: the advertised runner-terminated tool surface (steps_coordination_contract.go)
 
 	// --- @doc capture sidecar (prototype; see steps_doc_capture.go) ---------
@@ -300,6 +301,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerOpencodeTUISteps(ctx)
 	registerMailDrainSteps(ctx)
 	registerP6SteerEchoSteps(ctx)
+	registerMidTurnMailSteps(ctx)
 	registerJ001400Steps(ctx)
 	registerJ001900Steps(ctx)
 	registerJ001300Steps(ctx)

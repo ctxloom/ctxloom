@@ -57,7 +57,7 @@ func rosterRows(index []sessions.Entry, bus []coord.RosterEntry, selfHarp string
 	}
 	for _, b := range bus {
 		if !seen[b.Harp] {
-			rows = append(rows, RosterRow{Harp: b.Harp, Agent: b.Agent, State: b.State, Parent: b.Parent, Hold: b.Hold, Cause: b.Cause, Detail: b.Detail})
+			rows = append(rows, RosterRow{Harp: b.Harp, Agent: b.Agent, State: b.State, Parent: b.Parent, Hold: b.Hold, Cause: b.Cause, Detail: b.Detail, Unread: b.Unread})
 			seen[b.Harp] = true
 		}
 	}
@@ -86,6 +86,7 @@ func indexRow(e sessions.Entry, held coord.RosterEntry, isHeld bool) RosterRow {
 	row.State = held.State
 	row.Hold = held.Hold
 	row.Cause, row.Detail = held.Cause, held.Detail
+	row.Unread = held.Unread
 	if row.State == "" {
 		row.State = lockState(e.HarpName)
 	}

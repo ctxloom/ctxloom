@@ -572,6 +572,8 @@ func RunnerResponseFromWire(resp *agentcoordpb.RunnerResponse) coord.RunnerRespo
 		out.Kind = coord.PauseRunResult{NewlyPaused: k.PauseRun.GetNewlyPaused()}
 	case *agentcoordpb.RunnerResponse_ResumeRun:
 		out.Kind = coord.ResumeRunResult{NewlyResumed: k.ResumeRun.GetNewlyResumed()}
+	case *agentcoordpb.RunnerResponse_InterruptRun:
+		out.Kind = coord.InterruptRunResult{Interrupted: k.InterruptRun.GetInterrupted()}
 	case *agentcoordpb.RunnerResponse_Turn:
 		out.Kind = coord.TurnResult{Result: engine.TurnResult{NativeKey: k.Turn.GetNativeKey(), Answer: k.Turn.GetAnswer()}}
 	}
@@ -873,6 +875,7 @@ func RunsSnapshotToWire(s coord.RunsSnapshot) *agentcoordpb.ListRunsResult {
 			Cause:          r.Cause,
 			Detail:         r.Detail,
 			Hold:           runHoldToWire(r.Hold),
+			Unread:         uint32(max(r.Unread, 0)),
 		})
 	}
 	return out

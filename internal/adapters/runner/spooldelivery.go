@@ -268,7 +268,7 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 	}
 	return &agentcoordpb.CoordinatorResponse{
 		RequestId: req.GetRequestId(),
-		Status:    coordgrpc.OKStatus("written to this session's outbound spool"),
+		Status:    coordgrpc.OKStatus(sendQueuedStatus),
 		Kind: &agentcoordpb.CoordinatorResponse_PeerSend{PeerSend: &agentcoordpb.PeerSendResult{
 			// The FILENAME STEM is the message id, because the file is the
 			// message: there is no coordinator-minted id to quote, and an id
@@ -279,6 +279,14 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 		}},
 	}, true
 }
+
+// sendQueuedStatus is what an accepted agent_send tells its sender. It says
+// QUEUED and when the recipient reads it, because the honest answer is not
+// "sent": the file waits in the recipient's inbox until its next delivery
+// point, and a sender that read "written" as "received" once waited on a
+// child that had not seen its reply (the roster's unread count is where the
+// wait shows).
+const sendQueuedStatus = "queued: written to this session's outbound spool, not yet received; the recipient reads it at its next tool call or turn boundary — an idle recipient is woken into a new turn for it, a busy one is handed it at its next tool call, or when its current turn ends if it makes none"
 
 // spoolSendErr is the runner-local agent_send's refusal, shaped as the
 // plane-2 answer the tool reads.

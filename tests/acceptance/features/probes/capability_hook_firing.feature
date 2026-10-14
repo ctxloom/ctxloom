@@ -5,7 +5,7 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
   .claude/settings.json.
   That ctxloom writes the right BYTES is well proven —
   golden tests, the settings-io tests, and
-  TestDeliveryApproach_HookCarriageMatchesDeclaration in tests/integration all
+  TestDeliveryApproach_EveryHookEngineDeliversACarriedEvent in tests/integration all
   check carriage, and carriage is our own behaviour.
 
   Whether a vendor binary then READS that file and EXECS the command in it has

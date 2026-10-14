@@ -11,7 +11,7 @@
 // WHAT THIS PROBE PROVES, AND WHY NOTHING ELSE DOES. The capability inventory's
 // row 6 (engine.HooksApproach / fsstatic claims) is proven: the golden
 // and settings-io tests, and tests/integration's
-// TestDeliveryApproach_HookCarriageMatchesDeclaration, show that ctxloom writes
+// TestDeliveryApproach_EveryHookEngineDeliversACarriedEvent, show that ctxloom writes
 // the right hook bytes into each engine's own native hook surface. Row 7 —
 // bundles.HookEvent*, the hooks actually FIRING — is proven NOWHERE, hermetic or
 // live. Those two rows are one step apart and the step is a vendor binary we do

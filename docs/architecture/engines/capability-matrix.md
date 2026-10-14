@@ -133,10 +133,17 @@ hooks, materialize puts it in each engine's `EngineOutcome.NotCarried` (so
 
 A capability gap nobody asked to use stays quiet — a profile declaring no hooks
 gets no line, the same rule `agent.RouteUnifiedHooks` applies one level down for
-a single unsupported event. `TestDeliveryApproach_HookCarriageMatchesDeclaration`
-(`tests/integration`) holds the declaration against the delivered payload for
-every registered backend, so it cannot drift into claiming a loss that isn't real
-or missing one that is.
+a single unsupported event. `Definition.HookLosses` is the ONE statement of
+which unified events an engine carries: materialize once read its losses off a
+second, the engine's exported unified→native event table, which lists no
+matcher-narrowed event — so it reported claude-code's and opencode's
+`pre_shell` and `post_file_edit` lost while writing them (claude: `PostToolUse`
+with the file-edit matcher). That table is gone from `engine.Exports`.
+`TestMaterialize_ReportsExactlyTheEngineDeclaredHookLosses`
+(`internal/adapters/operations`) holds every registered engine's report to
+exactly its declaration, and
+`TestMaterialize_ClaudeCarriesPostFileEditAsANarrowedPostToolUse` pins the
+entry claude-code actually writes.
 
 **Still silent elsewhere:** `ctxloom run` delivers to an engine with a
 declared loss and says nothing — it does not call `UncarriedSurfaces`.

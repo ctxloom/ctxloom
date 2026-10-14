@@ -25,7 +25,8 @@ func (t HookEvents) Unified(name string) string {
 	return name
 }
 
-// Map is the unified→native table as engine.Exports.HookEvent carries it.
+// Map is the table as unified→native lookups, for an engine's hook writer
+// routing each unified event to the native point it fires on.
 func (t HookEvents) Map() map[string]string {
 	out := make(map[string]string, len(t))
 	for _, e := range t {

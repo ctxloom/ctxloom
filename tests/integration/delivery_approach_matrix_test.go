@@ -419,14 +419,13 @@ func TestDeliveryApproach_EveryOfferedRootDeliversItsPayload(t *testing.T) {
 	assert.Equal(t, stated, offered, "the offered (engine, kind, root) matrix and the promised destinations disagree")
 }
 
-// TestDeliveryApproach_HookLossesAgreeWithTheExports: every engine that
-// delivers hooks delivers the hook on an event it carries, and its exports
-// map exactly the unified events it does NOT declare lost
-// (Definition.HookLosses) — so the loss report (operations.CapabilityLoss,
-// which reads HookLosses) and what the engine says it carries agree. A lossy
-// engine that also mapped a lost event would make the loss report a lie; one
-// that mapped nothing would pass an "the lost event is unmapped" check alone.
-func TestDeliveryApproach_HookLossesAgreeWithTheExports(t *testing.T) {
+// TestDeliveryApproach_EveryHookEngineDeliversACarriedEvent: every engine
+// that delivers hooks delivers the hook on an event it carries (pre_tool,
+// which no engine declares lost), beneath a root its hooks approach offers,
+// and at least one registered engine declares a loss so the lossy arm of
+// the loss report (Definition.HookLosses, the one statement of what an
+// engine carries) is exercised at all.
+func TestDeliveryApproach_EveryHookEngineDeliversACarriedEvent(t *testing.T) {
 	isolatedRecords(t)
 	isolatedLocks(t)
 	t.Setenv("HOME", t.TempDir())
@@ -450,13 +449,6 @@ func TestDeliveryApproach_HookLossesAgreeWithTheExports(t *testing.T) {
 				at = cell.home
 			}
 			assert.NotEmpty(t, findSentinel(matrixTree(t, at), slotHookPreTool), "%s carries pre_tool, so its hook must land", name)
-
-			exports, err := eng.Exports(matrixPackage(t).EngineItems(def.Name))
-			require.NoError(t, err)
-			for event := range def.HookLosses {
-				assert.NotContains(t, exports.HookEvent, event, "%s declares %s lost, yet exports a native event for it", name, event)
-			}
-			assert.Contains(t, exports.HookEvent, "pre_tool", "%s carries pre_tool, so it exports a native event for it", name)
 		})
 	}
 	require.True(t, sawALoss, "no registered engine declares a hook loss — the lossy arm is untested")

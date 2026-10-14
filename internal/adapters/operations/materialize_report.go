@@ -7,7 +7,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // PremiseWithhold is one fragment kept out of the assembled context by its
@@ -79,10 +78,12 @@ func describePremiseWithholds(index []PremiseIndexEntry, asSkills bool) []Premis
 
 // notCarried is the LOSS half of the materialize report, read from the same
 // plan the delivery was built from: a kind the engine does not carry at all
-// (the plan's accepted losses), and a hook event the engine fires no hook
-// for (absent from its exported event table — the port's own statement of
-// an uncarried event). res.Wrote can only ever list what landed, so a loss
-// is invisible in it by construction; this names it.
+// (the plan's accepted losses), and a configured hook event the engine
+// declares it cannot carry (Definition.HookLosses — the one statement of
+// that, the same read CapabilityLoss makes for `agent show` and `doctor`).
+// An event carried on a matcher-narrowed native one (post_file_edit on
+// claude's PostToolUse) is carried, not lost. res.Wrote can only ever list
+// what landed, so a loss is invisible in it by construction; this names it.
 func notCarried(backend string, kind engine.Engine, pkg composite.Package, plan delivery.Plan) []agent.SurfaceLoss {
 	var out []agent.SurfaceLoss
 	for _, loss := range plan.Losses {
@@ -92,20 +93,5 @@ func notCarried(backend string, kind engine.Engine, pkg composite.Package, plan 
 			Reason:  fmt.Sprintf("%s declares no approach for %s", backend, loss.Kind),
 		})
 	}
-	exports, err := kind.Exports(pkg.EngineItems(kind.Root().Name))
-	if err != nil {
-		return out
-	}
-	for _, event := range wire.HookEvents() {
-		n := len(pkg.Hooks.Unified.Event(event))
-		if n == 0 || exports.HookEvent[event] != "" {
-			continue
-		}
-		out = append(out, agent.SurfaceLoss{
-			Surface: "hooks",
-			Detail:  fmt.Sprintf("%d %s", n, event),
-			Reason:  fmt.Sprintf("%s has no native %s event", backend, event),
-		})
-	}
-	return out
+	return append(out, unsupportedHookKindLosses(kind.Root().HookLosses, pkg.Hooks)...)
 }

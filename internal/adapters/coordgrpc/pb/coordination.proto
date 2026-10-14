@@ -546,7 +546,10 @@ message Claim {
 message Exports {
   repeated CommandExport commands = 1;
   repeated SkillExport skills = 2;
-  map<string, string> hook_event = 3;
+  // 3 was hook_event, a second statement of which unified hook events the
+  // engine carries; engine.Definition.HookLosses is the one statement.
+  reserved 3;
+  reserved "hook_event";
   repeated string deny_tools = 4;
 }
 

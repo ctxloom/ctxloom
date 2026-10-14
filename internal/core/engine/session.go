@@ -128,12 +128,13 @@ type SkillFile struct {
 }
 
 // Exports is what an engine says about a package: which commands become
-// slash commands and how, which skills are enabled, how unified hook events
-// route to native ones, and the native tool identifiers a deny list names.
+// slash commands and how, which skills are enabled, and the native tool
+// identifiers a deny list names. Which unified hook events the engine
+// carries is not here: Definition.HookLosses is the one statement of that,
+// and the engine's hook writer is the one place each event is routed.
 type Exports struct {
 	Commands  []CommandExport
 	Skills    []SkillExport
-	HookEvent map[string]string // unified event → native event; a unified event absent here is uncarried
 	DenyTools []string
 }
 

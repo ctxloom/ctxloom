@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +21,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -195,15 +200,104 @@ func TestMaterialize_ExportsCtxloomsOwnMCPServer(t *testing.T) {
 // added.
 func materializeHookFixture(t *testing.T) (cfg *config.Config, target string) {
 	t.Helper()
+	return materializeHookFixtureOn(t, "session_start", "echo team-guardrail")
+}
+
+// materializeHookFixtureOn is materializeHookFixture with the reviewer
+// profile's one hook declared on the named unified event, running command.
+func materializeHookFixtureOn(t *testing.T, event, command string) (cfg *config.Config, target string) {
+	t.Helper()
 	cfg, target = materializeFixture(t, "HOOKED-CONTENT")
 	f := cfg.ToFixture()
 	require.NotEmpty(t, f.AppPaths, "materializeFixture must supply an app dir to seed the profile into")
 	profilesDir := bundletree.ProjectProfilesDir(t, f.AppPaths[0])
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "reviewer.yaml"), []byte(
-		"select_tags:\n  - security\nhooks:\n  unified:\n    session_start:\n      - type: command\n        command: echo team-guardrail\n",
+		"select_tags:\n  - security\nhooks:\n  unified:\n    "+event+":\n      - type: command\n        command: "+command+"\n",
 	), 0o644))
 	return config.NewFixture(f), target
+}
+
+// TestMaterialize_ClaudeCarriesPostFileEditAsANarrowedPostToolUse: claude-code
+// has no post_file_edit event of its own, but carries it — the launch path
+// writes it as PostToolUse narrowed by the file-edit matcher. Materialize
+// must agree: the hook lands in .claude/settings.json as exactly that entry,
+// and the report names no loss. It once read its losses off a separate
+// unified→native table that listed no narrowed event, reporting
+// "claude-code has no native post_file_edit event" for a hook it then wrote
+// anyway.
+func TestMaterialize_ClaudeCarriesPostFileEditAsANarrowedPostToolUse(t *testing.T) {
+	cfg, target := materializeHookFixtureOn(t, "post_file_edit", "echo stamp-plan-mark")
+
+	res, err := materializeOne(t, cfg, MaterializeRequest{Explicit: true,
+		Profiles: []string{"reviewer"}, Target: target, Engines: []string{"claude-code"},
+		Surfaces: []SurfaceSpec{{Kind: present.Hooks}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"hooks"}, res.Wrote)
+	assert.Empty(t, res.NotCarried, "claude-code carries post_file_edit on PostToolUse; nothing is lost")
+
+	data, err := os.ReadFile(filepath.Join(target, ".claude", "settings.json"))
+	require.NoError(t, err)
+	var doc struct {
+		Hooks map[string][]json.RawMessage `json:"hooks"`
+	}
+	require.NoError(t, json.Unmarshal(data, &doc))
+	var ours []string
+	for native, entries := range doc.Hooks {
+		for _, entry := range entries {
+			if strings.Contains(string(entry), "stamp-plan-mark") {
+				ours = append(ours, native+" "+string(entry))
+			}
+		}
+	}
+	require.Len(t, ours, 1, "the post_file_edit hook lands exactly once: %s", data)
+	native, entry, _ := strings.Cut(ours[0], " ")
+	assert.Equal(t, "PostToolUse", native)
+	assert.JSONEq(t, `{"matcher":"Edit|Write|MultiEdit|NotebookEdit","hooks":[{"type":"command","command":"echo stamp-plan-mark"}]}`,
+		entry, "post_file_edit is PostToolUse narrowed to claude's file-edit tools")
+}
+
+// TestMaterialize_ReportsExactlyTheEngineDeclaredHookLosses: for every
+// registered engine that carries hooks, a profile configuring every unified
+// event is reported lost on exactly the events the engine's
+// Definition.HookLosses names, with its declared reason — the one statement
+// of what an engine carries, which `agent show` and `doctor` read too. An
+// event an engine carries on a narrowed native one (pre_shell,
+// post_file_edit) is never reported lost.
+func TestMaterialize_ReportsExactlyTheEngineDeclaredHookLosses(t *testing.T) {
+	var pkg composite.Package
+	for i, event := range wire.HookEvents() {
+		hooks := make([]wire.Hook, i+1) // a distinct count per event, so a detail cannot name another's
+		for j := range hooks {
+			hooks[j] = wire.Hook{Type: "command", Command: "echo " + event}
+		}
+		pkg.Hooks.Unified.SetEvent(event, hooks)
+	}
+	sawALoss := false
+	for _, name := range EngineNames(engines.Registry()) {
+		eng, _ := engines.Registry().Lookup(engine.Name(name))
+		def := eng.Root()
+		if !def.Carries(present.Hooks) {
+			continue
+		}
+		sawALoss = sawALoss || len(def.HookLosses) > 0
+		t.Run(name, func(t *testing.T) {
+			var want []agent.SurfaceLoss
+			for i, event := range wire.HookEvents() {
+				if reason, lost := def.HookLosses[event]; lost {
+					want = append(want, agent.SurfaceLoss{Surface: "hooks", Detail: fmt.Sprintf("%d %s", i+1, event), Reason: reason})
+				}
+			}
+			got := notCarried(name, eng, pkg, delivery.Plan{})
+			assert.ElementsMatch(t, want, got)
+			for _, l := range got {
+				assert.NotContains(t, l.Detail, wire.HookEventPostFileEdit, "%s carries post_file_edit on its post-tool event", name)
+				assert.NotContains(t, l.Detail, wire.HookEventPreShell, "%s carries pre_shell on its pre-tool event", name)
+			}
+		})
+	}
+	require.True(t, sawALoss, "no registered engine declares a hook loss — the lossy arm is untested")
 }
 
 // TestMaterialize_ReportsHooksAnEngineCannotCarry is the

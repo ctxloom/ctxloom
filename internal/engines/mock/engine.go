@@ -44,8 +44,9 @@ const (
 type Mock struct {
 	engine.Base
 	noSkillExport bool
-	// fires is the unified hook events this kind fires (hooks.go); the
-	// lossy double drops two.
+	// fires is the unified hook events this kind fires (hooks.go): every
+	// one but those its Definition.HookLosses declares lost (the lossy
+	// double drops two), derived from it in New and never set apart.
 	fires       map[string]bool
 	home        engine.HomeSpec
 	container   *engine.ContainerSpec
@@ -131,16 +132,16 @@ func Without(kinds ...present.Kind) Option {
 	}
 }
 
-// WithoutHookEvents drops unified hook events from the kind: it fires
-// none of them and exports none of them (the lossy double's declared
-// difference — TWO events, so a report that groups several is exercised).
+// WithoutHookEvents declares unified hook events lost (Definition.HookLosses):
+// the kind fires none of them and its hook file carries none (the lossy
+// double's declared difference — TWO events, so a report that groups several
+// is exercised).
 func WithoutHookEvents(events ...string) Option {
 	return func(m *Mock) {
 		if m.HookLosses == nil {
 			m.HookLosses = map[string]string{}
 		}
 		for _, e := range events {
-			delete(m.fires, e)
 			// Each event names its own reason so a report cannot attribute
 			// one event's absence to another's cause.
 			m.HookLosses[e] = string(m.Name) + " has no native " + e + " event"
@@ -279,11 +280,13 @@ func Build(name engine.Name, opts ...Option) (engine.Engine, error) {
 		ProjectArtifacts: []string{ConfigDirName + "/", ContextFileName},
 	}
 	m := Mock{Base: engine.Base{Definition: d}, fires: map[string]bool{}}
-	for _, e := range hookEvents {
-		m.fires[e] = true
-	}
 	for _, o := range opts {
 		o(&m)
+	}
+	for _, e := range hookEvents {
+		if _, lost := m.HookLosses[e]; !lost {
+			m.fires[e] = true
+		}
 	}
 	// The hook file carries only what this kind fires: an event it declares
 	// lost (WithoutHookEvents) is written nowhere, so the file agrees with
@@ -417,12 +420,7 @@ type driver struct {
 // NoSkills double exports no skill: that absence is the subject of every
 // missing-skills-surface arm.
 func (m Mock) Exports(items engine.Items) (engine.Exports, error) {
-	// The events this kind fires (hooks.go); the mock translates nothing,
-	// so the unified name is the native one.
-	out := engine.Exports{HookEvent: map[string]string{}}
-	for e := range m.fires {
-		out.HookEvent[e] = e
-	}
+	var out engine.Exports
 	for _, item := range items.Commands {
 		out.Commands = append(out.Commands, engine.CommandExport{Name: item.Name, Body: item.Body, Enabled: true})
 	}

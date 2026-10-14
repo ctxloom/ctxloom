@@ -414,7 +414,7 @@ func decodeCarrier(w *pb.Carrier) (composite.Carrier, error) {
 }
 
 func encodeExports(e engine.Exports) *pb.Exports {
-	out := &pb.Exports{HookEvent: e.HookEvent, DenyTools: e.DenyTools}
+	out := &pb.Exports{DenyTools: e.DenyTools}
 	for _, c := range e.Commands {
 		out.Commands = append(out.Commands, &pb.CommandExport{Name: c.Name, Body: c.Body, Enabled: c.Enabled, Description: c.Description, ArgumentHint: c.ArgumentHint, AllowedTools: c.AllowedTools, Model: c.Model})
 	}
@@ -429,7 +429,7 @@ func encodeExports(e engine.Exports) *pb.Exports {
 }
 
 func decodeExports(w *pb.Exports) engine.Exports {
-	out := engine.Exports{HookEvent: w.GetHookEvent(), DenyTools: w.GetDenyTools()}
+	out := engine.Exports{DenyTools: w.GetDenyTools()}
 	for _, c := range w.GetCommands() {
 		out.Commands = append(out.Commands, engine.CommandExport{Name: c.GetName(), Body: c.GetBody(), Enabled: c.GetEnabled(), Description: c.GetDescription(), ArgumentHint: c.GetArgumentHint(), AllowedTools: c.GetAllowedTools(), Model: c.GetModel()})
 	}

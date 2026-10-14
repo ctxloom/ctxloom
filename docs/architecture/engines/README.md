@@ -159,8 +159,11 @@ config dialects, renderers, failure tables) stays in each engine.
 - **`kit.ResolveDegraded`**: a permission model's `--degraded` fallback to
   its floor (the mock's and opencode's models).
 - **`kit.HookEvents`**: an engine's unified⇄native hook event table
-  (`Unified` maps a native or unified name back, `Map` is
-  `Exports.HookEvent`); claude's and opencode's.
+  (`Unified` maps a native or unified name back, `Map` routes a unified
+  one to its native point); claude's codec and opencode's bridge. It lists
+  only the broad events: a matcher-narrowed one (`pre_shell`,
+  `post_file_edit`) rides its broad event's point, so the table is NOT a
+  statement of what the engine carries — `Definition.HookLosses` is.
 - **`kit.NativeHookCodec`**: `engine.HookCodec` over ctxloom's OWN hook wire
   (`kit.NativeHookPayload` on stdin, `kit.NativeHookAnswer` on stdout), for
   an engine whose hooks ctxloom fires itself; the engine supplies its event

@@ -55,7 +55,6 @@ func FullLaunch(t *testing.T) launch.Launch {
 		Exports: engine.Exports{
 			Commands:  []engine.CommandExport{{Name: "b-c", Body: []byte("cmd"), Enabled: true, Description: "d", ArgumentHint: "[x]", AllowedTools: []string{"Read"}, Model: "m"}},
 			Skills:    []engine.SkillExport{{Name: "s", Description: "sd", Enabled: true, Files: []engine.SkillFile{{Path: "SKILL.md", Digest: "dg", Size: 3, Mode: 0o755, Bytes: []byte("abc")}}}},
-			HookEvent: map[string]string{"session_start": "SessionStart"},
 			DenyTools: []string{"Task"},
 		},
 		Plan: delivery.Plan{

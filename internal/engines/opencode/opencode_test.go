@@ -251,10 +251,6 @@ func TestExports(t *testing.T) {
 	assert.False(t, out.Commands[1].Enabled)
 	assert.True(t, out.Commands[2].Enabled, "a curated command exports regardless")
 	assert.False(t, out.Skills[0].Enabled)
-	assert.Equal(t, map[string]string{
-		"pre_tool": "tool.execute.before", "post_tool": "tool.execute.after", "session_start": "session.created",
-		"turn_start": "chat.message", "turn_end": "session.idle",
-	}, out.HookEvent, "the bridge plugin's hook points")
 
 	_, err = e.Exports(engine.Items{Commands: []engine.CommandItem{{Ref: "b/bad", Exports: []byte(`{"argument_hint":"x"}`)}}})
 	require.Error(t, err)

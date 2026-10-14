@@ -40,7 +40,7 @@ var decodeExportBlock = kit.ExportDecoder[ExportBlock](EngineName, ExportSchema)
 // block or else its authored description; a skill package is offered unless
 // its block opts out. The hook events are the bridge plugin's (hookEvents).
 func (o Opencode) Exports(items engine.Items) (engine.Exports, error) {
-	out := engine.Exports{HookEvent: hookEvents.Map()}
+	var out engine.Exports
 	for _, item := range items.Commands {
 		block, err := decodeExportBlock(item.Exports)
 		if err != nil {

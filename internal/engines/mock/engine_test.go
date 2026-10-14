@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine/conformance"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // The missing-skills arm has a subject: NoSkills exports no skill while
@@ -90,4 +91,36 @@ func TestDoubles_OnlyThePrimaryRendersTheSessionEndpoint(t *testing.T) {
 // package naming them.
 func TestBuild_DeclaresTheProjectArtifactsItWrites(t *testing.T) {
 	assert.ElementsMatch(t, []string{ConfigDirName + "/", ContextFileName}, New().Root().ProjectArtifacts)
+}
+
+// TestMock_FiresEveryUnifiedEvent pins the mock's fire set against
+// wire.HookEvents: the mock is the conformance backend, so an event it cannot
+// fire is an event no hermetic test can prove delivered.
+func TestMock_FiresEveryUnifiedEvent(t *testing.T) {
+	m, ok := New().(Mock)
+	require.True(t, ok)
+	want := map[string]bool{}
+	for _, event := range wire.HookEvents() {
+		want[event] = true
+	}
+	assert.Equal(t, want, m.fires, "the mock fires every unified event and declares none lost")
+	assert.Empty(t, m.Root().HookLosses)
+}
+
+// TestMock_FiresExactlyWhatItDoesNotDeclareLost: the fire set is derived
+// from Definition.HookLosses, the one statement of what an engine carries —
+// the lossy double fires every unified event but the two it declares lost.
+//
+// MUTATION -- fire a lost event too, or drop a carried one -- turns this red.
+func TestMock_FiresExactlyWhatItDoesNotDeclareLost(t *testing.T) {
+	m, ok := NewNamed(NameLossy, WithoutHookEvents("session_start", "session_end")).(Mock)
+	require.True(t, ok)
+	assert.Equal(t, map[string]bool{
+		"turn_start": true, "pre_shell": true, "pre_tool": true, "permission_ask": true,
+		"post_tool": true, "post_file_edit": true, "turn_end": true,
+	}, m.fires)
+	assert.Equal(t, map[string]string{
+		"session_start": "mock-lossy has no native session_start event",
+		"session_end":   "mock-lossy has no native session_end event",
+	}, m.Root().HookLosses)
 }

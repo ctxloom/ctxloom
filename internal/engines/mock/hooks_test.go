@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -169,20 +168,6 @@ func TestMock_ATurnStartHookFires_OncePerTurn_WithoutAToolCall(t *testing.T) {
 	}
 }
 
-// TestMock_FiresEveryUnifiedEvent pins the mock's fire set and its hook-file
-// reader against wire.UnifiedHooks: the mock is the conformance backend, so
-// an event it cannot fire is an event no hermetic test can prove delivered.
-func TestMock_FiresEveryUnifiedEvent(t *testing.T) {
-	eng := mock.New()
-	exports, err := eng.Exports(engine.Items{})
-	require.NoError(t, err)
-	typ := reflect.TypeOf(wire.UnifiedHooks{})
-	for i := 0; i < typ.NumField(); i++ {
-		event := strings.Split(typ.Field(i).Tag.Get("json"), ",")[0]
-		assert.Contains(t, exports.HookEvent, event, "the mock declares no %s arm — nothing hermetic can prove that event fires", event)
-	}
-}
-
 // TestMock_ToolClassesNarrowTheToolEvents: the mock's tool vocabulary is the
 // neutral one, so a shell-class call fires pre_shell and a file-edit-class
 // call fires post_file_edit — and neither fires the other's.
@@ -262,8 +247,7 @@ func TestMock_HooksCodec_RoundTripsItsOwnWire(t *testing.T) {
 }
 
 // TestMock_TheLossyDoublesHookFileOmitsItsDeclaredLosses: the lossy double
-// declares session_start and session_end lost (it neither exports nor fires
-// them), so its delivered hook file carries no hook for either — the file
+// declares session_start and session_end lost (it fires neither), so its delivered hook file carries no hook for either — the file
 // agrees with the loss report — while every event it does fire is kept.
 //
 // MUTATION -- stop clearing the lost events in hooksFile.DeliverHooks --

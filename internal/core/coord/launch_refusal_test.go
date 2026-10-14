@@ -61,3 +61,41 @@ func TestRefusedLaunch_IsNotRetried(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	assert.Equal(t, int64(1), sp.attempts.Load(), "THE POINT: a deterministic refusal is tried once, not retried")
 }
+
+// TestRefusedLaunch_TheRefusalIsForgottenOnceItNoLongerHolds: the refused
+// flag answers only "did the LAST launch fail on a refusal a retry cannot
+// change". A launch that attaches, an explicit new delivery (agent_send, the
+// retry a human asks for once the checkout is fixed), and a later failure of
+// an ordinary, retryable kind each mean it no longer holds — and a flag that
+// outlived them would refuse every later relaunch of a healthy harp.
+// MUTATIONS — keep the flag in noteLaunchAttached, keep it in
+// clearLaunchGate, or make noteLaunchFailure only ever set it — each: red.
+func TestRefusedLaunch_TheRefusalIsForgottenOnceItNoLongerHolds(t *testing.T) {
+	refusal := fmt.Errorf("checkout occupied: %w", launch.ErrWorkspaceUnadoptable)
+	for _, tc := range []struct {
+		name  string
+		clear func(c *Coordinator, harp string)
+	}{
+		{"a launch that attaches", func(c *Coordinator, harp string) { c.noteLaunchAttached(harp) }},
+		{"an explicit new delivery", func(c *Coordinator, harp string) { c.clearLaunchGate(harp) }},
+		{"a later retryable failure", func(c *Coordinator, harp string) {
+			c.noteLaunchFailure(harp, errors.New("container daemon not answering"))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetStrictness(t)
+			c := newTestCoordinator(t, newFakeSpawner(t, map[string]fakeAgent{"worker": {}}, nil), nil)
+			require.Greater(t, c.maxLaunchAttempts, 2, "precondition: two failures leave budget to retry")
+			const harp = "refused-harp"
+
+			c.noteLaunchFailure(harp, refusal)
+			require.True(t, c.launchRefused(harp), "precondition: the refusal is recorded")
+			tc.clear(c, harp)
+
+			assert.False(t, c.launchRefused(harp), "the refusal no longer holds")
+			_, ok, exhausted := c.nextRelaunch(harp)
+			assert.True(t, ok, "so the leftover-mail relaunch may try again")
+			assert.False(t, exhausted)
+		})
+	}
+}

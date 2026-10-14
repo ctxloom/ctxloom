@@ -56,7 +56,10 @@ label that names neither a configured entry nor a composed engine),
 (a posture that does not parse; a delegated child that would block on a
 prompt), `ErrContextEmpty` (named profiles that assembled to nothing),
 `ErrOwnershipMismatch` / `ErrRuntimeUnavailable` (the cells adapter's
-refusals, passed through), `ErrToolLessUnsupported` / `ErrToolLessPosture`
+refusals, passed through), `ErrWorkspaceUnadoptable` (the agent's checkout
+path is occupied by something not provably its own — the workspace's refusal,
+never wrapped as the runtime's, and deterministic, so the coordinator does not
+retry it), `ErrToolLessUnsupported` / `ErrToolLessPosture`
 (a tool-less launch on an engine without the marker, or naming a posture),
 and `delivery.ErrUncarried` / `delivery.Unrootable` from the router.
 

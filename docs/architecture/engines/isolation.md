@@ -52,6 +52,8 @@ flowchart TD
     C1 -->|"FATAL KindIsolation if the DEMANDED ownership is unreachable<br/>(never substitutes the other ownership mode)"| C3
     C2 -->|"FATAL KindIsolation if the DEMANDED ownership is unreachable<br/>(never substitutes the other ownership mode)"| C4
     C3 -->|"warn only"| C4
+    C1 -->|"checkout path unadoptable<br/>(launch.ErrWorkspaceUnadoptable)"| REF["run REFUSED<br/>no degrade, no isolation finding"]
+    C3 -->|"checkout path unadoptable"| REF
     C1 -.->|"NEVER skips to"| C4
 
     style C4 fill:#8884,stroke:#888
@@ -86,13 +88,23 @@ requested worktree is never dropped because the container failed.
   container altogether was the strictly larger one.
 - `prepareChain` classifies any **container → non-container** transition as
   fatal (`IsContainerPolicyName`).
-- A **worktree → None** transition is `clidiag.Warn` only — deliberate.
+- A **worktree → None** transition is `clidiag.Warn` only — deliberate — EXCEPT
+  when the worktree failed because its checkout path is occupied by something
+  the agent cannot adopt (`reuseExistingCheckout`'s refusals, typed
+  `launch.ErrWorkspaceUnadoptable`): that stops the chain with no degrade and
+  no isolation finding, since a later link meets the same occupant and None
+  would run the agent in the parent's live tree.
 - `warnUnknownAxes`: an unknown *workspace* value warns; an unknown *runtime*
   value (including a typo of `container-rootless`/`container-rootful`) is a
   **fatal** `KindIsolation` finding. Empty string = unset = host default, no
   diagnostic.
-- `Prepare` **never returns an error** — the chain always terminates in a
-  workspace, because `None.PrepareWorkspace` cannot fail.
+- The chain always terminates in a workspace, because `None.PrepareWorkspace`
+  cannot fail. `Prepare`'s errors refuse the run and are never a degrade:
+  among them a `BeforeCheckout` hook refusal (`errCheckoutRefused`), an
+  unadoptable checkout (`launch.ErrWorkspaceUnadoptable`, which `Cells.Prepare`
+  passes through rather than wrapping as `ErrRuntimeUnavailable`), a host-only
+  credential store (`engine.ErrHostOnlyStore`), and a root no environment of
+  the kind can present (`refuseUnreachable`).
 
 **Zero-value polarity is correct throughout these axes.** They are strings where
 `""` means unset (host default), and a non-empty unknown runtime raises a fatal
@@ -846,7 +858,7 @@ image another is between building and running.
 1. **Degrade drops one axis at a time** (`chainFor`).
 2. **Every lost container boundary is a refusal** — `strictness.FailAlways(KindIsolation)` in `chainFor`, and a non-degradable container→non-container transition in `prepareChain`. Aborts in both modes.
 3. **An ownership mismatch is fatal, never a substitution** — `SelectRuntime` returns `Host{}` (not the other ownership's runtime) when the demanded ownership is unreachable, and the run then refuses rather than landing on the HOST.
-4. **The chain always terminates in a workspace**; `Prepare` never errors.
+4. **The chain always terminates in a workspace**; `Prepare`'s errors refuse the run (a `BeforeCheckout` refusal, an unadoptable checkout, a host-only credential store, an unreachable root), never report a degrade.
 5. **Unknown runtime axis is fail-closed; unknown workspace axis warns** (`warnUnknownAxes`).
 6. **Auth env values never enter argv** — `envPassthrough` carries names only, because `/proc/<pid>/cmdline` is world-readable.
 7. **The default container spec fails closed** (undeclared: the container gate refuses it).
@@ -859,10 +871,10 @@ image another is between building and running.
 14. **Bind-mount roots are verified, not assumed** (the shared-FS probe); an empty root set is an error, not an "ok".
 15. **Commits from an agent never impersonate the human** — `gitIdentity` yields `"ctxloom agent <id>" <sanitized>@agents.ctxloom.local`.
 16. **Worktree teardown leaks rather than destroys** — `force=false`, unknown-dirty treated as dirty, and a WIP-bearing orphan is SPARED (`teardownWorktree`, `worktree_reap.go`). Under `SpecBuilder.CommitOnTeardown` (a delegated child's cell), `worktreeWorkspace.Cleanup` first commits the checkout's uncommitted, non-ignored work on its own branch (`commitRunEnd`); a commit that cannot be made warns and leaves the work for the WIP gate to preserve.
-17. **A delegation launch never leaves a commit on the parent's branch for a child that did not start** — the `BeforeCheckout` hook (`operations.parentCommit`) snapshots the parent's dirty tree OFF-BRANCH (`git.Git.SnapshotCommit`: a private index, `write-tree`, `commit-tree -p HEAD`; no ref moves, the real index and working tree are untouched) and names the snapshot as the commit the child's NEW branch is carved from (`Worktree.addCheckout`). The parent's branch advances to it only once the child is UP — the cell's `Environment.Start` (or `Interactive`) has returned, i.e. the runner started where it runs and a container was observed running — by a compare-and-swap from the HEAD the snapshot sits on (`git.Git.AdvanceBranch`, which then resets the parent's index so its tree reads clean). A branch that moved meanwhile is left alone with a warning naming the snapshot. A cell torn down, or never built, before that point deletes the child's freshly carved branch by a compare-and-swap from its carve point (`git.Git.DeleteBranchAt`), so a failed launch leaves the parent's refs, index and working tree byte-identical.
-17. **`WorktreeVerdict`'s unhandled/unclassified case funnels to `VerdictSkipped` (never touch)** — the `default:` case in `ReapOrphanedWorktrees`'s tally.
-18. **Session state names are path-validated** before becoming host paths (`safePathSegment`).
-19. **Every environment shares the host's filesystem** — the host in place, a container by bind mount. `launch.Placement`'s `Paths` are the host and engine views of the SAME files: delivery writes the host side and relies on the engine seeing it there. An environment with no shared filesystem (an ssh host, a pod, a VM that would need a sync) is out of scope by ruling, not an unbuilt case: launch (`isolation.Environment`'s `Start`/`Interactive`), reach (`Listen`) and credentials-as-data would carry over to one, but this file contract would not.
+17. **A delegation launch never leaves a commit on the parent's branch for a child that did not start** — the `BeforeCheckout` hook (`operations.parentCommit`) snapshots the parent's dirty tree OFF-BRANCH (`git.Git.SnapshotCommit`: a private index, `write-tree`, `commit-tree -p HEAD`; no ref moves, the real index and working tree are untouched; it carries the identity and `commit.gpgSign` signing `git commit` would use, and no commit hook runs on it) and names the snapshot as the commit the child's NEW branch is carved from (`Worktree.addCheckout`). The parent's branch advances to it only once the child is UP — the cell's `Environment.Start` (or `Interactive`) has returned, i.e. the runner started where it runs and a container was observed running — by a compare-and-swap from the HEAD the snapshot sits on (`git.Git.AdvanceBranch`, which then resets the parent's index so its tree reads clean). A branch that moved meanwhile is left alone with a warning naming the snapshot. A cell torn down, or never built, before that point deletes the child's freshly carved branch by a compare-and-swap from its carve point (`git.Git.DeleteBranchAt`), so a failed launch leaves the parent's refs, index and working tree byte-identical.
+18. **`WorktreeVerdict`'s unhandled/unclassified case funnels to `VerdictSkipped` (never touch)** — the `default:` case in `ReapOrphanedWorktrees`'s tally.
+19. **Session state names are path-validated** before becoming host paths (`safePathSegment`).
+20. **Every environment shares the host's filesystem** — the host in place, a container by bind mount. `launch.Placement`'s `Paths` are the host and engine views of the SAME files: delivery writes the host side and relies on the engine seeing it there. An environment with no shared filesystem (an ssh host, a pod, a VM that would need a sync) is out of scope by ruling, not an unbuilt case: launch (`isolation.Environment`'s `Start`/`Interactive`), reach (`Listen`) and credentials-as-data would carry over to one, but this file contract would not.
 
 ## Divergences from documented or implied behavior
 

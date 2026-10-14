@@ -229,7 +229,8 @@ stateDiagram-v2
     Routed --> OwnerInFile: mailCourier.Send → spool.Writer.Write(owner in/) [NEW id] + ringSpool (the owner's runner sweeps → Home.wakeOwner)
     Routed --> OutFailed: refused → replySpoolRefusal (to sender) + noticeSpoolDrop (to parent) + spool.Fail(out/failed/)
     OwnerInFile --> OutConsumed: consumeSpool(out/→out/consumed/)
-    OwnerInFile --> Woken: Home.fireWake (spool.ArmWake nonce → engine.Wake.Fire) → the owner's next turn starts
+    OwnerInFile --> Woken: Home.fireWake, only for in/ mail no earlier wake announced (spool.PendingNames minus Home.announced; spool.ArmWake nonce → engine.Wake.Fire; a fire that went out records what it announced) → the owner's next turn starts
+    Woken --> OwnerInFile: unanswered after wakeAnswerWait → Home.expireWake disarms the nonce; the mail it announced is NOT woken for again and waits for the next prompt
     Woken --> Claimed: turn_start → `ctxloom hook mail-drain` → spool.Claim(in/→in/claimed/)
     OwnerInFile --> Claimed: a human's own prompt runs the same hook
     Claimed --> InDelivered: written as the turn's context → spool.Deliver(record in/delivered/<id>, delete in/claimed/ file) + spool.ClearWakes
@@ -311,7 +312,7 @@ false — delete it rather than leave it.
 | # | Invariant | Enforced at |
 |---|---|---|
 | I1 | A session addresses only its own parent (`ParentAddress` or the parent's harp) and its own children (by harp, `Coordinator.childRun`); a delegated session addressing anything else is `ErrPeerRouting`, the root addressing a non-child is `ErrNotAChild`. The kind vocabulary is gated once, for both surfaces, by `SenderMailKind`. | `Coordinator.peerSend`, `Coordinator.childSend`, `Coordinator.childRun` (`coordinator.go`) |
-| I2 | Only a non-child caller may `agent_stop` or `roster`; a LEAF child's runner never registers the coordinator-only tools at all. | `Coordinator.AgentStop`, `Coordinator.serveListRuns`; `mcpschema.CoordinatorOnlyTools` |
+| I2 | Only a non-child caller may `agent_stop` or `roster`; a LEAF child's runner never registers the coordinator-only tools at all. "A child of" is `RunRecord.ChildOf`, never a bare `ParentHarp` comparison: a top-level run journals its own harp as its parent, and is no child of itself, so `agent_stop` naming the caller's own run is `ErrNotAChild` and the bulk sweep never stops the caller. | `Coordinator.AgentStop`, `Coordinator.serveListRuns`; `mcpschema.CoordinatorOnlyTools`; `RunRecord.ChildOf` at `Coordinator.childRun`, `stopChildren`, `serveStopRun` |
 | I3 | Facts become visible only after they are durable: one writer goroutine serialises every `decide → append → fsync → apply` window. | `Store.writer`, `Store.execLocked` (`journal.go`) |
 | I4 | Folds are single-writer by construction; `Store.View` is a read-lock window and callers must not retain references out of it. | `Store.View` (`journal.go`) |
 | I5 | The file is the message. The wire carries only a `spool.Ref` (harp, dir, name); a doorbell lost on a down stream costs latency, never a message, because every reader's sweep re-derives the whole picture (`spoolReactor`, `spoolSweepInterval`, the startup and reconnect sweeps). | `spool.Writer.Write`, `spool.Sweep`; `AgentFrame.spool_changed` doc in `coordination.proto` |

@@ -57,6 +57,42 @@ func TestReuseExistingCheckout_AWrongBranchIsATypedWorkspaceRefusal(t *testing.T
 	assert.NotContains(t, r.Remedy(), "runtime", "the runtime is not what failed")
 }
 
+// The other two occupants reuseExistingCheckout cannot adopt — a path that is
+// no registered worktree at all, and one whose ownership cannot be verified
+// because the worktree listing failed — are the same typed workspace refusal,
+// with the same path-naming remedy, so prepareChain and the coordinator treat
+// all three alike.
+// MUTATION — return either as a plain fmt.Errorf — loses the type: red.
+func TestReuseExistingCheckout_EveryUnadoptableOccupantIsATypedWorkspaceRefusal(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(f *git.Fake)
+	}{
+		{"not a registered worktree", func(f *git.Fake) { f.Worktrees = nil }},
+		{"ownership unverifiable", func(f *git.Fake) { f.ListErr = errors.New("git worktree list: index locked") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testsupport.Isolate(t)
+			f := &git.Fake{CommonDirValue: t.TempDir()}
+			w := sessionWorktree(t, f)
+			path, perr := w.checkoutPath("worker")
+			require.NoError(t, perr)
+			require.NoError(t, os.MkdirAll(path, 0o755))
+			tc.setup(f)
+
+			_, err := w.prepareWorkspace(context.Background(), "/proj", "worker")
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, launch.ErrWorkspaceUnadoptable)
+			assert.Contains(t, err.Error(), strconv.Quote(path), "the refusal names the checkout")
+			var r report.Remediable
+			require.True(t, errors.As(err, &r), "the refusal names its own fix")
+			assert.Contains(t, r.Remedy(), path, "the fix names the checkout to inspect")
+			assert.NotContains(t, r.Remedy(), "runtime", "the runtime is not what failed")
+		})
+	}
+}
+
 // unadoptablePolicy is a container link whose workspace is a checkout it
 // cannot adopt — the incident's container-worktree, reduced to the error its
 // worktree base returned.

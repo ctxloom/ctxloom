@@ -162,7 +162,9 @@ above), ctxloom commits around it:
   (but not ignored), ctxloom commits them *off-branch* — a commit on top of your HEAD, built
   without touching your index or your files — and carves the child's worktree from that commit,
   so the child sees everything. Each of these commits prints a notice, naming the commit, the
-  branch and the files, and the commit message names the child.
+  branch and the files, and the commit message names the child. It is made with the author
+  identity your own `git commit` would use, and signed if you set `commit.gpgSign`, but your
+  commit hooks (`pre-commit`, `commit-msg` and the rest) do not run on it.
 - **Once the child has started.** Only when the child is actually up — its runner started, its
   container observed running — does your branch advance to that commit, and your index is reset
   to it so your tree reads clean. A launch that fails before then (a container that cannot

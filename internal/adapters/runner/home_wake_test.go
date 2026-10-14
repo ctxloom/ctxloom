@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -222,6 +223,58 @@ func TestHomeWake_AnUnansweredWakeIsNotRefiredForTheSameMail(t *testing.T) {
 	fired(t, w)
 	h.sweepSpoolIn()
 	assert.Empty(t, w.fired, "the new mail is announced once, by one wake")
+}
+
+// TestHomeWake_AWakeThatFailsIsRetriedForTheSameMail: a wake that never went
+// out announced nothing, so the mail it was for is still owed a wake — the
+// next sweep fires one.
+// MUTATION — record the pending mail as announced before checking the fire's
+// error — leaves that mail waiting for a prompt no wake will ever bring: red.
+func TestHomeWake_AWakeThatFailsIsRetriedForTheSameMail(t *testing.T) {
+	h, w, al, _ := newOwnerHome(t)
+	w.err = errors.New("no relay is subscribed")
+	seedOwnerIn(t, h)
+	h.sweepSpoolIn()
+	failed := fired(t, w)
+
+	w.err = nil
+	h.sweepSpoolIn()
+	assert.NotEqual(t, failed, fired(t, w), "the same mail is woken for again once a wake can go out")
+	assert.Len(t, al.fns, 1, "and that wake, having gone out, arms its alarm")
+}
+
+// TestHomeWake_TheAnnouncedSetHoldsOnlyTheLatestWakesMail: the set retires
+// itself — each wake that goes out replaces it with exactly what is pending
+// then, so mail consumed since leaves it rather than accumulating for the
+// life of the session.
+// MUTATION — merge into the existing set instead of replacing it — keeps the
+// consumed mail's name: red.
+func TestHomeWake_TheAnnouncedSetHoldsOnlyTheLatestWakesMail(t *testing.T) {
+	h, w, al, _ := newOwnerHome(t)
+	fs := afero.NewOsFs()
+	seedOwnerIn(t, h)
+	h.sweepSpoolIn()
+	fired(t, w)
+	require.Len(t, al.fns, 1)
+	al.fns[0]() // unanswered and disarmed
+
+	in, err := spool.DirPath(h.cfg.Mapper, h.Harp(), spool.DirIn)
+	require.NoError(t, err)
+	first, err := spool.PendingNames(fs, h.cfg.Mapper, h.Harp())
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	require.NoError(t, fs.Remove(filepath.Join(in, first[0])), "the turn-start hook consumes the announced mail")
+
+	seedOwnerIn(t, h)
+	h.sweepSpoolIn()
+	fired(t, w)
+	second, err := spool.PendingNames(fs, h.cfg.Mapper, h.Harp())
+	require.NoError(t, err)
+	require.Len(t, second, 1)
+
+	h.wakeMu.Lock()
+	defer h.wakeMu.Unlock()
+	assert.Equal(t, map[string]bool{second[0]: true}, h.announced, "consumed mail leaves the set; only what the latest wake announced remains")
 }
 
 // TestHomeWake_AnAnsweredWakeRaisesNoAlarm: the hook redeemed the nonce

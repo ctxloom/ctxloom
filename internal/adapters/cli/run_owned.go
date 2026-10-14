@@ -304,13 +304,21 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 				if r.GetStatus() == agentcoordpb.Result_RUN_STATUS_SUCCEEDED {
 					return answer.String(), nil
 				}
-				if msg := r.GetError().GetMessage(); msg != "" {
-					clidiag.Warn("ctxloom", "run failed: %s", msg)
-				} else if r == nil {
+				// A stopped run's result carries its cause (who stopped it,
+				// and why) as its error message, whichever terminal reached
+				// the watch stream first (coord.withEndCause).
+				msg := r.GetError().GetMessage()
+				cancelled := r.GetStatus() == agentcoordpb.Result_RUN_STATUS_CANCELLED
+				switch {
+				case r == nil:
 					clidiag.Warn("ctxloom", "run ended with no terminal result — treating as a failure")
-				} else if r.GetStatus() == agentcoordpb.Result_RUN_STATUS_CANCELLED {
+				case cancelled && msg != "":
+					clidiag.Warn("ctxloom", "run was cancelled: %s", msg)
+				case cancelled:
 					clidiag.Warn("ctxloom", "%s", runCancelledNotice)
-				} else if r.GetStatus() != agentcoordpb.Result_RUN_STATUS_FAILED {
+				case msg != "":
+					clidiag.Warn("ctxloom", "run failed: %s", msg)
+				case r.GetStatus() != agentcoordpb.Result_RUN_STATUS_FAILED:
 					clidiag.Warn("ctxloom", "run did not succeed: %s", r.GetStatus())
 				}
 				return answer.String(), clifmt.ExitStatus{Code: failedRunExitCode(r)}
@@ -322,8 +330,9 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 }
 
 // runCancelledNotice is what a cancelled run with no error message says: it
-// was stopped (agent_stop, a drain) or interrupted before it finished, and
-// the engine's own result carried no reason.
+// was stopped or interrupted before it finished, and nothing recorded why —
+// a stop the coordinator decided always carries its cause, so this is only
+// for a cancellation whose cause is unknown.
 const runCancelledNotice = "run was cancelled: the session was stopped or interrupted before it finished"
 
 // failedRunExitCode is the exit status of a run that did not succeed: the

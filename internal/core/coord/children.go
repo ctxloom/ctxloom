@@ -1604,9 +1604,10 @@ func (c *Coordinator) endRun(runID, cause, detail string, drainTail, fence bool)
 	// Every viewer of the run — the `ctxloom run` that owns it above all —
 	// ends on a RunCompleted, and only an engine sends one: a run whose
 	// engine never did (its runner lost, killed, never launched) left them
-	// waiting for an outcome that was already journaled. This is the run's
-	// terminal on the watch stream unless the engine's own got there first
-	// (the drain above is its last chance; the hub keeps one per run).
+	// waiting for an outcome that was already journaled. The hub keeps the
+	// first terminal per run — this one, or the engine's own if it got there
+	// first (the drain above is its last chance) — and either carries this
+	// end's cause and detail (withEndCause fills it into the engine's).
 	// Before closeFn, so the owner's drive, which wakes when its runner is
 	// killed, finds it waiting.
 	c.watch.broadcast(Event{RunID: runID, OccurredAt: c.now(), Payload: RunCompleted{Result: syntheticResult(cause, detail, exitCode)}})
@@ -1895,13 +1896,64 @@ func syntheticResult(cause, detail string, exitCode *int32) *Result {
 		r.Status = RunStatusFailed
 	}
 	if r.Status != RunStatusSucceeded {
-		msg := "run ended (" + cause + ")"
-		if detail != "" {
-			msg += ": " + detail
-		}
-		r.Error = &Status{Message: msg}
+		r.Error = &Status{Message: endMessage(cause, detail)}
 	}
 	return r
+}
+
+// endMessage is how a run's coordinator-decided end reads on its terminal
+// Result: the cause, and its detail — who stopped it and why, for a stop.
+func endMessage(cause, detail string) string {
+	msg := "run ended (" + cause + ")"
+	if detail != "" {
+		msg += ": " + detail
+	}
+	return msg
+}
+
+// withEndCause is the engine's own terminal as every viewer receives it: a
+// RunCompleted that did not succeed and gives no reason has the end the
+// coordinator knows of (knownEnd) filled in as its error message — the
+// engine's status, exit code and everything else stand. A stopped engine's
+// CANCELLED result usually reaches the watch stream BEFORE the coordinator's
+// synthesized one (the stop asks the runner first), and the stream keeps the
+// first; without this, who stopped the run and why reached no viewer. An
+// engine-supplied message is never overwritten, and a cause the coordinator
+// does not know is never invented.
+func (c *Coordinator) withEndCause(runID string, ev Event) Event {
+	rc, ok := ev.Payload.(RunCompleted)
+	if !ok || rc.Result == nil || rc.Result.Status == RunStatusSucceeded ||
+		(rc.Result.Error != nil && rc.Result.Error.Message != "") {
+		return ev
+	}
+	cause, detail, known := c.knownEnd(runID)
+	if !known {
+		return ev
+	}
+	res := *rc.Result
+	st := Status{Message: endMessage(cause, detail)}
+	if res.Error != nil {
+		st.Code = res.Error.Code
+	}
+	res.Error = &st
+	ev.Payload = RunCompleted{Result: &res}
+	return ev
+}
+
+// knownEnd is the end the coordinator has decided for runID, if any: an
+// agent_stop in progress on it (pendingStop — set before its runner is asked,
+// so it covers the engine's answer to that ask), else the terminal already
+// journaled (an end whose channel tail is still draining).
+func (c *Coordinator) knownEnd(runID string) (cause, detail string, known bool) {
+	if stop, stopping := c.pendingStop(runID); stopping {
+		return CauseStopped, stop, true
+	}
+	c.runs.View(func() {
+		if r := c.runsF.run(runID); r != nil && r.Ended {
+			cause, detail, known = r.Cause, r.Detail, true
+		}
+	})
+	return cause, detail, known
 }
 
 // resumeChild relaunches an ended harp as a FRESH run attempt (new run id,

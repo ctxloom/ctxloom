@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 
@@ -147,4 +148,31 @@ func TestRenderOwnedRunEvents_CancelledRunSaysItWasStopped(t *testing.T) {
 	require.ErrorAs(t, err, &exit)
 	assert.Contains(t, sink.String(), runCancelledNotice)
 	assert.NotContains(t, sink.String(), "RUN_STATUS_")
+}
+
+// TestRenderOwnedRunEvents_CancelledRunNamesItsCause: a cancelled run whose
+// result carries its cause (the coordinator fills in who stopped it and why)
+// says it was cancelled AND why — not "failed", and not the generic notice,
+// which is only for a cancellation nobody explained.
+func TestRenderOwnedRunEvents_CancelledRunNamesItsCause(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var sink strings.Builder
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	const cause = "run ended (stopped): stopped by owner-harp: milestone landed"
+	events := make(chan *agentcoordpb.AgentEvent, 1)
+	events <- &agentcoordpb.AgentEvent{
+		RunId: "run-1",
+		Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
+			Result: &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_CANCELLED, Error: &rpcstatus.Status{Message: cause}},
+		}},
+	}
+	_, err := renderOwnedRunEvents(ctx, io.Discard, formatText, "run-1", events, nil, true)
+	var exit clifmt.ExitStatus
+	require.ErrorAs(t, err, &exit)
+	assert.Contains(t, sink.String(), "run was cancelled: "+cause)
+	assert.NotContains(t, sink.String(), "run failed")
+	assert.NotContains(t, sink.String(), runCancelledNotice)
 }

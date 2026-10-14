@@ -44,7 +44,7 @@ flowchart TD
   GRACE["adopt: no re-Hello in grace<br/>coordinator.go"] -->|CauseRunnerLoss| TERM
   DRAIN["drain.go: between turns /<br/>before start / forced at the bound"] --> TERM
   TERM -->|"not TopLevel, not CauseIdleReaped"| NOTICE[("queueMail → parent's spool")]
-  TERM -->|"syntheticResult, unless the engine's own came first (watchHub.terminated)"| WATCH[("watch stream: RunCompleted")]
+  TERM -->|"syntheticResult, or the engine's own if it came first (watchHub.terminated); either carries the cause (withEndCause)"| WATCH[("watch stream: RunCompleted")]
   TERM --> REAP["reapEndedRuns"]
   TERM --> RLM["relaunchForLeftoverMail<br/>launchgate.go"]
   RLM -->|"not CauseStopped, not TopLevel, mail pending"| NR["nextRelaunch"]
@@ -175,6 +175,21 @@ the exit status when one was observed (`runEndStatus`):
   (`watchHub.terminated`): an engine's own `RunCompleted` that got there first
   stands. The event is broadcast after the tail drain and before the runner
   is killed. Its seq is 0, outside the runner's sequence.
+
+  **Invariant: whichever terminal arrives first, a run the coordinator ended
+  says why.** A stop asks the runner first, so the interrupted engine's own
+  CANCELLED result usually wins the race, and it gives no reason.
+  `HandleEvent` passes every engine `RunCompleted` through `withEndCause`
+  before the tee. When the result did not succeed and has no error message,
+  that function fills in the end the coordinator knows of (`knownEnd`): an
+  agent_stop in progress (`pendingStop`, set before the runner is asked, as
+  "stopped by <harp>: <reason>"), or else the terminal already journaled. The
+  message is `endMessage(cause, detail)`, the same text `syntheticResult`
+  writes. The engine's status, exit code and every other field stand. An
+  engine-supplied message is never overwritten, and when the coordinator knows
+  no cause, the result passes through unchanged. `ctxloom run` prints a
+  cancelled result's message as "run was cancelled: <cause>". Its generic
+  notice is reserved for a cancellation whose cause is unknown.
 - **The parent's mailbox**: `notifyParentOfDeath`, whose body carries the
   detail, and with it the runner's exit.
 - **The session index**: `Spawner.MarkSessionEnded` records the end on the

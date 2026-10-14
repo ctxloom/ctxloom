@@ -355,6 +355,10 @@ func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
 		c.flushItems(ch)
 		return
 	}
+	// The engine's terminal, as every viewer and the journal keep it, carries
+	// the end the coordinator decided (a stop's who and why) when the engine
+	// gave no reason of its own.
+	ev = c.withEndCause(ch.id.RunID, ev)
 	c.watch.broadcast(ev)
 
 	var err error

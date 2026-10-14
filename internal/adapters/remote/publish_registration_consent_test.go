@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	igit "github.com/ctxloom/ctxloom/internal/adapters/git"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +36,7 @@ func registeredRemoteFixture(t *testing.T) *publishFixture {
 
 func (f *publishFixture) publishToShared(t *testing.T) (*PublishResult, error) {
 	t.Helper()
-	return f.publishEnvelope(t, "description: registered\n", PublishOptions{Branch: "main"})
+	return f.publishEnvelope(t, "description: registered\n", PublishOptions{Branch: igit.MustParseBranch("main")})
 }
 
 // The whole claim, on a generic-git remote — the forge that carried the gate.
@@ -57,7 +59,7 @@ func TestPublish_RepublishingToTheSameRemoteIsTheSameEvent(t *testing.T) {
 	_, err := f.publishToShared(t)
 	require.NoError(t, err)
 
-	_, err = f.publishEnvelope(t, "description: registered v2\n", PublishOptions{Branch: "main"})
+	_, err = f.publishEnvelope(t, "description: registered v2\n", PublishOptions{Branch: igit.MustParseBranch("main")})
 
 	require.NoError(t, err)
 	assert.Equal(t, "description: registered v2", f.remoteFile(t, "main", mybundleEnvelope))

@@ -48,7 +48,7 @@ flowchart TD
   TERM --> REAP["reapEndedRuns"]
   TERM --> RLM["relaunchForLeftoverMail<br/>launchgate.go"]
   RLM -->|"not CauseStopped, not TopLevel, mail pending"| NR["nextRelaunch"]
-  NR -->|exhausted| GU["giveUpLaunching"]
+  NR -->|"exhausted, or a deterministic refusal"| GU["giveUpLaunching"]
   NR --> RSC["resumeChild"]
   DOBS["driveObserved<br/>(explicit delivery to an ended child)"] -->|clearLaunchGate| RSC
   RSC -->|"claim: current run ended, is forRun, not TopLevel"| EQ
@@ -84,7 +84,7 @@ credentials live in the folds, and `childRt` is rebuilt from them.
 | `spawnReachURL` | `children.go` | resolves the child-reachable coordinator URL; a child without reach-back is refused in **every** strictness, `--degraded` included, with a remediation hint |
 | `runnerEnv` | `children.go` | the RUNNER env: the reach-back trio (URL, credential, run id) and nothing else. The run's identity rides the `Launch`, never the environment |
 | `runChild` | `children.go` | `acquireRunSlot` → launch context → `runChildViaStartRun`; a slot failure routes to `failChild` |
-| `runChildViaStartRun` / `issueStartRun` | `children.go` | settle the first turn's lead (`SpawnStart.Prompt`: the prompt, the rendered history ahead of it on a keyless resume), resolve and start the runner, await dial-home under the cancellable launch context, send `StartRun{run_id, launch}`, audit, drain queued mail, mark attached; the package's context is not a turn — it reaches the engine through its delivered context surface |
+| `runChildViaStartRun` / `issueStartRun` | `children.go` | settle the first turn's lead (`SpawnStart.Prompt`: the prompt, the rendered history ahead of it on a keyless resume), resolve, hold the listener the cell names (`honourListen`; failing it discards the prepared cell with `launch.Discard`, as a failed `Start` does, so no worktree or carved child branch survives a launch that never started), start the runner, await dial-home under the cancellable launch context, send `StartRun{run_id, launch}`, audit, drain queued mail, mark attached; the package's context is not a turn — it reaches the engine through its delivered context surface |
 | `HandleEvent` | `runchannel.go` | the RunChannel receive path: `captureRunFailure` on a FAILED `RunCompleted`, `onTurnStarted` / `onTurnIdle` on turn transitions |
 | `ReportTurnResult` | `adapters/runner/spoolturnresult.go` | the runner half of the automatic turn report: writes the turn's FINAL-channel output into the run's `out/` spool as kind `result`, correlated to the message that started the turn; a no-op for the session owner's own run, and skipped for a turn in which the run already sent its parent a message addressed to its parent, by `to_role: "parent"` (`coord.ParentAddress`) or by the parent's harp, which the Launch's identity carries (`Identity.Parent`; `Home.isParent`, then `Home.noteSelfReported`, set by `sendPeerViaSpool`). A send to one of its own children, or to any other harp, does not skip it |
 | `onTurnIdle` | `children.go` | honours a pending `exitRequested` at the boundary (`drainAtBoundary`); otherwise stamps `idleSince` for the reaper, marks the run idle and yields its slot. The turn's ENGINE process ended at this boundary on the runner (`EngineHost.runTurn`); the runner itself stays, its endpoint bound |
@@ -126,10 +126,10 @@ credential-keyed — so the races that exist are within one harp's own state mac
 | `launchContext` | `launchgate.go` | derives and registers one attempt's cancellable context, deregistered by generation |
 | `cancelLaunch` | `launchgate.go` | marks the harp stopped **and** cancels the in-flight attempt; called by `stopRun` |
 | `launchStopped` / `clearLaunchGate` | `launchgate.go` | read the stop flag; an explicit new delivery lifts the stop and zeroes both counters |
-| `noteLaunchAttached` / `noteLaunchFailure` / `noteMailConsumed` | `launchgate.go` | reset `fails` on a successful attach; increment it on a launch failure; reset `relaunches` when the harp consumes mail |
-| `launchBackoff` / `nextRelaunch` | `launchgate.go` | exponential capped backoff; may-we-relaunch decision, which spends a relaunch when it says yes |
+| `noteLaunchAttached` / `noteLaunchFailure` / `noteMailConsumed` | `launchgate.go` | reset `fails` (and `refused`) on a successful attach; increment `fails` on a launch failure and set `refused` to whether it was a refusal no retry can change (`deterministicLaunchRefusal`: `launch.ErrWorkspaceUnadoptable`); reset `relaunches` when the harp consumes mail. `clearLaunchGate` (an explicit `agent_send`) clears all of them |
+| `launchBackoff` / `nextRelaunch` | `launchgate.go` | exponential capped backoff; may-we-relaunch decision, which spends a relaunch when it says yes, and answers exhausted at once when the last launch was a deterministic refusal (`refused`) |
 | `relaunchForLeftoverMail` | `launchgate.go` | `terminateRun`'s tail: nothing for `CauseStopped` or a `TopLevel()` run (its mail waits for the session's next run); otherwise re-arm a resume when mail is pending, warn and leave it queued while draining, or give up |
-| `giveUpLaunching` | `launchgate.go` | warn + mail the parent that the coordinator stopped trying |
+| `giveUpLaunching` | `launchgate.go` | warn + mail the parent that the coordinator stopped trying — after a deterministic refusal, that it was tried once and not retried rather than that it failed N times |
 
 The budget is spent by whichever counter is further along, `max(fails, relaunches)`.
 Attaching resets `fails` but not `relaunches` — only consuming mail or an explicit new

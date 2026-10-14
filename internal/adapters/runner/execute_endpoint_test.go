@@ -206,3 +206,36 @@ func TestExecute_AHumanApprovedRunIsWiredForTheApprovalRoute(t *testing.T) {
 // noToolClasses maps no tool class: the approval hooks narrow by none, so
 // binding them only names the engine that fires them.
 func noToolClasses(wire.ToolClass) (string, bool) { return "", false }
+
+// TestExecute_InteractiveChildEngineEnvCarriesTheHookAddress: an INTERACTIVE
+// delegated child's engine is started on the runner's terminal from
+// Turn.EngineEnv — the launch's env, not Exec.Env — so that is where the hook
+// address must be, or the child's PostToolUse `ctxloom hook mail-peek` has no
+// runner to ask and mid-turn mail never reaches it. The address is the run's
+// own endpoint origin at HookPath under the endpoint's own bearer.
+func TestExecute_InteractiveChildEngineEnvCarriesTheHookAddress(t *testing.T) {
+	env := newDeliveryEnv(t)
+	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
+		Identity: env.mint(t, 1, "run-interactive-child"),
+		Agent:    "x", Mode: engine.Interactive, Prompt: "go", WorkDir: env.project,
+	})
+	require.NoError(t, err)
+	require.Equal(t, engine.Interactive, l.Mode)
+	require.NotEmpty(t, l.MCP.URL, "the resolver minted the endpoint")
+
+	drive := &recordingDriver{}
+	_, err = runner.Execute(context.Background(), runner.Deps{
+		Locks: &launchtest.Locks{},
+		Kind:  mock.New(mock.WithDynamic()), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Static: staticWriter(t), Records: records(t), Driver: drive, Dynamic: &recordingDynamic{},
+	}, l)
+	require.NoError(t, err)
+	require.Len(t, drive.turns, 1)
+
+	engineEnv := drive.turns[0].EngineEnv()
+	mcpURL, err := url.Parse(l.MCP.URL)
+	require.NoError(t, err)
+	assert.Equal(t, "http://"+mcpURL.Host+runner.HookPath, engineEnv[sessions.EnvHookURL],
+		"the interactive child's engine env names its runner's hook listener")
+	assert.Equal(t, l.MCP.Credential, engineEnv[sessions.EnvHookToken], "under the endpoint's own bearer")
+}

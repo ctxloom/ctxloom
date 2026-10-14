@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	igit "github.com/ctxloom/ctxloom/internal/adapters/git"
+
 	gogit "github.com/go-git/go-git/v5"
 	gogitConfig "github.com/go-git/go-git/v5/config"
 	"github.com/spf13/afero"
@@ -793,10 +795,10 @@ func (m *mockPublisher) CreateOrUpdateFile(_ context.Context, owner, repo, path,
 	return m.returnCommitSHA, nil
 }
 
-func (m *mockPublisher) CreateOrUpdateFiles(_ context.Context, owner, repo, branch, message string, files map[string][]byte) (string, error) {
+func (m *mockPublisher) CreateOrUpdateFiles(_ context.Context, owner, repo string, branch igit.Branch, message string, files map[string][]byte) (string, error) {
 	for path, content := range files {
 		m.createOrUpdateCalls = append(m.createOrUpdateCalls, createOrUpdateCall{
-			Owner: owner, Repo: repo, Path: path, Branch: branch, Message: message, Content: content,
+			Owner: owner, Repo: repo, Path: path, Branch: branch.Short(), Message: message, Content: content,
 		})
 	}
 	if m.returnErr != nil {
@@ -805,9 +807,9 @@ func (m *mockPublisher) CreateOrUpdateFiles(_ context.Context, owner, repo, bran
 	return m.returnCommitSHA, nil
 }
 
-func (m *mockPublisher) CreatePullRequest(_ context.Context, owner, repo, title, body, head, base string) (string, error) {
+func (m *mockPublisher) CreatePullRequest(_ context.Context, owner, repo, title, body string, head, base igit.Branch) (string, error) {
 	m.createPRCalls = append(m.createPRCalls, createPRCall{
-		Owner: owner, Repo: repo, Title: title, Body: body, Head: head, Base: base,
+		Owner: owner, Repo: repo, Title: title, Body: body, Head: head.Short(), Base: base.Short(),
 	})
 	if m.returnErr != nil {
 		return "", m.returnErr
@@ -815,8 +817,10 @@ func (m *mockPublisher) CreatePullRequest(_ context.Context, owner, repo, title,
 	return m.returnPRURL, nil
 }
 
-func (m *mockPublisher) CreateBranch(_ context.Context, _, _, _, _ string) error { return nil }
-func (m *mockPublisher) GetFileSHA(_ context.Context, _, _, _, _ string) (string, error) {
+func (m *mockPublisher) CreateBranch(_ context.Context, _, _ string, _ igit.Branch, _ string) error {
+	return nil
+}
+func (m *mockPublisher) GetFileSHA(_ context.Context, _, _, _ string, _ igit.Branch) (string, error) {
 	return "", nil
 }
 

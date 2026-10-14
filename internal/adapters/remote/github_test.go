@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"testing"
 
+	igit "github.com/ctxloom/ctxloom/internal/adapters/git"
+
 	"github.com/google/go-github/v60/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -558,7 +560,7 @@ func TestGitHubPublisher_GetFileSHA(t *testing.T) {
 		}
 
 		publisher := NewGitHubPublisherWithClient(mock)
-		sha, err := publisher.GetFileSHA(ctx, "owner", "repo", "file.txt", "main")
+		sha, err := publisher.GetFileSHA(ctx, "owner", "repo", "file.txt", igit.MustParseBranch("main"))
 		require.NoError(t, err)
 		assert.Equal(t, "file-sha-123", sha)
 	})
@@ -570,7 +572,7 @@ func TestGitHubPublisher_GetFileSHA(t *testing.T) {
 		}
 
 		publisher := NewGitHubPublisherWithClient(mock)
-		sha, err := publisher.GetFileSHA(ctx, "owner", "repo", "missing.txt", "main")
+		sha, err := publisher.GetFileSHA(ctx, "owner", "repo", "missing.txt", igit.MustParseBranch("main"))
 		require.NoError(t, err)
 		assert.Empty(t, sha)
 	})
@@ -582,7 +584,7 @@ func TestGitHubPublisher_GetFileSHA(t *testing.T) {
 		}
 
 		publisher := NewGitHubPublisherWithClient(mock)
-		_, err := publisher.GetFileSHA(ctx, "owner", "repo", "directory", "main")
+		_, err := publisher.GetFileSHA(ctx, "owner", "repo", "directory", igit.MustParseBranch("main"))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "directory")
 	})
@@ -646,7 +648,7 @@ func TestGitHubPublisher_CreateOrUpdateFiles(t *testing.T) {
 		}
 
 		publisher := NewGitHubPublisherWithClient(mock)
-		sha, err := publisher.CreateOrUpdateFiles(ctx, "owner", "repo", "main", "publish atelier", map[string][]byte{
+		sha, err := publisher.CreateOrUpdateFiles(ctx, "owner", "repo", igit.MustParseBranch("main"), "publish atelier", map[string][]byte{
 			"bundle.yaml":           []byte("manifest bytes"),
 			"skills/greet/SKILL.md": []byte("skill bytes"),
 		})
@@ -657,7 +659,7 @@ func TestGitHubPublisher_CreateOrUpdateFiles(t *testing.T) {
 
 	t.Run("refuses an empty file set", func(t *testing.T) {
 		publisher := NewGitHubPublisherWithClient(newMockGitHubClient())
-		sha, err := publisher.CreateOrUpdateFiles(ctx, "owner", "repo", "main", "publish", map[string][]byte{})
+		sha, err := publisher.CreateOrUpdateFiles(ctx, "owner", "repo", igit.MustParseBranch("main"), "publish", map[string][]byte{})
 		require.Error(t, err)
 		assert.Empty(t, sha)
 	})
@@ -671,13 +673,73 @@ func TestGitHubPublisher_CreateOrUpdateFiles(t *testing.T) {
 		}
 
 		publisher := NewGitHubPublisherWithClient(mock)
-		sha, err := publisher.CreateOrUpdateFiles(ctx, "owner", "repo", "main", "publish", map[string][]byte{
+		sha, err := publisher.CreateOrUpdateFiles(ctx, "owner", "repo", igit.MustParseBranch("main"), "publish", map[string][]byte{
 			"bundle.yaml": {},
 		})
 		require.Error(t, err)
 		assert.Empty(t, sha)
 		assert.False(t, called, "no write may reach the forge once one entry is empty")
 	})
+}
+
+// TestGitHubPublisher_BranchSpellingsAgree: the GitHub publisher sends the same
+// refs to the API for a branch parsed from "refs/heads/x" as for one parsed
+// from "x" — the full ref to the git-data endpoints, the short name to the
+// pulls API — and never the doubled "refs/heads/refs/heads/x" a string
+// concatenation produced from a full refname.
+func TestGitHubPublisher_BranchSpellingsAgree(t *testing.T) {
+	type sent struct{ getRef, updateRef, createRef, head, base string }
+	drive := func(t *testing.T, spelling string) sent {
+		t.Helper()
+		var got sent
+		mock := newMockGitHubClient()
+		mock.git.GetRefFunc = func(ctx context.Context, owner, repo, ref string) (*github.Reference, *github.Response, error) {
+			got.getRef = ref
+			return &github.Reference{Object: &github.GitObject{SHA: github.String("base")}}, nil, nil
+		}
+		mock.git.GetCommitFunc = func(ctx context.Context, owner, repo, sha string) (*github.Commit, *github.Response, error) {
+			return &github.Commit{Tree: &github.Tree{SHA: github.String("tree")}}, nil, nil
+		}
+		mock.git.CreateBlobFunc = func(ctx context.Context, owner, repo string, blob *github.Blob) (*github.Blob, *github.Response, error) {
+			return &github.Blob{SHA: github.String("blob")}, nil, nil
+		}
+		mock.git.CreateTreeFunc = func(ctx context.Context, owner, repo, baseTree string, entries []*github.TreeEntry) (*github.Tree, *github.Response, error) {
+			return &github.Tree{SHA: github.String("new-tree")}, nil, nil
+		}
+		mock.git.CreateCommitFunc = func(ctx context.Context, owner, repo string, commit *github.Commit, opts *github.CreateCommitOptions) (*github.Commit, *github.Response, error) {
+			return &github.Commit{SHA: github.String("new-commit")}, nil, nil
+		}
+		mock.git.UpdateRefFunc = func(ctx context.Context, owner, repo string, ref *github.Reference, force bool) (*github.Reference, *github.Response, error) {
+			got.updateRef = ref.GetRef()
+			return ref, nil, nil
+		}
+		mock.git.CreateRefFunc = func(ctx context.Context, owner, repo string, ref *github.Reference) (*github.Reference, *github.Response, error) {
+			got.createRef = ref.GetRef()
+			return ref, nil, nil
+		}
+		mock.pullRequests.CreateFunc = func(ctx context.Context, owner, repo string, pull *github.NewPullRequest) (*github.PullRequest, *github.Response, error) {
+			got.head, got.base = pull.GetHead(), pull.GetBase()
+			return &github.PullRequest{HTMLURL: github.String("u")}, nil, nil
+		}
+
+		branch, err := igit.ParseBranch(spelling)
+		require.NoError(t, err)
+		p := NewGitHubPublisherWithClient(mock)
+		ctx := context.Background()
+		_, err = p.CreateOrUpdateFiles(ctx, "o", "r", branch, "m", map[string][]byte{"f": []byte("x")})
+		require.NoError(t, err)
+		require.NoError(t, p.CreateBranch(ctx, "o", "r", branch, "base"))
+		_, err = p.CreatePullRequest(ctx, "o", "r", "t", "b", branch, branch)
+		require.NoError(t, err)
+		return got
+	}
+
+	want := sent{
+		getRef: "refs/heads/ctxloom/x", updateRef: "refs/heads/ctxloom/x", createRef: "refs/heads/ctxloom/x",
+		head: "ctxloom/x", base: "ctxloom/x",
+	}
+	assert.Equal(t, want, drive(t, "refs/heads/ctxloom/x"))
+	assert.Equal(t, want, drive(t, "ctxloom/x"))
 }
 
 func TestGitHubPublisher_CreateBranch(t *testing.T) {
@@ -691,7 +753,7 @@ func TestGitHubPublisher_CreateBranch(t *testing.T) {
 		}
 
 		publisher := NewGitHubPublisherWithClient(mock)
-		err := publisher.CreateBranch(ctx, "owner", "repo", "new-branch", "base-sha")
+		err := publisher.CreateBranch(ctx, "owner", "repo", igit.MustParseBranch("new-branch"), "base-sha")
 		require.NoError(t, err)
 	})
 
@@ -702,7 +764,7 @@ func TestGitHubPublisher_CreateBranch(t *testing.T) {
 		}
 
 		publisher := NewGitHubPublisherWithClient(mock)
-		err := publisher.CreateBranch(ctx, "owner", "repo", "existing-branch", "base-sha")
+		err := publisher.CreateBranch(ctx, "owner", "repo", igit.MustParseBranch("existing-branch"), "base-sha")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to create branch")
 	})
@@ -718,7 +780,7 @@ func TestGitHubPublisher_CreatePullRequest(t *testing.T) {
 		}
 
 		publisher := NewGitHubPublisherWithClient(mock)
-		url, err := publisher.CreatePullRequest(ctx, "owner", "repo", "Title", "Body", "feature", "main")
+		url, err := publisher.CreatePullRequest(ctx, "owner", "repo", "Title", "Body", igit.MustParseBranch("feature"), igit.MustParseBranch("main"))
 		require.NoError(t, err)
 		assert.Equal(t, "https://github.com/owner/repo/pull/123", url)
 	})
@@ -730,7 +792,7 @@ func TestGitHubPublisher_CreatePullRequest(t *testing.T) {
 		}
 
 		publisher := NewGitHubPublisherWithClient(mock)
-		_, err := publisher.CreatePullRequest(ctx, "owner", "repo", "Title", "Body", "feature", "main")
+		_, err := publisher.CreatePullRequest(ctx, "owner", "repo", "Title", "Body", igit.MustParseBranch("feature"), igit.MustParseBranch("main"))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to create pull request")
 	})

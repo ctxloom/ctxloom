@@ -111,7 +111,7 @@ flowchart TD
 | `CachingBundleReader` / `bundleCacheKey` | `internal/adapters/remote/bundle_reader_cache.go` | Read-through memoizing decorator keyed `{name, sha}`. |
 | `LockfileManager` / `LockfileStore` | `internal/adapters/remote/lockfile.go`, `lockfile_store.go` | Filesystem adapter (afero + atomic replace) and the storage port `operations` depends on. |
 | `Puller` / `PullOptions` / `PullResult` | `internal/adapters/remote/pull.go` | Fetch→check→pin orchestrator and its DTOs. |
-| `PublishManager` / `Publisher` / `PublishOptions` | `internal/adapters/remote/publish.go` | Forge write orchestrator, the write port, and its request DTO. |
+| `PublishManager` / `Publisher` / `PublishOptions` | `internal/adapters/remote/publish.go` | Forge write orchestrator, the write port, and its request DTO. Every branch crosses the port as a `git.Branch` (`PublishOptions.Branch`; the zero value means the repository default), so `refs/heads/x` and `x` are one branch; publishers convert with `Ref()`/`Short()` only at the GitHub API or git CLI. |
 | `SelectorKind` / `Resolution` | `internal/adapters/remote/version_constraint.go` | Selector classification (`sha`, `tag`, `version`, `branch` — persisted in `lock.yaml`, so a wire contract) and the `{SHA, Version, Kind}` outcome. |
 | `RepoVersions` (interface) / `fetcherRepoVersions` | `internal/adapters/remote/version_constraint.go` | The version-space seam and its `Fetcher` adapter. |
 | `SearchQuery` / `TagQuery` | `internal/adapters/remote/types.go` | Parsed manifest search filter. |
@@ -298,7 +298,9 @@ flowchart TD
     when there is one, held or not; only `deps upgrade` moves a pin.
 15. **A publish is one commit.** `Publisher.CreateOrUpdateFiles` lands every file of the
     tree together, so a consumer never sees a tree whose checksum manifest covers files
-    that never arrived.
+    that never arrived. It lands on a `git.Branch`, never a branch string: the GitHub
+    publisher sends `Ref()` to the git-data endpoints and `Short()` to the pulls API,
+    so a fully-qualified and a short spelling reach the forge identically.
 16. **`validateItemPath` guards the item path only.** The repo-URL portion of a
     reference is not traversal-validated at parse time.
 17. **The registry file is written atomically** (`Registry.save` through

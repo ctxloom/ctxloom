@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	igit "github.com/ctxloom/ctxloom/internal/adapters/git"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -70,17 +72,19 @@ func (p *stubPublisher) CreateOrUpdateFile(_ context.Context, _, _, path, _, _ s
 	p.files[path] = content
 	return "deadbeef", nil
 }
-func (p *stubPublisher) CreateOrUpdateFiles(_ context.Context, _, _, _, _ string, files map[string][]byte) (string, error) {
+func (p *stubPublisher) CreateOrUpdateFiles(_ context.Context, _, _ string, _ igit.Branch, _ string, files map[string][]byte) (string, error) {
 	for path, content := range files {
 		p.files[path] = content
 	}
 	return "deadbeef", nil
 }
-func (p *stubPublisher) CreatePullRequest(_ context.Context, _, _, _, _, _, _ string) (string, error) {
+func (p *stubPublisher) CreatePullRequest(_ context.Context, _, _, _, _ string, _, _ igit.Branch) (string, error) {
 	return "https://example.com/pr/1", nil
 }
-func (p *stubPublisher) CreateBranch(_ context.Context, _, _, _, _ string) error { return nil }
-func (p *stubPublisher) GetFileSHA(_ context.Context, _, _, _, _ string) (string, error) {
+func (p *stubPublisher) CreateBranch(_ context.Context, _, _ string, _ igit.Branch, _ string) error {
+	return nil
+}
+func (p *stubPublisher) GetFileSHA(_ context.Context, _, _, _ string, _ igit.Branch) (string, error) {
 	return "", nil
 }
 

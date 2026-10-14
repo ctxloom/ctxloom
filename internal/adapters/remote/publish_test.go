@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	igit "github.com/ctxloom/ctxloom/internal/adapters/git"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,6 +17,7 @@ type mockPublisher struct {
 	files           map[string]string // path -> sha
 	createdFiles    map[string][]byte
 	branches        []string
+	fileBranches    []igit.Branch // the branch each CreateOrUpdateFiles call targeted
 	pullRequests    []mockPR
 	createFileErr   error
 	createBranchErr error
@@ -38,7 +41,8 @@ func newMockPublisher() *mockPublisher {
 	}
 }
 
-func (m *mockPublisher) CreateOrUpdateFiles(ctx context.Context, owner, repo, branch, message string, files map[string][]byte) (string, error) {
+func (m *mockPublisher) CreateOrUpdateFiles(ctx context.Context, owner, repo string, branch igit.Branch, message string, files map[string][]byte) (string, error) {
+	m.fileBranches = append(m.fileBranches, branch)
 	if m.createFileErr != nil {
 		return "", m.createFileErr
 	}
@@ -50,23 +54,23 @@ func (m *mockPublisher) CreateOrUpdateFiles(ctx context.Context, owner, repo, br
 	return sha, nil
 }
 
-func (m *mockPublisher) CreatePullRequest(ctx context.Context, owner, repo, title, body, head, base string) (string, error) {
+func (m *mockPublisher) CreatePullRequest(ctx context.Context, owner, repo, title, body string, head, base igit.Branch) (string, error) {
 	if m.createPRErr != nil {
 		return "", m.createPRErr
 	}
-	m.pullRequests = append(m.pullRequests, mockPR{title: title, body: body, head: head, base: base})
+	m.pullRequests = append(m.pullRequests, mockPR{title: title, body: body, head: head.Short(), base: base.Short()})
 	return "https://github.com/owner/repo/pull/1", nil
 }
 
-func (m *mockPublisher) CreateBranch(ctx context.Context, owner, repo, branchName, baseSHA string) error {
+func (m *mockPublisher) CreateBranch(ctx context.Context, owner, repo string, branch igit.Branch, baseSHA string) error {
 	if m.createBranchErr != nil {
 		return m.createBranchErr
 	}
-	m.branches = append(m.branches, branchName)
+	m.branches = append(m.branches, branch.Short())
 	return nil
 }
 
-func (m *mockPublisher) GetFileSHA(ctx context.Context, owner, repo, path, ref string) (string, error) {
+func (m *mockPublisher) GetFileSHA(ctx context.Context, owner, repo, path string, branch igit.Branch) (string, error) {
 	if m.getFileSHAErr != nil {
 		return "", m.getFileSHAErr
 	}
@@ -137,7 +141,7 @@ func TestPublishManager_PublishTree(t *testing.T) {
 		result, err := pm.PublishTree(context.Background(), map[string][]byte{"bundle.yaml": []byte("description: Test bundle\n")}, "alice", PublishOptions{
 			ItemType:   ItemTypeBundle,
 			RemotePath: mybundleRemotePath,
-			Branch:     "main",
+			Branch:     igit.MustParseBranch("main"),
 		})
 
 		require.NoError(t, err)
@@ -168,7 +172,7 @@ func TestPublishManager_PublishTree(t *testing.T) {
 		_, err := pm.PublishTree(context.Background(), map[string][]byte{"bundle.yaml": nil}, "alice", PublishOptions{
 			ItemType:   ItemTypeBundle,
 			RemotePath: mybundleRemotePath,
-			Branch:     "main",
+			Branch:     igit.MustParseBranch("main"),
 		})
 
 		require.Error(t, err, "publishing a 0-byte file must be refused, not overwrite the remote with nothing")
@@ -182,7 +186,7 @@ func TestPublishManager_PublishTree(t *testing.T) {
 
 		_, err := pm.PublishTree(context.Background(), map[string][]byte{"bundle.yaml": []byte("x\n")}, "alice", PublishOptions{
 			ItemType: ItemTypeBundle,
-			Branch:   "main",
+			Branch:   igit.MustParseBranch("main"),
 		})
 
 		require.Error(t, err, "an unset RemotePath must be refused, not guessed")
@@ -215,7 +219,7 @@ func TestPublishManager_PublishTree_ViaPR(t *testing.T) {
 	result, err := pm.PublishTree(context.Background(), files, "alice", PublishOptions{
 		ItemType:   ItemTypeBundle,
 		RemotePath: ".ctxloom/content/bundles/v2/atelier",
-		Branch:     "main",
+		Branch:     igit.MustParseBranch("main"),
 		CreatePR:   true,
 	})
 
@@ -287,7 +291,7 @@ func publishOnce(t *testing.T, content string) []byte {
 	t.Helper()
 	pm, mp, _ := mockPublishManager(t)
 	_, err := pm.PublishTree(context.Background(), map[string][]byte{"bundle.yaml": []byte(content)}, "alice",
-		PublishOptions{ItemType: ItemTypeBundle, RemotePath: mybundleRemotePath, Branch: "main"})
+		PublishOptions{ItemType: ItemTypeBundle, RemotePath: mybundleRemotePath, Branch: igit.MustParseBranch("main")})
 	require.NoError(t, err)
 	return mp.createdFiles[mybundleRemotePath+"/bundle.yaml"]
 }
@@ -401,4 +405,32 @@ func TestSplitTitleBody(t *testing.T) {
 			assert.Equal(t, tt.wantBody, gotBody, "body")
 		})
 	}
+}
+
+// TestPublishManager_PublishTree_BranchSpellingsAgree: a branch reaches the
+// publisher as ONE igit.Branch whichever spelling the caller started from, so
+// "refs/heads/release/x" and "release/x" cannot arrive as two unequal strings —
+// and a default branch the forge reports fully qualified is the same branch too.
+func TestPublishManager_PublishTree_BranchSpellingsAgree(t *testing.T) {
+	publishOn := func(t *testing.T, spelling string, defaultBranch string) igit.Branch {
+		t.Helper()
+		pm, mp, mf := mockPublishManager(t)
+		mf.defaultBranch = defaultBranch
+		opts := PublishOptions{ItemType: ItemTypeBundle, RemotePath: mybundleRemotePath}
+		if spelling != "" {
+			b, err := igit.ParseBranch(spelling)
+			require.NoError(t, err)
+			opts.Branch = b
+		}
+		_, err := pm.PublishTree(context.Background(), map[string][]byte{"bundle.yaml": []byte("x\n")}, "alice", opts)
+		require.NoError(t, err)
+		require.Len(t, mp.fileBranches, 1)
+		return mp.fileBranches[0]
+	}
+
+	want := igit.MustParseBranch("release/x")
+	assert.Equal(t, want, publishOn(t, "refs/heads/release/x", "main"))
+	assert.Equal(t, want, publishOn(t, "release/x", "main"))
+	assert.Equal(t, want, publishOn(t, "", "refs/heads/release/x"), "a fully-qualified default branch is the same branch")
+	assert.Equal(t, want, publishOn(t, "", "release/x"))
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/go-github/v60/github"
 
+	igit "github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
@@ -521,12 +522,15 @@ func NewGitHubPublisherWithClient(client GitHubClient) *GitHubPublisher {
 // inline Content field: GitHub's create-tree endpoint requires inline
 // content to be valid UTF-8 and silently mangles anything that is not,
 // where a blob's Content+Encoding pair carries arbitrary bytes exactly.
-func (p *GitHubPublisher) CreateOrUpdateFiles(ctx context.Context, owner, repo, branch, message string, files map[string][]byte) (string, error) {
-	if err := refuseEmptyPublish(owner, repo, branch, files); err != nil {
+func (p *GitHubPublisher) CreateOrUpdateFiles(ctx context.Context, owner, repo string, branch igit.Branch, message string, files map[string][]byte) (string, error) {
+	if branch.IsZero() {
+		return "", fmt.Errorf("refusing to publish to %s/%s: no branch named (resolve the default branch first)", owner, repo)
+	}
+	if err := refuseEmptyPublish(owner, repo, branch.Short(), files); err != nil {
 		return "", err
 	}
 
-	ref, _, err := p.client.Git().GetRef(ctx, owner, repo, "refs/heads/"+branch)
+	ref, _, err := p.client.Git().GetRef(ctx, owner, repo, branch.Ref())
 	if err != nil {
 		return "", fmt.Errorf("resolve branch %s: %w", branch, err)
 	}
@@ -569,10 +573,10 @@ func (p *GitHubPublisher) CreateOrUpdateFiles(ctx context.Context, owner, repo, 
 	}
 
 	if _, _, err := p.client.Git().UpdateRef(ctx, owner, repo, &github.Reference{
-		Ref:    github.String("refs/heads/" + branch),
+		Ref:    github.String(branch.Ref()),
 		Object: &github.GitObject{SHA: commit.SHA},
 	}, false); err != nil {
-		return "", fmt.Errorf("update ref refs/heads/%s to %s: %w", branch, commit.GetSHA(), err)
+		return "", fmt.Errorf("update ref %s to %s: %w", branch.Ref(), commit.GetSHA(), err)
 	}
 
 	return commit.GetSHA(), nil
@@ -593,12 +597,16 @@ func refuseEmptyPublish(owner, repo, branch string, files map[string][]byte) err
 }
 
 // CreatePullRequest creates a pull request.
-func (p *GitHubPublisher) CreatePullRequest(ctx context.Context, owner, repo, title, body, head, base string) (string, error) {
+// GitHub's pulls API names head and base by short branch name.
+func (p *GitHubPublisher) CreatePullRequest(ctx context.Context, owner, repo, title, body string, head, base igit.Branch) (string, error) {
+	if head.IsZero() || base.IsZero() {
+		return "", fmt.Errorf("refusing to open a pull request on %s/%s: head %q and base %q must both name a branch", owner, repo, head, base)
+	}
 	pr, _, err := p.client.PullRequests().Create(ctx, owner, repo, &github.NewPullRequest{
 		Title: github.String(title),
 		Body:  github.String(body),
-		Head:  github.String(head),
-		Base:  github.String(base),
+		Head:  github.String(head.Short()),
+		Base:  github.String(base.Short()),
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to create pull request: %w", err)
@@ -608,9 +616,12 @@ func (p *GitHubPublisher) CreatePullRequest(ctx context.Context, owner, repo, ti
 }
 
 // CreateBranch creates a new branch from a base SHA.
-func (p *GitHubPublisher) CreateBranch(ctx context.Context, owner, repo, branchName, baseSHA string) error {
+func (p *GitHubPublisher) CreateBranch(ctx context.Context, owner, repo string, branch igit.Branch, baseSHA string) error {
+	if branch.IsZero() {
+		return fmt.Errorf("refusing to create a branch on %s/%s: no branch named", owner, repo)
+	}
 	ref := &github.Reference{
-		Ref: github.String("refs/heads/" + branchName),
+		Ref: github.String(branch.Ref()),
 		Object: &github.GitObject{
 			SHA: github.String(baseSHA),
 		},
@@ -624,11 +635,12 @@ func (p *GitHubPublisher) CreateBranch(ctx context.Context, owner, repo, branchN
 	return nil
 }
 
-// GetFileSHA gets the blob SHA of an existing file.
-func (p *GitHubPublisher) GetFileSHA(ctx context.Context, owner, repo, path, ref string) (string, error) {
+// GetFileSHA gets the blob SHA of an existing file on branch; the zero Branch
+// leaves the ref unset, so GitHub reads the repository's default branch.
+func (p *GitHubPublisher) GetFileSHA(ctx context.Context, owner, repo, path string, branch igit.Branch) (string, error) {
 	opts := &github.RepositoryContentGetOptions{}
-	if ref != "" {
-		opts.Ref = ref
+	if !branch.IsZero() {
+		opts.Ref = branch.Ref()
 	}
 
 	content, _, resp, err := p.client.Repositories().GetContents(ctx, owner, repo, path, opts)

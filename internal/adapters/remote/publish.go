@@ -7,27 +7,36 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	igit "github.com/ctxloom/ctxloom/internal/adapters/git"
 )
 
 // Publisher handles publishing items to remote repositories.
+//
+// Every branch crosses this interface as an igit.Branch, never a string, so a
+// caller holding "refs/heads/x" and one holding "x" name the same branch: the
+// spelling is settled by igit.ParseBranch before a publisher sees it, and each
+// implementation converts back with Short() or Ref() only where a string must
+// leave for the GitHub API or the git CLI.
 type Publisher interface {
 	// CreateOrUpdateFiles creates or updates every file in files (keyed by
 	// repo-relative path) as ONE commit. It exists because a tree published
 	// file by file can fail part way, leaving a bundle missing files that
 	// never arrived. One commit makes a partial publish
 	// impossible rather than merely unlikely. Returns the commit SHA.
-	CreateOrUpdateFiles(ctx context.Context, owner, repo, branch, message string, files map[string][]byte) (string, error)
+	CreateOrUpdateFiles(ctx context.Context, owner, repo string, branch igit.Branch, message string, files map[string][]byte) (string, error)
 
-	// CreatePullRequest creates a pull request from a branch.
+	// CreatePullRequest creates a pull request from head into base.
 	// Returns the PR URL.
-	CreatePullRequest(ctx context.Context, owner, repo, title, body, head, base string) (string, error)
+	CreatePullRequest(ctx context.Context, owner, repo, title, body string, head, base igit.Branch) (string, error)
 
-	// CreateBranch creates a new branch from a base ref.
-	CreateBranch(ctx context.Context, owner, repo, branchName, baseSHA string) error
+	// CreateBranch creates a new branch at baseSHA.
+	CreateBranch(ctx context.Context, owner, repo string, branch igit.Branch, baseSHA string) error
 
-	// GetFileSHA gets the blob SHA of an existing file (needed for updates).
+	// GetFileSHA gets the blob SHA of an existing file on branch (needed for
+	// updates); the zero Branch reads the repository's default branch.
 	// Returns empty string if file doesn't exist.
-	GetFileSHA(ctx context.Context, owner, repo, path, ref string) (string, error)
+	GetFileSHA(ctx context.Context, owner, repo, path string, branch igit.Branch) (string, error)
 }
 
 // PublisherFactory creates Publisher instances. Allows mocking for tests.
@@ -91,8 +100,9 @@ type PublishOptions struct {
 	// CreatePR creates a pull request instead of pushing directly.
 	CreatePR bool
 
-	// Branch is the target branch (or base branch for PR).
-	Branch string
+	// Branch is the target branch (or base branch for PR). The zero Branch
+	// means the repository's default branch.
+	Branch igit.Branch
 
 	// Title is the PR title (used as commit subject too). If empty, the first
 	// line of Message is used; if Message has no first line either, a default
@@ -165,7 +175,7 @@ func closePublisher(p Publisher) {
 // not implement it, so the GitHub path keeps going through the fetcher exactly
 // as before.
 type defaultBrancher interface {
-	defaultBranch(ctx context.Context) (string, error)
+	defaultBranch(ctx context.Context) (igit.Branch, error)
 }
 
 // pullRequestRefuser is the optional Publisher capability of declaring, up
@@ -179,24 +189,28 @@ type pullRequestRefuser interface {
 // resolvePublishBranch returns opts.Branch, or the repo's default branch when
 // the caller didn't pin one — asking the publisher itself when it can answer,
 // otherwise the forge fetcher.
-func (pm *PublishManager) resolvePublishBranch(ctx context.Context, publisher Publisher, repoURL, owner, repo, optBranch string) (string, error) {
-	if optBranch != "" {
+func (pm *PublishManager) resolvePublishBranch(ctx context.Context, publisher Publisher, repoURL, owner, repo string, optBranch igit.Branch) (igit.Branch, error) {
+	if !optBranch.IsZero() {
 		return optBranch, nil
 	}
 	if db, ok := publisher.(defaultBrancher); ok {
 		branch, err := db.defaultBranch(ctx)
 		if err != nil {
-			return "", fmt.Errorf("failed to get default branch: %w", err)
+			return igit.Branch{}, fmt.Errorf("failed to get default branch: %w", err)
 		}
 		return branch, nil
 	}
 	fetcher, err := pm.fetcherFactory(repoURL, pm.auth)
 	if err != nil {
-		return "", fmt.Errorf("failed to create fetcher: %w", err)
+		return igit.Branch{}, fmt.Errorf("failed to create fetcher: %w", err)
 	}
-	branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
+	name, err := fetcher.GetDefaultBranch(ctx, owner, repo)
 	if err != nil {
-		return "", fmt.Errorf("failed to get default branch: %w", err)
+		return igit.Branch{}, fmt.Errorf("failed to get default branch: %w", err)
+	}
+	branch, err := igit.ParseBranch(name)
+	if err != nil {
+		return igit.Branch{}, fmt.Errorf("failed to get default branch: %w", err)
 	}
 	return branch, nil
 }
@@ -326,20 +340,24 @@ func (pm *PublishManager) PublishTree(ctx context.Context, files map[string][]by
 // with every file, then a pull request — mirroring publishViaPR, but writing
 // the whole file set in the ONE CreateOrUpdateFiles call, so the branch never
 // holds a partial tree.
-func (pm *PublishManager) publishTreeViaPR(ctx context.Context, rt *resolvedTarget, baseBranch string, files map[string][]byte, title, body, message string, opts PublishOptions, itemName string) (*PublishResult, error) {
+func (pm *PublishManager) publishTreeViaPR(ctx context.Context, rt *resolvedTarget, baseBranch igit.Branch, files map[string][]byte, title, body, message string, opts PublishOptions, itemName string) (*PublishResult, error) {
 	if r, ok := rt.publisher.(pullRequestRefuser); ok {
 		if err := r.pullRequestSupport(); err != nil {
 			return nil, err
 		}
 	}
 
-	branchName := fmt.Sprintf("ctxloom/%s/%s-%d", opts.ItemType, itemName, time.Now().Unix())
+	branchName, err := igit.ParseBranch(fmt.Sprintf("ctxloom/%s/%s-%d", opts.ItemType, itemName, time.Now().Unix()))
+	if err != nil {
+		return nil, fmt.Errorf("name the pull request branch: %w", err)
+	}
 
 	fetcher, err := pm.fetcherFactory(rt.repoURL, pm.auth)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fetcher: %w", err)
 	}
-	baseSHA, err := fetcher.ResolveRef(ctx, rt.owner, rt.repo, baseBranch)
+	// The fetcher resolves any ref (commit, branch or tag) by its short name.
+	baseSHA, err := fetcher.ResolveRef(ctx, rt.owner, rt.repo, baseBranch.Short())
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve base branch: %w", err)
 	}

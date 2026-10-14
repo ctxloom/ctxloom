@@ -24,11 +24,15 @@ type listenSpawner struct {
 	*fakeSpawner
 	listen present.Listen
 	starts atomic.Int32
+	// cleanups counts the prepared cell's teardowns (launch.Cell.Cleanup):
+	// the door the cells adapter abandons a child's carved branch through.
+	cleanups atomic.Int32
 }
 
 func (s *listenSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start SpawnStart) (Resolved, error) {
 	r, err := s.fakeSpawner.ResolveLaunch(ctx, plan, start)
 	r.Launch.Cell.Listen = s.listen
+	r.Launch.Cell.Cleanup = func() error { s.cleanups.Add(1); return nil }
 	return r, err
 }
 
@@ -76,4 +80,6 @@ func TestRunChild_HonoursTheCellsListenBeforeTheRunnerStarts(t *testing.T) {
 		return strings.Contains(strings.Join(findings, "\n"), "no listener to dial home to")
 	}, 10*time.Second, 20*time.Millisecond, "the unopenable listener fails the run loudly")
 	assert.Zero(t, sp.starts.Load(), "no runner is started toward a listener that does not exist")
+	require.Eventually(t, func() bool { return sp.cleanups.Load() == 1 }, 10*time.Second, 20*time.Millisecond,
+		"the cell prepared for the launch is torn down: its worktree and carved child branch must not outlive a launch that never started")
 }

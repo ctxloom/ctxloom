@@ -853,6 +853,11 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 		c.recordEngineVersion(rt.harp, resolved.Launch)
 	}
 	if err := c.honourListen(resolved.Launch.Cell.Listen); err != nil {
+		// The cell is already prepared (its worktree carved, a child branch
+		// cut) and no runner will ever own it: tear it down here, as a failed
+		// Start does (operations.StartEngine), so the abandoned launch leaves
+		// neither checkout nor branch behind.
+		_ = launch.Discard(ctx, resolved.Launch)
 		c.failChild(rt, fmt.Errorf("agent_run: the child's runner has no listener to dial home to: %w", err))
 		return
 	}

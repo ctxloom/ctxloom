@@ -128,51 +128,33 @@ func (p *GitPublisher) workTree(ctx context.Context, branch igit.Branch) (string
 	return p.dir, nil
 }
 
-// parsePublishBranch is the one conversion from the Publisher interface's
-// string branch to igit.Branch: "" means the remote's default (the zero
-// Branch), and either git spelling of a name is the same branch.
-func parsePublishBranch(branch string) (igit.Branch, error) {
-	if branch == "" {
-		return igit.Branch{}, nil
-	}
-	return igit.ParseBranch(branch)
-}
-
 // defaultBranch reports the remote's default branch, by cloning it and reading
 // what git checked out. It satisfies the unexported capability
 // resolvePublishBranch prefers over the fetcher: the generic git adapter has no
 // API fetcher at all, and this publisher is about to clone the repository
 // anyway, so asking it costs nothing extra.
-func (p *GitPublisher) defaultBranch(ctx context.Context) (string, error) {
+func (p *GitPublisher) defaultBranch(ctx context.Context) (igit.Branch, error) {
 	if _, err := p.workTree(ctx, igit.Branch{}); err != nil {
-		return "", err
+		return igit.Branch{}, err
 	}
-	return p.branch.Short(), nil
+	return p.branch, nil
 }
 
-// GetFileSHA reports the blob SHA of path at ref, or "" when the ref's tree has
+// GetFileSHA reports the blob SHA of path on branch, or "" when its tree has
 // no such path. owner/repo are ignored: a git URL is a whole clone argument,
 // not an owner/repo pair (see the Publisher interface — those two segments are
 // a forge-API path shape).
 //
-// An empty ref reads the checked-out branch.
-func (p *GitPublisher) GetFileSHA(ctx context.Context, _, _, filePath, ref string) (string, error) {
+// The zero Branch reads the checked-out (default) branch.
+func (p *GitPublisher) GetFileSHA(ctx context.Context, _, _, filePath string, branch igit.Branch) (string, error) {
 	if err := checkRepoRelPath(filePath); err != nil {
-		return "", err
-	}
-	branch, err := parsePublishBranch(ref)
-	if err != nil {
 		return "", err
 	}
 	dir, err := p.workTree(ctx, branch)
 	if err != nil {
 		return "", err
 	}
-	at := ref
-	if at == "" {
-		at = p.branch.Short()
-	}
-	return p.git.FileBlobSHA(ctx, dir, at, filePath)
+	return p.git.FileBlobSHA(ctx, dir, p.branch.Short(), filePath)
 }
 
 // CreateOrUpdateFiles writes every file in files at its path on branch and
@@ -184,11 +166,7 @@ func (p *GitPublisher) GetFileSHA(ctx context.Context, _, _, filePath, ref strin
 // the remote actually moved: the commit must carry the files, and the remote's
 // branch ref must afterwards point at the new commit — a `git push` that exits
 // 0 and a remote holding the commit are two different facts.
-func (p *GitPublisher) CreateOrUpdateFiles(ctx context.Context, _, _, branchName, message string, files map[string][]byte) (string, error) {
-	branch, err := parsePublishBranch(branchName)
-	if err != nil {
-		return "", err
-	}
+func (p *GitPublisher) CreateOrUpdateFiles(ctx context.Context, _, _ string, branch igit.Branch, message string, files map[string][]byte) (string, error) {
 	paths, err := publishablePaths(files, branch)
 	if err != nil {
 		return "", err
@@ -321,14 +299,14 @@ func (p *GitPublisher) pullRequestSupport() error {
 // pushed for a PR that cannot be opened is litter on someone else's
 // repository. Reachable only if a caller drives the Publisher interface
 // directly, past pullRequestSupport.
-func (p *GitPublisher) CreateBranch(_ context.Context, _, _, _, _ string) error {
+func (p *GitPublisher) CreateBranch(_ context.Context, _, _ string, _ igit.Branch, _ string) error {
 	return errNoPullRequests(p.repoURL)
 }
 
 // CreatePullRequest is REFUSED: see CreateBranch. It is kept honest rather
 // than silently downgraded to a direct push — "I opened a PR" and "I pushed to
 // your default branch" are not interchangeable outcomes.
-func (p *GitPublisher) CreatePullRequest(_ context.Context, _, _, _, _, _, _ string) (string, error) {
+func (p *GitPublisher) CreatePullRequest(_ context.Context, _, _, _, _ string, _, _ igit.Branch) (string, error) {
 	return "", errNoPullRequests(p.repoURL)
 }
 

@@ -19,6 +19,8 @@ import (
 	"strings"
 	"testing"
 
+	igit "github.com/ctxloom/ctxloom/internal/adapters/git"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,7 +122,7 @@ func TestGitPublisher_PublishLandsInTheBareRepository(t *testing.T) {
 	body := "description: Test bundle\n"
 	f := newPublishFixture(t, "main")
 
-	result, err := f.publishEnvelope(t, body, PublishOptions{Branch: "main", Title: "Add bundle mybundle"})
+	result, err := f.publishEnvelope(t, body, PublishOptions{Branch: igit.MustParseBranch("main"), Title: "Add bundle mybundle"})
 	require.NoError(t, err)
 
 	// The BARE REPO holds the exact local bytes — not "publish returned nil".
@@ -156,7 +158,7 @@ func TestGitPublisher_PublishTreeLandsAsOneCommit(t *testing.T) {
 	result, err := f.pm.PublishTree(context.Background(), files, "shared", PublishOptions{
 		ItemType:   ItemTypeBundle,
 		RemotePath: root,
-		Branch:     "main",
+		Branch:     igit.MustParseBranch("main"),
 		Title:      "Add bundle atelier",
 	})
 	require.NoError(t, err)
@@ -183,7 +185,7 @@ func TestGitPublisher_PublishTreeLandsAsOneCommit(t *testing.T) {
 
 func TestGitPublisher_SecondPublishUpdatesInPlace(t *testing.T) {
 	f := newPublishFixture(t, "main")
-	opts := PublishOptions{Branch: "main"}
+	opts := PublishOptions{Branch: igit.MustParseBranch("main")}
 
 	first, err := f.publishEnvelope(t, "description: v1\n", opts)
 	require.NoError(t, err)
@@ -201,7 +203,7 @@ func TestGitPublisher_SecondPublishUpdatesInPlace(t *testing.T) {
 // commit that does not exist.
 func TestGitPublisher_IdenticalRepublishIsANoOpNotAnError(t *testing.T) {
 	f := newPublishFixture(t, "main")
-	opts := PublishOptions{Branch: "main"}
+	opts := PublishOptions{Branch: igit.MustParseBranch("main")}
 
 	first, err := f.publishEnvelope(t, "description: same\n", opts)
 	require.NoError(t, err)
@@ -234,7 +236,7 @@ func TestGitPublisher_UnpinnedBranchUsesTheRemotesDefault(t *testing.T) {
 func TestGitPublisher_PullRequestRefusedBeforeAnythingIsWritten(t *testing.T) {
 	f := newPublishFixture(t, "main")
 
-	_, err := f.publishEnvelope(t, "description: pr\n", PublishOptions{Branch: "main", CreatePR: true})
+	_, err := f.publishEnvelope(t, "description: pr\n", PublishOptions{Branch: igit.MustParseBranch("main"), CreatePR: true})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pull request")
 
@@ -270,16 +272,16 @@ func TestGitPublisher_RefusesEmptyContentAndEscapingPaths(t *testing.T) {
 	t.Run("zero bytes", func(t *testing.T) {
 		// Refused before any clone is attempted, so a 0-byte write can never
 		// replace real remote content with nothing.
-		_, err := p.CreateOrUpdateFiles(ctx, "", "", "main", "msg", map[string][]byte{"a/b.yaml": nil})
+		_, err := p.CreateOrUpdateFiles(ctx, "", "", igit.MustParseBranch("main"), "msg", map[string][]byte{"a/b.yaml": nil})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "0 bytes")
 	})
 
 	for _, bad := range []string{"", "/etc/passwd", "../../escape.yaml", "a/../../b.yaml"} {
 		t.Run(fmt.Sprintf("path %q", bad), func(t *testing.T) {
-			_, err := p.CreateOrUpdateFiles(ctx, "", "", "main", "msg", map[string][]byte{bad: []byte("x")})
+			_, err := p.CreateOrUpdateFiles(ctx, "", "", igit.MustParseBranch("main"), "msg", map[string][]byte{bad: []byte("x")})
 			require.Error(t, err)
-			_, err = p.GetFileSHA(ctx, "", "", bad, "main")
+			_, err = p.GetFileSHA(ctx, "", "", bad, igit.MustParseBranch("main"))
 			require.Error(t, err)
 		})
 	}
@@ -344,7 +346,7 @@ func TestGitPublisher_RemoteMovedUnderThePublishFailsWithoutRetry(t *testing.T) 
 	t.Cleanup(func() { _ = p.Close() })
 
 	// The existing-file probe takes the clone, as a real publish does.
-	_, err = p.GetFileSHA(ctx, "", "", mybundleEnvelope, "main")
+	_, err = p.GetFileSHA(ctx, "", "", mybundleEnvelope, igit.MustParseBranch("main"))
 	require.NoError(t, err)
 
 	// Another publisher wins the race.
@@ -356,7 +358,7 @@ func TestGitPublisher_RemoteMovedUnderThePublishFailsWithoutRetry(t *testing.T) 
 	taskstest.Git(t, other, nil, "push", "origin", "main")
 	winner := taskstest.Git(t, bare, nil, "rev-parse", "main")
 
-	_, err = p.CreateOrUpdateFiles(ctx, "", "", "main", "publish",
+	_, err = p.CreateOrUpdateFiles(ctx, "", "", igit.MustParseBranch("main"), "publish",
 		map[string][]byte{mybundleEnvelope: []byte("description: loser\n")})
 	require.Error(t, err, "a push onto a remote that moved must fail, never report success")
 	assert.Contains(t, err.Error(), "push")

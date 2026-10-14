@@ -108,7 +108,7 @@ func j002300ProfileYAML(s *j002300AgentSpec) string {
 // proves CONTEXT isolation and the message bus, not workspace isolation
 // (j002200_isolation.feature's own job), and the fixture's own bundle/profile
 // files are freshly written, uncommitted state that a worktree spawn would
-// commit onto the fixture's branch first (operations.commitParentTree) —
+// snapshot and carry over (operations.snapshotParentTree) —
 // irrelevant noise for what this journey asserts.
 func j002300HermeticConfigYAML(specs ...*j002300AgentSpec) string {
 	var b strings.Builder
@@ -152,8 +152,8 @@ const j002300PerEngineAgent = "delegate"
 // written AFTER that commit — ctxloom materializes its own managed files
 // during session startup (.ctxloom/project-id, .claude/settings.json,
 // .claude/commands/*.md, .ctxloom/cache/context/* and more) — is carried
-// across by the parent commit ctxloom makes before carving the child's
-// checkout, so the child sees the bundle and profile that carry its marker.
+// across by the parent snapshot ctxloom carves the child's checkout from, so
+// the child sees the bundle and profile that carry its marker.
 //
 // runtime rides the AGENT BINDING and workspace rides the top level, matching
 // j002200ConfigYAML's mock-container binding — the two axes are independent and

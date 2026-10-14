@@ -149,7 +149,9 @@ const initDefaultHeadlessPosture = "acceptEdits"
 // how to change it.
 const (
 	initDelegationCommitLine = "Delegation commits: before a delegated agent's worktree is carved, ctxloom commits your " +
-		"uncommitted work so the agent sees it, and when the agent's run ends it commits the agent's uncommitted work on the agent's own branch."
+		"uncommitted work off-branch and carves the worktree from that commit, so the agent sees it; your branch advances to it " +
+		"once the agent has started, and a launch that fails leaves your branch untouched. When the agent's run ends, " +
+		"ctxloom commits the agent's uncommitted work on the agent's own branch."
 	initDefaultHeadlessLine = "Headless runs (one-shot and delegated) use the " + initDefaultHeadlessPosture +
 		" posture: file edits go through, anything else that would ask is denied. " +
 		"Change it: ctxloom agent edit default --permissions <posture>"

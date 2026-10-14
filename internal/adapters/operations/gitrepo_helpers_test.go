@@ -85,7 +85,7 @@ func initTestRepo(t *testing.T) string {
 	gitFixtureRun(t, dir, "init", "-b", "main")
 	// A REPO-LOCAL identity, not just gitFixtureRun's env one. The env covers
 	// only the commands this helper runs; PRODUCTION code committing into this
-	// repo (git.ExecGit.CommitAll, reached via commitParentTree) shells out
+	// repo (git.ExecGit.SnapshotCommit, reached via snapshotParentTree) shells out
 	// with a SANITIZED environment and sees none of it, falling through to
 	// global config — present on a developer box, absent in a container or on
 	// CI, where the commit dies with "Author identity unknown".

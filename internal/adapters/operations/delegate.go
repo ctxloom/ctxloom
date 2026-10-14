@@ -72,28 +72,42 @@ func StartEngine(ctx context.Context, l launch.Launch, runnerEnv map[string]stri
 // what ctxloom is about to do about it.
 const maxDirtyFilesListed = 10
 
-// THE PARENT COMMIT. A delegated agent_run spawn that carves a NEW worktree
-// checks out a fresh branch at the parent's HEAD (git.Git.WorktreeAdd, `git
-// worktree add -b`): committed state only, HEAD and everything reachable from
-// it. A coordinator that drafts a file and then hands the work to a delegated
-// child would otherwise get a child that silently runs against stale or
-// missing content: exit 0, a plausible transcript, wrong bytes. That is this
-// project's signature failure mode (see silent-no-op-failure-mode). So before
-// such a checkout is carved, ctxloom commits the parent's uncommitted and
-// untracked (not ignored) state onto the parent's branch, and the child is
-// carved from that commit. It is the only behaviour: there is no handler to
-// choose. Its counterpart at the other end of the run is the child's own
+// THE PARENT SNAPSHOT. A delegated agent_run spawn that carves a NEW
+// worktree checks out a fresh branch (git.Git.WorktreeAdd, `git worktree add
+// -b`): committed state only. A coordinator that drafts a file and then
+// hands the work to a delegated child would otherwise get a child that
+// silently runs against stale or missing content: exit 0, a plausible
+// transcript, wrong bytes. That is this project's signature failure mode
+// (see silent-no-op-failure-mode). So before such a checkout is carved,
+// ctxloom commits the parent's uncommitted and untracked (not ignored)
+// state OFF-BRANCH — a snapshot commit on top of the parent's HEAD, built in
+// a private index (git.Git.SnapshotCommit), which moves no ref and leaves
+// the parent's index and working tree untouched — and the child's branch is
+// carved from that snapshot. It is the only behaviour: there is no handler
+// to choose. Its counterpart at the other end of the run is the child's own
 // run-end commit (isolation.SpecBuilder.CommitOnTeardown).
 //
-// It runs from isolation's BeforeCheckout hook (parentCommit, launch.go), so
-// it commits only when a NEW checkout is about to be carved from the parent's
-// HEAD, after the launch's isolation preconditions have passed: a refused
-// launch, and a resume that re-enters its own checkout or its own branch,
-// commit nothing — neither would see the commit.
+// The parent's branch reaches the snapshot only once the child is UP — its
+// environment's Start has returned, the runner started where it runs (a
+// container observed running) — by a compare-and-swap from the HEAD the
+// snapshot sits on (parentCommit.started). A launch that fails before then,
+// for any reason, leaves the parent's branch, index and working tree
+// exactly as they were, and the child's branch — the only thing that held
+// the snapshot — is deleted with its checkout (parentCommit.abandoned).
+// THE INVARIANT: a launch never leaves a commit on the parent's branch for a
+// child that did not start. A parent branch that moved between the carve and
+// the start (the human committed) is left alone, loudly: the child keeps
+// working from the snapshot, and its work merges back as any other.
 //
-// The ORIGINATOR's own worktree run is not committed for: the human who
+// It runs from isolation's BeforeCheckout hook (parentCommit, launch.go), so
+// it snapshots only when a NEW checkout is about to be carved, after the
+// launch's isolation preconditions have passed: a refused launch, and a
+// resume that re-enters its own checkout or its own branch, snapshot
+// nothing.
+//
+// The ORIGINATOR's own worktree run is not snapshotted for: the human who
 // asked for `--workspace worktree` is at the terminal with the tree in front
-// of them, and the commit's whole subject is a child spawned by an agent
+// of them, and the snapshot's whole subject is a child spawned by an agent
 // that cannot see what it would hand over. Cells.Prepare gates on
 // sessions.Identity.IsChild.
 //
@@ -146,72 +160,88 @@ func (d dirtyFileList) writeTo(b *strings.Builder) {
 	}
 }
 
-// commitParentTree commits workDir (the PARENT project tree) ahead of a
+// parentSnapshot is a parent tree's off-branch snapshot: the commit, the
+// HEAD it sits on, and the branch that HEAD is — the compare-and-swap the
+// parent's branch advances by once the child is up. The zero value is no
+// snapshot.
+type parentSnapshot struct {
+	branch git.Branch
+	head   string
+	commit string
+}
+
+// snapshotParentTree snapshots workDir (the PARENT project tree) ahead of a
 // delegated child's new worktree checkout, when it is dirty. WHAT COUNTS AS
 // DIRTY is git's own notion of it — `git status --porcelain`
 // (git.Git.IsDirty / WorkingChanges), which honors BOTH the tracked
 // .gitignore and the repo's .git/info/exclude, where this codebase's
 // per-agent worktree preparation writes the delivered-surface noise
 // (isolation.WorktreeArtifactPatterns, written by
-// Worktree.excludeConfigFromMerge). Reusing git's own porcelain check (the
-// SAME mechanism the worktree teardown trusts to decide WIP-safety) means
-// this commit's notion of "noise" can never drift from the isolation
+// Worktree.excludeConfigFromMerge). The snapshot stages with the same
+// `git add -A`, so its notion of "noise" can never drift from the isolation
 // layer's own.
 //
 // Best-effort on a git failure to tell (no binary, workDir not a repo —
-// some test doubles pass a bare temp dir): it commits nothing and never
+// some test doubles pass a bare temp dir): it snapshots nothing and never
 // blocks the spawn, matching how the isolation chain's OWN git checks
-// degrade. A commit that is attempted and fails refuses the spawn.
-func commitParentTree(ctx context.Context, gitClient git.Git, workDir, harp string) error {
+// degrade. A snapshot that is attempted and fails refuses the spawn.
+func snapshotParentTree(ctx context.Context, gitClient git.Git, workDir, harp string) (parentSnapshot, error) {
 	dirty, err := gitClient.IsDirty(ctx, workDir)
 	if err != nil || !dirty {
-		return nil
+		return parentSnapshot{}, nil
 	}
-	return commitDirtyTree(ctx, gitClient, workDir, harp, boundDirtyChanges(gitClient.WorkingChanges(ctx, workDir, 0)))
+	return snapshotDirtyTree(ctx, gitClient, workDir, harp, boundDirtyChanges(gitClient.WorkingChanges(ctx, workDir, 0)))
 }
 
-// commitDirtyTree makes the parent commit. A coherence guard refuses to
-// auto-commit inside a detached-HEAD checkout (see the branch.IsZero() case
-// below); past it, this warns (naming the branch and the bounded file list)
-// and mutates. It never silently trusts a bare "commit succeeded":
-// CommitAll's own before/after diff must show real content, or this refuses
-// (see the len(changed)==0 case) — a commit can land EMPTY (an
-// index-clobbering pre-commit hook), and a post-commit stat is not proof a
-// commit landed.
-func commitDirtyTree(ctx context.Context, gitClient git.Git, workDir, harp string, files dirtyFileList) error {
+// snapshotDirtyTree makes the parent snapshot. A coherence guard refuses
+// inside a detached-HEAD checkout (see the branch.IsZero() case below):
+// there is no branch to advance once the child is up. An unborn HEAD fails
+// CurrentBranch and is refused by the same guard. Past it, the snapshot is
+// committed off-branch and announced, naming the branch it will advance and
+// the bounded file list. A dirty status whose tree nonetheless equals HEAD's
+// (git.Git.SnapshotCommit's "") is no snapshot: the child is carved from
+// HEAD.
+func snapshotDirtyTree(ctx context.Context, gitClient git.Git, workDir, harp string, files dirtyFileList) (parentSnapshot, error) {
 	branch, berr := gitClient.CurrentBranch(ctx, workDir)
 	// An unresolvable branch name is exactly the condition the detached-HEAD
 	// guard below exists to catch (the caller cannot tell whether this is a
 	// bare checkout), so failing loud here is strictly safer than guessing.
 	if berr != nil {
-		return fmt.Errorf(`agent_run: could not determine %s's current branch before committing it for delegated agent %q: %w (an unresolvable branch is the one condition the detached-HEAD guard must not treat as safe) — pass workspace: "none" for this spawn to run it against the live checkout instead`, workDir, harp, berr)
+		return parentSnapshot{}, fmt.Errorf(`agent_run: could not determine %s's current branch before snapshotting it for delegated agent %q: %w (an unresolvable branch is the one condition the detached-HEAD guard must not treat as safe) — pass workspace: "none" for this spawn to run it against the live checkout instead`, workDir, harp, berr)
 	}
 	if branch.IsZero() {
-		return fmt.Errorf(`agent_run: %s is a detached-HEAD checkout, so its uncommitted changes cannot be committed for delegated agent %q (this looks like a delegated child's OWN isolated worktree, not a branch checkout — a commit here would land on no branch and could be silently discarded when that worktree is torn down) — pass workspace: "none" for this spawn to run it against the live checkout instead`, workDir, harp)
+		return parentSnapshot{}, fmt.Errorf(`agent_run: %s is a detached-HEAD checkout, so its uncommitted changes cannot be committed for delegated agent %q (this looks like a delegated child's OWN isolated worktree, not a branch checkout — a commit here would land on no branch and could be silently discarded when that worktree is torn down) — pass workspace: "none" for this spawn to run it against the live checkout instead`, workDir, harp)
 	}
-
-	clidiag.Warn("ctxloom", "%s", renderCommitPreview(harp, workDir, branch, files))
-
-	sha, changed, cerr := gitClient.CommitAll(ctx, workDir, renderCommitMessage(harp))
-	if cerr != nil {
-		return fmt.Errorf(`agent_run: committing %s for delegated agent %q: %w`, workDir, harp, cerr)
+	sha, head, err := gitClient.SnapshotCommit(ctx, workDir, renderCommitMessage(harp))
+	if err != nil {
+		return parentSnapshot{}, fmt.Errorf(`agent_run: snapshotting %s for delegated agent %q: %w`, workDir, harp, err)
 	}
-	if len(changed) == 0 {
-		return fmt.Errorf(`agent_run: commit %s on branch %q reports success but captured NO changed files versus its parent — refusing to spawn against what may be an empty commit (this codebase has a documented history of commits landing empty; inspect %s by hand before retrying)`, sha, branch, workDir)
+	if sha == "" {
+		return parentSnapshot{}, nil
 	}
-	return nil
+	clidiag.Warn("ctxloom", "%s", renderCommitPreview(harp, workDir, branch, sha, files))
+	return parentSnapshot{branch: branch, head: head, commit: sha}, nil
 }
 
-// renderCommitPreview is the warning shown before every parent commit, so
-// each mutation is visible: the branch, and the bounded file list.
-func renderCommitPreview(harp, workDir string, branch git.Branch, files dirtyFileList) string {
+// renderCommitPreview is the notice shown for every parent snapshot, so the
+// commit the parent's branch will gain is visible: the snapshot, the branch,
+// and the bounded file list.
+func renderCommitPreview(harp, workDir string, branch git.Branch, sha string, files dirtyFileList) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "agent_run: committing %s's uncommitted changes on branch %q so delegated agent %q sees them in its own git worktree (a worktree checkout only ever contains committed state):\n", workDir, branch, harp)
+	fmt.Fprintf(&b, "agent_run: committed %s's uncommitted changes as %s so delegated agent %q sees them in its own git worktree (a worktree checkout only ever contains committed state); branch %q advances to it once the agent has started, and stays as it is if the launch fails:\n", workDir, shortSHA(sha), harp, branch)
 	files.writeTo(&b)
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// renderCommitMessage is the parent commit's message — readable in `git
+// shortSHA is sha abbreviated for a message.
+func shortSHA(sha string) string {
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
+}
+
+// renderCommitMessage is the parent snapshot's message — readable in `git
 // log` with no other context: WHO did it (ctxloom, automatically) and WHY
 // (so a named delegated agent's worktree could see it).
 func renderCommitMessage(harp string) string {

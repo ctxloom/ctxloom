@@ -79,14 +79,32 @@ type Fake struct {
 	// CommitAllSHA is the SHA CommitAll returns ("fake-commit-sha" when
 	// empty); CommitAllChanged is the changed-file list it returns (the
 	// commit's own self-reported verification — leave nil to simulate an
-	// EMPTY commit landing, the case the delegation parent commit must
-	// refuse). CommitAllErr, when set, fails it instead. CommitMessages
+	// EMPTY commit landing, which the run-end commit must not
+	// read as success). CommitAllErr, when set, fails it instead. CommitMessages
 	// records every message CommitAll was called with, in order, so a test
 	// can assert on the exact generated commit message text.
 	CommitAllSHA     string
 	CommitAllChanged []string
 	CommitAllErr     error
 	CommitMessages   []string
+
+	// SnapshotSHA is the snapshot SnapshotCommit returns ("" = the tree
+	// equals HEAD's, nothing to snapshot); SnapshotHead the HEAD it reports
+	// ("fake-head-sha" when empty); SnapshotErr, when set, fails it.
+	// SnapshotMessages records every message it was called with, in order.
+	SnapshotSHA      string
+	SnapshotHead     string
+	SnapshotErr      error
+	SnapshotMessages []string
+	// AdvanceErr, when set, fails AdvanceBranch (wrap ErrRefMoved for a
+	// lost compare-and-swap); Advances records each call as
+	// "<branch> <from>-><to>".
+	AdvanceErr error
+	Advances   []string
+	// DeleteAtErr, when set, fails DeleteBranchAt; DeletedAt records each
+	// call as "<branch>@<at>".
+	DeleteAtErr error
+	DeletedAt   []string
 
 	// ExistingBranches are branches BranchExists reports beyond those of
 	// registered worktrees; BranchExistsErr, when set, fails it.
@@ -393,6 +411,43 @@ func (f *Fake) CommitAll(_ context.Context, dir, message string) (string, []stri
 		sha = "fake-commit-sha"
 	}
 	return sha, append([]string(nil), f.CommitAllChanged...), nil
+}
+
+// SnapshotCommit records the message and returns SnapshotSHA and
+// SnapshotHead (or "fake-head-sha"), or SnapshotErr.
+func (f *Fake) SnapshotCommit(_ context.Context, dir, message string) (string, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record(fmt.Sprintf("snapshot %s", dir))
+	f.SnapshotMessages = append(f.SnapshotMessages, message)
+	if f.SnapshotErr != nil {
+		return "", "", f.SnapshotErr
+	}
+	head := f.SnapshotHead
+	if head == "" {
+		head = "fake-head-sha"
+	}
+	return f.SnapshotSHA, head, nil
+}
+
+// AdvanceBranch records the advance and returns AdvanceErr.
+func (f *Fake) AdvanceBranch(_ context.Context, _ string, branch Branch, to, from string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	call := fmt.Sprintf("%s %s->%s", branch, from, to)
+	f.record("advance " + call)
+	f.Advances = append(f.Advances, call)
+	return f.AdvanceErr
+}
+
+// DeleteBranchAt records the delete and returns DeleteAtErr.
+func (f *Fake) DeleteBranchAt(_ context.Context, _ string, branch Branch, at string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	call := fmt.Sprintf("%s@%s", branch, at)
+	f.record("delete-at " + call)
+	f.DeletedAt = append(f.DeletedAt, call)
+	return f.DeleteAtErr
 }
 
 // Clone records the clone and returns CloneErr. It creates nothing on disk —

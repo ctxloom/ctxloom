@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os/exec"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -115,14 +116,14 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	// checkout the agent cannot adopt stops the chain too, and the run is
 	// refused with the chain's own refusal (launch.ErrWorkspaceUnadoptable).
 	var refused error
-	var hook func(context.Context) error
+	var hook CheckoutHook
 	if s.beforeCheckout != nil {
-		hook = func(ctx context.Context) error {
-			if err := s.beforeCheckout(ctx); err != nil {
+		hook = func(ctx context.Context, branch git.Branch) (string, error) {
+			base, err := s.beforeCheckout(ctx, branch)
+			if err != nil {
 				refused = err
-				return err
 			}
-			return nil
+			return base, err
 		}
 	}
 	chain := withCheckoutStamps(withSessionState(chainFor(survey, s.axes, s.backend(), s.img), s.state),

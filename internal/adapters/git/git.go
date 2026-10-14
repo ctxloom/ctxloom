@@ -14,6 +14,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -150,6 +151,30 @@ type Git interface {
 	// that: git accepted the commit but it carries no diff versus its parent.
 	CommitAll(ctx context.Context, dir, message string) (sha string, changedFiles []string, err error)
 
+	// SnapshotCommit commits dir's working tree OFF-BRANCH and moves no
+	// ref: everything CommitAll would stage (git add -A) is staged into a
+	// PRIVATE copy of dir's index, never the real one, and committed on top
+	// of HEAD (git write-tree, git commit-tree -p HEAD) under message, with
+	// the identity and signing `git commit` would use; no commit hook runs.
+	// dir's real index and working tree are left byte-identical. head is
+	// the HEAD the snapshot sits on; snapshot is "" when the tree equals
+	// HEAD's (nothing to snapshot) — so a snapshot always carries content.
+	SnapshotCommit(ctx context.Context, dir, message string) (snapshot, head string, err error)
+
+	// AdvanceBranch moves branch to `to` only while it is still at `from`
+	// (git update-ref, a compare-and-swap; never forced) and, when dir's
+	// HEAD is on branch, resets dir's index to it (git reset -q, the working
+	// tree untouched) — so a tree that held exactly `to`'s content reads
+	// clean, as it would after `git add -A && git commit`. A branch that
+	// moved meanwhile is ErrRefMoved, and nothing is changed.
+	AdvanceBranch(ctx context.Context, dir string, branch Branch, to, from string) error
+
+	// DeleteBranchAt deletes the local branch only while it is still at
+	// `at` (git update-ref -d, a compare-and-swap) and is checked out in no
+	// worktree: it removes a branch nothing has committed to since it was
+	// made, and nothing else.
+	DeleteBranchAt(ctx context.Context, repoDir string, branch Branch, at string) error
+
 	// Clone clones url into dir, which must not exist yet. branch, when
 	// non-zero, is the branch checked out (git clone --branch); zero takes
 	// the remote's own default branch, so the caller can ASK what that is by
@@ -228,6 +253,10 @@ type Git interface {
 	// commits through it.
 	DeleteBranch(ctx context.Context, repoDir string, branch Branch) error
 }
+
+// ErrRefMoved is AdvanceBranch's refusal: the branch is no longer where the
+// caller last saw it, so it is left alone.
+var ErrRefMoved = errors.New("git: the branch moved")
 
 // LogEntry is one commit returned by LogSince.
 type LogEntry struct {

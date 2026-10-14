@@ -22,8 +22,9 @@ import (
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
-// worktreeBaseRef is the ref each per-agent worktree's branch starts from:
-// the project's HEAD at the moment the member is prepared.
+// worktreeBaseRef is the ref each per-agent worktree's branch starts from
+// when the BeforeCheckout hook names no other commit: the project's HEAD at
+// the moment the member is prepared.
 const worktreeBaseRef = "HEAD"
 
 // worktreeBranchPrefix is the ref namespace every per-agent worktree branch
@@ -80,9 +81,10 @@ type Worktree struct {
 	// worktree policy, which consults no daemon. relativeWorktree reads it.
 	primary *Layer
 	// beforeCheckout is the Spec's BeforeCheckout hook, stamped by Prepare
-	// (withCheckoutHook); nil for none. It runs only on the path that carves a
-	// NEW checkout, right before WorktreeAdd.
-	beforeCheckout func(context.Context) error
+	// (withCheckoutStamps); nil for none. It runs only on the path that
+	// carves a NEW checkout, right before WorktreeAdd, and names the commit
+	// the new branch starts at.
+	beforeCheckout CheckoutHook
 	// commitOnTeardown is the Spec's CommitOnTeardown, stamped by Prepare
 	// (withCheckoutStamps): the workspace commits what the checkout holds
 	// uncommitted on its own branch before tearing it down.
@@ -204,9 +206,10 @@ func (w Worktree) resolveWorkspace(ctx context.Context, projectDir, agentID stri
 // already exists is an earlier run's, whose checkout was torn down once its
 // work was committed (worktreeWorkspace.Cleanup): the checkout is re-entered
 // on that branch, at its tip, so the agent continues its own work. Only a
-// branch that does not exist yet is CARVED from the project's HEAD, and only
-// then does the BeforeCheckout hook run — a commit on the project's branch
-// reaches a new branch cut from it, never an existing one.
+// branch that does not exist yet is CARVED, and only then does the
+// BeforeCheckout hook run: the branch starts at the commit the hook names
+// (a delegated child's off-branch snapshot of its parent's tree), or at the
+// project's HEAD when it names none.
 func (w Worktree) addCheckout(ctx context.Context, projectDir, wtPath string, branch git.Branch) error {
 	relative, err := w.relativeWorktree(ctx, projectDir)
 	if err != nil {
@@ -222,12 +225,17 @@ func (w Worktree) addCheckout(ctx context.Context, projectDir, wtPath string, br
 		}
 		return nil
 	}
+	base := worktreeBaseRef
 	if w.beforeCheckout != nil {
-		if err := w.beforeCheckout(ctx); err != nil {
+		named, err := w.beforeCheckout(ctx, branch)
+		if err != nil {
 			return fmt.Errorf("%w %q: %w", errCheckoutRefused, wtPath, err)
 		}
+		if named != "" {
+			base = named
+		}
 	}
-	if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, branch, worktreeBaseRef, relative); err != nil {
+	if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, branch, base, relative); err != nil {
 		return fmt.Errorf("worktree add: %w", err)
 	}
 	return nil

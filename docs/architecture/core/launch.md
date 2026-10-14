@@ -29,7 +29,7 @@ flowchart LR
   START["operations.StartRun: MintIdentity → Resolve → record the engine version (Deps.ProbeVersion; none for a preview)"]:::core
   RES["launch.Resolve — the one constructor"]:::core
   ASM["Deps.Assembler (operations.assembler: AssemblePackage → composite.Assemble once; Surfaces off the same Package)"]:::port
-  CELLS["Deps.Cells (operations.Cells over isolation.Prepare, the parent commit before a new branch, the engine home)"]:::port
+  CELLS["Deps.Cells (operations.Cells over isolation.Prepare, the parent snapshot a new branch is carved from, advanced onto the parent only once the child is up, the engine home)"]:::port
   EPM["Deps.Endpoints (a loopback port + bearer)"]:::port
   STORE["Deps.Sessions (BindEngine, Find)"]:::port
   L["launch.Launch"]:::core

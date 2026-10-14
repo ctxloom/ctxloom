@@ -159,9 +159,18 @@ committed yet. So when a delegated `agent_run` child spawns into its own worktre
 above), ctxloom commits around it:
 
 - **Before the child starts.** If your checkout has uncommitted changes, tracked or untracked
-  (but not ignored), ctxloom commits them onto your current branch, then carves the child's
-  worktree from that commit, so the child sees everything. Each of these commits prints a
-  warning first, naming the branch and the files, and the commit message names the child.
+  (but not ignored), ctxloom commits them *off-branch* — a commit on top of your HEAD, built
+  without touching your index or your files — and carves the child's worktree from that commit,
+  so the child sees everything. Each of these commits prints a notice, naming the commit, the
+  branch and the files, and the commit message names the child.
+- **Once the child has started.** Only when the child is actually up — its runner started, its
+  container observed running — does your branch advance to that commit, and your index is reset
+  to it so your tree reads clean. A launch that fails before then (a container that cannot
+  start, a mount that fails) leaves your branch, your index and your files exactly as they
+  were, and removes the child's branch: you never get a commit for a child that never ran. If
+  you commit yourself while the child is launching, your branch is left where you put it and
+  ctxloom says so, naming the commit the child started from; the child's work merges back from
+  its own branch as usual, and your changes stay uncommitted in your tree.
 - **When the child's run ends**, however it ended. Whatever the child's worktree holds
   uncommitted is committed on the child's own branch, so no work is left behind as
   uncommitted state in a worktree nobody returns to.
@@ -170,9 +179,9 @@ There is no setting for this; it is how delegation into a worktree works. If you
 your uncommitted changes committed, commit or stash them yourself first, or pass
 `workspace: "none"` on the `agent_run` call so the child runs in your live checkout instead.
 
-The first commit happens only when a worktree is actually about to be carved from your branch,
-after the launch's other isolation checks have passed. A launch refused before that point (a
-container that cannot start, say) commits nothing. A resumed child that picks up its own
+The snapshot is made only when a worktree is actually about to be carved, after the launch's
+other isolation checks have passed. A launch refused before that point (a container that
+cannot start, say) makes none. A resumed child that picks up its own
 surviving worktree, or its own branch, commits nothing on yours either: that worktree is on its
 own branch and would not see a new commit on yours. Your own `ctxloom run --workspace worktree`
 is never committed for: you're at the terminal with the tree in front of you.

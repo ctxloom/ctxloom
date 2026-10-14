@@ -22,7 +22,7 @@ import (
 var worktreeAxes = launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeHost}
 
 // hookedSpec is envSpec with a BeforeCheckout hook.
-func hookedSpec(t *testing.T, home, project string, hook func(context.Context) error) Spec {
+func hookedSpec(t *testing.T, home, project string, hook CheckoutHook) Spec {
 	t.Helper()
 	s, err := NewSpec(worktreeAxes, claudeEngine(t)).Project(project).
 		Session(sessionDir(home, harpA), SessionState{Harp: harpA}).
@@ -47,10 +47,10 @@ func TestPrepare_BeforeCheckoutRunsOnceBeforeTheCheckoutIsCarved(t *testing.T) {
 	home := fakeHostHome(t, tokenFixture)
 	project := gitRepo(t)
 	calls, seen := 0, -1
-	env, err := Prepare(context.Background(), hookedSpec(t, home, project, func(context.Context) error {
+	env, err := Prepare(context.Background(), hookedSpec(t, home, project, func(context.Context, git.Branch) (string, error) {
 		calls++
 		seen = linkedWorktrees(t, project)
-		return nil
+		return "", nil
 	}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = env.Cleanup() })
@@ -60,13 +60,35 @@ func TestPrepare_BeforeCheckoutRunsOnceBeforeTheCheckoutIsCarved(t *testing.T) {
 	assert.Equal(t, 1, linkedWorktrees(t, project), "the checkout was carved after it")
 }
 
+// The checkout's new branch starts at the commit the hook names — a commit
+// on no branch (the parent's off-branch snapshot) — and the hook is handed
+// that new branch; the project's own HEAD does not move.
+func TestPrepare_TheCheckoutIsCarvedFromTheCommitTheHookNames(t *testing.T) {
+	home := fakeHostHome(t, tokenFixture)
+	project := committingRepo(t)
+	head := gitOut(t, project, "rev-parse", "HEAD")
+	offBranch := gitOut(t, project, "commit-tree", "-p", "HEAD", "-m", "a snapshot on no branch", gitOut(t, project, "rev-parse", "HEAD^{tree}"))
+	var handed git.Branch
+	env, err := Prepare(context.Background(), hookedSpec(t, home, project, func(_ context.Context, b git.Branch) (string, error) {
+		handed = b
+		return offBranch, nil
+	}))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = env.Cleanup() })
+
+	checkout := env.Placement().Paths.Paths().ProjectRoot.Host
+	assert.Equal(t, offBranch, gitOut(t, checkout, "rev-parse", "HEAD"), "THE POINT: carved from the named commit, not the project's HEAD")
+	assert.Equal(t, mustWorktreeBranch(t, checkout), handed, "the hook was handed the branch it carves")
+	assert.Equal(t, head, gitOut(t, project, "rev-parse", "HEAD"), "the project's HEAD did not move")
+}
+
 // A refusal from the hook refuses the run with the hook's own error: no
 // checkout is carved and the chain does not degrade to the live tree.
 func TestPrepare_BeforeCheckoutRefusalRefusesTheRun(t *testing.T) {
 	home := fakeHostHome(t, tokenFixture)
 	project := gitRepo(t)
 	refusal := errors.New("the handler says no")
-	env, err := Prepare(context.Background(), hookedSpec(t, home, project, func(context.Context) error { return refusal }))
+	env, err := Prepare(context.Background(), hookedSpec(t, home, project, func(context.Context, git.Branch) (string, error) { return "", refusal }))
 
 	require.ErrorIs(t, err, refusal)
 	assert.Nil(t, env, "no environment, not a degraded one on the live tree")
@@ -85,9 +107,9 @@ func TestPrepare_BeforeCheckoutDoesNotRunOnAReusedCheckout(t *testing.T) {
 	require.Equal(t, 1, linkedWorktrees(t, project), "precondition: the first run's checkout survives")
 
 	calls := 0
-	resumed, err := Prepare(context.Background(), hookedSpec(t, home, project, func(context.Context) error {
+	resumed, err := Prepare(context.Background(), hookedSpec(t, home, project, func(context.Context, git.Branch) (string, error) {
 		calls++
-		return nil
+		return "", nil
 	}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = resumed.Cleanup() })
@@ -100,7 +122,7 @@ func TestPrepare_BeforeCheckoutDoesNotRunOnAReusedCheckout(t *testing.T) {
 // The checkout stamps reach every link that can carve a checkout: the host
 // worktree policy and a container's worktree base.
 func TestWithCheckoutStamps_StampsEveryLinkThatCarves(t *testing.T) {
-	hook := func(context.Context) error { return nil }
+	hook := func(context.Context, git.Branch) (string, error) { return "", nil }
 	chain := withCheckoutStamps([]policy{
 		NewWorktree(&git.Fake{}),
 		Container{base: worktreeBase{wt: NewWorktree(&git.Fake{})}},
@@ -120,11 +142,11 @@ func TestWithCheckoutStamps_StampsEveryLinkThatCarves(t *testing.T) {
 // the hook (and the handler behind it) a second time.
 func TestPrepareChain_StopsOnACheckoutRefusal(t *testing.T) {
 	refusing := sessionWorktree(t, &git.Fake{CommonDirValue: t.TempDir()})
-	refusing.beforeCheckout = func(context.Context) error { return errors.New("no") }
+	refusing.beforeCheckout = func(context.Context, git.Branch) (string, error) { return "", errors.New("no") }
 	next := &git.Fake{CommonDirValue: t.TempDir()}
 	later := sessionWorktree(t, next)
 	laterCalls := 0
-	later.beforeCheckout = func(context.Context) error { laterCalls++; return nil }
+	later.beforeCheckout = func(context.Context, git.Branch) (string, error) { laterCalls++; return "", nil }
 
 	pol, ws, _ := prepareChain(context.Background(), []policy{refusing, later, None{}}, surveyRuntimes(), RuntimeHost, "/proj", "member-a")
 
@@ -135,7 +157,7 @@ func TestPrepareChain_StopsOnACheckoutRefusal(t *testing.T) {
 }
 
 // teardownSpec is hookedSpec with CommitOnTeardown.
-func teardownSpec(t *testing.T, home, project string, hook func(context.Context) error) Spec {
+func teardownSpec(t *testing.T, home, project string, hook CheckoutHook) Spec {
 	t.Helper()
 	s, err := NewSpec(worktreeAxes, claudeEngine(t)).Project(project).
 		Session(sessionDir(home, harpA), SessionState{Harp: harpA}).
@@ -201,7 +223,7 @@ func TestCleanup_CommitsTheRunsUncommittedWorkOnItsBranch(t *testing.T) {
 // A resume after a committed teardown re-enters the agent's own branch: the
 // checkout is recreated on the EXISTING branch, at its tip, so the agent
 // continues its own work — and nothing is carved from the project's HEAD, so
-// the BeforeCheckout hook (the parent commit) does not run.
+// the BeforeCheckout hook (the parent snapshot) does not run.
 func TestPrepare_ReentersTheAgentsExistingBranch(t *testing.T) {
 	home := fakeHostHome(t, tokenFixture)
 	project := committingRepo(t)
@@ -213,9 +235,9 @@ func TestPrepare_ReentersTheAgentsExistingBranch(t *testing.T) {
 	require.NoDirExists(t, checkout, "precondition: the checkout was torn down, its branch kept")
 
 	calls := 0
-	resumed, err := Prepare(context.Background(), teardownSpec(t, home, project, func(context.Context) error {
+	resumed, err := Prepare(context.Background(), teardownSpec(t, home, project, func(context.Context, git.Branch) (string, error) {
 		calls++
-		return nil
+		return "", nil
 	}))
 	require.NoError(t, err, "the existing branch is re-entered, not refused by `worktree add -b`")
 	t.Cleanup(func() { _ = resumed.Cleanup() })

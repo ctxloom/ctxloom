@@ -176,8 +176,10 @@ Feature: init — the setup interview, and what it does to a project that alread
 
     Init's questions are asked in-process, on the user's own terminal, before
     any engine is involved. Two things are not asked: init says, in one line,
-    that a delegation commits uncommitted work (the parent's before a child's
-    worktree is carved, the child's on its own branch when its run ends), and,
+    that a delegation commits uncommitted work (the parent's off-branch before
+    a child's worktree is carved from it, reaching the parent's branch only
+    once the child has started; the child's on its own branch when its run
+    ends), and,
     in another, which headless posture the default agent takes and how to
     change it. The project it leaves has a default agent whose headless runs
     accept file edits without asking.

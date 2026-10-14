@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
@@ -286,7 +287,7 @@ type Cells struct {
 	// cell, which relocates and probes but creates no checkout, scratch or
 	// session home.
 	preview bool
-	// Git overrides the git seam the parent commit uses (nil selects the
+	// Git overrides the git seam the parent snapshot uses (nil selects the
 	// real binary).
 	Git git.Git
 }
@@ -346,9 +347,16 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	env, err := c.environment(ctx, req, spec)
 	found := strictness.Since(mark)
 	strictness.Close(mark)
+	if err != nil {
+		// No environment: a child branch carved on the way is the launch's
+		// to remove, and the parent was never touched.
+		commits.abandoned()
+	} else if commits != nil {
+		env = parentCommitEnvironment{Environment: env, commits: commits}
+	}
 	if cerr := commits.refusal(); cerr != nil {
-		// The parent commit could not be made: returned as it was phrased,
-		// since the runtime is not what failed.
+		// The parent snapshot could not be made: returned as it was
+		// phrased, since the runtime is not what failed.
 		return launch.Cell{}, cerr
 	}
 	if errors.Is(err, engine.ErrNoCredential) || errors.Is(err, launch.ErrWorkspaceUnadoptable) {
@@ -382,9 +390,10 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 // credentials its agent authenticates with.
 //
 // commits, when the cell is a delegated child's worktree (parentCommit),
-// commits the parent before a NEW checkout is carved
-// (isolation.SpecBuilder.BeforeCheckout) and the child's checkout when it is
-// torn down (isolation.SpecBuilder.CommitOnTeardown); nil for neither.
+// snapshots the parent and names the snapshot as the commit a NEW checkout
+// is carved from (isolation.SpecBuilder.BeforeCheckout), and commits the
+// child's checkout when it is torn down
+// (isolation.SpecBuilder.CommitOnTeardown); nil for neither.
 func (c Cells) spec(ctx context.Context, req launch.CellRequest, harp string, commits *parentCommit) (isolation.Spec, engine.Credentials, error) {
 	// The resolver settled the home mode from the binding's declaration;
 	// re-parsed here through the vocabulary's own parser so the cell never
@@ -441,24 +450,36 @@ func (c Cells) environment(ctx context.Context, req launch.CellRequest, spec iso
 }
 
 // parentCommit is the commit on each side of a delegated child's worktree
-// run (the rationale is with commitParentTree): the parent's uncommitted and
-// untracked state is committed before a NEW checkout is carved from the
-// parent's HEAD, and the child's checkout commits whatever it holds
-// uncommitted on its own branch when the cell is torn down, however the run
-// ended. A delegated child's concern only: the originator who asked for a
-// worktree is at the terminal with the tree in front of them.
+// run (the rationale is with snapshotParentTree): the parent's uncommitted
+// and untracked state is snapshotted OFF-BRANCH before a NEW checkout is
+// carved, the checkout is carved from the snapshot, and the parent's branch
+// advances to it only once the child is up; the child's checkout commits
+// whatever it holds uncommitted on its own branch when the cell is torn
+// down, however the run ended. A delegated child's concern only: the
+// originator who asked for a worktree is at the terminal with the tree in
+// front of them.
 //
-// The parent commit runs from isolation's BeforeCheckout hook, NOT ahead of
-// the launch, which is what keeps it from stranding a commit no child sees:
+// Its three moments:
 //
-//   - it runs only once isolation is about to carve the checkout, after the
-//     container gate and the occupied-path check, and only while no
-//     isolation finding that refuses the run has been recorded in this
-//     launch's window (isolationGateErr over the findings so far) — a launch
-//     that goes on to fail commits nothing;
-//   - it does not run for a resume that re-enters its own checkout or its
-//     own branch: that checkout is on the child's branch and never sees a new
-//     commit on the parent's.
+//   - beforeCheckout, isolation's BeforeCheckout hook: runs only once
+//     isolation is about to carve the checkout, after the container gate
+//     and the occupied-path check, and only while no isolation finding that
+//     refuses the run has been recorded in this launch's window
+//     (isolationGateErr over the findings so far). It never runs for a
+//     resume that re-enters its own checkout or its own branch. It builds
+//     the snapshot and names it as the carve's base; nothing on the
+//     parent's side changes.
+//   - started, when the cell's environment Start (or Interactive) returns:
+//     the child is UP — its runner started where it runs, a container
+//     observed running — so no workspace, isolation or container-start
+//     failure can follow. The parent's branch advances to the snapshot by a
+//     compare-and-swap from the HEAD the snapshot sits on, and the parent's
+//     index is reset to it. A branch that moved meanwhile is left alone,
+//     and said so loudly.
+//   - abandoned, when the cell is torn down (or never built) before it was
+//     up: the child's freshly carved branch — the only ref holding the
+//     snapshot — is deleted, by a compare-and-swap from the commit it was
+//     carved at. The parent was never touched.
 //
 // A nil parentCommit is a launch none of this governs; its methods are
 // nil-safe.
@@ -470,8 +491,20 @@ type parentCommit struct {
 	// mark is the launch's findings window, opened just before the
 	// environment is prepared (opened); the hook reads the findings so far.
 	mark strictness.Mark
-	// err is the parent commit's own refusal.
+	// err is the parent snapshot's own refusal.
 	err error
+
+	mu sync.Mutex
+	// snap is the parent's snapshot, zero when nothing was snapshotted.
+	snap parentSnapshot
+	// child and base are the branch carved for the child and the commit it
+	// was carved at; zero until a checkout is carved, and cleared once the
+	// branch is deleted. base is "" when it could not be resolved, which
+	// leaves the branch in place.
+	child git.Branch
+	base  string
+	// up is set once the child's environment started.
+	up bool
 }
 
 // parentCommit is the request's commits, or nil when the cell is not a
@@ -494,26 +527,132 @@ func (p *parentCommit) opened(mark strictness.Mark) {
 	}
 }
 
-// beforeCheckout commits the parent, unless the launch is already refused: a
-// commit for a run that will not start is a commit no child sees. That
-// refusal is the isolation gate's, which Prepare reports.
-func (p *parentCommit) beforeCheckout(ctx context.Context) error {
+// beforeCheckout snapshots the parent and returns the commit the child's
+// new branch is carved from: the snapshot, or the parent's HEAD when there
+// is nothing to snapshot. A launch already refused is refused here, before
+// anything is made: that refusal is the isolation gate's, which Prepare
+// reports.
+func (p *parentCommit) beforeCheckout(ctx context.Context, child git.Branch) (string, error) {
 	if gerr := isolationGateErr(p.mode, strictness.Since(p.mark)); gerr != nil {
-		return gerr
+		return "", gerr
 	}
-	if err := commitParentTree(ctx, p.git, p.project, p.harp); err != nil {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	snap, err := snapshotParentTree(ctx, p.git, p.project, p.harp)
+	if err != nil {
 		p.err = err
-		return err
+		return "", err
 	}
-	return nil
+	p.snap = snap
+	base := snap.commit
+	if base == "" {
+		// Nothing to snapshot: the child is carved from HEAD, pinned here so
+		// an abandoned launch deletes exactly the branch it carved. Best
+		// effort, like the dirty probe: unresolved, it carves from "HEAD".
+		base, _ = p.git.HeadSHA(ctx, p.project)
+	}
+	p.child, p.base = child, base
+	return base, nil
 }
 
-// refusal is the parent commit's own refusal, nil for none.
+// upTimeout bounds the parent-side git work at the child's start and its
+// abandonment, which run on a context of their own: the launch's may end the
+// moment the runner is up.
+const upTimeout = 30 * time.Second
+
+// started is the child up: the parent's branch advances to the snapshot,
+// unless it moved since the snapshot was taken, which is said loudly and
+// left alone. Once.
+func (p *parentCommit) started(ctx context.Context) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.up {
+		return
+	}
+	p.up = true
+	if p.snap.commit == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), upTimeout)
+	defer cancel()
+	s := p.snap
+	err := p.git.AdvanceBranch(ctx, p.project, s.branch, s.commit, s.head)
+	switch {
+	case err == nil:
+	case errors.Is(err, git.ErrRefMoved):
+		clidiag.Warn("ctxloom", "agent_run: delegated agent %q started from snapshot %s of %s, but branch %q moved while it was launching (%v), so it was NOT advanced to the snapshot: %s is not on %q, and %s still holds those changes uncommitted. The agent's work merges back from its own branch as usual.",
+			p.harp, shortSHA(s.commit), p.project, s.branch, err, shortSHA(s.commit), s.branch, p.project)
+	default:
+		clidiag.Warn("ctxloom", "agent_run: delegated agent %q started from snapshot %s of %s, but advancing branch %q to it failed: %v. The snapshot may not be on %q; the agent's work merges back from its own branch as usual.",
+			p.harp, shortSHA(s.commit), p.project, s.branch, err, s.branch)
+	}
+}
+
+// abandoned is the cell gone before the child was up: the branch carved for
+// it is deleted — only while it is still at the commit it was carved at and
+// no checkout holds it. Once.
+func (p *parentCommit) abandoned() {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.up || p.child.IsZero() || p.base == "" {
+		return
+	}
+	child, base := p.child, p.base
+	p.child, p.base = git.Branch{}, ""
+	ctx, cancel := context.WithTimeout(context.Background(), upTimeout)
+	defer cancel()
+	if exists, err := p.git.BranchExists(ctx, p.project, child); err != nil || !exists {
+		return
+	}
+	if err := p.git.DeleteBranchAt(ctx, p.project, child, base); err != nil {
+		clidiag.Warn("ctxloom", "agent_run: delegated agent %q never started, but its branch %q could not be removed: %v", p.harp, child, err)
+	}
+}
+
+// refusal is the parent snapshot's own refusal, nil for none.
 func (p *parentCommit) refusal() error {
 	if p == nil {
 		return nil
 	}
 	return p.err
+}
+
+// parentCommitEnvironment is a delegated child's worktree environment with
+// its parentCommit's moments bound to it: a Start or Interactive that
+// returns is the child up (started), and a Cleanup is the cell's end
+// (abandoned, a no-op once the child was up). Every start path reaches the
+// environment through the cell's Handle (EnvironmentOf), so none bypasses it.
+type parentCommitEnvironment struct {
+	isolation.Environment
+	commits *parentCommit
+}
+
+func (e parentCommitEnvironment) Start(ctx context.Context, r isolation.RunnerRequest) (*isolation.RunnerHandle, error) {
+	h, err := e.Environment.Start(ctx, r)
+	if err == nil {
+		e.commits.started(ctx)
+	}
+	return h, err
+}
+
+func (e parentCommitEnvironment) Interactive(ctx context.Context, r isolation.RunnerRequest) (isolation.Interactive, error) {
+	in, err := e.Environment.Interactive(ctx, r)
+	if err == nil {
+		e.commits.started(ctx)
+	}
+	return in, err
+}
+
+func (e parentCommitEnvironment) Cleanup() error {
+	err := e.Environment.Cleanup()
+	e.commits.abandoned()
+	return err
 }
 
 // endpointMinter mints the session's MCP endpoint on the host: a reserved

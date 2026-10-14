@@ -100,7 +100,7 @@ func TestPrepareChain_AnUnadoptableCheckoutIsNotALostContainer(t *testing.T) {
 // End to end on the host worktree axis, against real git: a resume whose
 // checkout path holds a worktree on another branch is REFUSED with the
 // typed error — not degraded to the parent's live tree — and the
-// BeforeCheckout hook (the parent commit) never runs.
+// BeforeCheckout hook (the parent snapshot) never runs.
 func TestPrepare_AnUnadoptableCheckoutRefusesTheRunAndCommitsNothing(t *testing.T) {
 	home := fakeHostHome(t, tokenFixture)
 	project := gitRepo(t)
@@ -112,9 +112,9 @@ func TestPrepare_AnUnadoptableCheckoutRefusesTheRunAndCommitsNothing(t *testing.
 	t.Cleanup(func() { _ = os.RemoveAll(path) })
 
 	calls := 0
-	env, err := Prepare(context.Background(), hookedSpec(t, home, project, func(context.Context) error {
+	env, err := Prepare(context.Background(), hookedSpec(t, home, project, func(context.Context, git.Branch) (string, error) {
 		calls++
-		return nil
+		return "", nil
 	}))
 
 	require.ErrorIs(t, err, launch.ErrWorkspaceUnadoptable)

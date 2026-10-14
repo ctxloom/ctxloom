@@ -2,24 +2,32 @@ package git
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
-// execGit is the default Git: it shells out to the system git binary. Stateless —
-// every method receives its working directory, so one instance is safe to share
-// across the concurrent fan-out.
-type execGit struct{}
+// execGit is the default Git: it shells out to the system git binary. Stateless
+// beyond its filesystem — every method receives its working directory, so one
+// instance is safe to share across the concurrent fan-out. fs is where the few
+// files ctxloom itself writes beside git's own (SnapshotCommit's private index)
+// are written and removed, through safefs.
+type execGit struct{ fs afero.Fs }
 
 // NewExec returns the default git binary-backed implementation.
-func NewExec() Git { return execGit{} }
+func NewExec() Git { return execGit{fs: safefs.New().Fs} }
 
 // isRepoTimeout bounds the non-context IsRepo probe (it satisfies a bool-returning
 // signature, so it self-limits rather than blocking indefinitely).
@@ -202,7 +210,10 @@ func (execGit) ListTracked(ctx context.Context, dir string, pathspecs ...string)
 // IsDirty reports whether the working tree at dir has uncommitted OR untracked
 // changes (porcelain output non-empty).
 func (execGit) IsDirty(ctx context.Context, dir string) (bool, error) {
-	out, err := output(ctx, dir, "status", "--porcelain")
+	// --no-optional-locks: a probe must not write the index back after
+	// refreshing its stat cache — it runs on a delegating parent's tree,
+	// whose index nothing may write before its child is up.
+	out, err := output(ctx, dir, "--no-optional-locks", "status", "--porcelain")
 	if err != nil {
 		return false, err
 	}
@@ -307,7 +318,7 @@ func (execGit) WorkingChanges(ctx context.Context, dir string, maxEntries int) (
 	if maxEntries <= 0 {
 		maxEntries = defaultWorkingChangesMax
 	}
-	out, err := output(ctx, dir, "status", "--porcelain", "-uall")
+	out, err := output(ctx, dir, "--no-optional-locks", "status", "--porcelain", "-uall") // a probe: see IsDirty
 	if err != nil {
 		return nil, err
 	}
@@ -370,6 +381,135 @@ func (g execGit) CommitAll(ctx context.Context, dir, message string) (string, []
 		return postSHA, nil, fmt.Errorf("commit %s landed but verifying its content failed: %w", postSHA, err)
 	}
 	return postSHA, changed, nil
+}
+
+// SnapshotCommit commits dir's working tree OFF-BRANCH: every change git
+// calls dirty (git add -A: tracked changes and untracked, not ignored,
+// files) is staged into a PRIVATE copy of dir's index (GIT_INDEX_FILE), the
+// tree written from it, and a commit made of that tree on top of HEAD with
+// `git commit-tree`. No ref moves, and dir's real index and working tree
+// are never written — see the Git interface doc.
+func (g execGit) SnapshotCommit(ctx context.Context, dir, message string) (string, string, error) {
+	head, err := revParse(ctx, dir, "HEAD^{commit}")
+	if err != nil {
+		return "", "", fmt.Errorf("resolving HEAD: %w", err)
+	}
+	headTree, err := revParse(ctx, dir, "HEAD^{tree}")
+	if err != nil {
+		return "", "", fmt.Errorf("resolving HEAD's tree: %w", err)
+	}
+	index, err := g.privateIndex(ctx, dir)
+	if err != nil {
+		return "", "", err
+	}
+	defer func() { _ = g.fs.Remove(index) }()
+	env := []string{"GIT_INDEX_FILE=" + index}
+	if _, err := outputEnv(ctx, dir, "", env, "add", "-A"); err != nil {
+		return "", "", fmt.Errorf("staging the snapshot: %w", err)
+	}
+	treeOut, err := outputEnv(ctx, dir, "", env, "write-tree")
+	if err != nil {
+		return "", "", fmt.Errorf("writing the snapshot's tree: %w", err)
+	}
+	tree := strings.TrimSpace(treeOut)
+	if tree == headTree {
+		return "", head, nil
+	}
+	args := []string{"commit-tree", tree, "-p", head, "-F", "-"}
+	if signed, _ := output(ctx, dir, "config", "--type=bool", "--get", "commit.gpgSign"); strings.TrimSpace(signed) == "true" {
+		// `git commit` signs under commit.gpgSign; commit-tree only when told.
+		args = append(args, "-S")
+	}
+	out, err := outputStdin(ctx, dir, message, args...)
+	if err != nil {
+		return "", "", fmt.Errorf("committing the snapshot: %w", err)
+	}
+	return strings.TrimSpace(out), head, nil
+}
+
+// privateIndex is a temporary copy of dir's index, beside it in the git dir
+// (where a split index finds its shared part), for a caller to stage into
+// without touching the real one: a copy keeps what HEAD's tree cannot say —
+// skip-worktree and sparse entries, force-added files, the stat cache. A
+// repository with no index file yet gets a private index read from HEAD by
+// git itself. The caller removes it.
+func (g execGit) privateIndex(ctx context.Context, dir string) (string, error) {
+	out, err := output(ctx, dir, "rev-parse", "--path-format=absolute", "--git-path", "index")
+	if err != nil {
+		return "", fmt.Errorf("locating the index: %w", err)
+	}
+	real := strings.TrimSpace(out)
+	var nonce [8]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return "", fmt.Errorf("naming a private index: %w", err)
+	}
+	path := filepath.Join(filepath.Dir(real), "ctxloom-snapshot-index-"+hex.EncodeToString(nonce[:]))
+	data, err := afero.ReadFile(g.fs, real)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		if _, err := outputEnv(ctx, dir, "", []string{"GIT_INDEX_FILE=" + path}, "read-tree", "HEAD"); err != nil {
+			_ = g.fs.Remove(path)
+			return "", fmt.Errorf("reading HEAD into a private index: %w", err)
+		}
+		return path, nil
+	case err != nil:
+		return "", fmt.Errorf("reading the index: %w", err)
+	}
+	if err := safefs.WriteFile(g.fs, path, data, 0o600); err != nil {
+		return "", fmt.Errorf("copying the index: %w", err)
+	}
+	return path, nil
+}
+
+// AdvanceBranch moves branch from `from` to `to` with a compare-and-swap
+// (git update-ref <ref> <to> <from>), then, when dir's HEAD is still on
+// branch, resets dir's index to the new HEAD (git reset -q: mixed, the
+// working tree untouched). A branch no longer at `from` is ErrRefMoved.
+func (execGit) AdvanceBranch(ctx context.Context, dir string, branch Branch, to, from string) error {
+	if branch.IsZero() {
+		return fmt.Errorf("git update-ref: no branch named")
+	}
+	if err := run(ctx, dir, "update-ref", "-m", "ctxloom: advance to the delegation snapshot", branch.Ref(), to, from); err != nil {
+		if cur, rerr := revParse(ctx, dir, branch.Ref()); rerr == nil && cur != from {
+			return fmt.Errorf("%w: %s is at %s, not %s", ErrRefMoved, branch, cur, from)
+		}
+		return err
+	}
+	sym, err := output(ctx, dir, "symbolic-ref", "-q", "HEAD")
+	if err != nil || strings.TrimSpace(sym) != branch.Ref() {
+		return nil
+	}
+	if err := run(ctx, dir, "reset", "-q"); err != nil {
+		return fmt.Errorf("%s advanced to %s, but resetting the index to it failed: %w", branch, to, err)
+	}
+	return nil
+}
+
+// DeleteBranchAt deletes branch only while it is at `at` (git update-ref -d
+// <ref> <at>) and checked out in no worktree.
+func (g execGit) DeleteBranchAt(ctx context.Context, repoDir string, branch Branch, at string) error {
+	if branch.IsZero() {
+		return fmt.Errorf("git update-ref -d: no branch named")
+	}
+	list, err := g.WorktreeList(ctx, repoDir)
+	if err != nil {
+		return err
+	}
+	for _, wt := range list {
+		if wt.Branch == branch {
+			return fmt.Errorf("branch %s is checked out at %s", branch, wt.Path)
+		}
+	}
+	return run(ctx, repoDir, "update-ref", "-m", "ctxloom: drop a checkout's branch whose run never started", "-d", branch.Ref(), at)
+}
+
+// revParse resolves rev to an object name in dir.
+func revParse(ctx context.Context, dir, rev string) (string, error) {
+	out, err := output(ctx, dir, "rev-parse", "--verify", "-q", rev)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // preCommitHead resolves dir's current HEAD commit, or "" when HEAD is UNBORN
@@ -649,11 +789,18 @@ func output(ctx context.Context, dir string, args ...string) (string, error) {
 // otherwise hit argv length/quoting limits on a large diff or a multi-line
 // commit message).
 func outputStdin(ctx context.Context, dir, stdin string, args ...string) (string, error) {
+	return outputEnv(ctx, dir, stdin, nil, args...)
+}
+
+// outputEnv is outputStdin with extra entries appended to the sanitized
+// environment — for the one variable a command needs that the sanitizer
+// strips on purpose (GIT_INDEX_FILE for SnapshotCommit's private index).
+func outputEnv(ctx context.Context, dir, stdin string, extraEnv []string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	cmd.Env = gitutil.SanitizedEnviron()
+	cmd.Env = append(gitutil.SanitizedEnviron(), extraEnv...)
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -30,8 +31,8 @@ type Spec struct {
 	creds      engine.Credentials
 	envHost    agents.EnvHost
 	// beforeCheckout runs once a NEW worktree checkout is about to be carved
-	// (BeforeCheckout); nil for none.
-	beforeCheckout func(context.Context) error
+	// and names what it is carved from (BeforeCheckout); nil for none.
+	beforeCheckout CheckoutHook
 	// commitOnTeardown commits the checkout's uncommitted work on its own
 	// branch when the environment is torn down (CommitOnTeardown).
 	commitOnTeardown bool
@@ -115,15 +116,21 @@ func (b *SpecBuilder) EnvHost(h agents.EnvHost) *SpecBuilder {
 	return b
 }
 
+// CheckoutHook is called with the NEW branch a worktree checkout is about to
+// be carved on, and returns the commit to carve it from: "" carves from the
+// project's HEAD. An error refuses the run.
+type CheckoutHook func(ctx context.Context, branch git.Branch) (base string, err error)
+
 // BeforeCheckout is called immediately before the run's worktree checkout
-// is carved from the project's HEAD — after every isolation precondition the
-// chain checks before that point (the container gate, the ownership check of
-// an occupied checkout path) has passed — and never when no checkout is
-// carved: a run without the worktree axis, one degraded off it, and a resume
-// that REUSES its own surviving checkout, which a new commit on the
-// project's branch would not reach anyway. An error refuses the run: Prepare
-// returns it as is, and the chain does not degrade past it.
-func (b *SpecBuilder) BeforeCheckout(fn func(context.Context) error) *SpecBuilder {
+// is carved — after every isolation precondition the chain checks before
+// that point (the container gate, the ownership check of an occupied
+// checkout path) has passed — and the checkout's new branch starts at the
+// commit it returns (the project's HEAD for ""). It is never called when no
+// checkout is carved: a run without the worktree axis, one degraded off it,
+// and a resume that REUSES its own surviving checkout or re-enters its own
+// branch. An error refuses the run: Prepare returns it as is, and the chain
+// does not degrade past it.
+func (b *SpecBuilder) BeforeCheckout(fn CheckoutHook) *SpecBuilder {
 	b.s.beforeCheckout = fn
 	return b
 }
@@ -143,7 +150,7 @@ func (s Spec) CommitsOnTeardown() bool { return s.commitOnTeardown }
 
 // BeforeCheckoutHook is the hook BeforeCheckout set, nil for none: what an
 // environment stand-in that carves a checkout must run first, as Prepare does.
-func (s Spec) BeforeCheckoutHook() func(context.Context) error { return s.beforeCheckout }
+func (s Spec) BeforeCheckoutHook() CheckoutHook { return s.beforeCheckout }
 
 // curatedEnv is the EnvHost a host engine is launched under: the
 // declaration, with the engine's own home var names kept when it is curated

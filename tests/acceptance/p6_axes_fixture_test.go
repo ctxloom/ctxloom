@@ -52,8 +52,8 @@ func TestP6Fixture_ContainerCellIsNotAHostCellWearingALabel(t *testing.T) {
 		"runtime must be indented under the agent binding, as j002200ConfigYAML's mock-container binding writes it")
 	// ctxloom's own managed files (.ctxloom/project-id, .claude/settings.json,
 	// .claude/commands/*) are written during session startup, AFTER the fixture
-	// commits; the worktree cell carries them across by the parent commit
-	// ctxloom makes before carving the child's checkout. There is no key for
+	// commits; the worktree cell carries them across by the parent snapshot
+	// ctxloom carves the child's checkout from. There is no key for
 	// it: neither cell may write the retired dirty_tree_handler.
 	assert.NotContains(t, ctr, "dirty_tree_handler", "the key is retired")
 	assert.NotContains(t, host, "dirty_tree_handler", "the key is retired")

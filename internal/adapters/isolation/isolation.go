@@ -618,7 +618,7 @@ func withSessionState(chain []policy, state SessionState) []policy {
 // CommitOnTeardown), stamped onto every link that can carve a worktree
 // checkout.
 type checkoutStamps struct {
-	beforeCheckout   func(context.Context) error
+	beforeCheckout   CheckoutHook
 	commitOnTeardown bool
 }
 

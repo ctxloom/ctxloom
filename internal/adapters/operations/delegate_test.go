@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -65,14 +62,16 @@ func TestCellsPrepare_ContainerDegradeGate(t *testing.T) {
 	})
 }
 
-// ===== Dirty-parent-tree spawn: the parent commit =====
+// ===== Dirty-parent-tree spawn: the parent snapshot =====
 //
 // Worktree isolation carves a branch with `git worktree add -b` — a checkout
 // of COMMITTED state only. A delegated child spawned into a NEW worktree
 // while the parent's own project tree carries uncommitted changes gets them
-// by the parent commit (commitParentTree). These pin that commit, when it
-// does and does not happen, and that it never triggers when the resolved
-// axis isn't worktree at all.
+// from the parent snapshot (snapshotParentTree), an off-branch commit its
+// branch is carved from; the parent's branch advances to it once the child
+// has started. These pin the snapshot, when it does and does not happen,
+// and that it never triggers when the resolved axis isn't worktree at all.
+// parent_snapshot_test.go drives the same over real git.
 
 // captureWarnings redirects clidiag's Warn/WarnOnce sink to a buffer for the
 // test's duration, returning it so assertions can inspect the exact printed
@@ -85,7 +84,7 @@ func captureWarnings(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// TestCommitParentTree_IsDirtyErrorIsInspected pins the second of the two
+// TestSnapshotParentTree_IsDirtyErrorIsInspected pins the second of the two
 // production IsDirty call sites against the claim that a caller
 // writing `dirty, _ := IsDirty(…)` would silently receive the UNSAFE zero
 // value. No such caller exists: isolation's unsafeToRemove is fail-closed
@@ -98,7 +97,7 @@ func captureWarnings(t *testing.T) *bytes.Buffer {
 // that an IsDirty error yields the no-op outcome BY DECISION, so a future
 // `dirty, _ :=` — which would reach the same outcome by accident, and reach a
 // wrong one the moment this gate's policy changes — is a visible change here.
-func TestCommitParentTree_IsDirtyErrorIsInspected(t *testing.T) {
+func TestSnapshotParentTree_IsDirtyErrorIsInspected(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{
 		DirtyErr: assert.AnError,
@@ -107,9 +106,10 @@ func TestCommitParentTree_IsDirtyErrorIsInspected(t *testing.T) {
 		Dirty:   map[string]bool{"/proj": true},
 		Changes: []string{" M internal/foo.go"},
 	}
-	err := commitParentTree(context.Background(), fake, "/proj", "coder")
+	snap, err := snapshotParentTree(context.Background(), fake, "/proj", "coder")
 	require.NoError(t, err, "an unreadable dirty state degrades to a no-op gate; it must never block the spawn")
-	assert.Empty(t, fake.CommitMessages, "and must not commit on state it could not read")
+	assert.Zero(t, snap)
+	assert.Empty(t, fake.SnapshotMessages, "and must not snapshot state it could not read")
 }
 
 // ----- workspace: none / clean tree escape hatches -----
@@ -117,7 +117,7 @@ func TestCommitParentTree_IsDirtyErrorIsInspected(t *testing.T) {
 // TestCellsPrepare_DirtyParentTree_ExplicitNoneStillAllowed: a dirty parent
 // tree is never committed for a spawn that explicitly opts OUT of worktree
 // isolation, because a shared-checkout child sees the live tree exactly
-// as-is — dirtiness is irrelevant to it, and the parent commit never runs.
+// as-is — dirtiness is irrelevant to it, and the parent snapshot never runs.
 func TestCellsPrepare_DirtyParentTree_ExplicitNoneStillAllowed(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}}
@@ -135,12 +135,12 @@ func TestCellsPrepare_DirtyParentTree_ExplicitNoneStillAllowed(t *testing.T) {
 }
 
 // TestCellsPrepare_CleanParentTree_WorktreeAllowed is the negative
-// control: a clean parent tree is never committed, even when the
+// control: a clean parent tree is never snapshotted, even when the
 // resolved axis IS worktree.
 func TestCellsPrepare_CleanParentTree_WorktreeAllowed(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": false}}
-	stubCarvingEnvironment(t, "/proj")
+	stubCarvingEnvironment(t, "/proj", nil)
 
 	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
 	p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
@@ -153,147 +153,113 @@ func TestCellsPrepare_CleanParentTree_WorktreeAllowed(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = p.Cleanup() }()
 	assert.Empty(t, strictness.All())
+	assert.Empty(t, fake.SnapshotMessages)
 }
 
 // ----- commit -----
 
-// TestCommitParentTree_Commit_DetachedHeadRefuses pins the grandchild-
+// TestSnapshotParentTree_DetachedHeadRefuses pins the grandchild-
 // coherence guard: committing inside a detached-HEAD checkout (exactly what
 // a delegated child's OWN worktree looks like) would land on no branch and
 // could be silently discarded when that worktree is torn down.
-func TestCommitParentTree_Commit_DetachedHeadRefuses(t *testing.T) {
+func TestSnapshotParentTree_DetachedHeadRefuses(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{
 		Dirty:                 map[string]bool{"/child-wt": true},
 		Changes:               []string{" M f.go"},
 		CurrentBranchDetached: true, // git's own "HEAD" sentinel, surfaced as the zero Branch
 	}
-	err := commitParentTree(context.Background(), fake, "/child-wt", "grandchild")
+	_, err := snapshotParentTree(context.Background(), fake, "/child-wt", "grandchild")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "detached-HEAD")
-	assert.Empty(t, fake.CommitMessages, "never even attempts the commit")
+	assert.Empty(t, fake.SnapshotMessages, "never even attempts the snapshot")
 }
 
-// TestCommitParentTree_Commit_CurrentBranchErrorRefuses pins the fix:
+// TestSnapshotParentTree_CurrentBranchErrorRefuses pins the fix:
 // before it, `branch, _ := gitClient.CurrentBranch(...)` discarded the
 // error, leaving branch=="" — which is NOT "HEAD", so the detached-HEAD guard
 // above never fired and the commit proceeded on an unresolvable branch name.
 // An unresolvable branch is exactly the condition the guard exists to catch
 // (the caller cannot tell whether this is a bare checkout), so it must refuse
 // rather than silently treat the error as "not detached".
-func TestCommitParentTree_Commit_CurrentBranchErrorRefuses(t *testing.T) {
+func TestSnapshotParentTree_CurrentBranchErrorRefuses(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{
 		Dirty:            map[string]bool{"/child-wt": true},
 		Changes:          []string{" M f.go"},
 		CurrentBranchErr: fmt.Errorf("git rev-parse: unknown revision or path not in the working tree"),
 	}
-	err := commitParentTree(context.Background(), fake, "/child-wt", "grandchild")
+	_, err := snapshotParentTree(context.Background(), fake, "/child-wt", "grandchild")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "could not determine", "names the failure rather than silently guessing a branch")
 	assert.Contains(t, err.Error(), "unknown revision", "carries the underlying git error")
-	assert.Empty(t, fake.CommitMessages, "never even attempts the commit")
+	assert.Empty(t, fake.SnapshotMessages, "never even attempts the snapshot")
 }
 
-// TestCommitParentTree_Commit_WarnsAndCommits pins the commit path:
-// it warns (naming the branch and the bounded file list) BEFORE mutating, then
-// stages and commits everything (git add -A shape) with the documented
-// message format, and verifies the commit actually captured content.
-func TestCommitParentTree_Commit_WarnsAndCommits(t *testing.T) {
+// TestSnapshotParentTree_SnapshotsOffBranchAndSaysSo pins the snapshot
+// path: it commits everything (the git add -A shape) OFF-BRANCH under the
+// documented message, moves no ref, and announces the snapshot naming the
+// branch that will advance to it and the bounded file list.
+func TestSnapshotParentTree_SnapshotsOffBranchAndSaysSo(t *testing.T) {
 	resetStrictness(t)
 	buf := captureWarnings(t)
 	fake := &git.Fake{
 		Dirty:              map[string]bool{"/proj": true},
 		Changes:            []string{" M internal/foo.go", "?? internal/bar.go"},
 		CurrentBranchValue: git.MustParseBranch("main"),
-		CommitAllSHA:       "abc123",
-		CommitAllChanged:   []string{"internal/foo.go", "internal/bar.go"},
+		SnapshotSHA:        "abc123def4567890",
+		SnapshotHead:       "0ld",
 	}
-	err := commitParentTree(context.Background(), fake, "/proj", "coder")
+	snap, err := snapshotParentTree(context.Background(), fake, "/proj", "coder")
 	require.NoError(t, err)
+	assert.Equal(t, parentSnapshot{branch: git.MustParseBranch("main"), head: "0ld", commit: "abc123def4567890"}, snap,
+		"the snapshot carries the compare-and-swap the branch advances by")
 
 	warned := buf.String()
-	assert.Contains(t, warned, "main", "the warning names the branch")
+	assert.Contains(t, warned, "main", "the notice names the branch")
+	assert.Contains(t, warned, "abc123def456", "and the snapshot")
 	assert.Contains(t, warned, "internal/foo.go")
 	assert.Contains(t, warned, "internal/bar.go")
 	assert.Contains(t, warned, "coder")
-	assert.NotContains(t, warned, "dirty_tree_handler", "commit is the only behaviour; the warning offers no alternatives")
+	assert.NotContains(t, warned, "dirty_tree_handler", "the snapshot is the only behaviour; the notice offers no alternatives")
 
-	require.Len(t, fake.CommitMessages, 1)
-	msg := fake.CommitMessages[0]
+	require.Len(t, fake.SnapshotMessages, 1)
+	msg := fake.SnapshotMessages[0]
 	assert.True(t, strings.HasPrefix(msg, "ctxloom: commit working tree before delegating to coder\n"), "the subject names the delegated agent")
-	assert.NotContains(t, msg, "dirty_tree_handler")
-	assert.Contains(t, fake.Calls, "commit-all /proj")
+	assert.Equal(t, []string{"snapshot /proj"}, fake.Calls, "a snapshot, and nothing that moves a ref or commits in place")
 }
 
-// TestCommitParentTree_Commit_EmptyCommitRefusesLoud pins the
-// empty-commit safety net: CommitAll reporting success but an empty
-// changed-files diff (this codebase's documented empty-commit pre-commit-
-// hook history) must refuse rather than spawn the child against what may be
-// nothing.
-func TestCommitParentTree_Commit_EmptyCommitRefusesLoud(t *testing.T) {
+// TestSnapshotParentTree_ATreeEqualToHeadIsNoSnapshot: a status git calls
+// dirty whose staged tree nonetheless equals HEAD's yields no snapshot — the
+// child is carved from HEAD — and no notice.
+func TestSnapshotParentTree_ATreeEqualToHeadIsNoSnapshot(t *testing.T) {
+	resetStrictness(t)
+	buf := captureWarnings(t)
+	fake := &git.Fake{
+		Dirty:              map[string]bool{"/proj": true},
+		Changes:            []string{" M internal/foo.go"},
+		CurrentBranchValue: git.MustParseBranch("main"),
+	}
+	snap, err := snapshotParentTree(context.Background(), fake, "/proj", "coder")
+	require.NoError(t, err)
+	assert.Zero(t, snap)
+	assert.Empty(t, buf.String())
+}
+
+// TestSnapshotParentTree_ASnapshotErrorRefuses pins that a real git failure
+// surfaces verbatim rather than being swallowed: the spawn is refused.
+func TestSnapshotParentTree_ASnapshotErrorRefuses(t *testing.T) {
 	resetStrictness(t)
 	captureWarnings(t)
 	fake := &git.Fake{
 		Dirty:              map[string]bool{"/proj": true},
 		Changes:            []string{" M internal/foo.go"},
 		CurrentBranchValue: git.MustParseBranch("main"),
-		CommitAllSHA:       "deadbeef",
-		CommitAllChanged:   nil, // the empty-commit case
+		SnapshotErr:        fmt.Errorf("index.lock exists"),
 	}
-	err := commitParentTree(context.Background(), fake, "/proj", "coder")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "deadbeef")
-	assert.Contains(t, err.Error(), "empty")
-	assert.Contains(t, err.Error(), "main")
-}
-
-// TestCommitParentTree_Commit_CommitAllErrorPropagates pins that a real
-// git failure (not the empty-commit case — an actual error) surfaces
-// verbatim rather than being swallowed.
-func TestCommitParentTree_Commit_CommitAllErrorPropagates(t *testing.T) {
-	resetStrictness(t)
-	captureWarnings(t)
-	fake := &git.Fake{
-		Dirty:              map[string]bool{"/proj": true},
-		Changes:            []string{" M internal/foo.go"},
-		CurrentBranchValue: git.MustParseBranch("main"),
-		CommitAllErr:       fmt.Errorf("index.lock exists"),
-	}
-	err := commitParentTree(context.Background(), fake, "/proj", "coder")
+	_, err := snapshotParentTree(context.Background(), fake, "/proj", "coder")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "index.lock exists")
-}
-
-// TestCellsPrepare_Commit_ChildSeesCommittedContent is the full,
-// REAL-git end-to-end proof that "commit" actually achieves its purpose: an
-// uncommitted file on the parent's branch, once auto-committed, is visible
-// to a FRESH worktree checked out from HEAD afterward — exactly what a
-// delegated child's own worktree creation does next. Skips cleanly when git
-// is unavailable.
-func TestCellsPrepare_Commit_ChildSeesCommittedContent(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH; skipping real-git parent-commit integration test")
-	}
-	resetStrictness(t)
-	captureWarnings(t)
-	repo := initTestRepo(t)
-	require.NoError(t, os.WriteFile(filepath.Join(repo, "wip.go"), []byte("package wip"), 0o644))
-
-	real := git.NewExec()
-	err := commitParentTree(context.Background(), real, repo, "coder")
-	require.NoError(t, err)
-
-	dirty, err := real.IsDirty(context.Background(), repo)
-	require.NoError(t, err)
-	assert.False(t, dirty, "the parent tree is clean after the auto-commit")
-
-	// Exactly what worktree isolation does next: a fresh checkout from HEAD.
-	childWT := filepath.Join(t.TempDir(), "child-wt")
-	require.NoError(t, real.WorktreeAdd(context.Background(), repo, childWT, git.MustParseBranch("agent/child"), "HEAD", false))
-	got, err := os.ReadFile(filepath.Join(childWT, "wip.go"))
-	require.NoError(t, err, "the child's worktree sees the file — it is no longer parent-only WIP")
-	assert.Equal(t, "package wip", string(got))
 }
 
 // TestCellsPrepare_OriginatorIsNotCommittedFor: the commits around a
@@ -311,7 +277,7 @@ func TestCellsPrepare_OriginatorIsNotCommittedFor(t *testing.T) {
 	prepareEnvironment = func(ctx context.Context, _ launch.CellRequest, s isolation.Spec) (isolation.Environment, error) {
 		commitsOnTeardown = s.CommitsOnTeardown()
 		if hook := s.BeforeCheckoutHook(); hook != nil {
-			if err := hook(ctx); err != nil {
+			if _, err := hook(ctx, childBranch); err != nil {
 				return nil, err
 			}
 		}
@@ -333,56 +299,146 @@ func TestCellsPrepare_OriginatorIsNotCommittedFor(t *testing.T) {
 }
 
 // TestCellsPrepare_DelegatedChildCommitsAtBothEnds: a delegated child's new
-// worktree commits the parent before it is carved, and asks isolation to
-// commit the child's checkout on its own branch at teardown.
+// worktree is carved from a snapshot of the parent, the parent's branch
+// advances to it only once the child's environment has started, and
+// isolation is asked to commit the child's checkout on its own branch at
+// teardown.
 func TestCellsPrepare_DelegatedChildCommitsAtBothEnds(t *testing.T) {
 	resetStrictness(t)
 	captureWarnings(t)
 	var commitsOnTeardown bool
-	prev := prepareEnvironment
-	prepareEnvironment = func(ctx context.Context, _ launch.CellRequest, s isolation.Spec) (isolation.Environment, error) {
-		commitsOnTeardown = s.CommitsOnTeardown()
-		if err := s.BeforeCheckoutHook()(ctx); err != nil {
-			return nil, err
-		}
-		return stubEnvAt("/proj", nil), nil
-	}
-	t.Cleanup(func() { prepareEnvironment = prev })
+	carved := stubCarvingEnvironment(t, "/proj", func(s isolation.Spec) { commitsOnTeardown = s.CommitsOnTeardown() })
+	fake := commitFixture()
+	fake.ExistingBranches = []git.Branch{childBranch}
+	p, err := prepareDelegatedWorktree(t, fake)
+	require.NoError(t, err)
+	assert.Equal(t, "abc123", *carved, "the child's branch is carved from the snapshot")
+	assert.Empty(t, fake.Advances, "the parent's branch does not move before the child starts")
+	assert.True(t, commitsOnTeardown, "the child's checkout commits its own work at teardown")
+
+	env, ok := EnvironmentOf(p)
+	require.True(t, ok)
+	_, err = env.Start(context.Background(), isolation.RunnerRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"main fake-head-sha->abc123"}, fake.Advances, "once started, the parent's branch advances from the HEAD the snapshot sits on")
+	_, _ = env.Start(context.Background(), isolation.RunnerRequest{})
+	assert.Len(t, fake.Advances, 1, "once")
+
+	require.NoError(t, p.Cleanup())
+	assert.Empty(t, fake.DeletedAt, "a started child's branch is its own; the teardown keeps it")
+}
+
+// TestCellsPrepare_AnAbandonedLaunchDeletesTheCarvedBranch: a cell torn down
+// before its environment started never touches the parent's branch, and
+// removes the branch it carved — by a compare-and-swap from the commit it
+// was carved at.
+func TestCellsPrepare_AnAbandonedLaunchDeletesTheCarvedBranch(t *testing.T) {
+	resetStrictness(t)
+	captureWarnings(t)
+	stubCarvingEnvironment(t, "/proj", nil)
+	fake := commitFixture()
+	fake.ExistingBranches = []git.Branch{childBranch}
+	p, err := prepareDelegatedWorktree(t, fake)
+	require.NoError(t, err)
+
+	require.NoError(t, p.Cleanup())
+	assert.Empty(t, fake.Advances, "the parent's branch never moved")
+	assert.Equal(t, []string{childBranch.Short() + "@abc123"}, fake.DeletedAt, "the carved branch is deleted at its carve point")
+	require.NoError(t, p.Cleanup())
+	assert.Len(t, fake.DeletedAt, 1, "once")
+}
+
+// TestCellsPrepare_ACleanParentIsCarvedFromItsHead: with nothing to
+// snapshot the child is carved from the parent's HEAD, nothing advances at
+// the start, and an abandoned launch deletes the branch at that HEAD.
+func TestCellsPrepare_ACleanParentIsCarvedFromItsHead(t *testing.T) {
+	resetStrictness(t)
+	captureWarnings(t)
+	carved := stubCarvingEnvironment(t, "/proj", nil)
+	fake := &git.Fake{HeadSHAValue: "h3ad", ExistingBranches: []git.Branch{childBranch}}
+	p, err := prepareDelegatedWorktree(t, fake)
+	require.NoError(t, err)
+	assert.Equal(t, "h3ad", *carved)
+
+	require.NoError(t, p.Cleanup())
+	assert.Empty(t, fake.SnapshotMessages)
+	assert.Empty(t, fake.Advances)
+	assert.Equal(t, []string{childBranch.Short() + "@h3ad"}, fake.DeletedAt)
+}
+
+// TestParentCommit_AFailedAdvanceIsSaidAndNotRetried: a parent branch that
+// moved between the carve and the start is left alone, and the launch says
+// so naming the snapshot; the child's start is not undone for it.
+func TestParentCommit_AFailedAdvanceIsSaidAndNotRetried(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	stubCarvingEnvironment(t, "/proj", nil)
+	fake := commitFixture()
+	fake.ExistingBranches = []git.Branch{childBranch}
+	fake.AdvanceErr = fmt.Errorf("%w: main is at h, not fake-head-sha", git.ErrRefMoved)
+	p, err := prepareDelegatedWorktree(t, fake)
+	require.NoError(t, err)
+	env, _ := EnvironmentOf(p)
+	_, err = env.Start(context.Background(), isolation.RunnerRequest{})
+	require.NoError(t, err, "the child is up; a moved parent does not refuse it")
+
+	assert.Contains(t, warnings.String(), "abc123")
+	assert.Contains(t, warnings.String(), "moved")
+	require.NoError(t, p.Cleanup())
+	assert.Empty(t, fake.DeletedAt, "the started child keeps the branch holding the snapshot")
+}
+
+// TestCellsPrepare_AnInteractiveStartIsTheChildUp: an interactive start is
+// the child up as much as a structured one.
+func TestCellsPrepare_AnInteractiveStartIsTheChildUp(t *testing.T) {
+	resetStrictness(t)
+	captureWarnings(t)
+	stubCarvingEnvironment(t, "/proj", nil)
 	fake := commitFixture()
 	p, err := prepareDelegatedWorktree(t, fake)
 	require.NoError(t, err)
-	defer func() { _ = p.Cleanup() }()
-	require.Len(t, fake.CommitMessages, 1, "the parent is committed before the checkout is carved")
-	assert.Contains(t, fake.Calls, "commit-all /proj")
-	assert.True(t, commitsOnTeardown, "the child's checkout commits its own work at teardown")
+	env, _ := EnvironmentOf(p)
+	_, err = env.Interactive(context.Background(), isolation.RunnerRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"main fake-head-sha->abc123"}, fake.Advances)
 }
+
+// childBranch is the branch the carving stand-in carves.
+var childBranch = git.MustParseBranch("ctxloom/coder")
 
 // stubCarvingEnvironment stands in for isolation carving a NEW worktree
 // checkout at dir: it runs the Spec's BeforeCheckout hook first, as
 // isolation.Prepare does just before `git worktree add`, and refuses the run
-// with the hook's error.
-func stubCarvingEnvironment(t *testing.T, dir string) {
+// with the hook's error. It returns where the hook said to carve from; see,
+// when set, is shown the Spec.
+func stubCarvingEnvironment(t *testing.T, dir string, see func(isolation.Spec)) *string {
 	t.Helper()
+	var base string
 	prev := prepareEnvironment
 	prepareEnvironment = func(ctx context.Context, _ launch.CellRequest, s isolation.Spec) (isolation.Environment, error) {
+		if see != nil {
+			see(s)
+		}
 		if hook := s.BeforeCheckoutHook(); hook != nil {
-			if err := hook(ctx); err != nil {
+			b, err := hook(ctx, childBranch)
+			if err != nil {
 				return nil, err
 			}
+			base = b
 		}
 		return stubEnvAt(dir, nil), nil
 	}
 	t.Cleanup(func() { prepareEnvironment = prev })
+	return &base
 }
 
-// commitFixture is a dirty parent tree the parent commit can commit.
+// commitFixture is a dirty parent tree the parent snapshot can snapshot.
 func commitFixture() *git.Fake {
 	return &git.Fake{
 		Dirty:              map[string]bool{"/proj": true},
 		Changes:            []string{" M internal/foo.go"},
 		CurrentBranchValue: git.MustParseBranch("main"),
-		CommitAllSHA:       "abc123",
-		CommitAllChanged:   []string{"internal/foo.go"},
+		SnapshotSHA:        "abc123",
 	}
 }
 
@@ -412,22 +468,22 @@ func TestCellsPrepare_ReusedCheckoutCommitsNoParent(t *testing.T) {
 	p, err := prepareDelegatedWorktree(t, fake)
 	require.NoError(t, err)
 	defer func() { _ = p.Cleanup() }()
-	assert.Empty(t, fake.CommitMessages, "nothing is committed for a checkout that is not carved")
+	assert.Empty(t, fake.SnapshotMessages, "nothing is snapshotted for a checkout that is not carved")
 	assert.Empty(t, fake.Calls, "the parent is not even probed")
 }
 
 // TestCellsPrepare_RefusedLaunchCommitsNothing: a launch that an
 // isolation finding has already refused (here, a container that could not
-// start) does not commit the parent's tree on its way to the refusal — the
-// commit verprop's hoary-quick-elm resume left behind for a run that never
-// started.
+// start) does not snapshot the parent's tree on its way to the refusal —
+// the commit verprop's hoary-quick-elm resume left behind for a run that
+// never started.
 func TestCellsPrepare_RefusedLaunchCommitsNothing(t *testing.T) {
 	resetStrictness(t)
 	captureWarnings(t)
 	prev := prepareEnvironment
 	prepareEnvironment = func(ctx context.Context, _ launch.CellRequest, s isolation.Spec) (isolation.Environment, error) {
 		strictness.FailAlways(report.KindIsolation, "start the runtime", "container isolation was requested but could not start")
-		if err := s.BeforeCheckoutHook()(ctx); err != nil {
+		if _, err := s.BeforeCheckoutHook()(ctx, childBranch); err != nil {
 			return nil, err
 		}
 		return stubEnvAt("/proj", nil), nil
@@ -438,8 +494,8 @@ func TestCellsPrepare_RefusedLaunchCommitsNothing(t *testing.T) {
 	p, err := prepareDelegatedWorktree(t, fake)
 	require.Error(t, err, "the launch is refused")
 	assert.Nil(t, p.Cleanup)
-	assert.Empty(t, fake.CommitMessages, "THE POINT: nothing is committed for a run that will not start")
-	assert.NotContains(t, fake.Calls, "commit-all /proj")
+	assert.Empty(t, fake.SnapshotMessages, "THE POINT: nothing is snapshotted for a run that will not start")
+	assert.Empty(t, fake.Advances)
 }
 
 // TestCellsPrepare_AnUnadoptableCheckoutIsTheWorkspacesRefusal: a resume
@@ -460,7 +516,7 @@ func TestCellsPrepare_AnUnadoptableCheckoutIsTheWorkspacesRefusal(t *testing.T) 
 	_, err := prepareDelegatedWorktree(t, fake)
 	require.ErrorIs(t, err, launch.ErrWorkspaceUnadoptable)
 	assert.NotErrorIs(t, err, launch.ErrRuntimeUnavailable, "THE POINT: the runtime is not what failed")
-	assert.Empty(t, fake.CommitMessages, "nothing is committed for a run that will not start")
+	assert.Empty(t, fake.SnapshotMessages, "nothing is snapshotted for a run that will not start")
 }
 
 // delegatedChild is the identity of a spawned child (depth > 0): the
@@ -486,33 +542,33 @@ func TestStartEngine_CellWithoutTransportRefusesInsteadOfPanicking(t *testing.T)
 	assert.Contains(t, serr.Error(), "starter", "the refusal names the seam that was not supplied")
 }
 
-// TestCommitParentTree_Commit_ListingFailureIsNamedInThePreview pins a
-// defect: the parent commit prints a preview naming the files it is
-// about to commit on the user's branch, and boundDirtyChanges turned a
+// TestSnapshotParentTree_ListingFailureIsNamedInThePreview pins a
+// defect: the parent snapshot prints a notice naming the files it
+// commits for the user's branch, and boundDirtyChanges turned a
 // WorkingChanges FAILURE into an empty list — so the preview immediately
 // before an auto-commit of the user's tree said, with no qualification, that
 // there was nothing to name. "I could not find out" must not render as the
 // empty set in the one message whose job is to show what is about to be
 // committed.
-func TestCommitParentTree_Commit_ListingFailureIsNamedInThePreview(t *testing.T) {
+func TestSnapshotParentTree_ListingFailureIsNamedInThePreview(t *testing.T) {
 	resetStrictness(t)
 	warnings := captureWarnings(t)
 	fake := &git.Fake{
-		Dirty:            map[string]bool{"/proj": true},
-		ChangesErr:       assert.AnError,
-		CommitAllChanged: []string{"internal/foo.go"},
+		Dirty:       map[string]bool{"/proj": true},
+		ChangesErr:  assert.AnError,
+		SnapshotSHA: "abc123",
 	}
-	err := commitParentTree(context.Background(), fake, "/proj", "coder")
+	_, err := snapshotParentTree(context.Background(), fake, "/proj", "coder")
 	require.NoError(t, err, "a listing failure stays best-effort: it must not block the configured commit")
 	assert.Contains(t, warnings.String(), "could not list",
 		"the preview must SAY the file listing failed rather than showing an empty list")
 }
 
-// TestCommitParentTree_Commit_PreviewListsTenFilesThenCounts pins the preview's
+// TestSnapshotParentTree_PreviewListsTenFilesThenCounts pins the preview's
 // bound: the warning shown before the user's tree is auto-committed names the
 // first ten changed files and counts the rest, so a large commit cannot flood
 // the terminal yet still says how much more it carries.
-func TestCommitParentTree_Commit_PreviewListsTenFilesThenCounts(t *testing.T) {
+func TestSnapshotParentTree_PreviewListsTenFilesThenCounts(t *testing.T) {
 	resetStrictness(t)
 	warnings := captureWarnings(t)
 	var changes []string
@@ -520,11 +576,12 @@ func TestCommitParentTree_Commit_PreviewListsTenFilesThenCounts(t *testing.T) {
 		changes = append(changes, fmt.Sprintf("file-%02d.go", i))
 	}
 	fake := &git.Fake{
-		Dirty:            map[string]bool{"/proj": true},
-		Changes:          changes,
-		CommitAllChanged: changes,
+		Dirty:       map[string]bool{"/proj": true},
+		Changes:     changes,
+		SnapshotSHA: "abc123",
 	}
-	require.NoError(t, commitParentTree(context.Background(), fake, "/proj", "coder"))
+	_, err := snapshotParentTree(context.Background(), fake, "/proj", "coder")
+	require.NoError(t, err)
 	out := warnings.String()
 	assert.Contains(t, out, "file-09.go", "the tenth file is listed")
 	assert.NotContains(t, out, "file-10.go", "the eleventh is counted, not listed")

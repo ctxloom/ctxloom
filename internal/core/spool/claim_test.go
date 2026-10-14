@@ -135,41 +135,71 @@ func TestDeliver_RefusesANameOutsideTheBareFilenameGrammar(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "a refused delivery records nothing")
 }
 
-func TestPending_IsTrueOnlyWhileInHoldsAnUnclaimedFile(t *testing.T) {
+func TestPendingNames_ListsOnlyWhileInHoldsAnUnclaimedFile(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 	require.NoError(t, EnsureDirs(afero.NewOsFs(), m, testHarp))
 
-	pending, err := Pending(afero.NewOsFs(), m, testHarp)
+	pending, err := PendingNames(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
-	assert.False(t, pending, "an empty in/ has nothing pending")
+	assert.Empty(t, pending, "an empty in/ has nothing pending")
 
 	seedIn(t, m, "waiting\n")
-	pending, err = Pending(afero.NewOsFs(), m, testHarp)
+	pending, err = PendingNames(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
-	assert.True(t, pending, "a file in in/ is pending")
+	assert.NotEmpty(t, pending, "a file in in/ is pending")
 
 	_, err = Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
-	pending, err = Pending(afero.NewOsFs(), m, testHarp)
+	pending, err = PendingNames(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
-	assert.False(t, pending, "a CLAIMED message is spoken for: in/claimed/ is not in/ — the peek asks only whether unclaimed mail waits")
+	assert.Empty(t, pending, "a CLAIMED message is spoken for: in/claimed/ is not in/ — the peek asks only whether unclaimed mail waits")
 
 	seedIn(t, m, "more\n")
-	pending, err = Pending(afero.NewOsFs(), m, testHarp)
+	pending, err = PendingNames(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
-	assert.True(t, pending)
+	assert.NotEmpty(t, pending)
+}
+
+// TestPendingNames_NamesOnlyUnclaimedFilesInIn: the owner's runner tells mail
+// an earlier wake announced from new mail by these names, so a claimed file
+// (spoken for) and a sub-directory (in/wake/, in/claimed/) must not appear.
+// MUTATION — list directories too — turns this red.
+func TestPendingNames_NamesOnlyUnclaimedFilesInIn(t *testing.T) {
+	hostHome(t)
+	m := NewHomeMapper()
+	fs := afero.NewOsFs()
+	require.NoError(t, EnsureDirs(fs, m, testHarp))
+	_, err := ArmWake(fs, m, testHarp) // creates in/wake/
+	require.NoError(t, err)
+
+	names, err := PendingNames(fs, m, testHarp)
+	require.NoError(t, err)
+	assert.Empty(t, names, "sub-directories of in/ are not mail")
+
+	first, _ := seedIn(t, m, "first\n")
+	_, err = Claim(fs, m, testHarp)
+	require.NoError(t, err)
+	second, _ := seedIn(t, m, "second\n")
+
+	names, err = PendingNames(fs, m, testHarp)
+	require.NoError(t, err)
+	assert.Equal(t, []string{second.Name}, names, "only the unclaimed file is pending; the claimed %s is spoken for", first.Name)
+
+	never, err := PendingNames(fs, m, "never-created")
+	require.NoError(t, err)
+	assert.Empty(t, never, "a spool that was never created has nothing pending")
 }
 
 // TestPending_ASpoolThatWasNeverCreatedIsNotPending: nothing has ever been
 // written for this harp, which is the common case for a session that never
 // delegated. "Not there" is false, not an error — the same answer the
 // coordinator's own sweep gives a missing directory.
-func TestPending_ASpoolThatWasNeverCreatedIsNotPending(t *testing.T) {
+func TestPendingNames_ASpoolThatWasNeverCreatedIsNotPending(t *testing.T) {
 	hostHome(t)
-	pending, err := Pending(afero.NewOsFs(), NewHomeMapper(), testHarp)
+	pending, err := PendingNames(afero.NewOsFs(), NewHomeMapper(), testHarp)
 	require.NoError(t, err)
-	assert.False(t, pending)
+	assert.Empty(t, pending)
 }
 
 // TestClaim_ASpoolThatWasNeverCreatedClaimsNothing is the same rule for the

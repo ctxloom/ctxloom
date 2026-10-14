@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -128,6 +129,13 @@ type Home struct {
 	wake    engine.Wake
 	wakeGen uint64
 	wakeMu  sync.Mutex
+	// announced names the in/ files the last wake that went out announced
+	// (guarded by wakeMu). A wake is owed only for mail outside it: a wake
+	// that expired unanswered is disarmed, but the mail it announced is not
+	// announced again — the engine already holds that prompt (queued behind
+	// a dialog or a busy turn), and re-firing on every sweep is the storm a
+	// held engine once took as dozens of queued, refused prompts.
+	announced map[string]bool
 	// engineExit is what runs when the hosted engine's process exits
 	// (SetEngineExit) and engineExitGen the generation of its registration,
 	// compared by a release exactly as wakeGen is. Guarded by mu.
@@ -1026,11 +1034,12 @@ func (h *Home) wakeOwner() {
 const wakeAnswerWait = 60 * time.Second
 
 // fireWake owns what a wake needs that is not the engine's: it fires only
-// while the owner's in/ holds unclaimed mail, only when no earlier wake is
-// still unanswered (that wake's hook drains everything), and only after the
-// nonce is armed on disk. A wake that fails never went out, so its nonce is
-// disarmed and the next sweep may try again; one that went out arms the
-// answer alarm.
+// while the owner's in/ holds unclaimed mail that no earlier wake announced,
+// only when no earlier wake is still unanswered (that wake's hook drains
+// everything), and only after the nonce is armed on disk. A wake that fails
+// never went out, so its nonce is disarmed, nothing is recorded as announced,
+// and the next sweep may try again; one that went out records the mail it
+// announced and arms the answer alarm.
 func (h *Home) fireWake(w engine.Wake) {
 	h.wakeMu.Lock()
 	defer h.wakeMu.Unlock()
@@ -1038,7 +1047,8 @@ func (h *Home) fireWake(w engine.Wake) {
 	if harp == "" {
 		return
 	}
-	if !h.wakeWanted(m, harp) {
+	pending, wanted := h.wakeWanted(m, harp)
+	if !wanted {
 		return
 	}
 	nonce, err := spool.ArmWake(h.fs, m, harp)
@@ -1053,6 +1063,12 @@ func (h *Home) fireWake(w engine.Wake) {
 		h.rep.Warnf("runner: the session owner was not woken; its mail waits for the next prompt: %v", err)
 		return
 	}
+	// Exactly what is pending now: mail consumed since (by the turn-start
+	// hook, the mail-peek, any route) has left in/ and needs no entry.
+	h.announced = make(map[string]bool, len(pending))
+	for _, name := range pending {
+		h.announced[name] = true
+	}
 	alarm := h.wakeAlarm
 	if alarm == nil {
 		alarm = func(d time.Duration, f func()) { time.AfterFunc(d, f) }
@@ -1061,8 +1077,9 @@ func (h *Home) fireWake(w engine.Wake) {
 }
 
 // expireWake is the answer alarm: a nonce still armed after wakeAnswerWait is
-// disarmed — so the next mail can wake again — and reported ONCE, naming the
-// likely causes. A nonce the hook already redeemed (or cleared) is an
+// disarmed — so the next mail can wake again; the mail it announced is not
+// re-announced (Home.announced) — and reported ONCE, naming the likely
+// causes. A nonce the hook already redeemed (or cleared) is an
 // answered wake, and says nothing.
 func (h *Home) expireWake(m spool.PathMapper, harp, nonce string) {
 	h.wakeMu.Lock()
@@ -1081,23 +1098,26 @@ func (h *Home) expireWake(m spool.PathMapper, harp, nonce string) {
 	h.rep.Warnf("runner: the session owner's wake %s was not answered within %s — the engine may have held it for approval, or no session relay was subscribed to deliver it; it is disarmed so the next mail can wake again, and the mail waits for the next prompt", nonce, wakeAnswerWait)
 }
 
-// wakeWanted reports whether the owner's in/ holds unclaimed mail and no
-// earlier wake is still unanswered. A state it cannot read is warned about
-// and answered no.
-func (h *Home) wakeWanted(m spool.PathMapper, harp string) bool {
-	if pending, err := spool.Pending(h.fs, m, harp); err != nil || !pending {
-		if err != nil {
-			h.rep.Warnf("runner: cannot tell whether the session owner has mail, so it is not woken: %v", err)
-		}
-		return false
+// wakeWanted reports whether the owner's in/ holds unclaimed mail that no
+// earlier wake announced and no earlier wake is still unanswered, and hands
+// back the names pending now. A state it cannot read is warned about and
+// answered no. Caller holds wakeMu.
+func (h *Home) wakeWanted(m spool.PathMapper, harp string) ([]string, bool) {
+	pending, err := spool.PendingNames(h.fs, m, harp)
+	if err != nil {
+		h.rep.Warnf("runner: cannot tell whether the session owner has mail, so it is not woken: %v", err)
+		return nil, false
+	}
+	if !slices.ContainsFunc(pending, func(name string) bool { return !h.announced[name] }) {
+		return nil, false
 	}
 	if out, err := spool.OutstandingWake(h.fs, m, harp); err != nil || len(out) > 0 {
 		if err != nil {
 			h.rep.Warnf("runner: cannot list the session owner's outstanding wakes, so it is not woken: %v", err)
 		}
-		return false
+		return nil, false
 	}
-	return true
+	return pending, true
 }
 
 // turnQueueCap bounds the engine turn-delivery queue. Far above any realistic

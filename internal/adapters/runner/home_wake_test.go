@@ -193,6 +193,37 @@ func TestHomeWake_AnUnansweredWakeIsDisarmedSoTheNextMailCanWake(t *testing.T) {
 	assert.NotEqual(t, first, fired(t, w), "the next mail wakes again")
 }
 
+// TestHomeWake_AnUnansweredWakeIsNotRefiredForTheSameMail is the wake storm
+// seen live: the owner's engine sat on a question dialog for hours, one
+// child mail waited in in/, and every sweep after each expiry fired a FRESH
+// wake for that same mail — claude queued every one, and when the dialog
+// closed each queued prompt was refused by the hook as already delivered.
+// The disarm exists so the NEXT mail can wake; the mail an unanswered wake
+// already announced waits for the next prompt, as the expiry warning says.
+// MUTATION — drop the announced-mail check from wakeWanted — re-fires on the
+// first sweep after the expiry: red.
+func TestHomeWake_AnUnansweredWakeIsNotRefiredForTheSameMail(t *testing.T) {
+	h, w, al, _ := newOwnerHome(t)
+	seedOwnerIn(t, h)
+	h.sweepSpoolIn()
+	fired(t, w)
+	require.Len(t, al.fns, 1)
+	al.fns[0]() // unanswered: the engine holds it behind a dialog
+
+	for range 3 {
+		h.sweepSpoolIn()
+	}
+	assert.Empty(t, w.fired, "the mail the expired wake announced is not announced again")
+	assert.Empty(t, outstandingOf(t, h))
+	assert.Len(t, al.fns, 1, "no second wake, so no second alarm")
+
+	seedOwnerIn(t, h)
+	h.sweepSpoolIn()
+	fired(t, w)
+	h.sweepSpoolIn()
+	assert.Empty(t, w.fired, "the new mail is announced once, by one wake")
+}
+
 // TestHomeWake_AnAnsweredWakeRaisesNoAlarm: the hook redeemed the nonce
 // before the wait ran out — the alarm finds nothing and says nothing.
 // MUTATION — warn without checking the nonce was still armed — turns this red.

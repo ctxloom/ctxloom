@@ -190,16 +190,30 @@ func holdsAFile(fs afero.Fs, path string) (bool, error) {
 	return false, nil
 }
 
-// Pending reports whether harp's in/ holds at least one unclaimed file — the
-// only question a caller that is not the reader may ask of the owner's spool.
-// A claimed message is spoken for and does not count; a spool that was never
-// created has nothing pending.
-func Pending(fs afero.Fs, m PathMapper, harp string) (bool, error) {
+// PendingNames lists the names of harp's unclaimed in/ files, sorted. A
+// claimed message is spoken for and is not listed. It parses nothing, so it
+// is safe for a caller that is not the reader — the session owner's runner uses
+// it to tell mail an earlier wake already announced from mail that is new. A
+// spool that was never created has nothing pending.
+func PendingNames(fs afero.Fs, m PathMapper, harp string) ([]string, error) {
 	path, err := DirPath(m, harp, DirIn)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	return holdsAFile(fs, path)
+	entries, err := afero.ReadDir(fs, path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("spool: listing %s: %w", path, err)
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+	return out, nil
 }
 
 // identitiesIn collects the Identity of every message in harp's dirs. A file

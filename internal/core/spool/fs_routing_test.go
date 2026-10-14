@@ -134,7 +134,7 @@ func TestDeliver_RecordsAndDeletesThroughFs(t *testing.T) {
 	require.True(t, os.IsNotExist(statErr), "the record must not be written to disk")
 }
 
-func TestClaimAndPending_ReachTheSpoolThroughFs(t *testing.T) {
+func TestClaimAndPendingNames_ReachTheSpoolThroughFs(t *testing.T) {
 	fs, m := memSpool(t)
 	w, err := NewWriter(fs, m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
@@ -143,9 +143,9 @@ func TestClaimAndPending_ReachTheSpoolThroughFs(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	pending, err := Pending(fs, m, testHarp)
+	pending, err := PendingNames(fs, m, testHarp)
 	require.NoError(t, err)
-	require.True(t, pending, "Pending must see the in-memory in/")
+	require.NotEmpty(t, pending, "PendingNames must see the in-memory in/")
 
 	res, err := Claim(fs, m, testHarp)
 	require.NoError(t, err)
@@ -160,9 +160,9 @@ func TestClaimAndPending_ReachTheSpoolThroughFs(t *testing.T) {
 	_, statErr := os.Stat(claimedDir)
 	require.True(t, os.IsNotExist(statErr), "nothing is claimed on disk")
 
-	pending, err = Pending(fs, m, testHarp)
+	pending, err = PendingNames(fs, m, testHarp)
 	require.NoError(t, err)
-	require.False(t, pending, "everything in the in-memory in/ was claimed or discarded")
+	require.Empty(t, pending, "everything in the in-memory in/ was claimed or discarded")
 }
 
 func TestWakes_ArmListConsumeAndClearThroughFs(t *testing.T) {

@@ -61,9 +61,9 @@ func TestArmWake_IsNotMail(t *testing.T) {
 	_, err := ArmWake(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
 
-	pending, err := Pending(afero.NewOsFs(), m, testHarp)
+	pending, err := PendingNames(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)
-	assert.False(t, pending, "an armed wake is not pending mail")
+	assert.Empty(t, pending, "an armed wake is not pending mail")
 
 	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)

@@ -18,12 +18,16 @@ import (
 )
 
 // Worktree is one entry from `git worktree list` (repo-global). Path is the
-// working-tree directory; Head the checked-out commit; Branch the attached ref
-// (empty when Detached); Bare marks the bare main repo entry.
+// working-tree directory; Head the checked-out commit; Bare marks the bare main
+// repo entry.
 type Worktree struct {
-	Path     string
-	Head     string
-	Branch   string
+	Path string
+	Head string
+	// Branch is the attached branch, zero when Detached. Porcelain reports
+	// `branch refs/heads/<name>`; as a Branch it compares equal to the value
+	// the caller handed WorktreeAdd (a resume once refused every preserved
+	// checkout because the two spellings of one branch compared unequal).
+	Branch   Branch
 	Detached bool
 	Bare     bool
 }
@@ -57,7 +61,13 @@ type Git interface {
 	// the checkout and its registration relative to each other
 	// (RelativePathsFlag, git 2.48+), so they resolve from any mount of the
 	// repository that keeps their relative position.
-	WorktreeAdd(ctx context.Context, repoDir, path, branch, ref string, relativePaths bool) error
+	WorktreeAdd(ctx context.Context, repoDir, path string, branch Branch, ref string, relativePaths bool) error
+	// WorktreeAddExisting creates a worktree at path checked out on the
+	// EXISTING branch `branch` (git worktree add <path> <branch>): a
+	// checkout re-entered on the branch an earlier one left behind.
+	WorktreeAddExisting(ctx context.Context, repoDir, path string, branch Branch, relativePaths bool) error
+	// BranchExists reports whether repoDir has the local branch `branch`.
+	BranchExists(ctx context.Context, repoDir string, branch Branch) (bool, error)
 
 	// Version is the git binary's version ("2.48.1"), as `git version`
 	// reports it.
@@ -120,13 +130,13 @@ type Git interface {
 	// maxEntries <=0 defaults to a bounded cap.
 	WorkingChanges(ctx context.Context, dir string, maxEntries int) ([]string, error)
 
-	// CurrentBranch returns dir's checked-out branch name (git rev-parse
-	// --abbrev-ref HEAD). A detached HEAD reports git's own sentinel string
-	// "HEAD", never a real branch name; callers that need to tell the two
-	// apart compare against that literal. A worktree this seam created is
-	// always on its named branch (WorktreeAdd), so the sentinel there means a
+	// CurrentBranch returns dir's checked-out branch (git rev-parse
+	// --abbrev-ref HEAD). A detached HEAD — git's own "HEAD" sentinel — is the
+	// ZERO Branch with a nil error, so a caller tells the two apart with
+	// IsZero rather than a string literal. A worktree this seam created is
+	// always on its named branch (WorktreeAdd), so a zero Branch there means a
 	// checkout ctxloom did NOT make.
-	CurrentBranch(ctx context.Context, dir string) (string, error)
+	CurrentBranch(ctx context.Context, dir string) (Branch, error)
 
 	// CommitAll stages EVERY change git considers dirty at dir — including
 	// untracked-but-not-ignored files (git add -A), matching exactly what
@@ -140,28 +150,8 @@ type Git interface {
 	// that: git accepted the commit but it carries no diff versus its parent.
 	CommitAll(ctx context.Context, dir, message string) (sha string, changedFiles []string, err error)
 
-	// DiffPatch returns a unified diff of dir's TRACKED modifications and
-	// deletions against HEAD (git diff HEAD), suitable for ApplyPatch.
-	// Untracked files never appear in it — ListUntracked covers those.
-	DiffPatch(ctx context.Context, dir string) (string, error)
-
-	// ListUntracked returns dir's untracked-but-not-ignored files (git
-	// ls-files -z --others --exclude-standard) — the exact same notion of
-	// "noise" IsDirty/WorkingChanges already honor (.gitignore AND
-	// .git/info/exclude).
-	ListUntracked(ctx context.Context, dir string) ([]string, error)
-
-	// ApplyPatch applies patch (as produced by DiffPatch) to dir's working
-	// tree (git apply). An empty (or whitespace-only) patch is a no-op and
-	// reports applied=false — distinguishable from a real apply at the type
-	// level, so a caller can tell "nothing to apply" from "applied" rather
-	// than trusting a nil error alone. Any failure (conflict, malformed
-	// patch) is returned verbatim — callers must fail loudly rather than
-	// half-apply and continue.
-	ApplyPatch(ctx context.Context, dir, patch string) (applied bool, err error)
-
 	// Clone clones url into dir, which must not exist yet. branch, when
-	// non-empty, is the branch checked out (git clone --branch); empty takes
+	// non-zero, is the branch checked out (git clone --branch); zero takes
 	// the remote's own default branch, so the caller can ASK what that is by
 	// cloning and reading HEAD rather than guessing "main" or "master". Only
 	// the checked-out branch's TIP is fetched (--single-branch, --depth 1):
@@ -177,7 +167,7 @@ type Git interface {
 	// machine. ctxloom holds no key material and installs no host-key policy:
 	// a HostKeyCallback is the easy-to-get-quietly-wrong part, and getting it
 	// wrong means a silent MITM on a path that publishes content others load.
-	Clone(ctx context.Context, url, dir, branch string) error
+	Clone(ctx context.Context, url, dir string, branch Branch) error
 
 	// HeadSHA returns dir's current HEAD commit.
 	HeadSHA(ctx context.Context, dir string) (string, error)
@@ -218,10 +208,10 @@ type Git interface {
 	// IsDirty and HasIgnoredContent, not IsDirty alone.
 	HasIgnoredContent(ctx context.Context, dir string) (bool, error)
 
-	// MergedBranches returns the LOCAL branch names already merged into ref
-	// (git branch --merged <ref> --format=%(refname:short)). ref="" resolves
-	// to repoDir's own current branch (CurrentBranch) first — "merged into
-	// whatever is checked out here" is the common question. There was no
+	// MergedBranches returns the LOCAL branches already merged into ref
+	// (git branch --merged <ref>). ref is any commit-ish, not necessarily a
+	// branch; ref="" means repoDir's HEAD — "merged into whatever is checked
+	// out here" is the common question. There was no
 	// merged-ness primitive anywhere in this codebase before doctor's
 	// foreign-worktree check needed one: printing "unmerged" without
 	// checking would be a fabricated claim.
@@ -230,13 +220,13 @@ type Git interface {
 	// invoked once per foreign worktree on EVERY `ctxloom doctor` run —
 	// including the one `ctxloom init` runs — so a hung or corrupt
 	// repository must not hang the whole report.
-	MergedBranches(ctx context.Context, repoDir, ref string) ([]string, error)
+	MergedBranches(ctx context.Context, repoDir, ref string) ([]Branch, error)
 
 	// DeleteBranch deletes the LOCAL branch with git's SAFE delete
 	// (git branch -d): git refuses a branch not merged into its upstream or
 	// HEAD, so a caller that has not checked merged-ness still cannot lose
 	// commits through it.
-	DeleteBranch(ctx context.Context, repoDir, branch string) error
+	DeleteBranch(ctx context.Context, repoDir string, branch Branch) error
 }
 
 // LogEntry is one commit returned by LogSince.

@@ -78,6 +78,14 @@ type Worktree struct {
 	// (the worktree-in-container base); nil when nothing has — a host
 	// worktree policy, which consults no daemon. relativeWorktree reads it.
 	primary *Layer
+	// beforeCheckout is the Spec's BeforeCheckout hook, stamped by Prepare
+	// (withCheckoutHook); nil for none. It runs only on the path that carves a
+	// NEW checkout, right before WorktreeAdd.
+	beforeCheckout func(context.Context) error
+	// commitOnTeardown is the Spec's CommitOnTeardown, stamped by Prepare
+	// (withCheckoutStamps): the workspace commits what the checkout holds
+	// uncommitted on its own branch before tearing it down.
+	commitOnTeardown bool
 }
 
 // Ensure Worktree satisfies the policy interface.
@@ -137,24 +145,25 @@ func (w Worktree) resolveWorkspace(ctx context.Context, projectDir, agentID stri
 	if err != nil {
 		return nil, err
 	}
-	reused, err := w.reuseExistingCheckout(ctx, projectDir, wtPath)
+	branch, err := worktreeBranchName(wtPath)
+	if err != nil {
+		return nil, err
+	}
+	reused, err := w.reuseExistingCheckout(ctx, projectDir, wtPath, branch)
 	if err != nil {
 		return nil, err
 	}
 	if !reused {
-		relative, err := w.relativeWorktree(ctx, projectDir)
-		if err != nil {
+		if err := w.addCheckout(ctx, projectDir, wtPath, branch); err != nil {
 			return nil, err
-		}
-		if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, worktreeBranchName(wtPath), worktreeBaseRef, relative); err != nil {
-			return nil, fmt.Errorf("worktree add: %w", err)
 		}
 	}
 	ws := &worktreeWorkspace{
-		git:     w.git,
-		repoDir: projectDir,
-		dir:     wtPath,
-		agentID: agentID,
+		git:              w.git,
+		repoDir:          projectDir,
+		dir:              wtPath,
+		agentID:          agentID,
+		commitOnTeardown: w.commitOnTeardown,
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -188,6 +197,39 @@ func (w Worktree) resolveWorkspace(ctx context.Context, projectDir, agentID stri
 	w.excludeConfigFromMerge(ctx, projectDir)
 	w.skipTrackedConfig(ctx, wtPath)
 	return ws, nil
+}
+
+// addCheckout creates the checkout at wtPath on branch. A branch that
+// already exists is an earlier run's, whose checkout was torn down once its
+// work was committed (worktreeWorkspace.Cleanup): the checkout is re-entered
+// on that branch, at its tip, so the agent continues its own work. Only a
+// branch that does not exist yet is CARVED from the project's HEAD, and only
+// then does the BeforeCheckout hook run — a commit on the project's branch
+// reaches a new branch cut from it, never an existing one.
+func (w Worktree) addCheckout(ctx context.Context, projectDir, wtPath string, branch git.Branch) error {
+	relative, err := w.relativeWorktree(ctx, projectDir)
+	if err != nil {
+		return err
+	}
+	exists, err := w.git.BranchExists(ctx, projectDir, branch)
+	if err != nil {
+		return fmt.Errorf("worktree isolation: cannot tell whether branch %s exists: %w", branch, err)
+	}
+	if exists {
+		if err := w.git.WorktreeAddExisting(ctx, projectDir, wtPath, branch, relative); err != nil {
+			return fmt.Errorf("worktree add on the existing branch %s: %w", branch, err)
+		}
+		return nil
+	}
+	if w.beforeCheckout != nil {
+		if err := w.beforeCheckout(ctx); err != nil {
+			return fmt.Errorf("%w %q: %w", errCheckoutRefused, wtPath, err)
+		}
+	}
+	if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, branch, worktreeBaseRef, relative); err != nil {
+		return fmt.Errorf("worktree add: %w", err)
+	}
+	return nil
 }
 
 // mount maps nothing. Like None, the worktree policy runs the engine on the
@@ -300,6 +342,9 @@ type worktreeWorkspace struct {
 	// traffic per agent. "" when provisioning failed (best-effort; Env() then
 	// omits both vars).
 	scratchDir string
+	// commitOnTeardown commits the checkout's uncommitted work on its own
+	// branch before Cleanup tears it down (commitRunEnd).
+	commitOnTeardown bool
 }
 
 // Ensure the workspace exposes the env for what it provisioned.
@@ -373,7 +418,11 @@ func gitIdentity(agentID string) (name, email string) {
 }
 
 // Cleanup runs the WIP-safe, repo-worktree-aware teardown, then removes the
-// provisioned toolchain scratchDir. Idempotent (guarded by clearing dir). It NEVER
+// provisioned toolchain scratchDir. When the run commits on teardown
+// (commitOnTeardown), whatever the checkout holds uncommitted is first
+// committed on its own branch (commitRunEnd), so the teardown finds it clean
+// and no work is left stranded as uncommitted state in a checkout nobody
+// returns to. Idempotent (guarded by clearing dir). It NEVER
 // returns an error — every git inability warns and continues (fault
 // tolerance), and WIP is sacred: an inner worktree with uncommitted work, or
 // an unknowable state, leaves the whole tree in place rather than risk
@@ -387,6 +436,9 @@ func (w *worktreeWorkspace) Cleanup() error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTeardownTimeout)
 	defer cancel()
+	if w.commitOnTeardown {
+		commitRunEnd(ctx, w.git, target, w.agentID)
+	}
 	teardownWorktree(ctx, w.git, w.repoDir, target)
 
 	if w.scratchDir != "" {
@@ -397,6 +449,44 @@ func (w *worktreeWorkspace) Cleanup() error {
 		}
 	}
 	return nil
+}
+
+// commitRunEnd commits everything git calls dirty in the checkout at dir —
+// tracked changes and untracked, not ignored, files — on the checkout's own
+// branch, under a generated message naming the agent. Ignored content is
+// never committed; the teardown's own WIP gate still sees it. Every
+// inability warns and leaves the work uncommitted, where the teardown then
+// preserves it: a failed commit must never be read as permission to remove.
+func commitRunEnd(ctx context.Context, g git.Git, dir, agentID string) {
+	dirty, err := g.IsDirty(ctx, dir)
+	if err != nil || !dirty {
+		return
+	}
+	branch, err := g.CurrentBranch(ctx, dir)
+	if err != nil || branch.IsZero() {
+		clidiag.Warn("ctxloom", "worktree %q: not on a branch (or unknown: %v); leaving its uncommitted work uncommitted", dir, err)
+		return
+	}
+	sha, changed, err := g.CommitAll(ctx, dir, runEndCommitMessage(agentID))
+	switch {
+	case err != nil:
+		clidiag.Warn("ctxloom", "worktree %q: committing the run's uncommitted work on %s failed; leaving it uncommitted: %v", dir, branch, err)
+	case len(changed) == 0:
+		clidiag.Warn("ctxloom", "worktree %q: commit %s on %s captured no changed files; its uncommitted work may still be there", dir, sha, branch)
+	default:
+		clidiag.Warn("ctxloom", "worktree %q: committed the run's uncommitted work (%d file(s)) on %s as %s", dir, len(changed), branch, sha)
+	}
+}
+
+// runEndCommitMessage is the run-end commit's message: who made it
+// (ctxloom, automatically), for which agent, and why.
+func runEndCommitMessage(agentID string) string {
+	return fmt.Sprintf(`ctxloom: commit %s's uncommitted work at run end
+
+The run of delegated agent %q ended with uncommitted changes in its
+worktree. ctxloom committed them on the agent's own branch so that no work
+is left as uncommitted state when the worktree is torn down.
+`, agentID, agentID)
 }
 
 // teardownWorktree removes the target worktree WIP-safely and
@@ -441,7 +531,11 @@ func teardownWorktree(ctx context.Context, g git.Git, repoDir, target string) {
 	if err := g.WorktreePrune(ctx, repoDir); err != nil {
 		clidiag.Warn("ctxloom", "worktree prune failed: %v", err)
 	}
-	deleteMergedBranch(ctx, g, repoDir, worktreeBranchName(target))
+	if branch, err := worktreeBranchName(target); err != nil {
+		clidiag.Warn("ctxloom", "worktree teardown: keeping the branch of %q: %v", target, err)
+	} else {
+		deleteMergedBranch(ctx, g, repoDir, branch)
+	}
 	// NOT auto-retiring the shared config-exclude block here.
 	// A first draft called gitignore.RetireWorktreeConfigBlock once no
 	// linked worktree remained, and it regressed a live, currently-passing
@@ -470,7 +564,7 @@ func teardownWorktree(ctx context.Context, g git.Git, repoDir, target string) {
 // branch holds commits nothing else has and is kept, silently — that is the
 // ordinary outcome of an agent whose work has not been merged yet. Any git
 // inability warns and keeps the branch.
-func deleteMergedBranch(ctx context.Context, g git.Git, repoDir, branch string) {
+func deleteMergedBranch(ctx context.Context, g git.Git, repoDir string, branch git.Branch) {
 	merged, err := g.MergedBranches(ctx, repoDir, "")
 	if err != nil {
 		clidiag.Warn("ctxloom", "worktree teardown: cannot tell whether %s is merged; keeping it: %v", branch, err)
@@ -617,7 +711,8 @@ func (w Worktree) previewCwd(projectDir, agentID string) string {
 //     path is untouched.
 //   - Something there, and `git worktree list` confirms it is a linked
 //     worktree of projectDir on the EXACT branch a fresh create at this path
-//     would use (worktreeBranchName) → (true, nil): REUSE it — this call
+//     would use (expectedBranch, from worktreeBranchName; a git.Branch, so
+//     porcelain's refs/heads/ spelling compares equal) → (true, nil): REUSE it — this call
 //     must NOT call WorktreeAdd (git would refuse both the occupied path and
 //     the already-existing branch anyway).
 //   - Anything else — the list can't be read, the path isn't registered as a
@@ -632,7 +727,7 @@ func (w Worktree) previewCwd(projectDir, agentID string) string {
 // sitting at the path I'd use" into "this is provably the checkout my own
 // naming scheme would have produced", without requiring a second, independent
 // identity channel this layer doesn't have.
-func (w Worktree) reuseExistingCheckout(ctx context.Context, projectDir, wtPath string) (bool, error) {
+func (w Worktree) reuseExistingCheckout(ctx context.Context, projectDir, wtPath string, expectedBranch git.Branch) (bool, error) {
 	if _, err := os.Stat(wtPath); err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
@@ -640,7 +735,6 @@ func (w Worktree) reuseExistingCheckout(ctx context.Context, projectDir, wtPath 
 		return false, fmt.Errorf("worktree isolation: cannot inspect existing path %q before preparing a workspace there: %w", wtPath, err)
 	}
 
-	expectedBranch := worktreeBranchName(wtPath)
 	list, err := w.git.WorktreeList(ctx, projectDir)
 	if err != nil {
 		return false, fmt.Errorf("worktree isolation: %q already exists (likely a prior run's preserved WIP) but its ownership could not be verified: git worktree list failed: %w — refusing to reuse or overwrite it; inspect the path by hand, then either remove it or retry once git is healthy", wtPath, err)
@@ -678,8 +772,14 @@ func sameWorktreePath(a, b string) bool {
 // pure function of the path, so whoever holds the checkout (the coordinator,
 // doctor, a human triaging leftovers) can name the branch without a side
 // table, and the reverse.
-func worktreeBranchName(wtPath string) string {
-	return worktreeBranchPrefix + strings.TrimPrefix(filepath.Base(wtPath), worktreeCandidatePrefix)
+// It errors only for a directory name no branch can carry (whitespace, say),
+// which no checkout this package mints has.
+func worktreeBranchName(wtPath string) (git.Branch, error) {
+	b, err := git.ParseBranch(worktreeBranchPrefix + strings.TrimPrefix(filepath.Base(wtPath), worktreeCandidatePrefix))
+	if err != nil {
+		return git.Branch{}, fmt.Errorf("worktree isolation: no branch name derives from checkout %q: %w", wtPath, err)
+	}
+	return b, nil
 }
 
 // sanitizeAgentID renders agentID safe for use as a single path segment or a

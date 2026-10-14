@@ -55,7 +55,7 @@ func TestExecGit_CloneCommitPushRoundTrip(t *testing.T) {
 	bare := bareWithSeed(t, "main", "README.md")
 
 	work := filepath.Join(t.TempDir(), "clone")
-	require.NoError(t, g.Clone(ctx, "file://"+bare, work, "main"))
+	require.NoError(t, g.Clone(ctx, "file://"+bare, work, MustParseBranch("main")))
 	// A REPO-LOCAL identity on the clone, because the commit below is made by
 	// PRODUCTION code (ExecGit.CommitAll) running with a sanitized environment
 	// — it sees neither runGit's env vars nor the caller's, so without this it
@@ -67,7 +67,7 @@ func TestExecGit_CloneCommitPushRoundTrip(t *testing.T) {
 
 	branch, err := g.CurrentBranch(ctx, work)
 	require.NoError(t, err)
-	assert.Equal(t, "main", branch)
+	assert.Equal(t, MustParseBranch("main"), branch)
 
 	require.NoError(t, writeFile(filepath.Join(work, "a", "b.yaml"), "published\n"))
 	sha, changed, err := g.CommitAll(ctx, work, "add b")
@@ -92,11 +92,11 @@ func TestExecGit_CloneWithNoBranchTakesTheRemotesDefault(t *testing.T) {
 	bare := bareWithSeed(t, "trunk", "README.md")
 
 	work := filepath.Join(t.TempDir(), "clone")
-	require.NoError(t, g.Clone(ctx, "file://"+bare, work, ""))
+	require.NoError(t, g.Clone(ctx, "file://"+bare, work, Branch{}))
 
 	branch, err := g.CurrentBranch(ctx, work)
 	require.NoError(t, err)
-	assert.Equal(t, "trunk", branch)
+	assert.Equal(t, MustParseBranch("trunk"), branch)
 }
 
 // "" means ABSENT and an error means COULD-NOT-ASK. Conflating them turns an
@@ -127,7 +127,7 @@ func TestExecGit_RemoteRefSHA_AbsentRefIsEmptyNotAnError(t *testing.T) {
 	bare := bareWithSeed(t, "main", "README.md")
 
 	work := filepath.Join(t.TempDir(), "clone")
-	require.NoError(t, g.Clone(ctx, "file://"+bare, work, "main"))
+	require.NoError(t, g.Clone(ctx, "file://"+bare, work, MustParseBranch("main")))
 
 	got, err := g.RemoteRefSHA(ctx, work, "origin", "refs/heads/nonexistent")
 	require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestExecGit_RemoteRefSHA_AbsentRefIsEmptyNotAnError(t *testing.T) {
 func TestExecGit_CloneOfAMissingRemoteFails(t *testing.T) {
 	g := NewExec()
 	work := filepath.Join(t.TempDir(), "clone")
-	err := g.Clone(context.Background(), "file://"+filepath.Join(t.TempDir(), "nope.git"), work, "")
+	err := g.Clone(context.Background(), "file://"+filepath.Join(t.TempDir(), "nope.git"), work, Branch{})
 	require.Error(t, err)
 }
 
@@ -161,7 +161,7 @@ func TestExecGit_CloneIsShallowAndStillPushes(t *testing.T) {
 	runGit(t, upstream, "push", "origin", "main")
 
 	work := filepath.Join(t.TempDir(), "clone")
-	require.NoError(t, g.Clone(ctx, "file://"+bare, work, "main"))
+	require.NoError(t, g.Clone(ctx, "file://"+bare, work, MustParseBranch("main")))
 	assert.Equal(t, "true", runGit(t, work, "rev-parse", "--is-shallow-repository"))
 	assert.Equal(t, "1", runGit(t, work, "rev-list", "--count", "HEAD"))
 

@@ -856,7 +856,7 @@ func TestDoctorCheckForeignWorktrees_NotARepo(t *testing.T) {
 
 func TestDoctorCheckForeignWorktrees_RightState_OnlyMainWorktree(t *testing.T) {
 	root := t.TempDir()
-	g := &git.Fake{Worktrees: []git.Worktree{{Path: root, Branch: "refs/heads/main"}}}
+	g := &git.Fake{Worktrees: []git.Worktree{{Path: root, Branch: git.MustParseBranch("main")}}}
 	check := doctorCheckForeignWorktrees(context.Background(), g, root)
 	assert.Equal(t, DoctorOK, check.Status)
 }
@@ -872,7 +872,7 @@ func TestDoctorCheckForeignWorktrees_SessionsRootExcluded(t *testing.T) {
 	scratch := filepath.Join(sessionsRoot, "amber-quiet-heron", paths.WorkDirName, "ctxloom-wt-clean")
 
 	g := &git.Fake{Worktrees: []git.Worktree{
-		{Path: root, Branch: "refs/heads/main"},
+		{Path: root, Branch: git.MustParseBranch("main")},
 		{Path: scratch, Detached: true},
 	}}
 	check := doctorCheckForeignWorktrees(context.Background(), g, root)
@@ -890,11 +890,11 @@ func TestDoctorCheckForeignWorktrees_WrongState_NamesUnmergedDirtyAndExactComman
 	foreign := filepath.Join(t.TempDir(), "x-D", "proj--stale-feature")
 	g := &git.Fake{
 		Worktrees: []git.Worktree{
-			{Path: root, Branch: "refs/heads/main"},
-			{Path: foreign, Branch: "refs/heads/stale-feature"},
+			{Path: root, Branch: git.MustParseBranch("main")},
+			{Path: foreign, Branch: git.MustParseBranch("stale-feature")},
 		},
 		Dirty:               map[string]bool{foreign: true},
-		MergedBranchesValue: []string{"main"}, // stale-feature is NOT in this list
+		MergedBranchesValue: []git.Branch{git.MustParseBranch("main")}, // stale-feature is NOT in this list
 	}
 	check := doctorCheckForeignWorktrees(context.Background(), g, root)
 	assert.Equal(t, DoctorWarn, check.Status)
@@ -921,10 +921,10 @@ func TestDoctorCheckForeignWorktrees_MergedBranchIsReportedMerged(t *testing.T) 
 	foreign := filepath.Join(t.TempDir(), "x-unmerged", "proj--done-feature")
 	g := &git.Fake{
 		Worktrees: []git.Worktree{
-			{Path: root, Branch: "refs/heads/main"},
-			{Path: foreign, Branch: "refs/heads/done-feature"},
+			{Path: root, Branch: git.MustParseBranch("main")},
+			{Path: foreign, Branch: git.MustParseBranch("done-feature")},
 		},
-		MergedBranchesValue: []string{"main", "done-feature"},
+		MergedBranchesValue: []git.Branch{git.MustParseBranch("main"), git.MustParseBranch("done-feature")},
 	}
 	check := doctorCheckForeignWorktrees(context.Background(), g, root)
 	assert.Contains(t, check.Detail, "(branch done-feature, merged, clean)")
@@ -941,8 +941,8 @@ func TestDoctorCheckForeignWorktrees_NeverFabricatesDirtyState(t *testing.T) {
 	foreign := filepath.Join(t.TempDir(), "x-dirty)", "proj--stale-feature")
 	g := &git.Fake{
 		Worktrees: []git.Worktree{
-			{Path: root, Branch: "refs/heads/main"},
-			{Path: foreign, Branch: "refs/heads/stale-feature"},
+			{Path: root, Branch: git.MustParseBranch("main")},
+			{Path: foreign, Branch: git.MustParseBranch("stale-feature")},
 		},
 		Dirty: map[string]bool{}, // explicitly clean at check time
 	}
@@ -960,8 +960,8 @@ func TestDoctorCheckForeignWorktrees_MergedBranchesErrorDoesNotClaimUnmerged(t *
 	foreign := filepath.Join(t.TempDir(), "x-unmerged", "proj--stale-feature")
 	g := &git.Fake{
 		Worktrees: []git.Worktree{
-			{Path: root, Branch: "refs/heads/main"},
-			{Path: foreign, Branch: "refs/heads/stale-feature"},
+			{Path: root, Branch: git.MustParseBranch("main")},
+			{Path: foreign, Branch: git.MustParseBranch("stale-feature")},
 		},
 		MergedBranchesErr: errors.New("git branch --merged: boom"),
 	}

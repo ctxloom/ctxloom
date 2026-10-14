@@ -55,12 +55,41 @@ const RelativePathsFlag = "--relative-paths"
 
 // WorktreeAdd creates a worktree at path on the new branch `branch`, starting
 // at ref. -b (not -B) so an existing branch name is refused, never reset.
-func (execGit) WorktreeAdd(ctx context.Context, repoDir, path, branch, ref string, relativePaths bool) error {
-	args := []string{"worktree", "add", "-b", branch, path, ref}
+func (execGit) WorktreeAdd(ctx context.Context, repoDir, path string, branch Branch, ref string, relativePaths bool) error {
+	return worktreeAdd(ctx, repoDir, path, branch, relativePaths, "-b", branch.Short(), path, ref)
+}
+
+// WorktreeAddExisting creates a worktree at path on the existing branch
+// `branch`, at its tip.
+func (execGit) WorktreeAddExisting(ctx context.Context, repoDir, path string, branch Branch, relativePaths bool) error {
+	return worktreeAdd(ctx, repoDir, path, branch, relativePaths, path, branch.Short())
+}
+
+// worktreeAdd runs `git worktree add <target...>` for a worktree at path on
+// branch — target is what differs between a new branch and an existing one —
+// refusing a detached checkout and appending RelativePathsFlag when asked.
+func worktreeAdd(ctx context.Context, repoDir, path string, branch Branch, relativePaths bool, target ...string) error {
+	if branch.IsZero() {
+		return fmt.Errorf("git worktree add %s: no branch named (a per-agent checkout is never detached)", path)
+	}
+	args := append([]string{"worktree", "add"}, target...)
 	if relativePaths {
 		args = append(args, RelativePathsFlag)
 	}
 	return run(ctx, repoDir, args...)
+}
+
+// BranchExists reports whether repoDir has the local branch `branch`
+// (`git branch --list` names it).
+func (execGit) BranchExists(ctx context.Context, repoDir string, branch Branch) (bool, error) {
+	if branch.IsZero() {
+		return false, fmt.Errorf("git branch --list: no branch named")
+	}
+	out, err := output(ctx, repoDir, "branch", "--list", branch.Short())
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
 }
 
 // Version reads `git version`'s "git version X.Y.Z[.suffix]".
@@ -88,7 +117,7 @@ func (execGit) WorktreeList(ctx context.Context, repoDir string) ([]Worktree, er
 	if err != nil {
 		return nil, err
 	}
-	return parseWorktreeList(out), nil
+	return parseWorktreeList(out)
 }
 
 // WorktreePrune drops stale worktree admin files.
@@ -103,34 +132,40 @@ func (execGit) WorktreePrune(ctx context.Context, repoDir string) error {
 const mergedBranchesTimeout = 5 * time.Second
 
 // MergedBranches lists local branches already merged into ref (git branch
-// --merged). ref="" resolves to repoDir's own current branch first.
-func (g execGit) MergedBranches(ctx context.Context, repoDir, ref string) ([]string, error) {
+// --merged). ref="" is HEAD: the commit the current branch — or a detached
+// HEAD — points at, which is exactly what "merged into the current branch"
+// measures.
+func (execGit) MergedBranches(ctx context.Context, repoDir, ref string) ([]Branch, error) {
 	ctx, cancel := context.WithTimeout(ctx, mergedBranchesTimeout)
 	defer cancel()
 	if ref == "" {
-		cur, err := g.CurrentBranch(ctx, repoDir)
-		if err != nil {
-			return nil, err
-		}
-		ref = cur
+		ref = "HEAD"
 	}
-	out, err := output(ctx, repoDir, "branch", "--merged", ref, "--format=%(refname:short)")
+	out, err := output(ctx, repoDir, "branch", "--merged", ref, "--format=%(refname)")
 	if err != nil {
 		return nil, err
 	}
-	var branches []string
+	var branches []Branch
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		if line != "" {
-			branches = append(branches, line)
+		if line == "" {
+			continue
 		}
+		b, err := ParseBranch(line)
+		if err != nil {
+			return nil, fmt.Errorf("git branch --merged %s: %w", ref, err)
+		}
+		branches = append(branches, b)
 	}
 	return branches, nil
 }
 
 // DeleteBranch is `git branch -d <branch>`: the safe delete.
-func (execGit) DeleteBranch(ctx context.Context, repoDir, branch string) error {
-	return run(ctx, repoDir, "branch", "-d", branch)
+func (execGit) DeleteBranch(ctx context.Context, repoDir string, branch Branch) error {
+	if branch.IsZero() {
+		return fmt.Errorf("git branch -d: no branch named")
+	}
+	return run(ctx, repoDir, "branch", "-d", branch.Short())
 }
 
 // UpdateIndexSkipWorktree toggles the skip-worktree bit on a tracked file.
@@ -290,14 +325,18 @@ func (execGit) WorkingChanges(ctx context.Context, dir string, maxEntries int) (
 	return changes, nil
 }
 
-// CurrentBranch returns the checked-out branch name, or git's own "HEAD"
-// sentinel when detached.
-func (execGit) CurrentBranch(ctx context.Context, dir string) (string, error) {
+// CurrentBranch returns the checked-out branch, or the zero Branch when
+// detached (git's own "HEAD" sentinel).
+func (execGit) CurrentBranch(ctx context.Context, dir string) (Branch, error) {
 	out, err := output(ctx, dir, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
-		return "", err
+		return Branch{}, err
 	}
-	return strings.TrimSpace(out), nil
+	name := strings.TrimSpace(out)
+	if name == "HEAD" {
+		return Branch{}, nil
+	}
+	return ParseBranch(name)
 }
 
 // CommitAll stages every dirty change (git add -A) and commits with message,
@@ -382,10 +421,10 @@ func diffNameOnly(ctx context.Context, dir, a, b string) ([]string, error) {
 // with an empty cwd: both url and dir are the command's own arguments, so
 // there is no repository to be "in" — and, per the package doc, cmd.Dir is the
 // only thing that selects one.
-func (execGit) Clone(ctx context.Context, url, dir, branch string) error {
+func (execGit) Clone(ctx context.Context, url, dir string, branch Branch) error {
 	args := []string{"clone", "--single-branch", "--depth", "1"}
-	if branch != "" {
-		args = append(args, "--branch", branch)
+	if !branch.IsZero() {
+		args = append(args, "--branch", branch.Short())
 	}
 	// "--" separates options from operands: a URL or directory beginning with
 	// "-" would otherwise be read as a flag.
@@ -453,39 +492,6 @@ func (execGit) RemoteRefSHA(ctx context.Context, dir, remote, ref string) (strin
 		return "", fmt.Errorf("git ls-remote %s %s: unparseable entry %q", remote, ref, line)
 	}
 	return strings.TrimSpace(sha), nil
-}
-
-// DiffPatch returns a unified diff of dir's tracked changes against HEAD.
-func (execGit) DiffPatch(ctx context.Context, dir string) (string, error) {
-	return output(ctx, dir, "diff", "HEAD")
-}
-
-// ListUntracked returns dir's untracked-but-not-ignored files, NUL-parsed so
-// paths with spaces/newlines survive intact.
-func (execGit) ListUntracked(ctx context.Context, dir string) ([]string, error) {
-	out, err := output(ctx, dir, "ls-files", "-z", "--others", "--exclude-standard")
-	if err != nil {
-		return nil, err
-	}
-	var files []string
-	for _, f := range strings.Split(out, "\x00") {
-		if f != "" {
-			files = append(files, f)
-		}
-	}
-	return files, nil
-}
-
-// ApplyPatch applies patch to dir's working tree. An empty/whitespace-only
-// patch is a deliberate no-op (there was nothing tracked to reproduce).
-func (execGit) ApplyPatch(ctx context.Context, dir, patch string) (bool, error) {
-	if strings.TrimSpace(patch) == "" {
-		return false, nil
-	}
-	if _, err := outputStdin(ctx, dir, patch, "apply"); err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 // defaultLogSinceMax bounds LogSince when the caller passes maxEntries<=0, so
@@ -580,8 +586,10 @@ func splitNonEmptyLines(s string) []string {
 
 // parseWorktreeList parses `git worktree list --porcelain`. Records are separated
 // by blank lines; each begins with a `worktree <path>` line and may carry HEAD,
-// branch/detached, and bare markers.
-func parseWorktreeList(out string) []Worktree {
+// branch/detached, and bare markers. A branch line that does not parse as a
+// branch is an error rather than a silently empty Branch: a zero Branch on a
+// non-Detached entry would read as "provably not this agent's checkout".
+func parseWorktreeList(out string) ([]Worktree, error) {
 	var (
 		list []Worktree
 		cur  *Worktree
@@ -605,7 +613,11 @@ func parseWorktreeList(out string) []Worktree {
 		case strings.HasPrefix(line, "HEAD "):
 			cur.Head = strings.TrimPrefix(line, "HEAD ")
 		case strings.HasPrefix(line, "branch "):
-			cur.Branch = strings.TrimPrefix(line, "branch ")
+			b, err := ParseBranch(strings.TrimPrefix(line, "branch "))
+			if err != nil {
+				return nil, fmt.Errorf("git worktree list: entry %s: %w", cur.Path, err)
+			}
+			cur.Branch = b
 		case line == "detached":
 			cur.Detached = true
 		case line == "bare":
@@ -613,7 +625,7 @@ func parseWorktreeList(out string) []Worktree {
 		}
 	}
 	flush()
-	return list
+	return list, nil
 }
 
 // run invokes git in dir, discarding stdout and folding stderr into any error.

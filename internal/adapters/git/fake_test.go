@@ -108,21 +108,6 @@ func TestFake_IsDirty_DirtyErr(t *testing.T) {
 	assert.False(t, dirty)
 }
 
-// TestFake_ApplyPatch_ReportsApplied pins the Fake side: the fake must
-// reproduce the same applied/not-applied distinction the real implementation
-// now makes, so a test double never lets an empty-patch no-op look identical
-// to a real apply.
-func TestFake_ApplyPatch_ReportsApplied(t *testing.T) {
-	f := &Fake{}
-	applied, err := f.ApplyPatch(context.Background(), "/repo", "")
-	require.NoError(t, err)
-	assert.False(t, applied)
-
-	applied, err = f.ApplyPatch(context.Background(), "/repo", "diff --git a/x b/x")
-	require.NoError(t, err)
-	assert.True(t, applied)
-}
-
 // TestFake_HasIgnoredContent pins the Fake side: a test
 // exercising teardown's ignored-content refusal needs a way to configure it
 // without a real git binary.

@@ -48,7 +48,7 @@ type GitPublisher struct {
 	// dir is the working clone; "" until the first operation creates it.
 	// branch is what that clone has checked out.
 	dir    string
-	branch string
+	branch igit.Branch
 }
 
 // gitPublisherRemote is the name git gives the clone's origin. Pinned as a
@@ -78,13 +78,13 @@ func (p *GitPublisher) Close() error {
 		return nil
 	}
 	dir := p.dir
-	p.dir, p.branch = "", ""
+	p.dir, p.branch = "", igit.Branch{}
 	return os.RemoveAll(dir)
 }
 
 // workTree returns the working clone, making it on first use.
 //
-// An empty branch clones the remote's own default and reports it — that is how
+// A zero branch clones the remote's own default and reports it — that is how
 // defaultBranch answers without guessing "main" or "master". A non-empty
 // branch is checked out by the clone itself, so a branch that does not exist
 // at the remote fails HERE, loudly, before anything is written.
@@ -94,9 +94,9 @@ func (p *GitPublisher) Close() error {
 // publish (the existing-file probe and the two writes) always name the same
 // one. Silently serving a different branch than the one asked for would
 // publish somewhere the caller never named.
-func (p *GitPublisher) workTree(ctx context.Context, branch string) (string, error) {
+func (p *GitPublisher) workTree(ctx context.Context, branch igit.Branch) (string, error) {
 	if p.dir != "" {
-		if branch != "" && branch != p.branch {
+		if !branch.IsZero() && branch != p.branch {
 			return "", fmt.Errorf("publish to %s: this publisher is on branch %q and was asked for %q; one publisher clones one branch", p.repoURL, p.branch, branch)
 		}
 		return p.dir, nil
@@ -112,25 +112,31 @@ func (p *GitPublisher) workTree(ctx context.Context, branch string) (string, err
 	}
 
 	checked := branch
-	if checked == "" {
+	if checked.IsZero() {
 		// Read back what the remote's HEAD actually put us on.
 		checked, err = p.git.CurrentBranch(ctx, dir)
 		if err != nil {
 			_ = os.RemoveAll(dir)
 			return "", fmt.Errorf("publish to %s: read the cloned branch: %w", p.repoURL, err)
 		}
-		if checked == "" || checked == detachedHeadSentinel {
+		if checked.IsZero() {
 			_ = os.RemoveAll(dir)
-			return "", fmt.Errorf("publish to %s: the clone is not on a branch (%q), so there is no default branch to publish to", p.repoURL, checked)
+			return "", fmt.Errorf("publish to %s: the clone is not on a branch (detached HEAD), so there is no default branch to publish to", p.repoURL)
 		}
 	}
 	p.dir, p.branch = dir, checked
 	return p.dir, nil
 }
 
-// detachedHeadSentinel is git's own name for "HEAD is not on a branch"
-// (rev-parse --abbrev-ref HEAD). See igit.Git.CurrentBranch.
-const detachedHeadSentinel = "HEAD"
+// parsePublishBranch is the one conversion from the Publisher interface's
+// string branch to igit.Branch: "" means the remote's default (the zero
+// Branch), and either git spelling of a name is the same branch.
+func parsePublishBranch(branch string) (igit.Branch, error) {
+	if branch == "" {
+		return igit.Branch{}, nil
+	}
+	return igit.ParseBranch(branch)
+}
 
 // defaultBranch reports the remote's default branch, by cloning it and reading
 // what git checked out. It satisfies the unexported capability
@@ -138,10 +144,10 @@ const detachedHeadSentinel = "HEAD"
 // API fetcher at all, and this publisher is about to clone the repository
 // anyway, so asking it costs nothing extra.
 func (p *GitPublisher) defaultBranch(ctx context.Context) (string, error) {
-	if _, err := p.workTree(ctx, ""); err != nil {
+	if _, err := p.workTree(ctx, igit.Branch{}); err != nil {
 		return "", err
 	}
-	return p.branch, nil
+	return p.branch.Short(), nil
 }
 
 // GetFileSHA reports the blob SHA of path at ref, or "" when the ref's tree has
@@ -154,13 +160,17 @@ func (p *GitPublisher) GetFileSHA(ctx context.Context, _, _, filePath, ref strin
 	if err := checkRepoRelPath(filePath); err != nil {
 		return "", err
 	}
-	dir, err := p.workTree(ctx, ref)
+	branch, err := parsePublishBranch(ref)
+	if err != nil {
+		return "", err
+	}
+	dir, err := p.workTree(ctx, branch)
 	if err != nil {
 		return "", err
 	}
 	at := ref
 	if at == "" {
-		at = p.branch
+		at = p.branch.Short()
 	}
 	return p.git.FileBlobSHA(ctx, dir, at, filePath)
 }
@@ -174,7 +184,11 @@ func (p *GitPublisher) GetFileSHA(ctx context.Context, _, _, filePath, ref strin
 // the remote actually moved: the commit must carry the files, and the remote's
 // branch ref must afterwards point at the new commit — a `git push` that exits
 // 0 and a remote holding the commit are two different facts.
-func (p *GitPublisher) CreateOrUpdateFiles(ctx context.Context, _, _, branch, message string, files map[string][]byte) (string, error) {
+func (p *GitPublisher) CreateOrUpdateFiles(ctx context.Context, _, _, branchName, message string, files map[string][]byte) (string, error) {
+	branch, err := parsePublishBranch(branchName)
+	if err != nil {
+		return "", err
+	}
 	paths, err := publishablePaths(files, branch)
 	if err != nil {
 		return "", err
@@ -205,7 +219,11 @@ func (p *GitPublisher) CreateOrUpdateFiles(ctx context.Context, _, _, branch, me
 	if err := requireCommitted(paths, changed, sha); err != nil {
 		return "", err
 	}
-	if err := p.git.Push(ctx, dir, gitPublisherRemote, "HEAD:"+branchRef(target)); err != nil {
+	// Fully qualified on purpose: an unqualified refspec lets git resolve the
+	// destination against the remote's own rules, which can create a ref
+	// somewhere other than refs/heads when a tag or another namespace shares
+	// the name.
+	if err := p.git.Push(ctx, dir, gitPublisherRemote, "HEAD:"+target.Ref()); err != nil {
 		return "", fmt.Errorf("publish %d files: push to %s: %w", len(paths), p.repoURL, err)
 	}
 	if err := p.confirmLanded(ctx, dir, target, sha); err != nil {
@@ -216,7 +234,7 @@ func (p *GitPublisher) CreateOrUpdateFiles(ctx context.Context, _, _, branch, me
 
 // publishablePaths is the file set's repo-relative paths, refusing an empty
 // set, an empty file, and a path that is not safely repo-relative.
-func publishablePaths(files map[string][]byte, branch string) ([]string, error) {
+func publishablePaths(files map[string][]byte, branch igit.Branch) ([]string, error) {
 	if len(files) == 0 {
 		return nil, fmt.Errorf("refusing to publish an empty file set to %s: nothing would be written", branch)
 	}
@@ -264,7 +282,7 @@ func requireCommitted(paths, changed []string, sha string) error {
 // push, but still a confirmation that the remote holds what this clone holds.
 // Without that check a remote that moved under us since the clone would be
 // reported as carrying content it does not have.
-func (p *GitPublisher) unchangedMany(ctx context.Context, dir string, paths []string, branch string) (string, error) {
+func (p *GitPublisher) unchangedMany(ctx context.Context, dir string, paths []string, branch igit.Branch) (string, error) {
 	sha, err := p.git.HeadSHA(ctx, dir)
 	if err != nil {
 		return "", fmt.Errorf("publish %d files: they are already up to date, but the current commit could not be read: %w", len(paths), err)
@@ -277,8 +295,8 @@ func (p *GitPublisher) unchangedMany(ctx context.Context, dir string, paths []st
 
 // confirmLanded asserts the REMOTE's branch ref points at want. This is the
 // only evidence that a push did anything; a nil error from `git push` is not.
-func (p *GitPublisher) confirmLanded(ctx context.Context, dir, branch, want string) error {
-	landed, err := p.git.RemoteRefSHA(ctx, dir, gitPublisherRemote, branchRef(branch))
+func (p *GitPublisher) confirmLanded(ctx context.Context, dir string, branch igit.Branch, want string) error {
+	landed, err := p.git.RemoteRefSHA(ctx, dir, gitPublisherRemote, branch.Ref())
 	if err != nil {
 		return fmt.Errorf("could not verify what %s now holds on %s: %w", p.repoURL, branch, err)
 	}
@@ -289,14 +307,6 @@ func (p *GitPublisher) confirmLanded(ctx context.Context, dir, branch, want stri
 		return fmt.Errorf("%s has %s at %s, not the expected %s (it moved under this publish)", p.repoURL, branch, landed, want)
 	}
 	return nil
-}
-
-// branchRef renders a branch as its fully-qualified ref. Fully qualified on
-// purpose: an unqualified refspec lets git resolve the destination against the
-// remote's own rules, which can create a ref somewhere other than
-// refs/heads when a tag or another namespace shares the name.
-func branchRef(branch string) string {
-	return "refs/heads/" + branch
 }
 
 // pullRequestSupport declares up front that this publisher cannot open pull

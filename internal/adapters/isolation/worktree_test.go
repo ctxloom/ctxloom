@@ -83,9 +83,9 @@ func TestWorktree_PrepareCreatesWorktree(t *testing.T) {
 	assert.Contains(t, f.Calls[0], "@HEAD", "checked out to HEAD")
 	require.Len(t, f.Worktrees, 1)
 	assert.False(t, f.Worktrees[0].Detached, "never detached")
-	assert.Equal(t, worktreeBranchName(ws.Dir()), f.Worktrees[0].Branch,
+	assert.Equal(t, mustWorktreeBranch(t, ws.Dir()), f.Worktrees[0].Branch,
 		"on the branch derived from the checkout's own name")
-	assert.True(t, strings.HasPrefix(f.Worktrees[0].Branch, worktreeBranchPrefix+"member-a"),
+	assert.True(t, strings.HasPrefix(f.Worktrees[0].Branch.Short(), worktreeBranchPrefix+"member-a"),
 		"the branch carries the agent id under the agent namespace")
 
 	env := workspaceEnv(ws)
@@ -578,13 +578,14 @@ func TestWorktreeBranchName(t *testing.T) {
 		{"/tmp/ctxloom-wt-developer-93f8-ffff", "ctxloom/developer-93f8-ffff"},
 		{"/tmp/ctxloom-wt-agent-deadbeef", "ctxloom/agent-deadbeef"},
 	} {
-		assert.Equal(t, tc.want, worktreeBranchName(tc.dir), tc.dir)
+		assert.Equal(t, tc.want, mustWorktreeBranch(t, tc.dir).Short(), tc.dir)
 	}
 	// It is the same name PrepareWorkspace hands the git seam: one
 	// derivation, not two that can drift.
 	p := worktreeScratchPath(t.TempDir(), worktreeScratchPrefix, "x/y z")
-	assert.Equal(t, worktreeBranchPrefix+strings.TrimPrefix(filepath.Base(p), worktreeCandidatePrefix), worktreeBranchName(p))
-	assert.NotContains(t, worktreeBranchName(p), " ", "a git ref never carries whitespace")
+	assert.Equal(t, worktreeBranchPrefix+strings.TrimPrefix(filepath.Base(p), worktreeCandidatePrefix), mustWorktreeBranch(t, p).Short())
+	_, err := worktreeBranchName("/tmp/" + worktreeCandidatePrefix + "has space")
+	assert.Error(t, err, "a name no branch can carry is refused, not handed to git")
 }
 
 // --- sizable-antler: resume must find its own surviving worktree, or refuse ---
@@ -696,7 +697,7 @@ func TestWorktree_RefusesWrongBranchAtTheResumePath(t *testing.T) {
 	path, err := w.checkoutPath("worker")
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(path, 0o755))
-	f.Worktrees = []git.Worktree{{Path: path, Branch: "some/unrelated-branch"}}
+	f.Worktrees = []git.Worktree{{Path: path, Branch: git.MustParseBranch("some/unrelated-branch")}}
 
 	_, err = w.prepareWorkspace(context.Background(), "/proj", "worker")
 	require.Error(t, err, "a registered worktree on the wrong branch is not provably this agent's own")

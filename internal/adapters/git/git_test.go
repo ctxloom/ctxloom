@@ -22,17 +22,18 @@ func TestParseWorktreeList(t *testing.T) {
 		"worktree /tmp/ctxloom-wt-x\nHEAD abc123\ndetached\n\n" +
 		"worktree /repo/bare.git\nbare\n"
 
-	got := parseWorktreeList(out)
+	got, err := parseWorktreeList(out)
+	require.NoError(t, err)
 	require.Len(t, got, 3)
 
 	assert.Equal(t, "/repo/main", got[0].Path)
 	assert.Equal(t, "abc123", got[0].Head)
-	assert.Equal(t, "refs/heads/main", got[0].Branch)
+	assert.Equal(t, MustParseBranch("main"), got[0].Branch, "porcelain's refs/heads/main is the branch main")
 	assert.False(t, got[0].Detached)
 
 	assert.Equal(t, "/tmp/ctxloom-wt-x", got[1].Path)
 	assert.True(t, got[1].Detached)
-	assert.Empty(t, got[1].Branch)
+	assert.True(t, got[1].Branch.IsZero())
 
 	assert.Equal(t, "/repo/bare.git", got[2].Path)
 	assert.True(t, got[2].Bare)
@@ -114,7 +115,7 @@ func TestExecGit_Lifecycle(t *testing.T) {
 	assert.Equal(t, resolvePath(t, filepath.Join(repo, ".git")), resolvePath(t, common))
 
 	wt := filepath.Join(t.TempDir(), "wt")
-	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/lifecycle", "HEAD", false))
+	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, MustParseBranch("agent/lifecycle"), "HEAD", false))
 
 	list, err := g.WorktreeList(ctx, repo)
 	require.NoError(t, err)
@@ -155,7 +156,7 @@ func TestExecGit_CommonDir_SymlinkedWorktreePath(t *testing.T) {
 	repo := initRepo(t)
 
 	wt := filepath.Join(t.TempDir(), "wt")
-	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/symlinked", "HEAD", false))
+	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, MustParseBranch("agent/symlinked"), "HEAD", false))
 
 	// A symlinked ALIAS to the worktree — the scenario a repo reached via a
 	// symlinked path (a symlinked project dir, or a worktree on a symlinked
@@ -341,7 +342,7 @@ func TestExecGit_ListTracked(t *testing.T) {
 // its real branch name — including a worktree the seam created, which is now
 // always on a NAMED branch — and a genuinely detached checkout (made here
 // with raw git, since the seam no longer produces one) reports git's own
-// sentinel "HEAD". The dirty-tree commit handler's guard against
+// sentinel "HEAD" — surfaced as the zero Branch. The dirty-tree commit handler's guard against
 // auto-committing inside a ref-less checkout depends on telling these apart.
 func TestExecGit_CurrentBranch(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
@@ -353,19 +354,19 @@ func TestExecGit_CurrentBranch(t *testing.T) {
 
 	branch, err := g.CurrentBranch(ctx, repo)
 	require.NoError(t, err)
-	assert.Equal(t, "main", branch)
+	assert.Equal(t, MustParseBranch("main"), branch)
 
 	wt := filepath.Join(t.TempDir(), "named-wt")
-	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/named", "HEAD", false))
+	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, MustParseBranch("agent/named"), "HEAD", false))
 	named, err := g.CurrentBranch(ctx, wt)
 	require.NoError(t, err)
-	assert.Equal(t, "agent/named", named, "a seam-created worktree is on its named branch, never detached")
+	assert.Equal(t, MustParseBranch("agent/named"), named, "a seam-created worktree is on its named branch, never detached")
 
 	detachedWT := filepath.Join(t.TempDir(), "detached-wt")
 	taskstest.Git(t, repo, nil, "worktree", "add", "--detach", detachedWT, "HEAD")
 	detached, err := g.CurrentBranch(ctx, detachedWT)
 	require.NoError(t, err)
-	assert.Equal(t, "HEAD", detached, `git's own sentinel for detached HEAD`)
+	assert.True(t, detached.IsZero(), `git's own "HEAD" sentinel is no branch, never a Branch named HEAD`)
 }
 
 // TestExecGit_WorktreeAdd_NamedBranch pins the property the per-agent
@@ -385,7 +386,7 @@ func TestExecGit_WorktreeAdd_NamedBranch(t *testing.T) {
 	require.NoError(t, err)
 
 	wt := filepath.Join(t.TempDir(), "wt")
-	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/member-a", "HEAD", false))
+	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, MustParseBranch("agent/member-a"), "HEAD", false))
 
 	list, err := g.WorktreeList(ctx, repo)
 	require.NoError(t, err)
@@ -397,7 +398,7 @@ func TestExecGit_WorktreeAdd_NamedBranch(t *testing.T) {
 	}
 	require.NotNil(t, entry, "the new worktree is listed")
 	assert.False(t, entry.Detached, "never detached")
-	assert.Equal(t, "refs/heads/agent/member-a", entry.Branch, "attached to the branch the caller named")
+	assert.Equal(t, MustParseBranch("agent/member-a"), entry.Branch, "attached to the branch the caller named")
 	assert.Equal(t, base, entry.Head, "the branch starts at ref")
 
 	// The branch outlives the checkout: a commit made inside, then a teardown,
@@ -410,7 +411,7 @@ func TestExecGit_WorktreeAdd_NamedBranch(t *testing.T) {
 	// git's own refusal stands: a second add on an existing branch name is
 	// an error, never a silent reset of that branch (-b, not -B).
 	other := filepath.Join(t.TempDir(), "wt2")
-	err = g.WorktreeAdd(ctx, repo, other, "agent/member-a", "HEAD", false)
+	err = g.WorktreeAdd(ctx, repo, other, MustParseBranch("agent/member-a"), "HEAD", false)
 	require.Error(t, err, "a branch name already taken is refused")
 	assert.NoDirExists(t, other)
 	assert.Equal(t, sha, taskstest.Git(t, repo, nil, "rev-parse", "agent/member-a"),
@@ -436,7 +437,7 @@ func TestExecGit_WorktreeAdd_RelativePaths(t *testing.T) {
 			name = "wt-absolute"
 		}
 		wt := filepath.Join(t.TempDir(), name)
-		require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "agent/"+name, "HEAD", relative))
+		require.NoError(t, g.WorktreeAdd(ctx, repo, wt, MustParseBranch("agent/"+name), "HEAD", relative))
 
 		dotGit := gitdirLine(t, filepath.Join(wt, ".git"))
 		registration := filepath.Join(common, "worktrees", name)
@@ -526,8 +527,8 @@ func TestExecGit_MergedBranches(t *testing.T) {
 
 	merged, err := g.MergedBranches(ctx, repo, "main")
 	require.NoError(t, err)
-	assert.Contains(t, merged, "merged-branch")
-	assert.NotContains(t, merged, "unmerged-branch",
+	assert.Contains(t, merged, MustParseBranch("merged-branch"))
+	assert.NotContains(t, merged, MustParseBranch("unmerged-branch"),
 		"a branch with a commit main never got must never be reported merged")
 
 	defaulted, err := g.MergedBranches(ctx, repo, "")
@@ -607,103 +608,6 @@ func TestExecGit_CommitAll_NonRepoStillFails(t *testing.T) {
 	require.Error(t, err, "a directory that is not a repository must fail loudly")
 }
 
-// TestExecGit_DiffPatch_ApplyPatch_RoundTrip proves the copy handler's
-// tracked-changes mechanism end to end: a patch captured from one checkout
-// (modification + deletion) applies cleanly to a SEPARATE checkout at the
-// same HEAD, reproducing the same uncommitted working-tree state there.
-func TestExecGit_DiffPatch_ApplyPatch_RoundTrip(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH; skipping DiffPatch/ApplyPatch integration test")
-	}
-	ctx := context.Background()
-	g := NewExec()
-	repo := initRepo(t)
-	commit(t, repo, "keep.txt", "keep me", "add keep.txt")
-	commit(t, repo, "gone.txt", "delete me", "add gone.txt")
-
-	// Uncommitted in the SOURCE: modify one tracked file, delete another.
-	require.NoError(t, writeFile(filepath.Join(repo, "keep.txt"), "keep me, modified"))
-	require.NoError(t, rm(filepath.Join(repo, "gone.txt")))
-
-	patch, err := g.DiffPatch(ctx, repo)
-	require.NoError(t, err)
-	require.NotEmpty(t, patch)
-
-	// A second, independent worktree checked out at the SAME HEAD, clean.
-	target := filepath.Join(t.TempDir(), "copy-target")
-	require.NoError(t, g.WorktreeAdd(ctx, repo, target, "agent/copy-target", "HEAD", false))
-	dirtyBefore, err := g.IsDirty(ctx, target)
-	require.NoError(t, err)
-	require.False(t, dirtyBefore)
-
-	applied, err := g.ApplyPatch(ctx, target, patch)
-	require.NoError(t, err)
-	require.True(t, applied)
-
-	got, err := os.ReadFile(filepath.Join(target, "keep.txt"))
-	require.NoError(t, err)
-	assert.Equal(t, "keep me, modified", string(got), "the modification reproduced")
-	_, err = os.Stat(filepath.Join(target, "gone.txt"))
-	assert.True(t, os.IsNotExist(err), "the deletion reproduced")
-
-	dirtyAfter, err := g.IsDirty(ctx, target)
-	require.NoError(t, err)
-	assert.True(t, dirtyAfter, "the reproduced changes are UNCOMMITTED WIP in the target, exactly like the source")
-}
-
-// TestExecGit_ApplyPatch_EmptyIsNoop proves an empty patch (nothing tracked
-// to reproduce — the copy handler's "untracked files only" case) never
-// invokes git in a way that could fail or mutate anything.
-func TestExecGit_ApplyPatch_EmptyIsNoop(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH; skipping ApplyPatch integration test")
-	}
-	ctx := context.Background()
-	g := NewExec()
-	repo := initRepo(t)
-	applied, err := g.ApplyPatch(ctx, repo, "")
-	assert.NoError(t, err)
-	assert.False(t, applied)
-	applied, err = g.ApplyPatch(ctx, repo, "   \n")
-	assert.NoError(t, err)
-	assert.False(t, applied)
-}
-
-// TestExecGit_ApplyPatch_ReportsWhetherItActuallyApplied pins that an
-// empty patch and a real patch must be distinguishable at the type level, not
-// just "no error" for both. A caller that skips ApplyPatch on an empty patch
-// (as applyCopySnapshot does today) still needs a way to notice if THIS
-// method silently no-ops for a reason other than "genuinely nothing to
-// apply" — e.g. a future call site that stops guarding the empty case.
-func TestExecGit_ApplyPatch_ReportsWhetherItActuallyApplied(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH; skipping ApplyPatch integration test")
-	}
-	ctx := context.Background()
-	g := NewExec()
-	repo := initRepo(t)
-
-	applied, err := g.ApplyPatch(ctx, repo, "")
-	require.NoError(t, err)
-	assert.False(t, applied, "an empty patch must report applied=false, not just nil error")
-
-	applied, err = g.ApplyPatch(ctx, repo, "   \n")
-	require.NoError(t, err)
-	assert.False(t, applied, "a whitespace-only patch must report applied=false")
-
-	require.NoError(t, writeFile(filepath.Join(repo, "keep.txt"), "keep me"))
-	commit(t, repo, "keep.txt", "keep me", "add keep.txt")
-	require.NoError(t, writeFile(filepath.Join(repo, "keep.txt"), "keep me, modified"))
-	patch, err := g.DiffPatch(ctx, repo)
-	require.NoError(t, err)
-	require.NotEmpty(t, patch)
-	require.NoError(t, run(ctx, repo, "checkout", "--", "keep.txt"))
-
-	applied, err = g.ApplyPatch(ctx, repo, patch)
-	require.NoError(t, err)
-	assert.True(t, applied, "a real patch must report applied=true")
-}
-
 // TestExecGit_HasIgnoredContent pins that IsDirty deliberately
 // treats gitignored/excluded content as clean (that is what lets a prepared
 // agent worktree's OWN delivered noise — .claude/, CLAUDE.md, .ctxloom/cache/
@@ -760,41 +664,11 @@ func TestExecGit_DoesNotInheritGitRepoEnvVars(t *testing.T) {
 
 	branch, err := g.CurrentBranch(ctx, repoA)
 	require.NoError(t, err)
-	assert.Equal(t, "main", branch)
+	assert.Equal(t, MustParseBranch("main"), branch)
 
 	changes, err := g.WorkingChanges(ctx, repoA, 0)
 	require.NoError(t, err)
 	assert.Empty(t, changes, "repo A is clean; a leak would show repo B's uncommitted state instead")
-}
-
-// TestExecGit_ListUntracked proves the untracked inventory honors BOTH
-// .gitignore and .git/info/exclude (the same noise the copy handler must
-// never try to reproduce, since it never counted as dirty in the first
-// place), and reports a genuinely untracked file.
-func TestExecGit_ListUntracked(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH; skipping ListUntracked integration test")
-	}
-	ctx := context.Background()
-	g := NewExec()
-	repo := initRepo(t)
-
-	require.NoError(t, writeFile(filepath.Join(repo, "fresh.go"), "package fresh"))
-	require.NoError(t, writeFile(filepath.Join(repo, "ignored-by-gitignore.log"), "noise"))
-	require.NoError(t, writeFile(filepath.Join(repo, ".gitignore"), "*.log\n"))
-	excludeCmd := taskstest.GitCmd(repo, nil, "rev-parse", "--git-path", "info/exclude")
-	out, err := excludeCmd.Output()
-	require.NoError(t, err)
-	excludePath := filepath.Join(repo, strings.TrimSpace(string(out)))
-	require.NoError(t, writeFile(excludePath, "ignored-by-info-exclude.tmp\n"))
-	require.NoError(t, writeFile(filepath.Join(repo, "ignored-by-info-exclude.tmp"), "noise"))
-
-	files, err := g.ListUntracked(ctx, repo)
-	require.NoError(t, err)
-	assert.Contains(t, files, "fresh.go")
-	assert.NotContains(t, files, "ignored-by-gitignore.log")
-	assert.NotContains(t, files, "ignored-by-info-exclude.tmp")
-	assert.Contains(t, files, ".gitignore", ".gitignore itself is untracked and not itself excluded by anything")
 }
 
 // Version names the git binary's version, as git reports it.
@@ -802,4 +676,13 @@ func TestExecGit_Version(t *testing.T) {
 	v, err := NewExec().Version(context.Background())
 	require.NoError(t, err)
 	assert.Regexp(t, `^\d+\.\d+`, v)
+}
+
+// TestParseWorktreeList_UnparseableBranchIsAnError: an attached entry whose
+// branch line is not a branch must fail the list, not yield a zero Branch a
+// caller would read as "detached" or "someone else's checkout".
+func TestParseWorktreeList_UnparseableBranchIsAnError(t *testing.T) {
+	_, err := parseWorktreeList("worktree /repo/x\nHEAD abc\nbranch refs/tags/v1\n")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "/repo/x")
 }

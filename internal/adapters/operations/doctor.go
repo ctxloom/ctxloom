@@ -1147,14 +1147,14 @@ func doctorCheckForeignWorktrees(ctx context.Context, g git.Git, workDir string)
 	// Merged-ness is only claimed when MergedBranches actually answered;
 	// printing "unmerged" unconditionally would be a lie.
 	merged, mergedErr := g.MergedBranches(ctx, workDir, "")
-	mergedSet := make(map[string]bool, len(merged))
+	mergedSet := make(map[git.Branch]bool, len(merged))
 	for _, b := range merged {
 		mergedSet[b] = true
 	}
 
 	var lines []string
 	for _, wt := range foreign {
-		branch := strings.TrimPrefix(wt.Branch, "refs/heads/")
+		branch := wt.Branch
 		lines = append(lines, fmt.Sprintf(
 			"%s (branch %s, %s, %s) — ctxloom will not remove it; run `git worktree remove %s` then `git branch -d %s`",
 			filepath.Base(wt.Path), branch, worktreeMergeState(mergedSet, mergedErr, branch),
@@ -1192,7 +1192,7 @@ func foreignWorktrees(worktrees []git.Worktree, workDir string) []git.Worktree {
 
 // worktreeMergeState words branch's merge state, "unknown" when it could not
 // be measured.
-func worktreeMergeState(mergedSet map[string]bool, mergedErr error, branch string) string {
+func worktreeMergeState(mergedSet map[git.Branch]bool, mergedErr error, branch git.Branch) string {
 	switch {
 	case mergedErr != nil:
 		return "merge state unknown"

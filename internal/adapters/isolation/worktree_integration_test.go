@@ -68,6 +68,43 @@ func TestWorktreePolicy_RealGitLifecycle(t *testing.T) {
 	assert.NotContains(t, out, wtDir, "no leftover worktree after WIP-safe teardown")
 }
 
+// TestWorktreePolicy_RealGit_ResumeReusesItsPreservedCheckout drives the
+// resume-in-place path against REAL git, because the hermetic twin
+// (TestWorktree_ResumeFindsItsOwnSurvivingCheckout) cannot see a spelling
+// mismatch between git's porcelain and the Fake: real `git worktree list
+// --porcelain` reports `branch refs/heads/<name>`, and when that reached
+// reuseExistingCheckout unnormalized every resume of a WIP-preserved checkout
+// was refused as "on branch refs/heads/ctxloom/x, not ctxloom/x" — the same
+// branch, two spellings.
+func TestWorktreePolicy_RealGit_ResumeReusesItsPreservedCheckout(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping the resume integration test")
+	}
+	ctx := context.Background()
+	repo := initRealRepo(t)
+
+	first := sessionWorktree(t, git.NewExec())
+	ws1, err := first.prepareWorkspace(ctx, repo, "member-resume")
+	require.NoError(t, err)
+	dir := ws1.Dir()
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	// WIP the teardown must preserve, then the graceful teardown that leaves
+	// the checkout standing at its deterministic path.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "wip.txt"), []byte("prior work"), 0o644))
+	require.NoError(t, ws1.Cleanup())
+	require.DirExists(t, dir, "a dirty checkout is preserved for the resume")
+
+	// Resume: a fresh policy value (a new process), same harp, same agent.
+	resumed := sessionWorktree(t, git.NewExec())
+	ws2, err := resumed.prepareWorkspace(ctx, repo, "member-resume")
+	require.NoError(t, err, "resume must adopt its own preserved checkout, not refuse it over the branch's spelling")
+	assert.Equal(t, dir, ws2.Dir(), "resume lands back in the same checkout")
+	assert.FileExists(t, filepath.Join(ws2.Dir(), "wip.txt"), "the preserved WIP is visible to the resumed run")
+
+	gitRun(t, repo, "worktree", "remove", "--force", dir)
+}
+
 // TestWorktreePolicy_RealGitPreservesInnerWIP proves the nested-worktree WIP guard
 // against real git: a nested inner worktree with an uncommitted file aborts the
 // teardown, so BOTH the inner and outer survive (the exact footgun git's own
@@ -310,8 +347,8 @@ func TestRelativeWorktreeGate_AgreesWithRealGit(t *testing.T) {
 	repo := gitRepo(t)
 
 	// A plain add succeeds here, so a refused relative add is the flag.
-	require.NoError(t, g.WorktreeAdd(ctx, repo, filepath.Join(t.TempDir(), "plain"), "plain", "HEAD", false))
-	accepted := g.WorktreeAdd(ctx, repo, filepath.Join(t.TempDir(), "relative"), "relative", "HEAD", true) == nil
+	require.NoError(t, g.WorktreeAdd(ctx, repo, filepath.Join(t.TempDir(), "plain"), git.MustParseBranch("plain"), "HEAD", false))
+	accepted := g.WorktreeAdd(ctx, repo, filepath.Join(t.TempDir(), "relative"), git.MustParseBranch("relative"), "HEAD", true) == nil
 
 	assert.Equal(t, accepted, gitAtLeast(version, relativeWorktreeGit),
 		"git %s: accepts %s = %v, but the gate (%d.%d+) disagrees", version, git.RelativePathsFlag, accepted, relativeWorktreeGit[0], relativeWorktreeGit[1])

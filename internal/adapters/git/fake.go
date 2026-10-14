@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 )
@@ -70,8 +69,12 @@ type Fake struct {
 
 	// CurrentBranchValue is what CurrentBranch returns ("main" when empty);
 	// CurrentBranchErr, when set, fails it instead.
-	CurrentBranchValue string
+	CurrentBranchValue Branch
 	CurrentBranchErr   error
+	// CurrentBranchDetached makes CurrentBranch report a detached HEAD (the
+	// zero Branch), which CurrentBranchValue's own zero cannot express since
+	// it already means "main".
+	CurrentBranchDetached bool
 
 	// CommitAllSHA is the SHA CommitAll returns ("fake-commit-sha" when
 	// empty); CommitAllChanged is the changed-file list it returns (the
@@ -85,16 +88,10 @@ type Fake struct {
 	CommitAllErr     error
 	CommitMessages   []string
 
-	// DiffPatchValue is what DiffPatch returns.
-	DiffPatchValue string
-
-	// UntrackedList is what ListUntracked returns.
-	UntrackedList []string
-
-	// ApplyPatchErr, when set, fails ApplyPatch. AppliedPatches records every
-	// patch ApplyPatch was called with, in order.
-	ApplyPatchErr  error
-	AppliedPatches []string
+	// ExistingBranches are branches BranchExists reports beyond those of
+	// registered worktrees; BranchExistsErr, when set, fails it.
+	ExistingBranches []Branch
+	BranchExistsErr  error
 
 	// CloneErr/PushErr, when set, fail Clone/Push. The publish path drives
 	// them to prove a failed clone or a failed push is never reported as a
@@ -129,10 +126,10 @@ type Fake struct {
 
 	// MergedBranchesValue is what MergedBranches returns (a copy);
 	// MergedBranchesErr, when set, fails it instead.
-	MergedBranchesValue []string
+	MergedBranchesValue []Branch
 	MergedBranchesErr   error
 	// DeletedBranches records each DeleteBranch, in call order.
-	DeletedBranches []string
+	DeletedBranches []Branch
 }
 
 var _ Git = (*Fake)(nil)
@@ -170,22 +167,32 @@ func (f *Fake) scripted(err *error, value *string, fallback string) (string, err
 	return fallback, nil
 }
 
+// scriptedList is scripted's slice form, read under the lock: *err when set,
+// else a copy of *value. A function, not a method: methods take no type
+// parameters.
+func scriptedList[T any](f *Fake, err *error, value *[]T) ([]T, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if *err != nil {
+		return nil, *err
+	}
+	return append([]T(nil), *value...), nil
+}
+
+// recordScripted records call and returns *err (nil = success), under the
+// lock: a write the fake only logs.
+func (f *Fake) recordScripted(call string, err *error) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record(call)
+	return *err
+}
+
 // WorktreeAdd records the add and (unless AddErr is set) appends the new
 // worktree — attached to branch, as the real seam leaves it — to the list so a
 // subsequent WorktreeList reflects it.
-func (f *Fake) WorktreeAdd(_ context.Context, _, path, branch, ref string, relativePaths bool) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	call := fmt.Sprintf("add %s@%s -b %s", path, ref, branch)
-	if relativePaths {
-		call += " " + RelativePathsFlag
-	}
-	f.record(call)
-	if f.AddErr != nil {
-		return f.AddErr
-	}
-	f.Worktrees = append(f.Worktrees, Worktree{Path: path, Branch: branch})
-	return nil
+func (f *Fake) WorktreeAdd(_ context.Context, _, path string, branch Branch, ref string, relativePaths bool) error {
+	return f.addWorktree(fmt.Sprintf("add %s@%s -b %s", path, ref, branch), path, branch, relativePaths)
 }
 
 // Version returns VersionValue, or 2.48.0 when unset.
@@ -213,14 +220,52 @@ func (f *Fake) WorktreeRemove(_ context.Context, _, path string) error {
 	return nil
 }
 
-// WorktreeList returns the configured list (a copy).
-func (f *Fake) WorktreeList(_ context.Context, _ string) ([]Worktree, error) {
+// WorktreeAddExisting records the add and registers the worktree on
+// branch; AddErr fails it like WorktreeAdd.
+func (f *Fake) WorktreeAddExisting(_ context.Context, _, path string, branch Branch, relativePaths bool) error {
+	return f.addWorktree(fmt.Sprintf("add-existing %s %s", path, branch), path, branch, relativePaths)
+}
+
+// addWorktree records call (with RelativePathsFlag when asked) and, unless
+// AddErr is set, registers the worktree at path on branch.
+func (f *Fake) addWorktree(call, path string, branch Branch, relativePaths bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.ListErr != nil {
-		return nil, f.ListErr
+	if relativePaths {
+		call += " " + RelativePathsFlag
 	}
-	return append([]Worktree(nil), f.Worktrees...), nil
+	f.record(call)
+	if f.AddErr != nil {
+		return f.AddErr
+	}
+	f.Worktrees = append(f.Worktrees, Worktree{Path: path, Branch: branch})
+	return nil
+}
+
+// BranchExists reports whether branch is in ExistingBranches or is the
+// branch of a registered worktree; BranchExistsErr fails it.
+func (f *Fake) BranchExists(_ context.Context, _ string, branch Branch) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.BranchExistsErr != nil {
+		return false, f.BranchExistsErr
+	}
+	for _, b := range f.ExistingBranches {
+		if b == branch {
+			return true, nil
+		}
+	}
+	for _, wt := range f.Worktrees {
+		if wt.Branch == branch {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// WorktreeList returns the configured list (a copy).
+func (f *Fake) WorktreeList(_ context.Context, _ string) ([]Worktree, error) {
+	return scriptedList(f, &f.ListErr, &f.Worktrees)
 }
 
 // WorktreePrune records the prune.
@@ -316,9 +361,20 @@ func (f *Fake) WorkingChanges(_ context.Context, _ string, maxEntries int) ([]st
 	return append([]string(nil), changes...), nil
 }
 
-// CurrentBranch returns CurrentBranchValue, or "main" when unset.
-func (f *Fake) CurrentBranch(_ context.Context, _ string) (string, error) {
-	return f.scripted(&f.CurrentBranchErr, &f.CurrentBranchValue, "main")
+// CurrentBranch returns CurrentBranchValue, or "main" when unset; the zero
+// Branch when CurrentBranchDetached.
+func (f *Fake) CurrentBranch(_ context.Context, _ string) (Branch, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	switch {
+	case f.CurrentBranchErr != nil:
+		return Branch{}, f.CurrentBranchErr
+	case f.CurrentBranchDetached:
+		return Branch{}, nil
+	case f.CurrentBranchValue.IsZero():
+		return MustParseBranch("main"), nil
+	}
+	return f.CurrentBranchValue, nil
 }
 
 // CommitAll records the message and (unless CommitAllErr is set) returns the
@@ -339,46 +395,12 @@ func (f *Fake) CommitAll(_ context.Context, dir, message string) (string, []stri
 	return sha, append([]string(nil), f.CommitAllChanged...), nil
 }
 
-// DiffPatch returns the configured DiffPatchValue.
-func (f *Fake) DiffPatch(_ context.Context, _ string) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.DiffPatchValue, nil
-}
-
-// ListUntracked returns the configured UntrackedList (a copy).
-func (f *Fake) ListUntracked(_ context.Context, _ string) ([]string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.UntrackedList...), nil
-}
-
-// ApplyPatch records patch and returns ApplyPatchErr (nil = success). Unlike
-// the real implementation it never actually applies anything — tests that
-// need a REAL apply-and-verify round trip use initRepo + execGit directly.
-func (f *Fake) ApplyPatch(_ context.Context, dir, patch string) (bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.record(fmt.Sprintf("apply-patch %s", dir))
-	if strings.TrimSpace(patch) == "" {
-		return false, f.ApplyPatchErr
-	}
-	f.AppliedPatches = append(f.AppliedPatches, patch)
-	if f.ApplyPatchErr != nil {
-		return false, f.ApplyPatchErr
-	}
-	return true, nil
-}
-
 // Clone records the clone and returns CloneErr. It creates nothing on disk —
 // tests that need a REAL clone/commit/push round trip drive execGit against a
 // file:// bare repository, which is the only way to assert what actually
 // landed on the far side.
-func (f *Fake) Clone(_ context.Context, url, dir, branch string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.record(fmt.Sprintf("clone %s -> %s@%s", url, dir, branch))
-	return f.CloneErr
+func (f *Fake) Clone(_ context.Context, url, dir string, branch Branch) error {
+	return f.recordScripted(fmt.Sprintf("clone %s -> %s@%s", url, dir, branch), &f.CloneErr)
 }
 
 // HeadSHA returns HeadSHAValue (or "fake-head-sha"), or HeadSHAErr.
@@ -398,10 +420,7 @@ func (f *Fake) FileBlobSHA(_ context.Context, _, ref, path string) (string, erro
 
 // Push records the push and returns PushErr.
 func (f *Fake) Push(_ context.Context, dir, remote, refspec string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.record(fmt.Sprintf("push %s %s %s", dir, remote, refspec))
-	return f.PushErr
+	return f.recordScripted(fmt.Sprintf("push %s %s %s", dir, remote, refspec), &f.PushErr)
 }
 
 // RemoteRefSHA looks up "<remote>:<ref>" in RemoteRefSHAs; a miss means the
@@ -423,7 +442,7 @@ func (f *Fake) HasIgnoredContent(_ context.Context, dir string) (bool, error) {
 }
 
 // DeleteBranch records the branch.
-func (f *Fake) DeleteBranch(_ context.Context, _, branch string) error {
+func (f *Fake) DeleteBranch(_ context.Context, _ string, branch Branch) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.record(fmt.Sprintf("branch -d %s", branch))
@@ -433,13 +452,8 @@ func (f *Fake) DeleteBranch(_ context.Context, _, branch string) error {
 
 // MergedBranches returns the configured MergedBranchesValue (a copy), or
 // MergedBranchesErr. A read — not recorded to Calls.
-func (f *Fake) MergedBranches(_ context.Context, _, _ string) ([]string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.MergedBranchesErr != nil {
-		return nil, f.MergedBranchesErr
-	}
-	return append([]string(nil), f.MergedBranchesValue...), nil
+func (f *Fake) MergedBranches(_ context.Context, _, _ string) ([]Branch, error) {
+	return scriptedList(f, &f.MergedBranchesErr, &f.MergedBranchesValue)
 }
 
 // drop removes the worktree with the given path from the list (caller holds mu).

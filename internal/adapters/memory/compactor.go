@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -52,12 +50,6 @@ const (
 	// heuristic. Bytes, not characters: fitToBudget slices by byte offset, and
 	// the two readings diverge by 2-4x on non-ASCII text.
 	BytesPerToken = tokens.BytesPerToken
-	// compactConcurrency bounds how many result repairs run in parallel. Each
-	// repair spawns its own LLM plugin subprocess, so this caps concurrent
-	// subprocesses (and provider rate pressure) while still cutting wall-clock
-	// from sum-of-repairs to roughly slowest × ceil(n/limit).
-	compactConcurrency = 4
-
 	// MaxEssenceChars is the hard ceiling, in characters, on the compacted
 	// essence body Compact will save or hand back to a caller. It is the
 	// backstop against a pipeline that "succeeds" (the LLM call exits 0)
@@ -245,9 +237,6 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// there are no in-transcript plan blocks to placeholder out.
 	sel := selectForCompact(session.Entries)
 	app.Artifacts, app.ArtifactsOmitted = sel.Artifacts, sel.ArtifactsOmitted
-	if n := c.repairResults(ctx, sel); n > 0 {
-		c.progressf("ctxloom: recovered %d finding(s) from uncommented results...\n", n)
-	}
 	logText := c.renderEntries(sel.Entries)
 	result.Selection = sel.Stats
 	result.TotalTokensIn = tokens.Estimate(logText)
@@ -895,77 +884,13 @@ func (c *Compactor) sessionToText(session *agent.Session) (string, SelectionStat
 }
 
 // renderEntries writes already-selected entries as the text handed to
-// compaction. Split from selection so the LLM repair pass (repairResults)
-// has somewhere to sit between the two: it rewrites entries, and rendering
-// must see the rewritten ones.
+// compaction.
 func (c *Compactor) renderEntries(entries []agent.SessionEntry) string {
 	var builder strings.Builder
 	for _, entry := range entries {
 		appendEntryText(&builder, entry, c.config.IncludeThinking)
 	}
 	return builder.String()
-}
-
-// repairResults recovers a finding for each large tool result the agent never
-// commented on, and writes it into the entry in place of the excerpt.
-//
-// Bounded by the same concurrency limit as chunk compaction, because each
-// repair spawns its own plugin subprocess. A repair that fails leaves the
-// entry exactly as selection rendered it -- shape line plus excerpt -- so the
-// worst case is the deterministic behaviour, never an empty result. That is
-// why no error is returned: there is no failure mode here that should abort a
-// compaction which would otherwise succeed.
-func (c *Compactor) repairResults(ctx context.Context, sel Selection) int {
-	if len(sel.Repairs) == 0 {
-		return 0
-	}
-	var recovered atomic.Int64
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, compactConcurrency)
-
-	for _, r := range sel.Repairs {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(r ResultRepair) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			finding, err := c.recoverFinding(ctx, r)
-			if err != nil {
-				c.warnf("finding recovery failed for %s: %v", r.ToolName, err)
-				return
-			}
-			if finding == "" {
-				return
-			}
-			sel.Entries[r.Index].ToolOutput = resultShape(r.Body) + " recovered finding: " + finding
-			recovered.Add(1)
-		}(r)
-	}
-	wg.Wait()
-	return int(recovered.Load())
-}
-
-// recoverFinding asks the fast model what one unreflected result told the
-// agent. An answer of "no conclusion available" -- the prompt's own escape
-// hatch -- is reported as no finding, so a model with nothing to say leaves
-// the deterministic excerpt standing rather than replacing it with a
-// confident nothing.
-func (c *Compactor) recoverFinding(ctx context.Context, r ResultRepair) (string, error) {
-	content := fmt.Sprintf("<tool_call>\n%s %s\n</tool_call>\n\n<tool_result>\n%s\n</tool_result>",
-		r.ToolName, r.Intent, r.Body)
-	prompt, err := c.promptText(resultFindingPromptName, resultFindingPrompt)
-	if err != nil {
-		return "", err
-	}
-	out, err := c.runCompactTurn(ctx, prompt, content)
-	if err != nil {
-		return "", err
-	}
-	out = strings.TrimSpace(out)
-	if strings.EqualFold(out, noConclusionAvailable) {
-		return "", nil
-	}
-	return out, nil
 }
 
 // truncateForSummary caps an argument/output string at 500 bytes with an
@@ -1046,9 +971,8 @@ func appendEntryText(builder *strings.Builder, entry agent.SessionEntry, include
 
 // runCompactTurn executes one compaction turn over transcript-shaped content:
 // RunPrompt on this compactor's runner, the content enveloped as a
-// <session_log>. The session compaction and the per-result finding repair
-// (recoverFinding) both go through here; the prompt itself is built by
-// RunPrompt so the shape stays in one place.
+// <session_log>. The prompt itself is built by RunPrompt so the shape stays
+// in one place.
 func (c *Compactor) runCompactTurn(ctx context.Context, systemPrompt, content string) (string, error) {
 	return RunPrompt(ctx, c.config.Run, systemPrompt, fmt.Sprintf("<session_log>\n%s\n</session_log>", content))
 }
@@ -1316,16 +1240,3 @@ func (c *Compactor) promptText(name, embedded string) (string, error) {
 	}
 	return loaded, nil
 }
-
-// resultFindingPromptName is the result-finding prompt file's stem, shared by
-// the embedded lookup and the PromptDir override.
-const resultFindingPromptName = "result-finding"
-
-// resultFindingPrompt recovers the finding an agent never stated for a large
-// tool result. See repairResults.
-var resultFindingPrompt = resources.MustGetPromptText(resultFindingPromptName)
-
-// noConclusionAvailable is the exact escape hatch result-finding.md instructs
-// the model to emit when a result supports no conclusion. It is a constant so
-// the prompt and the code that reads its answer cannot drift apart.
-const noConclusionAvailable = "no conclusion available"

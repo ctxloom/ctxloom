@@ -51,9 +51,8 @@ const (
 	// re-tuning of this value.
 	defaultTriageChunkSize = 10
 
-	// triageConcurrency bounds how many chunk calls run in parallel, mirroring
-	// memory's compactConcurrency — each chunk spawns
-	// its own LLM plugin subprocess, so this caps concurrent subprocesses
+	// triageConcurrency bounds how many chunk calls run in parallel. Each chunk
+	// spawns its own LLM plugin subprocess, so this caps concurrent subprocesses
 	// (and provider rate pressure) instead of firing every chunk at once.
 	// Task triage genuinely IS a batch of independent items; a session
 	// compaction is one call over one transcript and does not chunk.
@@ -591,7 +590,7 @@ type chunkResult struct {
 }
 
 // runTriageChunks runs every chunk's round-1 model call with bounded
-// concurrency (mirroring internal/adapters/memory/compactor.go's repairResults),
+// concurrency (triageConcurrency),
 // writing each result into its own pre-sized slot by chunk index — so the
 // returned slice is in the SAME order as chunks regardless of which
 // goroutine finishes first. Chunks are independent (each is a disjoint task

@@ -17,18 +17,6 @@ func TestGetEssenceMaxChars(t *testing.T) {
 	}
 }
 
-// TestSettingsHasAnyCoversEssenceMaxChars pins hasAny's stated invariant for
-// this field: a config that sets ONLY the essence budget must survive Save,
-// and an empty one reports nothing.
-func TestSettingsHasAnyCoversEssenceMaxChars(t *testing.T) {
-	if (SettingsConfig{}).hasAny() {
-		t.Fatal("an empty SettingsConfig reports having settings")
-	}
-	if !(SettingsConfig{EssenceMaxChars: 20000}).hasAny() {
-		t.Fatal("essence_max_chars alone does not keep the settings block; Save would drop it")
-	}
-}
-
 // TestShouldSilenceUnsupported pins the default and the opt-in. The default
 // matters most: a loss that goes quiet without anyone asking is the silent
 // degradation this project treats as its characteristic bug.
@@ -38,8 +26,5 @@ func TestShouldSilenceUnsupported(t *testing.T) {
 	}
 	if !(&Config{settings: SettingsConfig{SilenceUnsupported: true}}).ShouldSilenceUnsupported() {
 		t.Fatal("the opt-out does not take effect")
-	}
-	if !(SettingsConfig{SilenceUnsupported: true}).hasAny() {
-		t.Fatal("silence_unsupported alone does not survive Save, so the opt-out silently reverts")
 	}
 }

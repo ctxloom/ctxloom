@@ -197,13 +197,6 @@ type SettingsConfig struct {
 	SilenceUnsupported bool `mapstructure:"silence_unsupported" yaml:"silence_unsupported,omitempty"`
 }
 
-// hasAny reports whether any setting is set, so Save can prune the block when
-// empty. It MUST cover every field, or setting only an uncovered field would
-// silently drop the whole block on the next Save.
-func (s SettingsConfig) hasAny() bool {
-	return s.UseDistilled != nil || s.Statusline != nil || s.EssenceMaxChars != 0 || s.SilenceUnsupported
-}
-
 // ShouldUseDistilled returns whether to prefer distilled versions of
 // fragments/prompts. Defaults to true if not explicitly set.
 func (s *SettingsConfig) ShouldUseDistilled() bool {

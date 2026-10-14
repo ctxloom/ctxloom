@@ -18,29 +18,14 @@ type SelectionStats struct {
 	BytesKept int
 }
 
-// ResultRepair names a large tool result the agent never commented on. The
-// transcript holds no statement of what it meant, so unless one is recovered
-// the meaning is lost when the body is reduced.
-type ResultRepair struct {
-	// Index addresses the entry inside Selection.Entries.
-	Index    int
-	ToolName string
-	// Intent is the rendered call: what was asked for.
-	Intent string
-	// Body is the full result, ungated by any display cap.
-	Body string
-}
-
 // Selection is the outcome of deterministic entry selection: what survives,
-// what it cost, which results still need a finding recovered, and which files
-// the session touched.
+// what it cost, and which files the session touched.
 //
 // A struct rather than a widening tuple -- three of these were already in
 // flight and a fourth return value is where call sites start transposing them.
 type Selection struct {
 	Entries []agent.SessionEntry
 	Stats   SelectionStats
-	Repairs []ResultRepair
 	// Artifacts are the files named by tool calls, re-attached verbatim by
 	// assembleBody rather than left to the model to reproduce.
 	Artifacts []Artifact
@@ -221,48 +206,16 @@ func RenderArtifacts(artifacts []Artifact, omitted int) string {
 func selectForCompact(entries []agent.SessionEntry) Selection {
 	var stats SelectionStats
 	kept := make([]agent.SessionEntry, 0, len(entries))
-	var repairs []ResultRepair
 
-	// A tool RESULT does not carry the arguments its call was made with, and
-	// Bash classification needs the command line. Pair result to call by the
-	// engine-native call id where the backend supplied one, falling back to the
-	// most recent call of the same tool name.
-	inputByID := map[string]json.RawMessage{}
-	lastInputByName := map[string]json.RawMessage{}
-
-	for i, e := range entries {
+	for _, e := range entries {
 		stats.BytesIn += entryBytes(e)
 
-		switch e.Type {
-		case agent.EntryTypeToolUse:
-			if e.ToolCallID != "" {
-				inputByID[e.ToolCallID] = e.ToolInput
-			}
-			lastInputByName[e.ToolName] = e.ToolInput
-
-		case agent.EntryTypeToolResult:
-			if !e.IsError {
-				in, ok := inputByID[e.ToolCallID]
-				if !ok {
-					in = lastInputByName[e.ToolName]
-				}
-				// Decided HERE rather than in the renderer because it needs
-				// sequence context the renderer does not have: whether the
-				// agent said anything after this result.
-				//
-				// The trigger is the ABSENCE OF A STATED FINDING, and the
-				// transcript answers it directly.
-				reflected := reflectedAfter(entries, i)
-				if !reflected && len(e.ToolOutput) >= largeResultBytes {
-					repairs = append(repairs, ResultRepair{
-						Index:    len(kept),
-						ToolName: e.ToolName,
-						Intent:   renderToolArgs(in),
-						Body:     e.ToolOutput,
-					})
-				}
-				e.ToolOutput = renderResultBody(e.ToolOutput, reflected)
-			}
+		// A successful tool result is reduced to its SHAPE, whatever its size:
+		// the content is re-derivable by asking again, and what the agent
+		// learned from it is in the agent's own messages, which are kept.
+		// Errors keep their content (see renderErrorBody).
+		if e.Type == agent.EntryTypeToolResult && !e.IsError {
+			e.ToolOutput = resultShape(e.ToolOutput)
 		}
 
 		kept = append(kept, e)
@@ -273,7 +226,6 @@ func selectForCompact(entries []agent.SessionEntry) Selection {
 	return Selection{
 		Entries:          kept,
 		Stats:            stats,
-		Repairs:          repairs,
 		Artifacts:        artifacts,
 		ArtifactsOmitted: omitted,
 	}
@@ -388,75 +340,6 @@ func resultShape(out string) string {
 	}
 	lines := strings.Count(out, "\n") + 1
 	return fmt.Sprintf("[%d bytes, %d lines]", len(out), lines)
-}
-
-// largeResultBytes is the tool-result size at or above which a result is
-// LARGE: big enough that its body carries information the agent's stated
-// finding must stand in for. Below it, a result is always reduced to its
-// shape; at or above it, a result the agent never commented on is queued for
-// repair and keeps a bounded excerpt. The invariant is that every decision in
-// this file about "large" reads this one number, so the repair queue and the
-// excerpt can never disagree about which results they cover.
-//
-// Measured, not chosen: across four real transcripts the median tool result is
-// 447 bytes and 13% exceed 2KB, but those 13% carry roughly 1MB of body that
-// distillation would otherwise discard.
-const largeResultBytes = 2048
-
-// resultExcerptBytes is how much of an UNREFLECTED large result survives.
-//
-// It is a fallback, and a self-extinguishing one: the excerpt is kept only
-// where the agent said nothing about a large result, so the more reliably
-// reflection happens, the less raw body compaction carries. That is the
-// intended gradient -- a stated finding is strictly better than an excerpt,
-// because it says what mattered rather than what came first.
-const resultExcerptBytes = 1000
-
-// reflectedAfter reports whether the agent stated anything after the tool
-// result at index i, before issuing its next tool call.
-//
-// Consecutive results are skipped because parallel tool calls return as a run
-// and a single following message reflects on all of them. Reaching a new tool
-// call, or the end of the transcript, means nothing was said.
-func reflectedAfter(entries []agent.SessionEntry, i int) bool {
-	for j := i + 1; j < len(entries); j++ {
-		switch entries[j].Type {
-		case agent.EntryTypeToolResult:
-			continue
-		case agent.EntryTypeAssistant:
-			if strings.TrimSpace(entries[j].Content) != "" {
-				return true
-			}
-		case agent.EntryTypeToolUse:
-			return false
-		}
-	}
-	return false
-}
-
-// renderResultBody reduces a tool result to what compaction should keep.
-//
-// A result whose meaning the agent stated is reduced to its SHAPE: the finding
-// already carries what mattered, and a truncated fragment of the output is
-// neither the information nor a summary of it. A LARGE result that drew no
-// comment is different in kind -- nothing else in the transcript records what
-// it said -- so a bounded excerpt survives, because the alternative is losing
-// it entirely.
-//
-// The excerpt is the LAST tier of three: a finding stated in-session is best,
-// a finding recovered by repairResults is next, and this is what survives when
-// both are unavailable. Each tier degrades into the one below it rather than
-// into nothing.
-func renderResultBody(out string, reflected bool) string {
-	shape := resultShape(out)
-	if reflected || len(out) < largeResultBytes {
-		return shape
-	}
-	excerpt := out
-	if len(excerpt) > resultExcerptBytes {
-		excerpt = textutil.TruncateBytes(excerpt, resultExcerptBytes)
-	}
-	return shape + " unreflected; excerpt follows\n" + excerpt
 }
 
 // maxErrorBytes bounds an error body. Errors are the one result kind kept for

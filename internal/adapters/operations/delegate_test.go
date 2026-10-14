@@ -442,6 +442,27 @@ func TestCellsPrepare_RefusedLaunchCommitsNothing(t *testing.T) {
 	assert.NotContains(t, fake.Calls, "commit-all /proj")
 }
 
+// TestCellsPrepare_AnUnadoptableCheckoutIsTheWorkspacesRefusal: a resume
+// whose checkout path holds a worktree it cannot adopt is refused as the
+// WORKSPACE's failure, not as "the requested runtime is not available" —
+// verprop's lame-wide-chant relaunch read as a runtime failure four times
+// over — and the parent is not committed on the way.
+func TestCellsPrepare_AnUnadoptableCheckoutIsTheWorkspacesRefusal(t *testing.T) {
+	resetStrictness(t)
+	captureWarnings(t)
+	prev := prepareEnvironment
+	prepareEnvironment = func(context.Context, launch.CellRequest, isolation.Spec) (isolation.Environment, error) {
+		return nil, fmt.Errorf("worktree isolation: occupied: %w", launch.ErrWorkspaceUnadoptable)
+	}
+	t.Cleanup(func() { prepareEnvironment = prev })
+
+	fake := commitFixture()
+	_, err := prepareDelegatedWorktree(t, fake)
+	require.ErrorIs(t, err, launch.ErrWorkspaceUnadoptable)
+	assert.NotErrorIs(t, err, launch.ErrRuntimeUnavailable, "THE POINT: the runtime is not what failed")
+	assert.Empty(t, fake.CommitMessages, "nothing is committed for a run that will not start")
+}
+
 // delegatedChild is the identity of a spawned child (depth > 0): the
 // subject of the commits around a worktree.
 func delegatedChild(harp string) sessions.Identity {
@@ -485,4 +506,27 @@ func TestCommitParentTree_Commit_ListingFailureIsNamedInThePreview(t *testing.T)
 	require.NoError(t, err, "a listing failure stays best-effort: it must not block the configured commit")
 	assert.Contains(t, warnings.String(), "could not list",
 		"the preview must SAY the file listing failed rather than showing an empty list")
+}
+
+// TestCommitParentTree_Commit_PreviewListsTenFilesThenCounts pins the preview's
+// bound: the warning shown before the user's tree is auto-committed names the
+// first ten changed files and counts the rest, so a large commit cannot flood
+// the terminal yet still says how much more it carries.
+func TestCommitParentTree_Commit_PreviewListsTenFilesThenCounts(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	var changes []string
+	for i := range 12 {
+		changes = append(changes, fmt.Sprintf("file-%02d.go", i))
+	}
+	fake := &git.Fake{
+		Dirty:            map[string]bool{"/proj": true},
+		Changes:          changes,
+		CommitAllChanged: changes,
+	}
+	require.NoError(t, commitParentTree(context.Background(), fake, "/proj", "coder"))
+	out := warnings.String()
+	assert.Contains(t, out, "file-09.go", "the tenth file is listed")
+	assert.NotContains(t, out, "file-10.go", "the eleventh is counted, not listed")
+	assert.Contains(t, out, "(+2 more)")
 }

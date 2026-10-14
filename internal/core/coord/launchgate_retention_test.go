@@ -81,7 +81,7 @@ func TestLaunchGate_OneStatePerHarpNotPerRun(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 
 	for range 5 {
-		c.noteLaunchFailure("child-repeat")
+		c.noteLaunchFailure("child-repeat", errLaunchDoomed)
 		c.noteLaunchAttached("child-repeat")
 	}
 	c.mu.Lock()

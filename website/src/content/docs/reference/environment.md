@@ -93,7 +93,7 @@ Tunables for the bounded launch-retry budget that gates a delegated child's (`ag
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CTXLOOM_LAUNCH_MAX_ATTEMPTS` | Number of consecutive failed launch attempts tolerated for one delegated child before the coordinator gives up loudly and tells the parent. Raise it to ride out a slow/cold container daemon; lower it to fail faster. | `4` |
+| `CTXLOOM_LAUNCH_MAX_ATTEMPTS` | Number of consecutive failed launch attempts tolerated for one delegated child before the coordinator gives up loudly and tells the parent. Raise it to ride out a slow/cold container daemon; lower it to fail faster. A refusal no retry can change (the child's checkout path occupied by a worktree it cannot adopt) is not retried: the coordinator gives up after that one attempt. | `4` |
 | `CTXLOOM_LAUNCH_BACKOFF_BASE` | Delay (Go duration syntax, e.g. `500ms`) before the first retry; each further consecutive failure doubles it. | `200ms` |
 | `CTXLOOM_LAUNCH_BACKOFF_MAX` | Ceiling (Go duration syntax, e.g. `1m`) the doubling backoff is capped at. | `30s` |
 
@@ -117,6 +117,8 @@ Read once when the runner starts. An unset or empty value keeps the default sile
 |----------|-------------|
 | `CTXLOOM_SESSION_HARP` | The session's harp name (e.g. `swift-amber-falcon`). Read back by ctxloom's own hooks and MCP server, and by taskloom |
 | `CTXLOOM_SESSION_OWNER` | `1` on the session owner's engine only (a human's interactive session, never a delegated child or a one-shot). ctxloom's turn-start mail-drain hook delivers mail only under it; every ctxloom process removes it at start, so nothing inherits it |
+| `CTXLOOM_HOOK_URL` | Address of the run's own session endpoint, set in every run a runner hosts (every `ctxloom run` session and every delegated child). ctxloom's hooks reach their run through it: the post-tool mail-peek hook fetches mail that arrived mid-turn, and the approval hook posts when approvals route to you |
+| `CTXLOOM_HOOK_TOKEN` | Bearer for `CTXLOOM_HOOK_URL`, set beside it. It authorizes only that run's endpoint, but every process the engine spawns (MCP servers and hooks included) inherits it; see the [trust model](https://github.com/ctxloom/ctxloom/blob/main/docs/trust-model.md) |
 | `CTXLOOM_PROJECT_ID` | Project identifier for session/task keying. Read back by ctxloom and taskloom (it's the second-priority rule in taskloom's project-id resolution, after `--project`) |
 | `CTXLOOM_RESUMED_FROM` | Harp name of the session this one resumed from, if any. Read back by ctxloom's hooks and MCP server |
 | `CTXLOOM_RESUMED_PARTS` | Companion to `CTXLOOM_RESUMED_FROM`: which parts of the prior session were carried into the resume. Read back alongside it |

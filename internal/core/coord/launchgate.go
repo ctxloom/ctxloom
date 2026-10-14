@@ -2,11 +2,13 @@ package coord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -183,6 +185,20 @@ type launchState struct {
 	// "and do not bring it back". Cleared by an explicit new delivery, which
 	// is the documented way a stopped child resumes.
 	stopped bool
+	// refused records that the last launch failed on a DETERMINISTIC refusal
+	// (deterministicLaunchRefusal): retrying cannot change it, so the
+	// leftover-mail relaunch gives up at once instead of spending the
+	// budget on identical failures. Cleared like fails — by a launch that
+	// attaches and by an explicit new delivery, the retry a human asks for
+	// once the cause is fixed.
+	refused bool
+}
+
+// deterministicLaunchRefusal reports whether a launch failure is one a
+// retry cannot change: the agent's checkout path occupied by a worktree it
+// cannot adopt is still occupied on the next attempt.
+func deterministicLaunchRefusal(err error) bool {
+	return errors.Is(err, launch.ErrWorkspaceUnadoptable)
 }
 
 // launchGate returns harp's launch state, creating it on demand. Caller holds mu.
@@ -279,6 +295,7 @@ func (c *Coordinator) clearLaunchGate(harp string) {
 	st.stopped = false
 	st.fails = 0
 	st.relaunches = 0
+	st.refused = false
 }
 
 // noteLaunchAttached records that a launch actually came up: the
@@ -288,7 +305,9 @@ func (c *Coordinator) clearLaunchGate(harp string) {
 func (c *Coordinator) noteLaunchAttached(harp string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.launchGateLocked(harp).fails = 0
+	st := c.launchGateLocked(harp)
+	st.fails = 0
+	st.refused = false
 }
 
 // noteMailConsumed records the only thing that counts as progress for the
@@ -307,11 +326,22 @@ func (c *Coordinator) noteMailConsumed(harp string) {
 }
 
 // noteLaunchFailure records one failed attempt against harp's consecutive-
-// failure count.
-func (c *Coordinator) noteLaunchFailure(harp string) {
+// failure count, and whether it was a refusal no retry can change
+// (deterministicLaunchRefusal).
+func (c *Coordinator) noteLaunchFailure(harp string, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.launchGateLocked(harp).fails++
+	st := c.launchGateLocked(harp)
+	st.fails++
+	st.refused = deterministicLaunchRefusal(err)
+}
+
+// launchRefused reports whether harp's last launch failed on a deterministic
+// refusal.
+func (c *Coordinator) launchRefused(harp string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.launchGateLocked(harp).refused
 }
 
 // launchBackoff is the delay before the (fails+1)-th attempt: exponential
@@ -339,6 +369,8 @@ func (c *Coordinator) launchBackoff(fails int) time.Duration {
 
 // nextRelaunch decides whether terminateRun's leftover-mail tail may relaunch
 // harp, and after how long. It refuses once the harp has been stopped, once
+// its last launch failed on a deterministic refusal (launchState.refused —
+// exhausted at once, since retrying cannot help), once
 // c.maxLaunchAttempts consecutive attempts have FAILED, or once that many
 // consecutive relaunches have been armed WITHOUT the harp draining any mail
 // (the attach-then-die loop, which the failure counter alone
@@ -357,6 +389,9 @@ func (c *Coordinator) nextRelaunch(harp string) (delay time.Duration, ok, exhaus
 	st := c.launchGateLocked(harp)
 	if st.stopped {
 		return 0, false, false
+	}
+	if st.refused {
+		return 0, false, true
 	}
 	// The budget is spent by whichever counter is further along: a harp that
 	// alternates launch failures with attach-then-die cycles must not get a
@@ -448,7 +483,11 @@ func (c *Coordinator) claimLeftover(harp, runID string) bool {
 // look like a slow one for 49 minutes.
 func (c *Coordinator) giveUpLaunching(rec RunRecord, cause, detail string) {
 	what := fmt.Sprintf("failed to launch %d times in a row", c.maxLaunchAttempts)
-	if cause != CauseLaunchFailed {
+	switch {
+	case cause == CauseLaunchFailed && c.launchRefused(rec.Harp):
+		// Tried once: the refusal is one a retry cannot change.
+		what = "was refused at launch, and a retry cannot change that refusal, so it was not retried"
+	case cause != CauseLaunchFailed:
 		// It came up and died again without ever draining its mailbox — a
 		// different failure with the same runaway shape, and a different fix.
 		what = fmt.Sprintf("started and exited %d times in a row without consuming any of its mail (last run ended: %s)",

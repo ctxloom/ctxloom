@@ -178,7 +178,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 	// worktree prepares → chain stops there.
 	failing := NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, &git.Fake{CommonDirValue: common})
 	working := sessionWorktree(t, &git.Fake{CommonDirValue: common})
-	pol, ws := prepareChain(ctx, []policy{failing, working, None{}}, surveyRuntimes(), RuntimeContainerRootless, "/proj", "m")
+	pol, ws, _ := prepareChain(ctx, []policy{failing, working, None{}}, surveyRuntimes(), RuntimeContainerRootless, "/proj", "m")
 	require.NotNil(t, ws)
 	// Safety net registered BEFORE the assertions below can fail/panic and skip
 	// the manual, non-deferred ws.Cleanup() call at the end of this block (see
@@ -190,7 +190,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 
 	// Non-git repo: both isolated tiers fail → none on the shared project dir.
 	nonRepo := &git.Fake{Repos: map[string]bool{}}
-	pol2, ws2 := prepareChain(ctx,
+	pol2, ws2, _ := prepareChain(ctx,
 		[]policy{
 			NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, nonRepo),
 			sessionWorktree(t, nonRepo),

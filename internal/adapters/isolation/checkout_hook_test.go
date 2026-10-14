@@ -126,7 +126,7 @@ func TestPrepareChain_StopsOnACheckoutRefusal(t *testing.T) {
 	laterCalls := 0
 	later.beforeCheckout = func(context.Context) error { laterCalls++; return nil }
 
-	pol, ws := prepareChain(context.Background(), []policy{refusing, later, None{}}, surveyRuntimes(), RuntimeHost, "/proj", "member-a")
+	pol, ws, _ := prepareChain(context.Background(), []policy{refusing, later, None{}}, surveyRuntimes(), RuntimeHost, "/proj", "member-a")
 
 	assert.Equal(t, None{}.Name(), pol.Name(), "the chain ends without a workspace link")
 	require.NotNil(t, ws)

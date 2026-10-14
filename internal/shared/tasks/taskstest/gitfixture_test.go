@@ -39,6 +39,12 @@ import (
 // RealGitWorktreeFixture builds. It also runs git through the acceptance
 // World's isolated env, and godog step code has no *testing.T to hand the
 // canonical body, so calling it is not merely undesirable but impossible.
+//
+// internal/adapters/isolation/adoption_refusal_test.go is the same exception
+// for the resume path: its subject is an OCCUPANT of the exact checkout path
+// Worktree.checkoutPath derives for a harp, on a branch other than the
+// agent's, which reuseExistingCheckout must refuse. RealGitWorktreeFixture
+// chooses its own linked path and branch, so it cannot build that occupant.
 var sanctionedWorktreeFixtureFiles = map[string]bool{
 	filepath.Join("internal", "shared", "tasks", "taskstest", "gitfixture.go"):       true,
 	filepath.Join("internal", "shared", "tasks", "taskstest", "gitfixture_test.go"):  true,
@@ -47,6 +53,7 @@ var sanctionedWorktreeFixtureFiles = map[string]bool{
 	filepath.Join("tests", "acceptance", "steps_j001300_closeout.go"):                true,
 	filepath.Join("internal", "adapters", "cli", "session_worktrees_test.go"):        true,
 	filepath.Join("tests", "acceptance", "scratch_worktree_fixture.go"):              true,
+	filepath.Join("internal", "adapters", "isolation", "adoption_refusal_test.go"):   true,
 }
 
 // worktreeFixtureMarker is the distinguishing shape of a hand-built fixture: a

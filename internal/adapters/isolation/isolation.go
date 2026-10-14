@@ -691,18 +691,27 @@ func refuseLostContainer(err error, agentID string, requested RuntimeAxis, surve
 // prepareChain tries each policy's PrepareWorkspace in order and returns the first
 // that succeeds with its workspace, warning at each degrade. The chain always ends
 // in None (which never fails), so a member always gets a workspace; the trailing
-// fallback is defensive against an empty/all-failing chain. A BeforeCheckout
-// refusal (errCheckoutRefused) is not a degrade: the walk stops there and falls
-// to None silently, and Prepare refuses the run with the hook's error.
-func prepareChain(ctx context.Context, chain []policy, survey runtimeSurvey, requested RuntimeAxis, projectDir, agentID string) (policy, workspace) {
+// fallback is defensive against an empty/all-failing chain.
+//
+// Two failures are refusals of the run, not degrades: a BeforeCheckout
+// refusal (errCheckoutRefused) and a checkout path occupied by something the
+// agent cannot adopt (launch.ErrWorkspaceUnadoptable). The walk stops there,
+// falls to None silently, and returns the refusal, which Prepare refuses the
+// run with. An unadoptable checkout is the workspace's failure whichever link
+// met it, so it is never recorded as a container that could not start: a
+// later link meets the same occupant, and None would run the agent in the
+// parent's live tree.
+func prepareChain(ctx context.Context, chain []policy, survey runtimeSurvey, requested RuntimeAxis, projectDir, agentID string) (policy, workspace, error) {
+	var refused error
 	for i, p := range chain {
 		ws, err := p.prepareWorkspace(ctx, projectDir, agentID)
 		if err == nil {
-			return p, ws
+			return p, ws, nil
 		}
-		if errors.Is(err, errCheckoutRefused) {
-			// The run is refused (Prepare returns the hook's error), so no
-			// later link is tried and no degrade is announced.
+		if errors.Is(err, errCheckoutRefused) || errors.Is(err, launch.ErrWorkspaceUnadoptable) {
+			// The run is refused, so no later link is tried and no degrade
+			// is announced.
+			refused = err
 			break
 		}
 		next := None{}.Name()
@@ -742,5 +751,5 @@ func prepareChain(ctx context.Context, chain []policy, survey runtimeSurvey, req
 		clidiag.Warn("ctxloom", "isolation %q unavailable for member %q (%v); degrading to %q", p.Name(), agentID, err, next)
 	}
 	ws, _ := None{}.prepareWorkspace(ctx, projectDir, agentID)
-	return None{}, ws
+	return None{}, ws, refused
 }

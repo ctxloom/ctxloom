@@ -26,7 +26,7 @@ import (
 func TestPrepareChain_NonContainerDegradeRaisesNoFinding(t *testing.T) {
 	mark := strictness.Checkpoint()
 
-	pol, ws := prepareChain(context.Background(),
+	pol, ws, _ := prepareChain(context.Background(),
 		[]policy{failingPolicy{name: "worktree"}, passingPolicy{name: "none"}},
 		surveyRuntimes(), RuntimeHost, t.TempDir(), "member-a")
 
@@ -56,7 +56,7 @@ func TestPrepareChain_LostContainerBoundaryRaisesIsolationFinding(t *testing.T) 
 			stubRuntimeCandidates(t)
 			mark := strictness.Checkpoint()
 
-			pol, ws := prepareChain(context.Background(),
+			pol, ws, _ := prepareChain(context.Background(),
 				[]policy{failingPolicy{name: tc.container}, passingPolicy{name: tc.next}},
 				surveyRuntimes(), RuntimeContainerRootless, t.TempDir(), "member-a")
 

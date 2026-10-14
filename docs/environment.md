@@ -46,7 +46,7 @@ ctxloom: GitHub API status: 404 for /repos/owner/repo
 
 | Variable | Values | Default | Purpose |
 |----------|--------|---------|---------|
-| `CTXLOOM_LAUNCH_MAX_ATTEMPTS` | positive integer | `4` | Number of CONSECUTIVE failed launch attempts the coordinator tolerates for one delegated child (harp) before giving up loudly and telling the parent. Raise it to ride out a slow or cold container daemon; lower it to fail faster and surface a genuinely broken launch (bad image, no auth, unreachable daemon) sooner. |
+| `CTXLOOM_LAUNCH_MAX_ATTEMPTS` | positive integer | `4` | Number of CONSECUTIVE failed launch attempts the coordinator tolerates for one delegated child (harp) before giving up loudly and telling the parent. Raise it to ride out a slow or cold container daemon; lower it to fail faster and surface a genuinely broken launch (bad image, no auth, unreachable daemon) sooner. A refusal no retry can change (the child's checkout path occupied by a worktree it cannot adopt) is not retried: the coordinator gives up after that one attempt. |
 | `CTXLOOM_LAUNCH_BACKOFF_BASE` | Go duration (e.g. `500ms`) | `200ms` | Delay before the FIRST retry; each further consecutive failure doubles it. Raise it to space attempts out further against a daemon that's slow to recover. |
 | `CTXLOOM_LAUNCH_BACKOFF_MAX` | Go duration (e.g. `1m`) | `30s` | Ceiling the doubling backoff is capped at. Raise it to let the backoff keep growing across a longer cold-daemon recovery. |
 

@@ -339,10 +339,18 @@ type Launch struct {
 }
 
 var (
-	ErrNoIdentity           = errors.New("launch: a launch needs a minted identity")
-	ErrModeUnsupported      = errors.New("launch: the engine does not declare the requested mode")
-	ErrOwnershipMismatch    = errors.New("launch: the binding's container ownership is not available")
-	ErrRuntimeUnavailable   = errors.New("launch: the requested runtime is not available")
+	ErrNoIdentity         = errors.New("launch: a launch needs a minted identity")
+	ErrModeUnsupported    = errors.New("launch: the engine does not declare the requested mode")
+	ErrOwnershipMismatch  = errors.New("launch: the binding's container ownership is not available")
+	ErrRuntimeUnavailable = errors.New("launch: the requested runtime is not available")
+	// ErrWorkspaceUnadoptable is a workspace the cell cannot adopt: the
+	// agent's deterministic checkout path is already occupied by something
+	// not provably its own (registered on another branch, not registered at
+	// all, or unverifiable). It is the WORKSPACE's refusal, not the
+	// runtime's — no runtime change fixes it — and it is deterministic: the
+	// occupant is still there on the next attempt, so a relaunch loop must
+	// not retry it.
+	ErrWorkspaceUnadoptable = errors.New("launch: the agent's workspace is occupied by a checkout it cannot adopt")
 	ErrNoAgent              = errors.New("launch: the named agent is not found")
 	ErrNoEngine             = errors.New("launch: the label names no composed engine")
 	ErrPermissionUnhonoured = errors.New("launch: the declared permission posture cannot be honoured")

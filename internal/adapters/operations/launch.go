@@ -351,9 +351,10 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 		// since the runtime is not what failed.
 		return launch.Cell{}, cerr
 	}
-	if errors.Is(err, engine.ErrNoCredential) {
+	if errors.Is(err, engine.ErrNoCredential) || errors.Is(err, launch.ErrWorkspaceUnadoptable) {
 		// A credential store the run cannot have (missing, or one no
-		// container can reach) is the credential's refusal, with its own
+		// container can reach) is the credential's refusal, and a checkout
+		// path the agent cannot adopt is the workspace's, each with its own
 		// remedy; the runtime is not what failed.
 		return launch.Cell{}, err
 	}

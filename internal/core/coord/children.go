@@ -1305,7 +1305,7 @@ func (c *Coordinator) failChild(rt *childRt, err error) {
 	c.rep.Warnf("agent_run: child %s (%s) failed to launch: %s", rt.harp, rt.agentName, launchFailureWarning(err, detail))
 	// Count it BEFORE the terminal: terminateRun's leftover-mail tail reads
 	// this count to decide whether another relaunch is warranted at all.
-	c.noteLaunchFailure(rt.harp)
+	c.noteLaunchFailure(rt.harp, err)
 	c.terminateRun(rt.runID, CauseLaunchFailed, detail)
 	c.markAttached(rt) // the attempt settled (failed): unblock any awaitChildUp
 }

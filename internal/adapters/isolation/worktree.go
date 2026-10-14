@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -720,6 +721,8 @@ func (w Worktree) previewCwd(projectDir, agentID string) string {
 //     branch — → (false, err): REFUSE, naming the path and what a human
 //     should check, rather than adopting an unverified occupant or letting
 //     the caller silently degrade to running with no workspace isolation.
+//     The refusal is an unadoptableCheckout (launch.ErrWorkspaceUnadoptable),
+//     which prepareChain stops on and the coordinator does not retry.
 //
 // A bare path match is deliberately NOT enough on its own: sizable-antler is
 // explicit that "a path collision is not proof of ownership" — the
@@ -737,19 +740,49 @@ func (w Worktree) reuseExistingCheckout(ctx context.Context, projectDir, wtPath 
 
 	list, err := w.git.WorktreeList(ctx, projectDir)
 	if err != nil {
-		return false, fmt.Errorf("worktree isolation: %q already exists (likely a prior run's preserved WIP) but its ownership could not be verified: git worktree list failed: %w — refusing to reuse or overwrite it; inspect the path by hand, then either remove it or retry once git is healthy", wtPath, err)
+		return false, unadoptableCheckout{
+			msg:   fmt.Sprintf("worktree isolation: %q already exists (likely a prior run's preserved WIP) but its ownership could not be verified: git worktree list failed: %v — refusing to reuse or overwrite it", wtPath, err),
+			fix:   fmt.Sprintf("inspect %s by hand, then either remove it or retry once git is healthy", wtPath),
+			cause: err,
+		}
 	}
 	for _, wt := range list {
 		if !sameWorktreePath(wt.Path, wtPath) {
 			continue
 		}
 		if wt.Branch != expectedBranch {
-			return false, fmt.Errorf("worktree isolation: %q already exists as a git worktree but on branch %q, not the %q this agent's naming would use — refusing to adopt a workspace that is not provably this agent's own; inspect it by hand before resuming", wtPath, wt.Branch, expectedBranch)
+			return false, unadoptableCheckout{
+				msg: fmt.Sprintf("worktree isolation: %q already exists as a git worktree but on branch %q, not the %q this agent's naming would use — refusing to adopt a workspace that is not provably this agent's own", wtPath, wt.Branch, expectedBranch),
+				fix: fmt.Sprintf("inspect %s by hand: if it is this agent's work, check out %s there (git -C %s switch %s); otherwise remove it (git worktree remove %s) — then resume the agent again", wtPath, expectedBranch, wtPath, expectedBranch, wtPath),
+			}
 		}
 		return true, nil
 	}
-	return false, fmt.Errorf("worktree isolation: %q already exists but is not a registered git worktree of %q — refusing to reuse or silently run elsewhere with no workspace isolation; inspect and remove the stale path (or run the worktree reaper), then resume again", wtPath, projectDir)
+	return false, unadoptableCheckout{
+		msg: fmt.Sprintf("worktree isolation: %q already exists but is not a registered git worktree of %q — refusing to reuse or silently run elsewhere with no workspace isolation", wtPath, projectDir),
+		fix: fmt.Sprintf("inspect and remove the stale path %s (or run the worktree reaper), then resume the agent again", wtPath),
+	}
 }
+
+// unadoptableCheckout is reuseExistingCheckout's refusal: the checkout path is
+// occupied by something not provably this agent's own. It is the WORKSPACE's
+// refusal (launch.ErrWorkspaceUnadoptable), so prepareChain stops on it rather
+// than degrading — a later link meets the same occupant, or (None) runs the
+// agent in the parent's live tree — and it is never reported as a container
+// that could not start: no runtime change fixes it. Its remedy names the path
+// to inspect, never the runtime.
+type unadoptableCheckout struct {
+	msg   string
+	fix   string
+	cause error // the probe failure, when the occupant could not be verified at all
+}
+
+func (e unadoptableCheckout) Error() string  { return e.msg }
+func (e unadoptableCheckout) Remedy() string { return e.fix }
+func (e unadoptableCheckout) Unwrap() error  { return e.cause }
+
+// Is matches launch.ErrWorkspaceUnadoptable.
+func (e unadoptableCheckout) Is(target error) bool { return target == launch.ErrWorkspaceUnadoptable }
 
 // sameWorktreePath reports whether a and b name the same directory,
 // tolerating the symlink-alias case CommonDir's own tests already guard

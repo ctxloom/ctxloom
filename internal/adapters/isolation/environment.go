@@ -111,7 +111,9 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	}
 	survey := surveyRuntimes()
 	// A BeforeCheckout refusal is recorded as the hook returned it: the chain
-	// stops on it (errCheckoutRefused) and the run is refused with it.
+	// stops on it (errCheckoutRefused) and the run is refused with it. A
+	// checkout the agent cannot adopt stops the chain too, and the run is
+	// refused with the chain's own refusal (launch.ErrWorkspaceUnadoptable).
 	var refused error
 	var hook func(context.Context) error
 	if s.beforeCheckout != nil {
@@ -138,7 +140,10 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	} else if errors.Is(err, engine.ErrHostOnlyStore) {
 		return nil, err
 	}
-	p, ws := prepareChain(ctx, chain, survey, s.axes.Runtime, s.project, s.state.Harp)
+	p, ws, chainRefused := prepareChain(ctx, chain, survey, s.axes.Runtime, s.project, s.state.Harp)
+	if refused == nil {
+		refused = chainRefused
+	}
 	if refused != nil {
 		_ = ws.Cleanup()
 		return nil, refused

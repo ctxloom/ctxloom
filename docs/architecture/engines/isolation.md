@@ -60,7 +60,7 @@ flowchart TD
 | Axes | Policy | `Name()` | Ownership demanded | Isolates | Does **not** isolate |
 |---|---|---|---|---|---|
 | `{none, host}` | `None` | `"none"` | — | nothing — the fault-tolerant floor | everything |
-| `{worktree, host}` | `Worktree` | `"worktree"` | — | cwd (detached git worktree at `HEAD`) + **one host lever per backend**: the scoped config-home env var its descriptor's `Home` declaration names | engine *global* state where the engine ignores the var; the git common dir; the auth token (it rides the env) |
+| `{worktree, host}` | `Worktree` | `"worktree"` | — | cwd (a git worktree on the member's own branch (`worktreeBranchName`): carved from `HEAD` when new, re-entered at its tip when it exists, reused in place on a resume) + **one host lever per backend**: the scoped config-home env var its descriptor's `Home` declaration names | engine *global* state where the engine ignores the var; the git common dir; the auth token (it rides the env) |
 | `{none, container-rootless}` | `Container{hostBase}` | `"container"` | rootless only | process, fs view, fresh `$HOME`; project mounted at its **identical absolute path** | the project dir (mounted RW) and the whole `.git` common dir (mounted RW) |
 | `{none, container-rootful}` | `Container{hostBase}` | `"container"` | rootful only | same as the rootless row | same as the rootless row |
 | `{worktree, container-rootless}` | `Container{worktreeBase}` | `"container-worktree"` | rootless only | as above + a per-agent checkout as cwd | the git common dir is still whole-dir RW |
@@ -858,7 +858,7 @@ image another is between building and running.
 13. **An agent image is content-keyed** — the base identity (Dockerfile, build args and build-context content) and the ONE engine are both in the tag.
 14. **Bind-mount roots are verified, not assumed** (the shared-FS probe); an empty root set is an error, not an "ok".
 15. **Commits from an agent never impersonate the human** — `gitIdentity` yields `"ctxloom agent <id>" <sanitized>@agents.ctxloom.local`.
-16. **Worktree teardown leaks rather than destroys** — `force=false`, unknown-dirty treated as dirty, and a WIP-bearing orphan is SPARED (`teardownWorktree`, `worktree_reap.go`).
+16. **Worktree teardown leaks rather than destroys** — `force=false`, unknown-dirty treated as dirty, and a WIP-bearing orphan is SPARED (`teardownWorktree`, `worktree_reap.go`). Under `SpecBuilder.CommitOnTeardown` (a delegated child's cell), `worktreeWorkspace.Cleanup` first commits the checkout's uncommitted, non-ignored work on its own branch (`commitRunEnd`); a commit that cannot be made warns and leaves the work for the WIP gate to preserve.
 17. **`WorktreeVerdict`'s unhandled/unclassified case funnels to `VerdictSkipped` (never touch)** — the `default:` case in `ReapOrphanedWorktrees`'s tally.
 18. **Session state names are path-validated** before becoming host paths (`safePathSegment`).
 19. **Every environment shares the host's filesystem** — the host in place, a container by bind mount. `launch.Placement`'s `Paths` are the host and engine views of the SAME files: delivery writes the host side and relies on the engine seeing it there. An environment with no shared filesystem (an ssh host, a pod, a VM that would need a sync) is out of scope by ruling, not an unbuilt case: launch (`isolation.Environment`'s `Start`/`Interactive`), reach (`Listen`) and credentials-as-data would carry over to one, but this file contract would not.

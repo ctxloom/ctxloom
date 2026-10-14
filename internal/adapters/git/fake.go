@@ -79,7 +79,7 @@ type Fake struct {
 	// CommitAllSHA is the SHA CommitAll returns ("fake-commit-sha" when
 	// empty); CommitAllChanged is the changed-file list it returns (the
 	// commit's own self-reported verification — leave nil to simulate an
-	// EMPTY commit landing, the case the dirty-tree commit handler must
+	// EMPTY commit landing, the case the delegation parent commit must
 	// refuse). CommitAllErr, when set, fails it instead. CommitMessages
 	// records every message CommitAll was called with, in order, so a test
 	// can assert on the exact generated commit message text.

@@ -517,6 +517,10 @@ func TestExecGit_MergedBranches(t *testing.T) {
 
 	// merged-branch never diverges from main's tip: fully merged.
 	run("branch", "merged-branch")
+	// A tag sharing the branch's name makes the short name ambiguous: git's
+	// %(refname:short) then prints "heads/merged-branch", which is no
+	// spelling of the branch. The full refname is unambiguous.
+	run("tag", "merged-branch")
 
 	// unmerged-branch carries a commit main does not have.
 	run("checkout", "-b", "unmerged-branch")

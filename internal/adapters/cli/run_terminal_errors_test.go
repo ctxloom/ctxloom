@@ -79,7 +79,11 @@ func TestInteractiveTerminal_RestoreSwitchesOffEngineModes(t *testing.T) {
 	restore()
 	restore() // the deferred call after the inline one
 
-	for _, mode := range []string{"\x1b[?1004l", "\x1b[?2004l", "\x1b[?1000l", "\x1b[?1002l", "\x1b[?1003l", "\x1b[?1006l"} {
+	for _, mode := range []string{
+		"\x1b[?1004l", "\x1b[?2004l", // focus reporting, bracketed paste
+		"\x1b[?1000l", "\x1b[?1002l", "\x1b[?1003l", // mouse tracking
+		"\x1b[?1005l", "\x1b[?1006l", "\x1b[?1015l", // every mouse coordinate encoding
+	} {
 		assert.Equal(t, 1, strings.Count(out.String(), mode), "restore must switch off %q exactly once", mode)
 	}
 	assert.Contains(t, out.String(), "\x1b[?25h", "restore must leave the cursor visible")

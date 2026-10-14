@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"os"
 	"path/filepath"
 	"testing"
@@ -193,4 +194,55 @@ func TestBaseIdentity_OverBudgetDegradesLoudly(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(ctxDir, "build.log"), []byte("a longer line\n"), 0o644))
 	b2, _ := stageTags(t, stage)
 	assert.NotEqual(t, b1, b2, "a size change is still seen past the budget")
+}
+
+// TestBaseIdentity_BudgetIsSpentAcrossFiles pins that the content budget is a
+// running total over the whole context, not a per-file size cap: every file
+// here fits the budget on its own, but together they exceed it, so the later
+// ones are keyed by size and modification time and the degrade is announced.
+func TestBaseIdentity_BudgetIsSpentAcrossFiles(t *testing.T) {
+	clidiag.ResetWarnOnce()
+	t.Cleanup(clidiag.ResetWarnOnce)
+	var sink bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&sink))
+
+	df, ctxDir := buildCtxFixture(t)
+	dfInfo, err := os.Stat(df)
+	require.NoError(t, err)
+	old := contextHashBudget
+	contextHashBudget = dfInfo.Size() + 1 // the largest file fits; the sum does not
+	t.Cleanup(func() { contextHashBudget = old })
+
+	stageTags(t, devcontainerBuildStage("d", df, ctxDir, nil))
+	assert.Contains(t, sink.String(), "build context", "files past the spent budget degrade, loudly")
+}
+
+// TestBaseIdentity_SymlinkTargetChangesTag pins that a symlink in the context
+// is keyed by its target: COPY copies the link itself, so repointing it is a
+// changed build input even though no file content changed.
+func TestBaseIdentity_SymlinkTargetChangesTag(t *testing.T) {
+	df, ctxDir := buildCtxFixture(t)
+	link := filepath.Join(ctxDir, "current")
+	require.NoError(t, os.Symlink("scripts/setup.sh", link))
+	stage := devcontainerBuildStage("d", df, ctxDir, nil)
+	b1, _ := stageTags(t, stage)
+
+	require.NoError(t, os.Remove(link))
+	require.NoError(t, os.Symlink("build.log", link))
+	b2, _ := stageTags(t, stage)
+	assert.NotEqual(t, b1, b2, "a repointed symlink is a changed build input")
+}
+
+// TestWriteKeyField_FieldBoundariesAreUnambiguous pins the length prefix: two
+// fields must never hash like one field whose value spells out both, or a
+// build arg could be crafted to collide with a different set of args.
+func TestWriteKeyField_FieldBoundariesAreUnambiguous(t *testing.T) {
+	two := sha256.New()
+	writeKeyField(two, "arg", []byte("A=1"))
+	writeKeyField(two, "arg", []byte("B=2"))
+
+	one := sha256.New()
+	writeKeyField(one, "arg", []byte("A=1arg\x00B=2"))
+
+	assert.NotEqual(t, two.Sum(nil), one.Sum(nil))
 }

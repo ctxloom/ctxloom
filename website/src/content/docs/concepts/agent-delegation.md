@@ -31,12 +31,20 @@ session:
   return value. A spawn that is refused (an agent that does not resolve, a launch the
   coordinator will not start) fails the tool call with the same `fix:` line the CLI would
   print, so the coordinator is told what to change rather than only that it failed.
-- Those messages are **delivered, not fetched**: mail to a session arrives as context at the
-  start of its next turn, and its arrival starts that turn when the session is idle. There is
-  no receive tool and nothing to wait on.
+- Those messages are **delivered, not fetched**: mail to an idle session starts a new turn and
+  arrives as that turn's context. Mail to a session in the middle of a turn is handed to its
+  engine at its next tool call, through ctxloom's post-tool `mail-peek` hook, and at the turn
+  boundary on an engine that fires no such hook or a turn that makes no further tool call.
+  There is no receive tool and nothing to wait on.
 - **`agent_send`** delivers a message — coordinator to child by harp, or child to coordinator via
   the reserved `to_role: "parent"` address. Delivery is durable: a message to a child that's
-  gone quiet is still there when it resumes, even across a coordinator restart.
+  gone quiet is still there when it resumes, even across a coordinator restart. Its answer
+  says the message was queued, not that it was read: the `roster`'s `unread` count for the
+  child is what tells you it has not been handed over yet.
+- **`agent_steer`** gives one of your children an instruction it acts on, and with `interrupt`
+  cuts its running turn short first. The answer says what actually happened: `interrupted`
+  when a running turn was cut, `interrupt-unconfirmed` when the child's runner did not confirm
+  the cut, otherwise the plain delivery.
 - **`agent_stop`** ends a child's run without discarding it — the harp stays resumable, so a
   later `agent_send` relaunches it primed with its recorded history rather than starting cold.
 
@@ -44,7 +52,7 @@ Two more tools carry structured evidence rather than conversation: **`agent_repo
 PROGRESS/CHECKPOINT/FINAL update as a durable, journaled fact (not just a chat message that
 scrolls away), and **`agent_fetch_artifact`** retrieves the bytes of something a child produced,
 content-hash-verified before it's ever written to disk. **`roster`** lists a coordinator's
-children — harp, run state, latest report, last activity — the live-status view an operator or
+children — harp, run state, latest report, last activity, unread mail — the live-status view an operator or
 a coordinator itself reads instead of holding it all in the conversation.
 
 Every one of these is served by the session's own runner, on the MCP endpoint a `ctxloom run`

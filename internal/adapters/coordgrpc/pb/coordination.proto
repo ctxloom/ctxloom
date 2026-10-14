@@ -1157,7 +1157,7 @@ message UserInputResult {
 // removed below.
 message SpawnAgentRequest {
   option (message_schema) = {
-    doc: "Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages; mail sent to you triggers your next turn and arrives there as context, so there is nothing to poll or wait on. Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and run headless: any permission posture is accepted, and a tool call the posture would prompt for is denied instead — that turn comes back BLOCKED, naming the tool."
+    doc: "Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages; mail sent to you arrives as context, at your next tool call while you are mid-turn and otherwise as the turn its arrival starts, so there is nothing to poll or wait on. Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and run headless: any permission posture is accepted, and a tool call the posture would prompt for is denied instead — that turn comes back BLOCKED, naming the tool."
   };
 
   // e.g. "test-writer"
@@ -1509,7 +1509,7 @@ message ControlSteerResult {
 
 message ControlQuestion {
   option (message_schema) = {
-    doc: "Ask one of your delegated children a question. Returns an ask_id at once; it does not wait for the answer. The question becomes the child's next turn (an idle child is woken for it; a busy one sees it at its next boundary). The answer is whatever the child itself sends back quoting the ask_id in in_reply_to: it reaches you as mail, and its arrival triggers your next turn. The child's automatic turn report may quote the ask_id too; it is marked automatic and is not the answer. If the child ends without answering, an exited notice quoting the ask_id tells you so. Only your OWN children may be asked."
+    doc: "Ask one of your delegated children a question. Returns an ask_id at once; it does not wait for the answer. The question becomes the child's next turn (an idle child is woken for it; a busy one sees it at its next tool call, or at its turn boundary if it makes none). The answer is whatever the child itself sends back quoting the ask_id in in_reply_to: it reaches you as mail, and its arrival triggers your next turn. The child's automatic turn report may quote the ask_id too; it is marked automatic and is not the answer. If the child ends without answering, an exited notice quoting the ask_id tells you so. Only your OWN children may be asked."
   };
   string harp = 1 [(field_schema) = {
     required: true,

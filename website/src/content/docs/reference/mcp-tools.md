@@ -15,7 +15,7 @@ The MCP surface is for **working inside a session**: assembling context, searchi
 
 ### agent_ask
 
-Ask one of your delegated children a question. Returns an ask_id at once; it does not wait for the answer. The question becomes the child's next turn (an idle child is woken for it; a busy one sees it at its next boundary). The answer is whatever the child itself sends back quoting the ask_id in in_reply_to: it reaches you as mail, and its arrival triggers your next turn. The child's automatic turn report may quote the ask_id too; it is marked automatic and is not the answer. If the child ends without answering, an exited notice quoting the ask_id tells you so. Only your OWN children may be asked.
+Ask one of your delegated children a question. Returns an ask_id at once; it does not wait for the answer. The question becomes the child's next turn (an idle child is woken for it; a busy one sees it at its next tool call, or at its turn boundary if it makes none). The answer is whatever the child itself sends back quoting the ask_id in in_reply_to: it reaches you as mail, and its arrival triggers your next turn. The child's automatic turn report may quote the ask_id too; it is marked automatic and is not the answer. If the child ends without answering, an exited notice quoting the ask_id tells you so. Only your OWN children may be asked.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
@@ -65,7 +65,7 @@ Resume a paused child: turns held at its pause gate are handed to its engine in 
 
 ### agent_run
 
-Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages; mail sent to you triggers your next turn and arrives there as context, so there is nothing to poll or wait on. Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and run headless: any permission posture is accepted, and a tool call the posture would prompt for is denied instead — that turn comes back BLOCKED, naming the tool.
+Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages; mail sent to you arrives as context, at your next tool call while you are mid-turn and otherwise as the turn its arrival starts, so there is nothing to poll or wait on. Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and run headless: any permission posture is accepted, and a tool call the posture would prompt for is denied instead — that turn comes back BLOCKED, naming the tool.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
@@ -74,7 +74,7 @@ Launch a configured ctxloom agent as a delegated child session. Async spawn: ret
 
 ### agent_send
 
-Send a message to another agent session. Messaging follows the delegation tree: you reach only your own parent and your own children. Address a child of yours by harp (to_agent_id) — delivery starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Address your parent with to_role: "parent"; mail to a parent whose run has ended resumes it. The root session has no parent; reach a deeper agent through its own parent, never past it. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with "keep reading for more detail", so put nothing essential below the fold.
+Send a message to another agent session. Messaging follows the delegation tree: you reach only your own parent and your own children. Address a child of yours by harp (to_agent_id) — delivery starts a new turn on an idle child, reaches a busy one at its next tool call (or at its turn boundary if it makes none), or resumes an ended session. The answer says it is queued, not received: a child's unread mail shows in the roster's `unread`. Address your parent with to_role: "parent"; mail to a parent whose run has ended resumes it. The root session has no parent; reach a deeper agent through its own parent, never past it. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with "keep reading for more detail", so put nothing essential below the fold.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
@@ -87,12 +87,12 @@ Send a message to another agent session. Messaging follows the delegation tree: 
 
 ### agent_steer
 
-Steer one of your delegated children: deliver an instruction it acts on as its next turn. The instruction is a DURABLE file in the child's own inbox spool — it survives the child's relaunch, is visible while unread, and the returned message_id is the handle to withdraw it before the child reads it. Delivery follows the child's state: an idle child is woken into a new turn, a busy one sees it at its next turn boundary, an ended one is resumed with it. Only your OWN children may be steered (the target's parent must be you; you cannot steer yourself). This is an instruction, not a conversation — the child does not answer it; use agent_ask when you expect an answer.
+Steer one of your delegated children: deliver an instruction it acts on as its next turn. The instruction is a DURABLE file in the child's own inbox spool — it survives the child's relaunch, is visible while unread, and the returned message_id is the handle to withdraw it before the child reads it. Delivery follows the child's state: an idle child is woken into a new turn, a busy one sees it at its next tool call (or its next turn boundary if it makes none), an ended one is resumed with it. Only your OWN children may be steered (the target's parent must be you; you cannot steer yourself). This is an instruction, not a conversation — the child does not answer it; use agent_ask when you expect an answer.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `harp` | string | Yes | The child session harp to steer (from agent_run's harp, or the roster) |
-| `interrupt` | boolean | No | Cut the child's running turn short first, so this instruction becomes its next turn now rather than at its next boundary. The interrupted turn's work so far stands; the child is not stopped. OMIT (false) to let the running turn finish. |
+| `interrupt` | boolean | No | Cut the child's running turn short first, so this instruction becomes its next turn now rather than at its next boundary. The interrupted turn's work so far stands; the child is not stopped. The answer says what happened: delivery "interrupted" when a running turn was cut, "interrupt-unconfirmed" when the child's runner did not confirm it, otherwise the plain delivery (an idle child is woken into a new turn). OMIT (false) to let the running turn finish. |
 | `text` | string | Yes | The instruction. Delivered verbatim as the child's next turn under a provenance header naming it a steer from you. |
 
 ### agent_stop

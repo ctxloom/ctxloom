@@ -70,6 +70,7 @@ func TestWatchHub_OneTerminalPerRun(t *testing.T) {
 func TestSyntheticResult(t *testing.T) {
 	code := int32(137)
 	zero := int32(0)
+	one := int32(1)
 	cases := []struct {
 		name   string
 		cause  string
@@ -82,6 +83,7 @@ func TestSyntheticResult(t *testing.T) {
 		{"drain interrupted", CauseDrainInterrupted, nil, RunStatusCancelled},
 		{"clean engine exit", CauseRunnerExit, &zero, RunStatusSucceeded},
 		{"engine exit non-zero", CauseRunnerExit, &code, RunStatusFailed},
+		{"engine exit status 1", CauseRunnerExit, &one, RunStatusFailed},
 		{"engine exit, status unknown", CauseRunnerExit, nil, RunStatusFailed},
 		{"final reported", CauseFinalReported, nil, RunStatusSucceeded},
 		{"idle reaped", CauseIdleReaped, nil, RunStatusSucceeded},
@@ -305,6 +307,27 @@ func TestRunEnd_ExplicitExitCarriesTheEnginesStatus(t *testing.T) {
 	require.NotNil(t, end.ExitCode)
 	assert.EqualValues(t, 3, *end.ExitCode)
 	assert.True(t, strings.Contains(end.Detail, "exit status 3"), end.Detail)
+}
+
+// TestRunEnd_CleanExplicitExitIsRecordedAsSucceeded pins the other half of
+// RunnerExited's status recording: an engine that exits 0 with no signal
+// reports its status too, so the run ends succeeded with exit code 0 rather
+// than as a runner exit whose status is unknown (which reads as failed).
+func TestRunEnd_CleanExplicitExitIsRecordedAsSucceeded(t *testing.T) {
+	rig := newRunEndRig(t, nil)
+	var cred string
+	rig.c.runs.View(func() { cred = rig.c.runsF.run(rig.run.RunID).CredHash })
+
+	rig.c.RunnerExited(cred, RunExited{RunID: rig.run.RunID, ExitCode: 0})
+
+	res := rig.terminal(t)
+	assert.Equal(t, RunStatusSucceeded, res.Status)
+	require.NotNil(t, res.ExitCode)
+	assert.EqualValues(t, 0, *res.ExitCode)
+	end := rig.sp.runEndFor(t, rig.run.Harp, rig.run.RunID)
+	require.NotNil(t, end.ExitCode)
+	assert.EqualValues(t, 0, *end.ExitCode)
+	assert.False(t, end.Failed, "a clean exit is not a failed run")
 }
 
 // runEndFor waits for the run end recorded for harp's run runID.

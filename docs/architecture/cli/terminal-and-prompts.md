@@ -39,7 +39,11 @@ flowchart TD
 - `interactiveTerminal` makes the frontend the terminal owner: it puts the
   real terminal in raw mode so keystrokes pass through untouched to the
   runner's pty, returns `os.Stdin` as the keystroke source plus a resize
-  channel, and a restore func that undoes raw mode. The restore is
+  channel, and a restore func that switches off the terminal modes an engine
+  may have left on (`terminalModeReset`: focus reporting, bracketed paste,
+  every mouse mode, and the cursor shown again, written to stdout when it is a
+  terminal) and then undoes raw mode. Each reset is a no-op on a mode the
+  engine never set; the alternate screen is not reset. The restore is
   idempotent, so callers defer it immediately (panic safety) and may also
   call it inline before any normal-path output. When stdin is not a terminal
   it returns `(nil, nil, no-op)` and the run proceeds without a pty owner; a

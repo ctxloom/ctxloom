@@ -175,13 +175,12 @@ Feature: init — the setup interview, and what it does to a project that alread
   Rule: A first init asks its questions at the terminal, and says what it chose for the rest
 
     Init's questions are asked in-process, on the user's own terminal, before
-    any engine is involved. The advanced choices — what a delegation does with
-    uncommitted work, and the default agent's headless posture — are not asked:
-    init takes the default, prints one line for each saying what it chose and
-    how to change it, and leaves a project whose default agent's headless runs
-    accept file edits without asking. It never grants ctxloom permission to commit on
-    the user's behalf: that stays a human act, and the first delegation from a
-    dirty tree stops and names it.
+    any engine is involved. Two things are not asked: init says, in one line,
+    that a delegation commits uncommitted work (the parent's before a child's
+    worktree is carved, the child's on its own branch when its run ends), and,
+    in another, which headless posture the default agent takes and how to
+    change it. The project it leaves has a default agent whose headless runs
+    accept file edits without asking.
 
     # Hermetic: a stub `claude` makes claude-code the only installed engine
     # (so init announces it rather than asking), the https clone of the seeded

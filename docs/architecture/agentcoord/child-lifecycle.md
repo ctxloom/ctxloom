@@ -44,6 +44,7 @@ flowchart TD
   GRACE["adopt: no re-Hello in grace<br/>coordinator.go"] -->|CauseRunnerLoss| TERM
   DRAIN["drain.go: between turns /<br/>before start / forced at the bound"] --> TERM
   TERM -->|"not TopLevel, not CauseIdleReaped"| NOTICE[("queueMail → parent's spool")]
+  TERM -->|"syntheticResult, unless the engine's own came first (watchHub.terminated)"| WATCH[("watch stream: RunCompleted")]
   TERM --> REAP["reapEndedRuns"]
   TERM --> RLM["relaunchForLeftoverMail<br/>launchgate.go"]
   RLM -->|"not CauseStopped, not TopLevel, mail pending"| NR["nextRelaunch"]

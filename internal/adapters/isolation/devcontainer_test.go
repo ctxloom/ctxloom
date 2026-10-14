@@ -441,7 +441,11 @@ func TestUnhonouredDevcontainerFields_NamesEveryPresentField(t *testing.T) {
 	} {
 		assert.Contains(t, got, want, "%s is present and not honoured, so it must be reported", want)
 		assert.NotEmpty(t, got[want], "%s needs a reason", want)
+		if want != "someFutureField" {
+			assert.NotEqual(t, devcontainerDefaultReason, got[want], "%s is a known field and carries its own reason", want)
+		}
 	}
+	assert.Equal(t, devcontainerDefaultReason, got["someFutureField"], "an unknown field gets the generic reason")
 	for _, honoured := range []string{"image", "build", "build.dockerfile", "name", "$schema"} {
 		assert.NotContains(t, got, honoured, "%s is honoured (or inert) and must not be reported", honoured)
 	}

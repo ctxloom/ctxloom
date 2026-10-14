@@ -108,3 +108,30 @@ func TestMemStore_RecordRunEnd_MatchesTheManager(t *testing.T) {
 
 	assert.Error(t, s.RecordRunEnd("no-such-harp", RunEnd{RunID: "r"}))
 }
+
+// TestRecordRunEnd_StoresTheEndTimeInUTC pins that a run end's time is kept in
+// UTC whatever zone the caller's clock reported it in, in the Manager's
+// sidecar and the MemStore alike, so session.yaml never mixes offsets.
+func TestRecordRunEnd_StoresTheEndTimeInUTC(t *testing.T) {
+	at := time.Date(2026, 10, 14, 9, 30, 0, 0, time.FixedZone("UTC+5", 5*3600))
+	end := RunEnd{RunID: "run-1", At: at, Cause: "final-reported"}
+
+	m := newManager(t)
+	e, err := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	require.NoError(t, m.RecordRunEnd(e.HarpName, end))
+	found, err := m.Find(e.HarpName)
+	require.NoError(t, err)
+	require.Len(t, found.RunEnds, 1)
+	assert.True(t, found.RunEnds[0].At.Equal(at), "the same instant")
+	assert.Equal(t, time.UTC, found.RunEnds[0].At.Location(), "stored in UTC")
+
+	s := NewMemStore()
+	me, err := s.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	require.NoError(t, s.RecordRunEnd(me.HarpName, end))
+	mfound, err := s.Find(me.HarpName)
+	require.NoError(t, err)
+	require.Len(t, mfound.RunEnds, 1)
+	assert.Equal(t, time.UTC, mfound.RunEnds[0].At.Location(), "the MemStore matches the Manager")
+}

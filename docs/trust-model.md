@@ -226,8 +226,9 @@ needs on first launch.
     runs. A repository the human HAS trusted runs its surfaces under ctxloom as
     it would in their own claude — that is what trusting it means.
 4. **Claude's subprocesses inherit the run's hook token.** Every
-    runner-hosted run puts the session endpoint's bearer into the engine's
-    environment as `CTXLOOM_HOOK_TOKEN` (`sessions.EnvHookToken`, written by
+    runner-hosted run puts the session endpoint's address and bearer into the
+    engine's environment as `CTXLOOM_HOOK_URL` and `CTXLOOM_HOOK_TOKEN`
+    (`sessions.EnvHookURL`, `sessions.EnvHookToken`, written by
     `sessions.EncodeHookReach` through the runner's `hookReachEnv`): the
     approval hook posts with it when approvals route to the human, and the
     mail-peek hook asks the runner for mid-turn mail with it in every run. So
@@ -238,8 +239,9 @@ needs on first launch.
     run's mid-turn mail (it is still the run's own mail, and the turn boundary
     no longer delivers what such a process confirmed). Same-uid processes are not
     isolated from each other on the host runtime (gap 2); the container
-    runtime is the boundary. Ruled and accepted: the token stays in the
-    environment.
+    runtime is the boundary. Ruled and accepted: the address and token are in
+    the environment of every runner-hosted run, not only runs whose approvals
+    route to the human, and they stay there.
 5. **The `file` MCP approach writes ctxloom's session entry into the
     project's `.mcp.json`.** Selecting the project root for the MCP surface
     (`mcpApproach.DeliverMCP`, `internal/engines/claude/definition.go`) writes ctxloom's

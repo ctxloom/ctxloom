@@ -119,7 +119,7 @@ func TestResolveLimits(t *testing.T) {
 	off := config.ContainerLimit{Kind: config.LimitUnlimited}
 
 	got := resolveLimits(config.ContainerLimits{}, enforcing(32*gib))
-	assert.Equal(t, resourceLimits{memory: 16 * gib, memorySwap: 16 * gib, pids: defaultPidsLimit}, got, "unset: defaults")
+	assert.Equal(t, resourceLimits{memory: 16 * gib, memorySwap: 16 * gib, pids: 4096}, got, "unset: defaults (4096 processes is the documented isolation_pids_limit default)")
 
 	got = resolveLimits(config.ContainerLimits{Memory: fixed(5 * gib), PIDs: fixed(100)}, enforcing(32*gib))
 	assert.Equal(t, resourceLimits{memory: 5 * gib, memorySwap: 5 * gib, pids: 100}, got, "explicit values")

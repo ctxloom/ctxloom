@@ -124,6 +124,8 @@ isolation_devcontainer_service: app    # compose service to use as the base, if 
 isolation_engines: [claude-code]      # trim the composed engine set (default: every known engine)
 isolation_images:             # fully user-provided images, run as-is
   claude-code: my-registry/claude-agent:latest
+isolation_memory_limit: 8g    # per-container memory cap (unset: half host memory, 2 GiB floor; 0|unlimited: none)
+isolation_pids_limit: 4096    # per-container process cap (unset: 4096; 0|unlimited: none)
 
 # Sync configuration
 sync:
@@ -306,8 +308,9 @@ one you would hand a stranger a shell in.
 ## Agents and Isolation
 
 The `agents:`, `workspace:`, `runtime:`, `isolation_images:`,
-`isolation_base:`, `isolation_devcontainer_service:`, and `isolation_engines:` keys configure
-local agent bindings and where they execute. See
+`isolation_base:`, `isolation_devcontainer_service:`, `isolation_engines:`,
+`isolation_memory_limit:` and `isolation_pids_limit:` keys configure local agent bindings,
+where they execute, and what a containerized agent may use. See
 [Agents & Isolation](/concepts/agents/) for the model, and prefer
 `ctxloom agent create` / `ctxloom agent edit` over hand-editing the `agents:` key.
 

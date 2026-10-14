@@ -1,6 +1,7 @@
 package termui
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -129,4 +130,26 @@ func TestPrefixKey_LettersAndShiftedPunctuation(t *testing.T) {
 	assert.Equal(t, keyMiss, ctrlUnderscore.hit([]byte("\x1b[45;5u")), "ctrl+- is another key")
 	assert.Equal(t, keyPress, ctrlQuestion.hit([]byte("\x1b[47:63;6u")), "kitty ctrl+shift+/ reporting ?")
 	assert.Equal(t, keyPress, ctrlQuestion.hit([]byte{127}), "legacy DEL")
+}
+
+// TestPrefixKey_EachByteDerivesItsKey pins newPrefixKey's byte-to-character
+// map at every range edge. Each accepted prefix byte must match the kitty and
+// modifyOtherKeys spelling of ITS key: ctrl-\ is 0x1c, the first of the
+// punctuation range, so an off-by-one there maps it to '|' and the prefix is
+// silently unreachable under an enhanced keyboard mode.
+func TestPrefixKey_EachByteDerivesItsKey(t *testing.T) {
+	for _, c := range []struct {
+		b  byte
+		ch int
+	}{
+		{1, 'a'}, {26, 'z'},
+		{28, '\\'}, {29, ']'}, {30, '^'}, {31, '_'},
+		{127, '?'},
+	} {
+		k := newPrefixKey(c.b)
+		kitty := fmt.Sprintf("\x1b[%d;5u", c.ch)
+		xterm := fmt.Sprintf("\x1b[27;5;%d~", c.ch)
+		assert.Equal(t, keyPress, k.hit([]byte(kitty)), "byte %#x: kitty %q", c.b, kitty)
+		assert.Equal(t, keyPress, k.hit([]byte(xterm)), "byte %#x: modifyOtherKeys %q", c.b, xterm)
+	}
 }

@@ -20,9 +20,9 @@ several, one image each.
 
 The base comes from --base (or config isolation_base): 'ctxloom' (the
 embedded default), 'devcontainer' (the project's .devcontainer/devcontainer.json
-or .devcontainer.json; its "features" are skipped with a warning, and a
-compose file needs --devcontainer-service), or an image ref. Unset, the
-project's devcontainer is used when there is one. --overlay-image instead adds
+or .devcontainer.json; fields beyond its image/build, such as "features",
+are named in a warning, and a compose file needs --devcontainer-service),
+or an image ref. Unset, the project's devcontainer is used when there is one. --overlay-image instead adds
 ctxloom to an image that already ships the engine's client.
 
 Builds use --pull --no-cache so the client is the newest; --keep-cache reuses

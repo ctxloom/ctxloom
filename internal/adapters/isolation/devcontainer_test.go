@@ -1,10 +1,12 @@
 package isolation
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/schema"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // writeDevcontainer writes appRoot/.devcontainer/devcontainer.json.
@@ -369,7 +372,7 @@ func TestDevcontainerAdvice_NamesOnlyAcceptedConfigKeys(t *testing.T) {
 	v, err := schema.NewConfigValidator()
 	require.NoError(t, err)
 	for name, msg := range map[string]string{
-		"devcontainerFeaturesNotice":      devcontainerFeaturesNotice,
+		"devcontainerUnhonouredRemedy":    devcontainerUnhonouredRemedy,
 		"devcontainerComposeServiceError": devcontainerComposeServiceError,
 	} {
 		keys := configKeyRe.FindAllString(msg, -1)
@@ -378,4 +381,143 @@ func TestDevcontainerAdvice_NamesOnlyAcceptedConfigKeys(t *testing.T) {
 			assert.True(t, v.KnownPath([]string{key}), "%s names config key %q, which the config schema rejects", name, key)
 		}
 	}
+	// The per-field reasons may name config keys too (hostRequirements does);
+	// they are held to the same rule, though not every reason names one.
+	for field, msg := range devcontainerFieldReasons {
+		for _, key := range configKeyRe.FindAllString(msg, -1) {
+			assert.True(t, v.KnownPath([]string{key}), "reason for %s names config key %q, which the config schema rejects", field, key)
+		}
+	}
+	for _, msg := range []string{devcontainerUnhonouredNotice, devcontainerVarsNotice} {
+		for _, key := range configKeyRe.FindAllString(msg, -1) {
+			assert.True(t, v.KnownPath([]string{key}), "notice %q names config key %q, which the config schema rejects", msg, key)
+		}
+	}
+}
+
+// everyUnhonouredField is a devcontainer.json naming every field ctxloom does
+// not honour that the spec defines today, plus one the spec does NOT define
+// (a future field must be reported too, with no code change).
+const everyUnhonouredField = `{
+	"name": "dev",
+	"$schema": "https://example.invalid/schema.json",
+	"image": "debian:13",
+	"build": {"dockerfile": "Dockerfile", "target": "dev"},
+	"features": {"ghcr.io/devcontainers/features/git:1": {}},
+	"mounts": ["source=/x,target=/y,type=bind"],
+	"containerEnv": {"A": "1"},
+	"remoteEnv": {"B": "2"},
+	"remoteUser": "vscode",
+	"containerUser": "vscode",
+	"updateRemoteUserUID": true,
+	"initializeCommand": "echo",
+	"onCreateCommand": "echo",
+	"updateContentCommand": "echo",
+	"postCreateCommand": "echo",
+	"postStartCommand": "echo",
+	"postAttachCommand": "echo",
+	"runArgs": ["--cap-add=SYS_PTRACE"],
+	"workspaceFolder": "/w",
+	"workspaceMount": "source=/a,target=/w,type=bind",
+	"hostRequirements": {"memory": "8gb"},
+	"forwardPorts": [3000],
+	"someFutureField": true
+}`
+
+func TestUnhonouredDevcontainerFields_NamesEveryPresentField(t *testing.T) {
+	var top map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(everyUnhonouredField), &top))
+
+	got := map[string]string{}
+	for _, f := range unhonouredDevcontainerFields(top) {
+		got[f.name] = f.reason
+	}
+	for _, want := range []string{
+		"features", "mounts", "containerEnv", "remoteEnv", "remoteUser", "containerUser",
+		"updateRemoteUserUID", "initializeCommand", "onCreateCommand", "updateContentCommand",
+		"postCreateCommand", "postStartCommand", "postAttachCommand", "runArgs",
+		"workspaceFolder", "workspaceMount", "hostRequirements", "build.target",
+		"forwardPorts", "someFutureField",
+	} {
+		assert.Contains(t, got, want, "%s is present and not honoured, so it must be reported", want)
+		assert.NotEmpty(t, got[want], "%s needs a reason", want)
+	}
+	for _, honoured := range []string{"image", "build", "build.dockerfile", "name", "$schema"} {
+		assert.NotContains(t, got, honoured, "%s is honoured (or inert) and must not be reported", honoured)
+	}
+	assert.Contains(t, got["hostRequirements"], "isolation_memory_limit",
+		"hostRequirements points at ctxloom's own resource caps")
+}
+
+func TestUnhonouredDevcontainerFields_HonouredOnlyIsSilent(t *testing.T) {
+	var top map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(`{"name":"x","build":{"dockerfile":"D","context":"..","args":{"A":"1"}}}`), &top))
+	assert.Empty(t, unhonouredDevcontainerFields(top))
+}
+
+func TestDevcontainerVarRefs_FlagsOnlyHonouredFields(t *testing.T) {
+	var top map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"image": "mcr.example/base:${localEnv:TAG}",
+		"build": {"args": {"USER": "${localEnv:USER}", "PLAIN": "x"}},
+		"postCreateCommand": "echo ${containerWorkspaceFolder}"
+	}`), &top))
+	assert.Equal(t, []string{"build.args.USER", "image"}, devcontainerVarRefs(top),
+		"honoured fields carrying ${...} are named; an unhonoured field is already reported as such")
+}
+
+// The notice is ONE warning per build, however many times the base is
+// resolved during it, naming every field and the variable note together.
+func TestResolveDevcontainerBase_WarnsOnceNamingEveryUnhonouredField(t *testing.T) {
+	clidiag.ResetWarnOnce()
+	t.Cleanup(clidiag.ResetWarnOnce)
+	var sink bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&sink))
+
+	root := t.TempDir()
+	writeDevcontainer(t, root, strings.Replace(everyUnhonouredField, `"debian:13"`, `"debian:${localEnv:V}"`, 1))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".devcontainer", "Dockerfile"), []byte("FROM debian\n"), 0o644))
+	for range 3 {
+		stage, err := resolveDevcontainerBase(root, "")
+		require.NoError(t, err, "unhonoured fields never fail the build")
+		require.NotNil(t, stage)
+	}
+
+	out := sink.String()
+	assert.Equal(t, 1, strings.Count(out, "warning:"), "one warning per build, not one per field or per resolution:\n%s", out)
+	for _, f := range []string{"features (ghcr.io/devcontainers/features/git:1)", "mounts", "hostRequirements", "build.target", "someFutureField"} {
+		assert.Contains(t, out, f)
+	}
+	assert.Contains(t, out, "${...}")
+	assert.Contains(t, out, "image", "the honoured field carrying a variable is named")
+}
+
+func TestResolveDevcontainerBase_HonouredOnlyDoesNotWarn(t *testing.T) {
+	clidiag.ResetWarnOnce()
+	t.Cleanup(clidiag.ResetWarnOnce)
+	var sink bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&sink))
+
+	root := t.TempDir()
+	writeDevcontainer(t, root, `{"name": "dev", "image": "debian:13"}`)
+	_, err := resolveDevcontainerBase(root, "")
+	require.NoError(t, err)
+	assert.Empty(t, sink.String())
+}
+
+// A variable in an honoured field is warned even when every field is
+// honoured, without claiming an empty unhonoured list.
+func TestResolveDevcontainerBase_VarsOnlyWarnsWithoutFieldList(t *testing.T) {
+	clidiag.ResetWarnOnce()
+	t.Cleanup(clidiag.ResetWarnOnce)
+	var sink bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&sink))
+
+	root := t.TempDir()
+	writeDevcontainer(t, root, `{"image": "debian:${localEnv:V}"}`)
+	_, err := resolveDevcontainerBase(root, "")
+	require.NoError(t, err)
+	out := sink.String()
+	assert.Contains(t, out, "${...} variables are not substituted in image")
+	assert.NotContains(t, out, "does NOT honor")
 }

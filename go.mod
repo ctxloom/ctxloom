@@ -51,6 +51,7 @@ require (
 	github.com/knadh/koanf/providers/confmap v1.0.1
 	github.com/knadh/koanf/providers/env/v2 v2.0.2
 	github.com/knadh/koanf/v2 v2.3.8
+	github.com/moby/patternmatcher v0.6.1
 	github.com/spf13/pflag v1.0.10
 	golang.org/x/tools v0.52.0
 )

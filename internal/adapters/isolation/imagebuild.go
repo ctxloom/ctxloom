@@ -41,7 +41,8 @@ const imageBuildTimeout = 10 * time.Minute
 var resolveSelfExe = selfLinuxExe
 
 // baseImageTagFor derives the local tag the shared base stage builds to from
-// the base Containerfile's CONTENT; the agent stages FROM that build's
+// the base's IDENTITY (baseStage.identity: the Containerfile bytes, plus the
+// build args and build-context content for an on-disk Dockerfile); the agent stages FROM that build's
 // ownership tag (buildBaseImage) via --build-arg BASE_IMAGE. Content-keyed on purpose: concurrent SESSIONS with different
 // isolation_base choices build DIFFERENT tags, so one session's
 // agent stage can never FROM a base another session just tagged (a fixed
@@ -63,8 +64,8 @@ func baseContentHash(content []byte) string {
 
 // composedContentHash digests a resolved base's content TOGETHER WITH the
 // ENGINE keyed onto it — the content-key for a COMPOSABLE spec's agent image
-// tag and provenance suffix: a change to the base content, a devcontainer.json
-// edit, OR a different engine produces a different hash, so any of the three
+// tag and provenance suffix: a change to the base identity (its Dockerfile,
+// build args or build context), a devcontainer.json edit, OR a different engine produces a different hash, so any of the three
 // lands on a fresh tag (simply absent, therefore built) through the SAME
 // mechanism baseContentHash gives the stage-1 base tag alone.
 func composedContentHash(content []byte, engine string) string {
@@ -138,7 +139,7 @@ func composedIdentity(p engineContainerSpec, base *baseStage, engine string) (ag
 	if p.engineInstall == nil || base == nil {
 		return agentImageID{}, false
 	}
-	content, err := base.content()
+	content, err := base.identity()
 	if err != nil {
 		return agentImageID{}, false
 	}
@@ -191,16 +192,6 @@ const (
 	baseStageKindUser         = "user"
 	baseStageKindDevcontainer = "devcontainer"
 )
-
-// content returns the base stage's Containerfile bytes: the embedded content
-// when path is unset, or a fresh read of the on-disk file otherwise (a
-// devcontainer build.dockerfile).
-func (b *baseStage) content() ([]byte, error) {
-	if b.path == "" {
-		return b.containerfile, nil
-	}
-	return os.ReadFile(b.path)
-}
 
 // defaultBaseStage is the embedded shared base (container/base/Containerfile).
 func defaultBaseStage() *baseStage {
@@ -1091,19 +1082,20 @@ func buildBaseImage(ctx context.Context, rt Runtime, base *baseStage, fresh bool
 		if err != nil {
 			return "", fmt.Errorf("base containerfile: %w", err)
 		}
-		// Through the accessor, not a second hand-rolled read: content() is
-		// the ONE place a base stage's bytes are resolved, so the tag this
-		// derives can never be keyed off a different notion of "the base's
-		// content" than composedIdentity's.
-		content, err := base.content()
+		// Through the accessor, not a second hand-rolled read: identity() is
+		// the ONE place a base stage's key is resolved (Dockerfile, build
+		// args and context — buildcontext.go), so the tag this derives can
+		// never be keyed off a different notion of "the base" than
+		// composedIdentity's.
+		key, err := base.identity()
 		if err != nil {
 			return "", fmt.Errorf("base containerfile: %w", err)
 		}
-		tag := baseImageTagFor(content)
-		flags.stamp = baseStamp(tag, content)
-		contextDir := filepath.Dir(abs)
-		if base.context != "" {
-			contextDir = base.context
+		tag := baseImageTagFor(key)
+		flags.stamp = baseStamp(tag, key)
+		contextDir := base.contextDir()
+		if base.context == "" {
+			contextDir = filepath.Dir(abs)
 		}
 		return flags.stamp.tag, runImageBuild(ctx, rt, tag, abs, contextDir, flags, output)
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -21,14 +22,18 @@ import (
 // composeAgentContainerfile) layer onto — ctxloom's embedded default, a
 // configured image ref, or the project's .devcontainer/devcontainer.json.
 //
-// FEATURES ARE NOT HONORED (D1, pre1): a devcontainer.json declaring
-// "features" (ghcr.io/devcontainers/features/*) needs the devcontainer CLI
-// (`devcontainer build`) to materialize — pre1 does NOT take that dependency.
-// Their presence is WARNED loudly (never silently honored, never a reason to
-// hard-fail the whole build): the resolved base still builds from
-// image/build, just without whatever those features would have installed.
-// This is a deliberate, narrower choice than the plan's original
-// fail-loud-on-features recommendation — see the stark-wheat task text.
+// ONLY THE BASE IS HONORED: ctxloom reads image | build.{dockerfile,context,
+// args} | dockerComposeFile + service, and nothing else. Every other
+// top-level field present in the file (features, mounts, containerEnv,
+// remoteUser, the lifecycle commands, hostRequirements, build.target, a field
+// a later spec adds ...) is WARNED once per build, by name, with what the agent
+// container does instead (warnDevcontainerUnhonoured) — never silently
+// dropped, never a reason to hard-fail the build. "features" is one of them:
+// materializing features needs the devcontainer CLI (`devcontainer build`),
+// which pre1 does NOT depend on (D1; a deliberate, narrower choice than the
+// plan's original fail-loud-on-features recommendation — see the stark-wheat
+// task text). ${...} variables in the honored fields are not substituted, and
+// that is named in the same warning.
 //
 // dockerComposeFile FAILS LOUD without an explicit service pick
 // (isolation_devcontainer_service / the devcontainer.json's own "service"
@@ -39,11 +44,10 @@ import (
 // to a base stage. Unrecognized/unsupported shapes are surfaced to the caller
 // as an error rather than guessed at.
 type devcontainerFile struct {
-	Image             string                     `json:"image"`
-	Build             *devcontainerBuild         `json:"build"`
-	DockerComposeFile json.RawMessage            `json:"dockerComposeFile"`
-	Service           string                     `json:"service"`
-	Features          map[string]json.RawMessage `json:"features"`
+	Image             string             `json:"image"`
+	Build             *devcontainerBuild `json:"build"`
+	DockerComposeFile json.RawMessage    `json:"dockerComposeFile"`
+	Service           string             `json:"service"`
 }
 
 // devcontainerBuild is devcontainer.json's "build" object.
@@ -131,8 +135,9 @@ func projectDevcontainerBase(appRoot, service string, required bool) (*baseStage
 //   - "dockerComposeFile" → does not map to ONE agent container; an error
 //     unless `service` (or the devcontainer.json's own "service" key) names a
 //     service this resolver can locate a plain image/build for.
-//   - "features" present → WARNED (see the package doc above); never a
-//     reason by itself to error.
+//   - any present field outside the honored set ("features" among them) →
+//     WARNED once (warnDevcontainerUnhonoured); never a reason by itself to
+//     error.
 //   - malformed JSON, an unreadable file, or an unrecognized shape → an
 //     error, never a silent fallback to the default base.
 func resolveDevcontainerBase(appRoot, service string) (*baseStage, error) {
@@ -145,10 +150,15 @@ func resolveDevcontainerBase(appRoot, service string) (*baseStage, error) {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	var dc devcontainerFile
-	if err := json.Unmarshal(stripJSONC(raw), &dc); err != nil {
+	var top map[string]json.RawMessage
+	body := stripJSONC(raw)
+	if err := json.Unmarshal(body, &dc); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	warnDevcontainerFeatures(path, dc.Features)
+	if err := json.Unmarshal(body, &top); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	warnDevcontainerUnhonoured(path, top)
 
 	if dc.DockerComposeFile != nil {
 		return resolveComposeBase(path, dc, service)
@@ -170,34 +180,212 @@ func resolveDevcontainerBase(appRoot, service string) (*baseStage, error) {
 	return nil, fmt.Errorf("%s: no recognized base shape (need \"image\", \"build\", or \"dockerComposeFile\" + a service)", path)
 }
 
-// devcontainerFeaturesNotice is the warning warnDevcontainerFeatures prints:
-// the devcontainer.json path, then the comma-joined feature names. Every
-// config key it names must be one the config schema accepts
-// (TestDevcontainerAdvice_NamesOnlyAcceptedConfigKeys) — the decoder rejects
-// any other, so advice naming one makes ctxloom refuse to start.
-const devcontainerFeaturesNotice = "%s declares devcontainer features (%s) that ctxloom does NOT honor in the agent image (pre1 does not depend on the devcontainer CLI) — the resolved base misses whatever those features would install; install the missing tools in the base yourself (edit the devcontainer's own Dockerfile, or build your own Containerfile into an image and set isolation_base: <image ref>), or opt out of the devcontainer base with isolation_base: ctxloom"
-
 // devcontainerComposeServiceError is resolveComposeBase's refusal of a
 // dockerComposeFile with no service named; its one verb is the
 // devcontainer.json path. Held to the same accepted-keys rule as
-// devcontainerFeaturesNotice.
+// devcontainerUnhonouredRemedy.
 const devcontainerComposeServiceError = "%s declares dockerComposeFile (a multi-service compose project does not map to one agent container); configure isolation_devcontainer_service to pick one, or opt out of the devcontainer base with isolation_base: ctxloom"
 
-// warnDevcontainerFeatures loudly names any declared devcontainer features
-// (ghcr.io/devcontainers/features/*) ctxloom does NOT honor — pre1 does not
-// shell out to the devcontainer CLI to materialize them (D1). Never fatal:
-// the resolved base still builds from image/build, just without whatever
-// those features would have installed.
-func warnDevcontainerFeatures(path string, features map[string]json.RawMessage) {
-	if len(features) == 0 {
-		return
+// devcontainerHonoured is the explicit set of top-level devcontainer.json
+// keys resolveDevcontainerBase acts on; devcontainerBuildHonoured is the same
+// for the "build" object. devcontainerInert are keys with no container
+// behaviour at all (document metadata). Every OTHER present key is reported
+// by unhonouredDevcontainerFields — the report is derived from the file's
+// keys against these sets, so a field a later spec adds is reported with no
+// code change. There is deliberately no list of "unsupported" fields.
+var (
+	devcontainerHonoured      = map[string]bool{"image": true, "build": true, "dockerComposeFile": true, "service": true}
+	devcontainerBuildHonoured = map[string]bool{"dockerfile": true, "context": true, "args": true}
+	devcontainerInert         = map[string]bool{"name": true, "$schema": true}
+)
+
+// devcontainerFieldReasons words the report for fields whose substitute is
+// worth naming: why the field has no effect and what the agent container does
+// instead. It decides NOTHING about what is reported (that is the honoured
+// set above); a field absent here is reported with devcontainerDefaultReason.
+// Config keys named here are held to the accepted-keys rule
+// (TestDevcontainerAdvice_NamesOnlyAcceptedConfigKeys).
+var devcontainerFieldReasons = map[string]string{
+	"features":             "needs the devcontainer CLI; the base builds without whatever they install",
+	"mounts":               "not mounted; the agent container gets ctxloom's own workspace and state mounts",
+	"workspaceMount":       "not mounted; the agent container gets ctxloom's own workspace mount",
+	"workspaceFolder":      "the agent works in ctxloom's own workspace path",
+	"containerEnv":         "not set; the agent gets ctxloom's own sandboxed environment",
+	"remoteEnv":            "not set; the agent gets ctxloom's own sandboxed environment",
+	"remoteUser":           "the agent runs as ctxloom's mapped user (your host uid and gid)",
+	"containerUser":        "the agent runs as ctxloom's mapped user (your host uid and gid)",
+	"updateRemoteUserUID":  "ctxloom maps the agent to your host uid and gid itself",
+	"initializeCommand":    "not run (it would run on the host)",
+	"onCreateCommand":      "not run; bake that setup into the devcontainer's Dockerfile",
+	"updateContentCommand": "not run; bake that setup into the devcontainer's Dockerfile",
+	"postCreateCommand":    "not run; bake that setup into the devcontainer's Dockerfile",
+	"postStartCommand":     "not run; bake that setup into the devcontainer's Dockerfile",
+	"postAttachCommand":    "not run; bake that setup into the devcontainer's Dockerfile",
+	"runArgs":              "not passed; ctxloom composes the agent container's run flags itself",
+	"hostRequirements":     "not checked against the host; ctxloom caps the agent container itself with isolation_memory_limit and isolation_pids_limit",
+	"forwardPorts":         "no ports are published from the agent container",
+	"appPort":              "no ports are published from the agent container",
+	"overrideCommand":      "ctxloom sets the agent container's command",
+	"shutdownAction":       "ctxloom manages the agent container's lifetime",
+	"runServices":          "only the one named service is used, as the base",
+	"customizations":       "editor-specific; no editor runs in the agent container",
+	"privileged":           "ctxloom applies its own container security settings",
+	"capAdd":               "ctxloom applies its own container security settings",
+	"securityOpt":          "ctxloom applies its own container security settings",
+	"init":                 "ctxloom supplies the agent container's own entrypoint",
+	"dockerFile":           "the legacy top-level build form is not read; use build.dockerfile",
+	"context":              "the legacy top-level build form is not read; use build.context",
+	"build.target":         "the base builds the Dockerfile's final stage",
+}
+
+// devcontainerDefaultReason words a reported field with no specific reason.
+const devcontainerDefaultReason = "not read by ctxloom"
+
+// devcontainerUnhonouredNotice is warnDevcontainerUnhonoured's field part;
+// its verb is the "field (detail): reason; ..." list. The message leads with
+// the devcontainer.json path.
+const devcontainerUnhonouredNotice = "ctxloom builds the agent container from the devcontainer's image/build only and does NOT honor these fields: %s"
+
+// devcontainerVarsNotice is the variable part, present when an honoured field
+// carries a ${...} variable; its verb is the comma-joined field paths.
+const devcontainerVarsNotice = "${...} variables are not substituted in %s, so they reach the build literally"
+
+// devcontainerUnhonouredRemedy is the remedy line of that warning. Its config
+// keys are held to the accepted-keys rule.
+const devcontainerUnhonouredRemedy = "put what the agent needs into the devcontainer's own Dockerfile, or opt out of the devcontainer base with isolation_base: ctxloom (or isolation_base: <image ref>)"
+
+// unhonouredField is one present-but-unhonoured devcontainer.json field:
+// its name, an optional detail (the feature ids), and the reason.
+type unhonouredField struct{ name, detail, reason string }
+
+// String renders the field as the warning names it: "name (detail): reason".
+func (f unhonouredField) String() string {
+	name := f.name
+	if f.detail != "" {
+		name += " (" + f.detail + ")"
+	}
+	return name + ": " + f.reason
+}
+
+// unhonouredDevcontainerFields derives the present-but-unhonoured fields from
+// the parsed file's keys (see devcontainerHonoured), sorted by name. Nested
+// "build" keys outside devcontainerBuildHonoured report as build.<key>;
+// "features" carries its feature names.
+func unhonouredDevcontainerFields(top map[string]json.RawMessage) []unhonouredField {
+	var out []unhonouredField
+	add := func(name, detail string) {
+		reason, ok := devcontainerFieldReasons[name]
+		if !ok {
+			reason = devcontainerDefaultReason
+		}
+		out = append(out, unhonouredField{name: name, detail: detail, reason: reason})
+	}
+	for key, raw := range top {
+		switch {
+		case key == "build":
+			var build map[string]json.RawMessage
+			if json.Unmarshal(raw, &build) == nil {
+				for sub := range build {
+					if !devcontainerBuildHonoured[sub] {
+						add("build."+sub, "")
+					}
+				}
+			}
+		case devcontainerHonoured[key], devcontainerInert[key]:
+		case key == "features":
+			add(key, featureNames(raw))
+		default:
+			add(key, "")
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+	return out
+}
+
+// featureNames is the sorted, comma-joined feature ids of a "features" value
+// ("" when it is not an object).
+func featureNames(raw json.RawMessage) string {
+	var features map[string]json.RawMessage
+	if json.Unmarshal(raw, &features) != nil {
+		return ""
 	}
 	names := make([]string, 0, len(features))
 	for k := range features {
 		names = append(names, k)
 	}
 	sort.Strings(names)
-	clidiag.Warn("ctxloom", devcontainerFeaturesNotice, path, strings.Join(names, ", "))
+	return strings.Join(names, ", ")
+}
+
+// devcontainerVarRefs names the honoured fields (dotted paths, sorted) whose
+// string values use a ${...} variable (${localEnv:X}, ${containerWorkspaceFolder}
+// ...), which ctxloom does not substitute. Unhonoured fields are not scanned:
+// they are already reported as having no effect.
+func devcontainerVarRefs(top map[string]json.RawMessage) []string {
+	var out []string
+	var walk func(path string, v any)
+	walk = func(path string, v any) {
+		switch x := v.(type) {
+		case string:
+			if strings.Contains(x, "${") {
+				out = append(out, path)
+			}
+		case []any:
+			for _, e := range x {
+				walk(path, e)
+			}
+		case map[string]any:
+			for k, e := range x {
+				walk(path+"."+k, e)
+			}
+		}
+	}
+	for key, raw := range top {
+		if !devcontainerHonoured[key] {
+			continue
+		}
+		var v any
+		if json.Unmarshal(raw, &v) != nil {
+			continue
+		}
+		if m, ok := v.(map[string]any); ok && key == "build" {
+			for sub, e := range m {
+				if devcontainerBuildHonoured[sub] {
+					walk("build."+sub, e)
+				}
+			}
+			continue
+		}
+		walk(key, v)
+	}
+	sort.Strings(out)
+	return slices.Compact(out)
+}
+
+// warnDevcontainerUnhonoured warns ONCE per build (WarnRemedyOnce: the base
+// is resolved several times in one build, with identical text each time)
+// naming every present-but-unhonoured field with its reason, and any ${...}
+// variable in an honoured field. Never fatal: the base still builds from
+// image/build.
+func warnDevcontainerUnhonoured(path string, top map[string]json.RawMessage) {
+	fields := unhonouredDevcontainerFields(top)
+	vars := devcontainerVarRefs(top)
+	if len(fields) == 0 && len(vars) == 0 {
+		return
+	}
+	var parts []string
+	if len(fields) > 0 {
+		names := make([]string, 0, len(fields))
+		for _, f := range fields {
+			names = append(names, f.String())
+		}
+		parts = append(parts, fmt.Sprintf(devcontainerUnhonouredNotice, strings.Join(names, "; ")))
+	}
+	if len(vars) > 0 {
+		parts = append(parts, fmt.Sprintf(devcontainerVarsNotice, strings.Join(vars, ", ")))
+	}
+	msg := path + ": " + strings.Join(parts, "; and ")
+	clidiag.WarnRemedyOnce("ctxloom", devcontainerUnhonouredRemedy, "%s", msg)
 }
 
 // resolveComposeBase resolves the ONE service dockerComposeFile names as the

@@ -1,0 +1,9 @@
+# Allowlist: every build that uses the repo root as context (.devcontainer/Dockerfile
+# in CI and `just dev-image`, .devcontainer/acceptance.Dockerfile) COPYs only the
+# files re-included below. Everything else stays out of the build context so it
+# neither ships to the daemon nor enters ctxloom's agent-image identity
+# (isolation.baseStage.identity), which would otherwise change on every commit.
+# Docker and podman both read this file (podman when no .containerignore exists).
+# A new COPY from the context must be re-included here.
+*
+!.devcontainer/lizard-requirements.txt

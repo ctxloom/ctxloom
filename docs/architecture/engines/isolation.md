@@ -124,7 +124,7 @@ engine per image — in order:
 10. `companionGate` — drops ABI-incompatible companions with a warning rather than failing
 
 Identity is keyed on the ctxloom VERSION together with the content:
-`composedContentHash` is `sha256(base content ‖ NUL ‖ engine)`, tagged
+`composedContentHash` is `sha256(base identity ‖ NUL ‖ engine)`, tagged
 `ctxloom-agent-<engine>:<version key>-<hash>` by `composedImageTagFor`. Both the
 engine and the version are in the TAG, not only the hash, so a wrong image is
 visible in `docker images` rather than only by recomputing a digest — and images
@@ -165,8 +165,45 @@ implicit pull** — an absent image is either built from a known source or the
 policy degrades (`Container.imagePresent`).
 
 Base resolution (`resolveBase`) maps `isolation_base` to ONE base stage;
-devcontainer resolution strips JSONC and handles image / build / compose forms. Declared devcontainer **features are warned about, not
-honored** (`warnDevcontainerFeatures`).
+devcontainer resolution strips JSONC and handles image / build / compose forms.
+
+**The base identity covers every build input** (`baseStage.identity`,
+`buildcontext.go`). For the embedded default and a synthetic `FROM <ref>` base
+it is the Containerfile bytes. For an on-disk Dockerfile (a devcontainer's
+`build`, or a compose service's) it is a digest of the Dockerfile, the sorted
+build args, and the build context the runtime sends — so an edited
+`build.args` value or an edited file the Dockerfile COPYs lands on a fresh,
+absent tag and is built, instead of the old image being reused. Both the
+stage-1 base tag (`baseImageTagFor`) and the composed agent tag and provenance
+(`composedIdentity`, hence `imageStale`) key on it. The context is hashed by
+CONTENT (plus mode and symlink target) — a stat-based key misses same-size
+edits and mtime-preserving restores, and parsing COPY/ADD misses globs, ARG
+expansion and `RUN --mount=type=bind`. Ignore files follow the runtimes:
+docker reads `<Dockerfile>.dockerignore`, else `.dockerignore`; podman reads
+`.containerignore`, else `.dockerignore`; a file is left out of the key only
+when BOTH would leave it out of the build (moby/patternmatcher, docker's own
+matcher), so a mismatch costs a rebuild, never a stale image. The read is
+bounded by `contextHashBudget` (64 MiB) because the key is recomputed on every
+container start: files past it are keyed by size and mtime only, announced
+once with the remedy (a `.dockerignore`, or a narrower `build.context`). The
+build passes no `--target`, so a target is not an input. A consequence worth
+knowing: a context of `..` without a `.dockerignore` sends `.git`, so a commit
+changes the tag and triggers a (layer-cached) rebuild.
+
+**Only the base is honored.** ctxloom reads `image`, `build.{dockerfile,
+context, args}` and `dockerComposeFile` + `service`. Every other top-level
+field present in the file — `features`, `mounts`, `containerEnv`/`remoteEnv`,
+`remoteUser`/`containerUser`/`updateRemoteUserUID`, the lifecycle commands,
+`runArgs`, `workspaceFolder`/`workspaceMount`, `hostRequirements` (ctxloom
+caps the container itself with `isolation_memory_limit` / `isolation_pids_limit`),
+`forwardPorts`, `build.target`, and any field a later spec adds — is named in
+ONE warning per build with what the agent container does instead
+(`warnDevcontainerUnhonoured`). The report is DERIVED from the file's keys
+against an explicit honored set (`devcontainerHonoured`,
+`devcontainerBuildHonoured`; `name` and `$schema` are inert), so there is no
+"unsupported" list to fall behind; `devcontainerFieldReasons` only words it.
+`${...}` variables in the honored fields are not substituted, and the same
+warning names the fields that carry one.
 
 ### Run mechanics
 
@@ -818,7 +855,7 @@ image another is between building and running.
 10. **A user-owned (run-as-is) image must satisfy the identity contract** — a ctxloom-governed entrypoint or a non-root user, else `KindIsolation` (`Container.checkRunAsIsIdentity`).
 11. **The engine never runs as root in a governed image** — there is no override, in either mode; the build itself fails without a privilege-drop path (`overlayUserGate`).
 12. **The build gates that the engine is runnable**, not merely installed.
-13. **An agent image is content-keyed** — base content and the ONE engine are both in the tag.
+13. **An agent image is content-keyed** — the base identity (Dockerfile, build args and build-context content) and the ONE engine are both in the tag.
 14. **Bind-mount roots are verified, not assumed** (the shared-FS probe); an empty root set is an error, not an "ok".
 15. **Commits from an agent never impersonate the human** — `gitIdentity` yields `"ctxloom agent <id>" <sanitized>@agents.ctxloom.local`.
 16. **Worktree teardown leaks rather than destroys** — `force=false`, unknown-dirty treated as dirty, and a WIP-bearing orphan is SPARED (`teardownWorktree`, `worktree_reap.go`).

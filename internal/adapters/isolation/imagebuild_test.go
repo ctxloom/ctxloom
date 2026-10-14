@@ -643,15 +643,21 @@ func TestBuildFromSource_BaseTagPerConfigContent(t *testing.T) {
 	assert.NotEqual(t, baseTags[0], baseTags[1], "different base content → different tag")
 	assert.Equal(t, baseTags[0], baseTags[2], "identical base content → identical tag")
 
-	// A user-provided base Containerfile is keyed by the same content hash —
-	// the config FORM (file vs embedded) doesn't fragment the tag space — and
-	// a missing file still errors.
+	// An on-disk Dockerfile is keyed by its full build identity (Dockerfile,
+	// args, context — baseStage.identity), the same key composedIdentity
+	// reads, and a missing file still errors.
 	userFile := filepath.Join(t.TempDir(), "Containerfile.base")
 	require.NoError(t, os.WriteFile(userFile, []byte("FROM debian:13\n"), 0o644))
-	tag, err := buildBaseImage(context.Background(), rt, &baseStage{desc: "on-disk base", path: userFile}, false, nil)
+	onDisk := &baseStage{desc: "on-disk base", path: userFile}
+	tag, err := buildBaseImage(context.Background(), rt, onDisk, false, nil)
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(tag, "ctxloom-agent-base:own-"), "the base is handed on by its ownership tag: %s", tag)
-	assert.Contains(t, tag, baseContentHash([]byte("FROM debian:13\n")))
+	key, err := onDisk.identity()
+	require.NoError(t, err)
+	assert.Contains(t, tag, baseContentHash(key))
+	built := buildInvocations(t, logFile)
+	assert.Equal(t, baseImageTagFor(key), strings.Fields(built[len(built)-1])[2],
+		"the content-keyed tag the base is built to (-t) is the identity's, not merely its ownership slot")
 	_, err = buildBaseImage(context.Background(), rt, &baseStage{desc: "on-disk base", path: filepath.Join(t.TempDir(), "missing")}, false, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "base containerfile")
@@ -1098,7 +1104,7 @@ func TestEnsureImage_FlightKeyDiscriminatesByRuntime(t *testing.T) {
 // The divergence is self-correcting by construction rather than latent.
 //
 // The genuine residue was that buildBaseImage re-implemented the read instead
-// of using baseStage.content(); that is now routed through the accessor. This
+// of using the base stage's accessor (now baseStage.identity); it is routed through it. This
 // pins the property that makes the consequence false.
 func TestBaseContentKeysBothTags(t *testing.T) {
 	dir := t.TempDir()
@@ -1108,7 +1114,7 @@ func TestBaseContentKeysBothTags(t *testing.T) {
 	spec := engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")}
 	stage := &baseStage{desc: "on-disk base", path: path}
 
-	firstContent, err := stage.content()
+	firstContent, err := stage.identity()
 	require.NoError(t, err)
 	first, ok := composedIdentity(spec, stage, "claude-code")
 	firstAgentTag, firstProvenance := first.ref, first.provenance
@@ -1117,7 +1123,7 @@ func TestBaseContentKeysBothTags(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(path, []byte("FROM debian:12\n"), 0o644))
 
-	secondContent, err := stage.content()
+	secondContent, err := stage.identity()
 	require.NoError(t, err)
 	second, ok := composedIdentity(spec, stage, "claude-code")
 	secondAgentTag, secondProvenance := second.ref, second.provenance

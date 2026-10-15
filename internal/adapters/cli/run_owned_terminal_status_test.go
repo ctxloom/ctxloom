@@ -176,3 +176,38 @@ func TestRenderOwnedRunEvents_CancelledRunNamesItsCause(t *testing.T) {
 	assert.NotContains(t, sink.String(), "run failed")
 	assert.NotContains(t, sink.String(), runCancelledNotice)
 }
+
+// TestRenderOwnedRunEvents_EachEndSaysItsOwnWords: a failed run with a
+// message says it FAILED with that message (not that it was cancelled), and
+// a completion carrying no result at all says so — each end its own words.
+func TestRenderOwnedRunEvents_EachEndSaysItsOwnWords(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		result  *agentcoordpb.Result
+		want    string
+		notWant string
+	}{
+		{"failed with a message", &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_FAILED, Error: &rpcstatus.Status{Message: "engine crashed"}},
+			"run failed: engine crashed", "cancelled"},
+		{"no result", nil, "run ended with no terminal result", "run failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			var sink strings.Builder
+			restore := clidiag.SetSink(&sink)
+			defer restore()
+
+			events := make(chan *agentcoordpb.AgentEvent, 1)
+			events <- &agentcoordpb.AgentEvent{
+				RunId:   "run-1",
+				Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{Result: tc.result}},
+			}
+			_, err := renderOwnedRunEvents(ctx, io.Discard, formatText, "run-1", events, nil, true)
+			var exit clifmt.ExitStatus
+			require.ErrorAs(t, err, &exit)
+			assert.Contains(t, sink.String(), tc.want)
+			assert.NotContains(t, sink.String(), tc.notWant)
+		})
+	}
+}

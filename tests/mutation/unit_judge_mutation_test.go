@@ -23,6 +23,58 @@ var unitMutationTargets = []mutationTarget{
 			Run: "^TestRenderPremiseIndex_KeepsTheThreeMeasuredProperties$",
 		},
 	},
+	// The entries below judge lines gremlins cannot see — a condition on a
+	// `case` line, a const or package-var initializer — each by the test that
+	// claims them (parent_commit_advance: the TestParentCommit_ family, which
+	// claims the advance between them).
+	{
+		Name:          "branch_parse",
+		SourceRelPath: "internal/adapters/git/branch.go",
+		Judge: unitJudge{
+			Pkg: "./internal/adapters/git",
+			Run: "^TestParseBranch_RefusesWhatIsNotABranch$",
+		},
+	},
+	{
+		Name:          "overlay_keyboard_modes",
+		SourceRelPath: "internal/adapters/cli/tui/overlay.go",
+		Judge: unitJudge{
+			Pkg: "./internal/adapters/cli/tui",
+			Run: "^TestStripKeyboardModes$",
+		},
+	},
+	{
+		Name:          "mail_peek_hook",
+		SourceRelPath: "internal/adapters/cli/hook_mail_peek.go",
+		Judge: unitJudge{
+			Pkg: "./internal/adapters/cli",
+			Run: "^TestRunHookMailPeek_ARunnerThatDoesNotAnswerCostsTheTimeout$",
+		},
+	},
+	{
+		Name:          "owned_run_completion_wait",
+		SourceRelPath: "internal/adapters/cli/run_pty.go",
+		Judge: unitJudge{
+			Pkg: "./internal/adapters/cli",
+			Run: "^TestOwnedRunOutcome_ATerminalStillInFlightIsWaitedFor$",
+		},
+	},
+	{
+		Name:          "owned_run_end_words",
+		SourceRelPath: "internal/adapters/cli/run_owned.go",
+		Judge: unitJudge{
+			Pkg: "./internal/adapters/cli",
+			Run: "^TestRenderOwnedRunEvents_EachEndSaysItsOwnWords$",
+		},
+	},
+	{
+		Name:          "parent_commit_advance",
+		SourceRelPath: "internal/adapters/operations/launch.go",
+		Judge: unitJudge{
+			Pkg: "./internal/adapters/operations",
+			Run: "^TestParentCommit_",
+		},
+	},
 }
 
 // TestUnitMutation releases ooze against each unit target, judging every mutant

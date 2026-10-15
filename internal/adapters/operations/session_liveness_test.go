@@ -2,6 +2,7 @@ package operations
 
 import (
 	"os"
+	"syscall"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -55,4 +57,28 @@ func TestEndSession_ReleasesTheLockEvenWhenTheEndMarkFails(t *testing.T) {
 
 	require.Error(t, EndSession(harp, time.Now()), "precondition: the end-mark fails for a harp the index does not carry")
 	assert.Equal(t, sessionlock.Dead, sessionlock.Inspect(harp).Verdict)
+}
+
+// TestRecordRunEnd_RecordsOnTheEntryOrSaysWhyNot: a run's end lands on its
+// session's entry; a sessions root that cannot be opened is that error.
+func TestRecordRunEnd_RecordsOnTheEntryOrSaysWhyNot(t *testing.T) {
+	testsupport.Isolate(t)
+	entry, err := AssignSessionHarp(t.TempDir(), "claude-code", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { sessionlock.Release(entry.HarpName) })
+
+	end := sessions.RunEnd{RunID: "r1", At: time.Now().UTC(), Cause: "exited"}
+	require.NoError(t, RecordRunEnd(entry.HarpName, end))
+	mgr, err := openSessions()
+	require.NoError(t, err)
+	got, err := mgr.Find(entry.HarpName)
+	require.NoError(t, err)
+	require.Len(t, got.RunEnds, 1)
+	assert.Equal(t, "r1", got.RunEnds[0].RunID)
+
+	root, err := paths.HomeSessionsDir()
+	require.NoError(t, err)
+	require.NoError(t, os.RemoveAll(root))
+	require.NoError(t, os.WriteFile(root, []byte("not a directory"), 0o600))
+	assert.ErrorIs(t, RecordRunEnd(entry.HarpName, end), syscall.ENOTDIR)
 }

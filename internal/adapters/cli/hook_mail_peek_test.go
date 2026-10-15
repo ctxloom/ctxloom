@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
@@ -20,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 // The mail-peek hook fires after every tool call. It hands the engine mail
@@ -104,6 +106,9 @@ type fakeRunnerMail struct {
 	peek  runner.MailPeek
 	reqs  []runner.MailPeekRequest
 	token string
+	// confirmed, when set, is how many ids a confirm answers as confirmed;
+	// unset, all of them.
+	confirmed *int
 }
 
 func (f *fakeRunnerMail) serve(t *testing.T) *httptest.Server {
@@ -119,7 +124,11 @@ func (f *fakeRunnerMail) serve(t *testing.T) *httptest.Server {
 		f.reqs = append(f.reqs, req)
 		f.mu.Unlock()
 		if req.Op == runner.MailOpConfirm {
-			_ = json.NewEncoder(w).Encode(runner.MailConfirmed{Confirmed: len(req.IDs)})
+			n := len(req.IDs)
+			if f.confirmed != nil {
+				n = *f.confirmed
+			}
+			_ = json.NewEncoder(w).Encode(runner.MailConfirmed{Confirmed: n})
 			return
 		}
 		_ = json.NewEncoder(w).Encode(f.peek)
@@ -224,4 +233,71 @@ func TestPeekMail_TheOwnersDeliveryAnswersItsWakes(t *testing.T) {
 	outstanding, err := spool.OutstandingWake(afero.NewOsFs(), spool.NewHomeMapper(), mailDrainOwner)
 	require.NoError(t, err)
 	assert.Empty(t, outstanding)
+}
+
+// TestPeekMail_AChildWhoseTurnTookSomeMailSaysHowMany: ids the runner did not
+// confirm (its turn boundary delivered them first) may be read twice, and the
+// hook says how many of how many.
+func TestPeekMail_AChildWhoseTurnTookSomeMailSaysHowMany(t *testing.T) {
+	testsupport.Isolate(t)
+	seedOwnerMail(t, "parent", "message", "binding reply\n")
+	one := 1
+	f := &fakeRunnerMail{token: "tok", confirmed: &one, peek: runner.MailPeek{Lease: "L1", Context: "binding reply", IDs: []string{"m-1", "m-2", "m-3"}}}
+	srv := f.serve(t)
+
+	var out bytes.Buffer
+	err := peekMail(mailPeekCmd(&out), claudeCodec(t), mailPeekEnv{fs: afero.NewOsFs(), getenv: childEnv(srv, "tok"), client: srv.Client()})
+	require.ErrorContains(t, err, "2 of 3 message(s) written mid-turn were not confirmed")
+	assert.Contains(t, peekedContext(t, &out), "binding reply", "what was written stays written")
+}
+
+// runMailPeekHook runs the hook verb as the engine does, with --engine, and
+// returns the warnings it said.
+func runMailPeekHook(t *testing.T, engineName string) string {
+	t.Helper()
+	var sink strings.Builder
+	restore := clidiag.SetSink(&sink)
+	t.Cleanup(restore)
+	require.NoError(t, runHookMailPeek(firedBy(t, mailPeekCmd(&bytes.Buffer{}), engineName), nil), "a hook never fails the tool call")
+	return sink.String()
+}
+
+// TestRunHookMailPeek_SaysWhyAndNothingElse: an engine the hook cannot name
+// delivers nothing and says why; an engine with nothing waiting says nothing.
+func TestRunHookMailPeek_SaysWhyAndNothingElse(t *testing.T) {
+	testsupport.Isolate(t)
+	assert.Contains(t, runMailPeekHook(t, "no-such-engine"), "no mail delivered")
+	assert.Empty(t, runMailPeekHook(t, "claude-code"), "nothing waiting, nothing said")
+}
+
+// TestRunHookMailPeek_ARunnerThatDoesNotAnswerCostsTheTimeout: the hook sits
+// between a tool call and the model, so a runner that never answers costs
+// mailPeekTimeout and no more — then the hook says so and lets the call go.
+func TestRunHookMailPeek_ARunnerThatDoesNotAnswerCostsTheTimeout(t *testing.T) {
+	testsupport.Isolate(t)
+	seedOwnerMail(t, "parent", "message", "binding reply\n")
+	hang := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-hang }))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(hang) })
+	for k, v := range sessions.EncodeHookReach(sessions.Endpoint{URL: srv.URL + runner.HookPath, Credential: "tok"}) {
+		t.Setenv(k, v)
+	}
+	t.Setenv(sessions.EnvHarp, mailDrainOwner)
+
+	var sink strings.Builder
+	restore := clidiag.SetSink(&sink)
+	t.Cleanup(restore)
+	cmd := firedBy(t, mailPeekCmd(&bytes.Buffer{}), "claude-code")
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() { done <- runHookMailPeek(cmd, nil) }()
+	select {
+	case err := <-done:
+		require.NoError(t, err, "a hook never fails the tool call")
+		assert.Contains(t, sink.String(), "no mail delivered")
+		assert.GreaterOrEqual(t, time.Since(start), mailPeekTimeout/2, "it waited for the runner")
+	case <-time.After(mailPeekTimeout + 10*time.Second):
+		t.Fatal("the hook waited past mailPeekTimeout for a runner that never answers")
+	}
 }

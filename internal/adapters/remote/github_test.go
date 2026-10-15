@@ -796,6 +796,25 @@ func TestGitHubPublisher_CreatePullRequest(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to create pull request")
 	})
+
+	// Either side unnamed is refused before the API is asked: a zero
+	// Branch's empty short name would let GitHub pick a head or base.
+	for name, ends := range map[string][2]igit.Branch{
+		"no head": {{}, igit.MustParseBranch("main")},
+		"no base": {igit.MustParseBranch("feature"), {}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mock := newMockGitHubClient()
+			called := false
+			mock.pullRequests.CreateFunc = func(ctx context.Context, owner, repo string, pull *github.NewPullRequest) (*github.PullRequest, *github.Response, error) {
+				called = true
+				return &github.PullRequest{HTMLURL: github.String("u")}, nil, nil
+			}
+			_, err := NewGitHubPublisherWithClient(mock).CreatePullRequest(ctx, "owner", "repo", "Title", "Body", ends[0], ends[1])
+			require.ErrorContains(t, err, "must both name a branch")
+			assert.False(t, called, "the API is never asked")
+		})
+	}
 }
 
 func TestNewGitHubPublisher(t *testing.T) {

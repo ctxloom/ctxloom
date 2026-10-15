@@ -976,4 +976,5 @@ func TestModel_ARowShowsItsUnreadMail(t *testing.T) {
 	assert.Contains(t, lines[0], "busy-kid ✉2")
 	assert.NotContains(t, lines[1], "✉", "a child with nothing waiting shows no mail mark")
 	assert.Contains(t, m.feedTitle(), "✉ 2 unread")
+	assert.True(t, strings.HasPrefix(m.feedTitle(), "feed: busy-kid"), "the mark is added to the title, not in place of it: %q", m.feedTitle())
 }

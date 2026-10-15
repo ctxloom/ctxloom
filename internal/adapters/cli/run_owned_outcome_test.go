@@ -57,3 +57,23 @@ func TestOwnedRunOutcome_MissingTerminalNamesTheRunnersStatus(t *testing.T) {
 	assert.Contains(t, err.Error(), "never reported its outcome")
 	assert.Contains(t, err.Error(), "status 137")
 }
+
+// TestOwnedRunOutcome_ATerminalStillInFlightIsWaitedFor: the terminal event
+// may land a moment after the runner's exit; the default wait takes it,
+// rather than reporting a run that never reported its outcome.
+func TestOwnedRunOutcome_ATerminalStillInFlightIsWaitedFor(t *testing.T) {
+	events := make(chan *agentcoordpb.AgentEvent)
+	code := int32(3)
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		events <- &agentcoordpb.AgentEvent{RunId: "run-outcome", Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
+			Result: &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_FAILED, ExitCode: &code},
+		}}}
+	}()
+
+	err := outcomeState(events).ownedRunOutcome(0)
+
+	var status clifmt.ExitStatus
+	require.ErrorAs(t, err, &status, "the late terminal ends the run, got %v", err)
+	assert.Equal(t, 3, status.Code)
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -386,6 +387,129 @@ func TestParentCommit_AFailedAdvanceIsSaidAndNotRetried(t *testing.T) {
 	assert.Contains(t, warnings.String(), "moved")
 	require.NoError(t, p.Cleanup())
 	assert.Empty(t, fake.DeletedAt, "the started child keeps the branch holding the snapshot")
+}
+
+// TestParentCommit_ACleanAdvanceSaysNothing: an advance that succeeds is
+// the ordinary outcome, and the launch says nothing about it.
+func TestParentCommit_ACleanAdvanceSaysNothing(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	stubCarvingEnvironment(t, "/proj", nil)
+	fake := commitFixture()
+	p, err := prepareDelegatedWorktree(t, fake)
+	require.NoError(t, err)
+	warnings.Reset() // the snapshot's own notice
+	env, _ := EnvironmentOf(p)
+	_, err = env.Start(context.Background(), isolation.RunnerRequest{})
+	require.NoError(t, err)
+	assert.Len(t, fake.Advances, 1)
+	assert.Empty(t, warnings.String(), "a clean advance is silent")
+}
+
+// TestParentCommit_AnAdvanceThatFailsOtherwiseIsSaidAsAFailure: a failure
+// other than a moved branch is said as that failure — not as a branch the
+// human moved.
+func TestParentCommit_AnAdvanceThatFailsOtherwiseIsSaidAsAFailure(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	stubCarvingEnvironment(t, "/proj", nil)
+	fake := commitFixture()
+	fake.AdvanceErr = fmt.Errorf("update-ref: disk full")
+	p, err := prepareDelegatedWorktree(t, fake)
+	require.NoError(t, err)
+	env, _ := EnvironmentOf(p)
+	_, err = env.Start(context.Background(), isolation.RunnerRequest{})
+	require.NoError(t, err, "the child is up; a failed advance does not refuse it")
+	assert.Contains(t, warnings.String(), "advancing branch \"main\" to it failed: update-ref: disk full")
+	assert.NotContains(t, warnings.String(), "moved")
+}
+
+// deadlineGit is a Fake that records how long AdvanceBranch's context had
+// left when it was called.
+type deadlineGit struct {
+	*git.Fake
+	left time.Duration
+	err  error
+}
+
+func (d *deadlineGit) AdvanceBranch(ctx context.Context, dir string, branch git.Branch, to, from string) error {
+	if dl, ok := ctx.Deadline(); ok {
+		d.left = time.Until(dl)
+	}
+	d.err = ctx.Err()
+	return d.Fake.AdvanceBranch(ctx, dir, branch, to, from)
+}
+
+// TestParentCommit_TheAdvanceOutlivesTheLaunchContext: the advance runs on
+// a context of its own, bounded by upTimeout — live when the launch's has
+// already ended, and with the whole bound to spend.
+func TestParentCommit_TheAdvanceOutlivesTheLaunchContext(t *testing.T) {
+	resetStrictness(t)
+	captureWarnings(t)
+	stubCarvingEnvironment(t, "/proj", nil)
+	g := &deadlineGit{Fake: commitFixture()}
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
+	p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: g}.Prepare(context.Background(), launch.CellRequest{
+		SessionDir:  t.TempDir(),
+		Axes:        launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeHost},
+		Engine:      mock.New(),
+		Identity:    delegatedChild("coder"),
+		ProjectRoot: "/proj",
+	})
+	require.NoError(t, err)
+	env, _ := EnvironmentOf(p)
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = env.Start(ended, isolation.RunnerRequest{})
+
+	require.Len(t, g.Advances, 1)
+	require.NoError(t, g.err, "the launch's ended context does not end the advance")
+	assert.Greater(t, g.left, upTimeout/2, "bounded by upTimeout, not already spent")
+	assert.LessOrEqual(t, g.left, upTimeout)
+}
+
+// TestParentCommit_AnAbandonedLaunchLeavesAGoneBranchAlone: a carved branch
+// that no longer exists (or whose existence cannot be told) is not deleted.
+func TestParentCommit_AnAbandonedLaunchLeavesAGoneBranchAlone(t *testing.T) {
+	for name, fake := range map[string]*git.Fake{
+		"gone":    commitFixture(),
+		"unknown": func() *git.Fake { f := commitFixture(); f.BranchExistsErr = fmt.Errorf("boom"); return f }(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			resetStrictness(t)
+			captureWarnings(t)
+			stubCarvingEnvironment(t, "/proj", nil)
+			p, err := prepareDelegatedWorktree(t, fake)
+			require.NoError(t, err)
+			require.NoError(t, p.Cleanup())
+			assert.Empty(t, fake.DeletedAt)
+		})
+	}
+}
+
+// TestParentCommit_AnAbandonedBranchThatWillNotGoIsSaid: a carved branch
+// whose delete fails is said; one that goes is not.
+func TestParentCommit_AnAbandonedBranchThatWillNotGoIsSaid(t *testing.T) {
+	for _, failing := range []bool{false, true} {
+		resetStrictness(t)
+		warnings := captureWarnings(t)
+		stubCarvingEnvironment(t, "/proj", nil)
+		fake := commitFixture()
+		fake.ExistingBranches = []git.Branch{childBranch}
+		if failing {
+			fake.DeleteAtErr = fmt.Errorf("checked out elsewhere")
+		}
+		p, err := prepareDelegatedWorktree(t, fake)
+		require.NoError(t, err)
+		warnings.Reset() // the snapshot's own notice
+		require.NoError(t, p.Cleanup())
+		require.Len(t, fake.DeletedAt, 1)
+		if failing {
+			assert.Contains(t, warnings.String(), "could not be removed: checked out elsewhere")
+		} else {
+			assert.Empty(t, warnings.String())
+		}
+	}
 }
 
 // TestCellsPrepare_AnInteractiveStartIsTheChildUp: an interactive start is

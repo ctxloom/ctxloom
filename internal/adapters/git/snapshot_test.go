@@ -131,6 +131,56 @@ func TestAdvanceBranch_AMovedBranchIsLeftAlone(t *testing.T) {
 	assert.Equal(t, index, readIndex(t, dir), "the index is not reset")
 }
 
+// An update-ref that fails while the branch is STILL at `from` is that
+// failure, not ErrRefMoved: nothing moved, so nothing says the human did.
+func TestAdvanceBranch_AFailureWithTheBranchUnmovedIsNotRefMoved(t *testing.T) {
+	dir := midEdit(t)
+	head := gitIn(t, dir, "rev-parse", "HEAD")
+	missing := strings.Repeat("1", len(head))
+
+	err := NewExec().AdvanceBranch(context.Background(), dir, MustParseBranch("main"), missing, head)
+	require.Error(t, err, "a target that is no object cannot be advanced to")
+	assert.NotErrorIs(t, err, ErrRefMoved)
+	assert.Equal(t, head, gitIn(t, dir, "rev-parse", "main"))
+}
+
+// A repository with no index file yet still snapshots: git reads HEAD into
+// the private index itself, and the snapshot holds HEAD's tree plus the
+// working tree's untracked file.
+func TestSnapshotCommit_ARepoWithNoIndexFileReadsHead(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	dir := initRepo(t)
+	head := gitIn(t, dir, "rev-parse", "HEAD")
+	tracked := gitIn(t, dir, "ls-tree", "--name-only", head)
+	require.NoError(t, os.Remove(filepath.Join(dir, ".git", "index")))
+	require.NoError(t, writeFile(filepath.Join(dir, "new.txt"), "new"))
+
+	snap, base, err := NewExec().SnapshotCommit(context.Background(), dir, "m")
+	require.NoError(t, err)
+	assert.Equal(t, head, base)
+	assert.Equal(t, "new", gitIn(t, dir, "show", snap+":new.txt"))
+	assert.Contains(t, gitIn(t, dir, "ls-tree", "--name-only", snap), tracked, "HEAD's files are in")
+	leftovers, _ := filepath.Glob(filepath.Join(dir, ".git", "ctxloom-snapshot-index-*"))
+	assert.Empty(t, leftovers, "the private index is removed")
+}
+
+// An index that exists but cannot be read is an error, never an empty
+// private index (which would snapshot a tree missing every tracked file).
+func TestSnapshotCommit_AnUnreadableIndexIsAnError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	dir := initRepo(t)
+	index := filepath.Join(dir, ".git", "index")
+	require.NoError(t, os.Remove(index))
+	require.NoError(t, os.Mkdir(index, 0o755))
+
+	_, _, err := NewExec().SnapshotCommit(context.Background(), dir, "m")
+	require.ErrorContains(t, err, "reading the index")
+}
+
 // A parent whose HEAD left the branch meanwhile keeps its index: the branch
 // advances, and the checkout now on another branch is not reset against it.
 func TestAdvanceBranch_AHeadOnAnotherBranchKeepsItsIndex(t *testing.T) {

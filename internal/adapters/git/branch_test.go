@@ -29,7 +29,7 @@ func TestParseBranch_BothSpellingsAreOneBranch(t *testing.T) {
 // another namespace, which is refused), and the detached sentinel, the empty
 // name, another ref namespace and whitespace are errors, not branches.
 func TestParseBranch_RefusesWhatIsNotABranch(t *testing.T) {
-	for _, s := range []string{"", "refs/heads/", "HEAD", "refs/heads/HEAD", "refs/tags/v1", "refs/heads/refs/tags/v1", "has space", "tab\there", "nl\n"} {
+	for _, s := range []string{"", "refs/heads/", "HEAD", "refs/heads/HEAD", "refs/tags/v1", "refs/heads/refs/tags/v1", "has space", "tab\there", "nl\n", " lead", "\tlead", "bell\x07"} {
 		_, err := ParseBranch(s)
 		assert.Error(t, err, "%q is not a branch", s)
 	}

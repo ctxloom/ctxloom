@@ -413,6 +413,19 @@ func TestStripKeyboardModes(t *testing.T) {
 		"\x1b[?1049h\x1b[>0q\x1b[2J\x1b[?2026$p": "\x1b[?1049h\x1b[>0q\x1b[2J\x1b[?2026$p",
 		"\x1b[1;5u\x1b[?25l\x1b[<1;2;3M":         "\x1b[1;5u\x1b[?25l\x1b[<1;2;3M",
 		"\x1b[>":                                 "\x1b[>",
+		// a CSI straight after another's introducer is still found
+		"\x1b[\x1b[>4mx": "\x1b[x",
+		// parameters run to the end: no final byte, nothing stripped
+		"\x1b[>45": "\x1b[>45",
+		// every digit is a parameter, 9 included
+		"a\x1b[>9ub": "ab",
+		// what is NOT a keyboard mode: params "4" without >..m, empty
+		// params without ?..u
+		"\x1b[?4h\x1b[>c": "\x1b[?4h\x1b[>c",
+		// modifyOtherKeys is > AND m AND 4: any two of the three are not it
+		"\x1b[>4n\x1b[<4m\x1b[>1m": "\x1b[>4n\x1b[<4m\x1b[>1m",
+		// the kitty query is ? AND u AND no params: ?..c and ?1u are not it
+		"\x1b[?c\x1b[?1u": "\x1b[?c\x1b[?1u",
 	} {
 		assert.Equal(t, want, string(stripKeyboardModes([]byte(in))), "%q", in)
 	}

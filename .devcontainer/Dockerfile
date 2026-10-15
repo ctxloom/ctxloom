@@ -317,15 +317,21 @@ RUN go install github.com/goreleaser/goreleaser/v2@v${GORELEASER_VERSION}
 
 # Go caches live under GOPATH, NEVER under /workspace. /workspace is the
 # bind-mounted source tree: caches written there land inside the Go module
-# directory itself, where any tool that copies the module (gremlins mutation
-# testing copies it per worker) drags in gigabytes of read-only module cache and
-# fails. Persistence across rebuilds comes from the named volumes mounted on
+# directory itself, where any tool that copies the module drags in gigabytes of
+# read-only module cache and fails. Persistence across rebuilds comes from the named volumes mounted on
 # these paths (see .devcontainer/devcontainer.json), not from the source mount.
 # Mode 0777 keeps them writable whichever uid the container is run as.
+#
+# The caches the tool installs above filled are emptied first: nothing reads
+# them (the devcontainer mounts volumes over both paths, `just _run` points
+# GOMODCACHE/GOCACHE at host mounts), and a recursive chmod over gigabytes of
+# module cache copies every file into a new overlay layer — minutes of build
+# and a doubled image.
 ENV GOMODCACHE="/go/pkg/mod"
 ENV GOCACHE="/go/cache/build"
 ENV GOTOOLCHAIN="local"
-RUN mkdir -p "${GOMODCACHE}" "${GOCACHE}" && chmod -R 0777 /go
+RUN go clean -cache -modcache \
+    && mkdir -p "${GOMODCACHE}" "${GOCACHE}" && chmod -R 0777 /go
 
 # serena — the code-intelligence MCP server (find_symbol,
 # find_referencing_symbols, the symbol-edit tools). It is here as well as in

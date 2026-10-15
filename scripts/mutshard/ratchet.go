@@ -90,11 +90,8 @@ func readBaseline(file string) (map[string]baselineRow, error) {
 // records the tally as the row. It refuses a run that measured nothing before
 // either: zero mutants, or none that compiled, would read as a perfect score.
 func ratchet(stdout io.Writer, file, target string, t tally, update bool) error {
-	if t.total() == 0 {
-		return fmt.Errorf("%w: %s produced ZERO mutants", errMeasuredNothing, target)
-	}
 	if t.notViable == t.total() {
-		return fmt.Errorf("%w: all %d mutants of %s were NOT VIABLE — the tree does not build once mutated", errMeasuredNothing, t.total(), target)
+		return fmt.Errorf("%w: %s produced %d mutant(s), %d of them NOT VIABLE — ZERO mutants a test could judge", errMeasuredNothing, target, t.total(), t.notViable)
 	}
 	rows, err := readBaseline(file)
 	if err != nil {

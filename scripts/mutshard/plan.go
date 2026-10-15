@@ -155,13 +155,10 @@ func loadGomutantsConfig(file string) (*gomutantsConfig, error) {
 	return cfg, nil
 }
 
-// mutable reports whether gomutants would mutate the module-relative file f of
-// a listed package: a production file no exclude-files regexp matches
+// mutable reports whether gomutants would mutate the module-relative file f, a
+// production file of a listed package: no exclude-files regexp matches it
 // (unanchored, against the module-relative path, as gomutants matches it).
 func (c *gomutantsConfig) mutable(f string) bool {
-	if strings.HasSuffix(f, "_test.go") {
-		return false
-	}
 	for _, re := range c.excludes {
 		if re.MatchString(f) {
 			return false
@@ -209,7 +206,8 @@ func packageFiles(root string, cfg *gomutantsConfig) (map[string][]string, error
 }
 
 // treeCandidates is every package with a mutable file, costed by the line
-// count of those files.
+// count of those files, in no particular order: assign's result does not
+// depend on it. So for diffCandidates.
 func treeCandidates(root string, pkgs map[string][]string) ([]candidate, error) {
 	var cands []candidate
 	for dir, files := range pkgs {
@@ -223,7 +221,6 @@ func treeCandidates(root string, pkgs map[string][]string) ([]candidate, error) 
 		}
 		cands = append(cands, candidate{path: dir, cost: cost})
 	}
-	sort.Slice(cands, func(i, j int) bool { return cands[i].path < cands[j].path })
 	return cands, nil
 }
 
@@ -263,7 +260,6 @@ func diffCandidates(root, base string, pkgs map[string][]string) ([]candidate, e
 	for dir, c := range cost {
 		cands = append(cands, candidate{path: dir, cost: c})
 	}
-	sort.Slice(cands, func(i, j int) bool { return cands[i].path < cands[j].path })
 	return cands, nil
 }
 

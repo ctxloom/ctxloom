@@ -101,6 +101,9 @@ func TestMutationContainerRecipe_DoesNotMountTheCheckout(t *testing.T) {
 	if strings.Contains(body, "{{TOP}}:") || strings.Contains(body, "src={{TOP}}") {
 		t.Fatalf("test-mutation-container binds the checkout into the container:\n%s", body)
 	}
+	if !strings.Contains(body, "-e XDG_RUNTIME_DIR=/mutation-tmp/") {
+		t.Fatalf("test-mutation-container gives the run no runtime dir inside its scratch — a mutant must never reach a real one:\n%s", body)
+	}
 	if !strings.Contains(body, "mutation_source.sh") {
 		t.Fatalf("test-mutation-container does not stream its source through mutation_source.sh:\n%s", body)
 	}

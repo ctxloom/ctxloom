@@ -4,6 +4,7 @@
 package mutation
 
 import (
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,5 +69,51 @@ func TestMutationTmp_RemovesARunDirAMutantLeftUnreadable(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("run dir survived cleanup: %v", entries)
+	}
+}
+
+// A MUTANT MUST NEVER REACH THE HOST'S RUNTIME DIR. Tests sweep
+// XDG_RUNTIME_DIR, and a mutant of the sweep's filter run against the real one
+// deleted the rootless docker daemon's socket and state. The wrapper hands the
+// run a fresh runtime dir inside its own scratch (removed with it), and pins
+// DOCKER_HOST to the caller's daemon socket before hiding the caller's dir, so
+// docker-using tests still reach the daemon without the dir being in reach.
+func TestMutationTmp_HidesTheHostRuntimeDirAndPinsDockerHost(t *testing.T) {
+	script := repoInput(t, "tests/mutation/mutation_tmp.sh")[0]
+	base := filepath.Join(t.TempDir(), "mutation")
+	host := t.TempDir()
+	sock := filepath.Join(host, "docker.sock")
+	l, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatalf("listen %s: %v", sock, err)
+	}
+	defer func() { _ = l.Close() }()
+
+	run := func(env ...string) []string {
+		t.Helper()
+		cmd := exec.Command("bash", script, base, "bash", "-c",
+			`printf '%s\n%s\n%s\n' "$TMPDIR" "$XDG_RUNTIME_DIR" "${DOCKER_HOST:-}"; test -d "$XDG_RUNTIME_DIR"`)
+		cmd.Env = append(os.Environ(), env...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("mutation_tmp.sh: %v\n%s", err, out)
+		}
+		return strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	}
+
+	got := run("XDG_RUNTIME_DIR="+host, "DOCKER_HOST=")
+	if len(got) != 3 {
+		t.Fatalf("want TMPDIR, XDG_RUNTIME_DIR and DOCKER_HOST lines, got %q", got)
+	}
+	if got[1] == host || !strings.HasPrefix(got[1], got[0]+string(os.PathSeparator)) {
+		t.Errorf("XDG_RUNTIME_DIR = %q, want a fresh dir inside the run dir %q, never the host's %q", got[1], got[0], host)
+	}
+	if got[2] != "unix://"+sock {
+		t.Errorf("DOCKER_HOST = %q, want the caller's daemon socket unix://%s", got[2], sock)
+	}
+
+	// A DOCKER_HOST the caller set is the caller's choice and stands.
+	if got := run("XDG_RUNTIME_DIR="+host, "DOCKER_HOST=tcp://elsewhere:2375"); len(got) != 3 || got[2] != "tcp://elsewhere:2375" {
+		t.Errorf("a caller's DOCKER_HOST was replaced: %q", got)
 	}
 }

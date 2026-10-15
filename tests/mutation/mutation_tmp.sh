@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Runs a mutation tool with its OWN temp dir under the shared mutation tmp as
-# TMPDIR and GOTMPDIR, and removes that dir when the run ends, however it ends.
+# TMPDIR and GOTMPDIR, and a fresh XDG_RUNTIME_DIR inside it, and removes that
+# dir when the run ends, however it ends.
 #
 # Usage: mutation_tmp.sh <mutation tmp> <command> [args...]
 #
@@ -48,5 +49,19 @@ trap 'exit 130' INT
 trap 'exit 143' TERM HUP
 
 export TMPDIR="$run" GOTMPDIR="$run"
+
+# INVARIANT: A MUTANT MUST NEVER REACH THE HOST'S RUNTIME DIR. Tests sweep
+# XDG_RUNTIME_DIR (isolation's scratch reaper does), guarded by a filter a
+# mutant negates — and the host's runtime dir holds the rootless docker
+# daemon's socket and state. A `||`->`&&` mutant of that filter, run against
+# the real /run/user/<uid>, deleted the daemon twice. So the run gets a fresh,
+# empty runtime dir inside its own scratch, removed with it, and the daemon is
+# reached through an explicit DOCKER_HOST instead: pinned from the caller's
+# runtime socket before that dir is hidden, unless the caller already set one.
+if [ -z "${DOCKER_HOST:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -S "$XDG_RUNTIME_DIR/docker.sock" ]; then
+    export DOCKER_HOST="unix://$XDG_RUNTIME_DIR/docker.sock"
+fi
+mkdir -m 0700 "$run/xdg-runtime"
+export XDG_RUNTIME_DIR="$run/xdg-runtime"
 
 "$@"

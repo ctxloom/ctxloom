@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ const testBaseline = `# header comment, kept on update
 #
 # TARGET                                   TOTAL  SURVIVED  PROVENANCE
 internal/a                                   100        20  measured
+
 internal/stale                               100        20  stale
 internal/new                                   -         -  unknown
 `
@@ -95,11 +97,22 @@ func TestRatchet_RefusesARunThatMeasuredNothing(t *testing.T) {
 // one — and leaves every other line, comments included, as it was.
 func TestRatchet_UpdateRecordsTheRow(t *testing.T) {
 	f := baselineFile(t)
-	if err := ratchet(&bytes.Buffer{}, f, "internal/new", survivors(30, 10), true); err != nil {
-		t.Fatal(err)
-	}
-	if err := ratchet(&bytes.Buffer{}, f, "internal/added", survivors(1, 2), true); err != nil {
-		t.Fatal(err)
+	for _, c := range []struct {
+		target string
+		t      tally
+		says   string
+	}{
+		{"internal/a", survivors(15, 5), "RECORDED  internal/a: 20 survivors of 100 (was 20 of 100, measured)"},
+		{"internal/new", survivors(30, 10), "RECORDED  internal/new: 40 survivors of 100 (was - of -, unknown)"},
+		{"internal/added", survivors(1, 2), "RECORDED  internal/added: 3 survivors of 100 (new row)"},
+	} {
+		var out bytes.Buffer
+		if err := ratchet(&out, f, c.target, c.t, true); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out.String(), c.says) {
+			t.Errorf("update of %s said %q, want %q", c.target, out.String(), c.says)
+		}
 	}
 	rows, err := readBaseline(f)
 	if err != nil {
@@ -134,7 +147,11 @@ func TestReadBaseline_RefusesMalformedRows(t *testing.T) {
 		"internal/a ten 2 measured",
 		"internal/a 2 10 measured",
 		"internal/a 10 2 unknown",
+		"internal/a - 2 unknown",
+		"internal/a 2 - unknown",
 		"internal/a - - measured",
+		"internal/a -1 0 measured",
+		"internal/a 1 -1 measured",
 	} {
 		f := filepath.Join(t.TempDir(), "b.txt")
 		if err := os.WriteFile(f, []byte(line+"\n"), 0o644); err != nil {
@@ -148,8 +165,53 @@ func TestReadBaseline_RefusesMalformedRows(t *testing.T) {
 	if err := os.WriteFile(f, []byte("internal/a 1 0 measured\ninternal/a 2 0 measured\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readBaseline(f); !errors.Is(err, errBaselineFormat) {
+	_, err := readBaseline(f)
+	if !errors.Is(err, errBaselineFormat) {
 		t.Errorf("a duplicated row: err = %v, want errBaselineFormat", err)
+	}
+	// The refusal names the line, so the row can be found and fixed.
+	if err == nil || !strings.Contains(err.Error(), "b.txt:2:") {
+		t.Errorf("a duplicate on line 2: err = %v, want it to name b.txt:2", err)
+	}
+	for line, body := range map[int]string{
+		1: "internal/a 1 0 guessed\n",
+		2: "# c\ninternal/a - 2 unknown\n",
+		3: "#\n\ninternal/a 2 3 measured\n",
+	} {
+		f := filepath.Join(t.TempDir(), "b.txt")
+		if err := os.WriteFile(f, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := readBaseline(f); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("b.txt:%d:", line)) {
+			t.Errorf("%q: err = %v, want it to name b.txt:%d", body, err, line)
+		}
+	}
+}
+
+// The edges of a well-formed row are rows: zero counts, and every mutant a
+// survivor.
+func TestReadBaseline_AcceptsTheEdges(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "b.txt")
+	if err := os.WriteFile(f, []byte("internal/z 0 0 measured\ninternal/all 5 5 stale\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := readBaseline(f)
+	if err != nil || rows["internal/z"] != (baselineRow{0, 0, "measured"}) || rows["internal/all"] != (baselineRow{5, 5, "stale"}) {
+		t.Errorf("rows = %+v, %v", rows, err)
+	}
+}
+
+// A ratchet over a baseline it cannot read refuses, rather than judging
+// against no rows.
+func TestRatchet_RefusesAMalformedBaseline(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "b.txt")
+	if err := os.WriteFile(f, []byte("internal/a 10 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, update := range []bool{false, true} {
+		if err := ratchet(&bytes.Buffer{}, f, "internal/a", survivors(1, 1), update); !errors.Is(err, errBaselineFormat) {
+			t.Errorf("update %v: err = %v, want errBaselineFormat", update, err)
+		}
 	}
 }
 

@@ -1303,6 +1303,7 @@ test-mutation-container: _mutation-prereqs
         exec docker run --rm -i "$@" \
             -v "$TMPDIR:/mutation-tmp" \
             -e TMPDIR=/mutation-tmp \
+            -e XDG_RUNTIME_DIR=/mutation-tmp/xdg-runtime \
             -e HOME=/mutation-tmp \
             -e GOPATH=/mutation-tmp/go \
             -e GOCACHE=/mutation-tmp/cache \

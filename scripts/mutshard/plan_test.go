@@ -156,7 +156,10 @@ func testModule(t *testing.T) (string, *gomutantsConfig) {
 	writeFile(t, root, gomutantsConfigFile, testGomutantsYAML)
 	writeFile(t, root, "root.go", "package lab\n\nvar r = 1\n")
 	writeFile(t, root, "a/a.go", "package a\n\nvar x = 1\n")
+	writeFile(t, root, "a/two.go", "package a\n\nvar t = 2\n")
 	writeFile(t, root, "a/a_test.go", "package a\n")
+	// A package of nothing but tests: go list yields it with no GoFiles.
+	writeFile(t, root, "only/only_test.go", "package only\n")
 	writeFile(t, root, "a/api.pb.go", "package a\n")
 	writeFile(t, root, "a/mock_store.go", "package a\n")
 	writeFile(t, root, "b/b.go", "package b\n")
@@ -185,7 +188,7 @@ func TestPackageFiles_AreWhatGomutantsResolves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string][]string{".": {"root.go"}, "a": {"a/a.go"}, "b": {"b/b.go"}}
+	want := map[string][]string{".": {"root.go"}, "a": {"a/a.go", "a/two.go"}, "b": {"b/b.go"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("packages = %v, want %v", got, want)
 	}
@@ -194,8 +197,48 @@ func TestPackageFiles_AreWhatGomutantsResolves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []candidate{{".", 3}, {"a", 3}, {"b", 1}}; !reflect.DeepEqual(tree, want) {
-		t.Errorf("tree candidates = %+v, want %+v (cost: the lines of the mutable files)", tree, want)
+	if want := []candidate{{".", 3}, {"a", 6}, {"b", 1}}; !reflect.DeepEqual(sorted(tree), want) {
+		t.Errorf("tree candidates = %+v, want %+v (cost: the lines of the package's mutable files)", tree, want)
+	}
+
+	// The config's build tags reach go list, as gomutants passes them on.
+	cfg.tags = "acceptance"
+	got, err = packageFiles(root, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got["tagged"], []string{"tagged/t.go"}) {
+		t.Errorf("with tags %q, packages = %v, want tagged/t.go planned", cfg.tags, got)
+	}
+
+	// A module go list refuses is an error, never an empty plan.
+	writeFile(t, root, "broken/broken.go", "package broken\n\nimport \"no/such/module\"\n")
+	if _, err := packageFiles(root, cfg); err == nil || !strings.Contains(err.Error(), "no/such/module") {
+		t.Errorf("a module go list cannot load: err = %v, want go list's complaint", err)
+	}
+}
+
+// sorted is cands in path order: the candidate functions promise none.
+func sorted(cands []candidate) []candidate {
+	out := append([]candidate(nil), cands...)
+	sort.Slice(out, func(i, j int) bool { return out[i].path < out[j].path })
+	return out
+}
+
+// A whole-scope plan holds every package with mutable Go, and nothing else.
+func TestMakePlan_TheWholeTreeIsEveryMutablePackage(t *testing.T) {
+	root, cfg := testModule(t)
+	p, err := makePlan(root, scope{tree: true}, 2, cfg)
+	if err != nil || p.skip != "" {
+		t.Fatalf("plan = %+v, err %v", p, err)
+	}
+	var planned []string
+	for _, s := range p.shards {
+		planned = append(planned, s...)
+	}
+	sort.Strings(planned)
+	if want := []string{".", "a", "b"}; !reflect.DeepEqual(planned, want) {
+		t.Errorf("planned = %q, want %q", planned, want)
 	}
 }
 
@@ -211,6 +254,7 @@ func TestDiffCandidates_AreWhatGomutantsWouldMutate(t *testing.T) {
 	git(t, root, "commit", "-q", "-m", "base")
 	git(t, root, "checkout", "-q", "-b", "feature")
 	writeFile(t, root, "a/a.go", "package a\n\nvar x = 1\nvar y = 2\nvar z = 3\n")
+	writeFile(t, root, "a/two.go", "package a\n\nvar t = 2\nvar u = 3\n")
 	writeFile(t, root, "a/a_test.go", "package a\n\n// more\n")
 	writeFile(t, root, "a/api.pb.go", "package a\n\nvar p = 1\n")
 	writeFile(t, root, "tagged/t.go", "//go:build acceptance\n\npackage tagged\n\nvar q = 1\n")
@@ -230,12 +274,16 @@ func TestDiffCandidates_AreWhatGomutantsWouldMutate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("diffCandidates: %v", err)
 	}
-	if want := []candidate{{"a", 2}, {"b", 2}};!reflect.DeepEqual(got, want) {
+	// a: two lines added to a.go and one to two.go — a package's cost sums its files.
+	if want := []candidate{{"a", 3}, {"b", 2}}; !reflect.DeepEqual(sorted(got), want) {
 		t.Errorf("candidates = %+v, want %+v", got, want)
 	}
 
 	if _, err := diffCandidates(root, "no-such-ref", pkgs); err == nil {
 		t.Errorf("an unresolvable base must be an error, not an empty (skipped) plan")
+	}
+	if _, err := makePlan(root, scope{base: "no-such-ref"}, 1, cfg); err == nil {
+		t.Errorf("makePlan over an unresolvable base must fail, not skip")
 	}
 }
 
@@ -339,6 +387,21 @@ func TestMakePlan_PkgNarrowsToThePackagesUnderIt(t *testing.T) {
 	}
 }
 
+// The scope's name is the stamp every shard report carries and the aggregate
+// compares, so each shape must name itself distinctly.
+func TestScopeString(t *testing.T) {
+	for sc, want := range map[scope]string{
+		{tree: true}:               "tree",
+		{tree: true, pkg: "a/b"}:   "tree under a/b/",
+		{base: "main"}:             "diff:main",
+		{base: "main", pkg: "a/b"}: "diff:main under a/b/",
+	} {
+		if got := sc.String(); got != want {
+			t.Errorf("%+v.String() = %q, want %q", sc, got, want)
+		}
+	}
+}
+
 // gomutants takes package patterns; the module's root package is ".", every
 // other one is "./dir" — a bare "dir" would be read as an import path.
 func TestPatterns(t *testing.T) {
@@ -383,9 +446,13 @@ func TestAggregateFlags_RatchetNeedsAWholePackage(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "p/p.go", "package p\n")
 	t.Chdir(root)
-	af, err := parseAggregateFlags([]string{"-scope", "tree", "-pkg", "p", "-ratchet", "b.txt", "-update", "-efficacy", "80"})
-	if err != nil || af.ratchet != "b.txt" || !af.update || af.th.efficacy != 80 {
+	af, err := parseAggregateFlags([]string{"-scope", "tree", "-pkg", "p", "-reports", "r", "-ratchet", "b.txt", "-update", "-efficacy", "80", "-mcover", "5"})
+	if err != nil || af.reports != "r" || af.ratchet != "b.txt" || !af.update || af.th != (thresholds{80, 5}) {
 		t.Fatalf("aggregate flags = %+v, %v", af, err)
+	}
+	// No threshold flag judges no threshold: a zero threshold is never judged.
+	if af, err := parseAggregateFlags([]string{"-scope", "tree"}); err != nil || af.th != (thresholds{}) {
+		t.Errorf("default thresholds = %+v, %v; want none", af.th, err)
 	}
 	for _, bad := range [][]string{
 		{"-scope", "tree", "-ratchet", "b.txt"},

@@ -263,6 +263,16 @@ func TestJudge_AnEmptyShardNeedsNoRun(t *testing.T) {
 	}
 }
 
+// The union sums EVERY count across shards — a count only one shard reports
+// cannot show a sum that keeps only the last shard's.
+func TestTally_AddSumsEveryCount(t *testing.T) {
+	u := tally{1, 2, 3, 4, 5, 6}
+	u.add(tally{10, 20, 30, 40, 50, 60})
+	if u != (tally{11, 22, 33, 44, 55, 66}) {
+		t.Errorf("sum = %+v", u)
+	}
+}
+
 func TestExitCode_MirrorsGomutants(t *testing.T) {
 	for err, want := range map[error]int{errEfficacy: 10, errMutantCoverage: 11, errLeak: 1, errMissingShard: 1, errRegressed: 1} {
 		if got := exitCode(err); got != want {

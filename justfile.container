@@ -525,7 +525,33 @@ vet-integration:
     go vet -tags "acceptance integration" ./tests/...
 
 # Lint code, plus the integration-tag rot gate (see vet-integration).
+#
+# ONE golangci-lint CACHE PER CHECKOUT: a shared cache serves another
+# worktree's findings. golangci-lint keys a package's cached issues by
+# module-RELATIVE file paths + content hashes (path-independent, so identical
+# content in any checkout hits), but the cached issue stores the ABSOLUTE path
+# of whichever checkout wrote it. The nolint filter then re-reads that path to
+# find //nolint comments; once that worktree is deleted the read fails silently
+# and the suppressed finding comes back, pointing into a tree that no longer
+# exists (upstream golangci/golangci-lint#6695). With every agent worktree
+# linting against ~/.cache/golangci-lint, that turned green trees red.
+#
+# So the cache lives inside the checkout (gitignored .cache/), which keeps it
+# warm across runs of the same tree and deletes it with the tree, so caches of
+# removed worktrees cannot accumulate. The subdirectory is keyed by the
+# checkout's absolute path as THIS process sees it, because the same tree is
+# linted on the host at its real path and in the container at /workspace: a
+# shared entry would carry the other side's path, the same bug again. An
+# explicitly set GOLANGCI_LINT_CACHE wins (the container `_run` does not pass
+# one through, so there it is always the in-tree cache).
 lint: vet-integration tidy-check
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -z "${GOLANGCI_LINT_CACHE:-}" ]; then
+        root="$(pwd -P)"
+        GOLANGCI_LINT_CACHE="$root/.cache/golangci-lint/$(printf '%s' "$root" | sha256sum | cut -c1-16)"
+        export GOLANGCI_LINT_CACHE
+    fi
     golangci-lint run
 
 # go.mod and go.sum must be exactly what `go mod tidy` produces: an untidy module

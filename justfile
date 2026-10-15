@@ -880,7 +880,9 @@ test-acceptance-live-container: container-build-acceptance
     # has every pinned module and the build runs offline.
     GOWORK=off go mod download
     mkdir -p "$staging/src"
-    tar -cf - --exclude=./.git --exclude='*.test' --exclude=./website/node_modules . | tar -xf - -C "$staging/src"
+    # .cache/golangci-lint is `lint`'s per-checkout cache (see justfile.container):
+    # large, and of no use to the acceptance build.
+    tar -cf - --exclude=./.git --exclude='*.test' --exclude=./website/node_modules --exclude=./.cache/golangci-lint . | tar -xf - -C "$staging/src"
     chmod -R a+rX "$staging"
 
     mounts=(-v "$staging/src:/workspace:ro")

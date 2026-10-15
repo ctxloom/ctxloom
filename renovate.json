@@ -6,56 +6,280 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": ["^\\.github/workflows/.*\\.ya?ml$"],
-      "matchStrings": [
-        "https://github\\.com/(?<depName>benjaminabbitt/versionator)/releases/download/v(?<currentValue>[^/]+)/"
+      "description": [
+        "Build-toolchain pins. .devcontainer/tool-versions.env is their one source of truth; devcontainer.json repeats every pin as a build arg, and internal/shared/buildpins fails the build if the two disagree.",
+        "Both files are extracted with depName = the pin's KEY (KEY_VERSION), so a bump lands in one branch that updates both.",
+        "The per-KEY datasource/packageName mapping is the packageRules below; datasourceTemplate is only the placeholder for a KEY with no rule, whose lookup then fails loudly in the Dependency Dashboard (\"Failed to look up go package <KEY>\"): add its rule, never leave a pin untracked."
       ],
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.*)$"
-    },
-    {
-      "customType": "regex",
-      "fileMatch": ["^\\.github/workflows/.*\\.ya?ml$"],
-      "matchStrings": [
-        "https://github\\.com/(?<depName>goreleaser/goreleaser)/releases/[^/]+/download/goreleaser_Linux"
+      "managerFilePatterns": [
+        "/^\\.devcontainer/tool-versions\\.env$/",
+        "/^\\.devcontainer/devcontainer\\.json$/"
       ],
-      "datasourceTemplate": "github-releases"
-    },
-    {
-      "customType": "regex",
-      "fileMatch": ["^justfile$"],
       "matchStrings": [
-        "go install github\\.com/gomutants/gomutants@v(?<currentValue>[^\\s]+)"
+        "(?:^|\\n)(?<depName>[A-Z][A-Z0-9_]*)_VERSION=(?<currentValue>[^\\s#]+)",
+        "\"(?<depName>[A-Z][A-Z0-9_]*)_VERSION\":\\s*\"(?<currentValue>[^\"]+)\""
       ],
-      "depNameTemplate": "github.com/gomutants/gomutants",
-      "datasourceTemplate": "go"
-    },
-    {
-      "customType": "regex",
-      "fileMatch": ["^\\.devcontainer/Dockerfile$"],
-      "matchStrings": [
-        "go install github\\.com/benjaminabbitt/versionator@v(?<currentValue>[^\\s]+)"
-      ],
-      "depNameTemplate": "github.com/benjaminabbitt/versionator",
       "datasourceTemplate": "go"
     }
   ],
   "packageRules": [
     {
-      "matchManagers": ["gomod"],
-      "matchUpdateTypes": ["minor", "patch"],
-      "automerge": true
-    },
-    {
-      "matchManagers": ["github-actions"],
-      "automerge": true
-    },
-    {
-      "matchDepNames": [
-        "benjaminabbitt/versionator",
-        "github.com/benjaminabbitt/versionator"
+      "matchManagers": [
+        "gomod"
       ],
-      "groupName": "versionator"
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "automerge": true
+    },
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "GIT_MIN_VERSION is a floor the Dockerfile checks the distro's git against, not a pin to bump.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "GIT_MIN"
+      ],
+      "enabled": false
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "GO"
+      ],
+      "overrideDatasource": "golang-version",
+      "overridePackageName": "go"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "NODE"
+      ],
+      "overrideDatasource": "node-version",
+      "overridePackageName": "node",
+      "versioning": "node"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "LIZARD"
+      ],
+      "overrideDatasource": "pypi",
+      "overridePackageName": "lizard"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "SERENA_AGENT"
+      ],
+      "overrideDatasource": "pypi",
+      "overridePackageName": "serena-agent"
+    },
+    {
+      "description": "GitHub releases tagged vX.Y.Z; the pins carry the bare X.Y.Z.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "UPX",
+        "ONNX",
+        "BUF"
+      ],
+      "extractVersion": "^v(?<version>.+)$",
+      "overrideDatasource": "github-releases"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "UPX"
+      ],
+      "overridePackageName": "upx/upx"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "ONNX"
+      ],
+      "overridePackageName": "microsoft/onnxruntime"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "BUF"
+      ],
+      "overridePackageName": "bufbuild/buf"
+    },
+    {
+      "description": "GitHub releases; casey/just tags them with the bare X.Y.Z.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "JUST"
+      ],
+      "overridePackageName": "casey/just",
+      "overrideDatasource": "github-releases"
+    },
+    {
+      "description": "Tools the Dockerfile and recipes `go install <module>@v${KEY_VERSION}`: the go datasource reports vX.Y.Z, the pins carry the bare X.Y.Z.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "GOLANGCI_LINT",
+        "PROTOC_GEN_GO",
+        "PROTOC_GEN_GO_GRPC",
+        "GOMUTANTS",
+        "VERSIONATOR",
+        "GORELEASER",
+        "GOPLS",
+        "GITLEAKS",
+        "LEFTHOOK"
+      ],
+      "overrideDatasource": "go",
+      "extractVersion": "^v(?<version>.+)$"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "GOLANGCI_LINT"
+      ],
+      "overridePackageName": "github.com/golangci/golangci-lint/v2"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "PROTOC_GEN_GO"
+      ],
+      "overridePackageName": "google.golang.org/protobuf"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "PROTOC_GEN_GO_GRPC"
+      ],
+      "overridePackageName": "google.golang.org/grpc/cmd/protoc-gen-go-grpc"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "GOMUTANTS"
+      ],
+      "overridePackageName": "github.com/gomutants/gomutants"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "VERSIONATOR"
+      ],
+      "overridePackageName": "github.com/benjaminabbitt/versionator"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "GORELEASER"
+      ],
+      "overridePackageName": "github.com/goreleaser/goreleaser/v2"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "GOPLS"
+      ],
+      "overridePackageName": "golang.org/x/tools/gopls"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "GITLEAKS"
+      ],
+      "overridePackageName": "github.com/zricethezav/gitleaks/v8"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "LEFTHOOK"
+      ],
+      "overridePackageName": "github.com/evilmartians/lefthook"
+    },
+    {
+      "description": "A Go module's major version past v1 lives at a new module path (/vN): MEASURED, `go install github.com/evilmartians/lefthook@v2.2.2` is rejected because v2 is github.com/evilmartians/lefthook/v2. Such a PR needs that tool's overridePackageName here and its `go install` lines (.devcontainer/Dockerfile, justfile, build/ci.justfile) changed by hand.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "GOLANGCI_LINT",
+        "PROTOC_GEN_GO",
+        "PROTOC_GEN_GO_GRPC",
+        "GOMUTANTS",
+        "VERSIONATOR",
+        "GORELEASER",
+        "GOPLS",
+        "GITLEAKS",
+        "LEFTHOOK"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "matchCurrentVersion": ">=1.0.0",
+      "automerge": false,
+      "prBodyNotes": [
+        "This is a major version of a Go module, so its module path gains a /vN suffix. Change this tool's `overridePackageName` in renovate.json and every `go install <module>@v${KEY_VERSION}` line (.devcontainer/Dockerfile, justfile, build/ci.justfile) to the new path, or the install fails."
+      ]
+    },
+    {
+      "description": "These pins move with checksums Renovate cannot compute (GO/JUST _SHA256_<ARCH> in both files; lizard's hashes in .devcontainer/lizard-requirements.txt). scripts/lint-pins fails the PR until a human adds them.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "GO",
+        "JUST",
+        "LIZARD"
+      ],
+      "automerge": false,
+      "prBodyNotes": [
+        "Checksum pins must move with this version before the PR can pass: take them from the upstream's published list as `.devcontainer/tool-versions.env` (GO, JUST) and `.devcontainer/lizard-requirements.txt` (LIZARD) describe, never from hashing a download, and mirror tool-versions.env changes into devcontainer.json."
+      ]
     }
   ]
 }

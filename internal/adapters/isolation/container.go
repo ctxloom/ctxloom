@@ -660,13 +660,20 @@ func gitIdentityEnv(agentID string) []string {
 
 // launchGate is the container gate's checks that create nothing, in the
 // run's order: a launchable runtime (selection's verdict, read — the engine is
-// not asked again), the image (image: ensureImage for a run,
+// not asked again), a daemon that can run containers (daemonState: a
+// wedged rootless docker answers its API but cannot), the image (image: ensureImage for a run,
 // inspectImage for a preview), a user-owned image's identity contract, and a
 // declared container story. It returns the first refusal, as the run does;
 // the identity contract records its own finding.
 func (c Container) launchGate(ctx context.Context, image func(context.Context) error) error {
 	if c.runtime == nil || !c.runtime.launchable() {
 		return fmt.Errorf("container runtime %q cannot launch", runtimeName(c.runtime))
+	}
+	// A wedged rootless docker passed selection (its API answers) and would
+	// hang the image build or the first container: refuse it here, on every
+	// launch — never memoized (see Docker.daemonState).
+	if err := c.runtime.daemonState(ctx); err != nil {
+		return err
 	}
 	if err := image(ctx); err != nil {
 		return err

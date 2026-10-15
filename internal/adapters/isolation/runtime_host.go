@@ -65,3 +65,4 @@ func (Host) containerByIDArgs(string) []string                          { return
 func (Host) selfInspectArgs(string) []string                            { return nil }
 func (Host) containerByLabelArgs(string) []string                       { return nil }
 func (Host) identified() error                                          { return nil }
+func (Host) daemonState(context.Context) error                          { return nil }

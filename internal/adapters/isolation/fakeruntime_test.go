@@ -30,6 +30,8 @@ func (fakeRuntime) containerByLabelArgs(l string) []string {
 }
 func (fakeRuntime) identified() error { return nil }
 
+func (fakeRuntime) daemonState(context.Context) error { return nil }
+
 // The CLI grammar is the shared OCI default, so a call site routed through the
 // seam renders the same argv against the fake as against a real runtime.
 func (fakeRuntime) inspectRunningArgs(name string) []string {

@@ -381,6 +381,25 @@ mapper and runs unchanged on Windows. It does not check the mapped TARGET
 names; those follow from the mapper. A Windows share path never reaches it:
 the mapper refuses it first.
 
+### Wedged rootless docker
+
+A rootless docker daemon whose runtime state under `$XDG_RUNTIME_DIR` was
+deleted still answers its API (`docker info`/`ps` return at once) but never
+starts or exits a container, so selection picks it and the launch hangs.
+`Docker.daemonState` (`runtime_docker.go`, the `Runtime.daemonState` method every other runtime answers nil) tells the two apart by the sockets
+the wedge removes: `dockerd-rootless/api.sock`, and `docker/containerd/containerd.sock`
+when that directory exists. It applies only to rootless docker at the
+`dockerd-rootless.sh` endpoint `unix://$XDG_RUNTIME_DIR/docker.sock`
+(`DOCKER_HOST`, else the current docker context); podman, rootful docker and
+any other endpoint are never checked. `launchGate` refuses a wedged daemon
+before the image step, on every launch (it is deliberately not memoized:
+`sharedFSProbe` latches a success, so it would miss a later wedge), with a
+`report.Error` wrapping `errRootlessStateGone` whose remedy names
+`systemctl --user restart docker` and warns that it restarts every container on
+that daemon. `Diagnose` reports it as `daemon_fault` and skips the marker probe,
+whose container the wedged daemon could neither finish nor reap. The justfile's
+`_container-preflight` recipe applies the same rule before containerized recipes.
+
 ## Credential delivery
 
 How a run authenticates is decided by WHO runs it, never by its binding
@@ -854,6 +873,7 @@ image another is between building and running.
 | `RunSpec` / `LaunchSpec` / `Mount` | `runtime.go` | Run description / spawn params / bind mount |
 | `SessionState` | `statemounts.go` | Harp + project id threaded into the seam |
 | `Diagnosis` / `Diagnose` | `diagnose.go` | `container check` report |
+| `Runtime.daemonState` / `Docker.daemonState` | `runtime_docker.go` | Wedged-rootless-docker check: launch gate + `container check` |
 | `BuildAgentImage` / `ImageBuildOptions` / `hostProvenanceDigest` | `imagebuild.go` | `container build` |
 | `ReapOrphanedWorktrees` / `WorktreeReapResult` | `worktree_reap.go` | Startup orphan sweep |
 | `PlanImagePrune` / `ApplyImagePrune` / `LiveImageRef` | `image_prune.go` | `container prune` and the doctor superseded-images check |

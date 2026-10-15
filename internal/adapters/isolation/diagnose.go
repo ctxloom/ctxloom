@@ -23,6 +23,11 @@ type Diagnosis struct {
 	// "none"); Reachable whether its daemon answered.
 	Runtime   string `json:"runtime"`
 	Reachable bool   `json:"reachable"`
+	// DaemonFault names why a reachable daemon nonetheless cannot run
+	// containers ("" when nothing is known to be wrong): a rootless docker
+	// whose runtime state is gone answers its API but never starts or stops
+	// a container (Runtime.daemonState). A run on it is refused up front.
+	DaemonFault string `json:"daemon_fault,omitempty"`
 	// Image is the backend's agent image reference; ImagePresent whether it
 	// exists locally (Diagnose never builds it).
 	Image        string `json:"image,omitempty"`
@@ -78,10 +83,23 @@ func Diagnose(ctx context.Context, backend string, img ImageConfig) Diagnosis {
 			fmt.Sprintf("the project devcontainer could not be resolved as the agent image base (%v); a containerized run refuses to build without it — %s", baseErr, devcontainerDetectRemedy))
 	}
 
-	if d.ImagePresent {
+	fault := rt.daemonState(ctx)
+	if fault != nil {
+		d.DaemonFault = fault.Error()
+		d.Guidance = append(d.Guidance,
+			"containerized agents cannot launch here: the daemon answers but cannot run containers, so a containerized run is refused up front — "+rootlessRestartRemedy)
+	}
+
+	switch {
+	case d.ImagePresent && fault != nil:
+		// The marker probe starts a container, which this daemon would never
+		// finish (nor reap): report the image, skip the probe.
+		diagnoseStaleness(ctx, c, backend, sources, base, &d)
+		d.SharedFS = "unprobed: the daemon cannot run the probe container (see daemon_fault)"
+	case d.ImagePresent:
 		diagnoseStaleness(ctx, c, backend, sources, base, &d)
 		diagnoseProbe(ctx, rt, c.image, diagnoseProbeRoots(), &d)
-	} else {
+	default:
 		diagnoseAdvisory(ctx, rt, &d)
 		d.Guidance = append(d.Guidance,
 			fmt.Sprintf("agent image %s is not present; a containerized run builds it on first use (or run `ctxloom container build %s`)", c.image, backend))

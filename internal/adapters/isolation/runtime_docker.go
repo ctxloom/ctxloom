@@ -3,11 +3,16 @@ package isolation
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // Docker launches containers via the docker CLI. rootless records whether the
@@ -148,4 +153,114 @@ func dockerLimitSupport(answer string) limitSupport {
 		sup.unenforced = "docker reports no memory or pids cgroup control (rootless docker needs cgroup v2 with systemd)"
 	}
 	return sup
+}
+
+// A rootless docker daemon whose runtime state under $XDG_RUNTIME_DIR was
+// deleted keeps answering its API — MEASURED on such a wedge, `docker info`,
+// `docker ps`, `docker version` and /_ping all returned exit 0 in under 40ms
+// while `docker run` never returned. Runtime selection (runtimeReachable,
+// probeOwnership) asks only the API, so it selects the wedged daemon, and the
+// launch then hangs in the first container it starts. Nothing the API says
+// tells the two apart; the sockets the wedge removed do:
+//
+//   - rootlesskit's $XDG_RUNTIME_DIR/dockerd-rootless/api.sock, and
+//   - containerd.sock under $XDG_RUNTIME_DIR/docker/containerd, when dockerd
+//     manages that directory.
+//
+// Checked for rootless docker at the dockerd-rootless.sh endpoint
+// (unix://$XDG_RUNTIME_DIR/docker.sock) ONLY: podman, rootful docker and any
+// other endpoint have a different (or a remote) layout, and a check that
+// guessed at one would refuse runs that work.
+//
+// The same rule gates the justfile's container recipes; keep it in step with
+// the `_container-preflight` recipe in the repo-root justfile.
+
+// errRootlessStateGone is the wedge: the daemon answers but cannot run
+// containers. Callers match it with errors.Is.
+var errRootlessStateGone = errors.New("the rootless docker daemon's runtime state is gone")
+
+// rootlessRestartRemedy is the one fix, and the warning that goes with it.
+const rootlessRestartRemedy = "restart the rootless daemon: systemctl --user restart docker — NOTE this restarts the WHOLE daemon, so it also stops or restarts every other container on it (kind clusters, dev databases, other agents' runs)"
+
+// dockerContextTimeout bounds the `docker context inspect` endpoint lookup. It
+// reads the CLI's own config and does not reach the daemon, so it answers in
+// milliseconds; the bound only keeps a broken CLI from stalling a launch.
+const dockerContextTimeout = 10 * time.Second
+
+// rootlessStateProbe is where the wedge check reads the environment and the
+// docker CLI's resolved endpoint. A package var so tests — and TestMain's
+// hermetic fixture, which must never see the host's daemon — answer both.
+type rootlessStateProbe struct {
+	getenv      func(string) string
+	contextHost func(ctx context.Context, bin string) (string, error)
+}
+
+var rootlessState = rootlessStateProbe{getenv: os.Getenv, contextHost: dockerContextHost}
+
+// dockerContextHost is the endpoint the docker CLI uses when DOCKER_HOST is
+// unset: its current context's (which honours DOCKER_CONTEXT).
+func dockerContextHost(ctx context.Context, bin string) (string, error) {
+	cctx, cancel := context.WithTimeout(ctx, dockerContextTimeout)
+	defer cancel()
+	out, err := probeExec(cctx, bin, []string{"context", "inspect", "--format", "{{.Endpoints.docker.Host}}"})
+	return strings.TrimSpace(out), err
+}
+
+// daemonState is nil unless this is rootless docker at the standard endpoint
+// and a socket of its runtime state is gone; then it is a report.Error
+// carrying rootlessRestartRemedy and wrapping errRootlessStateGone.
+//
+// It reads the filesystem on EVERY call and must stay unmemoized: a daemon can
+// wedge after an earlier launch in the same long-lived process passed — the
+// shared-filesystem probe latches its success (sharedFSResults), so it would
+// never notice.
+func (d Docker) daemonState(ctx context.Context) error {
+	if !d.rootless {
+		return nil
+	}
+	return rootlessState.missing(ctx, d.Binary())
+}
+
+func (p rootlessStateProbe) missing(ctx context.Context, bin string) error {
+	runDir := p.getenv("XDG_RUNTIME_DIR")
+	if runDir == "" {
+		return nil
+	}
+	endpoint := p.getenv("DOCKER_HOST")
+	if endpoint == "" {
+		host, err := p.contextHost(ctx, bin)
+		if err != nil {
+			// The endpoint is unknown, so the layout is too: no claim.
+			return nil
+		}
+		endpoint = host
+	}
+	// Compared as text, exactly as the recipe compares it.
+	if endpoint != "unix://"+runDir+"/docker.sock" {
+		return nil
+	}
+	var gone []string
+	if api := filepath.Join(runDir, "dockerd-rootless", "api.sock"); !isSocket(api) {
+		gone = append(gone, api)
+	}
+	cdir := filepath.Join(runDir, "docker", "containerd")
+	if info, err := os.Stat(cdir); err == nil && info.IsDir() {
+		if sock := filepath.Join(cdir, "containerd.sock"); !isSocket(sock) {
+			gone = append(gone, sock)
+		}
+	}
+	if len(gone) == 0 {
+		return nil
+	}
+	return report.Error{
+		Err: fmt.Errorf("%w (missing: %s): its API still answers (docker info/ps work), but containers never start or exit",
+			errRootlessStateGone, strings.Join(gone, ", ")),
+		Fix: rootlessRestartRemedy,
+	}
+}
+
+// isSocket reports whether path is (or links to) a unix socket.
+func isSocket(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode()&os.ModeSocket != 0
 }

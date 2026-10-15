@@ -35,6 +35,19 @@ func TestRenderContainerCheck(t *testing.T) {
 		assert.Contains(t, out, "agent image:     ctxloom-agent-claude:1 (absent)")
 		assert.Contains(t, out, "shared fs:       mismatch: marker content mismatch")
 		assert.Contains(t, out, "-> the daemon does NOT share")
+		assert.NotContains(t, out, "daemon fault:", "no fault, no line")
+	})
+
+	t.Run("reachable daemon that cannot run containers", func(t *testing.T) {
+		var buf bytes.Buffer
+		d := isolation.Diagnosis{
+			Runtime:     "docker",
+			Reachable:   true,
+			DaemonFault: "the rootless docker daemon's runtime state is gone (missing: /run/user/1000/dockerd-rootless/api.sock)",
+			SharedFS:    "unprobed: no local image to probe with",
+		}
+		assert.NoError(t, renderContainerCheck(&buf, "claude-code", d))
+		assert.Contains(t, buf.String(), "daemon fault:    the rootless docker daemon's runtime state is gone (missing: /run/user/1000/dockerd-rootless/api.sock)")
 	})
 
 	t.Run("plain host without a runtime", func(t *testing.T) {

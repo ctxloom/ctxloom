@@ -1836,8 +1836,8 @@ container_cmd := env_var_or_default("CONTAINER_CMD", "docker")
 #      through its copy-up), so they are visible from here on a healthy daemon.
 #
 # The Go runtime applies rule 2 before each container launch and in `ctxloom
-# container check`; keep the two in step with
-# internal/adapters/isolation/rootless_wedge.go.
+# container check`; keep the two in step with Docker.daemonState in
+# internal/adapters/isolation/runtime_docker.go.
 #
 # A trivial `run --rm alpine true` is deliberately NOT used: it costs a
 # container start (and an image) on every recipe, and on the wedge it would

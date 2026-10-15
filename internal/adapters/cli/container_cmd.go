@@ -307,6 +307,8 @@ var containerCheckCmd = &cobra.Command{
 
   - whether THIS process runs inside a container (dev container, CI, pod)
   - which container runtime is reachable (docker | podman)
+  - whether that daemon can actually run containers (a wedged rootless docker
+    answers its API but never starts one; a run on it is refused up front)
   - whether the backend's agent image is present locally
   - whether the runtime's daemon shares this filesystem — the marker probe
     that detects docker-outside-of-docker, where bind mounts silently
@@ -383,6 +385,9 @@ func renderContainerCheck(out io.Writer, backend string, d isolation.Diagnosis) 
 		w.Printf("  runtime:         %s (reachable)\n", d.Runtime)
 	} else {
 		w.Printf("  runtime:         %s\n", d.Runtime)
+	}
+	if d.DaemonFault != "" {
+		w.Printf("  daemon fault:    %s\n", d.DaemonFault)
 	}
 	if d.Image != "" {
 		presence := "absent"

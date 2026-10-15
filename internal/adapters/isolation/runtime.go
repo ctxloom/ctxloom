@@ -136,6 +136,10 @@ type Runtime interface {
 	// this process is (or that it is none of them), else why it could not:
 	// the container gate refuses on it (settleSelf).
 	identified() error
+	// daemonState is nil unless a daemon that answers its API cannot run
+	// containers (a wedged rootless docker: Docker.daemonState). The
+	// container gate refuses on it, asking afresh on every launch.
+	daemonState(ctx context.Context) error
 	// limitSupport is what selection's probe learned about the resource
 	// caps this runtime enforces and its host's memory (resolveLimits).
 	limitSupport() limitSupport
@@ -285,6 +289,9 @@ type ociRuntime struct {
 
 // identified is selection's verdict on this process's own container.
 func (o ociRuntime) identified() error { return o.selfErr }
+
+// daemonState: no runtime-state check by default (only Docker overrides).
+func (ociRuntime) daemonState(context.Context) error { return nil }
 
 func (o ociRuntime) launchable() bool { return o.reachable }
 

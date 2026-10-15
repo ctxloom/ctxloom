@@ -304,9 +304,10 @@ func TestContainerPreflight_RootlessLayout(t *testing.T) {
 
 	t.Run("no XDG_RUNTIME_DIR is not checked", func(t *testing.T) {
 		t.Parallel()
-		rt := newRuntime(t)
-		docker, _ := rootlessDocker(t, rt.endpoint())
-		wantPass(t, runPreflight(t, []string{"DOCKER_HOST=" + rt.endpoint()}, docker))
+		// The endpoint an empty runtime dir would expand to: without the gate
+		// the recipe would check /dockerd-rootless/api.sock and fail.
+		docker, _ := rootlessDocker(t, "")
+		wantPass(t, runPreflight(t, []string{"DOCKER_HOST=unix:///docker.sock"}, docker))
 	})
 
 	t.Run("rootful docker at the standard endpoint is not checked", func(t *testing.T) {

@@ -484,7 +484,12 @@ the run's one owner-only dotenv secrets file (`materializeSecrets`,
 (`runner.redeemSecrets`, refusing with `ErrSecretUnreadable`).
 `containerWorkspace.Cleanup` removes the dir, and a crashed run's dir is
 reaped by the next owned secret scratch under the same parent, its owner's
-lock having died with it. `Unset` rides (`launch.Placement.Unset`, the wire's
+lock having died with it. That parent is the user's live runtime dir,
+shared with other daemons (rootless docker and podman keep their state
+there), so the reaper (`reapDeadScratch`) deletes only dirs ctxloom made: a
+prefix-named real directory already holding its owner lock file, locked
+without ever creating one (`TryLockExisting`), and re-checked
+(`isScratchDir`) immediately before each delete. `Unset` rides (`launch.Placement.Unset`, the wire's
 `Cell.unset_env`) to the runner, which removes those names from its own
 environment before it drives the engine (`runner.Deps.Unsetenv`, refusing
 with `ErrEngineEnvUnscrubbed` when it cannot). Nothing enters the ctxloom

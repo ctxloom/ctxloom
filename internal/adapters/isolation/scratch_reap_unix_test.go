@@ -15,6 +15,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // probeOwnerRootEnv carries the injected root into the helper process; its
@@ -146,9 +148,10 @@ func TestProbeOneRoot_ReapLeavesUserContent(t *testing.T) {
 // in the OS temp dir. The next build must reap it. Tested at the build
 // functions against a fake runtime script under an injected TMPDIR — never
 // the real OS temp dir, and no container image is built. A dead owner's
-// on-disk state is simulated as a scratch dir no live process holds; the
-// real-kill form of that state is TestProbeOneRoot_ReapsScratchOfKilledOwner,
-// which exercises the same owned-scratch mechanism.
+// on-disk state is simulated as a scratch dir, lock file included, that no
+// live process holds; the real-kill form of that state is
+// TestProbeOneRoot_ReapsScratchOfKilledOwner, which exercises the same
+// owned-scratch mechanism.
 func TestImageBuild_ReapsScratchOfDeadBuilds(t *testing.T) {
 	selfExe := withFakeSelfExe(t)
 	t.Setenv("PATH", t.TempDir())
@@ -156,7 +159,9 @@ func TestImageBuild_ReapsScratchOfDeadBuilds(t *testing.T) {
 	t.Setenv("TMPDIR", tmp)
 
 	for _, prefix := range []string{imageBaseScratchPrefix, imageBuildScratchPrefix} {
-		require.NoError(t, os.Mkdir(filepath.Join(tmp, prefix+"dead"), 0o700))
+		dead := filepath.Join(tmp, prefix+"dead")
+		require.NoError(t, os.Mkdir(dead, 0o700))
+		writeScratchLock(t, dead)
 	}
 
 	dir := t.TempDir()
@@ -242,4 +247,23 @@ func TestNewOwnedScratch_ALockOnAFileNoLongerAtItsPathIsNotKept(t *testing.T) {
 	assert.NotEqual(t, raced, s.dir, "the owner did not keep the lock on the deleted dir")
 	assert.DirExists(t, s.dir)
 	assert.Equal(t, []string{s.dir}, scratchDirs(t, parent, prefix), "nothing left behind")
+}
+
+// TestReapDeadScratch_NeverFollowsASymlink: a prefix-named symlink to a dir
+// holding a lock file is not a scratch dir; neither it nor its target is
+// removed.
+func TestReapDeadScratch_NeverFollowsASymlink(t *testing.T) {
+	parent := t.TempDir()
+	const prefix = secretScratchPrefix
+	target := foreignDir(t, t.TempDir(), "docker")
+	writeScratchLock(t, target)
+	link := filepath.Join(parent, prefix+"link")
+	require.NoError(t, os.Symlink(target, link))
+
+	assert.Empty(t, scratchCandidates(parent, prefix), "a symlink is never a candidate")
+	assert.False(t, isScratchDir(parent, prefix, link))
+	reapDeadScratch(safefs.New().Locks, parent, prefix)
+	assert.FileExists(t, filepath.Join(target, "state"))
+	_, err := os.Lstat(link)
+	assert.NoError(t, err, "the link itself is left")
 }

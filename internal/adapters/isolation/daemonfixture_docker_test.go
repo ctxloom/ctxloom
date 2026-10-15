@@ -30,6 +30,24 @@ func daemonFixtures(t *testing.T, runtime string) Layer {
 	return l
 }
 
+// privateRuntimeDirOnDaemon points XDG_RUNTIME_DIR at a fresh private dir
+// under the fixture root daemonFixtures chose — so the secret dir made there
+// can be bind-mounted by the daemon — for the rest of t. It is never the
+// user's live runtime dir: the scratch reaper sweeps whatever dir it is
+// given, and the live one holds the rootless docker and podman daemons'
+// own state. Call it after daemonFixtures and Isolate. The runtime CLIs a
+// test runs must be given the environment captured BEFORE this override
+// (realEnv), which carries the real DOCKER_HOST, docker context and podman
+// XDG_RUNTIME_DIR, so they still reach the real daemons.
+func privateRuntimeDirOnDaemon(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp(os.TempDir(), "xrt")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+	return dir
+}
+
 // TestFixtureRoot_FirstCandidateTheLayerNames: a docker-gated test roots its
 // fixtures under the first candidate its own layer names in the daemon's path
 // space — the process temp dir where it is shared, else the runner's temp a

@@ -39,11 +39,10 @@ func TestSecretMount_ARealContainerAuthenticatesFromTheMountedSecret(t *testing.
 	daemonFixtures(t, "docker")
 	// The runtime CLIs run under the REAL environment: rootless podman keeps
 	// its image store under $HOME, which Isolate replaces. The secret lives
-	// on the real user tmpfs when there is one, as in production.
+	// on a private stand-in for the user tmpfs, never the live one.
 	realEnv := os.Environ()
-	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
 	testsupport.Isolate(t)
-	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	privateRuntimeDirOnDaemon(t)
 	env, _, prepared := preparedSecretCell(t)
 	m := secretMount(t, prepared)
 	file := env.Placement().SecretFiles[secretVar]

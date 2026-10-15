@@ -23,12 +23,13 @@ import (
 const ownedScratchLockName = ".ctxloom-owner.lock"
 
 // ownedScratchAttempts bounds creation retries. A retry happens only when a
-// concurrent reaper took the freshly made dir in the instant between its
-// creation and its lock — see newOwnedScratch.
+// concurrent reaper took the freshly made dir in the instant between its lock
+// file's creation and its lock — see newOwnedScratch.
 const ownedScratchAttempts = 3
 
-// scratchCreated runs between a scratch dir's creation and its lock: the
-// instant a concurrent reaper can take it. A seam so tests can force that race
+// scratchCreated runs between a scratch dir's creation and its lock. Once the
+// lock file is in place (the owner's open makes it), that is the instant a
+// concurrent reaper can take the dir. A seam so tests can force that race
 // instead of waiting for it.
 var scratchCreated = func(dir string) {}
 
@@ -63,8 +64,10 @@ type ownedScratch struct {
 // live. It is restricted only once it is held (claim): before that a
 // concurrent reaper may have removed it, and restricting would recreate it.
 //
-// There is an unavoidable instant between creating the dir and locking it, in
-// which a concurrent reaper sees an unlocked dir and takes it. The protocol
+// There is an unavoidable instant between the lock file's creation (the open
+// inside TryLock) and its lock, in which a concurrent reaper sees an unlocked
+// scratch dir and takes it; before the lock file exists the reaper does not
+// consider the dir at all (reapDeadScratch). The protocol
 // makes that loss detectable rather than silent: the reaper deletes only while
 // HOLDING the lock, so this owner's attempt finds the dir gone
 // (fs.ErrNotExist — TryLock never recreates it), or its lock is granted on a
@@ -148,24 +151,28 @@ func (s *ownedScratch) release() {
 // OS temp dir, where another account's lookalike dir is not ours to open,
 // let alone delete.
 //
+// INVARIANT: it deletes only directories ctxloom itself created. parent is
+// typically the user's LIVE runtime dir ($XDG_RUNTIME_DIR), shared with
+// every other daemon of the session — rootless docker and podman keep their
+// state there — so a reaper that widens by one flipped operator deletes the
+// user's runtime state (it has: a mutant of the old single guard wedged the
+// docker daemon). No one check stands between a foreign dir and the delete;
+// each of these alone keeps one out:
+//
+//  1. candidacy (scratchCandidates): the name carries prefix, it is a real
+//     directory and ours, and it ALREADY holds the owner lock file that only
+//     newOwnedScratch writes;
+//  2. the lock is taken with TryLockExisting, which never creates the lock
+//     file, so a dir without one is never locked, and so never removed;
+//  3. removeScratch re-verifies name, parent and lock file immediately
+//     before each RemoveAll.
+//
 // Best-effort: an unreadable parent or an unremovable dir is left for the
 // next owner to reap, because creating scratch must never fail over a
 // janitor.
 func reapDeadScratch(locks safefs.Locks, parent, prefix string) {
-	entries, err := os.ReadDir(parent)
-	if err != nil {
-		return
-	}
-	for _, e := range entries {
-		if !e.IsDir() || !strings.HasPrefix(e.Name(), prefix) {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil || !ownedByCurrentUser(info) {
-			continue
-		}
-		dir := filepath.Join(parent, e.Name())
-		lock, err := locks.TryLock(doneContext(), filepath.Join(dir, ownedScratchLockName))
+	for _, dir := range scratchCandidates(parent, prefix) {
+		lock, err := locks.TryLockExisting(doneContext(), filepath.Join(dir, ownedScratchLockName))
 		if err != nil {
 			continue
 		}
@@ -174,8 +181,73 @@ func reapDeadScratch(locks safefs.Locks, parent, prefix string) {
 		// what lets it detect the loss (newOwnedScratch). The second pass,
 		// after the unlock, finishes the job where the held lock file itself
 		// could not be unlinked while open.
-		_ = scratchReapRemove(dir)
+		removeScratch(parent, prefix, dir, scratchReapRemove)
 		_ = lock.Unlock()
-		_ = os.RemoveAll(dir)
+		removeScratch(parent, prefix, dir, os.RemoveAll)
 	}
+}
+
+// scratchCandidates is the dirs under parent the reaper may consider: named
+// with prefix, a real directory (never a symlink), owned by this user, and
+// already holding the owner lock file. An empty prefix names nothing, since
+// it would match every entry.
+func scratchCandidates(parent, prefix string) []string {
+	if prefix == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), prefix) {
+			continue
+		}
+		if !e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || !ownedByCurrentUser(info) {
+			continue
+		}
+		dir := filepath.Join(parent, e.Name())
+		if !hasScratchLock(dir) {
+			continue
+		}
+		dirs = append(dirs, dir)
+	}
+	return dirs
+}
+
+// removeScratch removes dir with remove only if it is, at this instant, a
+// scratch dir (isScratchDir) — the last check before the delete.
+func removeScratch(parent, prefix, dir string, remove func(string) error) {
+	if !isScratchDir(parent, prefix, dir) {
+		return
+	}
+	_ = remove(dir)
+}
+
+// isScratchDir reports whether dir is a prefix-named real directory directly
+// under parent that holds the owner lock file.
+func isScratchDir(parent, prefix, dir string) bool {
+	if prefix == "" || filepath.Dir(dir) != filepath.Clean(parent) {
+		return false
+	}
+	if !strings.HasPrefix(filepath.Base(dir), prefix) {
+		return false
+	}
+	fi, err := os.Lstat(dir)
+	if err != nil || !fi.IsDir() {
+		return false
+	}
+	return hasScratchLock(dir)
+}
+
+// hasScratchLock reports whether dir holds the owner lock file as a regular
+// file — the marker newOwnedScratch leaves in every dir it creates.
+func hasScratchLock(dir string) bool {
+	fi, err := os.Lstat(filepath.Join(dir, ownedScratchLockName))
+	return err == nil && fi.Mode().IsRegular()
 }

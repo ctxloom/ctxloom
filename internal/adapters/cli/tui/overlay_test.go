@@ -426,6 +426,12 @@ func TestStripKeyboardModes(t *testing.T) {
 		"\x1b[>4n\x1b[<4m\x1b[>1m": "\x1b[>4n\x1b[<4m\x1b[>1m",
 		// the kitty query is ? AND u AND no params: ?..c and ?1u are not it
 		"\x1b[?c\x1b[?1u": "\x1b[?c\x1b[?1u",
+		// ...nor is a parameterless u behind any other marker
+		"\x1b[1u": "\x1b[1u",
+		// a byte below '0' ends the parameters: it is not one of them
+		"\x1b[>5 u": "\x1b[>5 u",
+		// an introducer the write ends on is too short to be anything
+		"x\x1b[": "x\x1b[",
 	} {
 		assert.Equal(t, want, string(stripKeyboardModes([]byte(in))), "%q", in)
 	}

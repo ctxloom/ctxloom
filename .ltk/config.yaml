@@ -73,14 +73,16 @@ rules:
     match: { command: [goreleaser] }
     message: "goreleaser must run in the devcontainer, never on the host: the devcontainer pins the goreleaser and Go versions (.devcontainer/tool-versions.env), and a host run uses whatever versions the host has, so its check or snapshot does not prove what the pinned release build does."
     suggest: "just release-snapshot   # or `just release-check` to validate .goreleaser.yml only"
-  # gremlins copies the whole Go module into TMPDIR once per worker. Run by hand
-  # it will happily copy anything sitting in the module dir (agent worktrees, a
-  # stray build cache) and fill the disk — a bare run has already exhausted a 16G
-  # tmpfs here. The just targets pin the scope and the timeout budget.
+  # A bare gomutants run is not the gate. It writes mutation-report.json into
+  # the working tree, puts its scratch and every killed test's leftovers in
+  # the caller's TMPDIR (a tmpfs /tmp here) and never removes them, and judges
+  # by whatever thresholds its flags happen to carry. The just targets give the
+  # run its own scratch dir on disk, removed on exit, and judge it against the
+  # project's thresholds (or a package's survivor-ratchet row).
   - id: mutation-via-just
-    match: { command: [gremlins] }
-    message: "Run mutation testing through the task runner. A bare `gremlins unleash` copies the entire module per worker (it has filled /tmp here) and inherits a timeout budget that starves fast packages — a 3ms test suite gives each mutant ~15ms, so mutants score as TIMED OUT rather than killed or lived — and it runs without the per-mutant timeout cap tests/mutation/mutation_tmp.sh installs, so a mutant that hangs a slow package's tests holds a worker for over an hour."
-    suggest: "just test-mutation-pkg internal/shared/tasks/triggers   # or `just test-mutation` for the whole module"
+    match: { command: [gomutants] }
+    message: "Run mutation testing through the task runner. A bare `gomutants` writes mutation-report.json into the working tree, leaves its scratch and every killed test's temp dirs in the caller's TMPDIR, and is judged by whatever threshold flags it was given rather than the project's (build/ci.justfile's mutation_efficacy)."
+    suggest: "just test-mutation-pkg internal/shared/tasks/triggers   # or `just test-mutation-diff BASE` for a change"
   # buf.gen.yaml deliberately uses `local:` plugins, not BSR `remote:` ones, so
   # `buf generate` needs protoc-gen-go/protoc-gen-go-grpc on PATH — and the host
   # has its own copies, at different versions than the devcontainer's pinned

@@ -7,13 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
-	"gopkg.in/yaml.v3"
 )
 
 func TestParseScope(t *testing.T) {
@@ -59,7 +57,7 @@ func TestParseScope(t *testing.T) {
 func TestAssign_IsADeterministicDisjointCover(t *testing.T) {
 	var cands []candidate
 	for i := 0; i < 57; i++ {
-		cands = append(cands, candidate{path: fmt.Sprintf("p%02d/f.go", i), cost: (i * 37) % 23})
+		cands = append(cands, candidate{path: fmt.Sprintf("p%02d", i), cost: (i * 37) % 23})
 	}
 	for _, n := range []int{1, 2, 3, 8, 57, 80} {
 		t.Run(fmt.Sprintf("n=%d", n), func(t *testing.T) {
@@ -69,7 +67,7 @@ func TestAssign_IsADeterministicDisjointCover(t *testing.T) {
 			}
 			checkDisjointCover(t, got, len(cands))
 			// Shuffled input, same plan: the order candidates are discovered in
-			// (git's, the filesystem's) must not leak into the assignment.
+			// (go list's, git's) must not leak into the assignment.
 			if again := assign(reversed(cands), n); !reflect.DeepEqual(again, got) {
 				t.Errorf("n=%d: assignment depends on input order", n)
 			}
@@ -82,15 +80,15 @@ func TestAssign_IsADeterministicDisjointCover(t *testing.T) {
 func checkDisjointCover(t *testing.T, shards [][]string, want int) {
 	t.Helper()
 	seen := map[string]int{}
-	for k, files := range shards {
-		if !sort.StringsAreSorted(files) {
-			t.Errorf("shard %d not sorted: %v", k, files)
+	for k, pkgs := range shards {
+		if !sort.StringsAreSorted(pkgs) {
+			t.Errorf("shard %d not sorted: %v", k, pkgs)
 		}
-		for _, f := range files {
-			if prev, dup := seen[f]; dup {
-				t.Errorf("%s in shard %d and %d", f, prev, k)
+		for _, p := range pkgs {
+			if prev, dup := seen[p]; dup {
+				t.Errorf("%s in shard %d and %d", p, prev, k)
 			}
-			seen[f] = k
+			seen[p] = k
 		}
 	}
 	if len(seen) != want {
@@ -109,38 +107,28 @@ func reversed(cands []candidate) []candidate {
 // Longest-first onto the least-loaded shard: the heaviest shard is never more
 // than the lightest plus the largest single candidate.
 func TestAssign_BalancesByCost(t *testing.T) {
-	cands := []candidate{{"a.go", 100}, {"b.go", 60}, {"c.go", 50}, {"d.go", 40}, {"e.go", 30}, {"f.go", 20}}
+	cands := []candidate{{"a", 100}, {"b", 60}, {"c", 50}, {"d", 40}, {"e", 30}, {"f", 20}}
 	cost := map[string]int{}
 	for _, c := range cands {
 		cost[c.path] = c.cost
 	}
 	got := assign(cands, 2)
 	loads := make([]int, len(got))
-	for k, files := range got {
-		for _, f := range files {
-			loads[k] += cost[f]
+	for k, pkgs := range got {
+		for _, p := range pkgs {
+			loads[k] += cost[p]
 		}
 	}
 	// Greedy, not optimal (150/150 exists): 100+40+20 against 60+50+30.
-	if loads[0] != 160 || loads[1] != 140 || loads[0]-loads[1] > 100 {
+	if loads[0] != 160 || loads[1] != 140 {
 		t.Errorf("loads = %v, want [160 140] (shards: %v)", loads, got)
 	}
 }
 
-const testGremlinsYAML = `silent: false
-unleash:
-  exclude-files:
-    - ".*_test\\.go$"
-    - ".*\\.pb\\.go$"
-    - "tests/acceptance/.*"
-  workers: 4
-  timeout-coefficient: 30
-  threshold:
-    efficacy: 80
-    mutant-coverage: 0
-mutants:
-  arithmetic-base:
-    enabled: true
+const testGomutantsYAML = `exclude-files:
+  - "\\.pb\\.go$"
+  - "(^|/)mock_[^/]*\\.go$"
+workers: 4
 `
 
 func writeFile(t *testing.T, root, rel, body string) {
@@ -154,189 +142,116 @@ func writeFile(t *testing.T, root, rel, body string) {
 	}
 }
 
-func loadTestConfig(t *testing.T) *gremlinsConfig {
-	t.Helper()
-	dir := t.TempDir()
-	writeFile(t, dir, ".gremlins.yaml", testGremlinsYAML)
-	cfg, err := loadGremlinsConfig(filepath.Join(dir, ".gremlins.yaml"))
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	return cfg
-}
-
-// THE TRAP this guards: gremlins reads exclude-files as ONE setting, so a
-// shard that narrowed its run with `--exclude-files` on the command line would
-// REPLACE the project's list, not extend it — and start mutating generated
-// protobuf, the acceptance suite and test files. The shard's config must carry
-// every project exclusion plus its own, keep every other setting (the timeout
-// coefficient decides TIMED OUT verdicts), and hand the pass/fail thresholds to
-// the aggregate, which is the only place the union exists.
-func TestShardConfig_ExtendsTheProjectExclusionsAndDefersTheThresholds(t *testing.T) {
-	cfg := loadTestConfig(t)
-	if cfg.efficacy != 80 || cfg.mutantCoverage != 0 {
-		t.Fatalf("thresholds = %v/%v, want 80/0", cfg.efficacy, cfg.mutantCoverage)
-	}
-	doc := shardDocFor(t, cfg, []string{"internal/b/b.go", "internal/a/a+.go"})
-	ex := doc.Unleash.ExcludeFiles
-	if len(ex) != 4 || !reflect.DeepEqual(ex[:3], []string{`.*_test\.go$`, `.*\.pb\.go$`, "tests/acceptance/.*"}) {
-		t.Fatalf("exclude-files = %q: the project's list must survive intact, with the shard's rule appended", ex)
-	}
-	type settings struct {
-		workers, timeoutCoefficient int
-		arithmeticBase              bool
-	}
-	if got := (settings{doc.Unleash.Workers, doc.Unleash.TimeoutCoefficient, doc.Mutants["arithmetic-base"]["enabled"]}); got != (settings{4, 30, true}) {
-		t.Errorf("settings other than exclusions and thresholds changed: %+v", doc)
-	}
-	if doc.Unleash.Threshold != (shardThreshold{}) {
-		t.Errorf("a shard must not judge its slice alone: thresholds = %+v", doc.Unleash.Threshold)
-	}
-	shardRule := regexpMust(t, ex[3])
-	for _, c := range []struct {
-		path     string
-		excluded bool
-	}{
-		{"internal/b/b.go", true},
-		{"internal/a/a+.go", true},
-		{"internal/b/b.go.orig", false},
-		{"xinternal/b/b.go", false},
-		{"internal/a/aa.go", false},
-		{"internal/c/c.go", false},
-	} {
-		if got := shardRule.MatchString(c.path); got != c.excluded {
-			t.Errorf("shard rule %q excludes %s = %v, want %v (it must exclude exactly the other shards' files)", ex[3], c.path, got, c.excluded)
-		}
-	}
-
-	// One shard: nothing belongs to anyone else, so no rule is added.
-	if solo := shardDocFor(t, cfg, nil); len(solo.Unleash.ExcludeFiles) != 3 {
-		t.Errorf("single shard exclude-files = %q", solo.Unleash.ExcludeFiles)
-	}
-}
-
-// shardDoc is the part of a shard's derived gremlins config the tests read.
-type shardDoc struct {
-	Silent  bool `yaml:"silent"`
-	Unleash struct {
-		ExcludeFiles       []string       `yaml:"exclude-files"`
-		Workers            int            `yaml:"workers"`
-		TimeoutCoefficient int            `yaml:"timeout-coefficient"`
-		Threshold          shardThreshold `yaml:"threshold"`
-	} `yaml:"unleash"`
-	Mutants map[string]map[string]bool `yaml:"mutants"`
-}
-
-type shardThreshold struct {
-	Efficacy       float64 `yaml:"efficacy"`
-	MutantCoverage float64 `yaml:"mutant-coverage"`
-}
-
-// shardDocFor derives the config for a shard whose peers hold others, and
-// parses it back.
-func shardDocFor(t *testing.T, cfg *gremlinsConfig, others []string) shardDoc {
-	t.Helper()
-	out, err := cfg.shardConfig(others)
-	if err != nil {
-		t.Fatalf("shardConfig: %v", err)
-	}
-	var doc shardDoc
-	if err := yaml.Unmarshal(out, &doc); err != nil {
-		t.Fatalf("shard config is not YAML: %v\n%s", err, out)
-	}
-	return doc
-}
-
 func git(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	taskstest.Git(t, dir, taskstest.GitIdentity("t", "t@t"), args...)
 }
 
-// The diff candidates are exactly what gremlins would mutate for that base:
-// its changeset (`git diff --merge-base`, working tree included), narrowed by
-// its own file rule and the project's exclusions — read from the config, never
-// restated. Deleted files are not candidates.
-func TestDiffCandidates_AreWhatGremlinsWouldMutate(t *testing.T) {
+// testModule is a module at a fresh root holding every shape the planner must
+// tell apart, under testGomutantsYAML.
+func testModule(t *testing.T) (string, *gomutantsConfig) {
+	t.Helper()
 	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module lab\n\ngo 1.24\n")
+	writeFile(t, root, gomutantsConfigFile, testGomutantsYAML)
+	writeFile(t, root, "root.go", "package lab\n\nvar r = 1\n")
+	writeFile(t, root, "a/a.go", "package a\n\nvar x = 1\n")
+	writeFile(t, root, "a/a_test.go", "package a\n")
+	writeFile(t, root, "a/api.pb.go", "package a\n")
+	writeFile(t, root, "a/mock_store.go", "package a\n")
+	writeFile(t, root, "b/b.go", "package b\n")
+	// Invisible to go list: build-tagged off, testdata, a nested module, and
+	// a package holding nothing but generated code.
+	writeFile(t, root, "tagged/t.go", "//go:build acceptance\n\npackage tagged\n")
+	writeFile(t, root, "a/testdata/d.go", "package d\n")
+	writeFile(t, root, "nested/go.mod", "module nested\n\ngo 1.24\n")
+	writeFile(t, root, "nested/n.go", "package nested\n")
+	writeFile(t, root, "gen/gen.pb.go", "package gen\n")
+	cfg, err := loadGomutantsConfig(filepath.Join(root, gomutantsConfigFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root, cfg
+}
+
+// The planner's packages are what gomutants resolves for ./... — go list's
+// view, so a build-tagged file, testdata and a nested module are never planned
+// (gremlins' raw filesystem walk planned all three) — narrowed by
+// .gomutants.yml's exclude-files, read from the file, never restated. A
+// package left with no mutable file is no candidate at all.
+func TestPackageFiles_AreWhatGomutantsResolves(t *testing.T) {
+	root, cfg := testModule(t)
+	got, err := packageFiles(root, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{".": {"root.go"}, "a": {"a/a.go"}, "b": {"b/b.go"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("packages = %v, want %v", got, want)
+	}
+
+	tree, err := treeCandidates(root, got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []candidate{{".", 3}, {"a", 3}, {"b", 1}}; !reflect.DeepEqual(tree, want) {
+		t.Errorf("tree candidates = %+v, want %+v (cost: the lines of the mutable files)", tree, want)
+	}
+}
+
+// The diff candidates are the packages gomutants --changed-since would
+// mutate: its changeset (`git diff --merge-base`, the working tree's tracked
+// edits included), narrowed to listed packages' mutable files, costed by the
+// added lines. Deleted files are not candidates.
+func TestDiffCandidates_AreWhatGomutantsWouldMutate(t *testing.T) {
+	root, cfg := testModule(t)
+	writeFile(t, root, "b/gone.go", "package b\n")
 	git(t, root, "init", "-q", "-b", "main")
-	writeFile(t, root, ".gremlins.yaml", testGremlinsYAML)
-	writeFile(t, root, "keep.go", "package x\n")
-	writeFile(t, root, "gone.go", "package x\n")
 	git(t, root, "add", "-A")
 	git(t, root, "commit", "-q", "-m", "base")
 	git(t, root, "checkout", "-q", "-b", "feature")
-	writeFile(t, root, "keep.go", "package x\n\nvar a = 1\nvar b = 2\n")
-	writeFile(t, root, "internal/new.go", "package y\n\nvar c = 3\n")
-	writeFile(t, root, "internal/new_test.go", "package y\n")
-	writeFile(t, root, "api/x.pb.go", "package api\n")
-	writeFile(t, root, "tests/acceptance/steps.go", "package acceptance\n")
-	writeFile(t, root, "notes.md", "prose\n")
-	if err := os.Remove(filepath.Join(root, "gone.go")); err != nil {
+	writeFile(t, root, "a/a.go", "package a\n\nvar x = 1\nvar y = 2\nvar z = 3\n")
+	writeFile(t, root, "a/a_test.go", "package a\n\n// more\n")
+	writeFile(t, root, "a/api.pb.go", "package a\n\nvar p = 1\n")
+	writeFile(t, root, "tagged/t.go", "//go:build acceptance\n\npackage tagged\n\nvar q = 1\n")
+	if err := os.Remove(filepath.Join(root, "b", "gone.go")); err != nil {
 		t.Fatal(err)
 	}
 	git(t, root, "add", "-A")
 	git(t, root, "commit", "-q", "-m", "change")
-	// Uncommitted, as gremlins' `git diff --merge-base` sees it.
-	writeFile(t, root, "dirty.go", "package x\n")
-	git(t, root, "add", "dirty.go")
+	// Uncommitted, as gomutants' merge-base diff sees it.
+	writeFile(t, root, "b/b.go", "package b\n\nvar w = 1\n")
 
-	cfg, err := loadGremlinsConfig(filepath.Join(root, ".gremlins.yaml"))
+	pkgs, err := packageFiles(root, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := diffCandidates(root, "main", cfg)
+	got, err := diffCandidates(root, "main", pkgs)
 	if err != nil {
 		t.Fatalf("diffCandidates: %v", err)
 	}
-	want := []candidate{{"dirty.go", 1}, {"internal/new.go", 3}, {"keep.go", 3}}
-	if !reflect.DeepEqual(got, want) {
+	if want := []candidate{{"a", 2}, {"b", 2}};!reflect.DeepEqual(got, want) {
 		t.Errorf("candidates = %+v, want %+v", got, want)
 	}
 
-	if _, err := diffCandidates(root, "no-such-ref", cfg); err == nil {
+	if _, err := diffCandidates(root, "no-such-ref", pkgs); err == nil {
 		t.Errorf("an unresolvable base must be an error, not an empty (skipped) plan")
 	}
 }
 
-func TestTreeCandidates_WalkTheFilesystemLikeGremlins(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, root, "a.go", "package a\n\nvar x = 1\n")
-	writeFile(t, root, "a_test.go", "package a\n")
-	writeFile(t, root, "sub/b.go", "package b\n")
-	writeFile(t, root, "sub/b.pb.go", "package b\n")
-	writeFile(t, root, "tests/acceptance/c.go", "package c\n")
-	writeFile(t, root, "README.md", "x\n")
-	cfg := loadTestConfig(t)
-	got, err := treeCandidates(root, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []candidate{{"a.go", 3}, {"sub/b.go", 1}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("candidates = %+v, want %+v", got, want)
-	}
-}
-
 func TestMakePlan_SkipsWithAReasonAndNeverAsAnError(t *testing.T) {
-	root := t.TempDir()
+	root, cfg := testModule(t)
 	git(t, root, "init", "-q", "-b", "main")
-	writeFile(t, root, ".gremlins.yaml", testGremlinsYAML)
-	writeFile(t, root, "a_test.go", "package a\n")
 	git(t, root, "add", "-A")
 	git(t, root, "commit", "-q", "-m", "base")
-	cfg, err := loadGremlinsConfig(filepath.Join(root, ".gremlins.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	p, err := makePlan(root, scope{}, 3, cfg)
 	if err != nil || !strings.Contains(p.skip, "no base") || len(p.shards) != 3 {
 		t.Errorf("no base: plan=%+v err=%v", p, err)
 	}
 	// A diff with no mutable Go (here: a test-only change) is a skip, not a
-	// run: gremlins scores an empty changeset 0%% and would fail the gate for
-	// having nothing to test.
-	writeFile(t, root, "a_test.go", "package a\n\n// more\n")
+	// run: there is nothing for gomutants to mutate.
+	writeFile(t, root, "a/a_test.go", "package a\n\n// more\n")
 	p, err = makePlan(root, scope{base: "main"}, 3, cfg)
 	if err != nil || !strings.Contains(p.skip, "no mutable Go") {
 		t.Errorf("test-only diff: plan=%+v err=%v", p, err)
@@ -346,74 +261,72 @@ func TestMakePlan_SkipsWithAReasonAndNeverAsAnError(t *testing.T) {
 	}
 }
 
-func regexpMust(t *testing.T, expr string) *regexp.Regexp {
-	t.Helper()
-	re, err := regexp.Compile(expr)
-	if err != nil {
-		t.Fatalf("compile %q: %v", expr, err)
-	}
-	return re
-}
-
-// A package narrows a DIFF to the changed files under it. It is refused on the
-// whole tree (`gremlins unleash ./pkg` already measures a package whole), and
-// refused when it names no directory: a typo would otherwise plan nothing and
-// skip green. Its spellings normalise to the module-relative directory the
-// plan matches, and it is part of the scope, so the stamp a package run's
-// reports carry is not a whole-diff run's.
+// A package narrows either scope to the packages under it, and is refused when
+// it names no directory: a typo would otherwise plan nothing and skip green.
+// Its spellings normalise to the module-relative directory the plan matches,
+// and it is part of the scope, so the stamp a package run's reports carry is
+// not a whole-scope run's.
 func TestScopeWithPkg(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "internal/x/x.go", "package x\n")
-	diff := scope{base: "main"}
-	for _, in := range []string{"internal/x", "./internal/x/", "internal/x/..."} {
-		got, err := diff.withPkg(root, in)
-		if err != nil || got.pkg != "internal/x" {
-			t.Errorf("withPkg(%q) = %+v, %v; want pkg internal/x", in, got, err)
+	for _, base := range []scope{{base: "main"}, {tree: true}} {
+		for _, in := range []string{"internal/x", "./internal/x/", "internal/x/..."} {
+			got, err := base.withPkg(root, in)
+			if err != nil || got.pkg != "internal/x" {
+				t.Errorf("%s withPkg(%q) = %+v, %v; want pkg internal/x", base, in, got, err)
+			}
+			if got.String() == base.String() {
+				t.Errorf("%s withPkg(%q).String() = %q: a package run must not stamp as the whole scope", base, in, got.String())
+			}
 		}
-		if got.String() == diff.String() {
-			t.Errorf("withPkg(%q).String() = %q: a package run must not stamp as the whole diff", in, got.String())
+		for _, in := range []string{"", ".", "./"} {
+			if got, err := base.withPkg(root, in); err != nil || got != base {
+				t.Errorf("%s withPkg(%q) = %+v, %v; want the whole scope", base, in, got, err)
+			}
 		}
-	}
-	for _, in := range []string{"", ".", "./"} {
-		if got, err := diff.withPkg(root, in); err != nil || got != diff {
-			t.Errorf("withPkg(%q) = %+v, %v; want the whole diff", in, got, err)
+		if _, err := base.withPkg(root, "internal/nope"); !errors.Is(err, errPkgNotADir) {
+			t.Errorf("%s missing package: err = %v, want errPkgNotADir", base, err)
 		}
-	}
-	if _, err := (scope{tree: true}).withPkg(root, "internal/x"); !errors.Is(err, errPkgNeedsDiff) {
-		t.Errorf("tree + package: err = %v, want errPkgNeedsDiff", err)
-	}
-	if _, err := diff.withPkg(root, "internal/nope"); !errors.Is(err, errPkgNotADir) {
-		t.Errorf("missing package: err = %v, want errPkgNotADir", err)
 	}
 }
 
-// THE TRAP this guards: `gremlins unleash ./pkg --diff BASE` names the files it
-// walks relative to the package while the diff names them relative to the
-// module root, so they never match and the run measures nothing, green. A
-// package diff therefore runs from the module root over the whole changeset,
-// with every changed file OUTSIDE the package excluded — not merely left out
-// of the plan, which would leave gremlins free to mutate it. A sibling sharing
-// the package's name as a prefix is outside it.
-func TestMakePlan_PkgNarrowsTheDiffAndExcludesTheRest(t *testing.T) {
-	root, cfg := pkgDiffFixture(t)
-	sc, err := scope{base: "main"}.withPkg(root, "sub")
+// A package scope plans the packages under it, the package itself included,
+// and nothing else — a sibling sharing its name as a prefix is outside it.
+func TestMakePlan_PkgNarrowsToThePackagesUnderIt(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module lab\n\ngo 1.24\n")
+	writeFile(t, root, gomutantsConfigFile, testGomutantsYAML)
+	dirs := []string{"sub", "sub/deep", "subway", "other"}
+	for _, d := range dirs {
+		writeFile(t, root, d+"/p.go", "package p\n")
+	}
+	git(t, root, "init", "-q", "-b", "main")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-q", "-m", "base")
+	for _, d := range dirs {
+		writeFile(t, root, d+"/p.go", "package p\n\nvar v = 1 + 2\n")
+	}
+	cfg, err := loadGomutantsConfig(filepath.Join(root, gomutantsConfigFile))
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := makePlan(root, sc, 2, cfg)
-	if err != nil || p.skip != "" {
-		t.Fatalf("plan = %+v, err %v", p, err)
-	}
-	var planned []string
-	for _, s := range p.shards {
-		planned = append(planned, s...)
-	}
-	sort.Strings(planned)
-	if want := []string{"sub/a.go", "sub/deep/b.go"}; !reflect.DeepEqual(planned, want) {
-		t.Errorf("planned = %q, want %q", planned, want)
-	}
-	for k := range p.shards {
-		assertExcludes(t, p, k, append(append([]string(nil), p.shards[1-k]...), "other/d.go", "subway/c.go"))
+	for _, base := range []scope{{base: "main"}, {tree: true}} {
+		sc, err := base.withPkg(root, "sub")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err := makePlan(root, sc, 2, cfg)
+		if err != nil || p.skip != "" {
+			t.Fatalf("%s: plan = %+v, err %v", sc, p, err)
+		}
+		var planned []string
+		for _, s := range p.shards {
+			planned = append(planned, s...)
+		}
+		sort.Strings(planned)
+		if want := []string{"sub", "sub/deep"}; !reflect.DeepEqual(planned, want) {
+			t.Errorf("%s: planned = %q, want %q", sc, planned, want)
+		}
 	}
 
 	untouched, err := scope{base: "main"}.withPkg(root, "other")
@@ -426,43 +339,17 @@ func TestMakePlan_PkgNarrowsTheDiffAndExcludesTheRest(t *testing.T) {
 	}
 }
 
-// pkgDiffFixture is a repository whose working tree changes one mutable line
-// in each of sub/a.go, sub/deep/b.go, subway/c.go and other/d.go against main.
-func pkgDiffFixture(t *testing.T) (string, *gremlinsConfig) {
-	t.Helper()
-	root := t.TempDir()
-	git(t, root, "init", "-q", "-b", "main")
-	writeFile(t, root, ".gremlins.yaml", testGremlinsYAML)
-	files := []string{"sub/a.go", "sub/deep/b.go", "subway/c.go", "other/d.go"}
-	for _, f := range files {
-		writeFile(t, root, f, "package p\n")
-	}
-	git(t, root, "add", "-A")
-	git(t, root, "commit", "-q", "-m", "base")
-	for _, f := range files {
-		writeFile(t, root, f, "package p\n\nvar v = 1 + 2\n")
-	}
-	cfg, err := loadGremlinsConfig(filepath.Join(root, ".gremlins.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return root, cfg
-}
-
-// assertExcludes checks shard k leaves exactly want alone.
-func assertExcludes(t *testing.T, p plan, k int, want []string) {
-	t.Helper()
-	got := p.excluded(k)
-	sort.Strings(got)
-	sort.Strings(want)
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("shard %d excludes %q, want %q (the other shard's files and every changed file outside the package)", k, got, want)
+// gomutants takes package patterns; the module's root package is ".", every
+// other one is "./dir" — a bare "dir" would be read as an import path.
+func TestPatterns(t *testing.T) {
+	if got, want := patterns([]string{".", "a", "a/b"}), []string{".", "./a", "./a/b"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("patterns = %q, want %q", got, want)
 	}
 }
 
 // Every command reads -scope and -pkg the same way, against the module in the
-// working directory, so a package run's shards and
-// its aggregate plan alike — and a bad pair is refused by both, never planned.
+// working directory, so a package run's shards and its aggregate plan alike —
+// and a bad pair is refused by both, never planned.
 func TestScopeFlags_ShardsAndAggregateAgree(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "p/p.go", "package p\n")
@@ -472,20 +359,43 @@ func TestScopeFlags_ShardsAndAggregateAgree(t *testing.T) {
 	if err != nil || sf.scope != (scope{base: "main", pkg: "p"}) {
 		t.Fatalf("shard flags = %+v, %v", sf, err)
 	}
-	sc, _, err := parseAggregateFlags(good)
-	if err != nil || sc != sf.scope {
-		t.Fatalf("aggregate scope = %+v, %v; the shards planned %+v", sc, err, sf.scope)
+	af, err := parseAggregateFlags(good)
+	if err != nil || af.scope != sf.scope {
+		t.Fatalf("aggregate scope = %+v, %v; the shards planned %+v", af.scope, err, sf.scope)
 	}
 	for _, bad := range [][]string{
 		{"-scope", "diff:main", "-pkg", "no-such-dir"},
-		{"-scope", "tree", "-pkg", "p"},
 		{"-scope", "main"},
 	} {
 		if _, err := parseShardFlags(flag.NewFlagSet("run", flag.ContinueOnError), bad, nil); err == nil {
 			t.Errorf("shard flags %q: accepted", bad)
 		}
-		if _, _, err := parseAggregateFlags(bad); err == nil {
+		if _, err := parseAggregateFlags(bad); err == nil {
 			t.Errorf("aggregate flags %q: accepted", bad)
 		}
+	}
+}
+
+// The ratchet judges a WHOLE package: a diff is a different mutant set every
+// time, and the whole tree has no row. -update without -ratchet would record
+// nothing while looking like it had.
+func TestAggregateFlags_RatchetNeedsAWholePackage(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "p/p.go", "package p\n")
+	t.Chdir(root)
+	af, err := parseAggregateFlags([]string{"-scope", "tree", "-pkg", "p", "-ratchet", "b.txt", "-update", "-efficacy", "80"})
+	if err != nil || af.ratchet != "b.txt" || !af.update || af.th.efficacy != 80 {
+		t.Fatalf("aggregate flags = %+v, %v", af, err)
+	}
+	for _, bad := range [][]string{
+		{"-scope", "tree", "-ratchet", "b.txt"},
+		{"-scope", "diff:main", "-pkg", "p", "-ratchet", "b.txt"},
+	} {
+		if _, err := parseAggregateFlags(bad); !errors.Is(err, errRatchetScope) {
+			t.Errorf("%q: err = %v, want errRatchetScope", bad, err)
+		}
+	}
+	if _, err := parseAggregateFlags([]string{"-scope", "tree", "-pkg", "p", "-update"}); err == nil {
+		t.Errorf("-update without -ratchet: accepted")
 	}
 }

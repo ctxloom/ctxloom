@@ -332,7 +332,7 @@ test-default:
     set -e
     # Mirrors the host justfile's `test`: gate on BOTH the plain (no-race) and
     # -race suites, not just -race — see the host recipe's comment for why
-    # (the no-race path is what gremlins/`just cover` actually run, and it was
+    # (the no-race path is what gomutants/`just cover` actually run, and it was
     # gating nothing). `set -e` aborts here on either failure.
     go test -trimpath ./...
     # Unique per-invocation raw profile — see the host justfile's `test`

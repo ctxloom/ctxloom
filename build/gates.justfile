@@ -212,9 +212,9 @@ test-arch: _require-generated
 _require-generated: proto
 
 # _mutation-prereqs is the one precondition every mutation lane takes. Each lane
-# compiles the tree (ooze in a symlinked laboratory, gremlins in its own copy),
-# and a tree that cannot build makes every mutant fail to compile — scored as a
-# kill, so the run measures nothing. Generated code is gitignored, so a fresh
+# compiles the tree, and a tree that cannot build fails gomutants' coverage run
+# before a single mutant is made — an hour later in CI, on a shard, rather than
+# here. Generated code is gitignored, so a fresh
 # worktree cannot build until it is generated. Generating and compiling here, as
 # just dependencies, stops a broken tree before any mutant is scored.
 _mutation-prereqs: _require-generated build

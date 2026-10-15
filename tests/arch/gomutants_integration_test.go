@@ -18,97 +18,95 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TestArch_GremlinsRunsMutantsPerPackage pins gremlins to integration mode
-// OFF: .gremlins.yaml's unleash.integration must be an explicit false, and no
-// gremlins invocation in the repo may turn it back on with --integration/-i.
+// TestArch_GomutantsRunsMutantsPerPackage pins gomutants to per-package
+// routing: .gomutants.yml's integration must be an explicit false, and no
+// gomutants invocation in the repo may turn it back on with --integration.
 //
 // Invariant: a mutant must only ever run under its own package's tests.
 // internal/adapters/spawn's startrunner tests call isolation's
 // HostRunner.Kill, which performs the real /proc session sweep UNSCOPED inside
-// spawn's test binary. That is safe only because gremlins, with integration
+// spawn's test binary. That is safe only because gomutants, with integration
 // off, runs each mutant against its own package's tests alone. With
-// integration on, an isolation killSession mutant (a negated session filter,
-// say) runs under spawn's tests and SIGKILLs every process in the CI
-// container — which has already happened once, via isolation's own tests
-// before they were scoped.
+// integration on (cross-package routing), an isolation killSession mutant (a
+// negated session filter, say) runs under spawn's tests and SIGKILLs every
+// process in the CI container — which has already happened once, via
+// isolation's own tests before they were scoped.
 //
-// The key must be PRESENT, not merely absent-and-defaulted: gremlins'
+// The key must be PRESENT, not merely absent-and-defaulted: gomutants'
 // default is false today, but a default is the upstream's to change on any
 // upgrade, and nothing here would notice. The flag overrides the key, so the
 // key alone pins nothing.
-func TestArch_GremlinsRunsMutantsPerPackage(t *testing.T) {
+func TestArch_GomutantsRunsMutantsPerPackage(t *testing.T) {
 	root := moduleRoot(t)
 
 	t.Run("config key is explicitly false", func(t *testing.T) {
-		raw, err := os.ReadFile(filepath.Join(root, ".gremlins.yaml"))
+		raw, err := os.ReadFile(filepath.Join(root, ".gomutants.yml"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		var cfg struct {
-			Unleash struct {
-				Integration *bool `yaml:"integration"`
-			} `yaml:"unleash"`
+			Integration *bool `yaml:"integration"`
 		}
 		if err := yaml.Unmarshal(raw, &cfg); err != nil {
-			t.Fatalf("parse .gremlins.yaml: %v", err)
+			t.Fatalf("parse .gomutants.yml: %v", err)
 		}
-		switch integration := cfg.Unleash.Integration; {
+		switch integration := cfg.Integration; {
 		case integration == nil:
-			t.Fatal(".gremlins.yaml has no unleash.integration key — set it to false explicitly " +
-				"(it must be nested under unleash:, where gremlins reads it)")
+			t.Fatal(".gomutants.yml has no integration key — set it to false explicitly")
 		case *integration:
-			t.Fatal(".gremlins.yaml sets unleash.integration: true — a mutant in isolation's " +
+			t.Fatal(".gomutants.yml sets integration: true — a mutant in isolation's " +
 				"session sweep would then run under other packages' tests and can SIGKILL " +
 				"every process on the runner; set it back to false")
 		}
 	})
 
 	t.Run("no invocation passes the integration flag", func(t *testing.T) {
-		sc := scanGremlinsInvocations(t, root)
+		sc := scanGomutantsInvocations(t, root)
 		// Both shapes exist today; a scan that finds neither kind has stopped
 		// looking, and would pass for that reason alone.
 		if sc.shellInvocations == 0 || sc.goArgvFiles == 0 {
 			t.Fatalf("scan found %d shell invocation(s) and %d Go argv file(s) — both must be non-zero, "+
-				"or the scanner no longer recognises how gremlins is launched", sc.shellInvocations, sc.goArgvFiles)
+				"or the scanner no longer recognises how gomutants is launched", sc.shellInvocations, sc.goArgvFiles)
 		}
-		t.Logf("%d shell invocation(s), %d Go argv file(s), recipes forwarding to gremlins: %v",
+		t.Logf("%d shell invocation(s), %d Go argv file(s), recipes forwarding to gomutants: %v",
 			sc.shellInvocations, sc.goArgvFiles, sc.recipes)
 		for _, hit := range sc.hits {
-			t.Errorf("%s passes gremlins' integration flag — it overrides .gremlins.yaml and runs "+
-				"every mutant under every package's tests; remove it", hit)
+			t.Errorf("%s passes gomutants' integration flag — it overrides .gomutants.yml and runs "+
+				"every mutant under every importing package's tests; remove it", hit)
 		}
 	})
 }
 
-// gremlinsScan is what scanGremlinsInvocations found: each file:line that
-// hands gremlins its integration flag, and how many invocations it looked at.
-type gremlinsScan struct {
+// gomutantsScan is what scanGomutantsInvocations found: each file:line that
+// hands gomutants its integration flag, and how many invocations it looked at.
+type gomutantsScan struct {
 	hits             []string
 	shellInvocations int
 	goArgvFiles      int
 	recipes          map[string]bool
 }
 
-// gremlinsScanRoots are where gremlins is launched from. Directories are
+// gomutantsScanRoots are where gomutants is launched from. Directories are
 // walked whole; globs name the recipe and workflow files.
-var gremlinsScanRoots = []string{"justfile", "build/*.justfile", ".github/workflows/*", "scripts", "tests/mutation"}
+var gomutantsScanRoots = []string{"justfile", "build/*.justfile", ".github/workflows/*", "scripts", "tests/mutation"}
 
 // justRecipeHeader matches a recipe definition line (not a `:=` assignment).
 var justRecipeHeader = regexp.MustCompile(`^@?([A-Za-z_][A-Za-z0-9_-]*)[^:=]*:([^=]|$)`)
 
-// scanGremlinsInvocations finds gremlins invocations two ways, because the
+// scanGomutantsInvocations finds gomutants invocations two ways, because the
 // repo launches it two ways:
 //
-//   - command lines (recipes, shell, workflows): the tokens after a `gremlins`
+//   - command lines (recipes, shell, workflows): the tokens after a `gomutants`
 //     command word, and after `just <recipe>` for any recipe whose body
-//     invokes gremlins — those recipes forward their arguments to it.
-//   - Go argv construction: in a Go file holding the "unleash" literal, every
-//     string literal, since the argv is assembled across statements.
-func scanGremlinsInvocations(t *testing.T, root string) gremlinsScan {
+//     invokes gomutants — those recipes forward their arguments to it.
+//   - Go argv construction: in a Go file holding the "--changed-since"
+//     literal (scripts/mutshard builds the shard's argv), every string
+//     literal, since the argv is assembled across statements.
+func scanGomutantsInvocations(t *testing.T, root string) gomutantsScan {
 	t.Helper()
-	var sc gremlinsScan
+	var sc gomutantsScan
 	var textFiles []string
-	for _, f := range gremlinsScanFiles(t, root) {
+	for _, f := range gomutantsScanFiles(t, root) {
 		if strings.HasSuffix(f, ".go") {
 			scanGoArgv(t, root, f, &sc)
 		} else {
@@ -116,20 +114,20 @@ func scanGremlinsInvocations(t *testing.T, root string) gremlinsScan {
 		}
 	}
 	// The wrapping recipes must be known before any command line is judged:
-	// `just <recipe>` launches gremlins only if that recipe's body does.
-	sc.recipes = gremlinsWrappingRecipes(t, textFiles)
+	// `just <recipe>` launches gomutants only if that recipe's body does.
+	sc.recipes = gomutantsWrappingRecipes(t, textFiles)
 	for _, f := range textFiles {
 		scanShellFile(t, root, f, &sc)
 	}
 	return sc
 }
 
-// gremlinsScanFiles expands gremlinsScanRoots into every regular file under
+// gomutantsScanFiles expands gomutantsScanRoots into every regular file under
 // them.
-func gremlinsScanFiles(t *testing.T, root string) []string {
+func gomutantsScanFiles(t *testing.T, root string) []string {
 	t.Helper()
 	var files []string
-	for _, r := range gremlinsScanRoots {
+	for _, r := range gomutantsScanRoots {
 		matches, err := filepath.Glob(filepath.Join(root, r))
 		if err != nil {
 			t.Fatal(err)
@@ -160,9 +158,9 @@ func walkFiles(t *testing.T, p string) []string {
 	return files
 }
 
-// gremlinsWrappingRecipes names every just recipe whose body invokes
-// gremlins; such a recipe forwards its arguments to it.
-func gremlinsWrappingRecipes(t *testing.T, files []string) map[string]bool {
+// gomutantsWrappingRecipes names every just recipe whose body invokes
+// gomutants; such a recipe forwards its arguments to it.
+func gomutantsWrappingRecipes(t *testing.T, files []string) map[string]bool {
 	t.Helper()
 	recipes := map[string]bool{}
 	for _, f := range files {
@@ -175,7 +173,7 @@ func gremlinsWrappingRecipes(t *testing.T, files []string) map[string]bool {
 				recipe = m[1]
 				continue
 			}
-			if recipe != "" && gremlinsArgStart(cmd, nil) >= 0 {
+			if recipe != "" && gomutantsArgStart(cmd, nil) >= 0 {
 				recipes[recipe] = true
 			}
 		}
@@ -188,14 +186,14 @@ func isJustfile(path string) bool {
 	return base == "justfile" || strings.HasSuffix(base, ".justfile")
 }
 
-// scanShellFile counts each command line of path that launches gremlins,
+// scanShellFile counts each command line of path that launches gomutants,
 // directly or through a wrapping recipe in sc.recipes, and records every
-// integration flag it hands gremlins.
-func scanShellFile(t *testing.T, root, path string, sc *gremlinsScan) {
+// integration flag it hands gomutants.
+func scanShellFile(t *testing.T, root, path string, sc *gomutantsScan) {
 	t.Helper()
 	rel, _ := filepath.Rel(root, path)
 	for _, cmd := range commandLines(t, path) {
-		start := gremlinsArgStart(cmd, sc.recipes)
+		start := gomutantsArgStart(cmd, sc.recipes)
 		if start < 0 {
 			continue
 		}
@@ -271,13 +269,13 @@ func (j *cmdJoiner) finish() [][]cmdToken {
 	return j.out
 }
 
-// gremlinsArgStart returns the index of the first argument gremlins receives
-// on this command line — after a `gremlins` command word, or after
+// gomutantsArgStart returns the index of the first argument gomutants receives
+// on this command line — after a `gomutants` command word, or after
 // `just <recipe>` for a recipe in recipes — or -1 when it launches none.
-func gremlinsArgStart(cmd []cmdToken, recipes map[string]bool) int {
+func gomutantsArgStart(cmd []cmdToken, recipes map[string]bool) int {
 	for i, tk := range cmd {
 		w := strings.Trim(tk.text, `"'`)
-		if w == "gremlins" || strings.HasSuffix(w, "/gremlins") {
+		if w == "gomutants" || strings.HasSuffix(w, "/gomutants") {
 			return i + 1
 		}
 		if w == "just" && i+1 < len(cmd) && recipes[strings.Trim(cmd[i+1].text, `"'`)] {
@@ -287,9 +285,9 @@ func gremlinsArgStart(cmd []cmdToken, recipes map[string]bool) int {
 	return -1
 }
 
-// scanGoArgv checks every string literal of a Go file that builds a gremlins
-// argv (holds the "unleash" literal).
-func scanGoArgv(t *testing.T, root, path string, sc *gremlinsScan) {
+// scanGoArgv checks every string literal of a Go file that builds a gomutants
+// argv (holds the "--changed-since" literal).
+func scanGoArgv(t *testing.T, root, path string, sc *gomutantsScan) {
 	t.Helper()
 	src, err := os.ReadFile(path)
 	if err != nil {
@@ -304,7 +302,7 @@ func scanGoArgv(t *testing.T, root, path string, sc *gremlinsScan) {
 		line int
 	}
 	var lits []lit
-	unleash := false
+	builds := false
 	for {
 		pos, tok, text := s.Scan()
 		if tok == token.EOF {
@@ -317,12 +315,12 @@ func scanGoArgv(t *testing.T, root, path string, sc *gremlinsScan) {
 		if err != nil {
 			continue
 		}
-		if v == "unleash" {
-			unleash = true
+		if v == "--changed-since" {
+			builds = true
 		}
 		lits = append(lits, lit{v, fset.Position(pos).Line})
 	}
-	if !unleash {
+	if !builds {
 		return
 	}
 	sc.goArgvFiles++
@@ -334,9 +332,9 @@ func scanGoArgv(t *testing.T, root, path string, sc *gremlinsScan) {
 	}
 }
 
-// isIntegrationFlag reports whether an argv word is gremlins' integration
-// flag, in either spelling, bare or with a value.
+// isIntegrationFlag reports whether an argv word is gomutants' integration
+// flag, with one dash or two, bare or with a value.
 func isIntegrationFlag(w string) bool {
-	return w == "-i" || w == "--integration" ||
-		strings.HasPrefix(w, "-i=") || strings.HasPrefix(w, "--integration=")
+	return w == "-integration" || w == "--integration" ||
+		strings.HasPrefix(w, "-integration=") || strings.HasPrefix(w, "--integration=")
 }

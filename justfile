@@ -1290,6 +1290,8 @@ test-mutation-container: _mutation-prereqs
     set -a
     . .devcontainer/tool-versions.env
     set +a
+    # This lane drives docker directly, not container_cmd.
+    bash scripts/container-preflight.sh docker
     # See _run for why --user is skipped under rootless docker.
     user_flag=(--user "$(id -u):$(id -g)")
     if docker info 2>/dev/null | grep -q "rootless"; then
@@ -1744,6 +1746,7 @@ registry := "localhost"
 container-build-minimal: _require-generated
     #!/usr/bin/env bash
     set -euo pipefail
+    bash scripts/container-preflight.sh "{{container_cmd}}"
     ctx=$(mktemp -d)
     trap 'rm -rf "$ctx"' EXIT
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
@@ -1761,6 +1764,7 @@ container-build-minimal: _require-generated
 container-build-base:
     #!/usr/bin/env bash
     set -euo pipefail
+    bash scripts/container-preflight.sh "{{container_cmd}}"
     ctx=$(mktemp -d)
     trap 'rm -rf "$ctx"' EXIT
     cp container/base/Containerfile "$ctx/Containerfile"
@@ -1780,6 +1784,7 @@ container-build-base:
 _container-build-via-cli backend *engines: _require-generated
     #!/usr/bin/env bash
     set -euo pipefail
+    bash scripts/container-preflight.sh "{{container_cmd}}"
     bin="./ctxloom-build-tmp-$$"
     trap 'rm -f "$bin"' EXIT
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
@@ -1852,6 +1857,10 @@ dev-image:
     if [ -n "${DEVCONTAINER:-}" ] || [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
         exit 0
     fi
+    # Fail fast, naming the fix, on an engine that cannot run containers: a
+    # wedged rootless daemon still answers `docker info`/`ps`, so without this
+    # the build below (and every recipe that needs dev-image) hangs forever.
+    bash scripts/container-preflight.sh "{{container_cmd}}"
     build_args=()
     while IFS= read -r line; do
         [[ -z "$line" || "$line" == \#* ]] && continue
@@ -1874,6 +1883,7 @@ _run +ARGS:
         # lands on an unrelated subordinate uid that can neither write workspace
         # files nor read mode-0700 dirs. Rootful daemons need --user to avoid
         # leaving root-owned files in the host workspace.
+        bash scripts/container-preflight.sh "{{container_cmd}}" || exit 1
         user_flag=(--user "$(id -u):$(id -g)")
         if {{container_cmd}} info 2>/dev/null | grep -q "rootless"; then
             user_flag=()

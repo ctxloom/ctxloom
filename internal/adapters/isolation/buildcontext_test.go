@@ -217,6 +217,71 @@ func TestBaseIdentity_BudgetIsSpentAcrossFiles(t *testing.T) {
 	assert.Contains(t, sink.String(), "build context", "files past the spent budget degrade, loudly")
 }
 
+// A context whose sent files total EXACTLY the budget is keyed by content
+// throughout: the budget is the bytes that may be read, so the last file,
+// filling it to the byte, still fits.
+func TestBaseIdentity_ContextExactlyAtTheBudgetIsKeyedByContent(t *testing.T) {
+	clidiag.ResetWarnOnce()
+	t.Cleanup(clidiag.ResetWarnOnce)
+	var sink bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&sink))
+
+	df, ctxDir := buildCtxFixture(t)
+	var total int64
+	for _, p := range []string{df, filepath.Join(ctxDir, "scripts", "setup.sh"), filepath.Join(ctxDir, "build.log")} {
+		info, err := os.Stat(p)
+		require.NoError(t, err)
+		total += info.Size()
+	}
+	old := contextHashBudget
+	contextHashBudget = total
+	t.Cleanup(func() { contextHashBudget = old })
+
+	stage := devcontainerBuildStage("d", df, ctxDir, nil)
+	b1, _ := stageTags(t, stage)
+	assert.Empty(t, sink.String(), "nothing past the budget, so nothing degrades")
+
+	// Same size, same mtime, different content: only a content key sees it.
+	log := filepath.Join(ctxDir, "build.log")
+	info, err := os.Stat(log)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(log, []byte("noise 2\n"), 0o644))
+	require.NoError(t, os.Chtimes(log, info.ModTime(), info.ModTime()))
+	b2, _ := stageTags(t, stage)
+	assert.NotEqual(t, b1, b2)
+}
+
+// The context root itself is not a sent file: its own mode is not keyed, so
+// two contexts that differ only in the root directory's permissions share a
+// tag.
+func TestBaseIdentity_ContextRootModeIsNotKeyed(t *testing.T) {
+	df, ctxDir := buildCtxFixture(t)
+	stage := devcontainerBuildStage("d", df, ctxDir, nil)
+	require.NoError(t, os.Chmod(ctxDir, 0o700))
+	b1, _ := stageTags(t, stage)
+	require.NoError(t, os.Chmod(ctxDir, 0o755))
+	b2, _ := stageTags(t, stage)
+	assert.Equal(t, b1, b2)
+}
+
+// An exception in ONE runtime's ignore file is enough to descend into a
+// directory both exclude: docker re-includes scratch/keep (so sends it) while
+// podman's .containerignore excludes all of scratch, and a file either
+// runtime sends is a build input.
+func TestBaseIdentity_OneRuntimesExceptionIsHashed(t *testing.T) {
+	df, ctxDir := buildCtxFixture(t)
+	require.NoError(t, os.WriteFile(filepath.Join(ctxDir, ".dockerignore"), []byte("scratch\n!scratch/keep\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(ctxDir, ".containerignore"), []byte("scratch\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(ctxDir, "scratch"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(ctxDir, "scratch", "keep"), []byte("1"), 0o644))
+	stage := devcontainerBuildStage("d", df, ctxDir, nil)
+	b1, _ := stageTags(t, stage)
+
+	require.NoError(t, os.WriteFile(filepath.Join(ctxDir, "scratch", "keep"), []byte("2"), 0o644))
+	b2, _ := stageTags(t, stage)
+	assert.NotEqual(t, b1, b2, "docker sends scratch/keep, so a change to it must change the tag")
+}
+
 // TestBaseIdentity_SymlinkTargetChangesTag pins that a symlink in the context
 // is keyed by its target: COPY copies the link itself, so repointing it is a
 // changed build input even though no file content changed.

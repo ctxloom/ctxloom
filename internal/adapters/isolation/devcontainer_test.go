@@ -470,6 +470,48 @@ func TestDevcontainerVarRefs_FlagsOnlyHonouredFields(t *testing.T) {
 		"honoured fields carrying ${...} are named; an unhonoured field is already reported as such")
 }
 
+// Only "build" is narrowed to its honoured sub-fields; any other honoured
+// object is walked whole, and every honoured key is visited whatever the
+// (random) map order puts before it — the build object and an unreadable
+// value included.
+func TestDevcontainerVarRefs_EveryHonouredKeyIsWalked(t *testing.T) {
+	var top map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"image": "base:${localEnv:TAG}",
+		"service": "${localEnv:SVC}",
+		"build": {"target": "${localEnv:T}", "context": "${localEnv:C}"},
+		"dockerComposeFile": {"x": "${localEnv:F}"}
+	}`), &top))
+	want := []string{"build.context", "dockerComposeFile.x", "image", "service"}
+	for range 64 {
+		require.Equal(t, want, devcontainerVarRefs(top), "build.target is not honoured, so it is not scanned")
+	}
+
+	// A number no Go float holds is valid JSON (so the file parses, and
+	// dockerComposeFile is kept raw) but unreadable here: it is skipped, not
+	// an end to the scan.
+	top = nil
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"dockerComposeFile": 1e400,
+		"image": "base:${localEnv:TAG}",
+		"service": "${localEnv:SVC}"
+	}`), &top))
+	for range 64 {
+		require.Equal(t, []string{"image", "service"}, devcontainerVarRefs(top))
+	}
+}
+
+// The unhonoured fields are reported in name order.
+func TestUnhonouredDevcontainerFields_SortedByName(t *testing.T) {
+	var top map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(`{"runArgs": [], "mounts": [], "forwardPorts": [], "build": {"target": "t"}}`), &top))
+	var names []string
+	for _, f := range unhonouredDevcontainerFields(top) {
+		names = append(names, f.name)
+	}
+	assert.Equal(t, []string{"build.target", "forwardPorts", "mounts", "runArgs"}, names)
+}
+
 // The notice is ONE warning per build, however many times the base is
 // resolved during it, naming every field and the variable note together.
 func TestResolveDevcontainerBase_WarnsOnceNamingEveryUnhonouredField(t *testing.T) {

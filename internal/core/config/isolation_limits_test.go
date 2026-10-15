@@ -72,6 +72,20 @@ func TestIsolationLimits_PidsAcceptsACount(t *testing.T) {
 	got, err := parseLimits(t, "isolation_pids_limit: 2048\n")
 	require.NoError(t, err)
 	assert.Equal(t, ContainerLimit{Kind: LimitFixed, Value: 2048}, got.PIDs)
+
+	got, err = parseLimits(t, "isolation_pids_limit: 1\n")
+	require.NoError(t, err)
+	assert.Equal(t, ContainerLimit{Kind: LimitFixed, Value: 1}, got.PIDs, "the smallest count is a cap")
+}
+
+// Any spelling of zero switches the pids cap off, as any zero size does the
+// memory cap: never a "fixed" cap of nothing.
+func TestIsolationLimits_PidsAnyZeroIsOff(t *testing.T) {
+	for _, raw := range []string{`"00"`, `"+0"`, `"-0"`} {
+		got, err := parseLimits(t, "isolation_pids_limit: "+raw+"\n")
+		require.NoError(t, err, raw)
+		assert.Equal(t, ContainerLimit{Kind: LimitUnlimited}, got.PIDs, raw)
+	}
 }
 
 // A malformed or unusable value is refused at load, never defaulted: a typo
@@ -85,6 +99,7 @@ func TestIsolationLimits_RefusesBadValues(t *testing.T) {
 		"isolation_memory_limit: 1m\n", // below the runtimes' minimum
 		"isolation_memory_limit: 5242879\n",
 		"isolation_memory_limit: 99999999999t\n", // overflows int64 bytes
+		"isolation_memory_limit: 8388608t\n",     // exactly 2^63 bytes: one past int64
 		"isolation_pids_limit: -1\n",
 		"isolation_pids_limit: 1.5\n",
 		"isolation_pids_limit: many\n",
@@ -100,6 +115,9 @@ func TestIsolationLimits_MemoryFloorIsTheRuntimeMinimum(t *testing.T) {
 	got, err := parseLimits(t, "isolation_memory_limit: 6m\n")
 	require.NoError(t, err)
 	assert.Equal(t, int64(MinContainerMemoryBytes), got.Memory.Value)
+
+	_, err = parseLimits(t, "isolation_memory_limit: 6291455\n")
+	require.ErrorIs(t, err, ErrInvalidContainerLimit)
 }
 
 // The limits round-trip through the persisted document unchanged.

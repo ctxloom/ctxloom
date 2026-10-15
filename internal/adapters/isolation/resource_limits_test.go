@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/exitstatus"
+	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
 
 const gib = int64(1) << 30
@@ -166,6 +167,11 @@ func TestDockerLimitSupport(t *testing.T) {
 	assert.NotEmpty(t, sup.unenforced)
 
 	assert.Equal(t, limitSupport{}, dockerLimitSupport("garbage"), "an unreadable answer enforces nothing it cannot confirm")
+
+	// The four limit fields are all that is read: an answer of exactly four
+	// (no security options) is readable.
+	assert.Equal(t, limitSupport{hostMemory: 4000, memory: true, pids: true}, dockerLimitSupport("4000 true false true"))
+	assert.Equal(t, limitSupport{}, dockerLimitSupport("4000 true false"), "three fields are unreadable")
 }
 
 func TestPodmanLimitSupport(t *testing.T) {
@@ -198,10 +204,23 @@ func TestPodmanLimitSupport(t *testing.T) {
 			"true  2000 v2 systemd [memory pids]", true,
 			limitSupport{hostMemory: 2000, memory: true, swap: true, pids: true},
 		},
+		"rootful, no controllers field": {
+			"false pasta 3000 v2 systemd", false,
+			limitSupport{hostMemory: 3000, memory: true, swap: true, pids: true},
+		},
+		"four fields are unreadable": {"false pasta 3000 v2", false, limitSupport{}},
 	}
 	for name, c := range cases {
 		assert.Equal(t, c.want, podmanLimitSupport(c.answer, c.rootless), name)
 	}
+}
+
+// The rootless network command is the answer's second field, read even when
+// nothing follows it.
+func TestPodmanRootlessNet(t *testing.T) {
+	assert.Equal(t, "pasta", podmanRootlessNet("true pasta"))
+	assert.Equal(t, "pasta", podmanRootlessNet("true pasta 1000 v2 systemd [memory]"))
+	assert.Empty(t, podmanRootlessNet("true"))
 }
 
 // Selection's one `info` call carries both the ownership and the limit
@@ -314,4 +333,84 @@ func TestNoteOOMKill_PodmanCannotConfirm(t *testing.T) {
 
 	other := exitstatus.Classify(fmt.Errorf("x: %w", exec.Command("false").Run()))
 	assert.Equal(t, other, noteOOMKill(Podman{}, "ctr", resourceLimits{memory: gib}, time.Now(), other))
+}
+
+// The two resolveLimits warnings fire exactly when a cap is lost, and name
+// why: a DEFAULT memory cap with no host memory to derive it from, and a
+// wanted cap the runtime cannot enforce. A cap switched off, or one the
+// runtime enforces, warns nothing.
+func TestResolveLimits_WarnsOnlyForALostCap(t *testing.T) {
+	const (
+		noHostMemory = "did not report its host's memory"
+		unenforced   = "agent containers run without some resource caps"
+	)
+	off := config.ContainerLimit{Kind: config.LimitUnlimited}
+	fixed := config.ContainerLimit{Kind: config.LimitFixed, Value: 5 * gib}
+	noMemory := enforcing(32 * gib)
+	noMemory.memory, noMemory.swap = false, false
+	noPids := enforcing(32 * gib)
+	noPids.pids = false
+	none := limitSupport{hostMemory: 32 * gib, unenforced: "rootless podman on cgroup v1"}
+
+	cases := map[string]struct {
+		want config.ContainerLimits
+		sup  limitSupport
+		warn []string // substrings the one warning carries; no warning when empty
+	}{
+		"everything enforced":                        {config.ContainerLimits{}, enforcing(32 * gib), nil},
+		"default memory, unknown host":               {config.ContainerLimits{PIDs: off}, enforcing(0), []string{noHostMemory}},
+		"explicit memory, unknown host":              {config.ContainerLimits{Memory: fixed, PIDs: off}, enforcing(0), nil},
+		"memory off, unknown host":                   {config.ContainerLimits{Memory: off, PIDs: off}, enforcing(0), nil},
+		"both off, nothing enforced":                 {config.ContainerLimits{Memory: off, PIDs: off}, none, nil},
+		"memory wanted, nothing enforced":            {config.ContainerLimits{PIDs: off}, none, []string{unenforced, "rootless podman on cgroup v1"}},
+		"memory unenforced, pids enforced":           {config.ContainerLimits{}, noMemory, []string{unenforced}},
+		"pids wanted but unenforced":                 {config.ContainerLimits{}, noPids, []string{unenforced, "the runtime reports no cgroup control for it"}},
+		"pids off where unenforced":                  {config.ContainerLimits{PIDs: off}, noPids, nil},
+		"memory off where unenforced, pids enforced": {config.ContainerLimits{Memory: off}, noMemory, nil},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			clidiag.ResetWarnOnce()
+			t.Cleanup(clidiag.ResetWarnOnce)
+			buf := captureWarnings(t)
+			resolveLimits(c.want, c.sup)
+			if len(c.warn) == 0 {
+				assert.Empty(t, buf.String())
+				return
+			}
+			for _, w := range c.warn {
+				assert.Contains(t, buf.String(), w)
+			}
+			assert.Equal(t, 1, strings.Count(buf.String(), "warning:"), "one warning: %s", buf)
+		})
+	}
+}
+
+// humanBytes switches to GiB at exactly one GiB.
+func TestHumanBytes_GiBFromOneGiB(t *testing.T) {
+	assert.Equal(t, "1.0GiB", humanBytes(gib))
+	assert.Equal(t, "1023MiB", humanBytes(gib-1))
+	assert.Equal(t, "2.5GiB", humanBytes(5*gib/2))
+}
+
+// The OOM-event query runs under oomQueryTimeout: bounded, but long enough
+// for a live daemon to answer.
+func TestNoteOOMKill_QueryIsBoundedByTheTimeout(t *testing.T) {
+	var remaining time.Duration
+	orig := probeExec
+	probeExec = func(ctx context.Context, _ string, _ []string) (string, error) {
+		dl, ok := ctx.Deadline()
+		require.True(t, ok, "the query carries a deadline")
+		remaining = time.Until(dl)
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		return "oom\n", nil
+	}
+	t.Cleanup(func() { probeExec = orig })
+
+	err := noteOOMKill(Docker{}, "ctr", resourceLimits{memory: 2 * gib}, time.Now(), exitErr137(t))
+	assert.Contains(t, err.Error(), "OOM-killed (memory limit 2.0GiB)", "a live daemon's answer is read")
+	assert.Greater(t, remaining, 4*time.Second, "the documented five-second bound")
+	assert.LessOrEqual(t, remaining, 5*time.Second)
 }

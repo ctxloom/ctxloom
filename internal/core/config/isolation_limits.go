@@ -90,19 +90,23 @@ func parseMemoryLimit(raw string) (ContainerLimit, error) {
 	return ContainerLimit{Kind: LimitFixed, Value: int64(bytes)}, nil
 }
 
-// parsePidsLimit reads isolation_pids_limit: "" is unset, `0` or `unlimited`
-// is off, otherwise a positive whole process count.
+// parsePidsLimit reads isolation_pids_limit: "" is unset, `unlimited` or any
+// spelling of zero (`0`, `00`, `+0`) is off, otherwise a positive whole
+// process count.
 func parsePidsLimit(raw string) (ContainerLimit, error) {
 	s := strings.ToLower(strings.TrimSpace(raw))
 	switch s {
 	case "":
 		return ContainerLimit{}, nil
-	case limitUnlimited, "0":
+	case limitUnlimited:
 		return ContainerLimit{Kind: LimitUnlimited}, nil
 	}
 	n, err := strconv.ParseInt(s, 10, 64)
 	if err != nil || n < 0 {
 		return ContainerLimit{}, fmt.Errorf("%w: isolation_pids_limit %q is not a process count or %q", ErrInvalidContainerLimit, raw, limitUnlimited)
+	}
+	if n == 0 {
+		return ContainerLimit{Kind: LimitUnlimited}, nil
 	}
 	return ContainerLimit{Kind: LimitFixed, Value: n}, nil
 }

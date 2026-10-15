@@ -91,6 +91,7 @@ func TestPrepare_BeforeCheckoutRefusalRefusesTheRun(t *testing.T) {
 	env, err := Prepare(context.Background(), hookedSpec(t, home, project, func(context.Context, git.Branch) (string, error) { return "", refusal }))
 
 	require.ErrorIs(t, err, refusal)
+	assert.Same(t, refusal, err, "the hook's error is returned as is, not the chain's wrapping of it")
 	assert.Nil(t, env, "no environment, not a degraded one on the live tree")
 	assert.Zero(t, linkedWorktrees(t, project), "no checkout is carved")
 }
@@ -268,4 +269,42 @@ func TestCommitRunEnd_ACleanCheckoutIsNotCommitted(t *testing.T) {
 	f := &git.Fake{CurrentBranchValue: git.MustParseBranch("ctxloom/x")}
 	commitRunEnd(context.Background(), f, "/wt", "brisk-teal-otter")
 	assert.Empty(t, f.CommitMessages)
+}
+
+// Work is committed only onto a branch: a detached HEAD, or a branch that
+// cannot be read, leaves it uncommitted and says so.
+func TestCommitRunEnd_NoBranchNoCommit(t *testing.T) {
+	for name, f := range map[string]*git.Fake{
+		"detached":   {Dirty: map[string]bool{"/wt": true}, CurrentBranchDetached: true},
+		"unreadable": {Dirty: map[string]bool{"/wt": true}, CurrentBranchErr: errors.New("HEAD unreadable")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			buf := captureWarnings(t)
+			commitRunEnd(context.Background(), f, "/wt", "brisk-teal-otter")
+			assert.Empty(t, f.CommitMessages, "nothing is committed off a branch")
+			assert.Contains(t, buf.String(), "not on a branch")
+		})
+	}
+}
+
+// Each commit outcome is reported as what it is: a failure as a failure, an
+// empty commit as capturing nothing, and a commit with its file count.
+func TestCommitRunEnd_ReportsTheOutcome(t *testing.T) {
+	for name, c := range map[string]struct {
+		f    *git.Fake
+		want string
+	}{
+		"failed":    {&git.Fake{CommitAllErr: errors.New("index.lock exists")}, "failed; leaving it uncommitted: index.lock exists"},
+		"empty":     {&git.Fake{CommitAllSHA: "abc123"}, "commit abc123 on ctxloom/x captured no changed files"},
+		"committed": {&git.Fake{CommitAllSHA: "abc123", CommitAllChanged: []string{"a", "b"}}, "(2 file(s)) on ctxloom/x as abc123"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c.f.Dirty = map[string]bool{"/wt": true}
+			c.f.CurrentBranchValue = git.MustParseBranch("ctxloom/x")
+			buf := captureWarnings(t)
+			commitRunEnd(context.Background(), c.f, "/wt", "brisk-teal-otter")
+			assert.Contains(t, buf.String(), c.want)
+			assert.Equal(t, 1, strings.Count(buf.String(), "warning:"), "one report: %s", buf)
+		})
+	}
 }

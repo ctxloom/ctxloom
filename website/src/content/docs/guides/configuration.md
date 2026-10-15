@@ -226,6 +226,23 @@ llm:
         approver: none              # required: opencode run rejects every ask itself
 ```
 
+The same label can be written from the CLI: `--set` takes any key the label's engine accepts, by
+dotted path, and `--home` writes `~/.ctxloom/config.yaml`, the right file for an endpoint on
+your own machine or LAN, which every project reads:
+
+```bash
+ctxloom llm create local --home --type opencode --model qwen3.8-27b \
+  --set context_window=131072 \
+  --set provider.base_url=http://192.168.1.20:8081/v1 \
+  --set provider.output_limit=8192 \
+  --set permissions.approver=none
+ctxloom llm edit local --home --set provider.header_timeout_ms=0
+```
+
+The whole entry is checked against the config schema before it is written, so an unknown key,
+a value of the wrong type, or a `provider` block missing `output_limit` is refused and nothing
+changes. An empty value (`--set share=`) removes a key.
+
 The endpoint's key never goes in the config: export `CTXLOOM_OPENCODE_API_KEY` and the run's
 credentials carry it. A built-in provider label needs no key; when the variable is not
 exported, the run starts keyless. See the [config reference](/reference/config/) for every key.

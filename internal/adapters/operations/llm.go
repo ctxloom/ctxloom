@@ -131,6 +131,13 @@ type SetLLMRequest struct {
 	// the label's type names; a mode that engine does not take is REJECTED
 	// (the loader would refuse it). Empty clears it.
 	Permissions *string `json:"permissions,omitempty"`
+	// Set assigns any of the entry's fields but type and role by dotted key,
+	// in order, after the fields above: "<dotted.key>=<value>", the value
+	// read as YAML, an empty value removing the key (see parseLLMField).
+	// Which keys an entry takes, and what each holds, is the config schema's
+	// to say (and the label's engine's, for its permission keys): the whole
+	// entry is checked before anything is written.
+	Set []string `json:"set,omitempty"`
 }
 
 // setLabelMode writes mode into a label's flat permission keys, checked by
@@ -141,21 +148,30 @@ func setLabelMode(reg engine.Registry, typ, label string, p *agents.LabelPermiss
 		delete(p.Engine, permissionMode)
 		return nil
 	}
+	if err := validateLabelEngineKeys(reg, typ, label, map[string]any{permissionMode: mode}); err != nil {
+		return err
+	}
+	if p.Engine == nil {
+		p.Engine = map[string]any{}
+	}
+	p.Engine[permissionMode] = mode
+	return nil
+}
+
+// validateLabelEngineKeys checks a label's engine permission keys with the
+// engine its type names — the keys the schema leaves to the engine.
+func validateLabelEngineKeys(reg engine.Registry, typ, label string, keys map[string]any) error {
 	kind, ok := reg.Lookup(engine.Name(typ))
 	if !ok {
 		return fmt.Errorf("llm %q: unknown type %q", label, typ)
 	}
 	model, ok := kind.Permissions().Get()
 	if !ok {
-		return fmt.Errorf("llm %q: engine %s takes no permission mode (%s)", label, typ, kind.Permissions().AbsentReason())
+		return fmt.Errorf("llm %q: engine %s takes no permission keys (%s)", label, typ, kind.Permissions().AbsentReason())
 	}
-	if err := model.Validate(map[string]any{permissionMode: mode}); err != nil {
-		return fmt.Errorf("llm %q: %w", label, err)
+	if err := model.Validate(keys); err != nil {
+		return fmt.Errorf("llm %q: permissions: %w", label, err)
 	}
-	if p.Engine == nil {
-		p.Engine = map[string]any{}
-	}
-	p.Engine[permissionMode] = mode
 	return nil
 }
 
@@ -182,6 +198,10 @@ func SetLLM(ctx context.Context, app *App, req SetLLMRequest) (*LLMEntry, error)
 		}
 	}
 	cur, err := app.Config(ctx)
+	if err != nil {
+		return nil, err
+	}
+	configPath, err := cur.GetConfigFilePath()
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +233,16 @@ func SetLLM(ctx context.Context, app *App, req SetLLMRequest) (*LLMEntry, error)
 			if len(entry.Body) == 0 {
 				entry.Body = nil
 			}
+		}
+		if len(req.Set) > 0 {
+			updated, err := applyLLMFields(entry, req.Set)
+			if err != nil {
+				return fmt.Errorf("llm %q: %w", req.Label, err)
+			}
+			entry = updated
+		}
+		if err := checkLLMEntry(reg, cur.EffectiveType(entry), configPath, req.Label, entry); err != nil {
+			return err
 		}
 		d.LM.Configs[req.Label] = entry
 		return nil

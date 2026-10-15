@@ -14,7 +14,7 @@ Create a new LLM engine config
 ### Synopsis
 
 Create a NEW labeled LLM engine config under the 'llm.configs' key of
-.ctxloom/config.yaml. Refuses a label that already names a config entry OR a
+.ctxloom/config.yaml (or ~/.ctxloom/config.yaml with --home). Refuses a label that already names a config entry OR a
 registered backend (claude-code, opencode) — change an
 existing one with 'ctxloom llm edit'.
 
@@ -22,6 +22,20 @@ existing one with 'ctxloom llm edit'.
 omit it to keep claude-code's default. --model sets the model string. --permissions
 sets the label's mode, in its engine's vocabulary (acceptEdits|auto|build|bypass|default|plan across the
 engines ctxloom knows); the engine refuses one it does not take.
+
+--set <dotted.key>=<value> (repeatable, applied after the flags above) sets
+any other field the label's engine takes — context_window,
+permissions.approver, or opencode's provider.base_url, provider.output_limit,
+model_options, ... (type has its own flag). The value is read as YAML (131072
+is a number, true a boolean, {k: v} an object); an empty value removes the
+key. The whole entry is checked against the config schema, and its
+permission keys by its engine, before anything is written: an unknown key, a
+value of the wrong type, or a missing required field is refused with the
+schema's message and writes nothing.
+
+--home writes the user-global ~/.ctxloom/config.yaml instead of the
+project's .ctxloom/config.yaml: the place for a label every project on this
+machine shares (a LAN endpoint, say). Every project reads it, beneath its own.
 
 An entry carries NO credentials and no environment: the engine authenticates
 itself and reads its environment from the shell that runs ctxloom, so export
@@ -36,13 +50,16 @@ ctxloom llm create <label> [flags]
 ```
   ctxloom llm create big --type claude-code --model opus
   ctxloom llm create fast --type claude-code --permissions bypass
+  ctxloom llm create qwen --home --type opencode --model qwen3.8-27b --set context_window=131072 --set provider.base_url=http://192.168.1.20:8081/v1 --set provider.output_limit=32768
 ```
 
 ### Options
 
 ```
+      --home                 act on the user-global ~/.ctxloom/config.yaml instead of the project's
       --model string         model string
       --permissions string   permission mode, in the label's engine's vocabulary (empty clears it)
+      --set stringArray      set a field by dotted key: <dotted.key>=<value>, the value read as YAML, empty removes it (repeatable; checked against the config schema)
       --type string          backend discriminator: claude-code, opencode (empty = claude-code)
 ```
 

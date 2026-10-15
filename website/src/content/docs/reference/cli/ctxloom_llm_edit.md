@@ -27,6 +27,20 @@ omit it to keep claude-code's default. --model sets the model string. --permissi
 sets the label's mode, in its engine's vocabulary (acceptEdits|auto|build|bypass|default|plan across the
 engines ctxloom knows); the engine refuses one it does not take.
 
+--set <dotted.key>=<value> (repeatable, applied after the flags above) sets
+any other field the label's engine takes — context_window,
+permissions.approver, or opencode's provider.base_url, provider.output_limit,
+model_options, ... (type has its own flag). The value is read as YAML (131072
+is a number, true a boolean, {k: v} an object); an empty value removes the
+key. The whole entry is checked against the config schema, and its
+permission keys by its engine, before anything is written: an unknown key, a
+value of the wrong type, or a missing required field is refused with the
+schema's message and writes nothing.
+
+--home writes the user-global ~/.ctxloom/config.yaml instead of the
+project's .ctxloom/config.yaml: the place for a label every project on this
+machine shares (a LAN endpoint, say). Every project reads it, beneath its own.
+
 An entry carries NO credentials and no environment: the engine authenticates
 itself and reads its environment from the shell that runs ctxloom, so export
 a variable there — ctxloom's config is not where it goes.
@@ -40,13 +54,17 @@ ctxloom llm edit <label> [flags]
 ```
   ctxloom llm edit big --model o1-pro
   ctxloom llm edit big --permissions plan
+  ctxloom llm edit qwen --home --set provider.header_timeout_ms=0
+  ctxloom llm edit qwen --home --set model_options.chat_template_kwargs.enable_thinking=false
 ```
 
 ### Options
 
 ```
+      --home                 act on the user-global ~/.ctxloom/config.yaml instead of the project's
       --model string         model string
       --permissions string   permission mode, in the label's engine's vocabulary (empty clears it)
+      --set stringArray      set a field by dotted key: <dotted.key>=<value>, the value read as YAML, empty removes it (repeatable; checked against the config schema)
       --type string          backend discriminator: claude-code, opencode (empty = claude-code)
 ```
 

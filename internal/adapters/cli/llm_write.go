@@ -23,6 +23,11 @@ var (
 	llmSetType        string
 	llmSetModel       string
 	llmSetPermissions string
+	llmSetFields      []string
+	// llmHome writes the user-global ~/.ctxloom/config.yaml instead of the
+	// project's — the scope a personal label (a LAN endpoint) belongs in.
+	// Shared by create, edit and remove; `init --home` is the same switch.
+	llmHome bool
 )
 
 // llmWriteLong is the shared body for `llm create`/`llm edit`: the fields an
@@ -38,6 +43,20 @@ func llmWriteLong(reg engine.Registry) string {
 omit it to keep ` + operations.DefaultEngineName(reg) + `'s default. --model sets the model string. --permissions
 sets the label's mode, in its engine's vocabulary (` + strings.Join(operations.PostureNames(reg), "|") + ` across the
 engines ctxloom knows); the engine refuses one it does not take.
+
+--set <dotted.key>=<value> (repeatable, applied after the flags above) sets
+any other field the label's engine takes — context_window,
+permissions.approver, or opencode's provider.base_url, provider.output_limit,
+model_options, ... (type has its own flag). The value is read as YAML (131072
+is a number, true a boolean, {k: v} an object); an empty value removes the
+key. The whole entry is checked against the config schema, and its
+permission keys by its engine, before anything is written: an unknown key, a
+value of the wrong type, or a missing required field is refused with the
+schema's message and writes nothing.
+
+--home writes the user-global ~/.ctxloom/config.yaml instead of the
+project's .ctxloom/config.yaml: the place for a label every project on this
+machine shares (a LAN endpoint, say). Every project reads it, beneath its own.
 
 An entry carries NO credentials and no environment: the engine authenticates
 itself and reads its environment from the shell that runs ctxloom, so export
@@ -64,8 +83,16 @@ func runLLMCreate(cmd *cobra.Command, args []string) error { return writeLLM(cmd
 func runLLMEdit(cmd *cobra.Command, args []string) error   { return writeLLM(cmd, args[0], true) }
 
 // writeLLM is `llm create`/`llm edit`'s shared body — mirrors
-// agent.go's writeAgentBinding.
+// agent.go's writeAgentBinding, but first picks the file: an llm label may be
+// machine-scoped (--home, the user-global config), where an agent binding is
+// the project's. That asymmetry is a property of the two entities, not drift.
+// reprise:accept-drift
 func writeLLM(cmd *cobra.Command, label string, mustExist bool) error {
+	if llmHome {
+		if err := pinHomeConfig(cmd); err != nil {
+			return err
+		}
+	}
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -126,6 +153,9 @@ func buildSetLLMRequest(cmd *cobra.Command, label string) (operations.SetLLMRequ
 	if cmd.Flags().Changed("permissions") {
 		req.Permissions = &llmSetPermissions
 	}
+	if cmd.Flags().Changed("set") {
+		req.Set = llmSetFields
+	}
 	return req, nil
 }
 
@@ -167,10 +197,17 @@ func registerLLMWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&llmSetType, "type", "", "backend discriminator (empty = claude-code)")
 	cmd.Flags().StringVar(&llmSetModel, "model", "", "model string")
 	cmd.Flags().StringVar(&llmSetPermissions, "permissions", "", "permission mode, in the label's engine's vocabulary (empty clears it)")
+	cmd.Flags().StringArrayVar(&llmSetFields, "set", nil, "set a field by dotted key: <dotted.key>=<value>, the value read as YAML, empty removes it (repeatable; checked against the config schema)")
+	registerLLMHomeFlag(cmd)
 	_ = cmd.RegisterFlagCompletionFunc("type", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return operations.EngineNames(App().Engines()), cobra.ShellCompDirectiveNoFileComp
 	})
 	_ = cmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
+}
+
+// registerLLMHomeFlag binds --home (the user-global scope) to cmd.
+func registerLLMHomeFlag(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(&llmHome, "home", false, "act on the user-global ~/.ctxloom/config.yaml instead of the project's")
 }
 
 // applyEngineNamedHelp fills in every piece of help that names the registered
@@ -187,13 +224,14 @@ func applyEngineNamedHelp(reg engine.Registry) {
 		f.DefValue = operations.DefaultEngineName(reg)
 	}
 	llmCreateCmd.Long = `Create a NEW labeled LLM engine config under the 'llm.configs' key of
-.ctxloom/config.yaml. Refuses a label that already names a config entry OR a
+.ctxloom/config.yaml (or ~/.ctxloom/config.yaml with --home). Refuses a label that already names a config entry OR a
 registered backend (` + engines + `) — change an
 existing one with 'ctxloom llm edit'.
 
 ` + llmWriteLong(reg)
 	llmCreateCmd.Example = `  ctxloom llm create big --type claude-code --model opus
-  ctxloom llm create fast --type claude-code --permissions bypass`
+  ctxloom llm create fast --type claude-code --permissions bypass
+  ctxloom llm create qwen --home --type opencode --model qwen3.8-27b --set context_window=131072 --set provider.base_url=http://192.168.1.20:8081/v1 --set provider.output_limit=32768`
 
 	llmEditCmd.Long = `Change an EXISTING labeled LLM engine config. Refuses a label neither
 config.yaml nor a registered backend defines — create one with 'ctxloom llm
@@ -206,7 +244,9 @@ value.
 
 ` + llmWriteLong(reg)
 	llmEditCmd.Example = `  ctxloom llm edit big --model o1-pro
-  ctxloom llm edit big --permissions plan`
+  ctxloom llm edit big --permissions plan
+  ctxloom llm edit qwen --home --set provider.header_timeout_ms=0
+  ctxloom llm edit qwen --home --set model_options.chat_template_kwargs.enable_thinking=false`
 
 	for _, c := range []*cobra.Command{llmCreateCmd, llmEditCmd} {
 		if f := c.Flags().Lookup("type"); f != nil {

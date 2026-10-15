@@ -21,7 +21,7 @@ var llmRemoveCmd = &cobra.Command{
 	Aliases: []string{"rm", "del"},
 	Short:   "Remove an LLM engine config from config.yaml",
 	Long: `Remove a labeled LLM engine config from the 'llm.configs' key of
-.ctxloom/config.yaml.
+.ctxloom/config.yaml (or ~/.ctxloom/config.yaml with --home).
 
 Bare invocation reports what would be removed and removes nothing (exit 0).
 Pass --yes to apply it.`,
@@ -29,14 +29,28 @@ Pass --yes to apply it.`,
 	RunE: runLLMRemove,
 }
 
+// runLLMRemove shares runAgentRemove's two-arm shape (bare previews, --yes
+// applies) but takes a scope: an llm label may live in the user-global config
+// (--home), and the preview's apply command must name the same file. An agent
+// binding is the project's. That asymmetry is a property of the two entities,
+// not drift.
+// reprise:accept-drift
 func runLLMRemove(cmd *cobra.Command, args []string) error {
 	label := args[0]
+	if llmHome {
+		if err := pinHomeConfig(cmd); err != nil {
+			return err
+		}
+	}
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	applyCmd := fmt.Sprintf("ctxloom llm remove %s --yes", label)
+	if llmHome {
+		applyCmd += " --home"
+	}
 	if !llmRemoveYes {
 		if !cfg.IsLLMUserAuthored(label) {
 			return fmt.Errorf("llm %q is not defined in config.yaml", label)
@@ -63,5 +77,6 @@ func runLLMRemove(cmd *cobra.Command, args []string) error {
 
 func init() {
 	llmCmd.AddCommand(llmRemoveCmd)
+	registerLLMHomeFlag(llmRemoveCmd)
 	llmRemoveCmd.Flags().BoolVarP(&llmRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")
 }

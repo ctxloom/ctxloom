@@ -14,7 +14,7 @@ Remove an LLM engine config from config.yaml
 ### Synopsis
 
 Remove a labeled LLM engine config from the 'llm.configs' key of
-.ctxloom/config.yaml.
+.ctxloom/config.yaml (or ~/.ctxloom/config.yaml with --home).
 
 Bare invocation reports what would be removed and removes nothing (exit 0).
 Pass --yes to apply it.
@@ -32,7 +32,8 @@ ctxloom llm remove <label> [flags]
 ### Options
 
 ```
-  -y, --yes   Apply the removal this invocation would report (default: report only)
+      --home   act on the user-global ~/.ctxloom/config.yaml instead of the project's
+  -y, --yes    Apply the removal this invocation would report (default: report only)
 ```
 
 ### Options inherited from parent commands

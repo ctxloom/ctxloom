@@ -218,7 +218,8 @@ func runGomutants(p plan, sf shardFlags, outDir string, launcher []string, stdou
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 	outPath := filepath.Join(tmp, "gomutants.json")
-	argv := append(append([]string(nil), launcher...), "--output", outPath)
+	argv := append(append([]string(nil), launcher...), progressArgs(launcher, isTerminal(stdout))...)
+	argv = append(argv, "--output", outPath)
 	if !sf.scope.tree {
 		argv = append(argv, "--changed-since", sf.scope.base)
 	}
@@ -239,6 +240,37 @@ func runGomutants(p plan, sf shardFlags, outDir string, launcher []string, stdou
 		return nil, fmt.Errorf("%w: gomutants exited 0 and wrote no report", errMeasuredNothing)
 	}
 	return raw, err
+}
+
+// progressArgs is the progress flag gomutants is handed. Off a terminal,
+// gomutants prints nothing between discovery and the summary unless --verbose,
+// so a logged multi-hour run reads as a hang; on a terminal its progress bar is
+// left alone. A verbosity the launcher already names is the caller's choice and
+// is kept: --verbose beside a --quiet is a gomutants usage error. A `quiet:` in
+// .gomutants.yml needs no check here, since gomutants lets quiet win over verbose.
+func progressArgs(launcher []string, tty bool) []string {
+	if tty {
+		return nil
+	}
+	for _, a := range launcher {
+		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if strings.HasPrefix(a, "-") && (name == "v" || name == "verbose" || name == "q" || name == "quiet") {
+			return nil
+		}
+	}
+	return []string{"--verbose"}
+}
+
+// isTerminal is gomutants' own test of its stdout (report.NewTerminal): an
+// *os.File that is a character device. The child is handed w itself, so this
+// is the stream gomutants writes to and the answer it will reach.
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 // aggregateFlags is everything `aggregate` is told.

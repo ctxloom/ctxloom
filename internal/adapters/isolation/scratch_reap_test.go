@@ -28,11 +28,20 @@ func scratchDirs(t *testing.T, parent, prefix string) []string {
 	return out
 }
 
+// writeScratchLock puts dir's owner lock file in place, unlocked: the state a
+// dead owner leaves behind, and the one a live owner's dir is in between its
+// lock file's creation and its lock.
+func writeScratchLock(t *testing.T, dir string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ownedScratchLockName), nil, 0o600))
+}
+
 // TestNewOwnedScratch_ReclaimsAfterReaperWinsClaimRace: a reaper can see a
-// dir in the instant between its creation and its owner's lock, find it
-// unlocked, and delete it. The owner must notice and claim a fresh dir — never
-// carry on in a deleted one. The race is forced through the scratchCreated
-// seam: the reaper runs exactly in that instant, once.
+// dir in the instant between its owner creating the lock file and locking it,
+// find it unlocked, and delete it. The owner must notice and claim a fresh
+// dir — never carry on in a deleted one. The race is forced through the
+// scratchCreated seam: the lock file is put in place unlocked (as the owner's
+// open has just made it) and the reaper runs exactly then, once.
 func TestNewOwnedScratch_ReclaimsAfterReaperWinsClaimRace(t *testing.T) {
 	parent := t.TempDir()
 	const prefix = "ctxloom-claimrace-"
@@ -41,6 +50,7 @@ func TestNewOwnedScratch_ReclaimsAfterReaperWinsClaimRace(t *testing.T) {
 	scratchCreated = func(dir string) {
 		if len(raced) == 0 {
 			raced = append(raced, dir)
+			writeScratchLock(t, dir)
 			reapDeadScratch(safefs.New().Locks, parent, prefix)
 		}
 	}
@@ -68,6 +78,7 @@ func TestReapDeadScratch_DeletesOnlyWhileHoldingLock(t *testing.T) {
 	const prefix = "ctxloom-reaphold-"
 	dead := filepath.Join(parent, prefix+"dead")
 	require.NoError(t, os.Mkdir(dead, 0o700))
+	writeScratchLock(t, dead)
 
 	var (
 		removed     []string
@@ -111,7 +122,8 @@ func awaitStep(ch <-chan struct{}, what string) error {
 // Whatever the platform makes of that, the owner must end up holding a lock
 // on a dir that exists, with nothing left behind.
 //
-// Forced, not waited for: scratchCreated runs the reaper up to its delete and
+// Forced, not waited for: scratchCreated puts the lock file in place
+// unlocked, as the owner's open has just made it, and runs the reaper up to its delete and
 // parks it there, holding the lock; the owner's first attempt meets that hold
 // (scratchContended), which releases the delete, and the owner then waits for
 // the reaper to finish its delete, unlock and second pass before it retries.
@@ -150,6 +162,7 @@ func TestNewOwnedScratch_OwnerContendingInsideReapersHoldNeverContinuesInDeleted
 			return
 		}
 		raced = dir
+		writeScratchLock(t, dir)
 		go func() { defer close(reaperDone); reapDeadScratch(safefs.New().Locks, parent, prefix) }()
 		holdErr = awaitStep(inHold, "the reaper to reach its delete")
 	}
@@ -200,4 +213,97 @@ func TestNewOwnedScratch_IsOwnerOnly(t *testing.T) {
 	t.Cleanup(s.release)
 
 	require.NoError(t, safefs.New().Private.Check(s.dir))
+}
+
+// foreignDir makes a directory under parent that the reaper must never
+// remove, holding a file a removal would take with it, and returns its path.
+func foreignDir(t *testing.T, parent, name string) string {
+	t.Helper()
+	dir := filepath.Join(parent, name)
+	require.NoError(t, os.Mkdir(dir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "state"), []byte("not ours"), 0o600))
+	return dir
+}
+
+// TestReapDeadScratch_RemovesOnlyItsOwnDeadScratch: the reaper's parent is
+// typically the user's LIVE runtime dir, shared with other daemons. Beside a
+// genuine dead scratch dir it must leave every other entry exactly as it
+// was: a foreign dir (rootless docker's state lives in one), a dir carrying
+// the prefix but not the owner lock file only ctxloom writes, another
+// scratch kind's dead dir, and a prefix-named dir whose "lock file" is a
+// directory. Nor may it create a lock file anywhere it does not reap.
+func TestReapDeadScratch_RemovesOnlyItsOwnDeadScratch(t *testing.T) {
+	parent := t.TempDir()
+	const prefix = secretScratchPrefix
+
+	genuine := filepath.Join(parent, prefix+"dead")
+	require.NoError(t, os.Mkdir(genuine, 0o700))
+	writeScratchLock(t, genuine)
+
+	unprefixed := foreignDir(t, parent, "docker")
+	unmarked := foreignDir(t, parent, prefix+"nolock")
+	otherKind := foreignDir(t, parent, "ctxloom-otherkind-dead")
+	writeScratchLock(t, otherKind)
+	lockIsDir := foreignDir(t, parent, prefix+"lockdir")
+	require.NoError(t, os.Mkdir(filepath.Join(lockIsDir, ownedScratchLockName), 0o700))
+	foreign := []string{unprefixed, unmarked, otherKind, lockIsDir}
+
+	reapDeadScratch(safefs.New().Locks, parent, "")
+	assert.DirExists(t, genuine, "an empty prefix names nothing, not everything")
+
+	reapDeadScratch(safefs.New().Locks, parent, prefix)
+
+	assert.NoDirExists(t, genuine, "the dead scratch is reaped")
+	for _, dir := range foreign {
+		assert.FileExists(t, filepath.Join(dir, "state"), "%s is not the reaper's to remove", filepath.Base(dir))
+	}
+	for _, dir := range []string{unprefixed, unmarked} {
+		assert.NoFileExists(t, filepath.Join(dir, ownedScratchLockName), "the reaper created no lock file in %s", filepath.Base(dir))
+	}
+}
+
+// TestScratchCandidates: candidacy holds on its own — only a prefix-named
+// real directory already holding the owner lock file as a regular file is
+// ever a candidate, and an empty prefix names nothing.
+func TestScratchCandidates(t *testing.T) {
+	parent := t.TempDir()
+	const prefix = secretScratchPrefix
+	genuine := filepath.Join(parent, prefix+"dead")
+	require.NoError(t, os.Mkdir(genuine, 0o700))
+	writeScratchLock(t, genuine)
+	writeScratchLock(t, foreignDir(t, parent, "docker"))
+	foreignDir(t, parent, prefix+"nolock")
+	lockIsDir := foreignDir(t, parent, prefix+"lockdir")
+	require.NoError(t, os.Mkdir(filepath.Join(lockIsDir, ownedScratchLockName), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(parent, prefix+"file"), nil, 0o600))
+
+	assert.Equal(t, []string{genuine}, scratchCandidates(parent, prefix))
+	assert.Empty(t, scratchCandidates(parent, ""), "an empty prefix names nothing")
+}
+
+// TestIsScratchDir: the check made immediately before every delete holds on
+// its own — a dir passes only when it is directly under parent, carries the
+// prefix and holds the owner lock file as a regular file.
+func TestIsScratchDir(t *testing.T) {
+	parent := t.TempDir()
+	const prefix = secretScratchPrefix
+	genuine := filepath.Join(parent, prefix+"dead")
+	require.NoError(t, os.Mkdir(genuine, 0o700))
+	writeScratchLock(t, genuine)
+	otherKind := foreignDir(t, parent, "ctxloom-otherkind-dead")
+	writeScratchLock(t, otherKind)
+	nested := filepath.Join(otherKind, prefix+"nested")
+	require.NoError(t, os.Mkdir(nested, 0o700))
+	writeScratchLock(t, nested)
+	lockIsDir := foreignDir(t, parent, prefix+"lockdir")
+	require.NoError(t, os.Mkdir(filepath.Join(lockIsDir, ownedScratchLockName), 0o700))
+
+	assert.True(t, isScratchDir(parent, prefix, genuine))
+	assert.False(t, isScratchDir(parent, "", genuine), "an empty prefix")
+	assert.False(t, isScratchDir(parent, prefix, foreignDir(t, parent, "docker")), "no prefix, no lock file")
+	assert.False(t, isScratchDir(parent, prefix, foreignDir(t, parent, prefix+"nolock")), "no lock file")
+	assert.False(t, isScratchDir(parent, prefix, otherKind), "another prefix")
+	assert.False(t, isScratchDir(parent, prefix, nested), "not directly under parent")
+	assert.False(t, isScratchDir(parent, prefix, lockIsDir), "the lock file is not a regular file")
+	assert.False(t, isScratchDir(parent, prefix, filepath.Join(parent, prefix+"gone")), "missing")
 }

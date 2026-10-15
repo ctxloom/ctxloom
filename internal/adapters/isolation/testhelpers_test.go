@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/pkg/clifmt/clidiag"
 )
@@ -87,7 +88,45 @@ func TestMain(m *testing.M) {
 	UseFacts(&overlayFacts{entries: map[string]EngineFacts{
 		claude.EngineName: FactsOf(claudeKind),
 	}})
-	os.Exit(testsupport.SandboxedMain(m))
+	removeRuntimeDir := redirectLiveRuntimeDir()
+	code := testsupport.SandboxedMain(m)
+	removeRuntimeDir()
+	os.Exit(code)
+}
+
+// redirectLiveRuntimeDir makes the user's LIVE runtime dir unreachable as a
+// secrets parent for every test in this binary: wherever the platform would
+// answer the $XDG_RUNTIME_DIR this process started with, it answers a
+// private temp dir instead. The scratch reaper sweeps the parent it is
+// given, and the live one holds other daemons' state (rootless docker's and
+// podman's) — a reaper mutant reaching it once wedged the docker daemon.
+// Isolate does not clear XDG_RUNTIME_DIR, so without this every container
+// prepare that does not set its own would land there. A test that sets its
+// own (t.Setenv, or "" for the on-disk fallback) is answered as before. The
+// env itself is left alone, so a runtime CLI a test runs still reaches the
+// real daemons. It returns the removal of the private dir.
+func redirectLiveRuntimeDir() func() {
+	private, err := os.MkdirTemp("", "xrt")
+	if err != nil {
+		panic("isolation tests: private runtime dir: " + err.Error())
+	}
+	hostOS = liveRuntimeRedirect{Host: hostOS, live: os.Getenv("XDG_RUNTIME_DIR"), private: private}
+	return func() { _ = os.RemoveAll(private) }
+}
+
+// liveRuntimeRedirect is a host whose per-user tmpfs is private wherever the
+// wrapped host would answer live.
+type liveRuntimeRedirect struct {
+	platform.Host
+	live, private string
+}
+
+func (h liveRuntimeRedirect) PrivateTmpfs(getenv func(string) string) (string, bool) {
+	dir, ok := h.Host.PrivateTmpfs(getenv)
+	if ok && h.live != "" && filepath.Clean(dir) == filepath.Clean(h.live) {
+		return h.private, true
+	}
+	return dir, ok
 }
 
 // overlayFacts is the test binary's Facts: staged entries over whatever the

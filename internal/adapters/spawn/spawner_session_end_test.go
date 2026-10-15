@@ -148,8 +148,9 @@ func TestProdSpawner_AnEndBeforeAnyRunStartedStillEndsTheSession(t *testing.T) {
 	assert.Equal(t, []string{"refused-harp", "unstarted-harp"}, ended)
 }
 
-// A session's accounting that fails is warned about, naming the harp; one
-// that succeeds is not. Both are best-effort: the run goes on either way.
+// A session's accounting (its lock, its run's end record, its end) that
+// fails is warned about, naming the harp; one that succeeds is not. All are
+// best-effort: the run goes on either way.
 func TestProdSpawner_SessionAccountingWarnsOnlyWhenItFails(t *testing.T) {
 	for name, fail := range map[string]bool{"succeeds": false, "fails": true} {
 		t.Run(name, func(t *testing.T) {
@@ -161,18 +162,20 @@ func TestProdSpawner_SessionAccountingWarnsOnlyWhenItFails(t *testing.T) {
 			}
 			s.holdLock = func(string) error { return err }
 			s.endSession = func(string, time.Time) error { return err }
+			s.recordRunEnd = func(string, sessions.RunEnd) error { return err }
 
 			s.claimSession("acct-harp", "run-1")
-			s.MarkSessionEnded("acct-harp", "run-1", nil)
+			s.MarkSessionEnded("acct-harp", "run-1", &sessions.RunEnd{RunID: "run-1", Cause: "runner-loss"})
 
 			texts := findings.All().Texts()
 			if !fail {
 				assert.Empty(t, texts, "accounting that succeeded is not warned about")
 				return
 			}
-			require.Len(t, texts, 2, "the lock and the end each warn: %q", texts)
+			require.Len(t, texts, 3, "the lock, the run's end record and the session end each warn: %q", texts)
 			assert.Contains(t, texts[0], "cannot hold its session's liveness lock")
-			assert.Contains(t, texts[1], "agent acct-harp: end session: disk full")
+			assert.Contains(t, texts[1], "agent acct-harp: record how run run-1 ended (runner-loss): disk full")
+			assert.Contains(t, texts[2], "agent acct-harp: end session: disk full")
 		})
 	}
 }

@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
@@ -296,4 +298,146 @@ func TestMidTurnMail_AMessageItsTurnHasClaimedIsNotPeeked(t *testing.T) {
 	home.mu.Unlock()
 	require.True(t, home.claimTurnMail(peek.IDs[0]))
 	assert.Empty(t, home.PeekMail(7500).IDs)
+}
+
+// TestHookReachEnv_AnUnusableEndpointRefusesOnlyAnApprovedLaunch: an endpoint
+// with no address the hook could reach refuses the launch when approvals
+// route through that hook; without approvals the launch goes ahead with no
+// hook address, losing only mid-turn mail.
+func TestHookReachEnv_AnUnusableEndpointRefusesOnlyAnApprovedLaunch(t *testing.T) {
+	var l launch.Launch
+	l.MCP = sessions.Endpoint{URL: "no-host-here", Credential: "bearer"}
+
+	env, err := hookReachEnv(l, &approvalSpec{})
+	require.ErrorContains(t, err, "has no address for the approval hook")
+	assert.Nil(t, env)
+
+	env, err = hookReachEnv(l, nil)
+	require.NoError(t, err)
+	assert.Nil(t, env)
+}
+
+// waitLine is the line MidTurnMailContext writes for rest frames it could not
+// carry.
+func waitLine(rest int) string {
+	return fmt.Sprintf("ctxloom: %d more message(s) wait for you and did not fit here; they arrive at your next tool call or turn boundary.", rest)
+}
+
+// TestMidTurnMailContext_ExactShapes pins the rendered text byte for byte:
+// the lead only when a frame is carried, a blank line between the carried
+// frames and the waiting line only when both are there, and a cap met
+// exactly is a cap that fits.
+func TestMidTurnMailContext_ExactShapes(t *testing.T) {
+	long, short := strings.Repeat("L", 600), "S"
+
+	text, n := MidTurnMailContext([]string{long}, 400)
+	assert.Zero(t, n)
+	assert.Equal(t, waitLine(1), text, "no frame carried: no lead, no separator, the waiting line alone")
+
+	text, n = MidTurnMailContext([]string{short, long}, 400)
+	assert.Equal(t, 1, n)
+	assert.Equal(t, midTurnMailLead+"\n\n"+short+"\n\n"+waitLine(1), text)
+
+	all := midTurnMailLead + "\n\n" + short + "\n\n" + short
+	text, n = MidTurnMailContext([]string{short, short}, len(all))
+	assert.Equal(t, 2, n, "a context exactly the cap's size fits")
+	assert.Equal(t, all, text)
+}
+
+// TestMidTurnMail_AConfirmSkipsAnIdItsLeaseDoesNotHoldAndDeliversTheRest: an
+// id the lease never held confirms nothing, and does not stop the ids after
+// it from being delivered.
+func TestMidTurnMail_AConfirmSkipsAnIdItsLeaseDoesNotHoldAndDeliversTheRest(t *testing.T) {
+	_, home, _ := gatedRunOverHome(t)
+	mailArrives(t, home, "HELD")
+	peek := home.PeekMail(7500)
+	require.Len(t, peek.IDs, 1)
+	assert.Equal(t, 1, home.ConfirmMail(peek.Lease, append([]string{"never-leased"}, peek.IDs...)))
+}
+
+// TestMidTurnMail_AConfirmReleasesWhatItDidNotDeliver: a hook that wrote only
+// part of what it was handed leaves the rest free for the very next peek, not
+// held until the lease would have expired.
+func TestMidTurnMail_AConfirmReleasesWhatItDidNotDeliver(t *testing.T) {
+	_, home, _ := gatedRunOverHome(t)
+	mailArrives(t, home, "WRITTEN")
+	mailArrives(t, home, "NOT WRITTEN")
+	peek := home.PeekMail(7500)
+	require.Len(t, peek.IDs, 2)
+	require.Equal(t, 1, home.ConfirmMail(peek.Lease, peek.IDs[:1]))
+
+	again := home.PeekMail(7500)
+	assert.Equal(t, peek.IDs[1:], again.IDs, "the unwritten message is handed out again at once")
+	assert.Contains(t, again.Context, "NOT WRITTEN")
+}
+
+// TestHoldPending_TheOrderListIsCompactedOnlyPastItsBound: the arrival-order
+// list keeps ids already delivered until it holds more than twice the live
+// ones plus 16, and is then cut to the live ones.
+func TestHoldPending_TheOrderListIsCompactedOnlyPastItsBound(t *testing.T) {
+	msg := func(id string) *agentcoordpb.PeerMessage { return &agentcoordpb.PeerMessage{MessageId: id} }
+	// withStale is a Home holding "live" behind `stale` ids already delivered
+	// (still in the order list, gone from the pending set).
+	withStale := func(stale int) *Home {
+		h := &Home{}
+		h.ensureMailMapsLocked()
+		for i := range stale {
+			h.pendingOrder = append(h.pendingOrder, fmt.Sprintf("gone-%d", i))
+		}
+		h.pendingOrder = append(h.pendingOrder, "live")
+		h.pendingMail["live"] = msg("live")
+		return h
+	}
+
+	at := withStale(18) // after the next hold: 20 ids, 2 live — exactly 2*2+16
+	at.holdPendingLocked(msg("next"))
+	assert.Len(t, at.pendingOrder, 20, "at the bound the list is left alone")
+
+	past := withStale(19) // after the next hold: 21 ids, 2 live — one past it
+	past.holdPendingLocked(msg("next"))
+	assert.Equal(t, []string{"live", "next"}, past.pendingOrder, "past the bound only the live ids remain, in order")
+}
+
+// TestExpireMailLeases_ALeaseExpiresAtExactlyItsTTL: a lease is live for
+// strictly less than mailLeaseTTL; at the TTL its messages are free.
+func TestExpireMailLeases_ALeaseExpiresAtExactlyItsTTL(t *testing.T) {
+	t0 := time.Now()
+	leased := func() *Home {
+		h := &Home{}
+		h.ensureMailMapsLocked()
+		h.mailLeases["tok"] = mailLease{ids: []string{"m"}, at: t0}
+		h.leasedBy["m"] = "tok"
+		return h
+	}
+
+	h := leased()
+	h.expireMailLeasesLocked(t0.Add(mailLeaseTTL - time.Nanosecond))
+	assert.Contains(t, h.mailLeases, "tok", "just short of the TTL the lease holds")
+	assert.Equal(t, "tok", h.leasedBy["m"])
+
+	h = leased()
+	h.expireMailLeasesLocked(t0.Add(mailLeaseTTL))
+	assert.NotContains(t, h.mailLeases, "tok", "at the TTL the lease is gone")
+	assert.NotContains(t, h.leasedBy, "m", "and its message is free")
+}
+
+// TestExpireMailLeases_ALiveLeaseDoesNotShieldAnExpiredOne: one pass frees
+// every expired lease, whatever live leases it meets first.
+func TestExpireMailLeases_ALiveLeaseDoesNotShieldAnExpiredOne(t *testing.T) {
+	now := time.Now()
+	// Map order is random: enough trials that a pass stopping at the first
+	// live lease it meets cannot get past them all by luck.
+	for trial := range 50 {
+		h := &Home{}
+		h.ensureMailMapsLocked()
+		for i := range 7 {
+			h.mailLeases[fmt.Sprintf("live-%d", i)] = mailLease{at: now}
+		}
+		h.mailLeases["dead"] = mailLease{ids: []string{"m"}, at: now.Add(-mailLeaseTTL)}
+		h.leasedBy["m"] = "dead"
+		h.expireMailLeasesLocked(now)
+		require.NotContains(t, h.mailLeases, "dead", "trial %d", trial)
+		require.NotContains(t, h.leasedBy, "m", "trial %d", trial)
+		require.Len(t, h.mailLeases, 7, "trial %d: the live leases stay", trial)
+	}
 }

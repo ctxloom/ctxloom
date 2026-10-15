@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // Unread is what a parent's roster reads off a child's inbox to say "this
@@ -56,6 +58,24 @@ func TestUnread_ACopyAlreadyRecordedAsDeliveredIsNotUnread(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, recordDelivered(afero.NewOsFs(), entry, "done"))
 	assert.Zero(t, unreadOf(t, m))
+}
+
+// With nothing waiting there is nothing to subtract: Unread does not consult
+// the delivered record at all, so a record it could not list (here a file
+// where its directory belongs) does not turn "no mail" into an error.
+func TestUnread_NothingWaitingNeverReadsTheDeliveredRecord(t *testing.T) {
+	hostHome(t)
+	m := NewHomeMapper()
+	dir, err := deliveredDir(m, testHarp)
+	require.NoError(t, err)
+	fs := afero.NewOsFs()
+	testsupport.WriteFile(t, fs, dir, []byte("not a directory"), 0o600)
+	_, err = DeliveredIdentities(fs, m, testHarp)
+	require.Error(t, err, "premise: the delivered record cannot be listed")
+
+	n, err := Unread(fs, m, testHarp)
+	require.NoError(t, err)
+	assert.Zero(t, n)
 }
 
 // HasMail is the mail-peek hook's cheap check, made before it asks anyone

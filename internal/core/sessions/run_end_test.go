@@ -94,6 +94,9 @@ func TestManager_RecordRunEnd_KeepsTheNewestBounded(t *testing.T) {
 
 func TestMemStore_RecordRunEnd_MatchesTheManager(t *testing.T) {
 	s := NewMemStore()
+	// An entry ahead of the one recorded on: the end is found past it.
+	other, err := s.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
 	e, err := s.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, s.RecordRunEnd(e.HarpName, RunEnd{RunID: "run-1", Cause: "runner-loss"}))
@@ -105,6 +108,9 @@ func TestMemStore_RecordRunEnd_MatchesTheManager(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, found.RunEnds, MaxRunEnds)
 	assert.Equal(t, "later-0", found.RunEnds[0].RunID)
+	untouched, err := s.Find(other.HarpName)
+	require.NoError(t, err)
+	assert.Empty(t, untouched.RunEnds, "only the named entry records the end")
 
 	assert.Error(t, s.RecordRunEnd("no-such-harp", RunEnd{RunID: "r"}))
 }

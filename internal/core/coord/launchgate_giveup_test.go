@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -52,6 +53,61 @@ func TestGiveUpLaunching_NotifiesTheParentForANonLaunchCause(t *testing.T) {
 	assert.Contains(t, body, "without consuming any of its mail",
 		"the notice must describe the attach-then-die shape, not a launch failure")
 	assert.Contains(t, body, "still waiting", "and say that the child's mail is stranded")
+}
+
+// TestGiveUpLaunching_ALaunchFailureNotRefusedSaysItWasRetried: a budget
+// spent on launch failures that no refusal decided was retried to its limit,
+// and the parent's notice says so — not that a refusal made retrying
+// pointless, which is the notice only a refused launch earns.
+func TestGiveUpLaunching_ALaunchFailureNotRefusedSaysItWasRetried(t *testing.T) {
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
+	parent := ownerIdentity().Harp
+	rec := RunRecord{RunID: "run-1", Harp: "flaky-harp", Agent: "worker", ParentHarp: parent, Ended: true, Cause: CauseLaunchFailed}
+
+	c.giveUpLaunching(rec, CauseLaunchFailed, "image pull timed out")
+
+	msgs, err := spoolMail(t, c, parent, 2*time.Second)
+	if !assert.NoError(t, err, "the parent must be told its child's launcher gave up") {
+		return
+	}
+	var body string
+	for _, m := range msgs {
+		if m.Kind == "error" {
+			body = m.Body
+		}
+	}
+	assert.Contains(t, body, fmt.Sprintf("failed to launch %d times in a row", c.maxLaunchAttempts))
+	assert.NotContains(t, body, "was refused at launch")
+	assert.Contains(t, body, "image pull timed out")
+}
+
+// TestGiveUpLaunching_ARefusedLaunchSaysItWasNotRetried: a launch failure a
+// refusal decided was tried once, and the parent's notice says a retry could
+// not change it, not that it failed the whole budget's worth of times.
+func TestGiveUpLaunching_ARefusedLaunchSaysItWasNotRetried(t *testing.T) {
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
+	parent := ownerIdentity().Harp
+	const harp = "refused-harp"
+	c.mu.Lock()
+	c.launchGateLocked(harp).refused = true
+	c.mu.Unlock()
+	rec := RunRecord{RunID: "run-1", Harp: harp, Agent: "worker", ParentHarp: parent, Ended: true, Cause: CauseLaunchFailed}
+
+	c.giveUpLaunching(rec, CauseLaunchFailed, "image not allowed")
+
+	msgs, err := spoolMail(t, c, parent, 2*time.Second)
+	if !assert.NoError(t, err, "the parent must be told its child's launcher gave up") {
+		return
+	}
+	var body string
+	for _, m := range msgs {
+		if m.Kind == "error" {
+			body = m.Body
+		}
+	}
+	assert.Contains(t, body, "was refused at launch, and a retry cannot change that refusal, so it was not retried")
+	assert.NotContains(t, body, "times in a row")
+	assert.Contains(t, body, "image not allowed")
 }
 
 // TestGiveUpLaunching_StaysSilentForAnOperatorStop is F04's other half: a

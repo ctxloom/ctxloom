@@ -4,7 +4,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/spool"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // rosterUnread is harp's unread count as each roster projection reports it:
@@ -54,4 +59,24 @@ func TestRoster_CountsAChildsUnreadMailUntilItsTurnTakesIt(t *testing.T) {
 		in, wire := rosterUnread(c, out.Harp)
 		return in == 0 && wire == 0
 	}, conformanceWait, 10*time.Millisecond, "mail the child's turn took is no longer unread")
+}
+
+// TestUnreadMail_WarnsOnlyWhenTheInboxCannotBeRead: an inbox the roster
+// cannot read counts as empty and says so; one it reads (here, one never
+// created) is counted without a word.
+func TestUnreadMail_WarnsOnlyWhenTheInboxCannotBeRead(t *testing.T) {
+	resetStrictness(t)
+	var findings report.Collector
+	c := newTestCoordinatorWith(t, newFakeSpawner(t, nil, nil), func(o *Options) { o.Reporter = &findings })
+
+	assert.Zero(t, c.unreadMail("quiet-harp"))
+	assert.Empty(t, findings.All().Texts(), "a readable inbox is not warned about")
+
+	in, err := spool.DirPath(c.mapper, "broken-harp", spool.DirIn)
+	require.NoError(t, err)
+	testsupport.WriteFile(t, c.root.Fs, in, []byte("not a directory"), 0o600)
+	assert.Zero(t, c.unreadMail("broken-harp"))
+	texts := findings.All().Texts()
+	require.Len(t, texts, 1)
+	assert.Contains(t, texts[0], "coordinator: counting broken-harp's unread mail")
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -347,4 +348,139 @@ func (s *fakeSpawner) runEndFor(t *testing.T, harp, runID string) sessions.RunEn
 		return false
 	}, conformanceWait, 10*time.Millisecond, "no run end was recorded for %s's run %s", harp, runID)
 	return *got
+}
+
+// runnerHeld is a runner process that runs until the coordinator releases it.
+func runnerHeld(released <-chan struct{}) error {
+	<-released
+	return nil
+}
+
+// TestRunEnd_ASignalledExitCarriesItsCodeAndACodelessOneNone: an engine
+// killed by a signal reports the signal, and its status when it has one — 137
+// is recorded; a signal with status 0 carries no status to record, so the end
+// records none rather than a clean 0.
+func TestRunEnd_ASignalledExitCarriesItsCodeAndACodelessOneNone(t *testing.T) {
+	for name, tc := range map[string]struct {
+		code int32
+		want *int32
+	}{
+		"with a status": {code: 137, want: func() *int32 { v := int32(137); return &v }()},
+		"no status":     {code: 0, want: nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rig := newRunEndRig(t, runnerHeld)
+			var cred string
+			rig.c.runs.View(func() { cred = rig.c.runsF.run(rig.run.RunID).CredHash })
+
+			rig.c.RunnerExited(cred, RunExited{RunID: rig.run.RunID, Signal: "SIGKILL", ExitCode: tc.code})
+
+			res := rig.terminal(t)
+			assert.Equal(t, tc.want, res.ExitCode)
+			assert.Equal(t, tc.want, rig.record(t).ExitCode)
+		})
+	}
+}
+
+// TestRunEndStatus_OnlyALossWithNoReportedStatusAwaitsTheRunner: the runner
+// process's exit is awaited (and folded into the detail) only for a run
+// declared lost whose engine reported no status, and only while the run has
+// not already ended. Every other end is answered at once, its detail as given.
+func TestRunEndStatus_OnlyALossWithNoReportedStatusAwaitsTheRunner(t *testing.T) {
+	rig := newRunEndRig(t, runnerHeld)
+	c, runID := rig.c, rig.run.RunID
+	c.runnerExitGrace = conformanceWait // an await would show as a stall and a changed detail
+
+	quick := func(cause string) (string, *int32) {
+		t.Helper()
+		start := time.Now()
+		detail, code := c.runEndStatus(runID, cause, "the detail")
+		require.Less(t, time.Since(start), conformanceWait/2, "%s: the runner's exit was awaited", cause)
+		return detail, code
+	}
+
+	detail, code := quick(CauseStopped)
+	assert.Equal(t, "the detail", detail, "a coordinator-decided end is not the runner's to describe")
+	assert.Nil(t, code)
+
+	reported := int32(5)
+	c.mu.Lock()
+	c.attach[runID].reportedExit = &reported
+	c.mu.Unlock()
+	detail, code = quick(CauseRunnerLoss)
+	assert.Equal(t, "the detail", detail, "the engine's own status is the run's")
+	assert.Equal(t, &reported, code)
+	c.mu.Lock()
+	c.attach[runID].reportedExit = nil
+	c.mu.Unlock()
+
+	// A terminal already won: this end will not be recorded, so nothing waits.
+	// Set (and later cleared) under the store's write lock, journaling nothing.
+	setEnded := func(ended bool) {
+		require.NoError(t, c.runs.Exec(func() ([]Fact, error) {
+			c.runsF.run(runID).Ended = ended
+			return nil, nil
+		}))
+	}
+	setEnded(true)
+	defer setEnded(false)
+	detail, code = quick(CauseRunnerLoss)
+	assert.Equal(t, "the detail", detail)
+	assert.Nil(t, code)
+}
+
+// TestJoinDetail: more is appended to a detail after "; ", and stands alone
+// when there is no detail.
+func TestJoinDetail(t *testing.T) {
+	assert.Equal(t, "more", joinDetail("", "more"))
+	assert.Equal(t, "detail; more", joinDetail("detail", "more"))
+}
+
+// TestDescribeRunnerExit names each of the runner process's three ends.
+func TestDescribeRunnerExit(t *testing.T) {
+	assert.Equal(t, "runner process still running when the run was ended (the coordinator ended it)", describeRunnerExit(nil, false))
+	assert.Equal(t, "runner process exited with status 0", describeRunnerExit(nil, true))
+	assert.Equal(t, "runner process: boom", describeRunnerExit(errors.New("boom"), true))
+}
+
+// TestLaunchFailureWarning_PointsBackOnlyWhenItHasASummary: a refusal whose
+// findings the stream already showed is named by its summary; one marked
+// Streamed with no summary has nothing to name, so the full detail is
+// written, as for any other error.
+func TestLaunchFailureWarning_PointsBackOnlyWhenItHasASummary(t *testing.T) {
+	base := errors.New("refused")
+	assert.Equal(t, "launch refused (the findings and their fixes are reported above)",
+		launchFailureWarning(report.Streamed{Err: base, Summary: "launch refused"}, "the detail"))
+	assert.Equal(t, "the detail", launchFailureWarning(report.Streamed{Err: base}, "the detail"))
+	assert.Equal(t, "the detail", launchFailureWarning(base, "the detail"))
+}
+
+// TestWithEndCause_ACompletionWithNoResultIsPassedThrough: a RunCompleted
+// carrying no Result has nothing to fill in, and is handed on untouched.
+func TestWithEndCause_ACompletionWithNoResultIsPassedThrough(t *testing.T) {
+	ev := Event{RunID: "run-1", Payload: RunCompleted{}}
+	assert.Equal(t, ev, (&Coordinator{}).withEndCause("run-1", ev))
+}
+
+// TestRunnerExitReason: a runner not yet exited is not dead; one that exited
+// with an error is dead for that error; one that exited cleanly is dead too,
+// and says it never dialed home.
+func TestRunnerExitReason(t *testing.T) {
+	exited := func(err error) *runnerExit {
+		x := &runnerExit{done: make(chan struct{}), err: err}
+		close(x.done)
+		return x
+	}
+
+	reason, dead := runnerExitReason(&runnerExit{done: make(chan struct{})})
+	assert.False(t, dead)
+	assert.Empty(t, reason)
+
+	reason, dead = runnerExitReason(exited(errors.New("signal: killed")))
+	assert.True(t, dead)
+	assert.Equal(t, "signal: killed", reason)
+
+	reason, dead = runnerExitReason(exited(nil))
+	assert.True(t, dead)
+	assert.Equal(t, "runner process exited cleanly (status 0) without ever dialing home", reason)
 }

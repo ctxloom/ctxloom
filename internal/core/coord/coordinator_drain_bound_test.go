@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // ONE POLICY, TWO BOUNDS. Every coordinator wait is either BOUNDED or
@@ -482,4 +484,23 @@ func TestBeginDrain_CloseSweepLandingBeforeAPassStillOvertakes(t *testing.T) {
 	assert.Equal(t, []string{harp}, out.Interrupted, "the child Close ended mid-turn was interrupted, not exited")
 	assert.Empty(t, out.Exited)
 	assert.True(t, out.Overtaken, "Close cut the drain short: the bound never elapsed")
+}
+
+// TestWarnDrainOutcome_NamesTheBoundOnlyWhenItElapsed: a drain that
+// interrupted nothing warns nothing; one whose bound elapsed says how long it
+// waited; one Close overtook says the coordinator closed, and never names a
+// bound that did not elapse.
+func TestWarnDrainOutcome_NamesTheBoundOnlyWhenItElapsed(t *testing.T) {
+	p := drainPolicy{label: "coordinator drain"}
+	warned := func(outcome DrainOutcome) []string {
+		var findings report.Collector
+		(&Coordinator{rep: report.To(&findings)}).warnDrainOutcome(p, 10*time.Minute, outcome)
+		return findings.All().Texts()
+	}
+
+	assert.Empty(t, warned(DrainOutcome{Exited: []string{"child-a"}}), "nothing interrupted, nothing to warn of")
+	assert.Equal(t, []string{"coordinator drain: 2 child(ren) still running after 10m0s were interrupted: child-a, child-b"},
+		warned(DrainOutcome{Interrupted: []string{"child-a", "child-b"}}))
+	assert.Equal(t, []string{"coordinator drain: 1 child(ren) still running were interrupted when the coordinator closed: child-a"},
+		warned(DrainOutcome{Interrupted: []string{"child-a"}, Overtaken: true}))
 }

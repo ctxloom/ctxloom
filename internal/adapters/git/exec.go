@@ -156,7 +156,10 @@ func (execGit) MergedBranches(ctx context.Context, repoDir, ref string) ([]Branc
 	var branches []Branch
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" {
+		// A detached HEAD (or a rebase/bisect in progress) is listed too, as
+		// git's pseudo-entry "(HEAD detached at <sha>)": no branch, so skipped
+		// rather than refused — refusing it failed every detached checkout.
+		if line == "" || strings.HasPrefix(line, "(") {
 			continue
 		}
 		b, err := ParseBranch(line)

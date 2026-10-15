@@ -541,6 +541,24 @@ func TestExecGit_MergedBranches(t *testing.T) {
 		"an empty ref must resolve to repoDir's own current branch, same as explicitly naming it")
 }
 
+// TestExecGit_MergedBranches_OnADetachedHead: a detached HEAD lists git's
+// pseudo-entry "(HEAD detached at <sha>)" FIRST among the merged branches.
+// It is no branch, so it is skipped — every real branch after it is still
+// reported, and the detached checkout is no error.
+func TestExecGit_MergedBranches_OnADetachedHead(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	repo := initRepo(t)
+	gitIn(t, repo, "branch", "merged-branch")
+	gitIn(t, repo, "checkout", "-q", "--detach")
+
+	merged, err := NewExec().MergedBranches(context.Background(), repo, "")
+	require.NoError(t, err, "a detached checkout is no error")
+	assert.ElementsMatch(t, []Branch{MustParseBranch("main"), MustParseBranch("merged-branch")}, merged,
+		"the branches after the detached pseudo-entry are all listed")
+}
+
 // TestExecGit_CommitAll_StagesAndVerifies proves the real commit lands
 // (staged tracked mod + untracked file both captured), advances HEAD, and
 // its self-reported changedFiles list is the actual post-commit diff —

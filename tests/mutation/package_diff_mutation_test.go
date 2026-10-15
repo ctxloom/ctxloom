@@ -154,3 +154,86 @@ func mutatedFiles(t *testing.T, shardReport string) []string {
 	}
 	return files
 }
+
+// TestDiff_MutatesExactlyTheChangedLines drives the REAL gremlins through the
+// plan `just test-mutation-diff BASE` runs, over a diff whose two edits sit
+// close enough for git's default three lines of context to merge them into one
+// hunk. gremlins derives ONE line range per hunk (start after the leading
+// context, length the added-line count), so a merged hunk scores the unchanged
+// line between the edits and never reaches the second edit. Both edits must be
+// mutated and the line between them must not.
+func TestDiff_MutatesExactlyTheChangedLines(t *testing.T) {
+	gremlins, err := exec.LookPath("gremlins")
+	if err != nil {
+		t.Fatalf("gremlins is not on PATH (%v) — `just test-mutation-install`", err)
+	}
+	repoInput(t, "scripts/mutshard/*.go", ".gremlins.yaml")
+	cfg, err := os.ReadFile(filepath.Join(repoRootFromTest(t), ".gremlins.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := fakeModule(t, map[string]string{
+		"go.mod":         labGoMod,
+		".gremlins.yaml": string(cfg),
+		"sub/sub.go":     "package sub\n\nfunc F(a, b int) []int {\n\treturn []int{\n\t\ta,\n\t\ta - b,\n\t\tb,\n\t\tb,\n\t}\n}\n",
+		"sub/sub_test.go": "package sub\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\n" +
+			"func TestF(t *testing.T) {\n\tif got := F(3, 2); !reflect.DeepEqual(got, []int{4, 1, 2, 4}) {\n\t\tt.Fatal(got)\n\t}\n}\n",
+	})
+	mustGit(t, src, "init", "-q", "-b", "main")
+	mustGit(t, src, "add", "-A")
+	mustGit(t, src, "commit", "-q", "-m", "base")
+	// Lines 5 and 8 change; line 6 (mutable) and line 7 do not.
+	const firstEdit, unchanged, secondEdit = 5, 6, 8
+	writeFile(t, src, "sub/sub.go", "package sub\n\nfunc F(a, b int) []int {\n\treturn []int{\n\t\ta + 1,\n\t\ta - b,\n\t\tb,\n\t\tb * 2,\n\t}\n}\n")
+
+	t.Setenv("TMPDIR", t.TempDir())
+	mutshard := buildMutshard(t)
+	reports := t.TempDir()
+	runIn(t, src, mutshard, "run", "-scope", "diff:main", "-out", reports, "--", gremlins)
+
+	lines := mutatedLines(t, filepath.Join(reports, "shard-0.json"), "sub/sub.go")
+	for _, l := range []int{firstEdit, secondEdit} {
+		if !lines[l] {
+			t.Errorf("changed line %d was not mutated (mutated lines: %v)", l, lines)
+		}
+	}
+	if lines[unchanged] {
+		t.Errorf("unchanged line %d between the edits was mutated (mutated lines: %v)", unchanged, lines)
+	}
+}
+
+// mutatedLines is the set of lines of file on which the shard report's
+// gremlins result tested a mutant. A mutant outside the diff is listed too,
+// SKIPPED, so it is not counted.
+func mutatedLines(t *testing.T, shardReport, file string) map[int]bool {
+	t.Helper()
+	b, err := os.ReadFile(shardReport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r struct {
+		Gremlins struct {
+			Files []struct {
+				Name      string `json:"file_name"`
+				Mutations []struct {
+					Line   int    `json:"line"`
+					Status string `json:"status"`
+				} `json:"mutations"`
+			} `json:"files"`
+		} `json:"gremlins"`
+	}
+	if err := json.Unmarshal(b, &r); err != nil {
+		t.Fatalf("%s: %v", shardReport, err)
+	}
+	lines := map[int]bool{}
+	for _, f := range r.Gremlins.Files {
+		if f.Name == file {
+			for _, m := range f.Mutations {
+				if m.Status != "SKIPPED" {
+					lines[m.Line] = true
+				}
+			}
+		}
+	}
+	return lines
+}

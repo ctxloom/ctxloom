@@ -35,6 +35,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -236,6 +237,9 @@ func runGremlins(cfg *gremlinsConfig, p plan, sf shardFlags, outDir string, laun
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
+	if !sf.scope.tree {
+		cmd.Env = zeroDiffContext(os.Environ())
+	}
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("gremlins: %w", err)
 	}
@@ -244,6 +248,37 @@ func runGremlins(cfg *gremlinsConfig, p plan, sf shardFlags, outDir string, laun
 		return nil, fmt.Errorf("%w: gremlins exited 0 and wrote no report (it found no mutant at all)", errMeasuredNothing)
 	}
 	return raw, err
+}
+
+// zeroDiffContext is env with git's diff.context set to 0, for gremlins --diff.
+// gremlins (v0.6.0, internal/diff) runs a porcelain `git diff --merge-base`
+// and derives ONE line range per hunk: from after the hunk's leading context,
+// as long as its added-line count. That is exact only when every hunk carries
+// zero context; with git's default three lines, nearby edits merge into one
+// hunk whose range covers unchanged lines between them and can miss later
+// edits (unmerged upstream fixes: go-gremlins/gremlins#302, #312). Zero context
+// makes git emit one hunk per change. The setting goes through
+// GIT_CONFIG_COUNT (git >= 2.31), appended after any the caller already set.
+func zeroDiffContext(env []string) []string {
+	n := 0
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "GIT_CONFIG_COUNT="); ok {
+			if c, err := strconv.Atoi(v); err == nil && c > 0 {
+				n = c
+			}
+		}
+	}
+	out := make([]string, 0, len(env)+3)
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "GIT_CONFIG_COUNT=") {
+			out = append(out, kv)
+		}
+	}
+	return append(out,
+		fmt.Sprintf("GIT_CONFIG_COUNT=%d", n+1),
+		fmt.Sprintf("GIT_CONFIG_KEY_%d=diff.context", n),
+		fmt.Sprintf("GIT_CONFIG_VALUE_%d=0", n),
+	)
 }
 
 func cmdAggregate(args []string, stdout, stderr io.Writer) error {

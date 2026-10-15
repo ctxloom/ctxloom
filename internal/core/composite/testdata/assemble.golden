@@ -2255,7 +2255,7 @@
 }
 == engine=mock-noskills profile=golden-auto consumer=materialized
 {
-  "context": "blob:b282e107b8deec9bb99a306e5495c4ef5f9a75152e54cb2461ed5bf8fc8f29ef",
+  "context": "blob:d96a6f85c8299414e85412b61657f997500d5a8ccd6631bc565313a363472d52",
   "fragments_loaded": [
     "ctxloom+local:ctxloom-project#fragments/turn-gates",
     "ctxloom+local:code-quality#fragments/tricky",
@@ -2481,7 +2481,7 @@
 }
 == engine=mock-noskills profile=golden-curated consumer=materialized
 {
-  "context": "blob:6dc7b487c03f826b0b994f2354b3c50842809a40680bed15f6d3124a8a7e7d53",
+  "context": "blob:3a161851a97650f7358244e9a1bacaf6aeb0e3ba29d7156587719862c8e15490",
   "fragments_loaded": [
     "ctxloom+local:ctxloom-project#fragments/turn-gates",
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
@@ -3352,130 +3352,7 @@ Scan the current project and discover matching ctxloom content from configured r
 
 If the user says "skip", acknowledge and let them know they can run `/discover` again later.
 
-== blob:4463890a217062b9bd6378428aa8f5df959d3281e0ee62ceb2248674b8b81c08
-ctxloom's own MCP server, served by the running session's endpoint.
-Nothing here is launched: the session's runner serves the endpoint
-and delivery writes its URL and bearer into the session's own
-registry at start, so no tracked project file ever carries the
-entry.
-
-== blob:53bdc0bb97990683f63114c7e0952ae64ca1c7edc59f135a56ee5ab61dba1084
-# Not all of this project's guidance is in your context
-
-CONDITIONAL fragments each carry a PREMISE (the situation they apply to) and
-are not loaded at launch. You have only the unconditional ones; the rest exist,
-and nothing fires when one becomes relevant. This fragment has no premise: it
-is the pointer to the ones you cannot see.
-
-**Why pulled, not pushed.** Assembled context is delivered once, at launch,
-and an in-process subagent inherits it wholesale. With no per-agent scoping, a
-pushed index fits nobody and never reaches a child ctxloom did not mediate. A
-catalog you ASK for has neither problem, and is answered at the only moment
-the answer means anything: when you have something to match against. The cost:
-an agent that does not know to ask never learns those fragments exist.
-
-**Ask.** `ctxloom fragment premises` lists every premised fragment, its
-condition, and the instruction for deciding between them. Over MCP the same
-menu is the `ctxloom://fragments` resource (each entry: its premise and the
-qualified ref to quote back); bodies come from `ctxloom://fragments/{name}`.
-Judge the premise, not the name: read the guidance the listing ships rather
-than guessing from a title.
-
-**Load.** `ctxloom fragment show <qualified-ref>`, or over MCP call
-`assemble_context` with the chosen names in its `bundles` argument.
-
-**When.** When you are about to ACT and this corpus might hold a rule about
-that action — not once at session start, and not against the conversation
-behind you. Ask again later in a long session: what you are about to do has
-changed, so the answer has too.
-
----
-
-# Say what you are looking for, and what you found
-
-Two short statements per tool call — not narration, but the only part of a
-tool interaction that survives compaction:
-
-- BEFORE: what you are trying to learn or change.
-- AFTER: what you actually learned, including "nothing" and "not what I
-  expected", which are results.
-
-**Why it is a rule.** Compaction reduces tool RESULTS to their shape
-(`[2,431 bytes, 47 lines]`): a truncated grep is neither the information nor
-a summary of it, and the content can be re-derived by asking again. What
-cannot be re-derived is what you were trying to find out and what the answer
-changed; omit it and the essence records only that a command ran. Measured on
-this project's transcripts: tool traffic is 50-69% of a session; Bash's
-required `description` covers the BEFORE half (100% of 1,286 calls), but the
-AFTER half follows only 12% of results. That gap is the entire cost.
-
-Weak: "Let me check the config." Strong: "Checking whether the byte cap
-applies per-argument or to the whole object — it decides whether eliding one
-key buys anything."
-
-Weak: "Done." (the result's shape already said that). Strong: "It caps the
-whole object, so eliding the payload should free budget for the path — but
-210 of 210 paths were already visible, so it does not."
-
-A finding that overturns what you expected is the most valuable thing you can
-write. Say it plainly and carry on.
-
----
-
-SOLID: SRP, OCP, LSP, ISP, DIP.
-
----
-
-Body with a horizontal rule below.
-
----
-
-And a literal mustache pair: {{not_a_template}} plus {{triple}}.
-
----
-
----
-
-Project golden: always on.
-
----
-
-## Isolation: specify both axes
-
-Creating, configuring, or delegating to a ctxloom agent (`ctxloom agent
-create`, `ctxloom agent edit`, `run --agent`, `agent_run`)? Set both axes
-explicitly; never rely on the default.
-
-- **runtime** (`host` | `container-rootless` | `container-rootful`, the
-  binding's `runtime:`) isolates the PROCESS. There is no "any container"
-  value: rootless and rootful differ in UID mapping, so a workload can
-  genuinely require one.
-- **workspace** (`none` | `worktree`, per-invocation `--workspace` /
-  `agent_run`'s `workspace`) isolates the FILES.
-
-An ownership mismatch is FATAL, never a substitution: `container-rootful`
-where only rootless is reachable is a fatal KindIsolation finding (exit 3).
-`--degraded` falls back to the HOST, never to the other ownership mode.
-
-The axes are independent. `container-rootless` can mount the workspace at the
-live project's absolute path (process isolated, edits land where the editor
-looks); `worktree` still runs the engine on the host (the editor is blind to
-that tree by design; results return via the delegated-agent merge flow).
-
-Unspecified is `host`+`none`: isolated on NEITHER axis — a default, not a
-decision. Host runtime is no boundary between agents: the coordinator
-credential is readable in the environment of any same-uid process, and that
-token IS identity, so one host-runtime agent can speak as another. Containers
-are the boundary: isolation becomes a property of the runtime, not a request
-to the engine — some vendor CLIs ignore env-var isolation hints and write
-credentials/state to a global path regardless.
-
-A bad or missing agent name silently degrades to `host`+`none` with only a
-stderr warning, discarding the runtime and permissions you asked for: confirm
-the name resolves before trusting the isolation you requested.
-== blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9
-You have just written or changed a test; you are reading a gate result and deciding what it proves; or you are about to describe something as verified, working, or done. For anyone about to treat a green result as evidence, however that moment arises. More than one fragment may apply here; this one is about whether the evidence is real.
-== blob:6dc7b487c03f826b0b994f2354b3c50842809a40680bed15f6d3124a8a7e7d53
+== blob:3a161851a97650f7358244e9a1bacaf6aeb0e3ba29d7156587719862c8e15490
 # Which gate is real in this repo, and how to read one
 
 Companion to green-is-not-passing, which says a test is not passing until a
@@ -3556,9 +3433,7 @@ because the tool "covers the whole diff" (that is the point) or seems slow.
 Hand mutation is for ONE gap only. gremlins is coverage-gated: it mutates
 source and runs `go test`, and the acceptance suite and testenv integration
 tests exec a PRE-BUILT binary, so a mutant reachable only through the CLI
-reports NOT COVERED and is never attempted. For exactly those NOT COVERED
-lines that an acceptance or integration test claims to pin, hand mutation is
-the only real method — not a poor substitute, and not a replacement for the run.
+reports NOT COVERED and is never attempted.
 
     unit-testable code               just test-mutation-diff <BASE>
     NOT COVERED, reached via the CLI hand mutation, after the run
@@ -4057,6 +3932,129 @@ credentials/state to a global path regardless.
 A bad or missing agent name silently degrades to `host`+`none` with only a
 stderr warning, discarding the runtime and permissions you asked for: confirm
 the name resolves before trusting the isolation you requested.
+== blob:4463890a217062b9bd6378428aa8f5df959d3281e0ee62ceb2248674b8b81c08
+ctxloom's own MCP server, served by the running session's endpoint.
+Nothing here is launched: the session's runner serves the endpoint
+and delivery writes its URL and bearer into the session's own
+registry at start, so no tracked project file ever carries the
+entry.
+
+== blob:53bdc0bb97990683f63114c7e0952ae64ca1c7edc59f135a56ee5ab61dba1084
+# Not all of this project's guidance is in your context
+
+CONDITIONAL fragments each carry a PREMISE (the situation they apply to) and
+are not loaded at launch. You have only the unconditional ones; the rest exist,
+and nothing fires when one becomes relevant. This fragment has no premise: it
+is the pointer to the ones you cannot see.
+
+**Why pulled, not pushed.** Assembled context is delivered once, at launch,
+and an in-process subagent inherits it wholesale. With no per-agent scoping, a
+pushed index fits nobody and never reaches a child ctxloom did not mediate. A
+catalog you ASK for has neither problem, and is answered at the only moment
+the answer means anything: when you have something to match against. The cost:
+an agent that does not know to ask never learns those fragments exist.
+
+**Ask.** `ctxloom fragment premises` lists every premised fragment, its
+condition, and the instruction for deciding between them. Over MCP the same
+menu is the `ctxloom://fragments` resource (each entry: its premise and the
+qualified ref to quote back); bodies come from `ctxloom://fragments/{name}`.
+Judge the premise, not the name: read the guidance the listing ships rather
+than guessing from a title.
+
+**Load.** `ctxloom fragment show <qualified-ref>`, or over MCP call
+`assemble_context` with the chosen names in its `bundles` argument.
+
+**When.** When you are about to ACT and this corpus might hold a rule about
+that action — not once at session start, and not against the conversation
+behind you. Ask again later in a long session: what you are about to do has
+changed, so the answer has too.
+
+---
+
+# Say what you are looking for, and what you found
+
+Two short statements per tool call — not narration, but the only part of a
+tool interaction that survives compaction:
+
+- BEFORE: what you are trying to learn or change.
+- AFTER: what you actually learned, including "nothing" and "not what I
+  expected", which are results.
+
+**Why it is a rule.** Compaction reduces tool RESULTS to their shape
+(`[2,431 bytes, 47 lines]`): a truncated grep is neither the information nor
+a summary of it, and the content can be re-derived by asking again. What
+cannot be re-derived is what you were trying to find out and what the answer
+changed; omit it and the essence records only that a command ran. Measured on
+this project's transcripts: tool traffic is 50-69% of a session; Bash's
+required `description` covers the BEFORE half (100% of 1,286 calls), but the
+AFTER half follows only 12% of results. That gap is the entire cost.
+
+Weak: "Let me check the config." Strong: "Checking whether the byte cap
+applies per-argument or to the whole object — it decides whether eliding one
+key buys anything."
+
+Weak: "Done." (the result's shape already said that). Strong: "It caps the
+whole object, so eliding the payload should free budget for the path — but
+210 of 210 paths were already visible, so it does not."
+
+A finding that overturns what you expected is the most valuable thing you can
+write. Say it plainly and carry on.
+
+---
+
+SOLID: SRP, OCP, LSP, ISP, DIP.
+
+---
+
+Body with a horizontal rule below.
+
+---
+
+And a literal mustache pair: {{not_a_template}} plus {{triple}}.
+
+---
+
+---
+
+Project golden: always on.
+
+---
+
+## Isolation: specify both axes
+
+Creating, configuring, or delegating to a ctxloom agent (`ctxloom agent
+create`, `ctxloom agent edit`, `run --agent`, `agent_run`)? Set both axes
+explicitly; never rely on the default.
+
+- **runtime** (`host` | `container-rootless` | `container-rootful`, the
+  binding's `runtime:`) isolates the PROCESS. There is no "any container"
+  value: rootless and rootful differ in UID mapping, so a workload can
+  genuinely require one.
+- **workspace** (`none` | `worktree`, per-invocation `--workspace` /
+  `agent_run`'s `workspace`) isolates the FILES.
+
+An ownership mismatch is FATAL, never a substitution: `container-rootful`
+where only rootless is reachable is a fatal KindIsolation finding (exit 3).
+`--degraded` falls back to the HOST, never to the other ownership mode.
+
+The axes are independent. `container-rootless` can mount the workspace at the
+live project's absolute path (process isolated, edits land where the editor
+looks); `worktree` still runs the engine on the host (the editor is blind to
+that tree by design; results return via the delegated-agent merge flow).
+
+Unspecified is `host`+`none`: isolated on NEITHER axis — a default, not a
+decision. Host runtime is no boundary between agents: the coordinator
+credential is readable in the environment of any same-uid process, and that
+token IS identity, so one host-runtime agent can speak as another. Containers
+are the boundary: isolation becomes a property of the runtime, not a request
+to the engine — some vendor CLIs ignore env-var isolation hints and write
+credentials/state to a global path regardless.
+
+A bad or missing agent name silently degrades to `host`+`none` with only a
+stderr warning, discarding the runtime and permissions you asked for: confirm
+the name resolves before trusting the isolation you requested.
+== blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9
+You have just written or changed a test; you are reading a gate result and deciding what it proves; or you are about to describe something as verified, working, or done. For anyone about to treat a green result as evidence, however that moment arises. More than one fragment may apply here; this one is about whether the evidence is real.
 == blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e
 You are adding or changing a flag, an environment variable, or a config key; working out which layer won when a setting resolved unexpectedly; or reading configuration to decide how something is declared. For anyone touching how this family of binaries is configured, however the moment is worded.
 == blob:97ff6be424dc18e90bd8df3628c1b4e6521d502eb0f337d8f87e1c43a41357cb
@@ -4591,7 +4589,11 @@ Then tell the user, plainly:
 You are writing or changing a test during a turn, and need it to survive the close-out mutation run; choosing which build, test, lint, or mutation command to run; interpreting an exit code or a suite's output; or deciding whether the gate you ran actually covers the claim you are making. For anyone deciding which command proves a change is done. This is about WHICH gate and how to read it, not about whether a passing test means anything.
 == blob:a27754173e5860b7ab5b9204c294ecdbbcec9ba5cf885cc84d69e5a811ccd159
 You are about to run git commit, git merge or git push through the shell tool — directly, inside a script, or as the last step of a change. For anyone whose next command fires this repository's git hooks, however the moment is worded.
-== blob:b282e107b8deec9bb99a306e5495c4ef5f9a75152e54cb2461ed5bf8fc8f29ef
+== blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34
+You are about to give an agent docker access, ask for docker-in-docker for a cell, or work out why an ordinary build, test or lint recipe fails inside an agent container. For anyone reaching for a container runtime from inside a cell, however the moment is worded. This is about whether the cell needs docker AT ALL; turn-gates is about which gate proves a change.
+== blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68
+You are writing a check that can find something wrong; writing code that accepts a configuration value, a file, or any input from outside the program; deciding what an unknown, malformed, or missing value should resolve to; or choosing between refusing and carrying on with less. For anyone deciding how loudly a failure should surface, and where the set of acceptable values is declared. This one also governs ordinary resolution code, not only launch-time findings.
+== blob:d96a6f85c8299414e85412b61657f997500d5a8ccd6631bc565313a363472d52
 # Which gate is real in this repo, and how to read one
 
 Companion to green-is-not-passing, which says a test is not passing until a
@@ -4672,9 +4674,7 @@ because the tool "covers the whole diff" (that is the point) or seems slow.
 Hand mutation is for ONE gap only. gremlins is coverage-gated: it mutates
 source and runs `go test`, and the acceptance suite and testenv integration
 tests exec a PRE-BUILT binary, so a mutant reachable only through the CLI
-reports NOT COVERED and is never attempted. For exactly those NOT COVERED
-lines that an acceptance or integration test claims to pin, hand mutation is
-the only real method — not a poor substitute, and not a replacement for the run.
+reports NOT COVERED and is never attempted.
 
     unit-testable code               just test-mutation-diff <BASE>
     NOT COVERED, reached via the CLI hand mutation, after the run
@@ -5173,7 +5173,3 @@ credentials/state to a global path regardless.
 A bad or missing agent name silently degrades to `host`+`none` with only a
 stderr warning, discarding the runtime and permissions you asked for: confirm
 the name resolves before trusting the isolation you requested.
-== blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34
-You are about to give an agent docker access, ask for docker-in-docker for a cell, or work out why an ordinary build, test or lint recipe fails inside an agent container. For anyone reaching for a container runtime from inside a cell, however the moment is worded. This is about whether the cell needs docker AT ALL; turn-gates is about which gate proves a change.
-== blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68
-You are writing a check that can find something wrong; writing code that accepts a configuration value, a file, or any input from outside the program; deciding what an unknown, malformed, or missing value should resolve to; or choosing between refusing and carrying on with less. For anyone deciding how loudly a failure should surface, and where the set of acceptable values is declared. This one also governs ordinary resolution code, not only launch-time findings.

@@ -85,9 +85,7 @@ because the tool "covers the whole diff" (that is the point) or seems slow.
 Hand mutation is for ONE gap only. gremlins is coverage-gated: it mutates
 source and runs `go test`, and the acceptance suite and testenv integration
 tests exec a PRE-BUILT binary, so a mutant reachable only through the CLI
-reports NOT COVERED and is never attempted. For exactly those NOT COVERED
-lines that an acceptance or integration test claims to pin, hand mutation is
-the only real method — not a poor substitute, and not a replacement for the run.
+reports NOT COVERED and is never attempted.
 
     unit-testable code               just test-mutation-diff <BASE>
     NOT COVERED, reached via the CLI hand mutation, after the run
